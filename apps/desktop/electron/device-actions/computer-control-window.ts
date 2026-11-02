@@ -13,6 +13,7 @@ import type { ComputerControlView } from './computer-control'
 import type { CuaToolResult } from './native/cua-client'
 import { COMPUTER_HEAD_HEIGHT, COMPUTER_HEAD_WIDTH, computerBarBounds, resolveComputerWindow } from './computer-control-placement'
 import { COMPUTER_CONTROL_PAGE } from './computer-control-page'
+import type { ComputerForegroundWindow } from './computer-control-foreground'
 
 export interface ComputerBarStrings {
   driving(name: string): string
@@ -26,6 +27,7 @@ const HEIGHT = COMPUTER_HEAD_HEIGHT
 
 export function createComputerControlWindow(input: {
   readWindows(pid: number, signal: AbortSignal): Promise<CuaToolResult>
+  readForegroundWindow(signal: AbortSignal): Promise<ComputerForegroundWindow | null>
   strings(): ComputerBarStrings
   onStop(): void
   onResume(): void
@@ -88,11 +90,12 @@ export function createComputerControlWindow(input: {
 
   const refresh = async (intent: NonNullable<typeof current>) => {
     const target = intent.view.app
-    if (!target) return
     try {
-      const result = await input.readWindows(target.pid, intent.abort.signal)
+      const result = target ? await input.readWindows(target.pid, intent.abort.signal) : null
+      const matched = target
+        ? (result?.isError ? null : resolveComputerWindow(result?.structuredContent, target))
+        : await input.readForegroundWindow(intent.abort.signal)
       if (current !== intent) return
-      const matched = result.isError ? null : resolveComputerWindow(result.structuredContent, target)
       const native = matched?.bounds
       // Windows reports physical window pixels; Electron places windows in DIP.
       const rect = native && (process.platform === 'win32' ? screen.screenToDipRect(null, native) : native)
@@ -133,12 +136,7 @@ export function createComputerControlWindow(input: {
 
   return {
     show(view) {
-      // Only an actual target window gets an indicator; no desktop fallback.
-      if (!view.app) {
-        cancel()
-        win?.hide()
-        return
-      }
+      // Unknown App acts attach to the foreground window, never the desktop.
       if (current && current.view.app?.pid === view.app?.pid && current.view.app?.windowId === view.app?.windowId) {
         current.view = view
         return

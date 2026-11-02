@@ -52,8 +52,8 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
 
 describe('window-relative computer indicator', () => {
-  it('runs computer acts through the family with only a target-window indicator', async () => {
-    const bar = createComputerControlWindow({ readWindows: async () => result(window()), strings, onStop: vi.fn(), onResume: vi.fn() })
+  it('attaches app-name-only input to the foreground window and explicit input to its target', async () => {
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => ({ pid: 7, windowId: 11, bounds: window().bounds }), readWindows: async () => result(window()), strings, onStop: vi.fn(), onResume: vi.fn() })
     const control = createComputerControl({ view: bar })
     const callTool = vi.fn(async () => result({ ...window(), app_name: 'Notes' }))
     const ctx = {
@@ -61,9 +61,10 @@ describe('window-relative computer indicator', () => {
       caller: { name: 'Agent A' }, signal: new AbortController().signal, note: vi.fn(),
     } as unknown as ActionRunContext
     const family = createComputerFamily(null)
-    expect(await family.actions.find(a => a.name === 'computer.move_cursor')!.run({ x: 1, y: 1 }, ctx)).toHaveProperty('ok', true)
+    expect(await family.actions.find(a => a.name === 'computer.type_text')!.run({ app: 'Notes', text: 'test' }, ctx)).toHaveProperty('ok', true)
     await vi.advanceTimersByTimeAsync(250)
-    expect(native.windows).toHaveLength(0)
+    expect(native.windows).toHaveLength(1)
+    expect(native.windows[0]!.moveAbove).toHaveBeenLastCalledWith('window:11:0')
     expect(await family.actions.find(a => a.name === 'computer.click')!.run({ pid: 7, window_id: 11, x: 1, y: 1 }, ctx)).toHaveProperty('ok', true)
     await vi.advanceTimersByTimeAsync(250)
     expect(native.windows).toHaveLength(1)
@@ -72,17 +73,26 @@ describe('window-relative computer indicator', () => {
     control.dispose()
   })
 
-  it('never creates a desktop indicator for targetless operations, including paused views', async () => {
+  it('keeps targetless Stop/Continue on the foreground attachment with global stop semantics', async () => {
     const readWindows = vi.fn(async () => result(window()))
-    const bar = createComputerControlWindow({ readWindows, strings, onStop: vi.fn(), onResume: vi.fn() })
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => ({ pid: 7, windowId: 11, bounds: window().bounds }), readWindows, strings, onStop: () => control.stop(), onResume: () => control.resume() })
     const control = createComputerControl({ view: bar })
     const handle = control.begin({ callerName: 'Agent A' })
     expect(handle).not.toHaveProperty('refused')
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(native.windows).toHaveLength(0)
-    control.stop()
-    await vi.advanceTimersByTimeAsync(1_000)
-    expect(native.windows).toHaveLength(0)
+    expect(native.windows).toHaveLength(1)
+    const navigate = native.windows[0]!.webContents.on.mock.calls.find(([name]) => name === 'will-navigate')![1]
+    navigate({ preventDefault: vi.fn() }, 'gugu-computer-bar:stop')
+    await vi.advanceTimersByTimeAsync(250)
+    if ('signal' in handle) expect(handle.signal.aborted).toBe(true)
+    expect(control.begin({ pid: 99 })).toHaveProperty('refused')
+    await vi.advanceTimersByTimeAsync(250)
+    expect(native.windows).toHaveLength(1)
+    expect(native.windows[0]!.webContents.executeJavaScript).toHaveBeenLastCalledWith(expect.stringContaining('"action":"resume"'))
+    navigate({ preventDefault: vi.fn() }, 'gugu-computer-bar:resume')
+    const resumed = control.begin({ callerName: 'Agent A' })
+    expect(resumed).not.toHaveProperty('refused')
+    if ('end' in resumed) resumed.end()
     expect(readWindows).not.toHaveBeenCalled()
     if ('end' in handle) handle.end()
     control.dispose()
@@ -90,7 +100,7 @@ describe('window-relative computer indicator', () => {
 
   it('creates only the attached indicator during an operation and keeps its Stop/Continue navigation', async () => {
     const readWindows = vi.fn(async () => result(window()))
-    const bar = createComputerControlWindow({ readWindows, strings, onStop: () => control.stop(), onResume: () => control.resume() })
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows, strings, onStop: () => control.stop(), onResume: () => control.resume() })
     const control = createComputerControl({ view: bar })
     const handle = control.begin({ pid: 7, windowId: 11, callerName: 'Agent A' })
     if ('refused' in handle) throw new Error(handle.refused)
@@ -117,9 +127,9 @@ describe('window-relative computer indicator', () => {
     control.dispose()
   })
 
-  it('hides an existing attachment and cancels its lookup when a view has no target', async () => {
+  it('hides and cancels an existing attachment when neither a target nor a foreground window exists', async () => {
     const readWindows = vi.fn(async (_pid: number, _signal: AbortSignal) => result(window()))
-    const bar = createComputerControlWindow({ readWindows, strings, onStop: vi.fn(), onResume: vi.fn() })
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows, strings, onStop: vi.fn(), onResume: vi.fn() })
     bar.show(view())
     await vi.advanceTimersByTimeAsync(0)
     bar.show({ state: 'driving', callerName: 'Agent B' })
@@ -133,7 +143,7 @@ describe('window-relative computer indicator', () => {
   })
 
   it('shows task identity alongside the Agent and clears it when the next call has none', async () => {
-    const bar = createComputerControlWindow({ readWindows: async () => result(window()), strings, onStop: vi.fn(), onResume: vi.fn() })
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows: async () => result(window()), strings, onStop: vi.fn(), onResume: vi.fn() })
     bar.show({ ...view(), taskTitle: 'Task one' })
     await vi.advanceTimersByTimeAsync(0)
     const render = native.windows[0]!.webContents.executeJavaScript
@@ -147,6 +157,32 @@ describe('window-relative computer indicator', () => {
     expect(render.mock.lastCall?.[0]).not.toContain('Agent A · Agent A')
     expect(render.mock.lastCall?.[0]).not.toContain('taskTitle')
     bar.hide()
+  })
+
+  it('restores Continue on a new target window after the stopped window closes', async () => {
+    let listed = [window(11)]
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows: async () => result(...listed), strings, onStop: () => control.stop(), onResume: () => control.resume() })
+    const control = createComputerControl({ view: bar })
+    const handle = control.begin({ pid: 7, windowId: 11 })
+    await vi.advanceTimersByTimeAsync(0)
+    const w = native.windows[0]!
+    const navigate = w.webContents.on.mock.calls.find(([name]) => name === 'will-navigate')![1]
+    navigate({ preventDefault: vi.fn() }, 'gugu-computer-bar:stop')
+    listed = []
+    await vi.advanceTimersByTimeAsync(250)
+    expect(w.visible).toBe(false)
+    listed = [window(12)]
+    expect(control.begin({ pid: 7, windowId: 12 })).toHaveProperty('refused')
+    await vi.advanceTimersByTimeAsync(250)
+    expect(w.visible).toBe(true)
+    expect(w.moveAbove).toHaveBeenLastCalledWith('window:12:0')
+    expect(w.webContents.executeJavaScript).toHaveBeenLastCalledWith(expect.stringContaining('"action":"resume"'))
+    navigate({ preventDefault: vi.fn() }, 'gugu-computer-bar:resume')
+    const resumed = control.begin({ pid: 7, windowId: 12 })
+    expect(resumed).not.toHaveProperty('refused')
+    if ('end' in handle) handle.end()
+    if ('end' in resumed) resumed.end()
+    control.dispose()
   })
 
   it('matches the exact window, never another window of the same app or an invisible/invalid window', () => {
@@ -167,7 +203,7 @@ describe('window-relative computer indicator', () => {
 
   it('follows moves and resizes, hides on minimize/close, and resumes on restore without stealing focus', async () => {
     const readWindows = vi.fn(async () => result(window()))
-    const bar = createComputerControlWindow({ readWindows, strings, onStop: vi.fn(), onResume: vi.fn() })
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows, strings, onStop: vi.fn(), onResume: vi.fn() })
     bar.show(view())
     await vi.advanceTimersByTimeAsync(0)
     const w = native.windows[0]!
@@ -197,7 +233,7 @@ describe('window-relative computer indicator', () => {
     const readWindows = vi.fn<(pid: number, signal: AbortSignal) => Promise<ReturnType<typeof result>>>()
       .mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
       .mockResolvedValue(result(window(12, 800)))
-    const bar = createComputerControlWindow({ readWindows, strings, onStop: vi.fn(), onResume: vi.fn() })
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows, strings, onStop: vi.fn(), onResume: vi.fn() })
     bar.show(view())
     const oldSignal = readWindows.mock.calls[0]![1]
     bar.show(view(12))
@@ -217,7 +253,7 @@ describe('window-relative computer indicator', () => {
     let loaded: (() => void) | undefined
     native.load = new Promise(resolve => { loaded = resolve })
     const readWindows = vi.fn(async () => result(window()))
-    const bar = createComputerControlWindow({ readWindows, strings, onStop: vi.fn(), onResume: vi.fn() })
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows, strings, onStop: vi.fn(), onResume: vi.fn() })
     bar.show(view())
     await vi.advanceTimersByTimeAsync(0)
     const w = native.windows[0]!
@@ -230,7 +266,7 @@ describe('window-relative computer indicator', () => {
   })
 
   it('keeps unresolved app targets hidden instead of falling back to the primary display', async () => {
-    const bar = createComputerControlWindow({ readWindows: async () => result(window(12)), strings, onStop: vi.fn(), onResume: vi.fn() })
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows: async () => result(window(12)), strings, onStop: vi.fn(), onResume: vi.fn() })
     bar.show(view(11))
     await vi.advanceTimersByTimeAsync(0)
     expect(native.windows).toHaveLength(0)

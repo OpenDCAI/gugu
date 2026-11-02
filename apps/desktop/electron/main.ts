@@ -44,6 +44,7 @@ import { claimDeviceFreeCredits, readDeviceClaimStatus } from './device-free-cre
 import { createDeviceActionsRuntime, nativeComponentsDir, type DeviceActionsRuntime } from './device-actions/runtime'
 import { sampleCuaImage } from './device-actions/native/cua-image-sample'
 import { createComputerControlWindow } from './device-actions/computer-control-window'
+import { computerControlWindowReaders } from './device-actions/computer-control-foreground'
 import { installNativeAppearanceSync, installWindowMaterial, type WindowMaterialHost } from './window-material'
 import enDeviceStrings from '@/i18n/locales/en-US/settings'
 import zhDeviceStrings from '@/i18n/locales/zh-CN/settings'
@@ -2043,7 +2044,7 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
       ? {}
       : {
           computerControlView: (cua) => createComputerControlWindow({
-            readWindows: (pid, signal) => cua().callTool('list_windows', { pid, on_screen_only: true }, { signal, timeoutMs: 2_000, lane: 'gugu-computer-indicator' }),
+            ...computerControlWindowReaders(cua),
             strings: () => {
               const bar = (hostLocaleStore?.current() === 'en-US' ? enDeviceStrings : zhDeviceStrings).devices.deviceActions.computerBar
               const fill = (template: string, name: string) => template.replace('{{name}}', name)

@@ -2,14 +2,14 @@
  * #7199 电脑控制的「正在操作 · 停止」小条与人接管 —— 按 App 算,不按整台电脑算(owner 10-15:「不接管电脑,只接管这个 App」):
  *
  * - agent 操作某个 App 时,提示附着到实际目标窗口;只读调用不进入控制器。
- *   没指定 App 的操作不盖掉已经亮着的条(正在操作的 App、或人刚停下的 App)。
+ *   没指定 App 的操作也更新提示,让停止能中止当前动作;只读调用不盖掉提示。
  *   最后一个动作做完半分钟没有下一个,小条收起。
  * - 人照常用电脑 —— 包括点进、挪动 agent 正在操作的那个 App —— 都不打断它:cua-driver 在后台做事,不碰人的真鼠标和前台。
  * - 「停止」只停小条上的那个 App:它在途的动作中断,之后 agent 再动这个 App 一律拒,直到人点「让它继续」;别的 App 照常。
- *   没有可定位的目标窗口时不显示提示;控制器仍接受整个电脑控制的停止信号。
+ *   没指定 App 时提示附着前台窗口,停止仍作用于整个电脑控制。
  */
 
-/** 窗口附着提示(main 用一个不抢焦点、不进截图的小窗实现;测试换成记录器)。没有 app 时不显示。 */
+/** 窗口附着提示(main 用一个不抢焦点、不进截图的小窗实现;测试换成记录器)。没有 app 时附着前台窗口。 */
 export interface ComputerControlView {
   show(view: { state: 'driving' | 'paused'; callerName?: string; taskTitle?: string; app?: { pid: number; name?: string; windowId?: number } }): void
   hide(): void
@@ -103,12 +103,10 @@ export function createComputerControl(input: { view: ComputerControlView; linger
       const set = inFlight.get(subject) ?? new Set<AbortController>()
       set.add(controller)
       inFlight.set(subject, set)
-      // 没指定 App 的动作不盖掉已经亮着的条:正在操作的 App 留着让人认得出、能停;暂停的留着让人点得到「让它继续」。
-      if (call.pid !== undefined || !shown) {
-        const windowId = call.windowId
-        show({ subject, ...identity, ...(call.appName ? { appName: call.appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'driving' })
-      }
-      else if (shown.state === 'driving') clearHide()
+      // Every begin is an act. Untargeted input must replace an old App's
+      // identity too, so Stop aborts this subject instead of the previous App.
+      const windowId = call.windowId
+      show({ subject, ...identity, ...(call.appName ? { appName: call.appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'driving' })
       let ended = false
       return {
         signal: controller.signal,
