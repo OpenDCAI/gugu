@@ -16,16 +16,17 @@ export async function withManagedLauncherPublication<T>(work: (assertOwned: () =
     onCompromised: error => { compromised = error; },
   });
   const assertOwned = () => { if (compromised) throw compromised; };
-  let failure: unknown;
-  try { return await work(assertOwned); }
-  catch (error) { failure = error; throw error; }
-  finally {
+  let result: T;
+  try { result = await work(assertOwned); }
+  catch (error) {
     try { await release(); }
-    catch (error) {
-      if (failure !== undefined) throw new Error('Launcher publication and lock release failed', { cause: new AggregateError([failure, error]) });
-      throw error;
+    catch (releaseError) {
+      throw new Error('Launcher publication and lock release failed', { cause: new AggregateError([error, releaseError]) });
     }
+    throw error;
   }
+  await release();
+  return result;
 }
 
 /** Windows may briefly hold a newly scanned launcher open. Never unlink the
