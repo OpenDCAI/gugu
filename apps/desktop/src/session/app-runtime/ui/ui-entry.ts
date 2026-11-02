@@ -1,4 +1,4 @@
-import type { ExtensionHostContext } from '@shared/extensions/bridge-protocol';
+import type { ExtensionHostContext, ExtensionMember } from '@shared/extensions/bridge-protocol';
 import { ICONS, ICON_SVG_ATTRIBUTES, timePhrase } from './ui-core';
 
 /**
@@ -20,12 +20,14 @@ import { ICONS, ICON_SVG_ATTRIBUTES, timePhrase } from './ui-core';
 
 type Context = Partial<Pick<ExtensionHostContext, 'locale' | 'themeMode' | 'chat'>>;
 interface PageGugu {
+  chats?: { members(args: { chat: string }): Promise<{ members: ExtensionMember[] }> };
   getContext?: () => Promise<Context>;
   onContextChanged?: (handler: (context: Context) => void) => unknown;
   reportError?: (message: string, options?: { level?: 'error' | 'hint' }) => Promise<void>;
 }
 
 const host = (): PageGugu | undefined => (window as unknown as { gugu?: PageGugu }).gugu;
+const apiVersion = Number(document.querySelector<HTMLScriptElement>('script[data-gugu-api-version]')?.dataset.guguApiVersion ?? 25);
 
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const sheet = (css: string) => {
@@ -50,6 +52,14 @@ function context(): Promise<Context> {
     .catch(() => undefined)
     .then((value) => value ?? {});
   return current;
+}
+let requestedMembers: { chatId: string; read: Promise<ExtensionMember[]> } | null = null;
+async function chatMembers(): Promise<ExtensionMember[] | undefined> {
+  const chat = (await context()).chat;
+  if (apiVersion <= 25) return chat?.members;
+  if (!chat) return undefined;
+  if (requestedMembers?.chatId !== chat.id) requestedMembers = { chatId: chat.id, read: host()!.chats!.members({ chat: chat.id }).then(({ members }) => members) };
+  return requestedMembers.read;
 }
 function setTheme(themeMode: Context['themeMode']): void {
   if ((themeMode === 'light' || themeMode === 'dark') && document.documentElement.dataset.guguTheme !== themeMode) {
@@ -132,10 +142,10 @@ export class GuguAvatar extends HTMLElement {
     const turn = ++this.turn;
     const root = this.shadowRoot ?? this.attachShadow({ mode: 'open' });
     root.adoptedStyleSheets = [avatarSheet];
-    const members = (await context()).chat?.members;
+    const members = apiVersion >= 26 && !this.getAttribute('user') ? undefined : await chatMembers();
     if (turn !== this.turn) return;
-    // Only the chat's members come with the context (with their face: the uploaded one, or the default face from the
-    // stable id). Anyone else is not drawn as a person the page knows: a neutral figure, named by `label`.
+    // Only the chat's members are known here (with their uploaded face or the default face from the stable id).
+    // Anyone else is drawn as a neutral figure, named by `label`.
     const member = members?.find((m) => m.id === this.getAttribute('user'));
     const name = member?.name ?? this.getAttribute('label') ?? '';
     const size = SIZES.has(this.getAttribute('size') ?? '') ? this.getAttribute('size')! : 'sm';

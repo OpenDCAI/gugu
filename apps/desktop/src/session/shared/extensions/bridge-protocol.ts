@@ -182,7 +182,8 @@ export interface ExtensionHostContext {
    * it — changes arrive by `onContextChanged`. Absent is a real answer: not in a chat. ❌ No `placement` field: an App
    * decides how to look from which of these facts are present, its capabilities and its layout (L3 评审第 2 条).
    */
-  chat?: ExtensionChat & { members: ExtensionMember[] };
+  /** Apps through API 25 receive members with the first answer; API 26+ reads them through chats.members. */
+  chat?: ExtensionChat & { members?: ExtensionMember[] };
   /**
    * The working copy this surface works on — a session's tab: that session's; a page opened on a project's file: that
    * project's folder. Absent is a real answer: it works on none. A session's tab has both: `chat` is the person's

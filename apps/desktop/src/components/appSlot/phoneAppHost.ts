@@ -420,6 +420,7 @@ export function hostAppFrame(
   })
   /** Who is in the chat the page is drawn for (摩擦单 F36): read when the frame first asks, again when the members change. */
   let members: ExtensionMember[] | null = null
+  const contextHasMembers = () => !((installedExtensionsStore.manifestFor(hosted.binding.extensionId)?.apiVersion ?? 25) >= 26)
   /** And the chat itself (`getContext().chat`), read with them; undefined until read — `files.chat()` throws when it cannot be. */
   let chat: ExtensionChat | null | undefined
   const readMembers = async () => {
@@ -431,10 +432,12 @@ export function hostAppFrame(
       chat = null
       return
     }
-    try {
-      members = await files.members(chatId)
-    } catch (error) {
-      log.warn({ error: error instanceof Error ? error.message : String(error) }, 'chat members could not be read')
+    if (contextHasMembers()) {
+      try {
+        members = await files.members(chatId)
+      } catch (error) {
+        log.warn({ error: error instanceof Error ? error.message : String(error) }, 'chat members could not be read')
+      }
     }
     chat = await files.chat(chatId)
   }
@@ -472,7 +475,7 @@ export function hostAppFrame(
     tabId: hosted.binding.tabId,
     ...(hosted.binding.modal ? { modal: { data: hosted.binding.modal.data } } : {}),
     ...(hosted.binding.widget ? { widget: { messageId: hosted.binding.widget.messageId, data: hosted.binding.widget.data, sender: hosted.binding.widget.senderId } } : {}),
-    ...(chat ? { chat: { ...chat, members: members ?? [] } } : {}),
+    ...(chat ? { chat: { ...chat, ...(contextHasMembers() ? { members: members ?? [] } : {}) } } : {}),
     ...(hosted.binding.itemId && hosted.binding.chatId ? { file: { chat: hosted.binding.chatId, id: hosted.binding.itemId } } : {}),
     ...(hosted.binding.session
       ? {
@@ -572,7 +575,7 @@ export function hostAppFrame(
       case 'getContext':
         // A pill's place waiting for this page goes first, whatever the answer: the frame holds it until `onLink`.
         for (const link of takeOpeningLinks(hosted.binding)) event(link)
-        // The members and the chat come with the first answer (not a moment later). The chat unread is said (the files
+        // Through API 25, members come with the first answer. Newer Apps ask for them explicitly. An unread chat is said (the files
         // API's own error), never left out: no `chat` would tell the App it is not in one.
         return (chat !== undefined ? Promise.resolve() : readMembers()).then(contextOf)
       case 'reportError': {
@@ -618,7 +621,8 @@ export function hostAppFrame(
           },
           hosted.binding.extensionId,
           args,
-          { chat: chat ? { id: chat.id, name: chat.name, members: members ?? [] } : null, preselect: null, local, spawnOn },
+          { chat: chat ? { id: chat.id, name: chat.name, members: members ?? [] } : null,
+            ...(!contextHasMembers() && chat ? { readMembers: () => files.members(chat!.id) } : {}), preselect: null, local, spawnOn },
         )
       }
       case 'messagesHistory':
@@ -910,6 +914,7 @@ export function hostAppFrame(
     /** Rows of the chat's members changed (the account revision bus): when that moved who is there, the frame is told. */
     membersChanged(changes) {
       for (const childHost of modalHosts.keys()) childHost.membersChanged(changes)
+      if (!contextHasMembers()) return
       if (!rosterMoved(members ?? null, changes)) return
       void readMembers().then(() => event({ type: 'context', context: contextOf() }), unread)
     },

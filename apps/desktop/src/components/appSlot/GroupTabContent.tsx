@@ -43,6 +43,7 @@ import { PhoneAppFrame } from './PhoneAppFrame'
 import { updateUnasked } from './updateUnasked'
 import { useSlotMakesWay } from './useSlotMakesWay'
 import { rendererLogger } from '../../lib/log'
+import { useChatStore } from '../../store/chatContext'
 import { appNameOf, enabledApps, rememberedOpener } from './openerChoice'
 
 const log = rendererLogger('app-slot/group')
@@ -130,6 +131,9 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
   const { t } = useTranslation('messaging')
   const slot = groupPageSlot(chatId, tabId)
   const folderName = useChatFolderName(chatId)
+  const { chats } = useChatStore('chats')
+  const chat = chats.find((row) => row.id === chatId)
+  const resourceChat = chat?.kind === 'topic' ? chat.source_chat_id ?? undefined : chat?.id
   const desktop = platform.kind === 'electron'
   const { user } = useAuth()
   const back = returnToOf(chatId, tabId)
@@ -444,9 +448,9 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
           offerUnknown || offerFolds ? (
             <div className="min-h-0 flex-1" data-testid="group-app-slot-raw-folded" />
           ) : windowApp ? (
-            <div className="min-h-0 flex-1"><ExtensionTabPane extensionId={windowApp} tabKind={kind} sessionId={null} tabId={slot} chatId={chatId} {...(item.itemId ? { itemId: item.itemId } : {})} /></div>
+            <div className="min-h-0 flex-1"><ExtensionTabPane extensionId={windowApp} tabKind={kind} sessionId={null} tabId={slot} chatId={chatId} resourceChat={resourceChat} {...(item.itemId ? { itemId: item.itemId } : {})} /></div>
           ) : (
-            <ClaimedPage slotId={slot} chatId={chatId} kind={kind} itemId={item.itemId} takeOpening={item.takeOpening} />
+            <ClaimedPage slotId={slot} chatId={chatId} resourceChat={resourceChat} kind={kind} itemId={item.itemId} takeOpening={item.takeOpening} />
           )
         ) : (
           <>

@@ -11,6 +11,7 @@ const fixture = vi.hoisted(() => ({
   failList: false,
   routes: [] as { route: string; args: Record<string, unknown> }[],
   waiting: [] as (() => void)[],
+  pickedMembers: [] as unknown[][],
 }));
 const handlers = vi.hoisted(() => new Map<string, (event: unknown, request: unknown) => Promise<unknown>>());
 const sent: { type: string; context?: { chat?: { members?: unknown[] } } }[] = [];
@@ -20,6 +21,7 @@ const contents = { id: 21, session: {}, hostWebContents: null, isDestroyed: () =
 vi.mock('electron', () => ({
   ipcMain: { handle: (channel: string, handler: never) => handlers.set(channel, handler), on: vi.fn() },
   webContents: { fromId: (id: number) => id === 21 ? contents : undefined }, BrowserWindow: {}, dialog: {},
+  app: { getPath: () => process.env.TMPDIR!, getName: () => 'folder-test' },
 }));
 vi.mock('@main/core/extensions/extension-session', () => ({ extensionIdForSession: () => 'workspace', isExtensionSessionConfigured: () => true }));
 vi.mock('@main/core/extensions/extension-background', () => ({ extensionBackgroundWebContentsId: () => null }));
@@ -38,7 +40,11 @@ vi.mock('@main/core/extensions/file-sync', () => ({
   fileServiceUrl: () => 'https://files.invalid', localFileService: {},
 }));
 vi.mock('@main/core/extensions/extension-icon', () => ({ renderExtensionIcon: () => null }));
-vi.mock('@main/core/extensions/extension-bridge-relay', () => ({ drawMemberFaces: async () => ({}) }));
+vi.mock('@main/core/extensions/extension-bridge-relay', () => ({ drawMemberFaces: async () => ({}), pickDispatchTarget: async (_embedder: unknown, ask: { chat: { members: unknown[] } }) => {
+  fixture.pickedMembers.push(ask.chat.members);
+  return null;
+} }));
+vi.mock('@main/core/extensions/extension-agents', () => ({ visibleAgentsForExtension: async () => new Map(), spawnAgentForExtension: vi.fn() }));
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => {
   const read = async (route: string, args: Record<string, unknown>) => {
     fixture.routes.push({ route, args });
@@ -76,7 +82,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => {
 const bridge = await import('./extension-bridge');
 const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-protocol');
 bridge.registerExtensionBridge();
-const call = (method: string, args: Record<string, unknown> = {}) => handlers.get(EXTENSION_BRIDGE_CHANNEL)!({ sender: contents }, { method, args });
+const call = (method: string, args: Record<string, unknown> = {}, gesture = false) => handlers.get(EXTENSION_BRIDGE_CHANNEL)!({ sender: contents }, { method, args, gesture });
 const place = () => ({ chat: fixture.chat });
 const bind = (agent = false) => bridge.bindExtensionSurface({ webContentsId: 21, extensionId: 'workspace', tabId: 'folder', tabKind: 'workspace.main',
   conversation: fixture.chat, ...{ resourceChat: fixture.chat }, ...(agent ? { operator: { kind: 'agent' as const, id: `user:${fixture.agent}` } } : {}) });
@@ -101,6 +107,7 @@ const finish = async <T>(work: Promise<T>): Promise<{ result: T; waves: string[]
 };
 beforeEach(async () => {
   fixture.apiVersion = 26; fixture.held = false; fixture.failList = false; fixture.routes.length = 0; fixture.waiting.length = 0; sent.length = 0;
+  fixture.pickedMembers.length = 0;
   await bridge.chatMembersChanged(fixture.chat, [{ memberId: fixture.agent, left: true }]);
   bridge.setExtensionBridgeHost({ deliver: async () => undefined, presentation: () => ({ locale: 'en', themeMode: 'light', fullscreen: false, windowFocused: true }) });
 });
@@ -158,5 +165,38 @@ describe('opening the folder: API compatibility and one-use preloads', () => {
     const reads = fixture.routes.filter(({ route }) => route === 'rpc/workspace_list_as');
     expect(reads).toHaveLength(1);
     expect(reads[0]!.args.p_as_user_id).toBe(fixture.agent);
+    expect(fixture.routes.find(({ route }) => route === 'rpc/chat_facts')?.args.p_as_user_id).toBe(fixture.agent);
+  });
+
+  it('a different first folder consumes no preload, and the next root read is fresh too', async () => {
+    await bind(); await call('getContext');
+    await call('filesList', { place: place(), folder: 'nested' });
+    await call('filesList', { place: place() });
+    const reads = fixture.routes.filter(({ route }) => route === 'rpc/workspace_list_as');
+    expect(reads).toHaveLength(3);
+    expect(reads.map(({ args }) => args.p_folder)).toEqual([undefined, 'nested', undefined]);
+  });
+
+  it('a file revision discards a preload before the first list', async () => {
+    await bind(); await call('getContext');
+    await bridge.notifyGroupWorkspaceChanged([{ chatId: fixture.chat, itemIds: [] }]);
+    await call('filesList', { place: place() });
+    expect(routeNames().filter((route) => route === 'rpc/workspace_list_as')).toHaveLength(2);
+  });
+
+  it('API 26 does not receive roster-change context or trigger another members read', async () => {
+    await bind(); await call('getContext');
+    sent.length = 0; fixture.routes.length = 0;
+    await bridge.chatMembersChanged(fixture.chat, [{ memberId: fixture.agent, left: false }]);
+    expect(sent.filter(({ type }) => type === 'context')).toEqual([]);
+    expect(routeNames()).toEqual([]);
+  });
+
+  it('an API 26 dispatch picker reads its members once when opened', async () => {
+    await bind(); await call('getContext');
+    fixture.routes.length = 0;
+    expect(await call('dispatch', { text: 'Hello' }, true)).toMatchObject({ ok: true });
+    expect(routeNames().filter((route) => route === 'rpc/list_member_ids')).toEqual(['rpc/list_member_ids']);
+    expect(fixture.pickedMembers).toEqual([[]]); // The signed-in person remains excluded by the shared dispatch path.
   });
 });

@@ -274,6 +274,8 @@ async function withPills(token: string, text: string, refs: unknown): Promise<{ 
  */
 export interface DispatchHere {
   chat: DispatchAsk['chat'];
+  /** API 26+ reads the roster only if the person opens the target picker. */
+  readMembers?: () => Promise<NonNullable<DispatchAsk['chat']>['members']>;
   preselect: string | null;
   local?: string[];
   spawnOn?: string | null;
@@ -324,7 +326,7 @@ export async function dispatchFromApp(
     const { token, userId } = await platform.account();
     const pills = named(call.refs) ? (await pillsOf(token, refsOf(call.refs))).pills.map((pill) => pill.label) : [];
     // The person is not among whom they hand it to: a whisper to oneself is refused.
-    const chat = here.chat && { ...here.chat, members: here.chat.members.filter((member) => member.id !== `user:${userId}`) };
+    const chat = here.chat && { ...here.chat, members: (here.readMembers ? await here.readMembers() : here.chat.members).filter((member) => member.id !== `user:${userId}`) };
     const picked = await platform.pick({ draft: call.draft, offers, text, pills, chat, preselect: here.preselect, ...(call.draft && here.local ? { local: here.local } : {}), ...(here.spawnOn !== undefined ? { spawnOn: here.spawnOn } : {}), visible });
     if (!picked) return { cancelled: true };
     ({ to, visible } = picked);

@@ -430,6 +430,7 @@ function openPage(request: ExtensionCheckRequest): CheckPage {
   // Hardened before the page asks for anything, as for a tab (controller `activate`).
   configureExtensionSession({
     extensionId: installed.manifest.id,
+    apiVersion: installed.manifest.apiVersion,
     rootDir: installed.rootDir,
     networkHosts: service.grantedHosts(installed.manifest.id),
   });

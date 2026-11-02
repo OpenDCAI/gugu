@@ -50,6 +50,7 @@ async function load(open: () => Promise<unknown>, locale = 'en', context: Record
     getContext: async () => ({ locale, ...context }),
     onContextChanged: (fn: (context: unknown) => void) => ((contextChanged = fn), () => {}),
     files: { open: vi.fn(open) },
+    chats: { members: vi.fn(async () => ({ members: MEMBERS })) },
   };
   Object.assign(globalThis, { gugu });
   // As a page imports it: once per page, its top-level await opening the page's file.
@@ -442,14 +443,16 @@ describe('group-json template: the skeleton runs as written', () => {
   });
 
   // 摩擦单 F49(L6 S8 r2):ctx.chat.members 已经有三个人,agent 却在数据里另建了 members 表 —— 骨架从没把人引到那儿。
-  it('who is in the group comes from the context, and follows it — nothing about them goes into the file', async () => {
+  it('an API 26 template reads the roster explicitly; context changes do not read it again or copy it into the file', async () => {
     const { file } = fakeFile({ votes: {} });
-    await load(async () => file);
+    const { members: _members, ...chat } = CHAT;
+    await load(async () => file, 'en', { apiVersion: 26, chat, file: IN_CHAT.file });
     // Each one a row with their <gugu-avatar> (the host draws the face and name: ui.js, not loaded here).
     const here = () => [...document.querySelectorAll('#shared ul.list > li gugu-avatar[name]')].map((element) => element.getAttribute('user'));
     expect(here()).toEqual(['user:u-me', 'user:u-bot']);
     contextChanged({ locale: 'en', chat: { ...CHAT, members: [...MEMBERS, { id: 'user:u-c', name: 'C', kind: 'human' }] } });
-    expect(here()).toEqual(['user:u-me', 'user:u-bot', 'user:u-c']);
+    expect(here()).toEqual(['user:u-me', 'user:u-bot']);
+    expect((globalThis as unknown as { gugu: { chats: { members: ReturnType<typeof vi.fn> } } }).gugu.chats.members).toHaveBeenCalledExactlyOnceWith({ chat: CHAT.id });
     expect(file.toJSON()).toEqual({ votes: {} });
   });
 });
