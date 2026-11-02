@@ -139,9 +139,8 @@ Your page runs on its own origin (\`gugu-ext://<id>/\`) with no Node, no \`requi
 IPC, no nested webview, no new windows, no File System Access API, and no reach into the host's
 DOM or any other tab.
 
-- \`script-src 'self' 'wasm-unsafe-eval'\`: NO CDN, NO remote fonts, NO remote images — ship everything inside the
-  bundle. Inline \`<script>\` is blocked too: put scripts in .js files beside the page
-  (\`<script src="main.js">\`). Bundled WebAssembly can compile and run in pages and workers.
+- \`script-src 'self' 'wasm-unsafe-eval'\`: bundle scripts, fonts and images; no CDN.
+  Inline scripts are blocked: use \`<script src="main.js">\`. Bundled WebAssembly runs in pages and workers.
 - No \`unsafe-eval\`: \`eval\`, \`new Function\` and string-to-code paths do not run.
 - Network is https/wss ONLY, and only to hosts you declared. \`http:\` is refused even for a
   declared host. localhost, \`*.local\`, \`*.internal\` and any IP literal are refused outright.
