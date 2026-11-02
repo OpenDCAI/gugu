@@ -23,8 +23,8 @@ import { clearStopped, liveKeeperPid, recordLoginShell, startKeeper } from './se
 import { activityProof, listAccounts, supervisorDataDir } from './server-layout'
 import { SERVICE_UMASK } from './server-permissions'
 import { assertPackageEnvironment, controllerOwnsUpdates } from './server-package-environment.mts'
-import { spawnUpgradeGuard, writeUpgradeMarker } from './server-upgrade-guard'
-import { readUpgradeMarker } from './server-version-lifecycle'
+import { readPendingVerify, writePendingVerify } from './server-startup'
+import { createServerUpdateStateWriter } from './server-update-state'
 import { installationServerNames } from './server-installation'
 import { EXIT_RESTART, EXIT_CONFIG, EXIT_SIGNED_OUT } from './server-exit'
 
@@ -307,6 +307,7 @@ function registerCron(executable: string, home: string): boolean {
 function registerLaunchd(out: Out, executable: string, home: string): void {
   fs.mkdirSync(path.dirname(plistPath()), { recursive: true })
   fs.writeFileSync(plistPath(), launchdPlist(executable, home, logFile()))
+  clearStopped(home)
   const uid = String(os.userInfo().uid)
   for (const domain of [`gui/${uid}`, `user/${uid}`]) {
     tryRun('launchctl', ['bootout', `${domain}/${names().launchdLabel}`])
@@ -558,13 +559,13 @@ export async function installService(out: Out): Promise<boolean> {
   })
 }
 
-/** 重新执行安装命令换版本时,与自动升级同一个看门狗(server-upgrade-guard.ts)。旧版本不在盘上就退不回去,不请。 */
+/** Service replacement uses the same launch-count verification as automatic updates. */
 export function guardReplacement(home: string, before: RunningServer, target: string | null): void {
   if (!before.version || !target) return
-  const pending = readUpgradeMarker(home)
+  const pending = readPendingVerify(home)
   if (pending?.to === target) {
-    assertPackageEnvironment(home, pending.fromDir)
-    assertPackageEnvironment(home, pending.toDir)
+    assertPackageEnvironment(home, path.join(home, 'versions', pending.from))
+    assertPackageEnvironment(home, path.join(home, 'versions', pending.to))
     return
   }
   const fromDir = path.join(home, 'versions', before.version)
@@ -572,7 +573,8 @@ export function guardReplacement(home: string, before: RunningServer, target: st
   if (!fs.existsSync(path.join(fromDir, 'bin', 'gugu-server')) || !fs.existsSync(toDir)) return
   assertPackageEnvironment(home, fromDir)
   assertPackageEnvironment(home, toDir)
-  if (writeUpgradeMarker(home, { from: before.version, to: target, fromDir, toDir, switchedAt: Date.now() })) spawnUpgradeGuard(home)
+  writePendingVerify(home, { from: before.version, to: target, attempts: 0 })
+  createServerUpdateStateWriter(home).set('switching', target)
 }
 
 export function uninstallService(out: Out): void {

@@ -9,6 +9,7 @@ import { activityProof, listAccounts } from './server-layout'
 import { assertPackageEnvironment } from './server-package-environment.mts'
 import { pointCurrent as pointCurrentFile } from './server-boot.cjs'
 import { readPendingVerify, writePendingVerify } from './server-startup'
+import { createServerUpdateStateWriter } from './server-update-state'
 
 export const UPGRADE_PENDING_FILE = 'upgrade-pending.json'
 /** The staged package installed but did not boot an account: a boot failure, not an install failure. */
@@ -120,6 +121,7 @@ export function createServerVersionLifecycle(options: {
       writePendingVerify(layout.home, { from: marker.from, to: marker.to, attempts: 0,
         ...(marker.request !== undefined ? { request: marker.request } : {}) })
       try {
+        createServerUpdateStateWriter(layout.home).set('switching', marker.to)
         beforeSwitch()
         pointCurrent(layout.home, marker.toDir)
       } catch (error) {
@@ -132,12 +134,11 @@ export function createServerVersionLifecycle(options: {
   }
 }
 
-/** Controller handoff uses the same verified transition and rollback marker as self-upgrade.
- * The marker and watchdog precede service replacement, including legacy service-name repair. */
+/** Controller handoff shares verification, pending attempts and the installation update record. */
 export async function activateServerPackage(home: string, directory: string, options: {
   migrateFrom?: string
   verifyBoot?: (binary: string) => Promise<void>
-  beforeSwitch: () => void
+  beforeSwitch?: () => void
   isBusy?: () => boolean
 }): Promise<void> {
   const versions = fs.realpathSync(path.join(home, 'versions'))
@@ -157,8 +158,9 @@ export async function activateServerPackage(home: string, directory: string, opt
   const lifecycle = createServerVersionLifecycle({ layout, verifyBoot: options.verifyBoot })
   await lifecycle.stage(path.basename(target), async () => {})
   if (target === previous) return
+  createServerUpdateStateWriter(home).set('ready', path.basename(target))
   const busy = options.isBusy ?? (() => listAccounts().some(account => account.signedIn && activityProof(account.dataDir) !== 'idle'))
   if (busy()) throw new ServerPackageDeferredError('Accounts are no longer idle; package activation was deferred')
   lifecycle.switchSupervisor({ from: path.basename(from), to: path.basename(target), fromDir: from,
-    toDir: target, switchedAt: Date.now() }, options.beforeSwitch)
+    toDir: target, switchedAt: Date.now() }, options.beforeSwitch ?? (() => {}))
 }

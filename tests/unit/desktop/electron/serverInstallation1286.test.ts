@@ -5,8 +5,8 @@ import { spawnSync, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assertPackageEnvironment, assertRuntimeBackend, controllerOwnsUpdates, packageBackend, prepareInstallation, readInstallation, SERVER_INSTALLATION } from '../../../../apps/desktop/electron/server/server-package-environment.mts'
-import { activateServerPackage, createServerVersionLifecycle, pointCurrent, readUpgradeMarker } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
-import { rollbackUpgrade } from '../../../../apps/desktop/electron/server/server-upgrade-guard'
+import { activateServerPackage, createServerVersionLifecycle, pointCurrent } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
+import { readPendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
 import { guardReplacement, installServiceWith } from '../../../../apps/desktop/electron/server/server-service'
 import { startServerUpdater } from '../../../../apps/desktop/electron/server/server-updater'
 import { createAccountDriver } from '../../../../apps/desktop/electron/server/server-account-driver'
@@ -27,6 +27,22 @@ function candidate(version: string, backend = A, legacy = false): string {
   if (legacy) fs.writeFileSync(path.join(dist, 'server.js'), `const __vite_import_meta_env__ = ${JSON.stringify({ VITE_SUPABASE_URL: backend })};`)
   else fs.writeFileSync(path.join(dist, 'server-build.json'), JSON.stringify(identity(backend)))
   return directory
+}
+
+/** Execute the shipped preload before deliberately broken application code. */
+function failPendingBoots(): void {
+  const pending = readPendingVerify(home)!
+  const script = path.join(home, 'versions', pending.to, 'app/dist-electron/server.js')
+  fs.writeFileSync(script, "throw new Error('fixture failed before readiness')")
+  const codes: Array<number | null> = []
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const result = spawnSync(process.execPath, ['--require', path.resolve('apps/desktop/electron/server/server-boot.cjs'), script, 'run'], {
+      env: { ...process.env, GUGU_SERVER_HOME: home, GUGU_SERVER_SUPERVISED: 'systemd' }, encoding: 'utf8',
+    })
+    codes.push(result.status)
+    if (attempt < 3) expect(result.stderr).toContain('fixture failed before readiness')
+  }
+  expect(codes).toEqual([1, 1, 1, 75])
 }
 
 beforeEach(() => {
@@ -138,7 +154,7 @@ describe('installation backend and package ownership', () => {
     fs.symlinkSync(wrong, path.join(home, 'current'))
     prepareInstallation(home, identity(), { updateOwner: 'controller', migrateFrom: '1.0.0' })
     const guard = vi.fn(() => {
-      expect(readUpgradeMarker(home)?.fromDir).toBe(original)
+      expect(readPendingVerify(home)?.from).toBe('1.0.0')
       expect(fs.realpathSync(path.join(home, 'current'))).toBe(wrong)
     })
     await activateServerPackage(home, target, { migrateFrom: '1.0.0', verifyBoot: async () => {}, isBusy: () => false, beforeSwitch: guard })
@@ -147,17 +163,15 @@ describe('installation backend and package ownership', () => {
     // Service install must retain the controller's verified original, rather than overwrite
     // it with the old process's already-wrong backend version.
     guardReplacement(home, { pid: 1, version: '2.0.0', supervisedBy: 'systemd' }, '3.0.0')
-    expect(readUpgradeMarker(home)?.fromDir).toBe(original)
+    expect(readPendingVerify(home)?.from).toBe('1.0.0')
     let clock = 0
     const started = await installServiceWith(() => {}, { mode: 'systemd', targetVersion: '3.0.0', running: () => null,
       isAlive: () => false, isBusy: () => false, requireIdle: true, stop: vi.fn(),
       registerSystemd: vi.fn(), registerLaunchd: vi.fn(), registerCron: () => true, startDetached: vi.fn(),
       logHint: 'isolated test', user: 'test', sleep: async ms => { clock += ms }, now: () => clock })
     expect(started).toBe(false)
-    const marker = readUpgradeMarker(home)!
-    expect(marker.from).toBe('1.0.0')
-    expect(await rollbackUpgrade(home, marker, { now: () => clock, lockHolder: () => null, kill: vi.fn(), isAlive: () => false,
-      sleep: async () => {}, restartsAutomatically: () => true, startKeeper: vi.fn(), log: vi.fn() })).toBe(true)
+    failPendingBoots()
+    expect(readPendingVerify(home)).toBeNull()
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(original)
   })
 
@@ -170,7 +184,8 @@ describe('installation backend and package ownership', () => {
     await expect(activateServerPackage(home, target, { verifyBoot: async () => { busy = true }, isBusy: () => busy, beforeSwitch }))
       .rejects.toThrow('no longer idle')
     expect(beforeSwitch).not.toHaveBeenCalled()
-    expect(readUpgradeMarker(home)).toBeNull()
+    expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8'))).toMatchObject({ state: 'ready', version: '2.0.0' })
+    expect(readPendingVerify(home)).toBeNull()
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(original)
   })
 
@@ -181,12 +196,11 @@ describe('installation backend and package ownership', () => {
     const verifyBoot = vi.fn(async () => {}), beforeSwitch = vi.fn()
     const options = { verifyBoot, beforeSwitch, isBusy: () => false }
     await activateServerPackage(home, rejected, options)
-    expect(await rollbackUpgrade(home, readUpgradeMarker(home)!, { now: () => 123, lockHolder: () => null, kill: vi.fn(), isAlive: () => false,
-      sleep: async () => {}, restartsAutomatically: () => true, startKeeper: vi.fn(), log: vi.fn() })).toBe(true)
+    failPendingBoots()
     await expect(activateServerPackage(home, rejected, options)).rejects.toThrow('previously failed')
     expect(verifyBoot).toHaveBeenCalledOnce()
     expect(beforeSwitch).toHaveBeenCalledOnce()
-    expect(readUpgradeMarker(home)).toBeNull()
+    expect(readPendingVerify(home)).toBeNull()
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(original)
     await activateServerPackage(home, next, options)
     expect(beforeSwitch).toHaveBeenCalledTimes(2)

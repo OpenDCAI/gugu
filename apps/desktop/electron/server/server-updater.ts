@@ -15,16 +15,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { SERVER_UPDATE_STATE_FILE } from '@gugu/core'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
 import { VERSION_RESTART_RPC, VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC } from '@gugu/core/cloud/serverMachineHealth'
 import { compareServerVersions, isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
+import { createServerUpdateStateWriter, readUpdateRecord, type ServerUpdateRecord, type ServerUpdateStateWriter } from './server-update-state'
+export { createServerUpdateStateWriter } from './server-update-state'
 import type { FailureCause, Outcome } from '@gugu/core/shared/serverVersionOutcome'
 import { serverDownloadBase } from './server-download'
 import type { SupervisorLog } from './server-supervisor'
 import { touchVersion, versionManifestUrl } from './server-account-versions'
 import { readBadVersions } from './server-upgrade-guard'
-import { writeJson } from './server-startup'
 import { controllerOwnsUpdates, readInstallation } from './server-package-environment.mts'
 
 /**
@@ -51,34 +51,6 @@ type Layout = { home: string; versions: string; current: string; running: string
  * 「更新中」/「有新版本,空闲时自动更新」。读侧(packages/core/src/cloud/deviceHostInfo.ts)按时间判过期:
  * 守护进程半路没了,这个文件不会让界面永远挂着「更新中」。
  */
-export type ServerUpdateStateWriter = {
-  /** reason 'unreachable' = 连不上下载站(桌面经 SSH 读到它就把包的字节传过来,见 match-version-cli.ts)。 */
-  set: (state: ServerUpdateRecord['state'], version: string, reason?: 'unreachable', fields?: Partial<ServerUpdateRecord>) => void
-  clear: () => void
-}
-
-export type ServerUpdateRecord = {
-  state: 'idle' | 'downloading' | 'ready' | 'switching' | 'failed'
-  version: string
-  at: number
-  cause?: FailureCause
-  until?: number
-  attempts?: number
-  lastOutcome?: Outcome
-}
-
-export function createServerUpdateStateWriter(home: string, now: () => number = Date.now): ServerUpdateStateWriter {
-  const file = path.join(home, 'data', SERVER_UPDATE_STATE_FILE)
-  return {
-    set(state, version, reason, fields) {
-      writeJson(file, { state, version, at: now(), ...(reason ? { reason } : {}), ...fields })
-    },
-    clear() {
-      fs.rmSync(file, { force: true })
-    },
-  }
-}
-
 /** 在受管布局里运行才返回;否则(开发/手动解包)不做自动升级。 */
 export function managedLayout(env: NodeJS.ProcessEnv = process.env): Layout | null {
   const home = env.GUGU_SERVER_HOME
@@ -235,13 +207,6 @@ export function serverUpdateRpcHandlers(): DeviceRpcHandlers {
 }
 const FAILURE_COOLDOWN_MS = 6 * 60 * 60 * 1000
 
-function readUpdateRecord(home: string): ServerUpdateRecord | null {
-  try {
-    const value = JSON.parse(fs.readFileSync(path.join(home, 'data', SERVER_UPDATE_STATE_FILE), 'utf8')) as ServerUpdateRecord
-    return ['idle', 'downloading', 'ready', 'switching', 'failed'].includes(value.state)
-      && isServerVersion(value.version) && Number.isFinite(value.at) ? value : null
-  } catch { return null }
-}
 
 export function startServerUpdater(deps: ServerUpdaterDeps): ServerUpdater {
   const layout = managedLayout()

@@ -224,10 +224,8 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       if (owner === 'controller' && directory) {
         if (args.includes('--activate')) {
           const { activateServerPackage, ServerPackageDeferredError } = await import('./server/server-version-lifecycle')
-          const { spawnUpgradeGuard } = await import('./server/server-upgrade-guard')
           try {
-            await activateServerPackage(serverHome, directory, { migrateFrom: argument('--migrate-from'),
-              beforeSwitch: () => { if (!spawnUpgradeGuard(serverHome)) throw new Error('Cannot start the upgrade rollback watchdog') } })
+            await activateServerPackage(serverHome, directory, { migrateFrom: argument('--migrate-from') })
           } catch (error) {
             if (error instanceof ServerPackageDeferredError) { stderr(error.message); return process.exit(75) }
             throw error
@@ -246,9 +244,11 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       delete process.env.GUGU_SERVER_WAIT_PID
       if (Number.isInteger(waitPid) && waitPid > 0) await waitForPidExit(waitPid)
       // 旧版本按宽松 umask 建过的目录与文件:每次启动收一遍(升级换版后的第一次启动就把老机器修好)。
-      tightenOwnTree()
       const { runSingleServer } = await import('./server/server-run')
-      await runSingleServer(prepareRuntimeInstallation, runAccount)
+      await runSingleServer(() => {
+        tightenOwnTree()
+        prepareRuntimeInstallation()
+      }, runAccount)
       return
     }
     case 'run-account': {
@@ -356,10 +356,7 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
         process.exit(0)
       }
       out(strays.length > 0 ? `已停止(另收掉了 ${strays.length} 个没随守护进程退出的账号进程)。` : '已停止。')
-      const { describeService } = await import('./server/server-service')
-      if (!describeService().startsWith('未注册')) {
-        out('注意:常驻服务会把 server 重新拉起来;要彻底停用请执行 gugu-server service uninstall。')
-      }
+      out('再次启动请执行 gugu-server start;移除开机自启请执行 gugu-server service uninstall。')
       return process.exit(0)
     }
     case 'unregister': {
