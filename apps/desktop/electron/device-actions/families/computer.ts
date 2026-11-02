@@ -499,7 +499,8 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
         return { ok: false, code: 'needs_confirmation', message: 'The person must agree before 咕咕 brings a window to the front', confirm: { question: checked.question ?? FOREGROUND_QUESTION } }
       }
       const session = sessionOf(ctx)
-      const control = ctx.deps.computerControl
+      // Inspection must not open or refresh either activity indicator.
+      const control = t.kind === 'act' ? ctx.deps.computerControl : undefined
       const pid = apps.pidOf(session, forward)
       const windowId = apps.windowOf(session, forward)
       const appName = control && pid !== undefined ? await appNameOf(ctx, apps, pid) : undefined
