@@ -221,6 +221,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
               但与会话行不同形 —— 同一条侧栏两种折叠惯用法(owner 2026-09-07:「项目行的折叠要统一」)。
               换过来之后文件夹图标常驻不再消失,箭头有自己的位置。 */}
           <SidebarTwistyLane
+            alwaysVisible
             expanded={isExpanded}
             label={translate(isExpanded ? 'sidebar.collapseProject' : 'sidebar.expandProject', { project: projectLabel })}
             onToggle={

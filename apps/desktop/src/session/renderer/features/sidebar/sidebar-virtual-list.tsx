@@ -40,6 +40,8 @@ import { SidebarProjectItem } from './project-item';
 import { SidebarSessionItem } from './sidebar-session-item';
 import { SidebarMoreRow } from './sidebar-more-row';
 import { SidebarStateHeader } from './sidebar-state-header';
+import { sessionBranchGatewayDepth } from './sidebar-session-branch';
+import { SidebarSessionBranchGateway, SidebarSessionBranchNavigation, SidebarSessionTreeGuides } from './sidebar-session-branch-view';
 
 // Task rows have a fixed height; project rows are measured.
 const ROW_HEIGHT = 32;
@@ -47,6 +49,11 @@ const ROW_HEIGHT = 32;
 // 否则 32px 的正文行夹着 24px 的标题槽,标题会显得被压扁。与 ROW_HEIGHT 同理:
 // 这是虚拟滚动的排版依据,改了标题的视觉高度就必须同步改这里。
 const STATE_HEADER_HEIGHT = 28;
+
+function projectRowHeight(row: SidebarRow | undefined): number {
+  if (row?.kind === 'state-header') return STATE_HEADER_HEIGHT;
+  return ROW_HEIGHT + (row?.kind === 'conversation' && sessionBranchGatewayDepth(row, sidebarStore.expandedSessionIds.has(row.sessionId)) ? 28 : 0);
+}
 
 export const SidebarVirtualList = observer(function SidebarVirtualList() {
   const rows = sidebarStore.sidebarRows;
@@ -82,11 +89,13 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
     count: rows.length,
     getItemKey: (index) => rowToDndId(rows[index]),
     getScrollElement: () => scroller,
-    estimateSize: (index) =>
-      rows[index]?.kind === 'state-header' ? STATE_HEADER_HEIGHT : ROW_HEIGHT,
+    estimateSize: (index) => projectRowHeight(rows[index]),
     overscan: 8,
     scrollMargin,
   });
+
+  const rowHeightKey = rows.map((row) => projectRowHeight(row)).join(',');
+  useLayoutEffect(() => { virtualizer.measure(); }, [virtualizer, rowHeightKey]);
 
   // 偏移会被上方任何一处布局变化改写(「置顶」分区展开/收起、项目分区标题、窗口高度),
   // 而那些分区各自是独立的 observer——它们重渲染时本组件不会跟着重渲染。所以靠观察共用
@@ -126,7 +135,7 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
       const target = lastRowScrollTarget({
         listEnd: virtualizer.options.scrollMargin + virtualizer.getTotalSize(),
         rowHeight:
-          rowsRef.current[index]?.kind === 'state-header' ? STATE_HEADER_HEIGHT : ROW_HEIGHT,
+          projectRowHeight(rowsRef.current[index]),
         scrollTop: element.scrollTop,
         clientHeight: element.clientHeight,
       });
@@ -268,7 +277,12 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
       onDragCancel={clearDragPointerY}
     >
       <SortableContext items={projectDndIds} strategy={verticalListSortingStrategy}>
-        <div className={cn('pt-1 pb-1', sidebarGroupInsetX)}>
+        <div className={cn('pt-1 pb-1', sidebarGroupInsetX)} style={{
+          '--session-branch-total-width': `${sidebarStore.sessionBranchColumnMetrics.totalWidth}px`,
+          '--session-branch-running-width': `${sidebarStore.sessionBranchColumnMetrics.runningWidth}px`,
+          '--session-branch-column-width': `${sidebarStore.sessionBranchColumnMetrics.width}px`,
+        } as React.CSSProperties}>
+          <SidebarSessionBranchNavigation />
           <div
             ref={listRef}
             style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
@@ -300,6 +314,7 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
                 );
               }
               if (row.kind === 'conversation') {
+                const gatewayDepth = sessionBranchGatewayDepth(row, sidebarStore.expandedSessionIds.has(row.sessionId));
                 return (
                   <div key={`${row.projectId}:${row.sessionId}`} style={vStyle}>
                     <SidebarSessionItem
@@ -310,9 +325,12 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
                       hasChildren={row.hasChildren}
                       expanded={sidebarStore.expandedSessionIds.has(row.sessionId)}
                       needsAttention={row.needsAttention}
+                      treeSummary={row.tree?.summary}
                       onToggle={() => sidebarStore.toggleSessionExpanded(row.sessionId)}
                       join={row.join}
                     />
+                    {row.tree ? <SidebarSessionTreeGuides depth={row.depth} tree={row.tree} /> : null}
+                    {gatewayDepth ? <SidebarSessionBranchGateway sessionId={row.sessionId} depth={row.depth} remainingDepth={gatewayDepth} /> : null}
                   </div>
                 );
               }

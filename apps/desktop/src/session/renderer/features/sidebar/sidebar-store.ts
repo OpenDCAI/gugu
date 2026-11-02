@@ -1,4 +1,5 @@
 import { computed, makeAutoObservable, observable, runInAction } from 'mobx';
+import { projectSessionTreeRows, summarizeSessionBranches, type ProjectSessionTreeRow } from './sidebar-session-branch';
 import {
   buildSessionTree,
   familiesByRoot,
@@ -94,6 +95,7 @@ export type SessionEntry = {
   depth?: number;
   hasChildren?: boolean;
   needsAttention?: boolean;
+  tree?: ProjectSessionTreeRow;
   /** 父会话所在的项目(挂在父会话下的行才有):与它不在同一台机器 / 同一个项目时,行首挂机器 / 项目标记。 */
   parentProjectId?: string;
   join?: SidebarJoin;
@@ -110,6 +112,7 @@ type SidebarSessionEntry = {
   isPinned: boolean;
   time: number;
   group: SidebarStateGroup | null;
+  presentation?: AgentStatusPresentation | null;
   /** Raw addressing name; components decide how to display it. */
   title: string;
   createdAt?: string;
@@ -122,6 +125,7 @@ type SidebarSessionRow = {
   depth: number;
   hasChildren: boolean;
   needsAttention: boolean;
+  tree?: ProjectSessionTreeRow;
   parentProjectId?: string;
   join?: SidebarJoin;
 };
@@ -183,6 +187,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   idleExpandedProjectIds = observable.set<string>();
   /** Persisted disclosure state for parent/child conversation trees. */
   expandedSessionIds = observable.set<string>();
+  /** Browsing a branch changes this project projection, never the open conversation. */
+  sessionBranchRootId: string | null = null;
   /** spec session-page: the Pinned section is collapsible (persisted). */
   pinnedCollapsed = false;
   /** spec session-page: Projects and Tasks section headers collapse too, like Pinned (persisted). */
@@ -284,6 +290,16 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   }
 
   get sidebarRows(): SidebarRow[] {
+    const branch = this.sessionBranchRootId ? this.placement.nodeById.get(this.sessionBranchRootId) : null;
+    if (branch) {
+      const entries: SidebarSessionEntry[] = [];
+      const collect = (node: SessionTreeNode<SidebarSessionEntry>) => {
+        entries.push(node.item);
+        node.children.forEach(collect);
+      };
+      collect(branch);
+      return this.sessionRows(entries, undefined, true).rows.map((row) => ({ kind: 'conversation', ...row }));
+    }
     const rows: SidebarRow[] = [];
     for (const ref of this.sidebarProjects) {
       const projectId = ref.id;
@@ -330,6 +346,36 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       more();
     }
     return rows;
+  }
+
+  get sessionBranchSummaries() {
+    return summarizeSessionBranches(this.placement.nodeById.values());
+  }
+
+  get sessionBranchColumnMetrics() {
+    let totalWidth = 14;
+    let runningWidth = 7;
+    for (const summary of this.sessionBranchSummaries.values()) {
+      totalWidth = Math.max(totalWidth, String(summary.total).length * 7);
+      for (const state of summary.active) runningWidth = Math.max(runningWidth, String(state.count).length * 7);
+    }
+    return { totalWidth, runningWidth, width: totalWidth + runningWidth + 35 };
+  }
+
+  get sessionBranchTrail(): { id: string; title: string }[] {
+    const trail: { id: string; title: string }[] = [];
+    let node = this.sessionBranchRootId ? this.placement.nodeById.get(this.sessionBranchRootId) : undefined;
+    while (node) {
+      trail.unshift({ id: node.item.id, title: node.item.title });
+      node = node.item.parentSessionId ? this.placement.nodeById.get(node.item.parentSessionId) : undefined;
+    }
+    return trail;
+  }
+
+  showSessionBranch(sessionId: string | null): void {
+    if (sessionId && !this.placement.nodeById.has(sessionId)) throw new Error(`Unknown session branch: ${sessionId}`);
+    this.sessionBranchRootId = sessionId;
+    if (sessionId) this.expandedSessionIds.add(sessionId);
   }
 
   /**
@@ -734,6 +780,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
             ? new Date(session.data.lastInteractedAt).getTime()
             : 0,
           group: sidebarStateGroup(mountedSessionPresentation(session)),
+          presentation: mountedSessionPresentation(session),
           title: session.data.title,
           createdAt: session.data.createdAt,
         });
@@ -764,6 +811,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
         // Direct-link freshness only governs access; identified agents share presence with avatars.
         group: sidebarStateGroup(sessionPresentation(session, listed.live,
           session.agent?.userId ?? sessionAgentBindings.bindingFor(session.conversationId)?.agentUserId)),
+        presentation: sessionPresentation(session, listed.live,
+          session.agent?.userId ?? sessionAgentBindings.bindingFor(session.conversationId)?.agentUserId),
         title: session.title,
       });
     }
@@ -805,7 +854,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
    */
   private sessionRows(
     entries: SidebarSessionEntry[],
-    foldKey?: string
+    foldKey?: string,
+    projectTree = foldKey !== undefined && foldKey !== SESSIONS_SECTION,
   ): { rows: SidebarSessionRow[]; folded: number } {
     const trees = this.withoutJoinedAway(withoutPinnedSubtrees(buildSessionTree<SidebarSessionEntry>(entries)));
     const expanded = new Set(this.expandedSessionIds);
@@ -849,7 +899,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
         ? foldIdleFamilies(ordered, (entry) => entry.group === null && !anchors.has(entry.id), this.idleExpandedProjectIds.has(foldKey))
         : { shown: ordered, folded: 0 };
     for (const root of shown) appendVisibleFamily(root, root.item.group, 0);
-    return { rows: this.spliceJoined(rows, (row) => row), folded };
+    const joined = this.spliceJoined(rows, (row) => row);
+    return { rows: projectTree ? projectSessionTreeRows(joined, this.sessionBranchSummaries) : joined, folded };
   }
 
   /**
@@ -907,6 +958,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
               ? new Date(session.data.lastInteractedAt).getTime()
               : 0,
             group: sidebarStateGroup(mountedSessionPresentation(session)),
+            presentation: mountedSessionPresentation(session),
             title: session.data.title,
             createdAt: session.data.createdAt,
           });

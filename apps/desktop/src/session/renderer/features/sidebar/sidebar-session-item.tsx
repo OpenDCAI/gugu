@@ -39,6 +39,7 @@ import { clearDraggedScreenContent, setDraggedScreenContent } from '@renderer/li
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { SessionRowShell } from './sidebar-session-row';
+import type { SessionBranchSummary } from './sidebar-session-branch';
 import { useSessionDropTarget } from './use-session-drop-target';
 import { ProjectBadge } from './remote-host-chip';
 import { machineRegistry } from '@renderer/lib/machine-routing';
@@ -75,6 +76,7 @@ export type SidebarSessionItemProps = {
   hasChildren?: boolean;
   expanded?: boolean;
   needsAttention?: boolean;
+  treeSummary?: SessionBranchSummary;
   onToggle?: () => void;
   /** 拼在一屏的一组里:这一行是框的哪一段。 */
   join?: SidebarJoin;
@@ -90,6 +92,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   hasChildren = false,
   expanded = false,
   needsAttention = false,
+  treeSummary,
   onToggle,
   join,
 }: SidebarSessionItemProps) {
@@ -353,6 +356,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       hasChildren={hasChildren}
       expanded={expanded}
       needsAttention={needsAttention}
+      treeSummary={treeSummary}
       onToggle={onToggle}
       title={title}
       harness={harness ? { id: providerId, name: harness.name } : null}

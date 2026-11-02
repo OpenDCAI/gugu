@@ -88,6 +88,48 @@ function projectManagerWithSessions(
   } as unknown as SidebarProjectManager;
 }
 
+describe('SidebarStore project branch browsing', () => {
+  function family(projectId: string) {
+    const ids = ['branch-root', 'branch-child', 'branch-third', 'branch-fourth', 'branch-fifth'];
+    const pages = ids.map((id) => `page-${id}`);
+    ids.forEach((id, index) => sessionRegistry.acquire(pages[index], projectId, [{
+      id, projectId, providerId: 'codex', title: id, runtime: 'acp',
+      parentSessionId: index ? ids[index - 1] : null,
+      lastInteractedAt: '2026-01-01T00:00:00.000Z',
+    }] as never));
+    const store = new SidebarStore(projectManagerWithSessions([
+      { id: projectId, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: pages },
+    ]));
+    ids.forEach((id) => store.toggleSessionExpanded(id));
+    return { store, ids, release: () => pages.forEach((page) => sessionRegistry.release(page)) };
+  }
+
+  it('re-roots the visible project branch and restores its expanded family when returning', () => {
+    const { store, ids, release } = family('branch-project');
+    try {
+      store.toggleProjectExpanded('branch-project');
+      const sessionIds = () => store.sidebarRows.flatMap((row) => row.kind === 'conversation' ? [row.sessionId] : []);
+      expect(sessionIds()).toEqual(ids.slice(0, 3));
+      expect(store.sessionBranchSummaries.get(ids[0])?.total).toBe(4);
+      store.showSessionBranch(ids[2]);
+      expect(sessionIds()).toEqual(ids.slice(2));
+      expect(store.sessionBranchTrail.map((entry) => entry.id)).toEqual(ids.slice(0, 3));
+      store.showSessionBranch(null);
+      expect(sessionIds()).toEqual(ids.slice(0, 3));
+      expect([...store.expandedSessionIds]).toEqual(ids);
+    } finally { release(); }
+  });
+
+  it('keeps the Tasks section fully expanded beyond the project depth limit', () => {
+    const { store, ids, release } = family(IMPLICIT_SESSION_HOME_PROJECT_ID);
+    try {
+      expect(store.standaloneSessionEntries.map((entry) => entry.sessionId)).toEqual(ids);
+      expect(store.standaloneSessionEntries.map((entry) => entry.depth)).toEqual([0, 1, 2, 3, 4]);
+      expect(store.standaloneSessionEntries.every((entry) => !entry.tree)).toBe(true);
+    } finally { release(); }
+  });
+});
+
 describe('SidebarStore project ordering', () => {
   it('keeps the raw title and creation time for component display without rewriting addressing data', () => {
     const createdAt = '2026-11-02T08:00:00.000Z';
