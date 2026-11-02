@@ -122,7 +122,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       // persisted record. The in-memory registry holds it only once mounted: after a restart, a session no page has
       // opened is first started by a delivery, before anything mounted it.
       const cwd = persistedWorkspacePath(row.workspaceId);
-      if (!cwd) throw new Error(`Session ${sessionId} workspace ${row.workspaceId} has no local path`);
+      if (!cwd) throw new Error(`Session ${sessionId} workspace ${row.workspaceId} has no path`);
       facts = await readSessionInjectionFacts({ sessionId });
       identity = await provisionStartIdentity({ sessionId, providerId: row.providerId, projectId: row.projectId, cwd }, lifecycleOf(row, null), facts);
       // A persisted session is never a runtime fork: no identity here means tombstoned or not provisionable.

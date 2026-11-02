@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { workspaces } from '@main/db/schema';
-import { isRetiredRemoteWorkspace } from '@main/core/workspaces/resolve-workspace-kind';
+import { isRetiredRemoteWorkspace, RETIRED_REMOTE_WORKSPACE_MESSAGE } from '@main/core/workspaces/resolve-workspace-kind';
 import { workspaceRegistry } from '@main/core/workspaces/workspace-registry';
 import { sessionWorkspaceManager } from '../sessions/session-workspace-manager';
 
@@ -16,7 +16,8 @@ export function resolveWorkspace(_projectId: string, workspaceId: string) {
 
 /**
  * A workspace's local path from its persisted record: the path mounting it uses, known before (or without) mounting
- * it. Null when the row is missing, has no path, or is a retired remote row (mounting refuses those too).
+ * it. Null when the row is missing or has no path. A retired remote row is refused with the same user-facing copy
+ * mounting refuses it with: its stored path is not a folder on this computer.
  */
 export function persistedWorkspacePath(workspaceId: string): string | null {
   const row = db
@@ -24,7 +25,8 @@ export function persistedWorkspacePath(workspaceId: string): string | null {
     .from(workspaces)
     .where(eq(workspaces.id, workspaceId))
     .get();
-  return row?.path && !isRetiredRemoteWorkspace(row) ? row.path : null;
+  if (row && isRetiredRemoteWorkspace(row)) throw new Error(RETIRED_REMOTE_WORKSPACE_MESSAGE);
+  return row?.path ?? null;
 }
 
 export class TimeoutSignal extends Error {

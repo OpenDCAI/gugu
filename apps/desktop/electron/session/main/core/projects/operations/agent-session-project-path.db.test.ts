@@ -36,6 +36,7 @@ vi.mock('@main/core/runtime/runtime-manager', () => ({
   },
 }));
 
+import { RETIRED_REMOTE_WORKSPACE_MESSAGE } from '@main/core/workspaces/resolve-workspace-kind';
 import { persistedWorkspacePath, resolveWorkspace } from '../utils';
 import { resolveAgentSessionProject } from './resolve-agent-session-project';
 
@@ -64,13 +65,13 @@ describe('agent.create on a project nothing has mounted', () => {
     expect(persistedWorkspacePath(workspaceId!)).toBe(mocks.home);
   });
 
-  it('a retired remote row has no local path: its stored path is never handed on as one', () => {
+  it('a retired remote row is refused with the copy mounting uses: its stored path is never handed on as local', () => {
     fixture.sqlite.exec(`
       INSERT INTO workspaces (id, kind, location, type, path, key) VALUES ('ws-ssh', 'project-root', 'remote', 'project-ssh', '/srv/app', 'k-ssh');
       INSERT INTO workspaces (id, kind, location, type, path, key) VALUES ('ws-byoi', 'byoi', 'local', 'byoi', '/srv/byoi', 'k-byoi');
     `);
-    expect(persistedWorkspacePath('ws-ssh')).toBeNull();
-    expect(persistedWorkspacePath('ws-byoi')).toBeNull();
+    expect(() => persistedWorkspacePath('ws-ssh')).toThrow(RETIRED_REMOTE_WORKSPACE_MESSAGE);
+    expect(() => persistedWorkspacePath('ws-byoi')).toThrow(RETIRED_REMOTE_WORKSPACE_MESSAGE);
     expect(persistedWorkspacePath('ws-missing')).toBeNull();
   });
 });
