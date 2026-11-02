@@ -1,6 +1,7 @@
 import { hydrateLife, OUTCOME_UNKNOWN, shouldStartOnHydrate, step } from '@gugu/core/local/session-life/step';
 import { STAGES } from '@gugu/core/local/session-life/types';
 import { toSerializedError } from '@gugu/session-shared/result';
+import { fcp } from '@gugu/session-shared/fcp';
 import type {
   Attempt, AuthEpoch, Effect, Event, Gen, Hold, InterruptEvent, Life,
   PendingView, RunStageEffect, Seq, SerializedError, StageResult,
@@ -348,7 +349,9 @@ export class SessionLife {
         if (run.abort.signal.aborted) return;
         let out: StageResult;
         try {
+          fcp('stage:'+effect.at+':start', { sid: sessionId });
           out = await runStage(run, effect);
+          fcp('stage:'+effect.at+':ok', { sid: sessionId });
         } catch (error) {
           if (!run.abort.signal.aborted) this.send(sessionId, { k: 'stage-fail', gen: run.gen, at: effect.at, cause: toSerializedError(error),
             ...((error as { awaitsPerson?: unknown }).awaitsPerson === true ? { awaitsPerson: true as const } : {}) });
@@ -360,6 +363,7 @@ export class SessionLife {
         return;
       }
       case 'dispatch': {
+        fcp('dispatch', { sid: sessionId });
         if (!run) throw new Error('Dispatch has no lifecycle lease');
         // A stop may have overtaken a queued IO effect. No provider byte was sent in that case.
         if (entry.life.kind !== 'ready' || !same(entry.life.gen, run.gen)) {

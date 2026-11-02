@@ -1,4 +1,5 @@
 import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { fcp } from '@gugu/session-shared/fcp';
 import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useRef, useState } from 'react';
 import { getSessionPageStore, asProvisioned, getSessionManagerStore } from '@renderer/features/sessions/stores/session-selectors';
@@ -278,7 +279,9 @@ export function useCreateSessionCallback({
 
     const deferFirstTurn = baseSession.type === 'acp' && files.length > 0;
     // #6264 别的机器上还没装所选的家:先在那台机器上装好再建(装不上就不建,原因说出来)。
-    void (beforeCreate ? beforeCreate() : Promise.resolve()).then(() => sessionManager.createSession(createInput, deferFirstTurn ? { deferFirstTurn: true } : undefined)).then(async () => {
+    fcp('r:createSessionNow', { sid: sessionId });
+    void (beforeCreate ? beforeCreate() : Promise.resolve()).then(() => { fcp('r:beforeCreateDone', { sid: sessionId }); return sessionManager.createSession(createInput, deferFirstTurn ? { deferFirstTurn: true } : undefined); }).then(async () => {
+      fcp('r:storeCreateDone', { sid: sessionId });
       if (submission) submission.created = true;
       // The new-session memory never stands in the way (L11 复核 58): the session is made, its first line sent and the
       // box closed even when this computer cannot save what was picked — said in the log and in a light notice. Written
@@ -316,11 +319,14 @@ export function useCreateSessionCallback({
         }
       }
       if (message) {
+        fcp('r:sendOrdinary:start', { sid: sessionId });
         setPendingMessage(message);
         await sendOrdinaryMessage(message);
         setPendingMessage(null);
+        fcp('r:sendOrdinary:end', { sid: sessionId });
       }
     }).then(() => {
+      fcp('r:navigate', { sid: sessionId });
       if (!submission) input.setPrompt((current) => retainNewerInput(submittedPrompt, current));
       finishSubmission(submission);
       onCreated?.({ projectId: selectedProjectId, sessionId });
@@ -379,6 +385,7 @@ export function useCreateSessionCallback({
   ]);
 
   const handleCreateSession = useCallback(() => {
+    fcp('r:send');
     if (creating() || !canCreate) return;
     // Reject unsupported hosts before consuming any input.
     if (pendingAttachmentCount > 0 && !pendingMessage()) {

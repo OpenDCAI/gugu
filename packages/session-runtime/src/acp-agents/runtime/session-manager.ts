@@ -1,3 +1,4 @@
+import { fcp } from '@gugu/session-shared/fcp'
 import type { SessionCommandDefinition } from '@gugu/session-core/acp';
 import type { AcpPermissionParams } from '@gugu/session-core/agents/plugins';
 import { findToolImage, trimItemsForTransport, type ToolImageLookup } from '@gugu/session-core/session-record';
@@ -449,6 +450,7 @@ export class SessionManager implements InboundRouter {
       ? invalidation.then(() => this.startUncoordinated(startInput))
       : this.startUncoordinated(startInput)
     ).then((result) => {
+      fcp('w:start:end', { sid: startInput.sessionId, ok: result.success });
       if (result.success) {
         if (lostRecord) this.disposeLostRecord(lostRecord);
       } else if (lostRecord) {
@@ -540,6 +542,7 @@ export class SessionManager implements InboundRouter {
   /** 启动走到下一步:记下来并重发 `starting` 摘要,让等待看得见。 */
   private markStartStage(input: AcpStartInput, stage: AcpStartStage, executable: string | null): void {
     const now = Date.now();
+    fcp('w:startStage:' + stage, { sid: input.sessionId, provider: input.providerId });
     const previous = this.startProgress.get(input.sessionId);
     this.startProgress.set(input.sessionId, {
       stage,
@@ -991,7 +994,9 @@ export class SessionManager implements InboundRouter {
           });
         }
         try {
+          fcp('w:newSession:start', { sid: input.sessionId });
           response = await connection.agent.newSession(request);
+          fcp('w:newSession:end', { sid: input.sessionId });
         } catch (e) {
           if (isAuthRequiredError(e)) throw e;
           // Keep the provider's original failure beside the generic wire error. The renderer
@@ -1060,6 +1065,7 @@ export class SessionManager implements InboundRouter {
           availableCommands: response.availableCommands && mergeCommands(response.availableCommands, record.supplementalCommands),
         });
         const modelResult = await this.applyInitialModel(record, input, 'new-session', response.configOptions);
+        fcp('w:initialModel:end', { sid: input.sessionId });
         if (!modelResult.success) {
           this.removeRecord(input.sessionId, false, false, true);
           await acquired.release();
@@ -1074,6 +1080,7 @@ export class SessionManager implements InboundRouter {
         }
         if (effortResult.data) startupNotices.push(effortResult.data);
         await this.applyConfiguredPermissionMode(record, input);
+        fcp('w:config:end', { sid: input.sessionId });
         if (loadProviderSessionId && !initialQueueAdmitted) {
           const queueResult = this.queueInitialPrompts(record);
           if (!queueResult.success) {
@@ -1114,7 +1121,9 @@ export class SessionManager implements InboundRouter {
     }
   }
 
+  private fcpSeen = new Set<string>();
   async prompt(input: SendPromptInput): Promise<Result<{ queued: boolean }, AcpSendPromptError>> {
+    fcp('w:prompt', { sid: input.sessionId });
     const record = this.cells.get(input.sessionId);
     if (!record) return acpErr.sessionNotFound(input.sessionId);
     if (record.closing) return acpErr.sessionBusy('Session is closing; resume it after teardown');
@@ -1853,6 +1862,7 @@ export class SessionManager implements InboundRouter {
 
     const record = this.cells.get(sessionId);
     if (!record) return;
+    if (!this.fcpSeen.has(sessionId + event.kind)) { this.fcpSeen.add(sessionId + event.kind); fcp('w:firstUpdate:' + event.kind, { sid: sessionId }); }
     // A route key may already belong to a replacement connection. Compare the actual spawned
     // resource, including handles without a PID, so late events cannot enter its replacement.
     if (record.connectionLease && record.connectionLease.value.process !== connection.process) return;

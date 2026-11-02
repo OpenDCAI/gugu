@@ -10,6 +10,7 @@
   ],
   "exports": {
     "./content-menu": "./src/content-menu.ts",
+    "./fcp": "./src/fcp.ts",
     "./animation-visibility.css": "./src/animation-visibility.css",
     "./animation-visibility": "./src/animation-visibility.ts",
     "./logger/context-node": "./src/logger/context-node.ts",

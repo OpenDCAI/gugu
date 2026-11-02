@@ -1,3 +1,4 @@
+import { fcp } from '@gugu/session-shared/fcp'
 import type { SessionBootTasks } from '@gugu/core/shared/sessionBootTasks'
 import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
@@ -438,7 +439,9 @@ async function joinBirthGroup(accessToken: string, ownerUserId: string, group: B
 /** 测试 / 需要公网身份的调用方(签平台令牌)等这个 agent 的云端那一发落地;失败即抛。 */
 export async function awaitSessionpageCloudIdentity(agentUserId: string): Promise<void> {
   const work = cloudWorkByAgent.get(agentUserId)
+  fcp('main:awaitCloudIdentity:start', { pending: !!work })
   if (work) await work
+  fcp('main:awaitCloudIdentity:end')
   if (cloudStateByAgent.get(agentUserId) === 'failed') {
     throw new Error(`session-page agent ${agentUserId}: cloud identity provisioning failed`)
   }

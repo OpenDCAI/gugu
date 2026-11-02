@@ -1,3 +1,4 @@
+import { fcp } from '@gugu/session-shared/fcp'
 import type { AgentType } from '../agentTypes'
 
 // @@@owned-agent-rest - provision an agent identity owned by the current human via the identity-schema
@@ -113,6 +114,7 @@ export async function provisionSessionpageAgentOneTrip(
 ): Promise<ProvisionedSessionpageAgentOneTrip> {
   const base = input.supabaseUrl.replace(/\/$/, '')
   const doFetch = input.fetchImpl ?? fetch
+  fcp('cloud:provision_taskpage_agent:start', { agent: input.agentId })
   const response = await doFetch(`${base}/rest/v1/rpc/provision_taskpage_agent`, {
     method: 'POST',
     headers: {
@@ -135,6 +137,7 @@ export async function provisionSessionpageAgentOneTrip(
       p_group_name: input.groupName ?? null
     })
   })
+  fcp('cloud:provision_taskpage_agent:end', { status: response.status })
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
     throw new Error(`provision_taskpage_agent failed (${response.status}): ${detail}`)

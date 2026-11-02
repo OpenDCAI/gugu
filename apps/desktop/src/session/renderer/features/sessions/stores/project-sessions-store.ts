@@ -1,4 +1,5 @@
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
+import { fcp } from '@gugu/session-shared/fcp';
 import { makeObservable, observable, reaction, runInAction, toJS } from 'mobx';
 import { toast } from 'sonner';
 import { match } from 'ts-pattern';
@@ -351,7 +352,9 @@ export class ProjectSessionsStore {
     const ic = params.sessionConfig.initialSession;
     if (!ic) throw new Error('createSession: a session is created together with its initial agent config');
     const id = ic.id;
+    fcp('r:store:create:start', { sid: id });
     const initialHooksKind = await agentHooksKind(ic.provider);
+    fcp('r:store:hooksKind', { sid: id });
     const workspace = params.workspaceConfig.workspace;
     const firstUtterance = firstUtteranceOf(ic);
     const optimistic: Session = {
@@ -391,6 +394,7 @@ export class ProjectSessionsStore {
       terminalRegistry.acquire(id, this.projectId);
     });
 
+    fcp('r:createSessionRpc:start', { sid: id });
     const result = await rpc.sessionCreate
       .createSession(JSON.parse(JSON.stringify(toJS(params))) as typeof params)
       .catch((e: unknown) => {
@@ -444,7 +448,9 @@ export class ProjectSessionsStore {
 
     this._settingsStore.pageData.invalidate();
 
+    fcp('r:createSessionRpc:end', { sid: id });
     await this.provisionSession(id, options);
+    fcp('r:provisionSession:end', { sid: id });
   }
 
   async provisionSession(sessionId: string, options?: { deferFirstTurn?: boolean }): Promise<void> {
@@ -485,7 +491,9 @@ export class ProjectSessionsStore {
     if (wsId) workspaceRegistry.setBootstrapState(this.projectId, wsId, { kind: 'resolving' });
     let result: Awaited<ReturnType<typeof rpc.sessionCreate.provisionWorkspace>>;
     try {
+      fcp('r:provisionWorkspace:start', { sid: sessionId });
       result = await rpc.sessionCreate.provisionWorkspace(sessionId, options);
+      fcp('r:provisionWorkspace:end', { sid: sessionId });
     } catch (error) {
       // #6264 这一问没答回来(别的机器上的会话:连接此刻断了 / 连不上)。❌ 停在「正在准备文件…」一直转:
       // 落成失败态,界面给「重试」,话是连接那一层给的人话(「此刻连不上 Linux 2」)。
@@ -530,6 +538,7 @@ export class ProjectSessionsStore {
     workspaceId: string
   ): Promise<void> {
     const savedSnapshot = await loadSavedSessionView(sessionId);
+    fcp('r:savedViewLoaded', { sid: sessionId });
     runInAction(() => {
       const current = this.sessions.get(sessionId);
       if (current && isUnprovisioned(current)) {
