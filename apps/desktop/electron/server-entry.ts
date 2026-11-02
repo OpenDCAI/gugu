@@ -392,10 +392,6 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       startKeeper({ home: serverHome, logFile: path.join(supervisorDataDir(), 'logs', 'service.log') })
       return process.exit(0)
     }
-    case 'upgrade-guard': {
-      const { runUpgradeGuard } = await import('./server/server-upgrade-guard')
-      return process.exit(await runUpgradeGuard(serverHome, out))
-    }
     case 'open-url': {
       const { runOpenUrl } = await import('./server/open-url-cli')
       return process.exit(await runOpenUrl(args))

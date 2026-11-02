@@ -11,6 +11,7 @@ done
 dir="$(cd "$(dirname "$self")/.." && pwd -P)"
 export GUGU_TASK_HOST_APP_PATH="$dir/app"
 export GUGU_TASK_HOST_VERSION="${version}"
+case "$(uname -s)" in Linux) export MALLOC_MMAP_THRESHOLD_="\${MALLOC_MMAP_THRESHOLD_-16384}" ;; esac
 if [ "\${1:-run}" = run ]; then
   if [ -z "\${GUGU_SERVER_HOME:-}" ]; then
     parent="$(dirname "$dir")"

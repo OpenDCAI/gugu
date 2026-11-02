@@ -6509,11 +6509,11 @@ app.whenReady().then(async () => {
     await sessionHostBoot
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
     loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
-    // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
+    // Status and legacy readers retain this activity projection; the updater reads live session activity directly.
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
     const activityFile = join(app.getPath('userData'), 'activity.json')
     const { markServerReady, ownsHomeLock } = await import('./server/server-startup')
-    // #6264 同一份读数也是升级看门狗判「新版本站稳了没有」的依据(server-upgrade-guard.ts):带上自己的版本与起始时刻。
+    // Already shipped watchdogs still read this PID-bound version and start time during the transition.
     const activityStartedAt = Date.now()
     const reportActivity = (): void => {
       if (isSingleServerRun() && !ownsHomeLock(process.env.GUGU_SERVER_HOME!)) {

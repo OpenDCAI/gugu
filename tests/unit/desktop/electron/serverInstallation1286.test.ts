@@ -9,8 +9,6 @@ import { activateServerPackage, createServerVersionLifecycle, pointCurrent } fro
 import { readPendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
 import { guardReplacement, installServiceWith } from '../../../../apps/desktop/electron/server/server-service'
 import { startServerUpdater } from '../../../../apps/desktop/electron/server/server-updater'
-import { createAccountDriver } from '../../../../apps/desktop/electron/server/server-account-driver'
-import { INITIAL_ACCOUNT_STATE, writeAccountState } from '../../../../apps/desktop/electron/server/server-account-machine'
 
 const A = 'https://backend-a.example.test'
 const B = 'https://backend-b.example.test'
@@ -126,25 +124,22 @@ describe('installation backend and package ownership', () => {
     expect(fs.existsSync(path.join(managed, 'current'))).toBe(false)
   })
 
-  it.each([A, B])('checks the actual account rollback executable against the installation (%s)', async backend => {
+  it.each([A, B])('checks the actual rollback package against the installation (%s)', backend => {
     candidate('2.0.0')
-    const old = candidate('1.0.0', backend, true)
+    candidate('1.0.0', backend, true)
     prepareInstallation(home, identity(), { updateOwner: 'controller' })
-    const userId = '00000000-0000-4000-8000-000000000001'
-    const dir = path.join(home, 'accounts', userId), dataDir = path.join(dir, 'data')
-    fs.mkdirSync(dataDir, { recursive: true })
-    fs.writeFileSync(path.join(dataDir, 'server-session.enc'), 'original credentials')
-    writeAccountState(dataDir, { ...INITIAL_ACCOUNT_STATE, version: '2.0.0', previous: '1.0.0',
-      phase: { kind: 'booting', since: 1, quickExits: 0 } }, 1)
-    const account = { userId, dir, dataDir, homeDir: path.join(dir, 'home'), email: null, addedAt: null, signedIn: true, signedOut: null }
-    const driver = createAccountDriver({ layout: { home, versions: path.join(home, 'versions'), version: '2.0.0' },
-      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '2.0.0' }, verifyBoot: async () => { throw new Error('new package failed to boot') } }),
-      followSupervisor: true, log: { info: vi.fn(), warn: vi.fn() }, child: () => undefined, started: () => false, restart: vi.fn(), now: () => 2 })
-    for (let i = 0; i < 3; i++) driver.childExited(account, true)
-    driver.tick([account])
-    await driver.settled()
-    expect(driver.binaryFor(userId)).toEqual(backend === A ? { binary: path.join(old, 'bin', 'gugu-server'), version: '1.0.0' } : 'none')
-    expect(fs.readFileSync(path.join(dataDir, 'server-session.enc'), 'utf8')).toBe('original credentials')
+    const data = path.join(home, 'accounts/original/data')
+    fs.mkdirSync(data, { recursive: true })
+    fs.writeFileSync(path.join(data, 'server-session.enc'), 'original credentials')
+    const replace = () => guardReplacement(home, { pid: 1, version: '1.0.0', supervisedBy: 'systemd' }, '2.0.0')
+    if (backend === A) {
+      expect(replace).not.toThrow()
+      expect(readPendingVerify(home)).toMatchObject({ from: '1.0.0', to: '2.0.0' })
+    } else {
+      expect(replace).toThrow('another backend')
+      expect(readPendingVerify(home)).toBeNull()
+    }
+    expect(fs.readFileSync(path.join(data, 'server-session.enc'), 'utf8')).toBe('original credentials')
   })
 
   it('preserves a verified legacy rollback source before service replacement, including when the replacement cannot start', async () => {

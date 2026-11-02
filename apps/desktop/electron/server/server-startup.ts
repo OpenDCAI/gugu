@@ -2,7 +2,7 @@
 import type { ServerAccount } from './server-layout'
 export { EXIT_RESTART, EXIT_CONFIG, EXIT_SIGNED_OUT } from './server-exit'
 // This standalone file is copied verbatim and also loaded by the launcher before server.js.
-export { acquireHomeLock, claimHomeLock, ownsHomeLock, readPendingVerify, writePendingVerify, markServerReady, writeJson } from './server-boot.cjs'
+export { acquireHomeLock, claimHomeLock, ownsHomeLock, readPendingVerify, writePendingVerify, markServerReady, writeJson, readBadVersions } from './server-boot.cjs'
 export type { PendingVerify } from './server-boot.cjs'
 
 export function onlySignedInAccount(accounts: readonly ServerAccount[]): ServerAccount | null {

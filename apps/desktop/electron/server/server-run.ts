@@ -9,7 +9,7 @@ import { managedLayout, startServerUpdater } from './server-updater'
 import { repairLegacyServerLaunchers } from './server-installation'
 import { repairServiceDefinition } from './server-service'
 import { removeLegacyBrowserLogins } from '../lib/remove-legacy-browser-logins'
-import { SUPERVISOR_HEALTH_MS, writeSupervisorHealth } from './server-upgrade-guard'
+import { SUPERVISOR_HEALTH_MS, writeSupervisorHealth } from './server-health'
 
 export async function runSingleServer(prepare: () => void, runAccount: (userId: string) => Promise<void>): Promise<void> {
   const home = serverHome()

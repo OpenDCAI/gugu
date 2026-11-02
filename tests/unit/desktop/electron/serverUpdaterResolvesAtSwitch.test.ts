@@ -11,12 +11,6 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../../../apps/desktop/electron/server/server-upgrade-guard', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../../apps/desktop/electron/server/server-upgrade-guard')>()),
-  // 看门狗是一个真的后台进程;这里只看「切到哪一版」。
-  spawnUpgradeGuard: () => undefined,
-}))
-
 const { serverUpdateRpcHandlers, startServerUpdater } = await import('../../../../apps/desktop/electron/server/server-updater')
 
 const SHA = 'a'.repeat(64)

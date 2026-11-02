@@ -83,6 +83,13 @@ describe('the packaged launcher verifies before loading application code', () =>
     expect(fs.existsSync(data('server.lock'))).toBe(false)
   })
 
+  it.each([undefined, '131072'])('preserves the account allocator policy in the single process (%s)', override => {
+    fs.writeFileSync(app(), 'process.stdout.write(process.env.MALLOC_MMAP_THRESHOLD_ ?? "unset")')
+    const result = spawnSync(command(), ['run'], { env: { ...environment(), ...(override ? { MALLOC_MMAP_THRESHOLD_: override } : {}) }, encoding: 'utf8' })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toBe(override ?? (process.platform === 'linux' ? '16384' : 'unset'))
+  })
+
   it.each(['run-account', 'status', 'selftest'])('%s bypasses home locking and attempts', verb => {
     pending()
     fs.writeFileSync(data('server.lock'), '12345')

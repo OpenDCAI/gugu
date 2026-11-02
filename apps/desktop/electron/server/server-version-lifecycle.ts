@@ -1,55 +1,24 @@
-/** Supervisor-owned version lifecycle, shared by account matching, self-upgrade and its watchdog. */
-import { readDesktopReports } from '@gugu/core/cloud/serverDesktopVersions'
+/** Installation package staging, reclamation and verified current-pointer activation. */
 import { checkAccountBoot } from './server-selftest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { pruneVersions, readVersionPin, writeVersionPin } from './server-account-versions'
-import { readAccountState } from './server-account-machine'
+import { pruneVersions, readVersionPin } from './server-account-versions'
 import { activityProof, listAccounts } from './server-layout'
 import { assertPackageEnvironment } from './server-package-environment.mts'
 import { pointCurrent as pointCurrentFile } from './server-boot.cjs'
-import { readPendingVerify, writePendingVerify } from './server-startup'
-import { createServerUpdateStateWriter } from './server-update-state'
+import { readBadVersions, readPendingVerify, writePendingVerify } from './server-startup'
+import { createServerUpdateStateWriter, readUpdateRecord } from './server-update-state'
 
-export const UPGRADE_PENDING_FILE = 'upgrade-pending.json'
 /** The staged package installed but did not boot an account: a boot failure, not an install failure. */
 export class AccountBootRejectedError extends Error {}
 export class ServerPackageDeferredError extends Error {}
 
-export type UpgradeMarker = { from: string; to: string; fromDir: string; toDir: string; switchedAt: number; request?: number }
+export type ServerTransition = { from: string; to: string; fromDir: string; toDir: string; switchedAt: number; request?: number }
 const dataDir = (home: string) => path.join(home, 'data')
-
-export function readUpgradeMarker(home: string): UpgradeMarker | null {
-  try {
-    const value = JSON.parse(fs.readFileSync(path.join(dataDir(home), UPGRADE_PENDING_FILE), 'utf8')) as Partial<UpgradeMarker>
-    return typeof value.from === 'string' && typeof value.to === 'string' && typeof value.fromDir === 'string'
-      && typeof value.toDir === 'string' && typeof value.switchedAt === 'number' ? value as UpgradeMarker : null
-  } catch { return null }
-}
-
-export function writeUpgradeMarker(home: string, marker: UpgradeMarker): boolean {
-  const file = path.join(dataDir(home), UPGRADE_PENDING_FILE)
-  const tmp = `${file}.${process.pid}.tmp`
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true })
-    fs.writeFileSync(tmp, JSON.stringify(marker), { mode: 0o600 })
-    fs.renameSync(tmp, file)
-    return true
-  } catch { fs.rmSync(tmp, { force: true }); return false }
-}
-
-export function clearUpgradeMarker(home: string): void {
-  fs.rmSync(path.join(dataDir(home), UPGRADE_PENDING_FILE), { force: true })
-}
 
 export function pointCurrent(home: string, versionDir: string): void {
   assertPackageEnvironment(home, versionDir)
   pointCurrentFile(home, versionDir)
-}
-
-/** The watchdog records an actual successful transition, never a directory-number or mtime guess. */
-export function recordVerifiedSupervisorVersion(home: string, marker: UpgradeMarker): void {
-  writeVersionPin(dataDir(home), { version: marker.to, previous: marker.from, at: marker.switchedAt })
 }
 
 export type ServerVersionLifecycle = ReturnType<typeof createServerVersionLifecycle>
@@ -68,24 +37,18 @@ export function createServerVersionLifecycle(options: {
     if (!ready(version)) throw new Error('Target version has not passed account boot verification')
   }
   const reclaim = (): string[] => {
-    const supervisor = readVersionPin(dataDir(layout.home))
-    // Old installations did not record previous. Preserve their directories until a verified transition supplies it.
-    if (!supervisor) return []
-    const keep = new Set([layout.version, supervisor.version,
+    const previous = readUpdateRecord(layout.home)?.previous
+    // A legacy verified pin is read only for reclamation during the transition.
+    const legacy = previous ? null : readVersionPin(dataDir(layout.home))
+    if (!previous && !legacy) return []
+    const keep = new Set([layout.version,
       ...[...flights].filter(([, stage]) => !stage.ready).map(([version]) => version),
       ...held.values(), ...(options.running?.() ?? [])])
-    if (supervisor.previous) keep.add(supervisor.previous)
+    if (previous) keep.add(previous)
+    if (legacy) { keep.add(legacy.version); if (legacy.previous) keep.add(legacy.previous) }
     try { keep.add(path.basename(fs.realpathSync(path.join(layout.home, 'current')))) } catch { return [] }
-    const marker = readUpgradeMarker(layout.home)
-    if (marker) { keep.add(marker.from); keep.add(marker.to) }
     const pending = readPendingVerify(layout.home)
     if (pending) { keep.add(pending.from); keep.add(pending.to) }
-    for (const account of listAccounts()) {
-      for (const report of Object.values(readDesktopReports(account.dataDir))) keep.add(report.version)
-      const state = readAccountState(account.dataDir) ?? readVersionPin(account.dataDir)
-      if (state?.version) keep.add(state.version)
-      if (state?.previous) keep.add(state.previous)
-    }
     // install.sh publishes this lease BEFORE its target directory becomes visible. Recheck at deletion.
     const removed = pruneVersions(layout.versions, keep, version => fs.existsSync(path.join(layout.versions, '.prepared', version)))
     for (const version of removed) flights.delete(version)
@@ -115,7 +78,7 @@ export function createServerVersionLifecycle(options: {
         throw error
       }
     },
-    switchSupervisor(marker: UpgradeMarker, beforeSwitch: () => void): void {
+    switchSupervisor(marker: ServerTransition, beforeSwitch: () => void): void {
       requireBoot(marker.to)
       assertPackageEnvironment(layout.home, marker.toDir)
       writePendingVerify(layout.home, { from: marker.from, to: marker.to, attempts: 0,
@@ -144,7 +107,6 @@ export async function activateServerPackage(home: string, directory: string, opt
   const versions = fs.realpathSync(path.join(home, 'versions'))
   const target = fs.realpathSync(directory)
   if (path.dirname(target) !== versions) throw new Error('Candidate is outside the installation')
-  const { readBadVersions } = await import('./server-upgrade-guard')
   if (readBadVersions(home)[path.basename(target)] !== undefined) {
     throw new ServerPackageDeferredError('Server package previously failed and was rolled back; waiting for another release')
   }

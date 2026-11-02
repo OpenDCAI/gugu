@@ -16,6 +16,7 @@ export type ServerUpdateRecord = {
   state: 'idle' | 'downloading' | 'ready' | 'switching' | 'failed'
   version: string
   at: number
+  previous?: string
   cause?: FailureCause
   until?: number
   attempts?: number
@@ -26,9 +27,10 @@ export function createServerUpdateStateWriter(home: string, now: () => number = 
   const file = path.join(home, 'data', SERVER_UPDATE_STATE_FILE)
   return {
     set(state, version, reason, fields) {
-      const previous = readUpdateRecord(home)?.lastOutcome
+      const previous = readUpdateRecord(home)
       writeJson(file, { state, version, at: now(), ...(reason ? { reason } : {}),
-        ...(previous ? { lastOutcome: previous } : {}), ...fields })
+        ...(previous?.lastOutcome ? { lastOutcome: previous.lastOutcome } : {}),
+        ...(previous?.previous ? { previous: previous.previous } : {}), ...fields })
     },
     clear() {
       fs.rmSync(file, { force: true })

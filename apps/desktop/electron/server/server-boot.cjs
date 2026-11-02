@@ -95,10 +95,17 @@ function writePendingVerify(home, value) { writeJson(file(home, 'pending-verify.
 function markServerReady(home, now = Date.now()) {
   const pending = readPendingVerify(home)
   if (!pending) return
-  writeJson(file(home, 'server-update.json'), { state: 'idle', version: pending.to, at: now,
+  writeJson(file(home, 'server-update.json'), { state: 'idle', version: pending.to, previous: pending.from, at: now,
     lastOutcome: { kind: 'switched', target: pending.to, at: now,
       ...(pending.request !== undefined ? { request: pending.request } : {}) } })
   fs.rmSync(file(home, 'pending-verify.json'), { force: true })
+}
+function readBadVersions(home) {
+  let raw
+  try { raw = readJson(file(home, 'bad-versions.json')) } catch { return {} }
+  const out = {}
+  for (const [name, at] of Object.entries(raw || {})) if (version(name) && typeof at === 'number' && Number.isFinite(at)) out[name] = at
+  return out
 }
 function checkPendingBoot(home) {
   const pending = readPendingVerify(home)
@@ -121,7 +128,7 @@ function checkPendingBoot(home) {
   return true
 }
 
-module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, readPendingVerify, writePendingVerify, markServerReady, writeJson, pointCurrent }
+module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, readPendingVerify, writePendingVerify, markServerReady, writeJson, pointCurrent, readBadVersions }
 
 // Importing these same helpers from a bundle never counts another attempt.
 if (process.argv[2] === 'run' && process.execArgv.some((arg, i) => arg === '--require' && process.execArgv[i + 1] === __filename)) {

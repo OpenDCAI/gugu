@@ -22,9 +22,8 @@ import { createServerUpdateStateWriter, readUpdateRecord, type ServerUpdateRecor
 export { createServerUpdateStateWriter } from './server-update-state'
 import type { FailureCause, Outcome } from '@gugu/core/shared/serverVersionOutcome'
 import { serverDownloadBase } from './server-download'
-import type { SupervisorLog } from './server-supervisor'
 import { touchVersion, versionManifestUrl } from './server-account-versions'
-import { readBadVersions } from './server-upgrade-guard'
+import { readBadVersions } from './server-startup'
 import { controllerOwnsUpdates, readInstallation } from './server-package-environment.mts'
 
 /**
@@ -164,7 +163,7 @@ export async function stageVersion(layout: Pick<Layout, 'versions'>, manifest: S
     // 试跑一下再切:包在这台机器上起不来(系统太旧、架构不符、原生模块 ABI 不对),就留在旧版本上,❌ 切过去把自己弄死。
     // #6264 以前只跑 `help` —— 它在加载任何原生模块之前就退出了,等于没试。现在跑 `selftest`:真的加载
     // better-sqlite3 / node-pty / @parcel/watcher 并跑一下自带的 tmux(server-selftest.ts)。
-    // 切过去之后能不能真的站稳,另由升级看门狗盯着(server-upgrade-guard.ts)。
+    // 切过去之后能不能真的站稳,由预加载按连续启动失败计数(server-boot.cjs)。
     execFileSync(innerBin, ['selftest'], { stdio: 'ignore', timeout: 60_000, env: { ...process.env, GUGU_SERVER_WAIT_PID: '' } })
     fs.renameSync(innerDir, target)
     touchVersion(layout.versions, manifest.version)
@@ -176,10 +175,9 @@ export async function stageVersion(layout: Pick<Layout, 'versions'>, manifest: S
 
 export type ServerUpdaterRuntime = { isBusy: () => boolean; shutdown: () => void }
 export type ServerUpdaterDeps = ServerUpdaterRuntime & {
-  log: SupervisorLog
+  log: { info: (message: string, fields?: Record<string, unknown>) => void; warn: (message: string, fields?: Record<string, unknown>) => void }
   lifecycle?: ServerVersionLifecycle | null
   stateWriter?: ServerUpdateStateWriter
-  inUse?: () => string[]
 }
 export type ServerUpdater = {
   dispose: () => void

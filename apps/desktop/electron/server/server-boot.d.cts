@@ -7,3 +7,4 @@ export function writePendingVerify(home: string, pending: PendingVerify): void
 export function markServerReady(home: string, now?: number): void
 export function writeJson(file: string, value: unknown): void
 export function pointCurrent(home: string, directory: string): void
+export function readBadVersions(home: string): Record<string, number>

@@ -392,7 +392,7 @@ export function chooseServiceMode(input: { platform: NodeJS.Platform; systemdRea
   return input.unitExists ? 'systemdUnreachable' : 'fallback'
 }
 
-/** 起来之后最多等这么久确认「在跑的是新版本」:旧的收子进程最多 30 秒(server-supervisor.ts),新的再起来。 */
+/** 起来之后最多等这么久确认「在跑的是新版本」:旧进程收会话最多 30 秒,新的再起来。 */
 const CONFIRM_TIMEOUT_MS = 75_000
 const CONFIRM_POLL_MS = 500
 
