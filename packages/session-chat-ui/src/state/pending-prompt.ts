@@ -4,7 +4,7 @@
  * 转录(ChatRoot)与对话左缘的时间线都把它当成一轮来画,所以「它长什么样」只在这里定一次 ——
  * 两处各拼一份,交接给真的那一轮时总有一处对不上(位置跳、刻度晚到)。
  */
-import type { ChatAttachment, TranscriptTurn } from '@session-chat/model';
+import type { ChatAttachment, TranscriptTurn, TurnProcessItem } from '@session-chat/model';
 
 export type PendingPrompt = {
   id: string;
@@ -18,7 +18,7 @@ export type PendingPrompt = {
   /** A host queue row: new history (a seed while the session attaches) does not take it, only its own turn does. */
   held?: boolean;
   /** Its session is still starting (the lifecycle's own state): the live line says so instead of the working label. */
-  starting?: boolean;
+  starting?: TurnProcessItem['starting'];
 };
 
 /** 乐观行画成的那一轮:只有人说的那一句。 */
