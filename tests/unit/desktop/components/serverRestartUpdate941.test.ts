@@ -9,7 +9,7 @@ import type { Device } from '@gugu/core/shared/types/chat'
 import { setLocalePreference } from '@/i18n'
 
 const retry = vi.hoisted(() => vi.fn(async (_deviceId: string) => true))
-const restart = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string, _confirmedRpc: boolean) => true))
+const restart = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string, _confirmedRpc: boolean): Promise<{ requested: boolean; at?: number }> => ({ requested: true })))
 vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retry, restartServerVersionNow: restart }))
 
 const current = '0.2.58-beta.1056.1'
@@ -33,7 +33,7 @@ async function click(id: string) {
   await act(async () => { node(id)!.click() })
 }
 beforeEach(() => {
-  restart.mockReset().mockResolvedValue(true)
+  restart.mockReset().mockResolvedValue({ requested: true })
   retry.mockReset().mockResolvedValue(true)
   toast.mockReset()
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container)
@@ -124,12 +124,101 @@ describe('confirmed server update feedback', () => {
   })
 
   it.each(['refused', 'rejected'])('reports a %s restart request instead of leaving a sent state', async (failure) => {
-    if (failure === 'refused') restart.mockResolvedValue(false)
+    if (failure === 'refused') restart.mockResolvedValue({ requested: false })
     else restart.mockRejectedValue(new Error('remote disconnected'))
     await render(); await click('update-now'); await click('update-now-yes')
     expect(node('restarting')).toBeNull()
     expect(node('update-now')).not.toBeNull()
     expect(toast).toHaveBeenCalledWith(expect.stringContaining('未能确认'), 'error', failure === 'rejected' ? expect.any(String) : undefined)
+  })
+
+  it.each(['switched', 'rolledBack', 'failed', 'refused'] as const)('ends the spinner on this request’s %s result even when the failure tuple is unchanged', async kind => {
+    const at = 1234 // Host request identity; unrelated to the desktop clock.
+    restart.mockResolvedValue({ requested: true, at })
+    const failed = { state: 'failed' as const, version: target, reason: 'boot-failed' as const }
+    await render(server(failed)); await click('match-restart-now'); await click('update-now-yes')
+    expect(node('restarting')).not.toBeNull()
+    await render(server({ ...failed, lastOutcome: { kind, request: at } }))
+    expect(node('restarting')).toBeNull()
+    expect(node('match-failed')!.textContent).toContain('更新没成功')
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { kind: 'waiting' as const, request: 1234 },
+    { kind: 'failed' as const, request: 1233 },
+  ])('keeps waiting for a terminal result of this request (%j)', async lastOutcome => {
+    restart.mockResolvedValue({ requested: true, at: 1234 })
+    await render(); await click('update-now'); await click('update-now-yes')
+    await render(server({ state: 'ready', version: target, lastOutcome }))
+    expect(node('restarting')).not.toBeNull()
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it('keeps a correlated request pending while the host stages it', async () => {
+    restart.mockResolvedValue({ requested: true, at: 1234 })
+    await render(); await click('update-now'); await click('update-now-yes')
+    await render(server({ state: 'downloading', version: target }))
+    expect(node('restarting')).not.toBeNull()
+  })
+
+  const legacyChanges = [
+    { name: 'ready to failure', before: { state: 'ready', version: target }, after: { state: 'failed', version: target } },
+    { name: 'another failed target', before: { state: 'ready', version: target }, after: { state: 'failed', version: '0.3.1' } },
+    { name: 'download progress state', before: { state: 'ready', version: target }, after: { state: 'downloading', version: target } },
+    { name: 'another ready target', before: { state: 'ready', version: target }, after: { state: 'ready', version: '0.3.1' } },
+    { name: 'supervisor ready at the same version', before: { state: 'ready', version: target }, after: { scope: 'supervisor', state: 'ready', version: target } },
+    { name: 'update cleared after rollback', before: { state: 'ready', version: target }, after: null },
+    { name: 'retry failed with another reason', before: { state: 'failed', version: target, reason: 'boot-failed' }, after: { state: 'failed', version: target } },
+    { name: 'retry now downloading', before: { state: 'failed', version: target, reason: 'boot-failed' }, after: { state: 'downloading', version: target } },
+  ] satisfies { name: string; before: NonNullable<Device['capabilities']['server_update']>; after: Device['capabilities']['server_update'] | null }[]
+  it.each(legacyChanges)('legacy ACK yields to the host’s $name', async ({ before, after }) => {
+    await render(server(before)); await click(before.state === 'failed' ? 'match-restart-now' : 'update-now'); await click('update-now-yes')
+    const next = server(after ?? undefined)
+    if (after === null) delete next.capabilities.server_update
+    await render(next)
+    expect(node('restarting')).toBeNull()
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it.each(['same state', 'busy count only', 'other installed version', 'same failed retry'] as const)('legacy ACK keeps waiting with no new result: %s', async variant => {
+    const before = variant === 'same failed retry'
+      ? { state: 'failed' as const, version: target, reason: 'boot-failed' as const }
+      : { state: 'ready' as const, version: target }
+    await render(server(before)); await click(before.state === 'failed' ? 'match-restart-now' : 'update-now'); await click('update-now-yes')
+    await render(server({ ...before, ...(variant === 'busy count only' ? { busy_agents: 2 } : {}) }, variant === 'other installed version' ? '0.2.58' : current))
+    expect(node('restarting')).not.toBeNull()
+  })
+
+  it.each([undefined, 1234])('offline feedback ends a failed retry spinner (request %s)', async at => {
+    restart.mockResolvedValue({ requested: true, at })
+    const failed = { state: 'failed' as const, version: target, reason: 'boot-failed' as const }
+    await render(server(failed)); await click('match-restart-now'); await click('update-now-yes')
+    const offline = server(failed)
+    offline.is_online = false; offline.status = 'offline'
+    await render(offline)
+    expect(node('restarting')).toBeNull()
+    expect(node('match-failed')).toBeNull()
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it('yields to a supervisor update when the account stops reporting an update, even with a correlated ACK', async () => {
+    restart.mockResolvedValue({ requested: true, at: 1234 })
+    await render(); await click('update-now'); await click('update-now-yes')
+    await render(server({ state: 'ready', version: target, scope: 'supervisor' }))
+    expect(node('restarting')).toBeNull()
+    expect(node('update')!.textContent).toContain('服务进程')
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it('does not restore a spinner when the ACK arrives after the installed version', async () => {
+    let acknowledge!: (value: { requested: boolean; at: number }) => void
+    restart.mockReturnValue(new Promise(resolve => { acknowledge = resolve }))
+    await render(); await click('update-now'); await click('update-now-yes')
+    await render(server(undefined, target))
+    await act(async () => { acknowledge({ requested: true, at: 1234 }) })
+    expect(node('restarting')).toBeNull()
+    expect(toast).not.toHaveBeenCalled()
   })
 
   it('bounds the wait for a confirming heartbeat and allows an explicit retry', async () => {

@@ -201,9 +201,9 @@ export function reportedDesktopVersion(env: NodeJS.ProcessEnv, options: { packag
 }
 
 /** Only the distinct, explicitly confirmed action grants an override for this target, once. */
-export function requestConfirmedVersionRestart(env: NodeJS.ProcessEnv, target: unknown, confirmed: unknown, now = Date.now()): boolean {
+export function requestConfirmedVersionRestart(env: NodeJS.ProcessEnv, target: unknown, confirmed: unknown, now = Date.now()): number | false {
   const dataDir = env.GUGU_SERVER_MODE === '1' ? env.GUGU_TASK_HOST_USER_DATA?.trim() : undefined
   if (!dataDir || confirmed !== true || !isServerVersion(target)) return false
   requestVersionSwitch(dataDir, 'confirmed restart from desktop', now, true, target)
-  return true
+  return now
 }

@@ -9,7 +9,7 @@ import { ProjectFolderCard } from '@/session/renderer/features/projects/componen
 import { DevicesContext, type DevicesContextValue } from '@/store/devicesContext'
 import type { Device } from '@gugu/core/shared/types/chat'
 const retryMatch = vi.hoisted(() => vi.fn(async (_deviceId: string) => true))
-const restartNow = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string, _confirmedRpc: boolean) => true))
+const restartNow = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string, _confirmedRpc: boolean) => ({ requested: true })))
 vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retryMatch, restartServerVersionNow: restartNow }))
 function device(overrides: Partial<Device> = {}): Device {
   return {

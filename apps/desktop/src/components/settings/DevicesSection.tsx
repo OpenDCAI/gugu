@@ -18,7 +18,7 @@ import { useSshSignInStates } from '../../hooks/useSshSignInStates'
 import { useSshLinkProblems, useSshMachineIds, useSshUpgrades } from '../../hooks/useSshLinkProblems'
 import { sshLinkFacts } from '../../lib/sshLinkOnline'
 import { requestSshServerUpgrade, signInSshMachine } from '../../lib/sshLinkChannel'
-import { retryServerVersionMatch, restartServerVersionNow } from '../../lib/serverVersionRetry'
+import { retryServerVersionMatch, restartServerVersionNow, type VersionRestartResult } from '../../lib/serverVersionRetry'
 import type { SshLinkFailure } from '../../lib/sshLink'
 import type { SshSignInState } from '../../lib/serverSshMachines'
 import { useDevicesStore } from '../../store/devicesContext'
@@ -457,7 +457,7 @@ function DeviceRow({
   onRetryUpdate?: () => void
   /** #6264 那台机器换成和桌面匹配的版本没成(心跳报 server_update.failed):请它再试一次。 */
   onRetryVersionMatch?: () => Promise<boolean>
-  onRestartVersionNow?: (version: string) => Promise<boolean>
+  onRestartVersionNow?: (version: string) => Promise<VersionRestartResult>
   /** 经 SSH 重新登录(只有这台桌面记着怎么 SSH 过去的机器有)。 */
   onRelogin?: () => void
 }) {
@@ -471,11 +471,11 @@ function DeviceRow({
   // 「登录已失效」「那台机器上已退出登录」替掉「上次在线」:机器是离线的,但真正的原因是这个,下一步是重新登录。
   const link = sshLink === undefined ? null : sshLinkFacts(true, sshLink, device.is_online).sshLink ?? null
   // 点了「重试」、那台机器的心跳还没报回新状态之前:先说「正在更新」;报回来(不再是这一次失败)就让位给它。
-  const failedUpdate = model.update?.state === 'failed' ? model.update.version : null
+  const failedUpdate = device.is_online && model.update?.state === 'failed' ? model.update.version : null
   const [retriedFor, setRetriedFor] = useState<string | null>(null)
   const retrying = failedUpdate !== null && retriedFor === failedUpdate
   // 「有新版本」在等空闲:人可以「现在重启更新」(先说清会中断正在跑的 agent,再点一次才发)。点过就收起,心跳报回新版本时这颗标签自己没了。
-  const [updateNow, setUpdateNow] = useState<'ask' | { version: string; deadline: number; fromFailed: boolean } | null>(null)
+  const [updateNow, setUpdateNow] = useState<'ask' | { version: string; deadline: number; before: NonNullable<DeviceRowModel['update']>; request?: number | 'pending' } | null>(null)
   const restarting = updateNow !== null && typeof updateNow === 'object' ? updateNow : null
   // 账号这一级的更新都能「现在重启更新」。旧版本账号进程既不报 server_confirmed_restart(走旧的 retry RPC)也不报 scope:
   // 新进程总带 scope,所以没有 scope 只会是旧账号进程报的。
@@ -483,9 +483,15 @@ function DeviceRow({
   // 起不来的那一版只有确认重启能再试(普通「重试」解不开它的冷却):失败行给「现在重启更新」,❌ 给一颗按了没用的「重试」。
   const bootFailed = model.update?.state === 'failed' && model.update.reason === 'boot-failed'
   const restartable = canRestart && (model.update?.state === 'ready' || bootFailed)
+  const outcome = model.update?.scope === 'account' ? model.update.lastOutcome : undefined
+  // New hosts answer this exact request. Old ACKs have no identity: yield to a changed host fact.
+  const answered = restarting && (model.update?.scope !== restarting.before.scope || (typeof restarting.request === 'number'
+    ? outcome?.request === restarting.request && outcome.kind !== 'waiting'
+    : restarting.request === undefined && (model.update?.scope !== restarting.before.scope
+      || model.update?.state !== restarting.before.state || model.update?.version !== restarting.before.version
+      || model.update?.reason !== restarting.before.reason)))
   if ((updateNow === 'ask' && !restartable)
-    || (restarting && (model.version === restarting.version
-      || (!restarting.fromFailed && model.update?.state === 'failed' && model.update.version === restarting.version)))) setUpdateNow(null)
+    || (restarting && (!device.is_online || model.version === restarting.version || answered))) setUpdateNow(null)
   useEffect(() => {
     if (!restarting) return
     const timer = setTimeout(() => {
@@ -567,12 +573,16 @@ function DeviceRow({
             <Button size="sm" onClick={() => setUpdateNow(null)} data-testid="settings-device-update-now-no">{t('devices.cancel')}</Button>
             <Button size="sm" variant="primary" onClick={() => {
               if (!model.update) return
-              setUpdateNow({ version: model.update.version, deadline: Date.now() + 120_000, fromFailed: model.update.state === 'failed' })
+              const pending = { version: model.update.version, deadline: Date.now() + 120_000, before: { ...model.update }, request: 'pending' as const }
+              setUpdateNow(pending)
               const failed = (error?: unknown) => {
-                setUpdateNow(null)
+                setUpdateNow(current => current === pending ? null : current)
                 toast(t('devices.update.restartFailed', { name: device.label }), 'error', error ? messageForUser(error) : undefined)
               }
-              void onRestartVersionNow(model.update.version).then((ok) => { if (!ok) failed() }, failed)
+              void onRestartVersionNow(model.update.version).then(result => {
+                if (!result.requested) failed()
+                else setUpdateNow(current => current === pending ? { ...pending, request: result.at } : current)
+              }, failed)
             }} data-testid="settings-device-update-now-yes">
               {t('devices.update.confirmRestart')}
             </Button>
