@@ -84,3 +84,13 @@ test('cancel/context rotation discards uncommitted drafts and late events cannot
   agent.contextEpoch = randomUUID()
   assert.deepEqual(live.project(agent, []).pending, [])
 })
+
+test('a user commit uses its actual Pi entry id, without guessing from text or time', async () => {
+  const events = [], jobId = randomUUID(), user = { role: 'user', content: 'caption plus model-only file path' };
+  let leaf = null;
+  const observe = createPhonePiObserver({ jobId, sessionManager: { getLeafEntry: () => leaf, getEntries: () => leaf ? [leaf] : [] }, emit: event => events.push(event) });
+  observe({ type: 'message_end', message: user });
+  leaf = { type: 'message', id: 'actual-user', message: user };
+  await Promise.resolve();
+  assert.deepEqual(events, [{ type: 'pi_live', kind: 'committed', id: `phone-input:${jobId}`, recordId: 'actual-user' }]);
+});

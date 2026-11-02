@@ -9,7 +9,7 @@ import { AssistantNameInline } from '../assistant/AssistantNameInline'
 import { AgentSettingsModal } from '../agentsettings/AgentSettingsModal'
 import { Button } from '../ui/Button'
 import { Switch } from '../ui/Switch'
-import { ChevronRight, Clock, Database, Monitor, Plug, MessageCircle } from '@/lib/icons'
+import { ChevronRight, Clock, Database, Monitor, Plug, MessageCircle, SidebarMinimalistic } from '@/lib/icons'
 import { useAssistantHome } from '../../lib/useAssistantHome'
 import { platform } from '../../platform'
 import { useAuth } from '../../store/auth'
@@ -130,7 +130,7 @@ export function AssistantSection({ available, onOpenSection, onOpenAssistantPage
       <SettingsGroup presentation="navigation" title={t('capabilities.title')}>
         <SettingsRow
           title={t('settingsPage.model')}
-          leading={<span className="size-4 shrink-0" aria-hidden="true" />}
+          leading={<SidebarMinimalistic size={16} />}
           description={t('settingsPage.modelNote')}
           control={<ChevronRight size={16} className="gg-settings-row-chevron" aria-hidden="true" />}
           onClick={onOpenModel ?? (() => setModelOpen(true))}

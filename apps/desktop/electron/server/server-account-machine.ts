@@ -169,7 +169,7 @@ function tick(state: AccountState, event: Extract<AccountEvent, { type: 'tick' }
     }
   }
   if (confirmed) return switchTo(s, target, now, true, request.at)
-  if (proof === 'cold') return switchTo(s, target, now, false, undefined)
+  if (proof === 'cold' || s.child !== 'running') return switchTo(s, target, now, false, undefined)
   const answered = s.lastOutcome?.kind === 'waiting' && s.lastOutcome.request === request?.at
   return {
     state: { ...s, phase: { kind: 'waiting', target },

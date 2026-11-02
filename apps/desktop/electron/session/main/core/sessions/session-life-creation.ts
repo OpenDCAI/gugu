@@ -46,6 +46,7 @@ export function enqueueCreationTurns(session: CreationTurns): number {
     const messageId = index === 0 && session.initialMessageId ? session.initialMessageId : `${session.id}:creation:${index}`;
     life.enqueue({
       sessionId: session.id, messageId, text: turn.text, kind: turn.kind ?? 'ordinary',
+      ...(turn.files?.length ? { delivery: { queue: true, files: turn.files } } : {}),
       turn: index === 0 && landsFirst ? { kind: 'chat-page-first-turn' }
         : { kind: 'prompt', origin: turn.origin, ...(turn.hiddenContext ? { hiddenContext: turn.hiddenContext } : {}) },
     });

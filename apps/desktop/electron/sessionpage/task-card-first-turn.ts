@@ -25,6 +25,7 @@ export interface TaskCardFirstTurnInput {
   chatId: string
   messageId: string
   text: string
+  files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]
   deviceId: string
   machineLabel: string
   senderIdentities: Map<string, GuguIdentity>
@@ -42,7 +43,7 @@ export interface TaskCardFirstTurn {
 
 // 先看再发:没进群时 message_send 必然被拒,而有的 harness 把一次失败的咕咕工具调用记成整轮失败(Codex 实测)。
 export const TASK_CARD_NOT_MEMBER_HINT =
-  '这是你的任务卡。你加入这个群要等群主同意：交结果之前先用 message_members 看你是不是这个群的成员 —— 是，就照常在群里回、引用这张卡；还不是，就把结果直接回在你自己的会话里，不往群里发。'
+  '这是你的任务卡。你现在还不是这个群的成员：交结果之前先用 message_members 看你是不是这个群的成员 —— 是，就照常在群里回、引用这张卡；还不是，就把结果直接回在你自己的会话里，不往群里发。'
 
 export async function landTaskCardFirstTurn(input: TaskCardFirstTurnInput): Promise<TaskCardFirstTurn> {
   const text = input.text.trim()
@@ -70,6 +71,7 @@ export async function landTaskCardFirstTurn(input: TaskCardFirstTurnInput): Prom
       v: 1,
       type: 'task',
       text,
+      ...(input.files?.length ? { files: input.files } : {}),
       agentUserId: input.agentUserId,
       agentName: agent.name,
       agentType: agent.agent_type,
@@ -92,6 +94,14 @@ export async function landTaskCardFirstTurn(input: TaskCardFirstTurnInput): Prom
   const { data: seat, error: seatError } = await chat.from('active_members')
     .select('user_id').eq('chat_id', input.chatId).eq('user_id', input.agentUserId).maybeSingle()
   if (seatError) throw new Error(`task card for ${input.sessionId}: read the agent's seat: ${seatError.message}`)
+  let notMemberHint = TASK_CARD_NOT_MEMBER_HINT
+  if (!seat) {
+    const { data: request, error: requestError } = await chat.from('group_join_requests')
+      .select('status').eq('chat_id', input.chatId).eq('requester_user_id', input.agentUserId)
+      .eq('status', 'pending').maybeSingle()
+    if (requestError) throw new Error(`task card for ${input.sessionId}: read the agent's join request: ${requestError.message}`)
+    if (request) notMemberHint += '你的入群申请正在等待群管理员同意。'
+  }
   return {
     chatId: input.chatId,
     render: {
@@ -104,7 +114,7 @@ export async function landTaskCardFirstTurn(input: TaskCardFirstTurnInput): Prom
         kind: 'group',
       },
       timestamp: input.timestamp,
-      ...(seat ? {} : { messageContext: TASK_CARD_NOT_MEMBER_HINT }),
+      ...(seat ? {} : { messageContext: notMemberHint }),
     },
   }
 }

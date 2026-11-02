@@ -63,17 +63,16 @@ export default {
         "authentication": "模型服务拒绝了授权",
         "network": "连不上模型服务",
         "timeout": "太久没有响应",
-        "offline": "运行它的设备断开了",
         "rateLimited": "请求太频繁",
         "nextMessage": "下条消息会自动再试",
         "recovered": "{{name}} 之前 {{count}} 次没有完成 · 已恢复",
         "settings": "去设置"
       },
       "state": {
-        "exhausted": "额度已用完",
-        "weekly": "周限额度已满",
-        "monthly": "月限额度已满",
-        "model-unavailable": "模型不可用"
+        "quota": "额度已用完",
+        "weeklyQuota": "周限额度已满",
+        "monthlyQuota": "月限额度已满",
+        "modelUnavailable": "模型不可用"
       },
       "stateAction": "{{name}} {{state}}，点击切换模型",
       "authentication": "模型服务拒绝了本次请求的授权，回复未完成。",
@@ -90,7 +89,6 @@ export default {
       "notAdmitted": "消息已保留，助理就绪后回复。",
       "outcomeUnknown": "投递结果未知：消息可能已经送到助理，没有重投。",
       "undelivered": "消息暂未送达：没有运行中的咕咕实例持有这个 Agent，打开那个实例后会由它读取。",
-      "offline": "设备连接中断，本次回复未完成",
       "retry": "重试",
       "retrying": "重试中…",
       "timeout": "Agent 长时间未响应，本次回复未完成"
@@ -457,6 +455,7 @@ export default {
     "reactWith": "回应 {{emoji}}"
   },
   "forward": {
+    "fileFailed": "{{name}} 没能一起转发",
     "batchPreview": "转发 {{count}} 条消息",
     "batchPreview_one": "转发 {{count}} 条消息",
     "batchPreview_other": "转发 {{count}} 条消息",

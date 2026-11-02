@@ -15,7 +15,6 @@ vi.mock('@main/lib/logger', () => ({ log }));
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
   return { Notification: class extends EventEmitter {
-    static isSupported() { return true; }
     constructor(private options: { title: string; body: string; silent: boolean }) { super(); instances.push(this); }
     show() { shown.push(this.options); if (state.autoShow) this.emit('show'); }
     close() { this.emit('close'); }
@@ -23,7 +22,9 @@ vi.mock('electron', async () => {
 });
 
 let clock = 1_000_000;
-beforeEach(() => {
+beforeEach(async () => {
+  const { setSystemNotificationsUsable } = await import('../agent-hooks/system-notifications');
+  setSystemNotificationsUsable(async () => true);
   clock += 120_000;
   vi.spyOn(Date, 'now').mockReturnValue(clock);
   settings.enabled = true;
@@ -42,6 +43,20 @@ const notify = () => family.actions.find((action) => action.name === 'notificati
 const probe = () => family.groups.find((group) => group.id === 'notification')!.probe!(ctx);
 
 describe('device banners use the shared task preferences and limiter', () => {
+  it('does not construct a banner when the system service is unavailable', async () => {
+    const { setSystemNotificationsUsable } = await import('../agent-hooks/system-notifications');
+    setSystemNotificationsUsable(async () => false);
+    expect(await showDeviceNotification('Review', 'Question')).toEqual({ shown: false });
+    expect(instances).toEqual([]);
+  });
+
+  it('rejects a missing host injection rather than touching Electron support', async () => {
+    vi.resetModules();
+    const { showDeviceNotification: unwired } = await import('./extension-notifications');
+    await expect(unwired('Review', 'Question')).rejects.toThrow('never injected');
+    expect(instances).toEqual([]);
+  });
+
   it('returns the actual disabled receipt through notification.show', async () => {
     settings.enabled = false;
     expect(await notify()).toEqual({ ok: true, data: { shown: false } });

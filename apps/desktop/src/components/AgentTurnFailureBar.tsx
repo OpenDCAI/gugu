@@ -1,24 +1,26 @@
 // #2115 普通 ACP 回合失败条：composer 上方浮动条同槽位（RunningTokenBar 的失败态邻居，flexShrink:0
 // 兄弟，不 overlay 消息列表）。「{name} 回复失败：{人话}」+ 重试 + 关闭——重试 = CAS error→pending
-// 重排原 deliver 命令（真重投递，❌ 假按钮）；原始错误只进 console（useAgentTurnFailure 已记）。
-// 与聊天流共用 TurnFailureCard；原因仍为既有本地化文案，宿主诊断不进入展示层。
+// 重排原 deliver 命令（真重投递，❌ 假按钮）。失败来自失败命令行，原因是宿主落的码，原始错误只在宿主日志。
+// 与聊天流共用 TurnFailureCard。
 
-import { useState, type ReactNode } from 'react'
+import { useState, useSyncExternalStore, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from '@/lib/icons'
-import { turnFailureReasonFromError } from '@gugu/core/shared/turnFailurePresentation'
+import { agentFailureNeedsModelChoice } from '@gugu/core/shared/agentQuotaReason'
 import { TurnFailureCard } from './chat/TurnFailureCard'
 import { type AgentTurnFailure } from '../lib/agentTurnFailure'
 import { rendererLogger } from '../lib/log'
 import { requeueErroredDeviceCommand } from '../lib/supabase'
 import { platform } from '../platform'
-import { useAgentTurnFailure } from '../hooks/useAgentTurnFailure'
 import { useTranslation } from 'react-i18next'
 import { useContactsStore } from '../store/contactsContext'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
 import { useStoredAgentTurnFailure } from '../hooks/useStoredAgentTurnFailure'
-import { agentTurnFailureMuteKind } from '../lib/agentTurnFailureMute'
+import type { StoredFailureScope } from '../lib/storedAgentTurnFailures'
+import { readShellSlots } from '../lib/shellSlots'
+import { AGENT_FAILURE_SLOT_PREFIX } from './AgentFailureSlot'
 import { Avatar } from './Avatar'
 import type { MemberProfileCardModel } from './MemberProfileCard'
 
@@ -43,35 +45,47 @@ export function AgentConversationNoticeSlot({
   )
 }
 
-export function AgentTurnFailureSlot({
-  chatId,
-  threadRootId,
-  profiles,
-}: AgentTurnFailureSlotProps) {
-  const { t } = useTranslation('messaging')
-  const local = useAgentTurnFailure(chatId, threadRootId)
+export function AgentTurnFailureSlot({ chatId, threadRootId, profiles }: AgentTurnFailureSlotProps) {
+  return chatId ? <AgentFailureNotice scope={{ chatId, threadRootId }} profiles={profiles} /> : null
+}
+
+/**
+ * Every task page's failure slot (AgentFailureSlot) gets the bar of its agent, over every chat: the failure a chat's composer
+ * shows is shown where the person is working with that agent too, from the same command rows.
+ */
+export function AgentFailureSlotHost() {
+  const slots = readShellSlots()
+  const entries = useSyncExternalStore((listener) => slots?.subscribeSlots(listener) ?? (() => undefined), () => slots?.getSlots() ?? NO_SLOTS)
   const { contacts } = useContactsStore()
-  const stored = useStoredAgentTurnFailure(chatId, threadRootId, contacts.filter((contact) => contact.type === 'agent' && profiles[contact.id] && profiles[contact.id]?.membership !== 'former').map((contact) => contact.id))
-  const failure = local.failure ?? stored.failure
+  return <>{[...entries].flatMap(([key, element]) => {
+    if (!key.startsWith(AGENT_FAILURE_SLOT_PREFIX)) return []
+    const contact = contacts.find((entry) => entry.id === key.slice(AGENT_FAILURE_SLOT_PREFIX.length))
+    if (!contact) return []
+    const profiles = { [contact.id]: { displayName: contact.alias?.trim() || contact.display_name, avatar: contact.avatar ?? null } }
+    return [createPortal(<AgentFailureNotice scope="any-chat" profiles={profiles} />, element, key)]
+  })}</>
+}
+const NO_SLOTS: ReadonlyMap<string, HTMLElement> = new Map()
+
+function AgentFailureNotice({ scope, profiles }: { scope: StoredFailureScope; profiles: AgentTurnFailureSlotProps['profiles'] }) {
+  const { t } = useTranslation('messaging')
+  const { contacts } = useContactsStore()
+  const stored = useStoredAgentTurnFailure(scope, contacts.filter((contact) => contact.type === 'agent' && profiles[contact.id] && profiles[contact.id]?.membership !== 'former').map((contact) => contact.id))
+  const failure = stored.failure
   const [modelOpen, setModelOpen] = useState(false)
-  const stateKind = failure ? agentTurnFailureMuteKind(failure.rawMessage) : null
   const displayName = failure ? profiles[failure.agentUserId]?.displayName ?? t('agent.fallbackName') : ''
-  if (!chatId) return null
   if (!failure) return stored.readFailed ? <div data-chat-composer-notice="" className="mx-3 my-2 flex items-center gap-2 text-[var(--muted-fg)]" role="status"><span>{t('agent.turnFailure.statusReadFailed')}</span><Button variant="ghost" size="sm" onClick={stored.retry}>{t('agent.turnFailure.retry')}</Button></div> : null
   const profile = profiles[failure.agentUserId]
   const contact = contacts.find((entry) => entry.id === failure.agentUserId)
-  const dismiss = () => {
-    local.dismiss()
-    stored.dismiss(failure.commandId)
-  }
+  const dismiss = () => stored.dismiss(failure.commandId)
   return (
     <>
-    {stateKind ? (
+    {agentFailureNeedsModelChoice(failure.reason) ? (
       <AgentQuotaStatus
         agentId={failure.agentUserId}
         displayName={displayName}
         avatar={profile?.avatar ?? null}
-        state={t(`agent.turnFailure.state.${stateKind}`)}
+        state={t(`agent.turnFailure.state.${failure.reason}`)}
         onOpenModel={contact ? () => setModelOpen(true) : undefined}
         onDismiss={dismiss}
       />
@@ -171,7 +185,7 @@ export function AgentTurnFailureBar({
         )
       }
       // 重排成功即收起失败条。❌ 不在这里点亮「运行中」:重排只说明命令回到队列,不说明 agent 开跑;
-      // 真开跑由宿主宣布,那条转变会自己把状态点变红。若这轮再失败,新的 error 流事件会重新落失败条。
+      // 真开跑由宿主宣布,那条转变会自己把状态点变红。若这轮再失败,命令再落 error,广播叫这一槽重读。
       onDismiss()
     } catch (err) {
       // fail loud：重排本身失败（网络/RLS）→ 保留失败条可再点，原因进 console。
@@ -182,7 +196,7 @@ export function AgentTurnFailureBar({
 
   return (
     <div data-testid="agent-turn-failure" data-chat-composer-notice="" style={{ flexShrink: 0 }}>
-      <TurnFailureCard reason={turnFailureReasonFromError(failure.rawMessage)} placement="composer"
+      <TurnFailureCard reason={failure.reason} placement="composer"
         agentId={failure.agentUserId} displayName={displayName} avatar={avatar}
         createdAt={new Date(failure.at).toISOString()} onDismiss={onDismiss} onOpenSettings={onOpenModel}
         onRetry={() => void handleRetry()} retrying={retrying} />

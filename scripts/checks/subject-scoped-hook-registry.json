@@ -38,14 +38,6 @@
     "how": "keyed-map",
     "why": "#6002:useSyncExternalStore 在渲染期用当前 agentId 读取 presence map 的 harness 原始值;切换身份同步更换 snapshot 与订阅,不靠 effect 将上一个 agent 的答案追到新主体。"
   },
-  "apps/desktop/src/hooks/useAgentStream.ts::useAgentStream": {
-    "how": "keyed-map",
-    "why": "map[agentStreamKey(当前 conversationId, threadRootId)] —— 换主体立刻换 key。"
-  },
-  "apps/desktop/src/hooks/useAgentTurnFailure.ts::useAgentTurnFailure": {
-    "how": "keyed-map",
-    "why": "failure = map[agentStreamKey(当前参数)] —— 换主体立刻换 key。"
-  },
   "apps/desktop/src/hooks/useRoomCollab.ts::useRoomCollab": {
     "how": "subject-scoped",
     "why": "The snapshot carries its scheduler.chat_id and is returned only for the current chatId; loader failures carry their chatId too. Switching topics returns no prior topic's rows or error while the existing roster loader refreshes."

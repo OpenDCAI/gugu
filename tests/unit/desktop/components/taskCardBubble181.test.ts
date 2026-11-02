@@ -166,10 +166,16 @@ describe('task card resource access', () => {
   })
 
   it('names the other owner and says it cannot be viewed, without opening a task', async () => {
-    await renderCard(false)
+    await renderCard(false, { ...CARD, files: [
+      { itemId: 'brief', version: 1, name: 'brief.pdf', mimeType: 'application/pdf', sizeBytes: 12 },
+      { itemId: 'notes', version: 2, name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 4 },
+    ] })
     const card = harness.container.querySelector<HTMLElement>('[data-testid="composer-card"]')!
     expect(card.tagName).toBe('DIV')
     expect(card.textContent).toContain('Colleague 的任务 · 无法查看')
+    expect(card.textContent).toContain('brief.pdf')
+    expect(card.textContent).toContain('notes.txt')
+    expect(card.querySelector('a')).toBeNull()
     await act(async () => { card.click() })
     expect(cardOpen.open).not.toHaveBeenCalled()
   })

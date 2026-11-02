@@ -9,6 +9,7 @@ import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { sessionAgentNotificationCopy } from './notification-copy';
+import { systemNotificationsUsable } from './system-notifications';
 import { taskName } from '@main/core/sessions/task-name';
 
 const activeNotifications = new Set<Notification>();
@@ -68,8 +69,8 @@ export async function maybeShowNotification(
     // @@@5301 ❌ 这里**不看窗口聚焦**(onScreen 恒为 false)。焦点只说明这个窗口在最前面,不说明人在电脑前 ——
     // 拿它当「用户已经看见了」的证据,结果就是人离开时该响的不响(owner 2026-09-09 定)。
     // 要不要打扰由用户自己的显式选择决定:通知总开关；声音只跟横幅。
-    if (!Notification.isSupported()) return;
     if (!shouldNotify({ kind: 'agent', previous, next }, { enabled, onScreen: false })) return;
+    if (!(await systemNotificationsUsable())) return;
 
     const body = getNotificationBody(next);
 

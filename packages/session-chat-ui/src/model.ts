@@ -83,6 +83,7 @@ export type ChatMessage = {
   sentAttachment?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment;
   /** Image attachments rendered as a thumbnail strip above the text (user messages). */
   attachments?: ChatAttachment[];
+  files?: import('@gugu/session-core/session-record/contract').TurnFileRef[];
   /**
    * 这条消息**开始**到达的时刻（epoch ms）。缺席 = 不知道（回放来的历史没有真时刻，
    * 与 `TranscriptTurn.startedAt` 同一条合同）。折叠头拿它当段与段的边界（#5350）。
@@ -111,8 +112,6 @@ export type ChatMessage = {
   conversationTerminalReason?: boolean;
   /** The answer immediately before Stop is always shown in full. */
   conversationFull?: boolean;
-  /** The replay segment is live and this reply is its last event (not merely an active turn). */
-  conversationCaret?: boolean;
   /** View-only: the closing reply of a finished turn — the only agent bubble with the time / copy row (design 0 `tail`). */
   conversationTail?: boolean;
   /** Where this message_send output went (same reading as the session page's 「发到 …」 line, `agentSendOf`). */
@@ -632,6 +631,7 @@ export type SessionConditionCode =
   | 'provider-session-missing'
   | 'adapter-lost'
   | 'start-failed'
+  | 'history-unavailable'
   /** 会话在**别的机器**上,而那台机器此刻问不到(离线 / 没回话)(#6264)。 */
   | 'machine-unreachable'
   /** 那台机器连得上,但有件事要人知道:磁盘快满了、两边版本对不上(#6264)。宿主总是给 label。 */

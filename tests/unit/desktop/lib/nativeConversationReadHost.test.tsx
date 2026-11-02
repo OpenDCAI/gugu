@@ -96,3 +96,23 @@ it('keeps reading receipts that become projected after the IM row reached an alr
   await act(async () => { publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-two'], dmIds: new Map([['receipt-one', ['one']], ['receipt-two', ['two']]]) }) })
   await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 2))
 })
+
+it('acknowledges the captured DM tail when the native page reaches newer work in other chats', async () => {
+  const row = chat({ id: 'dm', peer_user_id: 'agent', kind: 'ai', last_read_seq: 0, next_message_seq: 21, unread_count: 20 })
+  scope.messages = Array.from({ length: 20 }, (_, i) => message({ id: `old-${i + 1}`, chat_id: 'dm', seq: i + 1, sender_user_id: 'agent', is_mine: false }))
+  release = installOwnedAgentEntry({ owns: id => id === 'agent', open: () => true })
+  updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 'session', agent: { userId: 'agent' } } as never] })
+  await renderWithConversations(harness, <NativeConversationReadHost />, undefined, { chat: { chats: [row], identitiesById: { agent: displayIdentity('agent', { type: 'agent', owner_user_id: 'user-1' }) } } })
+  await act(async () => { publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['latest-other-chat-reply'], dmIds: new Map(), atTail: true }) })
+  await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 20))
+})
+
+it('keeps the DM unread while a native page is reading an earlier position', async () => {
+  const row = chat({ id: 'dm', peer_user_id: 'agent', kind: 'ai', last_read_seq: 0, next_message_seq: 3, unread_count: 2 })
+  scope.messages = ['one', 'two'].map((id, i) => message({ id, chat_id: 'dm', seq: i + 1, sender_user_id: 'agent', is_mine: false }))
+  release = installOwnedAgentEntry({ owns: id => id === 'agent', open: () => true })
+  updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 'session', agent: { userId: 'agent' } } as never] })
+  publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['earlier-other-chat-reply'], dmIds: new Map(), atTail: false })
+  await renderWithConversations(harness, <NativeConversationReadHost />, undefined, { chat: { chats: [row], identitiesById: { agent: displayIdentity('agent', { type: 'agent', owner_user_id: 'user-1' }) } } })
+  expect(scope.mark).not.toHaveBeenCalled()
+})

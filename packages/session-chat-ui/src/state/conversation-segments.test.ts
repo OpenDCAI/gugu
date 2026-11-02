@@ -52,7 +52,7 @@ describe('replay conversation segment boundaries', () => {
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.map(row => row.itemId)).toEqual(['t:day', 'u', 't:process:head', 't:run:one', 'first', 't:run:two', 'latest']);
     expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationNarration).toBeUndefined();
-    expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationCaret).toBe(true);
+    expect(rows.find(row => row.itemId === 'latest')!.data).not.toHaveProperty('conversationCaret');
     expect((rows.find(row => row.itemId === 'first')!.data as ChatMessage).conversationNarration).toBe(true);
   });
 
@@ -132,7 +132,7 @@ describe('replay conversation segment boundaries', () => {
     expect(rows.map(row => row.itemId)).toContain('a');
     expect(rows.map(row => row.itemId)).not.toContain('silent');
     expect(rows.filter(row => row.itemId === 'latest')).toHaveLength(1);
-    expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationCaret).toBe(false);
+    expect(rows.find(row => row.itemId === 'latest')!.data).not.toHaveProperty('conversationCaret');
   });
 
   it('does not infer process labels from runtime triggers or invent historical clocks', () => {
