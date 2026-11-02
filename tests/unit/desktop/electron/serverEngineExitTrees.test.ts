@@ -31,7 +31,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
     const declaration = (name: string) => main.statements.find(node => ts.isVariableStatement(node)
       && node.declarationList.declarations.some(item => item.name.getText(main) === name))!.getText(main)
     const fatal = main.statements.find(node => node.getText(main).startsWith("process.on('uncaughtException'"))!.getText(main)
-    await build({ stdin: { resolveDir: process.cwd(), contents: `
+    await build({ stdin: { loader: 'ts', resolveDir: process.cwd(), contents: `
       import {appendFileSync,existsSync} from 'node:fs';
       import {join} from 'node:path';
       import {spawnWorker,killAllWorkersSync} from ${JSON.stringify(path.resolve('packages/session-wire/src/worker/index.ts'))};
