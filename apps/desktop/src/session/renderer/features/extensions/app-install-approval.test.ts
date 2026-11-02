@@ -2,13 +2,10 @@
 // session's terminal), the phone's card and the private chat's band all answer through `answerAppInstall`: only a 「装」 from
 // the sheet that showed the App carries its fingerprint, which is the only install the host takes.
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 
 const askInShell = vi.fn();
 vi.mock('./install-consent', () => ({ askInShell, installConsentPrompt: () => ({ title: 'Install Reader?' }) }));
-vi.mock('@shared/extensions/manifest', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@shared/extensions/manifest')>();
-  return { ...actual, safeParseExtensionManifest: (manifest: unknown) => ({ ok: true, manifest }) };
-});
 
 const { answerAppInstall, answeredTooLate, appInstallWords, sessionWaitsOnApproval } = await import('./app-install-approval');
 
@@ -16,7 +13,7 @@ const ask = {
   request: {
     requestId: 'ask-1',
     sourceDir: '/tmp/reader',
-    manifest: { id: 'reader', name: 'Reader' },
+    manifest: { id: 'reader', name: 'Reader', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'main.html', contributes: { tabs: [{ name: 'main', title: 'Reader' }] } },
     manifestDigest: 'digest-r',
     revokedPermissions: [],
     given: { first: true },
@@ -27,6 +24,14 @@ const ask = {
 afterEach(() => askInShell.mockReset());
 
 describe('an App install answered from this device (D-31)', () => {
+  it.each([null, { apiVersion: EXTENSION_API_VERSION + 1 }])('an unreadable manifest is declined before reporting the error: %j', async (manifest) => {
+    const unreadable = { request: { ...(ask as { request: object }).request, manifest } } as never;
+    const respond = vi.fn(async () => ({ ok: true }));
+    await expect(answerAppInstall({ itemId: 'ask-1', ask: unreadable, optionId: 'install', respond })).rejects.toThrow('This install asks about a manifest this build cannot read');
+    expect(respond).toHaveBeenCalledExactlyOnceWith({ optionId: 'decline' });
+    expect(askInShell).not.toHaveBeenCalled();
+  });
+
   it('「不装」 answers at once: no sheet, no fingerprint', async () => {
     const respond = vi.fn(async () => ({ ok: true }));
     await answerAppInstall({ itemId: 'ask-1', ask, optionId: 'decline', respond });

@@ -1,4 +1,4 @@
-import { clearRecoveredProjectBootFailures, sessionBootTasks } from './core/boot-tasks'
+import { sessionBootTasks } from './core/boot-tasks'
 // @@@sessionpage — the session backend's EMBEDDED-MODULE entry. The session backend is a cohesive
 // submodule (owner #43), NOT a set of gugu subsystems: it exposes exactly ONE boot entry here, and gugu
 // (the host) invokes it + bridges IPC — the host never reaches into the session backend's DB / pty /
@@ -323,6 +323,7 @@ export {
 export {
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,
+  rejectPendingSessionDirectMessage,
   recordFailedSessionDirectMessage,
   // 宿主在「投递属主注册好了」那一刻要用它把排队的首轮送出去 —— 收件箱 pull 看不见 `ordinary` 行。
   drainSessionMessageOutboxById,
@@ -2473,7 +2474,7 @@ export function sessionpageBusyForVersionSwitch(): boolean {
 /** One reading supplies both the existing idle policy and its visible agent count. */
 /** Same heartbeat, same ledger; discard tasks archived/deleted through any entry point. */
 export function sessionpageBootFailures() {
-  const failures = clearRecoveredProjectBootFailures(id => projectManager.getProject(id) !== undefined)
+  const failures = sessionBootTasks.snapshot()
   const ids = failures.map(failure => failure.taskId).filter(Boolean)
   if (ids.length) {
     try {

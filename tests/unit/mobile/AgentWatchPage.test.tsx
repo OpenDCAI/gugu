@@ -7,6 +7,7 @@ import { AgentWatchPage, AgentWatchRoot } from '../../../apps/desktop/src/mobile
 import { useAgentWatchAlerts, useAgentWatchFocus } from '../../../apps/desktop/src/mobile/agent-watch/useAgentWatchAlerts'
 import { useLiveDeviceSessions, type DeviceSessions } from '../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { useDevicesStore } from '../../../apps/desktop/src/store/devicesContext'
+import { sheetStack } from '../../../apps/desktop/src/components/ui/sheetStack'
 import { createNode, createReactHarness } from '../../support/testHarness'
 
 vi.mock('../../../apps/desktop/src/mobile/local-agent/usePhoneAgentDirectory', () => ({ usePhoneAgentDirectory: vi.fn() }))
@@ -310,25 +311,38 @@ describe('AgentWatchPage native back routing', () => {
   })
 
   // gugu.showSession on the phone: the row an App named opens as a tap on it does — even an offline machine's (the row is
-  // its digest, as the list shows it). Back lands on the project list.
+  // its digest, as the list shows it). The external entry has no synthetic project parent.
   it("an App's showSession opens the row it named, from another tab too; the same request once, a new one again", async () => {
     deviceStore.devices = [...deviceStore.devices, { ...deviceStore.devices[0], device_id: 'device-2', label: 'ThinkPad', is_online: false }]
     const focus = vi.mocked(useAgentWatchFocus)
     focus.mockClear()
     const asked = { deviceId: 'device-2', session: { ...session, conversationId: 'on-2' } }
+    const onExit = vi.fn()
     await harness.render(createNode(AgentWatchPage, { active: false, onExit: vi.fn(), openRequest: null }))
     expect(harness.container.querySelector('[data-testid="projects"]')).toBeTruthy()
     // The shell brings the project tab forward and hands the request over in one go (useAppShowSession).
-    await harness.render(createNode(AgentWatchPage, { active: true, onExit: vi.fn(), openRequest: asked }))
+    const before = sheetStack.length
+    await harness.render(createNode(AgentWatchPage, { active: true, onExit, openRequest: asked }))
+    expect(sheetStack).toHaveLength(before + 1)
     expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeTruthy()
     expect(focus.mock.calls.at(-1)?.[0]).toEqual({ deviceId: 'device-2', sessionId: 'on-2' })
     await act(async () => { (harness.container.querySelector('[data-testid="timeline-back"]') as HTMLButtonElement).click() })
-    expect(harness.container.querySelector('[data-testid="projects"]'), 'back: the project list, as after a tap').toBeTruthy()
-    expect(harness.container.querySelector('[data-testid="projects"]')?.getAttribute('data-reveal'), 'a plain back does not re-locate').toBeNull()
+    expect(onExit).toHaveBeenCalledOnce()
+    await harness.render(createNode(AgentWatchPage, { active: false, onExit, openRequest: asked }))
+    expect(sheetStack).toHaveLength(before)
     await harness.render(createNode(AgentWatchPage, { active: true, onExit: vi.fn(), openRequest: asked }))
     expect(harness.container.querySelector('[data-testid="projects"]'), 'the same request is not asked again').toBeTruthy()
     await harness.render(createNode(AgentWatchPage, { active: true, onExit: vi.fn(), openRequest: { ...asked } }))
     expect(harness.container.querySelector('[data-testid="timeline-back"]'), 'a new one is').toBeTruthy()
+  })
+
+  it('system back exits a directly opened session in one step without visiting Projects', async () => {
+    const onExit = vi.fn()
+    await harness.render(createNode(AgentWatchPage, { active: false, onExit, openRequest: null }))
+    await harness.render(createNode(AgentWatchPage, { active: true, onExit, openRequest: { deviceId: 'device-1', session } }))
+    await act(async () => { expect(nativeBack()).toBe(true) })
+    expect(onExit).toHaveBeenCalledOnce()
+    expect(harness.container.querySelector('[data-testid="projects"]')).toBeNull()
   })
 
   // An offline machine's row comes from its heartbeat and does not open (the list greys it out): an App naming it lands the

@@ -52,7 +52,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
       const existing = [...rows.values()].find(row => row.sessionId === input.sessionId && row.message.id === input.messageId);
       if (existing) return { inserted: false, seq: existing.seq, state: existing.state };
       const s = seq(++counter);
-      rows.set(s, { seq: s, sessionId: input.sessionId, sentAt: 0, kind: input.kind, state: 'queued', failure: null, message: { id: input.messageId, text: input.text }, sources: [], turn: input.turn ?? { kind: 'prompt' } });
+      rows.set(s, { seq: s, sessionId: input.sessionId, sentAt: 0, kind: input.kind, state: 'queued', failure: null, message: { id: input.messageId ?? `local-${seq}`, text: input.text }, sources: [], turn: input.turn ?? { kind: 'prompt' } });
       return { inserted: true, seq: s, state: 'queued' };
     },
     commit(id, effects) {

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
-import { clearRecoveredProjectBootFailures, sessionBootTasks } from '../../../../apps/desktop/electron/session/main/core/boot-tasks'
+import { sessionBootTasks } from '../../../../apps/desktop/electron/session/main/core/boot-tasks'
 import { resolveDeviceHostInfo } from '../../../../packages/core/src/cloud/deviceHostInfo'
 import { hydrateLife, shouldStartOnHydrate } from '../../../../packages/core/src/local/session-life/step'
 import type { Hold } from '../../../../packages/core/src/local/session-life/types'
@@ -27,7 +27,6 @@ async function boot(fail: string, fatal = false) {
   const rows: Record<string, Array<{ id: string }>> = { sessions: [], projects: [] }
   const pending = new Map<string, { queued: number[]; dispatching: number[] }>()
   const lifeRows = new Map<string, { archived: boolean; hold: Hold | null }>()
-  const openedProjects = new Set<string>()
   const noop: unknown = new Proxy(function () { return noop }, {
     get(_target, key) {
       if (key === 'then') return undefined
@@ -38,8 +37,7 @@ async function boot(fail: string, fatal = false) {
   const stub = noop as Record<string, unknown>
   const fault = (operation: string) => () => { if (fail === operation) throw new Error(`refused ${operation}`) }
   const overrides: Record<string, Record<string, unknown>> = {
-    './core/boot-tasks': { sessionBootTasks: tasks, clearRecoveredProjectBootFailures },
-    '@main/core/projects/project-manager': { projectManager: { getProject: (id: string) => openedProjects.has(id) ? {} : undefined } },
+    './core/boot-tasks': { sessionBootTasks: tasks },
     '@main/core/session-timeline/service': { listSessionStates: () => ({ projects: [], sessions: [] }) },
     '@main/core/sessions/session-pending': { lifeSessions: () => [...pending.keys()], lifeStore: {
       pending: (id: string) => pending.get(id)!, read: (id: string) => lifeRows.get(id) ?? { archived: false, hold: null },
@@ -85,7 +83,7 @@ async function boot(fail: string, fatal = false) {
   runInNewContext(compiled.outputText, { require: load, module, exports: module.exports, process, console, Buffer, setTimeout, clearTimeout, setInterval, clearInterval, __dirname: path.dirname(entry) })
   try {
     await module.exports.bootSessionHostCore({ hostIpc: { ipcMain: {} }, browserFeatures: false, scheduleDiscovery: async () => {} })
-    return { tasks, registered, statusHooks, sessionHooks, rows, pending, lifeRows, openedProjects, activity: module.exports.sessionpageVersionSwitchActivity, readFailures: module.exports.sessionpageBootFailures, failures: module.exports.sessionpageBootFailures() }
+    return { tasks, registered, statusHooks, sessionHooks, rows, pending, lifeRows, activity: module.exports.sessionpageVersionSwitchActivity, readFailures: module.exports.sessionpageBootFailures, failures: module.exports.sessionpageBootFailures() }
   } finally { fs.rmSync(home, { recursive: true, force: true }) }
 }
 
@@ -142,14 +140,5 @@ describe('real session host boot entry', () => {
     expect(result.readFailures()).toEqual([{ operation: 'project-open', taskId: 'existing-project', message: 'project refused' }])
     result.rows.projects.length = 0
     expect(result.readFailures()).toEqual([])
-  })
-  it('reconciles a completed reopen through the real boot ledger and retains unrelated failures for that project', async () => {
-    const result = await boot('')
-    result.rows.projects.push({ id: 'project' })
-    result.tasks.record('project-open', 'project', 'startup read timed out')
-    result.tasks.record('outbox-drain', 'project', 'unrelated failure')
-    expect(result.readFailures()).toHaveLength(2)
-    result.openedProjects.add('project')
-    expect(result.readFailures()).toEqual([{ operation: 'outbox-drain', taskId: 'project', message: 'unrelated failure' }])
   })
 })

@@ -221,13 +221,14 @@ describe('search_index writes', () => {
   });
   it('an index built as version 6 (said-in-tasks search) is rebuilt once and names each task by its one name', async () => {
     const { sqlite } = fixture();
+    const currentVersion = sqlite.prepare("SELECT value FROM kv WHERE key = 'fts_version'").get();
     sqlite.exec(`INSERT INTO sessions (id, project_id, title, config) VALUES
       ('s1', 'p1', 'old shown title', '{"version":"1","type":"acp","agentDisplayName":"Task one"}')`);
     sqlite.exec(`DELETE FROM search_index;
       INSERT INTO search_index (item_type, item_id, project_id, title, keywords) VALUES ('session', 's1', 'p1', 'old shown title', '');
       UPDATE kv SET value = '6' WHERE key = 'fts_version'`);
     await initializeDatabase(sqlite);
-    expect(sqlite.prepare("SELECT value FROM kv WHERE key = 'fts_version'").get()).toEqual({ value: '8' });
+    expect(sqlite.prepare("SELECT value FROM kv WHERE key = 'fts_version'").get()).toEqual(currentVersion);
     expect(sqlite.prepare('SELECT count(*) AS n FROM search_index').get()).toEqual({ n: 0 });
     searchService.initialize(); // boot backfills the rebuilt index
     expect(sqlite.prepare("SELECT title FROM search_index WHERE item_id = 's1'").all()).toEqual([{ title: 'Task one' }]);

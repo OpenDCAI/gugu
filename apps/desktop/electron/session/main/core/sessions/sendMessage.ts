@@ -767,6 +767,18 @@ export function acceptPendingSessionDirectMessage(sessionId: string, messageId: 
   );
 }
 
+/** A common-reader rejection is a terminal failed receipt, not provider acceptance. */
+export function rejectPendingSessionDirectMessage(sessionId: string, messageId: string, cause: unknown): void {
+  const row = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
+  const pending = row?.config?.messageOutbox?.find(message => message.id === messageId);
+  if (!pending) {
+    const receipt = readAcceptedMessage(messageId);
+    if (receipt?.sessionId === sessionId && receipt.metadata && JSON.parse(receipt.metadata).state === 'failed') return;
+  }
+  if (!row?.config || !pending || pending.kind !== 'session-direct') throw new Error(`pending session-direct message ${messageId} not found for ${sessionId}`);
+  persistFailedMessage({ projectId: row.projectId, sessionId }, pending, cause);
+}
+
 /** Replay persisted pending rows after runtime startup or restart. */
 export function drainSessionMessageOutbox(params: {
   projectId: string;
