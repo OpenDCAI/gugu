@@ -21,7 +21,7 @@ beforeEach(() => { transport.requests = []; transport.rows = []; transport.statu
 describe('stored reply outcomes use one roster-independent request', () => {
   it('keeps URL and request body fixed as the local roster grows', async () => {
     for (const count of [1, 100, 1000]) {
-      await readStoredAgentTurnFailures('conversation', 'thread', Array.from({ length: count }, (_, i) => `agent-${i}`))
+      await readStoredAgentTurnFailures({ chatId: 'conversation', threadRootId: 'thread' }, Array.from({ length: count }, (_, i) => `agent-${i}`))
     }
     expect(transport.requests).toHaveLength(3)
     for (const request of transport.requests) expect(request).toEqual({
@@ -32,18 +32,23 @@ describe('stored reply outcomes use one roster-independent request', () => {
   it('projects only the local roster, retaining failures beyond the old 50-row window', async () => {
     transport.rows = Array.from({ length: 60 }, (_, i) => ({ id: `recent-${i}`, payload: { agent_user_id: `other-${i}` }, status: 'done' }))
     transport.rows.push({ id: 'older-failure', payload: { agent_user_id: 'current' }, status: 'error', error: 'weekly limit reached', completed_at: '2026-11-01T00:00:00Z' })
-    const result = await readStoredAgentTurnFailures('conversation', null, ['current', 'other-0'])
+    const result = await readStoredAgentTurnFailures({ chatId: 'conversation', threadRootId: null }, ['current', 'other-0'])
     expect(result.failures.map(row => row.commandId)).toEqual(['older-failure'])
     expect(result.recovered).toEqual(['other-0'])
     expect(transport.requests[0]!.body).toEqual({ p_chat_id: 'conversation', p_thread_root_id: null })
   })
   it('surfaces an RPC failure without falling back to a table query', async () => {
     transport.status = 403
-    await expect(readStoredAgentTurnFailures('conversation', null, ['current'])).rejects.toThrow('outcome read denied')
+    await expect(readStoredAgentTurnFailures({ chatId: 'conversation', threadRootId: null }, ['current'])).rejects.toThrow('outcome read denied')
     expect(transport.requests).toHaveLength(1)
   })
   it('keeps an empty thread id in the main conversation scope', async () => {
-    await readStoredAgentTurnFailures('conversation', '', ['current'])
+    await readStoredAgentTurnFailures({ chatId: 'conversation', threadRootId: '' }, ['current'])
     expect(transport.requests[0]!.body).toEqual({ p_chat_id: 'conversation', p_thread_root_id: null })
+  })
+  // A task page reads its agent over every chat through the same RPC: a null chat (gugu-supabase reads every chat then).
+  it('reads every chat of the roster with a null chat id', async () => {
+    await readStoredAgentTurnFailures('any-chat', ['current'])
+    expect(transport.requests[0]!.body).toEqual({ p_chat_id: null, p_thread_root_id: null })
   })
 })

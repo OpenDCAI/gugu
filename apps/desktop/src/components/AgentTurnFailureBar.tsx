@@ -3,7 +3,8 @@
 // 重排原 deliver 命令（真重投递，❌ 假按钮）。失败来自失败命令行，原因是宿主落的码，原始错误只在宿主日志。
 // 与聊天流共用 TurnFailureCard。
 
-import { useState, type ReactNode } from 'react'
+import { useState, useSyncExternalStore, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from '@/lib/icons'
 import { agentFailureNeedsModelChoice } from '@gugu/core/shared/agentQuotaReason'
 import { TurnFailureCard } from './chat/TurnFailureCard'
@@ -17,6 +18,9 @@ import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
 import { useStoredAgentTurnFailure } from '../hooks/useStoredAgentTurnFailure'
+import type { StoredFailureScope } from '../lib/storedAgentTurnFailures'
+import { readShellSlots } from '../lib/shellSlots'
+import { AGENT_FAILURE_SLOT_PREFIX } from './AgentFailureSlot'
 import { Avatar } from './Avatar'
 import type { MemberProfileCardModel } from './MemberProfileCard'
 
@@ -41,18 +45,35 @@ export function AgentConversationNoticeSlot({
   )
 }
 
-export function AgentTurnFailureSlot({
-  chatId,
-  threadRootId,
-  profiles,
-}: AgentTurnFailureSlotProps) {
+export function AgentTurnFailureSlot({ chatId, threadRootId, profiles }: AgentTurnFailureSlotProps) {
+  return chatId ? <AgentFailureNotice scope={{ chatId, threadRootId }} profiles={profiles} /> : null
+}
+
+/**
+ * Every task page's failure slot (AgentFailureSlot) gets the bar of its agent, over every chat: the failure a chat's composer
+ * shows is shown where the person is working with that agent too, from the same command rows.
+ */
+export function AgentFailureSlotHost() {
+  const slots = readShellSlots()
+  const entries = useSyncExternalStore((listener) => slots?.subscribeSlots(listener) ?? (() => undefined), () => slots?.getSlots() ?? NO_SLOTS)
+  const { contacts } = useContactsStore()
+  return <>{[...entries].flatMap(([key, element]) => {
+    if (!key.startsWith(AGENT_FAILURE_SLOT_PREFIX)) return []
+    const contact = contacts.find((entry) => entry.id === key.slice(AGENT_FAILURE_SLOT_PREFIX.length))
+    if (!contact) return []
+    const profiles = { [contact.id]: { displayName: contact.alias?.trim() || contact.display_name, avatar: contact.avatar ?? null } }
+    return [createPortal(<AgentFailureNotice scope="any-chat" profiles={profiles} />, element, key)]
+  })}</>
+}
+const NO_SLOTS: ReadonlyMap<string, HTMLElement> = new Map()
+
+function AgentFailureNotice({ scope, profiles }: { scope: StoredFailureScope; profiles: AgentTurnFailureSlotProps['profiles'] }) {
   const { t } = useTranslation('messaging')
   const { contacts } = useContactsStore()
-  const stored = useStoredAgentTurnFailure(chatId, threadRootId, contacts.filter((contact) => contact.type === 'agent' && profiles[contact.id] && profiles[contact.id]?.membership !== 'former').map((contact) => contact.id))
+  const stored = useStoredAgentTurnFailure(scope, contacts.filter((contact) => contact.type === 'agent' && profiles[contact.id] && profiles[contact.id]?.membership !== 'former').map((contact) => contact.id))
   const failure = stored.failure
   const [modelOpen, setModelOpen] = useState(false)
   const displayName = failure ? profiles[failure.agentUserId]?.displayName ?? t('agent.fallbackName') : ''
-  if (!chatId) return null
   if (!failure) return stored.readFailed ? <div data-chat-composer-notice="" className="mx-3 my-2 flex items-center gap-2 text-[var(--muted-fg)]" role="status"><span>{t('agent.turnFailure.statusReadFailed')}</span><Button variant="ghost" size="sm" onClick={stored.retry}>{t('agent.turnFailure.retry')}</Button></div> : null
   const profile = profiles[failure.agentUserId]
   const contact = contacts.find((entry) => entry.id === failure.agentUserId)

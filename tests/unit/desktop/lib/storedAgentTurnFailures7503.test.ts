@@ -20,10 +20,19 @@ describe('持久投递结果在其他设备上的投影', () => {
   it('已在聊天披露的失败由聊天说，这一槽不再说', () => {
     expect(storedAgentTurnFailures([row('failed', 'agent', 'error', { result: { reply_notice: 'in-chat', reason: 'generic' } })], ['agent'])).toEqual([])
   })
-  it('没记原因的旧宿主行与认不出的原因不显示', () => {
-    expect(storedAgentTurnFailures([row('old', 'agent', 'error', { result: { reply_notice: 'context' } })], ['agent'])).toEqual([])
-    expect(storedAgentTurnFailures([row('old', 'agent', 'error', { result: null, error: 'weekly limit reached' })], ['agent'])).toEqual([])
+  it('认不出的原因不显示', () => {
     expect(storedAgentTurnFailures([row('odd', 'agent', 'error', { result: { reply_notice: 'context', reason: 'notYetKnown' } })], ['agent'])).toEqual([])
+  })
+  // 向下兼容一档(宿主 ≤ 0.3.1 不记 reason;0.3.3 随 olderHostReason 一起删)。
+  it('旧宿主行:留给 composer 的按原文分类;额度类在聊天里写过或没标位置也照亮;在聊天里说过的别的失败不重复', () => {
+    const old = (extra: object) => row('old', 'agent', 'error', extra)
+    expect(storedAgentTurnFailures([old({ result: { reply_notice: 'context' }, error: 'fetch failed' })], ['agent'])).toMatchObject([{ reason: 'network' }])
+    expect(storedAgentTurnFailures([old({ result: { reply_notice: 'in-chat' }, error: 'weekly limit reached' })], ['agent'])).toMatchObject([{ reason: 'weeklyQuota' }])
+    expect(storedAgentTurnFailures([old({ result: null, error: 'weekly limit reached' })], ['agent'])).toMatchObject([{ reason: 'weeklyQuota' }])
+    expect(storedAgentTurnFailures([old({ result: { reply_notice: 'in-chat' }, error: 'failed batch' })], ['agent'])).toEqual([])
+    expect(storedAgentTurnFailures([old({ result: null, error: 'failed batch' })], ['agent'])).toEqual([])
+    // The RPC projection names the key for every row; an old host's row has it null.
+    expect(storedAgentTurnFailures([old({ result: { reply_notice: 'context', reason: null }, error: 'fetch failed' })], ['agent'])).toMatchObject([{ reason: 'network' }])
   })
   it('只有最新一次投递成功才算恢复', () => {
     expect(storedAgentRecoveries([row('new', 'agent', 'done'), row('old')], ['agent', 'other'])).toEqual(['agent'])

@@ -17,7 +17,8 @@ vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({
   readFailed: false, dismiss: vi.fn(), retry: vi.fn(),
 }) }))
 
-import { AgentConversationNoticeSlot, AgentTurnFailureBar } from '../../../../apps/desktop/src/components/AgentTurnFailureBar'
+import { AgentConversationNoticeSlot, AgentFailureSlotHost, AgentTurnFailureBar } from '../../../../apps/desktop/src/components/AgentTurnFailureBar'
+import { installShellSlots, readShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
 
 import { requeueErroredDeviceCommand } from '../../../../apps/desktop/src/lib/supabase'
 import { SystemMessageNotice } from '../../../../apps/desktop/src/components/chat/SystemMessageNotice'
@@ -48,6 +49,26 @@ describe('AgentConversationNoticeSlot', () => {
   it('[positive control] shows the bar when no banner explains the failure', async () => {
     await harness.render(createNode(AgentConversationNoticeSlot, { ...props, failureExplained: false }))
     expect(harness.container.querySelector('.tfc')).not.toBeNull()
+  })
+})
+
+// #1264 评审②: the task page has no chat composer; its slot gets the same bar for its agent, from the same rows.
+describe('AgentFailureSlotHost', () => {
+  it('draws the agent\'s failure into that agent\'s task-page slot, and nothing for an agent it does not know', async () => {
+    installShellSlots()
+    const mine = document.body.appendChild(document.createElement('div'))
+    const unknown = document.body.appendChild(document.createElement('div'))
+    readShellSlots()!.setSlot('agent-failure:agent-1', mine)
+    readShellSlots()!.setSlot('agent-failure:someone-else', unknown)
+    try {
+      await harness.render(createNode(AgentFailureSlotHost, {}))
+      expect(mine.querySelector('[data-testid="agent-turn-failure"]')).not.toBeNull()
+      expect(unknown.childElementCount).toBe(0)
+    } finally {
+      readShellSlots()!.setSlot('agent-failure:agent-1', null)
+      readShellSlots()!.setSlot('agent-failure:someone-else', null)
+      mine.remove(); unknown.remove()
+    }
   })
 })
 

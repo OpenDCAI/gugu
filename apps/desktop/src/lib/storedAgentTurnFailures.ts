@@ -1,4 +1,4 @@
-import { AGENT_FAILURE_REASONS } from '@gugu/core/shared/agentQuotaReason'
+import { AGENT_FAILURE_REASONS, agentFailureNeedsModelChoice, agentFailureReason, type AgentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import type { AgentTurnFailure } from './agentTurnFailure'
 import { identityDb } from './supabase'
 
@@ -18,13 +18,25 @@ export function storedAgentTurnFailures(rows: unknown[], agentIds: readonly stri
     if (row.status !== 'error' || typeof row.id !== 'string') continue
     const result = row.result && typeof row.result === 'object' ? row.result as Record<string, unknown> : null
     // 宿主在聊天里说过的（in-chat）由聊天说；只认它留给 composer 的（context），原因是宿主落的码。
-    // 没记原因的旧宿主行不显示：宿主升级后它的新失败自然带上。
-    const reason = AGENT_FAILURE_REASONS.find((known) => known === result?.reason)
-    if (result?.reply_notice !== 'context' || !reason) continue
+    const recorded = AGENT_FAILURE_REASONS.find((known) => known === result?.reason)
+    const reason = recorded ? (result?.reply_notice === 'context' ? recorded : null) : olderHostReason(row, result)
+    if (!reason) continue
     const revision = typeof row.completed_at === 'string' ? row.completed_at : String(row.created_at ?? '')
     failures.push({ agentUserId: id, commandId: row.id, reason, at: Date.parse(revision), revision })
   }
   return failures
+}
+
+/**
+ * 向下兼容一档 —— 下一档删除:宿主 ≤ 0.3.1 落失败命令时不记 `reason`,只有原文(`error`)和 `reply_notice`(更老的连它也没有)。
+ * 0.3.2 起宿主都记原因码;0.3.3 删掉这个函数和 `olderHostReason` 的调用(届时也不再需要 RPC 投影 `error`)。
+ * 判据照旧:留给 composer 的(context)按原文分类;额度/模型类就算旧宿主在聊天里写过行、或没标位置,也是 agent 的状态位。
+ */
+function olderHostReason(row: Record<string, unknown>, result: Record<string, unknown> | null): AgentFailureReason | null {
+  // A projection may carry the key with null (read_agent_turn_outcomes builds it for every row): null is "not recorded".
+  if (result?.reason != null) return null
+  const reason = agentFailureReason(typeof row.error === 'string' ? row.error : '') ?? 'generic'
+  return result?.reply_notice === 'context' || agentFailureNeedsModelChoice(reason) ? reason : null
 }
 
 /** 最新一次投递已成功的 Agent：额度/模型类的「关掉别再提醒」到这里解除。 */
@@ -43,10 +55,14 @@ export function storedAgentRecoveries(rows: unknown[], agentIds: readonly string
   return recovered
 }
 
-export async function readStoredAgentTurnFailures(chatId: string, threadRootId: string | null, agentIds: readonly string[]) {
+/** Where the failures are read: one chat line (the chat's composer), or every line of these agents (their task page). */
+export type StoredFailureScope = { chatId: string; threadRootId: string | null } | 'any-chat'
+
+export async function readStoredAgentTurnFailures(scope: StoredFailureScope, agentIds: readonly string[]) {
+  // A null chat reads the latest delivery per agent over every chat (gugu-supabase: read_agent_turn_outcomes with p_chat_id null).
   const { data, error } = await identityDb.rpc('read_agent_turn_outcomes', {
-    p_chat_id: chatId,
-    p_thread_root_id: threadRootId || null,
+    p_chat_id: scope === 'any-chat' ? null : scope.chatId,
+    p_thread_root_id: scope === 'any-chat' ? null : scope.threadRootId || null,
   })
   if (error) throw new Error(error.message)
   return { failures: storedAgentTurnFailures(data ?? [], agentIds), recovered: storedAgentRecoveries(data ?? [], agentIds) }

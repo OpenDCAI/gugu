@@ -12,7 +12,7 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ requeueErroredDevi
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {} }))
 vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify: toast }))
 vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({
-  useStoredAgentTurnFailure: (_chat: unknown, _thread: unknown, agentIds: readonly string[]) => ({
+  useStoredAgentTurnFailure: (_scope: unknown, agentIds: readonly string[]) => ({
     failure: (stored.agentIds = agentIds).includes('agent-1') ? { agentUserId: 'agent-1', commandId: 'cmd-1', at: 1, reason: stored.reason, revision: 'r' } : null,
     readFailed: false, dismiss: vi.fn(), retry: vi.fn(),
   }),
