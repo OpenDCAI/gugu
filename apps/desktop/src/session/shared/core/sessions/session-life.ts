@@ -23,6 +23,11 @@ export interface LifeView {
   readonly nativeSession: 'preserved' | 'replaced' | null;
 }
 
+/** Inputs held by a failed start stay queued until the person retries. Sign-out is not a send failure. */
+export function lifeHoldIsFailure(hold: LifeView['hold']): boolean {
+  return hold === 'start-failed' || hold === 'effect-fault';
+}
+
 /** The session is starting, or is about to for a row it can start for. Held (a stop, sign-out, failure) is not starting. */
 export function lifeIsStarting(view: Pick<LifeView, 'kind' | 'hold'> & { pending: Pick<LifeView['pending'], 'count'> }): boolean {
   return view.kind === 'starting' || (view.kind === 'dormant' && view.hold === null && view.pending.count > 0);
