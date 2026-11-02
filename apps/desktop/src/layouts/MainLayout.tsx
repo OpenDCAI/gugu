@@ -177,7 +177,12 @@ function InnerLayout({
   // 手机上从群成员里点的「新建 Agent」:与 watchCreateRequest 一起递进去,null = 不进群。
   const [watchCreateGroup, setWatchCreateGroup] = useState<{ chatId: string; name: string } | null>(null)
   const [openedPhoneApp, setOpenedPhoneApp] = useState<{ kind: string; name: string } | null>(null)
-  const watchOpenRequest = useAppShowSession(() => { setOpenedPhoneApp(null); setActiveTab('tasks') })
+  const [watchParentTab, setWatchParentTab] = useState<SidebarTab | null>(null)
+  const watchOpenRequest = useAppShowSession(() => {
+    if (mobile && shellTab.get() !== 'tasks') setWatchParentTab(shellTab.get())
+    setOpenedPhoneApp(null)
+    setActiveTab('tasks')
+  })
   const { contacts, pendingRequestCount, setAgentPublic } = useContactsStore()
   // 会话页分享名片:{名字, agentUserId, conversationId(留着备用,浮层本身不摆)};咕咕号**每次渲染从通讯录读**(懒分配:开启公开后才有号,
   // 存进 state 就会停在「未分配」那一帧)。非空即渲染浮层 / SharePosterDialog。
@@ -267,7 +272,7 @@ function InnerLayout({
     composerFocusCleanupRef.current = scheduleComposerFocus(reason, { mobileShell: mobile, target })
   }, [mobile])
   useEffect(() => () => composerFocusCleanupRef.current?.(), [])
-  const openOwnedAgent = useOwnedAgentConversationEntry({ ownerId: user.id, chats, contacts, mobile, onOpen: () => setActiveTab('tasks') })
+  const openOwnedAgent = useOwnedAgentConversationEntry({ ownerId: user.id, chats, contacts, mobile, onOpen: () => { if (!mobile) setActiveTab('tasks') } })
   const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason, peerId?: string, draft?: string, sourceChatId?: string): string | null => {
     if (!sourceChatId && openAssistantChat(chatId)) return mobile ? 'assistant' : assistantSlotKey('chat')
     if (openOwnedAgent(chatId, peerId, draft, sourceChatId)) return 'tasks'
@@ -325,6 +330,10 @@ function InnerLayout({
   }, [mobile, activeTab])
   const pagerTab = phoneLayerOpen ? phoneRootTab : activeTab
   const exitPhoneLayer = useCallback(() => navigateMobile(() => setActiveTab(phoneRootTab), 'pop'), [setActiveTab, phoneRootTab])
+  const exitPhoneSessions = useCallback(() => navigateMobile(() => {
+    setActiveTab(watchParentTab ?? phoneRootTab)
+    setWatchParentTab(null)
+  }, 'pop'), [setActiveTab, watchParentTab, phoneRootTab])
   const openPhoneAssistant = useCallback(() => navigateMobile(() => {
     setActiveTab('assistant')
     setAssistantChatRequest((n) => n + 1)
@@ -1105,7 +1114,7 @@ function InnerLayout({
                   {mobile ? (
                     <PhonePartnersPage
                       user={user}
-                      active={activeTab === 'contacts' || projectChatFromPartners}
+                      active={activeTab === 'contacts' || projectChatFromPartners || (activeTab === 'tasks' && watchParentTab === 'contacts')}
                       externalContactId={externalContactId}
                       scanSeed={scanSeed}
                       newProjectRequest={newProjectRequest}
@@ -1158,7 +1167,7 @@ function InnerLayout({
               <div className="gg-aw-tab-slot">
                 <AgentWatchPage
                   active={activeTab === 'tasks'}
-                  onExit={exitPhoneLayer}
+                  onExit={exitPhoneSessions}
                   createRequest={watchCreateRequest}
                   createInGroup={watchCreateGroup}
                   openRequest={watchOpenRequest}

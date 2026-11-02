@@ -14,12 +14,19 @@ import { clickElement, createNode, createReactHarness, message } from '../../../
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
-import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_COMPOSE_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_COMPOSE_EVENT, APP_SHOW_SESSION_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { sheetStack } from '../../../../apps/desktop/src/components/ui/sheetStack'
 import { rememberAssistantTaskChat } from '../../../../apps/desktop/src/lib/assistantTaskChat'
 import { installAssistantShellBridge, publishAssistantShell } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stores/app-state'
 import { MOBILE_TABS } from '@gugu/core/shared/enums/sidebarTabModels'
-const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[] }))
+const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[], remote: false }))
+vi.mock('../../../../apps/desktop/src/lib/ownedAgentConversation', async original => {
+  const actual = await original<typeof import('../../../../apps/desktop/src/lib/ownedAgentConversation')>()
+  return { ...actual, ownedAgentConversation: (...args: Parameters<typeof actual.ownedAgentConversation>) => taskRoute.remote
+    ? Promise.resolve({ kind: 'remote', deviceId: 'host', session: { conversationId: 'task-session', projectId: 'project', title: 'Task', harness: 'claude', supported: true } })
+    : actual.ownedAgentConversation(...args) }
+})
 const openNativeConversation = vi.hoisted(() => vi.fn(async () => true))
 vi.mock('../../../../apps/desktop/src/lib/guguLinks', async original => ({
   ...await original<object>(), openTarget: openNativeConversation,
@@ -184,8 +191,13 @@ vi.mock('../../../../apps/desktop/src/mobile/assistant/MobileAssistantTab', asyn
 const agentWatchProbe = vi.hoisted(() => ({ rootMounts: 0, rootUnmounts: 0 }))
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/AgentWatchPage', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
+  const { useBackLayer } = await vi.importActual<typeof import('../../../../apps/desktop/src/components/ui/sheetStack')>('../../../../apps/desktop/src/components/ui/sheetStack')
   return {
-    AgentWatchPage: ({ active, createRequest }: { active: boolean; createRequest?: number }) => React.createElement('div', { 'data-testid': 'mock-agent-watch-page', 'data-active': String(active), 'data-create-request': String(createRequest ?? 0) }),
+    AgentWatchPage: ({ active, createRequest, onExit }: { active: boolean; createRequest?: number; onExit: () => void }) => {
+      useBackLayer(onExit, active)
+      return React.createElement('div', { 'data-testid': 'mock-agent-watch-page', 'data-active': String(active), 'data-create-request': String(createRequest ?? 0) },
+        React.createElement('button', { 'data-testid': 'mock-session-back', onClick: onExit }, 'back'))
+    },
     AgentWatchRoot: () => {
       React.useEffect(() => {
         agentWatchProbe.rootMounts += 1
@@ -320,6 +332,7 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
+  taskRoute.remote = false
   vi.stubGlobal('matchMedia', () => ({ matches: false }))
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
     configurable: true,
@@ -511,6 +524,36 @@ describe('MainLayout', () => {
     }))
     expect(harness.container.querySelector('[data-testid="mock-phone-partners"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-chat-new-project"]'), 'no phone 新项目 entry on the desktop').toBeNull()
+  })
+  it.each(['messages', 'contacts', 'project', 'notification'] as const)('adds one session layer from %s and returns to the retained source', async source => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    taskRoute.remote = true
+    taskRoute.contacts = [{ id: 'task-agent', type: 'agent', owner_user_id: 'user-1' }]
+    chatStoreMock.chats = [{ id: 'task-dm', kind: 'dm', peer_user_id: 'task-agent' }] as never
+    await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
+    if (source !== 'messages') {
+      await clickElement(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileContactsNav}"]`) as HTMLElement)
+      if (source !== 'contacts') await clickElement(harness.container.querySelector('[data-testid="mock-phone-partners-push"]') as HTMLElement)
+    }
+    const before = sheetStack.length
+    for (const method of ['header', 'native']) {
+      await act(async () => {
+        if (source === 'notification') notificationClicks.listener?.({ chatId: 'task-dm' })
+        else window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: { deviceId: 'host', session: { conversationId: 'task-session', supported: true } } }))
+        await Promise.resolve()
+      })
+      expect(layerOpen('mobile-sessions-layer')).toBe(true)
+      expect(sheetStack).toHaveLength(before + 1)
+      if (source !== 'messages') expect(harness.container.querySelector('[data-testid="mock-phone-partners"]')?.getAttribute('data-active')).toBe('true')
+      if (method === 'header') await clickElement(harness.container.querySelector('[data-testid="mock-session-back"]') as HTMLElement)
+      else await nativeBack()
+      expect(layerOpen('mobile-sessions-layer')).toBe(false)
+      expect(sheetStack).toHaveLength(before)
+      const page = source === 'messages' ? 'chats' : 'contacts'
+      expect(harness.container.querySelector(`[data-mobile-tab-page="${page}"]`)?.hasAttribute('inert')).toBe(false)
+      expect(Boolean(harness.container.querySelector('nav'))).toBe(source === 'messages' || source === 'contacts')
+    }
   })
   // 伙伴里只有项目群聊那一行(话题不成行,owner 10-28):进去落在群聊页签,❌ 开话题分屏。
   it('returns from a project group opened in Partners to the retained project directory without showing the root tab bar', async () => {
