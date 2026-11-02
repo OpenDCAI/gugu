@@ -1,6 +1,7 @@
 import { AGENT_INIT_HELD_TIMEOUT_MS, isDeviceCommandDone, isDeviceCommandError } from '../shared/enums/deviceModels'
 import type { DeviceCommand } from '../shared/types/chat'
 import { dbPayload } from './supabase'
+import { AGENT_FAILURE_REASONS, agentFailureReason, type AgentFailureReason } from '../shared/agentQuotaReason'
 import { coreLogger } from '../log'
 import { RuntimeAuthExpiredError } from './runtimeAuthProvider'
 import {
@@ -531,7 +532,7 @@ async function failDeviceCommand(
   errorMessage: string,
   nowIso = new Date().toISOString(),
   operationTimeouts?: DeviceOperationTimeoutOverrides,
-  replyNotice?: 'in-chat' | 'context',
+  deliverOutcome?: AgentDeliverFailureResult,
 ): Promise<boolean> {
   const timeouts = resolveDeviceOperationTimeouts(operationTimeouts)
   const { data, error } = await runDeviceRequest(
@@ -539,7 +540,7 @@ async function failDeviceCommand(
     timeouts.commandSettlementMs,
     () => client
       .from('gugu_device_commands')
-      .update(dbPayload({ status: 'error', error: errorMessage, completed_at: nowIso, claim_token: null, ...(replyNotice ? { result: { reply_notice: replyNotice } } : {}) }))
+      .update(dbPayload({ status: 'error', error: errorMessage, completed_at: nowIso, claim_token: null, ...(deliverOutcome ? { result: deliverOutcome } : {}) }))
       .eq('id', commandId)
       .eq('claim_token', claimToken)
       .eq('status', 'running')
@@ -851,6 +852,22 @@ async function settleDeferredDeviceCommand(
   await settle('complete', (c) => completeDeviceCommand(c, command.id, claimToken, result, nowIso(), operationTimeouts))
 }
 
+/**
+ * A failed `agent.deliver`'s result: whether the host said it in the source chat, and why it failed. The reason is classified
+ * here, once, from what was thrown (a failure that knows its reason carries it); every surface reads this code, never the raw
+ * error, which stays in the `error` column and the host log.
+ */
+export type AgentDeliverFailureResult = { reply_notice: 'in-chat' | 'context'; reason: AgentFailureReason }
+
+function agentDeliverFailureResult(failure: unknown, error: string): AgentDeliverFailureResult {
+  const carried = failure && typeof failure === 'object' && 'reason' in failure ? failure.reason : null
+  const disclosedInChat = Boolean(failure && typeof failure === 'object' && 'disclosedInChat' in failure && failure.disclosedInChat === true)
+  return {
+    reply_notice: disclosedInChat ? 'in-chat' : 'context',
+    reason: AGENT_FAILURE_REASONS.find((known) => known === carried) ?? agentFailureReason(error) ?? 'generic',
+  }
+}
+
 async function failClaimedDeviceCommand(
   settle: SettleWrite,
   command: PendingDeviceCommand,
@@ -869,9 +886,8 @@ async function failClaimedDeviceCommand(
     ? sourceCause.message
     : undefined
   // #2115/#2159 — land the terminal CAS before notifying observers, including deferred turns.
-  const disclosedInChat = Boolean(failure && typeof failure === 'object' && 'disclosedInChat' in failure && failure.disclosedInChat === true)
-  const replyNotice = command.type === 'agent.deliver' ? disclosedInChat ? 'in-chat' : 'context' : undefined
-  if (!(await settle('fail', (c) => failDeviceCommand(c, command.id, claimToken, error, nowIso(), operationTimeouts, replyNotice)))) {
+  const deliverOutcome = command.type === 'agent.deliver' ? agentDeliverFailureResult(failure, error) : undefined
+  if (!(await settle('fail', (c) => failDeviceCommand(c, command.id, claimToken, error, nowIso(), operationTimeouts, deliverOutcome)))) {
     return { commandId: command.id, type: command.type, claimed: true, status: 'skipped' }
   }
   try {

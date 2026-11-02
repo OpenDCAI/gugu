@@ -1,6 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
 import type { AgentAttention } from '@gugu/core/shared/agentStatus'
-import { notify } from '../lib/notices'
 import { Sheet } from '../components/ui/Sheet'
 import { PaneHeader } from '../components/ui/Pane'
 import { RightPanelBackButton } from '../components/chat/RightPanel'
@@ -60,6 +59,7 @@ import { useSessionpageReveal } from '../hooks/useSessionpageReveal'
 import { useOwnedAgentConversationEntry } from '../hooks/useOwnedAgentConversationEntry'
 import { SessionInputOutboxHost } from '../hooks/useSessionInputOutbox'
 import { NeedsYouHost } from '../components/needsYou/NeedsYouHost'
+import { AgentFailureSlotHost } from '../components/AgentTurnFailureBar'
 import { NeedsYouSlot } from '../components/needsYou/NeedsYouSlot'
 import { AgentSharePopover } from '../components/sessionpage/AgentSharePopover'
 import { SESSIONPAGE_SHARE_ANCHOR_SELECTOR } from '../lib/sessionpageShareAnchor'
@@ -84,7 +84,6 @@ import { chatService } from '../lib/chat'
 import { readAgentCreateDefaults, rememberAgentCreateProject } from '../lib/agentCreateDefaults'
 import { rememberedAgentCreateProject } from '@gugu/core/shared/ui/agentCreateDefaultsModels'
 import { createOptimisticDmChat, createOptimisticGroupChat } from '@gugu/core/shared/ui/chatModels'
-import { agentFailureNeedsModelChoice, agentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import { pushToHost as pushTrayBadgeEnabled } from '../lib/trayBadgeSetting'
 import { hydrateSidebarTint } from '../lib/sidebarTint'
 import { UI_EVENTS } from '../lib/uiEvents'
@@ -715,38 +714,6 @@ function InnerLayout({
     setMobilePane('chat')
   }, [activeChatId])
 
-  const failedDeliveries = useRef(new Map<string, Set<string>>())
-  // One notice per task, with the actual cause and distinct source messages while it is visible.
-  useEffect(() => {
-    const handleSessionpageDeliverFailed = (event: Event) => {
-      const detail = (event as CustomEvent).detail as { agentUserId?: string; messageId?: string | null; error?: string } | undefined
-      if (!detail?.agentUserId) return
-      // #7685 额度/模型类由运行条的 agent 状态位 + 恢复前只弹一次的提示说(AgentTurnFailureSlot)，❌ 每条失败的投递再弹一条。
-      if (agentFailureNeedsModelChoice(agentFailureReason(detail.error))) return
-      const agentId = detail.agentUserId
-      const messages = failedDeliveries.current.get(agentId) ?? new Set<string>()
-      failedDeliveries.current.set(agentId, messages)
-      if (detail.messageId) messages.add(detail.messageId)
-      const clear = () => {
-        if (failedDeliveries.current.get(agentId) === messages) failedDeliveries.current.delete(agentId)
-      }
-      const contact = contacts.find((c) => c.id === agentId)
-      const name = contact?.alias?.trim() || contact?.display_name || agentId
-      notify({
-        key: `sessionpage-delivery:${agentId}`,
-        title: messageForUser(detail.error),
-        description: messages.size
-          ? t('shell.toast.taskDeliverFailedCount', { name, count: messages.size })
-          : t('shell.toast.taskDeliverFailed', { name }),
-        tier: 'error',
-        onDismiss: clear,
-        onAutoClose: clear,
-      })
-    }
-    window.addEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
-    return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
-  }, [contacts, t])
-
   // @@@sessionpage 分享 — 会话页头部点了「分享这个 agent 的名片」:main 只转达 agentUserId + 名字,咕咕号与
   // 头像从**通讯录同一份数据**取(自有 agent 就在 contacts 里),再交给既有的 SharePosterDialog 出卡片 ——
   // 与「群里点 agent 头像 → 名片 → 分享」走的是同一个组件、同一种 QR,不另做一套。
@@ -1294,6 +1261,7 @@ function InnerLayout({
       {/* 摩擦单 F6: an install is consented to here, over whatever view is on screen. */}
       <ExtensionConsentSheet />
       <NeedsYouHost onAttentionChange={setSessionAttention} />
+      <AgentFailureSlotHost />
 
       {/* @@@822 frameless 自绘窗口控制(Windows/Linux 右上角 min/max/close);Mac/web 自渲染为 null。
           ⚠️ **必须挂在整棵壳的最后** —— Electron 把 Blink 收集到的 drag / no-drag 矩形按 **DOM 序**

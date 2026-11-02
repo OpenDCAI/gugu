@@ -63,7 +63,6 @@ export default {
         "authentication": "Model authorization refused",
         "network": "Cannot reach the model service",
         "timeout": "No response in time",
-        "offline": "The device disconnected",
         "rateLimited": "Too many requests",
         "nextMessage": "The next message will retry automatically",
         "recovered_one": "{{name}}: {{count}} earlier reply failed · recovered",
@@ -71,10 +70,10 @@ export default {
         "settings": "Open settings"
       },
       "state": {
-        "exhausted": "out of credits",
-        "weekly": "weekly limit reached",
-        "monthly": "monthly limit reached",
-        "model-unavailable": "model unavailable"
+        "quota": "out of credits",
+        "weeklyQuota": "weekly limit reached",
+        "monthlyQuota": "monthly limit reached",
+        "modelUnavailable": "model unavailable"
       },
       "stateAction": "{{name}}: {{state}}. Click to change model",
       "authentication": "The model service refused authorization for this reply.",
@@ -91,7 +90,6 @@ export default {
       "notAdmitted": "Messages retained. Your assistant will reply when ready.",
       "outcomeUnknown": "Delivery result unknown: the message may have reached your assistant, and it was not resent.",
       "undelivered": "Not delivered yet: no running Gugu instance holds this Agent. It will read the message once that instance is open.",
-      "offline": "The device disconnected before the reply completed",
       "retry": "Retry",
       "retrying": "Retrying…",
       "timeout": "This Agent did not respond in time"

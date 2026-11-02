@@ -452,7 +452,8 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       // A failed chat turn is said in its chat the way the desktop says it (agentInboxReader's notice): the reason's fixed text,
       // addressing no one (a reply target or a recipient wakes that member: two failing agents woke each other in turn), and
       // never the raw error, which stays in this task's own state. A quota or model failure stays out of the chat, as there.
-      if (job.route?.kind === 'chat' && !job.sent?.length && !error.cancelled) {
+      // A whispered source keeps its failure out of the public chat (it would tell the chat who was whispered to).
+      if (job.route?.kind === 'chat' && !job.route.whisper && !job.sent?.length && !error.cancelled) {
         const reason = agentFailureReason(error.message) ?? 'generic'
         if (!agentFailureNeedsModelChoice(reason)) {
           const notice = deliveryDisclosureMessage({ agentUserId: agent.agentUserId, chatId: job.route.chatId, threadRootId: job.route.threadRootId ?? null, key: `turn-failure:phone:${job.id}`, reason })

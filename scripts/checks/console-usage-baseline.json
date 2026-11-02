@@ -27,7 +27,7 @@
   {
     "rule": "console-member",
     "file": "apps/desktop/electron/main.ts",
-    "count": 24
+    "count": 23
   },
   {
     "rule": "console-member",
@@ -127,11 +127,6 @@
   {
     "rule": "console-member",
     "file": "apps/desktop/src/components/sessionpage/EmdashSessionFrame.tsx",
-    "count": 1
-  },
-  {
-    "rule": "console-member",
-    "file": "apps/desktop/src/hooks/useAgentTurnFailure.ts",
     "count": 1
   },
   {
@@ -272,7 +267,7 @@
   {
     "rule": "console-member",
     "file": "packages/core/src/cloud/deviceRuntime.ts",
-    "count": 2
+    "count": 1
   },
   {
     "rule": "console-member",

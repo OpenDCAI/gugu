@@ -221,26 +221,10 @@ export interface DeviceRuntimeTickInput extends AgentRuntimeBridgeOptions {
   // 那时租约至少还剩 60 s(TTL 90 s、续租周期 30 s)⇒「认领之前实例心跳必新鲜」这条不变量照旧成立。
   // ❌ 缺省不跳:老调用方与测试没有独立续租这条腿,它们的 tick 必须自己续。
   skipInstanceLeaseRenewal?: boolean
-  // #2115 — agent.deliver 命令落终态 error(held 不算)时上抛给宿主:普通 ACP 回合失败以前只落库、
-  // renderer 零观察 → 用户看不到任何失败提示。宿主(electron main)据此发 {type:'error'} 流事件。
-  onAgentDeliverFailure?: (failure: AgentDeliverFailure) => void
   // @@@2175 — deliver 回合结局记录(连续异常计数,状态灯异常态数据源)。缺省 = 真 RPC
   // recordAgentDeliverOutcome;测试注入 spy。best-effort:记录失败仅告警,不影响命令流转。
   // S2b:喂灯点从命令结果迁到读者注入结果(注入成功/批失败/must-reply 违约)。
   recordDeliverOutcome?: (outcome: AgentDeliverOutcomeInput) => Promise<unknown>
-}
-
-// #2115 — deliver 终态失败的最小路由信息(commandId 供 renderer「重试」CAS error→pending 重排原命令)。
-export interface AgentDeliverFailure {
-  commandId: string
-  /** Original source message; retries of it must not inflate the visible message count. */
-  messageId?: string | null
-  agentUserId: string
-  chatId: string
-  threadRootId: string | null
-  error: string
-  /** Original provider/runtime error when `error` is the sanitized chat disclosure. */
-  cause?: string
 }
 
 export interface DeviceRuntimeTickResult {
@@ -1074,15 +1058,14 @@ export async function runDeviceRuntimeTick(
       // #5041 — 同账号同机多实例共享 device_id:只 claim 本实例持有(名册)或没有任何活着的实例持有的 agent 的命令;活着的兄弟
       // 最近执行过的 agent 归它。没有 instanceId 的老调用方/测试没有「兄弟」概念,保持单实例语义(与 claimed_by legacy 同一条线)。
       ...(holdingResolver ? { resolveHolding: holdingResolver } : {}),
-      // #2115 — 只把 agent.deliver 的终态失败上抛(其余命令类型的失败面各归各:create 有 agentCreationLifecycle
-      // 观察,stop 无用户在等)。payload 字段缺失(畸形命令)无从路由到会话 → warn 后跳过,不吞不炸。
+      // agent.deliver 的终态失败:记 #2175 异常回合并进日志(其余命令类型的失败面各归各)。
       onCommandFailed: (command, error, cause, failure) => {
         if (command.type !== 'agent.deliver') return
         const payload = (command.payload ?? {}) as Record<string, unknown>
         const agentUserId = deviceCommandAgentUserId(command)
         const chatId = typeof payload.chat_id === 'string' ? payload.chat_id : ''
-        // #5041 — 无人持有的 agent:handler 已向来源 chat 落了用户可见的披露,这里不再叠通用失败条(它带 Retry,而 Retry 只会
-        // 把同一条送回同一个「无人持有」),也不计入 #2175 的异常回合(agent 没在这台机器上跑,不是它的回合异常)。
+        // #5041 — 无人持有的 agent:handler 已向来源 chat 落了用户可见的披露;不计入 #2175 的异常回合
+        // (agent 没在这台机器上跑,不是它的回合异常)。
         if (isDisclosedUndeliverableAgentCommand(failure)) {
           log.error(
             { commandId: command.id, agentUserId, chatId },
@@ -1090,28 +1073,15 @@ export async function runDeviceRuntimeTick(
           )
           return
         }
-        // @@@2175 终态失败 = 异常回合 +1(held 不进本回调,与「瞬时失败区分」天然对齐)。只需 agentUserId,
-        // 先于下方路由字段检查——缺 chatId 只是发不了会话内提示,计数照记。
+        // @@@2175 终态失败 = 异常回合 +1(held 不进本回调,与「瞬时失败区分」天然对齐)。
         if (agentUserId) {
           recordDeliverOutcomeBestEffort({ agentUserId, ok: false })
         }
-        if (!agentUserId || !chatId) {
-          console.warn(`[device-runtime] agent.deliver ${command.id} failed but payload lacks routing fields — no UI notice`)
-          return
-        }
-        // 编号 17 — 这一批的失败已在来源 chat 落了 system 行(discloseBatchFailure):不再叠第二层失败条(#7125 同一次失败只说一次)。
-        // 未读还在云端游标后,下一个触发自己重拉,Retry 没有可做的;而这条失败条在 agent 恢复以后也从来没人收。
-        if (isSaidInChat(failure)) return
-        const threadRootId = typeof payload.thread_root_id === 'string' && payload.thread_root_id ? payload.thread_root_id : null
-        input.onAgentDeliverFailure?.({
-          commandId: command.id,
-          messageId: typeof payload.message_id === 'string' ? payload.message_id : null,
-          agentUserId,
-          chatId,
-          threadRootId,
-          error,
-          ...(cause ? { cause } : {}),
-        })
+        // The failure's surfaces read the command row (reply_notice + reason, `deviceCommands`); the raw error is for the log.
+        log.error(
+          { commandId: command.id, agentUserId, chatId, threadRootId: payload.thread_root_id ?? null, saidInChat: isSaidInChat(failure), err: error, ...(cause ? { cause } : {}) },
+          'agent.deliver failed terminally',
+        )
       },
     }
   )
