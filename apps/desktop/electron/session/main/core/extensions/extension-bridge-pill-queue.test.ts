@@ -1,3 +1,4 @@
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -42,7 +43,7 @@ const { bindExtensionSurface, deliverToOpeningPage, deliverToSessionFilePage, re
 
 const place = (slide: number) => ({ type: 'link' as const, tab: 'main', path: '', query: { slide: String(slide) }, file: null });
 const bind = (webContentsId: number, itemId: string) =>
-  bindExtensionSurface({ webContentsId, extensionId: 'office', tabId: `slot-${webContentsId}`, tabKind: 'office.main', chatId: CHAT, itemId });
+  bindExtensionSurface({ webContentsId, extensionId: 'office', tabId: `slot-${webContentsId}`, tabKind: 'office.main', conversation: CHAT, itemId });
 /** The places each page was handed, in the order they arrived. */
 const placesOf = (id: number) => sent.filter((s) => s.id === id && s.event.type === 'link').map((s) => (s.event.query as { slide: string }).slide);
 
@@ -93,9 +94,9 @@ describe('a pill’s place goes to a page of its file, in the order the places c
   it('a page moved to the pill’s file takes its place; moved elsewhere, it does not', async () => {
     await bind(PAGE_OTHER, SHEET);
     deliverToOpeningPage('office', place(4), { chat: CHAT }, DECK_A);
-    await retargetExtensionSurface({ webContentsId: PAGE_OTHER, tabId: `slot-${PAGE_OTHER}`, chatId: CHAT, itemId: DECK_B });
+    await retargetExtensionSurface({ webContentsId: PAGE_OTHER, tabId: `slot-${PAGE_OTHER}`, conversation: CHAT, itemId: DECK_B });
     expect(placesOf(PAGE_OTHER)).toEqual([]);
-    await retargetExtensionSurface({ webContentsId: PAGE_OTHER, tabId: `slot-${PAGE_OTHER}`, chatId: CHAT, itemId: DECK_A });
+    await retargetExtensionSurface({ webContentsId: PAGE_OTHER, tabId: `slot-${PAGE_OTHER}`, conversation: CHAT, itemId: DECK_A });
     expect(placesOf(PAGE_OTHER)).toEqual(['4']);
   });
 });
@@ -104,7 +105,7 @@ describe('a link in a session’s chat to a working-copy file with a place: the 
   const SESSION = 's-1';
   const office = { extensionId: 'office', tabKind: 'office.main', tabTitle: 'Office', app: { name: 'Office' }, onlyTab: true, suffix: '.pptx' };
   const bindFile = (webContentsId: number, filePath: string) =>
-    bindExtensionSurface({ webContentsId, extensionId: 'office', sessionId: SESSION, tabId: `tab-${webContentsId}`, tabKind: 'office.main', filePath });
+    bindExtensionSurface({ webContentsId, extensionId: 'office', workspace: sessionWorkspace(SESSION), tabId: `tab-${webContentsId}`, tabKind: 'office.main', filePath });
   const fileOf = (id: number) => sent.filter((s) => s.id === id && s.event.type === 'link').map((s) => (s.event as { file?: string }).file);
 
   it('the tab is still opening: the page that binds on that file gets the place, the file named by its path', async () => {
@@ -124,7 +125,7 @@ describe('a link in a session’s chat to a working-copy file with a place: the 
     await bindFile(PAGE_OTHER, 'decks/b.pptx');
     await deliverToSessionFilePage(office, { slide: '2' }, SESSION, 'decks/a.pptx');
     expect(placesOf(PAGE_OTHER)).toEqual([]);
-    await retargetExtensionSurface({ webContentsId: PAGE_OTHER, sessionId: SESSION, tabId: `tab-${PAGE_OTHER}`, filePath: 'decks/a.pptx' });
+    await retargetExtensionSurface({ webContentsId: PAGE_OTHER, workspace: sessionWorkspace(SESSION), tabId: `tab-${PAGE_OTHER}`, filePath: 'decks/a.pptx' });
     expect(placesOf(PAGE_OTHER)).toEqual(['2']);
   });
 });

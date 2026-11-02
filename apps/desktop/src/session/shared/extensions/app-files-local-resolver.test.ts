@@ -45,7 +45,7 @@ describe('App stored files enter the canonical local resolver before all cloud m
   it('opens the actual cached publication read-only without account refresh, workspace lookup or identities', async () => {
     const f = fixture(), opened = await f.files.open(surface, { ref: { id: revision.item_id! } });
     expect(new Uint8Array(opened.bytes!)).toEqual(bytes);
-    expect(opened).toMatchObject({ access: 'ro', docName: '', entry: { id: revision.item_id, chat: 'group', path: 'files/original.bin', parentId: 'folder', version: 1, createdAt: null, canDelete: false } });
+    expect(opened).toMatchObject({ access: 'ro', docName: '', entry: { id: revision.item_id, chat: 'group', path: 'files/original.bin', parentId: 'folder', version: 1, createdAt: null } });
     expect(opened.self.userId).toBe(`user:${owner}`);
     expect(f.never).not.toHaveBeenCalled(); expect(f.open).toHaveBeenCalledTimes(1); expect(f.dispose).toHaveBeenCalledTimes(1);
   });

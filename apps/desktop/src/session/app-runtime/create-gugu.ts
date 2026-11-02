@@ -46,12 +46,14 @@ export function createGugu(
   const watchers = new Map<string, (change: ExtensionFileChangeBatch) => void>();
   let nextWatch = 0;
   let hearing: (() => void) | null = null;
-  const watch = (watchId: string, place: AppPlace, on: boolean) =>
+  const watch = (watchId: string, place: AppPlace & { folder?: string }, on: boolean) =>
     host.appFiles.watch({ watchId, place, on }).catch((error: unknown) => {
       if (on) void host.reportError(`gugu.files.onChanged(${placeKey(place)}): ${error instanceof Error ? error.message : String(error)}`).catch(() => undefined);
     });
   function onChanged(place: unknown, handler: (change: ExtensionFileChangeBatch) => void): () => void {
-    const where = placeOf(place);
+    // A working copy may name a folder (`'.spec'`): what changes anywhere below it.
+    const folder = (place as { folder?: unknown } | null)?.folder;
+    const where = { ...placeOf(place), ...(typeof folder === 'string' && folder ? { folder } : {}) };
     const watchId = String(++nextWatch);
     if (typeof handler !== 'function') throw guguError('invalid', 'files.onChanged(place, fn) takes a function');
     hearing ??= host.onFilesChanged((id, change) => watchers.get(id)?.(change));
@@ -104,6 +106,8 @@ export function createGugu(
     onChanged,
     viewPreferences: (place: unknown, options?: { showAppData?: boolean }) => withPlace(place, (where) => host.appFiles.viewPreferences({ place: where, ...options })),
     replace,
+    /** Whether whoever reads may delete each file (an entry, or a list of them), in order — ask as its menu opens. */
+    canDelete: (files: unknown) => withRefs(files, (refs) => host.appFiles.canDelete({ refs })),
     /** G2 A chat file's kept versions, newest first; one's content: a text file's as text, a stored file's as a Blob. */
     versions: (file: unknown) => withRef(file, (ref) => host.appFiles.versions({ ref })),
     readVersion: (file: unknown, n: number) =>

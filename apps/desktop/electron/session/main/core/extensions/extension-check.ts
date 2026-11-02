@@ -32,6 +32,7 @@ import { ariaSnapshot, byDeadline, readTree, runSteps, type StepHost } from './e
 import { endPictures, GROUP_PANEL, keepPainting, PHONE, PICTURE_MAX_HEIGHT, pictureOf, picturesOf, showAtSize, taskPane, type PictureSize } from './extension-look-picture';
 import { agentToolsOf, extensionPrograms, programFailureReason } from './extension-programs';
 import { configureExtensionSession } from './extension-session';
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { isAllowedExtensionNavigation } from './extension-webview-security';
 import { readExtensionSkills } from '../../../../extension-session-mcp';
 import { extensionsService } from './extensions-root';
@@ -122,10 +123,10 @@ export async function checkExtensionSurface(request: ExtensionCheckRequest): Pro
         extensionId: installed.manifest.id,
         tabId: `extension-check:${contents.id}`,
         tabKind: `${installed.manifest.id}.${tab.name}`,
-        ...(request.chatId ? { chatId: request.chatId } : {}),
+        conversation: request.chatId ?? null,
         ...(request.itemId ? { itemId: request.itemId } : {}),
         // F94 A tab of the caller's session: for a file of its working copy, or the App's own page (owner 10-13).
-        ...(request.sessionId ? { sessionId: request.sessionId } : {}),
+        workspace: request.sessionId ? sessionWorkspace(request.sessionId) : null,
         ...(request.filePath ? { filePath: request.filePath } : {}),
         operator: request.operator,
       });

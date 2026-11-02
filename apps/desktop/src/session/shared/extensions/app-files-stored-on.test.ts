@@ -59,3 +59,12 @@ it('marks nothing when no file is kept on a machine', async () => {
   expect(entries.every((entry) => entry.storedOn === undefined)).toBe(true);
   expect(rpc.mock.calls.some(([name]) => name === 'file_resolve_as')).toBe(false);
 });
+
+it('a file that changed, read on its own, still says which machine keeps it', async () => {
+  // `workspace_get_as` has no host_device_id: what `groupEntries` hands a page when a file gets a new version.
+  const id = '44444444-4444-4444-8444-444444444444';
+  rows = [{ ...base, id, kind: 'file', filename: 'a.pdf', pointer: null, path: 'a.pdf' }];
+  holders = { [id]: kept('mac', person, 'Studio Mac', true) };
+  const { entries } = await createAppFiles(platform).groupEntries(chat, [id]);
+  expect(entries[0]?.storedOn).toMatchObject({ machine: 'Studio Mac', mine: true });
+});

@@ -3,6 +3,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import journal from '@root/drizzle/meta/_journal.json';
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
+import { messageReferenceId } from '@gugu/session-core/acp/client';
 
 // Vite bundles all migration SQL files at build time — no runtime path resolution needed.
 // Each value is the raw SQL string content of the file.
@@ -102,7 +103,8 @@ function ensureSearchIndex(connection: BetterSqlite3.Database): void {
   // dropped and recreated, and backfill() + seedCommands() repopulate it.
   // 7: a session is indexed by its one name (task-name.ts), not the dropped `sessions.title` (6 was
   // already taken by the said-in-tasks search, so installs that built 6 rebuild once more).
-  const SEARCH_INDEX_VERSION = '7';
+  // 8: turn_text_rows.item_id holds the message's source identity, the one a reveal compares.
+  const SEARCH_INDEX_VERSION = '8';
 
   const row = connection.prepare(`SELECT value FROM kv WHERE key = 'fts_version'`).get() as
     | { value: string }
@@ -135,6 +137,7 @@ function ensureSearchIndex(connection: BetterSqlite3.Database): void {
  * Only message items (what the person and the agent said, through `search_text`) are kept; thinking and tools are not searchable.
  * A stored turn whose data is not JSON has no items here, as for every other reader of session_turns.
  * `turn_text_rows` holds them keyed by (session_id, seq); `turn_text` is its trigram FTS5 index (external content).
+ * Its item_id is the message's source identity (`message_reference`), never the runtime/stored display id.
  * Rebuilt with the search index version, including a backfill of the existing turns.
  */
 /**
@@ -147,10 +150,18 @@ function registerSearchText(connection: BetterSqlite3.Database): void {
     if (typeof text !== 'string' || isGuguSilence(text)) return null;
     return readDeliveryEnvelope(text)?.body ?? text;
   });
+  // `message_reference(turn.id, turn.referenceId, item.id)`: a turn from an old runtime has no durable source, so its
+  // text stays searchable under the id it was stored with.
+  connection.function('message_reference', { deterministic: true }, (turnId: unknown, referenceId: unknown, itemId: unknown) => {
+    if (typeof itemId !== 'string') return null;
+    const turn = { id: String(turnId), ...(typeof referenceId === 'string' ? { referenceId } : {}) };
+    return messageReferenceId(turn, itemId) ?? itemId;
+  });
 }
 
 function ensureTurnText(connection: BetterSqlite3.Database): void {
-  const messages = (turn: string) => `SELECT ${turn}.session_id, ${turn}.seq, json_extract(item.value, '$.id'), json_extract(item.value, '$.role'),
+  const messages = (turn: string) => `SELECT ${turn}.session_id, ${turn}.seq,
+      message_reference(json_extract(${turn}.data, '$.id'), json_extract(${turn}.data, '$.referenceId'), json_extract(item.value, '$.id')), json_extract(item.value, '$.role'),
       search_text(json_extract(item.value, '$.text')) FROM json_each(iif(json_valid(${turn}.data), ${turn}.data, '{}'), '$.items') AS item
     WHERE json_extract(item.value, '$.kind') = 'message' AND length(search_text(json_extract(item.value, '$.text'))) > 0`;
   connection.exec(`

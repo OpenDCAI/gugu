@@ -12,10 +12,11 @@ import { useChatStore } from '../store/chatContext'
 import { ChatLineScope } from '../store/chatLineScope'
 import { useAuth } from '../store/auth'
 import type { AgentConversationActivity, GroupCollabSnapshot, MessageItem } from '@gugu/core/shared/types/chat'
-import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'; import { useQueuedMessageIds } from '../hooks/useQueuedMessageIds'
+import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'; import { useDeliveryWaits } from '../hooks/useDeliveryWaits'
 import { useSourceMessageReveal } from '../hooks/useSourceMessageReveal'
 import { useChatHistoryPagination } from './chat/useChatHistoryPagination'
 import { useGroupCollabLoader, EMPTY_GROUP_COLLAB } from '../hooks/useGroupCollabLoader'
+import { useRoomAuthorityRevision } from '../hooks/useRoomAuthorityRevision'
 import { useTopicScopedMemberProfile } from '../hooks/useTopicScopedMemberProfile'
 import { ForwardMessageDialog } from './chat/ForwardMessageDialog'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
@@ -37,6 +38,7 @@ import { useShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { MemberProfilePopover } from './MemberProfilePopover'
 import { ReadReceiptPopover } from './ReadReceiptPopover'
 import { useListenModeEditControls } from './chat/useListenModeEditControls'
+import { groupRoleRevision, useGroupChatSettings } from './chat/useGroupChatSettings'
 import { RightPanel } from './chat/RightPanel'
 import {
   buildMemberProfileMap,
@@ -54,7 +56,7 @@ import { ChatHeaderActions } from './chat/ChatHeaderActions'
 import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'
 import { useConversationScrollMemory } from './chat/useConversationScrollMemory'
 import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'
-import { GroupTabContent } from './appSlot/GroupTabContent'; import { useChatOpener } from './appSlot/useChatOpener'; import { ChatPlusMenu, ChatTabPage, ChatTabPortals } from './appSlot/ChatTabHosts'; import { useTabsReading } from './appSlot/useTabsReading'
+import { GroupTabContent } from './appSlot/GroupTabContent'; import { useChatOpener } from './appSlot/useChatOpener'; import { ChatTabPage, ChatTabPortals } from './appSlot/ChatTabHosts'; import { TabBarAddMenu } from '../session/renderer/features/sessions/tab-bar-actions'; import { useTabsReading } from './appSlot/useTabsReading'
 import { folderItem, isFolderItem } from '../session/renderer/features/chats/chat-tabs/chat-panel-item'; import { closeChatTab, closeInfoTab, focusedChatTab, infoTabOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, showChatOnly, type ChatPanelTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { useTopicSurface } from '@/hooks/useTopicSurface'
 import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
@@ -196,7 +198,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     // opener 走同一 SSOT helper;下方冗余的第二个 reset effect 一并删除。
     closeRightSurfaces()
     setShowHeaderMenu(false)
-    setQuoteText(null)
     isAtBottomRef.current = true
     // @@@2169/@@@group-collab-swr - invalidate 在途加载 + 取消后台重试 + 按 in-memory cache 重铺首帧,细节见 useGroupCollabLoader。
     resetGroupCollabForChat()
@@ -204,7 +205,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     setWhisperTarget(null)
     // @@@chat-open-nonce (#461) - also reset on mobile reopen of the SAME chat (openNonce bump), where
     // activeChatId is unchanged — so isAtBottomRef doesn't stay stale-false from a prior scroll-up.
-  }, [activeChatId, isRoomChatSurface, openNonce, closeRightSurfaces, resetGroupCollabForChat, setQuoteText])
+  }, [activeChatId, isRoomChatSurface, openNonce, closeRightSurfaces, resetGroupCollabForChat])
 
   // @@@chat-open-nonce (#461) - reload on openNonce too, symmetric with the reset effect (which clears
   useEffect(() => {
@@ -217,37 +218,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     openSettings: handleOpenSettingsDrawer,
   })
 
-  useEffect(() => {
-    if (!activeChatId || !isRoomChatSurface || !user?.id) return
-    const refreshTimers = new Set<number>()
-    // @@@ collab-refetch-coalesce (#597) — see git history for full context.
-    let pendingReload: number | null = null
-    const handleCollabChange = () => {
-      if (pendingReload !== null) return
-      pendingReload = window.setTimeout(() => {
-        refreshTimers.delete(pendingReload as number)
-        pendingReload = null
-        loadGroupCollab()
-      }, 300)
-      refreshTimers.add(pendingReload)
-    }
-    const handleRevision = (operations: readonly { payload: unknown }[]) => {
-      if (operations.some((operation) => (operation.payload as { chat_id?: unknown })?.chat_id === activeChatId)) handleCollabChange()
-    }
-    const unsubscribeGroup = subscribeAccountRevision('group_collab_changed', handleRevision)
-    const unsubscribeMembers = subscribeAccountRevision('chat_members_changed', handleRevision)
-    const handleLocalCollabChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ chatId?: string }>).detail
-      if (detail?.chatId === activeChatId) handleCollabChange()
-    }
-    window.addEventListener(UI_EVENTS.groupCollabChanged, handleLocalCollabChange)
-    return () => {
-      refreshTimers.forEach((timer) => window.clearTimeout(timer))
-      window.removeEventListener(UI_EVENTS.groupCollabChanged, handleLocalCollabChange)
-      unsubscribeGroup()
-      unsubscribeMembers()
-    }
-  }, [activeChatId, isRoomChatSurface, loadGroupCollab, subscribeAccountRevision, user?.id])
+  const authorityRevision = useRoomAuthorityRevision({ chatId: activeChatId ?? null, sourceChatId: activeChat?.source_chat_id ?? null, isRoom: isRoomChatSurface, userId: user?.id ?? null, loadGroupCollab, subscribeAccountRevision })
 
   const openMessageMemberProfile = useCallback((
     member: MemberProfileCardModel,
@@ -410,7 +381,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     })
   }, [deleteMessage])
 
-  const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(displayedMessages, user?.id, activeChat?.peer_user_id, surfaceVisible, isFiltering ? searchQuery : ''); const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
+  const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(displayedMessages, user?.id, activeChat?.peer_user_id, surfaceVisible, isFiltering ? searchQuery : ''); const deliveryWaits = useDeliveryWaits(messages, memberReadSeqs)
   const chatResetKey = `${activeChatId ?? ''}#${openNonce ?? 0}#${messageWindow?.viewVersion ?? 0}`
   const { scrollerEl, scrollerRef, setScrollerRef, prepareForSavedPosition, isPreservingPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
     chatId: activeChatId, viewportKey, activationKey: activeChatId ?? '', enabled: !isFiltering, discardSaved: !!unreadEntry,
@@ -493,10 +464,9 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     chatId: activeChatId, messages: displayedMessages, memberReadSeqs, memberProfiles: messageMemberProfiles,
   })
 
-  // @@@1241 — wire listen-mode editing into the message-area avatar popover (agent owner → own agent).
-  const messageListenEditControlsFor = useListenModeEditControls({ chatId: activeChat?.id ?? null, currentUserId: user?.id ?? null, onReload: loadGroupCollab })
-  // 从话题分栏点开的名片:档位读写话题自己那行,❌ 不是来源群的(见 hook 头注)。
-  const shownMessageProfile = useTopicScopedMemberProfile({ profile: renderedActiveMessageProfile, topicChatId: topicSurface.splitTopic?.chatId ?? null, currentUserId: user?.id ?? null, groupEditControlsFor: messageListenEditControlsFor })
+  const groupSettings = useGroupChatSettings(isRoomChatSurface ? activeChatId : null, groupRoleRevision(groupCollabSnapshot), authorityRevision)
+  const messageListenEditControlsFor = useListenModeEditControls({ chatId: isRoomChatSurface ? activeChatId : null, currentUserId: user?.id ?? null, settings: groupSettings.settings, onAuthorityReload: groupSettings.reload, onReload: loadGroupCollab })
+  const shownMessageProfile = useTopicScopedMemberProfile({ profile: renderedActiveMessageProfile, authorityRevision, topicChatId: topicSurface.splitTopic?.chatId ?? null, currentUserId: user?.id ?? null, groupEditControlsFor: messageListenEditControlsFor })
   const drawerMemberProfiles = useMemo(() => Object.values(messageMemberProfiles).filter((profile) => profile.membership !== 'former'), [messageMemberProfiles])
 
   // #2098 owner 定:已读回执逐条显示 → 去掉原「只挂末条」的 lastOwnMessageId/threadLastOwnMessageId 计算。
@@ -510,7 +480,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     mobile,
     highlight: isFiltering ? searchQuery : undefined,
     flashMessageId,
-    memberReadSeqs, queuedIds,
+    memberReadSeqs, deliveryWaits,
     isGroupChat: isRoomChatSurface,
     memberProfiles: messageMemberProfiles,
     onReaction: handleReaction,
@@ -542,7 +512,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     isFiltering,
     mobile,
     searchQuery,
-    memberReadSeqs, queuedIds,
+    memberReadSeqs, deliveryWaits,
     isRoomChatSurface,
     messageMemberProfiles,
     handleReaction,
@@ -594,7 +564,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   }
 
   // 块的页签条最后那枚之后的「+」(gugu-dev#181 第 ⑥ 步);页签本身由会话页的页签引擎画(chat-tabs)。
-  const blockTabs = blockHost?.tabs && activeChatId ? createPortal(<ChatPlusMenu chatId={activeChatId} />, blockHost.tabs) : null
+  const blockTabs = blockHost?.tabs && activeChatId ? createPortal(<TabBarAddMenu chatId={activeChatId} />, blockHost.tabs) : null
   const roomMemberTotal = isRoomChatSurface ? groupCollabSnapshot.humans.length + groupCollabSnapshot.agents.length : 0
   const headerActions = (
     <>
@@ -640,6 +610,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
       onOpenUserChat={onOpenUserChat}
       onWhisper={isGroupChat ? (target) => setWhisperTarget({ userId: target.id, displayName: target.displayName }) : undefined}
       groupCollabSnapshot={groupCollabSnapshot}
+      groupSettings={groupSettings}
       groupCollabError={groupCollabError}
       groupAgentStatuses={groupAgentStatuses}
       onReloadGroupCollab={loadGroupCollab}

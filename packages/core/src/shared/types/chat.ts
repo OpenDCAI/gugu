@@ -152,8 +152,8 @@ export interface MessageItem {
   edited_at?: string | null
 }
 
-/** queued = persisted, but an agent it wakes has not taken it yet (shared/ui/systemNotice.ts queuedMessageIds). */
-export type MessageSendState = 'sending' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown'
+/** queued / undelivered = persisted, but an agent it wakes has not taken it yet (shared/ui/systemNotice.ts deliveryWaits). */
+export type MessageSendState = 'sending' | 'queued' | 'undelivered' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown'
 
 export interface ReactionGroup {
   emoji: string
@@ -459,25 +459,11 @@ export interface GroupTaskItem {
   updated_at: string
 }
 
-export interface GroupOutputItem {
-  id: string
-  chat_id: string
-  task_id: string | null
-  name: string
-  file_type: string | null
-  asset_id: string | null
-  url: string | null
-  produced_by_user_id: string | null
-  size_label: string | null
-  created_at: string
-}
-
 export interface GroupCollabSnapshot {
   scheduler: GroupSchedulerState
   humans: GroupMemberItem[]
   agents: GroupAgentItem[]
   tasks: GroupTaskItem[]
-  outputs: GroupOutputItem[]
 }
 
 // @@@group-announcements (#986) — 群公告 posted by owner/admin in a group chat.

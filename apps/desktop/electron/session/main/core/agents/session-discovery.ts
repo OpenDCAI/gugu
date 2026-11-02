@@ -447,9 +447,14 @@ export async function listLocalPlatformModels(
 export async function probeHarnessCatalogState(
   harnessId: string,
   transport: SessionTransport,
+  model?: string,
 ): Promise<HarnessCatalogState> {
   const deps = await loadDesktopDiscoveryDeps()
   await deps.ensureProbed()
+  if (model) {
+    const { probeHarnessModelCatalog } = await import('./harness-model-catalog')
+    return probeHarnessModelCatalog(harnessId, surfaceOfTransport(transport), model)
+  }
   const version = deps.manager.get(harnessId)?.version ?? null
   return deps.getModelCatalog(harnessId, { leg: surfaceOfTransport(transport), harnessVersion: version })
 }

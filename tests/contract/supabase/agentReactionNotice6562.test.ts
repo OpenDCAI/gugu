@@ -8,10 +8,11 @@ import { createRequire } from 'node:module'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   pullAgentInbox,
+  unreadRowFromRpc,
   resetAgentInboxReaderStateForTests,
   type AgentInboxUnreadRow,
 } from '@gugu/core/local/agent/agentInboxReader'
-import { memoryGroupRulesLedger, type ChatFactsRow } from '@gugu/core/local/agent/groupRulesDelivery'
+import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDelivery'
 import { REACTIONS } from '@gugu/core/shared/ui/reactionCatalog'
 
 interface DatabaseClient {
@@ -81,31 +82,14 @@ async function agentSays(room: Room, content: string): Promise<string> {
 }
 async function pull(room: Room, agent: string): Promise<AgentInboxUnreadRow[]> {
   return as(room.owner, async () => {
-    const { rows } = await db.query<AgentInboxUnreadRow>(`SELECT
-      chat_id AS "chatId", chat_kind AS "chatKind", chat_public_id AS "chatPublicId",
-      chat_name AS "chatName", chat_creator_user_id AS "chatCreatorUserId", listen_mode AS "listenMode",
-      notification_level AS "notificationLevel", last_read_seq::float8 AS "lastReadSeq",
-      id, seq::float8 AS seq, sender_user_id AS "senderUserId", sender_type AS "senderType",
-      sender_display_name AS "senderDisplayName", sender_gugu_number AS "senderGuguNumber", content,
-      content_type AS "contentType", to_user_ids AS "toUserIds", is_whisper AS "isWhisper",
-      reply_to_message_id AS "replyToMessageId", reply_to_sender_user_id AS "replyToSenderUserId",
-      reply_to_content AS "replyToContent", thread_root_id AS "threadRootId", is_thread_root AS "isThreadRoot",
-      created_at::text AS "createdAt", scan_max_ingest_seq::float8 AS "scanFence"
-      FROM identity.pull_agent_inbox_v2($1,$2)`, [agent, room.group])
-    return rows
-  })
-}
-async function chatFactsAs(owner: string, chatId: string, asUserId: string): Promise<ChatFactsRow | null> {
-  return as(owner, async () => {
-    const { rows } = await db.query<ChatFactsRow>('SELECT kind, source_chat_id, group_prompt FROM chat.chat_facts($1,$2)', [chatId, asUserId])
-    return rows[0] ?? null
+    const { rows } = await db.query<{ row: Record<string, unknown> }>(`SELECT to_jsonb(p) AS row FROM identity.pull_agent_inbox_v2($1,$2) p`, [agent, room.group])
+    return rows.map(({ row }) => unreadRowFromRpc(row))
   })
 }
 async function deliver(room: Room, agent: string): Promise<string[]> {
   const texts: string[] = []
   await pullAgentInbox(agent, {
     accessToken: 'owner-authorized-sql-fixture',
-    fetchChatFacts: (chatId, asUserId) => chatFactsAs(room.owner, chatId, asUserId),
     groupRulesLedger: memoryGroupRulesLedger(),
     fetchUnread: () => pull(room, agent),
     inject: async ({ text }) => { texts.push(text); return 'accepted' },
