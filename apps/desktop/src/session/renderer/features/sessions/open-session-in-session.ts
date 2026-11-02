@@ -3,6 +3,7 @@ import { getSessionView } from '@renderer/features/sessions/stores/session-selec
 import { sessionTabKind } from './session-tab-kind';
 import { sessionPaneReady } from './session-pane-ready';
 import { machineUnavailableLabel } from './machine-unavailable-label';
+import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { sessionRegistry } from './stores/session-registry';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -45,6 +46,12 @@ export function openSessionInSessionWhenReady({
   host,
   onReady,
 }: OpenSessionInSessionOptions): () => void {
+  const native = remoteHostsStore.findListedSession(sessionId)?.nativeInputVersion;
+  if ((native === 1 || native === 2) && machineUnavailableLabel(projectId)) {
+    // Navigation (including a beside block) reaches SessionContentGate without a remote workspace.
+    onReady?.();
+    return () => {};
+  }
   const paneReady = sessionPaneReady(projectId, sessionId, { reviveArchived: false });
   return when(
     () => {
