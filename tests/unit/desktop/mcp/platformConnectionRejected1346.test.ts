@@ -49,6 +49,9 @@ describe('platform OAuth rejection state (#1346 review)', () => {
     f.nextGrant()
     await f.service.refresh({ maxAgeMs: 0 })
     expect(await f.service.isConnected('baidu-pan')).toBe(true)
+    // Reusing an old endpoint after clearing its rejection marker still refers to the old version.
+    await expect(endpoint.fetch(endpoint.url, { method: 'POST' })).rejects.toThrow()
+    expect(await f.service.isConnected('baidu-pan')).toBe(true)
   })
   it('ignores a late rejection from an older grant after another device reconnects', async () => {
     const f = fixture()

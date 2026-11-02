@@ -348,9 +348,7 @@ export class PlatformCredentialService {
     for (const [id, rejected] of this.rejectedVersions) {
       for (const [account, version] of rejected) {
         if (versions.get(id)?.get(account) === version) snapshot.get(id)?.set(account, false);
-        else rejected.delete(account);
       }
-      if (rejected.size === 0) this.rejectedVersions.delete(id);
     }
     for (const provider of providers) {
       try {
@@ -367,6 +365,10 @@ export class PlatformCredentialService {
     this.availability = 'present';
     this.snapshot = snapshot;
     this.versions = versions;
+    for (const [id, rejected] of this.rejectedVersions) {
+      for (const [account, version] of rejected) if (versions.get(id)?.get(account) !== version) rejected.delete(account);
+      if (rejected.size === 0) this.rejectedVersions.delete(id);
+    }
     this.reportConnections();
     this.fetchedAt = this.now();
     this.failedAt = 0;
@@ -802,7 +804,7 @@ export class PlatformCredentialService {
     if (stillStored && this.provider(integrationId)?.oauth && versions) {
       // A late failure of an old request cannot invalidate a newer authorization.
       if ([...versions].some(([id, version]) => this.versions.get(integrationId)?.get(id) !== version)) return;
-      this.rejectedVersions.set(integrationId, versions);
+      this.rejectedVersions.set(integrationId, new Map(versions));
     }
     const accounts = this.snapshot?.get(integrationId);
     this.snapshot?.set(integrationId, new Map(stillStored ? [...(accounts?.keys() ?? [])].map((id) => [id, false] as const) : []));
