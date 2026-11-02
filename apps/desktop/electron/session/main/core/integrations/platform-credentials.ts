@@ -4,6 +4,7 @@ import {
   PlatformCredentialRejectedError,
   type PlatformIntegrationProvider,
   type PlatformIntegrationsClient,
+  type PlatformMcpEndpoint,
 } from '@gugu/core/cloud/platformIntegrations';
 import {
   integrationPluginRegistry,
@@ -16,7 +17,6 @@ import type {
   ProviderAccountRegistry,
 } from '@main/core/provider-accounts/provider-account-registry';
 import { PLATFORM_CREDENTIAL_SOURCE, REJECTED_KEY_SOURCE } from '@shared/core/provider-accounts/provider-account-meta';
-import type { IntegrationEndpoint } from '../../../../integration-mcp-bridge';
 import { DEFAULT_INTEGRATION_ACCOUNT_ID } from './integration-credential-store';
 
 /**
@@ -787,7 +787,7 @@ export class PlatformCredentialService {
    * 会话里这一家那台 MCP 每次调用现取的转发口:平台的地址 + 本人此刻的会话令牌,凭据由平台挂上。
    * 转发口说没存 / 存着的被拒了 → 这一次调用明确失败,本机也跟着去问一次平台。
    */
-  async mcpEndpoint(integrationId: string, signal?: AbortSignal): Promise<IntegrationEndpoint> {
+  async mcpEndpoint(integrationId: string, signal?: AbortSignal): Promise<PlatformMcpEndpoint> {
     signal?.throwIfAborted();
     const client = this.client();
     if (!client) throw new Error(`${integrationId} is kept on this computer here; there is no platform forwarder.`);
