@@ -439,7 +439,6 @@ export default {
         "zh-CN": "简体中文"
       },
       "light": "Light",
-      "plain-white": "Plain white",
       "notifications": "Notifications",
       "notificationsChat": "Chat message notifications",
       "notificationsChatAria": "Enable chat message notifications",
