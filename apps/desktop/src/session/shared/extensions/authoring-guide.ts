@@ -546,13 +546,13 @@ const save = () => gugu.writeData('save.json', JSON.stringify(state))
  */
 export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files
 
-Claim a file's name/suffix and open it live; don't bundle data (\`app_install\` \`{item_id}\`).
+Claim a file's name/suffix and open it live; don't bundle data (\`app_install\` data \`{item_id}\`).
 Top-level await needs \`<script type="module">\`.
 
 ## App data
 
 A tab's exact \`chatFile\` is hidden App state (\`entry.appState\`); APIs/agents/links still reach it.
-Suffix claims are visible documents. \`files.viewPreferences({chat}, {showAppData:true})\` sets the person's
+Suffix claims are visible documents. \`gugu.files.viewPreferences({chat}, {showAppData:true})\` sets the person's
 source-chat preference; omit options to read it.
 
 ## Which files you may open
@@ -601,12 +601,12 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 ## Every opened handle
 
 \`await gugu.files.open(entry)\` returns readable content with \`entry\`, \`type\` (text/json/binary),
-\`readOnly\`, \`size: number|null\`, \`bytes(): Promise<Uint8Array>\`, \`blob(): Promise<Blob>\`, \`close()\`.
+\`readOnly\`, \`size: number|null\`, \`f.bytes(): Promise<Uint8Array>\`, \`f.blob(): Promise<Blob>\`, \`f.close()\`.
 Document bytes are current UTF-8; JSON uses \`JSON.stringify(root, null, 2)\`. Only text/JSON have \`text\`;
-branch on \`type\` or use \`bytes()\`, never poll for text.
+branch on \`type\` or use \`f.bytes()\`, never poll for text.
 
 Stored binary or text >1 MiB shares working-copy \`f.read(offset,length)\`: host packets ≤512 KiB;
-\`bytes()\`/\`blob()\` read all. Chat ranges pin \`entry.version\`; unavailable old bytes throw \`stale-version\`
+\`f.bytes()\`/\`f.blob()\` read all. Chat ranges pin \`entry.version\`; unavailable old bytes throw \`stale-version\`
 (reopen for current), never mix revisions. \`await f.close()\`, page removal or five idle minutes release the
 snapshot. Remote working-copy size stays null until a range answers. Small stored text and \`readVersion\`
 read whole; beside-document/download/forward stay unchanged. Range base64 adds about 33% on the bridge.
@@ -623,7 +623,7 @@ instructions. Migrate old data when its shape changes; raise your format's versi
 \`f.data\` is live: read/write/spread it. Assigning an object merges keys: listed keys recurse; keys seen but
 omitted are removed; unseen concurrent additions survive, including with \`= {}\`. Concurrent plain values:
 last write wins. Key collections by id (\`f.data.cards[crypto.randomUUID()] = {title,column}\`); sort only for display.
-\`f.toJSON()\` makes a plain copy; \`structuredClone(f.data)\` throws. Change by id/content, never an old index.
+\`f.toJSON()\` makes a plain copy; \`structuredClone\` on it throws. Change by id/content, never an old index.
 \`f.transact(() => …)\` groups a frame's writes.
 
 Collaborative text: \`f.data.title = gugu.text('')\` (agent JSON: \`{"$text":""}\`). It reads as a string;
@@ -632,7 +632,7 @@ string assignment merges letters. \`f.textAt(['title'])\` returns a text handle 
 Per-person data keys: \`f.presence.self.userId\` (server-stamped \`user:<uuid>\`, \`self.name\`). Do not ask who they
 are or invent locks/"being edited" fields: use presence.
 
-Render others' text with \`textContent\` or \`render(html\`…\`)\` (interpolations escaped), never raw innerHTML.
+Render others' text with \`textContent\` or \`render\` with html\`…\` (interpolations escaped), never raw innerHTML.
 On changes, \`render\` patches by \`data-key\` and preserves focused inputs/IME. Keep unsubmitted drafts and
 \`gugu.bind.text\` controls outside the rerendered area. Replacing innerHTML/children loses drafts/carets.
 Link another file with its entry id and \`gugu.files.openWith(entry)\`; a name alone is not a link.

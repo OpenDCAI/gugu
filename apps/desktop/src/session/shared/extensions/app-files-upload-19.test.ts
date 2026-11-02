@@ -83,11 +83,13 @@ let publishFile: FilesPlatform['publishFile'];
 const files = createAppFiles({
   publishFile: (...args) => publishFile ? publishFile(...args) : Promise.resolve(null),
   account: async () => ({ token: 'token', userId: PERSON }),
-  resolveFile: async (ref, _actor, options) => {
+  resolveFile: async (ref, actor, options) => {
     if (options.localOnly) return null;
     const id = 'id' in ref ? ref.id : '', row = rows.find(row => row.id === id);
     const bytes = stored.get(stagingOfItem.get(id)!);
-    return row && bytes ? verifiedFileHandle(bytes, { item_id: id, version: Number(row.version), file_name: String(row.filename), content_type: String(row.content_type) }) : { status: 'gone', sha256: null };
+    if (!row || !bytes) return { status: 'gone', sha256: null };
+    const file = await verifiedFileHandle(bytes, { item_id: id, version: Number(row.version), file_name: String(row.filename), content_type: String(row.content_type) });
+    return { ...file, reader: { accountId: PERSON, actorId: actor ?? PERSON } };
   },
   hasCapability: () => true,
   sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
@@ -148,7 +150,9 @@ describe('files.upload: a text file goes in as a live document (F19)', () => {
     expect(bucketed).toHaveLength(3);
     const photo = await files.open(surface, { ref: uploaded[2]! });
     expect(photo).toMatchObject({ docName: '', access: 'ro', entry: { name: 'photo.png', type: 'binary' } });
-    expect([...new Uint8Array(photo.bytes!)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect(photo.chunked).toBe(true); expect(photo).not.toHaveProperty('bytes');
+    const range = await files.read(surface, { ref: { id: photo.entry.id, version: photo.entry.version! }, offset: 0, length: 4 });
+    expect([...Buffer.from(range.data, 'base64')]).toEqual([0x89, 0x50, 0x4e, 0x47]);
   });
 });
 
