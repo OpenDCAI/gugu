@@ -64,6 +64,16 @@ describe('preinstalled Apps', () => {
     expect(readFileSync(path.join(root, 'workspace', 'index.html'), 'utf8')).toContain('new code');
   });
 
+  it('startup upgrades a shipped App with chat:read through the same noninteractive install', () => {
+    bundle(path.join(shipped, 'workspace'), 'workspace', '1.0.0', ['files:read']);
+    ensurePreinstalledApps(service, shipped);
+    expect(service.hasCapability('workspace', 'chat:read')).toBe(false);
+    bundle(path.join(shipped, 'workspace'), 'workspace', '1.0.1', ['files:read', 'chat:read']);
+    expect(ensurePreinstalledApps(service, shipped)).toMatchObject({ installed: ['workspace'], failed: [] });
+    expect(service.get('workspace').manifest.version).toBe('1.0.1');
+    expect(service.hasCapability('workspace', 'chat:read')).toBe(true);
+  });
+
   it('cannot be uninstalled, switched off, or replaced by another package', () => {
     bundle(path.join(shipped, 'workspace'), 'workspace', '1.0.0');
     ensurePreinstalledApps(service, shipped);

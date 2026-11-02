@@ -203,12 +203,11 @@ Free:
 
 - \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, modal?, operator, locale, themeMode, capabilities, layout? }\`.
   \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members? }\`; \`groupId\` is null in DMs. Topics use their source chat.
-  API ≤25 includes \`members\` and pushes roster changes. API ≥26 omits both: call \`gugu.chats.members({ chat: ctx.chat.id })\` (\`chat:read\`).
+  API ≤25 includes \`members\`; API ≥26 omits it: call \`gugu.chats.members({ chat: ctx.chat.id })\` (\`chat:read\`).
   Members: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`; \`avatar\` is a \`data:\` image. Pick from these; never copy them into files.
-  \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\` — its agent
-  (\`user:<uuid>\`), project, working copy's path (with \`files:*\`); \`deviceId\`: on another computer (no \`root\`). \`file\`: what this page was opened for — \`files.open(ctx.file)\`.
-  \`operator\`: who works the page — \`{ kind: 'person' }\` or \`{ kind: 'agent', id }\`.
-  \`capabilities\` is what you may do RIGHT NOW, after any revocation — not what you asked for.
+  \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\`; \`agentId\` is \`user:<uuid>\`.
+  Local \`root\` needs \`files:*\`; remote sessions carry \`deviceId\` instead. \`file\`: open with \`files.open(ctx.file)\`.
+  \`operator\`: \`{ kind: 'person' }\` or \`{ kind: 'agent', id }\`. \`capabilities\`: current grants, reflecting revocations.
 - \`onContextChanged(fn)\` → theme, language, visibility and size changes; member changes only through API 25. Returns an unsubscribe.
 - \`onCommand(fn)\` → the person picked one of your declared menu/toolbar entries; you get your own id back.
 - \`showContextMenu({ x, y, items: [{ id, label, enabled? }, { type: "separator" }] })\` (API 18, page): App-local point, shared host menu; returns id or null.

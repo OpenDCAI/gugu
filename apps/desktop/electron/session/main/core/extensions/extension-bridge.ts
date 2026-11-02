@@ -1086,7 +1086,7 @@ const chatIsRead = (binding: SurfaceBinding) => {
   return read !== undefined && (!contextHasMembers(binding) || read.members !== undefined);
 };
 
-/** The folder's first reads belong to this binding, and are consumed once, including a failed read. */
+/** The folder's first reads belong to this binding, consumed once even on failure. Machine presence may move before that first call. */
 const openingFolders = new WeakMap<SurfaceBinding, { list?: Promise<AppFileEntry[]>; preferences?: Promise<{ showAppData: boolean }> }>();
 function preloadFolder(binding: SurfaceBinding, pageId: number): void {
   if (binding.extensionId !== 'workspace' || binding.tabName !== 'main' || !binding.conversation || binding.workspace || binding.itemId || binding.modal
