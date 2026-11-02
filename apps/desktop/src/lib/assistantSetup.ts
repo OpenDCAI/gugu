@@ -33,6 +33,7 @@ import { platformModelsEnabled } from '@gugu/core/cloud/optionalServices'
 import { contactsService } from './contacts'
 import { getCurrentAuthUserId } from './supabase'
 import { cancelTeamProvision } from './teamProvisionSaga'
+import { LocalDeviceUnidentifiedError, readOnceLocalDeviceIdentified } from './localDeviceIdentity'
 
 /** 起名、称呼、自我介绍的长短(名字 30 字、称呼 80 字;介绍是交给管家的那段,管家收 4000)。 */
 export const ASSISTANT_NAME_MAX = 30
@@ -173,7 +174,11 @@ export function resumeLocalAssistant(record: ProvisionResumeRecord): Promise<Cre
     const ipc = desktopIpc()
     if (!ipc) throw new AssistantSetupError('not-desktop', 'only the desktop app can host the assistant')
     const local = (await import('../platform')).platform
-    const self = await local.getLocalDeviceSelfSnapshot?.()
+    const self = local.getLocalDeviceSelfSnapshot ? await readOnceLocalDeviceIdentified(async () => {
+      const identified = await local.getLocalDeviceSelfSnapshot!()
+      if (!identified) throw new LocalDeviceUnidentifiedError()
+      return identified
+    }, local.subscribeLocalDeviceIdentified?.bind(local)) : null
     if (local.getLocalDeviceSelfSnapshot && self?.device_id !== record.deviceId) {
       const { resumeServerAssistantProvision } = await import('./assistantServerSetup')
       return resumeServerAssistantProvision(record)
