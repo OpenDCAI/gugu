@@ -15,7 +15,9 @@ export async function openProject(
   if (project.type === 'local' && !checkIsValidDirectory(project.path)) {
     return err({ type: 'path-not-found', path: project.path });
   }
-  if (project.type === 'local') {
+  if (project.type === 'local' && process.platform === 'darwin') {
+    // Only macOS waits on a permission prompt. Other platforms use the provider's
+    // normal initialization budget; startup I/O delay is not a permission denial.
     // 目录在,但读得动吗?被权限挡住时访问会一直挂着,不做有界探测的话整个挂载会
     // 一路阻塞到 20s 预算耗尽,最后报一句与真实原因无关的 timeout(#3611)。
     const probe = await probePathAccess(project.path);
