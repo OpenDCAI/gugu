@@ -15,6 +15,7 @@ vi.mock('@main/db/client', () => ({
 }));
 
 import { migrateProjectKind, rollbackProjectKindMigration } from './migrate-project-kind';
+import { recordProjectRegistration } from './project-registration-origin';
 
 const dirs = { home: '/home/ada', guguHome: '/home/ada/.gugu', taskHome: '/data/gugu/task-home' };
 
@@ -36,6 +37,9 @@ describe('migrateProjectKind', () => {
       INSERT INTO workspaces (id, kind, location, type, path, key, project_id, attached_at)
         VALUES ('ws-extra', 'path', 'local', 'local', '/home/ada/notes', 'key-extra', 'home-used', '2026-10-02T00:00:00.000Z');
     `);
+    for (const row of fixture.db.select().from((await import('@main/db/schema')).projects).all()) {
+      recordProjectRegistration({ projectId: row.id, path: row.path, createdAt: row.createdAt, source: 'automatic' });
+    }
   });
   afterEach(() => {
     fixture.close();
@@ -68,5 +72,13 @@ describe('migrateProjectKind', () => {
       '00000000-0000-4000-8000-000000000001': 'project', assistant: 'project', code: 'project', home: 'project', 'home-used': 'project',
     });
     expect(JSON.parse(readFileSync(file, 'utf8')).demoted).toEqual([]);
+  });
+
+  it('does not guess the origin of legacy rows or demote a manually reclaimed home directory', () => {
+    fixture.sqlite.exec("DELETE FROM kv WHERE key LIKE 'project-registration-origin:%'");
+    const home = fixture.sqlite.prepare('SELECT path,created_at FROM projects WHERE id=?').get('home') as { path: string; created_at: string };
+    recordProjectRegistration({ projectId: 'home', path: home.path, createdAt: home.created_at, source: 'person' });
+    expect(migrateProjectKind(join(dir, 'record.json'), dirs)).toEqual(['00000000-0000-4000-8000-000000000001']);
+    expect(kinds().home).toBe('project'); expect(kinds().assistant).toBe('project');
   });
 });

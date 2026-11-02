@@ -4,6 +4,7 @@ const data = vi.hoisted(() => ({
   schedules: [{ id: 'morning',nextRunAt: 20,lastRun: { status: 'done',at: 10,error: null } },{ id: 'evening',nextRunAt: 30,lastRun: { status: 'failed',at: 11,error: { code: 'deadline_exceeded',details: 'private provider response' } } }],
 }))
 vi.mock('@main/db/client',() => ({ db: {} }))
+vi.mock('../../apps/desktop/electron/session/main/core/projects/operations/assistant-project-cleanup',() => ({ noteAssistantProjectCandidate: vi.fn() }))
 vi.mock('@main/core/sessions/getSessions',() => ({ getSessions: vi.fn() }))
 vi.mock('@main/core/session-timeline/service',() => ({ listSessionStates: vi.fn() }))
 vi.mock('@main/core/automations/repo',() => ({ listSessionSchedules: () => data.schedules }))
