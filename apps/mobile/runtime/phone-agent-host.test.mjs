@@ -1136,6 +1136,32 @@ const advanceInbox = async (t, ms) => {
 }
 const inboxCalls = fx => fx.calls.filter(([name]) => name === 'pull_agent_inbox_v2').map(([, args]) => args.p_agent_user_id)
 
+for (const failFirst of [false, true]) test(`startup scans each agent once before any retry (first scan fails: ${failFirst})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, {
+    prepare: async args => {
+      await seedInboxAgents(args)
+      const rpc = args.cloud.rpc
+      let fail = failFirst
+      args.cloud.rpc = async (schema, name, input) => {
+        if (name === 'pull_agent_inbox_v2' && input.p_agent_user_id === agentId && fail) {
+          fail = false
+          args.calls.push([name, input])
+          throw new Error('initial scan unavailable')
+        }
+        return rpc(schema, name, input)
+      }
+    },
+    onRpcStart: ({ onConnectivity }) => onConnectivity(true),
+  })
+  try {
+    await flushInbox(); await flushInbox()
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    await advanceInbox(t, 1_000)
+    assert.deepEqual(inboxCalls(fx), failFirst ? [agentId, inboxAgentB, agentId] : [agentId, inboxAgentB])
+  } finally { await fx.close() }
+})
+
 test('phone inbox fallback waits five minutes while command reconciliation still runs every thirty seconds', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
   t.mock.method(performance, 'now', () => Date.now())

@@ -181,15 +181,12 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   const inbox = async (agentUserId) => {
     const agent = agents().find((row) => row.agentUserId === agentUserId)
     if (!agent || stopped || signingOut) return { pulled: 0, injected: 0 }
+    const scanGap = inboxGap
     await verifyAgent(agentUserId)
     const rowsById = new Map()
-    let scanGap = inboxGap
     return pullAgentInbox(agentUserId, {
       accessToken: await cloud.token(), ownerUserId: ownerId, env,
-      recipientIsRegistered: (id) => {
-        scanGap = inboxGap
-        return !stopped && !signingOut && agents().some((row) => row.agentUserId === id)
-      },
+      recipientIsRegistered: (id) => agents().some((row) => row.agentUserId === id),
       onScanComplete: () => {
         if (stopped || signingOut || !agents().includes(agent)) return
         const previous = inboxScans.get(agentUserId)
@@ -216,12 +213,12 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     })
   }
   const reconcileInboxes = async () => {
-    await Promise.all(agents().map(async (agent) => {
+    for (const agent of agents()) {
       const scan = inboxScans.get(agent.agentUserId)
       if (!scan || performance.now() >= scan.nextAt || (rpcConnected && scan.gap !== inboxGap)) {
         await inbox(agent.agentUserId).catch((error) => warn(error.message))
       }
-    }))
+    }
   }
   const createFromCommand = async (command, signal) => {
     const result = await handleAgentCreateDeviceCommand(command.payload ?? {}, {
@@ -789,7 +786,6 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     for (const agent of agents()) await inbox(agent.agentUserId).catch((error) => warn(error.message))
     for (const message of Object.values(store.state.outbox)) if (message.status === 'pending') await deliverPhoneOutbox(cloud, store, message.id, authorizeReply).catch((error) => warn(error.message))
     startupComplete = true
-    if (rpcConnected) void reconcileInboxes()
     await heartbeat()
     void flushFailureNotices().catch(() => warn('手机任务失败交代恢复失败'))
     heartbeatTimer = setInterval(() => { void heartbeat().catch((error) => warn(error.message)) }, 30_000)
