@@ -1,7 +1,7 @@
 import { createDeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { FileContext, FileRevision } from '@gugu/core/shared/fileResolver'
 import { attachSshDeviceRpcPipe, type SharedSshLinks } from './device-rpc-requester'
-import { PROJECT_FILE_READ, snapshotProjectFile, type ProjectFileChunk } from './projectFileHost'
+import { PROJECT_FILE_READ, openProjectFileSource, snapshotProjectFile, type ProjectFileChunk, type ProjectFileReader } from './projectFileHost'
 
 export type HeldFileSshLinks = Pick<SharedSshLinks, 'tap' | 'send'> & {
   /** Real owner SSH mappings only; tunnels and connections from another account are excluded. */
@@ -16,13 +16,20 @@ export function ownSshFileProvider(links: HeldFileSshLinks, tempRoot: string) {
       if (!await links.ownedOpen(device, accountId)) throw new Error('Owner SSH link is no longer held')
       return attachSshDeviceRpcPipe(links, device, handlers)
     } })
+    let held = false
     try {
-      return await snapshotProjectFile(revision, async request => {
+      const read = async (request: Parameters<ProjectFileReader>[0]) => {
         if (!await links.ownedOpen(deviceId, accountId)) throw new Error('Owner SSH link is no longer held')
         const response = await requester.call(deviceId, PROJECT_FILE_READ, request, { timeoutMs: 30_000, signal: context.signal })
         if (response.error) throw new Error(`File read refused: ${response.error.code}`)
         return response.result as ProjectFileChunk
-      }, tempRoot, context.signal)
-    } finally { requester.closeAll() } // Detach listeners only; the window still owns the SSH link.
+      }
+      if (context.download) {
+        const source = await openProjectFileSource(revision, read)
+        held = true
+        return { ...source, async dispose() { try { await source.dispose() } finally { requester.closeAll() } } }
+      }
+      return await snapshotProjectFile(revision, read, tempRoot, context.signal)
+    } finally { if (!held) requester.closeAll() } // Detach listeners only; the window still owns the SSH link.
   }
 }

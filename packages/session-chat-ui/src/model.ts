@@ -83,6 +83,7 @@ export type ChatMessage = {
   sentAttachment?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment;
   /** Image attachments rendered as a thumbnail strip above the text (user messages). */
   attachments?: ChatAttachment[];
+  files?: import('@gugu/session-core/session-record/contract').TurnFileRef[];
   /**
    * 这条消息**开始**到达的时刻（epoch ms）。缺席 = 不知道（回放来的历史没有真时刻，
    * 与 `TranscriptTurn.startedAt` 同一条合同）。折叠头拿它当段与段的边界（#5350）。

@@ -317,3 +317,9 @@ describe('附件 mention → 附件条 (#5269)', () => {
     expect(r.chips).toBe(0);
   });
 });
+
+it('projects task file references into existing name chips without changing the raw caption', () => {
+  const item = normalizeMessage({ ...SHORT, files: [{ itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 }] });
+  expect(item.text).toBe(SHORT.text);
+  expect(item.attachments).toEqual([{ id: 'brief:1', name: 'brief.txt', kind: 'file' }]);
+});

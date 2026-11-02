@@ -4,7 +4,7 @@ vi.mock('@main/core/acp/session-summary-reader', () => ({ readAcpSessionState: m
 vi.mock('@main/core/acp/runtime-process/host', () => ({ getAcpRuntimeClient: async () => mocks.client }));
 import { changeConversationQueue } from './conversation-queue';
 
-const prompt = (id: string, origin = 'manual') => ({ id, text: id, origin, hiddenContext: 'retained context', attachments: [], createdAt: 1, updatedAt: 1 });
+const prompt = (id: string, origin = 'manual') => ({ id, text: id, origin, hiddenContext: 'retained context', attachments: [], files: [{ itemId: 'file', version: 1, name: 'a.txt', mimeType: 'text/plain', sizeBytes: 1, promptText: 'file context' }], createdAt: 1, updatedAt: 1 });
 beforeEach(() => {
   vi.clearAllMocks();
   for (const method of Object.values(mocks.client)) method.mockResolvedValue({ success: true });
@@ -15,7 +15,7 @@ it('edits the runtime entry while retaining its context, attachments and edit re
   const queueEdit = { draftText: 'editing', originalDraftText: 'unsent draft' };
   await changeConversationQueue('s', { kind: 'edit', id: 'a', text: 'new words', queueEdit });
   expect(mocks.client.editQueuedPrompt).toHaveBeenCalledWith({ sessionId: 's', id: 'a', input: {
-    text: 'new words', hiddenContext: 'retained context', attachments: [], origin: 'manual',
+    text: 'new words', hiddenContext: 'retained context', attachments: [], files: prompt('a').files, origin: 'manual',
   }, queueEdit });
 });
 

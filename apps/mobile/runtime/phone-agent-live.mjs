@@ -27,6 +27,7 @@ export function createPhonePiObserver({ jobId, sessionManager, emit }) {
       const delta = event.assistantMessageEvent
       if (delta.type === 'text_delta' || delta.type === 'thinking_delta') live({ kind: 'delta', id: current, index: delta.contentIndex, textKind: delta.type === 'thinking_delta' ? 'thinking' : 'text', text: delta.delta })
     }
+    if (event.type === 'message_end' && event.message.role === 'user') committed(event.message, `phone-input:${jobId}`)
     if (event.type === 'message_end' && event.message.role === 'assistant') {
       const id = messages.get(event.message) ?? current
       if (id) { live({ kind: 'complete', id, at: event.message.timestamp, content: event.message.content }); committed(event.message, id) }

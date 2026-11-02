@@ -19,7 +19,6 @@ export const REMOTE_WORKSPACE_MAX_FILE_BYTES = 100 * 1024 * 1024;
  * (本机落盘那一侧的 `MAX_DROPPED_BLOB_BYTES` 就是它)。
  */
 export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
-/** 一个文件夹附件最多这么多个文件。 */
 export const MAX_ATTACHMENT_FOLDER_FILES = 10_000;
 
 export type SessionpageWorkspaceEntryKind = 'dir' | 'file' | 'symlink';

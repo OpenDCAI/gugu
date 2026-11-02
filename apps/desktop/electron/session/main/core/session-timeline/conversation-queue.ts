@@ -31,7 +31,7 @@ export async function changeConversationQueue(sessionId: string, action: Session
   if (!prompt) throw new Error('The queued message is no longer available');
   if (action.kind === 'edit') {
     if (!action.text.trim()) throw new Error('The queued message is empty');
-    await requireSuccess(client.editQueuedPrompt({ sessionId, id: prompt.id, input: { text: editedConversationQueueText(prompt.text, action.text), hiddenContext: prompt.hiddenContext, attachments: prompt.attachments, origin: prompt.origin }, queueEdit: action.queueEdit ?? null }));
+    await requireSuccess(client.editQueuedPrompt({ sessionId, id: prompt.id, input: { text: editedConversationQueueText(prompt.text, action.text), hiddenContext: prompt.hiddenContext, attachments: prompt.attachments, files: prompt.files, origin: prompt.origin }, queueEdit: action.queueEdit ?? null }));
   } else if (action.kind === 'delete') {
     await requireSuccess(client.deleteQueuedPrompt({ sessionId, id: prompt.id }));
   } else if (action.steers) {
