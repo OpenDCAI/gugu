@@ -244,7 +244,7 @@ export async function localRootOf(place: WorkspacePlace): Promise<{ workspaceRoo
   }
   const { agentSessionContext } = await import('@main/core/extensions/extension-agent-context');
   const session = await agentSessionContext(target.session);
-  if (!session?.workspaceRoot) throw new AppFileError('not-found', `Session ${target.session} has no working copy open on this computer`);
+  if (!session?.workspaceRoot) throw new AppFileError('not-found', 'This task has no working folder on this computer');
   return { workspaceRoot: await fs.realpath(session.workspaceRoot), projectId: session.projectId, workspaceId: session.workspaceId ?? null };
 }
 

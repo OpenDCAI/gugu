@@ -1,7 +1,8 @@
+import fs from 'node:fs/promises';
 import { eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
-import { sessions } from '@main/db/schema';
-import { workspaceRegistry } from '@main/core/workspaces/workspace-registry';
+import { sessions, workspaces } from '@main/db/schema';
+import { isRetiredRemoteWorkspace } from '@main/core/workspaces/resolve-workspace-kind';
 import { sessionModelLabel, sessionPlatformModel } from '@main/core/sessions/platform-model-selection';
 import { sessionModelFromDecision } from '@main/core/sessions/session-model-fact';
 
@@ -14,8 +15,9 @@ import { sessionModelFromDecision } from '@main/core/sessions/session-model-fact
  * W-21 measured both harnesses stuck on it — one relayed the path through its page's data folder, the
  * other invented a `GUGU_PROJECT_DIR` variable that does not exist.
  *
- * Read on every call, not frozen at session start: the session id never changes, but its
- * working copy is only known while mounted. `workspaceRoot` is null when it is not — said, not guessed.
+ * Read on every call, not frozen at session start: the working copy is the session's own record (`workspaces.path`),
+ * whether or not anything has opened it since this computer started. `workspaceRoot` is null when there is no such
+ * folder on this computer — said, not guessed.
  */
 export interface AgentSessionContext {
   sessionId: string;
@@ -33,6 +35,8 @@ export interface AgentSessionContext {
   modelLabel: string | null;
 }
 
+const isFolder = (path: string) => fs.stat(path).then((found) => found.isDirectory(), () => false);
+
 /**
  * A session on this computer, as main knows it: its project, where its working copy is and its model — the one answer
  * for an App tool call's `_meta` and for every `gugu.files` call naming `{ session }` (真源原则 13). Null: no such session here.
@@ -44,9 +48,16 @@ export async function agentSessionContext(agentId: string): Promise<AgentSession
     .where(eq(sessions.id, agentId))
     .limit(1);
   if (!session) return null;
-  const workspace = session.workspaceId ? workspaceRegistry.get(session.workspaceId) : undefined;
+  const [workspace] = session.workspaceId
+    ? await db
+        .select({ path: workspaces.path, kind: workspaces.kind, type: workspaces.type, location: workspaces.location })
+        .from(workspaces)
+        .where(eq(workspaces.id, session.workspaceId))
+        .limit(1)
+    : [];
+  const workspaceRoot = workspace?.path && !isRetiredRemoteWorkspace(workspace) && (await isFolder(workspace.path)) ? workspace.path : null;
   const decision = await sessionPlatformModel(agentId);
   const model = sessionModelFromDecision(decision, session.config?.model ?? null).spawn_model_id ?? null;
   const modelLabel = await sessionModelLabel(agentId, decision, session.provider, session.runtime);
-  return { sessionId: agentId, projectId: session.projectId, workspaceId: session.workspaceId ?? null, workspaceRoot: workspace?.path ?? null, model, modelLabel };
+  return { sessionId: agentId, projectId: session.projectId, workspaceId: session.workspaceId ?? null, workspaceRoot, model, modelLabel };
 }
