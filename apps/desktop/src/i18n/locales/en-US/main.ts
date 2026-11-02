@@ -244,9 +244,9 @@ export default {
         "gap_too_large": "Too much was missed while disconnected, so the timeline was reloaded in full."
       },
       "outcome": {
-        "done": "Turn finished",
-        "cancelled": "Turn cancelled",
-        "error": "Turn failed"
+        "done": "Finished",
+        "cancelled": "Cancelled",
+        "error": "Failed"
       },
       "compacting": "Compacting context…",
       "compacted": "Context compacted — everything above is a summary to the agent",

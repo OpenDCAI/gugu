@@ -714,9 +714,9 @@ export default {
     "agentRole": "Agent",
     "backToList": "Back to imported history",
     "label": "Imported history",
-    "turnMeta": "{{count}} turns · {{date}}",
-    "turnMeta_one": "{{count}} turn · {{date}}",
-    "turnMeta_other": "{{count}} turns · {{date}}",
+    "turnMeta": "{{count}} messages · {{date}}",
+    "turnMeta_one": "{{count}} message · {{date}}",
+    "turnMeta_other": "{{count}} messages · {{date}}",
     "userRole": "You",
     "view": "View {{title}}"
   },
