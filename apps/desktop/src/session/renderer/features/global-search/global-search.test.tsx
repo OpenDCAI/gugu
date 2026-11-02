@@ -69,12 +69,12 @@ const headers = () => [...host.querySelectorAll<HTMLElement>('[role=listbox] > b
 const tab = (key: string) => [...host.querySelectorAll<HTMLElement>('[role=tab]')].find((button) => button.textContent!.startsWith(key))!
 
 describe('global search panel', () => {
-  it('keeps cloud search usable while task search is prepared, then refreshes the same query when ready', async () => {
+  it('searches local task content while indexing and refreshes the same query when ready', async () => {
     remote.indexStatus.mockResolvedValue({ state: 'preparing', done: 42, total: 100 })
     await render('回滚')
-    expect(remote.turns).not.toHaveBeenCalled()
-    expect(host.querySelector('[role=status]')?.textContent).toBe('globalSearch.preparingTasksProgress')
-    expect(options()).toHaveLength(2)
+    expect(remote.turns).toHaveBeenCalledWith({ query: '回滚', limit: 100 })
+    expect(host.querySelector('[role=status]')?.textContent).toBe('globalSearch.indexingTasksProgress')
+    expect(options()).toHaveLength(3)
     expect(host.textContent).not.toContain('globalSearch.emptyFor')
     remote.indexStatus.mockResolvedValue({ state: 'ready' })
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 2_200)) })
@@ -83,13 +83,13 @@ describe('global search panel', () => {
     expect(options()).toHaveLength(3)
   })
 
-  it('reports a failed task index without hiding cloud hits or claiming there were no matches', async () => {
+  it('reports an indexing failure while still searching local task content', async () => {
     remote.indexStatus.mockResolvedValue({ state: 'failed' })
     await render('回滚')
-    expect(options()).toHaveLength(2)
-    expect(host.querySelector('[role=alert]')?.textContent).toBe('globalSearch.tasksUnavailable')
+    expect(options()).toHaveLength(3)
+    expect(host.querySelector('[role=alert]')?.textContent).toBe('globalSearch.indexingTasksFailed')
     expect(host.textContent).not.toContain('globalSearch.emptyFor')
-    expect(remote.turns).not.toHaveBeenCalled()
+    expect(remote.turns).toHaveBeenCalledWith({ query: '回滚', limit: 100 })
   })
   it('lists chat messages and task content newest first, grouped by where they were said, the whole word highlighted', async () => {
     await render('回滚')

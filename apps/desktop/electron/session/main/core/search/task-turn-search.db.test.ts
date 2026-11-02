@@ -72,12 +72,12 @@ describe('task content search (turn_text, fed by session_turns triggers)', () =>
     fixtureRef.current = undefined;
   });
 
-  it('does not expose an incomplete index as complete search results, while title search remains available', async () => {
+  it('searches already indexed local content during backfill while reporting its preparation state', async () => {
     await persistCommittedTurn({ sessionId: 's1', source: 'live', turn: turn('t0', [said('u', 'user', 'available after indexing')]) });
     searchService.initialize();
     expect(searchController.commandPalette({ query: 'Task' }).length).toBeGreaterThan(0);
     expect(searchController.taskTurnIndexStatus().state).toBe('preparing');
-    expect(() => searchController.taskTurns({ query: 'indexing' })).toThrow('Task search index is not ready');
+    expect(searchController.taskTurns({ query: 'indexing' })).toHaveLength(1);
     await backfillTurnText(fixture().sqlite);
     expect(searchController.taskTurnIndexStatus().state).toBe('ready');
     expect(searchController.taskTurns({ query: 'indexing' })).toHaveLength(1);

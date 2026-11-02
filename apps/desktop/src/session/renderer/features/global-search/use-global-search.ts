@@ -87,8 +87,11 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
   const turns = useQuery({
     queryKey: ['global-search-task-turns', query],
     queryFn: async (): Promise<{ hits: TaskTurnHit[]; index: TaskTurnIndexStatus }> => {
-      const index = await rpc.search.taskTurnIndexStatus()
-      return { index, hits: index.state === 'ready' ? await rpc.search.taskTurns({ query, limit: SEARCH_LIMIT }) : [] }
+      const [index, hits] = await Promise.all([
+        rpc.search.taskTurnIndexStatus(),
+        rpc.search.taskTurns({ query, limit: SEARCH_LIMIT }),
+      ])
+      return { index, hits }
     },
     enabled: runnable && tasks && !inChat && !from,
     staleTime: 5_000,

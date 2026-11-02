@@ -136,11 +136,11 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
         {view.error && <div role="alert" className="px-3 py-3 text-sm text-[var(--em-foreground-destructive)]">{messageForUser(view.error)}</div>}
         {hasQuery && view.taskIndex?.state === 'preparing' && (facet === 'all' || facet === 'task') && (
           <div role="status" className="px-3 py-3 text-sm text-foreground/50">{view.taskIndex.total
-            ? translate('globalSearch.preparingTasksProgress', { percent: Math.floor(100 * (view.taskIndex.done ?? 0) / view.taskIndex.total) })
-            : translate('globalSearch.preparingTasks')}</div>
+            ? translate('globalSearch.indexingTasksProgress', { percent: Math.floor(100 * (view.taskIndex.done ?? 0) / view.taskIndex.total) })
+            : translate('globalSearch.indexingTasks')}</div>
         )}
         {hasQuery && view.taskIndex?.state === 'failed' && (facet === 'all' || facet === 'task') && (
-          <div role="alert" className="px-3 py-3 text-sm text-[var(--em-foreground-destructive)]">{translate('globalSearch.tasksUnavailable')}</div>
+          <div role="alert" className="px-3 py-3 text-sm text-[var(--em-foreground-destructive)]">{translate('globalSearch.indexingTasksFailed')}</div>
         )}
         {!hasQuery && (
           <div className="border-t border-foreground/[0.08] px-3 pb-4 pt-3 text-[length:var(--font-body)] leading-6 text-foreground/50">
@@ -149,7 +149,7 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
           </div>
         )}
         {hasQuery && view.unresolved && <div className="px-3 py-8 text-center text-sm text-foreground/45">{translate('globalSearch.unresolved', { text: view.unresolved })}</div>}
-        {hasQuery && !view.unresolved && !view.loading && !view.error && (!view.taskIndex || view.taskIndex.state === 'ready' || facet === 'message' || facet === 'file') && ordered.length === 0 && (
+        {hasQuery && !view.unresolved && !view.loading && !view.error && ordered.length === 0 && (
           <div className="flex flex-col items-center gap-2 px-3 py-10 text-center text-sm text-foreground/45">
             <span>{view.query ? translate('globalSearch.emptyFor', { text: view.query }) : translate('globalSearch.typeWords')}</span>
             {view.query && (facet !== 'all' || chips.length > 0) && (
