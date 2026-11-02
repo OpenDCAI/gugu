@@ -6,7 +6,7 @@ import { log } from '@renderer/utils/logger';
 import type { NavigationSnapshot } from '@shared/view-state';
 
 /** The host repairs its view-state KV during migration; only saved renderer references need querying. */
-export async function readSavedSessionProjectLocations(navigation: NavigationSnapshot | null): Promise<SessionProjectLocation[]> {
+export async function readSavedSessionProjectLocations(): Promise<SessionProjectLocation[]> {
   let screen: unknown = null;
   try {
     const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem('gugu.screen-layout.v1');
@@ -14,7 +14,7 @@ export async function readSavedSessionProjectLocations(navigation: NavigationSna
   } catch (error) {
     log.warn('Could not read saved session locations', { error });
   }
-  const ids = referencedSessionIds(navigation, screen);
+  const ids = referencedSessionIds(screen);
   return ids.length ? rpcOn(null).sessionTimeline.sessionProjectLocations(ids) : [];
 }
 

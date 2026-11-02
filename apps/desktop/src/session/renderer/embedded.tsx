@@ -248,16 +248,15 @@ async function bootstrap() {
   // this side has declared itself ready, so an extension that acts the instant
   // its surface loads must not race the bootstrap's awaits.
   wireExtensionHostActions();
-  const navigationRead = settleOptional(rpc.viewState.get('navigation') as Promise<NavigationSnapshot> | null);
   const results = await Promise.allSettled([
-    navigationRead,
+    settleOptional(rpc.viewState.get('navigation') as Promise<NavigationSnapshot> | null),
     settleOptional(rpc.viewState.get('sidebar')),
     settleOptional(rpc.viewState.getAll()),
     settleOptional(prefetchAppSettingsKey('interface')),
     settleOptional(prefetchAppSettingsKey('browser')),
-    settleOptional(navigationRead.then(navigation => readSavedSessionProjectLocations(navigation))),
+    settleOptional(readSavedSessionProjectLocations()),
   ]);
-  const [navState, sidebarState, allViewStateResult, , , localSessions] = results;
+  const [navState, sidebarState, allViewStateResult, , , localLocations] = results;
   for (const result of results) {
     if (result.status === 'rejected') log.warn('Renderer bootstrap optional state failed:', result.reason);
   }
@@ -268,7 +267,7 @@ async function bootstrap() {
     : {};
 
   const restored = prepareSessionProjectRestore(savedNav, allViewState,
-    localSessions.status === 'fulfilled' ? localSessions.value ?? [] : []);
+    localLocations.status === 'fulfilled' ? localLocations.value ?? [] : []);
   viewStateCache.populate(restored.views);
 
   setupNavigationGuards();

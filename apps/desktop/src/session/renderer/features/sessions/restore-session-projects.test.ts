@@ -25,14 +25,14 @@ beforeEach(() => {
   localStorage.clear(); vi.clearAllMocks(); state.session = { projectId: 'old', sessionId: 'assistant' }; state.screen = screen();
 });
 
-it('queries only distinct saved navigation and layout session IDs rather than the session directory', async () => {
+it('queries only distinct saved layout session IDs without waiting for repaired main-process navigation', async () => {
   localStorage.setItem('gugu.screen-layout.v1', JSON.stringify(screen()));
-  await readSavedSessionProjectLocations({ currentViewId: 'session', viewParams: { session: state.session } });
+  await readSavedSessionProjectLocations();
   expect(state.locations).toHaveBeenCalledExactlyOnceWith(['assistant']);
 });
 
 it('does no session RPC for a cold start without saved task references', async () => {
-  expect(await readSavedSessionProjectLocations(null)).toEqual([]);
+  expect(await readSavedSessionProjectLocations()).toEqual([]);
   expect(state.locations).not.toHaveBeenCalled();
 });
 
