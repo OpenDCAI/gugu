@@ -5,7 +5,7 @@
 //  - 软链接不跟(记忆夹在电脑上是 Claude 夹的软链接目标,真身在工作目录里,从真身读);跳过的逐条回报,不静默;
 //    目录列表会把「指向别处的软链接」当普通文件报出来 —— 所以搬之前逐个试读一个字节(probeReadable),读不了的在接过之前就拦;
 //  - 单个文件超过一次传输的上限、整批超过总量上限 = 搬之前就失败,❌ 搬一半才发现;
-//  - 重来安全:同路径覆盖写,中断后从头再搬得到同一个结果。
+//  - 搬家重试按已记录的目标内容核对;目标有新内容就停下,写回带版本号。
 import { composeInstructions, splitInstructions } from './assistant-files';
 
 /** 一次传输一块的大小(那台机器一块最多收 512KB,见 workspace-contract)。 */
@@ -21,6 +21,8 @@ export interface HomeFs {
   /** 列一层;目录不存在 = []。 */
   list(dir: string): Promise<FsEntry[]>;
   readChunk(path: string, offset: number, length: number): Promise<Uint8Array>;
+  /** Native target version, checked again by the host at upload commit. */
+  revision?(path: string): Promise<string | null>;
   /** 写一块;`final` 那一块落盘,回落盘后的大小(核对用)。 */
   writeChunk(args: {
     path: string;
@@ -29,11 +31,12 @@ export interface HomeFs {
     data: Uint8Array;
     total: number;
     final: boolean;
+    expectedRevision?: string | null;
   }): Promise<{ size: number } | null>;
   /** 在已存在的 parent 下建一层文件夹;已经有了不算错。 */
   makeDir(parent: string, name: string): Promise<void>;
   readText(path: string): Promise<string | null>;
-  writeText(path: string, content: string): Promise<void>;
+  writeText(path: string, content: string, expectedRevision?: string | null): Promise<void>;
 }
 
 export type CopyPlan = {
@@ -46,12 +49,67 @@ export type CopyPlan = {
 
 export class MoveCopyError extends Error {
   constructor(
-    readonly code: 'too_large' | 'copy_mismatch' | 'file_too_large' | 'unreadable',
-    message: string
+    readonly code: 'too_large' | 'copy_mismatch' | 'file_too_large' | 'unreadable' | 'conflict',
+    message: string,
+    readonly path?: string
   ) {
     super(message);
     this.name = 'MoveCopyError';
   }
+}
+
+export type CopyCheckpoint = {
+  files: Record<string, { before: string | null; after: string }>;
+  /** Older interrupted moves have no baseline: only absent or identical targets are safe. */
+  resuming: boolean;
+  save(): Promise<void>;
+};
+
+async function digest(bytes: Uint8Array): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
+  return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function contentHash(fs: Pick<HomeFs, 'readChunk'>, path: string, size: number): Promise<string> {
+  const chunks: string[] = [];
+  for (let offset = 0; offset < size;) {
+    const bytes = await fs.readChunk(path, offset, Math.min(COPY_CHUNK_BYTES, size - offset));
+    if (!bytes.length) throw new MoveCopyError('copy_mismatch', `${path} changed while reading`);
+    chunks.push(await digest(bytes));
+    offset += bytes.length;
+  }
+  return digest(new TextEncoder().encode(`${size}:${chunks.join(':')}`));
+}
+
+async function textHash(text: string): Promise<string> {
+  const bytes = new TextEncoder().encode(text);
+  return contentHash({ readChunk: async (_path, offset, length) => bytes.slice(offset, offset + length) }, '', bytes.length);
+}
+
+async function targetSnapshot(fs: HomeFs, path: string): Promise<{ hash: string | null; revision: string | null | undefined }> {
+  const revision = await fs.revision?.(path);
+  const slash = path.lastIndexOf('/');
+  const entry = (await fs.list(path.slice(0, slash))).find(file => file.name === path.slice(slash + 1));
+  if (entry && (entry.type !== 'file' || entry.size > COPY_MAX_FILE_BYTES)) throw new MoveCopyError('conflict', `${path} cannot be safely replaced`, path);
+  const hash = entry ? await contentHash(fs, path, entry.size) : null;
+  if (revision !== await fs.revision?.(path)) throw new MoveCopyError('conflict', `${path} changed while checking its baseline`, path);
+  return { hash, revision };
+}
+
+async function prepareCopy(to: HomeFs, path: string, hash: string, checkpoint: CopyCheckpoint,
+  snapshot?: Awaited<ReturnType<typeof targetSnapshot>>): Promise<{ skip: boolean; revision: string | null | undefined }> {
+  const current = snapshot ?? await targetSnapshot(to, path);
+  const saved = checkpoint.files[path];
+  if (saved && current.hash !== null && current.hash !== hash && current.hash !== saved.before && current.hash !== saved.after) {
+    throw new MoveCopyError('conflict', `${path} changed at the target; preserve both versions before resuming`, path);
+  }
+  if (!saved && checkpoint.resuming && current.hash !== null && current.hash !== hash) {
+    throw new MoveCopyError('conflict', `${path} has no safe retry baseline; preserve both versions before resuming`, path);
+  }
+  // Persist both the previous content and intended write before uploading; a lost commit response is recoverable.
+  checkpoint.files[path] = { before: current.hash, after: hash };
+  await checkpoint.save();
+  return { skip: current.hash === hash, revision: current.revision };
 }
 
 const join = (dir: string, name: string) => (dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`);
@@ -122,8 +180,8 @@ export function diffPlan(previous: CopyPlan, next: CopyPlan): CopyPlan {
   const before = new Map(previous.files.map((file) => [file.rel, file]));
   const files = next.files.filter((file) => {
     const old = before.get(file.rel);
-    // 没有修改时刻可比 = 只能比大小,同大小的原地改写看不出(列表不给时刻的那一头无法更准)。
-    return !old || old.size !== file.size || (old.mtime !== null && file.mtime !== null && old.mtime !== file.mtime);
+    // With no reliable timestamp, recheck content rather than miss a same-size source update.
+    return !old || old.size !== file.size || old.mtime === null || file.mtime === null || old.mtime !== file.mtime;
   });
   return { ...next, files, totalBytes: files.reduce((n, file) => n + file.size, 0) };
 }
@@ -145,8 +203,11 @@ async function copyFile(
   to: HomeFs,
   toPath: string,
   size: number,
-  onBytes: (n: number) => void
+  onBytes: (n: number) => void,
+  checkpoint?: CopyCheckpoint
 ): Promise<void> {
+  const write = checkpoint ? await prepareCopy(to, toPath, await contentHash(from, fromPath, size), checkpoint) : null;
+  if (write?.skip) { onBytes(size); return; }
   const uploadId = crypto.randomUUID();
   let offset = 0;
   let committed: { size: number } | null = null;
@@ -156,7 +217,7 @@ async function copyFile(
     const final = offset + data.length >= size;
     // 读到的比登记的少(文件在这期间被改短了)= 这次拷不完整,不当成成功。
     if (data.length === 0 && !final) throw new MoveCopyError('copy_mismatch', `读 ${fromPath} 提前结束(${offset}/${size})`);
-    committed = await to.writeChunk({ path: toPath, uploadId, offset, data, total: size, final });
+    committed = await to.writeChunk({ path: toPath, uploadId, offset, data, total: size, final, expectedRevision: write?.revision });
     offset += data.length;
     onBytes(data.length);
   } while (offset < size);
@@ -177,6 +238,7 @@ export async function copyTree(args: {
   toRoot: string;
   plan: CopyPlan;
   onBytes?: (n: number) => void;
+  checkpoint?: CopyCheckpoint;
 }): Promise<number> {
   const { from, fromRoot, to, toBase, toRoot, plan } = args;
   await ensureDirChain(to, toBase, toRoot);
@@ -186,7 +248,7 @@ export async function copyTree(args: {
     await to.makeDir(parent, slash < 0 ? dir : dir.slice(slash + 1));
   }
   for (const file of plan.files) {
-    await copyFile(from, join(fromRoot, file.rel), to, join(toRoot, file.rel), file.size, args.onBytes ?? (() => undefined));
+    await copyFile(from, join(fromRoot, file.rel), to, join(toRoot, file.rel), file.size, args.onBytes ?? (() => undefined), args.checkpoint);
   }
   return plan.files.length;
 }
@@ -201,13 +263,29 @@ export async function copyUserInstructions(args: {
   fromPath: string;
   to: HomeFs;
   toPath: string;
+  checkpoint?: CopyCheckpoint;
 }): Promise<boolean> {
   const source = await args.from.readText(args.fromPath);
   if (source == null) return false;
   const user = splitInstructions(source).user;
+  const snapshot = args.checkpoint ? await targetSnapshot(args.to, args.toPath) : null;
   const current = (await args.to.readText(args.toPath)) ?? '';
+  if (snapshot && snapshot.hash !== null && await textHash(current) !== snapshot.hash) {
+    throw new MoveCopyError('conflict', `${args.toPath} changed while reading instructions`, args.toPath);
+  }
   // 旧家人写的是空、新家也没有人写的 = 不必写(也别把一份只有管家段的文件重写一遍)。
-  if (!user && !splitInstructions(current).user) return false;
-  await args.to.writeText(args.toPath, composeInstructions(current, user));
+  const currentUser = splitInstructions(current).user;
+  if (!user && !currentUser) return false;
+  const content = composeInstructions(current, user);
+  if (args.checkpoint && !currentUser) {
+    // Preparing a local home recreates managed-only instructions after the user moves a conflict aside.
+    // No user content remains to overwrite; retain the current managed block and the native whole-file CAS.
+    args.checkpoint.files[args.toPath] = { before: snapshot!.hash, after: await textHash(content) };
+    await args.checkpoint.save();
+    await args.to.writeText(args.toPath, content, snapshot!.revision);
+    return true;
+  }
+  const write = args.checkpoint ? await prepareCopy(args.to, args.toPath, await textHash(content), args.checkpoint, snapshot!) : null;
+  if (!write?.skip) await args.to.writeText(args.toPath, content, write?.revision);
   return true;
 }

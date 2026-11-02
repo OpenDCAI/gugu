@@ -10,7 +10,6 @@
 // 帧就是会话页宿主协议(host-ws-protocol)的帧,装进 JSON 信封(frameToCarrier);超过 PIECE_CHARS 的帧分片。
 //
 // 成本:每条连接双向各一拍心跳(20s);一条帧的往返 = 一次设备 RPC(同一微任务里的帧合成一条)。
-import { FILE_PATCH_PROTOCOL, protocol14FileChanges } from '@gugu/session-core/session-record/contract';
 import {
   createPieceJoiner,
   createSeqOrderer,
@@ -46,7 +45,7 @@ import { ptySessionRegistry } from '../core/pty/pty-session-registry';
  * 以及只在桌面那一侧才有意义的 SSH 直连 / 端口转发。挡在这里还有一层用处:渲染层把本该留在本机的调用
  * 错发过来时,当场报错而不是悄悄在这台机器上执行。
  */
-const REMOTE_DENIED_NAMESPACES = new Set(['browser', 'remotePorts', 'viewState']);
+const REMOTE_DENIED_NAMESPACES = new Set(['browser', 'remotePorts', 'viewState', 'assistantHome']);
 const REMOTE_ALLOWED_APP = new Set([
   'app.getAppVersion',
   'app.getPlatform',
@@ -76,8 +75,12 @@ export const remoteInvokePolicy: FrameInvokePolicy = (channel) => {
 /** Read recovery entries, or explicitly clear them, from an owner-bound remote App page.
  * This is not a grant to the whole App dispatcher. The handler additionally checks the
  * expected owner against its current authenticated account before reading or writing. */
-export function remoteInvokePolicyForCaller(callerId: string | undefined): FrameInvokePolicy {
+export function remoteInvokePolicyForCaller(callerId: string | undefined, desktop: DesktopHello | null = null): FrameInvokePolicy {
   return (channel, args) => {
+    if (channel.startsWith('assistantHome.')) {
+      const input = args?.[0] as { ownerUserId?: unknown } | null
+      return !!desktop && !!callerId && args?.length === 1 && input?.ownerUserId === callerId
+    }
     if (channel !== 'app.assistantAppCall') return remoteInvokePolicy(channel, args);
     if (!callerId || args?.length !== 3 || args[0] !== 'callProgram' || args[2] !== callerId) return false;
     const input = args[1];
@@ -184,7 +187,6 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     desktop: DesktopHello | null,
     asker: DeviceRpcAskerContext | undefined,
     callerId: string | undefined,
-    peerProtocol: number | undefined,
   ): void => {
     clients.get(client)?.close('replaced');
     const refreshReport = reportDesktop(desktop);
@@ -244,9 +246,8 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     log.warn('[session-host-device] client opened', { client, desktop: desktop?.id ?? null });
     frameHost.attach(socket, {
       remote: `device:${client.slice(0, 8)}`,
-      policy: remoteInvokePolicyForCaller(callerId),
+      policy: remoteInvokePolicyForCaller(callerId, desktop),
       outgoing: createRemotePtyPacer({ screenSnapshot: (id) => ptySessionRegistry.screenSnapshot(id) }),
-      ...(peerProtocol !== undefined ? { peerProtocol } : {}),
     });
   };
   const readClient = (payload: unknown): string | null => {
@@ -276,7 +277,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
           },
         };
       }
-      openClient(client, ctx.publishEvent, frameHost, desktop, ctx.asker, ctx.request?.user_id, protocol ?? undefined);
+      openClient(client, ctx.publishEvent, frameHost, desktop, ctx.asker, ctx.request?.user_id);
       return { result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } };
     },
     [SESSION_HOST_RPC.frame]: (payload) => {
@@ -294,15 +295,13 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     [SESSION_HOST_RPC.call]: async (payload, ctx) => {
       const frameHost = host();
       if (!frameHost) return { error: { code: 'unavailable', message: 'session host is not running on this machine' } };
-      const body = (payload ?? {}) as { channel?: unknown; args?: unknown; protocol?: unknown };
+      const body = (payload ?? {}) as { channel?: unknown; args?: unknown; protocol?: unknown; desktop?: unknown };
       if (typeof body.channel !== 'string' || !Array.isArray(body.args)) {
         return { error: { code: 'invalid_payload', message: 'channel 与 args 是必填的' } };
       }
       try {
-        const value = (await frameHost.invokeOnce(body.channel, body.args, remoteInvokePolicyForCaller(ctx.request?.user_id))) ?? null;
-        // A caller before protocol 15 never said its protocol here: absent = older (protocol14FileChanges, delete on next bump).
-        const peer = typeof body.protocol === 'number' ? body.protocol : FILE_PATCH_PROTOCOL - 1;
-        return { result: { value: protocol14FileChanges(value, peer, 'to-peer'), protocol: REMOTE_PROTOCOL_VERSION } };
+        const value = (await frameHost.invokeOnce(body.channel, body.args, remoteInvokePolicyForCaller(ctx.request?.user_id, parseDesktopHello(body.desktop)))) ?? null;
+        return { result: { value, protocol: REMOTE_PROTOCOL_VERSION } };
       } catch (error) {
         const failed = serializeHostWsError(error);
         return { error: { code: failed.code ?? 'call_failed', message: failed.message } };

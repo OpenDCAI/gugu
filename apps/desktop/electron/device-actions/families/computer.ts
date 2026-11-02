@@ -380,7 +380,7 @@ async function callCua(ctx: ActionRunContext, name: string, tool: string, args: 
 
 /**
  * pid → App 名、界面快照 → pid,从 cua 回来的结果里记下。element_token(`<快照>:<行>`)本身不带 pid,
- * 靠「这个快照是哪个 App 的」认回来;认不出的动作当作没指定 App(查看这台电脑)。
+ * 靠「这个快照是哪个 App 的」认回来;认不出的 act 附着前台窗口,停止按整个电脑控制算。
  *
  * 小条上写人认得的、系统语言的名字,按这个先后取:
  * 1. Windows:exe 版本信息里的 FileDescription(「字符映射表」;cua 在窗口上给的 app_name 只是文件名 charmap.exe);
@@ -499,7 +499,8 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
         return { ok: false, code: 'needs_confirmation', message: 'The person must agree before 咕咕 brings a window to the front', confirm: { question: checked.question ?? FOREGROUND_QUESTION } }
       }
       const session = sessionOf(ctx)
-      const control = ctx.deps.computerControl
+      // Inspection must not open or refresh either activity indicator.
+      const control = t.kind === 'act' ? ctx.deps.computerControl : undefined
       const pid = apps.pidOf(session, forward)
       const windowId = apps.windowOf(session, forward)
       const appName = control && pid !== undefined ? await appNameOf(ctx, apps, pid) : undefined
@@ -515,6 +516,10 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
       // 人按了停止:这个 App 上在途的这一下被撤,报错其实是「人接过去了」。
       const stopped = () => (handle?.signal.aborted ? fail('revoked', String(handle.signal.reason)) : null)
       try {
+        // An unresolved input must have an attached Stop button before it runs.
+        if (pid === undefined && handle?.ready && !await handle.ready) {
+          return stopped() ?? fail('execution_failed', 'Computer Use could not attach its Stop control to a foreground window. Open a visible app window and try again.')
+        }
         const outcome = await callCua(ctx, name, t.cua, takesSession ? { ...forward, session } : forward, t.timeoutMs?.(args), signal)
         if (outcome.ok) apps.learn(session, outcome.data, forward)
         return stopped() ?? outcome

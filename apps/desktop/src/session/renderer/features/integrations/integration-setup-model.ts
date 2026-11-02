@@ -16,7 +16,9 @@ export function formMethodOf(metadata: Authable | undefined): FormAuthMethod | u
 
 /** #921 这一家的凭据由平台保管(表单标了 `custody: 'platform'`):填一次每台设备都能用,在哪断开都是全部断开。 */
 export function keptByPlatform(metadata: Authable | undefined): boolean {
-  return formMethodOf(metadata)?.custody === 'platform';
+  return (metadata?.auth.methods as AuthMethods | undefined)?.some((method) =>
+    (method.kind === 'form' || method.kind === 'mcp-oauth') && method.custody === 'platform'
+  ) ?? false;
 }
 
 export function cliMethodOf(metadata: Authable): CliAuthMethod | undefined {

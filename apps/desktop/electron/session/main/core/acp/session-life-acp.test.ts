@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   client: { tag: 'worker-client' },
   stopAndSettle: vi.fn(async (_client: unknown, _id: string) => undefined),
   inject: vi.fn(),
+  turnFiles: vi.fn(),
   release: vi.fn(async (_id: string) => undefined),
   identity: null as unknown,
   parentAgent: null as { gugu_user_id?: string } | null,
@@ -32,6 +33,7 @@ vi.mock('./runtime-process/host', () => ({
   readSessionInjectionFacts: async () => ({ agentDisplayName: undefined }),
   provisionStartIdentity: async (input: { cwd: string }) => { h.identityCwd = input.cwd; return h.identity; },
 }));
+vi.mock('../session-timeline/turn-files', () => ({ turnFileText: h.turnFiles }));
 vi.mock('./inject-prompt', () => ({ injectEmdashPromptDetached: h.inject }));
 vi.mock('./emdash-platform-injector', () => ({ releaseEmdashPlatformSession: h.release }));
 vi.mock('@main/core/sessions/runtime-fork-ownership', () => ({ recordRuntimeForkOwnership: vi.fn() }));
@@ -58,8 +60,9 @@ async function boundAdapter() {
   return adapter;
 }
 
+beforeEach(() => { h.watchers.clear(); h.gone = null; h.identity = null; h.parentAgent = null; vi.clearAllMocks(); });
+
 describe('session-life ACP leg', () => {
-  beforeEach(() => { h.watchers.clear(); h.gone = null; h.identity = null; h.parentAgent = null; vi.clearAllMocks(); });
 
   it('one exit per attempt, from whichever fact ends the session first', async () => {
     const process = await processLease();
@@ -234,4 +237,29 @@ describe('session-life ACP leg', () => {
     h.parentAgent = { gugu_user_id: 'agent-1' };
     await expect(createAcpLegAdapter('view-1', fork).run('identity', {}, ctx())).resolves.toEqual({ kind: 'bound', agentUserId: 'agent-1' });
   });
+});
+
+it('resolves a queued missing file only at admission, sends its not-saved context and admits following text', async () => {
+  const adapter = await boundAdapter();
+  const files = [{ itemId: 'gone', version: 1, name: 'gone.txt', mimeType: 'text/plain', sizeBytes: 1 }];
+  h.turnFiles.mockResolvedValue({ files: [{ ...files[0], promptText: '[File not saved: File is no longer available]' }], images: [] });
+  h.inject.mockResolvedValue({ outcome: 'queued', turnId: 't' });
+  const pending = { ...(row as object), message: { id: 'm-file', text: 'original caption', delivery: { queue: true, origin: 'manual', files } }, turn: { kind: 'prompt' } } as never;
+  await expect(adapter.dispatch({} as StageOut, pending, ctx())).resolves.toMatchObject({ result: 'accepted' });
+  expect(h.inject).toHaveBeenLastCalledWith('s', 'original caption', expect.objectContaining({ files: [expect.objectContaining({ promptText: expect.stringContaining('not saved') })] }));
+  expect((pending as { message: { text: string } }).message.text).toBe('original caption');
+  await expect(adapter.dispatch({} as StageOut, row, ctx())).resolves.toMatchObject({ result: 'accepted' });
+  expect(h.turnFiles).toHaveBeenCalledTimes(1);
+});
+
+it('a stop during file preparation refuses admission before sending any provider bytes', async () => {
+  const adapter = await boundAdapter(), controller = new AbortController();
+  h.inject.mockResolvedValue({ outcome: 'queued', turnId: 'cancelled-turn' });
+  let finish!: (value: { images: []; files: [] }) => void;
+  h.turnFiles.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const pending = { ...(row as object), message: { id: 'cancel-file', text: 'caption', delivery: { queue: true, files: [{ itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 }] } } } as never;
+  const sending = adapter.dispatch({} as StageOut, pending, { gen, signal: controller.signal });
+  controller.abort(); finish({ images: [], files: [] });
+  await expect(sending).resolves.toMatchObject({ result: 'rejected-before-admission', cause: { name: 'AdmissionCancelled' } });
+  expect(h.inject).not.toHaveBeenCalled();
 });

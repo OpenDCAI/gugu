@@ -14,16 +14,16 @@ import { messageForUser } from '@/lib/userFacingError'
  * The person's inputs not yet in the transcript, each drawn from its one custody owner (`sessionInputBubbles`):
  * the sender outbox row (shown while `waitingForConnection`), then the host's session_pending row of the session's `life`.
  */
-export function SessionInputQueue({ sessionId, waitingForConnection, life = null, inTranscript = null }: {
+export function SessionInputQueue({ sessionId, waitingForConnection, life = null, inTranscript = [] }: {
   sessionId: string; waitingForConnection: boolean; life?: LifeView | null
-  /** The row the transcript already draws as its next turn: one place per message. */
-  inTranscript?: string | null
+  /** Inputs already drawn in the transcript: one place per message. */
+  inTranscript?: readonly string[]
 }) {
   const pending = useQueuedSessionInputs(sessionId)
   const { t } = useTranslation('messaging')
   const [retryError, setRetryError] = useState<string | null>(null)
   const bubbles = sessionInputBubbles(waitingForConnection ? pending : [], life?.pending.items ?? [], life?.hold ?? null)
-    .filter(bubble => bubble.id !== inTranscript)
+    .filter(bubble => !inTranscript.includes(bubble.id) && !pending.some(input => input.id === bubble.id && input.queued === false))
   if (!bubbles.length && !retryError) return null
   const retry = async () => {
     setRetryError(null)
@@ -40,7 +40,6 @@ export function SessionInputQueue({ sessionId, waitingForConnection, life = null
         </div>
         {bubble.state === 'sending' ? <MessageSendingIndicator label={t('message.sendStatus.sending')} /> : null}
       </div>
-      {bubble.state === 'held' ? <div className="text-xs text-foreground-muted" role="status" data-send-state="held">{t('message.sendStatus.held')}</div> : null}
       {bubble.state === 'stopped' ? <div className="text-xs text-foreground-muted" role="status" data-send-state="stopped">{t('message.sendStatus.stopped')}</div> : null}
       {bubble.state === 'failed' ? <div className="flex items-center gap-2 text-sm">
         <span role="alert">{bubble.failure ? failureText(bubble.failure, t) : bubble.hostReason ? messageForUser(bubble.hostReason) : t('message.sendStatus.failed')}</span>

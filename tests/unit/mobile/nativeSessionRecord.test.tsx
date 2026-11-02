@@ -14,6 +14,18 @@ const record = (start: number, count: number, hasNewer = false): NativeSessionRe
   turns: Array.from({ length: count }, (_, i) => ({ id: `s:turn:s${start + i}`, seq: start + i, initiator: 'user', items: [] })),
   nextCursor: start ? start : null, originTurnIds: [], activeTurn: null, hasNewer,
 })
+it('retains the structured missing-record code for recovery and clears it after a successful reload', async () => {
+  scope.read.mockResolvedValue({ ok: false, error: { code: 'record_not_found', message: 'Native record missing' } })
+  let state!: ReturnType<typeof useNativeSessionRecord>
+  function Fixture() { state = useNativeSessionRecord('recovery-host', 'missing-s', true, true); return null }
+  await harness.render(<Fixture />)
+  await vi.waitFor(() => expect(state.errorCode).toBe('record_not_found'))
+  expect(state.error).toBe('Native record missing')
+  scope.read.mockResolvedValue({ ok: true, value: record(0, 1) })
+  await act(async () => { await state.reload() })
+  expect(state.errorCode).toBeNull()
+  expect(state.error).toBeNull()
+})
 it('keeps archive identities while paging older and newer, and explicitly follows the tail after input', async () => {
   scope.read.mockResolvedValueOnce({ ok: true, value: record(60, 60, true) })
   let state!: ReturnType<typeof useNativeSessionRecord>

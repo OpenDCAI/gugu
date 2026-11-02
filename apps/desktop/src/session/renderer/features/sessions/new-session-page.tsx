@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getGitRepositoryStore } from '@renderer/features/projects/stores/project-selectors';
 import { useCreateSessionCallback } from '@renderer/features/sessions/create-session-modal/use-create-session-callback';
 import { useCreateSessionState } from '@renderer/features/sessions/create-session-modal/use-create-session-state';
@@ -112,6 +112,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
     { requireGeneratedName: true, runInProjectDir: true }
   );
   const { autoApproveByDefault, includeIssueContextByDefault } = useSessionSettings();
+  const draft = useMemo(() => draftKey ? composerDrafts.forKey(draftKey) : undefined, [draftKey]);
   const initialSession = useInitialSessionState(
     projectId,
     undefined,
@@ -120,18 +121,9 @@ export const NewSessionComposer = observer(function NewSessionComposer({
       // Selecting or clearing an optional project must not erase text the user has already written.
       resetPromptOnProjectChange: false,
       dispatchesToChat: Boolean(taskChatId),
-      initialPrompt: draftKey ? composerDrafts.get(draftKey) : '',
-      initialAttachmentDraft: draftKey ? composerDrafts.attachments(draftKey) : undefined,
+      draft,
     }
   );
-  useEffect(() => {
-    if (draftKey) composerDrafts.set(draftKey, initialSession.prompt);
-  }, [draftKey, initialSession.prompt]);
-  useEffect(() => {
-    if (!draftKey) return;
-    composerDrafts.consumeAttachments(draftKey);
-    return composerDrafts.registerAttachments(draftKey, initialSession.captureAttachmentDraft);
-  }, [draftKey, initialSession.captureAttachmentDraft]);
   // #7199 目标是一台睡着的云电脑:开始输入才叫醒它(光打开新建框 ❌ 叫醒)。
   useWakeCloudOnInput(machine?.deviceId ?? null, `${initialSession.attachments.length}:${initialSession.prompt}`);
 
@@ -143,8 +135,6 @@ export const NewSessionComposer = observer(function NewSessionComposer({
     navigate,
     onClose: () => {},
     onCreated: (result) => {
-      // 发送即消费草稿:随后的 navigate 会卸载本组件,已发出的文本不得留在暂存里。
-      if (draftKey) composerDrafts.set(draftKey, '');
       onSessionCreated?.(result);
     },
     birthChatId,

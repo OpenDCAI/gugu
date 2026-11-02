@@ -63,6 +63,8 @@ export interface ComposerAttachment {
   cancelable?: boolean;
   /** `error` 时 meta 后面跟一段「重试」(宿主接了 `onRetryAttachment`)。失败原因不会自己好的(如文件太大)就别给。 */
   retryable?: boolean;
+  /** Selected representation of a pasted screenshot. */
+  imageQuality?: 'compressed' | 'original';
 }
 
 export type ComposerAttachmentState = 'uploading' | 'done' | 'error';

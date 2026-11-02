@@ -75,6 +75,8 @@ import { IconButton } from './ui/IconButton'
 import { ChatTailNotice } from './chat/ChatTailNotice'
 import { ChatSearchControls } from './chat/ChatSearch'
 import { useChatSearch } from './chat/useChatSearch'
+import { useMessageFind } from './chat/useMessageFind'
+import { FindBar } from '@renderer/lib/ui/find-bar'
 export { ChatNotificationLevelControl } from './chat/ChatNotificationLevelControl'
 import { ChatSettingsPanel } from './chat/ChatSettingsPanel'
 import { useChatSlotProjectName } from '../lib/shellSlots'
@@ -100,10 +102,8 @@ interface ChatAreaPanelProps {
   blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }
   onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
 }
-
 // ── ChatAreaPanel ──────────────────────────────────────────────────────────────
 // @@@group-agent-status-bar (#518) - in group chats, a compact row of agent avatars between the last
-
 // @@@1696 GroupAgentStatusLine / GroupAgentStatusBar 已删 —— 群聊运行态统一到共享 RunningTokenBar（见渲染点）：
 // 竖排多行纯文字「{名} 正在执行 …」+ hover 抛工具名 → 改横排单行流光 token + 去术语计数卡，与单聊同一套。
 // 运行中占位只剩 RunningTokenBar 一种形状(#6448 删掉了已无人引用的 AgentTypingIndicator;
@@ -388,16 +388,17 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     chatId: activeChatId, viewportKey, activationKey: activeChatId ?? '', enabled: !isFiltering, discardSaved: !!unreadEntry,
     messageIds: chatListRows.map((row) => row.message.id), isAtBottomRef, setFollowingTail, loadMessageAnchor,
   })
+  const find = useMessageFind({ chatId: activeChatId, messages, rows: chatListRows, rootRef: surfaceElement, listRef, scrollerRef, enabled: surfaceVisible && !mobile && !!activeChatId, search })
   const onHistoryError = useCallback((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'), [toast])
   const unreadNavigationPending = useUnreadLocatorNavigation({ activeChatId, navigationTarget, revealMessage, enabled: surfaceVisible && !isFiltering, onNavigate: () => search.setSearchMode(false), scrollerRef, setFlashMessageId, flashTimerRef })
-  const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: !!unreadNavigationPending, hasNewer: !!messageWindow?.hasNewer, loading: !!messageWindow?.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
-  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: !isFiltering && !unreadNavigationPending, scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: loadOlderMessages, loadNewer: loadNewerMessages, window: messageWindow, onError: onHistoryError })
+  const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ enabled: !find.isOpen, resetKey: chatResetKey, unreadNavigationPending: !!unreadNavigationPending, hasNewer: !!messageWindow?.hasNewer, loading: !!messageWindow?.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
+  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: !find.isOpen && !isFiltering && !unreadNavigationPending, scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: loadOlderMessages, loadNewer: loadNewerMessages, window: messageWindow, onError: onHistoryError })
 
   // #1708 来源消息(群右栏工作区 App 的 gugu.showMessage):不在加载段里的先按锚点载进来,再定位 + 闪烁;载不到 → fail-loud toast。
   const showMessage = useSourceMessageReveal({ activeChatId, viewportKey, navigationTarget, enabled: surfaceVisible, ready: !isFiltering && tabs.chatUp, onNavigate: () => { setSearchMode(false); if (activeChatId && tabs.page) setPanelFull(activeChatId, tabs.page.tabId, false); else if (activeChatId && mobile) showChatOnly(activeChatId) }, rows: chatListRows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage, onMissing: () => toast(t('chatArea.source.notVisible'), 'error') })
 
   const { pinToBottom, onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages: listedMessages,
-    enabled: !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
+    enabled: !find.isOpen && !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
     isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: returnToLatestMessages, onError: onHistoryError })
 
   const handleReaction = useCallback((messageId: string, emoji: string) => {
@@ -464,7 +465,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   const { readReceiptPanel, onShowReadReceipt: handleShowReadReceipt, onCloseReadReceipt } = useReadReceiptPanel({
     chatId: activeChatId, messages: displayedMessages, memberReadSeqs, memberProfiles: messageMemberProfiles,
   })
-
   const groupSettings = useGroupChatSettings(isRoomChatSurface ? activeChatId : null, groupRoleRevision(groupCollabSnapshot), authorityRevision)
   const messageListenEditControlsFor = useListenModeEditControls({ chatId: isRoomChatSurface ? activeChatId : null, currentUserId: user?.id ?? null, settings: groupSettings.settings, onAuthorityReload: groupSettings.reload, onReload: loadGroupCollab })
   const shownMessageProfile = useTopicScopedMemberProfile({ profile: renderedActiveMessageProfile, authorityRevision, topicChatId: topicSurface.splitTopic?.chatId ?? null, currentUserId: user?.id ?? null, groupEditControlsFor: messageListenEditControlsFor })
@@ -472,7 +472,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
 
   // #2098 owner 定:已读回执逐条显示 → 去掉原「只挂末条」的 lastOwnMessageId/threadLastOwnMessageId 计算。
   // 每条本人消息独立按 is_mine 显环;sending/failed/retracted/read=0 由气泡内既有门(MessageBubble)逐条滤除。
-
   const rowProps = useMemo<MessageListRowProps>(() => ({
     rows: chatListRows,
     messages: listedMessages,
@@ -489,7 +488,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     onQuote: handleQuote, onShowMessage: showMessage,
     onForward: handleForward,
     onDelete: handleDelete,
-    onVisible: handleMessageVisible,
+    onVisible: find.isOpen ? () => {} : handleMessageVisible,
     onOpenMemberProfile: Object.keys(messageMemberProfiles).length > 0 ? openMessageMemberProfile : undefined,
     // @@@5856 消息 ⋯ 菜单「开话题」→ 从这条消息开一条真的话题并分栏打开。
     // 悄悄话的守卫内联在 MessageBubble(`onOpenTopic && !msg.is_whisper`,按每条消息判、那边冻结
@@ -510,7 +509,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     chatListRows,
     flashMessageId,
     listedMessages, threeParty,
-    isFiltering,
+    isFiltering, find.isOpen,
     mobile,
     searchQuery,
     memberReadSeqs, deliveryWaits,
@@ -812,6 +811,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
         </div>
       )}
 
+      <FindBar {...find} onSearchAll={find.searchAll} />
       {/* Message list —— 有行就画列表,与 loading 无关:加载中已有的行(盘缓存/乐观发送)照样可见,
           列表不会因为 loading 翻转被卸载重挂。骨架只在「在加载且一行都没有」时占位。 */}
       {taskChatNotice}{loadingMessages && chatListRows.length === 0 && <MessageListSkeleton delayMs={threeParty?300:0} overlay={threeParty}/>}
@@ -847,7 +847,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
           rows={chatListRows}
           rowProps={rowProps} footer={chrome?.typing}
           initialTopMostItemIndex={openLocation()} topInset={0}
-          followTail={!unreadNavigationPending && !messageWindow?.hasNewer && messageWindow?.change !== 'newer'} unreadAbove={unreadEntry ? { messageId: unreadEntry.locator.message_id, messageSeq: unreadEntry.locator.message_seq, label: t('chatArea.unreadAbove', { count: unreadEntry.locator.unread_count }), onSeen: unreadEntry.onSeen, onJump: () => void jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
+          followTail={!find.isOpen && !unreadNavigationPending && !messageWindow?.hasNewer && messageWindow?.change !== 'newer'} unreadAbove={unreadEntry ? { messageId: unreadEntry.locator.message_id, messageSeq: unreadEntry.locator.message_seq, label: t('chatArea.unreadAbove', { count: unreadEntry.locator.unread_count }), onSeen: unreadEntry.onSeen, onJump: () => void jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
           onAtBottomChange={onAtBottomChange}
           onTotalListHeightChanged={onTotalListHeightChanged}
         />

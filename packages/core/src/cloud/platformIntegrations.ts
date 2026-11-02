@@ -143,6 +143,9 @@ export function isPlatformServiceMissing(error: unknown): boolean {
 }
 
 export type PlatformIntegrationsClient = {
+  beginOAuth?(provider: string, signal?: AbortSignal): Promise<{ attemptId: string; authorizationUrl: string; expiresAt: number }>
+  oauthStatus?(provider: string, attemptId: string, signal?: AbortSignal): Promise<{ state: 'pending' | 'connected' | 'failed'; error?: string }>
+  cancelOAuth?(provider: string, attemptId: string, signal?: AbortSignal): Promise<void>
   list(signal?: AbortSignal): Promise<PlatformIntegrationProvider[]>
   /** 同一个读,外加平台答话时它自己的钟(应答的 `Date` 头,毫秒,整秒精度);没给这个头 = null。 */
   listWithClock(signal?: AbortSignal): Promise<{ providers: PlatformIntegrationProvider[]; platformNow: number | null }>
@@ -219,7 +222,7 @@ export function createPlatformIntegrationsClient(options: {
   })
   const providerPath = (provider: string) => `${options.baseUrl}/integrations/${encodeURIComponent(provider)}`
   const request = async (
-    method: 'GET' | 'PUT' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     url: string,
     body?: unknown,
     signal?: AbortSignal,
@@ -262,6 +265,20 @@ export function createPlatformIntegrationsClient(options: {
     return { providers: parsePlatformIntegrations(json(raw, '/integrations')), platformNow }
   }
   return {
+    beginOAuth: async (provider, signal) => {
+      const value = json((await request('POST', `${providerPath(provider)}/oauth/start`, {}, signal)).raw, 'POST oauth/start') as Record<string, unknown>;
+      if (!text(value?.attemptId) || typeof value?.authorizationUrl !== 'string' || !Number.isFinite(value?.expiresAt)
+        || new URL(value.authorizationUrl).protocol !== 'https:') throw badResponse('POST oauth/start');
+      return { attemptId: value.attemptId as string, authorizationUrl: value.authorizationUrl, expiresAt: value.expiresAt as number };
+    },
+    oauthStatus: async (provider, attemptId, signal) => {
+      const value = json((await request('GET', `${providerPath(provider)}/oauth/status?attemptId=${encodeURIComponent(attemptId)}`, undefined, signal)).raw, 'GET oauth/status') as Record<string, unknown>;
+      if (!['pending', 'connected', 'failed'].includes(String(value?.state))) throw badResponse('GET oauth/status');
+      return { state: value.state as 'pending' | 'connected' | 'failed', ...(typeof value.error === 'string' ? { error: value.error } : {}) };
+    },
+    cancelOAuth: async (provider, attemptId, signal) => {
+      await request('DELETE', `${providerPath(provider)}/oauth/status?attemptId=${encodeURIComponent(attemptId)}`, undefined, signal);
+    },
     list: async (signal) => (await listWithClock(signal)).providers,
     listWithClock,
     saveCredential: async (provider, fields, source, signal) => {

@@ -85,6 +85,11 @@ export function noPageDialog(name: PageDialog): string {
  */
 export const RUNTIME_SCRIPT_TAG = `<script src="${APP_RUNTIME_ENTRY}"></script>`;
 
+/** The page's declared interface, distinct from the host version reported by gugu.apiVersion. */
+export function appRuntimeScriptTag(apiVersion?: number): string {
+  return apiVersion === undefined ? RUNTIME_SCRIPT_TAG : RUNTIME_SCRIPT_TAG.replace('></script>', ` data-gugu-api-version="${apiVersion}"></script>`);
+}
+
 /**
  * Puts the runtime's script tag into an App document, before any script of the App's own.
  *
@@ -92,12 +97,15 @@ export const RUNTIME_SCRIPT_TAG = `<script src="${APP_RUNTIME_ENTRY}"></script>`
  * into quirks mode. A synchronous classic script so `window.gugu` exists on the App's first
  * line. Idempotent, so a document that is served twice is not given two runtimes.
  */
-export function injectAppRuntime(html: string): string {
-  if (html.includes(RUNTIME_SCRIPT_TAG)) return html;
+export function injectAppRuntime(html: string, apiVersion?: number): string {
+  const tag = appRuntimeScriptTag(apiVersion);
+  const start = html.indexOf(`<script src="${APP_RUNTIME_ENTRY}"`);
+  const end = start < 0 ? -1 : html.indexOf('</script>', start);
+  if (end >= 0) return html.slice(0, start) + tag + html.slice(end + '</script>'.length);
   const doctype = /^(\uFEFF?\s*<!doctype[^>]*>)/i.exec(html);
-  if (!doctype) return RUNTIME_SCRIPT_TAG + html;
+  if (!doctype) return tag + html;
   const head = doctype[1]!;
-  return head + RUNTIME_SCRIPT_TAG + html.slice(head.length);
+  return head + tag + html.slice(head.length);
 }
 
 // ─── the sync port ──────────────────────────────────────────────────────────
@@ -179,9 +187,17 @@ export type WorkspacePlace = { workspace: string };
  * that session's agent) and the working copy it works on (`WorkspacePlace.workspace`) — either, both, or neither (the
  * App's own page). Facts for `getContext()`, never a target a call falls back on.
  */
+export interface AppWidget {
+  messageId: string;
+  data: Record<string, unknown>;
+  senderId: string | null;
+}
+
 export interface AppWhere {
   conversation: string | null;
   workspace: string | null;
+  /** The immutable message this page draws. A message view never moves to another message. */
+  widget?: AppWidget;
 }
 
 /** What a workspace id names: a session's working copy, or a project's root folder. */

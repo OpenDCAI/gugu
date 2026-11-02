@@ -5,6 +5,8 @@ import { useMobileShell } from '../../hooks/useMobileShell'
 import { chatDb } from '../../lib/supabase'
 import { rendererLogger } from '../../lib/log'
 import { UI_EVENTS } from '../../lib/uiEvents'
+import { isRenderableImage } from '@gugu/core/shared/imageMime.mjs'
+import { openAttachmentImage } from '../../lib/attachmentBytes'
 import { installedExtensionsStore, WORKSPACE_APP_ID } from '../../session/renderer/features/extensions/installed-extensions-store'
 import { APP_OPEN_WITH_EVENT, type AppOpenWithDetail } from '../../session/shared/extensions/app-runtime-protocol'
 import { displayNameOf } from '../../session/shared/extensions/file-openers'
@@ -68,6 +70,11 @@ export function useChatOpener(chatId: string | null): { overlay: ReactNode; open
     (detail: AppOpenWithDetail, from: OpenFrom = {}) => {
       if (detail.chatId !== chatId) return
       if (detail.choice.kind === 'none') {
+        if (isRenderableImage(detail.name, detail.file.contentType)) {
+          openAttachmentImage({ kind: 'item', itemId: detail.itemId, version: detail.file.version }, detail.name, from.message ? { chatId: from.message.chat_id, messageId: from.message.id } : { chatId: detail.chatId })
+          noteOpened(detail.itemId)
+          return
+        }
         show(detail.chatId, { kind: null, file: detail.file, itemId: detail.itemId, title: detail.name, typedName: detail.typedName }, from)
         return
       }

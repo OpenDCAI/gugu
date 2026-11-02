@@ -1,3 +1,5 @@
+import { hexToOklch } from './colorOklch'
+
 // Curated five-colour palettes, shared by the live SVG and image-only projections. The first is the
 // boringavatars.com palette and sets the bounds: no colour sits closer to the dark page (#121212) or to white
 // than its darkest and lightest colour, so every circle edge reads at least as well as before on both themes.
@@ -31,6 +33,21 @@ export function agentAvatarPalette(id: string): string[] {
   let hash = 0x811c9dc5
   for (let i = 0; i < id.length; i++) hash = Math.imul(hash ^ id.charCodeAt(i), 0x01000193)
   return AGENT_AVATAR_PALETTES[(hash >>> 0) % AGENT_AVATAR_PALETTES.length]
+}
+
+/** Beam's original seed and colour pick. Geometry and sender names use the exact body drawn by the SVG. */
+export function boringAvatarAppearance(id: string): { seed: number; body: string; background: string } {
+  let hash = 0
+  for (let i = 0; i < id.length; i++) hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0
+  const seed = Math.abs(hash)
+  const colors = agentAvatarPalette(id)
+  return { seed, body: colors[seed % colors.length], background: colors[(seed + 13) % colors.length] }
+}
+
+/** Near-neutral bodies do not supply a meaningful name hue; retain the existing identity hue. */
+export function boringAvatarNameHue(id: string, identityHue: number): number {
+  const body = hexToOklch(boringAvatarAppearance(id).body)
+  return body.C < 0.04 ? identityHue : body.h
 }
 
 /** The circle mask is luminance: opaque white keeps the face, independent of theme. */

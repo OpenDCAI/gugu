@@ -54,9 +54,9 @@ export function ComputerHomeGroups({
           description={home.thisDevice || home.online ? t('home.online', { name: assistantName }) : home.known ? t('home.off', { name: assistantName, device: where }) : t('home.gone', { name: assistantName })}
           data-testid="assistant-settings-home"
         />
-        <SettingsRow title={t('home.alwaysOnTitle')} description={t(cloudComputerEnabled() ? 'home.alwaysOnNote' : 'home.alwaysOnLocalNote')} />
+        {home.hostKind !== 'server' && <SettingsRow title={t('home.alwaysOnTitle')} description={t(cloudComputerEnabled() ? 'home.alwaysOnNote' : 'home.alwaysOnLocalNote')} />}
       </SettingsGroup>
-      {move ? <AssistantMoveGroup {...move} /> : null}
+      {move && home.hostKind !== 'server' ? <AssistantMoveGroup {...move} /> : null}
       <QuickChatSettingsGroup assistantName={assistantName} />
       {/* #7350 住电脑上也有「关闭咕咕」,和住云上同一个入口、同一份确认(AssistantCloseHost);住别的电脑上时那份确认会说去那台关。 */}
       <SettingsGroup title={t('settings.danger')}>

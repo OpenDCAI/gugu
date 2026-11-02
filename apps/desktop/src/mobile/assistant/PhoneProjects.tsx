@@ -7,7 +7,7 @@ import { Folder } from '@/lib/icons'
 import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/store/auth'
 import { useDevicesStore } from '@/store/devicesContext'
-import { machineHomeLayout } from '@/session/renderer/features/remote-hosts/machine-home'
+import { EMPTY_MACHINE_HOME_LAYOUT } from '@/session/renderer/features/remote-hosts/machine-home'
 import { projectGroupLayout, foldProjectGroups } from '@/session/renderer/features/projects/stores/project-group-layout'
 import { isImplicitSessionHomeProjectId } from '@/session/shared/core/projects/session-home-project'
 import { AssistantEmpty, AssistantRow, AssistantSection, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
@@ -15,18 +15,14 @@ import { ReadView } from './PhoneMachineView'
 import { usePhoneRead } from './usePhoneRead'
 
 type Entry = DeviceProject & { id: string; deviceId: string; label: string }
-/** The same home/group folding as the sidebar, using already published account metadata. */
+/** The same project-chat grouping as the sidebar, using already published account metadata. */
 function projectRows(records: Record<string, DeviceProject[]>, devices: readonly Device[]): Entry[] {
   const rows = Object.entries(records).flatMap(([deviceId,projects]) => projects.filter(project => !isImplicitSessionHomeProjectId(project.localProjectId)).map(project => ({ ...project,deviceId,id: `${deviceId}/${project.localProjectId}` })))
   const byId = new Map(rows.map(row => [row.id,row])), byDevice = new Map(devices.map(device => [device.device_id,device]))
-  const homes = machineHomeLayout(rows.map(row => ({ id: row.id,path: row.rootPath })),{
-    machineOf: id => byId.get(id)!.deviceId,homeDir: id => byDevice.get(id)?.capabilities?.home_dir ?? null,
-    isSessionHome: id => isImplicitSessionHomeProjectId(byId.get(id)?.localProjectId),foldAll: id => byDevice.get(id)?.capabilities?.assistant_home === true,
-  })
   const groups = projectGroupLayout(rows.map(row => { const device = byDevice.get(row.deviceId); return { id: row.id,machine: device?.is_current_device ? null : row.deviceId,online: device?.is_online === true,createdAt: row.createdAt } }),id => byId.get(id)?.chatId ?? undefined)
-  const layout = foldProjectGroups(homes,groups)
+  const layout = foldProjectGroups(EMPTY_MACHINE_HOME_LAYOUT,groups)
   return rows.filter(row => !layout.rowOf.has(row.id)).map(row => ({ ...row,
-    label: layout.homeRows.has(row.id) ? byDevice.get(row.deviceId)?.label ?? row.name : row.name,
+    label: row.name,
     folders: [row,...rows.filter(other => layout.rowOf.get(other.id) === row.id)].flatMap(member => member.folders),
   }))
 }

@@ -69,7 +69,7 @@ export interface DeviceHostInfo {
   runs_as_root?: true
   server_disk?: DeviceServerDisk
   server_rollback?: DeviceServerRollback
-  /** 那台机器说的桌面↔server 协议版本,以及它要求桌面至少是哪一版。 */
+  /** 任务 host 的远端协议版本,以及它要求连接端至少是哪一版。 */
   remote_protocol?: number
   min_client_protocol?: number
   connect_via?: DeviceConnectVia
@@ -89,4 +89,6 @@ export interface DeviceHostInfo {
    * 设备行一出现就知道,任何时候都 ❌ 把它当一台机器给人看(owner 10-15「用户只知道个人助理」)。不是 / 老宿主 = 缺席。
    */
   assistant_home?: true
+  /** Account process implements durable first assistant setup and remote home cleanup. */
+  assistant_home_setup?: 1
 }

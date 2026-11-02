@@ -1,10 +1,17 @@
-import type { LifeView } from '@/session/shared/core/sessions/session-life'
+import { lifeHoldIsFailure, type LifeView } from '@/session/shared/core/sessions/session-life'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { rendererLogger } from './log'
+import { createIndexedDbHandle } from './indexedDbHandle'
+import { translateSessionMessage } from '@renderer/localization/locale-store'
 export type SessionInput = {
   id: string; accountId: string; deviceId: string | null; sessionId: string; text: string; createdAt: number
   attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
+  files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]
   failure?: SessionInputFailure
+  /** Presentation only: an explicitly queued input remains in the composer queue. */
+  queued?: boolean
+  baseline?: string[]
+  afterTurnId?: string
 }
 /** Failures the sender itself names; any other send error keeps the host's own words. */
 export type SessionInputFailure =
@@ -21,8 +28,6 @@ export type HostPendingRow = LifeView['pending']['items'][number]
 /** from: a delivery (another task's or agent's message) shows its sender and body, read the way the transcript reads it. */
 export type SessionInputBubble = { id: string; text: string; from?: string | null } & (
   | { state: 'sending' }
-  /** The host holds it (a failed start, sign-out): it goes when the person retries or sends again. */
-  | { state: 'held' }
   /** The person stopped the session before it went: it goes with their next message. */
   | { state: 'stopped' }
   /** failure: the sender named it (retry re-sends its copy); hostReason: the host row failed, in the host's words. */
@@ -42,7 +47,9 @@ export function sessionInputBubbles(sender: readonly SessionInput[], host: reado
       const base = delivered ? { id: row.messageId, text: delivered.body, from: delivered.segments[0]?.facts?.from ?? null } : { id: row.messageId, text: row.text }
       switch (row.state) {
         case 'accepted': return []
-        case 'queued': case 'dispatching': return [{ ...base, state: hold === 'user-stop' ? 'stopped' : hold ? 'held' : 'sending' }]
+        case 'queued': case 'dispatching':
+          if (hold === 'user-stop') return [{ ...base, state: 'stopped' }]
+          return [lifeHoldIsFailure(hold) ? { ...base, state: 'failed', failure: null, hostReason: null } : { ...base, state: 'sending' }]
         case 'failed': return [{ ...base, state: 'failed', failure: null, hostReason: row.failure }]
         case 'unknown': return [{ ...base, state: 'unknown' }]
       }
@@ -51,6 +58,12 @@ export function sessionInputBubbles(sender: readonly SessionInput[], host: reado
       .map((input): SessionInputBubble => ({ id: input.id, text: input.text,
         ...(input.failure ? { state: 'failed', failure: input.failure, hostReason: null } : { state: 'sending' }) })),
   ]
+}
+
+/** A queued file sent to an old host keeps its caption and explains what was omitted. */
+export function withoutQueuedAttachments(input: SessionInput, count: number): SessionInput {
+  const { files: _files, failure: _failure, ...body } = input
+  return { ...body, text: [input.text, translateSessionMessage('composer.attachmentsNotSent', { count })].filter(Boolean).join('\n\n') }
 }
 export interface SessionInputStorage {
   list(accountId: string): Promise<SessionInput[]>
@@ -62,15 +75,18 @@ export interface SessionInputStorage {
 export class SessionInputOutbox {
   private flushing: Promise<void> | null = null
   private again = false
+  private retryFailures = false
   private writing: Promise<unknown> = Promise.resolve()
   constructor(readonly accountId: string, private readonly storage: SessionInputStorage,
     private readonly send: (input: SessionInput) => Promise<void>, private readonly current: () => boolean,
-    private readonly changed: () => void = () => {}) {}
+    private readonly changed: () => void = () => {},
+    private readonly beforeEnqueue: (input: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments'>) => void = () => {}) {}
 
-  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'attachments'>): Promise<SessionInput> {
+  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId'>): Promise<SessionInput> {
     if (!this.current()) throw new Error('Session input account changed')
     const written = this.writing.catch(() => undefined).then(async () => {
       if (!this.current()) throw new Error('Session input account changed')
+      this.beforeEnqueue(target)
       const last = Math.max(0, ...(await this.list()).map(input => input.createdAt))
       const input: SessionInput = { ...target, accountId: this.accountId, id: crypto.randomUUID(), createdAt: Math.max(Date.now(), last + 1) }
       await this.storage.put(input)
@@ -83,17 +99,23 @@ export class SessionInputOutbox {
 
   list(): Promise<SessionInput[]> { return this.storage.list(this.accountId) }
 
-  flush(): Promise<void> {
+  flush(retryFailures = false): Promise<void> {
+    this.retryFailures ||= retryFailures
     if (this.flushing) { this.again = true; return this.flushing }
     this.flushing = this.drainUntilCurrent().finally(() => { this.flushing = null })
     return this.flushing
   }
 
   private async drainUntilCurrent(): Promise<void> {
-    do { this.again = false; await this.drain() } while (this.again && this.current())
+    do {
+      this.again = false
+      const retryFailures = this.retryFailures
+      this.retryFailures = false
+      await this.drain(retryFailures)
+    } while (this.again && this.current())
   }
 
-  private async drain(): Promise<void> {
+  private async drain(retryFailures: boolean): Promise<void> {
     const blocked = new Set<string>()
     const rows = (await this.list()).sort((a, b) => a.createdAt - b.createdAt)
     for (const input of rows) {
@@ -101,6 +123,11 @@ export class SessionInputOutbox {
       const target = `${input.deviceId ?? 'local'}/${input.sessionId}`
       if (blocked.has(target)) continue
       try {
+        if (input.failure && retryFailures) {
+          delete input.failure
+          await this.storage.put(input)
+          this.changed()
+        }
         await withSessionInputDeadline(this.send(input))
         await this.storage.remove(this.accountId, input.id)
       } catch (error) {
@@ -126,25 +153,32 @@ export async function withSessionInputDeadline<T>(operation: Promise<T>, timeout
 
 /** A separate durable store: IM cache recovery must never discard unsent native inputs. */
 export async function openSessionInputStorage(factory: IDBFactory = indexedDB): Promise<SessionInputStorage> {
-  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+  const handle = createIndexedDbHandle(() => new Promise<IDBDatabase>((resolve, reject) => {
     const request = factory.open('gugu.session-input-outbox.v1', 1)
     request.onupgradeneeded = () => request.result.createObjectStore('inputs', { keyPath: ['accountId', 'id'] })
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
-  })
-  const mutate = (run: (store: IDBObjectStore) => void) => new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('inputs', 'readwrite')
-    tx.oncomplete = () => resolve()
-    tx.onabort = () => reject(tx.error ?? new Error('Session input persistence aborted'))
-    tx.onerror = () => reject(tx.error)
-    run(tx.objectStore('inputs'))
-  })
+  }))
+  await handle.get()
+  const mutate = async (run: (store: IDBObjectStore) => void) => {
+    const db = await handle.get()
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('inputs', 'readwrite')
+      tx.oncomplete = () => resolve()
+      tx.onabort = () => reject(tx.error ?? new Error('Session input persistence aborted'))
+      tx.onerror = () => reject(tx.error)
+      run(tx.objectStore('inputs'))
+    })
+  }
   return {
-    list: accountId => new Promise((resolve, reject) => {
-      const request = db.transaction('inputs').objectStore('inputs').getAll(IDBKeyRange.bound([accountId, ''], [accountId, '\uffff']))
-      request.onsuccess = () => resolve(request.result as SessionInput[])
-      request.onerror = () => reject(request.error)
-    }),
+    list: async accountId => {
+      const db = await handle.get()
+      return new Promise<SessionInput[]>((resolve, reject) => {
+        const request = db.transaction('inputs').objectStore('inputs').getAll(IDBKeyRange.bound([accountId, ''], [accountId, '\uffff']))
+        request.onsuccess = () => resolve(request.result as SessionInput[])
+        request.onerror = () => reject(request.error)
+      })
+    },
     put: input => mutate(store => { store.put(input) }),
     remove: (accountId, id) => mutate(store => { store.delete([accountId, id]) }),
   }

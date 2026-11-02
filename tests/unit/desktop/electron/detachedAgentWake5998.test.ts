@@ -51,7 +51,7 @@ describe('#5998 detached inbox wake', () => {
     // Both production paths (device command and host kick) use the same bridge callback.
     const deviceBridge = createSessionpageDeliveryBridge(router)
     const hostBridge = createSessionpageDeliveryBridge(router)
-    const input = { agentUserId: AGENT, messageId: 'mention-1', text: 'resume my previous task' }
+    const input = { agentUserId: AGENT, sourceMessageId: 'mention-1', text: 'resume my previous task' }
     expect(await deviceBridge.injectAgentInbox!(input)).toBe('not-live')
     deviceBridge.wakeAgentSession!(AGENT)
     hostBridge.wakeAgentSession!(AGENT)
@@ -158,7 +158,7 @@ describe('#5421 no wake loop for owners that go live on their own', () => {
     const router = new SessionpageLocalDeliveryRouter([native], { wakeSession, onWakeComplete, processRunning: () => true })
     const bridge = createSessionpageDeliveryBridge(router)
     for (let i = 0; i < 5; i += 1) {
-      expect(await bridge.injectAgentInbox!({ agentUserId: AGENT, messageId: `m-${i}`, text: 'hi' })).toBe('not-live')
+      expect(await bridge.injectAgentInbox!({ agentUserId: AGENT, sourceMessageId: `m-${i}`, text: 'hi' })).toBe('not-live')
       await router.wakeAgentSession(AGENT)
     }
     expect(wakeSession).not.toHaveBeenCalled()

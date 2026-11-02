@@ -31,6 +31,7 @@ import { ConversationDestination } from './ConversationDestination';
 import { UserMessageActions } from './UserMessageActions';
 import { CONVERSATION_EXPAND_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
 import { UserMessageEditor } from './UserMessageEditor';
+import { InputSendStatus } from './InputSendStatus';
 import { messageEditorMetrics } from './message-editor-metrics';
 import {
   attachChip,
@@ -184,6 +185,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       data-conversation-body={props.conversation ? props.data.role : undefined}
       class={userMessageRoot}
       style={{
+        position: 'relative',
         ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: 0 })),
         // `base`:整条右对齐到与气泡同一条边(owner 给的参考是 Kimi 那个形状)。
         ...(isDoubleColumnLayout(layout())
@@ -215,7 +217,6 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       data-user-card={props.data.id}
       data-conversation-bubble-key={props.conversation ? conversationBubbleKey(props.data) : undefined}
       data-user-card-expandable={props.conversation && !isExpanded() && isOverflowing() ? 'true' : undefined}
-      data-conversation-caret={props.data.conversationCaret ? 'true' : undefined}
       class={`${card({ state: isOverflowing() && !isExpanded() ? 'overflowing' : 'static', current: isGenerating() })} ${cardRoot} ${userCardGroup}`}
       style={{
         ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: cardH() + (destination()?.height ?? 0) })),
@@ -278,6 +279,8 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     </>}>
       {(editing) => <UserMessageEditor edit={editing()} height={editorMetrics().height} textHeight={editorMetrics().textHeight} />}
     </Show>
+    <InputSendStatus item={props.data} right={isDoubleColumnLayout(layout()) ? paintedWidth() + 6 : 0}
+      top={attachStripH() + (isDoubleColumnLayout(layout()) ? Math.max(0, cardH() - 15) : cardH() + 2)} />
     </div>
   );
 }

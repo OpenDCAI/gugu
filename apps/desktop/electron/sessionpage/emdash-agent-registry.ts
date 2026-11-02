@@ -13,7 +13,7 @@
 
 import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import type { AgentStatusView } from '@gugu/core/shared/agentStatus'
-import type { AgentInboxSource } from '@gugu/core/local/agent/agentInboxReader'
+import { DisclosedFailure, type AgentInboxSource } from '@gugu/core/local/agent/agentInboxReader'
 
 export interface SessionpageDeliveryReceipt {
   turnId: string
@@ -25,7 +25,9 @@ export interface SessionpageDeliveryReceipt {
 /** The session-backend module-boundary surface this registry needs (injected by main.ts from the loaded .cjs). */
 export interface EmdashDeliveryBridge {
   /** The host's session lifecycle owner: its one queue entry. */
-  sessionLife(): { enqueue(input: { sessionId: string; messageId: string; text: string; kind: 'inbox-batch'; sources: readonly (AgentInboxSource & { agentUserId: string })[] }): unknown }
+  sessionLife(): {
+    enqueue(input: { sessionId: string; text: string; kind: 'inbox-batch'; sources: readonly (AgentInboxSource & { agentUserId: string })[] }): { seq: number; state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown' }
+  }
   /** @@@4526B 宿主 ACP 通道的取消口。 */
   cancelEmdashTurn?(sessionId: string): Promise<boolean>
   emdashSessionSummaries(): Promise<Array<{
@@ -286,11 +288,33 @@ class EmdashAgentRegistry {
     throw new Error(`ACP session ${sessionId} takes messages only through session-life; nothing injects into it directly`)
   }
 
-  enqueueInbox(sessionId: string, unit: { messageId: string; text: string; agentUserId: string; sources: readonly AgentInboxSource[] }): void {
+  /**
+   * The unit's completion settles when session-life settles its row: accepted (`settleInbox` without a failure) or failed
+   * after the host disclosed it (with the disclosed failure), so the delivery command that brought it records that outcome.
+   * A unit without cloud sources has nothing to settle (session-life tells no one about it).
+   */
+  enqueueInbox(sessionId: string, unit: { text: string; agentUserId: string; sources: readonly AgentInboxSource[] }): Promise<void> {
     if (!this.bridge) throw new Error(`session-page delivery bridge unavailable — cannot enqueue into ${sessionId}`)
-    this.bridge.sessionLife().enqueue({ sessionId, messageId: unit.messageId, text: unit.text, kind: 'inbox-batch',
+    const { seq, state } = this.bridge.sessionLife().enqueue({ sessionId, text: unit.text, kind: 'inbox-batch',
       sources: unit.sources.map((source) => ({ ...source, agentUserId: unit.agentUserId })) })
+    if (state === 'accepted') return Promise.resolve()
+    if (state === 'failed' || state === 'unknown') return Promise.reject(new DisclosedFailure(new Error(`Inbox item is already ${state}`),
+      { said: false, reason: state === 'unknown' ? 'outcomeUnknown' : 'generic' }))
+    if (!unit.sources.length) return Promise.resolve()
+    const key = `${sessionId}:${seq}`
+    return new Promise((resolve, reject) => this.inboxWaiters.set(key, [...this.inboxWaiters.get(key) ?? [], { resolve, reject }]))
   }
+
+  /** session-life settled these inbox rows: their units complete, or fail with what the host disclosed. */
+  settleInbox(rows: readonly { sessionId: string; seq: number }[], failure?: unknown): void {
+    for (const row of rows) {
+      const key = `${row.sessionId}:${row.seq}`
+      for (const waiter of this.inboxWaiters.get(key) ?? []) failure === undefined ? waiter.resolve() : waiter.reject(failure)
+      this.inboxWaiters.delete(key)
+    }
+  }
+
+  private readonly inboxWaiters = new Map<string, Array<{ resolve: () => void; reject: (failure: unknown) => void }>>()
 
   /**
    * @@@4526B 取消这条会话当前在飞的回合 —— 与 `tryInjectInternal` **同一条通道**:宿主 ACP 通道。

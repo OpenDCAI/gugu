@@ -45,6 +45,7 @@ export function PhoneAppFrame({
   tabId,
   chatId,
   itemId,
+  widget,
   session,
   hidden = false,
   onOpenWith,
@@ -58,6 +59,7 @@ export function PhoneAppFrame({
   chatId: string | null
   /** Made for that file: keeps it for life (the slot keys the frame so). */
   itemId?: string
+  widget?: PhoneAppBinding['widget']
   /** owner 10-16 The session it is drawn in, on one of the person's computers: its context, and where its program runs. */
   session?: NonNullable<PhoneAppBinding['session']>
   /** Under a file opened over it: kept running, as it was, for the way back. */
@@ -123,6 +125,7 @@ export function PhoneAppFrame({
     chatId,
     ...(session ? { session } : {}),
     ...(itemId ? { itemId } : {}),
+    ...(widget ? { widget } : {}),
     locale: i18n.language,
     themeMode: theme === 'dark' ? 'dark' : 'light',
   }

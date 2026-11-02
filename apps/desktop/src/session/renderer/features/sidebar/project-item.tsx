@@ -1,4 +1,4 @@
-import { FolderClosed, Plus, ShieldAlert, TriangleAlert } from '@/lib/icons'
+import { FolderClosed, ShieldAlert, TriangleAlert, Zap } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import React, { useCallback, useEffect } from 'react';
 import { useConfirmDeleteProject } from '@renderer/features/projects/hooks/use-confirm-delete-project';
@@ -125,10 +125,8 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   const machineDown = isHomeRow ? singleMachineDown : deviceIds.every((id) => id !== null && remoteHostsStore.connectionState(id) !== 'connected');
   const deviceLabels = deviceIds.map((id) => id ? remoteHostsStore.device(id)?.label ?? id : translate('task.deviceLocal'));
   const standInDevice = sidebarStore.homeLayout.standIns.get(projectId) ?? null;
-  // #7199 个人助理住的那台(用户看不到它住在哪,owner 10-15):它的主目录那一组就是「它派出的任务」—— 组名是它的名字
-  // (宿主那一侧把那台的 label 换成了它的名字)、不挂机器名;那台不接人开的任务:❌ 新建、❌ 点进项目页(那里有新建框)、❌ 移除。
-  const assistantHome = machine?.assistantHome === true;
-  const assistantGroup = assistantHome && isHomeRow;
+  // 旧的助理主目录组只保护那一行;同一设备上的真实项目使用正常的打开、新建和移除入口。
+  const assistantGroup = machine?.assistantHome === true && isHomeRow;
   // #7341 第二步:并在这一行里的、别的机器上的同一个项目所在的机器。
   const projectLabel = assistantGroup ? machine.label : isHomeRow ? HOME_PROJECT_LABEL : (project.name ?? 'project');
   // spec session-page-remote: 同名歧义以完整路径作次级文本区分——仅当另有同名的一行时显示,常态零噪音。
@@ -146,7 +144,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
     // onto it — ↓ afterwards continues from here.
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
     // ⌘ 点 = 项目块拼到正看着那块右边(gugu-dev#181:项目是一块,和会话行同一个手势)。
-    if (beside && isScreenView(appState.navigation.currentViewId) && !standInDevice && !assistantHome) {
+    if (beside && isScreenView(appState.navigation.currentViewId) && !standInDevice && !assistantGroup) {
       showBesideOnScreen({ kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) });
       sidebarStore.ensureProjectExpanded(projectId);
       return;
@@ -162,7 +160,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
       sidebarStore.toggleProjectExpanded(projectId);
       return;
     }
-    if (standInDevice || assistantHome) {
+    if (standInDevice || assistantGroup) {
       sidebarStore.toggleProjectExpanded(projectId);
       return;
     }
@@ -209,7 +207,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
 
   return (
     // 代位的是那台机器的任务工作区,移除它会让那些会话无处可挂:这一行没有「移除」菜单。
-    <ProjectRowContextMenu disabled={!!standInDevice || assistantHome} chatId={groupChatId}
+    <ProjectRowContextMenu disabled={!!standInDevice || assistantGroup} chatId={groupChatId}
       onRemove={() => {
         void confirmDeleteProject({
           projectId,
@@ -302,7 +300,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
             {!isExpanded && <ProjectNeedsYouDot count={needsYouCount} />}
           </div>
           <SidebarUnreadCount count={groupUnread} />
-          {assistantHome ? null : (
+          {assistantGroup ? null : (
             <Tooltip>
               <TooltipTrigger
                 className="h-6"
@@ -320,7 +318,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
                     }}
                     disabled={project.state === 'unregistered'}
                   >
-                    <Plus className="h-4 w-4" />
+                    <Zap className="h-4 w-4" />
                   </SidebarItemMiniButton>
                 }
               />

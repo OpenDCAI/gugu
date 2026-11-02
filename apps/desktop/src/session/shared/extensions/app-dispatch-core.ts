@@ -50,7 +50,7 @@ export function dispatchTargetOf(to: unknown): DispatchTarget | null {
   }
   if (typeof chat !== 'string' || !UUID.test(chat)) return invalid("to.chat is a chat's id, as getContext() gives it");
   if (!named(member)) return { chat };
-  if (typeof member !== 'string' || !USER_ID.test(member)) return invalid("to.member is a member's id, user:<uuid> — as chat.members gives it");
+  if (typeof member !== 'string' || !USER_ID.test(member)) return invalid("to.member is a member's id, user:<uuid> — as gugu.chats.members() gives it");
   return { chat, member };
 }
 

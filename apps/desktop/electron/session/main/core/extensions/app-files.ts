@@ -233,8 +233,9 @@ function chatSurface(page: DesktopFilePage): FileSurface {
 /**
  * The folder on this computer a call names: a session's working copy, found the one way main finds a session's
  * (`agentSessionContext`, as an App tool call's `_meta` does); a project's root folder, the one its sessions run in
- * (`listProjectFolders`). A session not on this computer or whose working copy is not open, a project not on this
- * computer, is `not-found`. The same files, gates and watch either way: a folder is a folder.
+ * (`listProjectFolders`). A session not on this computer or with no such folder here, a project not on this computer,
+ * is `not-found`; whether anything has opened it since this computer started does not matter. The same files, gates and
+ * watch either way: a folder is a folder.
  */
 export async function localRootOf(place: WorkspacePlace): Promise<{ workspaceRoot: string; projectId: string; workspaceId: string | null }> {
   const target = workspaceTarget(place);
@@ -246,7 +247,7 @@ export async function localRootOf(place: WorkspacePlace): Promise<{ workspaceRoo
   }
   const { agentSessionContext } = await import('@main/core/extensions/extension-agent-context');
   const session = await agentSessionContext(target.session);
-  if (!session?.workspaceRoot) throw new AppFileError('not-found', `Session ${target.session} has no working copy open on this computer`);
+  if (!session?.workspaceRoot) throw new AppFileError('not-found', 'This task has no working folder on this computer');
   return { workspaceRoot: await fs.realpath(session.workspaceRoot), projectId: session.projectId, workspaceId: session.workspaceId ?? null };
 }
 

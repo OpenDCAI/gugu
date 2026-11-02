@@ -187,7 +187,7 @@ export function subscribeAgentPresenceRevisions(
     subscribe('presence_changed', async (operations) => { await refreshObservedAgentPresenceFromRevision(operations.map((operation) => operation.payload)) }),
     subscribe('chat_members_changed', async (operations) => {
       await recheckUnseenAgentPresence(operations.map((operation) => readMemberRosterRevision(operation.payload))
-        .flatMap((change) => (change.left || !change.memberId ? [] : [change.memberId])))
+        .flatMap((change) => (change.own || change.left || !change.memberId ? [] : [change.memberId])))
     }),
   ]
   return () => { for (const unsubscribe of unsubscribes) unsubscribe() }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { BRIDGE_VERBS, callRefusal, gestureRefusal, needsGesture } from '../../../../apps/desktop/src/session/shared/extensions/bridge-protocol'
+import { BRIDGE_VERBS, EXTENSION_BRIDGE_EVENT_CHANNEL, callRefusal, gestureRefusal, needsGesture } from '../../../../apps/desktop/src/session/shared/extensions/bridge-protocol'
 
 /**
  * L11 B4: which verbs need the person's gesture is a column of `BRIDGE_VERBS`, judged once (`callRefusal`, in main on
@@ -12,15 +12,19 @@ import { BRIDGE_VERBS, callRefusal, gestureRefusal, needsGesture } from '../../.
 const electron = vi.hoisted(() => ({
   exposed: {} as Record<string, unknown>,
   invoke: vi.fn(async (_channel: string, _request: unknown) => ({ ok: true, value: 'done' })),
+  on: vi.fn(),
 }))
 vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld: (name: string, api: unknown) => void (electron.exposed[name] = api) },
-  ipcRenderer: { invoke: electron.invoke, on: () => undefined, removeListener: () => undefined, sendSync: () => 'light' },
+  ipcRenderer: { invoke: electron.invoke, on: electron.on, removeListener: () => undefined, sendSync: () => 'light' },
 }))
 
 const activation = { isActive: false }
 Object.defineProperty(navigator, 'userActivation', { value: activation, configurable: true })
+const addedListeners = vi.spyOn(window, 'addEventListener')
 await import('../../../../apps/desktop/electron/extension-bridge-preload')
+const initialWheelListeners = addedListeners.mock.calls.filter(([type]) => type === 'wheel').length
+addedListeners.mockRestore()
 
 type Host = {
   getContext(): Promise<unknown>
@@ -57,6 +61,25 @@ const gestureCalls: Record<string, () => Promise<unknown>> = {
 const sent = () => electron.invoke.mock.calls.map(([, request]) => request as { method: string; gesture: unknown })
 
 describe('a verb that needs a gesture is judged by one rule, on what the preload read (L11 B4)', () => {
+  it('only registers a non-passive wheel listener while the trusted context names a message view', () => {
+    const receive = electron.on.mock.calls.find(([channel]) => channel === EXTENSION_BRIDGE_EVENT_CHANNEL)![1] as (event: unknown, payload: unknown) => void
+    const add = vi.spyOn(window, 'addEventListener'), remove = vi.spyOn(window, 'removeEventListener')
+    try {
+      expect(initialWheelListeners).toBe(0)
+      receive(null, { type: 'context', context: {} })
+      expect(add).not.toHaveBeenCalled()
+      receive(null, { type: 'context', context: { widget: { messageId: 'message-1' } } })
+      expect(add).toHaveBeenCalledExactlyOnceWith('wheel', expect.any(Function), { capture: true, passive: false })
+      const listener = add.mock.calls[0]![1]
+      receive(null, { type: 'context', context: { widget: { messageId: 'message-1' } } })
+      expect(add).toHaveBeenCalledTimes(1)
+      receive(null, { type: 'context', context: { widget: {}, modal: { data: null } } })
+      expect(remove).toHaveBeenCalledExactlyOnceWith('wheel', listener, true)
+    } finally {
+      add.mockRestore(); remove.mockRestore()
+    }
+  })
+
   beforeEach(() => {
     electron.invoke.mockClear()
   })
@@ -85,12 +108,12 @@ describe('a verb that needs a gesture is judged by one rule, on what the preload
     const has = () => true
     for (const verb of Object.keys(gestureCalls)) {
       const args = verb === 'filesUpload' ? { pick: true } : {}
-      expect(callRefusal(verb, args, { kind: 'page', has, gesture: false })).toEqual(gestureRefusal(verb))
-      expect(callRefusal(verb, args, { kind: 'page', has, gesture: true })).toBeNull()
+      expect(callRefusal(verb, args, { kind: 'page', widget: false, has, gesture: false })).toEqual(gestureRefusal(verb))
+      expect(callRefusal(verb, args, { kind: 'page', widget: false, has, gesture: true })).toBeNull()
     }
     // Upload with bytes and a dispatch naming its target need none; a program never has one.
     expect(needsGesture('filesUpload', { files: [] })).toBe(false)
-    expect(callRefusal('dispatch', { text: 'hi', to: { agent: 'user:0a000000-0000-4000-8000-000000000001' } }, { kind: 'page', has, gesture: false })).toBeNull()
+    expect(callRefusal('dispatch', { text: 'hi', to: { agent: 'user:0a000000-0000-4000-8000-000000000001' } }, { kind: 'page', widget: false, has, gesture: false })).toBeNull()
     expect(callRefusal('clipboardWriteText', {}, { kind: 'program', has })).toMatchObject({ code: 'invalid' })
   })
 })

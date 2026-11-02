@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settlement, SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import { SettlementCard } from '../../../apps/desktop/src/mobile/agent-watch/TimelineView'
-import { createReactHarness } from '../../support/testHarness'
+import { ToastContext } from '../../../apps/desktop/src/components/toastContext'
+import { clickElement, createReactHarness } from '../../support/testHarness'
 
 // #6739:手机答不了的那几格(终端腿的一切、ACP 腿的提问),卡片一开始就说去哪答,❌ 摆一排按下去必被拒的按钮。
 // 判据与宿主写侧同一条(`remoteSettlementGap`),所以这里只钉「卡片照它画」。
@@ -58,5 +59,23 @@ describe('SettlementCard — 手机答不了的格子一开始就说去哪答', 
     await render({ ...pending('question'), state: 'resolved', optionId: 'a', resolvedBy: 'desktop', resolvedAt: 1 }, 'pty')
     expect(harness.container.querySelector('[data-testid="agent-watch-settlement-answer-elsewhere"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="agent-watch-settlement-answered"]')).not.toBeNull()
+  })
+
+  it('an unreadable App install answers decline and reports its error on the phone', async () => {
+    const onRespond = vi.fn()
+    const toast = vi.fn()
+    const settlement: Settlement = {
+      ...pending('permission'),
+      options: [{ optionId: 'install', name: 'Review and install' }],
+      origin: { source: 'app-install', payload: { request: { manifest: { name: 'Reader' } } } },
+    }
+    await harness.render(
+      <ToastContext.Provider value={{ toast }}>
+        <SettlementCard settlement={settlement} runtime="acp" busy={false} onRespond={onRespond} />
+      </ToastContext.Provider>,
+    )
+    await clickElement(harness.container.querySelector('[data-option-id="install"]') as HTMLElement)
+    expect(onRespond).toHaveBeenCalledExactlyOnceWith({ itemId: 'item-1', optionId: 'decline', kind: 'permission' })
+    expect(toast).toHaveBeenCalledExactlyOnceWith('This install asks about a manifest this build cannot read', 'error')
   })
 })

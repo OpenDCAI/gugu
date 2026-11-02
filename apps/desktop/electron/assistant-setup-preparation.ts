@@ -7,6 +7,7 @@ export function createAssistantSetupPreparation(deps: {
   cleanup?(id: string): Promise<void>
   install(input: PrepareLocalHomeInput): Promise<PrepareLocalHomeResult>
   changed(id: string, state: LocalAssistantPreparationState): void
+  failed?(id: string, stage: 'prepare' | 'commit', error: unknown): void
 }) {
   type Attempt = { state: LocalAssistantPreparationState; abort: AbortController; prepared?: PreparedAssistantRuntime; work: Promise<void>; installationStarted?: boolean; installation?: Promise<PrepareLocalHomeResult>; cleanupFailed?: boolean }
   const attempts = new Map<string, Attempt>()
@@ -28,6 +29,7 @@ export function createAssistantSetupPreparation(deps: {
         attempt.prepared = prepared
         if (!attempt.abort.signal.aborted) set(id, attempt, { phase: 'ready' })
       }).catch(error => {
+        if (!attempt.abort.signal.aborted) deps.failed?.(id, 'prepare', error)
         attempt.cleanupFailed = (error as { code?: string } | null)?.code === 'assistant_preparation_cleanup_failed'
         set(id, attempt, { phase: 'failed', error: error instanceof Error ? error.message : String(error) })
       })
@@ -63,6 +65,7 @@ export function createAssistantSetupPreparation(deps: {
           set(id, attempt, { phase: 'committed' })
           return home
         } catch (error) {
+          deps.failed?.(id, 'commit', error)
           try { await attempt.prepared!.dispose() }
           finally { set(id, attempt, { phase: 'failed', installationStarted: true, error: error instanceof Error ? error.message : String(error) }) }
           throw error

@@ -55,7 +55,7 @@ export function createPhoneTimelineRuntime({ root, store, authorize, confirmatio
     if (job.status === 'queued') return []
     const began = timestamp(job.startedAt ?? job.createdAt)
     const ended = timestamp(job.finishedAt ?? job.startedAt ?? job.createdAt)
-    const recorded = piEntries.some((entry) => entry.event?.kind === 'message' && entry.event.role === 'user' && (entry.at ?? 0) >= (began ?? 0) && (entry.event.text === job.prompt || entry.event.text.startsWith(`${job.prompt}\n\n手机宿主已根据真实主人确认`)))
+    const recorded = piEntries.some((entry) => (job.inputRecordId && /^pi:([^#]+)#/.exec(entry.key)?.[1] === job.inputRecordId) || entry.event?.kind === 'message' && entry.event.role === 'user' && (entry.at ?? 0) >= (began ?? 0) && (entry.event.text === job.prompt || entry.event.text.startsWith(`${job.prompt}\n\n手机宿主已根据真实主人确认`)))
     const entries = []
     // A queued/failed admission is a real user input, not an invented empty transcript.
     if (!recorded && job.status !== 'done') entries.push(message(`phone-input:${job.id}`, began, job.prompt))
@@ -74,7 +74,14 @@ export function createPhoneTimelineRuntime({ root, store, authorize, confirmatio
     let pi = null
     const materialize = () => {
       if (!sink || starting) return
-      const projected = live.project(agent, piEntries)
+      const visible = piEntries.flatMap(entry => {
+        if (entry.event?.kind !== 'message' || entry.event.role !== 'user') return [entry]
+        const match = /^pi:([^#]+)#(\d+)$/.exec(entry.key)
+        const original = match && agent.fileInputs?.[match[1]]
+        if (!original) return [entry]
+        return match[2] === '0' ? [{ ...entry, event: { ...entry.event, text: original.text, files: original.files, content: [{ type: 'text', text: original.text }], contentMode: 'replace' } }] : []
+      })
+      const projected = live.project(agent, visible)
       const host = [...hostEntries(agent, piEntries), ...projected.pending].map((entry, order) => ({ entry, order })).sort((a, b) => (a.entry.at ?? 0) - (b.entry.at ?? 0) || a.order - b.order).map(({ entry }) => entry)
       const merged = []
       let index = 0
@@ -127,7 +134,7 @@ export function createPhoneTimelineRuntime({ root, store, authorize, confirmatio
     cached.timeline.syncPendingRequests(pending.map(asRequest))
     for (const settlement of pending) if (settlement.state === 'resolved') cached.settle(settlement)
     cached.timeline.syncPendingRequests(pending.filter((settlement) => settlement.state !== 'cancelled').map(asRequest))
-    cached.timeline.syncQueuedPrompts(Object.values(store.state.jobs).filter((job) => job.agentUserId === agent.agentUserId && job.status === 'queued' && (!job.contextEpoch || job.contextEpoch === agent.contextEpoch)).map((job) => ({ id: job.id, text: job.prompt, ...(job.queueEdit ? { queueEdit: job.queueEdit } : {}) })))
+    cached.timeline.syncQueuedPrompts(Object.values(store.state.jobs).filter((job) => job.agentUserId === agent.agentUserId && job.status === 'queued' && (!job.contextEpoch || job.contextEpoch === agent.contextEpoch)).map((job) => ({ id: job.id, text: job.prompt, ...(job.files?.length ? { files: job.files } : {}), ...(job.queueEdit ? { queueEdit: job.queueEdit } : {}) })))
     return cached.timeline
   }
   const serialized = async (agent, work) => {

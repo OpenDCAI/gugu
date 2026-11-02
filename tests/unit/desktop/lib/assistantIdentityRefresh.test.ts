@@ -14,7 +14,7 @@ vi.mock('@/lib/supabase', () => ({
 vi.mock('@/store/auth', () => ({ useAuth: () => ({ user: null }) }))
 const { isMyAssistant, reloadMyAssistant } = await import('@/lib/myAssistant')
 const row = (phase: AssistantProvisionRow['phase']): AssistantProvisionRow => ({
-  agent_user_id: 'same-agent', device_id: 'same-cloud', member_key: 'assistant', phase, created_at: '2026-10-24T00:00:00Z',
+  agent_user_id: 'same-agent', agent: { removed_at: null }, device_id: 'same-cloud', member_key: 'assistant', phase, created_at: '2026-10-24T00:00:00Z',
 })
 
 describe('assistant identity completion refresh', () => {
@@ -51,5 +51,14 @@ describe('assistant identity completion refresh', () => {
     reads[1]!.finish([row('completed')])
     await vi.waitFor(() => expect(isMyAssistant('other-owner', 'same-agent')).toBe(true))
     expect(isMyAssistant('failed-owner', 'same-agent')).toBe(false)
+  })
+
+  it('forgets a closed identity after refresh while its provision remains completed', async () => {
+    reloadMyAssistant('closed-owner')
+    reads[0]!.finish([row('completed')])
+    await vi.waitFor(() => expect(isMyAssistant('closed-owner', 'same-agent')).toBe(true))
+    reloadMyAssistant('closed-owner')
+    reads[1]!.finish([{ ...row('completed'), agent: { removed_at: '2026-11-02T15:06:41Z' } }])
+    await vi.waitFor(() => expect(isMyAssistant('closed-owner', 'same-agent')).toBe(false))
   })
 })

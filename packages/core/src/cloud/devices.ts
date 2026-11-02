@@ -218,7 +218,7 @@ export function normalizeSessionDigest(value: unknown): DeviceSessionSummary[] {
     const title = typeof row.title === 'string' ? row.title : ''
     if (!sessionId || !title) continue
     out.push({
-      ...(row.nativeInputVersion === 1 ? { nativeInputVersion: 1 as const } : {}),
+      ...((row.nativeInputVersion === 1 || row.nativeInputVersion === 2) ? { nativeInputVersion: row.nativeInputVersion } : {}),
       ...(row.runtime === 'acp' || row.runtime === 'pty' || row.runtime === 'unknown' ? { runtime: row.runtime } : {}),
       conversationId: sessionId,
       projectId: typeof row.projectId === 'string' ? row.projectId : '',
@@ -277,6 +277,7 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     ...(typeof row.home_dir === 'string' && row.home_dir && row.home_dir.length <= 4096 ? { home_dir: row.home_dir } : {}),
     ...(row.runs_as_root === true ? { runs_as_root: true } : {}),
     ...(row.assistant_home === true ? { assistant_home: true } : {}),
+    ...(row.assistant_home_setup === 1 ? { assistant_home_setup: 1 as const } : {}),
     ...(row.server_confirmed_restart === true ? { server_confirmed_restart: true as const } : {}),
     ...(parseSessionBootFailures(row.server_boot_failures).length ? { server_boot_failures: parseSessionBootFailures(row.server_boot_failures) } : {}),
     ...normalizeServerUpdate(row.server_update),

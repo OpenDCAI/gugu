@@ -1,4 +1,4 @@
-import { Clock, FolderInput, History, SquarePen } from '@/lib/icons'
+import { Clock, FolderInput, History, Zap } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import React from 'react';
 import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
@@ -211,7 +211,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
                 )}
               >
                 <span className={cn('flex min-w-0 items-center gap-2', sidebarRowContentInsetX)}>
-                  <SquarePen className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" />
+                  <Zap className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" />
                   <span className="truncate">{translate('sidebar.newTask')}</span>
                 </span>
               </SidebarMenuButton>

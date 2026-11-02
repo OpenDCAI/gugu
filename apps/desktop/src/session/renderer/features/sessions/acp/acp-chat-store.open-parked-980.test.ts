@@ -22,8 +22,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { reaction, runInAction } from 'mobx';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import type { Session } from '@shared/core/sessions/sessions';
+import { state as inputState, changed as inputsChanged, EMPTY as NO_INPUTS } from '@/lib/sessionInputOutboxBridge';
 
 const records = vi.hoisted(() => new Map<string, Partial<Session>>());
+const link = vi.hoisted(() => ({
+  state: 'open' as 'open' | 'closed',
+  reconnected: new Set<() => void>(),
+}));
+vi.mock('@renderer/lib/machine-clients', async (original) => ({
+  ...(await original<typeof import('@renderer/lib/machine-clients')>()),
+  machineClient: () => ({ api: { invoke: (channel: string, ...args: unknown[]) => window.electronAPI!.invoke(channel, ...args) } }),
+  machineLinkState: () => link.state,
+  machineLinkHandingOff: () => false,
+  onMachineReconnected: (_machine: string, listener: () => void) => {
+    link.reconnected.add(listener);
+    return () => link.reconnected.delete(listener);
+  },
+}));
 vi.mock('../stores/session-registry', () => ({
   sessionRegistry: {
     get: (id: string) =>
@@ -40,6 +55,7 @@ vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNa
 
 /** session-life 的桩:`lifeStart` 记下,LifeView 由用例推(`life.settle`)。 */
 const life = vi.hoisted(() => ({
+  reads: 0,
   start: vi.fn(async (_sessionId: string) => {}),
   discard: vi.fn(async (_sessionId: string, _messageId: string) => {}),
   stop: vi.fn(async (_sessionId: string) => {}),
@@ -64,6 +80,7 @@ vi.mock('../stores/session-life-views', async () => {
   return {
     sessionLifeView: (sessionId: string) => { life.viewed.add(sessionId); return views.get(sessionId) ?? null; },
     readSessionLife: async (sessionId: string) => {
+      life.reads++;
       if (!views.has(sessionId)) runInAction(() => views.set(sessionId, { kind: 'dormant', hold: null, version: 0, failure: null, pending: { items: [], count: 0 } } as View));
       return views.get(sessionId)!;
     },
@@ -122,6 +139,8 @@ const host = {
   /** 库里那份;每读一次取队首(读完留最后一份)。 */
   storedPages: [] as StoredPage[],
   storedReads: [] as Array<{ limit?: number; fromSeq?: number }>,
+  storedFailure: null as Error | null,
+  storedPending: null as Promise<StoredPage> | null,
   sync: vi.fn(async (_sessionId: string): Promise<{ inserted: number }> => ({ inserted: 0 })),
 };
 
@@ -138,6 +157,8 @@ Object.defineProperty(window, 'electronAPI', {
       if (channel !== 'sessions.getStoredHistory') return Promise.resolve([]);
       const params = args[0] as { limit?: number; fromSeq?: number };
       host.storedReads.push(params);
+      if (host.storedFailure) return Promise.reject(host.storedFailure);
+      if (host.storedPending) return host.storedPending;
       // 开场补读那一页之后新落库的(`fromSeq`):这些用例里没有。
       if (params.fromSeq !== undefined) return Promise.resolve({ turns: [], originTurnIds: [], nextCursor: null });
       const page = host.storedPages.length > 1 ? host.storedPages.shift()! : host.storedPages[0];
@@ -149,6 +170,8 @@ Object.defineProperty(window, 'electronAPI', {
   },
 });
 const { AcpChatStore } = await import('./acp-chat-store');
+const { MACHINE_LINK_GRACE_MS } = await import('./acp-chat-store');
+const { machineRegistry } = await import('@renderer/lib/machine-routing');
 const { isTerminalLoadError } = await import('./acp-load-error');
 type Store = InstanceType<typeof AcpChatStore>;
 
@@ -208,7 +231,102 @@ const parked = (store: Store) => vi.waitFor(() => {
   expect(host.sync).toHaveBeenCalledWith(store.sessionId);
 });
 
+describe('sender custody uses the ordinary transcript row', () => {
+  it('keeps the normal first page to one history request without a fresh lifecycle read', async () => {
+    const { store } = storeFor();
+    host.storedPages = [{ turns: [turn('normal', 1)], originTurnIds: ['normal'], nextCursor: 1 }];
+    life.reads = 0;
+    store.bootstrap();
+    await parked(store);
+    expect(host.storedReads).toHaveLength(1);
+    expect(life.reads).toBe(0);
+    expect(store.chatState.session.state.pendingMessages).toEqual([]);
+  });
+
+  it('uses restoring while an ordinary input is still sending into a resumed session', async () => {
+    const { store } = storeFor({ providerId: 'claude', providerSessionId: 'prov-existing' });
+    store.bootstrap();
+    await parked(store);
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'restoring-send',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'hello', createdAt: 5000, queued: false }] });
+    inputsChanged();
+    life.pend(store.sessionId, 'starting', []);
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'restoring-send', starting: 'restoring', delivery: { state: 'sending' } });
+  });
+
+  it('shows an unacknowledged input before a host lifecycle row exists, then keeps its accepted projection', async () => {
+    const { store } = storeFor();
+    store.bootstrap();
+    await parked(store);
+    life.pend(store.sessionId, 'dormant', [], 'user-stop');
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'sender-input',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'hello', createdAt: 5000,
+      queued: false, baseline: ['s0-m', 's1-m'], afterTurnId: 's1' }] });
+    inputsChanged();
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'sender-input', delivery: { state: 'sending' } });
+    const revision = store.transcriptRevision;
+    inputsChanged();
+    expect(store.transcriptRevision).toBe(revision);
+    inputState().rows = [];
+    inputsChanged();
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'sender-input', delivery: { state: 'accepted' } });
+    store.chatState.transcript.history.seed([...store.chatState.transcript.state.committedTurns, turn('extra-history', 2)]);
+    runInAction(() => { store.transcriptRevision++; });
+    expect(store.chatState.session.state.pendingPrompt?.id).toBe('sender-input');
+    const echo = { ...turn('echo', 3), startedAt: 5001,
+      items: [{ kind: 'message' as const, id: 'native-user', seq: 0, role: 'user' as const, text: 'hello' }] };
+    store.chatState.transcript.activeTurn.set(echo);
+    runInAction(() => { store.transcriptRevision++; });
+    inputsChanged();
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt).toBeNull());
+    store.dispose();
+  });
+
+  it('keeps a sender failure in the same row without claiming the agent is working', async () => {
+    const { store } = storeFor();
+    store.bootstrap();
+    await parked(store);
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'failed-input',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'hello', createdAt: 5000,
+      queued: false, failure: { code: 'send-failed', message: 'connection refused' } }] });
+    inputsChanged();
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'failed-input', delivery: { state: 'failed' } });
+    expect(store.affordances.isWorking).toBe(false);
+    store.dispose();
+  });
+
+  it('queues a follow-up while an attached idle host has not yet echoed the first input', async () => {
+    const { store } = storeFor();
+    create.mockImplementation(async () => liveSession());
+    running.set(store.sessionId, 'running');
+    life.settle(store.sessionId, 'ready');
+    store.bootstrap();
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'in-flight',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'hello', createdAt: 5000, queued: false }] });
+    inputsChanged();
+    expect(store.affordances.isWorking).toBe(true);
+    inputState().rows = [];
+    inputsChanged();
+    expect(store.affordances.isWorking).toBe(true);
+    store.dispose();
+  });
+
+  it('does not label a new unacknowledged input with a previous attempt failure', async () => {
+    const { store } = storeFor();
+    life.settle(store.sessionId, 'failed', { at: 'cli', message: 'Previous start failed', cause: { name: 'Error', message: 'Previous start failed' } });
+    store.bootstrap();
+    await parked(store);
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'new-input',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'new attempt', createdAt: 5000, queued: false }] });
+    inputsChanged();
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'new-input', delivery: { state: 'sending' } });
+    store.dispose();
+  });
+});
+
 beforeEach(() => {
+  Object.assign(inputState(), { accountId: null, rows: NO_INPUTS, valid: () => false });
   toasts.length = 0;
   running.phases.clear();
   running.watchers.clear();
@@ -216,6 +334,10 @@ beforeEach(() => {
   running.watchCalls = 0;
   host.storedPages = [page(turn('s0', 0), turn('s1', 1))];
   host.storedReads = [];
+  host.storedFailure = null;
+  host.storedPending = null;
+  link.state = 'open';
+  link.reconnected.clear();
   host.sync.mockReset().mockResolvedValue({ inserted: 0 });
   runtime.getStoredQueue.mockClear();
   custody.mockClear();
@@ -227,6 +349,80 @@ beforeEach(() => {
 });
 
 describe('#980 打开一条没在跑的会话', () => {
+  it('shows loading for a persisted conversation while its history read is pending', async () => {
+    const history = Promise.withResolvers<StoredPage>();
+    host.storedPending = history.promise;
+    const { store } = storeFor();
+    store.bootstrap();
+    expect(store.isEmpty).toBe(false);
+    expect(store.showHistoryLoading).toBe(true);
+    history.resolve(page(turn('loaded', 0)));
+    await parked(store);
+    expect(store.showHistoryLoading).toBe(false);
+    expect(committedIds(store)).toEqual(['loaded']);
+    store.dispose();
+  });
+
+  it.each([false, true])('a failed history read stays visible and retries without starting the agent (released=%s)', async (released) => {
+    const { store } = storeFor();
+    if (released) {
+      store.bootstrap();
+      await parked(store);
+      store.releaseTranscript();
+    }
+    host.storedFailure = new Error('history read refused');
+    store.bootstrap();
+    await vi.waitFor(() => expect(store.loadError).toEqual({ kind: 'history_unavailable', message: 'history read refused' }));
+    expect(store.historyLoading).toBe(false);
+    expect(store.showHistoryLoading).toBe(false);
+    host.storedFailure = null;
+    store.retry();
+    await vi.waitFor(() => expect(committedIds(store)).toEqual(['s0', 's1']));
+    expect(store.loadError).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+    expect(life.start).not.toHaveBeenCalled();
+    store.dispose();
+  });
+
+  it.each([[false, false], [false, true], [true, false], [true, true]])('a restored connection rereads idle history (released=%s, grace expired=%s)', async (released, expired) => {
+    vi.useFakeTimers();
+    const { store } = storeFor();
+    const machine = 'history-remote-1306';
+    machineRegistry.register(machine, [store.sessionId]);
+    try {
+      if (released) {
+        store.bootstrap();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(committedIds(store)).toEqual(['s0', 's1']);
+        store.releaseTranscript();
+      }
+      link.state = 'closed';
+      host.storedFailure = Object.assign(new Error('remote window closed'), { code: 'unreachable' });
+      store.bootstrap();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(store.showHistoryLoading).toBe(true);
+      if (expired) {
+        await vi.advanceTimersByTimeAsync(MACHINE_LINK_GRACE_MS);
+        expect(store.loadError).toMatchObject({ kind: 'connection_lost', deviceId: machine });
+        expect(store.historyLoading).toBe(false);
+      } else expect(store.loadError).toBeNull();
+      expect(running.watchers.size).toBe(released ? 1 : 0);
+      host.storedFailure = null;
+      link.state = 'open';
+      for (const listener of [...link.reconnected]) listener();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(committedIds(store)).toEqual(['s0', 's1']);
+      expect(store.loadError).toBeNull();
+      expect(store.historyLoading).toBe(false);
+      expect(create).not.toHaveBeenCalled();
+      expect(life.start).not.toHaveBeenCalled();
+    } finally {
+      store.dispose();
+      machineRegistry.forgetMachine(machine);
+      vi.useRealTimers();
+    }
+  });
+
   it('只画对话:库里那份上屏,❌ 起 agent;停着、输入框能用,没有「启动中」也没有失败那一行', async () => {
     const { store } = storeFor();
     store.bootstrap();
@@ -292,7 +488,7 @@ describe('#980 打开一条没在跑的会话', () => {
 
     runInAction(() => store.submitPrompt('接着上次的来'));
 
-    expect(custody).toHaveBeenCalledWith(store, '接着上次的来', []);
+    expect(custody).toHaveBeenCalledWith(store, '接着上次的来', [], []);
     expect(life.start).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
     expect(host.storedReads.filter((read) => read.fromSeq === undefined).length).toBe(readsBefore);
@@ -379,6 +575,32 @@ describe('the first message keeps one place while its session starts', () => {
   const row = (state: PendingRow['state']): PendingRow =>
     ({ seq: 1, messageId: 'm-first', preview: '说一句你好', text: '说一句你好', kind: 'ordinary', sentAt: 5000, discardable: true, state, failure: state === 'failed' ? 'boom' : null });
 
+  it.each([
+    { record: { providerId: 'claude', providerSessionId: 'prov-old' }, label: 'restoring' },
+    { record: { providerId: 'claude', forkFromProviderSessionId: 'prov-parent' }, label: 'restoring' },
+    { record: { providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] }, label: 'starting' },
+  ] as const)('uses $label in the existing process line from the host lifecycle', async ({ record, label }) => {
+    const { store } = storeFor(record as Partial<Session>);
+    store.bootstrap();
+    life.pend(store.sessionId, 'starting', [row('queued')]);
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first'));
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ starting: label, text: '说一句你好', sentAt: 5000 });
+    expect(store.transcriptPendingId).toBe('m-first');
+    life.pend(store.sessionId, 'ready', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.starting).toBeUndefined());
+    expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first');
+  });
+
+  it('a dispatching message in a restoring session still shows restoring', async () => {
+    const { store } = storeFor({ providerId: 'claude', providerSessionId: 'prov-old' });
+    store.bootstrap();
+    life.pend(store.sessionId, 'starting', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBe('m-first'));
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'm-first', starting: 'restoring' });
+    life.pend(store.sessionId, 'ready', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.starting).toBeUndefined());
+  });
+
   it('the transcript draws the queued head as its next turn from the start, not the tray above the composer', async () => {
     const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
     store.bootstrap();
@@ -386,7 +608,7 @@ describe('the first message keeps one place while its session starts', () => {
     await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first'));
     expect(store.chatState.session.state.pendingPrompt?.text).toBe('说一句你好');
     expect(store.transcriptPendingId, 'the tray leaves it out').toBe('m-first');
-    expect(store.chatState.session.state.pendingPrompt, 'its clock is the send; its label the lifecycle').toMatchObject({ sentAt: 5000, starting: true });
+    expect(store.chatState.session.state.pendingPrompt, 'its clock is the send; its label the lifecycle').toMatchObject({ sentAt: 5000, starting: 'starting' });
     expect(store.isEmpty).toBe(false);
 
     // A history seed drops it (the transcript clears pendingPrompt on new committed turns): it is drawn again.
@@ -395,12 +617,12 @@ describe('the first message keeps one place while its session starts', () => {
     await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first'));
 
     life.pend(store.sessionId, 'ready', [row('dispatching')]);
-    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.starting).toBe(false));
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.starting).toBeUndefined());
     expect(store.chatState.session.state.pendingPrompt?.sentAt, 'the same origin').toBe(5000);
 
     life.pend(store.sessionId, 'ready', [row('accepted')]);
     await vi.waitFor(() => expect(store.transcriptPendingId).toBeNull());
-    expect(store.chatState.session.state.pendingPrompt, 'kept until its turn lands: no empty frame').toMatchObject({ id: 'm-first', starting: false, held: false });
+    expect(store.chatState.session.state.pendingPrompt, 'kept until its turn lands: no empty frame').toMatchObject({ id: 'm-first', starting: undefined, held: false });
   });
 
   it('accepted means gone from the view (the real shape): kept, then taken once history has its turn', async () => {
@@ -424,6 +646,64 @@ describe('the first message keeps one place while its session starts', () => {
     expect(store.chatState.session.state.pendingPrompt?.held).toBe(true);
     life.pend(store.sessionId, 'ready', []);
     await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt).toBeNull());
+  });
+
+  it.each([undefined, 'prov-old'])('a failed startup or recovery keeps the queued input and redraws it once after retry (%s)', async (providerSessionId) => {
+    const { store } = storeFor({ providerId: 'claude', providerSessionId, initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    store.bootstrap();
+    life.pend(store.sessionId, 'starting', [row('queued')]);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBe('m-first'));
+    expect(store.chatState.session.state.pendingPrompt?.starting).toBe(providerSessionId ? 'restoring' : 'starting');
+    life.pend(store.sessionId, 'failed', [row('queued')], 'start-failed');
+    expect(store.failedRowIds).toEqual(['m-first']);
+    expect(store.chatState.session.state.pendingPrompt).toBeNull();
+    const failed = () => store.chatState.transcript.state.committedTurns.filter(t => t.id === 'm-first:failed');
+    await vi.waitFor(() => expect(failed()).toHaveLength(1));
+    expect(failed()[0]).toMatchObject({ startedAt: 5000, initiator: 'user', outcome: { kind: 'error', reason: 'send_failed' }, items: [{ id: 'm-first', text: '说一句你好' }] });
+    expect(failed()[0]?.outcome).not.toHaveProperty('detail');
+    expect(failed()[0]?.outcome).not.toHaveProperty('said');
+    life.pend(store.sessionId, 'starting', [row('dispatching')]);
+    expect(store.failedRowIds).toEqual([]);
+    expect(failed()).toHaveLength(0);
+    expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first');
+    life.pend(store.sessionId, 'failed', [row('queued')], 'effect-fault');
+    expect(failed()).toHaveLength(1);
+    expect(store.transcriptPendingId).toBeNull();
+    store.dispose();
+  });
+
+  it('reopens and redraws every failed queued input in seq order without waking the host', async () => {
+    const { store } = storeFor();
+    const second = { ...row('dispatching'), seq: 2, messageId: 'm-second', text: 'second', kind: 'session-direct' as 'ordinary' };
+    life.pend(store.sessionId, 'failed', [second, row('queued'), { ...row('accepted'), seq: 3, messageId: 'already-accepted' }], 'start-failed');
+    store.bootstrap();
+    await parked(store);
+    const failed = () => store.chatState.transcript.state.committedTurns.filter(t => t.id.endsWith(':failed'));
+    await vi.waitFor(() => expect(failed().map(t => t.id)).toEqual(['m-first:failed', 'm-second:failed']));
+    expect(store.failedRowIds).toEqual(['m-first', 'm-second']);
+    expect(failed()[1]?.initiator).toBe('agent');
+    expect(life.start).not.toHaveBeenCalled();
+    runInAction(() => { store.chatState.transcript.history.seed([turn('history', 0)]); store.transcriptRevision += 1; });
+    expect(failed().map(t => t.id)).toEqual(['m-first:failed', 'm-second:failed']);
+    expect(committedIds(store)).toEqual(['history', 'm-first:failed', 'm-second:failed']);
+    store.dispose();
+  });
+
+  it('does not append failed inputs ahead of a running turn and preserves it when projections leave', async () => {
+    const { store } = storeFor();
+    store.bootstrap();
+    await parked(store);
+    life.pend(store.sessionId, 'failed', [row('queued')], 'start-failed');
+    expect(store.failedRowIds).toEqual(['m-first']);
+    runInAction(() => store.chatState.transcript.activeTurn.set({ ...turn('live', 9), items: [] }));
+    life.pend(store.sessionId, 'ready', []);
+    expect(store.failedRowIds).toEqual([]);
+    expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe('live');
+    life.pend(store.sessionId, 'failed', [row('queued')], 'start-failed');
+    expect(store.failedRowIds).toEqual([]);
+    expect(committedIds(store).some(id => id.endsWith(':failed'))).toBe(false);
+    expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe('live');
+    store.dispose();
   });
 
   it('stopped mid-start: stays where it was as a stopped turn; continuing puts it back as the next turn, once', async () => {

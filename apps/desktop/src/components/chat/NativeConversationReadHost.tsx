@@ -6,11 +6,13 @@ import { useConversationSessionSummary } from '@/hooks/useConversationSessionSum
 import { isOwnedAgentPeer, useOwnedAgentEntries } from '@/lib/ownedAgentConversation'
 import { publishNativeConversationReadState, useNativeConversationVisibility, type NativeConversationVisibility } from '@/lib/nativeConversationVisibility'
 import { AgentDmReadCursor, visibleDmMessageIds } from './agent-dm-read'
+import { useNativeDmTailRead } from '@/hooks/useNativeDmTailRead'
 
 /** Legacy IM receipts remain visible facts even after their entry opens the native task page. */
 function ReadViewport({ chat, entry, readerKey }: { chat: ChatItem; entry: NativeConversationVisibility; readerKey: string }) {
-  const { conversations } = useChatStore('conversations')
-  const { messages, markMessageVisible } = useChatConversation(chat.id, conversations)
+  const { conversations, refreshChats } = useChatStore('conversations', 'refreshChats')
+  const { messages, markMessageVisible, loadingMessages, messageWindow } = useChatConversation(chat.id, conversations)
+  useNativeDmTailRead({ chat, messages, loading: loadingMessages, hasNewer: messageWindow.hasNewer, atTail: entry.atTail, refresh: refreshChats })
   const cursor = useRef(new AgentDmReadCursor(chat.unread_locator?.message_id ?? null, chat.last_read_seq, chat.unread_locator?.message_seq ?? undefined))
   useEffect(() => {
     if (document.visibilityState === 'hidden') return

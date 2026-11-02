@@ -4,9 +4,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createNode, createReactHarness, renderWithAppProviders, waitForCondition } from '../../support/testHarness'
 import { readComposer, writeComposer } from '../../support/composerEditor'
 import { stubVisibleIntersection } from '../../support/visibleIntersection'
+const lifeRead = vi.hoisted(() => vi.fn())
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   SessionpageRpcError: class extends Error {}, fetchSessionOptions: vi.fn(() => new Promise(() => {})),
-  setSessionOption: vi.fn(), sessionAttachmentRpc: vi.fn(() => ({})),
+  setSessionOption: vi.fn(), onMachineEvent: vi.fn(() => () => {}), onLinkChange: vi.fn(() => () => {}),
+  machineRpc: () => ({ sessions: { lifeView: lifeRead } }),
 }))
 vi.mock('../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { composerContent: import('react').ReactNode }) => {
   const [ready, setReady] = useState(false)
@@ -39,4 +41,5 @@ it('puts each App draft in the real task composer once, preserving human edits a
   await vi.waitFor(() => expect(readComposer(field())).toBe('My existing notes\nCheck slide 3'))
   expect(applied).toHaveBeenCalledTimes(2)
   expect(onSend).not.toHaveBeenCalled()
+  expect(lifeRead).not.toHaveBeenCalled()
 })

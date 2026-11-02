@@ -14,7 +14,8 @@ import { makeIdentityClient } from './supabase'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
 // @ts-expect-error -- the MCP tool implementation is an untyped ESM module.
-import { createGuguImServer, serveToolsList } from './mcp/gugu-im-server.mjs'
+import { createGuguImServer, createSessionState, sendWidgetOf, serveToolsList } from './mcp/gugu-im-server.mjs'
+import { registerGuguWidgetTool } from './mcp/gugu-widget-tool'
 import { GUGU_MCP_SERVER_NAME } from './mcp/gugu-mcp-name.mjs'
 import { registerGuguScheduleTools } from './mcp/gugu-schedule-tool'
 import { registerGuguProjectTools } from './mcp/gugu-project-tool'
@@ -221,12 +222,13 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
         }
         return tracked
       }
+      const imState = createSessionState()
       const server = initial.kind === 'social'
         ? createGuguImServer(() => {
             const latest = getContext()
             if (latest.kind !== 'social') throw new Error('Gugu MCP grant changed context kind')
             return latest
-          }, { signal: grantSignal, trackRequest })
+          }, { signal: grantSignal, trackRequest, state: imState })
         : new McpServer({ name: GUGU_MCP_SERVER_NAME, version: '0.3.0' })
       // session_* 与 app_* 两个域(#4191)与社交域同 server 注册:
       // 一条 grant 只要拿得到其中任一半就两个域全部注册,缺的那一半在调用时报错 —— 工具清单不随
@@ -308,6 +310,11 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
       }, listedTools)
       // 10-19 Finding an App is app_search's alone (owner: catalog_list lists tools, not Apps); in the catalog, not the native list.
       registerGuguAppSearchTool(server, () => extensionsFor(getContext())?.apps(getContext().grantKey, true) ?? null)
+      registerGuguWidgetTool(server, () => extensionsFor(getContext())?.apps(getContext().grantKey, false) ?? null, async (args, content) => {
+        const context = getContext()
+        if (context.kind !== 'social') throw new Error('widget_send needs a Gugu identity')
+        return trackRequest(sendWidgetOf({ ...context, getAccessToken: () => context.getAccessToken(grantSignal) }, args, content, {}, imState), 'widget_send')
+      })
       serveToolsList(server, getContext, (name: string) => listedTools.has(name))
       return server
     },

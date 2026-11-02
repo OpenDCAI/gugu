@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { agentQuotaReason, agentTurnFailureNeedsModelChoice } from '../../../../apps/desktop/src/lib/agentTurnFailure'
+import { agentFailureNeedsModelChoice, agentFailureReason, agentQuotaReason } from '@gugu/core/shared/agentQuotaReason'
+
+const agentTurnFailureNeedsModelChoice = (raw: string) => agentFailureNeedsModelChoice(agentFailureReason(raw))
 
 describe('quota notification reason', () => {
   it.each([

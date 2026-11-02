@@ -19,6 +19,7 @@ import { obfuscateOwnChunks, parseObfuscateFlag } from './scripts/build/obfuscat
 import { monacoWorkerSingleBundlePlugin } from './scripts/build/monaco-worker-bundle.mjs'
 import { deterministicModuleSideEffects } from './scripts/build/deterministic-module-side-effects.mjs'
 import { activateDbEnv, serverChannelForDb } from './scripts/build/build-env-preflight.mts'
+import { serverPackageIdentity } from './scripts/build/server-package-identity.mts'
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin'
 import solid from 'vite-plugin-solid'
 import { emdashAliasEntries } from './apps/desktop/electron/sessionpage/emdash-aliases.mjs'
@@ -174,6 +175,7 @@ const sessionMainVite: ElectronOptions['vite'] = {
   plugins: [
     // @@@deterministic-mse (#7066) — 渲染层、主进程、两个 preload 共用这一个插件:同一个 sha 打几次产物逐字节相同。
     deterministicModuleSideEffects(),
+    serverPackageIdentity(bakedSupabaseUrl, serverChannelForDb(process.env.VITE_SUPABASE_URL || bakedSupabaseUrl || null)),
     {
       // @@@4865 清掉旧布局的产物目录:dist-electron/taskpage/ 是 gitignore 的,CI 槽位与开发
       // 检出都会留着上一版的 emdash-main-bridge.cjs;electron-builder 按 dist-electron/**
@@ -493,11 +495,13 @@ async function buildAppRuntime(outDir: string): Promise<void> {
  * not take that module): the same tag, right after the doctype, once. app-runtime-protocol.test.ts
  * pins the tag's form, so a change there fails a test instead of drifting from here.
  */
-function injectAppRuntimeTag(html: string): string {
+function injectAppRuntimeTag(html: string, apiVersion: number): string {
   const tag = `<script src="/_gugu/${appRuntimeVersion()}/gugu.js"></script>`
-  if (html.includes(tag)) return html
+  const declared = tag.replace('></script>', ` data-gugu-api-version="${apiVersion}"></script>`)
+  if (html.includes(declared)) return html
+  if (html.includes(tag)) return html.replace(tag, declared)
   const doctype = /^(\uFEFF?\s*<!doctype[^>]*>)/i.exec(html)
-  return doctype ? doctype[1] + tag + html.slice(doctype[1]!.length) : tag + html
+  return doctype ? doctype[1] + declared + html.slice(doctype[1]!.length) : declared + html
 }
 
 /**
@@ -542,9 +546,9 @@ function phoneAppsPlugin(outDir: string) {
         const target = resolve(appsDir, entry.name)
         // The whole bundle, README.md included: the App's details read it from the installed package.
         cpSync(resolve(shipped, entry.name), target, { recursive: true })
-        const manifest = JSON.parse(readFileSync(resolve(target, 'manifest.json'), 'utf-8')) as { entry?: string }
+        const manifest = JSON.parse(readFileSync(resolve(target, 'manifest.json'), 'utf-8')) as { entry?: string; apiVersion: number }
         const page = resolve(target, manifest.entry ?? 'index.html')
-        writeFileSync(page, injectAppRuntimeTag(readFileSync(page, 'utf-8')))
+        writeFileSync(page, injectAppRuntimeTag(readFileSync(page, 'utf-8'), manifest.apiVersion))
         shippedManifests.push(manifest)
       }
       // What the phone has installed: the outer page reads it for each App's grants and for 「用 X 打开」.

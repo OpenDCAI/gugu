@@ -386,6 +386,29 @@ describe('executeSessionCreate', () => {
     expect(hydrateSession).not.toHaveBeenCalled();
   });
 
+  it("gives the first turn the linked issue as that message's model context", async () => {
+    await executeSessionCreate(
+      {
+        ...automation,
+        agentConfig: { prompt: 'Check things', provider: 'claude', autoApprove: true, type: 'acp' },
+        sessionConfig: {
+          ...automation.sessionConfig!,
+          sessionConfig: {
+            ...automation.sessionConfig!.sessionConfig,
+            linkedIssue: { provider: 'github', identifier: '#42', title: 'Flaky upload', url: 'https://example.test/42' },
+          },
+        },
+      } as Automation,
+      run,
+      noopStep
+    );
+
+    const turn = life.enqueue.mock.calls[0]?.[0].turn as { origin: string; hiddenContext?: string };
+    expect(turn.origin).toBe('manual');
+    expect(turn.hiddenContext).toContain('<issue_context provider="github" identifier="#42">');
+    expect(turn.hiddenContext).toContain('Flaky upload');
+  });
+
   it('hands the terminal leg its first sentence as the startup prompt', async () => {
     await executeSessionCreate(
       {

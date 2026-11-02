@@ -8,7 +8,7 @@ import type { EnqueuePending } from './session-pending';
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
   calls: [] as string[],
-  enqueued: [] as Array<{ sessionId: string; messageId: string; text: string }>,
+  enqueued: [] as EnqueuePending[],
 }));
 vi.mock('@main/db/client', () => ({
   get db() {

@@ -5,6 +5,7 @@ import { useAgentDisplayStatuses } from '@/hooks/useAgentDisplayStatus'
 import { useDevicesStore } from '@/store/devicesContext'
 import { partnerProjects } from './partnersModel'
 import { ProjectFolderAvatar } from './ProjectFolderAvatar'
+import { PhoneMessageAvatar } from '../chat/PhoneMessageAvatar'
 
 /** 消息中的项目群沿用项目封面;提醒仅占头像一角,不进伙伴通讯录。 */
 export function PhoneProjectChatAvatar({ chat, mobile, children }: { chat: ChatItem; mobile: boolean; children: ReactNode }) {
@@ -14,9 +15,11 @@ function ProjectChatAvatar({ chat, children }: { chat: ChatItem; children: React
   const { devices } = useDevicesStore()
   const project = useMemo(() => partnerProjects(devices).find((row) => row.chatId === chat.id), [devices, chat.id])
   const statuses = useAgentDisplayStatuses(chat.member_user_ids ?? [])
-  if (!project) return children
+  if (!project) return <PhoneMessageAvatar>{children}</PhoneMessageAvatar>
   const running = Object.values(statuses).filter((status) => status === 'working').length
   // 角标颜色按要人处理的是哪一种:需要你 = 黄、出错 = 红,与桌面同一组色(--agent-tone-*)。
   const attention = mostUrgentAttention(Object.values(statuses))
-  return <span className="gg-phone-project-avatar"><ProjectFolderAvatar coverId={project.coverId} running={running} size={48} />{attention ? <span className="gg-phone-project-attention" data-testid="phone-project-waiting" data-attention={attention} aria-hidden /> : null}</span>
+  return <PhoneMessageAvatar badge={attention ? <span className="gg-phone-project-attention" data-testid="phone-project-waiting" data-attention={attention} aria-hidden /> : null}>
+    <ProjectFolderAvatar coverId={project.coverId} running={running} size={48} />
+  </PhoneMessageAvatar>
 }

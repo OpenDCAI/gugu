@@ -7,6 +7,7 @@ export interface SearchItem {
   title: string;
   subtitle: string;
   score: number;
+  lastInteractedAt?: string | null;
 }
 
 /** A message said in a local task, as task search finds it (turn_text). */
@@ -39,6 +40,9 @@ export interface TaskTurnQuery {
   query: string;
   limit?: number;
 }
+
+export type SearchBackfillProgress = { state: 'running' | 'complete' | 'failed'; done: number; total: number };
+export type TaskTurnIndexStatus = { state: 'preparing' | 'ready' | 'failed'; done?: number; total?: number };
 
 /** Where each whitespace-separated piece of the query occurs in text (case-insensitive), merged, for highlighting. */
 export function matchRanges(text: string, query: string): { start: number; end: number }[] {
