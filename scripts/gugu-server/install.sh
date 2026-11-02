@@ -175,6 +175,8 @@ VERIFIER="$TARGET/bin/gugu-server"
 if ! "$VERIFIER" help 2>/dev/null | grep -q prepare-install; then
   if [ -x "$SERVER_HOME/current/bin/gugu-server" ] && "$SERVER_HOME/current/bin/gugu-server" help 2>/dev/null | grep -q prepare-install; then
     VERIFIER="$SERVER_HOME/current/bin/gugu-server"
+  else
+    die "这个包不支持安装环境核对,请先使用支持 prepare-install 的 server 迁移"
   fi
 fi
 GUGU_SERVER_HOME="$SERVER_HOME" "$VERIFIER" prepare-install --candidate "$TARGET" --channel "$CHANNEL" \

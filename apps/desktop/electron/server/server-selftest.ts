@@ -12,7 +12,7 @@
 import { execFileSync } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import path from 'node:path'
-import { packageIdentity, prepareInstallation, SERVER_PACKAGE_IDENTITY } from './server-installation'
+import { packageIdentity, prepareInstallation, SERVER_PACKAGE_IDENTITY } from './server-installation.mts'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { spawnOwnedChild } from '@gugu/session-core/exec'

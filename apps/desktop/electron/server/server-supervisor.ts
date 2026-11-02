@@ -25,7 +25,7 @@ import { rotateByCopyTruncate, rotateByRename, SERVICE_LOG_CHECK_MS } from './se
 import { ensureUpgradeGuard, writeSupervisorHealth, SUPERVISOR_HEALTH_MS } from './server-upgrade-guard'
 import { createAccountDriver } from './server-account-driver'
 import { managedLayout, startServerUpdater } from './server-updater'
-import { controllerOwnsUpdates } from './server-installation'
+import { controllerOwnsUpdates } from './server-installation.mts'
 
 const RECONCILE_MS = 3_000
 const CHILD_STOP_GRACE_MS = 30_000

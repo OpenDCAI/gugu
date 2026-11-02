@@ -6,7 +6,7 @@ import path from 'node:path'
 import { pruneVersions, readVersionPin, writeVersionPin } from './server-account-versions'
 import { readAccountState } from './server-account-machine'
 import { listAccounts } from './server-layout'
-import { assertPackageEnvironment } from './server-installation'
+import { assertPackageEnvironment } from './server-installation.mts'
 
 export const UPGRADE_PENDING_FILE = 'upgrade-pending.json'
 /** The staged package installed but did not boot an account: a boot failure, not an install failure. */

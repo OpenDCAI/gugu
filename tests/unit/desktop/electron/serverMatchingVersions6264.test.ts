@@ -158,10 +158,10 @@ describe('reclamation uses explicit ownership only', () => {
     const userHome = path.join(dir, 'home')
     const serverHome = path.join(userHome, '.gugu-server')
     fs.mkdirSync(userHome)
-    const install = (version: string, extra: string[] = []) => {
+    const install = (version: string, extra: string[] = [], verification = true) => {
       const root = path.join(dir, `src-${version}`, `gugu-server-${version}`)
       fs.mkdirSync(path.join(root, 'bin'), { recursive: true })
-      fs.writeFileSync(path.join(root, 'bin', 'gugu-server'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+      fs.writeFileSync(path.join(root, 'bin', 'gugu-server'), verification ? '#!/bin/sh\n[ "$1" = help ] && echo prepare-install\nexit 0\n' : '#!/bin/sh\nexit 0\n', { mode: 0o755 })
       const file = path.join(dir, `pkg-${version}.tar.gz`)
       execFileSync('tar', ['-czf', file, '-C', path.dirname(root), path.basename(root)])
       const sha = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
@@ -186,6 +186,11 @@ describe('reclamation uses explicit ownership only', () => {
     expect(fs.existsSync(path.join(serverHome, 'versions', '.prepared', '0.1.0'))).toBe(true)
     expect(fs.readlinkSync(path.join(serverHome, 'current'))).toBe('versions/0.1.9')
     expect(fs.existsSync(path.join(serverHome, 'versions', '0.1.0', 'bin', 'gugu-server'))).toBe(true)
+    // A historical target is inspected by the current verifier, rather than trusted because an unknown command exits zero.
+    install('0.1.10', ['--keep-current'], false)
+    fs.writeFileSync(path.join(serverHome, 'versions', '0.1.9', 'bin', 'gugu-server'), '#!/bin/sh\nexit 0\n')
+    expect(() => install('0.1.11', [], false)).toThrow()
+    expect(fs.readlinkSync(path.join(serverHome, 'current'))).toBe('versions/0.1.9')
     fs.rmSync(dir, { recursive: true, force: true })
   })
 })

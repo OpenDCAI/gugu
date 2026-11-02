@@ -22,7 +22,7 @@ import { readAccountRuntime } from './server-account-runtime'
 import { recordLoginShell, startKeeper } from './server-keeper'
 import { activityProof, listAccounts, supervisorDataDir } from './server-layout'
 import { SERVICE_UMASK } from './server-permissions'
-import { controllerOwnsUpdates } from './server-installation'
+import { controllerOwnsUpdates } from './server-installation.mts'
 import { spawnUpgradeGuard, writeUpgradeMarker } from './server-upgrade-guard'
 import { ownServerNames } from './server-names'
 

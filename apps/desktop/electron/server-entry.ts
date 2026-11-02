@@ -26,7 +26,7 @@ import { runWithRunningVersion } from './server/server-version-match'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { ensurePrivateDir, summarizeChanges, tightenServerTree } from './server/server-permissions'
 import { ownServerNames } from './server/server-names'
-import { assertRuntimeBackend, ownPackageIdentity, packageBackend, packageIdentity, prepareInstallation } from './server/server-installation'
+import { assertRuntimeBackend, ownPackageIdentity, packageBackend, packageIdentity, prepareInstallation } from './server/server-installation.mts'
 import { getSupabaseUrl } from '@gugu/core/cloud/config'
 
 

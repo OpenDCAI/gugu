@@ -35,7 +35,7 @@ import {
   RUNTIME_PACKAGES,
 } from '../gugu-server/runtime-packages.mts'
 import { defaultMiseCacheDir, obtainMiseArchive } from './mise-archive-cache.mts'
-import { packageIdentity, SERVER_PACKAGE_IDENTITY } from '../../apps/desktop/electron/server/server-installation.ts'
+import { packageIdentity, SERVER_PACKAGE_IDENTITY } from '../../apps/desktop/electron/server/server-installation.mts'
 
 const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
 const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
