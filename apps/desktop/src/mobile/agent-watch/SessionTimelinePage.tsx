@@ -234,6 +234,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
         <SessionConversation
           agentName={session.title}
           agentUserId={agentUserId}
+          harness={session.harness}
           timeline={conversation}
           deviceId={device.device_id}
           sessionId={session.conversationId}
