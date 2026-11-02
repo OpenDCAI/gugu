@@ -38,14 +38,6 @@
     "how": "keyed-map",
     "why": "#6002:useSyncExternalStore 在渲染期用当前 agentId 读取 presence map 的 harness 原始值;切换身份同步更换 snapshot 与订阅,不靠 effect 将上一个 agent 的答案追到新主体。"
   },
-  "apps/desktop/src/hooks/useAgentStream.ts::useAgentStream": {
-    "how": "keyed-map",
-    "why": "map[agentStreamKey(当前 conversationId, threadRootId)] —— 换主体立刻换 key。"
-  },
-  "apps/desktop/src/hooks/useAgentTurnFailure.ts::useAgentTurnFailure": {
-    "how": "keyed-map",
-    "why": "failure = map[agentStreamKey(当前参数)] —— 换主体立刻换 key。"
-  },
   "apps/desktop/src/hooks/useRoomCollab.ts::useRoomCollab": {
     "how": "subject-scoped",
     "why": "The snapshot carries its scheduler.chat_id and is returned only for the current chatId; loader failures carry their chatId too. Switching topics returns no prior topic's rows or error while the existing roster loader refreshes."
@@ -125,5 +117,9 @@
   "apps/desktop/src/hooks/useNativeConversationChat.ts::useNativeConversationChat": {
     "how": "derived",
     "why": "The current workspace session resolves its owned agent and canonical DM from current account snapshots, with no remembered selection from an earlier workspace."
+  },
+  "apps/desktop/src/hooks/useRoomAuthorityRevision.ts::useRoomAuthorityRevision": {
+    "how": "no-own-state",
+    "why": "State is only a monotonic invalidation counter, not a permission or roster reading. Consumers reload settings for their current chat; subscriptions and pending timers are replaced when the chat, source group, or viewer changes."
   }
 }

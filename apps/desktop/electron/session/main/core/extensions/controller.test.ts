@@ -1,3 +1,4 @@
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { verifiedFileHandle } from '../../../../../../../tests/support/verifiedFileHandle';
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 import { extensionsInventoryChangedChannel, extensionsQuitChangedChannel } from '@shared/extensions/marketEvents';
@@ -44,21 +45,14 @@ let fileChange: ((update: { kind: 'resync' }) => void) | null = null;
 let unwatched = 0;
 /** 绑定 surface 时监听是异步建起来的;建起来的那一刻由这里告诉用例。 */
 let watchStarted: (() => void) | undefined;
-vi.mock('@main/core/runtime/runtime-manager', () => ({
-  runtimeManager: {
-    acquire: async () => ({
-      value: {
-        files: {
-          watchChanges: (_root: string, cb: (update: { kind: 'resync' }) => void) => {
-            fileChange = cb;
-            watchStarted?.();
-            return { success: true, data: { unsubscribe: () => (unwatched += 1), ready: Promise.resolve() } };
-          },
-        },
-      },
-      release: () => undefined,
-    }),
+// A working copy's watch is the file tree's push for the folders the page listed (working-copy-files.ts).
+vi.mock('@main/core/extensions/working-copy-files', () => ({
+  watchWorkingCopy: async (_place: unknown, _folder: unknown, hear: (update: { kind: 'resync' }) => void) => {
+    fileChange = hear;
+    watchStarted?.();
+    return () => (unwatched += 1);
   },
+  releaseWorkingCopies: () => undefined,
 }));
 
 const emitted: { name: string; data: unknown }[] = [];
@@ -854,7 +848,7 @@ describe('who works a page the window draws (owner 10-14)', () => {
     await installViaController([], undefined, ['files:read']);
     await extensionsController.activate({ extensionId: EXTENSION_ID });
     const forged = { operator: { kind: 'agent', id: 'user:forged' } } as object;
-    const bound = await extensionsController.bindSurface({ webContentsId: surface.id, extensionId: EXTENSION_ID, sessionId: 'task-1', tabId: 'tab-1', tabKind: `${EXTENSION_ID}.demo`, ...forged });
+    const bound = await extensionsController.bindSurface({ webContentsId: surface.id, extensionId: EXTENSION_ID, workspace: sessionWorkspace('task-1'), tabId: 'tab-1', tabKind: `${EXTENSION_ID}.demo`, ...forged });
     expect(bound.success, bound.error).toBe(true);
     // What getContext().operator answers is the binding's (extension-bridge-relay.test reads it through the bridge).
     expect(extensionSurfaceBindingForTests(surface.id)?.operator).toEqual({ kind: 'person' });
@@ -870,7 +864,7 @@ describe('卸载时 tab 还开着(#6656)', () => {
     const bound = await extensionsController.bindSurface({
       webContentsId: surface.id,
       extensionId: EXTENSION_ID,
-      sessionId: 'task-1',
+      workspace: sessionWorkspace('task-1'),
       tabId: 'tab-1',
       tabKind: `${EXTENSION_ID}.demo`,
     });
@@ -879,7 +873,7 @@ describe('卸载时 tab 还开着(#6656)', () => {
     registerExtensionBridge();
     const asked = (await bridgeHandlers.get(EXTENSION_BRIDGE_CHANNEL)!(
       { sender: { id: surface.id, session: surface.session } },
-      { method: 'filesWatch', args: { watchId: 'working-copy', place: { session: 'task-1' }, on: true } },
+      { method: 'filesWatch', args: { watchId: 'working-copy', place: { workspace: 'session:task-1' }, on: true } },
     )) as { ok: boolean };
     expect(asked).toMatchObject({ ok: true });
     await watching.promise;

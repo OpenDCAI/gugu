@@ -84,6 +84,7 @@ export const HOST_CALLS = {
   'appFiles.reopen': { verb: 'filesReopen' },
   'appFiles.close': { verb: 'filesClose' },
   'appFiles.list': { verb: 'filesList' },
+  'appFiles.read': { verb: 'filesRead' },
   'appFiles.search': { verb: 'filesSearch' },
   'appFiles.recent': { verb: 'filesRecent' },
   'appFiles.create': { verb: 'filesCreate' },
@@ -95,6 +96,7 @@ export const HOST_CALLS = {
   'appFiles.move': { verb: 'filesMove' },
   'appFiles.watch': { verb: 'filesWatch' },
   'appFiles.replace': { verb: 'filesReplace' },
+  'appFiles.canDelete': { verb: 'filesCanDelete' },
   'appFiles.versions': { verb: 'filesVersions' },
   'appFiles.readVersion': { verb: 'filesReadVersion' },
   /** Bytes the caller has, or (no `files`) the person's picker — a page's, inside a gesture. */

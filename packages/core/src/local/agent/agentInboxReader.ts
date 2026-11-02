@@ -22,7 +22,7 @@ import { getSupabaseAnonKey, getSupabaseUrl } from '../../cloud/config'
 import { resolveListenModeDefault } from '../../cloud/listenMode'
 import type { ChatKind } from '../../shared/types/chat'
 import { parseAttachmentContent } from '../../shared/ui/attachmentModels'
-import { attachmentFolderLine } from '../../shared/attachmentFolderLine'
+import { attachmentLocationLines } from '../../shared/attachmentFolderLine'
 import {
   buildAgentDeliveryEnvelope,
   buildAgentMentionContext,
@@ -30,16 +30,14 @@ import {
   identityShown,
   mergeDeliveryEnvelopes,
   type AgentDeliveryToolNames,
+  type ChatEnvelopeInfo,
   type GuguIdentity,
 } from './deliveryEnvelope'
 import { markAgentDeliveredMessageRead, type AgentDeliveredMessageRead } from './deliveredReadMarkers'
 import { buildThreadBootstrapBody, type ThreadMessageRow } from './threadBootstrap'
 import {
   decideGroupRulesDelivery,
-  effectiveGroupRules,
-  fetchChatFactsViaRpc,
   groupRulesLedgerFor,
-  type ChatFactsRow,
   type DeliveredGroupRules,
   type GroupRulesLedger,
 } from './groupRulesDelivery'
@@ -84,6 +82,13 @@ export interface AgentInboxUnreadRow {
   fileVersion?: number | null
   /** 悄悄话的附件:消息直接指字节(不进群文件夹)。 */
   fileBlobId?: string | null
+  /**
+   * The rules in force on a group or topic line ('' when none; a topic without its own takes its source group's), read
+   * with the message by pull_agent_inbox_v2. null off rooms.
+   */
+  groupRules?: string | null
+  /** Everyone the envelope names besides the sender (recipients, the quoted sender), read with the message. */
+  namedIdentities?: ReadonlyMap<string, GuguIdentity>
   replyToMessageId: string | null
   replyToSenderUserId: string | null
   replyToContent: string | null
@@ -102,8 +107,11 @@ export interface AgentInboxUnreadRow {
   forum?: { postId: string; seq: number; envelope: string }
 }
 
-/** 注入尝试的三态判决(通道给出;投递层不检查忙闲、不因忙扣消息)。 */
-export type AgentInboxInjectionVerdict = 'accepted' | 'not-live' | 'not-now'
+/**
+ * 注入尝试的判决(通道给出;投递层不检查忙闲、不因忙扣消息)。`enqueued`: the host's session lifecycle owner took the unit
+ * into its durable queue; its rows are marked read only when the agent accepts it (the host calls markInboxRowsRead).
+ */
+export type AgentInboxInjectionVerdict = 'accepted' | 'enqueued' | 'not-live' | 'not-now'
 
 /** Provider admission plus an optional out-of-band turn settlement. */
 export type AgentInboxInjectionResult = AgentInboxInjectionVerdict | {
@@ -116,6 +124,11 @@ export interface AgentInboxInjectionInput {
   /** 稳定注入 id = 批首条消息的 msg id(幂等重放/审计锚;单条时即该条)。 */
   messageId?: string
   text: string
+  /**
+   * The rows this unit settles once accepted (its members, and skipped rows it passes): an enqueuing host freezes them.
+   * Absent: a host-made unit (a notice) with no inbox row behind it.
+   */
+  sources?: readonly AgentInboxSource[]
   /** Image bytes travel as content blocks, never as a URL for the agent to fetch. */
   attachments?: Array<{ data: string; mimeType: string; fileName: string; localPath?: string }>
 }
@@ -158,6 +171,11 @@ export interface AgentInboxReaderDeps {
   /** injectable:游标推进(默认 mark_read_on_deliver)。 */
   markRead?: (input: AgentDeliveredMessageRead) => Promise<void>
   /**
+   * Rows an enqueuing host already holds (still unread until accepted): left out of every new unit. The value says whether
+   * the row is still open in its queue (only an open one holds back a skipped row behind it).
+   */
+  claimedSources?: (agentUserId: string, messageIds: readonly string[]) => ReadonlyMap<string, boolean> | Promise<ReadonlyMap<string, boolean>>
+  /**
    * 论坛来源(forumInbox.ts):有它才拉论坛(宿主的装配 agentInboxDepsFromBridge 接上 forum_pull_agent_inbox);确认与失败记录
    * 默认 forum_ack / forum_record_delivery_failure。
    */
@@ -181,8 +199,6 @@ export interface AgentInboxReaderDeps {
    * 缺席或回 null = 宿主报不出,按同一段处理。
    */
   deliveryContextKey?: (agentUserId: string) => string | null | Promise<string | null>
-  /** injectable:按 agent 身份读一条线的基本事实(默认 chat.chat_facts)。群规由此现取。 */
-  fetchChatFacts?: (chatId: string, asUserId: string) => Promise<ChatFactsRow | null>
   /** injectable:群规已送达记录(默认落盘在 GUGU_HOME)。 */
   groupRulesLedger?: GroupRulesLedger
   /** #2175 异常计数灯:喂灯点从命令结果迁到读者注入结果。 */
@@ -203,7 +219,7 @@ export interface AgentInboxPullResult {
   pulled: number
   /** 注入成功且云端游标已推进或本机行已删除的行数。 */
   injected: number
-  verdict: 'idle' | 'accepted' | 'not-live' | 'not-now'
+  verdict: 'idle' | AgentInboxInjectionVerdict
   /** Resolves when all provider turns admitted by this pull have settled. */
   completion?: Promise<void>
 }
@@ -309,6 +325,23 @@ export function unreadRowFromRpc(raw: Record<string, unknown>): AgentInboxUnread
     scanFence: raw.scan_max_ingest_seq === null || raw.scan_max_ingest_seq === undefined
       ? undefined
       : Number(raw.scan_max_ingest_seq),
+    ...deliveryContextOf(raw),
+  }
+}
+
+/** pull_agent_inbox_v2 returns the line's rules and the named identities with each row; absent = the database is older. */
+function deliveryContextOf(raw: Record<string, unknown>): { groupRules: string | null; namedIdentities: Map<string, GuguIdentity> } {
+  if (!('group_rules' in raw) || !('named_identities' in raw)) {
+    throw new Error('pull_agent_inbox_v2 row has no group_rules / named_identities: the database is older than this client')
+  }
+  const named = raw.named_identities && typeof raw.named_identities === 'object' ? raw.named_identities as Record<string, Record<string, unknown>> : {}
+  return {
+    groupRules: typeof raw.group_rules === 'string' ? raw.group_rules : null,
+    namedIdentities: new Map(Object.entries(named).map(([id, row]) => [id, {
+      guguNumber: typeof row.gugu_number === 'number' ? row.gugu_number : null,
+      displayName: typeof row.display_name === 'string' && row.display_name.trim() ? row.display_name.trim() : null,
+      isAgent: row.type === 'agent',
+    }])),
   }
 }
 
@@ -333,6 +366,7 @@ const FAILURE_CONTENT: Record<AgentFailureReason, string> = {
   timeout: 'The model service did not respond in time; this reply could not be completed.',
   generic: 'This reply could not be completed. Please try again later.',
   notAdmitted: '消息已保留，助理就绪后回复。',
+  outcomeUnknown: 'Delivery result unknown: the message may have reached the assistant, and it was not resent.',
   undelivered: 'Not delivered yet: no running Gugu instance on this device holds this agent. The message stays unread until that instance is open.',
 }
 
@@ -516,6 +550,12 @@ async function filterArchivedRows(agentUserId: string, rows: AgentInboxUnreadRow
   return rows.filter((_, index) => !refused[index])
 }
 
+async function unclaimedRows(agentUserId: string, rows: AgentInboxUnreadRow[], deps: AgentInboxReaderDeps): Promise<{ rows: AgentInboxUnreadRow[]; queuedAhead: boolean }> {
+  if (!deps.claimedSources || rows.length === 0) return { rows, queuedAhead: false }
+  const claimed = await deps.claimedSources(agentUserId, rows.map((row) => row.id))
+  return { rows: rows.filter((row) => !claimed.has(row.id)), queuedAhead: [...claimed.values()].some(Boolean) }
+}
+
 async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promise<AgentInboxPullResult> {
   if (deps.recipientIsRegistered && !(await deps.recipientIsRegistered(agentUserId))) return { pulled: 0, injected: 0, verdict: 'not-now' }
   if ((await deps.sessionArchival?.(agentUserId))?.archivedAt) return { pulled: 0, injected: 0, verdict: 'not-now' }
@@ -542,13 +582,13 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
     if (rawRows.length === 0) break
     const archival = await deps.sessionArchival?.(agentUserId) ?? null
     if (archival?.archivedAt) { verdict = 'not-now'; break }
-    const rows = await filterArchivedRows(agentUserId, rawRows, archival, deps)
-    const batchResult = await injectBatch(agentUserId, rows, deps)
+    const unclaimed = await unclaimedRows(agentUserId, await filterArchivedRows(agentUserId, rawRows, archival, deps), deps)
+    const batchResult = await injectBatch(agentUserId, unclaimed.rows, deps, unclaimed.queuedAhead)
     injectedTotal += batchResult.injected
     verdict = batchResult.verdict
     if (batchResult.completion) completions.push(batchResult.completion)
     // not-live / not-now:游标不动,本轮结束,等下一个触发(唤醒完成/回合末)。
-    if (batchResult.verdict !== 'accepted') break
+    if (batchResult.verdict !== 'accepted' && batchResult.verdict !== 'enqueued') break
     if (fetchedRows.length < PULL_LIMIT) break
     const tail = fetchedRows[fetchedRows.length - 1]!
     if (scanAfter && (tail.chatId < scanAfter.chatId || (tail.chatId === scanAfter.chatId && tail.seq <= scanAfter.seq))) {
@@ -561,13 +601,14 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
     scanAfter = { chatId: tail.chatId, seq: tail.seq }
   }
   // 论坛来源:聊天这一轮受理完(或本来就没有)才拉 —— 会话不 live / 此刻不收时它也不收,等下一个触发。
-  if (deps.fetchForumUnread && (verdict === 'idle' || verdict === 'accepted')) {
+  if (deps.fetchForumUnread && (verdict === 'idle' || verdict === 'accepted' || verdict === 'enqueued')) {
     const forumRows = await deps.fetchForumUnread(agentUserId)
     pulled += forumRows.length
     if (forumRows.length > 0) {
       const archival = await deps.sessionArchival?.(agentUserId) ?? null
       if (archival?.archivedAt) return { pulled, injected: injectedTotal, verdict: 'not-now' }
-      const batchResult = await injectBatch(agentUserId, await filterArchivedRows(agentUserId, forumRows, archival, deps), deps)
+      const unclaimed = await unclaimedRows(agentUserId, await filterArchivedRows(agentUserId, forumRows, archival, deps), deps)
+      const batchResult = await injectBatch(agentUserId, unclaimed.rows, deps, unclaimed.queuedAhead)
       injectedTotal += batchResult.injected
       verdict = batchResult.verdict
       if (batchResult.completion) completions.push(batchResult.completion)
@@ -580,6 +621,9 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
     ...(completions.length > 0 ? { completion: Promise.all(completions).then(() => undefined) } : {}),
   }
 }
+
+/** One row a unit settles once its agent accepts it, with what acceptance records for it. */
+export type AgentInboxSource = Pick<PreparedMessage, 'row' | 'rulesDelivered' | 'bootstrapKey'>
 
 type PreparedMessage = {
   row: AgentInboxUnreadRow
@@ -607,12 +651,12 @@ async function planGroupRules(
   const plan: GroupRulesPlan = new Map()
   const chatIds = [...new Set(rows.filter((row) => !row.localSessionDirect && ROOM_KINDS.has(row.chatKind)).map((row) => row.chatId))]
   if (chatIds.length === 0) return plan
-  const readFacts = deps.fetchChatFacts
-    ?? ((chatId: string, asUserId: string) => fetchChatFactsViaRpc(chatId, asUserId, deps.accessToken))
   const ledger = deps.groupRulesLedger ?? groupRulesLedgerFor(env)
   const contextKey = (await deps.deliveryContextKey?.(agentUserId)) ?? null
   for (const chatId of chatIds) {
-    const rules = await effectiveGroupRules(chatId, (id) => readFacts(id, agentUserId))
+    // Read with the message (pull_agent_inbox_v2), as current as the message itself.
+    const rules = rows.find((row) => row.chatId === chatId)?.groupRules
+    if (typeof rules !== 'string') throw new Error(`inbox row of room ${chatId} carries no group rules`)
     const decision = decideGroupRulesDelivery({ rules, delivered: await ledger.read(agentUserId, chatId), contextKey })
     plan.set(chatId, { ...decision, contextKey })
   }
@@ -651,6 +695,8 @@ async function injectBatch(
   agentUserId: string,
   pulledRows: AgentInboxUnreadRow[],
   deps: AgentInboxReaderDeps,
+  /** Rows an enqueuing host still holds unread were left out of this pull. */
+  queuedAhead = false,
 ): Promise<{ injected: number; verdict: AgentInboxInjectionVerdict; completion?: Promise<void> }> {
   const env = deps.env ?? process.env
   const toolNames = deps.deliveryToolNames?.(agentUserId) ?? undefined
@@ -666,10 +712,12 @@ async function injectBatch(
     return false
   })
   if (rows.length === 0) {
-    await advanceCursor(agentUserId, skipped, deps)
+    if (!queuedAhead) await advanceCursor(agentUserId, skipped, deps)
     return { injected: 0, verdict: 'accepted' }
   }
   const rulesPlan = await planGroupRules(agentUserId, rows, deps, env)
+  // Preparation precedes admission: remember this batch's attempts without committing a thread as bootstrapped.
+  const threadSeeds = new Map<string, Promise<string | null>>()
   const prepared: PreparedMessage[] = []
   try {
     for (const row of rows) {
@@ -679,7 +727,7 @@ async function injectBatch(
         ? { version: planned.version, text: planned.text }
         : null
       if (planned) planned.text = null
-      const message = await prepareMessage(agentUserId, row, deps, toolNames, env, groupRules)
+      const message = await prepareMessage(agentUserId, row, deps, toolNames, env, threadSeeds, groupRules)
       if (groupRules && groupRules.text !== null) {
         message.rulesDelivered = { chatId: row.chatId, entry: { version: groupRules.version, contextKey: planned!.contextKey } }
       }
@@ -689,7 +737,7 @@ async function injectBatch(
     // Nothing of this batch was admitted yet: a row that cannot be prepared fails the batch the same way an
     // injection does — disclosed to its chats with the error rethrown as it was, ❌ a pull that just stops.
     deps.onOutcome?.({ agentUserId, ok: false })
-    throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, rows.map((row) => ({ row })), deps))
+    throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, rows.map((row) => ({ row })), deps))
   }
   // Queue-backed (idle-only) rows stay one per admission so the queue can merge at drain. A
   // next-tool-call transport has no queue boundary: the admission itself is the delivery boundary,
@@ -718,9 +766,14 @@ async function injectBatch(
   }
 
   let injected = 0
+  let enqueued = false
   const completions: Promise<void>[] = []
   for (let unitIndex = 0; unitIndex < units.length; unitIndex += 1) {
     const unit = units[unitIndex]!
+    // Skipped rows this unit passes are settled with it, in chat order (the server cursor never passes an unread row).
+    const reach = new Map<string, number>()
+    for (const member of unit.members) reach.set(member.row.chatId, Math.max(reach.get(member.row.chatId) ?? -Infinity, member.row.seq))
+    const passed = skipped.filter((entry) => entry.row.seq < (reach.get(entry.row.chatId) ?? -Infinity))
     const archival = await deps.sessionArchival?.(agentUserId) ?? null
     if (archival?.archivedAt || (await Promise.all(unit.members.map(({ row }) => refusesArchivedRow(agentUserId, row, archival, deps)))).some(Boolean)) {
       return { injected, verdict: 'not-now', ...(completions.length ? { completion: Promise.all(completions).then(() => undefined) } : {}) }
@@ -732,6 +785,8 @@ async function injectBatch(
         agentUserId,
         messageId: unit.members[0]!.row.id,
         text: unit.text,
+        sources: [...passed, ...unit.members].map(({ row, rulesDelivered, bootstrapKey }) =>
+          ({ row, ...(rulesDelivered ? { rulesDelivered } : {}), ...(bootstrapKey ? { bootstrapKey } : {}) })),
         ...(unit.attachments ? { attachments: unit.attachments } : {}),
       })
       if (typeof result === 'string') {
@@ -739,11 +794,11 @@ async function injectBatch(
       } else {
         unitVerdict = result.verdict
         completion = result.completion?.catch(async (error: unknown) => {
-          if (isSaidInChat(error)) throw error
+          if (error instanceof DisclosedFailure) throw error
           deps.onOutcome?.({ agentUserId, ok: false })
           // Admission already advanced the cursor. Report provider failure here, where the exact
           // source rows are still known, including pulls started without a device command.
-          throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, unit.members, deps, error))
+          throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, unit.members, deps, error))
         })
       }
     } catch (error) {
@@ -751,9 +806,9 @@ async function injectBatch(
       // The pull is still the failure disclosure boundary: include this failed unit and every
       // later row that was not admitted, but do not re-report rows already accepted above it.
       const unadmitted = units.slice(unitIndex).flatMap((remaining) => remaining.members)
-      throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, unadmitted, deps))
+      throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, unadmitted, deps))
     }
-    if (unitVerdict !== 'accepted') {
+    if (unitVerdict !== 'accepted' && unitVerdict !== 'enqueued') {
       if (unitVerdict === 'not-live') deps.wake?.(agentUserId)
       return {
         injected,
@@ -763,24 +818,16 @@ async function injectBatch(
     }
     injected += unit.members.length
     if (completion) completions.push(completion)
-    const reach = new Map<string, number>()
-    for (const member of unit.members) reach.set(member.row.chatId, Math.max(reach.get(member.row.chatId) ?? -Infinity, member.row.seq))
-    const passed = skipped.filter((entry) => entry.row.seq < (reach.get(entry.row.chatId) ?? -Infinity))
     for (const entry of passed) skipped.splice(skipped.indexOf(entry), 1)
-    await advanceCursor(agentUserId, [...passed, ...unit.members], deps)
-    deps.onOutcome?.({ agentUserId, ok: true })
-    for (const member of unit.members) {
-      if (member.bootstrapKey) threadBootstrapped.add(member.bootstrapKey)
-      if (member.rulesDelivered) {
-        await (deps.groupRulesLedger ?? groupRulesLedgerFor(env))
-          .write(agentUserId, member.rulesDelivered.chatId, member.rulesDelivered.entry)
-      }
-    }
+    // Enqueued: the host's queue owns these rows now; acceptance settles them (markInboxRowsRead).
+    if (unitVerdict === 'enqueued') enqueued = true
+    else await settleAccepted(agentUserId, [...passed, ...unit.members], deps)
   }
-  if (skipped.length > 0) await advanceCursor(agentUserId, skipped, deps)
+  // Behind queued rows (this pull's, or held from an earlier one) a skipped row would pass rows still unread: it waits.
+  if (skipped.length > 0 && !enqueued && !queuedAhead) await advanceCursor(agentUserId, skipped, deps)
   return {
     injected,
-    verdict: 'accepted',
+    verdict: enqueued ? 'enqueued' : 'accepted',
     ...(completions.length > 0 ? { completion: Promise.all(completions).then(() => undefined) } : {}),
   }
 }
@@ -791,6 +838,7 @@ async function prepareMessage(
   deps: AgentInboxReaderDeps,
   toolNames: AgentDeliveryToolNames | undefined,
   env: NodeJS.ProcessEnv,
+  threadSeeds: Map<string, Promise<string | null>>,
   groupRules: { version: string; text: string | null } | null = null,
 ): Promise<PreparedMessage> {
   if (row.localSessionDirect) {
@@ -810,38 +858,45 @@ async function prepareMessage(
   const namedIds = [...new Set(
     [...(row.toUserIds ?? []), row.replyToSenderUserId].filter((id): id is string => !!id && id !== row.senderUserId && id !== '*'),
   )]
-  if (namedIds.length && deps.resolveGuguIds) {
-    const named = await deps.resolveGuguIds(namedIds, deps.accessToken)
-    for (const [id, identity] of named) identities.set(id, identity)
+  for (const id of namedIds) {
+    const identity = row.namedIdentities?.get(id)
+    if (identity) identities.set(id, identity)
   }
   // #1531:thread root 消息让 agent 的回复进它自身的 thread。
   const effectiveThreadRoot = row.threadRootId ?? (row.isThreadRoot ? row.id : null)
+  const fetchThreadMessages = deps.fetchThreadMessages
   let threadContext: string | null = null
   let bootstrapKey: string | undefined
-  if (effectiveThreadRoot && deps.fetchThreadMessages) {
+  if (effectiveThreadRoot && fetchThreadMessages) {
     const key = `${agentUserId}:${row.chatId}:${effectiveThreadRoot}`
-    if (!threadBootstrapped.has(key)) {
-      try {
-        const threadRows = await deps.fetchThreadMessages(row.chatId, effectiveThreadRoot)
-        const senders = [...new Set(threadRows.map((entry) => entry.senderUserId))]
-        const labels = deps.resolveGuguIds
-          ? await deps.resolveGuguIds(senders, deps.accessToken).catch((error: unknown) => {
-              log.warn({ err: error instanceof Error ? error.message : String(error) }, 'thread-bootstrap identity resolve failed')
-              return new Map<string, GuguIdentity>()
-            })
-          : new Map<string, GuguIdentity>()
-        threadContext = buildThreadBootstrapBody(threadRows, {
-          selfAgentUserId: agentUserId,
-          labelFor: (id) => identityShown(labels, id) ?? encodeTypedId('user', id),
-        })
-        bootstrapKey = key
-      } catch (error) {
-        // fail-loud-warn:拉取失败不阻塞投递,不落标记,下次重注 seed。
-        log.warn(
-          { chatId: row.chatId, threadRootId: effectiveThreadRoot, err: error instanceof Error ? error.message : String(error) },
-          'thread-bootstrap fetch failed; delivering without seed',
-        )
-      }
+    if (!threadBootstrapped.has(key) && !threadSeeds.has(key)) {
+      const seed = (async () => {
+        try {
+          const threadRows = await fetchThreadMessages(row.chatId, effectiveThreadRoot)
+          const senders = [...new Set(threadRows.map((entry) => entry.senderUserId))]
+          const labels = deps.resolveGuguIds
+            ? await deps.resolveGuguIds(senders, deps.accessToken).catch((error: unknown) => {
+                log.warn({ err: error instanceof Error ? error.message : String(error) }, 'thread-bootstrap identity resolve failed')
+                return new Map<string, GuguIdentity>()
+              })
+            : new Map<string, GuguIdentity>()
+          const context = buildThreadBootstrapBody(threadRows, {
+            selfAgentUserId: agentUserId,
+            labelFor: (id) => identityShown(labels, id) ?? encodeTypedId('user', id),
+          })
+          bootstrapKey = key
+          return context
+        } catch (error) {
+          // A failed attempt belongs to this batch only; the next pull can try again.
+          log.warn(
+            { chatId: row.chatId, threadRootId: effectiveThreadRoot, err: error instanceof Error ? error.message : String(error) },
+            'thread-bootstrap fetch failed; delivering without seed',
+          )
+          return null
+        }
+      })()
+      threadSeeds.set(key, seed)
+      threadContext = await seed
     }
   }
   const attachment = parseAttachmentContent(row.content, { id: row.id, file_item_id: row.fileItemId, file_version: row.fileVersion, file_blob_id: row.fileBlobId })
@@ -851,29 +906,34 @@ async function prepareMessage(
   })
   // 条目已删(gone):没有字节可给,正文(名字、大小)照原样交下去。
   let attachments: InlineImage[] | undefined
-  let fileLine = ''
+  let saved: Parameters<typeof attachmentLocationLines>[2] = null
   if (attachment?.kind === 'image' && attachment.source.kind !== 'gone') {
     try {
       const image = await download(attachment.fileName)
       attachments = [{ data: Buffer.from(image.bytes).toString('base64'), mimeType: attachment.mimeType, fileName: attachment.fileName, localPath: image.localPath }]
+      saved = { localPath: image.localPath }
     } catch (error) {
-      fileLine = `\n[Image not saved: ${attachmentFailureReason(error)}]`
+      saved = { failure: attachmentFailureReason(error) }
     }
   }
   // 新式附件的文件(不是图):正文里没有链接(老附件靠正文里的 [URL] 去取),字节和图片一样下到本机,交本地路径。
   // 下不下来(签不到、CDN 回错、超时)就照实说没存下和原因 —— 这一行和同一批的别的行照样交,不卡住收件。
   if (attachment?.kind === 'file' && attachment.source.kind !== 'gone' && attachment.source.kind !== 'url') {
     try {
-      fileLine = `\n[File saved at local path: ${(await download(attachment.fileName)).localPath}]`
+      saved = { localPath: (await download(attachment.fileName)).localPath }
     } catch (error) {
-      fileLine = `\n[File not saved: ${attachmentFailureReason(error)}]`
+      saved = { failure: attachmentFailureReason(error) }
     }
   }
-  const folderLine = attachment?.source.kind === 'item' ? `\n${attachmentFolderLine(attachment.source.itemId, attachment.source.version)}` : ''
+  // 那几行与任务输入框的附件同一个格式(attachmentLocationLines,P3)。
+  const item = attachment?.source.kind === 'item' ? { itemId: attachment.source.itemId, version: attachment.source.version } : null
+  const lines = attachmentLocationLines(item, attachment?.kind === 'image', saved)
   const content = attachments && attachment
-    ? `${attachment.caption || `[Image attached: ${attachment.fileName}]`}${folderLine}${attachments?.[0]?.localPath ? `\n[Image attached at local path: ${attachments[0].localPath}]` : ''}`
-    : `${row.content}${folderLine}${fileLine}`
+    ? `${attachment.caption || `[Image attached: ${attachment.fileName}]`}${lines}`
+    : `${row.content}${lines}`
   const messageContext = buildAgentMentionContext(content, row.toUserIds, identities, agentUserId)
+  const chat = { publicId: row.chatPublicId, name: row.chatName, kind: row.chatKind,
+    ownDm: (row.chatKind === 'dm' || row.chatKind === 'ai') && !!deps.ownerUserId && row.senderUserId === deps.ownerUserId }
   const envelope = buildAgentDeliveryEnvelope(
     {
       guguUserId: agentUserId,
@@ -890,7 +950,7 @@ async function prepareMessage(
       viaApp: row.viaApp ?? null,
     },
     identities,
-    { publicId: row.chatPublicId, name: row.chatName, kind: row.chatKind },
+    chat,
     formatDeliveryTimestamp(row.createdAt),
     null,
     toolNames,
@@ -899,7 +959,7 @@ async function prepareMessage(
   return {
     row,
     envelope: threadContext
-      ? rebuildEnvelopeWithThreadContext(agentUserId, row, content, identities, toolNames, threadContext, messageContext, groupRules)
+      ? rebuildEnvelopeWithThreadContext(agentUserId, row, content, identities, chat, toolNames, threadContext, messageContext, groupRules)
       : envelope,
     ...(attachments ? { attachments } : {}),
     ...(bootstrapKey ? { bootstrapKey } : {}),
@@ -911,6 +971,7 @@ function rebuildEnvelopeWithThreadContext(
   row: AgentInboxUnreadRow,
   content: string,
   identities: Map<string, GuguIdentity>,
+  chat: ChatEnvelopeInfo,
   toolNames: AgentDeliveryToolNames | undefined,
   threadContext: string,
   messageContext: string | undefined,
@@ -932,12 +993,49 @@ function rebuildEnvelopeWithThreadContext(
       viaApp: row.viaApp ?? null,
     },
     identities,
-    { publicId: row.chatPublicId, name: row.chatName, kind: row.chatKind },
+    chat,
     formatDeliveryTimestamp(row.createdAt),
     null,
     toolNames,
     { listenMode: resolveListenModeDefault(row.listenMode), threadContext, messageContext, groupRules },
   )
+}
+
+/**
+ * What an accepted unit records, once: its rows read (in chat order), the group rules it carried delivered, its
+ * threads bootstrapped, and the outcome. An injection runs it at admission; an enqueuing host at its agent's acceptance.
+ */
+async function settleAccepted(agentUserId: string, sources: readonly AgentInboxSource[], deps: AgentInboxReaderDeps): Promise<void> {
+  await advanceCursor(agentUserId, sources.map((source) => ({ ...source, envelope: '' })), deps, Date.now())
+  deps.onOutcome?.({ agentUserId, ok: true })
+  const ledger = deps.groupRulesLedger ?? groupRulesLedgerFor(deps.env ?? process.env)
+  for (const source of sources) {
+    if (source.bootstrapKey) threadBootstrapped.add(source.bootstrapKey)
+    if (source.rulesDelivered) await ledger.write(agentUserId, source.rulesDelivered.chatId, source.rulesDelivered.entry)
+  }
+}
+
+/** An enqueuing host's agent accepted these rows: settle them exactly as an accepted injection does. */
+export function markInboxRowsRead(agentUserId: string, sources: readonly AgentInboxSource[], deps: AgentInboxReaderDeps): Promise<void> {
+  return settleAccepted(agentUserId, sources, deps)
+}
+
+/**
+ * An enqueuing host could not deliver these rows: say so in their chats, as a failed injection does. `final`: the host
+ * will never deliver them (their row failed), so once said they are settled on the cursor too, as a turn that failed
+ * after admission is; otherwise (a start that failed, retried later) they stay unread for that delivery.
+ */
+export async function discloseInboxRowsFailed(agentUserId: string, sources: readonly AgentInboxSource[], deps: AgentInboxReaderDeps,
+  outcome: { kind: 'retained' } | { kind: 'failed'; cause: unknown } | { kind: 'unknown' }): Promise<Disclosure> {
+  deps.onOutcome?.({ agentUserId, ok: false })
+  // A start that failed keeps its rows queued for the retry: said as retained, left unread for that delivery.
+  if (outcome.kind === 'retained') return discloseBatchFailure(agentUserId, sources, deps)
+  // Handed over, never resent, outcome unknown: said truthfully, then settled like a final failure.
+  const said = outcome.kind === 'failed'
+    ? await discloseBatchFailure(agentUserId, sources, deps, outcome.cause)
+    : await discloseBatchFailure(agentUserId, sources, deps, undefined, 'outcomeUnknown')
+  await advanceCursor(agentUserId, sources.map((source) => ({ ...source, envelope: '' })), deps)
+  return said
 }
 
 /**
@@ -948,22 +1046,32 @@ async function advanceCursor(
   agentUserId: string,
   members: PreparedMessage[],
   deps: AgentInboxReaderDeps,
+  /** When the session admitted these rows: the read receipt the sender waits for is timed from here. */
+  admittedAt?: number,
 ): Promise<void> {
   const markRead = deps.markRead
     ?? ((input: AgentDeliveredMessageRead) => markAgentDeliveredMessageRead(input, { accessToken: deps.accessToken }))
   const byChat = new Map<string, PreparedMessage[]>()
+  const forumSeqs = new Map<string, number>()
   for (const member of members) {
     const list = byChat.get(member.row.chatId) ?? []
     list.push(member)
     byChat.set(member.row.chatId, list)
+    if (member.row.forum) {
+      const { postId, seq } = member.row.forum
+      forumSeqs.set(postId, Math.max(forumSeqs.get(postId) ?? seq, seq))
+    }
   }
   for (const [chatId, chatMembers] of byChat) {
     const ordered = [...chatMembers].sort((a, b) => a.row.seq - b.row.seq)
     for (const member of ordered) {
       try {
         if (member.row.forum) {
+          const seq = forumSeqs.get(member.row.forum.postId)
+          if (seq === undefined) continue
+          forumSeqs.delete(member.row.forum.postId)
           const ack = deps.ackForum ?? ((input: { agentUserId: string; postId: string; seq: number }) => ackForumViaRpc(input, deps.accessToken))
-          await ack({ agentUserId, postId: member.row.forum.postId, seq: member.row.forum.seq })
+          await ack({ agentUserId, postId: member.row.forum.postId, seq })
         } else if (member.row.localSessionDirect) {
           if (!deps.markLocalRead) throw new Error('local session-direct row has no markLocalRead handler')
           await deps.markLocalRead({
@@ -973,6 +1081,9 @@ async function advanceCursor(
           })
         } else {
           await markRead({ chatId, messageId: member.row.id, agentUserId })
+          if (admittedAt !== undefined) {
+            log.debug({ agentUserId, chatId, messageId: member.row.id, sinceAdmissionMs: Date.now() - admittedAt }, 'agent read receipt written')
+          }
         }
       } catch (error) {
         log.error(
@@ -983,7 +1094,7 @@ async function advanceCursor(
         // recoverable skip. Disclose the affected tail and rethrow so the kick caller observes failure;
         // leaving the cursor untouched is deliberate and keeps the cloud row eligible for a later pull.
         deps.onOutcome?.({ agentUserId, ok: false })
-        throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, chatMembers, deps))
+        throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, chatMembers, deps))
       }
     }
   }
@@ -1000,9 +1111,9 @@ async function discloseBatchFailure(
   members: readonly Pick<PreparedMessage, 'row'>[],
   deps: AgentInboxReaderDeps,
   completionError?: unknown,
-): Promise<boolean> {
+  reason: AgentFailureReason = failureReason(completionError),
+): Promise<Disclosure> {
   const post = deps.postDisclosure ?? ((input: DisclosureRow) => postDeliveryDisclosureRow(input, deps.accessToken))
-  const reason = failureReason(completionError)
   const byChat = new Map<string, Pick<PreparedMessage, 'row'>[]>()
   const byPost = new Set<string>()
   for (const member of members) {
@@ -1057,6 +1168,13 @@ async function discloseBatchFailure(
       log.warn({ agentUserId, chatId, messageIds: ids, reason }, 'quota/model turn failure kept out of the chat; shown as the agent state')
       continue
     }
+    // The row is public: saying it about whispers alone would tell the chat who was whispered to (the rule
+    // `discloseUndeliverable` follows). Left unsaid, the command records reply_notice=context and the owner sees it at the composer.
+    if (chatMembers.every((member) => member.row.isWhisper)) {
+      said = false
+      log.warn({ agentUserId, chatId, messageIds: ids, reason }, 'turn failure on whispers kept out of the public chat; shown to the owner')
+      continue
+    }
     const key = `turn-failure:batch:${createHash('sha256').update([agentUserId, ...ids].join(',')).digest('hex').slice(0, 32)}`
     try {
       await post({ agentUserId, chatId, threadRootId: chatMembers[0]!.row.threadRootId, key, reason })
@@ -1069,7 +1187,7 @@ async function discloseBatchFailure(
       )
     }
   }
-  return said
+  return { said, reason }
 }
 
 async function answeredBeforeFailure(
@@ -1088,35 +1206,40 @@ async function answeredBeforeFailure(
   }
 }
 
+/** An error's message, also for a serialized one (session-life reports `{ name, message }`, not an Error). */
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  if (error instanceof Error) return error.message
+  const message = error && typeof error === 'object' && 'message' in error ? error.message : null
+  return typeof message === 'string' ? message : String(error)
 }
 
 /** 失败的原因(聊天里的披露行与论坛指派上的投递状态同一个):没受理是咕咕这边的错;受理后那一轮失败按上游的原因说。 */
 function failureReason(completionError: unknown): AgentFailureReason {
   if (completionError === undefined) return 'notAdmitted'
-  return agentFailureReason(completionError instanceof Error ? completionError.message : String(completionError)) ?? 'generic'
+  return agentFailureReason(errorText(completionError)) ?? 'generic'
 }
 
+/** What a batch failure's disclosure did: whether its row is in the chat, and the reason it was told with. */
+export type Disclosure = { said: boolean; reason: AgentFailureReason }
+
 /**
- * 编号 17 (10-12 片场试演): a batch's failure once its row is in the chat (`discloseBatchFailure`) — the host puts up no second
- * notice for it (#7125 同一次失败只说一次): the unread stays on the cloud cursor and the next trigger pulls it again, so a Retry
- * adds nothing, and nothing took that notice down once the agent was back. One per failure, wrapping what was thrown (its
- * message kept): the same error object thrown for two batches is not the same failure (148 评审).
+ * A batch's failure once the host has disclosed it (编号 17): whether its row went into the chat (#7125 同一次失败只说一次 —
+ * the host puts up no second notice for a said failure), and the reason it was classified with, so the delivery command
+ * records that same reason and nothing downstream classifies the raw error again. One per failure, wrapping what was
+ * thrown (its message kept): the same error object thrown for two batches is not the same failure (148 评审).
  */
-export class SaidInChatError extends Error {
-  readonly disclosedInChat = true
-  constructor(failure: unknown) {
-    super(failure instanceof Error ? failure.message : String(failure), { cause: failure })
-    this.name = 'SaidInChatError'
+export class DisclosedFailure extends Error {
+  readonly disclosedInChat: boolean
+  readonly reason: AgentFailureReason
+  constructor(failure: unknown, disclosure: Disclosure) {
+    super(errorText(failure), { cause: failure })
+    this.name = 'DisclosedFailure'
+    this.disclosedInChat = disclosure.said
+    this.reason = disclosure.reason
   }
 }
 
-function saidIfDisclosed(error: unknown, said: boolean): unknown {
-  return said ? new SaidInChatError(error) : error
-}
-
-/** This turn failure was said in the chat it came from: the host shows nothing more for it. */
+/** This failure was said in the chat it came from: the host shows nothing more for it. */
 export function isSaidInChat(failure: unknown): boolean {
-  return failure instanceof SaidInChatError
+  return failure instanceof DisclosedFailure && failure.disclosedInChat
 }

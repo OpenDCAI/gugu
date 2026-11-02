@@ -20,6 +20,8 @@ import {
   __pullOnceUnguardedForTests,
   kickAgentInboxPull,
   pullAgentInbox,
+  markInboxRowsRead,
+  discloseInboxRowsFailed,
   resetAgentInboxReaderStateForTests,
   type AgentInboxFetchInput,
   type AgentInboxInjectionVerdict,
@@ -38,6 +40,7 @@ import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDeliver
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
 import { storedMessageLink } from '@gugu/core/shared/ui/guguLink'
+import { forumRowFromRpc } from '@gugu/core/local/agent/forumInbox'
 import type { SessionArchivalState } from '@gugu/core/shared/sessionArchival'
 
 const AGENT = 'agent-0000-0000-0000-000000000001'
@@ -73,15 +76,17 @@ type Membership = { lastReadSeq: number; listenMode: string; notificationLevel: 
 class FakeCloud {
   rows: CloudRow[] = []
   members = new Map<string, Membership>()
-  chatMeta = new Map<string, { kind: 'dm' | 'group'; creatorUserId: string }>()
+  chatMeta = new Map<string, { kind: 'dm' | 'ai' | 'group'; creatorUserId: string }>()
   readRows = new Set<string>()
   /** 假的服务端时钟:join 与 post 都从它取时刻,与真库同一个 now()。 */
   now = '2026-08-29T00:00:00.000Z'
   /** 假的全局入库序(镜像 chat.messages.ingest_seq,#6327):扫描围栏与入群门都按它判,❌ 按时钟。 */
   ingest = 0
   markReadCalls: Array<{ chatId: string; messageId: string }> = []
+  /** identity.users as the pull reads it for `named_identities`. */
+  identities = new Map<string, { guguNumber: number | null; displayName: string | null; isAgent: boolean }>()
 
-  addChat(chatId: string, kind: 'dm' | 'group', creatorUserId = HUMAN): void {
+  addChat(chatId: string, kind: 'dm' | 'ai' | 'group', creatorUserId = HUMAN): void {
     this.chatMeta.set(chatId, { kind, creatorUserId })
   }
 
@@ -130,6 +135,11 @@ class FakeCloud {
       out.push({
         chatId: row.chatId,
         chatKind: meta.kind,
+        groupRules: meta.kind === 'group' ? '' : null,
+        // pull_agent_inbox_v2 `named_identities`: the recipients and the quoted sender it knows, never the sender.
+        namedIdentities: new Map([...(row.toUserIds ?? []), row.replyToSenderUserId ?? '']
+          .filter((id) => id !== row.senderUserId && this.identities.has(id))
+          .map((id) => [id, this.identities.get(id)!])),
         chatPublicId: 42,
         chatName: `chat-${row.chatId}`,
         chatCreatorUserId: meta.creatorUserId,
@@ -194,7 +204,6 @@ function makeDeps(
   const outcomes: Array<{ ok: boolean }> = []
   const deps: AgentInboxReaderDeps = {
     accessToken: 'owner-token',
-    fetchChatFacts: async () => null,
     agentSpokeAfter: async () => false,
     groupRulesLedger: memoryGroupRulesLedger(),
     inject: async (input) => {
@@ -259,7 +268,7 @@ describe('archived session admission', () => {
     const cloud = cloudForArchive(); cloud.addChat(chat, 'group'); cloud.post(row(1, end))
     let state = restored
     const { deps, injections, wakes } = makeDeps(cloud, { sessionArchival: () => state,
-      fetchChatFacts: async () => { state = { ...restored, archivedAt: '2026-10-28T09:02:00Z' }; return null } })
+      deliveryContextKey: async () => { state = { ...restored, archivedAt: '2026-10-28T09:02:00Z' }; return null } })
     expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'not-now' })
     expect(injections).toEqual([]); expect(wakes).toEqual([]); expect(cloud.markReadCalls).toEqual([])
   })
@@ -282,8 +291,227 @@ describe('archived session admission', () => {
   })
 })
 
+describe('an enqueuing host (session-life)', () => {
+  const chat = '00000000-0000-4000-8000-000000000075'
+  const row = (seq: number): CloudRow => ({ chatId: chat, id: `20000000-0000-4000-8000-${String(seq).padStart(12, '0')}`, seq,
+    senderUserId: HUMAN, senderType: 'human', content: `Queued ${seq}`, createdAt: '2026-10-31T09:00:00Z' })
+  const cloudWith = (...seqs: number[]) => {
+    const cloud = new FakeCloud(); cloud.addChat(chat, 'dm'); cloud.join(chat, AGENT)
+    for (const seq of seqs) cloud.post(row(seq))
+    return cloud
+  }
+
+  it('hands each unit over with the rows it settles and leaves them unread until the host marks them', async () => {
+    const cloud = cloudWith(1, 2)
+    const handed: AgentInboxInjectionInput[] = []
+    const { deps } = makeDeps(cloud, { inject: async (input) => { handed.push(input); return 'enqueued' } })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ pulled: 2, injected: 2, verdict: 'enqueued' })
+    expect(handed.flatMap((input) => (input.sources ?? []).map((source) => source.row.id))).toEqual([row(1).id, row(2).id])
+    expect(cloud.markReadCalls).toEqual([])
+    await markInboxRowsRead(AGENT, handed.flatMap((input) => input.sources ?? []), deps)
+    expect(cloud.markReadCalls).toEqual([{ chatId: chat, messageId: row(1).id }, { chatId: chat, messageId: row(2).id }])
+  })
+
+  it('a skipped row waits while queued rows ahead of it are unread, on this pull and the next', async () => {
+    const cloud = cloudWith(1, 2)
+    cloud.post({ ...row(3), id: `msg:${row(3).id}` })
+    const held = new Set<string>()
+    const marked: string[] = []
+    const { deps } = makeDeps(cloud, {
+      inject: async (input) => { for (const source of input.sources ?? []) held.add(source.row.id); return 'enqueued' },
+      markRead: async ({ messageId }) => { marked.push(messageId) },
+      claimedSources: (_agent, ids) => new Map(ids.filter((id) => held.has(id)).map((id) => [id, true])),
+    })
+    await pullAgentInbox(AGENT, deps)
+    await pullAgentInbox(AGENT, deps)
+    expect(marked).toEqual([])
+  })
+
+  it('an unknown outcome is said truthfully, then settled; a retained one is said and stays unread', async () => {
+    const cloud = cloudWith(1, 2)
+    const said: Array<{ reason: string }> = []
+    const marked: string[] = []
+    const { deps } = makeDeps(cloud, { postDisclosure: async (row) => { said.push({ reason: row.reason }) }, markRead: async ({ messageId }) => { marked.push(messageId) } })
+    const source = (seq: number) => ({ row: { ...row(seq), chatKind: 'dm', chatPublicId: null, chatName: null, chatCreatorUserId: null, listenMode: 'active',
+      notificationLevel: 'all', lastReadSeq: 0, senderType: 'human', senderDisplayName: null, senderGuguNumber: null, contentType: 'text', toUserIds: null,
+      isWhisper: false, replyToMessageId: null, replyToSenderUserId: null, replyToContent: null, threadRootId: null, isThreadRoot: false } as AgentInboxUnreadRow })
+    await discloseInboxRowsFailed(AGENT, [source(1)], deps, { kind: 'unknown' })
+    await discloseInboxRowsFailed(AGENT, [source(2)], deps, { kind: 'retained' })
+    expect(said.map((entry) => entry.reason)).toEqual(['outcomeUnknown', 'notAdmitted'])
+    expect(marked).toEqual([row(1).id])
+  })
+
+  // A failure row is public: about whispers alone it would tell the chat who was whispered to (the #1247 rule for undelivered).
+  it('a failed batch of whispers posts no public row and is left to the owner; a batch with a public message still says it', async () => {
+    const cloud = cloudWith(1, 2)
+    const said: Array<{ reason: string }> = []
+    const { deps } = makeDeps(cloud, { postDisclosure: async (row) => { said.push({ reason: row.reason }) } })
+    const source = (seq: number, isWhisper: boolean) => ({ row: { ...row(seq), chatKind: 'group', chatPublicId: null, chatName: null, chatCreatorUserId: null, listenMode: 'active',
+      notificationLevel: 'all', lastReadSeq: 0, senderType: 'human', senderDisplayName: null, senderGuguNumber: null, contentType: 'text', toUserIds: [AGENT],
+      isWhisper, replyToMessageId: null, replyToSenderUserId: null, replyToContent: null, threadRootId: null, isThreadRoot: false } as AgentInboxUnreadRow })
+    await discloseInboxRowsFailed(AGENT, [source(1, true)], deps, { kind: 'failed', cause: new Error('fetch failed') })
+    expect(said).toEqual([])
+    await discloseInboxRowsFailed(AGENT, [source(1, true), source(2, false)], deps, { kind: 'failed', cause: new Error('fetch failed') })
+    expect(said).toEqual([{ reason: 'network' }])
+  })
+
+  // session-life reports a failed row with a serialized cause ({ name, message }, not an Error); the disclosure returns what
+  // it did, so the unit's delivery command records the same reason (#1264 评审①: it used to be dropped as generic).
+  it('a session-life failure is classified from its serialized cause and returned to settle the unit', async () => {
+    const cloud = cloudWith(1, 2)
+    const said: Array<{ reason: string }> = []
+    const { deps } = makeDeps(cloud, { postDisclosure: async (row) => { said.push({ reason: row.reason }) }, agentSpokeAfter: async () => false })
+    const source = (seq: number, isWhisper: boolean) => ({ row: { ...row(seq), chatKind: 'group', chatPublicId: null, chatName: null, chatCreatorUserId: null, listenMode: 'active',
+      notificationLevel: 'all', lastReadSeq: 0, senderType: 'human', senderDisplayName: null, senderGuguNumber: null, contentType: 'text', toUserIds: [AGENT],
+      isWhisper, replyToMessageId: null, replyToSenderUserId: null, replyToContent: null, threadRootId: null, isThreadRoot: false } as AgentInboxUnreadRow })
+    await expect(discloseInboxRowsFailed(AGENT, [source(1, true)], deps, { kind: 'failed', cause: { name: 'Error', message: "You've hit your weekly limit" } }))
+      .resolves.toEqual({ said: false, reason: 'weeklyQuota' })
+    await expect(discloseInboxRowsFailed(AGENT, [source(2, false)], deps, { kind: 'failed', cause: { name: 'TypeError', message: 'fetch failed' } }))
+      .resolves.toEqual({ said: true, reason: 'network' })
+    expect(said).toEqual([{ reason: 'network' }])
+  })
+
+  it('a claimed row that already ended (failed / unknown) does not hold back a skipped row behind it', async () => {
+    const cloud = cloudWith(1)
+    cloud.post({ ...row(2), id: `msg:${row(2).id}` })
+    const marked: string[] = []
+    const { deps } = makeDeps(cloud, { inject: async () => 'enqueued', markRead: async ({ messageId }) => { marked.push(messageId) },
+      claimedSources: (_agent, ids) => new Map(ids.filter((id) => id === row(1).id).map((id) => [id, false])) })
+    await pullAgentInbox(AGENT, deps)
+    expect(marked).toEqual([`msg:${row(2).id}`])
+  })
+
+  it('leaves rows the host already holds out of every later unit (frozen batches never overlap)', async () => {
+    const cloud = cloudWith(1, 2)
+    const handed: AgentInboxInjectionInput[] = []
+    const { deps } = makeDeps(cloud, {
+      inject: async (input) => { handed.push(input); return 'enqueued' },
+      claimedSources: (_agent, ids) => new Map(ids.filter((id) => id === row(1).id).map((id) => [id, true])),
+    })
+    await pullAgentInbox(AGENT, deps)
+    expect(handed.flatMap((input) => (input.sources ?? []).map((source) => source.row.id))).toEqual([row(2).id])
+  })
+})
+
 beforeEach(() => {
   resetAgentInboxReaderStateForTests()
+})
+
+describe('inbox batch request budgets', () => {
+  const chatId = '60000000-0000-4000-8000-000000000001'
+  const thread = (index: number) => `61000000-0000-4000-8000-${String(index).padStart(12, '0')}`
+  const seed = 'BATCH-THREAD-CONTEXT'
+
+  function batch(roots: number[], timing: AgentInboxDeliveryTiming = 'idle-only') {
+    const cloud = new FakeCloud()
+    cloud.addChat(chatId, 'dm')
+    cloud.join(chatId, AGENT)
+    const append = (seq: number, root: number) => cloud.post({
+      chatId, id: `62000000-0000-4000-8000-${String(seq).padStart(12, '0')}`, seq,
+      senderUserId: HUMAN, senderType: 'human', content: `Batch message ${seq}`, threadRootId: thread(root),
+    })
+    roots.forEach((root, index) => append(index + 1, root))
+    const fetchThreadMessages = vi.fn(async () => [{ senderUserId: HUMAN, content: seed, createdAt: cloud.now }])
+    const resolveGuguIds = vi.fn(async () => new Map([[HUMAN, { guguNumber: 1001, displayName: 'Ada' }]]))
+    const d = makeDeps(cloud, { fetchThreadMessages, resolveGuguIds, deliveryTiming: () => timing, postDisclosure: async () => {} })
+    return { ...d, append, fetchThreadMessages, resolveGuguIds }
+  }
+
+  it('t1: fetches one seed for three idle admissions and attaches it only to the first', async () => {
+    const d = batch([1, 1, 1])
+    expect(await pullAgentInbox(AGENT, d.deps)).toMatchObject({ injected: 3, verdict: 'accepted' })
+    expect({ fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) })
+      .toEqual({ fetches: 1, identities: 1, contexts: [true, false, false] })
+  })
+
+  it('t2: attaches one seed when the three rows share a next-tool-call unit', async () => {
+    const d = batch([1, 1, 1], 'next-tool-call')
+    await pullAgentInbox(AGENT, d.deps)
+    expect(d.injections).toHaveLength(1)
+    expect({ fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections[0]!.text.split(seed).length - 1 }).toEqual({ fetches: 1, identities: 1, contexts: 1 })
+  })
+
+  it('t3: fetches one seed for each of two threads in the same batch', async () => {
+    const d = batch([1, 1, 2, 2])
+    await pullAgentInbox(AGENT, d.deps)
+    expect({ fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) })
+      .toEqual({ fetches: 2, identities: 2, contexts: [true, false, true, false] })
+  })
+
+  it('t4: a settled thread needs no seed requests in the next batch', async () => {
+    const d = batch([1, 1, 1])
+    await pullAgentInbox(AGENT, d.deps)
+    d.fetchThreadMessages.mockClear()
+    d.resolveGuguIds.mockClear()
+    d.injections.length = 0
+    d.append(4, 1)
+    await pullAgentInbox(AGENT, d.deps)
+    expect(d.fetchThreadMessages).not.toHaveBeenCalled()
+    expect(d.resolveGuguIds).not.toHaveBeenCalled()
+    expect(d.injections.map((entry) => entry.text.includes(seed))).toEqual([false])
+  })
+
+  it('t5: a rejected admission leaves bootstrap uncommitted so the next pull fetches once again', async () => {
+    const d = batch([1, 1, 1])
+    const inject = d.deps.inject
+    d.deps.inject = async () => { throw new Error('admission rejected') }
+    await expect(pullAgentInbox(AGENT, d.deps)).rejects.toThrow('admission rejected')
+    const first = { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length }
+    d.fetchThreadMessages.mockClear()
+    d.resolveGuguIds.mockClear()
+    d.deps.inject = inject
+    await pullAgentInbox(AGENT, d.deps)
+    expect({ first, second: { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length },
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) })
+      .toEqual({ first: { fetches: 1, identities: 1 }, second: { fetches: 1, identities: 1 }, contexts: [true, false, false] })
+  })
+
+  it('t6: a failed fetch is tried once this batch and retried for the next batch', async () => {
+    const d = batch([1, 1, 1])
+    d.fetchThreadMessages.mockRejectedValue(new Error('thread unavailable'))
+    await pullAgentInbox(AGENT, d.deps)
+    const first = { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) }
+    d.fetchThreadMessages.mockClear()
+    d.fetchThreadMessages.mockResolvedValue([{ senderUserId: HUMAN, content: seed, createdAt: '2026-08-29T00:00:00Z' }])
+    d.injections.length = 0
+    d.append(4, 1)
+    await pullAgentInbox(AGENT, d.deps)
+    expect({ first, second: { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) } })
+      .toEqual({ first: { fetches: 1, identities: 0, contexts: [false, false, false] }, second: { fetches: 1, identities: 1, contexts: [true] } })
+  })
+
+  function forumBatch(timing: AgentInboxDeliveryTiming) {
+    const postId = '63000000-0000-4000-8000-000000000001'
+    const rows = [1, 2].map((seq) => forumRowFromRpc({
+      post_id: postId, seq, kind: 'assigned', entity_id: AGENT, actor_user_id: HUMAN, actor_name: 'Ada', actor_is_agent: false,
+      created_at: '2026-08-29T00:00:00Z', post_title: 'Batch budget', post_body: `Forum message ${seq}`,
+      post_author_id: HUMAN, post_author_name: 'Ada', bounty: null, reply_body: null, reply_to_poster_only: null, reply_to: null, reply_count: 0,
+    }))
+    const ackForum = vi.fn(async () => {})
+    const d = makeDeps(new FakeCloud(), { fetchForumUnread: async () => rows, ackForum, deliveryTiming: () => timing })
+    return { ...d, postId, ackForum }
+  }
+
+  it('f1: acknowledges only the maximum forum sequence in a merged admission', async () => {
+    const d = forumBatch('next-tool-call')
+    await pullAgentInbox(AGENT, d.deps)
+    expect(d.injections).toHaveLength(1)
+    expect(d.ackForum.mock.calls).toEqual([[{ agentUserId: AGENT, postId: d.postId, seq: 2 }]])
+  })
+
+  it('f2: idle forum admissions still acknowledge each admitted row immediately', async () => {
+    const d = forumBatch('idle-only')
+    await pullAgentInbox(AGENT, d.deps)
+    expect(d.injections).toHaveLength(2)
+    expect(d.ackForum.mock.calls).toEqual([
+      [{ agentUserId: AGENT, postId: d.postId, seq: 1 }], [{ agentUserId: AGENT, postId: d.postId, seq: 2 }],
+    ])
+  })
 })
 
 // 「这条消息唤醒谁」不在 reader 里:那是云端 chat.message_wakes_agent 一处的事(push 与 pull 共用),
@@ -291,7 +519,7 @@ beforeEach(() => {
 // 这里只留 reader 自己的行为:RPC 交来的每一行都注入。
 describe('reader 对 RPC 交来的行不做资格判断', () => {
   const base: AgentInboxUnreadRow = {
-    chatId: '00000000-0000-4000-8000-000000000001', chatKind: 'group', chatPublicId: 1, chatName: 'g', chatCreatorUserId: HUMAN,
+    chatId: '00000000-0000-4000-8000-000000000001', chatKind: 'group', groupRules: '', chatPublicId: 1, chatName: 'g', chatCreatorUserId: HUMAN,
     listenMode: 'active', notificationLevel: 'all', lastReadSeq: 0,
     id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', senderDisplayName: 'Ada',
     senderGuguNumber: null, content: 'hi', contentType: 'text', toUserIds: null, isWhisper: false,
@@ -308,7 +536,6 @@ describe('reader 对 RPC 交来的行不做资格判断', () => {
     const read = new Set<string>()
     const deps: AgentInboxReaderDeps = {
       accessToken: 'test',
-      fetchChatFacts: async () => null,
       groupRulesLedger: memoryGroupRulesLedger(),
       fetchUnread: async () => rows.filter((row) => !read.has(row.id)),
       inject: async (input) => { injected.push(input); return 'accepted' },
@@ -371,15 +598,9 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
       content: '@Codex 2 DM-MENTION-9440',
       toUserIds: [AGENT, OTHER_AGENT],
     })
+    cloud.identities.set(OTHER_AGENT, { guguNumber: null, displayName: 'Codex 2', isAgent: true })
     const { deps, injections } = makeDeps(cloud, {
       fetchThreadMessages: async () => [{ senderUserId: HUMAN, content: 'Earlier thread context', createdAt: '2026-09-20T10:00:00Z' }],
-      resolveGuguIds: async (ids) => new Map(
-        ids.filter((id): id is string => id === OTHER_AGENT).map((id) => [id, {
-          guguNumber: null,
-          displayName: 'Codex 2',
-          isAgent: true,
-        }]),
-      ),
     })
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1, verdict: 'accepted' })
@@ -404,17 +625,33 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
       chatId: '00000000-0000-4000-8000-00000000000d', id: '10000000-0000-4000-8000-000000000019', seq: 1, senderUserId: HUMAN, senderType: 'human', content: '先不建', toUserIds: [AGENT],
       replyToMessageId: 'mine-1', replyToSenderUserId: AGENT, replyToContent: '要不要建 README？',
     })
-    const asked: string[][] = []
-    const { deps, injections } = makeDeps(cloud, {
-      resolveGuguIds: async (ids) => {
-        asked.push(ids.filter((id): id is string => typeof id === 'string'))
-        return new Map(ids.filter((id) => id === AGENT).map((id) => [id, { guguNumber: 7, displayName: 'Claude 1', isAgent: true }]))
-      },
-    })
+    cloud.identities.set(AGENT, { guguNumber: 7, displayName: 'Claude 1', isAgent: true })
+    const { deps, injections } = makeDeps(cloud)
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1 })
-    expect(asked.flat()).toContain(AGENT)
     expect(readDeliveryEnvelope(injections[0]!.text)?.segments[0]?.facts?.replyTo).toMatchObject({ fromId: `user:${AGENT}`, from: expect.stringContaining('Claude 1') })
+  })
+
+  // The owner's own DM: the envelope states only that fact; <gugu_transport> says how to answer it (agent vs assistant).
+  it.each([
+    ['the owner in its own DM', 'dm', HUMAN, true],
+    ['the owner in an ai DM', 'ai', HUMAN, true],
+    ['someone else in a DM', 'dm', OTHER_AGENT, false],
+    ['the owner in a group', 'group', HUMAN, false],
+  ] as const)('marks only %s as the owner\'s private chat', async (_case, kind, sender, ownDm) => {
+    const chat = '00000000-0000-4000-8000-00000000001e'
+    const cloud = new FakeCloud()
+    cloud.addChat(chat, kind)
+    cloud.join(chat, AGENT)
+    cloud.join(chat, sender)
+    cloud.post({ chatId: chat, id: '10000000-0000-4000-8000-00000000001e', seq: 1, senderUserId: sender, senderType: sender === HUMAN ? 'human' : 'agent', content: 'hi', toUserIds: [AGENT] })
+    const { deps, injections } = makeDeps(cloud, { ownerUserId: HUMAN })
+    await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1 })
+    const arrival = injections[0]!.text.match(/<arrival>(.*)<\/arrival>/)?.[1] ?? ''
+    if (ownDm) {
+      expect(arrival).toContain('Sent by your owner in your private chat with you')
+      expect(arrival).not.toContain('message_send')
+    } else expect(arrival).toContain('reply with message_send')
   })
 
   // #6835 悄悄话:库里的 is_whisper 行到信封上就是一格 whisper_to,agent 知道这句只有它和发信人看得见。
@@ -448,15 +685,8 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
       content: '@Codex 7 tell Codex 6 your lucky number',
       toUserIds: [AGENT],
     })
-    const { deps, injections } = makeDeps(cloud, {
-      resolveGuguIds: async (ids) => new Map(
-        ids.filter((id): id is string => id === AGENT).map((id) => [id, {
-          guguNumber: null,
-          displayName: 'Codex 7',
-          isAgent: true,
-        }]),
-      ),
-    })
+    cloud.identities.set(AGENT, { guguNumber: null, displayName: 'Codex 7', isAgent: true })
+    const { deps, injections } = makeDeps(cloud)
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1, verdict: 'accepted' })
     expect(injections[0]!.text).toContain(`"@Codex 7" = user:${AGENT} (agent, you)`)
@@ -812,11 +1042,20 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
   })
 
   it('a pull_agent_inbox_v2 row without file_item_id / file_version / file_blob_id is refused (the database is older than this client)', () => {
-    const row = { chat_id: 'c', id: '10000000-0000-4000-8000-00000000000e', seq: 1, content: 'x', created_at: '2026-10-16T00:00:00Z' }
+    const row = { chat_id: 'c', id: '10000000-0000-4000-8000-00000000000e', seq: 1, content: 'x', created_at: '2026-10-16T00:00:00Z', group_rules: null, named_identities: {} }
     expect(() => unreadRowFromRpc(row)).toThrow('no file_item_id / file_version / file_blob_id')
     expect(() => unreadRowFromRpc({ ...row, file_item_id: null, file_version: null })).toThrow('database is older than this client')
     expect(unreadRowFromRpc({ ...row, file_item_id: 'item-1', file_version: 2, file_blob_id: null })).toMatchObject({ fileItemId: 'item-1', fileVersion: 2, fileBlobId: null })
     expect(unreadRowFromRpc({ ...row, file_item_id: null, file_version: null, file_blob_id: 'blob-1' })).toMatchObject({ fileItemId: null, fileVersion: null, fileBlobId: 'blob-1' })
+  })
+
+  it('a pull_agent_inbox_v2 row carries the line rules and the named identities; without them it is refused', () => {
+    const row = { chat_id: 'c', chat_kind: 'topic', id: '10000000-0000-4000-8000-00000000000e', seq: 1, content: 'x', created_at: '2026-10-16T00:00:00Z',
+      file_item_id: null, file_version: null, file_blob_id: null }
+    expect(() => unreadRowFromRpc(row)).toThrow('no group_rules / named_identities')
+    const parsed = unreadRowFromRpc({ ...row, group_rules: 'Rules', named_identities: { [AGENT]: { type: 'agent', display_name: ' Claude 1 ', gugu_number: 7 } } })
+    expect(parsed.groupRules).toBe('Rules')
+    expect(parsed.namedIdentities?.get(AGENT)).toEqual({ guguNumber: 7, displayName: 'Claude 1', isAgent: true })
   })
 
   it('next-tool-call rows merge at steer admission while idle-only rows stay per-entry', async () => {
@@ -1332,7 +1571,8 @@ describe('三态判决与失败面', () => {
       const thrown = await pullAgentInbox(AGENT, deps).then(() => null, (error: unknown) => error)
       expect(isSaidInChat(thrown)).toBe(said)
       expect((thrown as Error).message).toBe('provider exploded')
-      expect(said ? (thrown as Error).cause : thrown).toBe(failure)
+      // Said or not, the failure carries how it was disclosed and keeps the original as its cause.
+      expect((thrown as Error).cause).toBe(failure)
     }
     expect(isSaidInChat(failure)).toBe(false)
     expect(isSaidInChat(new Error('never pulled'))).toBe(false)
@@ -1650,20 +1890,20 @@ describe('a failure notice from another agent reaches the agent whose message it
     expect(cloud.markReadCalls.map((call) => call.messageId)).toEqual([NOTICE, LATER])
   })
 
-  it('a row that cannot be prepared is disclosed to its chat and the real error is what the pull throws', async () => {
+  it('a group-rules plan that cannot be made leaves the batch unadmitted and says nothing in the chat', async () => {
     const cloud = seed()
     const disclosures: Array<{ chatId: string; reason: string }> = []
     const { deps, injections, outcomes } = makeDeps(cloud, {
-      resolveGuguIds: async () => { throw new Error('identity lookup refused') },
+      groupRulesLedger: { read: async () => { throw new Error('group rules ledger unreadable') }, write: async () => {} },
       postDisclosure: async (input) => { disclosures.push({ chatId: input.chatId, reason: input.reason }) },
     })
     const thrown = await pullAgentInbox(AGENT, deps).then(() => null, (error: unknown) => error)
-    expect((thrown as Error).message).toBe('identity lookup refused')
-    expect(isSaidInChat(thrown)).toBe(true)
+    expect((thrown as Error).message).toBe('group rules ledger unreadable')
+    expect(isSaidInChat(thrown)).toBe(false)
     expect(injections).toEqual([])
-    expect(disclosures).toEqual([{ chatId: CHAT, reason: 'notAdmitted' }])
+    expect(disclosures).toEqual([])
     expect(cloud.markReadCalls).toEqual([])
-    expect(outcomes).toEqual([{ ok: false }])
+    expect(outcomes).toEqual([])
   })
 
   it('writes a new notice under a UUID derived from its key; its marker still names it and links reach it', async () => {

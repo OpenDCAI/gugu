@@ -358,7 +358,7 @@ export default {
       "noDevice": "This Agent is not bound to a device, so a model selection has nowhere to take effect.",
       "catalogUnavailable": "Gugu's models are unavailable. Use the Agent's own model for now.",
       "noPlatformForEngine": "This Agent’s engine cannot use models provided by Gugu; it keeps its own configuration.",
-      "liveSessionHint": "If this Agent has a running task: it switches in place when it can; otherwise the task is reopened, interrupting the turn in flight. Switching between Gugu-provided and own models may start a new agent session for some engines; the conversation history in Gugu is kept either way."
+      "liveSessionHint": "If this Agent has a running task: it switches in place when it can; otherwise the task is reopened, interrupting the reply in progress. Switching between Gugu-provided and own models may start a new agent session for some engines; the conversation history in Gugu is kept either way."
     },
     "nav": {
       "aiModel": "AI model",

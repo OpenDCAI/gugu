@@ -32,13 +32,13 @@ describe('an App written for an older interface', () => {
   });
 
   it('control: the same App on the current version parses', () => {
-    expect(EXTENSION_API_VERSION).toBe(24);
+    expect(EXTENSION_API_VERSION).toBe(25);
     expect(issues(app(EXTENSION_API_VERSION))).toBe('');
   });
 
   // 23 (App 模型 v2, owner 10-31: one switch, no compatibility layer): nothing older runs; the market's 13 move at once.
   it('reads only the current interface and refuses a future one', () => {
-    expect(EXTENSION_API_VERSION_MIN_SUPPORTED).toBe(24);
+    expect(EXTENSION_API_VERSION_MIN_SUPPORTED).toBe(25);
     for (let version = EXTENSION_API_VERSION_MIN_SUPPORTED; version <= EXTENSION_API_VERSION; version++) {
       expect(issues(app(version))).toBe('');
     }

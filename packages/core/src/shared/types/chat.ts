@@ -151,8 +151,8 @@ export interface MessageItem {
   edited_at?: string | null
 }
 
-/** queued = persisted, but an agent it wakes has not taken it yet (shared/ui/systemNotice.ts queuedMessageIds). */
-export type MessageSendState = 'sending' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown'
+/** queued / undelivered = persisted, but an agent it wakes has not taken it yet (shared/ui/systemNotice.ts deliveryWaits). */
+export type MessageSendState = 'sending' | 'queued' | 'undelivered' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown'
 
 export interface ReactionGroup {
   emoji: string
@@ -172,7 +172,7 @@ export type AgentActivityStatus = 'idle' | 'running'
  * pending(spec agent-status)。「进程在不在内存」不让用户感知:没有活 runtime 但可达 = idle,会话正在起 = working。
  * 它是 `presentAgentStatus` 的输出折出来的(`displayStatusOf`),❌ 另有推导;文案与颜色读完整的 presentation。
  */
-export type AgentDisplayStatus = 'pending' | 'idle' | 'working' | 'parked' | 'needs_user' | 'offline' | 'archived' | 'removed' | 'error'
+export type AgentDisplayStatus = 'pending' | 'starting' | 'idle' | 'working' | 'parked' | 'needs_user' | 'offline' | 'archived' | 'removed' | 'error'
 export type AgentConversationActivityStatus =
   | Extract<AgentRuntimeStatus, 'starting'>
   | AgentActivityStatus
@@ -321,7 +321,7 @@ export interface Device {
 
 /** 摘要里的一条会话。只有状态，没有正文 —— 「内容不在手机落库」那条边界没有放开。 */
 export interface DeviceSessionSummary {
-  nativeInputVersion?: 1
+  nativeInputVersion?: 1 | 2
   runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string
@@ -458,25 +458,11 @@ export interface GroupTaskItem {
   updated_at: string
 }
 
-export interface GroupOutputItem {
-  id: string
-  chat_id: string
-  task_id: string | null
-  name: string
-  file_type: string | null
-  asset_id: string | null
-  url: string | null
-  produced_by_user_id: string | null
-  size_label: string | null
-  created_at: string
-}
-
 export interface GroupCollabSnapshot {
   scheduler: GroupSchedulerState
   humans: GroupMemberItem[]
   agents: GroupAgentItem[]
   tasks: GroupTaskItem[]
-  outputs: GroupOutputItem[]
 }
 
 // @@@group-announcements (#986) — 群公告 posted by owner/admin in a group chat.

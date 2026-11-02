@@ -7,7 +7,9 @@
 #   sh install.sh --version V [--keep-current]                 # 装指定的那一版(和某台桌面匹配的);--keep-current 只装不切
 #
 # 不要 root、不要事先装任何东西:只用 sh + (curl 或 wget) + tar + gzip + sha256 校验工具,busybox 也行。
-# 装到 ~/.gugu-server/versions/<版本>,current 软链指向在用的版本,~/.local/bin/gugu-server 指向 current。
+# 装到 ~/.gugu-server/versions/<版本>,current 软链指向在用的版本,~/.local/bin/gugu-server 启动 current。
+# 各通道各占一套名字、同一个用户下可以并存(与 apps/desktop/electron/server/server-names.ts 同一条规则):
+# 正式版 ~/.gugu-server、gugu-server;其余通道加 -<通道>,如 Beta 是 ~/.gugu-server-beta、gugu-server-beta。
 # 装完注册常驻服务(systemd 用户服务 / launchd / 兜底),然后直接开始登录 —— 终端里会出现链接和短码。
 #
 # 发布布局(scripts/gugu-server/publish-oss.cjs 写):
@@ -24,6 +26,8 @@ PACKAGE=""
 PKG_VERSION=""
 PKG_SHA256=""
 KEEP_CURRENT=0
+UPDATE_OWNER=server
+MIGRATE_FROM=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -35,6 +39,8 @@ while [ $# -gt 0 ]; do
     --version) PKG_VERSION="$2"; shift 2 ;;
     --sha256) PKG_SHA256="$2"; shift 2 ;;
     --keep-current) KEEP_CURRENT=1; shift ;;
+    --update-owner) UPDATE_OWNER="$2"; shift 2 ;;
+    --migrate-from) MIGRATE_FROM="$2"; shift 2 ;;
     *) echo "不认识的参数:$1" >&2; exit 2 ;;
   esac
 done
@@ -75,8 +81,28 @@ else
   die "需要 sha256sum 或 shasum 来校验下载的包"
 fi
 
-SERVER_HOME="${GUGU_SERVER_HOME:-$HOME/.gugu-server}"
+case "$CHANNEL" in
+  stable) SUFFIX="" ;;
+  *) SUFFIX="-$CHANNEL" ;;
+esac
+SERVER_HOME="${GUGU_SERVER_HOME:-$HOME/.gugu-server$SUFFIX}"
 BIN_DIR="$HOME/.local/bin"
+BIN_NAME="gugu-server$SUFFIX"
+LEGACY_HOME_ALIAS=""
+
+# Older Beta installations used the unsuffixed home. Preserve their accounts on upgrade.
+# An empty directory left by a failed CLI invocation is not a separate installation.
+if [ -z "${GUGU_SERVER_HOME:-}" ] && [ "$CHANNEL" != stable ] &&
+  [ -f "$HOME/.gugu-server/channel" ] && [ "$(cat "$HOME/.gugu-server/channel")" = "$CHANNEL" ]; then
+  if [ ! -e "$SERVER_HOME" ] || { [ -d "$SERVER_HOME" ] && [ -z "$(ls -A "$SERVER_HOME")" ]; }; then
+    LEGACY_HOME_ALIAS="$SERVER_HOME"
+    SERVER_HOME="$HOME/.gugu-server"
+  fi
+fi
+if [ -z "${GUGU_SERVER_HOME:-}" ] && [ -f "$SERVER_HOME/channel" ] &&
+  [ "$(cat "$SERVER_HOME/channel")" != "$CHANNEL" ]; then
+  die "已有安装属于另一个通道:${SERVER_HOME}。请为新通道显式指定独立的 GUGU_SERVER_HOME。"
+fi
 
 # 数据目录里会放登录态和密钥:只归本人(0700)。已有的旧安装也收回来(以前可能按 0002 建成了组可写)。
 mkdir -p "$SERVER_HOME" || die "建不了 $SERVER_HOME"
@@ -158,6 +184,34 @@ fi
 # Retain the existing timestamp fact; reclamation is owned by the supervisor.
 touch "$TARGET"
 
+# Installation, upgrade and explicit rollback share the server's environment contract. The
+# previous server can inspect a historical package that predates this command without starting it.
+VERIFIER="$TARGET/bin/gugu-server"
+if ! "$VERIFIER" help 2>/dev/null | grep -q prepare-install; then
+  if [ -x "$SERVER_HOME/current/bin/gugu-server" ] && "$SERVER_HOME/current/bin/gugu-server" help 2>/dev/null | grep -q prepare-install; then
+    VERIFIER="$SERVER_HOME/current/bin/gugu-server"
+  else
+    # A first standalone installation has no previous account environment to preserve.
+    # Keep the historical bootstrap path; adopting existing accounts or controller ownership
+    # still requires a verifier, including when an unknown command happens to exit zero.
+    ACCOUNT_ENTRIES=""
+    if [ -e "$SERVER_HOME/accounts" ]; then
+      [ -d "$SERVER_HOME/accounts" ] || die "无法核实已有账号目录"
+      ACCOUNT_ENTRIES="$(ls -A "$SERVER_HOME/accounts")" || die "无法读取已有账号目录"
+    fi
+    if [ "$UPDATE_OWNER" = server ] && [ -z "$MIGRATE_FROM" ] && [ -z "$ACCOUNT_ENTRIES" ] &&
+      [ ! -e "$SERVER_HOME/current" ] && [ ! -L "$SERVER_HOME/current" ] && [ ! -e "$SERVER_HOME/installation.json" ]; then
+      VERIFIER=""
+    else
+      die "这个包不支持安装环境核对,请先使用支持 prepare-install 的 server 迁移"
+    fi
+  fi
+fi
+if [ -n "$VERIFIER" ]; then
+  GUGU_SERVER_HOME="$SERVER_HOME" "$VERIFIER" prepare-install --candidate "$TARGET" --channel "$CHANNEL" \
+    --update-owner "$UPDATE_OWNER" --migrate-from "$MIGRATE_FROM" || die "安装环境无法核实,保留原版本和账号资料"
+fi
+
 # 切换 current:先建临时软链,再改名覆盖。
 # ⚠ 不能只写 `mv -f current.tmp current`:current 是指向目录的软链,GNU / BSD 的 mv 都会把 current.tmp
 # **挪进**那个目录(versions/<旧版本>/current.tmp)、退出码却是 0 —— current 纹丝不动,升级白做。
@@ -193,12 +247,21 @@ done
 # 装时指定了别的下载站(开发 / 测试):记下来,后台自动升级也从那里取;用正式站装就清掉。
 if [ -n "${GUGU_SERVER_DOWNLOAD_BASE:-}" ]; then printf '%s\n' "$BASE_URL" > "$SERVER_HOME/download-base"; else rm -f "$SERVER_HOME/download-base"; fi
 
+if [ -n "$LEGACY_HOME_ALIAS" ]; then
+  if [ -d "$LEGACY_HOME_ALIAS" ]; then rmdir "$LEGACY_HOME_ALIAS" || die "旧通道目录已被其他进程使用:$LEGACY_HOME_ALIAS"; fi
+  ln -s "$SERVER_HOME" "$LEGACY_HOME_ALIAS" || die "无法保留旧通道目录:$LEGACY_HOME_ALIAS"
+fi
 mkdir -p "$BIN_DIR"
-ln -sfn "$SERVER_HOME/current/bin/gugu-server" "$BIN_DIR/gugu-server"
-CMD="$BIN_DIR/gugu-server"
+# 一行启动脚本而不是软链:它把本通道的数据目录钉死递过去 —— 别的通道的 server 拉起的 agent 环境里带着它自己的
+# GUGU_SERVER_HOME,换回不认通道名字的旧版本时也不会去找别的目录(与 server-names.ts binLauncher 同一份内容)。
+BIN="$BIN_DIR/$BIN_NAME"
+rm -f "$BIN"
+printf '#!/bin/sh\nGUGU_SERVER_HOME="%s" exec "%s/current/bin/gugu-server" "$@"\n' "$SERVER_HOME" "$SERVER_HOME" > "$BIN"
+chmod 755 "$BIN"
+CMD="$BIN"
 case ":$PATH:" in
-  *":$BIN_DIR:"*) CMD="gugu-server" ;;
-  *) say "提示:$BIN_DIR 不在 PATH 里,下面的命令写全路径;想直接敲 gugu-server,把它加进 PATH。" ;;
+  *":$BIN_DIR:"*) CMD="$BIN_NAME" ;;
+  *) say "提示:$BIN_DIR 不在 PATH 里,下面的命令写全路径;想直接敲 $BIN_NAME,把它加进 PATH。" ;;
 esac
 
 say "已安装咕咕 server $VERSION → $SERVER_HOME/current"
@@ -206,17 +269,17 @@ say "已安装咕咕 server $VERSION → $SERVER_HOME/current"
 if [ "$DO_SERVICE" = 1 ]; then
   # service install 负责「现在真在跑的是这个版本」:已经有 server 在跑(重新执行安装命令 = 急着升级)时,
   # 它把在跑的那个换到新版本上,最后报出此刻在跑的版本与进程号;没换成就说清怎么办、以非 0 退出。
-  "$BIN_DIR/gugu-server" service install ||
+  "$BIN" service install ||
     say "server 未能以 $VERSION 启动(见上);处理后执行:$CMD service install"
 fi
 
 if [ "$DO_LOGIN" = 1 ]; then
   # `status` 在没有账号登录时打「登录的账号:无(执行 gugu-server login)」(见 server-status.ts)。
-  if "$BIN_DIR/gugu-server" status 2>/dev/null | grep -q '登录的账号:无'; then
+  if "$BIN" status 2>/dev/null | grep -q '登录的账号:无'; then
     say ""
     # 退出码 3 = 远程隧道暂未开放,login 自己已经说清该怎么加这台机器(见 server-login.ts),不再补一句「登录没完成」。
     LOGIN_RC=0
-    "$BIN_DIR/gugu-server" login </dev/null || LOGIN_RC=$?
+    "$BIN" login </dev/null || LOGIN_RC=$?
     if [ "$LOGIN_RC" != 0 ] && [ "$LOGIN_RC" != 3 ]; then say "登录没完成,可以之后再执行:$CMD login"; fi
   else
     say "已登录,跳过登录。"

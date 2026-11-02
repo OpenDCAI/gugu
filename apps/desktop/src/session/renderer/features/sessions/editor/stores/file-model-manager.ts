@@ -2,13 +2,8 @@ import { reaction, runInAction, type IReactionDisposer } from 'mobx';
 import { EDITOR_HARD_MAX_FILE_BYTES } from '@renderer/lib/editor/file-size-limits';
 import { getFileKind, isMonacoBackedKind } from '@renderer/lib/editor/fileKind';
 import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
-import {
-  buildMonacoModelPath,
-  EXTERNAL_MODEL_ROOT,
-  isExternalModelRoot,
-} from '@renderer/lib/monaco/monacoModelPath';
+import { buildMonacoModelPath, EXTERNAL_MODEL_ROOT } from '@renderer/lib/monaco/monacoModelPath';
 import { getMonacoLanguageId } from '@renderer/utils/diffUtils';
-import { HEAD_REF } from '@shared/core/git/types';
 import type { FileTabResource } from './file-tab-resource';
 import { workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 
@@ -203,7 +198,6 @@ export class FileModelManager {
     if (isMonacoBackedKind(kind)) {
       const language = getMonacoLanguageId(path);
       const root = this._rootFor(path);
-      const external = isExternalModelRoot(root);
 
       try {
         await modelRegistry.registerModel(
@@ -260,19 +254,9 @@ export class FileModelManager {
         return;
       }
 
-      // Outside the workspace there is no git side to compare against — nothing tracks
-      // those files. The editable buffer is registered either way: a file on your own
-      // machine is yours to edit, workspace or not (#5585).
-      if (!external) {
-        await modelRegistry.registerModel(
-          this._ctx.projectId,
-          this._ctx.workspaceId,
-          root,
-          path,
-          language,
-          'git'
-        );
-      }
+      // The editable buffer is all a file tab needs: a file on your own machine is yours
+      // to edit, workspace or not (#5585). Git models belong to the diff view, which
+      // registers and releases its own.
       await modelRegistry.registerModel(
         this._ctx.projectId,
         this._ctx.workspaceId,
@@ -310,7 +294,6 @@ export class FileModelManager {
     const uri = buildMonacoModelPath(this._ctx.modelRootPath, path);
     modelRegistry.unregisterModel(uri);
     modelRegistry.unregisterModel(modelRegistry.toDiskUri(uri));
-    modelRegistry.unregisterModel(modelRegistry.toGitUri(uri, HEAD_REF));
     void workspaceRpc(this._ctx.projectId).editor.clearBuffer(this._ctx.projectId, this._ctx.workspaceId, path);
   }
 

@@ -14,13 +14,20 @@ export const state = (): State => {
 export const changed = () => { for (const listener of state().listeners) listener() }
 export const sessionInputOutboxAvailable = (): boolean => Boolean(state().queue && state().valid())
 
-export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'attachments'>): Promise<SessionInput> {
+export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files'>): Promise<SessionInput> {
   const own = state()
   if (!own.queue || !own.valid()) throw new Error('Session input outbox is not available for this account')
   const queue = await own.queue
   const input = await queue.enqueue(target)
   void queue.flush().catch(error => rendererLogger('session/input-outbox').warn({ error: String(error) }, 'Could not flush native input'))
   return input
+}
+
+/** The person asked to send the failed inputs again now (the outbox also retries on its own schedule). */
+export async function retrySessionInputs(): Promise<void> {
+  const own = state()
+  if (!own.queue || !own.valid()) throw new Error('Session input outbox is not available for this account')
+  await (await own.queue).flush()
 }
 
 export function useQueuedSessionInputs(sessionId: string): readonly SessionInput[] {

@@ -1,3 +1,4 @@
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -54,8 +55,8 @@ beforeEach(async () => {
     deliver,
     presentation: () => ({ locale: 'en', themeMode: 'dark' as const, fullscreen: false, windowFocused: true }),
   });
-  await bindExtensionSurface({ webContentsId: GROUP_PAGE, extensionId: 'board', tabId: 'slot-1', tabKind: 'board.main', chatId: CHAT, itemId: ITEM });
-  await bindExtensionSurface({ webContentsId: SESSION_TAB, extensionId: 'board', sessionId: 'task-1', tabId: 'tab-1', tabKind: 'board.main' });
+  await bindExtensionSurface({ webContentsId: GROUP_PAGE, extensionId: 'board', tabId: 'slot-1', tabKind: 'board.main', conversation: CHAT, itemId: ITEM });
+  await bindExtensionSurface({ webContentsId: SESSION_TAB, extensionId: 'board', workspace: sessionWorkspace('task-1'), tabId: 'tab-1', tabKind: 'board.main' });
 });
 
 describe("the App's records from its real pages (摩擦单 F68)", () => {
@@ -73,7 +74,7 @@ describe("the App's records from its real pages (摩擦单 F68)", () => {
   });
 
   it('the check’s own page is not among them: what it reports goes to the check', async () => {
-    await bindExtensionSurface({ webContentsId: CHECK_PAGE, extensionId: 'board', tabId: 'extension-check:9', tabKind: 'board.main', chatId: CHAT });
+    await bindExtensionSurface({ webContentsId: CHECK_PAGE, extensionId: 'board', tabId: 'extension-check:9', tabKind: 'board.main', conversation: CHAT });
     const heard: string[] = [];
     const stop = watchExtensionSurfaceErrors(CHECK_PAGE, (message) => heard.push(message));
     const before = recentExtensionErrors('board').length;

@@ -128,13 +128,20 @@ function fakeMachine(options: {
 }
 
 describe('service install:结束时在跑的就是这一版', () => {
+  it('受控云换版遇到忙碌账号时不停止进程或改服务', async () => {
+    const m = fakeMachine({ mode: 'systemd', old: { version: '0.2.111', supervisedBy: 'systemd' }, current: '0.2.112', busy: true })
+    m.deps.requireIdle = true
+    expect(await installServiceWith(m.out, m.deps)).toBe(false)
+    expect(m.calls).toEqual([])
+    expect(m.running()?.version).toBe('0.2.111')
+  })
   it('兜底模式、旧版本在跑且有 agent 在干活:先明说会中断,新的等旧的退干净再接上,报出真实的版本与进程号', async () => {
     const m = fakeMachine({ mode: 'fallback', old: { version: '0.2.111', supervisedBy: 'none' }, current: '0.2.112', busy: true })
     expect(await installServiceWith(m.out, m.deps)).toBe(true)
     expect(m.calls).toEqual(['cron', 'detached wait=100', 'stop 100'])
     const text = m.lines.join('\n')
     expect(text).toContain('正在把 咕咕 server 0.2.111(进程 100)换成 0.2.112')
-    expect(text).toContain('这一轮会被中断')
+    expect(text).toContain('正在进行的回复会被中断')
     expect(m.running()).toMatchObject({ version: '0.2.112', supervisedBy: 'none' })
     expect(m.lines.at(-1)).toBe(`咕咕 server 0.2.112 已在运行(进程 ${m.running()?.pid})。`)
     // ❌ 在确认之前就说「已在后台启动」

@@ -468,9 +468,11 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
               ⚠️ 它拿掉的是**这一次看**：重开会话会从 provider 重放，那一轮会回来。ACP 里没有删除
               turn 的动词（agent 面九个方法读过，`forkSession` 也只按会话整条分叉），所以任何本地
               实现都到不了「模型也忘了」。上游独立用法给的正是这个语义：把它从你自己的列表里拿掉。 */}
-          <Show when={isUserStopped()}>
+          <Show when={isUserStopped() && commands().canDiscardTurn?.(props.data.turnId) !== false}>
             <button
               type="button"
+              // Native: the transcript's click delegate toggles this row away before a delegated handler would run.
+              on:click={() => commands().onDiscardTurn?.({ turnId: props.data.turnId })}
               data-slot="turn-outcome-discard"
               data-collapse-id={turnDiscardedId(props.data.turnId)}
               class={outcomeAction}

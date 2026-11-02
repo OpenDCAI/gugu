@@ -1,5 +1,5 @@
+import { sessionLife } from './session-life';
 import { and, eq } from 'drizzle-orm';
-import { getAcpRuntimeClient } from '@main/core/acp/controller';
 import { getPlugin } from '@main/core/agents/plugin-registry';
 import { assertSessionSurfaceDeclared } from '@main/core/agents/session-runtime-compatibility';
 import { db } from '@main/db/client';
@@ -90,7 +90,9 @@ export async function switchSessionRuntime(
   // 先停,再改记录。反过来的话,停的那一刻记录已经说自己是另一条腿了 —— dehydrate 会当场
   // 提前返回(它对 acp 会话不做事),伪终端就留在那里活着,而界面已经切走。
   if (current === 'acp') {
-    await (await getAcpRuntimeClient()).stopSession({ sessionId });
+    // session-life stops it without a barrier; with the record switched it is no longer a Life session.
+    await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'reconfigure' });
+    if (sessionLife().read(sessionId).kind === 'failed') throw new Error(`ACP session ${sessionId} could not be stopped for the runtime switch`);
   } else {
     await dehydrateSession(projectId, sessionId);
   }

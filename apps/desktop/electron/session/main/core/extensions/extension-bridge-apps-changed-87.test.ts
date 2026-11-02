@@ -1,3 +1,4 @@
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -50,9 +51,9 @@ const watch = (id: number, place: unknown) =>
 beforeEach(async () => {
   for (const id of [GROUP_ONE, GROUP_TWO, SESSION_TAB]) stopPageWatches(id);
   sent.length = 0;
-  await bindExtensionSurface({ webContentsId: GROUP_ONE, extensionId: 'workspace', tabId: 'slot-1', tabKind: 'workspace.main', chatId: CHAT_ONE });
-  await bindExtensionSurface({ webContentsId: GROUP_TWO, extensionId: 'workspace', tabId: 'slot-2', tabKind: 'workspace.main', chatId: CHAT_TWO });
-  await bindExtensionSurface({ webContentsId: SESSION_TAB, extensionId: 'workspace', sessionId: 'task-1', tabId: 'tab-1', tabKind: 'workspace.main' });
+  await bindExtensionSurface({ webContentsId: GROUP_ONE, extensionId: 'workspace', tabId: 'slot-1', tabKind: 'workspace.main', conversation: CHAT_ONE });
+  await bindExtensionSurface({ webContentsId: GROUP_TWO, extensionId: 'workspace', tabId: 'slot-2', tabKind: 'workspace.main', conversation: CHAT_TWO });
+  await bindExtensionSurface({ webContentsId: SESSION_TAB, extensionId: 'workspace', workspace: sessionWorkspace('task-1'), tabId: 'tab-1', tabKind: 'workspace.main' });
   // Each chat's page asks about its chat's files; the session's tab asks about none.
   expect(await watch(GROUP_ONE, { chat: CHAT_ONE })).toMatchObject({ ok: true });
   expect(await watch(GROUP_TWO, { chat: CHAT_TWO })).toMatchObject({ ok: true });

@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import { promptAttachmentSchema } from './attachments';
+import { promptFileSchema } from './turn-files';
 export type { PromptAttachment } from './attachments';
 
 export const promptInputSchema = z.object({
   text: z.string(),
   hiddenContext: z.string().optional(),
   attachments: z.array(promptAttachmentSchema).optional(),
+  files: z.array(promptFileSchema).optional(),
   /**
    * Where this message came from.
    *
@@ -23,6 +25,8 @@ export const promptInputSchema = z.object({
    * one turn per click. Only a prompt still waiting is replaced; one already sent is history.
    */
   coalesceKey: z.string().optional(),
+  /** When the person sent it: the one clock origin of the turn it opens, whatever it waited for before. */
+  sentAt: z.number().optional(),
   /** Runtime admission intent retained while waiting; absent entries keep next-turn semantics. */
   queueTiming: z.literal('next-tool-call').optional(),
 });

@@ -1,5 +1,5 @@
+import { promptAttachmentSchema, turnFileRefSchema } from '@gugu/session-core/acp/client';
 import { createNativeRecordReader } from './native-record';
-import { promptAttachmentSchema } from '@gugu/session-core/acp/client';
 import { ask, withdrawAll } from '../asks';
 import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondAskQuestion } from '../asks/ask';
 import { askSourceSpec } from '../asks/sources';
@@ -48,7 +48,7 @@ import { SessionOptionsError, readSessionOptions, setSessionOption } from './liv
 import { getPlugin, isValidProviderId } from '@main/core/agents/plugin-registry';
 import { sessionParentId, sessionSpawnerId, mapSessionRowToSession } from '@main/core/sessions/utils';
 import { taskName } from '@main/core/sessions/task-name';
-import { agentIdsBySession } from '@main/core/sessionpage/sessionpage-session-agent';
+import { agentIdsBySession, sessionAgents } from '@main/core/sessionpage/sessionpage-session-agent';
 import { db } from '@main/db/client';
 import { sessions, projects, type SessionRow } from '@main/db/schema';
 import { tapMainEvents } from '@main/lib/events';
@@ -85,10 +85,11 @@ import { locateSessionRecord, sessionRecordHarnessForProvider, type SessionRecor
 import { hermesRecordedDeliveryIds } from './hermes-delivery-receipts';
 import { OpenedFileError, readOpenedFileChunk } from './opened-file';
 import { sessionOpenedFile, sessionOutputs } from '../sessions/session-outputs';
-import { findSessionAttachmentCopy } from '../sessions/attachments/session-attachment-store';
 import { createStandInTimeline } from './stand-in-timeline';
 import { readStartFailure } from './start-failures';
 import { knownHarnessConfigRoots } from '@main/core/agent-hooks/harness-config-roots';
+import { sessionLife } from '@main/core/sessions/session-life';
+import { runtimeFork } from '@main/core/sessions/session-life-forks';
 import { notStartedSessionOptions } from './not-started-options';
 import { readSessionModelMenu, type SessionpageSessionOptionsWithMenu } from './session-model-menu';
 import {
@@ -674,7 +675,7 @@ function notStartedFacts(row: SessionRow): Pick<SessionpageSessionSummary, 'reco
 
 /** 这台机器的会话列表:手机、别的电脑、App 读的都是这一份(会话页路由表 `sessionTimeline.sessionsList`)。 */
 export async function listSessions(): Promise<SessionpageSessionsListResult> {
-  return sessionList(await agentIdsBySession(process.env));
+  return sessionList(await sessionAgents(process.env));
 }
 
 /** Resolve the canonical binding even when its task is archived; a missing task is an orphan, not an offline host. */
@@ -693,7 +694,7 @@ export function listSessionStates(): SessionpageSessionsListResult {
   return sessionList(null);
 }
 
-function sessionList(agents: ReadonlyMap<string, string> | null): SessionpageSessionsListResult {
+function sessionList(agents: ReadonlyMap<string, { agentId: string; chatId: string | null }> | null): SessionpageSessionsListResult {
   const rows = readSessionRows();
   const visibleProjects = readLocalProjects();
   const visibleIds = new Set(visibleProjects.map(project => project.id));
@@ -720,19 +721,19 @@ function sessionList(agents: ReadonlyMap<string, string> | null): SessionpageSes
 /** 一条会话的摘要,与 `listSessions` 同一个投影;建会话时交回发起方,它就不用自己拼一份「不知道」的。 */
 export async function sessionSummary(conversationId: string): Promise<SessionpageSessionSummary | null> {
   const [row] = db.select().from(sessions).where(eq(sessions.id, conversationId)).limit(1).all();
-  return row ? summaryOf(row, await agentIdsBySession(process.env), schedulesBySession(listSessionSchedules())) : null;
+  return row ? summaryOf(row, await sessionAgents(process.env), schedulesBySession(listSessionSchedules())) : null;
 }
 
 /**
- * `agents`:本机名录里「会话 → agent」(`user:<uuid>`),一次读完;null = 这一份不报 agent。
+ * `agents`:本机名录里「会话 → agent」(`user:<uuid>`)与主人和它的私聊,一次读完;null = 这一份不报 agent。
  * `schedules`:整台机器给自己排的定时按会话分好(一次读完),行上那枚定时标记从这里来。
  */
 function summaryOf(
   session: SessionRow,
-  agents: ReadonlyMap<string, string> | null,
+  agents: ReadonlyMap<string, { agentId: string; chatId: string | null }> | null,
   schedules: ReadonlyMap<string, SessionSchedule[]>
 ): SessionpageSessionSummary {
-  const agentId = agents?.get(session.id);
+  const agent = agents?.get(session.id);
   const location = locateRow(session);
   return {
     conversationId: session.id,
@@ -745,7 +746,7 @@ function summaryOf(
     ...statusFieldsOf(session),
     lastInteractedAt: session.lastInteractedAt,
     supported: location.supported,
-    nativeInputVersion: 1,
+    nativeInputVersion: 2,
     nativeLastMessage: nativeConversationActivity(session.id),
     nativeUnreadKeys: nativeConversationUnread(session.id),
     nativeUnreadAliases: nativeConversationAliases(session.id),
@@ -758,7 +759,9 @@ function summaryOf(
     parentConversationId: sessionParentId(session),
     spawnedByConversationId: sessionSpawnerId(session),
     ...(session.config?.activitySourceLinks ? { activitySourceLinks: session.config.activitySourceLinks } : {}),
-    ...(agents ? { agent: agentId ? { userId: agentId.slice('user:'.length) } : null } : {}),
+    ...(agents ? { agent: agent ? { userId: agent.agentId.slice('user:'.length) } : null } : {}),
+    // 这条会话的对话:主人和它的 agent 的私聊 —— 别的机器、手机都从这一行拿到它(任务页里 App 的 `ctx.chat`)。
+    ...(agent?.chatId ? { chatId: agent.chatId } : {}),
     spawnedByExtensionId: session.spawnedByExtensionId ?? null,
     schedule: sessionScheduleDigest(schedules.get(session.id) ?? []),
   };
@@ -1130,11 +1133,10 @@ export async function readOpenedFile(
   input: SessionpageOpenedFileReadRequest
 ): Promise<SessionTimelineResult<SessionpageOpenedFileChunk>> {
   try {
-    const copy = await findSessionAttachmentCopy(input.conversationId, input.path);
-    if (!copy && !(await sessionOpenedFile(input.conversationId, input.path))) {
+    if (!(await sessionOpenedFile(input.conversationId, input.path))) {
       return fail('not_opened', `这条会话没有打开过 ${input.path}`);
     }
-    return { ok: true, value: await readOpenedFileChunk(copy ?? input.path, input.offset, input.length) };
+    return { ok: true, value: await readOpenedFileChunk(input.path, input.offset, input.length) };
   } catch (error) {
     if (error instanceof OpenedFileError) return fail(error.code, error.message);
     return fail('read_failed', (error as Error)?.message ?? String(error));
@@ -1391,10 +1393,19 @@ export async function send(
   conversationId: string,
   text: string,
   clientMessageId?: string,
-  attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
+  files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files'],
+  attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]
 ): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string }>> {
+  if (files !== undefined && !turnFileRefSchema.array().safeParse(files).success) return fail('invalid_request', '附件引用无效');
   if (attachments !== undefined && !promptAttachmentSchema.array().safeParse(attachments).success) return fail('invalid_request', '附件引用无效');
   if (clientMessageId !== undefined && (!clientMessageId.trim() || clientMessageId.length > 256)) return fail('invalid_request', '消息标识无效');
+  // A side chat has no session row: its custody send lands in its fork entry's queue.
+  if (runtimeFork(conversationId)) {
+    if (!text.trim() && !files?.length && !attachments?.length) return fail('empty_text', '消息是空的');
+    sessionLife().enqueue({ sessionId: conversationId, messageId: clientMessageId ?? crypto.randomUUID(), text: text.trim(), kind: 'ordinary',
+      delivery: { queue: true, origin: 'manual', ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) } });
+    return { ok: true, value: { accepted: 'queued', ...(clientMessageId ? { clientMessageId } : {}) } };
+  }
   const row = readSessionRow(conversationId);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
   // provider 为空 = 这一行没记下是哪家引擎；再往下走只会在插件表里抛一句认不出来的话。
@@ -1403,39 +1414,13 @@ export async function send(
   }
   // 还没开起来的会话(建的时候 agent 没起来,#6264):先按「再试一次」同一条路把它起来 —— 第一句话随之投递 ——
   // 再发这一句。❌ 直接唤醒:唤醒不带第一句,agent 会只看到后来这一句。
-  if (await neverStarted(row)) {
-    const { startSession } = await import('./create-session');
-    const started = await startSession(conversationId);
-    if (!started.ok) return fail(started.error.code, started.error.message);
-  }
+  // A never-started session is ACP only (neverStarted), and its delivery itself starts it (session-life row 1).
   try {
-    const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, attachments);
+    const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, files, attachments);
     return { ok: true, value: { ...accepted, ...(clientMessageId ? { clientMessageId } : {}) } };
   } catch (error) {
     if (error instanceof SessionWriteError) return fail(error.code, error.message);
     return fail('send_failed', (error as Error)?.message ?? String(error));
-  }
-}
-
-type AttachmentUploads = typeof import('@main/core/sessions/attachments/attachment-upload');
-
-/**
- * 手机输入框的附件落进这条会话的附件目录。`run` 拿到的是桌面输入框同三个函数
- * (`attachment-upload.ts`:同一套 id / 路径段校验、同一个落盘、同一张登记表)。
- */
-export async function withSessionAttachments<T>(
-  conversationId: string,
-  run: (uploads: AttachmentUploads) => Promise<T>
-): Promise<SessionTimelineResult<T>> {
-  const row = readSessionRow(conversationId);
-  if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
-  // 用时再 import:它拖着 electron 与落盘那一串,只读时间线的路不该替它交税(与 create-session 同一条)。
-  const uploads = await import('@main/core/sessions/attachments/attachment-upload');
-  try {
-    return { ok: true, value: await run(uploads) };
-  } catch (error) {
-    if (error instanceof uploads.AttachmentUploadError) return fail(error.code, error.message);
-    return fail('persist_failed', (error as Error)?.message ?? String(error));
   }
 }
 

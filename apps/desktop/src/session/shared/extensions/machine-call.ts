@@ -20,8 +20,19 @@ export function appDeviceId(device: unknown): string {
  * Use), which drives the browser on the screen the page is drawn on and so stays there (161 10-17).
  */
 export function followsSessionMachine(manifest: Pick<ExtensionManifest, 'contributes'>, method: string, args: Record<string, unknown>): boolean {
-  if (!verbFacts(method)?.machine) return false
+  const machine = verbFacts(method)?.machine
+  if (!machine) return false
+  if (machine === 'place') return placeSessionOf(args) !== null
   return method !== 'callProgram' || !hostsProgram(manifest, typeof args.server === 'string' ? args.server : undefined)
+}
+
+/** The session whose working copy a `machine: 'place'` call names (`place`, or the file `ref`), or null for a chat's. */
+export function placeSessionOf(args: Record<string, unknown>): string | null {
+  for (const named of [args.place, args.ref]) {
+    const workspace = (named as { workspace?: unknown } | null | undefined)?.workspace
+    if (typeof workspace === 'string' && workspace.startsWith('session:')) return workspace.slice('session:'.length)
+  }
+  return null
 }
 
 /** Why the answering machine does not do this call for a page elsewhere, or null when it does. */

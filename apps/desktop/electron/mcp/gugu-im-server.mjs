@@ -1372,6 +1372,9 @@ async function handleMessage(args, deps) {
         const friendId = await ownerFriendAmong(deps, new Set(memberRows.map((row) => String(row.user_id))))
         if (friendId) throw ownerFriendDmWriteError(chatId, friendId, 'message_send', 'message_send_as_owner')
       }
+      if (kind === 'group' && !memberRows.some((row) => String(row.user_id) === deps.context.agentId)) {
+        throw new Error(`message_send: you are not a member of group ${chatId}. Reply in your own session or use session_message to contact another session.`)
+      }
       // #849 非成员收件人 fail-loud(复用上面同一次成员查询;话题另收来源线成员,见 addressableUserIds)
       // addressableUserIds 回 null = 它算不出可点名集合(来源线名单读不到)⇒ 这一关跳过,交给服务端判。
       const addressable = await addressableUserIds(deps, chatId, kind, memberRows)

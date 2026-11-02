@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEventHandler, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEventHandler, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Search } from '@/lib/icons'
@@ -36,6 +36,12 @@ export function HeaderSearch({ mobile, active = true, value, onChange, onKeyDown
   const { t } = useTranslation('messaging')
   const [opened, setOpened] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Commit and focus once in the initiating gesture. Avoid combining React autoFocus
+  // with another focus() call or allowing focus to scroll the horizontal pager.
+  const show = useCallback(() => {
+    flushSync(() => setOpened(true))
+    inputRef.current?.focus({ preventScroll: true })
+  }, [])
   const open = mobile && (opened || value !== '')
   const close = () => {
     setOpened(false)
@@ -44,21 +50,19 @@ export function HeaderSearch({ mobile, active = true, value, onChange, onKeyDown
   useBackLayer(close, open && active)
   useEffect(() => {
     if (!mobile || !active || !externalTrigger) return
-    const show = (event: Event) => {
+    const onRequest = (event: Event) => {
       if ((event as CustomEvent<unknown>).detail !== externalTrigger) return
-      // 同一次用户手势中挂载并聚焦，手机浏览器才能弹键盘。
-      flushSync(() => setOpened(true))
-      inputRef.current?.focus()
+      show()
     }
-    window.addEventListener(UI_EVENTS.openPhoneListSearch, show)
-    return () => window.removeEventListener(UI_EVENTS.openPhoneListSearch, show)
-  }, [mobile, active, externalTrigger])
+    window.addEventListener(UI_EVENTS.openPhoneListSearch, onRequest)
+    return () => window.removeEventListener(UI_EVENTS.openPhoneListSearch, onRequest)
+  }, [mobile, active, externalTrigger, show])
 
   if (!mobile) return children(null)
   return (
     <div data-header-search={open || undefined} className={open ? 'relative shrink-0 [&>:not([data-header-search-field])]:invisible' : 'relative shrink-0'}>
       {children(externalTrigger ? null : (
-        <IconButton data-header-search-open="" aria-label={placeholder} title={placeholder} onClick={() => setOpened(true)}>
+        <IconButton data-header-search-open="" aria-label={placeholder} title={placeholder} onClick={show}>
           <Search />
         </IconButton>),
       )}
@@ -66,7 +70,6 @@ export function HeaderSearch({ mobile, active = true, value, onChange, onKeyDown
         <div data-header-search-field="" className="absolute inset-0 flex items-center gap-1 px-[var(--pane-pad-x)]">
           <SearchField
             ref={inputRef}
-            autoFocus={opened}
             className="flex-1"
             data-testid={testId}
             value={value}

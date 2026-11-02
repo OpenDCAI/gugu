@@ -530,9 +530,9 @@ const meta: Meta<PlaygroundArgs> = {
     showAttachButton: true,
     showNotice: false,
     noticeVariant: 'error',
-    noticeTitle: 'Turn limit reached',
+    noticeTitle: 'Request limit reached',
     noticeMessage:
-      'The agent hit the maximum number of turn requests. Send a new message to continue.',
+      'The agent reached the request limit. Send a new message to continue.',
     showPermissionModeSelector: true,
     showPermissionRequest: false,
     showQueuedPrompts: false,

@@ -53,7 +53,7 @@ import {
 import { electronFetch, makeChatClient } from '../supabase'
 import { agentsForOwner } from '@gugu/core/local/state/agentOwner'
 import { AGENT_CLOUD_IDENTITY_STATE_CACHE_KEY } from '@gugu/core/local/state/agentCloudIdentity'
-import { emdashAgentRegistry, unregisterEmdashAgent } from './emdash-agent-registry'
+import { emdashAgentRegistry, registerEmdashAgent, unregisterEmdashAgent } from './emdash-agent-registry'
 // #5419 撤回一行没落地的本机身份 = 释放它的本机足迹,与「owner 删 agent」「回收器收 agent」
 // 是同一个动作的第三条驱动 ⇒ 用同一个实现。(该模块回头引本文件的 cache key 常量,两边都只在
 // 调用时用,模块初始化期互不依赖。)
@@ -1242,6 +1242,11 @@ function startCloudProvision(job: {
         { sessionId: job.sessionId, agentUserId: job.guguAgentUserId, groupChatId: job.groupChatId },
         'project group requires approval for Agents — join request queued, agent not in the group yet',
       )
+    } else if (resolved.kind === 'not-joined') {
+      log.warn(
+        { sessionId: job.sessionId, agentUserId: job.guguAgentUserId, groupChatId: job.groupChatId, priorGroupState: minted.priorGroupState },
+        'cloud identity created without project group membership',
+      )
     } else if (resolved.kind === 'remapped') {
       // 映射里的群已归档、或不是这个账号所在的群(foreign)⇒ 服务端另建了一个:映射与名册都改指新群。会话启动时拿到的旧 id 留在它的系统块里,
       // 那是一个归档群 —— 与老链上「归档群在 provisioning 之外发生」同一形状,下次重开就对了。
@@ -1713,13 +1718,15 @@ async function groupIsUsable(chat: ReturnType<typeof makeChatClient>, chatId: st
  * 一次往返供给回来之后,这个 agent 实际在哪个项目群里(名册记这个)。
  *  · pending_approval:项目群开了「Agent 加入需审批」而账号不是管理员 ⇒ 进了待审请求、这次不在群里;
  *    映射照旧指着项目群(批准后再开会话即在群里),名册 ❌ 记它在群里。
+ *  · 入群失败:身份已铸成,空群返回值为准;映射保留,名册不记群。
  *  · 服务端另建了群(映射的群已归档 / foreign)⇒ 映射与名册改指新群。
  */
 export function resolveProvisionedProjectGroup(
   job: { groupName?: string | null; groupChatId: string },
   minted: { groupChatId: string; priorGroupState: string },
-): { kind: 'pending-approval' | 'remapped' | 'unchanged'; groupChatId: string } {
+): { kind: 'pending-approval' | 'not-joined' | 'remapped' | 'unchanged'; groupChatId: string } {
   if (minted.priorGroupState === 'pending_approval') return { kind: 'pending-approval', groupChatId: '' }
+  if (job.groupName && !minted.groupChatId) return { kind: 'not-joined', groupChatId: '' }
   if (job.groupName && minted.groupChatId && minted.groupChatId !== job.groupChatId) {
     return { kind: 'remapped', groupChatId: minted.groupChatId }
   }
@@ -1748,9 +1755,9 @@ export async function registerExistingSessionpageAgents(
     const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY)
     const providerId = cacheString(agent.cache, PROVIDER_CACHE_KEY)
     const surface = cacheString(agent.cache, SURFACE_CACHE_KEY)
-    // Identity reconstruction is surface-blind. Every persisted conversation binding is kept behind
-    // the same offline owner until its actual transport promotes; no owner-kind branch may decide
-    // whether the identity exists.
+    // Identity reconstruction is surface-blind: every persisted binding gets an owner, so no owner-kind branch
+    // decides whether the identity exists. A terminal binding waits behind the offline owner until its transport
+    // promotes; an ACP binding gets its session-life claimant at once.
     const registerOfflineOwner = () => {
       if (agent.gugu_user_id && sessionId) {
         registerOfflineLocalSessionDelivery(agent.gugu_user_id, {
@@ -1771,6 +1778,13 @@ export async function registerExistingSessionpageAgents(
     } catch {
       registerOfflineOwner()
       throw new Error('Persisted task capability is invalid')
+    }
+    // An ACP session's claimant needs nothing live: it enqueues into session-life, which starts the session when a
+    // delivery arrives. Behind the offline owner an inbox unit would answer not-live and wake a leg no wake starts.
+    if (surface === 'acp' && agent.gugu_user_id && sessionId) {
+      registerEmdashAgent({ guguAgentUserId: agent.gugu_user_id, sessionId })
+      count++
+      return
     }
     registerOfflineOwner()
     }

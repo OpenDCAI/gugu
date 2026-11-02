@@ -7,6 +7,8 @@ import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { buildSessionDirectEnvelope } from '../../../packages/core/src/local/agent/deliveryEnvelope.ts'
 import { startPhoneAgentHost } from './phone-agent-host.mjs'
+import { openPhoneAgentStore } from './phone-agent-store.mjs'
+import { createPhoneTimelineRuntime } from './phone-agent-timeline.mjs'
 import { bindAgentEntry, createAgentEntry } from './agent-entry.mjs'
 import { createPhoneProvisioner } from './phone-agent-provision.mjs'
 import { createPhoneActionRuntime } from './phone-actions.mjs'
@@ -348,6 +350,7 @@ async function recordTurn(command, hooks, text) {
   const lines = [user, answer].map((entry) => `${JSON.stringify(entry)}\n`).join('')
   if (previous) await appendFile(path, lines)
   else await writeFile(path, `${JSON.stringify({ type: 'session', version: 3, id: command.sessionId, cwd: directory, timestamp: new Date(at).toISOString() })}\n${lines}`)
+  hooks.emit({ type: 'pi_live', kind: 'committed', id: `phone-input:${command.jobId}`, recordId: userId })
 }
 
 test('a local create runs its first input directly and reads the actual Pi result without any DM messages', async () => {
@@ -585,7 +588,7 @@ test('a local initial message enters the shared inbox envelope and replies with 
     return { status: 'done', text: '已回复' }
   })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '查今天的日程', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '查今天的日程', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '查今天的日程' }], 'local-create-request')
     await until(() => fx.messages.some((message) => message.p_sender_user_id === agentId), fx.events)
@@ -618,7 +621,7 @@ test('a failed chat turn is said in the chat as the desktop says it: one system 
     }
     return query
   }
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '你好' }], 'failing-chat-turn')
     await until(() => fx.notices.length > 0, fx.events)
@@ -656,7 +659,7 @@ test('a failed chat turn still posts its notice when saving the failure fails', 
     return query
   }
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '你好' }], 'failing-save-turn')
     await until(() => fx.notices.length > 0, fx.events)
@@ -665,18 +668,17 @@ test('a failed chat turn still posts its notice when saving the failure fails', 
   } finally { await fx.close() }
 })
 
-test('a failed turn on a whispered message posts only the fixed notice: no raw error reaches the chat', async () => {
+test('a failed turn on a whispered message posts no public notice: it would tell the chat who was whispered to', async () => {
   const fx = await fixture(async (command) => {
     if (!command.prompt.includes('gugu_delivery')) return { status: 'done', text: '[NO_REPLY]' }
     return { status: 'failed', text: '', error: 'simulated model failure with private detail' }
   })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '悄悄话', content_type: 'text', to_user_ids: [agentId], is_whisper: true, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '悄悄话', content_type: 'text', to_user_ids: [agentId], is_whisper: true, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '悄悄话' }], 'failing-whisper-turn')
-    await until(() => fx.notices.length > 0, fx.events)
-    assert.equal(fx.notices.length, 1)
-    assert.doesNotMatch(JSON.stringify(fx.notices), /private detail|simulated/)
+    await until(async () => JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8')).jobs[messageId]?.status === 'failed', fx.events)
+    assert.deepEqual(fx.notices, [])
     assert.equal(fx.messages.some((message) => message.p_sender_user_id === agentId), false)
   } finally { await fx.close() }
 })
@@ -694,7 +696,7 @@ test('an image attachment is durably admitted as safe metadata and acknowledged 
     return { status: 'done', text: '已回复' }
   })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '[附件] calendar.png (image/png)\n[URL] https://unreachable.invalid/image.png\n[Size] 42\n[Kind] image\n[Caption]\n收到后告诉我', content_type: 'attachment', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '[附件] calendar.png (image/png)\n[URL] https://unreachable.invalid/image.png\n[Size] 42\n[Kind] image\n[Caption]\n收到后告诉我', content_type: 'attachment', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '收附件' }], 'image-metadata')
     await until(() => fx.messages.some((message) => message.p_sender_user_id === agentId), fx.events)
@@ -717,7 +719,7 @@ test('revoking OS permission after a successful phone read prevents data from re
     return { status: 'done', text: 'must not be delivered' }
   }, { nativeCall: async (name, args) => { permissionChecks.push([name, args]); return { ok: false, code: 'os_permission', message: '日历系统权限已撤销' } } })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '查询日历', content_type: 'text', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '查询日历', content_type: 'text', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: '查询日历' }], 'revoke-in-flight')
     await until(() => fx.events.some((event) => event.type === 'turn_failed'), fx.events)
@@ -1547,3 +1549,41 @@ test('the conversation queue reserves edits across entry points and resumes the 
     assert.deepEqual((await snapshot()).queuedPrompts, [])
   } finally { releaseFirst(); await fx.close() }
 })
+
+test('resolves files at run time, warns without blocking later text, and persists the public input projection beyond jobs', async () => {
+  const prompts = [];
+  const ref = { itemId: randomUUID(), version: 1, name: 'missing.txt', mimeType: 'text/plain', sizeBytes: 3 };
+  const fx = await fixture(async (command, hooks) => {
+    prompts.push(command.prompt);
+    await recordTurn(command, hooks, '文件没能读取，请重新发送');
+    return { status: 'done', text: '文件没能读取，请重新发送' };
+  }, { prepare: ({ cloud }) => {
+    cloud.attachmentEndpoint = async () => ({ supabaseUrl: 'https://files.invalid', anonKey: 'public', token: 'test', fetch: async () => new Response(JSON.stringify({ status: 'gone', sha256: null }), { status: 200, headers: { 'Content-Type': 'application/json' } }) });
+  } });
+  try {
+    const created = await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: 'initial plain input' }], randomUUID());
+    await until(() => prompts.length === 1 && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events);
+    let journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'));
+    assert.equal(Object.values(journal.agents)[0].fileInputs, undefined);
+    await fx.host.invoke('sessionTimeline.sessionSend', [{ conversationId: created.conversationId, text: 'original caption', files: [ref], clientRequestId: randomUUID() }], randomUUID());
+    await until(() => prompts.length === 2 && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events);
+    assert.match(prompts[1], /^original caption\n\n/);
+    assert.match(prompts[1], /File not saved/);
+    assert.ok(fx.events.some(event => event.type === 'host_log' && event.level === 'warn' && event.message.includes(ref.itemId) && event.message.includes(created.conversationId)));
+    await fx.host.invoke('sessionTimeline.sessionSend', [{ conversationId: created.conversationId, text: 'following text', clientRequestId: randomUUID() }], randomUUID());
+    await until(() => prompts.length === 3 && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events);
+    assert.equal(prompts[2], 'following text');
+    await fx.host.close();
+    const reopened = await openPhoneAgentStore(fx.root, ownerId), agent = Object.values(reopened.state.agents)[0];
+    assert.equal(Object.keys(agent.fileInputs).length, 1);
+    reopened.state.jobs = {}; await reopened.save();
+    const timeline = createPhoneTimelineRuntime({ root: fx.root, store: reopened, authorize: async () => {} });
+    try {
+      const snapshot = await timeline.snapshot(agent, {});
+      const item = snapshot.turns.flatMap(turn => turn.items).find(item => item.kind === 'message' && item.role === 'user' && item.files?.length);
+      assert.equal(item.text, 'original caption');
+      assert.deepEqual(item.files, [ref]);
+      assert.doesNotMatch(JSON.stringify(item), /not saved|promptText/);
+    } finally { await timeline.close(); }
+  } finally { await fx.close(); }
+});

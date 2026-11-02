@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFileResolver, type FileProviders, type FileRevision } from '../../../../packages/core/src/shared/fileResolver'
-import { ciphertextSize, transformFile } from '../../../../packages/core/src/shared/fileCipher'
+import { ciphertextSize, createFileKey, transformFile } from '../../../../packages/core/src/shared/fileCipher'
 import { createProjectTransferHost } from '../../../../apps/desktop/electron/projectFileTransferHost'
 import { createFileChunkCache, createFileSink } from '../../../../apps/desktop/electron/fileSnapshot'
+import { createNodeFileResolver, saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
 import { createProjectFileReader, localProjectFileProvider, openProjectFileSource, snapshotProjectFile } from '../../../../apps/desktop/electron/projectFileHost'
 import { ownSshFileProvider } from '../../../../apps/desktop/electron/projectFileSsh'
 import { createDesktopFileAccess } from '../../../../apps/desktop/electron/desktopFileAccess'
@@ -21,6 +22,102 @@ const actor = { accountId: 'owner', actorId: 'owner' }
 const digest = (data: Uint8Array) => createHash('sha256').update(data).digest('hex')
 const identity = async () => ({ accountId, deviceId: 'host-device' })
 const reader = () => createProjectFileReader({ identity, root: async id => id === 'project' ? root : null, env })
+
+describe('downloads consume one file without the random-read cache', () => {
+  const remote = (content: Uint8Array = bytes) => {
+    const stored = { ...revision, source: 'managed-object' as const }
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).endsWith('/file-resolve')) return Response.json({ status: 'ready', ...stored })
+      if (String(url).endsWith('/file-download')) return Response.json({ status: 'ready', url: 'https://objects.invalid/file', size_bytes: stored.size_bytes, sha256: stored.sha256, download_id: 'download' })
+      if (String(url) === 'https://objects.invalid/file') return new Response(content as Uint8Array<ArrayBuffer>)
+      throw new Error('Unexpected file request')
+    })
+    return { resolve: createNodeFileResolver(tempRoot, async () => ({ supabaseUrl: 'https://files.invalid', anonKey: 'public', token: 'test', fetch: fetcher as typeof fetch })), fetcher }
+  }
+  it('writes one authenticated destination, reuses its verified digest, and leaves no remote-files chunks or snapshot', async () => {
+    const { resolve, fetcher } = remote()
+    const save = async () => {
+      const file = await resolve(ref, actor)
+      if (file.status !== 'ready') throw new Error('Missing fixture')
+      return saveFileHandle(file, join(home, 'attachments'), 'file.bin')
+    }
+    const [first, concurrent] = await Promise.all([save(), save()])
+    expect(first.file_path).toBe(concurrent.file_path)
+    expect(await readFile(first.file_path)).toEqual(bytes)
+    expect(await readdir(join(home, 'attachments', revision.sha256!))).toEqual(['file.bin'])
+    expect(await stat(tempRoot).catch(() => null)).toBeNull()
+    const gets = fetcher.mock.calls.filter(([url]) => String(url) === 'https://objects.invalid/file').length
+    await save()
+    expect(fetcher.mock.calls.filter(([url]) => String(url) === 'https://objects.invalid/file')).toHaveLength(gets)
+  })
+  it('removes the partial on a digest mismatch and never publishes corrupted content', async () => {
+    const { resolve } = remote(Buffer.alloc(bytes.length, 9))
+    const file = await resolve(ref, actor)
+    if (file.status !== 'ready') throw new Error('Missing fixture')
+    await expect(saveFileHandle(file, join(home, 'attachments'), 'file.bin')).rejects.toThrow('SHA-256')
+    expect(await stat(join(home, 'attachments', revision.sha256!)).catch(() => null)).toBeNull()
+    expect(await stat(tempRoot).catch(() => null)).toBeNull()
+  })
+
+  it.each([false, true])('authenticates encrypted downloads before publishing, including revoked access=%s', async revoked => {
+    const stored = { ...revision, temporary_transfer: true }, key = await createFileKey(), chunks: Uint8Array[] = []
+    const source = { size: bytes.length, read: async (offset: number, length: number) => bytes.subarray(offset, offset + length), dispose: async () => {} }
+    const encrypted = await transformFile({ direction: 'encrypt', revision: stored, source, key, sink: {
+      write: async chunk => { chunks.push(chunk) }, abort: async () => {},
+      commit: async () => ({ size: ciphertextSize(bytes.length), read: async () => new Uint8Array(), dispose: async () => {} }),
+    } })
+    const cipher = Buffer.concat(chunks), destination = join(home, 'attachments', revision.sha256!), routes: string[] = []
+    let resolutions = 0
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+      const route = String(url).split('/').at(-1)!
+      routes.push(route)
+      if (route === 'file-resolve') {
+        if (++resolutions === 2) {
+          expect((await readdir(destination)).every(name => name.endsWith('.part'))).toBe(true)
+          if (revoked) return Response.json({ error: 'denied', message: 'Access revoked' }, { status: 403 })
+        }
+        return Response.json({ status: 'ready', ...stored })
+      }
+      if (route === 'file-request') return Response.json({ status: 'ready', transfer_status: 'ready' })
+      if (route === 'file-download') return Response.json({ status: 'ready', url: 'https://objects.invalid/encrypted', size_bytes: cipher.length,
+        sha256: stored.sha256, download_id: 'encrypted', ciphertext_bytes: cipher.length, ciphertext_sha256: encrypted.ciphertextSha256,
+        codec: 'secretstream-v1', key: Buffer.from(key).toString('base64') })
+      if (route === 'encrypted') return new Response(cipher)
+      if (route === 'file-read-complete') return Response.json({ status: 'ready' })
+      throw new Error('Unexpected file request')
+    })
+    const resolve = createNodeFileResolver(tempRoot, async () => ({ supabaseUrl: 'https://files.invalid', anonKey: 'public', token: 'test', fetch: fetcher as typeof fetch }))
+    const file = await resolve(ref, actor)
+    if (file.status !== 'ready') throw new Error('Missing fixture')
+    try {
+      const saving = saveFileHandle(file, join(home, 'attachments'), 'file.bin')
+      if (revoked) {
+        await expect(saving).rejects.toThrow('Access revoked')
+        expect(await stat(destination).catch(() => null)).toBeNull()
+        expect(routes).not.toContain('file-read-complete')
+      } else {
+        expect(await readFile((await saving).file_path)).toEqual(bytes)
+        expect(await readdir(destination)).toEqual(['file.bin'])
+        expect(routes).toContain('file-read-complete')
+      }
+      expect(await stat(tempRoot).catch(() => null)).toBeNull()
+    } finally { key.fill(0) }
+  })
+
+  it('removes the partial when cancellation arrives during the object read', async () => {
+    const controller = new AbortController(), stored = { ...revision, source: 'managed-object' as const }
+    const resolve = createNodeFileResolver(tempRoot, async () => ({ supabaseUrl: 'https://files.invalid', anonKey: 'public', token: 'test',
+      fetch: async url => {
+        if (String(url).endsWith('/file-resolve')) return Response.json({ status: 'ready', ...stored })
+        if (String(url).endsWith('/file-download')) return Response.json({ status: 'ready', url: 'https://objects.invalid/file', size_bytes: stored.size_bytes, sha256: stored.sha256, download_id: 'download' })
+        return new Response(new ReadableStream({ pull(stream) { controller.abort(new Error('cancelled')); stream.enqueue(bytes); stream.close() } }))
+      } }))
+    const file = await resolve(ref, actor, { signal: controller.signal })
+    if (file.status !== 'ready') throw new Error('Missing fixture')
+    await expect(saveFileHandle(file, join(home, 'attachments'), 'file.bin')).rejects.toThrow('cancelled')
+    expect(await stat(join(home, 'attachments', revision.sha256!)).catch(() => null)).toBeNull()
+  })
+})
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'gugu-project-file-access-'))
   root = join(home, 'project'); tempRoot = join(home, 'snapshots')

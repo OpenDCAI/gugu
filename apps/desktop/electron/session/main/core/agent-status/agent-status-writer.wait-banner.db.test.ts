@@ -21,9 +21,6 @@ vi.mock('electron', () => ({
   app: { focus: vi.fn() },
   BrowserWindow: class {},
   Notification: class {
-    static isSupported() {
-      return true;
-    }
     constructor(options: { title: string; body: string; silent: boolean }) {
       mocks.banners.push(options);
     }
@@ -61,6 +58,7 @@ vi.mock('@main/core/pty/controller', () => ({ ptyController: { interrupt: vi.fn(
 const { agentHookService } = await import('../agent-hooks/agent-hook-service');
 const { agentStatusWriter } = await import('./agent-status-writer');
 const { setSessionAgentNotificationCopy } = await import('../agent-hooks/notification-copy');
+const { setSystemNotificationsUsable } = await import('../agent-hooks/system-notifications');
 
 let clock = 1_000;
 let cid = 'c0';
@@ -82,6 +80,7 @@ describe('desktop agent banners follow the status reading, whatever path it came
     await agentHookService.initialize();
     agentStatusWriter.initialize();
     setSessionAgentNotificationCopy({ needsApproval: 'needs approval', needsAnswer: 'needs answer' });
+    setSystemNotificationsUsable(async () => true);
   });
   afterAll(() => {
     agentStatusWriter.dispose();

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { SessionSummary } from '@gugu/session-core/acp';
 import { acpAgentStatusBridge } from '@main/core/acp/agent-status-bridge';
 import { assertHarnessConnectionSelectable, selectHarnessConnection } from '@main/core/agents/harness-connections';
@@ -12,16 +12,17 @@ import { sessionReclaimedChannel } from '@shared/core/sessions/provisionEvents';
 import { subscriptionSwitchProgressChannel } from '@shared/core/sessions/subscriptionSwitchEvents';
 import { stopExactSessionpageSession } from './session-orchestration';
 import { SubscriptionSessionsBusyError } from './subscription-sessions-busy';
+import { sessionLife } from './session-life';
+import { runtimeForksOf } from './session-life-forks';
 
 type SubscriptionProvider = 'claude' | 'codex';
-type LiveSession = { projectId: string; sessionId: string; busy: boolean };
+type LiveSession = { projectId: string; sessionId: string; busy: boolean; acp: boolean };
 
-const ACP_LIVE = new Set<SessionSummary['lifecycle']>(['starting', 'replaying', 'ready', 'working', 'cancelling']);
 /** 停一条会话等它的进程退出,一轮最多 10 s(`stop_pending` = 信号发了、还没退)。几轮都没退才报失败。 */
 const STOP_ATTEMPTS = 3;
 
-function acpBusy(summary: SessionSummary): boolean {
-  return summary.lifecycle !== 'ready'
+function acpBusy(summary: SessionSummary | undefined): boolean {
+  return summary === undefined || summary.lifecycle !== 'ready'
     || summary.isGenerating
     || summary.pendingPermissionCount > 0
     || summary.queuedPromptCount > 0
@@ -32,16 +33,22 @@ function acpBusy(summary: SessionSummary): boolean {
 /** 此刻进程在跑的这一家的会话(两种腿);它们都跑在用户的配置根上。 */
 function liveSessions(providerId: SubscriptionProvider): LiveSession[] {
   const live = new Map<string, LiveSession>();
-  for (const summary of acpAgentStatusBridge.current().values()) {
-    if (summary.providerId !== providerId || !ACP_LIVE.has(summary.lifecycle)) continue;
-    live.set(summary.sessionId, { projectId: summary.projectId, sessionId: summary.sessionId, busy: acpBusy(summary) });
+  // ACP: session-life says which sessions have a run; the runtime summary says only whether it is busy.
+  const summaries = acpAgentStatusBridge.current();
+  // A side chat runs the same harness on the same config root as its session: it stops too.
+  for (const { sessionId, parentId } of sessionLife().running()) {
+    const recordId = parentId ?? sessionId;
+    const row = db.select({ projectId: sessions.projectId, provider: sessions.provider }).from(sessions).where(eq(sessions.id, recordId)).get();
+    if (!row) throw new Error(`subscription switch: running session ${recordId} has no row`);
+    if (row.provider !== providerId) continue;
+    live.set(sessionId, { projectId: row.projectId, sessionId, busy: acpBusy(summaries.get(sessionId)), acp: true });
   }
   for (const pty of ptySessionRegistry.listActiveSessions()) {
     if (pty.metadata?.providerId !== providerId) continue;
     const parsed = parsePtySessionId(pty.ptySessionId);
     if (!parsed) continue;
     const status = db.select({ status: sessions.agentStatus }).from(sessions).where(eq(sessions.id, parsed.leafId)).get()?.status;
-    live.set(parsed.leafId, { projectId: parsed.projectId, sessionId: parsed.leafId, busy: status === 'working' || status === 'needs_user' });
+    live.set(parsed.leafId, { projectId: parsed.projectId, sessionId: parsed.leafId, busy: status === 'working' || status === 'needs_user', acp: false });
   }
   return [...live.values()];
 }
@@ -50,7 +57,7 @@ function liveSessions(providerId: SubscriptionProvider): LiveSession[] {
 async function stopForSwitch(session: LiveSession): Promise<boolean> {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await stopExactSessionpageSession(session);
+      return await stopExactSessionpageSession({ ...session, reason: 'version-switch' });
     } catch (error) {
       const pending = typeof error === 'object' && error !== null && 'code' in error && error.code === 'stop_pending';
       if (!pending || attempt >= STOP_ATTEMPTS) throw error;
@@ -82,13 +89,25 @@ export async function switchSubscription(
   const progress = (closed: number) => {
     if (live.length > 0) events.emit(subscriptionSwitchProgressChannel, { providerId, closed, total: live.length });
   };
+  const acp = live.filter((session) => session.acp);
+  const terminals = live.filter((session) => !session.acp);
+  // Every session-life session on this provider is held, resting ones too: a delivery in the middle of the swap
+  // must not start one on half-swapped credentials.
+  const parents = db.select({ id: sessions.id }).from(sessions).where(and(eq(sessions.runtime, 'acp'), eq(sessions.provider, providerId))).all().map((row) => row.id);
+  const held = [...parents, ...parents.flatMap((id) => runtimeForksOf(id))];
   try {
     progress(0);
-    for (const [index, session] of live.entries()) {
-      if (await stopForSwitch(session)) stopped.push(session);
-      progress(index + 1);
-    }
-    await selectHarnessConnection(providerId, connectionId, { nativeEnv });
+    // ACP sessions (side chats too) are held through the swap by session-life's sign-out window, scoped to them: none
+    // restarts on the old credentials, and the ones with queued input start on the new ones once it closes (v3.2).
+    await sessionLife().rotate(held, async () => {
+      stopped.push(...acp);
+      progress(acp.length);
+      for (const [index, session] of terminals.entries()) {
+        if (await stopForSwitch(session)) stopped.push(session);
+        progress(acp.length + index + 1);
+      }
+      await selectHarnessConnection(providerId, connectionId, { nativeEnv });
+    });
   } finally {
     for (const session of stopped) events.emit(sessionReclaimedChannel, { projectId: session.projectId, sessionId: session.sessionId });
     if (stopped.length > 0) {

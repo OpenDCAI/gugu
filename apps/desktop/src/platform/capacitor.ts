@@ -226,6 +226,27 @@ export const capacitorPlatform: AppPlatform = {
       if (handle) void handle.remove().catch(() => undefined)
     }
   },
+  subscribeNotificationClicks(listener) {
+    let active = true
+    let handle: { remove: () => Promise<void> } | null = null
+    // The plugin retains a cold-start tap until this first subscription, after MainLayout is ready.
+    void LocalNotifications.addListener('localNotificationActionPerformed', (event) => {
+      if (!active || event.actionId !== 'tap') return
+      const chatId: unknown = event.notification.extra?.chatId
+      listener({ chatId: typeof chatId === 'string' && chatId.length > 0 ? chatId : null })
+    }).then(
+      (registered) => {
+        handle = registered
+        if (!active) void registered.remove().catch(() => undefined)
+      },
+      () => undefined,
+    )
+    return () => {
+      if (!active) return
+      active = false
+      if (handle) void handle.remove().catch(() => undefined)
+    }
+  },
   subscribeAppActive(listener) {
     let active = true
     let handle: { remove: () => Promise<void> } | null = null

@@ -11,6 +11,7 @@ const { chatDbMock, identityDbMock, identityRpcMock, schemaMock } = vi.hoisted((
 let chatMembers: Array<{ chat_id: string; user_id: string; role: string }>
 let chatMembersSequence: Array<Array<{ chat_id: string; user_id: string; role: string }>> | null
 let chatMembersAttempts: number
+let collaborationRequests: string[]
 let chatErrorTables: Set<string>
 let agentStates: Array<Record<string, unknown>>
 let identityUsers: Array<Record<string, unknown>>
@@ -69,8 +70,6 @@ function chatTableResult(table: string): QueryResult {
         data: agentStates,
         error: null,
       }
-    case 'group_outputs':
-      return { data: [], error: null }
     default:
       throw new Error(`unexpected chat table ${table}`)
   }
@@ -78,27 +77,21 @@ function chatTableResult(table: string): QueryResult {
 
 function chatFrom(table: string) {
   const result = chatTableResult(table)
+  const fetch = async () => { collaborationRequests.push(table); return result }
   return {
     select: vi.fn(() => ({
       eq: vi.fn(() => {
         if (table === 'group_scheduler_states') {
-          return { maybeSingle: vi.fn(async () => result) }
+          return { maybeSingle: vi.fn(fetch) }
         }
         if (table === 'group_tasks') {
           return {
             order: vi.fn(() => ({
-              order: vi.fn(async () => result),
+              order: vi.fn(fetch),
             })),
           }
         }
-        if (table === 'group_outputs') {
-          return {
-            order: vi.fn(() => ({
-              limit: vi.fn(async () => result),
-            })),
-          }
-        }
-        return Promise.resolve(result)
+        return fetch()
       }),
     })),
   }
@@ -111,6 +104,7 @@ function identityFrom(table: string) {
 
 describe('group collaboration removed agent residue', () => {
   beforeEach(() => {
+    collaborationRequests = []
     chatMembers = [
       { chat_id: 'group-1', user_id: 'owner-1', role: 'owner' },
       { chat_id: 'group-1', user_id: 'user-missing', role: 'member' },
@@ -168,6 +162,7 @@ describe('group collaboration removed agent residue', () => {
     schemaMock.mockImplementation((schema: string) => {
       if (schema === 'chat') return { from: chatFrom, rpc: async (name: string) => {
         if (name !== 'list_member_ids') throw new Error(`unexpected collaboration RPC ${name}`)
+        collaborationRequests.push(name)
         return chatTableResult('active_members')
       } }
       if (schema === 'identity') return { from: identityFrom, rpc: identityRpcMock }
@@ -224,10 +219,10 @@ describe('group collaboration removed agent residue', () => {
       return {
         select: vi.fn(() => ({
           in: vi.fn((_field: string, ids: string[]) => ({
-            abortSignal: vi.fn(async () => ({
-              data: identityUsers.filter((identity) => ids.includes(String(identity.id))),
-              error: null,
-            })),
+            abortSignal: vi.fn(async () => {
+              collaborationRequests.push('users')
+              return { data: identityUsers.filter((identity) => ids.includes(String(identity.id))), error: null }
+            }),
           })),
           eq: vi.fn(() => ({
             eq: vi.fn(() => ({
@@ -240,6 +235,17 @@ describe('group collaboration removed agent residue', () => {
         })),
       }
     })
+  })
+
+  it('keeps a collaboration load within five requests, including identity lookup', async () => {
+    chatMembers = [{ chat_id: 'group-1', user_id: 'owner-1', role: 'owner' }]
+    identityUsers = [identityUsers[0]]
+
+    for (let i = 0; i < 3; i++) {
+      const { snapshot } = await chatService.getGroupCollab('group-1')
+      expect(snapshot.humans).toMatchObject([{ id: 'owner-1' }])
+      expect(collaborationRequests).toHaveLength(5 * (i + 1))
+    }
   })
 
   it('reads the roster from active_members and classifies members by their live identity, with no tombstone probe', async () => {
@@ -278,9 +284,9 @@ describe('group collaboration removed agent residue', () => {
   it('附属表读失败照实抛,❌ 当成「空」画出来', async () => {
     chatMembers = [{ chat_id: 'group-1', user_id: 'owner-1', role: 'owner' }]
     identityUsers = [identityUsers[0]]
-    chatErrorTables = new Set(['group_outputs'])
+    chatErrorTables = new Set(['group_agent_states'])
 
-    await expect(chatService.getGroupCollab('group-1')).rejects.toThrow('group_outputs')
+    await expect(chatService.getGroupCollab('group-1')).rejects.toThrow('group_agent_states')
   })
 
   it('成员读失败照实抛', async () => {

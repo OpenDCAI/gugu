@@ -1,11 +1,11 @@
 import { sessionBootTasks } from '../boot-tasks';
 import { drainSessionMessageOutbox } from './sendMessage';
+import { sessionLife } from './session-life';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { projects, sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { sessionEvents } from './session-events';
-import { getAcpRuntimeClient } from '@main/core/acp/controller';
 import { projectManager } from '@main/core/projects/project-manager';
 import { cleanupDetachedSessions, sessionWorkspaceManager } from './session-workspace-manager';
 import { log } from '@main/lib/logger';
@@ -97,6 +97,8 @@ export async function archiveOneLocked(projectId: string, sessionId: string, ski
   if (confirmedRemoval && previous.removedIdentity && confirmedRemoval.userId !== previous.removedIdentity.userId) throw new Error('Removed identity does not match the archival receipt');
   const removedIdentity = previous.removedIdentity ?? (removeSocialIdentity ? await sessionIdentityHost().archive(sessionId, confirmedRemoval) : null);
   if (row.archivedAt && !removedIdentity) return [];
+  // session-life archives first: it refuses later deliveries and fails the queued rows before the flag lands.
+  if (row.runtime === 'acp' && !row.archivedAt) await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'archive' });
   const archivedAt = row.archivedAt && previous.removedIdentity
     ? row.archivedAt : setSessionArchival(sessionId, true, new Date().toISOString(), removedIdentity);
 
@@ -130,6 +132,11 @@ export async function restoreSession(
   sessionId: string
 ): Promise<Session> {
   const restored = await serializeSessionArchival(sessionId, () => restoreSessionLocked(projectId, sessionId));
+  // ACP: session-life restores to dormant without starting (its archived rows already failed).
+  if (restored.runtime === 'acp') {
+    sessionLife().restore(sessionId);
+    return restored;
+  }
   // Run after releasing the archival lock: the existing router may wake this task through that lock.
   // Restore admits the retained outbox exactly once, without replaying any dispatching receipt.
   await sessionBootTasks.run('restore-outbox', sessionId, () => drainSessionMessageOutbox({ projectId, sessionId }));
@@ -187,11 +194,7 @@ async function stopSessionRuntime(
     return;
   }
   if (skipTransportStop) return;
-  if (runtime === 'acp') {
-    const result = await (await getAcpRuntimeClient()).stopSession({ sessionId });
-    if (!result.success) throw new Error('failed to stop ACP session');
-    return;
-  }
+  if (runtime === 'acp') return; // stopped by session-life's archive transition (archiveOneLocked)
   const project = projectManager.getProject(projectId);
   if (project) await cleanupDetachedSessions(projectId, sessionId, project.ctx);
 }

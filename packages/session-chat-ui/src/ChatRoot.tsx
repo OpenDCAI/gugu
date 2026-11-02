@@ -486,39 +486,8 @@ export function ChatRoot(props: ChatRootProps) {
     setTotalHeight(virt.total());
   };
 
-  // ── Geometry shadow ───────────────────────────────────────────────────────
-  //
-  // activeTurnReserve: the min-height of the active turn's response region,
-  // expressed as trailing canvas space. When the tail of content (from the last
-  // user message to the end) is shorter than the viewport, the reserve expands
-  // maxScrollTop so projectAnchor('anchor'/'top') can place the user message at the
-  // top. As the agent streams a response, tailHeight grows, reserve shrinks,
-  // and once the tail fills the viewport reserve is 0 (normal scrolling).
-  //
-  // INVARIANT: derives from virt.total() (real measured heights) and is added
-  // only in contentH — never fed back into virt — so there is no feedback loop
-  // and the heightmap is never polluted with reserve padding.
-  //
-  // Gated by pinUserMessages so views that don't need this behavior are unaffected.
-  // lastUserUnitIdx() is memoized on transcript changes, not per streaming tick.
-  const activeTurnReserve = () => {
-    if (!props.pinUserMessages) return 0;
-    const currentState = state();
-    const hasUncommittedTurn =
-      currentState.transcript.state.activeTurnSnapshot !== null ||
-      currentState.session.state.pendingPrompt !== null;
-    if (!hasUncommittedTurn) return 0;
-    const idx = lastUserUnitIdx();
-    if (idx < 0) return 0;
-    const tailHeight = totalHeight() - virt.top(idx);
-    // Subtract padBottom (composer height + TRANSCRIPT_VERTICAL_PADDING) so the
-    // reserve grants exactly enough room to bring the user message flush to the
-    // top edge, not past it. Without this, a short agent response allows the
-    // user message to over-scroll into blank space below the composer.
-    return Math.max(0, viewHeight() - padBottom() - tailHeight);
-  };
-
-  const contentH = () => totalHeight() + padTop() + padBottom() + activeTurnReserve();
+  // Scroll geometry depends on measured content, not turn lifecycle.
+  const contentH = () => totalHeight() + padTop() + padBottom();
   const maxScrollTop = () => Math.max(0, contentH() - viewHeight());
 
   // ── Flat unit view (two-tier, incremental) ────────────────────────────────
@@ -718,7 +687,7 @@ export function ChatRoot(props: ChatRootProps) {
     const pendingPrompt = s.session.state.pendingPrompt;
     const committedTurns = s.transcript.state.committedTurns;
     const hasActiveTurn = s.transcript.state.activeTurnSnapshot !== null;
-    if (pendingPrompt && (hasActiveTurn || committedTurns !== pendingPromptCommittedTurns)) {
+    if (pendingPrompt && (hasActiveTurn || (!pendingPrompt.held && committedTurns !== pendingPromptCommittedTurns))) {
       s.session.setPendingPrompt(null);
     }
     pendingPromptCommittedTurns = committedTurns;
@@ -882,9 +851,8 @@ export function ChatRoot(props: ChatRootProps) {
 
   // ── Last user message unit index ──────────────────────────────────────────
   // Finds the first unit index (in the full units() view) for the last user-
-  // role message. Scans activeTurn first so the reserve picks up the freshly-
-  // sent message during streaming (ACP bundles the prompt + response into one
-  // activeTurn), then falls back to committed. Used by reservedBottom below.
+  // role message. Scans activeTurn first for the freshly-sent message during
+  // streaming, then falls back to committed. Used by the visibility check.
   //
   // Memoized on committedUnitsVersion + activeTurn identity so it does not
   // recompute on every streaming text patch (only on structural turn changes).
@@ -910,8 +878,7 @@ export function ChatRoot(props: ChatRootProps) {
       }
     }
 
-    // 1b. 乐观行:发出了、真的那一轮还没开出 —— 它就是最后那一句。底部预留与贴顶都按它算,
-    //     与真的那一轮开出后一样,交接时那句话不跳(behavior session-page「打开速度」)。
+    // 1b. A pending prompt is the latest user message before its real turn arrives.
     if (targetId === null && !active) {
       targetId = state().session.state.pendingPrompt?.id ?? null;
     }
@@ -1139,10 +1106,12 @@ export function ChatRoot(props: ChatRootProps) {
 
   const writeScrollTop = (top: number) => {
     if (!scrollEl) return;
-    // Clamp arithmetically: projectAnchor already wrote canvasEl.style.height =
-    // contentH() before calling us, so maxScrollTop() matches what the browser
-    // would compute. Avoiding the read-back (scrollEl.scrollTop after the write)
-    // eliminates the forced layout reflow that the read-back caused. Safe because
+    // Synchronously update canvas height so scrollTop is never clamped: every
+    // caller may be running before this frame's commit() has grown the canvas.
+    if (canvasEl) canvasEl.style.height = `${contentH()}px`;
+    // Clamp arithmetically: the canvas now has contentH(), so maxScrollTop()
+    // matches what the browser would compute. Avoiding the read-back (scrollEl.scrollTop
+    // after the write) eliminates the forced layout reflow that the read-back caused. Safe because
     // USER_SCROLL_EPSILON filters any sub-pixel divergence in readPhase.
     const clamped = Math.max(0, Math.min(top, maxScrollTop()));
     scrollEl.scrollTop = clamped;
@@ -1180,13 +1149,11 @@ export function ChatRoot(props: ChatRootProps) {
     return i;
   }
 
-  // The ONE function that writes scrollTop. Flush canvas height first so the
-  // browser never clamps scrollTop to a stale (outgoing) canvas height — this
-  // is the root cause of "open at top after tab switch".
+  // The ONE function that writes scrollTop. writeScrollTop flushes canvas height
+  // first so the browser never clamps scrollTop to a stale (outgoing) canvas
+  // height — this is the root cause of "open at top after tab switch".
   const projectAnchor = (m: ScrollMode) => {
     if (!scrollEl) return;
-    // Synchronously update canvas height so scrollTop is never clamped.
-    if (canvasEl) canvasEl.style.height = `${contentH()}px`;
 
     if (m.kind === 'anchor') {
       const i = unitIndexOf(m.itemId, m.edge);
@@ -1194,7 +1161,7 @@ export function ChatRoot(props: ChatRootProps) {
         const rowTop = virt.top(i) + padTop();
         const target =
           m.edge === 'top' ? rowTop + m.offset : rowTop + virt.size(i) - viewHeight() + padBottom() + m.offset;
-        const next = Math.max(0, target);
+        const next = Math.max(0, Math.min(target, maxScrollTop()));
         // Sub-pixel no-op guard: if the settle correction is smaller than 1 px
         // (anchor already matches the current position), skip the write so the
         // browser thumb is never perturbed by a near-zero adjustment.
@@ -1266,7 +1233,6 @@ export function ChatRoot(props: ChatRootProps) {
     const live = scrollEl.scrollTop;
     const unread = live - expectedScrollTop;
     const carried = aboveResidue;
-    if (canvasEl) canvasEl.style.height = `${contentH()}px`;
     writeScrollTop(live + aboveDelta + carried);
     const stored = scrollEl.scrollTop;
     aboveResidue = expectedScrollTop - stored;
@@ -1963,7 +1929,7 @@ export function ChatRoot(props: ChatRootProps) {
         // Pin the toggled row at its current viewport position before the height
         // change. With readPhase no longer reclassifying intent on idle frames,
         // this anchor is now guaranteed to survive the tween — fixing the scroll
-        // jump on expand/collapse in short reserve-active transcripts.
+        // jump on expand/collapse in short transcripts.
         // ⚠️ 开关的 id 与它所在那一行的 unit id **未必是同一个**:带命名空间后缀的开关
         // (`${turnId}:outcome-detail`、`${turnId}:discarded`)在 `unitIndexOf` 里查不到 ⇒
         // `idx < 0` ⇒ 锚点没设上 ⇒ 点开视口上方的一行时,transcript 会在读者眼皮底下跳。

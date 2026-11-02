@@ -77,7 +77,9 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 24 (App model v2): `description` and `contributes.agentInstructions` are gone; `contributes.instructions` is the App's
 // line for agents and `defaultLocale` says what language the base fields are in. The product page is the market's
 // `store/` listing (app-listing.ts). No earlier manifest runs here any more (EXTENSION_API_VERSION_MIN_SUPPORTED, owner 10-31).
-export const EXTENSION_API_VERSION = 24;
+// 25: `files.canDelete(file | files)`, a page's — whether this person may delete each, asked as a file's menu opens; a listed entry
+// no longer carries `canDelete` (answering it for every file held the whole list).
+export const EXTENSION_API_VERSION = 25;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -125,9 +127,15 @@ export interface ExtensionMember {
   avatar?: string;
 }
 
-/** The session a surface is drawn in, as `getContext().session` gives it. */
-export interface ExtensionSession {
+/**
+ * The working copy a surface works on, as `getContext().workspace` gives it: a session's (`sessionId`, its agent, the
+ * machine it is on) or a project's root folder. `id` is what `gugu.files` names it by (`{ workspace: id }`).
+ */
+export interface ExtensionWorkspace {
+  /** `session:<id>` or `project:<id>`: the place `gugu.files.list({ workspace: id })` lists. */
   id: string;
+  /** The session it is the working copy of; absent for a project's root folder. */
+  sessionId?: string;
   /** Its agent, `user:<uuid>` — the one id an App names an agent by (F35), `listAgents`' `agentId`. Absent: none yet. */
   agentId?: string;
   /** The project it is in; absent for a session in none — a real answer, ❌ "". */
@@ -169,16 +177,20 @@ export interface ExtensionHostContext {
   /** A host modal's initial data, under the opener's context and existing grants. */
   modal?: { data?: unknown };
   /**
-   * The chat this surface is drawn for (its panel, 「在本群打开」): a group, a topic or a private chat, with who is in
+   * The conversation this surface is in (its panel, 「在本群打开」, a session's tab): a group, a topic or a private chat, with who is in
    * it — changes arrive by `onContextChanged`. Absent is a real answer: not in a chat. ❌ No `placement` field: an App
    * decides how to look from which of these facts are present, its capabilities and its layout (L3 评审第 2 条).
    */
   chat?: ExtensionChat & { members: ExtensionMember[] };
-  /** The session this surface is drawn in (a session's tab). Absent is a real answer: in no session. */
-  session?: ExtensionSession;
+  /**
+   * The working copy this surface works on — a session's tab: that session's; a page opened on a project's file: that
+   * project's folder. Absent is a real answer: it works on none. A session's tab has both: `chat` is the person's
+   * private chat with that session's agent.
+   */
+  workspace?: ExtensionWorkspace;
   /**
    * The file this surface was opened for — present only when the person opened that file with this App. It names
-   * where it lives (`{ chat, id }`, `{ session, id }` or `{ project, id }`), so `gugu.files.open(ctx.file)` opens it, and it is the one
+   * where it lives (`{ chat, id }` or `{ workspace, id }`), so `gugu.files.open(ctx.file)` opens it, and it is the one
    * file an App that asked for nothing may open. Absent is a real answer: opened for its own sake.
    */
   file?: AppFileRef & { id: string };
@@ -198,7 +210,7 @@ export interface ExtensionHostContext {
  * Which page a message or a call came from, as the host knows it — the place facts of that page's `getContext()`, in
  * the same shape (`onViewMessage`'s `from`, a page's `callProgram`). Filled by the host, never by the page.
  */
-export type ExtensionPageFrom = Pick<ExtensionHostContext, 'tabId' | 'session' | 'file' | 'operator'> & {
+export type ExtensionPageFrom = Pick<ExtensionHostContext, 'tabId' | 'workspace' | 'file' | 'operator'> & {
   chat?: ExtensionChat;
 };
 
@@ -636,8 +648,10 @@ export interface VerbFacts {
   /**
    * It follows the machine of the page's session (owner 10-16「程序跟着数据」): a page in a session on another of the
    * person's machines has it done THERE (`agentSession.app_call`), and that machine does it only for a verb with this.
+   * `place`: the machine of the working copy the call names (`{ session }`), never a chat's — a chat's files are the same
+   * from every machine.
    */
-  machine?: true;
+  machine?: true | 'place';
 }
 
 /**
@@ -801,7 +815,9 @@ export const BRIDGE_VERBS = {
   filesOpen: { needs: null },
   filesReopen: { needs: null },
   filesClose: { needs: null },
-  filesList: { needs: 'files:read' },
+  filesList: { needs: 'files:read', machine: 'place' },
+  /** Up to 512 KB of a working copy's file at an offset (`f.read`): how a file of any size is read, on its own machine. */
+  filesRead: { needs: 'files:read', machine: 'place' },
   /**
    * Files across every chat the reader is in (gugu-supabase 20261017002319): found by a piece of their path, and the ones
    * this person opened last. `files:read` already reads any chat they are in, so it is the same consent.
@@ -822,6 +838,8 @@ export const BRIDGE_VERBS = {
    * open read-write: the file the host handed this page needs nothing, any other `files:write` (checked in `app-files.ts`).
    */
   filesReplace: { needs: null },
+  /** Whether whoever reads may delete each file: asked as a file's menu opens, for that file (a list never carries it). */
+  filesCanDelete: { needs: 'files:read', only: 'page' },
   /** A chat file's kept versions, and one version's content (G2). Gated like open read-only, in `app-files.ts`. */
   filesVersions: { needs: null },
   filesReadVersion: { needs: null },
@@ -829,7 +847,7 @@ export const BRIDGE_VERBS = {
   filesWatch: { needs: 'files:read' },
   /**
    * Upload bytes the caller has — a page, a background page, an App's program (G5) — or files the person picks in the
-   * host's picker (a page's, only inside a gesture, checked in the preload). The credential stays in main (真源 §2.4).
+   * host's picker (a page's, only inside a gesture: `callRefusal`). The credential stays in main (真源 §2.4).
    */
   filesUpload: { needs: 'files:write', toAgent: { answer: [] }, gesture: (args) => args.pick === true },
   /** Save a file to disk through the host's save dialog, inside a gesture. Gated like open. */
@@ -865,8 +883,8 @@ export const BRIDGE_VERBS = {
   openLink: { needs: null, toAgent: { answer: undefined }, gesture: true, only: 'page' },
   /**
    * Put text on the system clipboard (`gugu.clipboard.writeText`). No capability, as on the
-   * web: it needs the person's gesture — checked in the preload's world, where a page script
-   * cannot fake it — and it only ever writes. It exists because a sandboxed frame on
+   * web: it needs the person's gesture — read where a page script cannot fake it (`CallRefusalCaller`)
+   * — and it only ever writes. It exists because a sandboxed frame on
    * WebView 133 offers no copy menu at all (真源 §4, L1 T3).
    */
   clipboardWriteText: { needs: null, toAgent: { answer: undefined }, gesture: true, only: 'page' },
@@ -876,6 +894,9 @@ export type ExtensionBridgeMethod = keyof typeof BRIDGE_VERBS;
 
 /** The verbs whose row says `machine`: read off the table, so a row is the one place that makes a verb follow the session's machine. */
 export type MachineVerb = { [K in ExtensionBridgeMethod]: (typeof BRIDGE_VERBS)[K] extends { machine: true } ? K : never }[ExtensionBridgeMethod];
+
+/** The verbs whose row says `machine: 'place'`: done on the machine of the working copy a call names. */
+export type PlaceVerb = { [K in ExtensionBridgeMethod]: (typeof BRIDGE_VERBS)[K] extends { machine: 'place' } ? K : never }[ExtensionBridgeMethod];
 
 export function isMachineVerb(method: string): method is MachineVerb {
   return verbFacts(method)?.machine === true;
@@ -908,15 +929,24 @@ export function gestureRefusal(method: string): { code: 'denied'; message: strin
 export const CALLER_WORDS = { page: 'a page', background: 'the background page', program: 'a program' } as const;
 
 /**
+ * Who is calling, as the verb's row needs to know it. A page's `gesture` is a fact, never the page's word: whether the
+ * person's input landed in that App's own surface within the activation window, read by the host's code at the edge of
+ * that surface where no App script reaches — the desktop's preload, in the page's isolated world; the phone's gate
+ * document, the App frame's parent in an origin of its own (gate.ts). Every host reads it there and hands it here.
+ */
+export type CallRefusalCaller =
+  | { kind: 'page'; has: (capability: ExtensionCapability) => boolean; gesture: boolean }
+  | { kind: 'background' | 'program'; has: (capability: ExtensionCapability) => boolean };
+
+/**
  * Whether this caller may make this call at all, by the verb's row — said in the same words on every host (the desktop's
  * main, the phone's host): a verb that is no verb, one that is another caller's (`only`), one whose capability this App
- * has not (`needs`), and — where the host reads the gesture itself (`gesture` given) — one outside the gesture it needs.
- * Null: it may.
+ * has not (`needs`), and one outside the gesture it needs. Null: it may.
  */
 export function callRefusal(
   method: string,
   args: unknown,
-  caller: { kind: keyof typeof CALLER_WORDS; has: (capability: ExtensionCapability) => boolean; gesture?: boolean },
+  caller: CallRefusalCaller,
 ): { code: 'invalid' | 'denied'; message: string } | null {
   const facts = verbFacts(method);
   if (!facts) return { code: 'invalid', message: `Unknown method: ${method}` };
@@ -926,7 +956,7 @@ export function callRefusal(
   const needs = capabilityNeeded(facts, args);
   if (needs !== null && !caller.has(needs)) return { code: 'denied', message: `Not permitted: this App does not have "${needs}"` };
   // Only a page has a gesture: the background page and a program never make a call that needs one.
-  if ((caller.gesture === false || caller.kind !== 'page') && needsGesture(method, args)) return gestureRefusal(method);
+  if ((caller.kind !== 'page' || !caller.gesture) && needsGesture(method, args)) return gestureRefusal(method);
   return null;
 }
 
@@ -1011,6 +1041,8 @@ export function pageArgument(method: BoundedVerb, args: Record<string, unknown>)
 export interface ExtensionBridgeRequest {
   method: string;
   args?: unknown;
+  /** Read by the preload in the page's world as the call left it (`CallRefusalCaller`); the page never sets it. */
+  gesture?: boolean;
 }
 
 /**

@@ -230,6 +230,8 @@ export interface AgentRuntimeBridge {
   injectAgentInbox?(input: AgentInboxInjectionInput): Promise<AgentInboxInjectionResult>
   /** Local session-direct outbox projected into the common inbox reader. */
   fetchLocalSessionDirectInbox?(agentUserId: string): Promise<AgentInboxUnreadRow[]>
+  /** Inbox rows this agent's session queue already holds (see AgentInboxReaderDeps.claimedSources). */
+  claimedInboxSources?(agentUserId: string, messageIds: readonly string[]): ReadonlyMap<string, boolean>
   /** A local session-direct row is acknowledged only after common-reader acceptance. */
   markLocalSessionDirectRead?(input: { agentUserId: string; sessionId: string; messageId: string }): Promise<void>
   /** 冷会话唤醒踢一脚——不 await(收信方开机代价记在收信方头上,#4320)。 */
@@ -658,7 +660,7 @@ export async function handleAgentDeliverDeviceCommand(
     const disclosed = text(payload.source) === 'forum'
       ? await discloseForumUndeliverable({ agentUserId: guguUserId, postId: text(payload.post_id) }, options)
       : await discloseUndeliverable(
-        { agentUserId: guguUserId, chatId, messageId, threadRootId: text(payload.thread_root_id) || null },
+        { agentUserId: guguUserId, chatId, messageId, threadRootId: text(payload.thread_root_id) || null, isWhisper: payload.is_whisper === true },
         options,
       )
     throw new UndeliverableAgentCommandError(guguUserId, disclosed)
@@ -742,6 +744,9 @@ export function agentInboxDepsFromBridge(input: {
     fetchForumUnread: (agentUserId: string) => fetchForumUnreadViaRpc(agentUserId, input.accessToken),
     ...(bridge.fetchLocalSessionDirectInbox
       ? { fetchLocalUnread: (agentUserId: string) => bridge.fetchLocalSessionDirectInbox!(agentUserId) }
+      : {}),
+    ...(bridge.claimedInboxSources
+      ? { claimedSources: (agentUserId: string, ids: readonly string[]) => bridge.claimedInboxSources!(agentUserId, ids) }
       : {}),
     ...(bridge.markLocalSessionDirectRead
       ? { markLocalRead: (input: { agentUserId: string; sessionId: string; messageId: string }) => bridge.markLocalSessionDirectRead!(input) }
@@ -996,6 +1001,7 @@ export async function syncAgentRuntimeSessions(
  * Retry(Retry 只会把同一条再送回同一个「无人持有」)。消息文本保持 `Local agent not found for <id>`(日志与命令 error 列的既有形状)。
  */
 export class UndeliverableAgentCommandError extends Error {
+  readonly reason = 'undelivered' as const
   readonly disclosed: boolean
   get disclosedInChat(): boolean { return this.disclosed }
   constructor(agentUserId: string, disclosed: boolean) {
@@ -1098,9 +1104,11 @@ async function discloseForumUndeliverable(
 }
 
 async function discloseUndeliverable(
-  input: { agentUserId: string; chatId: string; messageId: string; threadRootId: string | null },
+  input: { agentUserId: string; chatId: string; messageId: string; threadRootId: string | null; isWhisper: boolean },
   options: HandleAgentDeliverDeviceCommandOptions,
 ): Promise<boolean> {
+  // This row is public: saying it about a whisper would tell the chat who was whispered to. The command error stays private.
+  if (input.isWhisper) return false
   if (!input.chatId || !input.messageId) {
     log.error(
       { agentUserId: input.agentUserId, chatId: input.chatId || null, messageId: input.messageId || null },

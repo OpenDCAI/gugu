@@ -120,11 +120,13 @@ describe('the canonical read-only file resolver', () => {
     await result.dispose(); await result.dispose()
     expect(f.file.dispose).toHaveBeenCalledTimes(1)
   })
+  // Who may read is the metadata lookup as the actor; where the bytes come from is not (P3): this account's own SSH
+  // serves the person and their agents alike, never another account.
   it.each([
     [{ accountId: 'owner', actorId: 'owner' }, true],
     [{ accountId: 'other', actorId: 'other' }, false],
-    [{ accountId: 'owner', actorId: 'owned-agent' }, false],
-  ] as const)('borrows SSH only for the device owner acting as themselves (%j)', async (reader, own) => {
+    [{ accountId: 'owner', actorId: 'owned-agent' }, true],
+  ] as const)('borrows SSH only for a reader of the hosting account (%j)', async (reader, own) => {
     const f = fixture()
     f.providers.ssh.mockResolvedValue(f.file)
     const result = await f.resolve(ref, reader)
@@ -133,6 +135,64 @@ describe('the canonical read-only file resolver', () => {
     expect(f.providers.ssh).toHaveBeenCalledTimes(own ? 1 : 0)
     expect(f.providers.temporary).toHaveBeenCalledTimes(own ? 0 : 1)
     await result.dispose()
+  })
+  describe("bytes of a version this account's own device keeps (P3)", () => {
+    const agent = { accountId: 'owner', actorId: 'owned-agent' }
+    // The device's own index answers only the device owner acting as themselves (localProjectFileProvider).
+    const ownerOnly = (f: ReturnType<typeof fixture>, kept: FileRevision, open: () => Promise<FileBytes>) =>
+      f.providers.local.mockImplementation(async (context) => context.actor.actorId === context.actor.accountId ? { revision: kept, open } : null)
+
+    it('an agent authorized by its metadata lookup reads them on this device, never over SSH or the cloud', async () => {
+      const f = fixture(), open = vi.fn(async () => f.file)
+      ownerOnly(f, revision, open)
+      f.providers.metadata.mockResolvedValue({ status: 'ready', revision: { ...revision, temporary_transfer: false } })
+      const result = await f.resolve(ref, agent)
+      if (result.status !== 'ready') throw Error('Expected ready')
+      expect(f.providers.metadata).toHaveBeenCalledWith(expect.objectContaining({ actor: agent }))
+      expect(open).not.toHaveBeenCalled()
+      await result.read(0, 4)
+      expect(open).toHaveBeenCalledTimes(1)
+      expect(f.providers.local).toHaveBeenLastCalledWith(expect.objectContaining({ actor: { accountId: 'owner', actorId: 'owner' } }))
+      expect(f.providers.ssh).not.toHaveBeenCalled(); expect(f.providers.temporary).not.toHaveBeenCalled()
+      await result.dispose()
+    })
+    it.each(['gone', 'expired', 'missing'] as const)('metadata says %s for the agent: the local copy is never read', async (status) => {
+      const f = fixture(), open = vi.fn(async () => f.file)
+      ownerOnly(f, revision, open)
+      f.providers.metadata.mockResolvedValue({ status, sha256: null })
+      expect(await f.resolve(ref, agent)).toEqual({ status, sha256: null })
+      expect(f.providers.local).toHaveBeenCalledTimes(1)
+      expect(f.providers.local).toHaveBeenCalledWith(expect.objectContaining({ actor: agent }))
+      for (const call of [open, f.providers.ssh, f.providers.temporary, f.file.read]) expect(call).not.toHaveBeenCalled()
+    })
+    it("a version another account's device keeps goes to temporary transfer; this device's index is not asked", async () => {
+      const f = fixture(), open = vi.fn(async () => f.file)
+      ownerOnly(f, revision, open)
+      f.providers.metadata.mockResolvedValue({ status: 'ready', revision: { ...revision, host_account_id: 'other' } })
+      const result = await f.resolve(ref, agent)
+      if (result.status !== 'ready') throw Error('Expected ready')
+      await result.read(0, 1)
+      expect(f.providers.local).toHaveBeenCalledTimes(1)
+      expect(open).not.toHaveBeenCalled(); expect(f.providers.ssh).not.toHaveBeenCalled()
+      expect(f.providers.temporary).toHaveBeenCalledTimes(1)
+      await result.dispose()
+    })
+    it.each([
+      ['sha', { sha256: 'cd'.repeat(32) }],
+      ['size', { size_bytes: 17 }],
+      ['version', { version: 2 }],
+      ['item', { item_id: 'another' }],
+    ] as const)('a local copy whose revision differs (%s) is not used: own SSH, then temporary', async (_label, changed) => {
+      const f = fixture(), open = vi.fn(async () => f.file)
+      ownerOnly(f, { ...revision, ...changed }, open)
+      const result = await f.resolve(ref, agent)
+      if (result.status !== 'ready') throw Error('Expected ready')
+      await result.read(0, 1)
+      expect(open).not.toHaveBeenCalled()
+      expect(f.providers.ssh).toHaveBeenCalledWith(revision, expect.objectContaining({ actor: { accountId: 'owner', actorId: 'owner' } }))
+      expect(f.providers.temporary).toHaveBeenCalledTimes(1)
+      await result.dispose()
+    })
   })
   it('an absent held SSH link may use allowed temporary transfer; an integrity refusal cannot', async () => {
     const f = fixture()
@@ -189,6 +249,8 @@ describe('the canonical read-only file resolver', () => {
     const result = await f.resolve(ref, actor)
     if (result.status !== 'ready') throw Error('Expected ready')
     const read = result.read(0, 1), checked = expect(read).rejects.toThrow('disposed')
+    // The provider is reached after this device's own index was asked (P3): dispose while it is acquiring.
+    await vi.waitFor(() => expect(f.providers.ssh).toHaveBeenCalled())
     const closing = result.dispose()
     finish(f.file)
     await Promise.all([checked, closing])

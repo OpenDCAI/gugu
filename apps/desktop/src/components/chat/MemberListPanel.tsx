@@ -27,7 +27,7 @@ import { HeaderSearch } from '../ui/HeaderSearch'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import type { MemberProfileChatTarget } from '../MemberProfileCard'
 import { useGroupMemberPanelControls } from './GroupMemberPanelControls'
-import { groupRoleRevision, useGroupChatSettings } from './useGroupChatSettings'
+import { groupRoleRevision, useGroupChatSettings, type GroupChatSettingsState } from './useGroupChatSettings'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -81,7 +81,7 @@ const metaCellStyle = {
 // @@@ui-ruler 其余结构性 style 一并提到模块作用域(同 ChatListPanel 的 *_STYLE 常量):
 // 既避免每次渲染重建对象,也让 JSX 里不再残留内联几何块这条债务痕迹。
 // 依赖 props/state 的那一档提成纯函数,保持同一条纪律。
-// 档位是一行淡字(❌ 带框的胶囊:看着像按钮);说明在悬停浮层里。主人点它照旧翻档。
+// 档位是一行淡字(❌ 带框的胶囊:看着像按钮);说明在悬停浮层里。agent 的主人和群管理员点它翻档。
 const listenModeToggleStyle = (editable: boolean): React.CSSProperties => ({
   padding: 0, minHeight: 0, height: 'auto', flexShrink: 0, fontWeight: 400,
   fontSize: 'var(--font-caption)', lineHeight: 1.2, color: 'var(--muted-fg)',
@@ -122,7 +122,7 @@ const MEMBER_LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, minHeight: 0, o
  * 两个值的东西不需要两个按钮占一整行 —— 那条灰底三连在视觉上不协调。
  * 现在一行只留当前档位本身,点一下就翻到另一档。
  * 变更走 useListenModeEditControls 那条**现成**的 mutation(chat_members.listen_mode);
- * 不是这个 agent 的主人拿不到 editControls ⇒ 这里就是只读镜像,点不动。
+ * 既不是这个 agent 的主人、也不是群管理员的拿不到 editControls ⇒ 这里就是只读镜像,点不动。
  */
 function ListenModeToggle({
   value,
@@ -244,6 +244,7 @@ export type MemberListPanelProps = {
    */
   chatName?: string | null
   /** @@@6418 群:名册被这里改动(邀请/移出/改角色/审批)后通知外层重读它自己的那份快照。 */
+  settingsState?: GroupChatSettingsState
   snapshot: GroupCollabSnapshot | null
   error?: UseGroupCollabLoaderResult['error']
   onReload: () => Promise<void>
@@ -251,7 +252,7 @@ export type MemberListPanelProps = {
   onWhisper?: (target: MemberProfileChatTarget) => void
 }
 
-export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, error, onReload: load, onOpenUserChat, onWhisper }: MemberListPanelProps) {
+export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, settingsState, error, onReload: load, onOpenUserChat, onWhisper }: MemberListPanelProps) {
   const { t } = useTranslation('messaging')
   const { t: tContacts } = useTranslation('contacts')
   const { user } = useAuth()
@@ -272,7 +273,9 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
   const people = useMemo(() => unified.filter((member) => member.type === 'human'), [unified])
   const agentMembers = useMemo(() => unified.filter((member) => member.type === 'agent'), [unified])
 
-  const { settings, error: settingsError } = useGroupChatSettings(chatId, snapshot ? groupRoleRevision(snapshot) : undefined)
+  const ownSettings = useGroupChatSettings(settingsState ? null : chatId, snapshot ? groupRoleRevision(snapshot) : undefined)
+  const { settings, error: settingsError, reload: reloadSettings } = settingsState ?? ownSettings
+  const reload = useCallback(async () => { reloadSettings(); await load() }, [reloadSettings, load])
   const group = useGroupMemberPanelControls({
     chatId,
     chatKind,
@@ -281,7 +284,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
     identities,
     agentStatuses,
     currentUserId: user?.id ?? null,
-    onReload: load,
+    onReload: reload,
     onOpenUserChat,
     onWhisper,
   })
@@ -292,11 +295,13 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
   const mobile = useMobileShell()
   useEffect(() => { setQuery('') }, [chatId])
 
-  // 只有 agent 的主人拿得到可交互的档位控件 —— 判断与 mutation 都在这个现成 hook 里,这里不复制一份。
+  // The row and profile use the same owner/source-group permission and mutation hook.
   const resolveEditControls = useListenModeEditControls({
     chatId,
     currentUserId: user?.id ?? null,
-    onReload: load,
+    settings,
+    onAuthorityReload: reloadSettings,
+    onReload: reload,
   })
 
   // 管理能力来自服务端;话题参与角色不授予改名权。

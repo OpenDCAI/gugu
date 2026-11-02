@@ -1,6 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
 import type { AgentAttention } from '@gugu/core/shared/agentStatus'
-import { notify } from '../lib/notices'
 import { Sheet } from '../components/ui/Sheet'
 import { PaneHeader } from '../components/ui/Pane'
 import { RightPanelBackButton } from '../components/chat/RightPanel'
@@ -60,6 +59,7 @@ import { useSessionpageReveal } from '../hooks/useSessionpageReveal'
 import { useOwnedAgentConversationEntry } from '../hooks/useOwnedAgentConversationEntry'
 import { SessionInputOutboxHost } from '../hooks/useSessionInputOutbox'
 import { NeedsYouHost } from '../components/needsYou/NeedsYouHost'
+import { AgentFailureSlotHost } from '../components/AgentTurnFailureBar'
 import { NeedsYouSlot } from '../components/needsYou/NeedsYouSlot'
 import { AgentSharePopover } from '../components/sessionpage/AgentSharePopover'
 import { SESSIONPAGE_SHARE_ANCHOR_SELECTOR } from '../lib/sessionpageShareAnchor'
@@ -84,7 +84,6 @@ import { chatService } from '../lib/chat'
 import { readAgentCreateDefaults, rememberAgentCreateProject } from '../lib/agentCreateDefaults'
 import { rememberedAgentCreateProject } from '@gugu/core/shared/ui/agentCreateDefaultsModels'
 import { createOptimisticDmChat, createOptimisticGroupChat } from '@gugu/core/shared/ui/chatModels'
-import { agentFailureNeedsModelChoice, agentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import { pushToHost as pushTrayBadgeEnabled } from '../lib/trayBadgeSetting'
 import { hydrateSidebarTint } from '../lib/sidebarTint'
 import { UI_EVENTS } from '../lib/uiEvents'
@@ -207,7 +206,8 @@ function InnerLayout({
     writeDraft,
     draftAttachments,
     setDraftAttachments,
-  } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'writeDraft', 'draftAttachments', 'setDraftAttachments')
+    identitiesById, setDraftQuote,
+  } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'writeDraft', 'draftAttachments', 'setDraftAttachments', 'identitiesById', 'setDraftQuote')
   // A compose's images join the attachments already queued for its chat.
   const draftAttachmentsRef = useRef(draftAttachments)
   draftAttachmentsRef.current = draftAttachments
@@ -270,7 +270,7 @@ function InnerLayout({
   const openOwnedAgent = useOwnedAgentConversationEntry({ ownerId: user.id, chats, contacts, mobile, onOpen: () => setActiveTab('tasks') })
   const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason, peerId?: string, draft?: string, sourceChatId?: string): string | null => {
     if (!sourceChatId && openAssistantChat(chatId)) return mobile ? 'assistant' : assistantSlotKey('chat')
-    if (openOwnedAgent(chatId, peerId, draft, sourceChatId)) { setActiveTab('tasks'); return 'tasks' }
+    if (openOwnedAgent(chatId, peerId, draft, sourceChatId)) return 'tasks'
     if (!chatsAreBlocks) return null
     const sessionPage = readSessionpageViewRequestBridge()
     if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
@@ -590,20 +590,24 @@ function InnerLayout({
   }, [mobile, activeTab])
 
 
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const { chatId } = (event as CustomEvent<{ chatId?: unknown }>).detail ?? {}
-      if (typeof chatId !== 'string' || chatId.length === 0) return
-      if (openChatBlock(chatId, 'notification-open')) return
+  const openNotification = useCallback((chatId: unknown) => {
+    if (typeof chatId !== 'string' || chatId.length === 0) return
+    if (openChatBlock(chatId, 'notification-open')) return
 
-      setActiveChatId(chatId)
-      setActiveTab('chats')
-      setMobilePane('chat')
-      focusComposerForUserEntry('notification-open')
-    }
+    setActiveChatId(chatId)
+    setActiveTab('chats')
+    setMobilePane('chat')
+    focusComposerForUserEntry('notification-open')
+  }, [setActiveTab, focusComposerForUserEntry, openChatBlock, setActiveChatId])
+  const openNotificationRef = useRef(openNotification)
+  openNotificationRef.current = openNotification
+  useEffect(() => {
+    const handler = (event: Event) => openNotification((event as CustomEvent<{ chatId?: unknown }>).detail?.chatId)
     window.addEventListener(UI_EVENTS.notificationClicked, handler)
     return () => window.removeEventListener(UI_EVENTS.notificationClicked, handler)
-  }, [setActiveTab, focusComposerForUserEntry, openChatBlock, setActiveChatId])
+  }, [openNotification])
+  // Keep the first native listener alive: the plugin delivers the retained cold-start tap only once.
+  useEffect(() => platform.subscribeNotificationClicks?.(({ chatId }) => openNotificationRef.current(chatId)), [])
 
 
   // 群成员面板的「新建 Agent 并加入本群」:手机与联系人页「新建 Agent」同一条(会话页选机器),只是带上这个群;
@@ -648,8 +652,11 @@ function InnerLayout({
       if (openOwnedAgent(detail.chatId, undefined, {
         text: [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n'),
         files: detail.images?.map(image => new File([image.bytes], image.name, { type: image.type })), append: true,
-      })) return
+      })) { setDraftQuote(detail.chatId, null); return }
       const placed = (chatId: string) => {
+        if (detail.quote) setDraftQuote(chatId, { messageId: detail.quote.id, source: detail.quote,
+          senderName: identitiesById[detail.quote.sender_user_id ?? '']?.display_name ?? '',
+          content: detail.quote.content_type === 'attachment' ? t('chatArea.attachment', { ns: 'messaging' }) : detail.quote.content ?? '' })
         const text = [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n')
         if (text) writeDraft(chatId, { at: 'end', text })
         if (detail.images?.length) {
@@ -693,7 +700,7 @@ function InnerLayout({
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
       window.removeEventListener(UI_EVENTS.openApp, onOpenInChat)
     }
-  }, [focusComposerForUserEntry, openOwnedAgent, openChatTarget, writeDraft, setDraftAttachments, t, toast, user.id])
+  }, [focusComposerForUserEntry, openOwnedAgent, openChatTarget, writeDraft, setDraftAttachments, setDraftQuote, identitiesById, t, toast, user.id])
 
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),
@@ -706,38 +713,6 @@ function InnerLayout({
     if (!activeChatId || previous === activeChatId || document.documentElement.dataset.mobileDirection) return
     setMobilePane('chat')
   }, [activeChatId])
-
-  const failedDeliveries = useRef(new Map<string, Set<string>>())
-  // One notice per task, with the actual cause and distinct source messages while it is visible.
-  useEffect(() => {
-    const handleSessionpageDeliverFailed = (event: Event) => {
-      const detail = (event as CustomEvent).detail as { agentUserId?: string; messageId?: string | null; error?: string } | undefined
-      if (!detail?.agentUserId) return
-      // #7685 额度/模型类由运行条的 agent 状态位 + 恢复前只弹一次的提示说(AgentTurnFailureSlot)，❌ 每条失败的投递再弹一条。
-      if (agentFailureNeedsModelChoice(agentFailureReason(detail.error))) return
-      const agentId = detail.agentUserId
-      const messages = failedDeliveries.current.get(agentId) ?? new Set<string>()
-      failedDeliveries.current.set(agentId, messages)
-      if (detail.messageId) messages.add(detail.messageId)
-      const clear = () => {
-        if (failedDeliveries.current.get(agentId) === messages) failedDeliveries.current.delete(agentId)
-      }
-      const contact = contacts.find((c) => c.id === agentId)
-      const name = contact?.alias?.trim() || contact?.display_name || agentId
-      notify({
-        key: `sessionpage-delivery:${agentId}`,
-        title: messageForUser(detail.error),
-        description: messages.size
-          ? t('shell.toast.taskDeliverFailedCount', { name, count: messages.size })
-          : t('shell.toast.taskDeliverFailed', { name }),
-        tier: 'error',
-        onDismiss: clear,
-        onAutoClose: clear,
-      })
-    }
-    window.addEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
-    return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
-  }, [contacts, t])
 
   // @@@sessionpage 分享 — 会话页头部点了「分享这个 agent 的名片」:main 只转达 agentUserId + 名字,咕咕号与
   // 头像从**通讯录同一份数据**取(自有 agent 就在 contacts 里),再交给既有的 SharePosterDialog 出卡片 ——
@@ -992,7 +967,7 @@ function InnerLayout({
       data-phone-shell={mobile ? '' : undefined}
       data-gugu-shell-phase={effectsActive ? 'active' : 'committed-inert'}
       data-desktop-shell={mobile ? undefined : ''}
-      // 手机全线一个底:咕咕页那套渐变 + 玻璃(owner 10-26),壳上挂 data-ta-scope 让 --ta-* 处处可用。
+      // 手机全线一个中性纯色底,壳上挂 data-ta-scope 让 --ta-* 处处可用。
       data-ta-scope={mobile ? '' : undefined}
       style={{
         display: 'flex',
@@ -1286,6 +1261,7 @@ function InnerLayout({
       {/* 摩擦单 F6: an install is consented to here, over whatever view is on screen. */}
       <ExtensionConsentSheet />
       <NeedsYouHost onAttentionChange={setSessionAttention} />
+      <AgentFailureSlotHost />
 
       {/* @@@822 frameless 自绘窗口控制(Windows/Linux 右上角 min/max/close);Mac/web 自渲染为 null。
           ⚠️ **必须挂在整棵壳的最后** —— Electron 把 Blink 收集到的 drag / no-drag 矩形按 **DOM 序**

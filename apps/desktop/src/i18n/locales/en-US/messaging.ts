@@ -63,7 +63,6 @@ export default {
         "authentication": "Model authorization refused",
         "network": "Cannot reach the model service",
         "timeout": "No response in time",
-        "offline": "The device disconnected",
         "rateLimited": "Too many requests",
         "nextMessage": "The next message will retry automatically",
         "recovered_one": "{{name}}: {{count}} earlier reply failed · recovered",
@@ -71,10 +70,10 @@ export default {
         "settings": "Open settings"
       },
       "state": {
-        "exhausted": "out of credits",
-        "weekly": "weekly limit reached",
-        "monthly": "monthly limit reached",
-        "model-unavailable": "model unavailable"
+        "quota": "out of credits",
+        "weeklyQuota": "weekly limit reached",
+        "monthlyQuota": "monthly limit reached",
+        "modelUnavailable": "model unavailable"
       },
       "stateAction": "{{name}}: {{state}}. Click to change model",
       "authentication": "The model service refused authorization for this reply.",
@@ -89,8 +88,8 @@ export default {
       "close": "Close",
       "generic": "This Agent could not complete the reply",
       "notAdmitted": "Messages retained. Your assistant will reply when ready.",
+      "outcomeUnknown": "Delivery result unknown: the message may have reached your assistant, and it was not resent.",
       "undelivered": "Not delivered yet: no running Gugu instance holds this Agent. It will read the message once that instance is open.",
-      "offline": "The device disconnected before the reply completed",
       "retry": "Retry",
       "retrying": "Retrying…",
       "timeout": "This Agent did not respond in time"
@@ -457,6 +456,7 @@ export default {
     "reactWith": "React with {{emoji}}"
   },
   "forward": {
+    "fileFailed": "{{name}} could not be forwarded with the task",
     "batchPreview": "Forward {{count}} messages",
     "batchPreview_one": "Forward {{count}} message",
     "batchPreview_other": "Forward {{count}} messages",
@@ -668,7 +668,6 @@ export default {
     "appPinsLoadFailed": "Could not load pinned Apps.",
     "appPinsSaveFailed": "Could not save pinned Apps.",
     "noGroupApps": "No Apps available on this device.",
-    "openInGroup": "Open in this group…",
     "announcement": "Group announcement",
     "groupInfo": "Group info",
     "chatInfo": "Conversation info",
@@ -714,9 +713,9 @@ export default {
     "agentRole": "Agent",
     "backToList": "Back to imported history",
     "label": "Imported history",
-    "turnMeta": "{{count}} turns · {{date}}",
-    "turnMeta_one": "{{count}} turn · {{date}}",
-    "turnMeta_other": "{{count}} turns · {{date}}",
+    "turnMeta": "{{count}} messages · {{date}}",
+    "turnMeta_one": "{{count}} message · {{date}}",
+    "turnMeta_other": "{{count}} messages · {{date}}",
     "userRole": "You",
     "view": "View {{title}}"
   },
@@ -760,6 +759,7 @@ export default {
       "title": "Read receipt"
     },
     "retracted": "Message retracted",
+    "deliveredFrom": "From {{name}}",
     "sendStatus": {
       "unknown": "Awaiting confirmation",
       "unknownHint": "Waiting for the publication result. This message will update automatically; no need to resend.",
@@ -768,7 +768,17 @@ export default {
       "failedActions": "Undelivered message actions",
       "failedHint": "Not delivered. Click to retry or discard.",
       "queued": "Sending. Your assistant will reply when ready.",
-      "sending": "Sending"
+      "undelivered": "instance not running, not delivered",
+      "sending": "Sending",
+      "held": "Waiting for retry",
+      "stopped": "Stopped. Sends with your next message.",
+      "unknownNotResent": "Result unknown; not resent",
+      "failure": {
+        "hostOffline": "The computer running this task is offline. It will be sent automatically once that computer is back.",
+        "hostNotReady": "The computer running this task is not ready for messages yet. Retry in a moment.",
+        "phoneUnconfirmed": "Your phone has not confirmed this message yet. Retry in a moment.",
+        "noAcknowledgement": "The task did not respond. Retry in a moment."
+      }
     },
     "showQuoted": "Go to the quoted message",
     "svgFigure": {
