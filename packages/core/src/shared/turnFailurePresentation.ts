@@ -6,7 +6,9 @@ export function turnFailurePresentation(reason: AgentFailureReason) {
   const title = modelChoice || reason === 'notAdmitted' || reason === 'undelivered' ? null : reason
   return {
     tone: reason === 'authentication' || modelChoice ? 'danger' as const : 'warn' as const,
-    titleKey: title ? `agent.turnFailure.card.${title}` as const : `agent.turnFailure.${reason}` as const,
+    // undelivered is titled in the words its bubble already uses: one fact, one phrase.
+    titleKey: reason === 'undelivered' ? 'message.sendStatus.undelivered' as const
+      : title ? `agent.turnFailure.card.${title}` as const : `agent.turnFailure.${reason}` as const,
     bodyKey: `agent.turnFailure.${reason}` as const,
     nextMessageKey: 'agent.turnFailure.card.nextMessage' as const,
     recoveredKey: 'agent.turnFailure.card.recovered' as const,

@@ -65,6 +65,7 @@ describe('AgentTurnFailureBar reason', () => {
   })
   it('says an undelivered message without a retry that would resend it to nobody', async () => {
     await harness.render(createNode(AgentTurnFailureBar, { failure: { ...baseFailure, reason: 'undelivered' }, displayName: 'Gugu', avatar: null, onDismiss: vi.fn() }))
+    expect(harness.container.querySelector('.tfc-title')?.textContent).toBe('所在实例未运行、未送达')
     expect(harness.container.querySelector('.tfc-reason')?.textContent).toContain('没有运行中的咕咕实例')
     expect(harness.container.querySelector('[data-testid="agent-turn-failure-retry"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="agent-turn-failure-dismiss"]')).not.toBeNull()
