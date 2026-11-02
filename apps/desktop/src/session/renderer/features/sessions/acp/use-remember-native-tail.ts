@@ -27,19 +27,13 @@ export function rememberNativeTail(deviceId: string, sessionId: string, availabl
         flight.pending = undefined;
         if (!requested()) break;
         try {
-          const read = (limit?: number) => machineRpc(deviceId).sessionTimeline.sessionNativeRecord({
-            conversationId: sessionId, tail: true, ...(limit === undefined ? {} : { limit }),
+          const result = await machineRpc(deviceId).sessionTimeline.sessionNativeRecord({
+            conversationId: sessionId, tail: true,
           });
-          let result = await read();
           if (!result.ok) throw new Error(result.error.message);
           if (JSON.stringify(result.value).length > MAX_ENTRY_BYTES) {
-            if (!requested()) break;
-            result = await read(20);
-            if (!result.ok) throw new Error(result.error.message);
-            if (JSON.stringify(result.value).length > MAX_ENTRY_BYTES) {
-              log.warn({ deviceId, sessionId }, 'Native tail exceeds the cache limit at 20 turns');
-              break;
-            }
+            log.warn({ deviceId, sessionId }, 'Native tail exceeds the cache limit');
+            break;
           }
           writeCachedNativeRecord({ deviceId, sessionId }, result.value);
         } catch (error) {

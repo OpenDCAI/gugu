@@ -121,20 +121,11 @@ it('drops a queued save when its page is gone or its host becomes unavailable', 
   expect(env.read).toHaveBeenCalledTimes(1);
 });
 
-it('rereads an oversized tail once at 20 turns and stores only that page', async () => {
-  const large = page('x'.repeat(4 * 1024 * 1024));
-  env.read.mockResolvedValueOnce(ok(large)).mockResolvedValueOnce(ok());
-  await rememberNativeTail('host', 's', () => true);
-  expect(env.read.mock.calls).toEqual([
-    ['host', { conversationId: 's', tail: true }], ['host', { conversationId: 's', tail: true, limit: 20 }],
-  ]);
-  expect(env.write.mock.calls).toEqual([[{ deviceId: 'host', sessionId: 's' }, page()]]);
-});
-
-it('warns once and keeps the old cache if the smaller tail is still oversized', async () => {
+it('skips an oversized tail and warns once without rereading it', async () => {
   env.read.mockResolvedValue(ok(page('x'.repeat(4 * 1024 * 1024))));
   await rememberNativeTail('host', 's', () => true);
-  expect(env.read).toHaveBeenCalledTimes(2); expect(env.write).not.toHaveBeenCalled();
+  expect(env.read.mock.calls).toEqual([['host', { conversationId: 's', tail: true }]]);
+  expect(env.write).not.toHaveBeenCalled();
   expect(env.warn).toHaveBeenCalledTimes(1);
 });
 
