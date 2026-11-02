@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { useCallback, useContext, useEffect } from 'react';
-import { chatTabSlotKey, readShellSlots } from '@/lib/shellSlots';
-import { requestOwnedAgentResourceHost } from '@/lib/ownedAgentResources';
+import { readShellSlots } from '@/lib/shellSlots';
+import { requestOwnedAgentResourceHost, ownedAgentResourceSlotKey } from '@/lib/ownedAgentResources';
 import type { SessionTabContext } from '../tabs/core/session-tab-context';
 import type { TabContentProps } from '../tabs/core/tab-provider';
 import { PairPlacementContext } from '../tabs/pair-placement-context';
@@ -20,7 +20,7 @@ export const TabContent = observer(function Content({ host, ctx }: TabContentPro
 function Slot({ resource, visible, style, ctx, tabId, onFocus }: { resource: Resource; visible: boolean; style?: React.CSSProperties; ctx: SessionTabContext; tabId: string; onFocus: () => void }) {
   const { chatId, sourceTabId } = resource.state;
   useEffect(() => { requestOwnedAgentResourceHost(chatId, { projectId: ctx.projectId, sessionId: ctx.sessionId }) }, [chatId, ctx.projectId, ctx.sessionId]);
-  const ref = useCallback((element: HTMLDivElement | null) => readShellSlots()?.setSlot(chatTabSlotKey(chatId, sourceTabId), element), [chatId, sourceTabId]);
+  const ref = useCallback((element: HTMLDivElement | null) => readShellSlots()?.setSlot(ownedAgentResourceSlotKey(chatId, sourceTabId), element), [chatId, sourceTabId]);
   return <RetainedTabContent ref={ref} visible={visible} style={style} className="absolute inset-0 flex min-h-0 min-w-0 flex-col" data-session-chat-resource={chatId} data-pane-tab={tabId} onPointerDownCapture={onFocus} onFocusCapture={onFocus} />;
 }
 

@@ -67,3 +67,6 @@ export function ownedAgentResourceTabs(): ResourceTabs {
   if (!tabs) throw new Error('The conversation resource host is unavailable')
   return tabs
 }
+
+/** Native resource slots never compete with a restored legacy chat's panel slots. */
+export const ownedAgentResourceSlotKey = (chatId: string, tabId: string): string => `owned-agent-resource:${chatId}/${tabId}`
