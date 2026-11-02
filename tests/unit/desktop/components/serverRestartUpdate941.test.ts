@@ -43,6 +43,20 @@ afterEach(() => {
 })
 
 describe('confirmed server update feedback', () => {
+  it.each(['zh-CN', 'en-US'] as const)('renders the counted confirmation in %s for zero and multiple running tasks', async locale => {
+    setLocalePreference(locale)
+    for (const count of [0, 2]) {
+      await render(server({ state: 'ready', version: target, busy_agents: count }))
+      await click('update-now')
+      const text = node('update-now-confirm')!.textContent!
+      expect(text).not.toContain('devices.update.updateNowConfirmCount')
+      expect(text).toContain(locale === 'zh-CN'
+        ? `${count} 个正在运行的任务会被中断，更新完成后自动继续。`
+        : `${count} running tasks will be interrupted and will automatically continue after the update.`)
+      await click('update-now-no')
+    }
+  })
+
   it('shows the actual download target and a known waiting count, leaving an unknown count unspecified', async () => {
     await render(server({ state: 'downloading', version: target }))
     expect(node('update')!.textContent).toContain(target)
