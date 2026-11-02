@@ -33,11 +33,9 @@ import { useTranscriptTimeline } from './use-transcript-timeline';
  * `railCapacity` / `turnsPerTick` 与 session-timeline-turns 的 `ticksFromTurns`)。
  * ❌ 不是把行距压细:那版试过,260 轮时一行 3.3px,owner:「要不弄个上限吧,现在太密了」。
  *
- * Ticks of turns that *arrived* (another agent / a person, through 咕咕) are
- * painted in the info colour and their preview names the sender; the user's
- * own turns stay neutral (owner 2026-09-04:「要看出来消息来自于谁」)。一格代表多轮时
- * 这条判在格子层面:格里有投递就整格标投递色、代表取那一条 —— 否则投递被埋在格中间
- * 就整格看不出来。
+ * Only human inputs are projected onto the rail. Human deliveries keep their
+ * sender label; agent, system and scheduled inputs remain in the transcript
+ * but have no marker or preview. Grouping only considers eligible human inputs.
  */
 
 /**

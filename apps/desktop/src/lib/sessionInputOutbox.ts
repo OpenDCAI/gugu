@@ -1,12 +1,17 @@
 import { lifeHoldIsFailure, type LifeView } from '@/session/shared/core/sessions/session-life'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { rendererLogger } from './log'
+import { createIndexedDbHandle } from './indexedDbHandle'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 export type SessionInput = {
   id: string; accountId: string; deviceId: string | null; sessionId: string; text: string; createdAt: number
   attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
   files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]
   failure?: SessionInputFailure
+  /** Presentation only: an explicitly queued input remains in the composer queue. */
+  queued?: boolean
+  baseline?: string[]
+  afterTurnId?: string
 }
 /** Failures the sender itself names; any other send error keeps the host's own words. */
 export type SessionInputFailure =
@@ -70,13 +75,14 @@ export interface SessionInputStorage {
 export class SessionInputOutbox {
   private flushing: Promise<void> | null = null
   private again = false
+  private retryFailures = false
   private writing: Promise<unknown> = Promise.resolve()
   constructor(readonly accountId: string, private readonly storage: SessionInputStorage,
     private readonly send: (input: SessionInput) => Promise<void>, private readonly current: () => boolean,
     private readonly changed: () => void = () => {},
     private readonly beforeEnqueue: (input: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments'>) => void = () => {}) {}
 
-  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments'>): Promise<SessionInput> {
+  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId'>): Promise<SessionInput> {
     if (!this.current()) throw new Error('Session input account changed')
     const written = this.writing.catch(() => undefined).then(async () => {
       if (!this.current()) throw new Error('Session input account changed')
@@ -93,17 +99,23 @@ export class SessionInputOutbox {
 
   list(): Promise<SessionInput[]> { return this.storage.list(this.accountId) }
 
-  flush(): Promise<void> {
+  flush(retryFailures = false): Promise<void> {
+    this.retryFailures ||= retryFailures
     if (this.flushing) { this.again = true; return this.flushing }
     this.flushing = this.drainUntilCurrent().finally(() => { this.flushing = null })
     return this.flushing
   }
 
   private async drainUntilCurrent(): Promise<void> {
-    do { this.again = false; await this.drain() } while (this.again && this.current())
+    do {
+      this.again = false
+      const retryFailures = this.retryFailures
+      this.retryFailures = false
+      await this.drain(retryFailures)
+    } while (this.again && this.current())
   }
 
-  private async drain(): Promise<void> {
+  private async drain(retryFailures: boolean): Promise<void> {
     const blocked = new Set<string>()
     const rows = (await this.list()).sort((a, b) => a.createdAt - b.createdAt)
     for (const input of rows) {
@@ -111,6 +123,11 @@ export class SessionInputOutbox {
       const target = `${input.deviceId ?? 'local'}/${input.sessionId}`
       if (blocked.has(target)) continue
       try {
+        if (input.failure && retryFailures) {
+          delete input.failure
+          await this.storage.put(input)
+          this.changed()
+        }
         await withSessionInputDeadline(this.send(input))
         await this.storage.remove(this.accountId, input.id)
       } catch (error) {
@@ -136,25 +153,32 @@ export async function withSessionInputDeadline<T>(operation: Promise<T>, timeout
 
 /** A separate durable store: IM cache recovery must never discard unsent native inputs. */
 export async function openSessionInputStorage(factory: IDBFactory = indexedDB): Promise<SessionInputStorage> {
-  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+  const handle = createIndexedDbHandle(() => new Promise<IDBDatabase>((resolve, reject) => {
     const request = factory.open('gugu.session-input-outbox.v1', 1)
     request.onupgradeneeded = () => request.result.createObjectStore('inputs', { keyPath: ['accountId', 'id'] })
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
-  })
-  const mutate = (run: (store: IDBObjectStore) => void) => new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('inputs', 'readwrite')
-    tx.oncomplete = () => resolve()
-    tx.onabort = () => reject(tx.error ?? new Error('Session input persistence aborted'))
-    tx.onerror = () => reject(tx.error)
-    run(tx.objectStore('inputs'))
-  })
+  }))
+  await handle.get()
+  const mutate = async (run: (store: IDBObjectStore) => void) => {
+    const db = await handle.get()
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('inputs', 'readwrite')
+      tx.oncomplete = () => resolve()
+      tx.onabort = () => reject(tx.error ?? new Error('Session input persistence aborted'))
+      tx.onerror = () => reject(tx.error)
+      run(tx.objectStore('inputs'))
+    })
+  }
   return {
-    list: accountId => new Promise((resolve, reject) => {
-      const request = db.transaction('inputs').objectStore('inputs').getAll(IDBKeyRange.bound([accountId, ''], [accountId, '\uffff']))
-      request.onsuccess = () => resolve(request.result as SessionInput[])
-      request.onerror = () => reject(request.error)
-    }),
+    list: async accountId => {
+      const db = await handle.get()
+      return new Promise<SessionInput[]>((resolve, reject) => {
+        const request = db.transaction('inputs').objectStore('inputs').getAll(IDBKeyRange.bound([accountId, ''], [accountId, '\uffff']))
+        request.onsuccess = () => resolve(request.result as SessionInput[])
+        request.onerror = () => reject(request.error)
+      })
+    },
     put: input => mutate(store => { store.put(input) }),
     remove: (accountId, id) => mutate(store => { store.delete([accountId, id]) }),
   }

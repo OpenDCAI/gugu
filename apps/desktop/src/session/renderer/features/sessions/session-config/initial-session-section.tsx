@@ -74,6 +74,7 @@ import { platformEffortFacts, resolveCreateEfforts } from '@shared/core/agents/c
 import { HARNESS_MODEL_CATALOG_QUERY_KEY, useHarnessModelCatalog } from '@renderer/lib/stores/use-harness-model-catalog';
 import { queryClient } from '@renderer/lib/query-client';
 import { useLibraryHost } from '@renderer/features/library/library-host';
+import { useComposerTrayBand } from '../composer-tray';
 import { useHarnessModelCredential } from '@renderer/lib/stores/use-harness-model-credential';
 import { resolveSignInTarget } from '@renderer/features/settings/agents-page/agent-account';
 import { useAgentAuthStatus } from '@renderer/lib/stores/use-agent-auth-status';
@@ -1345,6 +1346,7 @@ export function InitialSessionField({
   onSubmit,
   canSubmit = false,
 }: InitialSessionFieldProps) {
+  const bandAbove = useComposerTrayBand();
   const { translate } = useSessionMessages();
   const { navigate } = useNavigate();
   const editorApiRef = useRef<PromptEditorRef | null>(null);
@@ -1791,6 +1793,7 @@ export function InitialSessionField({
         {...dropHandlers}
       >
         <ChatComposer
+          bandAbove={bandAbove}
           editorOptions={{ clearOnSubmit: false }}
           canSubmit={canSubmit}
           showSubmitButton={!!onSubmit}

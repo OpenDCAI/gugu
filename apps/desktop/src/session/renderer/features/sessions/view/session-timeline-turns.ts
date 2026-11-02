@@ -1,4 +1,5 @@
-import { readDeliveryEnvelope, type DeliveryReading } from '@gugu/core/local/agent/deliveryEnvelope';
+import { readDeliveryEnvelope, type DeliveryReadFacts } from '@gugu/core/local/agent/deliveryEnvelope';
+import { timelineRailMessages, timelineRailPreviewText, type TimelineRailOptions } from '@gugu/core/shared/timelineRail';
 import { shownSender, type SelfIdentity, type TranscriptTurn } from '@gugu/session-chat-ui';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 
@@ -35,11 +36,10 @@ export interface TimelineTurn {
   sender?: TimelineSender;
 }
 
-function senderOf(delivery: DeliveryReading, self: SelfIdentity | null): TimelineSender {
-  const facts = delivery.segments.length === 1 ? delivery.segments[0]!.facts : null;
+function senderOf(facts: DeliveryReadFacts, self: SelfIdentity | null): TimelineSender {
   // #5048 the signed-in user's own delivered turn is named from the local profile, like the card.
-  const name = facts ? shownSender(facts.from, facts.fromId, self) : null;
-  if (!facts || !name || facts.route === 'system' || facts.route === 'scheduled') return { kind: 'gugu' };
+  const name = shownSender(facts.from, facts.fromId, self);
+  if (!name) return { kind: 'gugu' };
   if (facts.route === 'session-direct') return { kind: 'session', name };
   if (facts.route === 'extension') return { kind: 'extension', name };
   if (facts.route === 'forum') return { kind: 'forum', name };
@@ -55,7 +55,8 @@ function senderOf(delivery: DeliveryReading, self: SelfIdentity | null): Timelin
  */
 export function timelineTurnsFromTranscript(
   transcript: readonly TranscriptTurn[],
-  self: SelfIdentity | null = null
+  self: SelfIdentity | null = null,
+  options: TimelineRailOptions = {},
 ): TimelineTurn[] {
   const turns: TimelineTurn[] = [];
   for (const turn of transcript) {
@@ -63,27 +64,34 @@ export function timelineTurnsFromTranscript(
     let first = true;
     for (const item of turn.items) {
       if (item.kind === 'message' && item.role === 'user') {
-        const delivery = readDeliveryEnvelope(item.text);
-        const prompt = (delivery?.body ?? item.text).trim();
-        // Agent-only synthetic user rows are not user inputs. An actual
-        // delivery remains navigable even when it arrives in an agent turn.
-        if (!prompt || (turn.initiator !== 'user' && !delivery)) continue;
-        current = {
-          id: first ? turn.id : `${turn.id}:${item.id}`,
-          ...(first ? {} : { sourceTurnId: turn.id }),
-          anchorItemId: item.id,
-          itemIds: [],
-          prompt,
-          reply: '',
-          ...(delivery ? { sender: senderOf(delivery, self) } : {}),
-        };
+        // Every input ends the preceding preview, including a hidden delivery.
+        current = undefined;
+        const firstInput = first;
         first = false;
-        turns.push(current);
+        const delivery = readDeliveryEnvelope(item.text);
+        if (turn.initiator !== 'user' && !delivery) continue;
+        const humans = timelineRailMessages(item.text, { ...options, selfUserId: self?.userId ?? options.selfUserId });
+        for (const [index, human] of humans.entries()) {
+          const isFirst = firstInput && index === 0;
+          current = {
+            id: isFirst ? turn.id : `${turn.id}:${item.id}${index ? `:${index}` : ''}`,
+            ...(isFirst ? {} : { sourceTurnId: turn.id }),
+            anchorItemId: item.id,
+            itemIds: [item.id],
+            prompt: human.text,
+            reply: '',
+            ...(human.sender ? { sender: senderOf(human.sender, self) } : {}),
+          };
+          turns.push(current);
+        }
+        // A reply to a mixed batch cannot be attributed to any one human.
+        if (delivery && delivery.segments.length !== humans.length) current = undefined;
+        continue;
       }
       if (!current) continue;
       current.itemIds.push(item.id);
       if (!current.reply && item.kind === 'message' && item.role === 'assistant') {
-        current.reply = item.text.trim();
+        current.reply = timelineRailPreviewText(item.text);
       }
     }
   }

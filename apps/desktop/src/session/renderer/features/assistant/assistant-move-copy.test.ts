@@ -14,6 +14,7 @@ import {
   probeReadable,
   type FsEntry,
   type HomeFs,
+  type CopyCheckpoint,
 } from './assistant-move-copy';
 
 type Node = { kind: 'dir' } | { kind: 'file'; bytes: Uint8Array } | { kind: 'symlink' };
@@ -100,6 +101,59 @@ function memoryDisk(initial: Record<string, string | Uint8Array | 'dir' | 'symli
 }
 
 describe('助理搬家拷文件 (#7199)', () => {
+  it('does not record a target baseline if its revision changes during inspection', async () => {
+    const old = memoryDisk({ '/o': 'dir', '/o/a.md': 'SOURCE' });
+    const target = memoryDisk({ '/n': 'dir', '/n/r': 'dir', '/n/r/a.md': 'BEFORE' });
+    let probes = 0;
+    target.fs.revision = async () => {
+      if (++probes === 1) return 'v1';
+      target.nodes.set('/n/r/a.md', { kind: 'file', bytes: new TextEncoder().encode('NEW-AT-TARGET') });
+      return 'v2';
+    };
+    const checkpoint: CopyCheckpoint = { files: {}, resuming: false, save: async () => {} };
+    const args = { from: old.fs, fromRoot: '/o', to: target.fs, toBase: '/n', toRoot: '/n/r', plan: await planTree(old.fs, '/o'), checkpoint };
+    await expect(copyTree(args)).rejects.toMatchObject({ code: 'conflict' });
+    expect(checkpoint.files).toEqual({});
+    checkpoint.resuming = true;
+    await expect(copyTree(args)).rejects.toMatchObject({ code: 'conflict' });
+    expect(target.text('/n/r/a.md')).toBe('NEW-AT-TARGET');
+    expect(target.writes).toEqual([]);
+  });
+  it('retains the pre-upload baseline when copying is interrupted before the first write', async () => {
+    const old = memoryDisk({ '/o': 'dir', '/o/a.md': 'OLD' });
+    const target = memoryDisk({ '/n': 'dir' });
+    const checkpoint: CopyCheckpoint = { files: {}, resuming: false, save: async () => {} };
+    const write = target.fs.writeChunk;
+    target.fs.writeChunk = async () => { throw new Error('network disconnected'); };
+    const args = { from: old.fs, fromRoot: '/o', to: target.fs, toBase: '/n', toRoot: '/n/r', plan: await planTree(old.fs, '/o'), checkpoint };
+    await expect(copyTree(args)).rejects.toThrow('network disconnected');
+    target.nodes.set('/n/r/a.md', { kind: 'file', bytes: new TextEncoder().encode('NEW-AT-TARGET') });
+    target.fs.writeChunk = write;
+    checkpoint.resuming = true;
+    await expect(copyTree(args)).rejects.toMatchObject({ code: 'conflict' });
+    expect(target.text('/n/r/a.md')).toBe('NEW-AT-TARGET');
+    // The user preserves the newer content under another name, then resumes safely.
+    target.nodes.set('/n/r/saved-new.md', target.nodes.get('/n/r/a.md')!);
+    target.nodes.delete('/n/r/a.md');
+    await copyTree(args);
+    expect(target.text('/n/r/a.md')).toBe('OLD');
+    expect(target.text('/n/r/saved-new.md')).toBe('NEW-AT-TARGET');
+  });
+
+  it('recognizes a committed file after its write response is lost, without writing it again', async () => {
+    const old = memoryDisk({ '/o': 'dir', '/o/a.md': 'OLD' });
+    const target = memoryDisk({ '/n': 'dir' });
+    const checkpoint: CopyCheckpoint = { files: {}, resuming: false, save: async () => {} };
+    const write = target.fs.writeChunk;
+    target.fs.writeChunk = async (args) => { await write(args); throw new Error('commit response lost'); };
+    const args = { from: old.fs, fromRoot: '/o', to: target.fs, toBase: '/n', toRoot: '/n/r', plan: await planTree(old.fs, '/o'), checkpoint };
+    await expect(copyTree(args)).rejects.toThrow('commit response lost');
+    target.fs.writeChunk = write;
+    checkpoint.resuming = true;
+    await copyTree(args);
+    expect(target.text('/n/r/a.md')).toBe('OLD');
+    expect(target.writes).toHaveLength(1);
+  });
   it('记忆夹整棵树原样拷过去:嵌套目录、二进制、空文件;旧家一个字节都不写', async () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 255, 128]);
     const pending = JSON.stringify({ version: 1, items: [{ id: 'unfinished-work', source_link: 'original-source', state: 'waiting' }] });
@@ -214,6 +268,19 @@ describe('说明只搬人写的那一段', () => {
   const OLD_MANAGED = '<!-- 咕咕管家维护这一段,改了会被覆盖;写在这段外面的会保留 -->\n旧家的管家段\n<!-- /咕咕管家 -->';
   const NEW_MANAGED = '<!-- 咕咕管家维护这一段,改了会被覆盖;写在这段外面的会保留 -->\n新家的管家段\n<!-- /咕咕管家 -->';
 
+  it('preserves newer user instructions on retry', async () => {
+    const old = memoryDisk({ '/o/CLAUDE.md': `${OLD_MANAGED}\n\nOLD USER\n` });
+    const target = memoryDisk({ '/n/CLAUDE.md': `${NEW_MANAGED}\n` });
+    const checkpoint: CopyCheckpoint = { files: {}, resuming: false, save: async () => {} };
+    const args = { from: old.fs, fromPath: '/o/CLAUDE.md', to: target.fs, toPath: '/n/CLAUDE.md', checkpoint };
+    await copyUserInstructions(args);
+    await target.fs.writeText('/n/CLAUDE.md', `${NEW_MANAGED}\n\nNEW USER\n`);
+    checkpoint.resuming = true;
+    await expect(copyUserInstructions(args)).rejects.toMatchObject({ code: 'conflict' });
+    expect(target.text('/n/CLAUDE.md')).toContain('NEW USER');
+    expect(target.text('/n/CLAUDE.md')).toContain('新家的管家段');
+  });
+
   it('新家的管家段原样留着,人写的换成旧家的(❌ 旧家的管家段盖过去)', async () => {
     const old = memoryDisk({ '/o/CLAUDE.md': `${OLD_MANAGED}\n\n叫我小满,说话简短。\n` });
     const fresh = memoryDisk({ '/n/CLAUDE.md': `${NEW_MANAGED}\n` });
@@ -238,6 +305,10 @@ describe('说明只搬人写的那一段', () => {
 });
 
 describe('搬之前试读 / 补拷的差集 / 总量', () => {
+  it('rechecks same-size files when either listing has no modification time', () => {
+    const before = { dirs: [], skipped: [], totalBytes: 3, files: [{ rel: 'note', size: 3, mtime: null }] };
+    expect(diffPlan(before, before).files).toHaveLength(1);
+  });
   it('probeReadable:读不了的文件(目录列表当普通文件报出来的坏链接)第一个就抛,带相对路径', async () => {
     const d = memoryDisk({ '/o/a.md': '一', '/o/bad.md': '二' });
     const realRead = d.fs.readChunk;

@@ -1,17 +1,17 @@
 /**
  * #7199 电脑控制的「正在操作 · 停止」小条与人接管 —— 按 App 算,不按整台电脑算(owner 10-15:「不接管电脑,只接管这个 App」):
  *
- * - agent 动某个 App(看也算:人该知道有人在看它),在实际目标窗口内浮一枚小条「<谁> 正在操作「<App>」 · 停止」;
- *   没指定 App 的动作(列 App、读屏幕大小、整屏截图、挪 agent 自己的鼠标)是「<谁> 正在查看这台电脑」,
- *   它不盖掉已经亮着的条(正在操作的 App、或人刚停下的 App)。最后一个动作做完半分钟没有下一个,小条收起。
+ * - agent 操作某个 App 时,提示附着到实际目标窗口;只读调用不进入控制器。
+ *   没指定 App 的操作也更新提示,让停止能中止当前动作;只读调用不盖掉提示。
+ *   最后一个动作做完半分钟没有下一个,小条收起。
  * - 人照常用电脑 —— 包括点进、挪动 agent 正在操作的那个 App —— 都不打断它:cua-driver 在后台做事,不碰人的真鼠标和前台。
  * - 「停止」只停小条上的那个 App:它在途的动作中断,之后 agent 再动这个 App 一律拒,直到人点「让它继续」;别的 App 照常。
- *   小条上是「正在查看这台电脑」时按停止 = 整个电脑控制停下。
+ *   没指定 App 时提示附着前台窗口,停止仍作用于整个电脑控制。
  */
 
-/** 小条本身(main 用一个不抢焦点、不进截图的置顶小窗实现;测试换成记录器)。没有 app = 没指定 App(查看这台电脑);app 没 name = 认不出名字的 App。 */
+/** 窗口附着提示(main 用一个不抢焦点、不进截图的小窗实现;测试换成记录器)。没有 app 时附着前台窗口。 */
 export interface ComputerControlView {
-  show(view: { state: 'driving' | 'paused'; callerName?: string; taskTitle?: string; app?: { pid: number; name?: string; windowId?: number } }): void
+  show(view: { state: 'driving' | 'paused'; callerName?: string; taskTitle?: string; app?: { pid: number; name?: string; windowId?: number } }): void | Promise<boolean>
   hide(): void
 }
 
@@ -24,7 +24,7 @@ export interface ComputerCall {
   appName?: string
 }
 
-export type ComputerCallHandle = { refused: string } | { signal: AbortSignal; end(): void }
+export type ComputerCallHandle = { refused: string } | { signal: AbortSignal; ready?: Promise<boolean>; end(): void }
 
 export interface ComputerControl {
   /** 动作开始前:这个 App(或整个电脑控制)被人停了 → 回拒绝原因;否则登记,回这一下的中止信号(人按停止时触发)与收尾。 */
@@ -46,7 +46,7 @@ export function appStopped(appName: string | undefined): string {
   return `The person pressed Stop for ${app} on its window's control bar: they are taking ${app} over. Do not operate ${app} until they press "继续 / Continue" on that bar; other apps are not affected. Tell them what you did in ${app} and what is left.`
 }
 
-export const COMPUTER_STOPPED = 'The person pressed Stop on the bar at the bottom of their screen. Do not use computer.* until they press "继续 / Continue" on that bar. Tell them what you have done and what is left.'
+export const COMPUTER_STOPPED = 'The person stopped computer control. Do not use computer.* until they allow it to continue. Tell them what you have done and what is left.'
 
 const LINGER_MS = 30_000
 const PAUSED_BAR_MS = 2 * 60_000
@@ -77,7 +77,7 @@ export function createComputerControl(input: { view: ComputerControlView; linger
   const show = (next: NonNullable<typeof shown>) => {
     shown = next
     clearHide()
-    input.view.show({
+    return input.view.show({
       state: next.state,
       ...(next.callerName ? { callerName: next.callerName } : {}),
       ...(next.taskTitle ? { taskTitle: next.taskTitle } : {}),
@@ -103,15 +103,14 @@ export function createComputerControl(input: { view: ComputerControlView; linger
       const set = inFlight.get(subject) ?? new Set<AbortController>()
       set.add(controller)
       inFlight.set(subject, set)
-      // 没指定 App 的动作不盖掉已经亮着的条:正在操作的 App 留着让人认得出、能停;暂停的留着让人点得到「让它继续」。
-      if (call.pid !== undefined || !shown) {
-        const windowId = call.windowId
-        show({ subject, ...identity, ...(call.appName ? { appName: call.appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'driving' })
-      }
-      else if (shown.state === 'driving') clearHide()
+      // Every begin is an act. Untargeted input must replace an old App's
+      // identity too, so Stop aborts this subject instead of the previous App.
+      const windowId = call.windowId
+      const ready = show({ subject, ...identity, ...(call.appName ? { appName: call.appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'driving' })
       let ended = false
       return {
         signal: controller.signal,
+        ...(ready ? { ready } : {}),
         end() {
           if (ended) return
           ended = true

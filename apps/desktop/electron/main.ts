@@ -1,5 +1,6 @@
 import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
+import { startServerUsageSync } from './server/usage-sync'
 import { noteExitReason } from './lib/exit-reason'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
@@ -44,6 +45,7 @@ import { claimDeviceFreeCredits, readDeviceClaimStatus } from './device-free-cre
 import { createDeviceActionsRuntime, nativeComponentsDir, type DeviceActionsRuntime } from './device-actions/runtime'
 import { sampleCuaImage } from './device-actions/native/cua-image-sample'
 import { createComputerControlWindow } from './device-actions/computer-control-window'
+import { computerControlWindowReaders } from './device-actions/computer-control-foreground'
 import { installNativeAppearanceSync, installWindowMaterial, type WindowMaterialHost } from './window-material'
 import enDeviceStrings from '@/i18n/locales/en-US/settings'
 import zhDeviceStrings from '@/i18n/locales/zh-CN/settings'
@@ -2043,14 +2045,13 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
       ? {}
       : {
           computerControlView: (cua) => createComputerControlWindow({
-            readWindows: (pid, signal) => cua().callTool('list_windows', { pid, on_screen_only: true }, { signal, timeoutMs: 2_000, lane: 'gugu-computer-indicator' }),
+            ...computerControlWindowReaders(cua),
             strings: () => {
               const bar = (hostLocaleStore?.current() === 'en-US' ? enDeviceStrings : zhDeviceStrings).devices.deviceActions.computerBar
-              const fill = (template: string, name: string, app?: string) => template.replace('{{name}}', name).replace('{{app}}', app ?? '')
+              const fill = (template: string, name: string) => template.replace('{{name}}', name)
               return {
-                driving: (name, app) => fill(app === undefined ? bar.drivingComputer : bar.drivingApp, name, app),
-                paused: (name, app) => fill(app === undefined ? bar.pausedComputer : bar.pausedApp, name, app),
-                someApp: bar.someApp,
+                driving: (name) => fill(bar.drivingApp, name),
+                paused: (name) => fill(bar.pausedApp, name),
                 stop: bar.stop,
                 resume: bar.resume,
                 someone: bar.someone,
@@ -6493,6 +6494,28 @@ app.whenReady().then(async () => {
     if (!sessionHostBoot) throw new Error('Session backend boot was not started')
     await sessionHostBoot
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
+    const usageLog = createLogger('server/usage-sync')
+    app.once('will-quit', startServerUsageSync({
+      userData: app.getPath('userData'),
+      identity: async () => {
+        const auth = await serverAuth?.getAuth()
+        const deviceId = await localDeviceId()
+        const reason = !auth?.userId ? 'signed-out'
+          : auth.userId !== process.env.GUGU_SERVER_ACCOUNT ? 'account-mismatch'
+            : !deviceId ? 'device-unavailable' : null
+        if (reason) { usageLog.info({ reason }, 'Usage sync deferred'); return null }
+        return { userId: auth!.userId, deviceId: deviceId! }
+      },
+      snapshot: request => {
+        const bridge = loadEmdashBridge()
+        if (!bridge) throw new Error('Session backend unavailable for usage sync')
+        return bridge.emdashRpcRouter.usage.localDaily(request)
+      },
+      client: supabase.schema('public'),
+      report: (result, error) => error
+        ? usageLog.warn({ reason: error instanceof Error ? error.name : 'unknown' }, 'Usage sync failed; next scheduled run will retry')
+        : usageLog.info({ result }, 'Usage sync completed'),
+    }))
     loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
     // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。

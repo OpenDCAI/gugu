@@ -7,6 +7,7 @@ import { IconButton } from '../ui/IconButton'
 import { Check, Pencil, X } from '@/lib/icons'
 import { ASSISTANT_NAME_MAX } from '../../lib/assistantSetup'
 import { cn } from '../../lib/cn'
+import { readMobileShell } from '@/hooks/useMobileShell'
 import './assistant-name-inline.css'
 
 /** 名字原位编辑；默认点击/失焦保存，设置标题双击并显式保存；失败保留草稿。 */
@@ -62,8 +63,12 @@ export function AssistantNameInline({ name, onCommit, className, activation = 'c
             onChange={(event) => { setDraft(event.target.value); setFailed('') }}
             onBlur={activation === 'click' ? () => void commit() : undefined}
             onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing) return
-              if (event.key === 'Enter') { event.preventDefault(); void commit() }
+              if (event.nativeEvent.isComposing || (readMobileShell() && event.keyCode === 229)) return
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                if (activation === 'click' && readMobileShell()) event.currentTarget.blur()
+                else void commit()
+              }
               if (event.key === 'Escape') {
                 event.preventDefault()
                 event.stopPropagation()

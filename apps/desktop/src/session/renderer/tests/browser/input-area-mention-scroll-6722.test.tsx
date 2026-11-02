@@ -9,7 +9,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
-import { LocalizationProvider, setLocalePreference } from '@/i18n'
+import { LocalizationProvider, getLocaleSnapshot, setLocalePreference } from '@/i18n'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import '@/i18n/registerMessagingCatalog'
@@ -23,6 +23,7 @@ const members: GroupRosterCandidate[] = Array.from({ length: 12 }, (_, index) =>
 
 let root: Root | null = null
 let host: HTMLDivElement | null = null
+let previousLocale = getLocaleSnapshot().preference
 
 const picker = () => document.querySelector<HTMLElement>('[data-slot="composer-menu"][role="listbox"]')
 const options = () => Array.from(picker()?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])
@@ -51,6 +52,7 @@ function render(): void {
 
 describe('#6722 @ mention keyboard scroll', () => {
   beforeEach(async () => {
+    previousLocale = getLocaleSnapshot().preference
     await page.viewport(900, 720)
     document.documentElement.dataset.theme = 'light'
     document.body.style.margin = '0'
@@ -63,6 +65,7 @@ describe('#6722 @ mention keyboard scroll', () => {
     host?.remove()
     root = null
     host = null
+    setLocalePreference(previousLocale)
   })
 
   it('ArrowDown / ArrowUp keep the last candidate visible and Enter selects it', async () => {

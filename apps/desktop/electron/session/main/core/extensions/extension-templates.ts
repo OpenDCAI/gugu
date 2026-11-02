@@ -1,6 +1,6 @@
 import { APP_RUNTIME_GLUE_MODULE } from '@shared/extensions/app-runtime-protocol';
 import type { ExtensionTemplate } from '@shared/extensions/templates';
-import type { ExtensionTabContribution } from '@shared/extensions/manifest';
+import type { ExtensionCapability, ExtensionTabContribution } from '@shared/extensions/manifest';
 import type { AppPlatform } from '@shared/extensions/app-platforms';
 
 export { EXTENSION_TEMPLATES, type ExtensionTemplate } from '@shared/extensions/templates';
@@ -10,8 +10,8 @@ export { EXTENSION_TEMPLATES, type ExtensionTemplate } from '@shared/extensions/
  * wrote the same page every time — open the file, watch it, show errors, offline and gone — and took minutes over it.
  * The template writes that part; the agent fills in render() and its handlers, a few dozen lines.
  *
- * `group-json`: one tab that the chat's `.<id>.json` files open in (opensFiles.chat), no capability — the host hands
- * the page its file, so nothing is asked at install. Its app.js keeps to what the guide (apps-files) teaches.
+ * `group-json`: one tab that the chat's `.<id>.json` files open in (opensFiles.chat); the host hands the page its file.
+ * Its member picker declares chat:read and reads the roster explicitly, as the guide teaches.
  *
  * A board or a form is group-json with another app.js, and one person's App with a save is a page of its own with
  * `readData` / `writeData` — the guide's examples, not templates of their own (R A/B 10-06: a solo template cost more
@@ -75,12 +75,10 @@ import { f, me, myName, $, $$, html, render } from '${APP_RUNTIME_GLUE_MODULE}' 
 // Text people type in together is created as gugu.text('') (an agent writes {"$text": ""}), and bound as below.
 
 // Who is in the chat — people and agents, { id: 'user:<uuid>', name, kind: 'human' | 'agent' }. To pick someone
-// (assign a card, choose an opponent), read it here; never copy it into the file. It follows the chat as it changes.
-let members = (await gugu.getContext()).chat?.members ?? []
-gugu.onContextChanged((context) => {
-  members = context.chat?.members ?? members
-  renderShared()
-})
+// (assign a card, choose an opponent), read it here; never copy it into the file. Read again when your UI needs a fresh roster.
+const chat = (await gugu.getContext()).chat
+const members = chat ? (await gugu.chats.members({ chat: chat.id })).members : []
+gugu.onContextChanged(() => renderShared())
 // An agent should act (a card assigned, a move made)? Wake the one it concerns, never every agent:
 // gugu.dispatch('Card "…" is yours', { to: { chat, member: card.owner }, refs: [{ file: f.entry }] }) — needs manifest permissions chat:relay.
 
@@ -115,12 +113,13 @@ renderShared()
 export function extensionTemplate(
   template: ExtensionTemplate,
   { id, name }: { id: string; name: string }
-): { platforms: AppPlatform[]; tabs: ExtensionTabContribution[]; files: Record<string, string> } {
+): { platforms: AppPlatform[]; capabilities: ExtensionCapability[]; tabs: ExtensionTabContribution[]; files: Record<string, string> } {
   switch (template) {
     case 'group-json': {
       const suffix = templateFileSuffix(id);
       return {
         platforms: ['desktop', 'phone'],
+        capabilities: ['chat:read'],
         tabs: [{ name: 'main', title: name, entry: 'main.html', opensFiles: { chat: [suffix] } }],
         files: {
           'main.html': PAGE.replace('__TITLE__', htmlText(name)),

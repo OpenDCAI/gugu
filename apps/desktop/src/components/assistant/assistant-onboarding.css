@@ -49,7 +49,7 @@
   color: var(--fg);
 }
 .ta-onb-choice[data-recommended='true'] { border-color: var(--border-strong); }
-.ta-onb-choice-title { font-size: var(--font-title); line-height: var(--lh-title); font-weight: 600; }
+.ta-onb-choice-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: var(--font-title); line-height: var(--lh-title); font-weight: 600; }
 .ta-onb-choice-body { font-size: var(--font-prose); line-height: var(--lh-prose); color: var(--muted-fg); }
 .ta-onb-choice-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .ta-onb-error { margin: 0; font-size: var(--font-body); line-height: var(--lh-body); color: var(--danger-fg); }
@@ -90,3 +90,12 @@
 .ta-customize-card > [data-testid="assistant-customize-card-open"] { min-width: 0; }
 .ta-customize-card > [data-testid="assistant-customize-card-open"] > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ta-customize-card > [data-testid="assistant-customize-card-dismiss"] { flex-shrink: 0; }
+
+/* 三处安家动作同宽，会员说明不参与按钮尺寸；长翻译按内容扩大并换行。 */
+.ta-onb-choice-actions > button { width: 144px; white-space: normal; }
+.ta-onb-choice-recommend { font-size: var(--font-caption); line-height: var(--lh-caption); font-weight: 400; color: var(--muted-fg); }
+
+.ta-server-targets { display: flex; flex-direction: column; gap: var(--spacing-sm); }
+.ta-server-target.ta-server-target { width: 100%; flex-direction: column; align-items: flex-start; }
+.ta-server-target[aria-pressed='true'] { background: var(--muted); border-color: var(--border-strong); }
+.ta-server-target-name { font-size: var(--font-body); line-height: var(--lh-body); }

@@ -10,6 +10,7 @@ import { takeTaskReveal } from '@/hooks/useSourceMessageReveal'
 import type { TaskTurnHit } from '@shared/core/search'
 import { GlobalSearch } from './global-search'
 import { resetSearchSession, updateSearchSession } from './search-session'
+import { installPhoneImeDismiss } from '@/mobile/usePhoneImeDismiss'
 
 const remote = vi.hoisted(() => ({ opened: [] as unknown[], turns: vi.fn(), indexStatus: vi.fn(), messages: vi.fn() }))
 vi.mock('@/lib/guguLinks', () => ({ followLink: (target: unknown) => { remote.opened.push(target); return true } }))
@@ -69,6 +70,19 @@ const headers = () => [...host.querySelectorAll<HTMLElement>('[role=listbox] > b
 const tab = (key: string) => [...host.querySelectorAll<HTMLElement>('[role=tab]')].find((button) => button.textContent!.startsWith(key))!
 
 describe('global search panel', () => {
+  it('the phone IME dismisses after Enter still opens the selected message (#1385)', async () => {
+    const remove = installPhoneImeDismiss(document)
+    try {
+      await render('回滚', false)
+      const input = host.querySelector<HTMLInputElement>('[data-testid=global-search-input]')!
+      input.focus()
+      await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)) })
+      expect(remote.opened).toEqual([conversationLink(GROUP, NEW)])
+      expect(closed).toBe(1)
+      expect(document.activeElement).toBe(document.body)
+    } finally { remove() }
+  })
   it('searches local task content while indexing and refreshes the same query when ready', async () => {
     remote.indexStatus.mockResolvedValue({ state: 'preparing', done: 42, total: 100 })
     await render('回滚')
