@@ -103,7 +103,7 @@ import {
   syncExtensionBackgrounds,
 } from '@main/core/extensions/extension-background'
 import { rpcRouter } from '@main/rpc' // ← the complete router, every controller
-import { initializeDatabase } from '@main/db/initialize'
+import { backfillTurnText, initializeDatabase } from '@main/db/initialize'
 import { migrateProjectKind } from '@main/core/projects/operations/migrate-project-kind'
 import { closeDatabase, db, sqlite } from '@main/db/client'
 import { resolveDatabasePath } from '@main/db/path'
@@ -619,6 +619,9 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     sessionBootTasks.runSync('deferred-sweep', '', claimInterruptedDeferredMessages)
   }
   searchService.initialize()
+  void backfillTurnText(sqlite).catch((error: unknown) =>
+    log.error('Turn-text backfill failed; retrying next start', { error: String(error) })
+  )
   workspaceFileIndexService.initialize()
   void editorBufferService.pruneStale()
   // 附件目录:既不是一条还在的会话、也没有任何一行附件落在里面 ⇒ 孤儿(创建失败、或者删会话时没清成)。
