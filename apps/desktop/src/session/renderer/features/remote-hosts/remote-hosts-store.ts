@@ -657,7 +657,10 @@ export class RemoteHostsStore {
       const [projects, home, catalog] = await Promise.all([
         rpcOn(deviceId).projects.getProjects(),
         rpcOn(deviceId).app.getHomeDirectory().catch(() => null),
-        Promise.resolve().then(() => rpcOn(deviceId).sessionTimeline.sessionsList()).catch(() => null),
+        Promise.resolve().then(() => rpcOn(deviceId).sessionTimeline.sessionsList()).catch((error: unknown) => {
+          log.warn('[machines] 读那台机器的会话列表失败', { deviceId, error: String(error) });
+          return null;
+        }),
       ]);
       if (home) this.rememberHomeDir(deviceId, home);
       if (catalog?.sessions.length) appState.projects.syncMachineProjects(deviceId, projects, catalog.sessions);
