@@ -1,8 +1,7 @@
 // 会话启动失败账本 —— 「这条会话的 hydrate 以什么理由停在了失败态」在 renderer 侧的唯一记录处(#4602)。
 //
-// 为什么不是一条 toast:sonner 的 <Toaster/> 只挂在会话页 Workspace 根上,而对话页「新建 Agent」时
-// 这棵树渲染的是 composer 根、用户切走 tab 时又是 display-hidden。toast 发进一棵没人看的树,等于没发 ——
-// 用户面对一个既不回复也不报错的私聊。所以失败事实先写进这份账本,任务页内容区那一格与对话页的 DM 横幅
+// 为什么不只是一条 toast:通知现在由全 app 共享的 lib/notices 与 NoticeHost 显示,但瞬时通知不能替代
+// 会话启动失败的持续状态。所以失败事实先写进这份账本,任务页内容区那一格与对话页的 DM 横幅
 // 都只是它的读者;谁在场谁显示,❌ 不由发失败的一方猜用户在哪。两个读者说同一句(`describe`,#7103)。
 //
 // 与主进程 durable 状态的关系:startSession 的 try 内失败(POST /session 超时、没有该腿的物化器、grant
