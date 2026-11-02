@@ -860,6 +860,14 @@ describe('#6396 序号只增不减', () => {
     await provisionFresh('conv-c')
     expect(roster.map((r) => r.name)).toEqual(['Claude 1', 'Claude 3'])
   })
+  it('uses local serial facts without rereading the ledger for each newly minted identity', async () => {
+    const lister = vi.mocked(listAgentNameSerialsViaSupabase)
+    lister.mockClear()
+    await provisionFresh('serial-local-a')
+    await provisionFresh('serial-local-b')
+    expect(roster.map(row => row.name)).toEqual(['Claude 1', 'Claude 2'])
+    expect(lister).not.toHaveBeenCalled()
+  })
   describe('一次往返路径(本机身份先起、云端后台补)', () => {
     const oneTripCalls: Array<{ displayName: string; nameMode: string }> = []
     let serverLift = 0
@@ -868,7 +876,6 @@ describe('#6396 序号只增不减', () => {
       get env(): NodeJS.ProcessEnv {
         return { GUGU_HOME: home } as NodeJS.ProcessEnv
       },
-      listAgentNameSerials: async () => new Map<string, number>(),
       provisionOneTrip: async (input: { agentId: string; displayName: string; nameMode: string }) => {
         oneTripCalls.push({ displayName: input.displayName, nameMode: input.nameMode })
         // 服务端按自己的账本把偏低的候选往上抬(另一台电脑刚发过号)。

@@ -136,9 +136,8 @@ export function groupProjectIdFor(rawProjectId: string | null | undefined, env: 
 
 /**
  * #6396 本机起号的起点:这个账号每个名字前缀在服务端已经用到几号(identity.agent_name_serials,
- * 删掉/改过名的 agent 用过的号也算)。序号只增不减,所以这份也只增不减地合并四路事实:登录时取一次、
- * 另一台设备发了号就当场再取一次(服务端给本账号每台设备推 agent_changed,渲染层转给主进程)、
- * 每建一条会话在后台再取一次(无头宿主没有那条推送,靠这一路)、本机刚发出去的号。
+ * 删掉/改过名的 agent 用过的号也算)。序号只增不减,所以这份也只增不减地合并三路事实:登录时取一次、
+ * 本账号 agent 有变动时取一次(主进程自己订 agent_changed)、本机刚发出去的号。
  *
  * ⚠️ 它落后了也不会发出重号 —— 服务端按自己的记录把偏低的候选往上抬(identity.provision_taskpage_agent)。
  *    这份的价值是让会话**起来时**的名字就是最终的名字,不在起来一秒后被改名。❌ 所以也不该为它挡启动链。
@@ -310,7 +309,6 @@ export interface SessionpageProvisionDeps {
    */
   isAgentOwnedByCurrentUser?: (agentUserId: string) => Promise<boolean>
   /** #6396 这个账号各名字前缀用到几号(identity.agent_name_serials)。缺席 ⇒ 走 supabase 适配器;测试注入用。 */
-  listAgentNameSerials?: (auth: { accessToken: string; userId: string }) => Promise<Map<string, number>>
   /**
    * #5331 一次往返供给:铸身份 + 名字唯一性 + 进项目群合成一个 RPC(identity.provision_taskpage_agent)。
    * 新身份只从这里铸。宿主接线时给 @gugu/core 的实现。
@@ -1095,7 +1093,6 @@ async function provisionFreshLocalFirst(
   ])
   mark('identity-inputs-loaded', { rosterSize: roster.length, minting: true, localFirst: true })
   // #6396 序号只增不减:起点 = max(服务端账本记的这个前缀用到几号, 本机名册里归这个账号的最大号) + 1。
-  // 账本落后时服务端会往上抬(会话起来后再改名),所以每铸一次都在后台把账本再取一次,给下一条会话用。
   const rosterNames = agentsForOwner(roster, ownerAuth.userId).map((a) => ({ display_name: a.name }))
   // The session was named at creation (task-name.ts); binding only makes that name unique.
   const requested = info.displayName?.trim()
@@ -1103,7 +1100,6 @@ async function provisionFreshLocalFirst(
   const label = getAgentTypeLabel(agentType)
   const displayName = uniqueAgentDisplayName(rosterNames, requested)
   noteAgentName(ownerAuth.userId, displayName, label)
-  refreshSerialFloors(ownerAuth, deps.listAgentNameSerials)
   const guguAgentUserId = randomUUID()
   const groupChatId = projectId ? (mappedGroupId || randomUUID()) : ''
   // 刚铸出来的身份必然没有私聊(@@@no-auto-dm)。

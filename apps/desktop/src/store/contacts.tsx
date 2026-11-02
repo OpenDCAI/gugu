@@ -240,11 +240,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
       subscribeAccountRevision('friend_requests_changed', handleRequestChange),
       subscribeAccountRevision('group_invitations_changed', () => loadRequests(strict)),
       subscribeAccountRevision('friendship_changed', refreshFriendshipSurfaces),
-      subscribeAccountRevision('agent_changed', () => {
-        // #6396 另一台设备可能刚用掉一个号 ⇒ 本机会话页下一条会话起名前先跟上。
-        platform.notifyOwnedAgentsChanged?.()
-        return refreshAgentSurfaces()
-      }),
+      subscribeAccountRevision('agent_changed', refreshAgentSurfaces),
     ]
 
     return () => {

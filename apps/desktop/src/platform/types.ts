@@ -179,7 +179,6 @@ export interface AppPlatform {
    * #6396 本账号的 agent 有变动(另一台设备建了 / 改名 / 删了)—— 告诉本机会话页起名那一层当场刷新「用到几号」。
    * 可选:只有在本机起会话页会话的宿主(Electron)有这个口。
    */
-  notifyOwnedAgentsChanged?: () => void
   /**
    * 重启整个应用。退出登录后调用 —— 理由见 App.tsx 的调用点。
    * 由 appRelaunch capability 把门;没有这个能力的平台抛错,❌ 不静默 no-op。
