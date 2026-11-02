@@ -1,10 +1,11 @@
 import z from 'zod';
-import { GUGU_PERMISSION_MODES, promptInputSchema } from '@gugu/session-core/acp/client';
+import { GUGU_PERMISSION_MODES, turnFileRefSchema, promptInputSchema } from '@gugu/session-core/acp/client';
 import { defineVersionedSchema } from '@shared/lib/versioned-schema/versioned-schema';
 import { linkedIssue } from '../linked-issue';
 
 const initialQueuePromptSchema = z.object({
   text: z.string(),
+  files: z.array(turnFileRefSchema).optional(),
   hiddenContext: z.string().optional(),
   origin: promptInputSchema.shape.origin.unwrap(),
 });

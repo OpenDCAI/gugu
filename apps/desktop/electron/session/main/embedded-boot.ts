@@ -1,4 +1,4 @@
-import { sessionBootTasks } from './core/boot-tasks'
+import { clearRecoveredProjectBootFailures, sessionBootTasks } from './core/boot-tasks'
 // @@@sessionpage — the session backend's EMBEDDED-MODULE entry. The session backend is a cohesive
 // submodule (owner #43), NOT a set of gugu subsystems: it exposes exactly ONE boot entry here, and gugu
 // (the host) invokes it + bridges IPC — the host never reaches into the session backend's DB / pty /
@@ -54,6 +54,7 @@ export { setPlatformCredentialsProbe } from './core/agent-config/auth-expiry-fro
 // @@@5301 会话页 agent 系统通知的正文注入口。会话页 ❌ 不 import 宿主的语言 store
 // (它有模块级状态,跨界只会拿到复制品) —— 由宿主把当下语言的两句文案推进来。
 export { setSessionAgentNotificationCopy } from './core/agent-hooks/notification-copy'
+export { setSystemNotificationsUsable } from './core/agent-hooks/system-notifications'
 export type { SessionAgentNotificationCopy } from './core/agent-hooks/notification-copy'
 // 宿主的界面语言(App 名字等由会话页这侧拼给人看的字按它挑语言),同上由宿主注入。
 export { setSessionHostLocale } from './core/host-locale'
@@ -102,7 +103,7 @@ import {
   syncExtensionBackgrounds,
 } from '@main/core/extensions/extension-background'
 import { rpcRouter } from '@main/rpc' // ← the complete router, every controller
-import { initializeDatabase } from '@main/db/initialize'
+import { backfillTurnText, initializeDatabase } from '@main/db/initialize'
 import { migrateProjectKind } from '@main/core/projects/operations/migrate-project-kind'
 import { closeDatabase, db, sqlite } from '@main/db/client'
 import { resolveDatabasePath } from '@main/db/path'
@@ -137,7 +138,6 @@ import {
   cleanupLegacyBrowserPartitions,
   migrateLegacyBrowserPartitionDirs,
 } from '@main/core/browser/browser-partition-cleanup'
-import { sweepOrphanSessionAttachmentDirectories } from '@main/core/sessions/attachments/session-attachment-store'
 import { projectSettingsService } from '@main/core/projects/settings/project-settings-service'
 import { getProjectById, getProjects } from '@main/core/projects/operations/getProjects'
 import { resolveAgentSessionProject } from '@main/core/projects/operations/resolve-agent-session-project'
@@ -618,16 +618,11 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     sessionBootTasks.runSync('deferred-sweep', '', claimInterruptedDeferredMessages)
   }
   searchService.initialize()
+  void backfillTurnText(sqlite).catch((error: unknown) =>
+    log.error('Turn-text backfill failed; retrying next start', { error: String(error) })
+  )
   workspaceFileIndexService.initialize()
   void editorBufferService.pruneStale()
-  // 附件目录:既不是一条还在的会话、也没有任何一行附件落在里面 ⇒ 孤儿(创建失败、或者删会话时没清成)。
-  // ⚠️ 只在这里跑:运行中跑会误删一个正在被新建页攒着、会话还没建出来的草稿目录(#5269)。
-  void sweepOrphanSessionAttachmentDirectories().then(
-    (removed) => {
-      if (removed > 0) log.info('task-attachments: swept orphan directories', { removed })
-    },
-    (error: unknown) => log.warn('task-attachments: sweep failed', { error: String(error) })
-  )
   // 依赖体检的 `<bin> --version` 是 detached 起的(不然只杀得掉直接子进程)，收尾在 finally 里 ——
   // 那一半只在我们还活着时有效。被强杀时子进程活下来，stdio 管道读端却没了，不处理 SIGPIPE 的
   // 程序就在写失败上空转：mac1 实测两个 `amp --version` 各占满一核，清掉两个半小时后又长出两个。
@@ -851,7 +846,7 @@ export function disposeEmdashModule(): Promise<void> {
 // The gugu host uses these to make one session-page codex session message another: a gugu `agent.deliver`
 // for a session-page agent is fulfilled by injecting a new ACP turn into that agent's live session-page
 // conversation — NOT by pty writes. FAIL-LOUD: if the conversation is not a live session-page session, `sendPrompt` returns an error and
-// we THROW (surfaced by gugu's onAgentDeliverFailure). A busy-but-live session returning {queued:true}
+// we THROW (the failed agent.deliver command records it; its chat or composer says it). A busy-but-live session returning {queued:true}
 // is not inbox admission; detached callers surface it as an error instead of marking delivery complete.
 
 /**
@@ -2393,7 +2388,7 @@ export { captureSessionpageProjectionViewer } from './core/extensions/extension-
  * 迟早对不上。这里只保证「最近动过的排在前面」。
  */
 export function sessionpageSessionDigest(): Array<{
-  nativeInputVersion?: 1
+  nativeInputVersion?: 1 | 2
   runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string
@@ -2471,7 +2466,7 @@ export function sessionpageBusyForVersionSwitch(): boolean {
 /** One reading supplies both the existing idle policy and its visible agent count. */
 /** Same heartbeat, same ledger; discard tasks archived/deleted through any entry point. */
 export function sessionpageBootFailures() {
-  const failures = sessionBootTasks.snapshot()
+  const failures = clearRecoveredProjectBootFailures(id => projectManager.getProject(id) !== undefined)
   const ids = failures.map(failure => failure.taskId).filter(Boolean)
   if (ids.length) {
     try {

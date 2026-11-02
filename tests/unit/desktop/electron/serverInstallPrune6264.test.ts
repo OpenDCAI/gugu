@@ -13,7 +13,7 @@ const INSTALL = path.join(__dirname, '../../../../scripts/gugu-server/install.sh
 function fakePackage(dir: string, version: string): { file: string; sha: string } {
   const root = path.join(dir, `src-${version}`, `gugu-server-${version}`)
   fs.mkdirSync(path.join(root, 'bin'), { recursive: true })
-  fs.writeFileSync(path.join(root, 'bin', 'gugu-server'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  fs.writeFileSync(path.join(root, 'bin', 'gugu-server'), '#!/bin/sh\n[ "$1" = help ] && echo prepare-install\nexit 0\n', { mode: 0o755 })
   const file = path.join(dir, `pkg-${version}.tar.gz`)
   execFileSync('tar', ['-czf', file, '-C', path.dirname(root), path.basename(root)])
   return { file, sha: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') }

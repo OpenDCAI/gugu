@@ -13,7 +13,7 @@
  * 一个人退出登录不影响另一个。登录态存在即「这个账号在这台机器上」。
  */
 import { execFile } from '@gugu/core/local/childProcess'
-import { ownServerNames } from './server-names'
+import { installationServerNames } from './server-installation'
 import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -131,11 +131,11 @@ export function applyAccountEnv(userId: string, env: NodeJS.ProcessEnv = process
   env.GUGU_HOME = accountHomeDir(userId)
   // tmux 按账号分 socket:同一个 Linux 用户下两个账号各有各的 tmux 服务端,
   // 一个账号回收孤儿会话时碰不到另一个账号的终端。
-  env.GUGU_TMUX_SOCKET_LABEL = `${ACCOUNT_TMUX_LABEL_PREFIX}${userId.slice(0, 8)}`
+  env.GUGU_TMUX_SOCKET_LABEL = `${accountTmuxLabelPrefix(env)}${userId.slice(0, 8)}`
 }
 
 /** 与桌面 main.ts 的标签同一条规则:各通道的 server 不共用 tmux 服务端(同一个账号 id 也撞不上)。 */
-const ACCOUNT_TMUX_LABEL_PREFIX = `${ownServerNames().bin}-`
+const accountTmuxLabelPrefix = (env: NodeJS.ProcessEnv) => `${installationServerNames(env.GUGU_SERVER_HOME ?? '').bin}-`
 
 /**
  * 账号被主人从「设置 → 设备」移除:结束这个账号的 tmux 服务端,里面还在跑的 agent 与终端一并结束。
@@ -147,7 +147,7 @@ export async function killAccountTmuxServer(
   run: (command: string, args: string[]) => Promise<unknown> = (command, args) => promisify(execFile)(command, args, { timeout: 10_000 }),
 ): Promise<boolean> {
   const label = env.GUGU_TMUX_SOCKET_LABEL?.trim()
-  if (!label?.startsWith(ACCOUNT_TMUX_LABEL_PREFIX)) return false
+  if (!label?.startsWith(accountTmuxLabelPrefix(env))) return false
   await run(env.GUGU_TMUX_BIN?.trim() || 'tmux', ['-L', label, 'kill-server']).catch(() => undefined)
   return true
 }
@@ -217,4 +217,3 @@ export function writeServerConnectVia(
   fs.renameSync(tmp, file)
   return true
 }
-

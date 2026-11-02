@@ -13,11 +13,11 @@ const log = rendererLogger('chat/project-topics-read')
 
 /**
  * #1057 看过项目群,项目行就清零(owner 2026-10-30「我看这个群也看了，你为啥不把我的提醒给消掉呢」):项目行除了群主线,还数
- * 从它开出去的话题里叫到你的(sidebarChatsBridge)。主线是消息进视口逐条读掉的;话题各是一条线,不点开就一直挂在项目行上。
- * 所以打开项目群的那一刻,把这些话题一起读到最新。你自己标的未读不动。
+ * 从它开出去的话题里叫到你的(sidebarChatsBridge),以及群自身的回复流。主线是消息进视口逐条读掉的;其余流不点开就一直挂在项目行上。
+ * 所以打开项目群的那一刻,把群自身和这些话题一起读到最新。你自己标的未读不动。
  */
 export function topicsReadOnOpen(chats: readonly ChatItem[], groupId: string): ChatItem[] {
-  return chats.filter((chat) => chat.kind === 'topic' && chat.source_chat_id === groupId && !chat.is_marked_unread && chatAttention(chat).forYou > 0)
+  return chats.filter((chat) => (chat.id === groupId || chat.kind === 'topic' && chat.source_chat_id === groupId) && !chat.is_marked_unread && chatAttention(chat).forYou > 0)
 }
 
 type TopicsSnapshot = { chats: ChatItem[]; repository: AccountImRepository }

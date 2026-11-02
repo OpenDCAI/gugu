@@ -8,7 +8,6 @@ import {
   sessionStateSchema,
   terminalStateSchema,
   transcriptTurnSchema,
-  type AttachmentMimeType,
   type AttachmentRef,
   type AcpRuntimeError,
   type HistoryPage,
@@ -22,7 +21,7 @@ import {
 import type { Result } from '@gugu/session-shared';
 import type { Unsubscribe } from '@gugu/session-shared';
 import { machineRegistry } from '../machine-routing';
-import { ReplicaState, type BlobSource, type LiveClientHandle } from '@gugu/session-wire';
+import { ReplicaState, type LiveClientHandle } from '@gugu/session-wire';
 import { createImmutableMobxStore } from '@gugu/session-wire/util/mobx';
 import { z } from 'zod';
 import { getAcpRuntimeClient, type AcpRuntimeRpcClient } from './runtime-client';
@@ -129,30 +128,6 @@ export class AcpLiveSession {
     return this.client.exportRawAcpLog({ sessionId: this.sessionId });
   }
 
-  uploadAttachment(input: {
-    uploadId?: string;
-    data?: Uint8Array;
-    source?: BlobSource;
-    size?: number;
-    mimeType: AttachmentMimeType;
-    name?: string;
-    originalPath?: string;
-    signal?: AbortSignal;
-    onProgress?: (progress: { sent: number; total?: number }) => void;
-  }): Promise<Result<AttachmentRef, unknown>> {
-    return this.client.uploadAttachment(
-      { originalPath: input.originalPath, uploadId: input.uploadId },
-      {
-        name: input.name ?? 'attachment',
-        mimeType: input.mimeType,
-        size: input.size ?? input.data?.byteLength,
-        source:
-          input.source ?? (input.data ? singleChunk(input.data) : singleChunk(new Uint8Array())),
-      },
-      { signal: input.signal, onProgress: input.onProgress }
-    );
-  }
-
   downloadAttachment(
     id: string
   ): Promise<Result<{ ref: AttachmentRef; data: Uint8Array }, unknown>> {
@@ -166,10 +141,6 @@ export class AcpLiveSession {
         },
       };
     });
-  }
-
-  deleteAttachment(id: string): Promise<Result<void, unknown>> {
-    return this.client.deleteAttachment({ id });
   }
 
   revertSession(anchor: string) {
@@ -232,10 +203,6 @@ export class AcpLiveSession {
     void this.terminals.dispose();
     void this.agents.dispose();
   }
-}
-
-async function* singleChunk(data: Uint8Array): AsyncIterable<Uint8Array> {
-  yield data;
 }
 
 function createReplicaState<T>(handle: LiveClientHandle<T>, schema: z.ZodType<T>): ReplicaState<T> {

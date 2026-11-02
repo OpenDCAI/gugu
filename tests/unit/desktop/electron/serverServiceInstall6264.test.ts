@@ -128,6 +128,13 @@ function fakeMachine(options: {
 }
 
 describe('service install:结束时在跑的就是这一版', () => {
+  it('受控云换版遇到忙碌账号时不停止进程或改服务', async () => {
+    const m = fakeMachine({ mode: 'systemd', old: { version: '0.2.111', supervisedBy: 'systemd' }, current: '0.2.112', busy: true })
+    m.deps.requireIdle = true
+    expect(await installServiceWith(m.out, m.deps)).toBe(false)
+    expect(m.calls).toEqual([])
+    expect(m.running()?.version).toBe('0.2.111')
+  })
   it('兜底模式、旧版本在跑且有 agent 在干活:先明说会中断,新的等旧的退干净再接上,报出真实的版本与进程号', async () => {
     const m = fakeMachine({ mode: 'fallback', old: { version: '0.2.111', supervisedBy: 'none' }, current: '0.2.112', busy: true })
     expect(await installServiceWith(m.out, m.deps)).toBe(true)

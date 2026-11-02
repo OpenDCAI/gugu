@@ -16,7 +16,7 @@ vi.mock('@main/db/client', () => ({
 }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 
-const { initializeDatabase } = await import('@main/db/initialize');
+const { backfillTurnText, initializeDatabase } = await import('@main/db/initialize');
 const { searchService, textCondition } = await import('./search-service');
 const { persistCommittedTurn, truncateStoredHistory, withStoredTurns, appendRecordTurnNow } = await import('../sessions/session-turn-store');
 const { resolveConversationMessageReference } = await import('../../../../../../../packages/session-chat-ui/src/state/conversation-messages');
@@ -138,6 +138,7 @@ describe('task content search (turn_text, fed by session_turns triggers)', () =>
       insertStored(90, stored);
       fixture().sqlite.exec("UPDATE turn_text_rows SET item_id = 's1:turn:s90:message:0'; UPDATE kv SET value = '7' WHERE key = 'fts_version'");
       await initializeDatabase(fixture().sqlite);
+      await backfillTurnText(fixture().sqlite);
       expect(reveal('long ago', stored)).toBe('s1:turn:s90:message:0');
     });
   });
@@ -184,6 +185,7 @@ describe('task content search (turn_text, fed by session_turns triggers)', () =>
       ('s1:1', 's1', 1, 't', 'not json')`);
     fixture().sqlite.exec("DELETE FROM turn_text_rows; UPDATE kv SET value = '5' WHERE key = 'fts_version'");
     await initializeDatabase(fixture().sqlite);
+    await backfillTurnText(fixture().sqlite);
     expect(found('数据库迁移')).toEqual(['历史里的数据库迁移']);
     expect(found('数据迁移')).toEqual([]);
     expect(found('迁移')).toEqual(['历史里的数据库迁移']);

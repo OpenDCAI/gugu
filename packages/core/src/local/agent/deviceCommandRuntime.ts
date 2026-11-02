@@ -1001,6 +1001,7 @@ export async function syncAgentRuntimeSessions(
  * Retry(Retry 只会把同一条再送回同一个「无人持有」)。消息文本保持 `Local agent not found for <id>`(日志与命令 error 列的既有形状)。
  */
 export class UndeliverableAgentCommandError extends Error {
+  readonly reason = 'undelivered' as const
   readonly disclosed: boolean
   get disclosedInChat(): boolean { return this.disclosed }
   constructor(agentUserId: string, disclosed: boolean) {

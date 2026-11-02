@@ -20,7 +20,7 @@ const TAG_TONE = {
  */
 export function cancelComposerVerb(verbKey: string, draftKey: string): void {
   const text = composerDrafts.get(draftKey);
-  composerDrafts.set(draftKey, '');
+  composerDrafts.discard(draftKey);
   setComposerVerb(verbKey, null, text);
 }
 

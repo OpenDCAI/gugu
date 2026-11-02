@@ -57,7 +57,7 @@ export async function snapshotProjectFile(revision: FileRevision, read: ProjectF
   return copyVerifiedFile(revision, await openProjectFileSource(revision, read), await createFileSink(tempRoot, revision.size_bytes), signal)
 }
 
-/** Called before metadata lookup. Agents require their existing authorization context instead. */
+/** The person's own copy, before any metadata lookup; and, once an actor's metadata lookup has authorized it, where its bytes are read (fileResolver `open`). */
 export function localProjectFileProvider(deps: {
   identity(): Promise<{ accountId: string; deviceId: string }>
   read: ReturnType<typeof createProjectFileReader>; tempRoot: string; env?: NodeJS.ProcessEnv; later?: ProjectFileVersionLookup
@@ -66,6 +66,6 @@ export function localProjectFileProvider(deps: {
     const identity = await deps.identity()
     if (context.actor.actorId !== identity.accountId || context.actor.accountId !== identity.accountId) return null
     const revision = await readProjectFile(context.ref, identity.accountId, identity.deviceId, deps.env, deps.later)
-    return revision ? { revision, open: () => snapshotProjectFile(revision, request => deps.read(request, context.actor.actorId), deps.tempRoot, context.signal) } : null
+    return revision ? { revision, open: () => context.download ? openProjectFileSource(revision, request => deps.read(request, context.actor.actorId)) : snapshotProjectFile(revision, request => deps.read(request, context.actor.actorId), deps.tempRoot, context.signal) } : null
   }
 }

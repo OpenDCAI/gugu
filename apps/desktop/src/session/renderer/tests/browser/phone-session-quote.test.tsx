@@ -19,7 +19,7 @@ vi.mock('@/mobile/agent-watch/sessionpage-rpc', async original => ({
   ...(await original<object>()),
   SessionpageRpcError: class SessionpageRpcError extends Error {},
   fetchSessionOptions: vi.fn(() => new Promise(() => {})),
-  setSessionOption: vi.fn(), sessionAttachmentRpc: vi.fn(() => ({})),
+  setSessionOption: vi.fn(),
   machineRpc: vi.fn(() => ({})), fetchToolImage: vi.fn(), stopBackgroundTask: vi.fn(), fetchBackgroundTasks: vi.fn(),
 }));
 
