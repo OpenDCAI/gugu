@@ -9,6 +9,9 @@ import { GlobalSearch } from './global-search'
 import { resetSearchSession } from './search-session'
 
 const remote = vi.hoisted(() => ({ messages: vi.fn(), turns: vi.fn(), titles: vi.fn() }))
+const WORK = '0b1e7c1a-0000-4000-8000-000000000001'
+const WORKSHOP = '0b1e7c1a-0000-4000-8000-000000000002'
+const OTHER = '0b1e7c1a-0000-4000-8000-000000000003'
 vi.mock('@renderer/lib/ipc', () => ({ rpc: { search: { taskTurns: remote.turns, commandPalette: remote.titles } } }))
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: remote.messages } }))
 vi.mock('@/lib/guguLinks', () => ({ followLink: vi.fn() }))
@@ -45,8 +48,8 @@ beforeEach(() => {
   vi.useFakeTimers()
   ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   remote.messages.mockReset().mockResolvedValue({ data: [
-    { id: 'm1', chat_id: 'work', sender_user_id: 'u1', sender_name: 'A', content: '回填说明', created_at: '2026-11-02T09:00:00Z', file_item_id: null },
-    { id: 'm2', chat_id: 'other', sender_user_id: 'u2', sender_name: 'B', content: '回填.pdf', created_at: '2026-11-02T08:00:00Z', file_item_id: 'f1' },
+    { id: '0b1e7c1a-0000-4000-8000-000000000011', chat_id: WORK, sender_user_id: 'u1', sender_name: 'A', content: '回填说明', created_at: '2026-11-02T09:00:00Z', file_item_id: null },
+    { id: '0b1e7c1a-0000-4000-8000-000000000012', chat_id: OTHER, sender_user_id: 'u2', sender_name: 'B', content: '回填.pdf', created_at: '2026-11-02T08:00:00Z', file_item_id: 'f1' },
   ], error: null })
   remote.turns.mockReset().mockResolvedValue([
     { sessionId: 's1', projectId: 'p1', title: 'work task', itemId: 'i1', role: 'assistant', excerpt: '回填完成', at: '2026-11-02T07:00:00Z' },
@@ -54,8 +57,8 @@ beforeEach(() => {
   ])
   remote.titles.mockReset().mockResolvedValue([{ kind: 'session', id: 's1', projectId: 'p1', title: 'work task' }])
   publishChatSummaries([
-    { id: 'work', kind: 'group', name: 'work', unread_count: 0 },
-    { id: 'workshop', kind: 'group', name: 'workshop', unread_count: 0 },
+    { id: WORK, kind: 'group', name: 'work', unread_count: 0 },
+    { id: WORKSHOP, kind: 'group', name: 'workshop', unread_count: 0 },
   ])
   resetSearchSession()
   installIdentityDirectoryBridge()
@@ -91,7 +94,7 @@ describe('explicit search prefixes', () => {
     await key('Tab')
     expect(input().value).toBe('回填')
     expect(host.querySelector('button[aria-label="globalSearch.removeChip"]')).not.toBeNull()
-    expect(remote.messages).toHaveBeenLastCalledWith('message_search_as', { p_chat_id: 'work', p_query: '回填', p_limit: 100 })
+    expect(remote.messages).toHaveBeenLastCalledWith('message_search_as', { p_chat_id: WORK, p_query: '回填', p_limit: 100 })
   })
 
   it('includes local task names in in: completion and searches only the chosen task', async () => {
@@ -125,7 +128,7 @@ describe('explicit search prefixes', () => {
     expect(input().value).toBe('in:wo 回填')
     await key('ArrowDown')
     await key('Enter')
-    expect(remote.messages).toHaveBeenLastCalledWith('message_search_as', { p_chat_id: 'workshop', p_query: '回填', p_limit: 100 })
+    expect(remote.messages).toHaveBeenLastCalledWith('message_search_as', { p_chat_id: WORKSHOP, p_query: '回填', p_limit: 100 })
   })
 
   it('keeps unsupported Chinese keys literal instead of adding aliases', async () => {
