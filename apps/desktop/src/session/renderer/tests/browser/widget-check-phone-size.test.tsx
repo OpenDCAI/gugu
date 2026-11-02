@@ -8,14 +8,14 @@ import '@renderer/index.css'
 
 vi.mock('@gugu/core/cloud/config', async original => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }))
 vi.mock('@/components/appSlot/appsHere', () => ({ appsHere: {} }))
-vi.mock('@/session/renderer/features/extensions/installed-extensions-store', () => ({ installedExtensionsStore: {
+vi.mock('@/session/renderer/features/extensions/installed-extensions-store', async original => ({ ...(await original<object>()), installedExtensionsStore: {
   isLoaded: true, isEnabled: () => true,
   manifestFor: () => ({ id: 'vote', version: '1.0.0', contributes: { tabs: [{ name: 'poll', widget: { height: 240 } }] } }),
 } }))
 vi.mock('@/components/chat/useConversationVisibility', () => ({ useConversationVisibility: () => ({ ref: () => undefined, shown: true }) }))
 // Only the App's contents are a stand-in; MessageBubble and WidgetBubble's real layout remain intact.
-vi.mock('@/session/renderer/features/extensions/extension-view-layer', () => ({ ExtensionPage: () => <iframe title="widget slot" style={{ width: '100%', height: '100%', border: 0 }} /> }))
-vi.mock('@/components/appSlot/PhoneAppFrame', () => ({ PhoneAppFrame: () => <iframe title="widget slot" style={{ width: '100%', height: '100%', border: 0 }} /> }))
+vi.mock('@/session/renderer/features/extensions/extension-view-layer', async original => ({ ...(await original<object>()), ExtensionPage: () => <iframe title="widget slot" style={{ width: '100%', height: '100%', border: 0 }} /> }))
+vi.mock('@/components/appSlot/PhoneAppFrame', async original => ({ ...(await original<object>()), PhoneAppFrame: () => <iframe title="widget slot" style={{ width: '100%', height: '100%', border: 0 }} /> }))
 const { MessageBubble } = await import('@/components/chat/MessageBubble')
 let harness: ReturnType<typeof createReactHarness>
 afterEach(() => harness?.cleanup())
