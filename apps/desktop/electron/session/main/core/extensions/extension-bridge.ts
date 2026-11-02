@@ -1079,11 +1079,11 @@ export async function bringSessionUp(session: { sessionId: string; projectId: st
 
 /**
  * Each chat a surface sits in: the group, topic or private chat itself (`getContext().chat`: name, kind, its group) and who is in it
- * (摩擦单 F36 for Apps through API 25), read together when a page first asks. Newer Apps read members explicitly.
+ * (摩擦单 F36 for Apps through API 26), read together when a page first asks. Newer Apps read members explicitly.
  * Roster changes tell only pages whose context includes members (`onContextChanged`).
  */
 const chatsDrawnIn = new Map<string, { chat: ExtensionChat | null; members?: ExtensionMember[] }>();
-const contextHasMembers = (binding: SurfaceBinding) => !(extensionsService().get(binding.extensionId).manifest.apiVersion >= 26);
+const contextHasMembers = (binding: SurfaceBinding) => !(extensionsService().get(binding.extensionId).manifest.apiVersion >= 27);
 const chatIsRead = (binding: SurfaceBinding) => {
   const read = binding.conversation ? chatsDrawnIn.get(binding.conversation) : undefined;
   return read !== undefined && (!contextHasMembers(binding) || read.members !== undefined);
@@ -1630,7 +1630,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
     case 'getContext':
       if (!binding) return contextOutside(extensionId);
-      // Through API 25, the members come with the first answer. Newer Apps ask for them explicitly. An unread chat is said (the
+      // Through API 26, the members come with the first answer. Newer Apps ask for them explicitly. An unread chat is said (the
       // files API's own error), never left out: no `chat` would tell the App it is not in one.
       if (binding.conversation && !chatIsRead(binding)) await chatRead(binding.conversation, contextHasMembers(binding));
       return contextFor(binding, await workspaceOf(binding));

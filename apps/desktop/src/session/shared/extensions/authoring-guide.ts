@@ -203,12 +203,12 @@ Free:
 
 - \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, modal?, operator, locale, themeMode, capabilities, layout? }\`.
   \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members? }\`; \`groupId\` is null in DMs. Topics use their source chat.
-  API ≤25 includes \`members\`; API ≥26 omits it: call \`gugu.chats.members({ chat: ctx.chat.id })\` (\`chat:read\`).
+  API ≤26 includes \`members\`; API ≥27 omits it: call \`gugu.chats.members({ chat: ctx.chat.id })\` (\`chat:read\`).
   Members: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`; \`avatar\` is a \`data:\` image. Pick from these; never copy them into files.
   \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\`; \`agentId\` is \`user:<uuid>\`.
   Local \`root\` needs \`files:*\`; remote sessions carry \`deviceId\` instead. \`file\`: open with \`files.open(ctx.file)\`.
   \`operator\`: \`{ kind: 'person' }\` or \`{ kind: 'agent', id }\`. \`capabilities\`: current grants, reflecting revocations.
-- \`onContextChanged(fn)\` → theme, language, visibility and size changes; member changes only through API 25. Returns an unsubscribe.
+- \`onContextChanged(fn)\` → theme, language, visibility and size changes; member changes only through API 26. Returns an unsubscribe.
 - \`onCommand(fn)\` → the person picked one of your declared menu/toolbar entries; you get your own id back.
 - \`showContextMenu({ x, y, items: [{ id, label, enabled? }, { type: "separator" }] })\` (API 18, page): App-local point, shared host menu; returns id or null.
 - \`setTabTitle(title)\` → title (max 48); file tabs use it as a tooltip. Host Back closes the file tab.
@@ -870,7 +870,7 @@ picture below this text is every piece, each captioned with the markup that draw
 ## The host's elements
 
 - \`<gugu-icon name="bell">\` (\`size="md|lg"\`): gugu's icons, named as lucide names them — bell, users, search, settings, plus, x, check, pin, trash-2, chevron-right, refresh, ellipsis… \`customElements.get('gugu-icon').names\` lists them all; a wrong name comes back from \`app_check\` as a hint naming the close ones. \`label="…"\` when it alone says something.
-- \`<gugu-avatar user="user:…">\` (\`size="xs|sm|md|lg"\`, \`name\` to show the name): a member of this chat, with their face; an agent's carries ⚡. From API 26, declare \`chat:read\`; the elements share one member read per chat. Someone not in it: \`label="their name"\`.
+- \`<gugu-avatar user="user:…">\` (\`size="xs|sm|md|lg"\`, \`name\` to show the name): a member of this chat, with their face; an agent's carries ⚡. From API 27, declare \`chat:read\`; the elements share one member read per chat. Someone not in it: \`label="their name"\`.
 - \`<gugu-time datetime="…">\` (ISO or ms): 刚刚 / 3 分钟前 / 08:20 / 昨天 14:20 / 10月3日, kept current, in the person's language.
 - \`<gugu-empty icon="checklist"><strong>No votes yet</strong><small>Start one</small></gugu-empty>\`, with a \`button.primary\` last in it when there is something to do.
 

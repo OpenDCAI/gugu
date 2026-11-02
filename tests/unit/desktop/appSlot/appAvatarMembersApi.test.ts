@@ -23,7 +23,7 @@ function page(apiVersion: number, avatarsHtml = '<gugu-avatar user="user:reader"
   pages.push(dom)
   const calls: string[] = []
   let push: ((context: unknown) => void) | undefined
-  const context = { apiVersion: 99, locale: 'en', themeMode: 'light', chat: { id: 'chat', name: 'Group', kind: 'group', ...(apiVersion <= 25 ? { members: [member] } : {}) } }
+  const context = { apiVersion: 99, locale: 'en', themeMode: 'light', chat: { id: 'chat', name: 'Group', kind: 'group', ...(apiVersion <= 26 ? { members: [member] } : {}) } }
   Object.assign(dom.window, {
     CSSStyleSheet: class { replaceSync() {} },
     gugu: {
@@ -42,7 +42,7 @@ function page(apiVersion: number, avatarsHtml = '<gugu-avatar user="user:reader"
 describe('avatar members use the page\'s declared API, independently of the host API', () => {
   it('a failed read draws the label and allows the next draw to recover', async () => {
     let failed = true
-    const modern = page(26, '<gugu-avatar user="user:reader" label="Reader label" name></gugu-avatar>', async () => {
+    const modern = page(27, '<gugu-avatar user="user:reader" label="Reader label" name></gugu-avatar>', async () => {
       if (failed) throw new Error('members unavailable')
       return [member]
     })
@@ -61,7 +61,7 @@ describe('avatar members use the page\'s declared API, independently of the host
   it('new members share one refresh after the initial roster was read', async () => {
     const joined = { ...member, id: 'user:joined', name: 'Joined', avatar: 'data:image/png;base64,Yg==' }
     let roster = [member]
-    const modern = page(26, undefined, async () => roster)
+    const modern = page(27, undefined, async () => roster)
     await Promise.all(modern.avatars().map((avatar) => (avatar as Element & { draw(): Promise<void> }).draw()))
     expect(modern.calls).toEqual(['chat'])
     roster = [member, joined]
@@ -83,17 +83,17 @@ describe('avatar members use the page\'s declared API, independently of the host
     expect(modern.calls).toEqual(['chat', 'chat'])
   })
 
-  it('an API 26 label without a user needs no members', async () => {
-    const modern = page(26, '<gugu-avatar label="Guest" name></gugu-avatar>')
+  it('an API 27 label without a user needs no members', async () => {
+    const modern = page(27, '<gugu-avatar label="Guest" name></gugu-avatar>')
     const avatar = modern.avatars()[0] as Element & { draw(): Promise<void> }
     await avatar.draw()
     expect(avatar.shadowRoot?.querySelector('[part="name"]')?.textContent).toBe('Guest')
     expect(modern.calls).toEqual([])
   })
 
-  it('API 25 and API 26 pages side by side draw names and faces; only the newer page requests members, once', async () => {
-    const legacy = page(25)
-    const modern = page(26)
+  it.each([25, 26])('API %i and API 27 pages side by side draw names and faces; only the newer page requests members, once', async (apiVersion) => {
+    const legacy = page(apiVersion)
+    const modern = page(27)
     const avatars = [...legacy.avatars(), ...modern.avatars()] as (Element & { draw(): Promise<void> })[]
     await Promise.all(avatars.map((avatar) => avatar.draw()))
     for (const avatar of avatars) {

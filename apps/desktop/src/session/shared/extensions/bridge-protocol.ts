@@ -80,9 +80,9 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 25: `files.canDelete(file | files)`, a page's — whether this person may delete each, asked as a file's menu opens; a listed entry
 // no longer carries `canDelete` (answering it for every file held the whole list).
 // 26: declared App views in messages, with immutable per-message context and bounded viewport lifetimes.
-// Pages declaring 26 also read members explicitly with chats.members(); context keeps the chat summary without a roster.
-// Pages declaring 25 or earlier retain their initial members and roster context updates.
-export const EXTENSION_API_VERSION = 26;
+// 27: pages read members explicitly with chats.members(); context keeps the chat summary without a roster.
+// Pages declaring 26 or earlier retain their initial members and roster context updates.
+export const EXTENSION_API_VERSION = 27;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -184,7 +184,7 @@ export interface ExtensionHostContext {
    * it — changes arrive by `onContextChanged`. Absent is a real answer: not in a chat. ❌ No `placement` field: an App
    * decides how to look from which of these facts are present, its capabilities and its layout (L3 评审第 2 条).
    */
-  /** Apps through API 25 receive members with the first answer; API 26+ reads them through chats.members. */
+  /** Apps through API 26 receive members with the first answer; API 27+ reads them through chats.members. */
   chat?: ExtensionChat & { members?: ExtensionMember[] };
   /**
    * The working copy this surface works on — a session's tab: that session's; a page opened on a project's file: that

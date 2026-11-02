@@ -274,7 +274,7 @@ async function withPills(token: string, text: string, refs: unknown): Promise<{ 
  */
 export interface DispatchHere {
   chat: DispatchAsk['chat'];
-  /** API 26+ reads the roster only if the person opens the target picker. */
+  /** API 27+ reads the roster only if the person opens the target picker. */
   readMembers?: () => Promise<NonNullable<DispatchAsk['chat']>['members']>;
   preselect: string | null;
   local?: string[];

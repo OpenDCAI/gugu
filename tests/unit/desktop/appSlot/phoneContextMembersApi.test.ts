@@ -4,7 +4,7 @@ import { hostAppFrame } from '../../../../apps/desktop/src/components/appSlot/ph
 import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { until } from '../../../support/awaitCondition'
 
-const fixture = vi.hoisted(() => ({ apiVersion: 26, routes: [] as string[] }))
+const fixture = vi.hoisted(() => ({ apiVersion: 27, routes: [] as string[] }))
 const CHAT = '0b000000-0000-4000-8000-000000000021'
 const PERSON = '0a000000-0000-4000-8000-000000000021'
 const ORIGIN = 'https://folder.acct.apps.gugu.invalid'
@@ -56,14 +56,24 @@ function start(apiVersion: number) {
 afterEach(() => { host?.dispose(); host = undefined; frame.remove() })
 
 describe('chat members in the phone App context', () => {
-  it('API 25 receives members in the first answer', async () => {
-    start(25)
+  it.each([25, 26])('API %i receives members in the first answer', async (apiVersion) => {
+    start(apiVersion)
     expect(await call('getContext')).toMatchObject({ ok: true, value: { chat: { members: [{ id: `user:${PERSON}` }] } } })
     expect(fixture.routes).toContain('rpc/list_member_ids')
   })
 
-  it('API 26 omits members, supports the explicit call and does not push on roster changes', async () => {
-    start(26)
+  it.each([25, 26])('API %i still pushes member changes', async (apiVersion) => {
+    start(apiVersion)
+    await call('getContext')
+    const pushed = contextEvents().length
+    host!.membersChanged([{ memberId: PERSON, left: true }])
+    await call('getContext')
+    await until('the phone pushes legacy members', () => contextEvents().length > pushed)
+    expect(contextEvents().at(-1)![0].event.context.chat.members).toMatchObject([{ id: `user:${PERSON}` }])
+  })
+
+  it('API 27 omits members, supports the explicit call and does not push on roster changes', async () => {
+    start(27)
     const first = await call('getContext')
     expect(first.ok).toBe(true)
     expect(first.value.chat).not.toHaveProperty('members')

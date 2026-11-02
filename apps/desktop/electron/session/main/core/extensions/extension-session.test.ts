@@ -243,10 +243,10 @@ describe('configureExtensionSession', () => {
     it('stamps the page declaration rather than the host version, including after an upgrade', async () => {
       const rootDir = mkdtempSync(join(tmpdir(), 'gugu-ext-page-version-'));
       writeFileSync(join(rootDir, 'index.html'), '<!doctype html>');
-      configureExtensionSession({ ...bundle([], rootDir), apiVersion: 25 });
-      expect(await (await serve(`gugu-ext://${EXTENSION_ID}/index.html`)).text()).toContain('data-gugu-api-version="25"');
-      configureExtensionSession({ ...bundle([], rootDir), apiVersion: 26 });
-      expect(await (await serve(`gugu-ext://${EXTENSION_ID}/index.html`)).text()).toContain('data-gugu-api-version="26"');
+      for (const apiVersion of [25, 26, 27]) {
+        configureExtensionSession({ ...bundle([], rootDir), apiVersion });
+        expect(await (await serve(`gugu-ext://${EXTENSION_ID}/index.html`)).text()).toContain(`data-gugu-api-version="${apiVersion}"`);
+      }
     });
   });
 

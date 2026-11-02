@@ -6,7 +6,7 @@ const fixture = vi.hoisted(() => ({
   chat: '0b000000-0000-4000-8000-000000000021',
   person: '0a000000-0000-4000-8000-000000000021',
   agent: '0a000000-0000-4000-8000-000000000022',
-  apiVersion: 26,
+  apiVersion: 27,
   held: false,
   failList: false,
   routes: [] as { route: string; args: Record<string, unknown> }[],
@@ -106,7 +106,7 @@ const finish = async <T>(work: Promise<T>): Promise<{ result: T; waves: string[]
   return { result: await settled, waves };
 };
 beforeEach(async () => {
-  fixture.apiVersion = 26; fixture.held = false; fixture.failList = false; fixture.routes.length = 0; fixture.waiting.length = 0; sent.length = 0;
+  fixture.apiVersion = 27; fixture.held = false; fixture.failList = false; fixture.routes.length = 0; fixture.waiting.length = 0; sent.length = 0;
   fixture.pickedMembers.length = 0;
   await bridge.chatMembersChanged(fixture.chat, [{ memberId: fixture.agent, left: true }]);
   bridge.setExtensionBridgeHost({ deliver: async () => undefined, presentation: () => ({ locale: 'en', themeMode: 'light', fullscreen: false, windowFocused: true }) });
@@ -136,7 +136,7 @@ describe('opening the folder: API compatibility and one-use preloads', () => {
     expect(routeNames().filter((route) => route === 'rpc/workspace_list_as')).toEqual(['rpc/workspace_list_as']);
   });
 
-  it.each([25, 26])('API %i reopens the same folder without requests', async (apiVersion) => {
+  it.each([25, 26, 27])('API %i reopens the same folder without requests', async (apiVersion) => {
     fixture.apiVersion = apiVersion;
     await bind(); await call('getContext');
     await Promise.all([call('filesList', { place: place() }), call('filesViewPreferences', { place: place() })]);
@@ -182,14 +182,24 @@ describe('opening the folder: API compatibility and one-use preloads', () => {
     expect(routeNames().filter((route) => route === 'user_settings')).toHaveLength(1);
   });
 
-  it('p3: API 25 includes members in its first answer', async () => {
-    fixture.apiVersion = 25;
+  it.each([25, 26])('p3: API %i includes members in its first answer', async (apiVersion) => {
+    fixture.apiVersion = apiVersion;
     await bind();
     expect(await call('getContext')).toMatchObject({ ok: true, value: { chat: { members: [{ id: `user:${fixture.person}` }] } } });
     expect(routeNames()).toContain('rpc/list_member_ids');
   });
 
-  it('p4: API 26 omits members and still supports the explicit members call', async () => {
+  it.each([25, 26])('API %i still pushes member changes in its context', async (apiVersion) => {
+    fixture.apiVersion = apiVersion;
+    await bind(); await call('getContext');
+    sent.length = 0; fixture.routes.length = 0;
+    await bridge.chatMembersChanged(fixture.chat, [{ memberId: fixture.agent, left: false }]);
+    await call('getContext');
+    expect(sent.some(({ type, context }) => type === 'context' && context?.chat?.members?.length)).toBe(true);
+    expect(routeNames().filter((route) => route === 'rpc/list_member_ids')).toHaveLength(1);
+  });
+
+  it('p4: API 27 omits members and still supports the explicit members call', async () => {
     await bind();
     const context = await call('getContext') as { value: { chat: Record<string, unknown> } };
     expect(context.value.chat).not.toHaveProperty('members');
@@ -230,7 +240,7 @@ describe('opening the folder: API compatibility and one-use preloads', () => {
     expect(routeNames().filter((route) => route === 'rpc/workspace_list_as')).toHaveLength(2);
   });
 
-  it('API 26 does not receive roster-change context or trigger another members read', async () => {
+  it('API 27 does not receive roster-change context or trigger another members read', async () => {
     await bind(); await call('getContext');
     sent.length = 0; fixture.routes.length = 0;
     await bridge.chatMembersChanged(fixture.chat, [{ memberId: fixture.agent, left: false }]);
@@ -238,7 +248,7 @@ describe('opening the folder: API compatibility and one-use preloads', () => {
     expect(routeNames()).toEqual([]);
   });
 
-  it('an API 26 dispatch picker reads its members once when opened', async () => {
+  it('an API 27 dispatch picker reads its members once when opened', async () => {
     await bind(); await call('getContext');
     fixture.routes.length = 0;
     expect(await call('dispatch', { text: 'Hello' }, true)).toMatchObject({ ok: true });

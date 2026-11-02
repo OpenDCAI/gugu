@@ -443,10 +443,10 @@ describe('group-json template: the skeleton runs as written', () => {
   });
 
   // 摩擦单 F49(L6 S8 r2):ctx.chat.members 已经有三个人,agent 却在数据里另建了 members 表 —— 骨架从没把人引到那儿。
-  it('an API 26 template reads the roster explicitly; context changes do not read it again or copy it into the file', async () => {
+  it('an API 27 template reads the roster explicitly; context changes do not read it again or copy it into the file', async () => {
     const { file } = fakeFile({ votes: {} });
     const { members: _members, ...chat } = CHAT;
-    await load(async () => file, 'en', { apiVersion: 26, chat, file: IN_CHAT.file });
+    await load(async () => file, 'en', { apiVersion: 27, chat, file: IN_CHAT.file });
     // Each one a row with their <gugu-avatar> (the host draws the face and name: ui.js, not loaded here).
     const here = () => [...document.querySelectorAll('#shared ul.list > li gugu-avatar[name]')].map((element) => element.getAttribute('user'));
     expect(here()).toEqual(['user:u-me', 'user:u-bot']);

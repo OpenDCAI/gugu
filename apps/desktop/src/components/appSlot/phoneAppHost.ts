@@ -420,7 +420,7 @@ export function hostAppFrame(
   })
   /** Who is in the chat the page is drawn for (摩擦单 F36): read when the frame first asks, again when the members change. */
   let members: ExtensionMember[] | null = null
-  const contextHasMembers = () => !((installedExtensionsStore.manifestFor(hosted.binding.extensionId)?.apiVersion ?? 25) >= 26)
+  const contextHasMembers = () => !((installedExtensionsStore.manifestFor(hosted.binding.extensionId)?.apiVersion ?? 25) >= 27)
   /** And the chat itself (`getContext().chat`), read with them; undefined until read — `files.chat()` throws when it cannot be. */
   let chat: ExtensionChat | null | undefined
   const readMembers = async () => {
@@ -575,7 +575,7 @@ export function hostAppFrame(
       case 'getContext':
         // A pill's place waiting for this page goes first, whatever the answer: the frame holds it until `onLink`.
         for (const link of takeOpeningLinks(hosted.binding)) event(link)
-        // Through API 25, members come with the first answer. Newer Apps ask for them explicitly. An unread chat is said (the files
+        // Through API 26, members come with the first answer. Newer Apps ask for them explicitly. An unread chat is said (the files
         // API's own error), never left out: no `chat` would tell the App it is not in one.
         return (chat !== undefined ? Promise.resolve() : readMembers()).then(contextOf)
       case 'reportError': {
