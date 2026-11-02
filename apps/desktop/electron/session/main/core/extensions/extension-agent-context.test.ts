@@ -12,7 +12,8 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
  */
 
 type Row = Record<string, unknown>;
-const rows: Record<string, Row[]> = { sessions: [], workspaces: [] };
+const rows: Record<string, Row[]> = { sessions: [] };
+const recorded: Record<string, string | null> = {};
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-context-'));
 const folderA = path.join(scratch, 'a');
 fs.mkdirSync(folderA);
@@ -22,7 +23,6 @@ const decisions: Record<string, { modelId: string } | null | undefined> = {};
 vi.mock('drizzle-orm', () => ({ eq: (column: { name: string }, value: unknown) => ({ column: column.name, value }) }));
 vi.mock('@main/db/schema', () => ({
   sessions: { __table: 'conversations', id: { name: 'id' }, workspaceId: { name: 'workspaceId' }, projectId: { name: 'projectId' }, config: { name: 'config' }, provider: { name: 'provider' }, runtime: { name: 'runtime' } },
-  workspaces: { __table: 'workspaces', id: { name: 'id' }, path: { name: 'path' }, kind: { name: 'kind' }, type: { name: 'type' }, location: { name: 'location' } },
 }));
 vi.mock('@main/db/client', () => ({
   db: {
@@ -38,6 +38,8 @@ vi.mock('@main/db/client', () => ({
     }),
   },
 }));
+// `persistedWorkspacePath` (its own test covers missing rows and retired remote rows): null is no folder here.
+vi.mock('@main/core/projects/utils', () => ({ persistedWorkspacePath: (id: string) => recorded[id] ?? null }));
 vi.mock('@main/core/sessions/platform-model-selection', () => ({
   sessionPlatformModel: async (sessionId: string) => decisions[sessionId],
   // The name kept with the decision (its own test fills and keeps it): here, the decision's model under a menu name.
@@ -55,11 +57,10 @@ beforeEach(() => {
     { id: 'conv-nowhere', workspaceId: null, projectId: 'p-n', config: { model: 'opus-4-6' } },
     { id: 'conv-own-default', workspaceId: null, projectId: 'p-o', config: {} },
   ];
-  rows.workspaces = [
-    { id: 'ws-a', path: folderA, kind: 'project-root', type: 'local', location: 'local' },
-    { id: 'ws-gone', path: path.join(scratch, 'deleted'), kind: 'path', type: 'local', location: 'local' },
-    { id: 'ws-remote', path: folderA, kind: 'project-root', type: 'local', location: 'remote' },
-  ];
+  for (const key of Object.keys(recorded)) delete recorded[key];
+  recorded['ws-a'] = folderA;
+  recorded['ws-gone'] = path.join(scratch, 'deleted');
+  recorded['ws-remote'] = null;
   for (const key of Object.keys(decisions)) delete decisions[key];
   decisions['conv-a'] = { modelId: 'glm-5.3-flash' };
   decisions['conv-b'] = null;

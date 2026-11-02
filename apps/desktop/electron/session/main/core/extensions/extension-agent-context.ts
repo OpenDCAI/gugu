@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import { eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
-import { sessions, workspaces } from '@main/db/schema';
-import { isRetiredRemoteWorkspace } from '@main/core/workspaces/resolve-workspace-kind';
+import { sessions } from '@main/db/schema';
+import { persistedWorkspacePath } from '@main/core/projects/utils';
 import { sessionModelLabel, sessionPlatformModel } from '@main/core/sessions/platform-model-selection';
 import { sessionModelFromDecision } from '@main/core/sessions/session-model-fact';
 
@@ -48,14 +48,8 @@ export async function agentSessionContext(agentId: string): Promise<AgentSession
     .where(eq(sessions.id, agentId))
     .limit(1);
   if (!session) return null;
-  const [workspace] = session.workspaceId
-    ? await db
-        .select({ path: workspaces.path, kind: workspaces.kind, type: workspaces.type, location: workspaces.location })
-        .from(workspaces)
-        .where(eq(workspaces.id, session.workspaceId))
-        .limit(1)
-    : [];
-  const workspaceRoot = workspace?.path && !isRetiredRemoteWorkspace(workspace) && (await isFolder(workspace.path)) ? workspace.path : null;
+  const recorded = session.workspaceId ? persistedWorkspacePath(session.workspaceId) : null;
+  const workspaceRoot = recorded && (await isFolder(recorded)) ? recorded : null;
   const decision = await sessionPlatformModel(agentId);
   const model = sessionModelFromDecision(decision, session.config?.model ?? null).spawn_model_id ?? null;
   const modelLabel = await sessionModelLabel(agentId, decision, session.provider, session.runtime);
