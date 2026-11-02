@@ -72,11 +72,22 @@ describe('task preparation while its machine is unavailable', () => {
     expect(fill).toHaveBeenCalledOnce();
   });
 
-  it.each(['project-mounting', 'idle', 'provisioning', 'project-error', 'provision-error', 'ready'])('keeps offline non-native tasks description-only: %s', kind => {
+  it.each(['project-mounting', 'idle', 'provisioning', 'project-error', 'provision-error'])('keeps offline non-native tasks description-only: %s', kind => {
     state.kind = kind;
     render();
     expect(container.textContent).toBe('Lab Mac is offline');
     expect(container.querySelector('textarea, [data-offline-session]')).toBeNull();
+  });
+
+  it.each([undefined, 1, 2])('retains the ready workspace during a disconnect or reconnect: native %s', version => {
+    state.kind = 'ready'; state.nativeInputVersion = version;
+    render();
+    expect(container.textContent).toBe('Task workspace');
+    state.link = 'connecting';
+    render();
+    expect(container.textContent).toBe('Task workspace');
+    expect(container.querySelector('[data-offline-session]')).toBeNull();
+    expect(fill).not.toHaveBeenCalled();
   });
 
   it('keeps cloud wake ahead of the native offline page', () => {

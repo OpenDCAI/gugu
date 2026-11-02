@@ -142,7 +142,8 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
   const deviceId = machineRegistry.machineOf(projectId);
   const device = deviceId ? remoteHostsStore.device(deviceId) : null;
   const native = remoteHostsStore.findListedSession(sessionId)?.nativeInputVersion;
-  const offlineNative = Boolean(unreachable && !cloud && deviceId && (native === 1 || native === 2));
+  const needsWorkspace = kind === 'project-mounting' || kind === 'provisioning' || kind === 'idle' || kind === 'provision-error' || kind === 'project-error';
+  const offlineNative = Boolean(needsWorkspace && unreachable && !cloud && deviceId && (native === 1 || native === 2));
   const recovery = useRef({ projectId, sessionId, pending: false });
   useEffect(() => {
     if (recovery.current.projectId !== projectId || recovery.current.sessionId !== sessionId) {
@@ -183,7 +184,7 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
   }
 
   // #7199 这条会话在一台没醒着的云电脑上:先说「正在唤醒」等它醒(打开会话那一下已叫醒它),❌ 先去准备文件、连不上就报失败。
-  if (cloud && (kind === 'project-mounting' || kind === 'provisioning' || kind === 'idle' || kind === 'provision-error' || kind === 'project-error')) {
+  if (cloud && needsWorkspace) {
     if (cloud.failure) {
       return (
         <SessionErrorScreen
@@ -201,7 +202,7 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
   }
 
   if (offlineNative) return <OfflineSessionSlot sessionId={sessionId} />;
-  if (unreachable && (kind === 'project-mounting' || kind === 'provisioning' || kind === 'idle' || kind === 'provision-error' || kind === 'project-error' || kind === 'ready')) {
+  if (unreachable && needsWorkspace) {
     return <div className="flex h-full w-full items-center justify-center text-sm text-foreground-muted">{unreachable}</div>;
   }
 
