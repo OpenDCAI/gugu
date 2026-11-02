@@ -479,6 +479,7 @@ describe('the first message keeps one place while its session starts', () => {
 
   it.each([
     { record: { providerId: 'claude', providerSessionId: 'prov-old' }, label: 'restoring' },
+    { record: { providerId: 'claude', forkFromProviderSessionId: 'prov-parent' }, label: 'restoring' },
     { record: { providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] }, label: 'starting' },
   ] as const)('uses $label in the existing process line from the host lifecycle', async ({ record, label }) => {
     const { store } = storeFor(record as Partial<Session>);
@@ -539,11 +540,12 @@ describe('the first message keeps one place while its session starts', () => {
     await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt).toBeNull());
   });
 
-  it('a failed startup keeps the queued input in the transcript and redraws it once after a retry fails', async () => {
-    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+  it.each([undefined, 'prov-old'])('a failed startup or recovery keeps the queued input and redraws it once after retry (%s)', async (providerSessionId) => {
+    const { store } = storeFor({ providerId: 'claude', providerSessionId, initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
     store.bootstrap();
     life.pend(store.sessionId, 'starting', [row('queued')]);
     await vi.waitFor(() => expect(store.transcriptPendingId).toBe('m-first'));
+    expect(store.chatState.session.state.pendingPrompt?.starting).toBe(providerSessionId ? 'restoring' : 'starting');
     life.pend(store.sessionId, 'failed', [row('queued')], 'start-failed');
     expect(store.failedRowIds).toEqual(['m-first']);
     expect(store.chatState.session.state.pendingPrompt).toBeNull();
