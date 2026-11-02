@@ -96,3 +96,18 @@ it('loads older phone history before placing an unknown receipt and never draws 
   expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(2);
   expect(harness.container.querySelector('[data-user-card="older-incoming"]')).toBeNull();
 });
+
+
+it('retains the phone recovery label on the same ordinary sending input', async () => {
+  await page.viewport(390, 844);
+  const input = { id: 'recovering-send', sessionId: 'phone-task', accountId: 'owner', deviceId: 'device', text: 'Recover and send', createdAt: Date.now(), queued: false };
+  Object.assign(state(), { accountId: 'owner', rows: [input], valid: () => true });
+  harness = createReactHarness();
+  harness.container.style.cssText = 'height:700px;width:390px;display:flex;flex-direction:column';
+  await renderWithAppProviders(harness, <SessionConversation timeline={emptyAgentWatchTimeline()} deviceId="device" sessionId="phone-task" agentName="Agent" nativeRecord
+    startupPrompt={{ id: input.id, text: input.text, starting: 'restoring', held: true }}
+    sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking={false}
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} });
+  await until('the sending bubble retains its restoration process', () => !!harness.container.querySelector('[data-send-state="sending"]') && /Restoring|恢复中/.test(harness.container.textContent ?? ''));
+  expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
+});

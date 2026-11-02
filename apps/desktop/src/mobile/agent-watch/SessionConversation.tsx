@@ -185,8 +185,10 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const life = useSessionLifeView(deviceId, sessionId, local, !phoneHost && hostReachable,
     timeline.queuedPrompts.length > 0 || pendingSends.length > 0 || senderInputs.length > 0)
   const pendingInput = useRef<{ sessionId: string; prompt: PendingPrompt | null }>({ sessionId, prompt: null })
-  const pendingPrompt = projectSessionPendingInput(pendingInput.current.sessionId === sessionId ? pendingInput.current.prompt : null,
+  const projectedInput = projectSessionPendingInput(pendingInput.current.sessionId === sessionId ? pendingInput.current.prompt : null,
     senderInputs, life.view?.pending.items ?? [], nativeTurns)
+  const pendingPrompt = projectedInput && startupPrompt?.id === projectedInput.id
+    ? { ...projectedInput, starting: startupPrompt.starting } : projectedInput
   pendingInput.current = { sessionId, prompt: pendingPrompt }
   const received = useRef<{ key: string; inputs: readonly PendingPrompt[] }>({ key: '', inputs: [] })
   const receivedKey = `${deviceId}/${sessionId}`
