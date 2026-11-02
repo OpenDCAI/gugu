@@ -575,8 +575,8 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
   in a folder the search index skips hears the disk only when written.
 - Any other file (a chat you are in, a folder here): \`files:write\`, or \`files:read\` (read-only).
 - Another machine's working copy: list and \`f.read\` work; open whole/download need \`files:read:all-machines\`.
-- \`gugu.files.list(place)\`: \`files:read\`; \`files.create({...place,name}, content)\`, \`files.rename(entry,name)\`,
-  \`files.remove(entry)\`: \`files:write\`. JSON: pass an object, not a \`JSON.stringify\` string.
+- \`gugu.files.list(place)\`: \`files:read\`; \`gugu.files.create({...place,name},content)\`, \`gugu.files.rename(entry,name)\`,
+  \`gugu.files.remove(entry)\`: \`files:write\`. JSON: objects, not \`JSON.stringify\` strings.
 - \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): all the reader's chats' files by part of the
   path, with \`chatName\`; \`gugu.files.recent({ limit })\`: those this person opened last (\`openedAt\`).
 - A chat's subfolders: \`gugu.files.list({ chat, folder })\` lists one (path or id, \`''\` the top; none: all;
