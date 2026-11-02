@@ -56,8 +56,15 @@ const pills = () => [...document.querySelectorAll<HTMLElement>('[data-testid="me
 /** The one open pill is the target row's own (Base UI marks the open trigger), not another row's. */
 const targetPillOpen = (target: HTMLElement) => pills().length === 1 && !!target.closest('[data-message-bubble-row]')?.hasAttribute('data-popup-open');
 
-it.each([false, true])('keeps its pill across the previous row, button gaps and padding (top avoidance: %s)', async (topClamp) => {
-  const target = await mount(true, topClamp);
+it.each([false, true].flatMap((topClamp) => [false, true].flatMap((isMine) => [false, true].map((visited) => ({ topClamp, isMine, visited })))))('keeps its pill across the previous row, button gaps and padding ($topClamp/$isMine/visited:$visited)', async ({ topClamp, isMine, visited }) => {
+  const target = await mount(true, topClamp, false, isMine);
+  if (visited) {
+    const previous = harness.container.querySelector<HTMLElement>('[data-message-bubble-row]')!;
+    await userEvent.hover(previous);
+    await until('the previous row has opened before this crossing', () => previous.hasAttribute('data-popup-open'));
+    await move(5, 500);
+    await until('the previous row has closed', () => pills().length === 0);
+  }
   await userEvent.hover(target);
   await until('target pill opens', () => targetPillOpen(target));
   const pill = pills()[0];

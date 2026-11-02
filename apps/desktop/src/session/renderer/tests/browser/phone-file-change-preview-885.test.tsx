@@ -1,12 +1,16 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import { getI18n } from 'react-i18next';
+import { getLocaleSnapshot, setLocalePreference } from '@/i18n';
+import { formatBytes } from '@renderer/utils/formatBytes';
+import { OPENED_FILE_MAX_BYTES } from '@gugu/session-core/session-record/contract';
 import { SessionpageRpcError } from '@/mobile/agent-watch/sessionpage-rpc';
 import { SessionConversation } from '@/mobile/agent-watch/SessionConversation';
 import { emptyAgentWatchTimeline } from '@/mobile/agent-watch/agent-watch-store';
 import { textFilePatch } from '@gugu/session-core/lib';
 import { createReactHarness, renderWithAppProviders, clickElement } from '../../../../../../../tests/support/testHarness';
 import { until } from '../../../../../../../tests/support/awaitCondition';
+import '@/i18n/registerMainCatalog';
 import '@/styles/tokens.css';
 import '@renderer/index.css';
 
@@ -20,14 +24,25 @@ vi.mock('@/mobile/agent-watch/sessionpage-rpc', async original => ({
   fetchBackgroundTasks: vi.fn(async () => []), readOpenedFileChunk: read,
 }));
 let harness: ReturnType<typeof createReactHarness>;
-afterEach(() => harness?.cleanup());
+const initialLocale = getLocaleSnapshot().preference;
+afterEach(() => { harness?.cleanup(); setLocalePreference(initialLocale); });
 
-it.each([true, false])('routes a file card through the existing host permission check after history reload (opened output: %s)', async opened => {
+const scenarios = [
+  { name: 'opened output', error: null, key: null },
+  { name: 'not_opened', error: new SessionpageRpcError('not_opened', 'This task has not opened that output'), key: 'notOpened' },
+  { name: 'file_missing', error: new SessionpageRpcError('file_missing', 'File missing'), key: 'fileMissing' },
+  { name: 'too_large', error: new SessionpageRpcError('too_large', 'File too large'), key: 'tooLarge' },
+  { name: 'read_failed', error: new SessionpageRpcError('read_failed', 'Host read failed'), key: 'readFailed' },
+  { name: 'network error', error: new Error('Network disconnected'), key: 'readFailed' },
+];
+it.each(scenarios.flatMap(scenario => (['zh-CN', 'en-US'] as const).map(locale => ({ ...scenario, locale }))))(
+  '$locale: shows the correct file-card result after history reload ($name)', async ({ error, key, locale }) => {
+  setLocalePreference(locale);
   await page.viewport(390, 844);
   const sessionId = 'phone-edit-885', path = '/workspace/report.md', itemId = `${sessionId}:turn:s4:tool:edit`;
   const contents = 'CURRENT-DISK-CONTENT-885';
   read.mockReset().mockImplementation(async () => {
-    if (!opened) throw new SessionpageRpcError('not_opened', 'This task has not opened that output');
+    if (error) throw error;
     return { size: contents.length, etag: 'current', data: btoa(contents) };
   });
   for (let load = 0; load < 2; load++) {
@@ -46,11 +61,15 @@ it.each([true, false])('routes a file card through the existing host permission 
     await until('the phone renders the completed edit card', () => !!file());
     expect(file()!.disabled).toBe(false);
     await clickElement(file()!);
-    if (opened) {
+    if (!error) {
       await until('the existing phone preview displays host-authorized bytes', () => document.body.textContent?.includes(contents) === true);
     } else {
-      const refusal = String(getI18n().t('agentWatch.output.readFailed', { ns: 'main' }));
+      const notOpened = locale === 'zh-CN' ? '这条会话还没打开过这个文件。' : "This session hasn't opened this file yet.";
+      const refusal = key === 'notOpened' ? notOpened : String(getI18n().t(`agentWatch.output.${key}`, {
+        ns: 'main', limit: formatBytes(OPENED_FILE_MAX_BYTES),
+      }));
       await until('the existing preview displays the host refusal', () => document.body.textContent?.includes(refusal) === true);
+      if (key !== 'notOpened') expect(document.body.textContent).not.toContain(notOpened);
       expect(document.body.textContent).not.toContain(contents);
     }
     expect(read).toHaveBeenLastCalledWith('host-device', expect.objectContaining({ conversationId: sessionId, path, offset: 0 }));

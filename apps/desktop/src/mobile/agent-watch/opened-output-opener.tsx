@@ -85,6 +85,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote, readFileCh
     (error: unknown): string => {
       if (error instanceof OpenedFileChangedError) return t('agentWatch.output.fileChanged')
       if (error instanceof SessionpageRpcError) {
+        if (error.code === 'not_opened') return t('agentWatch.output.notOpened')
         if (error.code === 'file_missing') return t('agentWatch.output.fileMissing')
         if (error.code === 'too_large') return t('agentWatch.output.tooLarge', { limit: formatBytes(OPENED_FILE_MAX_BYTES) })
       }

@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { appOrigin, gateOrigin } from '../../../../apps/desktop/src/components/appSlot/appOrigin'
 import { extensionContentSecurityPolicy } from '../../../../apps/desktop/src/session/shared/extensions/app-csp'
-import { APP_RUNTIME_FORGET_PAGE, APP_RUNTIME_GATE_PAGE, RUNTIME_SCRIPT_TAG } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { APP_RUNTIME_FORGET_PAGE, APP_RUNTIME_GATE_PAGE, appRuntimeScriptTag, RUNTIME_SCRIPT_TAG } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { fileIconKey } from '../../../../apps/desktop/src/session/shared/extensions/app-icon'
 
 // L9 (摩擦单 F76): the phone's App store (phoneApps.ts) — install, update, uninstall, re-tag, where an App's page is,
@@ -238,9 +238,9 @@ describe('U3 the phone App store: install, update, uninstall, re-tag', () => {
     expect(result).toMatchObject({ success: true, data: { installed: true, outcome: 'confirmed', id: 'vote', version: '1.0.0' } })
     expect(shell.asked).toEqual([])
     expect([...shell.versions.keys()]).toEqual(['vote@1.0.0'])
-    for (const page of ['index.html', 'more/page.html']) expect(text('vote@1.0.0', page).split(RUNTIME_SCRIPT_TAG)).toHaveLength(2)
+    for (const page of ['index.html', 'more/page.html']) expect(text('vote@1.0.0', page).split(appRuntimeScriptTag(EXTENSION_API_VERSION))).toHaveLength(2)
     // After the doctype, before the App's own script (injectAppRuntime).
-    expect(text('vote@1.0.0', 'index.html')).toBe(`<!doctype html>${RUNTIME_SCRIPT_TAG}<title>1.0.0</title><script src="app.js"></script>`)
+    expect(text('vote@1.0.0', 'index.html')).toBe(`<!doctype html>${appRuntimeScriptTag(EXTENSION_API_VERSION)}<title>1.0.0</title><script src="app.js"></script>`)
     expect(text('vote@1.0.0', 'app.js')).toBe("document.title = '1.0.0'")
     expect(index().serve.vote).toEqual({ root: 'file:vote@1.0.0', csp: extensionContentSecurityPolicy(`${SHELL} ${gateOrigin('vote')}`, []) })
     // The one store the card, the group's panel and 「用 X 打开」 read on both platforms.
@@ -412,8 +412,8 @@ describe('U3 the phone App store: install, update, uninstall, re-tag', () => {
     shell.index = JSON.stringify({ version: 1, installed: { vote: record }, serve: {} })
 
     await (await start()).ready()
-    expect(text('vote@1.0.0', 'index.html')).toBe(`<!doctype html>${RUNTIME_SCRIPT_TAG}<script src="app.js"></script>`)
-    expect(index().installed.vote!.runtimeTag).toBe(RUNTIME_SCRIPT_TAG)
+    expect(text('vote@1.0.0', 'index.html')).toBe(`<!doctype html>${appRuntimeScriptTag(EXTENSION_API_VERSION)}<script src="app.js"></script>`)
+    expect(index().installed.vote!.runtimeTag).toBe(appRuntimeScriptTag(EXTENSION_API_VERSION))
 
     // The same line: the page is not written again.
     shell.versions.get('vote@1.0.0')!.set('index.html', new Uint8Array(Buffer.from('untouched')))

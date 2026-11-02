@@ -37,20 +37,18 @@ body[data-attachment=inside] .bar::before { transform: scaleY(-1); }
 body[data-attachment=inside] .identity { align-self: end; }
 body[data-attachment=inside] button { align-self: start; }
 body[data-attachment=inside] .identity[data-task=false] { align-self: center; }
-body[data-attachment=floating] .bar { padding-left: 16px; padding-right: 8px; }
-body[data-attachment=floating] .bar::before { mask-image: none; border-radius: 8px; }
 </style></head><body><div class="bar" role="status" data-state="driving"><div class="identity"><div class="byline"><span class="dot" aria-hidden="true"></span><span class="agent"></span></div><div class="task"></div></div><button type="button"><span class="stop-icon">${icon(ICON_BODIES.Square)}</span><span class="resume-icon" hidden>${icon(ICON_BODIES.Play)}</span><span class="button-label"></span></button></div>
 <script>
 const bar = document.querySelector('.bar'), identity = document.querySelector('.identity'), agent = document.querySelector('.agent'), task = document.querySelector('.task'), button = document.querySelector('button'), label = document.querySelector('.button-label'), stopIcon = document.querySelector('.stop-icon'), resumeIcon = document.querySelector('.resume-icon')
 let action = 'stop'
 window.render = (view) => {
-  const hasTask = view.attachment !== 'floating' && Boolean(view.taskTitle)
+  const hasTask = Boolean(view.taskTitle)
   bar.dataset.state = view.state
   bar.setAttribute('aria-label', view.text)
   document.body.dataset.attachment = view.attachment
   identity.dataset.task = String(hasTask)
   identity.title = view.text
-  agent.textContent = view.attachment === 'floating' ? view.text : view.agentName
+  agent.textContent = view.agentName
   agent.title = view.agentName
   task.hidden = !hasTask
   task.textContent = view.taskTitle || ''
