@@ -5,8 +5,8 @@ import threads, { type WorkerOptions } from 'node:worker_threads';
 import { registerHooks, syncBuiltinESMExports } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { relative } from 'node:path';
-import { networkHostAllowed } from '@shared/extensions/partition';
-import { resolvesInside } from '../../../electron/session/main/core/extensions/path-containment';
+import { networkHostAllowed } from '@shared/extensions/network-host';
+import { resolvesInside } from '@shared/extensions/path-containment';
 
 // A seat belt for declared tools, not an OS sandbox for malicious code. Runs in every thread before App code.
 const hosts: string[] = JSON.parse(process.env.GUGU_APP_NETWORK_HOSTS!);

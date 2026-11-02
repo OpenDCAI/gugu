@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { EXTENSION_API_VERSION, EXTENSION_TOOL_CONFINEMENT_API_VERSION } from './bridge-protocol';
-import { networkHostAllowed } from './partition';
+import { networkHostAllowed } from './network-host';
 import { APP_PLATFORMS } from './app-platforms';
 import { claimTakes } from './file-openers';
 import { INSTRUCTIONS_MAX_CHARS, SUBTITLE_MAX_CHARS } from './app-listing';
