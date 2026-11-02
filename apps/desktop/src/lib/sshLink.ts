@@ -73,7 +73,7 @@ export type SshLinkState = 'signInRequired' | 'unreachable' | 'outdated' | 'upda
  * via = 'tunnel':这条设备连接开在远程隧道上(这台电脑没有它的 SSH 映射)。连不上的原因由远程隧道自己报
  * (tunnelMachines.ts),❌ 记成远程 SSH 的「要先登录」;主进程当场标,渲染层 ❌ 靠清单加载先后去猜。
  */
-export type SshLinkOpenResult = { ok: true } | { ok: false; reason: SshLinkFailure; detail?: string; via?: 'tunnel' }
+export type SshLinkOpenResult = { ok: true } | { ok: false; reason: SshLinkFailure; detail?: string; via?: 'tunnel'; controlOnly?: true }
 
 export type SshLinkMessageEvent = { deviceId: string; message: unknown }
 export type SshLinkClosedEvent = { deviceId: string; reason: SshLinkFailure; via?: 'tunnel' }

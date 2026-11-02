@@ -457,7 +457,7 @@ describe('桌面主进程:每台机器一条设备连接', () => {
     const old = links.open('old')
     await flush()
     children[0]!.stdout.write(`rc banner\n${LINK_PROTOCOL_MARK} 0\n${LINK_READY_MARK}\n`)
-    expect(await old).toEqual({ ok: true })
+    expect(await old).toMatchObject({ ok: false, reason: 'outdated', controlOnly: true })
     expect(children[0]!.killed).toEqual([])
     const envelope = (type: string, id: string) => asBroadcast({ type, request_id: id, user_id: ACCOUNT, payload: {} })
     const writes: Buffer[] = []

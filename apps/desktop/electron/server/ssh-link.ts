@@ -111,14 +111,14 @@ const systemSpawn: SpawnLinkSsh = (args) => spawn('ssh', args, { stdio: ['pipe',
 
 type Link = {
   child: ChildProcessWithoutNullStreams
-  ready: Promise<{ ok: true } | { ok: false; reason: SshLinkFailure; detail: string }>
+  ready: Promise<{ ok: true } | { ok: false; reason: SshLinkFailure; detail: string; controlOnly?: true }>
   open: boolean
   protocol: number | null
 }
 
 export type SshLinkManager = {
   /** 开(或复用)这台机器的设备连接;接上了才回 ok。 */
-  open(deviceId: string): Promise<{ ok: true } | { ok: false; reason: SshLinkFailure; detail: string }>
+  open(deviceId: string): Promise<{ ok: true } | { ok: false; reason: SshLinkFailure; detail: string; controlOnly?: true }>
   /** 往这台机器写一条信封;连接没开着 = false(调用方按「断了」处理)。 */
   send(deviceId: string, message: unknown): boolean
   close(deviceId: string): void
@@ -170,7 +170,7 @@ export function createSshLinkManager(options: {
       if (readySettled) return
       readySettled = true
       clearTimeout(timer)
-      link.open = value.ok
+      link.open = value.ok || value.controlOnly === true
       settleReady(value)
     }
     const timer = setTimeout(() => {
@@ -207,7 +207,9 @@ export function createSshLinkManager(options: {
       // Keep the authenticated link available for the controls that repair a version mismatch.
       link.protocol = linkProtocolFromPreamble(preamble.subarray(0, preamble.length - rest.length))
       preamble = null
-      finishReady({ ok: true })
+      finishReady(serverProtocolTooOld(link.protocol, { unknownIsTooOld: false })
+        ? { ok: false, reason: 'outdated', detail: `server protocol ${String(link.protocol)}`, controlOnly: true }
+        : { ok: true })
       if (rest.length) takeFrames(rest)
     })
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
@@ -243,7 +245,7 @@ export function createSshLinkManager(options: {
       links.set(deviceId, link)
       const result = await link.ready
       if (!result.ok) {
-        if (links.get(deviceId) === link) links.delete(deviceId)
+        if (!link.open && links.get(deviceId) === link) links.delete(deviceId)
         log('ssh link: could not open', { deviceId, reason: result.reason, detail: result.detail })
       }
       return result

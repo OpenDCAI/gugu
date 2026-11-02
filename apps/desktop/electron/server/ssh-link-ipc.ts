@@ -160,15 +160,17 @@ export function registerSshLinkIpc(options: {
   options.ipcMain.handle(SSH_LINK_CHANNELS.open, async (_event, deviceId: unknown): Promise<SshLinkOpenResult> => {
     if (typeof deviceId !== 'string' || !ID.test(deviceId)) return { ok: false, reason: 'unmapped' }
     // 正在替它升级:这时开出去只会撞上还没换下来的旧版本,❌ 再起一个 ssh。
-    if (upgrader?.upgrading(deviceId)) return { ok: false, reason: 'updating' }
+    const updating = upgrader?.upgrading(deviceId) === true
+    if (updating && !links.isOpen(deviceId)) return { ok: false, reason: 'updating' }
     // 原因的原文只进日志(ssh-link.ts 已记),渲染层只拿原因码。
     const result = await links.open(deviceId)
     // 经远程隧道的机器:不替它升级(它自己经咕咕云换版本);连不上 = 中转那条路坏了,让远程隧道重连。
     if (!(await machineFor(deviceId)) && options.tunnels?.linkMachine(deviceId)) {
       if (!result.ok && result.reason !== 'outdated') options.tunnels.reportBroken(deviceId)
-      return result.ok ? result : { ok: false, reason: result.reason, via: 'tunnel' }
+      return result.ok ? result : { ...result, via: 'tunnel' }
     }
-    return openOutcome(deviceId, result, upgrader)
+    const outcome: SshLinkOpenResult = updating ? { ok: false, reason: 'updating' } : openOutcome(deviceId, result, upgrader)
+    return !result.ok && result.controlOnly && !outcome.ok ? { ...outcome, controlOnly: true } : outcome
   })
   options.ipcMain.handle(SSH_LINK_CHANNELS.upgrade, async (_event, request: { deviceId?: unknown; force?: unknown; desktopTooOld?: unknown; now?: unknown }) => {
     if (!request || typeof request.deviceId !== 'string' || !ID.test(request.deviceId) || !upgrader) return false

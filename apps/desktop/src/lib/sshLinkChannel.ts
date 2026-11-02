@@ -255,6 +255,7 @@ export function openSshLink(deviceId: string, handlers: LinkHandlers): SshLinkHa
       if (!result || !result.ok) {
         const reason = result && !result.ok ? result.reason : 'unreachable'
         if (!(result && !result.ok && result.via === 'tunnel')) setLinkProblem(deviceId, reason)
+        if (result && !result.ok && result.controlOnly) return
         throw new SshLinkError(reason, deviceId)
       }
       setLinkProblem(deviceId, null)

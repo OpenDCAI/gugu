@@ -22,6 +22,31 @@ function register() {
 }
 
 describe('ssh-link-ipc tap: an active close reaches whoever listens on that link', () => {
+  it('preserves the original automatic upgrade and updating status while retaining update controls', async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
+    let updating = false
+    const request = vi.fn(() => { updating = true; return true })
+    const links = registerSshLinkIpc({
+      ipcMain: { handle: (channel: string, fn: (event: unknown, ...args: unknown[]) => unknown) => handlers.set(channel, fn) } as never,
+      getWindow: () => null, currentUserId: async () => 'owner-1', published: true,
+      store: { list: () => [{ deviceId: 'old', ownerUserId: 'owner-1' }], onChange: () => () => undefined } as never,
+      upgrader: { request, upgrading: () => updating } as never,
+    })
+    let held = false
+    vi.spyOn(links, 'isOpen').mockImplementation(() => held)
+    const open = vi.spyOn(links, 'open').mockImplementation(async () => {
+      held = true
+      return { ok: false, reason: 'outdated', detail: 'server protocol 15', controlOnly: true }
+    })
+    const openForRenderer = () => handlers.get(SSH_LINK_CHANNELS.open)!({}, 'old')
+    expect(await openForRenderer()).toEqual({ ok: false, reason: 'updating', controlOnly: true })
+    expect(request).toHaveBeenCalledExactlyOnceWith('old')
+    expect(await openForRenderer()).toEqual({ ok: false, reason: 'updating', controlOnly: true })
+    expect(request).toHaveBeenCalledTimes(1)
+    held = false
+    expect(await openForRenderer()).toEqual({ ok: false, reason: 'updating' })
+    expect(open).toHaveBeenCalledTimes(2)
+  })
   it('file borrowing requires the current owner’s real SSH mapping and an already-open link, excluding tunnels', async () => {
     let current = 'owner-1'
     const machines = [{ deviceId: 'ssh-device', ownerUserId: 'owner-1' }, { deviceId: 'foreign-device', ownerUserId: 'owner-2' }]
