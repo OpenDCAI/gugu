@@ -466,7 +466,7 @@ describe('助理搬家编排 (#7199)', () => {
     expect(local.stored).toEqual([]);
   });
 
-  it('云上那版咕咕还不认搬账号 / 重排:不当失败、不撤任何账号,如实回报(已安排逐条列出)', async () => {
+  it('retains schedules and recovery until an older target supports schedule restoration', async () => {
     const events: string[] = [];
     const local = localSide(events, {
       files: { '/gh/assistant': 'dir', '/gh/assistant/.claude': 'dir' },
@@ -481,12 +481,20 @@ describe('助理搬家编排 (#7199)', () => {
     cloud.schedules.restore = async () => {
       throw tooOld;
     };
-    const report = await runMove(baseDeps({ direction: 'to-cloud', source: local, openTarget: async () => cloud }, events));
+    const deps = baseDeps({ direction: 'to-cloud', source: local, openTarget: async () => cloud }, events);
+    await expect(runMove(deps)).rejects.toMatchObject({ step: 'schedules', cause: { code: 'unknown_method' } });
+    expect(deps.journal.load()?.schedules).toEqual([SCHEDULE]);
+    expect(local.stored).toHaveLength(1);
+    expect(events).not.toContain('restart');
+    cloud.schedules.restore = async (items) => { cloud.sched.push(...items); return { restored: items.length, skipped: [] }; };
+    deps.isAdopted = async () => true;
+    const report = await runMove(deps);
 
     expect(report.accounts.unsupported).toBe(true);
     expect(report.accounts.moved).toEqual([]);
     expect(local.stored).toHaveLength(1);
-    expect(report.schedules.unsupported).toEqual([SCHEDULE]);
+    expect(cloud.sched).toEqual([SCHEDULE]);
+    expect(deps.journal.load()).toBeNull();
     expect(events).toContain('restart');
   });
 

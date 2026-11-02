@@ -235,6 +235,7 @@ export default {
     "failedIntact": "{{name}} is still in its old home. Nothing changed.",
     "failedResume": "What already moved won't be redone; you can carry on.",
     "failedReason": {
+      "schedules_unsupported": "The new home's version cannot restore schedules. Update it, then choose Resume move.",
       "conflict": "A same-name file changed at the new home: {{path}}. Save the newer content separately and move that file aside, then choose Resume move.",
       "schedules": "The original schedules are not restored. Reconnect both homes and retry. If the recovery record is missing, recover it before continuing.",
       "restart": "The assistant may still be offline. Once the connection recovers, choose Resume move to confirm it is back online.",

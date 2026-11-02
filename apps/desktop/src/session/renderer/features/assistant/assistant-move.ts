@@ -371,14 +371,8 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
   // 3. 重排已安排(接过之后新家才有助理那条会话)。
   progress('schedules');
   if (journal.schedules && journal.schedules.length > 0) {
-    try {
-      const result = await guard('schedules', () => target!.schedules.restore(journal.schedules!));
-      report.schedules = { ...result, unsupported: [], unreadable: report.schedules.unreadable };
-    } catch (cause) {
-      const original = cause instanceof MoveError ? cause.cause : cause;
-      if (!isUnknownMethod(original)) throw cause;
-      report.schedules.unsupported = journal.schedules;
-    }
+    const result = await guard('schedules', () => target!.schedules.restore(journal.schedules!));
+    report.schedules = { ...result, unsupported: [], unreadable: report.schedules.unreadable };
   }
   await finish('schedules');
 

@@ -6,7 +6,7 @@ import { CloudComputerError } from '@gugu/core/cloud/cloudComputer';
 import { rendererLogger } from '@/lib/log';
 import { rpcOn } from '@renderer/lib/ipc';
 import { homeTarget } from './assistant-home-sessions';
-import { MoveError, type MoveDirection, type MoveProgress, type MoveReport } from './assistant-move';
+import { isUnknownMethod, MoveError, type MoveDirection, type MoveProgress, type MoveReport } from './assistant-move';
 import { MoveCopyError } from './assistant-move-copy';
 import { previewMove, runAssistantMove, type MoveEnv } from './assistant-move-wire';
 
@@ -25,6 +25,7 @@ export type MoveFailureReason =
   | 'unreadable'
   | 'restart'
   | 'schedules'
+  | 'schedules_unsupported'
   | 'conflict'
   | 'generic';
 
@@ -73,7 +74,7 @@ export function moveBusy(): boolean {
 
 export function failureReason(error: unknown): MoveFailureReason {
   if (error instanceof MoveError && error.step === 'restart') return 'restart';
-  if (error instanceof MoveError && error.step === 'schedules') return 'schedules';
+  if (error instanceof MoveError && error.step === 'schedules') return isUnknownMethod(error.cause) ? 'schedules_unsupported' : 'schedules';
   const cause = error instanceof MoveError ? error.cause : error;
   if ((cause as { code?: string } | null)?.code === 'conflict') return 'conflict';
   if (cause instanceof MoveCopyError) {
