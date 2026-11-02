@@ -136,6 +136,33 @@ describe('the packaged launcher verifies before loading application code', () =>
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/2.0.0'))
   })
 
+  it.each([undefined, 3])('does not compete with the actual legacy guard (own attempts %s)', async attempts => {
+    const guardScript = path.join(home, 'server.js')
+    fs.writeFileSync(guardScript, "process.stdin.resume();process.stdout.write('guard');process.stdin.on('data',()=>process.exit(0))")
+    const guard = spawn(process.execPath, [guardScript, 'upgrade-guard'], { env: environment(), stdio: ['pipe', 'pipe', 'pipe'] })
+    children.push(guard)
+    expect(String((await once(guard.stdout!, 'data'))[0])).toBe('guard')
+    const legacy = JSON.stringify({ from: '1.0.0', to: '2.0.0', fromDir: path.join(home, 'versions/1.0.0'), toDir: path.join(home, 'versions/2.0.0'), switchedAt: 123 })
+    fs.writeFileSync(data('upgrade-pending.json'), legacy)
+    fs.writeFileSync(data('upgrade-guard.pid'), String(guard.pid))
+    if (attempts !== undefined) fs.writeFileSync(data('pending-verify.json'), JSON.stringify({ from: '1.0.0', to: '2.0.0', attempts }))
+    fs.writeFileSync(app(), 'throw new Error("new package could not load")')
+    const result = run()
+    expect(result.status, result.stderr).toBe(1)
+    expect(result.stderr).toContain('legacy upgrade guard owns this transition')
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/2.0.0'))
+    expect(fs.existsSync(data('bad-versions.json'))).toBe(false)
+    expect(fs.readFileSync(data('upgrade-pending.json'), 'utf8')).toBe(legacy)
+    if (attempts === undefined) expect(fs.existsSync(data('pending-verify.json'))).toBe(false)
+    else expect(read('pending-verify.json').attempts).toBe(attempts)
+    const closed = once(guard, 'close')
+    guard.stdin!.end('exit'); await closed
+    if (attempts !== undefined) {
+      expect(run().status).toBe(75)
+      expect(read('bad-versions.json')['2.0.0']).toBeTypeOf('number')
+    }
+  })
+
   it('explains safe recovery from an empty lock without counting or loading the body', () => {
     pending()
     fs.writeFileSync(data('server.lock'), '')

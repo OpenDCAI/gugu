@@ -6,7 +6,7 @@ import { pruneVersions, readVersionPin } from './server-account-versions'
 import { activityProof, listAccounts } from './server-layout'
 import { assertPackageEnvironment } from './server-package-environment.mts'
 import { pointCurrent as pointCurrentFile } from './server-boot.cjs'
-import { readBadVersions, readPendingVerify, writePendingVerify } from './server-startup'
+import { legacyGuardActive, readBadVersions, readPendingVerify, writePendingVerify } from './server-startup'
 import { createServerUpdateStateWriter, readUpdateRecord } from './server-update-state'
 
 /** The staged package installed but did not boot an account: a boot failure, not an install failure. */
@@ -122,6 +122,7 @@ export async function activateServerPackage(home: string, directory: string, opt
   if (target === previous) return
   createServerUpdateStateWriter(home).set('ready', path.basename(target))
   const busy = options.isBusy ?? (() => listAccounts().some(account => account.signedIn && activityProof(account.dataDir) !== 'idle'))
+  if (legacyGuardActive(home)) throw new ServerPackageDeferredError('The legacy upgrade guard still owns the current transition')
   if (busy()) throw new ServerPackageDeferredError('Accounts are no longer idle; package activation was deferred')
   lifecycle.switchSupervisor({ from: path.basename(from), to: path.basename(target), fromDir: from,
     toDir: target, switchedAt: Date.now() }, options.beforeSwitch ?? (() => {}))

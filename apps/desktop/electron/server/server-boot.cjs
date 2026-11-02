@@ -107,7 +107,23 @@ function readBadVersions(home) {
   for (const [name, at] of Object.entries(raw || {})) if (version(name) && typeof at === 'number' && Number.isFinite(at)) out[name] = at
   return out
 }
+function legacyGuardActive(home) {
+  if (!fs.existsSync(file(home, 'upgrade-pending.json'))) return false
+  let pid
+  try { pid = Number(readJson(file(home, 'upgrade-guard.pid'))) } catch { return false }
+  if (!Number.isSafeInteger(pid) || pid <= 0 || !live(pid)) return false
+  if (process.platform === 'linux') {
+    try { return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').includes('upgrade-guard') }
+    catch { return true }
+  }
+  // As with the home lock, platforms without /proc conservatively respect a live PID.
+  return true
+}
 function checkPendingBoot(home) {
+  if (legacyGuardActive(home)) {
+    process.stderr.write('[server] The deployed legacy upgrade guard owns this transition; launch-count rollback is deferred.\n')
+    return false
+  }
   const pending = readPendingVerify(home)
   if (!pending) return false
   writePendingVerify(home, { ...pending, attempts: pending.attempts + 1 })
@@ -128,7 +144,7 @@ function checkPendingBoot(home) {
   return true
 }
 
-module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, readPendingVerify, writePendingVerify, markServerReady, writeJson, pointCurrent, readBadVersions }
+module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, readPendingVerify, writePendingVerify, markServerReady, writeJson, pointCurrent, readBadVersions, legacyGuardActive }
 
 // Importing these same helpers from a bundle never counts another attempt.
 if (process.argv[2] === 'run' && process.execArgv.some((arg, i) => arg === '--require' && process.execArgv[i + 1] === __filename)) {

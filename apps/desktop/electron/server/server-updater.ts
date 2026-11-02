@@ -23,7 +23,7 @@ export { createServerUpdateStateWriter } from './server-update-state'
 import type { FailureCause, Outcome } from '@gugu/core/shared/serverVersionOutcome'
 import { serverDownloadBase } from './server-download'
 import { touchVersion, versionManifestUrl } from './server-account-versions'
-import { readBadVersions } from './server-startup'
+import { legacyGuardActive, readBadVersions } from './server-startup'
 import { controllerOwnsUpdates, readInstallation } from './server-package-environment.mts'
 
 /**
@@ -279,6 +279,7 @@ export function startServerUpdater(deps: ServerUpdaterDeps): ServerUpdater {
     let target = received?.target ?? record?.version ?? layout!.version
     let resolved = false
     try {
+      if (legacyGuardActive(layout!.home)) return schedule(IDLE_POLL_MS)
       if (controller && !received?.confirmed) return
       if (idlePoll && !received?.confirmed && record?.state === 'ready' && runtime.isBusy()) {
         publish({ state: 'ready', version: record.version })
