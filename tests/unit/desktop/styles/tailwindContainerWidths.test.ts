@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import tailwind from '@tailwindcss/postcss'
-import postcss, { type Root } from 'postcss'
+import postcss, { type AcceptedPlugin, type Root } from 'postcss'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 const sizes = [
@@ -35,7 +35,11 @@ beforeAll(async () => {
     ...sizes.flatMap(([size]) => [...widthUtilities.map(([prefix]) => `${prefix}-${size}`), ...spacingUtilities.map((prefix) => `${prefix}-${size}`)]),
     ...variants, 'p-4', 'gap-3', 'p-[var(--spacing-lg)]',
   ]
-  const result = await postcss([tailwind({ base: process.cwd(), optimize: false })]).process(
+  const compilerPlugin = tailwind({ base: process.cwd(), optimize: false })
+  if (!('postcssPlugin' in compilerPlugin)) throw new Error('Expected the Tailwind PostCSS plugin')
+  // Tailwind and the app resolve different PostCSS 8 minor versions. Their recursive AST
+  // types differ, but the plugin runs through the same PostCSS 8 interface as the app config.
+  const result = await postcss([compilerPlugin as unknown as AcceptedPlugin]).process(
     `${readFileSync(from, 'utf8')}\n@source inline("${candidates.join(' ')}");`,
     { from },
   )
