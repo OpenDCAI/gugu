@@ -100,4 +100,12 @@ describe('confirmed account target lifecycle', () => {
     await tick(driver())
     expect(readAccountState(data())).toMatchObject({ version: '3.0.0', phase: { kind: 'running' } })
   })
+
+  it('keeps the confirmation when a desktop outside its baseline reports an older version', async () => {
+    confirm('2.0.0')
+    await tick(driver())
+    recordDesktopReport(data(), { id: 'another-desktop', version: '0.9.0', protocol: 17 }, ++clock)
+    await tick(driver())
+    expect(readAccountState(data())).toMatchObject({ version: '2.0.0', phase: { kind: 'running' } })
+  })
 })

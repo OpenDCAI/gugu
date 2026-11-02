@@ -118,7 +118,7 @@ export function createAccountDriver(options: {
       confirmation = { target: request.target ?? reported ?? current, request: request.at,
         desktopVersions: Object.fromEntries(Object.entries(reports).map(([id, report]) => [id, report.version])) }
     } else if (confirmation && baseline && Object.entries(reports).some(([id, report]) =>
-      baseline[id] !== undefined ? report.version !== baseline[id] : !Object.values(baseline).includes(report.version))) {
+      baseline[id] !== undefined && report.version !== baseline[id])) {
       // A version change ends the selection. Renewals and disappearing/expired reports do not.
       if (request?.at === confirmation.request) run(account, { type: 'consumeRequest' })
       confirmation = undefined
