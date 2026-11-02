@@ -88,6 +88,21 @@ esac
 SERVER_HOME="${GUGU_SERVER_HOME:-$HOME/.gugu-server$SUFFIX}"
 BIN_DIR="$HOME/.local/bin"
 BIN_NAME="gugu-server$SUFFIX"
+LEGACY_HOME_ALIAS=""
+
+# Older Beta installations used the unsuffixed home. Preserve their accounts on upgrade.
+# An empty directory left by a failed CLI invocation is not a separate installation.
+if [ -z "${GUGU_SERVER_HOME:-}" ] && [ "$CHANNEL" != stable ] &&
+  [ -f "$HOME/.gugu-server/channel" ] && [ "$(cat "$HOME/.gugu-server/channel")" = "$CHANNEL" ]; then
+  if [ ! -e "$SERVER_HOME" ] || { [ -d "$SERVER_HOME" ] && [ -z "$(ls -A "$SERVER_HOME")" ]; }; then
+    LEGACY_HOME_ALIAS="$SERVER_HOME"
+    SERVER_HOME="$HOME/.gugu-server"
+  fi
+fi
+if [ -z "${GUGU_SERVER_HOME:-}" ] && [ -f "$SERVER_HOME/channel" ] &&
+  [ "$(cat "$SERVER_HOME/channel")" != "$CHANNEL" ]; then
+  die "已有安装属于另一个通道:$SERVER_HOME。请为新通道显式指定独立的 GUGU_SERVER_HOME。"
+fi
 
 # 数据目录里会放登录态和密钥:只归本人(0700)。已有的旧安装也收回来(以前可能按 0002 建成了组可写)。
 mkdir -p "$SERVER_HOME" || die "建不了 $SERVER_HOME"
@@ -217,6 +232,10 @@ done
 # 装时指定了别的下载站(开发 / 测试):记下来,后台自动升级也从那里取;用正式站装就清掉。
 if [ -n "${GUGU_SERVER_DOWNLOAD_BASE:-}" ]; then printf '%s\n' "$BASE_URL" > "$SERVER_HOME/download-base"; else rm -f "$SERVER_HOME/download-base"; fi
 
+if [ -n "$LEGACY_HOME_ALIAS" ]; then
+  if [ -d "$LEGACY_HOME_ALIAS" ]; then rmdir "$LEGACY_HOME_ALIAS" || die "旧通道目录已被其他进程使用:$LEGACY_HOME_ALIAS"; fi
+  ln -s "$SERVER_HOME" "$LEGACY_HOME_ALIAS" || die "无法保留旧通道目录:$LEGACY_HOME_ALIAS"
+fi
 mkdir -p "$BIN_DIR"
 # 一行启动脚本而不是软链:它把本通道的数据目录钉死递过去 —— 别的通道的 server 拉起的 agent 环境里带着它自己的
 # GUGU_SERVER_HOME,换回不认通道名字的旧版本时也不会去找别的目录(与 server-names.ts binLauncher 同一份内容)。
