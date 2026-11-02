@@ -8,6 +8,7 @@ import { enqueueSessionInput, state } from '../../../../apps/desktop/src/lib/ses
 import { SessionInputQueue } from '../../../../apps/desktop/src/components/chat/SessionInputQueue'
 import { updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { messageQuoteText, readMessageQuote } from '@gugu/core/shared/ui/messageQuote'
+import { TASK_ATTACHMENT_PROTOCOL } from '@gugu/session-core/session-record/contract'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 
 const toast = vi.hoisted(() => vi.fn())
@@ -86,7 +87,7 @@ describe('native input shell lifecycle', () => {
     expect(await (await state().queue)!.list()).toEqual([])
   })
 
-  it.each([undefined, REMOTE_PROTOCOL_VERSION - 1])('drains queued files as caption plus count when a phone returns with protocol %s', async protocol => {
+  it.each([undefined, TASK_ATTACHMENT_PROTOCOL - 1])('drains queued files as caption plus count when a phone returns with protocol %s', async protocol => {
     scope.owner = `old-phone-${protocol}`
     scope.devices = []
     scope.phones = [{ device_id: 'phone', is_online: false, capabilities: { host_kind: 'phone' } }]
@@ -104,6 +105,16 @@ describe('native input shell lifecycle', () => {
     expect(scope.send.mock.calls[1][0].text).toBe('following text')
     expect(await (await state().queue)!.list()).toEqual([])
   })
+
+  it('keeps phone task files compatible at protocol 16 when the desktop learns resumable uploads', async () => {
+    scope.owner = 'phone-stable-attachment-protocol';
+    scope.devices = [{ device_id: 'phone-16', is_online: true, capabilities: { host_kind: 'phone', remote_protocol: TASK_ATTACHMENT_PROTOCOL } }];
+    scope.phones = scope.devices as typeof scope.phones;
+    await harness.render(<SessionInputOutboxHost accountId={scope.owner} />);
+    const files = [{ itemId: 'file', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 }];
+    await act(async () => { scope.send.mockResolvedValue({ accepted: true }); await enqueueSessionInput({ deviceId: 'phone-16', sessionId: 'phone-task', text: 'phone caption', files }); await (await state().queue)!.flush(); });
+    expect(scope.send.mock.calls[0][0]).toMatchObject({ text: 'phone caption', files });
+  });
 
   it('hands files to the reconnecting host, preserving its caption and draining later text', async () => {
     scope.owner = 'expired-attachment-owner'

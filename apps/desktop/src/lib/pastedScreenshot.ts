@@ -3,6 +3,19 @@ export const SCREENSHOT_TARGET_BYTES = 300 * 1024;
 export type ScreenshotQuality = 'compressed' | 'original';
 type Screenshot = { quality: ScreenshotQuality; compressed?: Promise<File>; failed?: boolean };
 const screenshots = new WeakMap<File, Screenshot>();
+const previews = new WeakMap<File, Promise<string>>();
+export function screenshotPreview(file: File): Promise<string> {
+  let preview = previews.get(file);
+  if (!preview) {
+    preview = file.arrayBuffer().then(bytes => {
+      let binary = '';
+      for (const byte of new Uint8Array(bytes)) binary += String.fromCharCode(byte);
+      return `data:${file.type};base64,${btoa(binary)}`;
+    });
+    previews.set(file, preview);
+  }
+  return preview;
+}
 
 /** Only clipboard PNG/JPEG screenshots opt in; picked files and animated images keep their bytes. */
 export function registerPastedScreenshot(file: File): void {
@@ -35,18 +48,17 @@ export async function compressScreenshot(file: File): Promise<File> {
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Image conversion is unavailable');
-    let scale = Math.min(1, SCREENSHOT_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(1, SCREENSHOT_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
     let encoded: Blob | null = null;
-    for (let attempt = 0; attempt < 8; attempt++) {
+    for (const quality of [0.85, 0.78, 0.72]) {
       canvas.width = Math.max(1, Math.round(bitmap.width * scale));
       canvas.height = Math.max(1, Math.round(bitmap.height * scale));
       context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
       encoded = await new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => {
         if (blob?.type === 'image/webp') resolve(blob);
         else reject(new Error('WebP encoding is unavailable'));
-      }, 'image/webp', attempt === 0 ? 0.85 : 0.75));
+      }, 'image/webp', quality));
       if (encoded.size <= SCREENSHOT_TARGET_BYTES) break;
-      if (attempt > 0) scale *= 0.85;
     }
     if (!encoded) throw new Error('Screenshot conversion produced no image');
     // A small original is preferable to a larger WebP, but oversized originals still need resizing.

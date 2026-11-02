@@ -97,7 +97,7 @@ export function createAttachmentUploads({ now = Date.now, maxAgeMs = MAX_AGE_MS 
     try { saved = await readSaved(p.meta); }
     catch (error) { if (missing(error)) return fail('upload_lost', 'This upload has no retained partial data'); throw error; }
     if (!same(saved.spec, spec) || !Number.isSafeInteger(saved.received) || saved.received < 0 || saved.received > spec.size
-      || !['uploading', 'committed'].includes(saved.state)) fail('invalid_payload', 'Upload identity does not match this file');
+      || !['uploading', 'committed'].includes(saved.state) || !Number.isFinite(saved.expires)) fail('invalid_payload', 'Upload identity does not match this file');
     if (saved.expires < now()) fail('upload_expired', 'The retained upload expired; upload this file again');
     // A crash or lost reply after publication must not cause another upload.
     try {
@@ -121,7 +121,8 @@ export function createAttachmentUploads({ now = Date.now, maxAgeMs = MAX_AGE_MS 
       try { await lstat(p.meta); return fail('upload_lost', 'This upload cannot be restarted under the same identity'); }
       catch (error) { if (!missing(error)) throw error; }
       await cleanup(p.staging);
-      const handle = await open(p.part, 'wx', 0o600);
+      // Without metadata, no prefix was acknowledged. Recover a begin interrupted before its receipt.
+      const handle = await open(p.part, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600);
       await handle.close();
       const saved: Saved = { spec, received: 0, state: 'uploading', expires: now() + maxAgeMs };
       await save(p.meta, saved);
@@ -130,6 +131,7 @@ export function createAttachmentUploads({ now = Date.now, maxAgeMs = MAX_AGE_MS 
     status: (root: string, spec: AttachmentUploadSpec) => locked(root, spec, async () => view(await load(await paths(root, spec), spec))),
     write: (root: string, chunk: AttachmentUploadChunk) => locked(root, chunk, async () => {
       const p = await paths(root, chunk), saved = await load(p, chunk);
+      if (typeof chunk.data !== 'string' || chunk.data.length > Math.ceil(ATTACHMENT_UPLOAD_CHUNK_BYTES / 3) * 4) fail('invalid_payload', 'Attachment block exceeds the upload limit');
       const bytes = Buffer.from(chunk.data, 'base64');
       if (!Number.isSafeInteger(chunk.offset) || chunk.offset < 0 || !bytes.length || bytes.length > ATTACHMENT_UPLOAD_CHUNK_BYTES
         || chunk.offset + bytes.length > chunk.size || hash(bytes) !== chunk.chunkSha256) fail('invalid_payload', 'Invalid attachment block');
@@ -165,7 +167,8 @@ export function createAttachmentUploads({ now = Date.now, maxAgeMs = MAX_AGE_MS 
         fail('upload_incomplete', 'The attachment length or checksum does not match');
       }
       // Atomic publication without overwriting a concurrently created target.
-      await link(p.part, p.target);
+      try { await link(p.part, p.target); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') fail('conflict', 'The attachment destination already exists'); throw error; }
       await unlink(p.part);
       saved.state = 'committed'; saved.expires = now() + maxAgeMs;
       await save(p.meta, saved);

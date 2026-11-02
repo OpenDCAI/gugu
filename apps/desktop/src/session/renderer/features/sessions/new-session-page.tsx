@@ -128,7 +128,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
   useWakeCloudOnInput(machine?.deviceId ?? null, `${initialSession.attachments.length}:${initialSession.prompt}`);
 
   const remoteInstall = useRemoteInstallBeforeCreate(machine, initialSession.provider);
-  const { handleCreateSession, canCreate, isCreating, deliveryError } = useCreateSessionCallback({
+  const { handleCreateSession, canCreate, deliveryError } = useCreateSessionCallback({
     selectedProjectId: projectId,
     state,
     initialSession,
@@ -175,7 +175,6 @@ export const NewSessionComposer = observer(function NewSessionComposer({
             showAutoApproveToggle
             onSubmit={handleCreateSession}
             canSubmit={canSend}
-            attachmentQualityLocked={isCreating}
           />
       </SessionStateProvider>
       {/* gugu #2525: 颜色走 --em-* arbitrary value,不用 text-foreground-destructive 这类 color key ——

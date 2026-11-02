@@ -28,7 +28,7 @@ const to = vi.fn(async () => ({ chatId: 'dm-1', owner: 'owner-1' }));
 function Probe() {
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   chips = attachments;
-  hook = useComposerFileUploads({ to, setAttachments, translate: ((key: string) => key) as never });
+  hook = useComposerFileUploads({ to, setAttachments, resumable: true, translate: ((key: string) => key) as never });
   return null;
 }
 

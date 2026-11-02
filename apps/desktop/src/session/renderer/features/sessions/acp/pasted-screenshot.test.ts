@@ -24,13 +24,13 @@ it('resizes without cropping, emits a real matching WebP name and caches bytes a
   expect(await selectedScreenshot(original)).toBe(compressed);
   expect(close).toHaveBeenCalledOnce();
 });
-it('reduces an image further if the initial WebP exceeds the target and never processes unregistered files', async () => {
+it('tries bounded quality levels if the initial WebP exceeds the target and never processes unregistered files', async () => {
   const { canvas } = codec([500_000, 400_000, 250_000]);
   const original = new File([new Uint8Array(1_200_000)], 'screen.png', { type: 'image/png' });
   expect(await selectedScreenshot(original)).toBe(original);
   const encoded = await compressScreenshot(original);
   expect(encoded.size).toBeLessThanOrEqual(300 * 1024);
-  expect(canvas.width).toBe(1700);
+  expect(canvas.width).toBe(2000);
   expect(canvas.toBlob).toHaveBeenCalledTimes(3);
 });
 it('does not opt animated formats in and exposes conversion failure instead of silently sending an original', async () => {

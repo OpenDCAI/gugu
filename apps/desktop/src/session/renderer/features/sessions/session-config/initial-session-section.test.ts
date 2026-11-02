@@ -1260,7 +1260,7 @@ describe('useInitialSessionState', () => {
       });
       expect(mocks.prepareTaskAttachment).toHaveBeenCalledTimes(1);
       expect(mocks.placeTaskAttachment).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ itemId: 'item-notes.txt' }),
-        { chatId: 'dm-1', owner: 'owner-1' }, expect.any(Function), expect.objectContaining({ signal: expect.any(AbortSignal), placement: {} }));
+        { chatId: 'dm-1', owner: 'owner-1' }, expect.any(Function), { signal: expect.any(AbortSignal), placement: {} });
       expect(files).toEqual([expect.objectContaining({ itemId: 'item-notes.txt', version: 1 })]);
     });
 

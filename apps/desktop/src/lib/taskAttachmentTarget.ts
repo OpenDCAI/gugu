@@ -1,8 +1,6 @@
 import { reaction } from 'mobx'
-import { ATTACHMENT_UPLOAD_PROTOCOL, type TurnFileRef as TaskFileRef } from '@gugu/session-core/session-record/contract'
+import { ATTACHMENT_UPLOAD_PROTOCOL, TASK_ATTACHMENT_PROTOCOL, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_FOLDER_FILES, type TurnFileRef } from '@gugu/session-core/session-record/contract'
 import { resumeTaskAttachment, type AttachmentUploadContext } from './taskAttachmentUpload'
-import type { TurnFileRef } from '@gugu/session-core/session-record/contract'
-import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_FOLDER_FILES } from '@gugu/session-core/session-record/contract'
 import { machineCodec } from '@/session/renderer/lib/machine-routing'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { readCachedDevices } from '@/store/devicesCache'
@@ -25,7 +23,7 @@ export function taskAttachmentUsesSsh(deviceId: string): boolean {
 }
 
 export function assertTaskAttachmentProtocol(protocol: number | undefined): void {
-  if ((protocol ?? 0) < 16) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
+  if ((protocol ?? 0) < TASK_ATTACHMENT_PROTOCOL) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
 }
 
 export async function pushTaskDirectory(to: TaskAttachmentTarget, entry: FileSystemDirectoryEntry): Promise<string> {
@@ -120,7 +118,7 @@ export async function prefetchTaskFiles(to: TaskAttachmentTarget, files: TurnFil
 }
 
 /** A task file has a durable receiver; directory/file-tree saves retain their own contract. */
-export async function pushTaskAttachment(to: TaskAttachmentTarget, file: TaskFileRef, source: Blob, context: AttachmentUploadContext,
+export async function pushTaskAttachment(to: TaskAttachmentTarget, file: TurnFileRef, source: Blob, context: AttachmentUploadContext,
   onProgress?: (sent: number, total: number) => void, signal?: AbortSignal, onPhase?: (phase: 'uploading' | 'resuming' | 'confirming') => void): Promise<string> {
   signal?.throwIfAborted()
   if (!to.deviceId || !taskAttachmentUsesSsh(to.deviceId) || !to.projectId || !to.workspaceId) throw new Error('The SSH task workspace is not available')

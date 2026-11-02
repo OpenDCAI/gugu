@@ -80,7 +80,6 @@ export function useCreateSessionCallback({
 }: UseCreateSessionCallbackParams): {
   handleCreateSession: () => void;
   canCreate: boolean;
-  isCreating: boolean;
   /**
    * @@@5173 领域语义,❌ 不是成好句的文案。成句发生在渲染边界(见 session-failure.ts 的开篇约定):
    * 这样切换语言时一条**已经显示出来的**错误会跟着变,而且这个 hook 不必持有 translator ——
@@ -431,5 +430,5 @@ export function useCreateSessionCallback({
     });
   }, [canCreate, creating, createSessionNow, draft, initialSession, pendingAttachmentCount, pendingMessage, selectedProjectId, setIsCreating, setDeliveryError, finishSubmission]);
 
-  return { handleCreateSession, canCreate, isCreating, deliveryError };
+  return { handleCreateSession, canCreate, deliveryError };
 }

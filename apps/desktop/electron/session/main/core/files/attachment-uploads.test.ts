@@ -97,4 +97,24 @@ describe('durable task attachment uploads', () => {
     await writeFile(path.join(dir, '.gugu/attachments/.incoming', other.uploadId, 'data.part'), 'xxxxxx');
     await expect(receiver.commit(dir, other)).rejects.toMatchObject({ code: 'upload_incomplete' });
   });
+  it('recovers an interrupted begin without claiming an unacknowledged prefix', async () => {
+    const dir = await root(), bytes = Buffer.from('image'), file = spec(bytes);
+    const stage = path.join(dir, '.gugu/attachments/.incoming', file.uploadId);
+    await mkdir(stage, { recursive: true }); await writeFile(path.join(stage, 'data.part'), 'unacknowledged');
+    const receiver = createAttachmentUploads();
+    expect(await receiver.begin(dir, file)).toMatchObject({ received: 0 });
+    await receiver.write(dir, block(file, bytes));
+    await receiver.commit(dir, file);
+    expect(await readFile(path.join(dir, '.gugu/attachments/item-12345678/shot.webp'))).toEqual(bytes);
+  });
+  it('replaces only the unconfirmed tail while preserving the acknowledged prefix', async () => {
+    const dir = await root(), bytes = Buffer.from('abcdef'), file = spec(bytes), receiver = createAttachmentUploads();
+    await receiver.begin(dir, file); await receiver.write(dir, block(file, bytes.subarray(0, 3)));
+    const part = path.join(dir, '.gugu/attachments/.incoming', file.uploadId, 'data.part');
+    await writeFile(part, 'abcgarbage');
+    expect(await createAttachmentUploads().status(dir, file)).toMatchObject({ received: 3 });
+    await receiver.write(dir, block(file, bytes.subarray(3), 3)); await receiver.commit(dir, file);
+    expect(await readFile(path.join(dir, '.gugu/attachments/item-12345678/shot.webp'))).toEqual(bytes);
+  });
+
 });

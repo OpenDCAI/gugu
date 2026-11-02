@@ -162,4 +162,28 @@ describe('composer paste (#5269)', () => {
     expect(seen.images[0]!.map((f) => f.name)).toEqual(['shot.png'])
     expect(editable.innerText.trim()).toBe('')
   })
+  it('passes the paste source and encodes a screenshot with the browser WebP codec', async () => {
+    let source: string | undefined;
+    const seen = mount({ onImageFilesDropped: (files: File[], origin?: string) => { seen.images.push(files); source = origin; } });
+    await until('editor mounted', () => mounted());
+    const canvas = document.createElement('canvas'); canvas.width = 3840; canvas.height = 2100;
+    const draw = canvas.getContext('2d')!; draw.fillStyle = 'white'; draw.fillRect(0, 0, canvas.width, canvas.height);
+    draw.font = '28px monospace'; draw.fillStyle = '#202020';
+    for (let line = 0; line < 48; line++) draw.fillText(`const screenshot${line} = await upload({ progress: true, resume: true });`, 60, 80 + line * 40);
+    const blob = await new Promise<Blob>(done => canvas.toBlob(value => done(value!), 'image/png'));
+    const file = new File([blob], 'screenshot.png', { type: 'image/png' });
+    paste(undefined, file);
+    await until('pasted image received', () => seen.images.length > 0);
+    expect(source).toBe('paste');
+    const { registerPastedScreenshot, selectedScreenshot, screenshotPreview } = await import('@/lib/pastedScreenshot');
+    registerPastedScreenshot(file);
+    const compressed = await selectedScreenshot(file);
+    const bitmap = await createImageBitmap(compressed);
+    expect([bitmap.width, bitmap.height]).toEqual([2000, 1094]); bitmap.close();
+    expect(compressed.type).toBe('image/webp'); expect(compressed.name).toBe('screenshot.webp');
+    expect(compressed.size).toBeLessThanOrEqual(300 * 1024);
+    const preview = await screenshotPreview(compressed);
+    expect(await fetch(preview).then(r => r.arrayBuffer())).toEqual(await compressed.arrayBuffer());
+  });
+
 })

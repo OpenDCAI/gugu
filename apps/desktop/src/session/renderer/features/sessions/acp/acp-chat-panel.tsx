@@ -101,7 +101,7 @@ import { useSessionSchedules } from '@renderer/features/automations/use-session-
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
 import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
-import { registerPastedScreenshot } from '@/lib/pastedScreenshot';
+import { registerPastedScreenshot, screenshotQuality } from '@/lib/pastedScreenshot';
 import { useComposerFileUploads } from './use-composer-file-uploads';
 import { shellPort } from '@renderer/lib/shell-port';
 import { getRendererSession } from '@/lib/sessionPublication';
@@ -333,6 +333,7 @@ const ComposerForStore = observer(function ComposerForStore({
   }, []);
   // 图片与文件同一条:贴上来就放进这个 agent 私聊的文件夹,进度在 chip 上,这一轮带着引用发出去(P3)。
   const fileUploads = useComposerFileUploads({
+    resumable: true,
     to: async () => {
       const owner = getRendererSession()?.user.id;
       if (!owner) throw new Error('attachments: not signed in');
@@ -498,10 +499,10 @@ const ComposerForStore = observer(function ComposerForStore({
       };
       if (source === 'paste') registerPastedScreenshot(file);
       void fileUploads.add(chip, file);
-      if (isImage) {
+      if (isImage && !screenshotQuality(file)) {
         const previewUrl = await readFileAsDataUrl(file);
         if (previewUrl) setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewUrl } : att));
-      } else {
+      } else if (!isImage) {
         // 文本类附件的内容在入列时读一份,chip 点开看的就是它(#5269)。
         const preview = await readAttachmentPreviewText(file);
         if (preview) {

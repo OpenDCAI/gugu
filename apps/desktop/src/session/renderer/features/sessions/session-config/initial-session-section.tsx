@@ -116,7 +116,6 @@ import {
 import { useSessionAgentCreationTools } from '@renderer/lib/chat/use-session-agent-creation-tools';
 import { useSessionMentionDrop } from '@renderer/lib/chat/use-session-mention-drop';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
-import { registerPastedScreenshot, screenshotQuality } from '@/lib/pastedScreenshot';
 import { useComposerFileUploads, type TaskAttachmentTarget } from '@renderer/features/sessions/acp/use-composer-file-uploads';
 import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 import type { ComposerDraft, SubmittedComposerDraft } from '../composer-drafts';
@@ -280,8 +279,7 @@ export type InitialSessionState = {
    */
   attachmentEditSeq: number;
   /** 把文件收进待发队列。异步:入列时要读一份文本预览(#5269)。 */
-  enqueueAttachments: (files: File[], source?: 'paste' | 'drop') => Promise<void>;
-  toggleAttachmentQuality?: (id: string) => void;
+  enqueueAttachments: (files: File[]) => Promise<void>;
   /**
    * path-mention 通道:任务建好、私聊开好之后,把待发的那几件放进这个 agent 私聊的文件夹(进度在 chip 上,P3),
    * 交回这一轮要带的引用;有一件没放成 → null(那一件的 chip 上写着,能重试)。已放好的不再放第二遍。
@@ -564,35 +562,29 @@ export function useInitialSessionState(
     () => placements.prepare([...pendingAttachmentFilesRef.current].map(([id, file]) => ({ id, file }))),
     [placements]
   );
-  const enqueueAttachments = useCallback(async (files: File[], source?: 'paste' | 'drop') => {
-    const queued = files.map(file => {
-      if (source === 'paste') registerPastedScreenshot(file);
-      const id = crypto.randomUUID();
-      if (!draft) pendingAttachmentFilesRef.current.set(id, file);
-      const image = file.type.toLowerCase().startsWith('image/');
-      return { id, name: file.name, kind: image ? 'image' as const : 'file' as const,
-        mimeType: file.type, imageQuality: screenshotQuality(file),
-        previewUrl: image ? URL.createObjectURL(file) : undefined };
-    });
-    // Insert synchronously: sending while a screenshot is encoding must still take custody of it.
+  const enqueueAttachments = useCallback(async (files: File[]) => {
+    const queued = await Promise.all(
+      files.map(async (file) => {
+        const id = crypto.randomUUID();
+        if (!draft) pendingAttachmentFilesRef.current.set(id, file);
+        const image = file.type.toLowerCase().startsWith('image/');
+        // chip 点开看的内容,入列时就得在手上(#5269)。
+        const preview = image ? undefined : await readAttachmentPreviewText(file);
+        return {
+          id,
+          name: file.name,
+          kind: image ? ('image' as const) : ('file' as const),
+          mimeType: file.type,
+          previewUrl: image ? URL.createObjectURL(file) : undefined,
+          previewText: preview?.text,
+          previewTruncated: preview?.truncated,
+        };
+      })
+    );
     if (draft) draft.setPending([...draft.pending, ...queued.map((chip, index) => ({ chip, file: files[index]! }))]);
-    else setAttachmentsState(current => [...current, ...queued]);
-    setAttachmentEditSeq(seq => seq + 1);
-    await Promise.all(queued.map(async (chip, index) => {
-      const file = files[index]!;
-      if (chip.imageQuality) return placements.preview(chip.id, file);
-      if (chip.kind === 'file') {
-        const preview = await readAttachmentPreviewText(file);
-        if (preview) setAttachmentsState(current => current.map(att => att.id === chip.id
-          ? { ...att, previewText: preview.text, previewTruncated: preview.truncated } : att));
-      }
-    }));
-  }, [draft, placements, setAttachmentsState]);
-  const toggleAttachmentQuality = useCallback((id: string) => {
-    const file = draft ? draft.pending.find(entry => entry.chip.id === id)?.file : pendingAttachmentFilesRef.current.get(id);
-    placements.toggleQuality(id, file);
-    setAttachmentEditSeq(seq => seq + 1);
-  }, [draft, placements]);
+    else setAttachmentsState((current) => [...current, ...queued]);
+    setAttachmentEditSeq((seq) => seq + 1);
+  }, [draft, setAttachmentsState]);
   const setAttachments = useCallback((next: ComposerAttachment[]) => {
     // ChatComposer 是从它手上那份(可能已经过期的)props 算出 next 的。发送中途点掉某个 chip 时,
     // 那份快照里可能还留着刚刚送达、已被 dropAttachment 移走的那一件 —— 原样写回去会把它**复活**成
@@ -1261,7 +1253,6 @@ export function useInitialSessionState(
     attachments,
     attachmentEditSeq,
     enqueueAttachments,
-    toggleAttachmentQuality,
     pendingAttachmentFiles,
     dropAttachment,
     placeAttachments,
@@ -1338,7 +1329,6 @@ interface InitialSessionFieldProps {
   onSubmit?: () => void;
   /** Whether the inline send button is enabled. Ignored when onSubmit is absent. */
   canSubmit?: boolean;
-  attachmentQualityLocked?: boolean;
 }
 
 export function InitialSessionField({
@@ -1354,7 +1344,6 @@ export function InitialSessionField({
   enableAttachments = true,
   onSubmit,
   canSubmit = false,
-  attachmentQualityLocked,
 }: InitialSessionFieldProps) {
   const { translate } = useSessionMessages();
   const { navigate } = useNavigate();
@@ -1641,11 +1630,11 @@ export function InitialSessionField({
   // 掉进 composer 的文件都变成**附件 chip**(#5269,owner 2026-09-08:「你应该把他当作附件处理」)。
   // ❌ 不往正文里插一条路径 pill —— 那是把传输方式摆到用户脸上。
   const remoteMachine = state.machine;
-  const handleFiles = useCallback((files: File[], source?: 'paste' | 'drop') => {
+  const handleFiles = useCallback((files: File[]) => {
     if (files.length === 0) return;
     // ❌ 不写成裸 `void promise`:这条链里任何一步抛出都会变成一次没人看见的 unhandled rejection,
     // 屏幕上只表现为「文件掉进去了什么都没发生」。
-    state.enqueueAttachments(files, source).catch((error: unknown) => {
+    state.enqueueAttachments(files).catch((error: unknown) => {
       log.error('Failed to queue attachments', { error });
     });
   }, [state]);
@@ -1865,8 +1854,6 @@ export function InitialSessionField({
           onFilesDropped={enableAttachments ? handleFiles : undefined}
           onDirectoriesDropped={enableAttachments ? handleDirectoriesDropped : undefined}
           onRetryAttachment={state.retryAttachment}
-          onAttachmentQualityChange={state.toggleAttachmentQuality}
-          attachmentQualityLocked={attachmentQualityLocked}
           dataDropTypes={dataDropTypes}
           onDataDropped={onDataDropped}
           attachments={state.attachments}

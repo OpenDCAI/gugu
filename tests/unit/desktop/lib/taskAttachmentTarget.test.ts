@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({ devices: [] as Array<{ id: string; connectVia?: string; directTerminal?: boolean }>,
   cached: [] as Array<{ device_id: string; is_online?: boolean; capabilities?: { remote_protocol?: number } }>,
   hello: { protocol: 5 } as { protocol: number } | null, rpc: vi.fn(),
-  files: { writeChunk: vi.fn(), getAbsolutePath: vi.fn(), createEntry: vi.fn() }, upload: vi.fn(), items: [] as Array<{ name: string; done: number; status: string; cancel: () => void }> }))
+  files: { attachmentUploadBegin: vi.fn(), attachmentUploadStatus: vi.fn(), attachmentUploadWrite: vi.fn(), attachmentUploadCommit: vi.fn(), attachmentUploadAbort: vi.fn(), writeChunk: vi.fn(), getAbsolutePath: vi.fn(), createEntry: vi.fn() }, upload: vi.fn(), items: [] as Array<{ name: string; done: number; status: string; cancel: () => void }> }))
 vi.mock('@/session/shared/remote-hosts', () => ({ findRemoteHostsBridge: () => ({ listDevices: () => mocks.devices }) }))
 vi.mock('@/session/renderer/lib/ipc', () => ({ rpcOn: () => ({ workspace: { files: mocks.files } }) }))
 vi.mock('@/session/renderer/lib/machine-clients', () => ({ machineClient: () => ({ hello: () => mocks.hello }) }))
@@ -12,7 +12,7 @@ vi.mock('@/session/renderer/features/remote-hosts/workspace/remote-transfer-wiri
 vi.mock('@/store/devicesCache', () => ({ readCachedDevices: () => mocks.cached }))
 vi.mock('@/lib/deviceRpc', () => ({ callDeviceRpc: mocks.rpc }))
 
-import { prefetchTaskFiles, pushTaskFiles, taskAttachmentUsesSsh } from '../../../../apps/desktop/src/lib/taskAttachmentTarget'
+import { prefetchTaskFiles, pushTaskFiles, pushTaskAttachment, taskAttachmentUsesSsh } from '../../../../apps/desktop/src/lib/taskAttachmentTarget'
 
 describe('task attachment SSH route', () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.devices = []; mocks.items = []; mocks.hello = { protocol: 5 };
@@ -89,5 +89,25 @@ describe('task attachment SSH route', () => {
     await rejected
     expect(cancel).toHaveBeenCalledOnce()
   })
+
+  it('requires protocol 17 for resumable task files and never falls back to editor writes', async () => {
+    mocks.devices = [{ id: 'host', connectVia: 'ssh' }];
+    const file = { itemId: 'item-12345678', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
+    await expect(pushTaskAttachment({ deviceId: 'host', projectId: 'project', workspaceId: 'workspace', chatId: 'chat', owner: 'owner' }, file, new Blob(['abc']), {})).rejects.toMatchObject({ code: 'host_update_required' });
+    expect(mocks.files.attachmentUploadBegin).not.toHaveBeenCalled(); expect(mocks.upload).not.toHaveBeenCalled(); expect(mocks.files.writeChunk).not.toHaveBeenCalled();
+  });
+  it('binds durable upload RPCs to the selected project/workspace and forwards confirmed progress', async () => {
+    mocks.devices = [{ id: 'host', connectVia: 'ssh' }]; mocks.cached[0]!.capabilities!.remote_protocol = 17;
+    const file = { itemId: 'item-12345678', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
+    const state = { state: 'uploading', total: 3, received: 0, chunkBytes: 128 * 1024, workspacePath: '.gugu/attachments/item-12345678/brief.txt' };
+    mocks.files.attachmentUploadBegin.mockResolvedValue({ success: true, data: state });
+    mocks.files.attachmentUploadWrite.mockResolvedValue({ success: true, data: { ...state, received: 3 } });
+    mocks.files.attachmentUploadCommit.mockResolvedValue({ success: true, data: { ...state, received: 3, state: 'committed' } });
+    const progress = vi.fn();
+    await expect(pushTaskAttachment({ deviceId: 'host', projectId: 'project', workspaceId: 'workspace', chatId: 'chat', owner: 'owner' }, file, new Blob(['abc']), {}, progress)).resolves.toBe(state.workspacePath);
+    expect(mocks.files.attachmentUploadBegin).toHaveBeenCalledWith('project', 'workspace', expect.objectContaining({ itemId: file.itemId, name: file.name, size: 3 }));
+    expect(mocks.files.attachmentUploadWrite).toHaveBeenCalledWith('project', 'workspace', expect.objectContaining({ offset: 0, data: 'YWJj' }));
+    expect(progress).toHaveBeenLastCalledWith(3, 3); expect(mocks.files.writeChunk).not.toHaveBeenCalled(); expect(mocks.upload).not.toHaveBeenCalled();
+  });
 
 })
