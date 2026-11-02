@@ -1,4 +1,4 @@
-import { FolderClosed, Plus, ShieldAlert, TriangleAlert } from '@/lib/icons'
+import { FolderClosed, ShieldAlert, TriangleAlert, Zap } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import React, { useCallback, useEffect } from 'react';
 import { useConfirmDeleteProject } from '@renderer/features/projects/hooks/use-confirm-delete-project';
@@ -318,7 +318,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
                     }}
                     disabled={project.state === 'unregistered'}
                   >
-                    <Plus className="h-4 w-4" />
+                    <Zap className="h-4 w-4" />
                   </SidebarItemMiniButton>
                 }
               />
