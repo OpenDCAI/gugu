@@ -134,7 +134,7 @@ describe('service install:结束时在跑的就是这一版', () => {
     expect(m.calls).toEqual(['cron', 'detached wait=100', 'stop 100'])
     const text = m.lines.join('\n')
     expect(text).toContain('正在把 咕咕 server 0.2.111(进程 100)换成 0.2.112')
-    expect(text).toContain('这一轮会被中断')
+    expect(text).toContain('正在进行的回复会被中断')
     expect(m.running()).toMatchObject({ version: '0.2.112', supervisedBy: 'none' })
     expect(m.lines.at(-1)).toBe(`咕咕 server 0.2.112 已在运行(进程 ${m.running()?.pid})。`)
     // ❌ 在确认之前就说「已在后台启动」

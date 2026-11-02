@@ -23,7 +23,7 @@ export async function changePhoneConversationQueue({ store, agent, action, inter
     } else if (action.kind === 'delete') {
       job.status = 'cancelled'; job.finishedAt = new Date().toISOString()
     } else if (action.kind === 'send-now') {
-      if (action.steers) throw failure('手机 Agent 当前不支持回合内插入')
+      if (action.steers) throw failure('手机 Agent 当前不支持在回复中插入消息')
       if (job.queueEdit) throw failure('请先完成这条排队消息的编辑')
       reorder([job.id, ...queued.filter(other => other.id !== job.id).map(other => other.id)])
       await interrupt?.(agent)

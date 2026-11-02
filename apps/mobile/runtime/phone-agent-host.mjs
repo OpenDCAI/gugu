@@ -429,7 +429,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       job.text = result.text ?? ''
       if (result.status !== 'done') throw Object.assign(new Error(result.error ?? (result.status === 'cancelled' ? '任务已取消' : '手机 Agent 运行失败')), { cancelled: result.status === 'cancelled' })
       if (job.route?.kind === 'task') await authorizeReply(job.usedGroups ?? [], { sessionId: agent.sessionId, permissionRequirements: job.permissionRequirements })
-      if (job.route?.kind !== 'task' && !job.sent?.length && !job.waitingConfirmation && job.text.trim() !== '[NO_REPLY]') throw new Error('这一轮结束了，但 Agent 尚未通过咕咕消息工具交付回复')
+      if (job.route?.kind !== 'task' && !job.sent?.length && !job.waitingConfirmation && job.text.trim() !== '[NO_REPLY]') throw new Error('执行结束了，但 Agent 尚未通过咕咕消息工具交付回复')
       job.status = 'done'; agent.status = Object.values(store.state.confirmations ?? {}).some((item) => item.agentUserId === agent.agentUserId && item.status === 'pending' && Date.parse(item.expiresAt) > Date.now()) ? 'needs_user' : 'idle'
     } catch (error) {
       if (!error.cancelled && deferPhonePreparation(store.state, job, error, preparationNow(), preparationOptions.random)) {
