@@ -33,7 +33,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   for (const event of ['SIGINT', 'SIGTERM', 'exit'] as const) {
-    for (const handler of signals.listeners(event)) if (!signalHandlers[event].includes(handler)) signals.removeListener(event, handler)
+    for (const handler of signals.listeners(event)) if (!signalHandlers[event].includes(handler)) signals.removeListener(event, handler as (...args: unknown[]) => void)
   }
   vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks()
   process.env = { ...environment }
