@@ -13,7 +13,7 @@ const {
   const chatKinds = new Map<string, 'dm' | 'ai' | 'group'>()
   const insertMessage = vi.fn(async () => ({ error: null }))
   const rpc = vi.fn(async (name: string, args: Record<string, unknown> = {}) => ({
-    data: name === 'send_message_idempotent' ? [{
+    data: name === 'send_message_with_overlays' ? { message: {
       id: args.p_message_id,
       chat_id: args.p_chat_id,
       sender_user_id: args.p_sender_user_id,
@@ -23,7 +23,7 @@ const {
       content_type: args.p_content_type,
       created_at: '2026-08-09T00:00:00.000Z',
       client_message_id: args.p_message_id,
-    }] : [],
+    }, reactions: [], deliveries: [], delivery_blocks: [] } : [],
     error: null,
   }))
   const chatDbMock = {
@@ -112,7 +112,7 @@ describe('chatService private-chat thread gate', () => {
     await chatService.sendMessage('dm-chat', 'owner-user', 'quoted reply', MESSAGE_ID, 'text', {
       replyToMessageId: THREAD_ROOT_ID,
     })
-    expect(rpc).toHaveBeenCalledWith('send_message_idempotent', {
+    expect(rpc).toHaveBeenCalledWith('send_message_with_overlays', {
       p_message_id: MESSAGE_ID,
       p_chat_id: 'dm-chat',
       p_sender_user_id: 'owner-user',
@@ -143,7 +143,7 @@ describe('chatService group thread compatibility', () => {
       p_root_id: THREAD_ROOT_ID,
     })
     expect(chatDbMock.from).toHaveBeenCalledWith('messages_view')
-    expect(rpc).toHaveBeenCalledWith('send_message_idempotent', {
+    expect(rpc).toHaveBeenCalledWith('send_message_with_overlays', {
       p_message_id: MESSAGE_ID,
       p_chat_id: 'group-chat',
       p_sender_user_id: 'owner-user',

@@ -120,6 +120,30 @@ it('does not animate a short title and preserves row activation', async () => {
   expect(onOpen).toHaveBeenCalledTimes(1);
 });
 
+it('preserves a title click when its measured text is replaced while pressed', async () => {
+  const row = await mount();
+  await until('long title measured', () => viewport() != null);
+  const idleWidth = viewport().clientWidth;
+  await userEvent.hover(row);
+  await until('hover action width reserved', () => viewport().clientWidth < idleWidth);
+  const originalTrack = track();
+  const pressedWidth = viewport().clientWidth;
+  const rect = viewport().getBoundingClientRect();
+  const point = { x: rect.left + 20, y: rect.top + rect.height / 2 };
+  let pressed = false;
+  row.addEventListener('mousedown', () => { pressed = true; }, { once: true });
+  await cdp().send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+  await cdp().send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', buttons: 1, clickCount: 1 });
+  try {
+    expect(pressed, 'the pointer must press the actual row').toBe(true);
+    host.style.width = '230px';
+    await until('resized text replaced', () => track() !== originalTrack && viewport().clientWidth < pressedWidth);
+  } finally {
+    await cdp().send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', buttons: 0, clickCount: 1 });
+  }
+  expect(onOpen).toHaveBeenCalledTimes(1);
+});
+
 it('remeasures the lane when resized and removes motion when the title fits', async () => {
   const row = await mount();
   await until('long title measured', () => viewport() != null);

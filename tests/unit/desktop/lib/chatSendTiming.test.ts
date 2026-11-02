@@ -27,7 +27,7 @@ it('emits one content-free record only after the authoritative response and dura
     load: async () => [], save: async (row) => { if (row.state === 'pending') now = 1020 },
     remove: async () => {}, prepare: async (row) => { now = 1050; return row },
     deliver: async () => {
-      await authBoundedFetch('https://db.example/rest/v1/rpc/send_message_idempotent', {
+      await authBoundedFetch('https://db.example/rest/v1/rpc/send_message_with_overlays', {
         method: 'POST', body: JSON.stringify({ p_message_id: record.clientMessageId, p_content: record.payload.content }),
       })
       now = 1250
@@ -70,7 +70,7 @@ it('keeps the first HTTP attempt timestamp and never changes malformed request v
   const fetcher = vi.fn(async () => new Response('[]'))
   vi.stubGlobal('fetch', fetcher)
   chatSendTimings.set('retry', { submit: 0 })
-  const url = 'https://db.example/rest/v1/rpc/send_message_idempotent'
+  const url = 'https://db.example/rest/v1/rpc/send_message_with_overlays'
   const options = { method: 'POST', body: '{"p_message_id":"retry"}' }
   await authBoundedFetch(url, options)
   clock.mockReturnValue(20)
