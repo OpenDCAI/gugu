@@ -1219,3 +1219,5 @@ export type NativeSessionRecord = {
   nextCursor: number | null;
   activeTurn: TranscriptTurn | null;
 };
+
+export * from './attachment-upload-contract';

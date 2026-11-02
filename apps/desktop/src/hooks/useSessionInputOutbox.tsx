@@ -4,7 +4,7 @@ import { ChatSummariesHost } from '@/components/chat/ChatSummariesHost'
 import { useLocalSessionDirectory } from './useLocalSessionDirectory'
 import { useEffect, useRef } from 'react'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
-import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
+import { TASK_ATTACHMENT_PROTOCOL } from '@gugu/session-core/session-record/contract'
 import { useDevicesStore } from '@/store/devicesContext'
 import { getRendererSession } from '@/lib/sessionPublication'
 import { platform } from '@/platform'
@@ -31,7 +31,7 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
       const device = hosts.current.find(row => row.device_id === input.deviceId)
       if (!device?.is_online || device.is_current_device) return false
       const version = device.capabilities.remote_protocol
-      if (isPhoneDevice(device)) return typeof version !== 'number' || version < REMOTE_PROTOCOL_VERSION
+      if (isPhoneDevice(device)) return typeof version !== 'number' || version < TASK_ATTACHMENT_PROTOCOL
       const native = liveDeviceSessions()[input.deviceId]?.sessions.find(row => row.conversationId === input.sessionId)?.nativeInputVersion
       return native === 1
     }

@@ -16,7 +16,8 @@ export const SERVER_ACTIVITY_STALE_MS = 60_000
  * 照 VS Code / Zed 的「客户端与 server 版本对不上就明说」(Zed 发了旧客户端不认的消息直接断线:zed#42474),
  * 只是不要求逐版本相等 —— server 自动升级、桌面自动升级,两边总有先后。
  */
-export const REMOTE_PROTOCOL_VERSION = 16
+// 17 adds durable task attachment upload/status/commit verbs; editor saves are unchanged.
+export const REMOTE_PROTOCOL_VERSION = 17
 /**
  * server 报给桌面:桌面的协议版本低于它 = 这台电脑上的咕咕太旧。
  *
@@ -81,9 +82,9 @@ export const REMOTE_PROTOCOL_VERSION = 16
  * 老宿主见到更高的号会当成版本信号、要求当场换版,有 agent 在跑也照换。差两档以上才说「太旧」。
  * 下一次加一时,两个下沿跟着抬到新号减一,并删掉上一档的降级。
  */
-export const MIN_CLIENT_PROTOCOL = 15
+export const MIN_CLIENT_PROTOCOL = 16
 /** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧(同样向下兼容一档)。 */
-export const MIN_SERVER_PROTOCOL = 15
+export const MIN_SERVER_PROTOCOL = 16
 
 /** 开窗时报给那台机器的协议:它比这台低、但还在兼容的一档里,就照它的报(见上);说不出 = 报自己的。纯函数。 */
 export function helloProtocol(serverProtocol: number | null | undefined, own = REMOTE_PROTOCOL_VERSION, minServer = MIN_SERVER_PROTOCOL): number {

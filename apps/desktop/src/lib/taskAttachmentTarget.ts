@@ -1,6 +1,7 @@
 import { reaction } from 'mobx'
-import type { TurnFileRef } from '@gugu/session-core/session-record/contract'
-import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_FOLDER_FILES } from '@gugu/session-core/session-record/contract'
+import { ATTACHMENT_UPLOAD_PROTOCOL, TASK_ATTACHMENT_PROTOCOL, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_FOLDER_FILES, type TurnFileRef } from '@gugu/session-core/session-record/contract'
+import { resumeTaskAttachment, type AttachmentUploadContext } from './taskAttachmentUpload'
+import { isSshMachine, sshMachinesReady } from './sshLinkChannel'
 import { machineCodec } from '@/session/renderer/lib/machine-routing'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { readCachedDevices } from '@/store/devicesCache'
@@ -23,7 +24,7 @@ export function taskAttachmentUsesSsh(deviceId: string): boolean {
 }
 
 export function assertTaskAttachmentProtocol(protocol: number | undefined): void {
-  if ((protocol ?? 0) < REMOTE_PROTOCOL_VERSION) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
+  if ((protocol ?? 0) < TASK_ATTACHMENT_PROTOCOL) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
 }
 
 export async function pushTaskDirectory(to: TaskAttachmentTarget, entry: FileSystemDirectoryEntry): Promise<string> {
@@ -115,4 +116,35 @@ export async function prefetchTaskFiles(to: TaskAttachmentTarget, files: TurnFil
   if (!Array.isArray(results)) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
   const failed = results.filter(result => !result.ok)
   if (failed.length) throw Object.assign(new Error(failed.map(result => result.error).join('\n')), { code: failed[0]?.code })
+}
+
+/** Use durable task-file uploads when supported; protocol-16 hosts retain their existing SSH transfer. */
+export async function pushTaskAttachment(to: TaskAttachmentTarget, file: TurnFileRef, source: Blob, context: AttachmentUploadContext,
+  onProgress?: (sent: number, total: number) => void, signal?: AbortSignal, onPhase?: (phase: 'uploading' | 'resuming' | 'confirming') => void): Promise<string> {
+  signal?.throwIfAborted()
+  await sshMachinesReady()
+  signal?.throwIfAborted()
+  if (!to.deviceId || !isSshMachine(to.deviceId)) throw new Error('This computer has no SSH connection to the task host')
+  if (!to.deviceId || !taskAttachmentUsesSsh(to.deviceId) || !to.projectId || !to.workspaceId) throw new Error('The SSH task workspace is not available')
+  const protocol = readCachedDevices().find(row => row.device_id === to.deviceId)?.capabilities?.remote_protocol ?? 0
+  if (protocol < ATTACHMENT_UPLOAD_PROTOCOL) {
+    const directory = await pushTaskFiles(to, file.itemId, [{ segments: [file.name], size: source.size,
+      slice: async (start, end) => new Uint8Array(await source.slice(start, end).arrayBuffer()) }], onProgress, signal)
+    return `${directory}/${file.name}`
+  }
+  const api = rpcOn(to.deviceId).workspace.files
+  const unwrap = <T,>(result: { success: true; data: T } | { success: false; error: { type: string; message?: string } }): T => {
+    if (!result.success) throw Object.assign(new Error(result.error.message ?? result.error.type), { code: result.error.type })
+    return result.data
+  }
+  return resumeTaskAttachment({ source, itemId: file.itemId, name: file.name,
+    scope: `${to.deviceId}/${to.projectId}/${to.workspaceId}`, context, signal, onProgress, onPhase,
+    transport: {
+      begin: async spec => unwrap(await api.attachmentUploadBegin(to.projectId!, to.workspaceId!, spec)),
+      status: async spec => unwrap(await api.attachmentUploadStatus(to.projectId!, to.workspaceId!, spec)),
+      write: async chunk => unwrap(await api.attachmentUploadWrite(to.projectId!, to.workspaceId!, chunk)),
+      commit: async spec => unwrap(await api.attachmentUploadCommit(to.projectId!, to.workspaceId!, spec)),
+      abort: async spec => unwrap(await api.attachmentUploadAbort(to.projectId!, to.workspaceId!, spec)),
+    },
+  })
 }

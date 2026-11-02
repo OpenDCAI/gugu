@@ -337,6 +337,7 @@ export const attachmentRetry = style({
   textUnderlineOffset: '2px',
   selectors: {
     '&:focus-visible': { outline: `1px solid ${vars.border1}`, outlineOffset: '1px' },
+    '&:disabled': { opacity: 0.5, cursor: 'default' },
   },
 });
 
