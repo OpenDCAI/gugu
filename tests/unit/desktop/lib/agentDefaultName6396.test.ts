@@ -1,9 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AGENT_NAMING_WINDOW_MS, agentNamingUntil, agentNameSerial, isAgentDefaultName, nextAgentDefaultName, resolveAgentDefaultName } from '@gugu/core/shared/agentDefaultName'
+import { AGENT_NAMING_WINDOW_MS, agentNamingUntil, agentNameSerial, isAgentDefaultName, nextAgentDefaultName, parseCreatedAt, resolveAgentDefaultName } from '@gugu/core/shared/agentDefaultName'
 import { VALID_AGENT_TYPES } from '@gugu/core/agentTypes'
 import { getAgentTypeLabel } from '@gugu/core/shared/enums/agentTypeModels'
 
 const owned = (...names: string[]) => names.map((display_name) => ({ display_name }))
+
+it('shares the existing SQLite UTC and ISO creation-time parser with automatic naming', () => {
+  const at = Date.parse('2026-11-02T10:00:00Z')
+  expect(parseCreatedAt('2026-11-02 10:00:00')).toBe(at)
+  expect(parseCreatedAt('2026-11-02 10:00:00.125')).toBe(at + 125)
+  expect(parseCreatedAt('2026-11-02T10:00:00Z')).toBe(at)
+  expect(parseCreatedAt('2026-11-02T18:00:00+08:00')).toBe(at)
+  expect(parseCreatedAt(undefined)).toBeNull()
+  expect(parseCreatedAt('invalid')).toBeNull()
+})
 
 it('shares the identity default-name definition across naming and presentation', () => {
   expect(isAgentDefaultName('Codex 158', 'codex')).toBe(true)

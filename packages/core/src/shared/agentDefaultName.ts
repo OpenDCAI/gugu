@@ -33,11 +33,20 @@ export function isAgentDefaultName(name: string, agentType: string | null | unde
   return agentNameSerial(name, getAgentTypeLabel(normalizeAgentType(agentType))) !== null
 }
 
+/** SQLite 的 `CURRENT_TIMESTAMP` 是不带时区的 UTC(`2026-10-16 19:00:00`);ISO 串照常解析。 */
+export function parseCreatedAt(value: string | undefined): number | null {
+  if (!value) return null
+  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(value) ? `${value.replace(' ', 'T')}Z` : value
+  const at = Date.parse(iso)
+  return Number.isFinite(at) ? at : null
+}
+
 export const AGENT_NAMING_WINDOW_MS = 60_000
 
 /** A display-only deadline, measured from the identity (or session) creation time. */
 export function agentNamingUntil(name: string, agentType: string | null | undefined, createdAt: string | number | undefined, now: number): number | null {
-  const created = typeof createdAt === 'number' ? createdAt : Date.parse(createdAt ?? '')
+  const created = typeof createdAt === 'number' ? createdAt : parseCreatedAt(createdAt)
+  if (created === null) return null
   const until = created + AGENT_NAMING_WINDOW_MS
   if (!Number.isFinite(until) || now >= until) return null
   const isDefault = agentType

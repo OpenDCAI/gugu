@@ -16,12 +16,13 @@ import { useLayoutEffect, useRef, type ReactNode } from 'react'
 
 /** 群里收到的消息、组首那一条:名字 + 归属小标签(「我的 agent」「Alice 的 agent」)。
  *  颜色不另起色板:用身份层按 id 定下的那一档色相(agent 形象的身体色,agent 改过形象就跟着它),亮度/彩度随主题(tokens.css)。 */
-export function BubbleSender({ member, senderId, replyMark }: { member: MemberProfileCardModel | null; senderId: string | null; replyMark?: ReactNode }) {
+export function BubbleSender({ member, displayName, senderId, replyMark }: { member: MemberProfileCardModel | null; displayName?: string; senderId: string | null; replyMark?: ReactNode }) {
   const { t } = useTranslation('messaging')
   const { user } = useAuth()
   const target = useMessageSenderTarget()
   const rowRef = useRef<HTMLDivElement>(null)
   const hasReply = Boolean(replyMark)
+  const name = displayName ?? member?.displayName ?? ''
   const hue = BODY_COLORS[resolveAgentLook(senderId, member?.avatar ?? null).color].hue
   const tag = member?.removedAt ? t('message.removedIdentityTag') : member?.type !== 'agent' ? null
     : member.ownerUserId && member.ownerUserId === user?.id ? t('message.myAgentTag')
@@ -44,11 +45,11 @@ export function BubbleSender({ member, senderId, replyMark }: { member: MemberPr
     const observer = new ResizeObserver(measure)
     observer.observe(row); observer.observe(name)
     return () => observer.disconnect()
-  }, [tag, member?.displayName, hasReply, target])
+  }, [tag, name, hasReply, target])
   return (
     <div ref={rowRef} data-message-who="true" data-message-sender-name="true" className="msg-sender" style={{ '--member-hue': hue } as React.CSSProperties}>
-      {target ? <Button variant="ghost" size="sm" className="msg-sender-name msg-sender-link" onClick={event => { event.stopPropagation(); openMessageSender(target) }}><span className="msg-sender-name">{member?.displayName ?? ''}</span></Button>
-        : <span className="msg-sender-name">{member?.displayName ?? ''}</span>}
+      {target ? <Button variant="ghost" size="sm" className="msg-sender-name msg-sender-link" onClick={event => { event.stopPropagation(); openMessageSender(target) }}><span className="msg-sender-name">{name}</span></Button>
+        : <span className="msg-sender-name">{name}</span>}
       {replyMark}
       {tag && <Chip appearance="filled" data-message-agent-owner="true">{tag}</Chip>}
     </div>
@@ -58,4 +59,41 @@ export function BubbleSender({ member, senderId, replyMark }: { member: MemberPr
 /** 气泡右下角的时间。inline = 和最后一行正文同一行(正文末尾由 .msg-time-room 留出位子);否则单独占气泡最后一行。 */
 export function BubbleTime({ iso, isMine, inline, replyMark, hideTime }: { iso: string; isMine: boolean; inline: boolean; replyMark?: ReactNode; hideTime?: boolean }) {
   return <span data-message-time="true" data-mine={isMine || undefined} data-inline={inline || undefined} className="msg-time">{replyMark}{!hideTime && fmtMsgTime(iso)}</span>
+}
+
+// @@@1345 已读进度圆环：环填充比例=read/total。空环=已发出无人读(#5649 起渲染)；部分=进度弧；满=实心 + 对比色勾。@@@live-accent (Refs #6105) 弧与满环从 --accent(#fff/#000)改到 --live:「已读完成」是 live 态,画的是真实读数不是装饰灯。
+export function ReadReceiptRing({ read, total }: { read: number; total: number }) {
+  const frac = total > 0 ? Math.max(0, Math.min(1, read / total)) : 0
+  const r = 5.5
+  const circ = 2 * Math.PI * r
+  const full = frac >= 1
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+      {/* @@@1483 空环(sent/未读)轨道色：原 --border-strong(0.12 alpha 发丝分隔线 token)做独立图标 → 白底上
+          几乎不可见(QA round1)。改用 muted-foreground token --text-tertiary(#9a9aa2 light/#6f6f78 dark)：
+          两端主题都清晰可见,又低于已读态 accent 的层级(sent<partial<read)。 */}
+      <circle cx="7.5" cy="7.5" r={r} fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" />
+      {frac > 0 && !full && (
+        <circle
+          cx="7.5"
+          cy="7.5"
+          r={r}
+          fill="none"
+          stroke="var(--live)"
+          strokeWidth="1.5"
+          strokeDasharray={circ}
+          strokeDashoffset={circ * (1 - frac)}
+          strokeLinecap="round"
+          transform="rotate(-90 7.5 7.5)"
+        />
+      )}
+      {full && (
+        <>
+          <circle cx="7.5" cy="7.5" r={r + 0.4} fill="var(--live)" />
+          {/* 勾用 --text-on-accent(=--primary-fg)：两侧主题各自落在背景那一端,画在 --live 上都够对比。❌ 别用恒 #fff 的 surface-white,深色侧白勾压亮蓝会糊 */}
+          <path d="M5 7.6l1.8 1.8 3.3-3.6" stroke="var(--text-on-accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      )}
+    </svg>
+  )
 }

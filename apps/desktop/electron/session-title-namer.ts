@@ -12,6 +12,7 @@
  */
 import * as electron from 'electron'
 import type { RuntimeAuthProvider } from '@gugu/core'
+import { parseCreatedAt } from '@gugu/core/shared/agentDefaultName'
 import {
   issuePlatformModelAccess,
   modelAccessFailureReason,
@@ -66,14 +67,6 @@ export interface SessionTitleNamerDeps {
 function netFetch(url: string, init: RequestInit): Promise<Response> {
   const fetcher = (electron as { net?: { fetch?: typeof fetch } } | undefined)?.net?.fetch
   return fetcher ? fetcher(url, init) : fetch(url, init)
-}
-
-/** SQLite 的 `CURRENT_TIMESTAMP` 是不带时区的 UTC(`2026-10-16 19:00:00`);ISO 串照常解析。 */
-function parseCreatedAt(value: string | undefined): number | null {
-  if (!value) return null
-  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(value) ? `${value.replace(' ', 'T')}Z` : value
-  const at = Date.parse(iso)
-  return Number.isFinite(at) ? at : null
 }
 
 /** 模型回的 content:字符串,或 [{type:'text', text}] 一串。 */

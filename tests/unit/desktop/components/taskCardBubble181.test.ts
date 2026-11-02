@@ -119,6 +119,17 @@ describe('task cards follow the current agent identity', () => {
     expect(content().textContent).toContain('正在起名…')
     expect(content().textContent).not.toContain('Codex 1')
   })
+
+  it('shows the naming label in the actual message sender header without rewriting its profile', async () => {
+    const memberProfile = { id: CARD.agentUserId, displayName: CARD.agentName, avatar: null, email: null, type: 'agent', role: 'member', ownerUserId: 'user-1' }
+    publishIdentityDirectory({ [CARD.agentUserId]: displayIdentity(CARD.agentUserId, { type: 'agent', display_name: CARD.agentName, created_at: at }) }, () => {})
+    await renderWithAppProviders(harness, createNode(MessageBubble, {
+      msg: message({ is_mine: false, sender_user_id: CARD.agentUserId, content: 'Hello' }), memberProfile, isGroup: true,
+      onReaction: vi.fn(), onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(),
+    }))
+    expect(harness.container.querySelector('.msg-sender-name')?.textContent).toBe('正在起名…')
+    expect(memberProfile.displayName).toBe('Codex 1')
+  })
 })
 
 describe('task card in a chat (gugu-dev#181)', () => {
