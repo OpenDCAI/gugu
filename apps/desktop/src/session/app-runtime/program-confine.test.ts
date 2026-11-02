@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { confinedEnv, confinedNodeArgs, type ProgramConfinement } from '@shared/extensions/program-confinement';
+import { confinedLaunch, type ProgramConfinement } from '@shared/extensions/program-confinement';
 
 /**
  * An App's tools program from apiVersion 29 runs within what its manifest declares, not with the person's full rights. The
@@ -187,10 +187,14 @@ async function runCorpus(confine: ProgramConfinement | null, launchRoot = dir): 
   delete env.NODE_OPTIONS;
   Object.assign(env, { PROBE_PORT: String(port), PROBE_OUTSIDE: outside, PROBE_DATA: data,
     ...(process.env.A5_PROBE_PORT ? { PROBE_LISTEN_PORT: String(port + 1), PROBE_INSPECTOR_PORT: String(port + 2) } : {}) },
-  confine ? confinedEnv(confine) : { PROBE_CONTROL: '1' });
-  const args = [...(confine ? confinedNodeArgs(confine, join(launchRoot, 'runtime')) : []), '--import', pathToFileURL(join(launchRoot, 'runtime', 'gugu-program.mjs')).href, join(launchRoot, 'bundle', 'app.mjs')];
+  confine ? {} : { PROBE_CONTROL: '1' });
+  const preload = join(launchRoot, 'runtime', 'gugu-program.mjs');
+  const app = join(launchRoot, 'bundle', 'app.mjs');
+  const launch = confine ? confinedLaunch(confine, preload, [app], join(launchRoot, 'bundle'))
+    : { args: ['--import', pathToFileURL(preload).href, app], cwd: join(launchRoot, 'bundle'), env: {} };
+  Object.assign(env, launch.env);
   const said = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    const child = spawn(process.execPath, args, { cwd: join(launchRoot, 'bundle'), env, stdio: ['pipe', 'pipe', 'pipe', 'ipc'], serialization: 'advanced' });
+    const child = spawn(process.execPath, launch.args, { cwd: launch.cwd, env, stdio: ['pipe', 'pipe', 'pipe', 'ipc'], serialization: 'advanced' });
     let stdout = '';
     let stderr = '';
     child.stdout!.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
@@ -285,10 +289,11 @@ describe('an App tools program runs within what it declared (apiVersion 29)', ()
   it('a refusal says what the App did not declare, on the line an agent reads back', async () => {
     writeFileSync(join(bundle, 'app.mjs'), "await fetch('http://127.0.0.1:65000').catch((e) => { process.stderr.write(String(e.cause?.message ?? e.message ?? e) + '\\n'); process.exit(1) });");
     try {
-      const env: Record<string, string> = { ...(process.env as Record<string, string>), ...confinedEnv(confinement()) };
+      const launch = confinedLaunch(confinement(), runtime, [join(bundle, 'app.mjs')], bundle);
+      const env: Record<string, string> = { ...(process.env as Record<string, string>), ...launch.env };
       delete env.NODE_OPTIONS;
       const stderr = await new Promise<string>((resolve) => {
-        const child = spawn(process.execPath, [...confinedNodeArgs(confinement(), join(dir, 'runtime')), '--import', pathToFileURL(runtime).href, join(bundle, 'app.mjs')], { cwd: bundle, env, stdio: ['pipe', 'pipe', 'pipe', 'ipc'], serialization: 'advanced' });
+        const child = spawn(process.execPath, launch.args, { cwd: launch.cwd, env, stdio: ['pipe', 'pipe', 'pipe', 'ipc'], serialization: 'advanced' });
         let err = '';
         child.stderr!.on('data', (chunk: Buffer) => (err += chunk.toString()));
         child.on('close', () => resolve(err));
