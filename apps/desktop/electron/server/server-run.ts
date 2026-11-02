@@ -9,6 +9,7 @@ import { managedLayout, startServerUpdater } from './server-updater'
 import { repairLegacyServerLaunchers } from './server-installation'
 import { repairServiceDefinition } from './server-service'
 import { removeLegacyBrowserLogins } from '../lib/remove-legacy-browser-logins'
+import { rotateByCopyTruncate, SERVICE_LOG_CHECK_MS } from './server-log-rotate'
 import { SUPERVISOR_HEALTH_MS, writeSupervisorHealth } from './server-health'
 
 export async function runSingleServer(prepare: () => void, runAccount: (userId: string) => Promise<void>): Promise<void> {
@@ -36,6 +37,12 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   repairServiceDefinition(warn)
   try { repairLegacyServerLaunchers(home) } catch (error) { warn(`Could not repair the legacy command: ${String(error)}`) }
   clearStopped(home)
+  // Native Linux services use journald. Keep the existing append-safe rotation for launchd and keeper stdout.
+  if (process.env.GUGU_SERVER_SUPERVISED !== 'systemd') {
+    const rotateLog = () => { rotateByCopyTruncate(path.join(home, 'data/logs/service.log')) }
+    rotateLog()
+    setInterval(rotateLog, SERVICE_LOG_CHECK_MS).unref()
+  }
   applyLoginShell(home)
   const startedAt = Date.now()
   const health = () => {

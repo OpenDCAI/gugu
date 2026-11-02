@@ -160,8 +160,6 @@ function tightenOwnTree(): void {
     if (changes.length === 0) return
     const line = `${new Date().toISOString()} INFO  收紧数据目录权限 ${JSON.stringify(summarizeChanges(changes))}`
     stderr(line)
-    fs.mkdirSync(path.join(supervisorDataDir(), 'logs'), { recursive: true })
-    fs.appendFileSync(path.join(supervisorDataDir(), 'logs', 'supervisor.log'), `${line}\n`)
   } catch (error) {
     stderr(`[server] 收紧数据目录权限失败:${error instanceof Error ? error.message : String(error)}`)
   }

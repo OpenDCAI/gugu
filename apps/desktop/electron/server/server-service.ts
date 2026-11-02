@@ -528,7 +528,6 @@ export async function installService(out: Out): Promise<boolean> {
     systemdReachable: reachSystemdUserSession(),
     unitExists: fs.existsSync(unitPath()),
   })
-  const supervisorLog = path.join(supervisorDataDir(), 'logs', 'supervisor.log')
   return installServiceWith(out, {
     mode,
     targetVersion: process.env.GUGU_TASK_HOST_VERSION ?? null,
@@ -551,8 +550,8 @@ export async function installService(out: Out): Promise<boolean> {
     startDetached: (waitPid) =>
       startDetached(executable, { GUGU_SERVER_HOME: home, ...(waitPid ? { GUGU_SERVER_WAIT_PID: String(waitPid) } : {}) }),
     logHint: mode === 'systemd' || mode === 'systemdUnreachable'
-      ? `journalctl --user -u ${names().systemdUnit},以及 ${supervisorLog}`
-      : `${logFile()},以及 ${supervisorLog}`,
+      ? `journalctl --user -u ${names().systemdUnit}`
+      : logFile(),
     user: os.userInfo().username,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     now: Date.now,

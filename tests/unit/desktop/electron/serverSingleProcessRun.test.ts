@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runSingleServer } from '../../../../apps/desktop/electron/server/server-run'
+import { SERVER_LOG_MAX_BYTES, SERVICE_LOG_CHECK_MS } from '../../../../apps/desktop/electron/server/server-log-rotate'
 import { readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
 
 vi.mock('../../../../apps/desktop/electron/server/server-service', () => ({ repairServiceDefinition: vi.fn() }))
@@ -86,4 +87,28 @@ describe('installation run enters the account body without a child process', () 
     expect(fs.readdirSync(path.join(home, 'accounts'))).toHaveLength(2)
     expect(fs.existsSync(path.join(home, 'data/stopped'))).toBe(true)
   })
+  it.each(['keeper', 'launchd', 'systemd'])('preserves the service stdout retention policy under %s', async mode => {
+    process.env.GUGU_SERVER_SUPERVISED = mode
+    signIn()
+    const log = path.join(home, 'data/logs/service.log')
+    fs.mkdirSync(path.dirname(log), { recursive: true })
+    const fd = fs.openSync(log, 'a')
+    try {
+      fs.writeSync(fd, 'x'.repeat(SERVER_LOG_MAX_BYTES + 1))
+      await runSingleServer(() => undefined, async () => undefined)
+      if (mode === 'systemd') {
+        expect(fs.statSync(log).size).toBe(SERVER_LOG_MAX_BYTES + 1)
+        expect(fs.existsSync(`${log}.1`)).toBe(false)
+      } else {
+        expect(fs.statSync(log).size).toBe(0)
+        expect(fs.statSync(`${log}.1`).size).toBe(SERVER_LOG_MAX_BYTES + 1)
+        fs.writeSync(fd, 'y'.repeat(SERVER_LOG_MAX_BYTES + 1))
+        await vi.advanceTimersByTimeAsync(SERVICE_LOG_CHECK_MS)
+        expect(fs.statSync(log).size).toBe(0)
+        fs.writeSync(fd, 'after')
+        expect(fs.readFileSync(log, 'utf8')).toBe('after')
+      }
+    } finally { fs.closeSync(fd) }
+  })
+
 })

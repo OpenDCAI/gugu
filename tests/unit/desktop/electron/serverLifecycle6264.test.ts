@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { rotateByCopyTruncate, rotateByRename } from '../../../../apps/desktop/electron/server/server-log-rotate'
+import { rotateByCopyTruncate } from '../../../../apps/desktop/electron/server/server-log-rotate'
 import { runningVersionOf } from '../../../../apps/desktop/electron/server/server-account-runtime'
 import { runChecks } from '../../../../apps/desktop/electron/server/server-selftest'
 import { pruneVersions } from '../../../../apps/desktop/electron/server/server-account-versions'
@@ -32,17 +32,6 @@ describe('账号进程盯着守护进程', () => {
 })
 
 describe('日志有上限', () => {
-  it('supervisor.log 超过上限整份挪成 .1(只留一份旧的)', () => {
-    const file = path.join(tmp(), 'supervisor.log')
-    fs.writeFileSync(file, 'x'.repeat(2_000))
-    fs.writeFileSync(`${file}.1`, 'older')
-    expect(rotateByRename(file, 1_000)).toBe(true)
-    expect(fs.existsSync(file)).toBe(false)
-    expect(fs.readFileSync(`${file}.1`, 'utf8')).toHaveLength(2_000)
-    fs.writeFileSync(file, 'small')
-    expect(rotateByRename(file, 1_000)).toBe(false)
-  })
-
   it('service.log 被别的进程以追加方式持有着:copytruncate,之后接着从新的末尾写、没有空洞', () => {
     const file = path.join(tmp(), 'service.log')
     const fd = fs.openSync(file, 'a')
