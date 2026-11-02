@@ -7,13 +7,13 @@
     "en": { "name": "Folder", "subtitle": "Shared Markdown and JSON files", "tabs": { "main": { "title": "Folder" }, "file": { "title": "Folder" } } }
   },
   "author": "咕咕",
-  "version": "0.2.66",
-  "apiVersion": 25,
+  "version": "0.2.67",
+  "apiVersion": 26,
   "platforms": ["desktop", "phone"],
   "entry": "index.html",
   "icon": "icon.png",
   "permissions": {
-    "capabilities": ["files:read:all-machines", "files:write", "agents:tools"]
+    "capabilities": ["files:read:all-machines", "files:write", "agents:tools", "chat:read"]
   },
   "contributes": {
     "tabs": [

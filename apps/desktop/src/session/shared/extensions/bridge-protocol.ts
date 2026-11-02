@@ -80,6 +80,8 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 25: `files.canDelete(file | files)`, a page's — whether this person may delete each, asked as a file's menu opens; a listed entry
 // no longer carries `canDelete` (answering it for every file held the whole list).
 // 26: declared App views in messages, with immutable per-message context and bounded viewport lifetimes.
+// Pages declaring 26 also read members explicitly with chats.members(); context keeps the chat summary without a roster.
+// Pages declaring 25 or earlier retain their initial members and roster context updates.
 export const EXTENSION_API_VERSION = 26;
 
 /**
