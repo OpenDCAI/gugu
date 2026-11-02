@@ -56,6 +56,7 @@ export function createAssistantServerPreparation(deps: {
   }
   async function run(record: ServerPreparationRecord, abort: AbortController) {
     let runtime: PreparedAssistantRuntime | undefined
+    let runtimeCommitted = false
     try {
       await save(record, { ...record.state, phase: 'runtime' })
       runtime = await deps.prepare(`${record.operationId}-${record.attempt}`, abort.signal)
@@ -65,6 +66,7 @@ export function createAssistantServerPreparation(deps: {
       await deps.write(record)
       await deps.validate(record, true)
       await runtime.commit()
+      runtimeCommitted = true
       if (!record.freshCleared) {
         await deps.wipe()
         record.freshCleared = true
@@ -80,7 +82,7 @@ export function createAssistantServerPreparation(deps: {
       try { await runtime?.dispose() } catch (cleanup) { cleanupFailed = true; deps.log(cleanup, record.operationId) }
       const code = cleanupFailed || (error as { code?: string })?.code === 'assistant_preparation_cleanup_failed' ? 'cleanup_failed'
         : error instanceof AssistantServerSetupError ? error.code
-          : record.state.installationStarted ? 'workspace_failed' : 'runtime_failed'
+          : runtimeCommitted ? 'workspace_failed' : 'runtime_failed'
       await save(record, { ...record.state, phase: 'failed', error: assistantServerFailure(code) })
     }
   }

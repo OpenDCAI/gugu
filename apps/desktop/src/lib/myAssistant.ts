@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { identityDb } from './supabase'
 import { rendererLogger } from './log'
-import { pickAssistant, type AssistantProvisionRow } from './assistantProvision'
+import { ASSISTANT_PROVISION_SELECT, pickAssistant, type AssistantProvisionRow } from './assistantProvision'
 import { useAuth } from '../store/auth'
 import type { ContactsLoadStatus } from '../store/contactsContext'
 
@@ -32,7 +32,7 @@ async function load(ownerUserId: string) {
   try {
     const { data, error } = await identityDb
       .from('agent_provisions')
-      .select('agent_user_id, device_id, member_key, phase, created_at')
+      .select(ASSISTANT_PROVISION_SELECT)
       .eq('member_key', 'assistant')
       .eq('owner_user_id', ownerUserId)
     if (error) throw new Error(error.message)

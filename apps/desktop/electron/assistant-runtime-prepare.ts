@@ -6,6 +6,7 @@ import { getPlugin } from './session/main/core/agents/plugin-registry'
 import { managedAgentPrefix, managedMiseBinDir } from './session/main/core/dependencies/managed-agent-home'
 import { runMiseOperation } from './session/main/core/dependencies/mise-installer'
 import { AgentInstallFailedError } from './session/main/core/agents/ensure-agent-installed'
+import { ensureUserBinDirsInPath } from './session/main/utils/userEnv'
 
 export type PreparedAssistantRuntime = { commit(): Promise<void>; dispose(): Promise<void> }
 
@@ -49,6 +50,9 @@ export async function prepareAssistantRuntime(id: string, signal: AbortSignal): 
       async commit() {
         if (!prepared.length) return
         await mkdir(managedMiseBinDir(), { recursive: true })
+        // On a clean account this directory did not exist at process startup.
+        // Use the same PATH refresh as the normal managed installer.
+        ensureUserBinDirsInPath()
         for (const { dependency, launcher } of prepared) {
           // Another installer may have completed while we prepared. Re-probe
           // before publication; never replace an already usable runtime.

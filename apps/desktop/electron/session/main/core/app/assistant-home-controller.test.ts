@@ -55,8 +55,10 @@ it('rejects a desktop, a managed cloud host and an unsupported Linux architectur
   expect(mocks.start).not.toHaveBeenCalled()
 })
 it('refuses first setup when an assistant already exists and does not turn a query failure into absence', async () => {
-  mocks.rows = [{ member_key: 'assistant', agent_user_id: assistant, device_id: device, phase: 'completed', created_at: '2026-11-01' }]
+  mocks.rows = [{ member_key: 'assistant', agent_user_id: assistant, agent: { removed_at: null }, device_id: device, phase: 'completed', created_at: '2026-11-01' }]
   expect(await controller.preflight({ ownerUserId: owner, deviceId: device })).toMatchObject({ ok: false, error: { code: 'assistant_exists' } })
+  mocks.rows[0]!.agent = { removed_at: '2026-11-02T15:06:41Z' }
+  expect(await controller.preflight({ ownerUserId: owner, deviceId: device })).toMatchObject({ ok: true })
   mocks.rows = []; mocks.queryError = { message: 'network unavailable' }
   expect(await controller.preflight({ ownerUserId: owner, deviceId: device })).toMatchObject({ ok: false })
 })
@@ -66,11 +68,11 @@ it('preflights with the target build model source and never a controller-provide
   expect(await controller.preflight({ ownerUserId: owner, deviceId: device, workdir: '/arbitrary' } as never)).toMatchObject({ ok: false, error: { code: 'input_mismatch' } })
 })
 it('verifies a close before mutation and binds cleanup to the exact archived assistant provision', async () => {
-  mocks.rows = [{ agent_user_id: assistant, provisioned_agent_user_id: assistant, operation_id: operation }]
+  mocks.rows = [{ agent_user_id: assistant, agent: { removed_at: null }, provisioned_agent_user_id: assistant, operation_id: operation }]
   expect(await controller.checkClose({ ownerUserId: owner, deviceId: device, assistantId: assistant })).toEqual({ ok: true, value: { ready: true } })
   expect(await controller.wipe({ ownerUserId: owner, deviceId: device, assistantId: assistant })).toMatchObject({ ok: false, error: { code: 'preparation_busy' } })
   expect(mocks.close).not.toHaveBeenCalled()
-  mocks.rows[0]!.agent_user_id = null
+  mocks.rows[0]!.agent = { removed_at: '2026-11-02T15:06:41Z' }
   expect(await controller.wipe({ ownerUserId: owner, deviceId: device, assistantId: assistant })).toMatchObject({ ok: true, value: { workdir: '/account/assistant' } })
   expect(mocks.assertProvision).toHaveBeenLastCalledWith(operation)
   expect(mocks.close).toHaveBeenCalledWith(operation)

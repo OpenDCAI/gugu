@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -8,7 +8,9 @@ vi.mock('@gugu/session-core/deps/runtime', () => ({ agentProgramsOf: () => [{ de
 vi.mock('../../../../apps/desktop/electron/session/main/core/agents/plugin-registry', () => ({ getPlugin: () => ({}) }))
 vi.mock('../../../../apps/desktop/electron/session/main/core/dependencies/managed-agent-home', () => ({
   managedAgentPrefix: () => f.root, managedMiseBinDir: () => path.join(f.root, 'bin'),
+  agentBinDirsInPriorityOrder: () => [path.join(f.root, 'bin')], vendorInstallDirs: () => [],
 }))
+vi.mock('../../../../apps/desktop/electron/session/main/lib/logger', () => ({ log: { warn: vi.fn() } }))
 vi.mock('../../../../apps/desktop/electron/session/main/core/dependencies/mise-installer', () => ({ runMiseOperation: f.install }))
 vi.mock('../../../../apps/desktop/electron/session/main/core/agents/ensure-agent-installed', () => ({ AgentInstallFailedError: Error }))
 vi.mock('../../../../apps/desktop/electron/session/main/core/dependencies/dependency-managers', () => ({ getDependencyManager: async () => ({
@@ -17,7 +19,9 @@ vi.mock('../../../../apps/desktop/electron/session/main/core/dependencies/depend
 }) }))
 const { prepareAssistantRuntime } = await import('../../../../apps/desktop/electron/assistant-runtime-prepare')
 const launcher = () => path.join(f.root, 'bin', 'claude' + (process.platform === 'win32' ? '.cmd' : ''))
+let originalPath: string | undefined
 beforeEach(async () => {
+  originalPath = process.env.PATH
   vi.resetAllMocks(); f.available = false
   f.root = await mkdtemp(path.join(os.tmpdir(), 'assistant-runtime-'))
   f.install.mockImplementation(async (_operation, paths) => {
@@ -26,7 +30,19 @@ beforeEach(async () => {
     return { success: true }
   })
 })
-afterEach(async () => { await rm(f.root, { recursive: true, force: true }) })
+afterEach(async () => { process.env.PATH = originalPath; await rm(f.root, { recursive: true, force: true }) })
+
+it('discovers the first published runtime without restarting a clean account', async () => {
+  f.probe.mockImplementation(async () => {
+    const inPath = process.env.PATH?.split(path.delimiter).includes(path.dirname(launcher()))
+    f.available = !!inPath && await access(launcher()).then(() => true, () => false)
+  })
+  const prepared = await prepareAssistantRuntime('first-install', new AbortController().signal)
+  await expect(prepared.commit()).resolves.toBeUndefined()
+  expect(f.available).toBe(true)
+  await prepared.dispose()
+  expect(await readFile(launcher(), 'utf8')).toBe('prepared')
+})
 
 it.each([true, false])('handles concurrent publication only when its runtime probes available: %s', async valid => {
   f.probe.mockResolvedValueOnce(undefined).mockImplementationOnce(async () => {
