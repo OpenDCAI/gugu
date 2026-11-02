@@ -38,6 +38,10 @@ describe('bounded terminal streaming', () => {
       for (let n = 0; n < 1600; n++) {
         expectedHash.update(chunk);
         send(registry, chunk.toString('base64'));
+        if (n === 10) registry.accept('s', 'scope', {
+          kind: 'terminal_update',
+          terminal: { terminalId: 't', output: { data: '' } },
+        });
         // The same publisher and patch implementation used by the worker.
         if (n % 32 === 31) {
           const next = registry.snapshotSession('s', true);

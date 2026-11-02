@@ -87,8 +87,10 @@ export class TerminalLiveRegistry {
       for (const key of ['command', 'cwd'] as const) {
         if (update[key] !== undefined) record.state = { ...record.state, [key]: update[key] ?? '' };
       }
-      // Completion summaries may be provider-truncated; the streamed bytes remain authoritative.
-      if (update.output !== undefined && !(record.output.streamed && update.exitStatus)) {
+      // Providers can deliver their empty started snapshot after the first byte deltas.
+      // Once streaming begins, snapshots (including clipped completion summaries) cannot reset it.
+      // An explicit null remains the protocol's clear operation.
+      if (update.output !== undefined && (!record.output.streamed || update.output === null)) {
         const bytes = Buffer.from(update.output?.data ?? '', 'base64');
         if (existing) {
           this.archive?.reset(sessionId, terminalId);
