@@ -238,9 +238,9 @@ export default {
         "gap_too_large": "断开太久、缺的太多，时间线已整份重载。"
       },
       "outcome": {
-        "done": "本轮结束",
-        "cancelled": "本轮已取消",
-        "error": "本轮出错"
+        "done": "已结束",
+        "cancelled": "已取消",
+        "error": "出错了"
       },
       "compacting": "正在压缩上下文…",
       "compacted": "上下文已压缩 —— 往上的内容它记得的是摘要",
@@ -248,7 +248,7 @@ export default {
       "contextReset": "引擎换了一条新会话 —— 往上的内容它没有",
       "modelUnavailable": "你选的模型这个引擎现在用不了，已改用它的默认模型",
       "modelSubstituted": "引擎没用你选的那个模型，换成了别的",
-      "thought": "想过一轮",
+      "thought": "思考过",
       "toolOutput": "输出"
     },
     "settlement": {

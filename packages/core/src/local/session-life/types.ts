@@ -116,6 +116,8 @@ export type Event =
   | InterruptEvent
   | Readonly<{ k: 'settled'; gen: Gen | null }>
   | Readonly<{ k: 'restore' }>
+  /** The person discards a row they stopped before it went. */
+  | Readonly<{ k: 'discard-row'; seq: Seq }>
   | Readonly<{ k: 'signed-in'; userId: string }>
   // `run` (not `gen`): a fault is accepted in every non-archived state, so the reducer judges staleness itself.
   // unreleased: the resources of a teardown that threw (possibly an earlier run's), kept for a later teardown.
@@ -134,6 +136,7 @@ export type Effect =
   | Readonly<{ e: 'report-failure'; seqs: readonly Seq[]; cause: SerializedError }>
   | Readonly<{ e: 'mark-source-read'; seq: Seq }>
   | Readonly<{ e: 'remove' }>
+  | Readonly<{ e: 'delete-row'; seq: Seq }>
   // Entering archived or deleted: the leg ends what lives only because of this session (e.g. runtime children).
   | Readonly<{ e: 'end-dependents' }>
 
