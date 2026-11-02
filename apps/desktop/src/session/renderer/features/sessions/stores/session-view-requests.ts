@@ -13,7 +13,8 @@ export interface SessionViewRequestBridge {
    * gugu-dev#181 壳要打开一条对话(侧栏「对话」里点一行、通知、链接……):对话是会话页这屏的一块,
    * 摆不摆、摆在哪由这一页定。`beside` = ⌘ 点,并排放在正看着那块右边。
    */
-  openChat(chatId: string, beside: boolean): void;
+  /** A resource needs the chat's file host, even when its conversation normally opens an owned task. */
+  openChat(chatId: string, beside: boolean, purpose?: 'resource'): void;
   /** Desktop group-name entry: preserve the group and let the session page own the single auxiliary pane. */
   openGroupChat?(sourceChatId: string, chatId: string): void;
   prepareGroupSession?(sourceChatId: string, target: { projectId: string; sessionId: string }): import('@renderer/features/chats/group-participant-requests').GroupParticipantRequest;

@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { awaitFact } from '../../../../../../../tests/support/awaitFact';
 import * as asks from '../asks';
+import { askInstallInSession } from '../extensions/consent-in-session';
+import { answerAppInstall } from '@renderer/features/extensions/app-install-approval';
+import { EXTENSION_API_VERSION_MIN_SUPPORTED } from '@shared/extensions/manifest';
+import type { AppInstallAsk } from '@shared/extensions/host-actions';
 import type { QueuedPrompt } from '@gugu/session-core/acp/client';
 import type {
   PendingRequest,
@@ -61,6 +65,8 @@ const state = vi.hoisted(() => ({
 }));
 
 const persistedQuestions = vi.hoisted(() => new Map<string, Settlement[]>());
+vi.mock('../extensions/extension-bridge-relay', () => ({ requestExtensionInstallConsent: vi.fn(), closeExtensionInstallConsent: vi.fn() }));
+vi.mock('@renderer/features/extensions/install-consent', () => ({ askInShell: vi.fn(), installConsentPrompt: vi.fn() }));
 vi.mock('../sessions/agent-question-store', () => ({
   readAgentQuestionRecords: (id: string) => persistedQuestions.get(id) ?? [],
   rememberAgentQuestion: (id: string, item: PendingRequest | Settlement) => {
@@ -96,10 +102,6 @@ vi.mock('@main/db/client', () => ({
 
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 const openedOutputs = vi.hoisted(() => new Map<string, ({ kind: 'file'; path: string } | { kind: 'page'; url: string })[]>());
-const attachmentCopies = vi.hoisted(() => new Map<string, string>());
-vi.mock('../sessions/attachments/session-attachment-store', () => ({
-  findSessionAttachmentCopy: async (sessionId: string, path: string) => attachmentCopies.get(`${sessionId}:${path}`) ?? null,
-}));
 vi.mock('../sessions/session-outputs', () => ({
   sessionOutputs: async (sessionId: string) => openedOutputs.get(sessionId) ?? [],
   sessionOpenedFile: async (sessionId: string, path: string) =>
@@ -1400,6 +1402,38 @@ describe('session timeline service', () => {
       state.hostWaits = [];
     });
 
+    it('reviewing an unreadable remote manifest answers the ask and completes server consent as declined', async () => {
+      const { timeline } = makeTimeline();
+      service.setSessionTimelineFactory(async () => timeline);
+      const installed = askInstallInSession('conv-1', {
+        sourceDir: '/tmp/reader',
+        manifest: { id: 'reader', name: 'Reader', version: '1.0.0', apiVersion: EXTENSION_API_VERSION_MIN_SUPPORTED - 1,
+          defaultLocale: 'en', entry: 'main.html', contributes: { tabs: [{ name: 'main', title: 'Reader' }] } },
+        manifestDigest: 'digest-r', revokedPermissions: [], given: { first: true },
+      } as never, { name: 'Agent', agentUserId: null }, {
+        timeline: async () => ({ ask: asks.ask, respond: service.respond }),
+        idleSeconds: () => 999, window: null, closeWindow: async () => undefined,
+      });
+      try {
+        await flush();
+        const snapshot = await service.snapshot({ conversationId: 'conv-1' });
+        if (!snapshot.ok) throw new Error(snapshot.error.message);
+        const pending = snapshot.value.settlements[0]!;
+        expect(pending.state).toBe('pending');
+        const respond = vi.fn((answer: { optionId: string; digest?: string }) => service.respond({
+          conversationId: 'conv-1', itemId: pending.itemId, kind: 'permission', by: 'desktop', ...answer,
+        }));
+        await expect(answerAppInstall({
+          itemId: pending.itemId, ask: pending.origin!.payload as AppInstallAsk, optionId: 'install', respond,
+        })).rejects.toThrow('This install asks about a manifest this build cannot read');
+        expect(respond).toHaveBeenCalledExactlyOnceWith({ optionId: 'decline' });
+        await expect(installed).resolves.toEqual({ outcome: 'declined' });
+        expect(timeline.getSnapshot().settlements).toMatchObject([{ state: 'resolved', optionId: 'decline', resolvedBy: 'desktop' }]);
+      } finally {
+        asks.withdrawAll('conv-1', 'app-install');
+      }
+    });
+
     it('a host question works on ACP, validates answers and commits only the first explicit answer', async () => {
       state.rows = [row({ runtime: 'acp' })];
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
@@ -1635,15 +1669,6 @@ describe('readOpenedFile', () => {
 
   beforeEach(() => {
     openedOutputs.clear();
-    attachmentCopies.clear();
-  });
-
-  it('reads this session’s registered attachment copy even when the original was not opened', async () => {
-    attachmentCopies.set('conv-1:/deleted/original.html', report);
-    const result = await service.readOpenedFile({ conversationId: 'conv-1', path: '/deleted/original.html', offset: 0, length: 1024 });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(Buffer.from(result.value.data, 'base64').toString('utf8')).toBe('<h1>汇报</h1>');
-    expect(await service.readOpenedFile({ conversationId: 'conv-2', path: '/deleted/original.html', offset: 0, length: 1024 })).toMatchObject({ ok: false, error: { code: 'not_opened' } });
   });
 
   it('打开过的文件:按块读出原字节', async () => {

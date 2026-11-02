@@ -303,7 +303,9 @@ export interface ChatComposerProps {
    * Called with pasted or dropped image files before the default data-url attachment path.
    * When supplied, the host owns uploading and adding preview attachments.
    */
-  onImageFilesDropped?: (files: File[]) => void;
+  onImageFilesDropped?: (files: File[], source?: 'paste' | 'drop') => void;
+  onAttachmentQualityChange?: (id: string) => void;
+  attachmentQualityLocked?: boolean;
   /**
    * Called whenever files are dropped onto the composer.
    * The host should resolve real filesystem paths and insert non-image files
@@ -365,7 +367,7 @@ export interface ChatComposerProps {
   onCommand?: (item: CommandItem) => void;
   /** Session-state notice shown flush above the input (e.g. ACP stop reasons). */
   notice?: ComposerNotice | null;
-  /** Host band joined flush to the card, below queued messages and above permission/notice. */
+  /** Host band connected to this composer, below queued prompts and above permission/notice. */
   bandAbove?: React.ReactNode;
   /**
    * Pending ACP permission request to show in the band above the input.
@@ -447,6 +449,8 @@ export function ChatComposer({
   attachmentStatus,
   onAttachmentsChange,
   onImageFilesDropped,
+  onAttachmentQualityChange,
+  attachmentQualityLocked,
   onFilesDropped,
   onDirectoriesDropped,
   dataDropTypes,
@@ -597,7 +601,7 @@ export function ChatComposer({
 
     if (!e.clipboardData.types.some((type) => type.startsWith('text/'))) e.preventDefault();
     if (onImageFilesDropped) {
-      onImageFilesDropped(imageFiles);
+      onImageFilesDropped(imageFiles, 'paste');
     } else if (onAttachmentsChange) {
       const base = attachments;
       void Promise.all(imageFiles.map(readImageAttachment)).then((newAttachments) => {
@@ -646,7 +650,7 @@ export function ChatComposer({
     const imageFiles = files.filter((file) => isImageFile(file));
     const nonImageFiles = files.filter((file) => !isImageFile(file));
     if (imageFiles.length > 0 && onImageFilesDropped) {
-      onImageFilesDropped(imageFiles);
+      onImageFilesDropped(imageFiles, 'drop');
     } else if (imageFiles.length > 0 && onAttachmentsChange) {
       const base = attachments;
       void Promise.all(imageFiles.map(readImageAttachment)).then((newAttachments) => {
@@ -750,7 +754,7 @@ export function ChatComposer({
   );
 
   return (
-    <div ref={rootRef} data-slot="composer" data-mobile={mobile || undefined} data-band-above={!!bandAbove || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
+    <div ref={rootRef} data-slot="composer" data-band-above={!!bandAbove || undefined} data-mobile={mobile || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
       if (queueEdit && event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing && event.keyCode !== 229) {
         event.preventDefault(); finishQueueEdit(null);
       }
@@ -769,7 +773,6 @@ export function ChatComposer({
 
       <div data-composer-stack="" className={styles.composerStack({ tone })}>
         {bandAbove}
-
         {/* Permission band — shown when the agent is awaiting user approval. */}
         {permissionRequest && onResolvePermission && (
           <PermissionBand
@@ -807,7 +810,7 @@ export function ChatComposer({
         >
           {/* Attachment chips — anatomy vendored from assistant-ui (#5269), see composer-attachment-chip.tsx */}
           {!queueEdit && <ComposerAttachmentStrip attachments={attachments} status={attachmentStatus}
-            onView={onViewAttachment} onRemove={onAttachmentsChange ? removeAttachment : undefined} onRetry={onRetryAttachment} />}
+            onView={onViewAttachment} onRemove={onAttachmentsChange ? removeAttachment : undefined} onRetry={onRetryAttachment} onQualityChange={onAttachmentQualityChange} qualityLocked={disabled || attachmentQualityLocked} />}
 
           {/* Editor area */}
           <div

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
+import { widgetMessagePreview } from '@gugu/core/shared/ui/widgetModels'
 import { displayAgentReferences } from '@/lib/mentionMdast'
 import { Reply } from '@/lib/icons'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
@@ -25,7 +26,7 @@ export function MessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage
   quoterIsAgent: boolean
   memberProfiles?: Record<string, MemberProfileCardModel>
 }) {
-  const quotedContent = partialQuotedContent(msg)?.quoteText ?? msg.reply_to_content
+  const quotedContent = partialQuotedContent(msg)?.quoteText ?? widgetMessagePreview(msg.reply_to_content) ?? msg.reply_to_content
   const quotedCard = composerCardPreview(quotedContent)
   const showQuoted = (event: MouseEvent) => {
     event.stopPropagation()
@@ -91,7 +92,7 @@ export function DirectMessageQuote({ msg, quoterIsAgent, memberProfiles, onShowM
   onShowMessage?: (id: string) => void
 }) {
   const { t } = useTranslation('messaging')
-  const quotedContent = partialQuotedContent(msg)?.quoteText ?? msg.reply_to_content
+  const quotedContent = partialQuotedContent(msg)?.quoteText ?? widgetMessagePreview(msg.reply_to_content) ?? msg.reply_to_content
   const quotedCard = composerCardPreview(quotedContent)
   const sender = quotedCard ? <ComposerCardHead type={quotedCard.type} agentUserId={quoterIsAgent ? msg.sender_user_id : null} />
     : resolveOrLoud(memberProfiles?.[msg.reply_to_sender_user_id ?? '']?.displayName, `reply sender ${msg.reply_to_message_id ?? msg.id}`)

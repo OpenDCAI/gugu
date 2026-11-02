@@ -30,6 +30,20 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 describe('MessageBubble touch menu', () => {
+  it.each([true, false])('copies a widget description rather than its JSON (mobile=%s)', async compactMobile => {
+    const nativeWrite = vi.spyOn(platform, 'writeClipboardText').mockResolvedValue(undefined)
+    const content = JSON.stringify({ v: 2, text: 'Counter result', app: 'counter', view: 'main', data: { privateInput: 42 } })
+    await renderMessage(vi.fn(), compactMobile, vi.fn(), { contentType: 'widget', content })
+    if (compactMobile) {
+      await longPress()
+      await clickElement(document.querySelector('[data-testid="message-action-copy"]')!)
+    } else {
+      await contextMenu()
+      await clickElement(menuItem('复制文本'))
+    }
+    expect(nativeWrite).toHaveBeenCalledExactlyOnceWith('Counter result')
+  })
+
   it.each(['text', 'link', 'selection'] as const)('copies %s through the native shell instead of the denied WebView clipboard (#938)', async (kind) => {
     platform.kind = 'capacitor'
     const nativeWrite = vi.spyOn(platform, 'writeClipboardText').mockResolvedValue(undefined)
@@ -544,6 +558,7 @@ async function renderMessage(
   onReaction = vi.fn(),
   options: {
     content?: string
+    contentType?: 'widget'
     file?: { id: string; version: number }
     isMine?: boolean
     isAgent?: boolean
@@ -564,6 +579,7 @@ async function renderMessage(
       msg: message({
         id: 'msg-1',
         content: options.content ?? 'hello from mobile',
+        ...(options.contentType ? { content_type: options.contentType } : {}),
         ...(options.file ? { content_type: 'attachment', file_item_id: options.file.id, file_version: options.file.version } as const : {}),
         is_mine: isMine,
         sender_user_id: 'sender-1',

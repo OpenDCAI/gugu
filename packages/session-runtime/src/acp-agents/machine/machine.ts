@@ -219,7 +219,7 @@ export function decide(
         : acpErr.invalidState('The queued message is no longer available for editing');
       // Acquiring/updating an edit never replaces the committed prompt with a stale client echo.
       const input = cmd.queueEdit ? { text: prompt.text, origin: prompt.origin,
-        hiddenContext: prompt.hiddenContext, attachments: prompt.attachments, coalesceKey: prompt.coalesceKey } : cmd.input;
+        hiddenContext: prompt.hiddenContext, attachments: prompt.attachments, files: prompt.files, coalesceKey: prompt.coalesceKey } : cmd.input;
       const queueEdit = cmd.queueEdit && !prompt.queueEdit ? { ...cmd.queueEdit, draftText: prompt.text } : cmd.queueEdit;
       return ok([{ type: 'QueuedPromptEdited', id: cmd.id, input, updatedAt: cmd.updatedAt,
         ...(queueEdit !== undefined ? { queueEdit } : {}) }]);
@@ -622,7 +622,7 @@ function dequeuePromptEffects(queuedPrompts: readonly QueuedPrompt[]): {
 type MergeKind = 'alone' | 'typed' | 'envelope';
 
 function mergeKind(prompt: QueuedPrompt): MergeKind {
-  if (prompt.origin === 'manual' || prompt.attachments?.length) return 'alone';
+  if (prompt.origin === 'manual' || prompt.attachments?.length || prompt.files?.length) return 'alone';
   return prompt.origin === 'typed' ? 'typed' : 'envelope';
 }
 

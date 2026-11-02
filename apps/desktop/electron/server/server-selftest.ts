@@ -12,6 +12,7 @@
 import { execFileSync } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import path from 'node:path'
+import { packageIdentity, prepareInstallation, SERVER_PACKAGE_IDENTITY } from './server-package-environment.mts'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { spawnOwnedChild } from '@gugu/session-core/exec'
@@ -23,14 +24,16 @@ export async function checkAccountBoot(binary: string): Promise<void> {
   const userId = randomUUID()
   const account = path.join(home, 'accounts', userId)
   const data = path.join(account, 'data')
-  fs.mkdirSync(data, { recursive: true, mode: 0o700 })
-  fs.writeFileSync(path.join(account, 'account.json'), '{}', { mode: 0o600 })
   const ready = Promise.withResolvers<void>()
   const startedAt = Date.now()
   let owned: ReturnType<typeof spawnOwnedChild> | undefined
   let watcher: fs.FSWatcher | undefined
   let timeout: ReturnType<typeof setTimeout> | undefined
   try {
+    const identityFile = path.resolve(path.dirname(binary), '..', 'app', 'dist-electron', SERVER_PACKAGE_IDENTITY)
+    if (fs.existsSync(identityFile)) prepareInstallation(home, packageIdentity(JSON.parse(fs.readFileSync(identityFile, 'utf8'))))
+    fs.mkdirSync(data, { recursive: true, mode: 0o700 })
+    fs.writeFileSync(path.join(account, 'account.json'), '{}', { mode: 0o600 })
     watcher = fs.watch(data, (_event, file) => {
       if (!owned || file?.toString() !== 'activity.json') return
       const activity = readAccountActivity(data, Date.now(), { pid: owned.child.pid, startedAt })

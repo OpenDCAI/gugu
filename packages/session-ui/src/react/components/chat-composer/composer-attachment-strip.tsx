@@ -3,7 +3,7 @@ import type { ComposerAttachment } from './composer-options';
 import * as styles from './chat-composer.css';
 import * as stripStyles from './composer-attachment-strip.css';
 
-type Props = Pick<ComposerAttachmentChipProps, 'onView' | 'onRemove' | 'onRetry'> & {
+type Props = Pick<ComposerAttachmentChipProps, 'onView' | 'onRemove' | 'onRetry' | 'onQualityChange' | 'qualityLocked'> & {
   attachments: ComposerAttachment[];
   status?: string;
 };

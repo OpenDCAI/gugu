@@ -1,5 +1,5 @@
 /* 手机全线的样子(owner 10-26 审 v7.12 稿,OpenDCAI/gugu#446):
-   一个底 —— 咕咕页那套渐变(--ta-panel-bg;壳上挂 data-ta-scope,--ta-* 处处可用);底栏、搜索框、卡是透出底色的玻璃;
+   一个底 —— 两套主题都用中性纯色(--ta-panel-bg;壳上挂 data-ta-scope,--ta-* 处处可用);底栏、搜索框、卡是透出底色的玻璃;
    两边说的话都包气泡(咕咕页那套 --ta-bubble-*)。间距只用 4/8/16/24,嵌套圆角 外 = 内 + 内距。
    状态色(运行中、等你、未读)不降饱和:只用在几像素的小点和角标上。全在 [data-phone-shell] 下,电脑不动。 */
 
@@ -23,6 +23,11 @@
 [data-theme='light'] [data-phone-shell] {
   --phone-nav-selected-bg: color-mix(in srgb, var(--primary) 12%, var(--card));
   --phone-nav-selected-fx: var(--shadow-composer);
+}
+
+/* 灵感的悬浮底也保持中性;只覆盖这颗按钮,不改头像和选中项的助理身份色。 */
+[data-phone-shell] .ta-ideas-pill {
+  --ta-tint-soft: var(--ta-tint-wash);
 }
 
 /* ── 玻璃:底栏、搜索框 ── */
@@ -97,7 +102,13 @@
   height: var(--phone-nav-height);
   padding: 0;
 }
-[data-phone-shell] .gg-phone-nav-search { color: var(--phone-nav-idle); }
+[data-phone-shell] .gg-phone-nav-search {
+  color: var(--phone-nav-idle);
+  --hover: var(--ta-glass);
+  --press: var(--ta-glass);
+}
+/* Keep the glass surface stable while focusing search; only the glyph responds to a press. */
+[data-phone-shell] .gg-phone-nav-search:active > svg { opacity: 0.7; }
 [data-phone-shell] .gg-phone-nav-search > svg { width: var(--icon-rail); height: var(--icon-rail); }
 [data-phone-shell] .gg-phone-nav-badge {
   position: absolute;
@@ -201,6 +212,23 @@
 }
 
 [data-phone-shell] .gg-pane-actions { gap: var(--spacing-xs); }
+
+/* Portals live beside the shell, not under it. Scope through the actual phone root so
+   nested menus retain the phone presentation in portrait and landscape alike. */
+:root:has([data-phone-shell]) {
+  --chat-level-selected-bg: var(--muted);
+  --chat-level-selected-fg: var(--fg);
+}
+:root:has([data-phone-shell]) .gg-menu {
+  --gg-menu-padding: var(--spacing-xs);
+  --gg-menu-item-padding: var(--spacing-sm) var(--spacing-lg);
+  background: var(--card);
+}
+:root:has([data-phone-shell]) .gg-menu-item {
+  min-height: var(--control-h-touch);
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+}
 [data-phone-shell] .ta-seg { padding: var(--spacing-xs); gap: var(--spacing-xs); }
 [data-phone-shell] .gg-chip { padding: 0 var(--spacing-sm); }
 [data-phone-shell] .gg-chip[data-shape='count'] { padding: 0 var(--spacing-xs); }

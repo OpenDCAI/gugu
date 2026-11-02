@@ -95,16 +95,18 @@ export function readWorkspaceChanges(payloads: readonly unknown[]): { chatId: st
   return [...byChat].map(([chatId, ids]) => ({ chatId, itemIds: [...ids] }))
 }
 
-// @@@6470 chat_members_changed 由 chat_members 的行触发器发,INSERT/UPDATE/DELETE 都发(含每一次读水位 UPDATE)。
+// chat_members_changed distinguishes roster mutations from the row owner's private state.
+// Revisions written before kind was introduced retain roster semantics.
 // sync_since 给每条 payload 并上 tombstone(= TG_OP 'DELETE'),这是分辨「退出」与「加入/行更新」的唯一依据。
 // memberId 为 null = 不知道是谁变了(调用方按整读处理)。
 export function readMemberRosterRevision(
   payload: unknown,
-): { chatId: string; memberId: string | null; left: boolean } {
+): { chatId: string; memberId: string | null; left: boolean; own: boolean } {
   const key = readRevisionResourceKey(payload, 'chat_members_changed')
-  const tombstone = (payload as { tombstone?: unknown }).tombstone
+  const { tombstone, kind } = payload as { tombstone?: unknown; kind?: unknown }
+  if (kind !== undefined && kind !== 'roster' && kind !== 'own') throw new Error('chat_members_changed revision has unknown kind')
   if (typeof tombstone !== 'boolean') throw new Error('chat_members_changed revision requires boolean tombstone')
-  return { chatId: key.chatId, memberId: key.entityId, left: tombstone }
+  return { chatId: key.chatId, memberId: key.entityId, left: tombstone, own: kind === 'own' }
 }
 
 // device_changed 的 resource_key 带 device_id 和 kind(迁移 20261027190000):'row' = 那一行变了(设备行触发器),

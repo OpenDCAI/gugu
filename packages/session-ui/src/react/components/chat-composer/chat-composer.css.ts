@@ -360,6 +360,7 @@ export const attachmentRetry = style({
   textUnderlineOffset: '2px',
   selectors: {
     '&:focus-visible': { outline: `1px solid ${vars.border1}`, outlineOffset: '1px' },
+    '&:disabled': { opacity: 0.5, cursor: 'default' },
   },
 });
 
@@ -954,6 +955,8 @@ export const agentLockedIndicator = style({})
 // 档 4:用量读数让位。档 5:锁着的 agent 让位。档 6:模型名与强度让位,只剩厂商图形(没有图形的不收,靠 ellipsis)。
 globalStyle(`[data-slot="composer-toolbar"]:is([data-disclosure="4"], [data-disclosure="5"], [data-disclosure="6"]) ${usageTrigger}`, { display: 'none' })
 globalStyle(`[data-slot="composer-toolbar"]:is([data-disclosure="5"], [data-disclosure="6"]) ${agentLockedIndicator}`, { display: 'none' })
+// 锁着的那颗是「这条会话是哪个 harness」的标,❌ 按禁用灰掉(control 的 :disabled 是 0.5 + 不接指针,标就淡得看不见、悬停也没提示)。
+globalStyle(`[data-slot="composer-toolbar"] ${agentLockedIndicator}:is(:disabled, [data-disabled])`, { opacity: 1, pointerEvents: 'auto', cursor: 'default' })
 
 // 档 3 原来收「编程 | 通用」那个分段控件;那个手动切换已删(展示跟设置 → 通用的「终端」开关走),这一档现在不收东西,
 // 档号不挪,省得后面几档的规则跟着改。
@@ -1766,6 +1769,13 @@ export const modelTriggerIcon = style({
 // 模块按顺序求值,引用它的规则写在前面会读到未初始化的常量。
 globalStyle(
   `[data-slot="composer-toolbar"][data-disclosure="6"] [data-testid="composer-model-trigger"]:has(${modelTriggerIcon}) :is(${modelTriggerLabel}, ${modelTriggerEffort})`,
+  { display: 'none' },
+)
+
+// 模型左边有锁着的 harness 标时,触发器不再画厂商图形:Codex 挨着 OpenAI、Claude 挨着 Anthropic 是两枚几乎一样的标。
+// 档 5 起 harness 那颗让位,厂商图形回来,档 6 照旧只剩它。
+globalStyle(
+  `[data-slot="composer-toolbar"]:not([data-disclosure="5"], [data-disclosure="6"]):has(${agentLockedIndicator}) [data-testid="composer-model-trigger"] ${modelTriggerIcon}`,
   { display: 'none' },
 )
 

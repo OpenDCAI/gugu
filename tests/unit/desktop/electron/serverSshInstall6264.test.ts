@@ -445,7 +445,8 @@ describe.skipIf(!hasCurl)('远端脚本真跑(file:// 假下载站)', () => {
 // 实机踩到的坑:`mv -f current.tmp current` 在 current 是指向目录的软链时,GNU / BSD mv 都把 current.tmp 挪进
 // versions/<旧版本>/ 里、退出码却是 0 —— current 没切,随后的 `service install` 跑的还是旧版本。
 
-/** 造一个 `--package` 模式能用的包。假 gugu-server 把自己被叫到的命令记进 $HOME/calls.log(带上自己的版本)。 */
+/** Modern upgrade fixture advertises prepare-install; fakeReleaseSite retains the historical first-install interface.
+ * The executable records calls so the test can verify which version registers the service. */
 function fakePackage(root: string, version: string): { tarball: string; sha256: string } {
   const osName = os.platform() === 'darwin' ? 'darwin' : 'linux'
   const arch = os.arch() === 'arm64' ? 'arm64' : 'x64'
@@ -457,6 +458,7 @@ function fakePackage(root: string, version: string): { tarball: string; sha256: 
       '#!/bin/sh',
       `echo "${version} $*" >> "$HOME/calls.log"`,
       'case "$1" in',
+      '  help) echo prepare-install ;;',
       `  service) [ -n "$FAKE_SERVICE_FAIL" ] && exit 1; echo "咕咕 server ${version} 已在运行(进程 4242)。" ;;`,
       '  status) echo "登录的账号:无(执行 gugu-server login)" ;;',
       'esac',

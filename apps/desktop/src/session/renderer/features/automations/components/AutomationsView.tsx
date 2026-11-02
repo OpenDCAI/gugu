@@ -1,5 +1,6 @@
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { observer } from 'mobx-react-lite';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Pagination,
   PaginationContent,
@@ -68,6 +69,14 @@ export const AutomationsView = observer(function AutomationsView() {
 });
 
 function AutomationsViewBody() {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useCommandProvider({
+    scopeId: 'session-sub',
+    isActive: (element) => !!element && !!rootRef.current?.contains(element),
+    getCommands: () => [{ id: 'app.find', hideFromPalette: true, execute: () => searchRef.current?.focus() }],
+  });
+
   const { automations, toggleEnabled, destroy } = useAutomations();
   const host = useAutomationsHost();
   const [search, setSearch] = useState('');
@@ -147,13 +156,14 @@ function AutomationsViewBody() {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
+    <div ref={rootRef} className="flex h-full flex-col overflow-hidden bg-background text-foreground">
       <div className="h-6 shrink-0 [-webkit-app-region:drag]" />
       <div className="mx-auto grid min-h-0 w-full max-w-4xl flex-1 grid-cols-1 gap-8">
         <div className="relative min-h-0 w-full min-w-0 overflow-y-auto px-8">
           <div className="w-full py-8">
             <DeviceScopeProvider store={automationsDeviceStore}>
               <AutomationsHeader
+                searchInputRef={searchRef}
                 search={search}
                 onSearchChange={(value) => { setSearch(value); setPage(0); }}
                 createPending={readOnly}

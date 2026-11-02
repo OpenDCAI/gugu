@@ -56,6 +56,10 @@ export const integrationsController = createRPCController({
   checkAccounts: async (integrationId: string) => integrationConnectionService.checkAccounts(integrationId),
 
   authorize: async (integrationId: string) => integrationConnectionService.authorize(integrationId),
+  /** A phone opens the broker's URL itself; the headless host never opens a browser. */
+  platformOAuthStart: async (integrationId: string) => platformCredentials.beginOAuth(integrationId),
+  platformOAuthStatus: async (integrationId: string, attemptId: string) => platformCredentials.oauthStatus(integrationId, attemptId),
+  platformOAuthCancel: async (integrationId: string, attemptId: string) => platformCredentials.cancelOAuth(integrationId, attemptId),
 
   /**
    * #6264 连别的机器上的集成:浏览器授权在这台桌面上做(回调只能落在本机的 127.0.0.1),

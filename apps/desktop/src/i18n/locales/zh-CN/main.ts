@@ -433,7 +433,6 @@ export default {
         "zh-CN": "简体中文"
       },
       "light": "浅色",
-      "plain-white": "素白",
       "notifications": "通知",
       "notificationsChat": "聊天消息通知",
       "notificationsChatAria": "开启聊天消息通知",
@@ -481,6 +480,7 @@ export default {
       "account": "我的",
       "preferences": "偏好",
       "work": "工作",
+      "diagnostics": "诊断",
       "about": "关于"
     },
     "nav": {
@@ -645,9 +645,6 @@ export default {
       "shareNoGuguNumber": "{{name}} 还没有咕咕号，暂时无法生成名片",
       "shareUnavailable": "这个会话还没有可分享的 agent 身份",
       "taskCreated": "会话已创建",
-      "taskDeliverFailed": "消息未送达 {{name}}。",
-      "taskDeliverFailedCount_one": "{{name}} 有 {{count}} 条消息未送达。",
-      "taskDeliverFailedCount_other": "{{name}} 有 {{count}} 条消息未送达。",
       "unownedAgentDm": "他人的 Agent 不能私聊，请在共享群聊中与它协作"
     },
     "update": {

@@ -11,7 +11,6 @@
 import { REMOTE_TUNNEL_OPEN } from '@gugu/core/cloud/remoteTunnel'
 import fs from 'node:fs'
 import Module from 'node:module'
-import os from 'node:os'
 import path from 'node:path'
 import { isOwnProcessAlive, isProcessAlive, SERVER_PROCESS_MARK } from './server/process-alive'
 import { ensureCaBundleForChildren } from './server/server-ca-bundle'
@@ -25,16 +24,12 @@ import * as serverShim from './server/server-electron-shim'
 import { runWithRunningVersion } from './server/server-version-match'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { ensurePrivateDir, summarizeChanges, tightenServerTree } from './server/server-permissions'
-import { ownServerNames } from './server/server-names'
+import { assertRuntimeBackend, ownPackageIdentity, packageBackend, packageIdentity, prepareInstallation } from './server/server-package-environment.mts'
+import { getSupabaseUrl } from '@gugu/core/cloud/config'
+import { resolveServerHome } from './server/server-installation'
 
 
 const stderr = (line: string): void => void process.stderr.write(`${line}\n`)
-
-/** 数据目录:显式 GUGU_SERVER_HOME 最大,否则本通道的目录(server-names.ts:正式版 ~/.gugu-server,Beta ~/.gugu-server-beta)。 */
-function resolveServerHome(): string {
-  const configured = process.env.GUGU_SERVER_HOME?.trim()
-  return configured ? path.resolve(configured) : path.join(os.homedir(), ownServerNames().homeDir)
-}
 
 type ModuleLoader = (request: string, ...rest: unknown[]) => unknown
 const moduleInternals = Module as unknown as { _load: ModuleLoader }
@@ -92,6 +87,7 @@ const USAGE = `用法:
   gugu-server service uninstall  移除常驻服务
   gugu-server stop               停掉正在运行的 server(连同各账号的进程)
   gugu-server selftest           检查这份咕咕 server 在这台机器上能不能跑(原生模块、自带的 tmux)
+  gugu-server prepare-install    安装器核对包与既有安装的环境(不读取账号凭据)
   gugu-server unregister --account <账号 id>
                                  把这台机器从这个账号里移除并注销登录(卸载时自动调用)
   gugu-server link [--account <账号 id>] [--adopt-ssh]
@@ -184,7 +180,55 @@ function runningVersionFirst(command: string, args: string[], account: { dataDir
 }
 
 async function runCommand(command: string | undefined, args: string[]): Promise<void> {
+  if (command === undefined || ['run', 'run-account', 'login', 'logout', 'unregister', 'resume', 'match-version'].includes(command)
+    || (command === 'service' && args[0] === 'install')) {
+    const identity = ownPackageIdentity()
+    assertRuntimeBackend(identity, getSupabaseUrl())
+    prepareInstallation(serverHome, identity, {
+      updateOwner: process.env.GUGU_CLOUD_COMPUTER === '1' ? 'controller' : undefined,
+    })
+  }
   switch (command) {
+    case 'prepare-install': {
+      const argument = (name: string): string | undefined => {
+        const index = args.indexOf(name)
+        return index < 0 ? undefined : args[index + 1] || undefined
+      }
+      const directory = argument('--candidate')
+      const own = ownPackageIdentity()
+      const channel = argument('--channel') ?? own.channel
+      const owner = argument('--update-owner') ?? 'server'
+      if (owner !== 'server' && owner !== 'controller') throw new Error('Invalid server update owner')
+      let identity = own
+      if (directory) {
+        if (path.dirname(fs.realpathSync(directory)) !== fs.realpathSync(path.join(serverHome, 'versions'))) throw new Error('Candidate is outside the installation')
+        const metadata = path.join(directory, 'app', 'dist-electron', 'server-build.json')
+        identity = fs.existsSync(metadata) ? packageIdentity(JSON.parse(fs.readFileSync(metadata, 'utf8')))
+          : packageIdentity({ schema: 1, backendUrl: packageBackend(directory), channel })
+      }
+      if (channel !== identity.channel) throw new Error('Requested update channel does not match the compiled server package')
+      const installation = prepareInstallation(serverHome, identity, {
+        updateOwner: owner, migrateFrom: argument('--migrate-from'),
+      })
+      if (owner === 'controller' && directory) {
+        if (args.includes('--activate')) {
+          const { activateServerPackage, ServerPackageDeferredError } = await import('./server/server-version-lifecycle')
+          const { spawnUpgradeGuard } = await import('./server/server-upgrade-guard')
+          try {
+            await activateServerPackage(serverHome, directory, { migrateFrom: argument('--migrate-from'),
+              beforeSwitch: () => { if (!spawnUpgradeGuard(serverHome)) throw new Error('Cannot start the upgrade rollback watchdog') } })
+          } catch (error) {
+            if (error instanceof ServerPackageDeferredError) { stderr(error.message); return process.exit(75) }
+            throw error
+          }
+        } else {
+          const { checkAccountBoot } = await import('./server/server-selftest')
+          await checkAccountBoot(path.join(directory, 'bin', 'gugu-server'))
+        }
+      }
+      out(JSON.stringify(installation))
+      return process.exit(0)
+    }
     case undefined:
     case 'run': {
       const waitPid = Number(process.env.GUGU_SERVER_WAIT_PID)

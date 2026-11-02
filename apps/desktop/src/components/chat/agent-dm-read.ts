@@ -2,7 +2,8 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { replyItems, successfulMessageSend } from '@gugu/session-core/session-record/reply-process'
-import { sentAttachmentOf, type AttachmentTurn } from '@gugu/session-core/session-record/sent-attachment'
+import { sentAttachmentOf } from '@gugu/session-core/session-record/sent-attachment'
+import { sentFileGroups } from '@gugu/session-core/session-record/sent-file-groups'
 
 /** A visible later reply cannot read an earlier reply that has never entered the viewport. */
 export class AgentDmReadCursor {
@@ -53,7 +54,8 @@ export function visibleDmMessageIds(ids: readonly string[], dmIds: ReadonlyMap<s
     const known = dmIds.get(id)
     if (known) return known.filter(messageId => authorized.has(messageId))
     const receipt = /:sent:([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(id)?.[1]
-    return authorized.has(id) ? [id] : receipt && authorized.has(receipt) ? [receipt] : []
+    const grouped = receipt ? [...dmIds].find(([key]) => key.endsWith(`:sent:${receipt}`))?.[1] : undefined
+    return authorized.has(id) ? [id] : grouped ? grouped.filter(messageId => authorized.has(messageId)) : receipt && authorized.has(receipt) ? [receipt] : []
   })
 }
 
@@ -70,9 +72,12 @@ export function dmMessageIdsByItem(turns: readonly TranscriptTurn[]): Map<string
       if (messages.length) ids.set(item.id, messages)
       if (messages.length > 1) messages.forEach((id, index) => ids.set(`${item.id}:batch-${index}`, [id]))
     } else if (item.kind === 'mcp-tool-call') {
-      const sent = successfulMessageSend(item)?.id ?? sentAttachmentOf(item, (turn as AttachmentTurn).sentAttachments)?.messageId
+      const sent = successfulMessageSend(item)?.id ?? sentAttachmentOf(item)?.messageId
       if (sent) ids.set(`${item.id}:sent:${sent}`, [sent])
     }
+  }
+  for (const turn of turns) for (const group of sentFileGroups(turn)) {
+    ids.set(`${group.first.id}:sent:${group.attachments[0].messageId}`, group.attachments.map(file => file.messageId))
   }
   return ids
 }

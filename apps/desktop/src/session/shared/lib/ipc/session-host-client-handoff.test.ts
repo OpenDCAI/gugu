@@ -56,7 +56,7 @@ describe('session host client: 计划内换线', () => {
     const inFlight = client.api.invoke('x');
     await new Promise((resolve) => setTimeout(resolve, 0));
     pipe.windows[0].onClose('channel switching transport', { handoff: true });
-    await expect(inFlight).rejects.toThrow();
+    await expect(inFlight).rejects.toMatchObject({ code: 'unreachable' });
 
     await client.connect();
     expect(client.state()).toBe('open');

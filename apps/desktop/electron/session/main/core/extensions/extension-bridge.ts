@@ -85,6 +85,7 @@ interface SurfaceBinding {
    */
   workspace: string | null;
   conversation: string | null;
+  widget?: AppWhere['widget'];
   tabId: string;
   /**
    * #6387 Which of the extension's declared tabs this surface draws. A banner a tab
@@ -471,7 +472,7 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
   if (watching.has(watchId)) throw Object.assign(new Error('This file watch is already registered'), { code: 'invalid' });
   let disk: { stop: () => void } | null = null;
   if (isWorkspace(place)) {
-    // The working copy's own change stream (the file panel's), under the folder named: no watch of its own.
+    // The working copy's change feed, the one the file panel hears, under the folder named: the same native watch.
     const { watchWorkingCopy } = await import('@main/core/extensions/working-copy-files');
     const stop = await watchWorkingCopy(place, folder, (change) => {
       if (extensionsService().hasCapability(caller.extensionId, 'files:read')) caller.hear({ type: 'filesChanged', watchId, place, change });
@@ -594,6 +595,7 @@ export async function bindExtensionSurface(input: {
   // A project's folder is a page's workspace only for the file it was opened on (G1): no session holds it.
   const workspace = input.workspace && (workspaceSession({ workspace: input.workspace }) || input.filePath) ? input.workspace : null;
   const prior = bindings.get(input.webContentsId);
+  if (prior?.widget && JSON.stringify(prior.widget) !== JSON.stringify(input.widget)) throw new Error('A message view cannot change its widget');
   const change = { previousWorkspace: bindingChanges.get(input.webContentsId)?.previousWorkspace ?? prior?.workspace ?? null };
   bindingChanges.set(input.webContentsId, change);
   if (prior && prior.workspace !== workspace) {
@@ -615,6 +617,7 @@ export async function bindExtensionSurface(input: {
     extensionId: sessionExtensionId,
     workspace,
     conversation,
+    ...(input.widget ? { widget: structuredClone(input.widget) } : {}),
     tabId: input.tabId,
     tabName,
     filePath,
@@ -801,6 +804,7 @@ export async function retargetExtensionSurface(input: {
 } & Partial<AppWhere>): Promise<void> {
   const binding = bindings.get(input.webContentsId);
   if (!binding) throw new Error('That surface is not bound yet');
+  if (binding.widget || input.widget) throw new Error('A message view cannot be retargeted');
   const contents = webContents.fromId(input.webContentsId);
   if (!contents || contents.isDestroyed()) throw new Error(`No such webContents: ${input.webContentsId}`);
   // Moved to another place: a project's folder only stays its workspace for a file of it (G1).
@@ -1200,6 +1204,7 @@ function contextFor(binding: SurfaceBinding, workspace: ExtensionWorkspace | und
     ...(workspace ? { workspace } : {}),
     // Absent stays absent: a tab opened from the entry rail has no file.
     ...(file ? { file } : {}),
+    ...(binding.widget ? { widget: { messageId: binding.widget.messageId, data: binding.widget.data, sender: binding.widget.senderId } } : {}),
     operator: binding.operator,
     locale,
     themeMode: binding.themeMode ?? themeMode,
@@ -1481,7 +1486,7 @@ export async function answerCall(caller: BridgeCaller, method: string, args: Rec
   }
   const has: CallRefusalCaller['has'] = (capability) => extensionsService().hasCapability(caller.extensionId, capability);
   // A page's gesture was read in its preload's world and came with the call (`pageCaller`); a program has none.
-  const refusal = callRefusal(method, args, caller.kind === 'page' ? { kind: 'page', has, gesture: caller.gesture === true } : { kind: caller.kind, has });
+  const refusal = callRefusal(method, args, caller.kind === 'page' ? { kind: 'page', has, gesture: caller.gesture === true, widget: Boolean(caller.binding?.widget) } : { kind: caller.kind, has });
   if (refusal) return { ok: false, ...refusal };
   const facts = verbFacts(method)!;
   // A page an agent works (owner 10-14): what would reach the person's screen is handed back to the agent instead — after
@@ -1846,7 +1851,8 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
       // what it opened is never refused.
       const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, await caller.resourcePage(args), args);
-      if (method === 'filesList' && (args.place as { workspace?: unknown } | null)?.workspace) workingCopyPages.add(caller.pageId);
+      const listsWorkingCopy = method === 'filesList' && Boolean((args.place as { workspace?: unknown } | null)?.workspace);
+      if (listsWorkingCopy) workingCopyPages.add(caller.pageId);
       const verbs = {
         filesOpen: 'openAppFile',
         filesReopen: 'reopenAppFile',
@@ -1867,7 +1873,15 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesVersions: 'appFileVersions',
         filesReadVersion: 'readAppFileVersion',
       } as const satisfies Record<typeof method, keyof typeof files>;
-      return await (files[verbs[method]] as (on: typeof page, input: never) => unknown)(page, args as never);
+      try {
+        return await (files[verbs[method]] as (on: typeof page, input: never) => unknown)(page, args as never);
+      } finally {
+        // The page went away while it listed: `stopPageWatches` let go before this listing's tree was kept.
+        if (listsWorkingCopy && !workingCopyPages.has(caller.pageId)) {
+          const { releaseWorkingCopies } = await import('@main/core/extensions/working-copy-files');
+          releaseWorkingCopies(caller.pageId);
+        }
+      }
     }
 
     case 'filesWatch':
@@ -2057,6 +2071,7 @@ export function registerExtensionBridge(): void {
                   tabId: source.tabId, tabKind: `${source.extensionId}.${source.tabName}`,
                   workspace: source.workspace,
                   conversation: source.conversation,
+                  ...(source.widget ? { widget: source.widget } : {}),
                   ...(source.itemId ? { itemId: source.itemId } : {}),
                   ...(source.filePath ? { filePath: source.filePath } : {}),
                   operator: source.operator, modal: { id: modal.id, data: modal.options.data },

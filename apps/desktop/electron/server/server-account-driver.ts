@@ -24,6 +24,7 @@ import {
   type ChildState,
 } from './server-account-machine'
 import { DownloadSiteUnreachableError, fetchVersionManifest, parseManifest, stageVersion, VersionNotPublishedError } from './server-updater'
+import { assertPackageEnvironment } from './server-package-environment.mts'
 
 type Layout = { home: string; versions: string; version: string }
 export type AccountChild = { pid: number | undefined; startedAt: number; restarting: boolean }
@@ -149,6 +150,15 @@ export function createAccountDriver(options: {
       const state = load(userId)
       const version = state.version
       const pinned = version && version !== layout.version && installed(version) ? { binary: versionBinary(layout.versions, version), version } : null
+      // Persisted pins and rollback state predate staging checks. Check the executable again
+      // at the final selection boundary, before an account can read its credentials.
+      try {
+        assertPackageEnvironment(layout.home, path.join(layout.versions, pinned?.version ?? layout.version))
+      } catch (error) {
+        log.warn('账号目标包的安装环境核对失败,暂不启动', { account: userId, version: pinned?.version ?? layout.version,
+          error: error instanceof Error ? error.message : String(error) })
+        return 'none'
+      }
       // 受控云电脑:守护进程自己的包还没通过账号试跑 ⇒ 等结论,❌ 先起旧包再打断它;没通过 ⇒ 留在能用的上一版,没有就不起。
       if (options.followSupervisor && !lifecycle.ready(layout.version)) return state.phase.kind === 'failed' ? (pinned ?? 'none') : 'none'
       return pinned
