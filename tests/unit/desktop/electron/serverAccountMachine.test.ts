@@ -52,12 +52,14 @@ describe('account version state machine: one row per (state, event)', () => {
   })
 
   it('booting: first own heartbeat → running + switched; three quick exits → rolled back to previous with a boot cooldown', () => {
-    const booting = at({ version: NEW, previous: OLD, phase: { kind: 'booting', since: T, quickExits: 0, request: 7 } })
+    const booting = at({ version: NEW, previous: OLD, phase: { kind: 'booting', since: T, quickExits: 0, request: 7 },
+      confirmedTarget: { target: NEW, desktopVersions: { desktop: OLD }, request: 7 } })
     expect(step(booting, tick({ now: T + 5, proof: 'busy' })).state).toMatchObject({ phase: { kind: 'running' }, lastOutcome: { kind: 'switched', target: NEW, request: 7 } })
     let s = booting
     for (let i = 0; i < 3; i++) s = step(s, { type: 'childExited', now: T + i, quick: true }).state
     expect(s).toMatchObject({ version: OLD, previous: null, phase: { kind: 'running' }, lastOutcome: { kind: 'rolledBack', bad: NEW, back: OLD, request: 7 } })
     expect(s.failures[NEW]).toMatchObject({ cause: 'boot', until: T + 2 + VERSION_FAILURE_COOLDOWN_MS })
+    expect(s.confirmedTarget).toBeUndefined()
     expect(step(booting, { type: 'childExited', now: T, quick: false }).state.phase).toEqual(booting.phase)
   })
 

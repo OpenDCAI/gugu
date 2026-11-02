@@ -110,6 +110,7 @@ export function step(state: AccountState, event: AccountEvent): Step {
       const request = state.phase.kind === 'staging' && state.phase.target === event.version ? state.phase.request : undefined
       return {
         state: { ...state, failures, phase: { kind: 'failed', target: event.version },
+          ...(state.confirmedTarget?.target === event.version ? { confirmedTarget: undefined } : {}),
           lastOutcome: { kind: 'failed', target: event.version, cause: event.cause, at: event.now, ...(request !== undefined ? { request } : {}) } },
         effects: [
           ...(request !== undefined ? [{ type: 'consumeRequest' } as const] : []),
@@ -207,6 +208,7 @@ function rollBack(s: AccountState, now: number, alive: boolean): Step {
       ...s,
       version: s.previous,
       previous: null,
+      ...(s.confirmedTarget?.target === bad ? { confirmedTarget: undefined } : {}),
       phase: { kind: 'running' },
       failures: { ...s.failures, [bad]: { cause: 'boot', at: now, until: now + VERSION_FAILURE_COOLDOWN_MS, attempts: (s.failures[bad]?.attempts ?? 0) + 1 } },
       lastOutcome: { kind: 'rolledBack', bad, back: s.previous, at: now, ...(request !== undefined ? { request } : {}) },
