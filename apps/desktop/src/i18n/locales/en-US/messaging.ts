@@ -772,7 +772,6 @@ export default {
       "queued": "Sending. Your assistant will reply when ready.",
       "undelivered": "instance not running, not delivered",
       "sending": "Sending",
-      "held": "Waiting for retry",
       "stopped": "Stopped. Sends with your next message.",
       "unknownNotResent": "Result unknown; not resent",
       "failure": {

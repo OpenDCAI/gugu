@@ -524,6 +524,63 @@ describe('the first message keeps one place while its session starts', () => {
     await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt).toBeNull());
   });
 
+  it('a failed startup keeps the queued input in the transcript and redraws it once after a retry fails', async () => {
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    store.bootstrap();
+    life.pend(store.sessionId, 'starting', [row('queued')]);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBe('m-first'));
+    life.pend(store.sessionId, 'failed', [row('queued')], 'start-failed');
+    expect(store.failedRowIds).toEqual(['m-first']);
+    expect(store.chatState.session.state.pendingPrompt).toBeNull();
+    const failed = () => store.chatState.transcript.state.committedTurns.filter(t => t.id === 'm-first:failed');
+    await vi.waitFor(() => expect(failed()).toHaveLength(1));
+    expect(failed()[0]).toMatchObject({ startedAt: 5000, initiator: 'user', outcome: { kind: 'error', reason: 'send_failed' }, items: [{ id: 'm-first', text: '说一句你好' }] });
+    expect(failed()[0]?.outcome).not.toHaveProperty('detail');
+    expect(failed()[0]?.outcome).not.toHaveProperty('said');
+    life.pend(store.sessionId, 'starting', [row('dispatching')]);
+    expect(store.failedRowIds).toEqual([]);
+    expect(failed()).toHaveLength(0);
+    expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first');
+    life.pend(store.sessionId, 'failed', [row('queued')], 'effect-fault');
+    expect(failed()).toHaveLength(1);
+    expect(store.transcriptPendingId).toBeNull();
+    store.dispose();
+  });
+
+  it('reopens and redraws every failed queued input in seq order without waking the host', async () => {
+    const { store } = storeFor();
+    const second = { ...row('dispatching'), seq: 2, messageId: 'm-second', text: 'second', kind: 'session-direct' as 'ordinary' };
+    life.pend(store.sessionId, 'failed', [second, row('queued'), { ...row('accepted'), seq: 3, messageId: 'already-accepted' }], 'start-failed');
+    store.bootstrap();
+    await parked(store);
+    const failed = () => store.chatState.transcript.state.committedTurns.filter(t => t.id.endsWith(':failed'));
+    await vi.waitFor(() => expect(failed().map(t => t.id)).toEqual(['m-first:failed', 'm-second:failed']));
+    expect(store.failedRowIds).toEqual(['m-first', 'm-second']);
+    expect(failed()[1]?.initiator).toBe('agent');
+    expect(life.start).not.toHaveBeenCalled();
+    runInAction(() => { store.chatState.transcript.history.seed([turn('history', 0)]); store.transcriptRevision += 1; });
+    expect(failed().map(t => t.id)).toEqual(['m-first:failed', 'm-second:failed']);
+    expect(committedIds(store)).toEqual(['history', 'm-first:failed', 'm-second:failed']);
+    store.dispose();
+  });
+
+  it('does not append failed inputs ahead of a running turn and preserves it when projections leave', async () => {
+    const { store } = storeFor();
+    store.bootstrap();
+    await parked(store);
+    life.pend(store.sessionId, 'failed', [row('queued')], 'start-failed');
+    expect(store.failedRowIds).toEqual(['m-first']);
+    runInAction(() => store.chatState.transcript.activeTurn.set({ ...turn('live', 9), items: [] }));
+    life.pend(store.sessionId, 'ready', []);
+    expect(store.failedRowIds).toEqual([]);
+    expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe('live');
+    life.pend(store.sessionId, 'failed', [row('queued')], 'start-failed');
+    expect(store.failedRowIds).toEqual([]);
+    expect(committedIds(store).some(id => id.endsWith(':failed'))).toBe(false);
+    expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe('live');
+    store.dispose();
+  });
+
   it('stopped mid-start: stays where it was as a stopped turn; continuing puts it back as the next turn, once', async () => {
     const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
     store.bootstrap();

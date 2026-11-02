@@ -8,6 +8,7 @@ import { enqueueSessionInput, state } from '../../../../apps/desktop/src/lib/ses
 import { SessionInputQueue } from '../../../../apps/desktop/src/components/chat/SessionInputQueue'
 import { updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { messageQuoteText, readMessageQuote } from '@gugu/core/shared/ui/messageQuote'
+import type { LifeView } from '../../../../apps/desktop/src/session/shared/core/sessions/session-life'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 
 const toast = vi.hoisted(() => vi.fn())
@@ -34,6 +35,16 @@ beforeEach(() => { toast.mockClear(); harness = createReactHarness() })
 afterEach(() => { harness.cleanup(); scope.owner = 'account-a'; scope.platform = 'electron'; scope.phones = []; scope.devices = [{ device_id: 'host-a', is_online: false, capabilities: {} }]; scope.received.clear(); scope.send.mockReset(); scope.machines = [] })
 
 describe('native input shell lifecycle', () => {
+  it('leaves every transcript-owned failed input out of the tray while preserving ordinary host failures', async () => {
+    const item = (seq: number, messageId: string, state: 'queued' | 'failed'): LifeView['pending']['items'][number] =>
+      ({ seq, messageId, state, preview: messageId, text: messageId, kind: 'ordinary', failure: state === 'failed' ? 'host refusal' : null });
+    const life: LifeView = { sessionId: 'failed-host', version: 1, kind: 'failed', stage: null, hold: 'start-failed', failure: null, lastExit: null, nativeSession: null,
+      pending: { count: 2, items: [item(1, 'first', 'queued'), item(2, 'second', 'queued'), item(3, 'refused', 'failed')] } };
+    await harness.render(<SessionInputQueue sessionId="failed-host" waitingForConnection={false} life={life} inTranscript={['first', 'second']} />)
+    expect(harness.container.querySelector('[data-native-input-id="first"]')).toBeNull()
+    expect(harness.container.querySelector('[data-native-input-id="second"]')).toBeNull()
+    expect(harness.container.querySelector('[data-native-input-id="refused"]')).not.toBeNull()
+  })
   it.each([[1, REMOTE_PROTOCOL_VERSION]])('refuses enqueue when the online host advertises input %s and protocol %s', async (version, protocol) => {
     scope.owner = `attachment-version-${version}-${protocol}`
     scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: { remote_protocol: protocol } }]

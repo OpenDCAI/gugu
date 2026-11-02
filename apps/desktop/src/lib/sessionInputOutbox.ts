@@ -1,4 +1,4 @@
-import type { LifeView } from '@/session/shared/core/sessions/session-life'
+import { lifeHoldIsFailure, type LifeView } from '@/session/shared/core/sessions/session-life'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { rendererLogger } from './log'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
@@ -23,8 +23,6 @@ export type HostPendingRow = LifeView['pending']['items'][number]
 /** from: a delivery (another task's or agent's message) shows its sender and body, read the way the transcript reads it. */
 export type SessionInputBubble = { id: string; text: string; from?: string | null } & (
   | { state: 'sending' }
-  /** The host holds it (a failed start, sign-out): it goes when the person retries or sends again. */
-  | { state: 'held' }
   /** The person stopped the session before it went: it goes with their next message. */
   | { state: 'stopped' }
   /** failure: the sender named it (retry re-sends its copy); hostReason: the host row failed, in the host's words. */
@@ -44,7 +42,9 @@ export function sessionInputBubbles(sender: readonly SessionInput[], host: reado
       const base = delivered ? { id: row.messageId, text: delivered.body, from: delivered.segments[0]?.facts?.from ?? null } : { id: row.messageId, text: row.text }
       switch (row.state) {
         case 'accepted': return []
-        case 'queued': case 'dispatching': return [{ ...base, state: hold === 'user-stop' ? 'stopped' : hold ? 'held' : 'sending' }]
+        case 'queued': case 'dispatching':
+          if (hold === 'user-stop') return [{ ...base, state: 'stopped' }]
+          return [lifeHoldIsFailure(hold) ? { ...base, state: 'failed', failure: null, hostReason: null } : { ...base, state: 'sending' }]
         case 'failed': return [{ ...base, state: 'failed', failure: null, hostReason: row.failure }]
         case 'unknown': return [{ ...base, state: 'unknown' }]
       }
