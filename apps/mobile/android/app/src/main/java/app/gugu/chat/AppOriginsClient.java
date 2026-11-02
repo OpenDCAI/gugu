@@ -43,16 +43,11 @@ public class AppOriginsClient extends BridgeWebViewClient {
         String host = url.getHost();
         if (!request.isForMainFrame() && isDocument(request)) {
             String referer = header(request.getRequestHeaders(), "Referer");
-            String from = referer == null ? null : Uri.parse(referer).getHost();
-            boolean fromApp = referer == null || AppOrigins.appOf(from) != null;
-            if (fromApp && (host == null || !host.equalsIgnoreCase(from))) {
-                Log.w(TAG, "refused a frame leaving an App's origin: " + (from == null ? "(no referrer)" : from) + " -> " + url.getScheme() + "://" + host);
-                return AppOrigins.empty(204, Collections.emptyMap());
-            }
-            // An App's gate frames that App's own pages and nothing else (gate-entry.ts).
-            String gateApp = AppOrigins.gateOf(from);
-            if (gateApp != null && (host == null || !host.equalsIgnoreCase(gateApp + AppOrigins.DOMAIN))) {
-                Log.w(TAG, "refused a gate framing another origin: " + from + " -> " + url.getScheme() + "://" + host);
+            // No Referer is null; one whose host cannot be read is "" (no App's, no gate's: left alone, as before).
+            String refererHost = referer == null ? null : Uri.parse(referer).getHost();
+            String from = referer == null ? null : refererHost == null ? "" : refererHost;
+            if (!AppOrigins.frameMayGo(from, host)) {
+                Log.w(TAG, "refused a frame leaving its origin: " + (from == null ? "(no referrer)" : from) + " -> " + url.getScheme() + "://" + host);
                 return AppOrigins.empty(204, Collections.emptyMap());
             }
         }

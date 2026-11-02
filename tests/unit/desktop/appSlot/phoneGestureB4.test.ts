@@ -53,7 +53,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
   },
 }))
 /**
- * What the App's gate read as the call left the App (gate-entry.ts): whether the person's input landed in this App. The
+ * What the App's gate read as the call left the App (gate.ts): whether the person's input landed in this App. The
  * frame here stands in for the gate, which is what the host hears the App through.
  */
 const activation = { isActive: false }

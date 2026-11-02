@@ -844,7 +844,7 @@ export function hostAppFrame(
       return
     }
     if (message.t !== 'call') return
-    // The App's gate read it as the call left the App (gate-entry.ts) — never this page's own activation, which any tap
+    // The App's gate read it as the call left the App (gate.ts) — never this page's own activation, which any tap
     // anywhere on the screen gives. Or the person tapped one of the App's commands in its header just now (`command`).
     const gesture = message.gesture === true || performance.now() < commandGestureUntil
     let result: Promise<unknown>

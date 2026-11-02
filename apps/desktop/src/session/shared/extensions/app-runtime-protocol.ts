@@ -54,7 +54,7 @@ export const APP_RUNTIME_UI_GALLERY = `${APP_RUNTIME_BASE}gallery.html`;
  */
 export const APP_RUNTIME_FORGET_PAGE = `${APP_RUNTIME_BASE}forget.html`;
 /**
- * The phone's gate (gate-entry.ts, built by the phone's bundle only): the one page the shell serves in an App's gate
+ * The phone's gate (gate.ts, built by the phone's bundle only): the one page the shell serves in an App's gate
  * origin (appOrigin.ts `gateOrigin`). It frames the App's page and stamps each call with whether the person's input
  * landed in that App — the phone's reading of the gesture, as the desktop's preload reads it.
  */
@@ -491,7 +491,7 @@ export type FrameToHost =
   /**
    * `call`: a program's request made inside one tool call — that call's id, as main minted it (program-call.ts).
    * `gesture`: on the phone, written by the App's gate as it passes the call on, over whatever the App put there
-   * (gate-entry.ts) — whether the person's input landed in this App. The outer page takes it only from the gate.
+   * (gate.ts) — whether the person's input landed in this App. The outer page takes it only from the gate.
    */
   | { m: typeof APP_FRAME_MARKER; t: 'call'; id: number; method: string; args: unknown; call?: string; gesture?: boolean }
   /** A program's file sync traffic on its IPC channel (F16): what a page's sync port carries. */

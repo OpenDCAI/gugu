@@ -10,7 +10,7 @@ import type { GuguHost } from './host';
  * Only what the phone offers is here: a verb that is missing is missing, and an App feature-
  * detects it (`typeof gugu.x`), exactly as it would on a host without a capability. Everything
  * here is a request; the outer page decides every answer from its own binding of this frame,
- * and takes the person's gesture from the App's gate, this window's parent (gate-entry.ts) — never from this page.
+ * and takes the person's gesture from the App's gate, this window's parent (gate.ts) — never from this page.
  */
 export function framedHost(): GuguHost & Record<string, unknown> {
   const parent = window.parent;

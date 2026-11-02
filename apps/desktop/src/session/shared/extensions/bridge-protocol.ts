@@ -928,7 +928,7 @@ export const CALLER_WORDS = { page: 'a page', background: 'the background page',
  * Who is calling, as the verb's row needs to know it. A page's `gesture` is a fact, never the page's word: whether the
  * person's input landed in that App's own surface within the activation window, read by the host's code at the edge of
  * that surface where no App script reaches — the desktop's preload, in the page's isolated world; the phone's gate
- * document, the App frame's parent in an origin of its own (gate-entry.ts). Every host reads it there and hands it here.
+ * document, the App frame's parent in an origin of its own (gate.ts). Every host reads it there and hands it here.
  */
 export type CallRefusalCaller =
   | { kind: 'page'; has: (capability: ExtensionCapability) => boolean; gesture: boolean }

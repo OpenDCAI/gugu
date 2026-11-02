@@ -18,7 +18,7 @@ export function appOrigin(appId: string): string {
 }
 
 /**
- * @@@app-gate - Where an App's gate runs (gate-entry.ts): a third origin of the App's own, https://<appId>.gate.gugu.invalid,
+ * @@@app-gate - Where an App's gate runs (gate.ts): a third origin of the App's own, https://<appId>.gate.gugu.invalid,
  * which the shell answers with gugu's gate page and nothing else (AppOrigins.java). Every App frame on this page is drawn
  * inside its gate. The browser tells a frame's ancestors of the person's input in it and nobody else — not another App's
  * frames, not frames below the page that was touched — so the gate's own activation is exactly "the person's input landed
