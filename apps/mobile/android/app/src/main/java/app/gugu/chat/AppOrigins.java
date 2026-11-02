@@ -70,7 +70,7 @@ final class AppOrigins {
     /**
      * @@@app-gate - Each App's gate origin, https://<appId>.gate.gugu.invalid (appOrigin.ts `gateOrigin`): the gugu page
      * frames an App's pages in its gate, which frames them in the App's origin and stamps each of the App's calls with its
-     * own user activation (gate.ts). The origin serves the gate page from this build and nothing else.
+     * own user activation (gate-entry.ts). The origin serves the gate page from this build and nothing else.
      */
     static final String GATE_DOMAIN = ".gate.gugu.invalid";
     private static final Pattern GATE_HOST = Pattern.compile("^([a-z0-9][a-z0-9-]{1,63})" + Pattern.quote(GATE_DOMAIN) + "$");
@@ -118,6 +118,74 @@ final class AppOrigins {
         try {
             String mime = mimeOf(path);
             return new WebResourceResponse(mime, "utf-8", 200, "OK", headers, context.getAssets().open("public" + path));
+        } catch (IOException error) {
+            return empty(404, headers);
+        }
+    }
+
+    static String readIndex(Context context) {
+        File file = new File(root(context), "index.json");
+        try {
+            return file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8) : null;
+        } catch (IOException error) {
+            return null;
+        }
+    }
+
+    static void writeIndex(Context context, String json) throws IOException {
+        Map<String, Served> next = parse(json);
+        writeAtomically(new File(root(context), "index.json"), json.getBytes(StandardCharsets.UTF_8));
+        served = next;
+    }
+
+    static void writeAtomically(File file, byte[] bytes) throws IOException {
+        File temp = new File(file.getPath() + ".tmp");
+        try (FileOutputStream out = new FileOutputStream(temp)) {
+            out.write(bytes);
+            out.getFD().sync();
+        }
+        if (!temp.renameTo(file)) throw new IOException("could not replace " + file.getName());
+    }
+
+    /** `{ serve: { <appId>: { root: "asset:public/apps/<id>" | "file:<id>@<version>", csp } } }` — the rest is the page's. */
+    private static Map<String, Served> parse(String json) {
+        Map<String, Served> map = new HashMap<>();
+        try {
+            JSONObject serve = new JSONObject(json).optJSONObject("serve");
+            if (serve == null) return map;
+            for (java.util.Iterator<String> ids = serve.keys(); ids.hasNext(); ) {
+                String id = ids.next();
+                JSONObject entry = serve.optJSONObject(id);
+                if (entry != null && entry.has("root") && entry.has("csp")) map.put(id, new Served(entry.getString("root"), entry.getString("csp")));
+            }
+        } catch (JSONException error) {
+            return Collections.emptyMap();
+        }
+        return map;
+    }
+
+    private static Map<String, Served> served(Context context) {
+        Map<String, Served> current = served;
+        if (current == null) {
+            String json = readIndex(context);
+            current = json == null ? Collections.emptyMap() : parse(json);
+            served = current;
+        }
+        return current;
+    }
+
+    /** A file of App `appId` at `path`, as its origin serves it; 404 for anything it does not have. */
+    static WebResourceResponse serve(Context context, String appId, String path) {
+        Served app = served(context).get(appId);
+        if (app == null || path == null) return empty(404, Collections.emptyMap());
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Security-Policy", app.csp);
+        headers.put("Cache-Control", "no-cache");
+        try {
+            InputStream body = open(context, app.root, path);
+            if (body == null) return empty(404, headers);
+            String mime = mimeOf(path);
+            return new WebResourceResponse(mime, mime.startsWith("text/") || mime.endsWith("javascript") || mime.endsWith("json") ? "utf-8" : null, 200, "OK", headers, body);
         } catch (IOException error) {
             return empty(404, headers);
         }
