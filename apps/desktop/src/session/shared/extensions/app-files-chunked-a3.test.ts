@@ -128,6 +128,27 @@ describe('chat stored files reuse verified, pinned range reads', () => {
     expect(f.files.readHandleCount()).toBe(0);
     expect(f.dispose).toHaveBeenCalledTimes(1);
   });
+  it('does not count an unfinished range as five idle minutes', async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const started = Promise.withResolvers<void>();
+    const answer = Promise.withResolvers<Uint8Array<ArrayBuffer>>();
+    f.read.mockImplementationOnce(() => { started.resolve(); return answer.promise; });
+    const pending = f.files.read(surface, { ref, offset: 0, length: 2 });
+    await started.promise;
+    await vi.advanceTimersByTimeAsync(6 * 60_000);
+    expect(f.dispose).not.toHaveBeenCalled();
+    answer.resolve(new Uint8Array([1, 2])); await pending;
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(f.dispose).toHaveBeenCalledTimes(1);
+  });
+  it('releases an unpublished local snapshot when its page has disappeared', async () => {
+    const f = fixture();
+    f.platform.sync.pageFor = () => { throw new Error('This surface is gone'); };
+    await expect(f.files.open(surface, { ref: { id: item } })).rejects.toThrow('This surface is gone');
+    expect(f.dispose).toHaveBeenCalledTimes(1);
+    expect(f.files.readHandleCount()).toBe(0);
+  });
   it('idle expiry reacquires the same version and reports a missing old version', async () => {
     vi.useFakeTimers();
     const f = fixture();

@@ -654,7 +654,7 @@ async function versionPointers(token: string, row: ItemRow, actor: string): Prom
 
 
 export function createAppFiles(platform: FilesPlatform) {
-  type ReadSnapshot = { pageId: number; extensionId: string; actor: string | null; leases: number; file?: Promise<FileHandle>; timer?: ReturnType<typeof setTimeout> };
+  type ReadSnapshot = { pageId: number; extensionId: string; actor: string | null; leases: number; active: number; file?: Promise<FileHandle>; timer?: ReturnType<typeof setTimeout> };
   const snapshots = new Map<string, ReadSnapshot>();
   const snapshotKey = (pageId: number, itemId: string, version: number) => `${pageId}:${itemId}@${version}`;
   const staleVersion = () => new AppFileError('stale-version', 'This file version is no longer available. Open the file again to read its current version.');
@@ -667,6 +667,7 @@ export function createAppFiles(platform: FilesPlatform) {
   };
   const touch = (key: string, entry: ReadSnapshot): void => {
     clearTimeout(entry.timer);
+    if (entry.active) return;
     entry.timer = setTimeout(() => disposeSnapshot(key, entry), 5 * 60_000);
     entry.timer.unref?.();
   };
@@ -679,10 +680,10 @@ export function createAppFiles(platform: FilesPlatform) {
       entry = undefined;
     }
     if (!entry) {
-      entry = { pageId: surface.pageId, extensionId: surface.extensionId, actor: surface.asAgent ?? null, leases: 0 };
-      snapshots.set(key, entry);
       // This registers the existing port's navigation/destruction lifecycle, not another byte transport.
       platform.sync.pageFor(surface.pageId, surface.extensionId);
+      entry = { pageId: surface.pageId, extensionId: surface.extensionId, actor: surface.asAgent ?? null, leases: 0, active: 0 };
+      snapshots.set(key, entry);
     }
     touch(key, entry);
     return entry;
@@ -726,12 +727,14 @@ export function createAppFiles(platform: FilesPlatform) {
     const smallText = entry.size !== null && entry.size <= WORKSPACE_TEXT_MAX_BYTES && workspaceStoredText(entry.name, entry.contentType, new Uint8Array()) !== null;
     if (smallText) return { entry, docName: '', access, self, bytes: await bytesOf(local ?? (await fileFor(surface, { id: entry.id }, entry.version ?? undefined))!) };
     if (entry.version === null) { await local?.dispose(); throw staleVersion(); }
-    const held = snapshot(surface, entry.id, entry.version);
+    const file = local ?? (await fileFor(surface, { id: entry.id }, entry.version))!;
+    if (file.revision.version !== entry.version) { await file.dispose(); throw staleVersion(); }
+    let held: ReadSnapshot;
+    try { held = snapshot(surface, entry.id, entry.version); }
+    catch (error) { await file.dispose(); throw error; }
     held.leases++;
-    if (local) {
-      if (!held.file) held.file = Promise.resolve(local);
-      else await local.dispose();
-    }
+    if (!held.file) held.file = Promise.resolve(file);
+    else await file.dispose();
     return { entry, docName: '', access, self, chunked: true };
   };
 
@@ -745,6 +748,8 @@ export function createAppFiles(platform: FilesPlatform) {
     }
     const held = snapshot(surface, ref.id, ref.version!);
     const key = snapshotKey(surface.pageId, ref.id, ref.version!);
+    held.active++;
+    clearTimeout(held.timer);
     const pending = held.file ??= fileFor(surface, { id: ref.id, ...(ref.chat ? { chat: ref.chat } : {}) }, ref.version).then(async file => {
       if (!file || file.revision.version !== ref.version) { await file?.dispose(); throw staleVersion(); }
       return file;
@@ -771,6 +776,9 @@ export function createAppFiles(platform: FilesPlatform) {
       if (held.file === pending) disposeSnapshot(key, held);
       if (error instanceof MissingFileObjectError || error instanceof AppFileError && error.code === 'not-found') throw staleVersion();
       throw error;
+    } finally {
+      held.active--;
+      if (held.file && snapshots.get(key) === held) touch(key, held);
     }
   }
 
