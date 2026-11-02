@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { bundleProblems, type BundleEntry } from '@shared/extensions/bundle-checks';
-import { ExtensionManifestError } from '@shared/extensions/manifest';
+import { ExtensionManifestError, isConfinedToolProgram, type ExtensionManifest } from '@shared/extensions/manifest';
 import { BUNDLE_SKIP_NAMES } from '@shared/extensions/market';
 import { STORE_DIR } from '@shared/extensions/app-listing';
 import type { ExtensionsService, InspectedExtension } from './extensions-service';
@@ -40,11 +40,18 @@ export function validateExtensionBundle(
  * `bundleEntryRejection`,文件数与总字节不超过解包上限。跳过的名字与打包同一份。判据是共享的
  * `bundleProblems`(手机装包走同一份,L9),这里只按目录走一遍。
  */
-export function packageProblems(root: string, linksOnly = false): string[] {
+/** Folder installs preserve links and may copy directories that market packaging skips. Check the actual installed tree. */
+export function assertConfinedProgramBundle(root: string, manifest: ExtensionManifest): void {
+  if (!manifest.contributes.mcpServers?.some((server) => isConfinedToolProgram(manifest.apiVersion, server))) return;
+  const problems = packageProblems(root, true);
+  if (problems.length) throw new Error(problems.join('\n'));
+}
+
+function packageProblems(root: string, linksOnly = false): string[] {
   const entries: BundleEntry[] = [];
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (BUNDLE_SKIP_NAMES.has(entry.name) || (dir === root && entry.name === STORE_DIR)) continue;
+      if (!linksOnly && (BUNDLE_SKIP_NAMES.has(entry.name) || (dir === root && entry.name === STORE_DIR))) continue;
       const full = path.join(dir, entry.name);
       const relative = path.relative(root, full).split(path.sep).join('/');
       if (entry.isSymbolicLink()) entries.push({ path: relative, kind: 'link', bytes: 0 });

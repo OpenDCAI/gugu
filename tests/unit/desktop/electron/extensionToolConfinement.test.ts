@@ -73,7 +73,7 @@ describe('tools confinement follows the installed API and program form', () => {
     expect(text).not.toContain('except example.com');
   });
 
-  it('refuses a link on the real folder inspection AND installation path, without changing legacy installs', () => {
+  it.each(['hidden-link', 'store/hidden-link', 'node_modules/hidden-link'])('refuses %s on folder inspection AND installation, without changing legacy installs', (link) => {
     const root = folder(); const bundle = join(root, 'bundle'); mkdirSync(bundle);
     writeFileSync(join(bundle, 'index.html'), '<!doctype html>');
     writeFileSync(join(bundle, 'tools.js'), 'export const fixture = {}');
@@ -83,9 +83,10 @@ describe('tools confinement follows the installed API and program form', () => {
     const service = new ExtensionsService(join(root, 'installed'));
     writeManifest(EXTENSION_API_VERSION);
     const digest = service.inspectDirectory(bundle).manifestDigest;
-    symlinkSync(join(root, 'outside.txt'), join(bundle, 'hidden-link'));
-    expect(() => service.inspectDirectory(bundle)).toThrow(/symbolic link: hidden-link/);
-    expect(() => service.installFromDirectory(bundle, digest, 'folder')).toThrow(/symbolic link: hidden-link/);
+    mkdirSync(dirname(join(bundle, link)), { recursive: true });
+    symlinkSync(join(root, 'outside.txt'), join(bundle, link));
+    expect(() => service.inspectDirectory(bundle)).toThrow(`symbolic link: ${link}`);
+    expect(() => service.installFromDirectory(bundle, digest, 'folder')).toThrow(`symbolic link: ${link}`);
     writeManifest(27);
     expect(() => service.inspectDirectory(bundle)).not.toThrow();
     writeManifest(EXTENSION_API_VERSION, [{ name: 'node', command: 'node' }]);
