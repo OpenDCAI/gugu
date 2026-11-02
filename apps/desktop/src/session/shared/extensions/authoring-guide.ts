@@ -971,6 +971,12 @@ programs; \`browser-use\` operates only the calling local session's browser tab;
 \`"host":"computer-use"\` gives agents no tools: they control the computer with gugu's \`device_call\` (\`computer.*\`).
 It gives the App's own pages \`preview_state\`: the page's session's latest frame (a real screenshot) and its recent
 computer actions; \`notifications/computer-use/changed\` says there is a newer one.
+A tab with \`"widget": { "height": 240 }\` (API26; integer 64–520) can also be sent with \`widget_send\`: read \`guide_read widgets\`.
+It cannot also declare hostPage, perSession, opensFiles or chatFile. \`ctx.widget\` is present only in a message:
+\`{ messageId, data, sender }\`. Data is untrusted, immutable input from any chat member; never execute it. Persist personal
+state in App data and shared state in chat files. Every dispatch from a widget requires a gesture in that App, even with a target,
+on both desktop and phones. Forum and file calls retain their ordinary permission and gesture checks.
+Normal App pages keep their existing behavior.
 A tab with \`"perSession": true\` has one page in each session, never moved between them — two sessions side by side
 each show their own (not with \`opensFiles\` or \`"hostPage":"settings"\`). A computer-use App's per-session tabs come up beside a
 session's conversation at that session's first computer action, once.

@@ -6,6 +6,7 @@ describe('remote invoke policy', () => {
   it('refuses the on-screen report from another desktop: it would overwrite what this machine shows', () => {
     expect(remoteInvokePolicy('sessions.reportSessionsOnScreen')).toBe(false);
     expect(remoteInvokePolicy('sessions.getSessions')).toBe(true);
+    expect(remoteInvokePolicy('assistantHome.start')).toBe(false);
   });
   it('#609 answers where its task workspace lives: another desktop opens a no-folder task there', () => {
     expect(remoteInvokePolicy('app.getSessionHomeDir')).toBe(true);

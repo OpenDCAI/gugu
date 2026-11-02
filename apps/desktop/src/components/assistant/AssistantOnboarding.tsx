@@ -237,7 +237,7 @@ export function AssistantOnboarding({
               {busy === 'resume' ? t('setup.resuming', { name: displayName }) : t('setup.installing', { name: displayName })}
             </h1>
             {error && busy === 'computer' ? <>
-              <p className="ta-onb-error" role="alert">{retryCleanup ? t('setup.cleanupFailed') : setupEnded ? t('setup.ended') : error}</p>
+              <p className="ta-onb-error" role="alert">{retryCleanup ? t('setup.cleanupFailed') : setupEnded ? t('setup.ended') : t('setup.failed')}</p>
               <Button onClick={async () => {
                 if (retryCleanup) {
                   setCancelling(true)
@@ -391,7 +391,7 @@ function HomeChoice({
       {cloudCheck.error && <p className="ta-onb-error" role="alert">{tc(`cloudComputer.reason.${cloudComputerFailureKind(cloudCheck.error)}`)}</p>}
       {error ? (
         <p className="ta-onb-error" role="alert" data-testid="assistant-setup-error">
-          {error}
+          {t('setup.failed')}
         </p>
       ) : null}
       {cloudFailure ? <CloudComputerRefusal failure={cloudFailure} prefixKey="devices.cloud.provisionFailed" onUpgrade={openMembership} /> : null}

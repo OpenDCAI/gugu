@@ -108,7 +108,7 @@ describe('catalog_*: 渐进披露 (#6614)', () => {
       ...ACTIVITY_TOOL_DEFS.map((def) => def.name),
       ...SCHEDULE_TOOL_DEFS.map((def) => def.name),
       ...EXTENSION_TOOL_DEFS.map((def) => def.name),
-      'guide_topics', 'guide_read', 'catalog_list', 'catalog_describe', 'catalog_call', 'app_search',
+      'guide_topics', 'guide_read', 'catalog_list', 'catalog_describe', 'catalog_call', 'app_search', 'widget_send',
     ]
     for (const name of listed) expect(GUGU_LISTED_TOOLS.has(name), name).toBe(true)
     for (const name of catalog) expect(GUGU_LISTED_TOOLS.has(name), name).toBe(false)
@@ -117,6 +117,8 @@ describe('catalog_*: 渐进披露 (#6614)', () => {
     // 阳控:一个确定的冷门工具不在清单里、在目录里;一个确定的常用工具反之。
     expect(listed).not.toContain('session_stop')
     expect(catalog).toContain('session_stop')
+    expect(listed).not.toContain('widget_send')
+    expect(catalog).toContain('widget_send')
     expect(listed).not.toContain('group_create')
     expect(catalog).toContain('group_create')
     expect(listed).not.toContain('project_add_device')

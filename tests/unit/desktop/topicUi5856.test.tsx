@@ -305,7 +305,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     })
   }
 
-  it('keeps focused topic Find, filtering and highlighting without a header search button', async () => {
+  it('opens focused topic find and preserves explicit filtering without a header search button', async () => {
     await renderWithAppProviders(harness, createNode(TopicSplitPane, {
       ...baseProps, viewportKey: 'review-topic',
       messages: [message({ id: 'topic-hit', content: 'topic needle' }), message({ id: 'topic-miss', content: 'other text' })],
@@ -318,6 +318,11 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
         commandRegistry.setContext(composer)
         expect(commandRegistry.dispatch('app.find')).toBe(true)
       })
+      const find = harness.container.querySelector<HTMLInputElement>('input[placeholder="Find..."], input[placeholder="查找…"]')!
+      expect(find).not.toBeNull()
+      expect(harness.container.querySelector('[data-testid="chat-header-search-input"]')).toBeNull()
+      await act(async () => { find.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+      await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { viewportKey: 'review-topic' } })) })
       const input = harness.container.querySelector<HTMLInputElement>('[data-testid="chat-header-search-input"]')!
       expect(input).not.toBeNull()
       await typeInto(input, 'needle')

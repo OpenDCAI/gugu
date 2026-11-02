@@ -122,6 +122,24 @@ describe('global commands before widget key consumption', () => {
       expect(find).not.toHaveBeenCalled();
     } finally { await act(async () => disposeTimeline()); }
   });
+  it.each(['monaco-editor', 'cm-editor'])('k6 leaves %s native find alone', async (className) => {
+    host.classList.add(className);
+    await press('f');
+    expect(find).not.toHaveBeenCalled();
+    expect(widget).toHaveBeenCalledOnce();
+  });
+  it.each(['transcript', 'terminal', 'chat', 'monaco-editor', 'cm-editor'])('k7 global search still captures Shift+F in %s', async (className) => {
+    host.classList.add(className);
+    const globalSearch = vi.fn();
+    let remove!: () => void;
+    await act(async () => { remove = commandRegistry.register({ scopeId: 'app', getCommands: () => [{ id: 'app.globalSearch', execute: globalSearch }] }); });
+    try {
+      await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', code: 'KeyF', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true })); });
+      expect(globalSearch).toHaveBeenCalledOnce();
+      expect(find).not.toHaveBeenCalled();
+      expect(widget).not.toHaveBeenCalled();
+    } finally { await act(async () => remove()); }
+  });
   it('uses the command id override and releases the old chord after rebinding', async () => {
     settings.keyboard = { 'app.find': 'Mod+G' };
     await act(async () => root.render(<CommandShortcutBinder key="rebound" />));

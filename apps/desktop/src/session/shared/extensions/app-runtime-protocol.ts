@@ -179,9 +179,17 @@ export type WorkspacePlace = { workspace: string };
  * that session's agent) and the working copy it works on (`WorkspacePlace.workspace`) — either, both, or neither (the
  * App's own page). Facts for `getContext()`, never a target a call falls back on.
  */
+export interface AppWidget {
+  messageId: string;
+  data: Record<string, unknown>;
+  senderId: string | null;
+}
+
 export interface AppWhere {
   conversation: string | null;
   workspace: string | null;
+  /** The immutable message this page draws. A message view never moves to another message. */
+  widget?: AppWidget;
 }
 
 /** What a workspace id names: a session's working copy, or a project's root folder. */

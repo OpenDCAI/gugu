@@ -32,6 +32,7 @@ type RecentSessionRow = {
   id: string;
   agent_display_name: string | null;
   project_id: string;
+  last_interacted_at: string | null;
 };
 
 /** 已下架的 SSH 远程项目(#6264)行原样留在库里、也可能早已写进 search_index:查询时按项目的 workspace_provider 排除。 */
@@ -138,7 +139,7 @@ class SearchService {
   private recents(): SearchItem[] {
     const rows = sqlite
       .prepare(
-        `SELECT c.id, json_extract(c.config, '$.agentDisplayName') AS agent_display_name, c.project_id
+        `SELECT c.id, json_extract(c.config, '$.agentDisplayName') AS agent_display_name, c.project_id, c.last_interacted_at
          FROM sessions c
          WHERE c.archived_at IS NULL AND c.automation_run_id IS NULL
            AND NOT EXISTS (SELECT 1 FROM projects p
@@ -153,6 +154,7 @@ class SearchService {
       id: r.id,
       projectId: r.project_id,
       title: taskName({ id: r.id, config: { agentDisplayName: r.agent_display_name ?? undefined } }),
+      lastInteractedAt: r.last_interacted_at,
       subtitle: '',
       score: 0,
     }));

@@ -6,7 +6,7 @@ import { transcriptFileRefSchema } from '@gugu/session-core/acp/client'
  * (the cloud delivery trigger skips cards); the agent it hands the words to gets them from the host as its first turn.
  *
  * Who took the task — the agent's name, its type and its look — is a snapshot taken when the card is posted.
- * The owner displays the current identity's name and avatar when available, keeping the snapshot as a fallback
+ * Viewers who can read the identity display its current name and avatar when available, keeping the snapshot as a fallback
  * when the identity cannot be read. The engine mark always uses the posted type: a colleague may not see an agent
  * that is still waiting to be let in, yet the card still has to identify its engine.
  */

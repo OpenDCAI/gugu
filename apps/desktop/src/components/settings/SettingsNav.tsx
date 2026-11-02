@@ -33,6 +33,17 @@ interface NavItem {
   ib: JSX.Element | null  // Solar bold/filled (active)
 }
 
+type NavGroupId = SettingsGroupId | 'diagnostics'
+
+// Desktop organization is independent of the existing mobile Settings order.
+const DESKTOP_NAV_GROUPS: readonly { id: NavGroupId; sections: readonly ActiveSection[] }[] = [
+  { id: 'account', sections: ['account', 'subscriptions', 'usage'] },
+  { id: 'assistant', sections: ['assistant', 'connectors'] },
+  { id: 'preferences', sections: ['general', 'interface', 'model', 'permissions'] },
+  { id: 'work', sections: ['sessions', 'devices', 'browser', 'files'] },
+  { id: 'diagnostics', sections: ['resource-monitor', 'about'] },
+]
+
 interface SettingsNavProps {
   activeSection: ActiveSection
   sections: ActiveSection[]
@@ -144,14 +155,22 @@ const NAV_ITEMS: NavItem[] = [
 
 export function SettingsNav({ activeSection, sections, mobile = false, user, assistantName, onSelect, onBack }: SettingsNavProps) {
   const { t } = useTranslation('main')
-  // 按 core 那份分组排(桌面左栏与手机「我的」同一份);这台宿主不显示的格(sections 里没有)连同空组一起不画。
-  const navGroups = SETTINGS_GROUPS
+  if (!mobile && import.meta.env.DEV) {
+    const missing = sections.filter((section) => !DESKTOP_NAV_GROUPS.some((group) => group.sections.includes(section)))
+    if (missing.length > 0) throw new Error(`SettingsNav: desktop sections missing a group: ${missing.join(', ')}`)
+  }
+  // 手机沿用 core 的分组;只在桌面呈现层重排。宿主不显示的格连同空组一起不画。
+  const navGroups = (mobile ? SETTINGS_GROUPS : DESKTOP_NAV_GROUPS)
     .map((group) => ({ id: group.id, items: group.sections.flatMap((key) => (sections.includes(key) ? NAV_ITEMS.filter((item) => item.key === key) : [])) }))
     .filter((group) => group.items.length > 0)
   // 组名:「关于」组只有一格、名字与那一格同名,不画;其余都画(手机上咕咕组只剩「资料」一格,没有组名就不知道是谁的资料)。
   // 咕咕那组用它现在的名字。
-  const captionFor = (id: SettingsGroupId): string | null =>
-    id === 'about' ? null : id === 'assistant' ? (assistantName || t('settings.group.assistant')) : t(`settings.group.${id}`)
+  const captionFor = (id: NavGroupId): string | null => {
+    if (id === 'about') return null
+    if (id === 'assistant') return assistantName || t('settings.group.assistant')
+    if (id === 'account' && !mobile) return t('settings.nav.account')
+    return t(`settings.group.${id}`)
+  }
 
   return (
     // @@@ui-ruler 设置导航比会话列表窄是合理的(216 vs 240 --nav-col-w,#7333 视觉规范),但仍是同一把尺子的产物 —— 用

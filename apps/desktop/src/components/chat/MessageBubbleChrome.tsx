@@ -2,8 +2,9 @@ import { useTranslation } from 'react-i18next'
 import { Chip } from '../ui/Chip'
 import { Button } from '../ui/Button'
 import { useAuth } from '../../store/auth'
-import { BODY_COLORS } from '../agentAvatar/engine/identity'
-import { resolveAgentLook } from '../agentAvatar/look'
+import { useAgentLook } from '../agentAvatar/useAgentLook'
+import { useIsAssistantAvatar } from '../../lib/avatarIdentity'
+import { memberNameHue } from '../../lib/memberNameHue'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import { fmtMsgTime } from './messageRowTime'
 import './messageBubbleChrome.css'
@@ -15,7 +16,7 @@ import { useLayoutEffect, useRef, type ReactNode } from 'react'
 // 名字在气泡第一行、小一号、按这个人的颜色;时间在气泡右下角,和最后一行正文同一行。
 
 /** 群里收到的消息、组首那一条:名字 + 归属小标签(「我的 agent」「Alice 的 agent」)。
- *  颜色不另起色板:用身份层按 id 定下的那一档色相(agent 形象的身体色,agent 改过形象就跟着它),亮度/彩度随主题(tokens.css)。 */
+ *  色相来自头像实际身体色;助理沿已保存的形象,亮度/彩度随主题(tokens.css)。 */
 export function BubbleSender({ member, displayName, senderId, replyMark }: { member: MemberProfileCardModel | null; displayName?: string; senderId: string | null; replyMark?: ReactNode }) {
   const { t } = useTranslation('messaging')
   const { user } = useAuth()
@@ -23,7 +24,9 @@ export function BubbleSender({ member, displayName, senderId, replyMark }: { mem
   const rowRef = useRef<HTMLDivElement>(null)
   const hasReply = Boolean(replyMark)
   const name = displayName ?? member?.displayName ?? ''
-  const hue = BODY_COLORS[resolveAgentLook(senderId, member?.avatar ?? null).color].hue
+  const assistant = useIsAssistantAvatar(senderId ?? '')
+  const assistantLook = useAgentLook(assistant ? senderId ?? '' : '', undefined, member?.avatar)
+  const hue = memberNameHue({ id: senderId, avatar: member?.avatar, isAgent: member?.type === 'agent', assistantLook: assistant ? assistantLook : undefined })
   const tag = member?.removedAt ? t('message.removedIdentityTag') : member?.type !== 'agent' ? null
     : member.ownerUserId && member.ownerUserId === user?.id ? t('message.myAgentTag')
     : member.ownerDisplayName ? t('message.agentOwnerTag', { owner: member.ownerDisplayName })

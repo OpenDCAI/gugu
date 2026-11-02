@@ -75,16 +75,39 @@ describe('#6006 input boundaries inside a provider turn', () => {
 });
 
 // #6822 读方不借 DOM:投递轮在 node 里就判得到,退役的会话直发两行头也有发信人。
-describe('delivered turns (#6822)', () => {
-  it('previews the body and names the sender of every delivery spelling', () => {
+describe('human deliveries on the rail', () => {
+  it('names a human sender and excludes retired agent session deliveries', () => {
     const origin = { source: 'session-direct', sender_session_id: 'session:parent', message_id: 'msg:m', kind: 'message' };
     const ticks = timelineTurnsFromTranscript([
-      turn('t1', 'user', [msg('u1', 'user', '<gugu_delivery route="chat" from="Ada" from_id="user:ada" chat="7" chat_kind="group" source_link="gugu-chat://3f2a9c1e-0000-4000-8000-000000000007/5b0c0e1d-0000-4000-8000-000000000001"><![CDATA[看一下]]></gugu_delivery>')]),
+      turn('t1', 'user', [msg('u1', 'user', '<gugu_delivery route="chat" from="Ada" from_id="user:ada" from_type="human" chat="7" chat_kind="group" source_link="gugu-chat://3f2a9c1e-0000-4000-8000-000000000007/5b0c0e1d-0000-4000-8000-000000000001"><![CDATA[看一下]]></gugu_delivery>')]),
       turn('t2', 'user', [msg('u2', 'user', `[gugu_session session-direct]\norigin=${JSON.stringify(origin)}\n派活`)]),
     ]);
     expect(ticks.map(({ prompt, sender }) => ({ prompt, sender }))).toEqual([
       { prompt: '看一下', sender: { kind: 'group', name: 'Ada', chatId: '3f2a9c1e-0000-4000-8000-000000000007' } },
-      { prompt: '派活', sender: { kind: 'session', name: 'session:parent' } },
     ]);
+  });
+});
+
+describe('hidden input boundaries', () => {
+  const agent = '<gugu_delivery route="chat" from="Worker" from_id="user:worker" from_type="agent"><![CDATA[agent input]]></gugu_delivery>';
+
+  it('never attaches a hidden agent input or its reply to the preceding human preview', () => {
+    const [human] = timelineTurnsFromTranscript([turn('t', 'user', [
+      msg('u', 'user', 'Human question'), msg('hidden', 'user', agent),
+      msg('hidden-answer', 'assistant', 'Agent-only reply'),
+    ])]);
+    expect(human.itemIds).toEqual(['u']);
+    expect(human.reply).toBe('');
+    expect(human.prompt).toBe('Human question');
+  });
+
+  it('preserves the actual anchor and source turn when the first input was hidden', () => {
+    const humans = timelineTurnsFromTranscript([turn('t', 'user', [
+      msg('hidden', 'user', agent), msg('hidden-answer', 'assistant', 'Agent-only reply'),
+      msg('human', 'user', 'My follow-up'), msg('answer', 'assistant', '[NO_REPLY]'),
+    ])]);
+    expect(humans).toEqual([{
+      id: 't:human', sourceTurnId: 't', anchorItemId: 'human', itemIds: ['human', 'answer'], prompt: 'My follow-up', reply: '',
+    }]);
   });
 });

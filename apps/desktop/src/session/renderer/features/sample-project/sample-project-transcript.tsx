@@ -3,8 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/Avatar';
 import { EngineIcon } from '@/components/AgentHarnessIdentity';
 import type { MemberProfileCardModel } from '@/components/MemberProfileCard';
-import { BODY_COLORS } from '@/components/agentAvatar/engine/identity';
-import { resolveAgentLook } from '@/components/agentAvatar/look';
+import { memberNameHue } from '@/lib/memberNameHue';
 import { ComposerCardFrame, TaskCardHandedTo, TaskStatusMark } from '@/components/chat/ComposerCardView';
 import { FileAttachmentCard } from '@/components/chat/FileAttachmentCard';
 import { MessageQuoteFrame } from '@/components/chat/MessageQuote';
@@ -204,7 +203,7 @@ function SampleTime({ time, mine, inline }: { time: string; mine: boolean; inlin
 /** 群里收到的、一组的第一条:名字 + 「我的 agent」,和 BubbleSender 同一个样子(那一个要查真 agent 的主人)。 */
 function SampleAgentSender({ name }: { name: string }) {
   const { t } = useTranslation('messaging');
-  const hue = BODY_COLORS[resolveAgentLook(SAMPLE_AGENT_SEED, null).color].hue;
+  const hue = memberNameHue({ id: SAMPLE_AGENT_SEED, isAgent: true });
   return (
     <div data-message-who="true" data-message-sender-name="true" className="msg-sender" style={{ '--member-hue': hue } as CSSProperties}>
       <span className="msg-sender-name">{name}</span>

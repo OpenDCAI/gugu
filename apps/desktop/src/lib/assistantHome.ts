@@ -6,7 +6,7 @@ export function canSetUpCloudAssistant(cloud: Pick<CloudComputerStoreState, 'ava
   return cloud.available && cloud.loadError === null
 }
 
-type HomeRow = Pick<Device, 'device_id' | 'cloud_computer'> & { capabilities?: Pick<Device['capabilities'], 'assistant_home'> | null }
+type HomeRow = Pick<Device, 'device_id' | 'cloud_computer'> & { capabilities?: Pick<Device['capabilities'], 'assistant_home' | 'host_kind'> | null }
 
 /**
  * #7199 个人助理住的那台云端宿主(实现上叫云电脑)。owner 10-15「用户只知道个人助理 Agent，甚至不需要知道它生活在哪儿。
@@ -30,7 +30,7 @@ export function withoutAssistantHome<T extends HomeRow>(devices: readonly T[], h
  */
 export type AssistantHomePlace =
   | { kind: 'cloud'; deviceId: string }
-  | { kind: 'computer'; deviceId: string; thisDevice: boolean; label: string | null; online: boolean; known: boolean }
+  | { kind: 'computer'; deviceId: string; thisDevice: boolean; label: string | null; online: boolean; known: boolean; hostKind?: 'desktop' | 'server' | 'phone' }
 
 type PlaceRow = HomeRow & Pick<Device, 'label' | 'is_online' | 'is_current_device'>
 
@@ -50,5 +50,6 @@ export function assistantHomePlace(
     label: row?.label ?? null,
     online: row?.is_online === true,
     known: !!row,
+    ...(row?.capabilities?.host_kind ? { hostKind: row.capabilities.host_kind } : {}),
   }
 }
