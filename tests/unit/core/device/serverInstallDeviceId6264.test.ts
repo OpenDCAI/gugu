@@ -121,3 +121,16 @@ test('并发首跑(登录与账号进程同时)只发一个安装 id', async () 
 test('server 模式却没有安装目录:直接报错,不悄悄退回硬件标识', async () => {
   await expect(resolve({ GUGU_SERVER_MODE: '1', GUGU_HOME: guguHome })).rejects.toThrow(/GUGU_SERVER_HOME/)
 })
+
+
+test('same-account desktop and independent server on one host use distinct usage row keys', async () => {
+  const desktop = await resolve({ GUGU_HOME: guguHome })
+  const server = await resolve(await serverEnv())
+  expect(server).not.toBe(desktop)
+  const { snapshotToRows } = await import('@gugu/core/shared/usage/rows')
+  const snapshot = { from: '2026-11-02', to: '2026-11-02', engines: [], device: [
+    { day: '2026-11-02', parallelSeconds: 10, peakConcurrency: 2 },
+  ] }
+  expect(snapshotToRows(snapshot, USER_A, desktop)[0].device_id).toBe(desktop)
+  expect(snapshotToRows(snapshot, USER_A, server)[0].device_id).toBe(server)
+})

@@ -5,7 +5,7 @@ import { assistantHomePlace } from '../../../../apps/desktop/src/lib/assistantHo
 const CLOUD = 'dev-cloud'
 const MAC = 'dev-mac'
 function row(agent: string | null, over: Partial<AssistantProvisionRow> = {}): AssistantProvisionRow {
-  return { agent_user_id: agent, device_id: CLOUD, member_key: 'assistant', phase: 'completed', created_at: '2026-10-01T00:00:00Z', ...over } as AssistantProvisionRow
+  return { agent_user_id: agent, agent: { removed_at: null }, device_id: CLOUD, member_key: 'assistant', phase: 'completed', created_at: '2026-10-01T00:00:00Z', ...over } as AssistantProvisionRow
 }
 
 // #7199 owner:「它是一个个人级别的 agent……只有一个身份」—— 认它靠库里的标记,❌ 按名字、❌ 按住在哪台机器上
@@ -40,6 +40,14 @@ describe('pickAssistant', () => {
 
   it('一行都没有 = 没有助理', () => {
     expect(pickAssistant([])).toBeNull()
+  })
+
+  it('does not resurrect a soft-archived identity from a completed provision', () => {
+    expect(pickAssistant([row('archived', { agent: { removed_at: '2026-11-02T15:06:41Z' } })])).toBeNull()
+  })
+
+  it('does not turn an unreadable identity relation into permission to create a new assistant', () => {
+    expect(() => pickAssistant([row('unreadable', { agent: null })])).toThrow('Could not verify')
   })
 })
 

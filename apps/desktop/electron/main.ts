@@ -1,5 +1,6 @@
 import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
+import { startServerUsageSync } from './server/usage-sync'
 import { noteExitReason } from './lib/exit-reason'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
@@ -218,7 +219,7 @@ import { assistantWorkCoordinator } from '@gugu/core/cloud/assistantWorkRouting'
 import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
 import { enqueueAssistantWorkReport } from '@gugu/core/cloud/assistantWorkReports'
 import {withAssistantWorkReply} from '@gugu/core/shared/assistantWorkReply'
-import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
+import { ASSISTANT_PROVISION_SELECT, pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
 import { landTaskCardFirstTurn } from './sessionpage/task-card-first-turn'
 import { withQuestionCard } from './sessionpage/question-card'
 import {
@@ -509,6 +510,7 @@ import {
 import { setAccountAccessTokenReader, setAccountFileResolver } from '@main/core/extensions/account-token'
 import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
 import { announceLocalDeviceIdentity } from './local-device-identity'
+import { setAssistantHomeDeviceResolver } from '@main/core/app/assistant-home-controller'
 import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
 import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
 import { emdashPlatformReleaseIntent } from './session/main/core/acp/emdash-platform-injector'
@@ -1697,7 +1699,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       if (assistantCache?.ownerId === current.ownerId && assistantCache.until > Date.now()) return assistantCache.value
       const auth = await desktopAuthProvider().getAuth()
       if (!auth?.accessToken || auth.userId !== current.ownerId) return null
-      const {data,error} = await makeIdentityClient(auth.accessToken).from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+      const {data,error} = await makeIdentityClient(auth.accessToken).from('agent_provisions').select(ASSISTANT_PROVISION_SELECT)
         .eq('owner_user_id',current.ownerId).eq('member_key','assistant')
       if (error) throw error
       const value = pickAssistant((data ?? []) as AssistantProvisionRow[])
@@ -2247,6 +2249,7 @@ const localDeviceId = announceLocalDeviceIdentity(resolveLocalDeviceId, (deviceI
     if (!window.isDestroyed()) window.webContents.send('device:self-identified', deviceId)
   }
 })
+setAssistantHomeDeviceResolver(localDeviceId)
 
 async function getLocalDeviceSelfSnapshot(): Promise<LocalDeviceSelfSnapshot | null> {
   if (!deviceRuntimeHost) return null
@@ -4766,7 +4769,7 @@ app.whenReady().then(async () => {
           const current = await assistantWorkDeliveryHost().context()
           if (!current || current.ownerId !== auth.userId) throw new Error('Work account changed')
           const identity = makeIdentityClient(auth.accessToken!)
-          const { data, error } = await identity.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+          const { data, error } = await identity.from('agent_provisions').select(ASSISTANT_PROVISION_SELECT)
             .eq('owner_user_id', auth.userId).eq('member_key', 'assistant')
           if (error) throw error
           const assistant = pickAssistant((data ?? []) as AssistantProvisionRow[])
@@ -6491,6 +6494,28 @@ app.whenReady().then(async () => {
     if (!sessionHostBoot) throw new Error('Session backend boot was not started')
     await sessionHostBoot
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
+    const usageLog = createLogger('server/usage-sync')
+    app.once('will-quit', startServerUsageSync({
+      userData: app.getPath('userData'),
+      identity: async () => {
+        const auth = await serverAuth?.getAuth()
+        const deviceId = await localDeviceId()
+        const reason = !auth?.userId ? 'signed-out'
+          : auth.userId !== process.env.GUGU_SERVER_ACCOUNT ? 'account-mismatch'
+            : !deviceId ? 'device-unavailable' : null
+        if (reason) { usageLog.info({ reason }, 'Usage sync deferred'); return null }
+        return { userId: auth!.userId, deviceId: deviceId! }
+      },
+      snapshot: request => {
+        const bridge = loadEmdashBridge()
+        if (!bridge) throw new Error('Session backend unavailable for usage sync')
+        return bridge.emdashRpcRouter.usage.localDaily(request)
+      },
+      client: supabase.schema('public'),
+      report: (result, error) => error
+        ? usageLog.warn({ reason: error instanceof Error ? error.name : 'unknown' }, 'Usage sync failed; next scheduled run will retry')
+        : usageLog.info({ result }, 'Usage sync completed'),
+    }))
     loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
     // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。

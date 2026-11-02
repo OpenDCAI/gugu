@@ -23,4 +23,3 @@ function Slot({ resource, visible, style, ctx, tabId, onFocus }: { resource: Res
   const ref = useCallback((element: HTMLDivElement | null) => readShellSlots()?.setSlot(ownedAgentResourceSlotKey(chatId, sourceTabId), element), [chatId, sourceTabId]);
   return <RetainedTabContent ref={ref} visible={visible} style={style} className="absolute inset-0 flex min-h-0 min-w-0 flex-col" data-session-chat-resource={chatId} data-pane-tab={tabId} onPointerDownCapture={onFocus} onFocusCapture={onFocus} />;
 }
-

@@ -21,6 +21,7 @@ import { getSessionWorkspaceActionOrder, sessionWorkspaceActionBlocked } from '.
 import { registerWorkspaceBackend, type WorkspaceBackend } from './workspace-backend/workspace-backend';
 import { ShellTitlebar } from '@renderer/lib/components/titlebar/shell-titlebar';
 import { NEW_SESSION_DRAFT_KEY, composerDrafts, projectDraftKey } from './composer-drafts';
+import { useComposerTrayBand } from './composer-tray';
 import { cancelComposerVerb } from './composer-verb-tag';
 import { readComposerVerb, setComposerVerb, takeComposerCarry } from '@/lib/composerVerbBridge';
 
@@ -135,7 +136,7 @@ vi.mock('@renderer/features/sessions/hooks/useSessionSettings', () => ({
 vi.mock('@renderer/features/sessions/session-config/session-field', () => ({
   SessionField: (props: { showAutoApproveToggle?: boolean; canSubmit?: boolean }) => {
     mocks.sessionFieldProps = props;
-    return React.createElement('div', { 'data-testid': 'active-task-composer' });
+    return React.createElement('div', { 'data-testid': 'active-task-composer' }, useComposerTrayBand());
   }
 }));
 

@@ -1068,7 +1068,7 @@ function InnerLayout({
                     <ChatListPanel
                       mobile={mobile}
                       hidden={chatListHidden}
-                      lead={mobile && (phoneAssistant.available || sessionAttention === 'needs_user') ? <>{phoneAssistant.available && <PhoneAssistantRow state={phoneAssistant} onOpen={openPhoneAssistant} />}<NeedsYouSlot list /></> : undefined}
+                      lead={mobile && (phoneAssistant.available || sessionAttention !== null) ? <>{phoneAssistant.available && <PhoneAssistantRow state={phoneAssistant} onOpen={openPhoneAssistant} />}<NeedsYouSlot list /></> : undefined}
                       leadChatId={phoneAssistant.chatId}
                       headerLeading={mobile ? <PhoneMeButton user={user} onOpen={() => selectTab('settings')} /> : undefined}
                       onChatSelected={(focusTarget = 'composer') => navigateMobile(() => {

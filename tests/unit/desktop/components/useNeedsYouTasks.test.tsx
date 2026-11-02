@@ -53,17 +53,17 @@ it('drops the prior account and stops its list subscription on logout', async ()
   expect(stop).toHaveBeenCalledTimes(1)
 })
 
-it('keeps error-only rail attention, gives pending tasks priority, and restores error after answering', async () => {
+it('lists failures, adds a real wait, and keeps the failure after that wait is answered (#1165)', async () => {
   state.directory = { server: { cached: false, error: null, sessions: [{ ...pending('failed'), status: { status: 'error', detail: null } }] } }
   await renderWithAppProviders(harness, <Probe />)
   expect(harness.container.querySelector('output')?.dataset.attention).toBe('error')
-  expect(harness.container.textContent).toBe('')
+  expect(harness.container.textContent).toBe('server:failed')
   await act(async () => { state.handlers!.onList({ projects: [], sessions: [pending('local')] } as never) })
   expect(harness.container.querySelector('output')?.dataset.attention).toBe('needs_user')
-  expect(harness.container.textContent).toBe('desktop:local')
+  expect(harness.container.textContent).toBe('desktop:local,server:failed')
   await act(async () => { state.handlers!.onList({ projects: [], sessions: [] } as never) })
   expect(harness.container.querySelector('output')?.dataset.attention).toBe('error')
-  expect(harness.container.textContent).toBe('')
+  expect(harness.container.textContent).toBe('server:failed')
   expect(sync).toHaveBeenCalledTimes(1)
 })
 it('preserves native phone host identity from the existing device directory', async () => {
