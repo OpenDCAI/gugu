@@ -160,7 +160,7 @@ describe('useCreateSessionCallback ordinary messaging', () => {
   it.each([
     [{ type: 'no-install-command', id: 'codex' }, 'agentsPage.errNoInstallCommand codex'],
     [{ type: 'unsupported-host', message: 'No installer here' }, 'agentsPage.errUnsupportedHost'],
-    [{ type: 'command-failed', message: 'npm failed', output: 'npm error code EACCES', stage: 'install' }, 'EACCES'],
+    [{ type: 'command-failed', message: 'npm failed', output: `npm error code EACCES\n${'extra diagnostic output\n'.repeat(500)}`, stage: 'install' }, 'EACCES'],
   ] as const)('a failed remote install leaves its reason in deliveryError without creating or clearing the draft: %j', async (error, reason) => {
     const chips = [{ id: 'kept-chip' }] as never;
     initialSession.attachments = chips;
@@ -171,7 +171,13 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     expect(mocks.installAgent).toHaveBeenCalledExactlyOnceWith('codex');
     expect(mocks.createSession).not.toHaveBeenCalled();
     expect(latest?.deliveryError).toMatchObject({ kind: 'raw', detail: expect.stringContaining(reason) });
-    if (typeof error === 'object' && 'output' in error) expect(latest?.deliveryError).toMatchObject({ detail: expect.stringContaining('Failed at stage: install') });
+    if (typeof error === 'object' && 'output' in error) {
+      expect(latest?.deliveryError).not.toMatchObject({ detail: expect.stringContaining('Failed at stage: install') });
+      expect(latest?.deliveryError).not.toMatchObject({ detail: expect.stringContaining('extra diagnostic output') });
+      expect(mocks.logError).toHaveBeenCalledWith('remote agent installation failed', {
+        providerId: 'codex', diagnostic: expect.stringContaining(error.output.trim()),
+      });
+    }
     expect(initialSession.prompt).toBe('make one task');
     expect(initialSession.attachments).toBe(chips);
     expect(mocks.stopInstallProgress).toHaveBeenCalledTimes(1);

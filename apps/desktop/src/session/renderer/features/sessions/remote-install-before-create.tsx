@@ -9,6 +9,7 @@ import { installProgressLine } from '@renderer/features/settings/agents-page/ins
 import { onMachineEvent, rpcOn } from '@renderer/lib/ipc';
 import { useAgents } from '@renderer/lib/stores/use-agents';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import { log } from '@renderer/utils/logger';
 import { agentInstallProgressChannel } from '@shared/events/appEvents';
 
 type RemoteInstall = { harness: string; progress: AgentInstallProgress | null };
@@ -56,7 +57,8 @@ async function installOnMachine(
     if (result?.success === true) return;
     if (result?.success !== false || !result.error) throw new Error('Invalid agents.install result from remote machine');
     const { message, diagnostic } = getAgentInstallErrorPresentation(result.error, { translate });
-    throw new Error(diagnostic ? `${message}\n\n${diagnostic}` : message);
+    if (diagnostic) log.error('remote agent installation failed', { providerId, diagnostic });
+    throw new Error(message);
   } finally {
     stop();
   }
