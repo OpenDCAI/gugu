@@ -81,7 +81,7 @@ describe('server self-upgrade resolves its target at the moment it switches', ()
     stage('0.2.53-beta.63.1')
     published = '0.2.53-beta.62.1'
     let busy = true
-    const { log, shutdown, stop } = updater(() => busy)
+    const { shutdown, stop } = updater(() => busy)
 
     await vi.advanceTimersByTimeAsync(60_000) // 起动后第一次检查:62.1,忙 ⇒ 等
     expect(shutdown).not.toHaveBeenCalled()

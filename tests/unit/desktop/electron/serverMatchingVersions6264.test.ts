@@ -25,7 +25,6 @@ import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '../../../../packag
 import { pruneVersions, versionsToKeep } from '../../../../apps/desktop/electron/server/server-account-versions'
 
 const U1 = '11111111-1111-4111-8111-111111111111'
-const U2 = '22222222-2222-4222-8222-222222222222'
 const NOW = 1_800_000_000_000
 
 let home = ''
