@@ -175,6 +175,7 @@ import { harnessModelCredentialKey } from '@renderer/lib/stores/use-harness-mode
 import { useQueryClient } from '@tanstack/react-query';
 import { filterSlashCommands } from './slash-command-matching';
 import { startupPlaceholderKey } from './startup-placeholder';
+import { canStartFreshSession } from '@shared/core/sessions/session-recovery';
 import { FindBar } from '@renderer/lib/ui/find-bar';
 import { useFindBar, type FindBackend } from '@renderer/lib/ui/use-find-bar';
 import { enUSMessages, type SessionMessageKey } from '@renderer/localization/messages';
@@ -1800,7 +1801,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   useEffect(() => {
     if (!store) return;
     // 有没有可重来的首轮,**进这一行之前就知道**(同 ProviderSessionMissingView 的判据)。
-    const canRestartSession = Boolean(
+    const canRestartSession = canStartFreshSession('provider_session_missing',
       sessionRegistry.get(store.sessionId)?.sessions.get(store.sessionId)?.data
         .firstUtterance
     );

@@ -19,6 +19,7 @@ import { summary as plain } from './impl/plain/summary';
 import { summary as plane } from './impl/plane/summary';
 import { summary as qq_mail } from './impl/qq-mail/summary';
 import { summary as tencent_docs } from './impl/tencent-docs/summary';
+import { summary as baidu_pan } from './impl/baidu-pan/summary';
 import { summary as tencent_meeting } from './impl/tencent-meeting/summary';
 import { summary as trello } from './impl/trello/summary';
 import { summary as wecom } from './impl/wecom/summary';
@@ -26,6 +27,7 @@ import { summary as wecom } from './impl/wecom/summary';
 export const builtinIntegrationSummaries: Readonly<Record<string,{ name: LocalizedText; description: LocalizedText }>> = {
   'amap': amap,
   'asana': asana,
+  'baidu-pan': baidu_pan,
   'dida': dida,
   'dingtalk': dingtalk,
   'enterprise-mail': enterprise_mail,

@@ -1,4 +1,8 @@
-import { page } from '@vitest/browser/context';
+import { useRef, type ReactNode } from 'react';
+import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-binder';
+import { useFindBar } from '@renderer/lib/ui/use-find-bar';
+import { FindBar } from '@renderer/lib/ui/find-bar';
+import { page, userEvent } from '@vitest/browser/context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +16,8 @@ import type {
 } from '@shared/core/session-history/session-history';
 import { SESSION_HOME_SECTION_KEY } from '@shared/core/session-history/session-history';
 import '@renderer/index.css';
+
+vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: {} }) }));
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -265,7 +271,7 @@ function directoryPageOf(
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
-function render(): void {
+function render(extra?: ReactNode): void {
   container = document.createElement('div');
   container.className = 'emlight gugu-skin bg-background';
   container.style.height = '800px';
@@ -276,6 +282,7 @@ function render(): void {
     <SessionLocalizationProvider>
       <QueryClientProvider client={new QueryClient()}>
         <SessionHistoryMainPanel />
+        {extra}
       </QueryClientProvider>
     </SessionLocalizationProvider>
   );
@@ -296,6 +303,13 @@ const keydown = (el: HTMLElement, key: string) =>
   el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 const rowKeys = () =>
   screen.getByTestId('session-history-row').all().map((row) => row.element().getAttribute('data-row-key'));
+
+const transcriptBackend = { find: () => ({ currentIndex: 0, total: 0 }), step: () => ({ currentIndex: 0, total: 0 }), clear: () => {} };
+function TranscriptFindControl() {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const find = useFindBar({ rootRef, backend: transcriptBackend });
+  return <div ref={rootRef} className="relative"><button data-testid="transcript-find-focus">Loaded transcript</button><FindBar {...find} /></div>;
+}
 
 describe('会话历史(按目录分节)核心合同', () => {
   afterEach(() => {
@@ -327,6 +341,25 @@ describe('会话历史(按目录分节)核心合同', () => {
       head: [],
       tail: [],
     });
+  });
+
+  it('k4/k5 routes find by focus while the real history SearchInput stays mounted', async () => {
+    render(<><CommandShortcutBinder /><TranscriptFindControl /></>);
+    await expect.element(screen.getByTestId('session-history-search')).toBeVisible();
+    const history = screen.getByTestId('session-history-search').element();
+    const filter = screen.getByTestId('session-history-filter').element() as HTMLElement;
+    await screen.getByTestId('session-history-search').click();
+    await userEvent.keyboard('{Tab}');
+    expect(document.activeElement).toBe(filter);
+    await userEvent.keyboard('{Control>}f{/Control}');
+    await vi.waitFor(() => expect(document.activeElement).toBe(history));
+    const transcript = screen.getByTestId('transcript-find-focus').element() as HTMLElement;
+    await screen.getByTestId('transcript-find-focus').click();
+    expect(document.activeElement).toBe(transcript);
+    await userEvent.keyboard('{Control>}f{/Control}');
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute('placeholder')).toMatch(/Find|查找/));
+    expect(document.activeElement).not.toBe(history);
+    expect(screen.getByTestId('session-history-search').all()).toHaveLength(1);
   });
 
   it('默认一目录一节、全展开:节头有名字 / agent 图标 / 条数,节内按主进程给的顺序两行一条,动作按状态', async () => {

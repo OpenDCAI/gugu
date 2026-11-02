@@ -7,8 +7,8 @@ import { useAnnotateCanvas } from '../../../../apps/desktop/src/components/image
 
 let editor: ReturnType<typeof useAnnotateCanvas>
 let harness: ReturnType<typeof createReactHarness>
-function Probe() {
-  editor = useAnnotateCanvas(newDocument(800, 600))
+function Probe({ imageBounds }: { imageBounds?: () => DOMRectReadOnly | undefined }) {
+  editor = useAnnotateCanvas(newDocument(800, 600), imageBounds)
   const text = editor.doc.shapes.find(shape => shape.id === editor.editingText && shape.kind === 'text')
   return <div className="ia-editor" tabIndex={0}><div ref={editor.stage} onPointerDown={editor.onPointerDown} onPointerMove={editor.onPointerMove}
     onPointerUp={editor.onPointerUp} onPointerCancel={editor.onPointerCancel}><canvas ref={editor.vectors} /></div><input aria-label="Words" />
@@ -30,6 +30,18 @@ async function pointer(type: string, x: number, y: number, id = 1) {
   await act(async () => editor.stage.current!.dispatchEvent(event))
 }
 describe('annotation canvas interaction', () => {
+  it('starts from the viewed image rectangle and keeps subsequent gestures in its existing view state', async () => {
+    const imageBounds = vi.fn(() => new DOMRect(100, 80, 800, 600))
+    await harness.render(createNode(Probe, { key: 'from-viewer', imageBounds }))
+    expect(editor.scale).toBe(1)
+    expect(editor.view).toEqual({ zoom: 2, x: 284, y: 214 })
+    expect(imageBounds).toHaveBeenCalledTimes(1)
+    await act(async () => editor.chooseTool('marker'))
+    expect(editor.scale).toBe(1)
+    expect(editor.view).toEqual({ zoom: 2, x: 284, y: 214 })
+    expect(imageBounds).toHaveBeenCalledTimes(1)
+  })
+
   it('creates one editable rectangle per drag, moves it, recolors it, and undoes the changes', async () => {
     await pointer('pointerdown', 20, 20); await pointer('pointermove', 100, 80); await pointer('pointerup', 100, 80)
     expect(editor.history.past).toHaveLength(1)

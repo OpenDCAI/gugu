@@ -1,4 +1,3 @@
-import { useHotkey } from '@tanstack/react-hotkeys';
 import { Search } from '@/lib/icons'
 import * as React from 'react';
 import { Input } from '@renderer/lib/ui/input';
@@ -12,21 +11,10 @@ const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(functio
   { className, containerClassName, ...props },
   forwardedRef
 ) {
-  const inputRef = React.useRef<HTMLInputElement>(null);
-
-  React.useImperativeHandle(forwardedRef, () => inputRef.current as HTMLInputElement);
-
-  useHotkey(
-    'Mod+F',
-    () => {
-      inputRef.current?.focus();
-    },
-    { enabled: true }
-  );
   return (
     <div className={cn('relative flex min-w-0 items-center', containerClassName)}>
       <Search className="pointer-events-none absolute left-2.5 size-3.5 shrink-0 text-foreground-muted" />
-      <Input className={cn('bg-[var(--em-surface-input)] pl-8', className)} {...props} ref={inputRef} />
+      <Input className={cn('bg-[var(--em-surface-input)] pl-8', className)} {...props} ref={forwardedRef} />
     </div>
   );
 });

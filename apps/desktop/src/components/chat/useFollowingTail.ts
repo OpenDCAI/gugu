@@ -25,6 +25,7 @@ export function useFollowingTail({
   isPreservingPosition,
   isAtBottomRef,
   setFollowingTail,
+  enabled = true,
 }: {
   resetKey: string
   unreadNavigationPending: boolean
@@ -33,13 +34,14 @@ export function useFollowingTail({
   isPreservingPosition: () => boolean
   isAtBottomRef: RefObject<boolean>
   setFollowingTail: (following: boolean | undefined) => void
+  enabled?: boolean
 }): { viewportAtBottom: boolean; onAtBottomChange: (atBottom: boolean) => void } {
   const [level, setLevel] = useState({ resetKey, atBottom: true })
   const viewportAtBottom = level.resetKey === resetKey ? level.atBottom : true
   // The level records every report, including those made while a saved position is restored: dropping
   // them left the level at its default and a later gate flip pinned a reader who was reading history.
   const onAtBottomChange = useCallback((atBottom: boolean) => setLevel({ resetKey, atBottom }), [resetKey])
-  const following = viewportAtBottom && !unreadNavigationPending && !hasNewer && !loading
+  const following = enabled && viewportAtBottom && !unreadNavigationPending && !hasNewer && !loading
   useEffect(() => {
     // @@@sticky-pin (#667) - while a saved position is restored the restore owns following (it ends with
     // false itself); the list's at-bottom reading is transient in the meantime.

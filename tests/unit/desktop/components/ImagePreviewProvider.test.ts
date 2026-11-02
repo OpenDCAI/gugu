@@ -3,6 +3,7 @@
 // 手势与开合过渡是 PhotoSwipe 的本职,产品面实测在 mac1(见 #6607);这里钉住咕咕自己加的那一层。
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type PhotoSwipe from 'photoswipe'
 import { ImagePreviewProvider } from '../../../../apps/desktop/src/components/ImagePreviewProvider'
 import { openImageViewer } from '../../../../apps/desktop/src/lib/imageViewer'
 import { isSheetOpen } from '../../../../apps/desktop/src/components/ui/sheetStack'
@@ -58,6 +59,38 @@ async function openViewer(options: { toast?: ToastContextValue['toast']; images?
 }
 
 describe('ImagePreviewProvider', () => {
+  it.each([1, 4])('keeps the current image rectangle when an original at %sx resolution arrives', async (resolution) => {
+    vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1280)
+    const { default: PhotoSwipeCtor } = await import('photoswipe')
+    const init = PhotoSwipeCtor.prototype.init
+    const instances: PhotoSwipe[] = []
+    vi.spyOn(PhotoSwipeCtor.prototype, 'init').mockImplementation(function (this: PhotoSwipe) {
+      instances.push(this)
+      return init.call(this)
+    })
+    const thumb = document.createElement('img')
+    Object.defineProperties(thumb, { complete: { value: true }, naturalWidth: { value: 1200 }, naturalHeight: { value: 800 } })
+    let finish!: (url: string) => void
+    const original = new Promise<string>(resolve => { finish = resolve })
+    await openViewer({ images: [{ url: 'blob:thumbnail', alt: 'geometry', thumb, full: () => original }] })
+    const pswp = instances[0]
+    const slide = pswp.currSlide!
+    await act(async () => {
+      slide.zoomTo(1.8, { x: 400, y: 300 }, 0, true)
+      slide.panTo(-160, -100)
+    })
+    const before = { width: slide.width * slide.currZoomLevel, height: slide.height * slide.currZoomLevel, ...slide.pan }
+    await act(async () => finish('blob:original'))
+    await waitForCondition(() => document.querySelector('img.pswp__img[src="blob:original"]') !== null, 'original bytes were not displayed')
+    const image = pswp.currSlide!.content.element as HTMLImageElement
+    Object.defineProperties(image, { naturalWidth: { value: 1200 * resolution }, naturalHeight: { value: 800 * resolution } })
+    await act(async () => image.dispatchEvent(new Event('load')))
+    expect(pswp.currSlide).toBe(slide)
+    expect(slide.width * slide.currZoomLevel).toBeCloseTo(before.width)
+    expect(slide.height * slide.currZoomLevel).toBeCloseTo(before.height)
+    expect(slide.pan).toEqual({ x: before.x, y: before.y })
+  })
+
   it('shows the viewer before thumbnail bytes, then upgrades through the existing original loader', async () => {
     let showThumbnail!: (url: string) => void, showOriginal!: (url: string) => void
     const thumbnail = new Promise<string>(resolve => { showThumbnail = resolve })
