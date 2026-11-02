@@ -182,7 +182,7 @@ async function invokeModelAccessAs(
   if (!platformModelsEnabled()) throw new Error('Official model service is not configured')
   // #5331 签令牌走 Chromium 连接池(与 supabase-js 同池,空闲保活约 5 分钟);Node 全局 fetch 的 undici 池
   // 4 s 就断,两次新建会话之间必然冷掉,每次都重握 0.95 s 的 TLS。electron 缺席(单测)时退回全局 fetch。
-  fcp('main:model-access:start')
+  const fcpAction = String(body.action); fcp('main:model-access:start', { action: fcpAction, stack: (new Error().stack ?? '').split('\n').slice(2, 7).map((l) => l.trim().replace(/^at /, '').replace(/\(.*\//, '(')).join(' < ') })
   const response = await modelAccessFetch(`${getSupabaseUrl().replace(/\/$/, '')}/functions/v1/model-access`, {
     method: 'POST',
     headers: {
@@ -193,7 +193,7 @@ async function invokeModelAccessAs(
     body: JSON.stringify(body),
   }).catch((error: unknown) => { throw new ModelAccessUnreachableError(error) })
   const payload = await response.json().catch(() => ({})) as Record<string, unknown>
-  fcp('main:model-access:end', { status: response.status })
+  fcp('main:model-access:end', { action: fcpAction, status: response.status })
   if (!response.ok) {
     throw new ModelAccessHttpError(
       typeof payload.error === 'string' ? payload.error : `model access HTTP ${response.status}`,
