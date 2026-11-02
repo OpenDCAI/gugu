@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:net';
+import { createServer, type Server, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -32,6 +32,7 @@ let outside: string;
 let listener: Server;
 let port: number;
 let connections = 0;
+const sockets = new Set<Socket>();
 
 function removeFixture(path: string): void {
   if (!dir?.startsWith(join(tmpdir(), 'gugu-program-confine-')) || ![dir, data, outside].includes(path)) throw new Error('Not an owned fixture path');
@@ -164,12 +165,21 @@ beforeAll(async () => {
   writeFileSync(join(bundle, 'worker-net.mjs'), WORKER_NET);
   writeFileSync(join(outside, 'secret'), 'not yours');
   // Answers anything with a minimal HTTP response, so the control's http / fetch complete rather than hang.
-  listener = createServer((socket) => { connections += 1; socket.on('error', () => {}); socket.end('HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n') });
+  listener = createServer((socket) => {
+    connections += 1;
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
+    socket.on('error', () => {});
+    socket.end('HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+  });
   await new Promise<void>((ok) => listener.listen(Number(process.env.A5_PROBE_PORT || 0), '127.0.0.1', ok));
   port = (listener.address() as { port: number }).port;
 }, 60_000);
 
 afterAll(async () => {
+  // A control client may leave a half-closed connection; the fixture owns its accepted sockets.
+  process.stderr.write(`Close own fixture sockets: ${sockets.size}\n`);
+  for (const socket of sockets) socket.destroy();
   if (listener) await new Promise((ok) => listener.close(ok));
   if (dir) removeFixture(dir);
 });
