@@ -15,17 +15,19 @@ import { reloadMyAssistant } from '../../lib/myAssistant'
 import { rendererLogger } from '../../lib/log'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { requestAddServerOnOpen } from '../../lib/addServerIntent'
+import { clearAssistantOnboardingNavigation } from '../../lib/assistantOnboardingNavigation'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { Button } from '../ui/Button'
 
 const log = rendererLogger('assistant/server-setup')
 
 /** 只选择已添加的服务器；设备添加仍由设置页的既有流程负责。 */
-export function AssistantServerSetup({ ownerUserId, name, createDraft, onBack }: {
+export function AssistantServerSetup({ ownerUserId, name, createDraft, onBack, onAddServer }: {
   ownerUserId: string
   name: string
   createDraft: () => Promise<AssistantSetupDraft>
   onBack: () => void
+  onAddServer?: () => void
 }) {
   const { t } = useTranslation('assistant')
   const [pending, setPending] = useState(() => pendingServerAssistant(ownerUserId))
@@ -61,6 +63,7 @@ export function AssistantServerSetup({ ownerUserId, name, createDraft, onBack }:
       const options = {
         signal: controller.signal,
         onInstalling: () => {
+          clearAssistantOnboardingNavigation(ownerUserId)
           setInstalling(true)
           setPending(pendingServerAssistant(ownerUserId))
           writeSetupStep(ownerUserId, 'shell')
@@ -103,6 +106,7 @@ export function AssistantServerSetup({ ownerUserId, name, createDraft, onBack }:
   }, [])
 
   function openDevices() {
+    onAddServer?.()
     requestAddServerOnOpen()
     window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: 'devices' } }))
   }

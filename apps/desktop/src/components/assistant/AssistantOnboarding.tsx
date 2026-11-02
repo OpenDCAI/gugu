@@ -24,6 +24,7 @@ import { AssistantIntro } from './AssistantIntro'
 import { AssistantHomeChoice } from './AssistantHomeChoice'
 import { AssistantServerSetup } from './AssistantServerSetup'
 import { pendingServerAssistant } from '../../lib/assistantServerSetup'
+import { clearAssistantOnboardingNavigation, readAssistantOnboardingNavigation, saveAssistantOnboardingNavigation } from '../../lib/assistantOnboardingNavigation'
 import { AssistantSetupIdentity } from './AssistantSetupIdentity'
 import { DEFAULT_ASSISTANT_LOOK } from '../agentAvatar/look'
 import { reloadMyAssistant } from '../../lib/myAssistant'
@@ -72,8 +73,9 @@ export function AssistantOnboarding({
 }) {
   const { t } = useTranslation('assistant')
   const cloudEnabled = cloudComputerEnabled()
-  const [step, setStep] = useState<Step>(() => (takeAssistantStartAtHome(ownerUserId) ? 'name' : 'intro'))
-  const [draft, setDraft] = useState<AssistantSetupDraft>(() => ({
+  const [navigation] = useState(() => readAssistantOnboardingNavigation(ownerUserId))
+  const [step, setStep] = useState<Step>(() => navigation?.step ?? (takeAssistantStartAtHome(ownerUserId) ? 'name' : 'intro'))
+  const [draft, setDraft] = useState<AssistantSetupDraft>(() => navigation?.draft ?? ({
     // owner 10-16 夜:助理默认名就是「咕咕」(不再叫「个人助理」);人可以改成别的
     name: t('setup.defaultName'),
     ...DEFAULT_ASSISTANT_LOOK,
@@ -101,6 +103,10 @@ export function AssistantOnboarding({
   const [memberAttempt, setMemberAttempt] = useState(0)
   const hue = BODY_COLORS[draft.color]?.hue ?? 268
   const displayName = draft.name.trim() || t('setup.namePlaceholder')
+
+  useEffect(() => {
+    if (step !== 'server') clearAssistantOnboardingNavigation(ownerUserId)
+  }, [ownerUserId, step])
 
   // 上次在这台电脑上建到一半(退出 / 断网):接着建同一个,❌ 再建一个。
   useEffect(() => {
@@ -266,7 +272,8 @@ export function AssistantOnboarding({
         ) : step === 'name' ? (
           <AssistantSetupIdentity draft={draft} onChange={setDraft} onBack={() => setStep('intro')} onContinue={() => setStep('home')} />
         ) : step === 'server' ? (
-          <AssistantServerSetup key={ownerUserId} ownerUserId={ownerUserId} name={displayName} createDraft={setupDraft} onBack={() => setStep('home')} />
+          <AssistantServerSetup key={ownerUserId} ownerUserId={ownerUserId} name={displayName} createDraft={setupDraft} onBack={() => setStep('home')}
+            onAddServer={() => saveAssistantOnboardingNavigation(ownerUserId, draft)} />
         ) : memberError ? (
           <>
             <p className="ta-onb-error" role="alert">{memberError}</p>
