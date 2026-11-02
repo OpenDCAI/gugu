@@ -1847,13 +1847,15 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesVersions: 'appFileVersions',
         filesReadVersion: 'readAppFileVersion',
       } as const satisfies Record<typeof method, keyof typeof files>;
-      const answer = await (files[verbs[method]] as (on: typeof page, input: never) => unknown)(page, args as never);
-      // The page went away while it listed: `stopPageWatches` let go before this listing's tree was kept.
-      if (listsWorkingCopy && !workingCopyPages.has(caller.pageId)) {
-        const { releaseWorkingCopies } = await import('@main/core/extensions/working-copy-files');
-        releaseWorkingCopies(caller.pageId);
+      try {
+        return await (files[verbs[method]] as (on: typeof page, input: never) => unknown)(page, args as never);
+      } finally {
+        // The page went away while it listed: `stopPageWatches` let go before this listing's tree was kept.
+        if (listsWorkingCopy && !workingCopyPages.has(caller.pageId)) {
+          const { releaseWorkingCopies } = await import('@main/core/extensions/working-copy-files');
+          releaseWorkingCopies(caller.pageId);
+        }
       }
-      return answer;
     }
 
     case 'filesWatch':

@@ -33,7 +33,8 @@ vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({ agentIdsByS
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 let finishListing: (entries: unknown[]) => void = () => undefined;
-const listAppFiles = vi.fn(() => new Promise<unknown[]>((resolve) => { finishListing = resolve; }));
+let failListing: (error: Error) => void = () => undefined;
+const listAppFiles = vi.fn(() => new Promise<unknown[]>((resolve, reject) => { finishListing = resolve; failListing = reject; }));
 vi.mock('@main/core/extensions/app-files', () => ({ listAppFiles, resourceChatOf: async (id: string) => id }));
 const releaseWorkingCopies = vi.fn();
 vi.mock('@main/core/extensions/working-copy-files', () => ({ releaseWorkingCopies }));
@@ -68,5 +69,17 @@ describe('a page listing a working copy', () => {
     await answer;
     expect(releaseWorkingCopies).toHaveBeenCalledTimes(2);
     expect(releaseWorkingCopies).toHaveBeenLastCalledWith(PAGE);
+  });
+
+  it('gone before its listing fails: the failed listing lets the tree go too', async () => {
+    releaseWorkingCopies.mockClear();
+    listAppFiles.mockClear();
+    const answer = list();
+    await vi.waitFor(() => expect(listAppFiles).toHaveBeenCalledTimes(1));
+    stopPageWatches(PAGE);
+    await vi.waitFor(() => expect(releaseWorkingCopies).toHaveBeenCalledTimes(1));
+    failListing(new Error('listing failed'));
+    expect((await answer).ok).toBe(false);
+    expect(releaseWorkingCopies).toHaveBeenCalledTimes(2);
   });
 });
