@@ -160,8 +160,8 @@ function wireViewer(pswp: PhotoSwipe, dialogLabel: string, onFileError: (item: I
       if (data.src === url) return
       data.src = url
       data.item.url = url
-      data.sizeKnown = false
-      pswp.refreshSlideContent(index)
+      // Refreshing a slide destroys its zoom/pan. Only the existing image's bytes changed.
+      pswp.contentLoader.getContentByIndex(index)?.loadImage(false)
     }
     void (async () => {
       if (data.item.preview) {
@@ -190,11 +190,28 @@ function wireViewer(pswp: PhotoSwipe, dialogLabel: string, onFileError: (item: I
   pswp.on('loadComplete', ({ content, isError }) => {
     const data = content.data as ViewerSlide
     const img = content.element
-    if (isError || data.sizeKnown || !(img instanceof HTMLImageElement) || img.naturalWidth === 0) return
-    data.width = img.naturalWidth
-    data.height = img.naturalHeight
+    if (isError || !(img instanceof HTMLImageElement) || !img.naturalWidth || !img.naturalHeight) return
+    if (data.sizeKnown && data.width === img.naturalWidth && data.height === img.naturalHeight) return
+    const wasKnown = data.sizeKnown
+    const slide = content.slide
+    const zoom = slide ? slide.currZoomLevel * slide.width / img.naturalWidth : 0
+    data.width = content.width = img.naturalWidth
+    data.height = content.height = img.naturalHeight
     data.sizeKnown = true
-    pswp.refreshSlideContent(content.index)
+    if (!slide) return
+    slide.width = content.width
+    slide.height = content.height
+    slide.calculateSize()
+    if (wasKnown) {
+      // A higher-resolution source has the same visible rectangle at a smaller pixel zoom.
+      slide.setZoomLevel(zoom)
+      slide.currentResolution = zoom
+    } else {
+      slide.currentResolution = 0
+      slide.zoomAndPanToInitial()
+    }
+    slide.updateContentSize(true)
+    slide.applyCurrentZoomPan()
   })
 
   // undefined = 没有起落位置,PhotoSwipe 退成淡入淡出(它自己的实现也这样返回,只是类型没写)
@@ -439,6 +456,7 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const openPswp = viewer?.pswp
+  const imageBounds = useCallback(() => openPswp?.currSlide?.content.element?.getBoundingClientRect(), [openPswp])
   // 开着的查看器与 Sheet 同进一个栈:返回键 / Esc 只归栈顶,MainLayout 见 isSheetOpen() 就不动下面的页面
   const isTopLayer = useBackLayer(openPswp ? () => editing ? setEditing(null) : openPswp.close() : undefined)
   useEffect(() => {
@@ -487,7 +505,7 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
     <>
       {children}
       {viewer ? createPortal(editing ? <Suspense fallback={<div role="status">{t('imageAnnotate.loading')}</div>}>
-        <UiPortalContainerProvider value={viewer.root}><AnnotateEditor item={editing} mobile={mobile} onCancel={() => setEditing(null)} onDone={() => viewer.pswp.close()} /></UiPortalContainerProvider>
+        <UiPortalContainerProvider value={viewer.root}><AnnotateEditor item={editing} imageBounds={imageBounds} mobile={mobile} onCancel={() => setEditing(null)} onDone={() => viewer.pswp.close()} /></UiPortalContainerProvider>
       </Suspense> : <ImageViewerChrome viewer={viewer} mobile={mobile} onEdit={() => setEditing(viewer.items[viewer.index])} />, viewer.root) : null}
     </>
   )

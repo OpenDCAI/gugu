@@ -14,7 +14,7 @@ import { AnnotateDoneMenu } from './AnnotateDoneMenu'
 import { annotationItem } from './annotateSource'
 import './annotate.css'
 
-export default function AnnotateEditor({ item, mobile, onCancel, onDone }: { item: ImageViewerItem; mobile: boolean; onCancel: () => void; onDone: () => void }) {
+export default function AnnotateEditor({ item, imageBounds, mobile, onCancel, onDone }: { item: ImageViewerItem; imageBounds?: () => DOMRectReadOnly | undefined; mobile: boolean; onCancel: () => void; onDone: () => void }) {
   const { t } = useTranslation('main', { keyPrefix: 'imageAnnotate' })
   const [ready, setReady] = useState<{ image: HTMLImageElement; item: ImageViewerItem } | null>(null), [error, setError] = useState<string | null>(null), [attempt, setAttempt] = useState(0)
   useEffect(() => {
@@ -23,17 +23,17 @@ export default function AnnotateEditor({ item, mobile, onCancel, onDone }: { ite
     void Promise.all([loadAnnotationImage(item), annotationItem(item)]).then(([image, source]) => { if (!disposed) setReady({ image, item: source }) }, failure => { if (!disposed) setError(messageForUser(failure)) })
     return () => { disposed = true }
   }, [item, attempt])
-  return ready ? <AnnotationCanvas item={ready.item} image={ready.image} mobile={mobile} onCancel={onCancel} onDone={onDone} />
+  return ready ? <AnnotationCanvas item={ready.item} image={ready.image} imageBounds={imageBounds} mobile={mobile} onCancel={onCancel} onDone={onDone} />
     : <div className="ia-editor ia-loading" data-mobile={mobile || undefined}>
       <Button onClick={onCancel}>{t('cancel')}</Button>
       {error ? <><p role="alert">{error}</p><Button onClick={() => setAttempt(value => value + 1)}>{t('retry')}</Button></> : <p role="status">{t('loading')}</p>}
     </div>
 }
-function AnnotationCanvas({ item, image, mobile, onCancel, onDone }: {
-  item: ImageViewerItem; image: HTMLImageElement; mobile: boolean; onCancel: () => void; onDone: () => void
+function AnnotationCanvas({ item, image, imageBounds, mobile, onCancel, onDone }: {
+  item: ImageViewerItem; image: HTMLImageElement; imageBounds?: () => DOMRectReadOnly | undefined; mobile: boolean; onCancel: () => void; onDone: () => void
 }) {
   const { t } = useTranslation('main', { keyPrefix: 'imageAnnotate' })
-  const editor = useAnnotateCanvas(newDocument(image.naturalWidth, image.naturalHeight))
+  const editor = useAnnotateCanvas(newDocument(image.naturalWidth, image.naturalHeight), imageBounds)
   const root = useRef<HTMLDivElement>(null), background = useRef<HTMLCanvasElement>(null)
   const [colors, setColors] = useState<AnnotateColors | null>(null), [renderError, setRenderError] = useState<string | null>(null)
   useLayoutEffect(() => { if (root.current) { setColors(annotationColors(root.current)); root.current.focus() } }, [])
