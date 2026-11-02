@@ -710,9 +710,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       }
 
       const timing = chatSendTimings.get(id); if (timing) timing.optimisticAt = performance.now()
-      // @@@send-outbox (#1762 洞③/#1941) — 入队即返回(resolve ≠ 已送达):投递/超时/退避重试/失败
-      // 可见性全归 outbox(唯一 chokepoint);送达连带动作(权威 row/水位/预览/agent 运行态点亮)在
-      // wiring.onSent,实时发送与 reload 恢复投递同一条路径。
+      // @@@send-outbox — enqueue durably stages the row; outbox owns delivery/state, and wiring.onSent reconciles authority.
       try {
         await outboxRef.current!.enqueue({
           id, chatId: targetChatId, senderUserId: userId, content: content.trim(),
@@ -728,11 +726,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         }
         throw error
       }
-      // 侧栏预览不在入队时乐观写:丢弃无法回滚会让列表永远展示已丢弃文本(#1762 评审[10]);
-      // 预览唯一写点 = wiring.onSent(送达后)。
-      // @@@threads (#1531) — 新建话题的 root 是结构性发送:enqueue 触发器在 INSERT 时按 is_thread_root
-      // 路由后续回复,root 未落库就开话题composer = 回复投向不存在的锚(#1762 评审[6][8])。等真送达,
-      // 失败即抛(与旧行为等价:InputArea 回滚 + toast)。普通消息保持入队即返回。
+      // Only wiring.onSent updates the sidebar preview; discarded queued text must never survive in the preview.
+      // @@@threads (#1531/#1762) — open a new topic composer only after the root reaches the server, so replies have an anchor.
+      // Delivery failure still restores the InputArea draft; the local ack now runs after server confirmation.
       if (opts.isThreadRoot) await outboxRef.current!.outbox.delivered(id)
       // @@@threads (#957) — 返回消息 id,供「新建话题」首条发完后 openThread(它) 进入话题。
       return id
