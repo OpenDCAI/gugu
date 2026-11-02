@@ -1,5 +1,5 @@
 import type { Plugin } from 'vite'
-import { packageIdentity, SERVER_PACKAGE_IDENTITY } from '../../apps/desktop/electron/server/server-installation.mts'
+import { packageIdentity, SERVER_PACKAGE_IDENTITY } from '../../apps/desktop/electron/server/server-package-environment.mts'
 
 /** Emitted by the same build and inputs that bake the server's backend, never reconstructed at packaging time. */
 export function serverPackageIdentity(backendUrl: string, channel: string): Plugin {

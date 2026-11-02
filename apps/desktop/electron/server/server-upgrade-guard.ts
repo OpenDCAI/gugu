@@ -27,7 +27,7 @@ export { UPGRADE_PENDING_FILE, readUpgradeMarker, writeUpgradeMarker, clearUpgra
 import { spawn } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import path from 'node:path'
-import { controllerOwnsUpdates } from './server-installation.mts'
+import { controllerOwnsUpdates } from './server-package-environment.mts'
 import { SERVER_ROLLBACK_FILE, SUPERVISOR_HEALTH_FILE } from '@gugu/core'
 import { isOwnProcessAlive, SERVER_PROCESS_MARK } from './process-alive'
 import { readVersionPin, versionBinary } from './server-account-versions'

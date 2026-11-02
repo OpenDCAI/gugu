@@ -22,8 +22,9 @@ import { readAccountRuntime } from './server-account-runtime'
 import { recordLoginShell, startKeeper } from './server-keeper'
 import { activityProof, listAccounts, supervisorDataDir } from './server-layout'
 import { SERVICE_UMASK } from './server-permissions'
-import { controllerOwnsUpdates } from './server-installation.mts'
+import { assertPackageEnvironment, controllerOwnsUpdates } from './server-package-environment.mts'
 import { spawnUpgradeGuard, writeUpgradeMarker } from './server-upgrade-guard'
+import { readUpgradeMarker } from './server-version-lifecycle'
 import { installationServerNames } from './server-installation'
 
 /** 这一份 server 的通道名字(server-names.ts):正式版 `gugu-server.service`,Beta `gugu-server-beta.service`,其余同理。 */
@@ -509,11 +510,19 @@ export async function installService(out: Out): Promise<boolean> {
 }
 
 /** 重新执行安装命令换版本时,与自动升级同一个看门狗(server-upgrade-guard.ts)。旧版本不在盘上就退不回去,不请。 */
-function guardReplacement(home: string, before: RunningServer, target: string | null): void {
+export function guardReplacement(home: string, before: RunningServer, target: string | null): void {
   if (!before.version || !target) return
+  const pending = readUpgradeMarker(home)
+  if (pending?.to === target) {
+    assertPackageEnvironment(home, pending.fromDir)
+    assertPackageEnvironment(home, pending.toDir)
+    return
+  }
   const fromDir = path.join(home, 'versions', before.version)
   const toDir = path.join(home, 'versions', target)
   if (!fs.existsSync(path.join(fromDir, 'bin', 'gugu-server')) || !fs.existsSync(toDir)) return
+  assertPackageEnvironment(home, fromDir)
+  assertPackageEnvironment(home, toDir)
   if (writeUpgradeMarker(home, { from: before.version, to: target, fromDir, toDir, switchedAt: Date.now() })) spawnUpgradeGuard(home)
 }
 

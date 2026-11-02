@@ -191,11 +191,26 @@ if ! "$VERIFIER" help 2>/dev/null | grep -q prepare-install; then
   if [ -x "$SERVER_HOME/current/bin/gugu-server" ] && "$SERVER_HOME/current/bin/gugu-server" help 2>/dev/null | grep -q prepare-install; then
     VERIFIER="$SERVER_HOME/current/bin/gugu-server"
   else
-    die "这个包不支持安装环境核对,请先使用支持 prepare-install 的 server 迁移"
+    # A first standalone installation has no previous account environment to preserve.
+    # Keep the historical bootstrap path; adopting existing accounts or controller ownership
+    # still requires a verifier, including when an unknown command happens to exit zero.
+    ACCOUNT_ENTRIES=""
+    if [ -e "$SERVER_HOME/accounts" ]; then
+      [ -d "$SERVER_HOME/accounts" ] || die "无法核实已有账号目录"
+      ACCOUNT_ENTRIES="$(ls -A "$SERVER_HOME/accounts")" || die "无法读取已有账号目录"
+    fi
+    if [ "$UPDATE_OWNER" = server ] && [ -z "$MIGRATE_FROM" ] && [ -z "$ACCOUNT_ENTRIES" ] &&
+      [ ! -e "$SERVER_HOME/current" ] && [ ! -L "$SERVER_HOME/current" ] && [ ! -e "$SERVER_HOME/installation.json" ]; then
+      VERIFIER=""
+    else
+      die "这个包不支持安装环境核对,请先使用支持 prepare-install 的 server 迁移"
+    fi
   fi
 fi
-GUGU_SERVER_HOME="$SERVER_HOME" "$VERIFIER" prepare-install --candidate "$TARGET" --channel "$CHANNEL" \
-  --update-owner "$UPDATE_OWNER" --migrate-from "$MIGRATE_FROM" || die "安装环境无法核实,保留原版本和账号资料"
+if [ -n "$VERIFIER" ]; then
+  GUGU_SERVER_HOME="$SERVER_HOME" "$VERIFIER" prepare-install --candidate "$TARGET" --channel "$CHANNEL" \
+    --update-owner "$UPDATE_OWNER" --migrate-from "$MIGRATE_FROM" || die "安装环境无法核实,保留原版本和账号资料"
+fi
 
 # 切换 current:先建临时软链,再改名覆盖。
 # ⚠ 不能只写 `mv -f current.tmp current`:current 是指向目录的软链,GNU / BSD 的 mv 都会把 current.tmp

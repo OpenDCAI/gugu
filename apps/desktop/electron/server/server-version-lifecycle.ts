@@ -5,12 +5,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pruneVersions, readVersionPin, writeVersionPin } from './server-account-versions'
 import { readAccountState } from './server-account-machine'
-import { listAccounts } from './server-layout'
-import { assertPackageEnvironment } from './server-installation.mts'
+import { activityProof, listAccounts } from './server-layout'
+import { assertPackageEnvironment } from './server-package-environment.mts'
 
 export const UPGRADE_PENDING_FILE = 'upgrade-pending.json'
 /** The staged package installed but did not boot an account: a boot failure, not an install failure. */
 export class AccountBootRejectedError extends Error {}
+export class ServerPackageBusyError extends Error {}
 
 export type UpgradeMarker = { from: string; to: string; fromDir: string; toDir: string; switchedAt: number }
 const dataDir = (home: string) => path.join(home, 'data')
@@ -125,4 +126,31 @@ export function createServerVersionLifecycle(options: {
     },
     reclaim,
   }
+}
+
+/** Controller handoff uses the same verified transition and rollback marker as self-upgrade.
+ * The marker and watchdog precede service replacement, including legacy service-name repair. */
+export async function activateServerPackage(home: string, directory: string, options: {
+  migrateFrom?: string
+  verifyBoot?: (binary: string) => Promise<void>
+  beforeSwitch: () => void
+  isBusy?: () => boolean
+}): Promise<void> {
+  const versions = fs.realpathSync(path.join(home, 'versions'))
+  const target = fs.realpathSync(directory)
+  if (path.dirname(target) !== versions) throw new Error('Candidate is outside the installation')
+  const current = path.join(home, 'current')
+  const previous = fs.existsSync(current) ? fs.realpathSync(current) : target
+  if (options.migrateFrom && !/^[0-9][A-Za-z0-9.-]*$/.test(options.migrateFrom)) throw new Error('Invalid legacy migration version')
+  const from = options.migrateFrom ? fs.realpathSync(path.join(versions, options.migrateFrom)) : previous
+  if (path.dirname(from) !== versions) throw new Error('Rollback version is outside the installation')
+  assertPackageEnvironment(home, from)
+  const layout = { home, versions, version: path.basename(from) }
+  const lifecycle = createServerVersionLifecycle({ layout, verifyBoot: options.verifyBoot })
+  await lifecycle.stage(path.basename(target), async () => {})
+  if (target === previous) return
+  const busy = options.isBusy ?? (() => listAccounts().some(account => account.signedIn && activityProof(account.dataDir) !== 'idle'))
+  if (busy()) throw new ServerPackageBusyError('Accounts are no longer idle; package activation was deferred')
+  lifecycle.switchSupervisor({ from: path.basename(from), to: path.basename(target), fromDir: from,
+    toDir: target, switchedAt: Date.now() }, options.beforeSwitch)
 }

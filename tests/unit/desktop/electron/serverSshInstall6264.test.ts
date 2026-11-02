@@ -365,7 +365,7 @@ function fakeReleaseSite(): { root: string; base: string; version: string; sha25
   const arch = os.arch() === 'arm64' ? 'arm64' : 'x64'
   const stage = path.join(root, 'stage', `gugu-server-${version}-${osName}-${arch}`)
   fs.mkdirSync(path.join(stage, 'bin'), { recursive: true })
-  fs.writeFileSync(path.join(stage, 'bin', 'gugu-server'), '#!/bin/sh\necho "gugu-server help prepare-install --grant-stdin"\n', { mode: 0o755 })
+  fs.writeFileSync(path.join(stage, 'bin', 'gugu-server'), '#!/bin/sh\necho "gugu-server help --grant-stdin"\n', { mode: 0o755 })
   fs.writeFileSync(path.join(stage, 'version'), version)
   fs.mkdirSync(path.join(root, version))
   const tarball = path.join(root, version, `gugu-server-${version}-${osName}-${arch}.tar.gz`)
@@ -445,7 +445,8 @@ describe.skipIf(!hasCurl)('远端脚本真跑(file:// 假下载站)', () => {
 // 实机踩到的坑:`mv -f current.tmp current` 在 current 是指向目录的软链时,GNU / BSD mv 都把 current.tmp 挪进
 // versions/<旧版本>/ 里、退出码却是 0 —— current 没切,随后的 `service install` 跑的还是旧版本。
 
-/** 造一个 `--package` 模式能用的包。假 gugu-server 把自己被叫到的命令记进 $HOME/calls.log(带上自己的版本)。 */
+/** Modern upgrade fixture advertises prepare-install; fakeReleaseSite retains the historical first-install interface.
+ * The executable records calls so the test can verify which version registers the service. */
 function fakePackage(root: string, version: string): { tarball: string; sha256: string } {
   const osName = os.platform() === 'darwin' ? 'darwin' : 'linux'
   const arch = os.arch() === 'arm64' ? 'arm64' : 'x64'

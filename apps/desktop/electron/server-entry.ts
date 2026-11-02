@@ -24,7 +24,7 @@ import * as serverShim from './server/server-electron-shim'
 import { runWithRunningVersion } from './server/server-version-match'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { ensurePrivateDir, summarizeChanges, tightenServerTree } from './server/server-permissions'
-import { assertRuntimeBackend, ownPackageIdentity, packageBackend, packageIdentity, prepareInstallation } from './server/server-installation.mts'
+import { assertRuntimeBackend, ownPackageIdentity, packageBackend, packageIdentity, prepareInstallation } from './server/server-package-environment.mts'
 import { getSupabaseUrl } from '@gugu/core/cloud/config'
 import { resolveServerHome } from './server/server-installation'
 
@@ -211,8 +211,20 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
         updateOwner: owner, migrateFrom: argument('--migrate-from'),
       })
       if (owner === 'controller' && directory) {
-        const { checkAccountBoot } = await import('./server/server-selftest')
-        await checkAccountBoot(path.join(directory, 'bin', 'gugu-server'))
+        if (args.includes('--activate')) {
+          const { activateServerPackage, ServerPackageBusyError } = await import('./server/server-version-lifecycle')
+          const { spawnUpgradeGuard } = await import('./server/server-upgrade-guard')
+          try {
+            await activateServerPackage(serverHome, directory, { migrateFrom: argument('--migrate-from'),
+              beforeSwitch: () => { if (!spawnUpgradeGuard(serverHome)) throw new Error('Cannot start the upgrade rollback watchdog') } })
+          } catch (error) {
+            if (error instanceof ServerPackageBusyError) { stderr(error.message); return process.exit(75) }
+            throw error
+          }
+        } else {
+          const { checkAccountBoot } = await import('./server/server-selftest')
+          await checkAccountBoot(path.join(directory, 'bin', 'gugu-server'))
+        }
       }
       out(JSON.stringify(installation))
       return process.exit(0)

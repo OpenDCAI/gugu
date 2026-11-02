@@ -23,7 +23,7 @@ import { startDetached } from './server-service'
 import type { SupervisorLog } from './server-supervisor'
 import { touchVersion, versionManifestUrl } from './server-account-versions'
 import { readBadVersions, spawnUpgradeGuard } from './server-upgrade-guard'
-import { controllerOwnsUpdates, readInstallation } from './server-installation.mts'
+import { controllerOwnsUpdates, readInstallation } from './server-package-environment.mts'
 
 /**
  * 新版本最迟半小时就发现(原先 6 小时:新 Beta 要好几个小时才到云机器上,10-27 owner 撞到)。

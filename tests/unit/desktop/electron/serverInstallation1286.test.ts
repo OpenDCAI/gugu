@@ -1,10 +1,16 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { spawnSync, execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { assertPackageEnvironment, assertRuntimeBackend, controllerOwnsUpdates, packageBackend, prepareInstallation, readInstallation, SERVER_INSTALLATION } from '../../../../apps/desktop/electron/server/server-installation.mts'
-import { createServerVersionLifecycle, pointCurrent } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
+import { assertPackageEnvironment, assertRuntimeBackend, controllerOwnsUpdates, packageBackend, prepareInstallation, readInstallation, SERVER_INSTALLATION } from '../../../../apps/desktop/electron/server/server-package-environment.mts'
+import { activateServerPackage, createServerVersionLifecycle, pointCurrent, readUpgradeMarker } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
+import { rollbackUpgrade } from '../../../../apps/desktop/electron/server/server-upgrade-guard'
+import { guardReplacement, installServiceWith } from '../../../../apps/desktop/electron/server/server-service'
 import { startServerUpdater } from '../../../../apps/desktop/electron/server/server-updater'
+import { createAccountDriver } from '../../../../apps/desktop/electron/server/server-account-driver'
+import { INITIAL_ACCOUNT_STATE, writeAccountState } from '../../../../apps/desktop/electron/server/server-account-machine'
 
 const A = 'https://backend-a.example.test'
 const B = 'https://backend-b.example.test'
@@ -36,6 +42,94 @@ afterEach(() => {
 })
 
 describe('installation backend and package ownership', () => {
+  it('keeps standalone historical first installation while refusing an unverifiable existing or managed installation', () => {
+    const source = path.join(home, 'archive', 'gugu-server-1.0.0')
+    fs.mkdirSync(path.join(source, 'bin'), { recursive: true })
+    fs.writeFileSync(path.join(source, 'bin', 'gugu-server'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+    const archive = path.join(home, 'historical.tar.gz')
+    execFileSync('tar', ['-czf', archive, '-C', path.dirname(source), path.basename(source)])
+    const sha = createHash('sha256').update(fs.readFileSync(archive)).digest('hex')
+    const install = (root: string, owner: string) => spawnSync('sh', [path.resolve('scripts/gugu-server/install.sh'),
+      '--package', archive, '--version', '1.0.0', '--sha256', sha, '--update-owner', owner, '--no-service', '--no-login'],
+    { env: { ...process.env, HOME: path.join(home, 'user'), GUGU_SERVER_HOME: root }, encoding: 'utf8' })
+    const standalone = path.join(home, 'standalone')
+    const first = install(standalone, 'server')
+    expect(first.status, first.stderr).toBe(0)
+    expect(fs.readlinkSync(path.join(standalone, 'current'))).toBe('versions/1.0.0')
+    const data = path.join(standalone, 'accounts', 'original', 'data')
+    fs.mkdirSync(data, { recursive: true })
+    fs.writeFileSync(path.join(data, 'server-session.enc'), 'original credentials')
+    expect(install(standalone, 'server').status).not.toBe(0)
+    expect(fs.readFileSync(path.join(data, 'server-session.enc'), 'utf8')).toBe('original credentials')
+    const managed = path.join(home, 'managed')
+    expect(install(managed, 'controller').status).not.toBe(0)
+    expect(fs.existsSync(path.join(managed, 'current'))).toBe(false)
+  })
+
+  it.each([A, B])('checks the actual account rollback executable against the installation (%s)', async backend => {
+    candidate('2.0.0')
+    const old = candidate('1.0.0', backend, true)
+    prepareInstallation(home, identity(), { updateOwner: 'controller' })
+    const userId = '00000000-0000-4000-8000-000000000001'
+    const dir = path.join(home, 'accounts', userId), dataDir = path.join(dir, 'data')
+    fs.mkdirSync(dataDir, { recursive: true })
+    fs.writeFileSync(path.join(dataDir, 'server-session.enc'), 'original credentials')
+    writeAccountState(dataDir, { ...INITIAL_ACCOUNT_STATE, version: '2.0.0', previous: '1.0.0',
+      phase: { kind: 'booting', since: 1, quickExits: 0 } }, 1)
+    const account = { userId, dir, dataDir, homeDir: path.join(dir, 'home'), email: null, addedAt: null, signedIn: true, signedOut: null }
+    const driver = createAccountDriver({ layout: { home, versions: path.join(home, 'versions'), version: '2.0.0' },
+      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '2.0.0' }, verifyBoot: async () => { throw new Error('new package failed to boot') } }),
+      followSupervisor: true, log: { info: vi.fn(), warn: vi.fn() }, child: () => undefined, started: () => false, restart: vi.fn(), now: () => 2 })
+    for (let i = 0; i < 3; i++) driver.childExited(account, true)
+    driver.tick([account])
+    await driver.settled()
+    expect(driver.binaryFor(userId)).toEqual(backend === A ? { binary: path.join(old, 'bin', 'gugu-server'), version: '1.0.0' } : 'none')
+    expect(fs.readFileSync(path.join(dataDir, 'server-session.enc'), 'utf8')).toBe('original credentials')
+  })
+
+  it('preserves a verified legacy rollback source before service replacement, including when the replacement cannot start', async () => {
+    const original = candidate('1.0.0', A, true)
+    const wrong = candidate('2.0.0', B)
+    const target = candidate('3.0.0')
+    fs.symlinkSync(wrong, path.join(home, 'current'))
+    prepareInstallation(home, identity(), { updateOwner: 'controller', migrateFrom: '1.0.0' })
+    const guard = vi.fn(() => {
+      expect(readUpgradeMarker(home)?.fromDir).toBe(original)
+      expect(fs.realpathSync(path.join(home, 'current'))).toBe(wrong)
+    })
+    await activateServerPackage(home, target, { migrateFrom: '1.0.0', verifyBoot: async () => {}, isBusy: () => false, beforeSwitch: guard })
+    expect(guard).toHaveBeenCalledOnce()
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(target)
+    // Service install must retain the controller's verified original, rather than overwrite
+    // it with the old process's already-wrong backend version.
+    guardReplacement(home, { pid: 1, version: '2.0.0', supervisedBy: 'systemd' }, '3.0.0')
+    expect(readUpgradeMarker(home)?.fromDir).toBe(original)
+    let clock = 0
+    const started = await installServiceWith(() => {}, { mode: 'systemd', targetVersion: '3.0.0', running: () => null,
+      isAlive: () => false, isBusy: () => false, requireIdle: true, stop: vi.fn(),
+      registerSystemd: vi.fn(), registerLaunchd: vi.fn(), registerCron: () => true, startDetached: vi.fn(),
+      logHint: 'isolated test', user: 'test', sleep: async ms => { clock += ms }, now: () => clock })
+    expect(started).toBe(false)
+    const marker = readUpgradeMarker(home)!
+    expect(marker.from).toBe('1.0.0')
+    expect(await rollbackUpgrade(home, marker, { now: () => clock, lockHolder: () => null, kill: vi.fn(), isAlive: () => false,
+      sleep: async () => {}, restartsAutomatically: () => true, startKeeper: vi.fn(), log: vi.fn() })).toBe(true)
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(original)
+  })
+
+  it('rechecks idle after the activation boot check before publishing a pointer or stopping a service', async () => {
+    const original = candidate('1.0.0'), target = candidate('2.0.0')
+    fs.symlinkSync(original, path.join(home, 'current'))
+    prepareInstallation(home, identity(), { updateOwner: 'controller' })
+    const beforeSwitch = vi.fn()
+    let busy = false
+    await expect(activateServerPackage(home, target, { verifyBoot: async () => { busy = true }, isBusy: () => busy, beforeSwitch }))
+      .rejects.toThrow('no longer idle')
+    expect(beforeSwitch).not.toHaveBeenCalled()
+    expect(readUpgradeMarker(home)).toBeNull()
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(original)
+  })
+
   it('rejects a runtime backend override before account startup', () => {
     expect(() => assertRuntimeBackend(identity(), B)).toThrow('another backend')
     expect(() => assertRuntimeBackend(identity(), `${A}/`)).not.toThrow()
