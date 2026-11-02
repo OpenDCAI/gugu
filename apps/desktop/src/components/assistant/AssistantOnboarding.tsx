@@ -130,9 +130,9 @@ export function AssistantOnboarding({
       .finally(() => setBusy(resumed ? null : 'computer'))
   }, [ownerUserId, localDeviceId])
 
-  // 只有桌面安家页读取会员权益；读取失败如实显示，不能当成免费会员。
+  // 安家页读取会员权益；读取失败如实显示，不能当成免费会员。
   useEffect(() => {
-    if (!cloudEnabled || !localDeviceId || step !== 'home' || member !== null) return
+    if (!cloudEnabled || step !== 'home' || member !== null) return
     let cancelled = false
     setMemberError(null)
     getMembership()
@@ -144,7 +144,7 @@ export function AssistantOnboarding({
     return () => {
       cancelled = true
     }
-  }, [cloudEnabled, localDeviceId, step, member, memberAttempt])
+  }, [cloudEnabled, step, member, memberAttempt])
 
   const claimCloud = useCallback(async () => {
     setBusy('cloud')

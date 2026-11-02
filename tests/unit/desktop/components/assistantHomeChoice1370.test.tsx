@@ -47,13 +47,14 @@ it('routes server and local choices to their own setup paths', async () => {
   expect(callbacks.onComputer).toHaveBeenCalledOnce()
 })
 
-it('offers no setup actions on a mobile or web controller', async () => {
-  await render({ canHostHere: false, member: null })
-  expect(query('assistant-setup-desktop-required')).not.toBeNull()
-  expect(harness.container.querySelector('.ta-onb-choices')).toBeNull()
-  expect(query('assistant-setup-claim-cloud')).toBeNull()
+it('preserves cloud setup on mobile while hiding server and local installation', async () => {
+  await render({ canHostHere: false })
+  expect(query('assistant-setup-home-nocomputer')).not.toBeNull()
+  expect(query('assistant-setup-claim-cloud')).not.toBeNull()
   expect(query('assistant-setup-choose-server')).toBeNull()
   expect(query('assistant-setup-install-here')).toBeNull()
+  await click('assistant-setup-claim-cloud')
+  expect(callbacks.onCloud).toHaveBeenCalledOnce()
 })
 
 it('does not present a disabled cloud service as a membership restriction', async () => {

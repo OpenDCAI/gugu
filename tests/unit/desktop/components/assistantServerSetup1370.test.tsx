@@ -80,6 +80,26 @@ it('shows a read failure rather than claiming there are no servers', async () =>
   expect(f.setup).not.toHaveBeenCalled()
 })
 
+it('waits for cleanup before returning from a failed preparation', async () => {
+  f.setup.mockImplementation(async (_draft, _device, options) => {
+    f.pending = { ...record(), installationStarted: false }
+    options.onProgress({ phase: 'failed', cancellable: true })
+    throw new f.SetupError('runtime_failed')
+  })
+  f.resume.mockImplementation(async options => {
+    expect(options.signal.aborted).toBe(true)
+    expect(f.back).not.toHaveBeenCalled()
+    f.pending = null
+    throw new DOMException('Cancelled', 'AbortError')
+  })
+  await render()
+  await click(query('assistant-server-target')); await click(query('assistant-server-install'))
+  await click([...harness.container.querySelectorAll('button')].find(button => button.textContent === '返回') ?? null)
+  expect(f.resume).toHaveBeenCalledOnce()
+  expect(f.setup).toHaveBeenCalledOnce()
+  expect(f.back).toHaveBeenCalledOnce()
+})
+
 it('resumes a persisted server setup once under StrictMode', async () => {
   f.pending = record()
   f.resume.mockImplementation(() => new Promise(() => {}))

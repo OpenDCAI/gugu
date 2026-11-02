@@ -132,7 +132,6 @@ export default {
     "homeServerBody": "An always-on Linux server. No public IP required.",
     "homeServerMethods": "Add it with SSH or install with one command.",
     "homeServerAction": "Choose a server",
-    "homeDesktopRequired": "Set up your assistant in Gugu for desktop. Setup is not available on mobile yet.",
     "homeTitle": "Where should {{name}} live?",
     "homeCloudTitle": "Gugu cloud host",
     "homeCloudBody": "Online 24/7, even when your computer is off.",

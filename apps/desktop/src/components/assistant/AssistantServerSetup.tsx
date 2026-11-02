@@ -141,7 +141,7 @@ export function AssistantServerSetup({ ownerUserId, name, createDraft, onBack }:
       {!installing && progress?.cancellable ? <Button variant="secondary" className="rounded-full" disabled={cancelling}
         onClick={() => { if (busy) { setCancelling(true); attempt.current?.abort() } else void run(true) }}>{t(cancelling ? 'setup.cancelling' : 'setup.back')}</Button> : null}
       {failure && errorCode === 'assistant_exists' ? <Button onClick={() => reloadMyAssistant(ownerUserId)}>{t('server.openAssistant')}</Button>
-        : !busy ? <Button variant="primary" className="rounded-full" disabled={!pending && !selected?.selectable}
+        : !busy && (pending || targets.data?.some(target => target.selectable)) ? <Button variant="primary" className="rounded-full" disabled={!pending && (!selected?.selectable || targets.isError)}
           onClick={() => void run()} data-testid="assistant-server-install">{t(pending ? 'setup.retry' : 'server.install', { name })}</Button> : null}
     </div>
   </>

@@ -37,12 +37,6 @@ export function AssistantHomeChoice({
     <Button variant="secondary" size="lg" className="rounded-full" disabled={busy} onClick={onBack}>{t('setup.back')}</Button>
   </div>
 
-  if (!canHostHere) return <>
-    {header}
-    <p className="ta-onb-sub" data-testid="assistant-setup-desktop-required">{t('setup.homeDesktopRequired')}</p>
-    {back}
-  </>
-
   if (member === null) return <p className="ta-onb-sub inline-flex items-center gap-2" data-testid="assistant-setup-home-loading">
     <LoadingIndicator size="inline" />{t('cloud.loading')}
   </p>
@@ -70,7 +64,7 @@ export function AssistantHomeChoice({
           </>}
         </div>
       </div> : null}
-      <div className="ta-onb-choice" data-testid="assistant-setup-home-server">
+      {canHostHere ? <div className="ta-onb-choice" data-testid="assistant-setup-home-server">
         <span className="ta-onb-choice-title">{t('setup.homeServerTitle')}</span>
         <span className="ta-onb-choice-body">{t('setup.homeServerBody')}</span>
         <span className="ta-onb-note">{t('setup.homeServerMethods')}</span>
@@ -79,8 +73,8 @@ export function AssistantHomeChoice({
             {t('setup.homeServerAction')}
           </Button>
         </div>
-      </div>
-      <div className="ta-onb-choice" data-testid="assistant-setup-home-computer">
+      </div> : null}
+      {canHostHere ? <div className="ta-onb-choice" data-testid="assistant-setup-home-computer">
         <span className="ta-onb-choice-title">{t('setup.homeComputerTitle')}</span>
         <span className="ta-onb-choice-body">{t('setup.homeComputerBody')}</span>
         <div className="ta-onb-choice-actions">
@@ -88,7 +82,10 @@ export function AssistantHomeChoice({
             {t('setup.homeComputerAction')}
           </Button>
         </div>
-      </div>
+      </div> : <div className="ta-onb-choice" data-testid="assistant-setup-home-nocomputer">
+        <span className="ta-onb-choice-title">{t('setup.homeNoComputerTitle')}</span>
+        <span className="ta-onb-choice-body">{t('setup.homeNoComputerBody')}</span>
+      </div>}
     </div>
     {cloudCheck.error ? <p className="ta-onb-error" role="alert">{tc(`cloudComputer.reason.${cloudComputerFailureKind(cloudCheck.error)}`)}</p> : null}
     {error ? <p className="ta-onb-error" role="alert" data-testid="assistant-setup-error">{error}</p> : null}

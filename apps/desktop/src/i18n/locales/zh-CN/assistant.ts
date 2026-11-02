@@ -132,7 +132,6 @@ export default {
     "homeServerBody": "一直开着的 Linux 服务器，不需要公网 IP。",
     "homeServerMethods": "用 SSH 添加，或跑一行命令安装。",
     "homeServerAction": "选择服务器",
-    "homeDesktopRequired": "请在电脑版咕咕为助理安家，手机上暂不支持。",
     "homeTitle": "让{{name}}住在哪？",
     "homeCloudTitle": "咕咕云主机",
     "homeCloudBody": "24 小时在线，你的电脑关了它也在。",
