@@ -134,12 +134,19 @@ WantedBy=default.target
 
 export function launchdPlist(executable: string, home: string, log: string): string {
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const launcher = [
+    '[ -f "$GUGU_SERVER_HOME/data/stopped" ] && exit 0',
+    `trap 'kill -TERM "$child" 2>/dev/null; wait "$child"; exit 0' TERM INT`,
+    '"$1" run & child=$!',
+    'wait "$child"; code=$?',
+    `case "$code" in 0|143|${EXIT_CONFIG}|${EXIT_SIGNED_OUT}) exit 0;; *) exit "$code";; esac`,
+  ].join('; ')
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key><string>${names(home).launchdLabel}</string>
-  <key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>${esc(`[ -f "$GUGU_SERVER_HOME/data/stopped" ] && exit 0; exec "$1" run`)}</string><string>gugu-server-launcher</string><string>${esc(executable)}</string></array>
+  <key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>${esc(launcher)}</string><string>gugu-server-launcher</string><string>${esc(executable)}</string></array>
   <key>EnvironmentVariables</key><dict>
     <key>GUGU_SERVER_HOME</key><string>${esc(home)}</string>
     <key>GUGU_SERVER_SUPERVISED</key><string>launchd</string>

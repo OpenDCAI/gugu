@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runSingleServer } from '../../../../apps/desktop/electron/server/server-run'
 import { readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
@@ -11,7 +12,8 @@ vi.mock('../../../../apps/desktop/electron/server/server-updater', () => ({ mana
 
 let home: string
 const environment = { ...process.env }
-let signalHandlers: Record<'SIGINT' | 'SIGTERM' | 'exit', ReturnType<typeof process.listeners>>
+const signals: EventEmitter = process
+let signalHandlers: Record<'SIGINT' | 'SIGTERM' | 'exit', ReturnType<EventEmitter['listeners']>>
 const id = '00000000-0000-4000-8000-000000000001'
 function signIn(userId = id): void {
   const dir = path.join(home, 'accounts', userId)
@@ -24,14 +26,14 @@ beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-single-run-'))
   process.env.GUGU_SERVER_HOME = home
   process.env.GUGU_SERVER_SUPERVISED = 'keeper'
-  signalHandlers = { SIGINT: process.listeners('SIGINT'), SIGTERM: process.listeners('SIGTERM'), exit: process.listeners('exit') }
+  signalHandlers = { SIGINT: signals.listeners('SIGINT'), SIGTERM: signals.listeners('SIGTERM'), exit: signals.listeners('exit') }
   vi.spyOn(process, 'exit').mockImplementation(code => { throw new Error(`exit ${code}`) })
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
   vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 })
 afterEach(() => {
   for (const event of ['SIGINT', 'SIGTERM', 'exit'] as const) {
-    for (const handler of process.listeners(event)) if (!signalHandlers[event].includes(handler)) process.removeListener(event, handler)
+    for (const handler of signals.listeners(event)) if (!signalHandlers[event].includes(handler)) signals.removeListener(event, handler)
   }
   vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks()
   process.env = { ...environment }

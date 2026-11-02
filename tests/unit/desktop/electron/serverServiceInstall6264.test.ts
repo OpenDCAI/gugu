@@ -1,6 +1,10 @@
 // #6264 `gugu-server service install` 的交付是「结束时在跑的就是这一版」(product spec 第 5 条:
 // 急用可在那台机器上重新执行安装命令)。实机踩到:旧版本在跑,兜底模式新起的进程撞在单实例锁上退出,却报了「已在后台启动」。
 import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 import {
   chooseServiceMode,
   cronQuote,
@@ -26,8 +30,21 @@ it('launchd restarts failed updates but exits successfully when stopped before s
   const plist = launchdPlist('/home/user/server/current/bin/gugu-server', '/home/user/server', '/home/user/server.log')
   expect(plist).toContain('<key>SuccessfulExit</key><false/>')
   expect(plist).toContain('data/stopped')
-  expect(plist).toContain('exec "$1" run')
+  expect(plist).toContain('"$1" run &amp; child=$!')
   expect(plist).toContain('<key>AbandonProcessGroup</key><true/>')
+})
+
+it.each([0, 75, 78, 79, 143, 1])('launchd wrapper classifies the actual server exit (%s)', code => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-launchd-exit-'))
+  try {
+    const executable = path.join(home, 'fake-server')
+    fs.writeFileSync(executable, `#!/bin/sh\nexit ${code}\n`, { mode: 0o700 })
+    const plist = launchdPlist(executable, home, path.join(home, 'service.log'))
+    const argumentsXml = plist.match(/<key>ProgramArguments<\/key><array>(.*?)<\/array>/s)![1]!
+    const args = [...argumentsXml.matchAll(/<string>(.*?)<\/string>/gs)].map(match => match[1]!.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'))
+    const result = spawnSync(args[0]!, args.slice(1), { env: { ...process.env, GUGU_SERVER_HOME: home }, encoding: 'utf8' })
+    expect(result.status, result.stderr).toBe([0, 78, 79, 143].includes(code) ? 0 : code)
+  } finally { fs.rmSync(home, { recursive: true, force: true }) }
 })
 
 /**

@@ -1,5 +1,6 @@
 /** One installation, one signed-in account, one long-lived server process. */
 import path from 'node:path'
+import fs from 'node:fs'
 import { acquireHomeLock, checkPendingBoot, markServerReady, onlySignedInAccount } from './server-startup'
 import { EXIT_CONFIG } from './server-exit'
 import { applyLoginShell, clearStopped, liveKeeperPid, markStopped, startKeeper } from './server-keeper'
@@ -20,7 +21,9 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   }
   const release = acquireHomeLock(home)
   if (!release) {
-    warn('Another server already holds this installation’s lock')
+    let holder: number | null = null
+    try { holder = Number(fs.readFileSync(path.join(home, 'data/server.lock'), 'utf8')) } catch { /* The holder may have just exited. */ }
+    warn(`Another server already holds this installation’s lock (pid ${holder && Number.isInteger(holder) ? holder : 'unknown'})`)
     process.exit(EXIT_CONFIG)
   }
   process.on('exit', release)

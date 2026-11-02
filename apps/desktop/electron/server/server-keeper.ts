@@ -61,6 +61,7 @@ export function keeperScript(home: string, options: { adoptPid?: number; waitPid
     '  if [ -z "$first" ]; then [ -f "$D/stopped" ] && break; mine || break; fi; first=',
     '  GUGU_SERVER_HOME="$H" GUGU_SERVER_SUPERVISED=keeper GUGU_SERVER_WAIT_PID="$W" "$E" run',
     '  code=$?; W=\'\'',
+    '  printf "[keeper] server exited with status %s\\n" "$code"',
     '  [ -f "$D/stopped" ] && break',
     '  mine || break',
     `  [ "$code" = ${SUPERVISOR_EXIT_ALREADY_RUNNING} ] && break`,
