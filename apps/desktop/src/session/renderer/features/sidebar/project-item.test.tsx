@@ -19,7 +19,7 @@ vi.mock('@renderer/lib/layout/navigation-provider', () => ({
 vi.mock('@renderer/lib/stores/app-state', () => ({
   appState: { navigation: { currentViewId: 'new-session' } },
   sidebarStore: { expandedProjectIds: new Set(), homeLayout: { homeRows: new Set(), standIns: new Map() },
-    needsYouCountForProject: () => 0, projectMembersOf: () => ['business'], hasNameTwin: () => false,
+    needsYouCountForProject: () => 0, projectMembersOf: () => ['business'], hasNameTwin: () => false, rowProjectIdOf: (id: string) => id,
     ensureProjectExpanded: state.expand, toggleProjectExpanded: state.toggle },
 }));
 vi.mock('@renderer/app/screen-layout-actions', () => ({ isScreenView: () => state.screen, showBesideOnScreen: state.beside }));
