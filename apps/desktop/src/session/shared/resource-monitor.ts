@@ -57,8 +57,8 @@ export type ResourceAppProcessType =
   | 'Unknown';
 
 /**
- * Per-process breakdown of the Electron app (one entry per `app.getAppMetrics()`
- * row). Sums of `memory` / `cpu` across these match `ResourceAppUsage`.
+ * Electron rows after separately attributed runtime/session/PTY PIDs have been removed.
+ * Sums of `memory` / `cpu` across these match `ResourceAppUsage`.
  */
 export interface ResourceAppProcess {
   pid: number;

@@ -8,6 +8,8 @@ const settings = vi.fn();
 const emit = vi.fn();
 const collect = vi.fn();
 const append = vi.fn();
+const ownershipRoots = vi.fn();
+const processRows = vi.fn();
 const appEvents = new EventEmitter();
 vi.mock('electron', () => ({
   app: {
@@ -27,8 +29,8 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('./renderer-metrics', () => ({ collectRendererMetrics: collect }));
 vi.mock('./context', () => ({ collectResourceContext: async () => ({ windows: [] }) }));
 vi.mock('./history', () => ({ resourceHistory: { append } }));
-vi.mock('../acp/runtime-process/resource-roots', () => ({ collectAcpResourceRoots: async () => [] }));
-vi.mock('./owned-processes', () => ({ listResourceProcesses: async () => [], collectLedgerResourceRoots: async () => [] }));
+vi.mock('../acp/runtime-process/resource-roots', () => ({ collectAcpResourceRoots: () => ownershipRoots() }));
+vi.mock('./owned-processes', () => ({ listResourceProcesses: () => processRows(), collectLedgerResourceRoots: async () => [] }));
 
 function tab(cumulativeCPUUsage: number, pid = 7) {
   return { pid, type: 'Tab', cpu: { percentCPUUsage: 0, cumulativeCPUUsage }, memory: { workingSetSize: 1 } };
@@ -41,6 +43,8 @@ beforeEach(() => {
   focusedWindow.mockReturnValue({});
   settings.mockResolvedValue({ enabled: true, internals: false });
   collect.mockResolvedValue([]);
+  ownershipRoots.mockResolvedValue([]);
+  processRows.mockResolvedValue([]);
   vi.useFakeTimers();
   vi.setSystemTime(0);
 });
@@ -51,6 +55,19 @@ afterEach(async () => {
 });
 
 describe('resource sampler CPU', () => {
+  it('counts a worker PID only once even when Electron also reports it', async () => {
+    const { sampleOnce } = await import('./resource-sampler');
+    const { default: sampleUsage } = await import('pidusage');
+    metrics.mockReturnValue([tab(10, 1), tab(5, 3)]);
+    processRows.mockResolvedValue([{ pid: 1, ppid: 0, name: 'Electron' }, { pid: 3, ppid: 1, name: 'worker' }, { pid: 4, ppid: 3, name: 'codex' }]);
+    ownershipRoots.mockResolvedValue([{ id: 'acp-runtime', pid: 3, kind: 'runtime', label: 'ACP runtime' }]);
+    vi.mocked(sampleUsage).mockResolvedValue({ 1: { memory: 1024, cpu: 10 }, 3: { memory: 2048, cpu: 5 }, 4: { memory: 4096, cpu: 20 } } as never);
+    const snapshot = await sampleOnce();
+    expect(snapshot.appProcesses.map(p => p.pid)).toEqual([1]);
+    expect(snapshot.app.memoryBytes).toBe(1024);
+    expect(snapshot.processGroups?.[0].processes.map(p => p.pid)).toEqual([3, 4]);
+    expect(snapshot.processGroups?.[0].memory).toBe(6144);
+  });
   it('leaves missing process metrics unknown, then resumes real readings', async () => {
     const { sampleOnce } = await import('./resource-sampler');
     const missing = await sampleOnce();

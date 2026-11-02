@@ -37,10 +37,10 @@ export function sampleOnce(): Promise<ResourceSnapshot> {
 }
 async function collectSample(): Promise<ResourceSnapshot> {
   const active = ptySessionRegistry.listActiveSessions();
-  const { usage: appUsage, processes: appProcesses } = sampleAppUsage();
+  const { usage: appUsage, processes: electronProcesses } = sampleAppUsage();
   const roots: ResourceProcessRoot[] = [
     { id: 'electron-main', pid: process.pid, kind: 'electron', label: 'Main' },
-    ...appProcesses.map(p => ({ id: `electron:${p.pid}`, pid: p.pid, kind: 'electron' as const, label: p.name ?? p.type })),
+    ...electronProcesses.map(p => ({ id: `electron:${p.pid}`, pid: p.pid, kind: 'electron' as const, label: p.name ?? p.type })),
     ...active.flatMap(a => typeof a.pid === 'number' && a.pid > 0 ? [{ id: a.ptySessionId, pid: a.pid, kind: 'pty' as const, label: a.metadata?.title ?? a.ptySessionId }] : []),
   ];
   const [processes, acpRoots] = await Promise.all([listResourceProcesses(), collectAcpResourceRoots()]);
@@ -48,13 +48,20 @@ async function collectSample(): Promise<ResourceSnapshot> {
   const candidates = accountProcessTrees(roots, processes, {}).pidsByRoot;
   const usage = await samplePidUsage([...new Set([...candidates.values()].flat())]);
   // Electron CPU uses its cumulative baseline; RSS uses the same OS sampler as child processes.
-  for (const p of appProcesses) {
+  for (const p of electronProcesses) {
     const sampled = usage[String(p.pid)];
     if (sampled) p.memory = sampled.memory;
     usage[String(p.pid)] = { memory: p.memory, cpu: p.cpu, ppid: sampled?.ppid };
   }
-  if (appProcesses.length) appUsage.memoryBytes = appProcesses.reduce((sum, p) => sum + p.memory, 0);
   const { groups: processGroups, pidsByRoot } = accountProcessTrees(roots, processes, usage);
+  const assigned = new Set(processGroups.flatMap(group => group.processes.map(p => p.pid)));
+  for (const root of roots) if (root.kind === 'pty') for (const pid of pidsByRoot.get(root.id) ?? []) assigned.add(pid);
+  const appProcesses = electronProcesses.filter(p => !assigned.has(p.pid));
+  if (electronProcesses.length) {
+    appUsage.memoryBytes = appProcesses.reduce((sum, p) => sum + p.memory, 0);
+    const knownCpu = appProcesses.flatMap(p => p.cpu === undefined ? [] : [p.cpu]);
+    appUsage.cpuPercent = knownCpu.length ? knownCpu.reduce((sum, cpu) => sum + cpu, 0) : undefined;
+  }
 
   const entries: ResourcePtyEntry[] = [];
   for (const a of active) {
