@@ -871,18 +871,12 @@ describe('runSshInstall', () => {
     expect(alice.final.warnings).not.toContainEqual({ kind: 'runsAsRoot' })
   })
 
-  it('已经装好且在跑(有别人登着):不重装、不重启服务,只加一个账号', async () => {
-    const { final, seen } = await install({
-      installed: true, grant: true, running: true, accounts: ['u9 colleague@lab.edu'],
-      loginOut: '__GUGU_LOGIN_RESULT__{"userId":"u1","email":"me@x.y","others":["colleague@lab.edu"]}\n',
-    })
-    expect(statuses(final)).toEqual({ connect: 'done', detect: 'done', download: 'skipped', service: 'skipped', login: 'done' })
-    expect(final.steps[2]).toMatchObject({ skippedBecause: 'alreadyInstalled', version: '0.2.50' })
-    expect(final.steps[3].skippedBecause).toBe('alreadyRunning')
+  it.each(['install', 'upgrade'] as const)('refuses a second account before changing the installation (%s)', async mode => {
+    const { final, seen } = await install({ installed: true, grant: true, running: true, accounts: ['u9 colleague@lab.edu'] }, { mode })
+    expect(final.failure).toMatchObject({ step: 'detect', reason: 'loginFailed', detail: expect.stringContaining('another Gugu account') })
     expect(final.machine?.others).toEqual(['colleague@lab.edu'])
-    expect(final.result?.others).toEqual(['colleague@lab.edu'])
-    expect(seen.some((stdin) => stdin.includes('service install'))).toBe(false)
-    expect(seen.some((stdin) => stdin.includes('--no-login'))).toBe(false)
+    expect(seen).toHaveLength(1)
+    expect(seen.some(stdin => stdin.includes('service install') || stdin.includes('--no-login') || stdin.includes('login --grant-stdin'))).toBe(false)
   })
 
   it('登录那一步把人填的主机名带给 server 当默认名', async () => {
@@ -917,11 +911,14 @@ describe('runSshInstall', () => {
     expect(seen.some((stdin) => stdin.includes('service install') || stdin.includes('--no-login'))).toBe(false)
   })
 
-  it('后台升级(upgrade 模式):那台机器上的 server 不认得 match-version ⇒ ❌ 替它整台重装,报「太旧」并带上在那台机器上重装的命令;全程 BatchMode', async () => {
+  it('reuses the whole installer without login when an upgrade has no prepared target', async () => {
     const { final, seen, calls } = await install({ installed: true, grant: true, running: true, version: '0.2.131', protocol: null }, { mode: 'upgrade' })
-    expect(final.failure).toMatchObject({ step: 'detect', reason: 'serverTooOld', detail: 'curl -fsSL https://d/install.sh | sh' })
-    expect(seen.some((stdin) => stdin.includes('--no-login') || stdin.includes('--package') || stdin.includes('service install') || stdin.includes('login --grant-stdin'))).toBe(false)
-    expect(calls.every((args) => args.includes('BatchMode=yes'))).toBe(true)
+    expect(final.failure).toBeNull()
+    expect(statuses(final)).toMatchObject({ download: 'done', service: 'done', login: 'skipped' })
+    expect(seen.some(stdin => stdin.includes('--no-login'))).toBe(true)
+    expect(seen.some(stdin => stdin.includes('service install'))).toBe(true)
+    expect(seen.some(stdin => stdin.includes('match-version') || stdin.includes('login --grant-stdin'))).toBe(false)
+    expect(calls.every(args => args.includes('BatchMode=yes'))).toBe(true)
   })
 
   it('问不出装着的版本(protocol 命令崩了):照实报「读不出版本」,❌ 当太旧去重装 —— 装机与后台升级都一样', async () => {

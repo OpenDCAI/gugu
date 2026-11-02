@@ -17,11 +17,12 @@ import {
 } from '../../src/lib/sshLink'
 import type { SshKeyInstallOutcome } from '../../src/session/shared/ssh-prompt'
 import type { DirectTerminalAskpass } from '../session/main/core/pty/direct-terminal/ssh-connect'
-import { desktopReportId, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { reportedDesktopVersion } from '@gugu/core/cloud/serverDesktopVersions'
 import { createSshAutoUpgrader, sshServerUpgradeRunner, type SshAutoUpgrader } from './ssh-install/auto-upgrade'
 import { buildEnsureMasterArgs, classifySshFailure, type SshTarget } from './ssh-install/logic'
 import { systemSpawnSsh } from './ssh-install/system'
+import type { DeviceCapabilities } from '@gugu/core/shared/types/deviceHost'
+import type { DeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { SharedSshLinks } from '../device-rpc-requester'
 import type { HeldFileSshLinks } from '../projectFileSsh'
 import { createSshLinkManager, type SshLinkManager } from './ssh-link'
@@ -73,7 +74,8 @@ export function registerSshLinkIpc(options: {
    * #6264 这台桌面的设备 id(与开窗口时报给那台机器的同一个,见 src/lib/remoteSessionHost.ts):替它换成和这台桌面
    * 匹配的那一版时报给它。拿不到就只能整台升级(老路)。
    */
-  desktopId?: () => Promise<string | null>
+  readCapabilities?: (deviceId: string) => Promise<DeviceCapabilities | null>
+  callUpdate?: DeviceRpcRequester['call']
   /**
    * 远程隧道:这台电脑没有它的 SSH 映射、但经中转连通了的机器(tunnel-machines.ts)。设备连接照样开在它上面;
    * 不替它升级(它自己经咕咕云升级)、不问登录(只用咕咕钥匙)。
@@ -141,18 +143,20 @@ export function registerSshLinkIpc(options: {
               const machine = await machineFor(deviceId)
               return machine ? sshTargetOf(machine) : null
             },
-            matchFor: async (deviceId) => {
-              const machine = await machineFor(deviceId)
-              const id = (await options.desktopId?.().catch(() => null)) ?? null
-              if (!machine || !id || !desktopVersion) return null
-              return { accountUserId: machine.ownerUserId, desktop: { id: desktopReportId(id, desktopVersion), version: desktopVersion, protocol: REMOTE_PROTOCOL_VERSION } }
+            currentUserId: options.currentUserId,
+            readCapabilities: deviceId => {
+              if (!options.readCapabilities) throw new Error('Server update capabilities are unavailable')
+              return options.readCapabilities(deviceId)
+            },
+            call: (...args) => {
+              if (!options.callUpdate) throw new Error('The shared device requester is unavailable')
+              return options.callUpdate(...args)
             },
             controlPath: terminalControlPath,
             channel,
             spawnSsh: systemSpawnSsh(process.env),
           }),
           emit: (event: SshUpgradeEvent) => send(SSH_LINK_CHANNELS.upgradeState, event),
-          desktopVersion,
           log: options.log,
         })
       : null)

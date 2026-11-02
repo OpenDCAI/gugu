@@ -2869,7 +2869,16 @@ if (sshMachineStore) {
     // 那台机器的 server 太旧、连不上:当场替它升级(与添加时装同一条通道);#6264 换成和这台桌面(按设备 id 报)匹配的那一版。
     upgradeChannel: serverChannel,
     published: parseBuildDistribution(__GUGU_BUILD_DISTRIBUTION__) === 'published',
-    desktopId: async () => (await getLocalDeviceSelfSnapshot())?.device_id ?? null,
+    readCapabilities: async deviceId => {
+      const auth = await desktopAuthProvider().getAuth()
+      if (!auth?.userId || !auth.accessToken) throw new Error('This desktop is not signed in')
+      return (await listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId, { deviceIds: [deviceId] }))[0]?.capabilities ?? null
+    },
+    callUpdate: (...args) => {
+      crossMachine()
+      if (!crossMachineRequester) throw new Error('The shared device requester is unavailable')
+      return crossMachineRequester.call(...args)
+    },
     ...(tunnelMachines ? { tunnels: tunnelMachines } : {}),
   })
   sshLinks = links

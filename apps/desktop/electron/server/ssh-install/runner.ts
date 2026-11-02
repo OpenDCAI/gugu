@@ -33,8 +33,6 @@ import {
   installedProtocolUnreadable,
   installedServerTooOld,
   installFromUploadScript,
-  incomingManifestScript,
-  incomingUploadCommand,
   installScript,
   isAuthenticatedLine,
   isCloudUnreachable,
@@ -43,13 +41,8 @@ import {
   liveLine,
   logLines,
   loginScript,
-  oneLineInstallCommand,
   manifestUrl,
-  matchApplyScript,
-  matchReportScript,
   MIN_FREE_KB,
-  parseMatchOutput,
-  parseMatchReport,
   parseDownloadProgress,
   machineLimitFromLoginError,
   machineNameFromTarget,
@@ -61,7 +54,6 @@ import {
   serviceWarnings,
   unsupportedPlatform,
   uploadCommand,
-  versionedManifestUrl,
   installScriptUrl,
   type ProbeResult,
   type SshTarget,
@@ -119,23 +111,12 @@ export type SshInstallDeps = {
   timeouts?: Partial<typeof DEFAULT_TIMEOUTS>
   /**
    * install = 人在「添加一台机器」里点的(五步走完、登上此刻的账号);
-   * upgrade = 设备连接发现那台机器的 server 版本对不上,后台请它把这个账号换成匹配的那一版(装由那台机器的守护进程装,
-   * 这里只报版本、传字节、等它换过去;不登录;没人可问,要密码就停 —— BatchMode)。
+   * upgrade = no prepared update is available, so reuse the full installation path without logging in (BatchMode).
    */
   mode?: 'install' | 'upgrade'
-  /**
-   * #6264 upgrade 模式要的:那台机器上是哪个账号、这台桌面是哪一版。只换这一个账号(❌ 整台换、❌ 影响同机别的账号)。
-   */
-  match?: { accountUserId: string; desktop: { id: string; version: string; protocol: number } }
-  /** upgrade 模式:人点了「现在重启更新」,有 agent 在跑也当场换。 */
+  /** Human confirmation can interrupt work; automatic upgrade remains idle-only. */
   now?: boolean
 }
-
-/** `match-version --apply` 的退出码(match-version-cli.ts):守护进程装那一版失败了 / 它连不上下载站、要包的字节。 */
-const APPLY_INSTALL_FAILED_EXIT = 6
-const APPLY_NEEDS_BYTES_EXIT = 7
-/** 这个账号有 agent 在跑,守护进程等它空闲再换。 */
-const APPLY_WAITING_IDLE_EXIT = 8
 
 export const DEFAULT_TIMEOUTS = {
   /** 第一次连接 + 看一眼系统,总时长(不算等人回答的时间)。 */
@@ -357,36 +338,6 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
   }
 
 
-  /**
-   * 那台机器连不上下载站(它自己下载时记下的):本机下好这一版、经 SSH 放进它的 `versions/.incoming/`(先包、后清单行),由它的守护进程去装。
-   * 桌面 ❌ 在那边装:换版装东西的只有守护进程一个。
-   */
-  const uploadIncoming = async (version: string, pinnedManifest: string, channelManifest: string): Promise<void> => {
-    run.appendLog(`── 那台机器连不上下载站,改由本机下载 ${version} 后传过去 ──`)
-    run.setStep('download', { progress: { phase: 'download', done: 0, total: null } })
-    let pkg: DesktopPackage
-    try {
-      pkg = await deps.desktopDownload({
-        manifestUrl: pinnedManifest,
-        fallbackManifestUrl: channelManifest,
-        expectVersion: version,
-        installUrl: installScriptUrl(deps.downloadBase, deps.channel),
-        signal: deps.signal,
-        onProgress: (done, total) => setProgress({ phase: 'download', done, total }),
-      })
-    } catch (error) {
-      if (deps.signal.aborted) throw new StepFailure('cancelled')
-      throw new StepFailure('desktopDownloadFailed', error instanceof Error ? error.message : String(error))
-    }
-    run.setStep('download', { progress: { phase: 'upload', done: 0, total: pkg.size } })
-    const uploaded = await ssh(
-      { file: pkg.file, onProgress: (bytes) => setProgress({ phase: 'upload', done: bytes, total: pkg.size }) },
-      { args: buildSshArgs(target, { controlPath: deps.controlPath, persist: deps.controlPersist, batch: true, remoteCommand: incomingUploadCommand(version) }), limit: { kind: 'idle', ms: timeouts.idle }, timeoutReason: 'timeout' },
-    )
-    if (uploaded.code !== 0) throw new StepFailure('uploadFailed', lastLines(`${uploaded.stdout}\n${uploaded.stderr}`))
-    const marked = await ssh(incomingManifestScript(version, pkg.sha256), { limit: { kind: 'total', ms: timeouts.step }, timeoutReason: 'timeout' })
-    if (marked.code !== 0) throw new StepFailure('uploadFailed', lastLines(`${marked.stdout}\n${marked.stderr}`))
-  }
 
   try {
     // ① 连接 + ② 识别系统:同一次 ssh,认证通过那一刻切到「识别系统」。
@@ -409,58 +360,9 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
     // root 装的 = 智能体以管理员身份跑、能改整台机器。照装(用户可能就是要这样),但当场写明,❌ 只在 install.sh 里打一句。
     if (found.user === 'root') run.update((draft) => void draft.warnings.push({ kind: 'runsAsRoot' }))
 
-    // #6264 后台升级 = 这个账号换成和这台桌面匹配的那一版,只动这一个账号。装那一版的只有那台机器上的守护进程
-    // (server-account-converge.ts):这里只报版本、请它换、等它换过去;它说连不上下载站,就把包的字节传进它的 incoming 再请一次。
-    if (upgradeOnly) {
-      // 不认得 match-version 的 server(#6504 之前的开发构建,发布过的版本都认得):❌ 替它整台重装,请人在那台机器上重装。
-      if (!found.supportsMatch) {
-        throw new StepFailure('serverTooOld', oneLineInstallCommand(deps.downloadBase, deps.channel, found.fetcher === 'wget' ? 'wget' : 'curl'))
-      }
-      if (!deps.match) throw new StepFailure('unknown', 'this desktop could not tell which version it is')
-      current = 'download'
-      const reported = await ssh(matchReportScript({ accountUserId: deps.match.accountUserId, desktopId: deps.match.desktop.id, ...deps.match.desktop }), {
-        limit: { kind: 'total', ms: timeouts.step },
-        timeoutReason: 'timeout',
-      })
-      const report = reported.code === 0 ? parseMatchReport(reported.stdout) : null
-      if (!report) throw new StepFailure('installFailed', lastLines(`${reported.stdout}\n${reported.stderr}`))
-      run.update((draft) => void (draft.match = { target: report.target, running: report.running }))
-      if (report.target === report.running) {
-        // 已经是目标版本(这台桌面比同账号另一台旧,或者本来就对得上):什么也不换。
-        run.setStep('download', { status: 'skipped', skippedBecause: 'alreadyInstalled', version: report.target })
-        run.setStep('service', { status: 'skipped', skippedBecause: 'alreadyRunning' })
-        run.setStep('login', { status: 'skipped', skippedBecause: 'alreadySignedIn' })
-        run.update((draft) => void (draft.finished = true))
-        return run.snapshot()
-      }
-      if (report.installed) {
-        run.setStep('download', { status: 'skipped', skippedBecause: 'alreadyInstalled', version: report.target })
-      } else {
-        if (found.freeKb !== null && found.freeKb < MIN_FREE_KB) throw new StepFailure('diskFull', `${Math.round(found.freeKb / 1024)} MB`)
-        run.setStep('download', { status: 'running', via: 'remote', version: report.target, ...(report.running ? { upgradeFrom: report.running } : {}) })
-      }
-      run.appendLog(`── 这个账号换到 ${report.target} ──`)
-      const match = deps.match
-      const apply = () => ssh(matchApplyScript({ accountUserId: match.accountUserId, version: report.target, now: deps.now === true }), {
-        // 没装的那一版由守护进程先下载、试跑(match-version 自己最多等 10 分钟)。
-        limit: { kind: 'total', ms: 11 * 60_000 },
-        timeoutReason: 'timeout',
-      })
-      let applied = await apply()
-      if (applied.code === APPLY_NEEDS_BYTES_EXIT) {
-        run.setStep('download', { via: 'desktop' })
-        await uploadIncoming(report.target, versionedManifestUrl(deps.downloadBase, report.target, found), manifestUrl(deps.downloadBase, deps.channel, found))
-        applied = await apply()
-      }
-      if (applied.code === APPLY_WAITING_IDLE_EXIT) throw new StepFailure('agentsRunning', lastLines(applied.stderr))
-      if (applied.code !== 0 || parseMatchOutput(applied.stdout)?.switched !== report.target) {
-        throw new StepFailure(applied.code === APPLY_INSTALL_FAILED_EXIT ? 'installFailed' : 'serviceFailed', lastLines(`${applied.stdout}\n${applied.stderr}`))
-      }
-      if (!report.installed) run.setStep('download', { status: 'done', version: report.target })
-      run.setStep('service', { status: 'done', ...(report.running ? { replaces: report.running } : {}) })
-      run.setStep('login', { status: 'skipped', skippedBecause: 'alreadySignedIn' })
-      run.update((draft) => void (draft.finished = true))
-      return run.snapshot()
+    // Check the OS user's account before an installer or service command can change the installation.
+    if (found.accounts.some(account => account.userId !== userId)) {
+      throw new StepFailure('loginFailed', 'This system user is already signed in to another Gugu account. Sign out first or use another system user.')
     }
 
     // ③ 下载:已经装过、这台桌面跟它说得上话 ⇒ 不重装。重装会立刻改 current 指针,绕过「空闲时才切版本」(behavior 第 5 条),
@@ -582,6 +484,12 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
       const warnings = serviceWarnings(service.stdout)
       if (warnings.length) run.update((draft) => void draft.warnings.push(...warnings))
       run.setStep('service', { status: 'done' })
+    }
+
+    if (upgradeOnly) {
+      run.setStep('login', { status: 'skipped', skippedBecause: 'alreadySignedIn' })
+      run.update(draft => { draft.finished = true })
+      return run.snapshot()
     }
 
     // ⑤ 登录:登上桌面此刻登着的那个人。凭证以桌面自己的身份向云端要,经标准输入递过去。
