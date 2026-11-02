@@ -83,6 +83,20 @@ describe('conversation message SQLite outbox', () => {
     expect(claimInterruptedDispatches()).toBe(0);
   });
 
+  it('delivers a host update notice once when the same exit is recovered twice', async () => {
+    const inject = vi.fn(async (_sessionId: string, message: { id: string }) => ({ status: 'accepted' as const, messageId: message.id }));
+    setSessionMessageRouter(inject);
+    const at = 1_793_598_000_000;
+    const receipt = { delivery_id: stableUuid(['host:update', 'update-interrupted', String(at)]), delivery_at: new Date(at).toISOString() };
+    const id = sessionDirectMessageId('host:update', target.sessionId, receipt);
+    for (let boot = 0; boot < 2; boot++) {
+      expect(await sendMessage({ ...target, clientMessageId: id, text: 'Your work was interrupted by an update.', kind: 'session-direct' }))
+        .toMatchObject({ id, status: 'delivered' });
+    }
+    expect(inject).toHaveBeenCalledOnce();
+    expect(fixture.sqlite.prepare('SELECT id FROM messages WHERE id = ?').all(id)).toEqual([{ id }]);
+  });
+
   // 复核 139:恢复失败时发信方要看到原因,并知道消息已经留下(照「not live」重发,恢复后收件方收到两遍)。
   it('keeps a recovery-rejected session-direct pending for the common inbox reader, and tells the sender why and not to resend', async () => {
     setSessionMessageRouter(async () => ({ status: 'not-ready', preserve: true, reason: 'platform model access could not be restored (ticket refused)' }));
@@ -216,3 +230,4 @@ describe('ACP sessions: sendMessage hands the message to session-life', () => {
     fixture.sqlite.prepare("UPDATE sessions SET config = ? WHERE id = 'acp-1'").run('{"version":"1","type":"acp"}');
   });
 });
+import { sessionDirectMessageId, stableUuid } from './session-direct-identity';
