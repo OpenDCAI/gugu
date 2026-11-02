@@ -4,6 +4,7 @@ import { hydrateIdentityAuthUser } from './auth'
 import { setRejectedAccessTokenRecovery } from './authBoundedFetch'
 import { abortAuthSessionBoundary, keepAuthSessionBoundary, resetAuthSessionBoundary } from './authSessionLoss'
 import { publishRendererSession } from './sessionPublication'
+import { refreshSshMachines } from './sshLinkChannel'
 import { MAIN_AUTH_STORAGE_KEY, mainAuthSessionStorage, supabase } from './supabase'
 import { phoneHostAuthAvailable, phoneHostGetSession, phoneHostRefreshSession, phoneHostRestoreSession, phoneHostSignOut, setPhoneHostAuthHandoffBarrier } from './phoneHostAuth'
 import { platform } from '../platform'
@@ -567,6 +568,13 @@ async function writeHostMirror(session: Session): Promise<void> {
     access_token: session.access_token, refresh_token: session.refresh_token,
     refresh_owner: 'desktop', updated_at: new Date().toISOString() }
   await platform.writeHumanAuthSession(mirror)
+  // The host filters SSH mappings by this mirror's owner. Renderer auth publication is earlier than this acknowledgement.
+  await refreshSshMachines().catch(() => undefined)
+}
+async function clearHostMirror(reason: 'signed-out' | 'lost'): Promise<void> {
+  if (!platform.capabilities.localHumanAuthSession) return
+  await platform.clearHumanAuthSession(reason)
+  await refreshSshMachines().catch(() => undefined)
 }
 export const sessionCoordinator = new SessionCoordinator({
   getSession: async () => {
@@ -592,7 +600,7 @@ export const sessionCoordinator = new SessionCoordinator({
   hydrateUser: hydrateIdentityAuthUser,
   publishSession: publishRendererSession,
   writeMirror: writeHostMirror,
-  clearMirror: (reason) => platform.capabilities.localHumanAuthSession ? platform.clearHumanAuthSession(reason) : Promise.resolve(),
+  clearMirror: clearHostMirror,
   getPersistedSessionState: () => mainAuthSessionStorage.getState(),
   commitPersistedSession: (session, signal) => mainAuthSessionStorage.commit(session, signal),
   clearPersistedSession: (session, signal) => mainAuthSessionStorage.remove(session, signal),
