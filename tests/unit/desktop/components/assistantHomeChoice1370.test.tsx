@@ -30,10 +30,17 @@ it.each([true, false])('keeps cloud recommended and first for member=%s', async 
     'assistant-setup-home-cloud', 'assistant-setup-home-server', 'assistant-setup-home-computer',
   ])
   expect(query('assistant-setup-home-cloud')?.getAttribute('data-recommended')).toBe('true')
-  expect(query('assistant-setup-home-cloud')?.textContent).toContain('Plus 及以上可用')
   await click(member ? 'assistant-setup-claim-cloud' : 'assistant-setup-member')
   expect(member ? callbacks.onCloud : callbacks.onUpgrade).toHaveBeenCalledOnce()
   expect(member ? callbacks.onUpgrade : callbacks.onCloud).not.toHaveBeenCalled()
+})
+
+it('shows the cloud membership requirement only to free accounts', async () => {
+  await render({ member: false })
+  expect(query('assistant-setup-home-cloud')?.textContent).toContain('Plus 及以上可用')
+
+  await render({ member: true })
+  expect(query('assistant-setup-home-cloud')?.textContent).not.toContain('Plus 及以上可用')
 })
 
 it('routes server and local choices to their own setup paths', async () => {
