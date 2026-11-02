@@ -57,16 +57,16 @@ const WidgetUnavailable = observer(function WidgetUnavailable({ widget, reason, 
   const { t } = useTranslation('messaging')
   const { user } = useAuth()
   const { ref, shown } = useConversationVisibility(true)
-  const [sources, setSources] = useState<{ chatId: string; userId: string; shared: ReadonlyMap<string, SharedPackage>; market: readonly MarketOffer[] } | null>(null)
+  const [sources, setSources] = useState<{ chatId: string; userId: string; cue: number; shared: ReadonlyMap<string, SharedPackage>; market: readonly MarketOffer[] } | null>(null)
   const [cue, setCue] = useState(0)
   const [installing, setInstalling] = useState(false)
   const [error, setError] = useState('')
   const canOffer = reason === 'missing' || reason === 'view'
   useEffect(() => subscribeSharedPackages(changed => { if (changed === chatId) setCue(cue => cue + 1) }), [chatId])
   useEffect(() => {
-    setSources(null)
-    setError('')
     if (!shown || !canOffer || !appsHere || !user?.id) return
+    if (sources?.chatId === chatId && sources.userId === user.id && sources.cue === cue) return
+    setError('')
     let live = true
     void Promise.all([
       sharedPackagesOf(chatId, user.id).catch(error => {
@@ -77,10 +77,10 @@ const WidgetUnavailable = observer(function WidgetUnavailable({ widget, reason, 
         if (live && !result.success) setError(messageForUser(result.error))
         return result.data ?? []
       }, error => { if (live) setError(messageForUser(error)); return [] }),
-    ]).then(([shared, market]) => { if (live) setSources({ chatId, userId: user.id, shared, market }) })
+    ]).then(([shared, market]) => { if (live) setSources({ chatId, userId: user.id, cue, shared, market }) })
     return () => { live = false }
-  }, [shown, canOffer, chatId, user?.id, cue])
-  const offer = canOffer && sources?.chatId === chatId && sources.userId === user?.id
+  }, [shown, canOffer, chatId, user?.id, cue, sources])
+  const offer = canOffer && sources?.chatId === chatId && sources.userId === user?.id && sources.cue === cue
     ? widgetInstallOffer(availableInstallOffers(sources.shared, sources.market, installedExtensionsStore.manifests, installedExtensionsStore.origins),
       widget.app, widget.view, platform.kind === 'electron' ? 'desktop' : 'phone') : null
   const install = async () => {

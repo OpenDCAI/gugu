@@ -1,17 +1,23 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { act } from 'react';
 import { WidgetBubble } from '@/components/chat/WidgetBubble';
 import { createReactHarness } from '../../../../../../../tests/support/testHarness';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 
 const state = vi.hoisted(() => ({
   manifests: [] as { id: string; version: string; contributes: { tabs: { name: string; widget?: { height: number } }[] } }[],
-  shared: new Map(),
+  shared: new Map(), shown: true, visibility: new Set<() => void>(),
   notify: null as null | ((chat: string) => void),
   installAttachment: vi.fn(), installFromMarket: vi.fn(), marketOffers: vi.fn(),
 }));
 vi.mock('react-i18next', async original => ({ ...(await original<object>()), useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('@/store/auth', async original => ({ ...(await original<object>()), useAuth: () => ({ user: { id: 'reader' } }) }));
-vi.mock('@/components/chat/useConversationVisibility', () => ({ useConversationVisibility: () => ({ ref: () => undefined, shown: true }) }));
+vi.mock('@/components/chat/useConversationVisibility', async () => {
+  const { useSyncExternalStore } = await import('react');
+  return { useConversationVisibility: () => ({ ref: () => undefined, shown: useSyncExternalStore(
+    fn => { state.visibility.add(fn); return () => { state.visibility.delete(fn); }; }, () => state.shown,
+  ) }) };
+});
 vi.mock('@/components/appSlot/appsHere', () => ({ appsHere: { ...state, runs: () => true } }));
 vi.mock('@/components/extensionBundle/sharedPackages', async original => ({
   ...(await original<object>()),
@@ -27,7 +33,7 @@ const pkg = () => ({ manifest: { id: 'vote', name: 'Vote', version: '2.0.0', con
 const message = { id: 'widget', chat_id: 'chat', sender_user_id: 'agent', content: JSON.stringify({ v: 2, app: 'vote', view: 'main', text: 'Vote here' }) };
 let harness: ReturnType<typeof createReactHarness>;
 beforeEach(() => {
-  state.manifests = []; state.shared = new Map(); state.notify = null;
+  state.manifests = []; state.shared = new Map(); state.notify = null; state.shown = true; state.visibility.clear();
   state.installAttachment.mockReset().mockResolvedValue({ success: true, data: { installed: false, outcome: 'cancelled' } });
   state.installFromMarket.mockReset(); state.marketOffers.mockReset().mockResolvedValue({ success: true, data: [] });
 });
@@ -60,4 +66,20 @@ it('offers a newer package when the installed App lacks the widget view', async 
   await mount();
   await until('the new view is available to install', () => !!button());
   expect(harness.container.textContent).toContain('message.widgetUnavailable.view');
+});
+
+it('keeps the offer and a visible failure when scrolling out and back without another catalog read', async () => {
+  state.shared.set('vote', pkg());
+  state.installAttachment.mockRejectedValue(new Error('Package unavailable'));
+  await mount();
+  await until('the shared App offer is visible', () => !!button());
+  button()!.click();
+  await until('the failure is visible', () => !!harness.container.querySelector('[role="alert"]'));
+  const failure = harness.container.querySelector('[role="alert"]')!.textContent;
+  for (const shown of [false, true]) {
+    await act(async () => { state.shown = shown; for (const notify of state.visibility) notify(); });
+  }
+  expect(button()).toBeDefined();
+  expect(state.marketOffers).toHaveBeenCalledTimes(1);
+  expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe(failure);
 });

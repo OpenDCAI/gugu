@@ -11,7 +11,7 @@ import { extensionSurfaceStore, extensionTabTitle } from '../../session/renderer
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import type { AppOpenWithDetail } from '../../session/shared/extensions/app-runtime-protocol'
 import { displayNameOf, openerAhead, openerChoice } from '../../session/shared/extensions/file-openers'
-import { installPackageOf, packageKey, sharedPackagesOf, subscribeSharedPackages, type PackageCard, type SharedPackage } from '../extensionBundle/sharedPackages'
+import { installPackageOf, packageKey, sharedPackagesOf, subscribeSharedPackages, type SharedPackage } from '../extensionBundle/sharedPackages'
 import { parseExtensionTabKind, type ExtensionManifest } from '../../session/shared/extensions/manifest'
 import type { ExtensionOrigin } from '../../session/shared/extensions/upgrade'
 import { availableInstallOffers, type AppInstallOffer, type MarketOffer } from '../extensionBundle/installOffers'
