@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseWidgetMessage, serializeWidgetMessage, widgetMessagePreview } from '@gugu/core/shared/ui/widgetModels'
+import { parseWidgetMessage, serializeWidgetMessage, widgetMessageError, widgetMessagePreview } from '@gugu/core/shared/ui/widgetModels'
 
 const widget = { v: 2 as const, text: 'Build results', app: 'board', view: 'main', data: { count: 1 } }
 describe('widget messages', () => {
@@ -16,6 +16,18 @@ describe('widget messages', () => {
     expect(Object.hasOwn(parsed, 'constructor')).toBe(false)
     expect(Object.hasOwn(parsed.data!, '__proto__')).toBe(true)
     expect(({} as { polluted?: boolean }).polluted).toBeUndefined()
+  })
+  it.each([64, 140, 480, 520])('round-trips the immutable message height %s', height => {
+    const input = { ...widget, height }
+    expect(parseWidgetMessage(serializeWidgetMessage(input))).toEqual(input)
+  })
+  it.each([63, 521, 300.5, null, '480'])('rejects an invalid message height %s at the render boundary', height => {
+    const input = { ...widget, height }
+    expect(widgetMessageError(input)).toMatch(/height.*64.*520/)
+    expect(parseWidgetMessage(JSON.stringify(input))).toBeNull()
+  })
+  it.each([63, 521, 300.5])('refuses to serialize invalid height %s', height => {
+    expect(() => serializeWidgetMessage({ ...widget, height })).toThrow(/height.*64.*520/)
   })
   it.each([null, '', '{', '[]', JSON.stringify({ ...widget, v: 1 }), JSON.stringify({ ...widget, data: [] }), JSON.stringify({ ...widget, text: '' }), JSON.stringify({ ...widget, id: 'old', title: 'old' }), JSON.stringify({ ...widget, id: 'old' }), JSON.stringify({ ...widget, title: 'old' })])('refuses malformed and legacy content %s', content => {
     expect(parseWidgetMessage(content)).toBeNull()

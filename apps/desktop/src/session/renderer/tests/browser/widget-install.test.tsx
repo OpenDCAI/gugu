@@ -19,6 +19,7 @@ vi.mock('@/components/extensionBundle/sharedPackages', async original => ({
   subscribeSharedPackages: (fn: (chat: string) => void) => { state.notify = fn; return () => { state.notify = null; }; },
 }));
 vi.mock('@renderer/features/extensions/extension-view-layer', () => ({ ExtensionPage: () => <div>Widget view</div> }));
+vi.mock('@/components/appSlot/PhoneAppFrame', () => ({ PhoneAppFrame: () => <div>Widget view</div> }));
 vi.mock('@renderer/features/extensions/installed-extensions-store', () => ({ installedExtensionsStore: {
   isLoaded: true, get manifests() { return state.manifests; }, origins: {},
   manifestFor: (id: string) => state.manifests.find(m => m.id === id), isEnabled: () => true,
@@ -33,7 +34,21 @@ beforeEach(() => {
 });
 afterEach(() => harness?.cleanup());
 const button = () => [...harness.container.querySelectorAll('button')].find(b => b.textContent === 'chatArea.openWith.install');
-async function mount() { harness = createReactHarness(); await harness.render(<WidgetBubble message={message} />); }
+async function mount(content = message.content) { harness = createReactHarness(); await harness.render(<WidgetBubble message={{ ...message, content }} />); }
+
+it.each([{ height: 480, expected: 480 }, { height: 140, expected: 140 }, { height: undefined, expected: 200 }])('reserves the message height $height or the manifest default', async ({ height, expected }) => {
+  state.manifests = [pkg().manifest];
+  await mount(JSON.stringify({ v: 2, app: 'vote', view: 'main', text: 'Vote here', height }));
+  const slot = harness.container.querySelector<HTMLElement>('[data-widget-bubble] > div');
+  expect(slot).not.toBeNull();
+  expect(getComputedStyle(slot!).height).toBe(`${expected}px`);
+});
+it('does not mount a widget whose message has an invalid height', async () => {
+  state.manifests = [pkg().manifest];
+  await mount(JSON.stringify({ v: 2, app: 'vote', view: 'main', text: 'Vote here', height: 20 }));
+  expect(harness.container.querySelector('[data-widget-bubble]')).toBeNull();
+  expect(harness.container.textContent).toBe('message.widget');
+});
 
 it('offers an unlisted package from this chat through the same attachment consent entry', async () => {
   state.shared.set('vote', pkg());
