@@ -183,7 +183,7 @@ describe('account snapshot bootstrap and repair', () => {
   })
 
   it('surfaces invalid outbox and IO failures without clearing user input', async () => {
-    await adapter.commit([{ type: 'put', store: 'outbox', value: { accountId: 'account-a', id: 'unsent', value: {} } }])
+    await adapter.commit([{ type: 'put', store: 'outbox', value: { accountId: 'account-a', id: 'unsent', value: { ...pending, state: 'bogus' } } }])
     await expect(openImRepository('account-a', { adapter, initialize: initializeAccountSync })).rejects.toThrow('invalid current outbox row')
     expect(rpc).not.toHaveBeenCalled()
     const commit = vi.fn()
