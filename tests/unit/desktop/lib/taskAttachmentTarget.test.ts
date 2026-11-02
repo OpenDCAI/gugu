@@ -91,17 +91,32 @@ describe('task attachment SSH route', () => {
     expect(cancel).toHaveBeenCalledOnce()
   })
 
-  it('requires protocol 17 for resumable task files and never falls back to editor writes', async () => {
+  it('sends a selected screenshot through the existing SSH transfer on a protocol-16 host', async () => {
     mocks.devices = [{ id: 'host', connectVia: 'ssh' }];
-    const file = { itemId: 'item-12345678', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
-    await expect(pushTaskAttachment({ deviceId: 'host', projectId: 'project', workspaceId: 'workspace', chatId: 'chat', owner: 'owner' }, file, new Blob(['abc']), {})).rejects.toMatchObject({ code: 'host_update_required' });
-    expect(mocks.files.attachmentUploadBegin).not.toHaveBeenCalled(); expect(mocks.upload).not.toHaveBeenCalled(); expect(mocks.files.writeChunk).not.toHaveBeenCalled();
+    const file = { itemId: 'item-12345678', version: 1, name: 'screenshot.webp', mimeType: 'image/webp', sizeBytes: 3 };
+    mocks.files.getAbsolutePath.mockResolvedValue({ success: true, data: { path: '/task-worktree' } });
+    mocks.files.createEntry.mockResolvedValue({ success: true });
+    mocks.upload.mockResolvedValue({ status: 'done', skipped: [] });
+    const context = {};
+    await expect(pushTaskAttachment({ deviceId: 'host', projectId: 'project', workspaceId: 'workspace', chatId: 'chat', owner: 'owner' }, file, new Blob(['abc']), context)).resolves.toBe('.gugu/attachments/item-12345678/screenshot.webp');
+    expect(mocks.upload).toHaveBeenCalledWith('/task-worktree/.gugu/attachments', [expect.objectContaining({ segments: ['item-12345678', 'screenshot.webp'], size: 3 })], file.itemId);
+    const items = mocks.upload.mock.calls[0]![1];
+    expect(new TextDecoder().decode(await items[0].slice(0, 3))).toBe('abc');
+    expect(context).toEqual({});
+    expect(mocks.files.attachmentUploadBegin).not.toHaveBeenCalled(); expect(mocks.files.attachmentUploadWrite).not.toHaveBeenCalled();
   });
   it('requires this desktop SSH mapping even when the host advertises an SSH connection', async () => {
     mocks.devices = [{ id: 'host', connectVia: 'ssh' }]; mocks.cached[0]!.capabilities!.remote_protocol = 17; mocks.ssh = false;
     const file = { itemId: 'item-12345678', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
     await expect(pushTaskAttachment({ deviceId: 'host', projectId: 'project', workspaceId: 'workspace', chatId: 'chat', owner: 'owner' }, file, new Blob(['abc']), {})).rejects.toThrow('no SSH');
     expect(mocks.files.attachmentUploadBegin).not.toHaveBeenCalled(); expect(mocks.upload).not.toHaveBeenCalled();
+  });
+  it('keeps a protocol-17 upload failure visible instead of retrying through the legacy transfer', async () => {
+    mocks.devices = [{ id: 'host', connectVia: 'ssh' }]; mocks.cached[0]!.capabilities!.remote_protocol = 17;
+    mocks.files.attachmentUploadBegin.mockRejectedValue(new Error('SSH disconnected'));
+    const file = { itemId: 'item-12345678', version: 1, name: 'shot.webp', mimeType: 'image/webp', sizeBytes: 3 };
+    await expect(pushTaskAttachment({ deviceId: 'host', projectId: 'project', workspaceId: 'workspace', chatId: 'chat', owner: 'owner' }, file, new Blob(['abc']), {})).rejects.toThrow('SSH disconnected');
+    expect(mocks.upload).not.toHaveBeenCalled();
   });
   it('binds durable upload RPCs to the selected project/workspace and forwards confirmed progress', async () => {
     mocks.devices = [{ id: 'host', connectVia: 'ssh' }]; mocks.cached[0]!.capabilities!.remote_protocol = 17;

@@ -118,7 +118,7 @@ export async function prefetchTaskFiles(to: TaskAttachmentTarget, files: TurnFil
   if (failed.length) throw Object.assign(new Error(failed.map(result => result.error).join('\n')), { code: failed[0]?.code })
 }
 
-/** A task file has a durable receiver; directory/file-tree saves retain their own contract. */
+/** Use durable task-file uploads when supported; protocol-16 hosts retain their existing SSH transfer. */
 export async function pushTaskAttachment(to: TaskAttachmentTarget, file: TurnFileRef, source: Blob, context: AttachmentUploadContext,
   onProgress?: (sent: number, total: number) => void, signal?: AbortSignal, onPhase?: (phase: 'uploading' | 'resuming' | 'confirming') => void): Promise<string> {
   signal?.throwIfAborted()
@@ -127,7 +127,11 @@ export async function pushTaskAttachment(to: TaskAttachmentTarget, file: TurnFil
   if (!to.deviceId || !isSshMachine(to.deviceId)) throw new Error('This computer has no SSH connection to the task host')
   if (!to.deviceId || !taskAttachmentUsesSsh(to.deviceId) || !to.projectId || !to.workspaceId) throw new Error('The SSH task workspace is not available')
   const protocol = readCachedDevices().find(row => row.device_id === to.deviceId)?.capabilities?.remote_protocol ?? 0
-  if (protocol < ATTACHMENT_UPLOAD_PROTOCOL) throw Object.assign(new Error('Update the task host to resume attachments'), { code: 'host_update_required' })
+  if (protocol < ATTACHMENT_UPLOAD_PROTOCOL) {
+    const directory = await pushTaskFiles(to, file.itemId, [{ segments: [file.name], size: source.size,
+      slice: async (start, end) => new Uint8Array(await source.slice(start, end).arrayBuffer()) }], onProgress, signal)
+    return `${directory}/${file.name}`
+  }
   const api = rpcOn(to.deviceId).workspace.files
   const unwrap = <T,>(result: { success: true; data: T } | { success: false; error: { type: string; message?: string } }): T => {
     if (!result.success) throw Object.assign(new Error(result.error.message ?? result.error.type), { code: result.error.type })
