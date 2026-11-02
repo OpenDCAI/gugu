@@ -1,6 +1,6 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
-import { SquarePen } from '@/lib/icons';
+import { Zap } from '@/lib/icons';
 import { setComposerVerb, takeComposerCarry, type ComposerVerb } from '@/lib/composerVerbBridge';
 import { showBesideOnScreen } from '@renderer/app/screen-layout-actions';
 import { ProjectTaskComposer } from '@renderer/features/projects/components/main-panel/project-home';
@@ -31,12 +31,12 @@ export function SessionComposerVerbs({ sessionId, draft, onCarried }: {
     setComposerVerb(sessionVerbKey(sessionId), verb, draft);
     if (draft.trim()) onCarried();
   };
-  // 标是「新任务」这件事本身(同侧栏「新建任务」那枚笔),❌ 画 agent / harness 的标:那是模型那一格的事。
+  // 标是「新任务」这件事本身(咕咕里「agent 干活」那枚闪电,同对话列表、任务行),❌ 画 agent / harness 的标:那枚在模型左边(锁定的 agent 按钮)。
   // 窄到底排最后一档时字收掉、只剩这枚标(chat-composer.css 的 composer-foldable-label)。
   return (
     <>
       <Button variant="ghost" size="sm" data-testid="session-verb-task" aria-label={label} title={label} onClick={() => pick('task')}>
-        <SquarePen size={14} /><span data-slot="composer-foldable-label">{label}</span>
+        <Zap size={14} /><span data-slot="composer-foldable-label">{label}</span>
       </Button>
     </>
   );

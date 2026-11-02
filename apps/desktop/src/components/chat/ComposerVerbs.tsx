@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { SquarePen } from '@/lib/icons'
+import { Zap } from '@/lib/icons'
 import { setComposerVerb, type ComposerVerb } from '../../lib/composerVerbBridge'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { platform } from '../../platform'
@@ -40,7 +40,7 @@ export function ComposerVerbs({ chatId, isGroupChat, draft, onCarried }: {
     <span data-composer-verbs="" className={inSlot ? 'flex shrink-0 items-center' : 'flex h-[42px] shrink-0 items-center gap-1'} style={inSlot ? SLOT_VERBS_STYLE : undefined}>
       {(inSlot || isGroupChat) && (
         <Button variant="ghost" size="sm" data-testid="composer-verb-task" aria-label={t('composer.verb.task')} title={t('composer.verb.task')} onClick={() => pick('task')}>
-          <SquarePen size={14} /><span>{t('composer.verb.task')}</span>
+          <Zap size={14} /><span>{t('composer.verb.task')}</span>
         </Button>
       )}
     </span>

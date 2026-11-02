@@ -1694,7 +1694,6 @@ const ComposerForStore = observer(function ComposerForStore({
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
-        hideLockedAgent
         isWorking={a.isWorking}
         attachmentStatus={sendHold === 'waiting' ? translate('composer.attachmentWaiting') : undefined}
         notice={

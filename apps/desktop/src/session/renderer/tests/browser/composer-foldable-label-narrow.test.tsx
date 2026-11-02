@@ -110,7 +110,7 @@ async function renderComposer(width: number, { tag }: { tag: boolean }) {
 }
 
 describe('窄框里宿主塞进来的「新任务」收成标', () => {
-  it('会话底排 213px:「新任务」只剩它那枚笔,不压模型图形和发送键', async () => {
+  it('会话底排 213px:「新任务」只剩那枚闪电,不压模型图形和发送键', async () => {
     await renderComposer(213, { tag: false })
     const verb = document.querySelector('[data-testid="session-verb-task"]')!
     expect(verb.getAttribute('aria-label')).toBe(verb.getAttribute('title'))
@@ -132,10 +132,10 @@ describe('窄框里宿主塞进来的「新任务」收成标', () => {
     expect(shown(document.querySelector('[data-testid="session-verb-task"] [data-slot="composer-foldable-label"]'))).toBe(true)
   })
 
-  it('「新任务」上的标是它自己的笔,❌ agent / harness 的标(那是模型那一格的事)', async () => {
+  it('「新任务」上的标是那枚闪电,❌ agent / harness 的标(那枚在模型左边)', async () => {
     await renderComposer(640, { tag: false })
     const verb = document.querySelector('[data-testid="session-verb-task"]')!
-    // agent 的标(PluginIcon)是包在一层 span 里的插件 svg;笔是按钮直接带的那枚 svg。
+    // agent 的标(PluginIcon)是包在一层 span 里的插件 svg;闪电是按钮直接带的那枚 svg。
     expect(verb.querySelectorAll('svg, img')).toHaveLength(1)
     expect(verb.querySelector(':scope > svg')).not.toBeNull()
   })
