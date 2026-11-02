@@ -23,6 +23,7 @@ import {
   planTree,
   probeReadable,
   type CopyPlan,
+  type CopyCheckpoint,
   type HomeFs,
 } from './assistant-move-copy';
 
@@ -73,6 +74,8 @@ export type MoveJournal = {
   schedules: MoveSchedule[] | null;
   /** 旧家是哪台(开搬那一刻记下)。没有这一项的日志是老版本留下的,不接着用。 */
   source: MoveHomeRef | null;
+  targetDeviceId?: string;
+  copies?: CopyCheckpoint['files'];
 };
 
 export type MoveProgress = {
@@ -119,7 +122,7 @@ export interface MoveDeps {
   isAdopted(): Promise<boolean>;
   /** 让新家上的助理从头读一遍新拷来的文件(停掉运行时,下条消息再起)。 */
   restart(): Promise<void>;
-  journal: { load(): MoveJournal | null; save(journal: MoveJournal): void; clear(): void };
+  journal: { load(): MoveJournal | null; save(journal: MoveJournal): void | Promise<void>; clear(): void | Promise<void> };
   onProgress?: (progress: MoveProgress) => void;
   now?: () => number;
 }
@@ -193,9 +196,9 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
     source: deps.sourceHome,
   };
   const progress = (step: MoveStep, bytes?: MoveProgress['bytes']) => deps.onProgress?.({ step, bytes });
-  const finish = (step: MoveStep) => {
+  const finish = async (step: MoveStep) => {
     if (!journal.done.includes(step)) journal.done.push(step);
-    deps.journal.save(journal);
+    await guard(step, async () => deps.journal.save(journal));
   };
   // 「碰过接过」:一旦发出接过(不论后来成没成)旧家就不能再说「原样」—— 超时 / 掉线时那边可能已经落定。
   let adoptTouched = journal.done.includes('adopt');
@@ -224,28 +227,37 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
       }
     }
     if (deps.configure) await guard('adopt', deps.configure);
-    finish('adopt');
+    await finish('adopt');
   };
 
   // 1. 读旧家(只读)。已安排要在接过之前读到手;中断后接着搬时旧家的已安排可能已被撤,用日志里存的。
   progress('preflight');
+  // Adoption may have committed even if its response (and the local completion marker) was lost.
+  if (await guard('preflight', () => deps.isAdopted())) {
+    adoptTouched = true;
+    if (!resumed || journal.schedules === null) {
+      throw new MoveError('schedules', new Error('The original schedule snapshot is missing; restore the move recovery record before resuming'), false);
+    }
+  }
   let plan = await guard('preflight', () => planMove(deps.source));
   // 已经接过之后,旧家的已安排已被撤掉,只能信日志;还没接过就以旧家此刻的为准(上一次读到之后人可能改过)。
-  if (journal.schedules === null || !journal.done.includes('adopt')) {
+  if (journal.schedules === null || !adoptTouched) {
     const listed = await guard('preflight', () => deps.source.schedules.list());
     if (listed !== null) {
       journal.schedules = listed;
     } else if (journal.schedules === null) {
-      // 旧家读不出它的会话、日志里也没有:不知道有没有 —— 记一笔,搬完让人知道「已安排没确认」。
-      journal.schedules = [];
-      report.schedules.unreadable = true;
+      throw new MoveError('schedules', new Error('The original schedules cannot be recovered; reconnect the source home before resuming'), !adoptTouched);
     }
-    deps.journal.save(journal);
+    await guard('preflight', async () => deps.journal.save(journal));
   }
-  finish('preflight');
+  await finish('preflight');
 
   let target: MoveSide | null = null;
   const copyAll = async (to: MoveSide, from: MovePlan, countNew: (tree: string, rel: string) => boolean = () => true) => {
+    if (journal.targetDeviceId && journal.targetDeviceId !== to.deviceId) throw new Error('The move target changed; restore the original target before resuming');
+    journal.targetDeviceId = to.deviceId ?? undefined;
+    const checkpoint: CopyCheckpoint = { files: journal.copies ??= {}, resuming: !!resumed,
+      save: async () => { await deps.journal.save(journal); } };
     progress('files', { done: 0, total: from.totalBytes });
     let done = 0;
     const onBytes = (n: number) => {
@@ -262,10 +274,11 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
         toRoot,
         plan: tree.plan,
         onBytes,
+        checkpoint,
       });
       report.files += tree.plan.files.filter((file) => countNew(tree.name, file.rel)).length;
     }
-    await copyUserInstructions({ from: deps.source.fs, fromPath: deps.source.paths.instructions, to: to.fs, toPath: to.paths.instructions });
+    await copyUserInstructions({ from: deps.source.fs, fromPath: deps.source.paths.instructions, to: to.fs, toPath: to.paths.instructions, checkpoint });
   };
   const noteSkipped = (from: MovePlan) => {
     report.skippedFiles = from.trees.flatMap((tree) => tree.plan.skipped.map((s) => ({ rel: `${tree.name}/${s.rel}`, reason: s.reason })));
@@ -320,18 +333,18 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
     plan = await guard('files', () => planMove(deps.source));
     noteSkipped(plan);
     await guard('files', () => copyAll(target!, plan));
-    finish('files');
+    await finish('files');
     await guard('accounts', () => copyAccounts(target!));
-    finish('accounts');
+    await finish('accounts');
   } else {
     // 搬回本机:本机的家先备好、先拷,最后才接过 —— 拷失败时助理还好好地住在云上。
     target = await guard('files', () => deps.openTarget());
     assertDistinct(target);
     noteSkipped(plan);
     await guard('files', () => copyAll(target!, plan));
-    finish('files');
+    await finish('files');
     await guard('accounts', () => copyAccounts(target!));
-    finish('accounts');
+    await finish('accounts');
     await ensureAdopted();
     // 接过 = 云上那边停了、不会再写:先前拷的这段时间里它写的 / 改的,补一遍(只补变了的)。
     const after = await guard('files', () => planMove(deps.source));
@@ -357,12 +370,12 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
       report.schedules.unsupported = journal.schedules;
     }
   }
-  finish('schedules');
+  await finish('schedules');
 
   // Restart changes desired status: failure can leave the target offline. Keep recovery and source credentials until confirmed.
   progress('restart');
   await guard('restart', deps.restart);
-  finish('restart');
+  await finish('restart');
 
   // 5. 剪切:新家核对过的账号,把旧家那一份撤掉(owner:有账号的服务只存一份)。撤不掉的如实记下,不当成搬家失败。
   progress('revoke');
@@ -375,8 +388,8 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
       report.warnings.push(`revoke ${account.integrationId}/${account.accountId}: ${cause instanceof Error ? cause.message : String(cause)}`);
     }
   }
-  finish('revoke');
-  deps.journal.clear();
+  await finish('revoke');
+  await guard('revoke', async () => deps.journal.clear());
   return report;
 }
 

@@ -2,7 +2,6 @@
 // 读写它的家同一组动词)、账号与已安排走 integrations.* / automations.*、接过走管家 /provision 或客户端 saga。
 // 界面在 components/assistant/AssistantMoveGroup;这里没有任何 React。
 import type { MovableIntegrationAccount } from '@shared/core/integrations/integration-move';
-import { WORKSPACE_WRITE_FORCE } from '@gugu/session-core/session-record/contract';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { CloudComputerError } from '@gugu/core/cloud/cloudComputer';
 import { readDisplayIdentities } from '@/lib/identityReadAdapter';
@@ -21,12 +20,14 @@ import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-s
 import { rpcOn } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';
 import { isAssistantSession } from './assistant-lineage';
-import { AssistantFileError, listDirectory, makeFolder, readText, writeText, type AssistantMachine } from './assistant-machine-core';
+import { AssistantFileError, listDirectory, makeFolder, readText, type AssistantMachine } from './assistant-machine-core';
 import { homeTarget } from './assistant-home-sessions';
 import { rendererLogger } from '@/lib/log';
 import { openAssistantMachine } from './assistant-machine';
-import type { HomeFs } from './assistant-move-copy';
+import { COPY_CHUNK_BYTES, type HomeFs } from './assistant-move-copy';
+import { durableMoveJournal } from './assistant-move-journal';
 import {
+  MoveError,
   isUnknownMethod,
   planMove,
   runMove,
@@ -99,7 +100,7 @@ function mtimeOf(entry: { modifiedAt?: unknown }): number | null {
 export function machineFs(machine: AssistantMachine): HomeFs {
   if (!machine.rpc) throw new Error('The explicit move requires its native source and destination')
   const files = machine.rpc.workspace.files;
-  return {
+  const fs: HomeFs = {
     async list(dir) {
       return (await listDirectory(machine, dir)).map((entry) => ({ name: entry.name, type: entry.type, size: entry.size, mtime: mtimeOf(entry) }));
     },
@@ -109,7 +110,15 @@ export function machineFs(machine: AssistantMachine): HomeFs {
       if (!result.success) throw rpcError(result.error as { type?: string; message?: string });
       return fromBase64(result.data.data);
     },
-    async writeChunk({ path, uploadId, offset, data, total, final }) {
+    async revision(path) {
+      const result = await files.readChunk(machine.projectId, machine.workspaceId, { path, offset: 0, length: 0 });
+      if (!result.success) {
+        if (result.error.type === 'not_found') return null;
+        throw rpcError(result.error as { type?: string; message?: string });
+      }
+      return result.data.etag;
+    },
+    async writeChunk({ path, uploadId, offset, data, total, final, expectedRevision }) {
       const result = await files.writeChunk(machine.projectId, machine.workspaceId, {
         path,
         uploadId,
@@ -117,17 +126,29 @@ export function machineFs(machine: AssistantMachine): HomeFs {
         data: toBase64(data),
         total,
         final,
-        expectedEtag: WORKSPACE_WRITE_FORCE,
+        expectedEtag: expectedRevision ?? null,
       });
-      if (!result.success) throw rpcError(result.error as { type?: string; message?: string });
+      if (!result.success) throw Object.assign(rpcError(result.error as { type?: string; message?: string }), { path });
       return result.data.committed ? { size: result.data.committed.size } : null;
     },
     async makeDir(parent, name) {
       await makeFolder(machine, parent, name);
     },
     readText: (path) => readText(machine, path),
-    writeText: (path, content) => writeText(machine, path, content),
+    async writeText(path, content, expectedRevision) {
+      const data = new TextEncoder().encode(content);
+      const uploadId = crypto.randomUUID();
+      let offset = 0;
+      do {
+        const chunk = data.slice(offset, offset + COPY_CHUNK_BYTES);
+        const result = await fs.writeChunk({ path, uploadId, offset, data: chunk, total: data.length,
+          final: offset + chunk.length >= data.length, expectedRevision });
+        offset += chunk.length;
+        if (offset >= data.length && result?.size !== data.length) throw new Error('Instruction write was not confirmed');
+      } while (offset < data.length);
+    },
   };
+  return fs;
 }
 
 async function sessionsOn(target: string | null): Promise<readonly SessionpageSessionSummary[]> {
@@ -234,7 +255,7 @@ export function moveJournalStore(ownerUserId: string): MoveDeps['journal'] {
       }
     },
     save(journal) {
-      // 日志丢了只意味着「不能接着搬」(要从头再来),不该让搬家本身失败:写不进去就不写。
+      // Native storage is authoritative; this is only the synchronous UI cache.
       try {
         localStorage.setItem(journalKey(ownerUserId), JSON.stringify(journal));
       } catch {
@@ -249,6 +270,21 @@ export function moveJournalStore(ownerUserId: string): MoveDeps['journal'] {
       }
     },
   };
+}
+
+async function recoveryJournalStore(ownerUserId: string): Promise<MoveDeps['journal']> {
+  const ipc = desktopIpc();
+  if (!ipc) throw new Error('Move recovery requires the desktop host');
+  return durableMoveJournal(moveJournalStore(ownerUserId), {
+    read: async () => await ipc.invoke(ASSISTANT_HOME_CHANNELS.moveJournalRead, ownerUserId) as string | null,
+    write: async (raw) => { await ipc.invoke(ASSISTANT_HOME_CHANNELS.moveJournalWrite, ownerUserId, raw); },
+    clear: async () => { await ipc.invoke(ASSISTANT_HOME_CHANNELS.moveJournalClear, ownerUserId); },
+  });
+}
+
+export async function recoverPendingMove(ownerUserId: string, assistantId: string): Promise<MoveJournal | null> {
+  const journal = (await recoveryJournalStore(ownerUserId)).load();
+  return journal?.assistantId === assistantId && journal.source ? journal : null;
 }
 
 /**
@@ -392,7 +428,7 @@ export function buildMoveDeps(
 }
 
 /** 让新家上的助理从头读一遍刚拷来的说明与记忆:停掉运行时,再标回在线,下一条消息会重新起它。 */
-async function restartAssistant(assistantId: string): Promise<void> {
+export async function restartAssistant(assistantId: string): Promise<void> {
   try {
     await contactsService.setAgentDesiredStatus(assistantId, 'offline');
   } finally {
@@ -425,7 +461,13 @@ export async function previewMove(env: MoveEnv, direction: MoveDirection) {
 }
 
 export async function runAssistantMove(env: MoveEnv, direction: MoveDirection, onProgress?: MoveDeps['onProgress']): Promise<MoveReport> {
-  const sourceHome = sourceHomeFor(env, direction);
+  const journal = await recoveryJournalStore(env.ownerUserId);
+  const savedJournal = journal.load();
+  if (savedJournal?.assistantId === env.assistantId && savedJournal.direction !== direction) {
+    throw new MoveError('preflight', new Error('Resume the unfinished move before starting another direction'), false);
+  }
+  const sourceHome = savedJournal?.assistantId === env.assistantId && savedJournal.direction === direction && savedJournal.source
+    ? savedJournal.source : sourceHomeFor(env, direction);
   const source = await openSource(env, direction, sourceHome);
   const saved = await readAgentModelSelection(env.assistantId);
   const target = direction === 'to-cloud' ? null : sourceHome.deviceId;
@@ -437,6 +479,7 @@ export async function runAssistantMove(env: MoveEnv, direction: MoveDirection, o
   const model = direction === 'to-cloud' ? cloudMoveModel(saved.desired, protocol)
     : moveModelSelection(saved.desired, options?.ok ? options.value : {}, protocol);
   const deps = buildMoveDeps(env, direction, source, sourceHome, onProgress, model);
+  deps.journal = journal;
   deps.configure = async () => {
     const outcome = await setAgentModelSelection(env.assistantId, model);
     if (!outcome.ok) throw new Error(outcome.error);

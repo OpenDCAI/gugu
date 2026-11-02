@@ -24,6 +24,8 @@ export type MoveFailureReason =
   | 'file_too_large'
   | 'unreadable'
   | 'restart'
+  | 'schedules'
+  | 'conflict'
   | 'generic';
 
 export type MovePhase =
@@ -32,7 +34,7 @@ export type MovePhase =
   | { kind: 'confirm'; direction: MoveDirection; preview: MovePreview; names: Map<string, string> }
   | { kind: 'moving'; direction: MoveDirection; progress: MoveProgress | null }
   | { kind: 'done'; direction: MoveDirection; report: MoveReport; names: Map<string, string> }
-  | { kind: 'failed'; direction: MoveDirection; reason: MoveFailureReason; resumable: boolean; intact: boolean }
+  | { kind: 'failed'; direction: MoveDirection; reason: MoveFailureReason; resumable: boolean; intact: boolean; conflictPath?: string }
   | { kind: 'prepare-failed'; direction: MoveDirection };
 
 export type MoveState = {
@@ -71,7 +73,9 @@ export function moveBusy(): boolean {
 
 export function failureReason(error: unknown): MoveFailureReason {
   if (error instanceof MoveError && error.step === 'restart') return 'restart';
+  if (error instanceof MoveError && error.step === 'schedules') return 'schedules';
   const cause = error instanceof MoveError ? error.cause : error;
+  if ((cause as { code?: string } | null)?.code === 'conflict') return 'conflict';
   if (cause instanceof MoveCopyError) {
     return cause.code === 'file_too_large' ? 'file_too_large' : cause.code === 'too_large' ? 'too_large' : cause.code === 'unreadable' ? 'unreadable' : 'generic';
   }
@@ -122,7 +126,10 @@ export async function startMove(env: MoveEnv, direction: MoveDirection, names: M
   } catch (error) {
     log.error({ error: String(error), direction }, 'move failed');
     const intact = error instanceof MoveError ? error.sourceIntact : false;
-    publish({ phase: { kind: 'failed', direction, reason: failureReason(error), resumable: !intact, intact } });
+    const cause = error instanceof MoveError ? error.cause : error;
+    const path = (cause as { path?: unknown } | null)?.path;
+    publish({ phase: { kind: 'failed', direction, reason: failureReason(error), resumable: !intact, intact,
+      ...(typeof path === 'string' ? { conflictPath: path } : {}) } });
   }
 }
 
