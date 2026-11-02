@@ -1541,7 +1541,6 @@ function onAppNotification(message) {
       const outcome = turnOutcome(params.turn)
       for (const [clientId, insertion] of promptInsertions) {
         if (insertion.turnId !== activeCycle.turnId || insertion.messageId !== null) continue
-        insertion.cancelled = true
         promptInsertions.delete(clientId)
         insertion.resolve({ error: outcome.error?.message ?? `Native turn ended before input insertion (${outcome.stopReason})`,
           code: outcome.error?.code ?? (outcome.stopReason === 'cancelled' ? -32800 : -32603) })

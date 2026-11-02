@@ -180,13 +180,20 @@ it('fails only the uninserted receipt of a compacting foreground turn on its nat
  if (m.method === 'turn/start') {
   inputs.push(m)
   const id = 'turn-' + inputs.length
+  if (inputs.length === 1) {
+   // One stdout chunk: completion precedes the turn/start await continuation.
+   const frames = [
+    { method: 'turn/started', params: { threadId: 'thread', turn: { id } } },
+    { id: m.id, result: { turn: { id } } },
+    { method: 'item/started', params: { threadId: 'thread', turnId: id, item: { type: 'contextCompaction', id: 'compact' } } },
+    { method: 'turn/completed', params: { threadId: 'thread', turn: { id: 'older', status: 'completed' } } },
+    { method: 'turn/completed', params: { threadId: 'thread', turn: { id, status: 'failed', error: { message: 'native compaction refused' } } } },
+   ]
+   process.stdout.write(frames.map(frame => JSON.stringify(frame)).join('\\n') + '\\n')
+   return
+  }
   out({ method: 'turn/started', params: { threadId: 'thread', turn: { id } } })
   out({ id: m.id, result: { turn: { id } } })
-  if (inputs.length === 1) {
-   out({ method: 'item/started', params: { threadId: 'thread', turnId: id, item: { type: 'contextCompaction', id: 'compact' } } })
-   out({ method: 'turn/completed', params: { threadId: 'thread', turn: { id: 'older', status: 'completed' } } })
-   return out({ method: 'turn/completed', params: { threadId: 'thread', turn: { id, status: 'failed', error: { message: 'native compaction refused' } } } })
-  }
   out({ method: 'item/started', params: { threadId: 'thread', turnId: id, item: { type: 'userMessage', id: 'next-native', clientId: m.params.clientUserMessageId, content: m.params.input } } })
   return out({ method: 'turn/completed', params: { threadId: 'thread', turn: { id, status: 'completed' } } })
  }`);
