@@ -3,7 +3,7 @@ vi.mock('@renderer/lib/hooks/use-toast', async (importOriginal) => ({ ...await i
 /**
  * #5818 侧栏会话行:行尾的置顶 / 归档**只认指针与真焦点** —— 真 Chromium、真 CSS、真组件。
  * 下半部分是 #6092 的身份卡:指针停在行上弹出这条会话是谁,取代了 #5818 那次标题翻转;#7334 起卡上只有
- * 任务名(就是 agent 名,一个任务一个名字)/ 设备 / 文件夹,点一行复制「标签：值」,会话 ID 挪到右键「复制会话 ID」。
+ * 任务名 / Agent 名 / 设备 / 文件夹,点一行复制「标签：值」,会话 ID 挪到右键「复制会话 ID」。
  *
  * 守的是一次回归:#5643 为了修「看不见却能 Enter 触发归档」(#5642),把「这一行是键盘光标」
  * 也加进了显形判据;而点一行,主区就到了这一行、键盘光标就在这一行,于是**选中的那一行
@@ -31,7 +31,10 @@ import { until } from '../../../../../../../tests/support/awaitCondition'
 // import 期拉起整个应用状态(要 IPC),与本条无关。❌ 别连组件一起替 —— 那就变成在测一份抄件。
 // ⚠️ 工厂里不能引用文件顶层的变量(vi.mock 被提升到最前,那些变量此刻还在 TDZ 里)—— 所以就地写。
 // `loaded` 给某个 id 换一份 data(fork 那条用例摆父会话);null = 这条会话没挂上。没列的 id 都是同一条默认会话。
-const registry = vi.hoisted(() => ({ loaded: new Map<string, Record<string, unknown> | null>() }))
+const registry = vi.hoisted(() => ({
+  loaded: new Map<string, Record<string, unknown> | null>(),
+  listed: new Map<string, { summary: Record<string, unknown>; live: boolean }>(),
+}))
 vi.mock('@renderer/features/sessions/stores/session-registry', () => ({
   sessionRegistry: {
     get: (id: string) => {
@@ -72,7 +75,7 @@ vi.mock('@renderer/lib/stores/app-state', async () => {
     navigation: shown.navigation,
   },
   sidebarStore: {
-    remoteSession: () => undefined,
+    remoteSession: (_projectId: string, sessionId: string) => registry.listed.get(sessionId),
     navChain: [{ kind: 'conversation', projectId: 'proj-1', sessionId: 'conv-1' }],
     // 设置 `interface.showLeftSidebarAgentNameOnHover` 的镜像(现在开的是身份卡,#6092)。这里是**开**的那一档;
     // 关掉那一档由下面单独一条用例把它翻过去判。
@@ -109,6 +112,8 @@ import { SidebarSessionItem } from '@renderer/features/sidebar/sidebar-session-i
 import { sidebarIdentityCard } from '@renderer/features/sidebar/sidebar-identity-card'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
+import { displayIdentityFromRow } from '@/lib/displayIdentity'
+import { installIdentityDirectoryBridge, publishIdentityDirectory } from '@/lib/identityDirectoryBridge'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
 
@@ -116,6 +121,8 @@ let root: Root
 let host: HTMLDivElement
 
 beforeEach(() => {
+  installIdentityDirectoryBridge()
+  publishIdentityDirectory({}, null)
   // 每条用例从「主区在别的会话上」开始:上一条点过的行不算数。
   runInAction(() => { shown.navigation!.viewParamsStore.session = { projectId: 'proj-1', sessionId: 'task-1' } })
   host = document.createElement('div')
@@ -134,6 +141,8 @@ afterEach(() => {
   // store 是模块单例:上一条 note 进去的身份会跨用例留着,而「没有身份」正是另一条要判的状态。
   sessionAgentBindings.bindings.clear()
   registry.loaded.clear()
+  registry.listed.clear()
+  publishIdentityDirectory(null, null)
   sidebarIdentityCard.close(sidebarIdentityCard.activeSessionId ?? '')
 })
 
@@ -296,6 +305,16 @@ it('行尾的归档:按下后指针挪了几个像素再松开,仍是一次点�
 const AGENT_USER_ID = 'agent-user-id-0123456789abcdef'
 const TITLE = '我们目前的软件更新蛮奇怪的,谈了很多更新提示'
 
+/** 发布真实目录桥的快照,不创建另一份名字缓存。 */
+function publishAgentName(name: string): void {
+  publishIdentityDirectory({ [AGENT_USER_ID]: displayIdentityFromRow({
+    id: AGENT_USER_ID, type: 'agent', display_name: name,
+    avatar: null, gugu_number: null, bio: null, owner_user_id: null,
+    agent_public: null, desired_status: null, device_id: null, category: null,
+    is_official: null, local_path: null, created_at: null, updated_at: null,
+  }) }, null)
+}
+
 /** 换掉剪贴板,记下写进去的每一段。 */
 function stubClipboard() {
   const writeText = vi.fn().mockResolvedValue(undefined)
@@ -323,10 +342,11 @@ async function openCard(row: HTMLElement): Promise<HTMLElement> {
   return identityCard()!
 }
 
-it('#7334 指针停在行上,右侧弹出身份卡:任务名 / 设备 / 文件夹三行(任务名就是 agent 名,不另摆一行),不摆两枚 ID;卡上没有多余的线', async () => {
+it('悬停身份卡显示任务名 / Agent 名 / 设备 / 文件夹,名字分别复制,不摆两枚 ID;卡上没有多余的线', async () => {
   // 卡开在行右侧要有地方放:默认视口太窄时定位系统会翻到左边再贴边,那量到的就不是「右侧」这一格了。
   await page.viewport(1024, 768)
   sessionAgentBindings.note('conv-1', AGENT_USER_ID)
+  publishAgentName('Codex 40')
   const clipboard = stubClipboard()
   mount()
   await mounted()
@@ -347,12 +367,13 @@ it('#7334 指针停在行上,右侧弹出身份卡:任务名 / 设备 / 文件�
   const card = identityCard()!
 
   const keys = Array.from(card.querySelectorAll<HTMLElement>('[data-identity-row]')).map((el) => el.dataset.identityRow)
-  expect(keys).toEqual(['sessionName', 'device', 'folder'])
+  expect(keys).toEqual(['sessionName', 'agentName', 'device', 'folder'])
   // 在哪(owner 2026-10-28):本机会话写「这台电脑」;这里项目没挂上、也没有工作区 ⇒ 文件夹「未知」,且不可复制。
   expect(card.querySelector('[data-identity-row="device"]')!.textContent).toMatch(/这台电脑|This computer/)
   expect(card.querySelector('[data-identity-row="folder"]')!.textContent).toMatch(/未知|Unknown/)
   expect(card.querySelector('[data-identity-row="folder"]')!.tagName).not.toBe('BUTTON')
   expect(card.querySelector('[data-identity-row="sessionName"]')!.textContent).toContain('软件更新')
+  expect(card.querySelector('[data-identity-row="agentName"]')!.textContent).toContain('Codex 40')
   // 两枚 ID 不在卡上 —— 连前缀也没有。阳性对照:同一张卡的文字里确实读得到任务名(上一句),读法没坏。
   expect(card.textContent).not.toContain(AGENT_USER_ID.slice(0, 8))
   expect(card.textContent).not.toContain('conv-1')
@@ -386,6 +407,14 @@ it('#7334 指针停在行上,右侧弹出身份卡:任务名 / 设备 / 文件�
   await until('the copied row says so', () => sessionRow.dataset.copyState === 'copied')
   expect(identityCard()).not.toBeNull()
 
+  const agentRow = card.querySelector<HTMLElement>('[data-identity-row="agentName"]')!
+  await userEvent.click(agentRow)
+  expect(clipboard).toHaveBeenCalledTimes(2)
+  expect(clipboard.mock.calls[1][0]).toBe(
+    `${translateSessionMessage('identityCard.agentName')}${translateSessionMessage('identityCard.copyKeySeparator')}Codex 40`
+  )
+  expect(identityCard()).not.toBeNull()
+
   // 收卡不等(owner 2026-10-08:「应该是立即消失,而不是过一会儿才消失」)。时钟冻着:收不靠任何定时器到点,
   // 离开的那一下就收 —— 一个「宽限 0ms」的定时器在这里也会读成还开着。
   // ① 从卡里离开 ⇒ 当场收。(上面那次点复制,指针就是从行直接走进卡的,卡一直开着。)
@@ -405,6 +434,58 @@ it('#7334 指针停在行上,右侧弹出身份卡:任务名 / 设备 / 文件�
   expect(sidebarIdentityCard.activeSessionId, '离开行、没进卡:当场收').toBeNull()
   vi.useRealTimers()
   await until('identity card is gone', () => identityCard() === null)
+})
+
+it('身份稍后加载或改名时,打开的卡片更新 Agent 名和复制值', async () => {
+  sessionAgentBindings.note('conv-1', AGENT_USER_ID)
+  const ensure = vi.fn()
+  publishIdentityDirectory({}, ensure)
+  const clipboard = stubClipboard()
+  mount()
+  await mounted()
+  const card = await openCard(host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!)
+  const missing = card.querySelector<HTMLElement>('[data-identity-row="agentName"]')!
+  expect(missing.textContent).toContain(translateSessionMessage('identityCard.agentNameUnknown'))
+  expect(missing.tagName).not.toBe('BUTTON')
+  await until('missing identity requested', () => ensure.mock.calls.length > 0)
+  expect(ensure).toHaveBeenCalledWith([AGENT_USER_ID])
+  expect(missing.textContent).not.toContain(TITLE)
+
+  publishAgentName('Codex 40')
+  await until('agent name arrives', () => card.querySelector('[data-identity-row="agentName"]')?.textContent?.includes('Codex 40') === true)
+  publishAgentName('Codex 41')
+  await until('agent name updates', () => card.querySelector('[data-identity-row="agentName"]')?.textContent?.includes('Codex 41') === true)
+  await userEvent.click(card.querySelector<HTMLElement>('[data-identity-row="agentName"]')!)
+  expect(clipboard).toHaveBeenCalledWith(
+    `${translateSessionMessage('identityCard.agentName')}${translateSessionMessage('identityCard.copyKeySeparator')}Codex 41`
+  )
+})
+
+it('没有身份绑定时显示不可复制的未分配,不拿任务标题冒充 Agent 名', async () => {
+  mount()
+  await mounted()
+  const card = await openCard(host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!)
+  const agentRow = card.querySelector<HTMLElement>('[data-identity-row="agentName"]')!
+  expect(agentRow.textContent).toContain(translateSessionMessage('identityCard.unassigned'))
+  expect(agentRow.tagName).not.toBe('BUTTON')
+  expect(agentRow.textContent).not.toContain(TITLE)
+})
+
+it('未挂载的远程会话用目录中的 agent ID 显示名字', async () => {
+  registry.loaded.set('conv-1', null)
+  registry.listed.set('conv-1', {
+    live: false,
+    summary: {
+      conversationId: 'conv-1', title: TITLE, harness: 'claude', runtime: 'pty',
+      agent: { userId: AGENT_USER_ID },
+    },
+  })
+  publishAgentName('Codex 40')
+  mount()
+  await mounted()
+  const card = await openCard(host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!)
+  expect(card.querySelector('[data-identity-row="agentName"]')!.textContent).toContain('Codex 40')
+  expect(card.querySelector('[data-identity-row="sessionName"]')!.textContent).toContain(TITLE)
 })
 
 it('#7334 右键「复制会话 ID」:复制完整的会话 ID', async () => {

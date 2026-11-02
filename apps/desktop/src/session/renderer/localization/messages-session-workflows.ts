@@ -199,6 +199,9 @@ export const enUSSessionWorkflowMessages = {
   // ── sidebar · identity card (#6092) ───────────────────────────────────────
   'identityCard.dialog': 'Identity of {name}',
   'identityCard.sessionName': 'Task',
+  'identityCard.agentName': 'Agent name',
+  'identityCard.agentNameUnknown': 'Unknown',
+  'identityCard.unassigned': 'Unassigned',
   'identityCard.device': 'Device',
   'identityCard.folder': 'Folder',
   'identityCard.folderUnknown': 'Unknown',
@@ -831,6 +834,9 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   // ── 侧栏 · 身份卡(#6092)────────────────────────────────────────────────
   'identityCard.dialog': '{name} 的身份',
   'identityCard.sessionName': '任务名',
+  'identityCard.agentName': 'Agent 名',
+  'identityCard.agentNameUnknown': '未知',
+  'identityCard.unassigned': '未分配',
   'identityCard.device': '设备',
   'identityCard.folder': '文件夹',
   'identityCard.folderUnknown': '未知',

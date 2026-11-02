@@ -5,8 +5,9 @@ import { PreviewCard as PreviewCardPrimitive } from '@base-ui/react/preview-card
 import { Check, Copy } from '@/lib/icons';
 import { makeAutoObservable } from 'mobx';
 import { observer } from 'mobx-react-lite';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
+import { readIdentityDirectoryBridge } from '@/lib/identityDirectoryBridge';
 import { getPortalContainer } from '@renderer/lib/portal-container';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
@@ -21,9 +22,8 @@ import { TailValue } from './sidebar-identity-tail';
 /**
  * 侧栏会话行的**身份卡**(#6092,取代 #5818 的「标题就地翻成 agent 名」)。
  *
- * 行上只写得下标题;指针停在行上,行右侧弹出一张卡回答「这一行是谁、在哪」:**任务名、设备、文件夹**
- * 三行(设备与文件夹 owner 2026-10-28 加,见 sidebar-identity-place.ts)。任务名就是它 agent 的名字 ——
- * 一个任务只有一个名字(owner 2026-10-31),所以 ❌ 再摆一行「agent 名」,
+ * 行上只写得下标题;指针停在行上,行右侧弹出一张卡回答「这一行是谁、在哪」:**任务名、Agent 名、设备、文件夹**
+ * 四行。Agent 名读聊天页同一份身份目录,会话标题不能替代可用于 @ 的身份名字。
  * **整行点一下就复制这一行**。#7334 起卡上不再摆会话 ID 与 agent ID —— 平时拿名字的人用不上两串 ID,
  * 摆着只是多一层要读的东西;要会话 ID 的人主动去拿(行的右键「复制会话 ID」)。
  * 复制出去的是**带标签的这一对**(「任务名：X」)—— 单个值离开了标签,粘到哪都读不出它是什么
@@ -53,7 +53,7 @@ import { TailValue } from './sidebar-identity-tail';
  *    点外 / Esc 由 Base UI 出。
  *  · 右键菜单开了、行开始被拖了,卡当场收:那两件事都是「不在看这张卡了」。
  *
- * 值的显示与复制**同一个真源**:卡上显示的就是复制出去的那两个值。❌ 不挂原生 title:一个飘在别处的
+ * 值的显示与复制**同一个真源**:卡上显示的就是复制出去的值。❌ 不挂原生 title:一个飘在别处的
  * 浏览器 tooltip 只会打断排版(owner 2026-09-21 实机)。
  * 没有咕咕身份的会话,agent 那一行写「未分配」且不可复制 —— ❌ 不拿标题冒充人名、❌ 把「未分配」当成一个值
  * 粘出去。
@@ -61,6 +61,7 @@ import { TailValue } from './sidebar-identity-tail';
 
 const OPEN_DELAY_MS = 400;
 const COPIED_MS = 1600;
+const noSubscription = () => () => {};
 
 /**
  * 全侧栏同一时刻只有一张卡。行自己不记「我开着」——它只问这张表「现在开的是不是我」,
@@ -204,7 +205,7 @@ export function useSidebarIdentityCardTrigger(sessionId: string, enabled: boolea
 }
 
 type RowSpec = {
-  key: 'sessionName' | 'device' | 'folder';
+  key: 'sessionName' | 'agentName' | 'device' | 'folder';
   label: string;
   /** null = 这一格没有(文件夹不知道):写 missing 那句且不可复制。 */
   value: string | null;
@@ -220,18 +221,40 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
   projectId,
   sessionId,
   title,
+  agentUserId,
   anchor,
   onDismiss,
 }: {
   projectId: string;
   sessionId: string;
   title: string;
+  agentUserId?: string;
   /** 取行本体。传取值函数:虚拟列表重渲染会换掉行节点,拿着旧节点定位是对着脱离文档的元素算坐标。 */
   anchor: () => Element | null;
   onDismiss: () => void;
 }) {
   const { translate } = useSessionMessages();
-  const rows: RowSpec[] = [{ key: 'sessionName', label: translate('identityCard.sessionName'), value: title }];
+  const directory = readIdentityDirectoryBridge();
+  const identities = useSyncExternalStore(
+    directory?.subscribe ?? noSubscription,
+    () => directory?.getSnapshot() ?? null,
+    () => null
+  );
+  const agentName = agentUserId ? identities?.[agentUserId]?.display_name.trim() || null : null;
+  const missingIdentity = !!agentUserId && identities !== null && !identities[agentUserId];
+  useEffect(() => {
+    // 只在卡打开且身份缺失时交给共享目录补取,不另建名字缓存或查询官方服务。
+    if (agentUserId && missingIdentity) directory?.ensure([agentUserId]);
+  }, [directory, agentUserId, missingIdentity]);
+  const rows: RowSpec[] = [
+    { key: 'sessionName', label: translate('identityCard.sessionName'), value: title },
+    {
+      key: 'agentName',
+      label: translate('identityCard.agentName'),
+      value: agentName,
+      missing: translate(agentUserId ? 'identityCard.agentNameUnknown' : 'identityCard.unassigned'),
+    },
+  ];
   // 在哪:设备 + 文件夹。别的机器上的会话没挂载时没有工作区,只知道项目目录(会话目录那一行不带 cwd)。
   const machine = machineRegistry.machineOf(projectId);
   const place = identityPlace({

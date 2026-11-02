@@ -99,9 +99,9 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const { translate } = useSessionMessages();
   const shownStatus = useShownAgentStatus();
   const assistantName = useAssistantShell()?.assistant?.display_name ?? null;
-  // 这一行是谁 —— 指针停在行上,右侧弹出身份卡(#6092;任务名 / 设备 / 文件夹,点一行复制「标签：值」)。
+  // 这一行是谁 —— 指针停在行上,右侧弹出身份卡(#6092;任务名 / Agent 名 / 设备 / 文件夹,点一行复制「标签：值」)。
   // 它取代了 #5818 那次「标题就地翻成 agent 名」。会话 ID 不在卡上,在下面右键菜单的「复制会话 ID」。
-  // 设置里关掉 = 用户不要这个行为 → 连倒计时都不起。名字是会话的 title(任务只有一个名字)。
+  // 设置里关掉 = 用户不要这个行为 → 连倒计时都不起。Agent 名由卡片读取共享身份目录。
   const identityCardEnabled = sidebarStore.agentNameOnHoverEnabled;
   const rowRef = useRef<HTMLDivElement | null>(null);
   const rowAnchor = useCallback(() => rowRef.current, []);
@@ -394,6 +394,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
             projectId={projectId}
             sessionId={sessionId}
             title={title}
+            agentUserId={agentUserId}
             anchor={rowAnchor}
             onDismiss={identityCard.dismiss}
           />
