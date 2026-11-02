@@ -18,6 +18,7 @@ vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 
 const { backfillTurnText, initializeDatabase } = await import('@main/db/initialize');
 const { searchService, textCondition } = await import('./search-service');
+const { searchController } = await import('./controller');
 const { persistCommittedTurn, truncateStoredHistory, withStoredTurns, appendRecordTurnNow } = await import('../sessions/session-turn-store');
 const { resolveConversationMessageReference } = await import('../../../../../../../packages/session-chat-ui/src/state/conversation-messages');
 const { messageQuoteLink } = await import('@gugu/core/shared/ui/messageQuote');
@@ -69,6 +70,17 @@ describe('task content search (turn_text, fed by session_turns triggers)', () =>
   afterEach(() => {
     fixtureRef.current?.close();
     fixtureRef.current = undefined;
+  });
+
+  it('searches already indexed local content during backfill while reporting its preparation state', async () => {
+    await persistCommittedTurn({ sessionId: 's1', source: 'live', turn: turn('t0', [said('u', 'user', 'available after indexing')]) });
+    searchService.initialize();
+    expect(searchController.commandPalette({ query: 'Task' }).length).toBeGreaterThan(0);
+    expect(searchController.taskTurnIndexStatus().state).toBe('preparing');
+    expect(searchController.taskTurns({ query: 'indexing' })).toHaveLength(1);
+    await backfillTurnText(fixture().sqlite);
+    expect(searchController.taskTurnIndexStatus().state).toBe('ready');
+    expect(searchController.taskTurns({ query: 'indexing' })).toHaveLength(1);
   });
 
   it('indexes only what the person and the agent said, from every live turn', async () => {

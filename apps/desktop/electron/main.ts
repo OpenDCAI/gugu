@@ -6454,7 +6454,12 @@ app.whenReady().then(async () => {
       },
     )
   }
-  if (!SERVER_MODE) loadMainWindowContents()
+  if (!SERVER_MODE) {
+    loadMainWindowContents()
+    void sessionHostBoot?.then(() => {
+      loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
+    }).catch((error: unknown) => createLogger('search/backfill').error({ error: String(error) }, 'Search backfill could not start after backend boot'))
+  }
   startDeviceRuntimeWhenRendererReady()
   // server 的升级另有一套(后台下好、没有 agent 在跑时切换),❌ 走桌面这套弹界面的更新器。
   if (!SERVER_MODE) {
@@ -6479,6 +6484,7 @@ app.whenReady().then(async () => {
     if (!sessionHostBoot) throw new Error('Session backend boot was not started')
     await sessionHostBoot
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
+    loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
     // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
     const activityFile = join(app.getPath('userData'), 'activity.json')

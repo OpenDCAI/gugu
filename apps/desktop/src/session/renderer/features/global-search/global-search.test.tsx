@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,9 +11,9 @@ import type { TaskTurnHit } from '@shared/core/search'
 import { GlobalSearch } from './global-search'
 import { resetSearchSession, updateSearchSession } from './search-session'
 
-const remote = vi.hoisted(() => ({ opened: [] as unknown[], turns: vi.fn(), messages: vi.fn() }))
+const remote = vi.hoisted(() => ({ opened: [] as unknown[], turns: vi.fn(), indexStatus: vi.fn(), messages: vi.fn() }))
 vi.mock('@/lib/guguLinks', () => ({ followLink: (target: unknown) => { remote.opened.push(target); return true } }))
-vi.mock('@renderer/lib/ipc', () => ({ rpc: { search: { taskTurns: remote.turns } } }))
+vi.mock('@renderer/lib/ipc', () => ({ rpc: { search: { taskTurns: remote.turns, taskTurnIndexStatus: remote.indexStatus } } }))
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: remote.messages } }))
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }))
 
@@ -38,6 +38,8 @@ beforeEach(() => {
   remote.opened = []
   closed = 0
   remote.turns.mockReset().mockResolvedValue([turn])
+  remote.indexStatus.mockReset().mockResolvedValue({ state: 'ready' })
+  focusManager.setFocused(true)
   remote.messages.mockReset().mockResolvedValue({ data: rows, error: null })
   publishChatSummaries([
     { id: GROUP, kind: 'group', unread_count: 0, name: '搜索测试群甲', last_message_at: '2026-10-31T00:00:00Z' },
@@ -49,6 +51,7 @@ beforeEach(() => {
   root = createRoot(host)
 })
 afterEach(async () => {
+  focusManager.setFocused(undefined)
   await act(async () => root.unmount())
   host.remove()
 })
@@ -66,6 +69,28 @@ const headers = () => [...host.querySelectorAll<HTMLElement>('[role=listbox] > b
 const tab = (key: string) => [...host.querySelectorAll<HTMLElement>('[role=tab]')].find((button) => button.textContent!.startsWith(key))!
 
 describe('global search panel', () => {
+  it('searches local task content while indexing and refreshes the same query when ready', async () => {
+    remote.indexStatus.mockResolvedValue({ state: 'preparing', done: 42, total: 100 })
+    await render('回滚')
+    expect(remote.turns).toHaveBeenCalledWith({ query: '回滚', limit: 100 })
+    expect(host.querySelector('[role=status]')?.textContent).toBe('globalSearch.indexingTasksProgress')
+    expect(options()).toHaveLength(3)
+    expect(host.textContent).not.toContain('globalSearch.emptyFor')
+    remote.indexStatus.mockResolvedValue({ state: 'ready' })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 2_200)) })
+    expect(remote.turns).toHaveBeenCalledWith({ query: '回滚', limit: 100 })
+    expect(host.querySelector('[role=status]')).toBeNull()
+    expect(options()).toHaveLength(3)
+  })
+
+  it('reports an indexing failure while still searching local task content', async () => {
+    remote.indexStatus.mockResolvedValue({ state: 'failed' })
+    await render('回滚')
+    expect(options()).toHaveLength(3)
+    expect(host.querySelector('[role=alert]')?.textContent).toBe('globalSearch.indexingTasksFailed')
+    expect(host.textContent).not.toContain('globalSearch.emptyFor')
+    expect(remote.turns).toHaveBeenCalledWith({ query: '回滚', limit: 100 })
+  })
   it('lists chat messages and task content newest first, grouped by where they were said, the whole word highlighted', async () => {
     await render('回滚')
     expect(remote.messages).toHaveBeenCalledWith('message_search_as', { p_chat_id: null, p_query: '回滚', p_limit: 100 })
