@@ -54,7 +54,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
         while(!existsSync(process.env.TREE_FILE)) await new Promise(resolve=>setTimeout(resolve,5));
         process.on('message',kind=>{
           if(kind==='crash') setImmediate(()=>{throw new Error('download parser failure fixture')});
-          else exitOnSignal('SIGTERM',75);
+          else exitOnSignal('SIGTERM',kind==='stop'?143:75);
         });
         process.send('ready');
       })();
@@ -64,7 +64,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
     if (!dir.startsWith(path.join(os.tmpdir(), 'gugu-host-exit-tree-'))) throw new Error('Unexpected fixture directory')
     fs.rmSync(dir, { recursive: true, force: true })
   })
-  it.each([['crash', 1], ['update', 75]] as const)('reaps adapter and engine before the actual %s exit', async (kind, code) => {
+  it.each([['crash', 1], ['update', 75], ['stop', 143]] as const)('reaps adapter and engine before the actual %s exit', async (kind, code) => {
     const record = path.join(dir, `${kind}.json`)
     const unrelated = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { detached: true, stdio: 'ignore' })
     const host = fork(hostEntry, [], { silent: true, env: { ...process.env, TREE_FILE: record } })

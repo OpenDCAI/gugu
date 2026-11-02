@@ -59,6 +59,10 @@ describe('server package transport', () => {
   })
   it('aborts a connection which never supplies a response', async () => {
     const url = await feed(() => {})
-    await expect(downloadServerPackage(url, path.join(home, 'package'), 25)).rejects.toThrow(/abort/i)
+    await expect(downloadServerPackage(url, path.join(home, 'package'), 25)).rejects.toThrow('stopped receiving data')
+  })
+  it('rejects a malformed redirect inside the response callback without an uncaught exception', async () => {
+    const url = await feed(socket => socket.end('HTTP/1.0 302 Found\r\nLocation: http://[\r\n\r\n'))
+    await expect(downloadServerPackage(url, path.join(home, 'package'))).rejects.toThrow('Invalid URL')
   })
 })
