@@ -10,7 +10,7 @@
   ],
   "exemptionReasons": {
     "credentialed-dev-database-integration": "Requires owner-approved test-environment credentials and writes fixture data through the live Supabase service boundary; normal source CI has neither that credential handoff nor an isolated database lifecycle.",
-    "real-time-acp-admission": "Runs a separate ACP process against the unchanged 60-second admission deadline and a real 90-second compaction. This manual acceptance fixture deliberately uses real time; the same state transitions are covered with virtual clocks in the automatic unit suite. Run with pnpm exec vitest run --project gugu-integration tests/integration/desktop/acpCompactionAdmission.test.ts."
+    "real-time-acp-admission": "Runs a separate ACP process against the unchanged 60-second admission deadline and a real 90-second compaction. This manual acceptance fixture deliberately uses real time; acp-v2.test.ts covers the same state transitions with virtual clocks in CI, and the short idle/exit child-process cases also run in the unit suite. Run with pnpm exec vitest run --project gugu-integration tests/integration/desktop/acpCompactionAdmission.test.ts."
   },
   "exemptions": {
     "tests/integration/service/integration.test.ts": "credentialed-dev-database-integration",
