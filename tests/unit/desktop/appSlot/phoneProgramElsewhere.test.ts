@@ -72,14 +72,13 @@ afterEach(() => {
 let nextId = 1
 async function call(method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const id = nextId++
-  window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method, args }, source: frame.contentWindow, origin: ORIGIN }))
+  window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method, args, gesture: true }, source: frame.contentWindow, origin: ORIGIN }))
   await vi.waitFor(() => expect(posted.mock.calls.some(([message]) => (message as { id?: number }).id === id)).toBe(true))
   return posted.mock.calls.map(([message]) => message as Record<string, unknown>).find((message) => message.id === id)!
 }
 
 describe('an App page on the phone, in a session on another computer', () => {
   it('opens a working-copy file in the phone preview through the same machine route as listing', async () => {
-    vi.stubGlobal('navigator', { userActivation: { isActive: true } })
     start({ chatId: null, session: SESSION })
     sent.answer = { size: 18, offset: 0, etag: 'v1', data: 'YQ==' }
     const ref = { workspace: 'session:s-there', id: 'notes/a.md' }

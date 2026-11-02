@@ -90,7 +90,7 @@ const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-pro
 registerExtensionBridge();
 const handle = handlers.get(EXTENSION_BRIDGE_CHANNEL)!;
 const call = (sender: number, method: string, args: Record<string, unknown>) =>
-  handle({ sender: { id: sender, session: {} } }, { method, args }) as Promise<{ ok: boolean; value?: unknown; code?: string; message?: string }>;
+  handle({ sender: { id: sender, session: {} } }, { method, args, gesture: true }) as Promise<{ ok: boolean; value?: unknown; code?: string; message?: string }>;
 const show = (sender: number, id: unknown) => call(sender, 'showSession', { id });
 /** What main brought up: every focus it emitted, as the window receives it. */
 const broughtUp = () => emitted.mock.calls.filter(([channel]) => channel === notificationFocusSessionChannel).map(([, payload]) => payload);

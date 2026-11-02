@@ -206,7 +206,6 @@ export function workingCopyEntry(place: WorkspacePlace, rel: string, stat: fs.St
     parentId: null,
     path: rel,
     systemRole: null,
-    canDelete: true,
     // A working copy's file is named by its path: its suffix is the name's, never the text/plain a name the table does not know is read as.
     suffix: fileSuffixOf({ name, contentType: contentTypeOf(name) }),
     displayName: name,

@@ -87,6 +87,7 @@ export const forkStore: LifeStore = {
     const fork = record(forkId);
     for (const effect of effects) {
       if (effect.e === 'write-hold') fork.hold = effect.hold;
+      if (effect.e === 'delete-row') fork.rows.delete(effect.seq);
       if (effect.e === 'write-receipt') {
         const found = entry(forkId, effect.seq);
         const receipt: Receipt = effect.receipt;

@@ -84,7 +84,7 @@ const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-pro
 registerExtensionBridge();
 const handle = handlers.get(EXTENSION_BRIDGE_CHANNEL)!;
 const call = (sender: number, method: string, args: Record<string, unknown>) =>
-  handle({ sender: { id: sender, session: {} } }, { method, args }) as Promise<{ ok: boolean; error?: string }>;
+  handle({ sender: { id: sender, session: {} } }, { method, args, gesture: true }) as Promise<{ ok: boolean; error?: string }>;
 
 const CHAT = '0b000000-0000-4000-8000-00000000c011';
 const deliver = vi.fn((_origin: unknown, _action: unknown) => Promise.resolve());

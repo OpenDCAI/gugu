@@ -293,13 +293,14 @@ describe('groupChange: the named files, or every file of the chat with the named
   });
 });
 
-// owner 10-18: who may delete is the folder's rule (who made it, or the chat's owner or an admin); a list says it per file.
+// owner 10-18: who may delete is the folder's rule (who made it, or the chat's owner or an admin); asked per file, as its
+// menu opens — a list does not carry it.
 describe('canDelete: what the database says whoever reads may delete', () => {
-  it('each entry says it, as the database answered for the batch', async () => {
-    file(CHAT, 'mine.md');
+  it('says it for each file asked, in order, as the database answers for whoever reads', async () => {
+    const mine = file(CHAT, 'mine.md');
     const theirs = file(CHAT, 'theirs.md', { created_by: '66666666-6666-4666-8666-666666666666' });
     undeletable.add(String(theirs.id));
-    const listed = await files.groupFiles(CHAT, { asAgent: AGENT });
-    expect(Object.fromEntries(listed.map((entry) => [entry.name, entry.canDelete]))).toEqual({ 'mine.md': true, 'theirs.md': false });
+    const refs = [{ chat: CHAT, id: String(theirs.id) }, { chat: CHAT, id: String(mine.id) }];
+    expect(await files.canDelete(asAgent, { refs })).toEqual([false, true]);
   });
 });

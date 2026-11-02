@@ -30,6 +30,7 @@ import {
   identityShown,
   mergeDeliveryEnvelopes,
   type AgentDeliveryToolNames,
+  type ChatEnvelopeInfo,
   type GuguIdentity,
 } from './deliveryEnvelope'
 import { markAgentDeliveredMessageRead, type AgentDeliveredMessageRead } from './deliveredReadMarkers'
@@ -918,6 +919,8 @@ async function prepareMessage(
     ? `${attachment.caption || `[Image attached: ${attachment.fileName}]`}${folderLine}${attachments?.[0]?.localPath ? `\n[Image attached at local path: ${attachments[0].localPath}]` : ''}`
     : `${row.content}${folderLine}${fileLine}`
   const messageContext = buildAgentMentionContext(content, row.toUserIds, identities, agentUserId)
+  const chat = { publicId: row.chatPublicId, name: row.chatName, kind: row.chatKind,
+    ownDm: (row.chatKind === 'dm' || row.chatKind === 'ai') && !!deps.ownerUserId && row.senderUserId === deps.ownerUserId }
   const envelope = buildAgentDeliveryEnvelope(
     {
       guguUserId: agentUserId,
@@ -934,7 +937,7 @@ async function prepareMessage(
       viaApp: row.viaApp ?? null,
     },
     identities,
-    { publicId: row.chatPublicId, name: row.chatName, kind: row.chatKind },
+    chat,
     formatDeliveryTimestamp(row.createdAt),
     null,
     toolNames,
@@ -943,7 +946,7 @@ async function prepareMessage(
   return {
     row,
     envelope: threadContext
-      ? rebuildEnvelopeWithThreadContext(agentUserId, row, content, identities, toolNames, threadContext, messageContext, groupRules)
+      ? rebuildEnvelopeWithThreadContext(agentUserId, row, content, identities, chat, toolNames, threadContext, messageContext, groupRules)
       : envelope,
     ...(attachments ? { attachments } : {}),
     ...(bootstrapKey ? { bootstrapKey } : {}),
@@ -955,6 +958,7 @@ function rebuildEnvelopeWithThreadContext(
   row: AgentInboxUnreadRow,
   content: string,
   identities: Map<string, GuguIdentity>,
+  chat: ChatEnvelopeInfo,
   toolNames: AgentDeliveryToolNames | undefined,
   threadContext: string,
   messageContext: string | undefined,
@@ -976,7 +980,7 @@ function rebuildEnvelopeWithThreadContext(
       viaApp: row.viaApp ?? null,
     },
     identities,
-    { publicId: row.chatPublicId, name: row.chatName, kind: row.chatKind },
+    chat,
     formatDeliveryTimestamp(row.createdAt),
     null,
     toolNames,

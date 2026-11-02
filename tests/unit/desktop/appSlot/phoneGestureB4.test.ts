@@ -52,10 +52,16 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
     return { from: () => query, rpc }
   },
 }))
+/**
+ * What the App's gate read as the call left the App (gate.ts): whether the person's input landed in this App. The
+ * frame here stands in for the gate, which is what the host hears the App through.
+ */
 const activation = { isActive: false }
+/** This page's own activation: any tap anywhere on the phone's screen — the host's sign before the gate (11-02). */
+const pageActivation = { isActive: false }
 /** The task tab's list, as the slot reads it for `showSession`: what it answers, and which sessions were asked for. */
 const taskList = { answer: { shown: true } as { shown: true } | { unread: string[] }, asked: [] as string[] }
-Object.defineProperty(navigator, 'userActivation', { value: activation, configurable: true })
+Object.defineProperty(navigator, 'userActivation', { value: pageActivation, configurable: true })
 
 let frame: HTMLIFrameElement
 let posted: ReturnType<typeof vi.fn>
@@ -94,10 +100,10 @@ afterEach(() => {
 })
 
 let nextId = 1
-/** A call as the App's runtime posts it from its own document; its answer as the host posts it back. */
+/** A call as the App's runtime posts it, stamped by its gate on the way; its answer as the host posts it back. */
 async function call(method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const id = nextId++
-  window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method, args }, source: frame.contentWindow, origin: ORIGIN }))
+  window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method, args, gesture: activation.isActive }, source: frame.contentWindow, origin: ORIGIN }))
   await vi.waitFor(() => expect(posted.mock.calls.some(([message]) => (message as { id?: number }).id === id)).toBe(true))
   return posted.mock.calls.map(([message]) => message as Record<string, unknown>).find((message) => message.id === id)!
 }
@@ -130,6 +136,37 @@ describe('the phone refuses a verb outside the gesture it needs, in the same sen
       const { code, message } = gestureRefusal(verb)
       expect(await call(verb, args), verb).toMatchObject({ ok: false, code, message })
     }
+  })
+
+  it("a tap anywhere else on the screen is not this App's: the page's own activation lends nothing", async () => {
+    pageActivation.isActive = true
+    activation.isActive = false
+    try {
+      for (const [verb, args] of Object.entries(gestureCalls)) expect(await call(verb, args), verb).toMatchObject({ ok: false, code: 'denied', message: gestureRefusal(verb).message })
+    } finally {
+      pageActivation.isActive = false
+    }
+  })
+
+  it("a call that did not come through the App's gate is not heard, whatever it says of its gesture", async () => {
+    const other = document.createElement('iframe')
+    document.body.append(other)
+    const id = nextId++
+    window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method: 'clipboardWriteText', args: { text: 'x' }, gesture: true }, source: other.contentWindow, origin: ORIGIN }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(posted.mock.calls.some(([message]) => (message as { id?: number }).id === id)).toBe(false)
+    other.remove()
+  })
+
+  it("a tap on one of the App's commands in its header is the App's gesture for as long as an activation lasts", async () => {
+    vi.spyOn(platform, 'writeClipboardText').mockResolvedValue(undefined)
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1_000)
+    activation.isActive = false
+    host!.command('copy')
+    expect(await call('clipboardWriteText', { text: 'hi' })).toMatchObject({ ok: true })
+    now.mockReturnValue(1_000 + 5_001)
+    expect(await call('clipboardWriteText', { text: 'hi' })).toMatchObject({ ok: false, code: 'denied' })
+    now.mockRestore()
   })
 
   it('control: inside a gesture the clipboard is written; outside one, a verb without the mark answers', async () => {
