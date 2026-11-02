@@ -938,7 +938,7 @@ export const CALLER_WORDS = { page: 'a page', background: 'the background page',
  * document, the App frame's parent in an origin of its own (gate.ts). Every host reads it there and hands it here.
  */
 export type CallRefusalCaller =
-  | { kind: 'page'; has: (capability: ExtensionCapability) => boolean; gesture: boolean }
+  | { kind: 'page'; has: (capability: ExtensionCapability) => boolean; gesture: boolean; widget: boolean }
   | { kind: 'background' | 'program'; has: (capability: ExtensionCapability) => boolean };
 
 /**
@@ -959,7 +959,8 @@ export function callRefusal(
   const needs = capabilityNeeded(facts, args);
   if (needs !== null && !caller.has(needs)) return { code: 'denied', message: `Not permitted: this App does not have "${needs}"` };
   // Only a page has a gesture: the background page and a program never make a call that needs one.
-  if ((caller.kind !== 'page' || !caller.gesture) && needsGesture(method, args)) return gestureRefusal(method);
+  if ((caller.kind !== 'page' || !caller.gesture)
+    && (needsGesture(method, args) || (caller.kind === 'page' && caller.widget && method === 'dispatch'))) return gestureRefusal(method);
   return null;
 }
 
@@ -975,7 +976,6 @@ export function callRefusal(
  *   and its engine keeps no record gugu reads) — apart from `not-found`, an agent you cannot see (#7126); and a `machine`
  *   verb (`callProgram`, the data folder) for a session on another machine that is offline, too old or did not answer;
  *   or `files.replace` when the machine keeping the chat's files is offline or did not take the new version in time.
- *   Also `dispatch` from a message widget on a phone, where sending and drafting are not supported.
  * - `not-installed` / `version-mismatch`: a `machine` verb for a session on another machine, where this App is not
  *   installed, or another version of it is.
  * - `name-taken` (子文件夹): a rename or a move to a name another file of that folder already has (case not counted).

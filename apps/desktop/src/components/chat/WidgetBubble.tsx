@@ -9,6 +9,8 @@ import { PhoneAppFrame } from '../appSlot/PhoneAppFrame'
 import { Button } from '../ui/Button'
 import { APP_OPEN_WITH_EVENT } from '../../session/shared/extensions/app-runtime-protocol'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
+import { isInstallRefused } from '../../session/shared/extensions/attachment-install'
+import { refusedLine } from '../extensionBundle/installedHere'
 import { ExtensionPage } from '../../session/renderer/features/extensions/extension-view-layer'
 import { useConversationVisibility } from './useConversationVisibility'
 
@@ -64,6 +66,7 @@ function WidgetUnavailable({ widget, reason, chatId }: { widget: WidgetMessage; 
     try {
       const result = await appsHere.installFromMarket({ ref: { extensionId: widget.app, version: offer.version }, chatId })
       if (!result.success) throw new Error(result.error)
+      if (result.data && isInstallRefused(result.data)) setError(refusedLine(result.data))
     } catch (error) { setError(String(error)) }
     finally { setInstalling(false) }
   }

@@ -39,7 +39,6 @@ import {
   type PageCounts,
   verbFacts,
   needsGesture,
-  gestureRefusal,
   callRefusal,
   type CallRefusalCaller,
 } from '@shared/extensions/bridge-protocol';
@@ -1481,17 +1480,13 @@ function deliverToEveryPage(extensionId: string, event: ExtensionHostEvent, keep
  * holds and in the few verbs about a page itself.
  */
 export async function answerCall(caller: BridgeCaller, method: string, args: Record<string, unknown>): Promise<ExtensionBridgeResponse> {
-  if (method === 'dispatch' && caller.binding?.widget && caller.gesture !== true) {
-    const refusal = gestureRefusal(method);
-    return { ok: false, code: refusal.code, message: refusal.message };
-  }
   if (extensionProjections.isCleanup(caller, method, args)) {
     try { return { ok: true, value: await extensionProjections.call(caller, method, args) }; }
     catch (error) { return failure(caller.extensionId, method, error); }
   }
   const has: CallRefusalCaller['has'] = (capability) => extensionsService().hasCapability(caller.extensionId, capability);
   // A page's gesture was read in its preload's world and came with the call (`pageCaller`); a program has none.
-  const refusal = callRefusal(method, args, caller.kind === 'page' ? { kind: 'page', has, gesture: caller.gesture === true } : { kind: caller.kind, has });
+  const refusal = callRefusal(method, args, caller.kind === 'page' ? { kind: 'page', has, gesture: caller.gesture === true, widget: Boolean(caller.binding?.widget) } : { kind: caller.kind, has });
   if (refusal) return { ok: false, ...refusal };
   const facts = verbFacts(method)!;
   // A page an agent works (owner 10-14): what would reach the person's screen is handed back to the agent instead — after
