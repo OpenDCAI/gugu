@@ -23,7 +23,7 @@ export function projectSessionPendingInput(previous: PendingPrompt | null, sende
   let prompt: PendingPrompt | null = input ? {
     id: input.id, text: input.text, sentAt: input.createdAt, baselineMessageIds: input.baseline, afterTurnId: input.afterTurnId,
     attachments: input.files?.map(file => ({ id: file.itemId, name: file.name, href: `gugu-file://${file.itemId}?v=${file.version}`, kind: file.mimeType.startsWith('image/') ? 'image' : 'file' })),
-    held: true, delivery: input.failure ? { state: 'failed', error: sessionInputFailureText(input.failure) } : { state: 'sending' },
+    held: true, delivery: input.failure ? { state: 'failed', error: sessionInputFailureText(input.failure), retryable: input.failure.code !== 'host-offline' } : { state: 'sending' },
   } : previous?.delivery ? { ...previous, held: true, delivery: { state: 'accepted' } } : null
   if (!prompt) return null
   const promptId = prompt.id
