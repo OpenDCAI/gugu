@@ -6,7 +6,7 @@ import { createStubLogger } from '../../testing';
 import { createScope } from '../scope';
 import { serveWorkerProcess, spawnRuntime, RUNTIME_SHUTDOWN_SIGNAL, type ProcessRuntimePort } from './process-runtime';
 
-function workerPort(sendAndWait = vi.fn(async () => {})) {
+function workerPort(sendAndWait: () => Promise<void> = vi.fn(async () => {})) {
   const messages = new Set<(message: unknown) => void>();
   const disconnects = new Set<() => void>();
   const port: ProcessRuntimePort = {
