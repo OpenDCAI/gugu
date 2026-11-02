@@ -561,6 +561,7 @@ describe('重新执行安装命令升级(install.sh --package 真跑)', () => {
       expect(fs.readFileSync(path.join(home, 'calls.log'), 'utf8')).toContain('0.2.112 login')
 
       const failed = install('sh', home, pkg, '0.2.112', null, { FAKE_SERVICE_FAIL: '1' })
+      expect(failed.status).not.toBe(0)
       expect(failed.stdout).toContain('server 未能以 0.2.112 启动')
       expect(failed.stdout).toContain('service install')
     } finally {
