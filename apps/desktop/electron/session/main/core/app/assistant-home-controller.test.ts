@@ -85,3 +85,10 @@ it('does not clear another assistant or a newer home with a delayed close reques
   mocks.rows = []
   expect(await controller.checkClose({ ownerUserId: owner, deviceId: device, assistantId: assistant })).toMatchObject({ ok: false, error: { code: 'target_not_owned' } })
 })
+it('does not mistake a reserved identity before creation for a completed, hard-deleted identity', async () => {
+  mocks.rows = [{ agent_user_id: null, agent: null, provisioned_agent_user_id: assistant, operation_id: operation, phase: 'awaiting_terminal' }]
+  expect(await controller.wipe({ ownerUserId: owner, deviceId: device, assistantId: assistant })).toMatchObject({ ok: false, error: { code: 'preparation_busy' } })
+  expect(mocks.close).not.toHaveBeenCalled()
+  mocks.rows[0]!.phase = 'completed'
+  expect(await controller.wipe({ ownerUserId: owner, deviceId: device, assistantId: assistant })).toMatchObject({ ok: true })
+})
