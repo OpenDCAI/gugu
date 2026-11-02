@@ -283,6 +283,6 @@ describe('where it opens decides its size (owner 10-13)', () => {
       ['952 wide (a tab on the task page)', '412 wide (a phone, touch)'],
     ]);
     expect(phone.pictures?.map(({ label }) => label)).toEqual(['the end, after the steps, 412 wide (a phone, touch)']);
-    expect(binds.slice(1, 3)).toEqual([expect.objectContaining({ sessionId: 's1' }), expect.objectContaining({ sessionId: 's1' })]);
+    expect(binds.slice(1, 3)).toEqual([expect.objectContaining({ workspace: 'session:s1' }), expect.objectContaining({ workspace: 'session:s1' })]);
   });
 });

@@ -7,7 +7,7 @@ import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import { useDevicesStore } from '@/store/devicesContext'
 import { getRendererSession } from '@/lib/sessionPublication'
 import { platform } from '@/platform'
-import { SessionInputOutbox, openSessionInputStorage } from '@/lib/sessionInputOutbox'
+import { SessionInputFailureError, SessionInputOutbox, openSessionInputStorage } from '@/lib/sessionInputOutbox'
 import { rendererLogger } from '@/lib/log'
 import { liveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 
@@ -35,15 +35,15 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
         const device = hosts.current.find(device => device.device_id === input.deviceId)
         // This computer is named either way (no device id, or its own id); either way its own host answers over IPC.
         const remoteId = !input.deviceId || device?.is_current_device ? null : input.deviceId
-        if (remoteId && device && !device.is_online) throw new Error('Session host is offline')
+        if (remoteId && device && !device.is_online) throw new SessionInputFailureError({ code: 'host-offline' })
         if (remoteId && !(device && isPhoneDevice(device))) {
           const summary = liveDeviceSessions()[remoteId]?.sessions.find(session => session.conversationId === input.sessionId)
-          if (summary?.nativeInputVersion !== 1) throw new Error('Session host has not advertised stable input acknowledgements')
+          if (summary?.nativeInputVersion !== 1) throw new SessionInputFailureError({ code: 'host-not-ready' })
         }
         if (device && isPhoneDevice(device)) {
           const { invokePhoneHost } = await import('@/mobile/local-agent/phoneHostRpc')
           const result = await invokePhoneHost<{ accepted?: boolean }>(device.device_id, 'sessionTimeline.sessionSend', [{ conversationId: input.sessionId, text: input.text, clientRequestId: input.id }], input.id)
-          if (!result.accepted) throw new Error('Phone host has not acknowledged the input')
+          if (!result.accepted) throw new SessionInputFailureError({ code: 'phone-unconfirmed' })
         } else if (platform.kind === 'electron') {
           const { rpcOn } = await import('@/session/renderer/lib/ipc')
           const result = await rpcOn(remoteId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.attachments?.length ? { attachments: input.attachments } : {}) })

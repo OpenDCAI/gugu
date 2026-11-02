@@ -1,3 +1,4 @@
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -95,9 +96,9 @@ beforeEach(async () => {
     deliver,
     presentation: () => ({ locale: 'en', themeMode: 'dark' as const, fullscreen: false, windowFocused: true }),
   });
-  await bindExtensionSurface({ webContentsId: GROUP_PAGE, extensionId: 'board', tabId: 'slot-1', tabKind: 'board.main', chatId: CHAT });
-  await bindExtensionSurface({ webContentsId: SESSION_TAB, extensionId: 'board', sessionId: 'task-1', tabId: 'tab-1', tabKind: 'board.main' });
-  await bindExtensionSurface({ webContentsId: UNSHOWN_PAGE, extensionId: 'board', tabId: 'extension-check:9', tabKind: 'board.main', chatId: CHAT });
+  await bindExtensionSurface({ webContentsId: GROUP_PAGE, extensionId: 'board', tabId: 'slot-1', tabKind: 'board.main', conversation: CHAT });
+  await bindExtensionSurface({ webContentsId: SESSION_TAB, extensionId: 'board', workspace: sessionWorkspace('task-1'), tabId: 'tab-1', tabKind: 'board.main' });
+  await bindExtensionSurface({ webContentsId: UNSHOWN_PAGE, extensionId: 'board', tabId: 'extension-check:9', tabKind: 'board.main', conversation: CHAT });
   await bindExtensionSurface({ webContentsId: DOCK_PAGE, extensionId: 'board', tabId: 'dock-1', tabKind: 'board.main' });
 });
 

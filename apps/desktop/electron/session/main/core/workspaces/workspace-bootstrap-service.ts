@@ -13,7 +13,7 @@ import { sessions, workspaces } from '@main/db/schema';
 import type { ProvisionWorkspaceError } from '@shared/core/sessions/create-session';
 import { log } from '@main/lib/logger';
 import type { WorkspaceType } from '@shared/core/workspaces/workspaces';
-import { isRetiredRemoteWorkspace } from './resolve-workspace-kind';
+import { isRetiredRemoteWorkspace, RETIRED_REMOTE_WORKSPACE_MESSAGE } from './resolve-workspace-kind';
 import { createWorkspaceFactory } from './workspace-factory';
 import { workspaceGitContext, type WorkspaceGitContext } from './workspace-git-context';
 import { workspaceRegistry } from './workspace-registry';
@@ -71,7 +71,7 @@ export class WorkspaceBootstrapService {
         type: 'setup-failed',
         stepKind: 'byoi-config',
         stepErrorType: 'retired',
-        message: '这条会话用的「自带机器」/ SSH 工作区已下线,不能再运行',
+        message: RETIRED_REMOTE_WORKSPACE_MESSAGE,
       });
     }
 

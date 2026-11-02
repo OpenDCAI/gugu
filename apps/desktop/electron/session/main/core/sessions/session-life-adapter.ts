@@ -1,0 +1,44 @@
+import type {
+  ExitFact, Gen, Have, SerializedError, StageName, StageOut, Timing,
+} from '@gugu/core/local/session-life/types';
+import type { SessionMessage, SessionMessageDelivery } from '@shared/core/sessions/sessions';
+import type { AgentInboxSource } from '@gugu/core/local/agent/agentInboxReader';
+
+/** One inbox row an inbox-batch settles: marked read (with what acceptance records) when the agent accepts the batch. */
+export type PendingSource = AgentInboxSource & { readonly agentUserId: string };
+
+/** How a row is written for the agent: a fact of the row itself, set at enqueue. */
+export type PendingTurn =
+  | Readonly<{ kind: 'prompt'; origin?: 'manual' | 'typed' | 'communication'; hiddenContext?: string }>
+  // The first turn of a chat-page / dispatched task: its gugu message lands in the capabilities stage and the
+  // row's text is rendered through renderFirstTurn at dispatch.
+  | Readonly<{ kind: 'chat-page-first-turn' }>;
+
+export interface PendingRow {
+  readonly seq: import('@gugu/core/local/session-life/types').Seq;
+  readonly sessionId: string;
+  /** When it was queued: the send, the clock origin of the turn it opens. */
+  readonly sentAt: number;
+  readonly kind: 'ordinary' | 'session-direct' | 'inbox-batch';
+  readonly state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown';
+  /** Why a failed row failed; on a queued / dispatching row, why its channel was lost once already (#552). */
+  readonly failure: SerializedError | null;
+  readonly message: SessionMessage & { readonly delivery?: SessionMessageDelivery };
+  readonly sources: readonly PendingSource[];
+  readonly turn: PendingTurn;
+}
+
+export interface LegAdapter {
+  readonly leg: 'acp' | 'claude-tui' | 'codex' | 'pty';
+  readonly timing: Timing;
+  /** A stage that fails with `awaitsPerson: true` on its error says only the person can resolve it (see StartFailedHold). */
+  run<K extends StageName>(at: K, have: Have<K>, ctx: { gen: Gen; signal: AbortSignal }): Promise<StageOut[K]>;
+  dispatch(have: StageOut, row: PendingRow, ctx: { gen: Gen; signal: AbortSignal }): Promise<
+    | { result: 'accepted'; nativeReceiptId: string | null }
+    | { result: 'rejected-before-admission'; cause: SerializedError }
+    /** The channel was gone before it took a byte: the row goes back to the queue for a fresh run (once). */
+    | { result: 'channel-lost'; cause: SerializedError }
+  >;
+  teardown(have: Partial<StageOut>, ctx: { gen: Gen | null }): Promise<void>;
+  onExit(have: Pick<StageOut, 'process'>, cb: (exit: ExitFact) => void): () => void;
+}

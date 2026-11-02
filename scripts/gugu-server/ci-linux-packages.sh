@@ -83,14 +83,18 @@ for arch in x64 arm64; do
       [ "$top" = GLIBC_2.34 ] || { echo "::error::$PKG 里 $f 要求 $got,高于 GLIBC_2.34"; exit 1; }
       echo "glibc ok: $f -> $got"
     done
-    su smoke -c "$d/bin/gugu-server status"
+    # 数据目录按包的通道定(正式版 ~/.gugu-server,Beta ~/.gugu-server-beta):问它自己,❌ 写死。
+    home=$(su smoke -c "$d/bin/gugu-server status" | sed -n "s/^数据目录:\(.*\)\$/\1/p")
+    [ -n "$home" ] || { echo "::error::$PKG 的 status 没报数据目录"; exit 1; }
+    # Beta 包必须带 GUGU_TIER=beta 出厂,否则目录、单元名、tmux 标签都按正式版走。
+    case "$PKG:$home" in *-beta.*:*.gugu-server-beta) ;; *-beta.*:*) echo "::error::$PKG 是 Beta 包,数据目录却是 $home(没带 GUGU_TIER=beta?)"; exit 1 ;; esac
     su smoke -c "$d/bin/gugu-server run > /tmp/run.log 2>&1 &"
     for i in $(seq 1 60); do grep -qs "咕咕 server 已启动" /tmp/run.log && break; sleep 1; done
     grep -q "咕咕 server 已启动" /tmp/run.log || { cat /tmp/run.log; echo "::error::$PKG 起不来"; exit 1; }
     # 守护进程不加载主进程;原生模块(任务库 better-sqlite3、终端 node-pty)是在账号进程里加载的。
     # 造一个没登录的空账号,直接起它的进程,看任务页后端起没起来 —— 这才证明原生模块在这台机器上能加载。
     acct=00000000-0000-4000-8000-000000000000
-    su smoke -c "mkdir -p ~/.gugu-server/accounts/$acct && echo {} > ~/.gugu-server/accounts/$acct/account.json"
+    su smoke -c "mkdir -p $home/accounts/$acct && echo {} > $home/accounts/$acct/account.json"
     su smoke -c "$d/bin/gugu-server run-account $acct > /tmp/acct.log 2>&1 &"
     for i in $(seq 1 90); do grep -qs "session page backend serving" /tmp/acct.log && break; sleep 1; done
     grep -q "session page backend serving" /tmp/acct.log || { cat /tmp/acct.log; echo "::error::$PKG 账号进程起不来(原生模块?)"; exit 1; }

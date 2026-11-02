@@ -76,7 +76,7 @@ export type SessionIdentity = { projectId: string; sessionId: string };
  * 的中心件 —— 静态引它等于让每个碰过任务生命周期的模块都拖起那套东西。宿主组合根本来就同时认识两边
  * (它装 `setEmdashPlatformRelease` 那批钩子也是这个形状),由它把这条腿递进来。
  */
-export type SessionAcpSessionStopper = (session: SessionIdentity) => Promise<void>;
+export type SessionAcpSessionStopper = (session: SessionIdentity, mode: Exclude<SessionTeardownMode, 'detach'>) => Promise<void>;
 
 let stopAcpSessionsForSession: SessionAcpSessionStopper | null = null;
 
@@ -105,7 +105,7 @@ export async function executeTeardown(
     // ❌ 不在这里另写一套结清:结清挂在 `stopSession` 上(runtime 的 removeRecord 通知宿主 release),
     // 一个 producer 一个真相 —— 这里只负责让这条腿也走一遍它自己的 stop。
     if (stopAcpSessionsForSession) {
-      await stopAcpSessionsForSession(session);
+      await stopAcpSessionsForSession(session, mode);
     } else {
       // 没接上 = 宿主组合根漏了接线,不是「这个任务没有 ACP 会话」。响亮记一笔:静默跳过会让
       // 「归档后令牌没结清」以「日志安静」的形态活下去,而这正是 #4467 的病灶形状。

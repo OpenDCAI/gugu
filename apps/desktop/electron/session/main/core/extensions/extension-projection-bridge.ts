@@ -1,3 +1,4 @@
+import { workspaceSession } from '@shared/extensions/app-runtime-protocol';
 import { log } from '@main/lib/logger';
 import { sessionEvents } from '../sessions/session-events';
 import { projectEvents } from '../projects/project-events';
@@ -44,8 +45,8 @@ export class ExtensionProjectionBridge {
 
   /** Called only with the host's actual page caller, before any remote negotiation. */
   viewerPage(caller: BridgeCaller) {
-    if (caller.kind !== 'page' || !caller.binding?.sessionId) throw new Error('Projection viewer needs a bound task page');
-    const { pageId, extensionId } = caller, sessionId = caller.binding.sessionId, epoch = this.epochs.get(pageId) ?? 0;
+    if (caller.kind !== 'page' || !workspaceSession(caller.binding)) throw new Error('Projection viewer needs a bound task page');
+    const { pageId, extensionId } = caller, sessionId = workspaceSession(caller.binding)!, epoch = this.epochs.get(pageId) ?? 0;
     const scopes = this.pageLeases.get(pageId) ?? new Set<AbortController>();
     if (scopes.size >= 16) throw new Error('Too many projection viewer page leases');
     const lifetime = new AbortController(); scopes.add(lifetime); this.pageLeases.set(pageId, scopes);
@@ -54,7 +55,7 @@ export class ExtensionProjectionBridge {
     const assertCurrent = () => {
       lifetime.signal.throwIfAborted();
       if (caller.kind !== 'page' || caller.pageId !== pageId || caller.extensionId !== extensionId
-        || caller.binding?.sessionId !== sessionId || (this.epochs.get(pageId) ?? 0) !== epoch) {
+        || workspaceSession(caller.binding) !== sessionId || (this.epochs.get(pageId) ?? 0) !== epoch) {
         release(); throw new Error('Projection viewer page changed');
       }
     };
@@ -87,7 +88,7 @@ export class ExtensionProjectionBridge {
   }
 
   private watchKey(caller: BridgeCaller, watch: unknown): string {
-    if (caller.kind !== 'page' || !caller.binding?.sessionId || typeof watch !== 'string' || !watch || watch.length > 128) {
+    if (caller.kind !== 'page' || !workspaceSession(caller.binding) || typeof watch !== 'string' || !watch || watch.length > 128) {
       throw new Error('Projection viewer needs a bound task page');
     }
     return `${caller.pageId}:${watch}`;
@@ -198,10 +199,10 @@ export class ExtensionProjectionBridge {
       this.watches.set(key, token);
       // This binding is local. A remote viewer must enter through an authenticated direct connection, never a cloud RPC.
       const epoch = this.epochs.get(caller.pageId) ?? 0;
-      const sessionId = caller.binding!.sessionId!;
+      const sessionId = workspaceSession(caller.binding)!;
       try {
         const { knownSessionMachine } = await import('./app-programs-elsewhere');
-        if (epoch !== (this.epochs.get(caller.pageId) ?? 0) || caller.binding!.sessionId !== sessionId
+        if (epoch !== (this.epochs.get(caller.pageId) ?? 0) || workspaceSession(caller.binding) !== sessionId
           || this.watches.get(key) !== token) throw new Error('Projection page changed');
         if (knownSessionMachine(sessionId)?.deviceId) throw new Error('Projection needs a direct connection to that computer');
         const viewer = this.resources.connect({ extensionId: caller.extensionId, sessionId }, args.id, {
@@ -226,7 +227,7 @@ export class ExtensionProjectionBridge {
     if (method === 'projectionUnwatch') { viewer?.close(); this.viewers.delete(key); this.watches.delete(key); return; }
     if (method === 'projectionSend') {
       if (!viewer) throw new Error('Projection viewer is closed');
-      if (viewer.sessionId !== caller.binding?.sessionId || viewer.epoch !== (this.epochs.get(caller.pageId) ?? 0)) {
+      if (viewer.sessionId !== workspaceSession(caller.binding) || viewer.epoch !== (this.epochs.get(caller.pageId) ?? 0)) {
         viewer.close(); this.viewers.delete(key); this.watches.delete(key);
         throw new Error('Projection page changed');
       }

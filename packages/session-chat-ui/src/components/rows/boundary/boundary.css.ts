@@ -84,4 +84,5 @@ export const boundaryAction = style({
   background: 'none',
   border: 'none',
   padding: 0,
+  selectors: { '&:disabled': { cursor: 'default', opacity: 0.5 } },
 });

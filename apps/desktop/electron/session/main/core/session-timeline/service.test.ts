@@ -211,6 +211,8 @@ vi.mock('./session-model-menu', () => ({
 const roster = vi.hoisted(() => ({ read: async (): Promise<Map<string, string>> => new Map([['conv-1', 'user:agent-1']]) }));
 vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({
   agentIdsBySession: () => roster.read(),
+  // The same roster read, with each agent's private chat with the person (conv-1's is dm-1).
+  sessionAgents: async () => new Map([...(await roster.read())].map(([sessionId, agentId]) => [sessionId, { agentId, chatId: sessionId === 'conv-1' ? 'dm-1' : null }])),
 }));
 vi.mock('./live-permissions', () => ({
   watchSessionState: async (
@@ -551,6 +553,9 @@ describe('session timeline service', () => {
     // 行上带 agent 的 id(名录里的绑定;显示名由看的一端去云端取),没有身份的是 null。
     expect(byId.get('conv-1')?.agent).toEqual({ userId: 'agent-1' });
     expect(byId.get('conv-2')?.agent).toBeNull();
+    // P4: the row says its conversation (the person's private chat with its agent) — what every machine and the phone read
+    // for the task's Apps; a session with no agent has none.
+    expect([byId.get('conv-1')?.chatId, byId.get('conv-2')?.chatId]).toEqual(['dm-1', undefined]);
   });
 
   it('心跳摘要那一份(listSessionStates)不读名录、不报 agent', () => {
@@ -657,12 +662,15 @@ describe('session timeline service', () => {
     expect(rootsOf().some((root) => root.startsWith('/conn/'))).toBe(false);
   });
 
-  it('从没开起来的会话(不论有没有记下原因码):发消息先按「再试一次」那条路起来,读选项不唤醒、报建时选的模型', async () => {
+  // Retargeted: ACP never-started sessions are now started by the delivery itself (session-life), not pre-started here.
+  it('从没开起来的 ACP 会话:发消息直接投递(投递自己把它起来),❌ 先走「再试一次」;读选项不唤醒、报建时选的模型', async () => {
     startCalls.length = 0;
     state.deliverText.mockResolvedValue({ accepted: 'started' });
     state.rows = [row({ providerSessionId: null, config: { type: 'acp', initialQueue: [{ text: 'hi' }] } })];
-    await service.send('conv-1', '在吗');
-    expect(startCalls).toEqual(['conv-1']);
+    expect(await service.send('conv-1', '在吗')).toEqual({ ok: true, value: { accepted: 'started' } });
+    expect(startCalls).toEqual([]);
+    expect(state.deliverText).toHaveBeenCalledTimes(1);
+    expect(state.deliverText.mock.calls[0]?.[1]).toBe('在吗');
     expect(await service.sessionOptions({ conversationId: 'conv-1' })).toEqual({
       ok: true,
       value: { mode: null, effort: null, model: { selected: 'platform:gpt-5', available: [{ id: 'platform:gpt-5', name: 'GPT-5' }] } },

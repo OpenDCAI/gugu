@@ -22,6 +22,7 @@ export const AGENT_STATUS_TONES = [
   'archived',
   'removed',
   'pending',
+  'starting',
   'none',
 ] as const
 export type AgentStatusTone = (typeof AGENT_STATUS_TONES)[number]
@@ -45,6 +46,7 @@ export const AGENT_STATUS_LABELS = [
   'archived',
   'removed',
   'pending',
+  'starting',
   'none',
 ] as const
 export type AgentStatusLabel = (typeof AGENT_STATUS_LABELS)[number]
@@ -72,6 +74,8 @@ type AgentStatusInput = {
   reading: AgentStatusView | null
   reachability?: AgentReachability
   unseen?: boolean
+  /** A session-life session's lifecycle word, as `displayStatus` composed it; it answers before the reading. */
+  lifecycle?: 'starting' | 'archived' | null
 }
 
 const WAIT_LABEL: Readonly<Record<AgentWaitKind, AgentStatusLabel>> = {
@@ -99,8 +103,9 @@ const still = (tone: AgentStatusTone, label: AgentStatusLabel = tone as AgentSta
 export function presentAgentStatus(input: AgentStatusInput & { hostOnline: boolean }): AgentStatusPresentation | null
 export function presentAgentStatus(input: AgentStatusInput): AgentStatusPresentation
 export function presentAgentStatus(input: AgentStatusInput & { hostOnline?: boolean }): AgentStatusPresentation | null {
-  const { reading, reachability, unseen = false, hostOnline = true } = input
+  const { reading, reachability, unseen = false, hostOnline = true, lifecycle } = input
   if (reachability === 'removed' || reachability === 'archived' || reachability === 'offline' || reachability === 'pending') return still(reachability)
+  if (lifecycle) return still(lifecycle)
   if (!hostOnline && reading?.status === 'working') return null
   const idle = reachability === 'online' ? still('online') : still('idle')
   if (reading === null) return reachability === 'online' ? idle : still('none')
@@ -136,6 +141,7 @@ export function agentStatusColorVar(tone: AgentStatusTone): string | null {
     case 'offline':
     case 'archived':
     case 'pending':
+    case 'starting':
       return 'var(--agent-tone-muted)'
     case 'done':
     case 'idle':

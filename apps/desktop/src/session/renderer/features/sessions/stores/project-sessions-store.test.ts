@@ -6,6 +6,7 @@ import type { Session } from '@shared/core/sessions/sessions';
 import { sessionReclaimedChannel } from '@shared/core/sessions/provisionEvents';
 import { ProjectSessionsStore } from './project-sessions-store';
 import { createUnprovisionedSession } from './session-store';
+import { TerminalManagerStore } from '../terminals/terminal-manager';
 
 type MockViewModel = {
   initialize: ReturnType<typeof vi.fn>;
@@ -20,12 +21,14 @@ const mocks = vi.hoisted(() => ({
   sessionAcquire: vi.fn(),
   sessionRelease: vi.fn(),
   getSessionsForProject: vi.fn(),
+  getProjectWorkspaces: vi.fn(),
   getProjectManagerStore: vi.fn(),
   getPullRequestsForSession: vi.fn(),
   getSessionGitWorktreeStore: vi.fn(),
   mountProject: vi.fn(),
   provisionWorkspace: vi.fn(),
   terminalAcquire: vi.fn(),
+  getTerminalsForSession: vi.fn(),
   terminalRelease: vi.fn(),
   viewModels: [] as MockViewModel[],
   viewStateGet: vi.fn(),
@@ -48,12 +51,14 @@ vi.mock('@renderer/lib/ipc', () => {
     sessions: {
       getSessionsForProject: mocks.getSessionsForProject,
     },
+    terminals: { getTerminalsForSession: mocks.getTerminalsForSession },
     pullRequests: {
       getPullRequestsForSession: mocks.getPullRequestsForSession,
     },
     sessionCreate: {
       createSession: mocks.createSession,
       provisionWorkspace: mocks.provisionWorkspace,
+      getProjectWorkspaces: mocks.getProjectWorkspaces,
     },
   },
 };
@@ -75,6 +80,8 @@ vi.mock('@renderer/lib/stores/view-state-cache', () => ({
     set: vi.fn(),
   },
 }));
+
+vi.mock('@renderer/lib/pty/pty-session', () => ({ PtySession: class {} }));
 
 vi.mock('sonner', () => ({
   toast: {
@@ -147,7 +154,10 @@ describe('ProjectSessionsStore session lifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.viewModels.length = 0;
+    mocks.terminalAcquire.mockReset();
+    mocks.getTerminalsForSession.mockResolvedValue([]);
     mocks.getSessionsForProject.mockResolvedValue([]);
+    mocks.getProjectWorkspaces.mockResolvedValue([]);
     mocks.getProjectManagerStore.mockReturnValue({ mountProject: mocks.mountProject });
     mocks.getPullRequestsForSession.mockResolvedValue({ success: true, data: { prs: [] } });
     mocks.mountProject.mockResolvedValue(undefined);
@@ -199,6 +209,36 @@ describe('ProjectSessionsStore session lifecycle', () => {
     // 侧栏那条乐观行必须被收回 —— 留着它就是本 issue 要消灭的「还得用户自己去删的东西」。
     expect(manager.sessions.has('session-blocked')).toBe(false);
 
+    manager.dispose();
+  });
+
+  it('lists many sessions without terminal reads and acquires terminals when one is opened', async () => {
+    const manager = makeSessionManager();
+    const terminalManagers: TerminalManagerStore[] = [];
+    mocks.terminalAcquire.mockImplementation((sessionId: string, projectId: string) => {
+      const terminals = new TerminalManagerStore(projectId, sessionId);
+      terminalManagers.push(terminals);
+      return terminals;
+    });
+    const sessions = Array.from({ length: 12 }, (_, i) => makeSession({ id: `session-${i}` }));
+    mocks.getSessionsForProject.mockResolvedValue(sessions);
+    mocks.getProjectWorkspaces.mockResolvedValue([{ id: 'workspace-1', linesAdded: 3, linesDeleted: 1 }]);
+
+    await manager.loadSessions();
+    await manager.loadSessions();
+
+    expect(manager.listState).toBe('read');
+    expect(manager.sessions.size).toBe(12);
+    expect(manager.sessions.get('session-0')?.workspaceGit).toEqual({ linesAdded: 3, linesDeleted: 1 });
+    expect(mocks.getSessionsForProject).toHaveBeenCalledTimes(1);
+    expect(mocks.getProjectWorkspaces).toHaveBeenCalledTimes(1);
+    expect(mocks.getTerminalsForSession).not.toHaveBeenCalled();
+
+    await manager.provisionSession('session-0');
+    expect(manager.sessions.get('session-0')?.state).toBe('provisioned');
+    expect(mocks.getTerminalsForSession).toHaveBeenCalledExactlyOnceWith('session-0');
+
+    for (const terminals of terminalManagers) terminals.dispose();
     manager.dispose();
   });
 

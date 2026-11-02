@@ -252,19 +252,14 @@ export const extensionsController = createRPCController({
     opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;
     extensionId: string;
-    /** Absent for a surface in no task (a group's side panel, L3). */
-    sessionId?: string;
     tabId: string;
     /** `<extensionId>.<tabName>` — which declared tab this surface draws. */
     tabKind: string;
-    /** The file of its session this tab was opened for (an extension claimed its type). */
+    /** The file of its workspace this tab was opened for (an extension claimed its type). */
     filePath?: string;
-    /** G1 With `filePath` and no session: the project whose folder that file is in. */
-    projectId?: string;
-    /** The chat this surface is drawn for, and the chat file it was opened for (L3). */
-    chatId?: string;
+    /** The chat file it was opened for (L3). */
     itemId?: string;
-  }) => {
+  } & Partial<import('@shared/extensions/app-runtime-protocol').AppWhere>) => {
     try {
       // A page the host draws is the person's to work (owner 10-14); only main's own `app_check` binds one for an agent.
       await bindExtensionSurface({ ...args, operator: { kind: 'person' } });
@@ -415,12 +410,10 @@ export const extensionsController = createRPCController({
   retargetSurface: async (args: {
     opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;
-    sessionId?: string;
     tabId: string;
     filePath?: string;
-    chatId?: string;
     itemId?: string;
-  }) => {
+  } & Partial<import('@shared/extensions/app-runtime-protocol').AppWhere>) => {
     try {
       await retargetExtensionSurface(args);
       return { success: true };

@@ -1,3 +1,4 @@
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -93,7 +94,7 @@ beforeEach(async () => {
   stopAgentForExtension.mockClear();
   dispatchForApp.mockClear();
   warn.mockClear();
-  await bindExtensionSurface({ webContentsId: TAB, extensionId: 'keeper', sessionId: 'task-1', tabId: 'tab-1', tabKind: 'keeper.main' });
+  await bindExtensionSurface({ webContentsId: TAB, extensionId: 'keeper', workspace: sessionWorkspace('task-1'), tabId: 'tab-1', tabKind: 'keeper.main' });
 });
 
 describe('the background page lists agents as every page does (L12)', () => {

@@ -89,7 +89,6 @@ export {
   setAgentSessionHost,
   answerAppMessage,
   spawnAgentForExtension,
-  answerAppReadFile,
   answerAppCall,
   // @@@2374 —— `gugu_session` 的 app_* 动作分派。宿主(main.ts)按 `EmdashBridgeModule`
   // 调它,而那只是个 TS 类型:漏在这张清单外**不会**有任何编译期或加载期报错,直到 agent 真
@@ -114,6 +113,9 @@ export {
   onAgentStatus,
   agentStatusSnapshot,
   onSessionsGone,
+  // The pill's lifecycle: each session-life transition, and a session's current view.
+  onSessionLifeView,
+  sessionLifeStatusOf,
   // TEST-ONLY (host exposes env-gated) — feed a real AgentEvent into the real pipeline for the otty e2e.
   emitSessionpageAgentEventForTest,
   emitSessionpageAgentEvent,
@@ -124,6 +126,11 @@ export {
   // 宿主的界面语言的注入口(见 host-locale.ts)。
   setSessionHostLocale,
   setEmdashMcpInjector,
+  setEmdashIdentityProvisioner,
+  // session-life: the ACP lifecycle owner, and the host's cloud-source hooks for its pending rows.
+  sessionLife,
+  setSessionLifeSourceHost,
+  claimedSessionSources,
   // @@@2503 平台额度:给走咕咕模型的 Chat UI(ACP)会话按会话签发中转令牌并随 `_meta` 送进适配器。
   setEmdashPlatformInjector,
   setPlatformRecoveryReadyGate,
@@ -155,7 +162,6 @@ export {
   sessionpageVersionSwitchActivity,
   sessionpageBootFailures,
   onSessionpageAuthorizationActivityChange,
-  setSessionLiveNotifier,
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,
   recordFailedSessionDirectMessage,
@@ -186,7 +192,7 @@ export {
 // 不必等 bootEmdashModule 成功(它可失败,失败后宿主继续跑)。注册幂等。
 export { registerWebviewAttachPolicy } from '@main/app/webview-policy'
 // #6615 问题 11 扩展网关给程序盖的调用方上下文(任务、工作副本),每次调用现读。
-export { agentSessionContext as emdashAgentSessionContext } from '@main/core/extensions/extension-agent-context'
+export { callerSessionContext as emdashAgentSessionContext } from '@main/core/extensions/extension-programs'
 // #7191 会话的 agent 操作它会话页里的浏览器页签:宿主的 MCP 层(Playwright 工具)经它拿到连那个页签的 transport。
 export { agentBrowserBridge as emdashAgentBrowser } from '@main/core/browser/agent-browser'
 // @@@touchid-passkey 网页要选通行密钥时,对话框挂在那张网页此刻所在、看得见的咕咕窗口上(停放着 / 窗口收起 ⇒ 无)。

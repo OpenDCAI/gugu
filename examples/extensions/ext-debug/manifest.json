@@ -6,7 +6,7 @@
     "dev-tools"
   ],
   "version": "2.0.0",
-  "apiVersion": 24,
+  "apiVersion": 25,
   "defaultLocale": "zh-CN",
   "subtitle": "把桥上每个动词当场跑一遍",
   "platforms": ["desktop"],

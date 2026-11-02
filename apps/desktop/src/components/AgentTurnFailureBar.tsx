@@ -20,11 +20,12 @@ import { IconButton } from './ui/IconButton'
 import { useStoredAgentTurnFailure } from '../hooks/useStoredAgentTurnFailure'
 import { agentTurnFailureMuteKind } from '../lib/agentTurnFailureMute'
 import { Avatar } from './Avatar'
+import type { MemberProfileCardModel } from './MemberProfileCard'
 
 type AgentTurnFailureSlotProps = {
   chatId: string | null
   threadRootId: string | null
-  profiles: Record<string, { displayName?: string | null; avatar?: string | null } | undefined>
+  profiles: Record<string, { displayName?: string | null; avatar?: string | null; membership?: MemberProfileCardModel['membership'] } | undefined>
 }
 
 // ChatAreaPanel 受 CI god-file 守卫；跨 runtime 的会话状态在这个单一挂载点组合。
@@ -50,7 +51,7 @@ export function AgentTurnFailureSlot({
   const { t } = useTranslation('messaging')
   const local = useAgentTurnFailure(chatId, threadRootId)
   const { contacts } = useContactsStore()
-  const stored = useStoredAgentTurnFailure(chatId, threadRootId, contacts.filter((contact) => contact.type === 'agent' && profiles[contact.id]).map((contact) => contact.id))
+  const stored = useStoredAgentTurnFailure(chatId, threadRootId, contacts.filter((contact) => contact.type === 'agent' && profiles[contact.id] && profiles[contact.id]?.membership !== 'former').map((contact) => contact.id))
   const failure = local.failure ?? stored.failure
   const [modelOpen, setModelOpen] = useState(false)
   const stateKind = failure ? agentTurnFailureMuteKind(failure.rawMessage) : null

@@ -9,9 +9,10 @@ import { registerSessionLocaleResources, translateSessionMessage } from '@render
 import '@renderer/index.css';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 
-const queuePrompt = vi.fn().mockResolvedValue({ success: true, data: { queued: true } });
-vi.mock('@renderer/lib/acp/runtime-client', () => ({
-  getAcpRuntimeClient: async () => ({ queuePrompt }),
+const sendThroughCustody = vi.fn(async () => {});
+vi.mock('@renderer/features/sessions/acp/queue-native-input', () => ({
+  sendThroughCustody,
+  canQueueNativeInput: () => false,
 }));
 
 Object.defineProperty(window, 'electronAPI', {
@@ -33,14 +34,13 @@ afterEach(() => {
 });
 
 describe('recoverable startup failure through the real composer', () => {
-  it('click and Enter both reach the runtime queue, while an uninstalled engine remains disabled', async () => {
+  it('click and Enter both reach the custody send, while an uninstalled engine remains disabled', async () => {
     registerSessionLocaleResources();
-    queuePrompt.mockClear();
+    sendThroughCustody.mockClear();
     store = new AcpChatStore('queue-5939', 'project');
     const current = store;
     const editorApiRef = createRef<PromptEditorRef>();
-    const internals = current as unknown as { _bootstrapped: boolean; _startInput: () => unknown };
-    internals._startInput = () => ({ sessionId: current.sessionId });
+    const internals = current as unknown as { _bootstrapped: boolean };
     runInAction(() => {
       internals._bootstrapped = true;
       current.historyLoading = false;
@@ -67,13 +67,13 @@ describe('recoverable startup failure through the real composer', () => {
     await editor.click();
     await userEvent.keyboard('queued by button');
     await page.getByRole('button', { name: translateSessionMessage('composer.sendMessage') }).click();
-    await until('button send reaches the runtime queue', () => queuePrompt.mock.calls.length >= 1);
-    expect(queuePrompt.mock.calls.length).toBe(1);
+    await until('button send reaches the custody send', () => sendThroughCustody.mock.calls.length >= 1);
+    expect(sendThroughCustody.mock.calls.length).toBe(1);
     await editor.click();
     await userEvent.keyboard('queued by Enter{Enter}');
-    await until('Enter send reaches the runtime queue', () => queuePrompt.mock.calls.length >= 2);
-    expect(queuePrompt.mock.calls.length).toBe(2);
-    expect(queuePrompt.mock.calls.map(([input]) => input.prompt.text)).toEqual(['queued by button', 'queued by Enter']);
+    await until('Enter send reaches the custody send', () => sendThroughCustody.mock.calls.length >= 2);
+    expect(sendThroughCustody.mock.calls.length).toBe(2);
+    expect((sendThroughCustody.mock.calls as unknown as [unknown, string][]).map(([, text]) => text)).toEqual(['queued by button', 'queued by Enter']);
     runInAction(() => { current.loadError = { kind: 'harness_not_installed', message: 'Install first' }; });
     const sendButton = page.getByRole('button', { name: translateSessionMessage('composer.sendMessage') });
     await until('send button disables for an uninstalled engine', () => (sendButton.query() as HTMLButtonElement | null)?.disabled === true);

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
+import { tierSuffix } from '@gugu/core/shared/ui/guguLink';
 
 /** vite define 在 electron 主进程包里把它换成字面量;单测里没有这个 define,用 typeof 兜住。 */
 declare const __GUGU_TIER__: string | undefined;
@@ -14,7 +15,7 @@ const BUILD_TIER: string = typeof __GUGU_TIER__ === 'string' ? __GUGU_TIER__ : '
  * 两边的会话共用一个工作目录,也共用 harness 按 cwd 记的转录与记忆(`~/.claude/projects/<cwd>`)。
  */
 function asciiAppDir(tier: string): string {
-  return tier === 'production' ? 'gugu' : `gugu-${tier}`;
+  return `gugu${tierSuffix(tier)}`;
 }
 
 /**

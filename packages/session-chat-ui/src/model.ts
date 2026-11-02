@@ -120,7 +120,7 @@ export type ChatMessage = {
   /** The `chat_id` that message_send went to — names the group when this row is itself quoted later. */
   sentChat?: string;
   /** View-only disclosure of the completed thinking/execution segment. */
-  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; idleMs?: number; steps?: number; empty?: boolean };
+  conversationProcess?: { live?: boolean; starting?: boolean; id: string; startedAt?: number; endedAt?: number; idleMs?: number; steps?: number; empty?: boolean };
   /**
    * View-only split of one agent-conversation reply (owner 0 号图): `head` draws the name and the
    * process line, each `body` only a bubble. The process steps go between them, so they never land
@@ -535,6 +535,8 @@ export type TurnProcessItem = {
    * 下面没有可展开的东西,点了没反应的箭头比没有箭头更糟;过程一到,同一个 id 的头接手。
    */
   placeholder?: boolean;
+  /** The session is still starting (`PendingPrompt.starting`): the live label says that. */
+  starting?: boolean;
   /**
    * 这一轮什么时候开始的（`TranscriptTurn.startedAt`）。缺席 = 不知道（回放来的），
    * 那就不写时间 —— 一个会少报的计时器比没有计时器更糟（`turn-process.def.tsx` 头注）。
@@ -617,7 +619,8 @@ export type SessionConditionItem = {
    * 「我已经登录了,这里没有个登录完成的按钮」。「去登录」与「我登好了」是两个不同的动作，
    * 后者读作「我登好了，接着来」，❌ 不能用「重试」顶替。
    */
-  actions?: readonly { label: string; run: () => void }[];
+  /** `pending`: its call is in flight; the button is disabled until it settles (a second click would repeat it). */
+  actions?: readonly { label: string; run: () => void; pending?: boolean }[];
   /** 行文案里的占位值(按 code 取到的那句文案里要填的空)。 */
   labelValues?: Readonly<Record<string, string | number>>;
 };

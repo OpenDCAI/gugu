@@ -85,7 +85,6 @@ function readerDeps(
 ): AgentInboxReaderDeps {
   return {
     accessToken: 'owner-token',
-    fetchChatFacts: async () => null,
     groupRulesLedger: memoryGroupRulesLedger(),
     inject: (input) => router.injectForAgentWithCompletion(input.agentUserId, {
       id: input.messageId ?? 'no-id',
