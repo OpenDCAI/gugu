@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageBubble } from '../../../../apps/desktop/src/components/chat/MessageBubble'
 import { Markdown } from '../../../../apps/desktop/src/components/markdown/Markdown'
 import { TOOLTIP_OPEN_DELAY_MS } from '../../../../apps/desktop/src/styles/motion'
+import { readHoverOwner, releaseHoverOwner } from '../../../../apps/desktop/src/components/chat/hover-owner'
 import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
@@ -48,7 +49,56 @@ async function hoverMessage() {
   })
 }
 
+async function renderPair() {
+  const props = { compactMobile: false, isGroup: true, memberReadSeqs: {}, onReaction: vi.fn(), onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn() }
+  await renderWithAppProviders(harness, <>{['first', 'second'].map((id) => createNode(MessageBubble, {
+    ...props, key: id, msg: message({ id, content: 'A stable neighboring message.', sender_user_id: 'sender-1' }),
+  }))}</>)
+  return [...harness.container.querySelectorAll<HTMLElement>('[data-message-bubble-row]')]
+}
+
+async function enter(row: Element, x = 0, y = 0) {
+  const over = new MouseEvent('pointerover', { bubbles: true, clientX: x, clientY: y })
+  Object.defineProperty(over, 'pointerType', { value: 'mouse' })
+  await act(async () => {
+    row.dispatchEvent(over)
+    row.dispatchEvent(new MouseEvent('mouseenter', { clientX: x, clientY: y }))
+    vi.advanceTimersByTime(0)
+  })
+}
+
 describe('message hover rendering', () => {
+  it.each([false, true])('hands over to an adjacent row without the tooltip delay (up: %s)', async (up) => {
+    const rows = await renderPair()
+    const [from, to] = up ? [...rows].reverse() : rows
+    await enter(from)
+    expect(from.hasAttribute('data-popup-open')).toBe(true)
+    const before = renderCounts()
+    await enter(to)
+    expect(to.hasAttribute('data-popup-open')).toBe(true)
+    expect(from.hasAttribute('data-popup-open')).toBe(false)
+    expect(document.querySelectorAll('[data-testid="message-hover-actions"]')).toHaveLength(1)
+    expect(renderCounts()).toEqual(before)
+  })
+
+  it.each(['release', 'move'] as const)('a waiting row takes over when the owner releases or the pointer leaves the corridor (%s)', async (action) => {
+    const [upper, lower] = await renderPair()
+    vi.spyOn(upper, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 100, 600, 80))
+    vi.spyOn(lower, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 600, 80))
+    await enter(lower, 650, 240)
+    const popup = document.querySelector<HTMLElement>('[data-testid="message-hover-actions"]')!
+    vi.spyOn(popup, 'getBoundingClientRect').mockReturnValue(new DOMRect(590, 158, 110, 40))
+    await enter(upper, 650, 180)
+    expect(lower.hasAttribute('data-popup-open')).toBe(true)
+    expect(upper.hasAttribute('data-popup-open')).toBe(false)
+    await act(async () => {
+      if (action === 'release') releaseHoverOwner(readHoverOwner()!.id)
+      else upper.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 110, clientY: 180 }))
+    })
+    expect(upper.hasAttribute('data-popup-open')).toBe(true)
+    expect(lower.hasAttribute('data-popup-open')).toBe(false)
+  })
+
   it('opens message actions without waiting for the button tooltip delay', async () => {
     await renderMessage()
     await hoverMessage()
