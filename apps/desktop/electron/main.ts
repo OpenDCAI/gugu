@@ -2045,11 +2045,10 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
             readWindows: (pid, signal) => cua().callTool('list_windows', { pid, on_screen_only: true }, { signal, timeoutMs: 2_000, lane: 'gugu-computer-indicator' }),
             strings: () => {
               const bar = (hostLocaleStore?.current() === 'en-US' ? enDeviceStrings : zhDeviceStrings).devices.deviceActions.computerBar
-              const fill = (template: string, name: string, app?: string) => template.replace('{{name}}', name).replace('{{app}}', app ?? '')
+              const fill = (template: string, name: string) => template.replace('{{name}}', name)
               return {
-                driving: (name, app) => fill(app === undefined ? bar.drivingComputer : bar.drivingApp, name, app),
-                paused: (name, app) => fill(app === undefined ? bar.pausedComputer : bar.pausedApp, name, app),
-                someApp: bar.someApp,
+                driving: (name) => fill(bar.drivingApp, name),
+                paused: (name) => fill(bar.pausedApp, name),
                 stop: bar.stop,
                 resume: bar.resume,
                 someone: bar.someone,

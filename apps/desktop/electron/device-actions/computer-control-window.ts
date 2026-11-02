@@ -15,19 +15,14 @@ import { COMPUTER_HEAD_HEIGHT, COMPUTER_HEAD_WIDTH, computerBarBounds, resolveCo
 import { COMPUTER_CONTROL_PAGE } from './computer-control-page'
 
 export interface ComputerBarStrings {
-  /** app 缺省 = 没指定 App(查看这台电脑)。 */
-  driving(name: string, app?: string): string
-  paused(name: string, app?: string): string
-  /** 认不出名字的 App 写成这个。 */
-  someApp: string
+  driving(name: string): string
+  paused(name: string): string
   stop: string
   resume: string
   someone: string
 }
 
-const WIDTH = 460
 const HEIGHT = COMPUTER_HEAD_HEIGHT
-const BOTTOM = 28
 
 export function createComputerControlWindow(input: {
   readWindows(pid: number, signal: AbortSignal): Promise<CuaToolResult>
@@ -41,11 +36,6 @@ export function createComputerControlWindow(input: {
   type View = Parameters<ComputerControlView['show']>[0]
   let current: { view: View; abort: AbortController } | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
-
-  const desktopBounds = () => {
-    const area = screen.getPrimaryDisplay().workArea
-    return { x: Math.round(area.x + (area.width - WIDTH) / 2), y: Math.round(area.y + area.height - HEIGHT - BOTTOM), width: WIDTH, height: HEIGHT }
-  }
 
   const ensure = (): { w: BrowserWindow; ready: Promise<void> } => {
     if (win && !win.isDestroyed() && loaded) return { w: win, ready: loaded }
@@ -97,27 +87,21 @@ export function createComputerControlWindow(input: {
   }
 
   const refresh = async (intent: NonNullable<typeof current>) => {
+    const target = intent.view.app
+    if (!target) return
     try {
-      const target = intent.view.app
-      let bounds = desktopBounds()
-      let mediaSourceId: string | null = null
-      let attachment: 'above' | 'inside' | 'floating' = 'floating'
-      if (target) {
-        const result = await input.readWindows(target.pid, intent.abort.signal)
-        if (current !== intent) return
-        const matched = result.isError ? null : resolveComputerWindow(result.structuredContent, target)
-        const native = matched?.bounds
-        // Windows reports physical window pixels; Electron places windows in DIP.
-        const rect = native && (process.platform === 'win32' ? screen.screenToDipRect(null, native) : native)
-        const placed = rect && computerBarBounds(rect, screen.getDisplayMatching(rect).workArea)
-        if (!placed) {
-          win?.hide()
-          return
-        }
-        bounds = placed
-        attachment = placed.y < rect!.y ? 'above' : 'inside'
-        mediaSourceId = `window:${matched!.windowId}:0`
+      const result = await input.readWindows(target.pid, intent.abort.signal)
+      if (current !== intent) return
+      const matched = result.isError ? null : resolveComputerWindow(result.structuredContent, target)
+      const native = matched?.bounds
+      // Windows reports physical window pixels; Electron places windows in DIP.
+      const rect = native && (process.platform === 'win32' ? screen.screenToDipRect(null, native) : native)
+      const bounds = rect && computerBarBounds(rect, screen.getDisplayMatching(rect).workArea)
+      if (!bounds) {
+        win?.hide()
+        return
       }
+      const attachment = bounds.y < rect!.y ? 'above' : 'inside'
       if (current !== intent) return
       const { w, ready } = ensure()
       await ready
@@ -127,16 +111,14 @@ export function createComputerControlWindow(input: {
       const agentName = view.callerName?.trim() || s.someone
       const taskTitle = view.taskTitle?.trim() === agentName ? undefined : view.taskTitle?.trim()
       const name = taskTitle ? `${agentName} · ${taskTitle}` : agentName
-      const app = view.app ? view.app.name || s.someApp : undefined
       const payload = view.state === 'driving'
-        ? { state: 'driving', text: s.driving(name, app), button: s.stop, action: 'stop' }
-        : { state: 'paused', text: s.paused(name, app), button: s.resume, action: 'resume' }
+        ? { state: 'driving', text: s.driving(name), button: s.stop, action: 'stop' }
+        : { state: 'paused', text: s.paused(name), button: s.resume, action: 'resume' }
       await w.webContents.executeJavaScript(`window.render(${JSON.stringify({ ...payload, agentName, taskTitle, attachment })})`)
       if (current !== intent || w.isDestroyed()) return
       w.setBounds(bounds)
-      if (w.isAlwaysOnTop() !== !target) w.setAlwaysOnTop(!target, 'screen-saver')
       if (!w.isVisible()) w.showInactive()
-      if (mediaSourceId) w.moveAbove(mediaSourceId)
+      w.moveAbove(`window:${matched!.windowId}:0`)
     } catch (error) {
       if (current !== intent) return
       win?.hide()
@@ -151,6 +133,12 @@ export function createComputerControlWindow(input: {
 
   return {
     show(view) {
+      // Only an actual target window gets an indicator; no desktop fallback.
+      if (!view.app) {
+        cancel()
+        win?.hide()
+        return
+      }
       if (current && current.view.app?.pid === view.app?.pid && current.view.app?.windowId === view.app?.windowId) {
         current.view = view
         return
