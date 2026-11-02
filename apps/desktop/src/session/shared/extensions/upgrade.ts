@@ -14,7 +14,7 @@ export type ExtensionOrigin = (typeof EXTENSION_ORIGINS)[number];
  * wildcard is still granted.
  */
 export function addedPermissions(
-  installed: ExtensionManifest | undefined,
+  installed: Pick<ExtensionManifest, 'permissions'> | undefined,
   revokedPermissions: readonly string[],
   candidate: ExtensionManifest
 ): { capabilities: ExtensionCapability[]; network: string[] } {
@@ -38,7 +38,7 @@ export function addedPermissions(
  * gugu's to replace.
  */
 export function replacesWithoutAsking(args: {
-  installed: ExtensionManifest | undefined;
+  installed: Pick<ExtensionManifest, 'permissions'> | undefined;
   installedOrigin: ExtensionOrigin | undefined;
   /** A chat package's publisher — the installed one's as recorded, and this one's — compared: the same person's update. */
   installedPublisher?: string | null;
@@ -60,7 +60,7 @@ export function replacesWithoutAsking(args: {
  * nothing; the same source asking for nothing new stays quiet (#6646 E-05: `replacesWithoutAsking`).
  */
 export function installAsks(args: {
-  installed: ExtensionManifest | undefined;
+  installed: Pick<ExtensionManifest, 'permissions'> | undefined;
   installedOrigin: ExtensionOrigin | undefined;
   revokedPermissions: readonly string[];
   candidate: ExtensionManifest;
