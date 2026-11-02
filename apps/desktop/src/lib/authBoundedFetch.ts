@@ -32,7 +32,7 @@ async function fetchWithSignals(
   init: RequestInit | undefined,
   signals: AbortSignal[],
 ): Promise<Response> {
-  if (requestPath(input) === '/rest/v1/rpc/send_message_idempotent' && typeof init?.body === 'string') {
+  if (requestPath(input) === '/rest/v1/rpc/send_message_with_overlays' && typeof init?.body === 'string') {
     try { const timing = chatSendTimings.get(JSON.parse(init.body).p_message_id); if (timing) timing.http ??= performance.now() } catch { /* Diagnostics must not change request validation. */ }
   }
   // PostgREST reads the finite body after fetch resolves; keep that read inside the same deadline and signal cleanup.

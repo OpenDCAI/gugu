@@ -45,7 +45,7 @@ function startBoundedUploads(files: File[], endpoint: AttachmentsEndpoint, scope
   return results
 }
 
-async function placeholderRow(file: File, caption: string | undefined, args: { chatId: string; senderId: string; toUserIds: string[] | null; isWhisper?: boolean; replyToMessageId?: string | null; threadRootId?: string | null; isThreadRoot?: boolean }) {
+export async function placeholderRow(file: File, caption: string | undefined, args: { chatId: string; senderId: string; toUserIds: string[] | null; isWhisper?: boolean; replyToMessageId?: string | null; threadRootId?: string | null; isThreadRoot?: boolean }) {
   let dimensions: MessageItem['image_dimensions']
   if (inferAttachmentKind(file) === 'image') {
     try {

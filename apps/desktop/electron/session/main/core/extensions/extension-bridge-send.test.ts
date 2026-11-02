@@ -55,7 +55,7 @@ const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-pro
 registerExtensionBridge();
 const handle = handlers.get(EXTENSION_BRIDGE_CHANNEL)!;
 const call = (sender: number, args: Record<string, unknown>, method = 'dispatch') =>
-  handle({ sender: { id: sender, session: {} } }, { method, args });
+  handle({ sender: { id: sender, session: {} } }, { method, args, gesture: true });
 
 const AGENT = 'user:0a000000-0000-4000-8000-000000000016';
 const CHAT = '0b000000-0000-4000-8000-000000000016';

@@ -276,17 +276,17 @@ describe('ChatAreaPanel agent activity placement', () => {
       const settings = vi.mocked(chatService.getGroupChatSettings)
       const before = settings.mock.calls.length
       await act(async () => {
-        onChange([{ revision: '1', event: 'chat_members_changed', payload: { chat_id: 'other-group' } }])
+        onChange([{ revision: '1', event: 'chat_members_changed', payload: { chat_id: 'other-group', tombstone: false } }])
         await vi.advanceTimersByTimeAsync(350)
       })
       expect(settings).toHaveBeenCalledTimes(before)
       await act(async () => {
-        onChange([{ revision: 'other-reader', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'another-user', last_read_seq: 42 } }])
+        onChange([{ revision: 'other-reader', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'another-user', tombstone: false, kind: 'own' } }])
         await vi.advanceTimersByTimeAsync(350)
       })
       expect(settings).toHaveBeenCalledTimes(before)
       await act(async () => {
-        onChange([{ revision: '2', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'viewer-1' } }])
+        onChange([{ revision: '2', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'viewer-1', tombstone: false } }])
         await vi.advanceTimersByTimeAsync(350)
       })
       expect(settings).toHaveBeenCalledTimes(before + 1)

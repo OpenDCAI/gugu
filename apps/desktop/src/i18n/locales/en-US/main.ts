@@ -244,9 +244,9 @@ export default {
         "gap_too_large": "Too much was missed while disconnected, so the timeline was reloaded in full."
       },
       "outcome": {
-        "done": "Turn finished",
-        "cancelled": "Turn cancelled",
-        "error": "Turn failed"
+        "done": "Finished",
+        "cancelled": "Cancelled",
+        "error": "Failed"
       },
       "compacting": "Compacting context…",
       "compacted": "Context compacted — everything above is a summary to the agent",
@@ -439,7 +439,6 @@ export default {
         "zh-CN": "简体中文"
       },
       "light": "Light",
-      "plain-white": "Plain white",
       "notifications": "Notifications",
       "notificationsChat": "Chat message notifications",
       "notificationsChatAria": "Enable chat message notifications",
@@ -651,9 +650,6 @@ export default {
       "shareNoGuguNumber": "{{name}} does not have a Gugu ID yet, so a card cannot be created.",
       "shareUnavailable": "This task does not have an agent identity that can be shared yet.",
       "taskCreated": "Task created",
-      "taskDeliverFailed": "Message not delivered to {{name}}.",
-      "taskDeliverFailedCount_one": "{{count}} message not delivered to {{name}}.",
-      "taskDeliverFailedCount_other": "{{count}} messages not delivered to {{name}}.",
       "unownedAgentDm": "You cannot message someone else’s Agent privately. Work with it in a shared group."
     },
     "update": {

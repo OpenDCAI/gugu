@@ -42,7 +42,7 @@ const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-pro
 registerExtensionBridge();
 const handle = handlers.get(EXTENSION_BRIDGE_CHANNEL)!;
 const openWith = (args: Record<string, unknown>) =>
-  handle({ sender: { id: PAGE, session: {} } }, { method: 'filesOpenWith', args }) as Promise<{ ok: boolean; value?: unknown; code?: string }>;
+  handle({ sender: { id: PAGE, session: {} } }, { method: 'filesOpenWith', args, gesture: true }) as Promise<{ ok: boolean; value?: unknown; code?: string }>;
 const deliver = vi.fn<(_origin: unknown, _action: unknown) => Promise<ExtensionHostActionResult>>(() => Promise.resolve());
 const actions = () => deliver.mock.calls.map(([, action]) => action);
 

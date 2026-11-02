@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentPresenceState } from '@/lib/agentPresenceStore'
 import type { AgentStatusDetail } from '@gugu/core/shared/agentStatus'
+import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
 const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }))
 vi.mock('@/lib/supabase', () => ({
   dataClient: {
@@ -15,6 +16,7 @@ import {
   setPresenceBusContext,
   type LocalAgentStatus,
   subscribeAgentPresence,
+  subscribeAgentPresenceRevisions,
 } from '@/lib/agentPresenceStore'
 // @@@3841 批量 RPC 之后 data 的形状是 `{ results: { <id>: { status, presence } } }`。
 const payload = (
@@ -344,6 +346,26 @@ describe('agent presence revision routing', () => {
 
 // gugu-dev#181 80e:看不到一个 agent 只是那一刻的事 —— 它审批过后进了我在的群,成员变化一到就重问,状态(含类型)拿得到。
 describe('an agent this viewer could not see', () => {
+  it.each(['own', 'roster', undefined])('rechecks unseen presence only for roster kind %s', async kind => {
+    rpcMock.mockResolvedValue({ data: { results: { 'agent-1': { status: 'unauthorized' } } }, error: null })
+    const off = subscribeAgentPresence('agent-1', () => undefined)
+    const listeners = new Map<AccountRevisionEvent, AccountRevisionListener>()
+    const offRevisions = subscribeAgentPresenceRevisions((event, listener) => {
+      listeners.set(event, listener)
+      return () => { listeners.delete(event) }
+    })
+    try {
+      await settle()
+      expect(getAgentPresenceSnapshot('agent-1')?.error).toBeTruthy()
+      rpcMock.mockClear()
+      await listeners.get('chat_members_changed')!([{
+        revision: '1', event: 'chat_members_changed',
+        payload: { chat_id: 'group', user_id: 'agent-1', kind, tombstone: false },
+      }])
+      expect(rpcMock).toHaveBeenCalledTimes(kind === 'own' ? 0 : 1)
+    } finally { offRevisions(); off() }
+  })
+
   it('is asked again when a chat of mine changes members, and is seen once it is visible', async () => {
     rpcMock.mockResolvedValue({ data: { results: { 'agent-1': { status: 'unauthorized' } } }, error: null })
     const off = subscribeAgentPresence('agent-1', () => undefined)

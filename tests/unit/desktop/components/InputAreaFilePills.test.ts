@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
 import { act, createElement, useCallback, useEffect, useMemo, useState } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readComposer, selectComposer, writeComposer } from '../../../support/composerEditor'
 import { ChatMessageComposer } from '../../../../apps/desktop/src/components/chat/ChatMessageComposer'
 import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
 import { ChatStoreProvider, useChatStore, useTextDraftStore, type DraftAttachment, type DraftMention } from '../../../../apps/desktop/src/store/chatContext'
-import { chatStore } from '../../../support/testHarness'
+import { chatStore, createReactHarness } from '../../../support/testHarness'
 import { APP_COMPOSE_EVENT, type AppComposeDetail } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { filePillText } from '../../../../apps/desktop/src/components/markdown/filePills'
 
@@ -21,7 +20,7 @@ const deckToken = `@[演示稿 · 第 3 页 · 标题](${DECK})`
 const sheetToken = `@[预算 · 销售!B2:D4 · 3×3](${SHEET})`
 
 let container: HTMLDivElement
-let root: Root
+let harness: ReturnType<typeof createReactHarness>
 let store: ReturnType<typeof useChatStore>
 type ComposerProps = Parameters<typeof ChatMessageComposer>[0]
 
@@ -76,7 +75,7 @@ async function send() {
   await flush()
 }
 async function mount(onSend: ComposerProps['onSend'], chatId = 'group-1', quoteContent?: ComposerProps['quoteContent']) {
-  await act(async () => { root.render(createElement(Host, { chatId, onSend, quoteContent })) })
+  await harness.render(createElement(Host, { chatId, onSend, quoteContent }))
   await flush()
 }
 async function draft(text: string) {
@@ -87,14 +86,11 @@ async function draft(text: string) {
 beforeEach(() => {
   setLocalePreference('zh-CN')
   toastMock.mockClear()
-  container = document.createElement('div')
-  document.body.appendChild(container)
-  root = createRoot(container)
+  harness = createReactHarness()
+  container = harness.container
 })
 afterEach(() => {
-  act(() => root.unmount())
-  container.remove()
-  vi.restoreAllMocks()
+  harness.cleanup()
 })
 
 describe('file citations share the composer document with the words', () => {
@@ -156,7 +152,7 @@ describe('file citations share the composer document with the words', () => {
   })
 
   it.each(['main', 'aside'] as const)('keeps pending typing and consecutive App citations in the %s composer', async (surface) => {
-    await act(async () => root.render(createElement(Host, { chatId: 'group-1', onSend: vi.fn(async () => {}), surface })))
+    await harness.render(createElement(Host, { chatId: 'group-1', onSend: vi.fn(async () => {}), surface }))
     await flush()
     await type('Fresh instructions')
     await act(async () => {

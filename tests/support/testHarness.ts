@@ -1,6 +1,7 @@
 import { act, createElement, type ElementType, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { vi } from 'vitest'
+import type { Editor } from '../../packages/session-ui/node_modules/@tiptap/core'
 import type { ChatItem, Device, MessageItem, NotificationLevel } from '@gugu/core/shared/types/chat'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { ToastContext, type ToastContextValue } from '../../apps/desktop/src/components/toastContext'
@@ -30,8 +31,17 @@ export function createReactHarness() {
       })
     },
     cleanup() {
+      // TipTap defers destruction to the next tick. Finish owned editor teardown
+      // while jsdom still exists, before Vitest removes its window global.
+      const editors = new Set(Array.from(
+        container.querySelectorAll<HTMLElement & { editor?: Editor }>('[contenteditable]'),
+        (element) => element.editor,
+      ).filter((editor): editor is Editor => typeof editor?.destroy === 'function'))
       act(() => {
         root.unmount()
+        for (const editor of editors) {
+          if (!editor.isDestroyed) editor.destroy()
+        }
       })
       container.remove()
       vi.restoreAllMocks()

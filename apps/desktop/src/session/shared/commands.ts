@@ -53,7 +53,7 @@ export const COMMANDS = defineCommands({
     label: 'New Task',
     labelKey: 'sidebar.newTask',
     description: 'Create a new task in this project',
-    iconKey: 'square-plus',
+    iconKey: 'bolt',
     defaultHotkey: 'Mod+N',
     category: 'Navigation',
   },

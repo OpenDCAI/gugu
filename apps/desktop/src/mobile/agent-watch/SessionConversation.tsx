@@ -2,7 +2,7 @@ import { registerNativeComposer } from '@/lib/nativeComposerHandoff'
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead'
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { attachmentMimeTypeSchema, toolImageUrl, type PromptAttachment } from '@gugu/session-core/acp/client'
+import { toolImageUrl } from '@gugu/session-core/acp/client'
 import { openImageViewer } from '@/lib/imageViewer'
 import { PhoneTaskDraftRecovery } from '../local-agent/PhoneTaskDraftRecovery'
 import { machineRpc, fetchToolImage } from './sessionpage-rpc'
@@ -20,12 +20,13 @@ import { useConversationQueue } from '@/components/chat/useConversationQueue'
 import { SessionTranscriptView } from '@/components/assistant-ui/session-transcript-view.aui'
 import { AgentConversationComposer } from '@renderer/lib/chat/agent-conversation-view'
 import { useComposerFileUploads } from '@renderer/features/sessions/acp/use-composer-file-uploads'
-import { fileMentionsFor, composePromptText } from '@renderer/features/sessions/acp/composer-file-paths'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
-import type { SettlementResponse, SessionpageSessionRespondResult, SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
+import type { SettlementResponse, SessionpageSessionRespondResult, SessionpageSessionSummary, TurnFileRef } from '@gugu/session-core/session-record/contract'
+import { chatService } from '@/lib/chat'
+import { getRendererSession } from '@/lib/sessionPublication'
 import type { AgentWatchTimeline } from './agent-watch-store'
 import type { PendingSend } from './pending-sends'
-import { sessionAttachmentRpc, stopBackgroundTask } from './sessionpage-rpc'
+import { stopBackgroundTask } from './sessionpage-rpc'
 import { ConversationSettlements } from '@/components/chat/ConversationSettlements'
 import { useConversationOptions } from '@/components/chat/useConversationOptions'
 import { useOpenedOutputOpener } from './opened-output-opener'
@@ -36,20 +37,25 @@ import { openMessageSender } from '@/lib/openMessageSender'
 import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { ComposerAttachButton } from '@/components/chat/ComposerAttachButton'
 import { messageForUser } from '@/lib/userFacingError'
+import { toast } from '@renderer/lib/hooks/use-toast'
 import { nativeUserAttachmentCommands } from './native-user-attachments'
 import { usePhoneSessionQuotes } from './use-phone-session-quotes'
+import { EngineIcon } from '@/components/AgentHarnessIdentity'
+import { engineLabel } from '@/lib/usage/engineLabel'
 
 /** The phone supplies session data and RPC actions to the same project conversation UI. */
-export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, draft, onDraftApplied, phoneHost = false, local = false, nativeRecord = false, hostReachable = true,
+export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, harness, draft, onDraftApplied, phoneHost = false, local = false, nativeRecord = false, hostReachable = true,
   machineLabel, sessionRuntime, respondingItemId, onRespond, onSend, pendingSends, sending, agentWorking,
   onStop, stopping, footerNotice, onLoadOlder, onAtBottom, emptyNote,
 }: {
   timeline: AgentWatchTimeline; deviceId: string; sessionId: string; agentName: string; agentUserId?: string | null
+  /** 这条会话的 harness(claude-code / codex …):输入框里模型左边那颗锁着的标,同桌面会话页。 */
+  harness?: string
   draft?: { text: string }; onDraftApplied?: () => void; phoneHost?: boolean
   /** The session is on this computer: read it over IPC (see `machineRpc`). */
   local?: boolean; nativeRecord?: boolean; hostReachable?: boolean; machineLabel?: string
   sessionRuntime: SessionpageSessionSummary['runtime']; respondingItemId: string | null
-  onRespond: (input: SettlementResponse) => Promise<SessionpageSessionRespondResult>; onSend: (text: string, attachments?: PromptAttachment[]) => Promise<void>
+  onRespond: (input: SettlementResponse) => Promise<SessionpageSessionRespondResult>; onSend: (text: string, files?: TurnFileRef[]) => Promise<void>
   pendingSends: readonly PendingSend[]; sending: boolean; agentWorking: boolean
   headerRunning?: boolean
   onStop: () => void; stopping: boolean; footerNotice?: ReactNode; onLoadOlder: () => Promise<void>
@@ -70,7 +76,6 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const { text: draftText, setText: setDraftText } = composerDraft
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const [attachmentWaiting, setAttachmentWaiting] = useState(false)
-  const paths = useRef(new Map<string, string>())
   const applied = useRef<typeof draft>(undefined)
   // Hydrate before applying an App handoff, so the old mirror cannot overwrite its new text.
   useEffect(() => { if (editor.current?.getText() !== draftText) editor.current?.setText(draftText) }, [draftText])
@@ -93,16 +98,17 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     const initial = editorState.current.edit?.text ?? editorState.current.text
     if (handle.getText() !== initial) handle.setText(initial)
   }, [])
-  const uploads = useComposerFileUploads({ sessionId: () => sessionId, deviceLabel: () => machineLabel ?? null,
-    setAttachments, onUploaded: (id, file) => paths.current.set(id, file.mentionPath), translate: translateSessionMessage,
-    uploadRpc: sessionAttachmentRpc(deviceId, phoneHost, local) })
+  // 附件放进这个 agent 私聊的文件夹(P3;与通讯录「发消息」同一个 getOrCreateDM),这一轮带着引用发出去。
+  const uploads = useComposerFileUploads({ setAttachments, translate: translateSessionMessage,
+    to: async () => {
+      const owner = getRendererSession()?.user.id
+      if (!owner) throw new Error('attachments: not signed in')
+      if (!agentUserId) throw Object.assign(new Error('attachments: no agent chat to place them in'), { code: 'task_identity_missing' })
+      return { chatId: await chatService.getOrCreateDM(owner, agentUserId), owner, deviceId: local ? null : deviceId, sessionId }
+    } })
   const addFiles = (files: File[]) => {
     for (const file of files) {
-      const id = crypto.randomUUID()
-      void uploads.add({ id, name: file.name, kind: file.type.startsWith('image/') ? 'image' : 'file', mimeType: file.type }, {
-        kind: 'file', name: file.name, mimeType: file.type, size: file.size,
-        slice: async (start, end) => new Uint8Array(await file.slice(start, end).arrayBuffer()),
-      })
+      void uploads.add({ id: crypto.randomUUID(), name: file.name, kind: file.type.startsWith('image/') ? 'image' : 'file', mimeType: file.type }, file)
     }
   }
   const changeAttachments = (next: ComposerAttachment[]) => {
@@ -136,25 +142,21 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       submission.waiting = false
       setAttachmentWaiting(false)
       const sentAttachments = attachments
-      const images: PromptAttachment[] = sentAttachments.flatMap(file => {
-        const path = paths.current.get(file.id)
-        const mimeType = attachmentMimeTypeSchema.safeParse(file.mimeType)
-        return !phoneHost && sessionRuntime === 'acp' && path && mimeType.success ? [{ type: 'local-file' as const, originalPath: path, name: file.name, mimeType: mimeType.data }] : []
-      })
-      const imagePaths = new Set(images.flatMap(image => image.type === 'local-file' ? [image.originalPath] : []))
-      const text = composePromptText(value, fileMentionsFor(sentAttachments.filter(file => !imagePaths.has(paths.current.get(file.id) ?? '')), paths.current))
-      if (!text && !images.length) return
+      const files = uploads.files(sentAttachments.map(file => file.id))
+      const text = value.trim()
+      if (!text && !files.length) return
       composerDraft.setText(''); composerDraft.flush(); editor.current?.setText('')
       setAttachments(current => current.filter(file => !sentAttachments.some(sent => sent.id === file.id)))
       try {
-        await onSend(text, images)
+        await onSend(text, files)
         view.current?.setScrollMode({ kind: 'tail' })
-        for (const file of sentAttachments) { paths.current.delete(file.id); uploads.forget(file.id) }
-      } catch {
+        for (const file of sentAttachments) uploads.forget(file.id)
+      } catch (error) {
         const live = editor.current?.getText() ?? ''
         const restored = appendToDraft(value, live)
         composerDraft.setText(restored); editor.current?.setText(restored)
         setAttachments(current => [...sentAttachments.filter(file => !current.some(kept => kept.id === file.id)), ...current])
+        toast({ title: translateSessionMessage('acpFailure.sendMessage'), description: messageForUser(error), variant: 'destructive' })
       }
     } finally {
       if (inFlight.current === submission) { setAttachmentWaiting(false); inFlight.current = null }
@@ -177,10 +179,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       return result.value
     },
     readPathImage: async path => {
-      const host = machineRpc(deviceId, local)
-      const resolved = await host.sessionCreate.resolveAttachmentPath(sessionId, path)
-      if (!resolved.success) throw new Error('图片附件无法读取')
-      const result = await host.app.readUserImageDataUrl(resolved.data)
+      const result = await machineRpc(deviceId, local).app.readUserImageDataUrl(path)
       if (!result.success) throw new Error(result.error)
       return result.dataUrl
     },
@@ -209,7 +208,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     {phoneHost ? <PhoneTaskDraftRecovery deviceId={deviceId} sessionId={sessionId} composer={recoveryComposer} sending={sending} /> : null}
     {queue.error ? <div role="alert">{queue.error}</div> : null}
     <input ref={input} type="file" hidden multiple onChange={event => { addFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
-    <AgentConversationComposer {...options.props} {...queue.props} queuedPrompts={[...queue.props.queuedPrompts, ...pendingSends.slice(1).map(send => ({ id: send.id, text: send.text, origin: 'manual' as const, locked: true }))]} mobile isWorking={agentWorking} canSubmit={!sending && !stopping && (!!composerDraft.text.trim() || attachments.length > 0)}
+    <AgentConversationComposer {...options.props} {...queue.props} {...lockedHarness(harness)} queuedPrompts={[...queue.props.queuedPrompts, ...pendingSends.slice(1).map(send => ({ id: send.id, text: send.text, origin: 'manual' as const, locked: true }))]} mobile isWorking={agentWorking} canSubmit={!sending && !stopping && (!!composerDraft.text.trim() || attachments.length > 0)}
       onStop={agentWorking ? onStop : undefined} editorApiRef={receiveEditor} editorOptions={{ clearOnSubmit: false, enterBehavior: 'newline' }}
       queuedPromptEdit={quotes.composer.queuedPromptEdit} onChangeQueuedPromptEdit={quotes.composer.changeQueuedPromptEdit} onFinishQueuedPromptEdit={quotes.composer.finishQueuedPromptEdit} renderQueuedPromptText={quotes.composer.renderQueuedPromptText}
       onInputChange={composerDraft.setText} onSubmit={value => { void submit(value) }} onSubmitWhileWorking={value => { void submit(value) }}
@@ -223,4 +222,10 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       onReachStart={() => { void quotes.loadOlder() }} composerContent={composer} shown={visibility.shown} onAtBottomChange={atBottom => { if (atBottom) onAtBottom?.() }} onVisibleItems={reading.onVisibleItems} onReady={ready => { view.current = ready; reading.onReady(ready) }} className="relative min-h-0 flex-1" />
     {turns.length === 0 ? emptyNote : null}</div>{outputs.panel}{options.confirmation}
   </MessageProvider></ThemeProvider>
+}
+
+/** 模型左边那颗锁着的 harness 标(桌面会话页同一颗);不知道 harness 时照旧不画。 */
+function lockedHarness(harness: string | undefined) {
+  if (!harness) return {}
+  return { hideLockedAgent: false, selectedAgent: harness, agentOptions: [{ id: harness, name: engineLabel(harness), icon: <EngineIcon engine={harness} size={14} /> }] }
 }

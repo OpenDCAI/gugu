@@ -9,8 +9,8 @@ import { openOwnedAgentEntry } from '@/lib/ownedAgentConversation';
  * 项目群不开对话块,开它的项目块(项目就是群;几台机器上的同一个项目认侧栏那一行)—— 只在这一处判。
  * ⌘ 点只在看这屏时才拼到旁边(同会话行、项目行)。
  */
-export function openChatOnScreen(chatId: string, beside: boolean): void {
-  if (openOwnedAgentEntry(chatId)) return;
+export function openChatOnScreen(chatId: string, beside: boolean, purpose?: 'resource'): void {
+  if (purpose !== 'resource' && openOwnedAgentEntry(chatId)) return;
   const projectId = projectGroupsStore.projectOfChat(chatId);
   const content: ScreenBlockContent = projectId
     ? { kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) }

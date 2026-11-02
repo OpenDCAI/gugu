@@ -1,3 +1,4 @@
+import { turnFileText } from './turn-files';
 import { questionAnswerError } from '@gugu/session-core/session-record';
 import { getAcpRuntimeClient } from '@main/core/acp/runtime-process/host';
 import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader';
@@ -123,11 +124,10 @@ export async function deliverSessionText(
   target: SessionWriteTarget,
   text: string,
   clientMessageId?: string,
-  attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
+  files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files'],
+  attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]
 ): Promise<{ accepted: 'started' | 'queued' }> {
-  if (attachments?.length && target.runtime !== 'acp') throw new SessionWriteError('unsupported_runtime', '此会话不支持图片输入');
-  const body = text.trim();
-  if (!body && !attachments?.length) throw new SessionWriteError('empty_text', '消息是空的');
+  if (!text.trim() && !files?.length && !attachments?.length) throw new SessionWriteError('empty_text', '消息是空的');
 
 
   // `runtime === null` 就是 pty:终端腿是默认形态,建会话时那一列常常没写。
@@ -144,12 +144,15 @@ export async function deliverSessionText(
   // refetch after a lost reply finds the existing row), the sender's outbox copy ends here.
   if (target.runtime === 'acp') {
     sessionLife().enqueue({
-      sessionId: target.id, messageId: clientMessageId ?? crypto.randomUUID(), text: body, kind: 'session-direct',
-      delivery: { queue: true, origin: 'manual', ...(attachments?.length ? { attachments } : {}) },
+      sessionId: target.id, messageId: clientMessageId ?? crypto.randomUUID(), text: text.trim(), kind: 'session-direct',
+      delivery: { queue: true, origin: 'manual', ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) },
     });
     return { accepted: 'queued' };
   }
   if (target.runtime === 'pty' || target.runtime === null) {
+    if (attachments?.length) throw new SessionWriteError('unsupported_runtime', '终端任务不能回放图片附件');
+    const turn = files?.length ? await turnFileText(target.id, files, false) : null;
+    const body = [text.trim(), turn?.text].filter(Boolean).join('\n\n');
     const params = {
       projectId: target.projectId,
       sessionId: target.id,
@@ -294,7 +297,7 @@ export async function deliverQuestionAnswer(
     const message = {
       not_found: '这条会话的终端已经不在了',
       not_a_conversation: '这不是一条 agent 会话的终端',
-      question_closed: '终端里的选择器已经关了(在终端里答过、拒过,或这一轮被停了)',
+      question_closed: '终端里的选择器已经关了(在终端里答过、拒过,或执行已停止)',
       question_gone: '这道题问出来之后终端里的 agent 重启过,选择器已经不在了',
       render_timeout: '写了取消键之后终端没有重画',
     }[type];

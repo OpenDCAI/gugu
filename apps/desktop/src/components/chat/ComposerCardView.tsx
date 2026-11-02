@@ -38,7 +38,7 @@ export function ComposerCardHead({ type, agentUserId }: { type: ComposerCard['ty
 }
 
 /**
- * gugu-dev#181 任务卡 / 已安排卡:一个面、三行 —— 是什么(右上时刻)、原话、交给谁(行尾一个状态标记,与侧栏同一套读数)。
+ * gugu-dev#181 任务卡 / 已安排卡:是什么(右上时刻)、原话、文件名(有附件时)、交给谁(行尾状态与侧栏同一套读数)。
  * 量值照聊天里的兄弟卡(App 安装包卡:12px 圆角、1px 边、12px 内边距、行距 8px);❌ 上下两截、❌ 另起状态条。
  */
 export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time, memberProfiles, onOpenTopic }: {
@@ -77,6 +77,9 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
       text={card.text}
       onOpen={openable ? () => (onOpenTopic ? onOpenTopic() : openTaskCardSession(task, place.local)) : undefined}
     >
+      {task?.files?.length ? (
+        <span className="whitespace-pre-wrap break-words text-[var(--font-caption)] text-[var(--muted-fg)]">{task.files.map(file => file.name).join('\n')}</span>
+      ) : null}
       {task && !owned ? (
         <span className="break-words text-[var(--font-caption)] text-[var(--muted-fg)]">{place.label}</span>
       ) : task && (

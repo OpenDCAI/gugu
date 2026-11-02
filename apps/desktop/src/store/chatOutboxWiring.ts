@@ -2,7 +2,8 @@ import { openTopicTab } from '../session/renderer/features/chats/chat-tabs/chat-
 import type { AppForwardFilesDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { commitAttachment, forwardAttachment, shareAttachment, type CommitArgs } from '@gugu/core/cloud/attachmentsApi'
 import { messageItemFromRow } from '@gugu/core/cloud/messageItem'
-import { attachmentsEndpoint, type PreparedChatAttachment } from '../lib/attachmentsEndpoint'
+import { attachmentsEndpoint, prepareChatAttachment, type PreparedChatAttachment } from '../lib/attachmentsEndpoint'
+import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import { topicService, type CreateTopicInput, type CreatedTopic } from '../lib/topics'
 // @@@send-outbox (#1762 洞③/#1941) — outbox 与 chat store 的接线层(卫星,参照 chatRealtimeMutations
 // 的 mutators-bag 抽法):乐观行构造、状态迁移落 UI、送达连带动作(水位/预览/agent 运行态点亮)、
@@ -52,8 +53,8 @@ export interface OutboxWiringIo {
 
 export interface OutboxWiring {
   outbox: ChatOutbox
-  stageAttachment(message: MessageItem): Promise<void>
-  commitAttachment(message: MessageItem, prepared: PreparedChatAttachment, commit: Omit<CommitArgs, 'staging_key'>, timing?: AttachmentSendTiming): Promise<void>
+  stageAttachment(message: MessageItem, dependsOn?: string): Promise<void>
+  commitAttachment(message: MessageItem, prepared: PreparedChatAttachment, commit: Omit<CommitArgs, 'staging_key'>, timing?: AttachmentSendTiming, dependsOn?: string): Promise<void>
   forward(source: MessageItem | AppForwardFilesDetail['files'][number], targetChatId: string, senderUserId: string): Promise<void>
   createTopic(input: CreateTopicInput, senderUserId: string): Promise<CreatedTopic | null>
   dispose(): void
@@ -132,14 +133,14 @@ export function outboxRecordToMessage(
 }
 
 /** The same durable shape backs text, attachment commits, forwards, and topic requests. */
-export function outboxRecordForMessage(message: MessageItem, operation: OutboxOperation): OutboxRecord {
+export function outboxRecordForMessage(message: MessageItem, operation: OutboxOperation, dependsOn?: string): OutboxRecord {
   if (!message.sender_user_id) throw new Error('An outbox operation requires a sender')
   const now = new Date().toISOString()
   return {
     clientMessageId: message.id, chatId: message.chat_id, senderUserId: message.sender_user_id,
     preview: { file_item_id: message.file_item_id, file_version: message.file_version, file_blob_id: message.file_blob_id,
       file_metadata: message.file_metadata, image_dimensions: message.image_dimensions },
-    operation, dependsOn: operation.kind === 'forward' && operation.source.kind === 'message' ? operation.source.id : message.reply_to_message_id ?? undefined,
+    operation, dependsOn: dependsOn ?? (operation.kind === 'forward' && operation.source.kind === 'message' ? operation.source.id : message.reply_to_message_id ?? undefined),
     payload: { content: message.content ?? '', contentType: message.content_type, toUserIds: message.to_user_ids ?? null,
       replyToMessageId: message.reply_to_message_id ?? null, threadRootId: message.thread_root_id ?? null,
       isThreadRoot: !!message.is_thread_root, isWhisper: !!message.is_whisper },
@@ -327,16 +328,16 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
 
   return {
     outbox,
-    async stageAttachment(message) {
-      await outbox.stageUpload(outboxRecordForMessage(message, { kind: 'upload' }))
+    async stageAttachment(message, dependsOn) {
+      await outbox.stageUpload(outboxRecordForMessage(message, { kind: 'upload' }, dependsOn))
     },
-    async commitAttachment(message, prepared, commit, timing = attachmentSendTiming(message.id, message.chat_id)) {
+    async commitAttachment(message, prepared, commit, timing = attachmentSendTiming(message.id, message.chat_id), dependsOn) {
       attachmentTimings.set(message.id, timing)
       const operation: OutboxOperation = 'staging_key' in prepared
         ? { kind: 'attachment', commit: { ...commit, staging_key: prepared.staging_key } }
         : { kind: 'nativeAttachment', commit }
       if ('local' in prepared) nativeCommits.set(message.id, async () => {
-        const source = outboxRecordForMessage(message, operation).dependsOn
+        const source = outboxRecordForMessage(message, operation, dependsOn).dependsOn
         if (source) await outbox.delivered(source)
         if (!outbox.has(message.id)) return
         const endpoint = await attachmentsEndpoint()
@@ -348,7 +349,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
         if (!row) throw new Error(i18n.t('outbox.sendFailed', { ns: 'messaging' }))
         return row
       })
-      if (!await outbox.commitUpload(outboxRecordForMessage(message, operation))) { nativeCommits.delete(message.id); return }
+      if (!await outbox.commitUpload(outboxRecordForMessage(message, operation, dependsOn))) { nativeCommits.delete(message.id); return }
       const publish = nativeCommits.get(message.id)
       if (publish) {
         nativeCommits.delete(message.id)
@@ -370,6 +371,38 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       record.payload.resolveDmPeer = target?.kind === 'dm' || target?.kind === 'ai'
       await outbox.enqueue(record)
       io.appendMessage(outboxRecordToMessage(record, io.user()!))
+      const card = !file && source.content_type === 'card' ? parseComposerCard(source.content) : null
+      if (card?.type !== 'task' || !card.files?.length) return
+      const [{ resolveFile, fileReader, fileReadSignal }, { snapshotBlob }, { placeholderRow }] = await Promise.all([
+        import('../lib/fileAccess'), import('@gugu/core/shared/fileResolver'), import('../components/chat/sendAttachmentBatch'),
+      ])
+      for (const ref of card.files) {
+        let row: Awaited<ReturnType<typeof placeholderRow>> | undefined
+        try {
+          const resolved = await resolveFile({ item_id: ref.itemId, version: ref.version }, fileReader(senderUserId), { signal: fileReadSignal() })
+          if (resolved.status !== 'ready') throw new Error('File is no longer available')
+          let attachment: File
+          try {
+            attachment = new File([await snapshotBlob({ ...resolved, size: resolved.revision.size_bytes }, ref.mimeType)], ref.name, { type: ref.mimeType })
+          } finally { await resolved.dispose() }
+          row = await placeholderRow(attachment, undefined, { chatId: targetChatId, senderId: senderUserId, toUserIds: null })
+          // Persist the file intent while forwarding, including its dependency. Replay
+          // must not rely on an onSent callback from this renderer's lifetime.
+          await this.stageAttachment(row.message, message.id)
+          io.appendMessage(row.message)
+          void outbox.delivered(row.message.id).then(row.release, () => {})
+          const prepared = await prepareChatAttachment(await attachmentsEndpoint(), attachment, {
+            chat_id: targetChatId, as: senderUserId, request_id: row.message.id,
+          })
+          await this.commitAttachment(row.message, prepared, {
+            message_id: row.message.id, chat_id: targetChatId, sender_user_id: senderUserId,
+            file_name: ref.name, content_type: ref.mimeType, to_user_ids: [],
+          }, undefined, message.id)
+        } catch (error) {
+          if (row) await outbox.failUpload(row.message.id, error)
+          io.toast(i18n.t('forward.fileFailed', { ns: 'messaging', name: ref.name }), 'warning')
+        }
+      }
     },
     async createTopic(input, senderUserId) {
       const id = crypto.randomUUID()

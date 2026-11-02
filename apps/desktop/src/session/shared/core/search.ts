@@ -40,6 +40,9 @@ export interface TaskTurnQuery {
   limit?: number;
 }
 
+export type SearchBackfillProgress = { state: 'running' | 'complete' | 'failed'; done: number; total: number };
+export type TaskTurnIndexStatus = { state: 'preparing' | 'ready' | 'failed'; done?: number; total?: number };
+
 /** Where each whitespace-separated piece of the query occurs in text (case-insensitive), merged, for highlighting. */
 export function matchRanges(text: string, query: string): { start: number; end: number }[] {
   const lower = text.toLowerCase();

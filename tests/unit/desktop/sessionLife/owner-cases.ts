@@ -51,7 +51,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
       const existing = [...rows.values()].find(row => row.sessionId === input.sessionId && row.message.id === input.messageId);
       if (existing) return { inserted: false, seq: existing.seq, state: existing.state };
       const s = seq(++counter);
-      rows.set(s, { seq: s, sessionId: input.sessionId, sentAt: 0, kind: input.kind, state: 'queued', failure: null, message: { id: input.messageId, text: input.text }, sources: [], turn: input.turn ?? { kind: 'prompt' } });
+      rows.set(s, { seq: s, sessionId: input.sessionId, sentAt: 0, kind: input.kind, state: 'queued', failure: null, message: { id: input.messageId ?? `local-${seq}`, text: input.text }, sources: [], turn: input.turn ?? { kind: 'prompt' } });
       return { inserted: true, seq: s, state: 'queued' };
     },
     commit(id, effects) {
@@ -108,6 +108,19 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
 }
 
 export const ownerCases: readonly { name: string; run: () => Promise<void> }[] = [
+  { name: 'only a person\'s own prompt can be discarded: a delivery has a sender, and a chat-page first turn is what the run needs', async run() {
+    const r = rig({ block: 'identity' }); r.session(); const own = r.enqueue();
+    await r.owner.signIn('A'); await r.blocked.promise;
+    await r.owner.interrupt('s', { k: 'interrupt', reason: 'user-stop' });
+    const firstTurn = r.enqueue(); const delivered = r.enqueue();
+    r.rows.set(firstTurn, { ...r.rows.get(firstTurn)!, turn: { kind: 'chat-page-first-turn' } });
+    r.rows.set(delivered, { ...r.rows.get(delivered)!, kind: 'session-direct' });
+    assert.deepEqual(r.owner.read('s').pending.items.map(item => item.discardable), [true, false, false]);
+    assert.throws(() => r.owner.discardRow('s', r.rows.get(firstTurn)!.message.id), /cannot be discarded/);
+    assert.throws(() => r.owner.discardRow('s', r.rows.get(delivered)!.message.id), /cannot be discarded/);
+    r.owner.discardRow('s', r.rows.get(own)!.message.id);
+    await r.owner.signOut();
+  } },
   { name: 'one owner completes seven stages and admits the durable queue in order', async run() {
     const r = rig(); r.session(); const first = r.enqueue(); const second = r.enqueue();
     await r.owner.signIn('A'); await r.owner.quiescent('s');

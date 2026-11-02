@@ -19,6 +19,7 @@ import { obfuscateOwnChunks, parseObfuscateFlag } from './scripts/build/obfuscat
 import { monacoWorkerSingleBundlePlugin } from './scripts/build/monaco-worker-bundle.mjs'
 import { deterministicModuleSideEffects } from './scripts/build/deterministic-module-side-effects.mjs'
 import { activateDbEnv, serverChannelForDb } from './scripts/build/build-env-preflight.mts'
+import { serverPackageIdentity } from './scripts/build/server-package-identity.mts'
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin'
 import solid from 'vite-plugin-solid'
 import { emdashAliasEntries } from './apps/desktop/electron/sessionpage/emdash-aliases.mjs'
@@ -174,6 +175,7 @@ const sessionMainVite: ElectronOptions['vite'] = {
   plugins: [
     // @@@deterministic-mse (#7066) — 渲染层、主进程、两个 preload 共用这一个插件:同一个 sha 打几次产物逐字节相同。
     deterministicModuleSideEffects(),
+    serverPackageIdentity(bakedSupabaseUrl, serverChannelForDb(process.env.VITE_SUPABASE_URL || bakedSupabaseUrl || null)),
     {
       // @@@4865 清掉旧布局的产物目录:dist-electron/taskpage/ 是 gitignore 的,CI 槽位与开发
       // 检出都会留着上一版的 emdash-main-bridge.cjs;electron-builder 按 dist-electron/**
@@ -513,21 +515,25 @@ function phoneAppsPlugin(outDir: string) {
     async closeBundle() {
       const runtimeDir = resolve(outDir, `_gugu/${appRuntimeVersion()}`)
       await buildAppRuntime(runtimeDir)
-      // The phone's own page in every App origin, which forgets the App's storage when it is uninstalled
-      // (forget-entry.ts; APP_RUNTIME_FORGET_PAGE names it). A classic script of its own: the App's CSP is `script-src 'self'`.
+      // The phone's own pages, each a classic script of its own (the CSP they are served with is `script-src 'self'`):
+      // the one in every App origin that forgets the App's storage when it is uninstalled (forget-entry.ts;
+      // APP_RUNTIME_FORGET_PAGE), and the one in every App's gate origin that frames its pages (gate-entry.ts; APP_RUNTIME_GATE_PAGE).
       const esbuild = await import('esbuild')
-      await esbuild.build({
-        entryPoints: [fileURLToPath(new URL('./apps/desktop/src/session/app-runtime/forget-entry.ts', import.meta.url))],
-        outfile: resolve(runtimeDir, 'forget.js'),
-        bundle: true,
-        platform: 'browser',
-        target: 'es2022',
-        minify: true,
-        legalComments: 'none',
-        format: 'iife',
-        logLevel: 'warning',
-      })
+      for (const name of ['forget', 'gate']) {
+        await esbuild.build({
+          entryPoints: [fileURLToPath(new URL(`./apps/desktop/src/session/app-runtime/${name}-entry.ts`, import.meta.url))],
+          outfile: resolve(runtimeDir, `${name}.js`),
+          bundle: true,
+          platform: 'browser',
+          target: 'es2022',
+          minify: true,
+          legalComments: 'none',
+          format: 'iife',
+          logLevel: 'warning',
+        })
+      }
       writeFileSync(resolve(runtimeDir, 'forget.html'), '<!doctype html><meta charset="utf-8"><title>gugu</title><script src="forget.js"></script>\n')
+      writeFileSync(resolve(runtimeDir, 'gate.html'), '<!doctype html><meta charset="utf-8"><title>gugu</title><body><script src="gate.js"></script></body>\n')
       const shipped = fileURLToPath(new URL('./apps/desktop/preinstalled-apps/', import.meta.url))
       const appsDir = resolve(outDir, 'apps')
       rmSync(appsDir, { recursive: true, force: true })

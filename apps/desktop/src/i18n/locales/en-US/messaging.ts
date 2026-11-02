@@ -59,11 +59,11 @@ export default {
     },
     "turnFailure": {
       "card": {
+        "deliveryRejected": "Message not delivered",
         "generic": "Reply not completed",
         "authentication": "Model authorization refused",
         "network": "Cannot reach the model service",
         "timeout": "No response in time",
-        "offline": "The device disconnected",
         "rateLimited": "Too many requests",
         "nextMessage": "The next message will retry automatically",
         "recovered_one": "{{name}}: {{count}} earlier reply failed · recovered",
@@ -71,10 +71,10 @@ export default {
         "settings": "Open settings"
       },
       "state": {
-        "exhausted": "out of credits",
-        "weekly": "weekly limit reached",
-        "monthly": "monthly limit reached",
-        "model-unavailable": "model unavailable"
+        "quota": "out of credits",
+        "weeklyQuota": "weekly limit reached",
+        "monthlyQuota": "monthly limit reached",
+        "modelUnavailable": "model unavailable"
       },
       "stateAction": "{{name}}: {{state}}. Click to change model",
       "authentication": "The model service refused authorization for this reply.",
@@ -88,10 +88,10 @@ export default {
       "changeModel": "Change model",
       "close": "Close",
       "generic": "This Agent could not complete the reply",
+      "deliveryRejected": "This message was not delivered. Resend to try again.",
       "notAdmitted": "Messages retained. Your assistant will reply when ready.",
       "outcomeUnknown": "Delivery result unknown: the message may have reached your assistant, and it was not resent.",
       "undelivered": "Not delivered yet: no running Gugu instance holds this Agent. It will read the message once that instance is open.",
-      "offline": "The device disconnected before the reply completed",
       "retry": "Retry",
       "retrying": "Retrying…",
       "timeout": "This Agent did not respond in time"
@@ -458,6 +458,7 @@ export default {
     "reactWith": "React with {{emoji}}"
   },
   "forward": {
+    "fileFailed": "{{name}} could not be forwarded with the task",
     "batchPreview": "Forward {{count}} messages",
     "batchPreview_one": "Forward {{count}} message",
     "batchPreview_other": "Forward {{count}} messages",
@@ -714,9 +715,9 @@ export default {
     "agentRole": "Agent",
     "backToList": "Back to imported history",
     "label": "Imported history",
-    "turnMeta": "{{count}} turns · {{date}}",
-    "turnMeta_one": "{{count}} turn · {{date}}",
-    "turnMeta_other": "{{count}} turns · {{date}}",
+    "turnMeta": "{{count}} messages · {{date}}",
+    "turnMeta_one": "{{count}} message · {{date}}",
+    "turnMeta_other": "{{count}} messages · {{date}}",
     "userRole": "You",
     "view": "View {{title}}"
   },
@@ -771,7 +772,6 @@ export default {
       "queued": "Sending. Your assistant will reply when ready.",
       "undelivered": "instance not running, not delivered",
       "sending": "Sending",
-      "held": "Waiting for retry",
       "stopped": "Stopped. Sends with your next message.",
       "unknownNotResent": "Result unknown; not resent",
       "failure": {

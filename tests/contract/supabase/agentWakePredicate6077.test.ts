@@ -340,7 +340,7 @@ describe('#6077 场景(话题里两个 active agent,人只 @A)经真 reader', ()
           return rows.map(({ row }) => unreadRowFromRpc(row))
         } finally { await db.query('RESET role') }
       },
-      inject: async ({ messageId }) => { seen.push(messageId!); return 'accepted' },
+      inject: async ({ sourceMessageId: messageId }) => { seen.push(messageId!); return 'accepted' },
       markRead: async ({ chatId, messageId }) => {
         await db.query(`SELECT set_config('request.jwt.claims',$1,true)`, [JSON.stringify({ sub: room.owner })])
         await db.query('SELECT identity.mark_read_on_deliver($1,$2,$3)', [chatId, messageId, agent])

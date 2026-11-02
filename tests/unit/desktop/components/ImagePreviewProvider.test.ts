@@ -12,6 +12,7 @@ import { Sheet } from '../../../../apps/desktop/src/components/ui/Sheet'
 import type { ToastContextValue } from '../../../../apps/desktop/src/components/toastContext'
 import * as platformMock from '../../../support/capacitorPlatformTestDouble'
 import { anchorDownload } from '../../../../apps/desktop/src/platform/anchorDownload'
+import * as fileHost from '../../../../apps/desktop/src/lib/fileHost'
 import {
   clickElement,
   createNode,
@@ -38,6 +39,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   harness.cleanup()
+  vi.restoreAllMocks()
   // stubGlobal/defineProperty 补丁不会被 restoreAllMocks 撤销,显式清掉,防跨用例污染
   vi.unstubAllGlobals()
   delete (URL as Partial<typeof URL>).createObjectURL
@@ -56,6 +58,71 @@ async function openViewer(options: { toast?: ToastContextValue['toast']; images?
 }
 
 describe('ImagePreviewProvider', () => {
+  it('shows the viewer before thumbnail bytes, then upgrades through the existing original loader', async () => {
+    let showThumbnail!: (url: string) => void, showOriginal!: (url: string) => void
+    const thumbnail = new Promise<string>(resolve => { showThumbnail = resolve })
+    const original = new Promise<string>(resolve => { showOriginal = resolve })
+    const full = vi.fn(() => original), release = vi.fn()
+    await openViewer({ images: [{ url: '', alt: 'pending', preview: () => thumbnail, full, release }] })
+    expect(byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay)).not.toBeNull()
+    expect(full).not.toHaveBeenCalled()
+    await act(async () => showThumbnail('blob:thumbnail'))
+    await waitForCondition(() => document.querySelector('img.pswp__img[src="blob:thumbnail"]') !== null, 'thumbnail was not displayed')
+    expect(full).toHaveBeenCalledTimes(1)
+    await act(async () => showOriginal('blob:original'))
+    await waitForCondition(() => document.querySelector('img.pswp__img[src="blob:original"]') !== null, 'original was not displayed')
+    await clickElement(byTestId(AUTOMATION_TEST_IDS.imagePreviewClose)!)
+    await waitForCondition(() => release.mock.calls.length === 1, 'viewer-owned URLs were not released')
+  })
+
+  it.each(['File preview HTTP 503', 'File has no media preview'])('still displays the original when the thumbnail fails: %s', async (failure) => {
+    const full = vi.fn(async () => 'blob:original'), toast = vi.fn()
+    await openViewer({ toast, images: [{ url: '', alt: 'original available', preview: async () => { throw new Error(failure) }, full }] })
+    await waitForCondition(() => document.querySelector('img.pswp__img[src="blob:original"]') !== null, 'available original was not displayed')
+    expect(full).toHaveBeenCalledTimes(1)
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it('does not start the original when the thumbnail fails after closing', async () => {
+    let failThumbnail!: (error: Error) => void
+    const thumbnail = new Promise<string>((_resolve, reject) => { failThumbnail = reject })
+    const full = vi.fn(async () => 'blob:original'), toast = vi.fn()
+    await openViewer({ toast, images: [{ url: '', alt: 'closed', preview: () => thumbnail, full }] })
+    await clickElement(byTestId(AUTOMATION_TEST_IDS.imagePreviewClose)!)
+    await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay) === null, 'viewer did not close')
+    await act(async () => failThumbnail(new Error('File preview HTTP 503')))
+    expect(full).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+    expect(byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay)).toBeNull()
+  })
+
+  it('reports the file error when both the thumbnail and original fail', async () => {
+    const full = vi.fn(async () => { throw new Error('original unavailable') }), toast = vi.fn()
+    await openViewer({ toast, images: [{ url: '', alt: 'unavailable', preview: async () => { throw new Error('File preview HTTP 503') }, full }] })
+    await waitForCondition(() => toast.mock.calls.length > 0, 'file error was not reported')
+    expect(full).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('.pswp__error-msg')).not.toBeNull()
+  })
+
+  it('closing while the thumbnail is pending never loads the original or reopens the viewer', async () => {
+    let finish!: (url: string) => void
+    const thumbnail = new Promise<string>(resolve => { finish = resolve }), full = vi.fn()
+    await openViewer({ images: [{ url: '', alt: 'pending', preview: () => thumbnail, full }] })
+    await clickElement(byTestId(AUTOMATION_TEST_IDS.imagePreviewClose)!)
+    await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay) === null, 'viewer did not close')
+    await act(async () => finish('blob:late-thumbnail'))
+    expect(full).not.toHaveBeenCalled()
+    expect(byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay)).toBeNull()
+  })
+
+  it('uses the existing offline-holder message when a file thumbnail fails', async () => {
+    vi.spyOn(fileHost, 'offlineHolder').mockResolvedValue({ machine: 'Studio Mac', deviceId: 'device' })
+    const toast = vi.fn()
+    await openViewer({ toast, images: [{ url: '', alt: 'offline', preview: async () => { throw new Error('unavailable') }, resource: { kind: 'file', target: { kind: 'file', itemId: 'photo', version: 2 } } }] })
+    await waitForCondition(() => toast.mock.calls.length > 0, 'offline-holder notice was not shown')
+    expect(fileHost.offlineHolder).toHaveBeenCalledWith('photo', 2)
+    expect(toast).toHaveBeenCalledWith('Studio Mac 离线，上线后才能打开这个文件。', 'error', undefined)
+  })
   it('打开后是一个 aria-modal 的对话层,带计数;左右键翻页', async () => {
     await openViewer()
     const overlay = byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay)!

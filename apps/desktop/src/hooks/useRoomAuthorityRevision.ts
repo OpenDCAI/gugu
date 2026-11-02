@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AccountRevisionEvent, AccountRevisionListener } from '../lib/accountRevisionCoordinator'
+import { readMemberRosterRevision, type AccountRevisionEvent, type AccountRevisionListener } from '../lib/accountRevisionCoordinator'
 import { UI_EVENTS } from '../lib/uiEvents'
 
 /** The room's existing coalesced roster refresh also refreshes this viewer's authority. */
@@ -38,7 +38,9 @@ export function useRoomAuthorityRevision({ chatId, sourceChatId, isRoom, userId,
       if (relevant.length) handleCollabChange(relevant.some((operation) => (operation.payload as { user_id?: unknown })?.user_id === userId))
     }
     const unsubscribeGroup = subscribeAccountRevision('group_collab_changed', handleRevision)
-    const unsubscribeMembers = subscribeAccountRevision('chat_members_changed', handleRevision)
+    const unsubscribeMembers = subscribeAccountRevision('chat_members_changed', (operations) => {
+      handleRevision(operations.filter((operation) => !readMemberRosterRevision(operation.payload).own))
+    })
     const handleLocalCollabChange = (event: Event) => {
       const detail = (event as CustomEvent<{ chatId?: string }>).detail
       if (detail?.chatId === chatId || (!!sourceChatId && detail?.chatId === sourceChatId)) handleCollabChange()

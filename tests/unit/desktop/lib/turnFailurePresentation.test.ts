@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { turnFailurePresentation, turnFailureReasonFromError } from '@gugu/core/shared/turnFailurePresentation'
+import { agentFailureReason } from '@gugu/core/shared/agentQuotaReason'
+import { turnFailurePresentation } from '@gugu/core/shared/turnFailurePresentation'
 
 describe('turn failure presentation', () => {
   it.each([
     ['request timed out', 'timeout'], ['HTTP 403 forbidden', 'authentication'], ['fetch failed', 'network'],
-    ['stream disconnected', 'offline'], ['HTTP 429 Too Many Requests', 'rateLimited'],
-    ["You've hit your weekly limit", 'weeklyQuota'], ['Missing environment variable: SECRET', 'generic'], ['', 'timeout'],
-  ] as const)('keeps the existing cause for %s', (raw, reason) => {
-    expect(turnFailureReasonFromError(raw)).toBe(reason)
+    ['HTTP 429 Too Many Requests', 'rateLimited'], ["You've hit your weekly limit", 'weeklyQuota'],
+  ] as const)('the host classifies %s once; the card says that reason', (raw, reason) => {
+    expect(agentFailureReason(raw)).toBe(reason)
     expect(turnFailurePresentation(reason).bodyKey).toBe(`agent.turnFailure.${reason}`)
   })
   it('offers model settings only for the reasons those settings can resolve', () => {
@@ -16,5 +16,13 @@ describe('turn failure presentation', () => {
     expect(turnFailurePresentation('weeklyQuota').actions).toEqual(['model', 'retry'])
     expect(turnFailurePresentation('authentication').tone).toBe('danger')
     expect(turnFailurePresentation('network').tone).toBe('warn')
+  })
+  it('offers no retry when no running instance holds the agent: resending lands on the same nobody', () => {
+    expect(turnFailurePresentation('undelivered').actions).toEqual([])
+  })
+  it('names a terminal pre-admission rejection as not delivered and offers a fresh retry', () => {
+    expect(turnFailurePresentation('deliveryRejected')).toMatchObject({
+      titleKey: 'agent.turnFailure.card.deliveryRejected', bodyKey: 'agent.turnFailure.deliveryRejected', actions: ['retry'],
+    })
   })
 })

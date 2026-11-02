@@ -103,9 +103,10 @@ export interface SessionpageDeliveryTarget {
   ): Promise<boolean | SessionpageTurnReceipt>
   /**
    * A leg owned by the host's session lifecycle (ACP) never injects from the reader: it takes the unit into its
-   * durable queue with the rows it settles, and marks them read when the agent accepts it.
+   * durable queue with the rows it settles, and marks them read when the agent accepts it. The returned completion
+   * settles with the row: accepted, or failed with what the host disclosed.
    */
-  enqueueInbox?(sessionId: string, unit: { messageId: string; text: string; agentUserId: string; sources: readonly AgentInboxSource[] }): void
+  enqueueInbox?(sessionId: string, unit: { text: string; agentUserId: string; sources: readonly AgentInboxSource[] }): Promise<void>
 }
 
 export type SessionpageSessionMessage = {
@@ -424,6 +425,10 @@ export class SessionpageLocalDeliveryRouter {
     return this.injectForAgentResult(agentUserId, message)
   }
 
+  queuesInbox(agentUserId: string): boolean {
+    return !!this.deliveryTargetFor(agentUserId)?.enqueueInbox
+  }
+
   private async injectForAgentResult(
     agentUserId: string,
     message: InboxUnitMessage,
@@ -437,8 +442,8 @@ export class SessionpageLocalDeliveryRouter {
     const sessionId = mappedOwner.liveSessionIdByAgent(agentUserId)
     if (!sessionId) return 'not-live'
     if (mappedOwner.enqueueInbox) {
-      mappedOwner.enqueueInbox(sessionId, { messageId: message.id, text: message.text, agentUserId, sources: message.sources ?? [] })
-      return 'enqueued'
+      const completion = mappedOwner.enqueueInbox(sessionId, { text: message.text, agentUserId, sources: message.sources ?? [] })
+      return { verdict: 'enqueued', completion }
     }
     const accepted = await this.injectIntoSession(sessionId, message, { route: 'agentInbox.injectForAgent', agentUserId })
     if (accepted === false) return 'not-live'
@@ -517,6 +522,7 @@ export function createSessionpageDeliveryBridge(
         return sessionId ? options.claimedSessionSources!(sessionId, messageIds) : new Map()
       },
     } : {}),
+    queuesAgentInbox: (agentUserId: string) => localDelivery.queuesInbox(agentUserId),
     injectAgentInbox: async (input: AgentInboxInjectionInput): Promise<AgentInboxInjectionResult> => {
       await localDelivery.waitUntilReady()
       const sessionId = localDelivery.sessionIdForAgent(input.agentUserId)
@@ -531,7 +537,7 @@ export function createSessionpageDeliveryBridge(
         }
       }
       return localDelivery.injectForAgentWithCompletion(input.agentUserId, {
-        id: input.messageId ?? randomUUID(),
+        id: randomUUID(),
         text: input.text,
         ...(input.sources ? { sources: input.sources } : {}),
       })

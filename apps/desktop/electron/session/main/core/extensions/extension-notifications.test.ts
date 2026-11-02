@@ -41,6 +41,7 @@ function setup(overrides: Partial<ExtensionNotifierDeps> = {}) {
     manifestOf: () => manifest,
     locale: () => 'en-US',
     notificationSettings: async () => ({ enabled: true, sound: true }),
+    systemUsable: async () => true,
     show: (banner) => {
       const entry = { ...banner, closed: false };
       shown.push(entry);
@@ -99,6 +100,15 @@ describe('extension notifications (#6387)', () => {
     const { notifier, shown } = setup({ notificationSettings: async () => ({ enabled: true, sound: false }) });
     await notifier.notify({ extensionId: 'notes', request: { title: 'Please review' } });
     expect(shown[0]).toMatchObject({ silent: true });
+  });
+
+  it('distinguishes an unavailable system service from disabled settings without showing a banner', async () => {
+    const systemUsable = vi.fn(async () => false);
+    const { notifier, shown } = setup({ systemUsable });
+    await expect(notifier.notify({ extensionId: 'notes', request: { title: 'Review' } }))
+      .rejects.toThrow('no system notification service');
+    expect(systemUsable).toHaveBeenCalledOnce();
+    expect(shown).toEqual([]);
   });
 
   it('rejects malformed requests instead of showing half a banner — what a click opens said how', async () => {

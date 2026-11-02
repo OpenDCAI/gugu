@@ -134,6 +134,14 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
 
       <div ref={listRef} className={cn('flex-1 overflow-y-auto px-2', hasQuery && 'min-h-48 pb-2')} role="listbox" aria-label={translate('globalSearch.results')}>
         {view.error && <div role="alert" className="px-3 py-3 text-sm text-[var(--em-foreground-destructive)]">{messageForUser(view.error)}</div>}
+        {hasQuery && view.taskIndex?.state === 'preparing' && (facet === 'all' || facet === 'task') && (
+          <div role="status" className="px-3 py-3 text-sm text-foreground/50">{view.taskIndex.total
+            ? translate('globalSearch.indexingTasksProgress', { percent: Math.floor(100 * (view.taskIndex.done ?? 0) / view.taskIndex.total) })
+            : translate('globalSearch.indexingTasks')}</div>
+        )}
+        {hasQuery && view.taskIndex?.state === 'failed' && (facet === 'all' || facet === 'task') && (
+          <div role="alert" className="px-3 py-3 text-sm text-[var(--em-foreground-destructive)]">{translate('globalSearch.indexingTasksFailed')}</div>
+        )}
         {!hasQuery && (
           <div className="border-t border-foreground/[0.08] px-3 pb-4 pt-3 text-[length:var(--font-body)] leading-6 text-foreground/50">
             <div>{translate(tasks ? 'globalSearch.introWhat' : 'globalSearch.introWhatChats')}</div>

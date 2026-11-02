@@ -53,6 +53,11 @@ const distElectron = process.env.GUGU_SERVER_DIST_ELECTRON ?? join(root, 'apps',
 if (!existsSync(join(distElectron, 'server.js'))) {
   throw new Error('找不到 apps/desktop/dist-electron/server.js —— 先构建主进程(pnpm build:app 的第二阶段)')
 }
+// The identity must come from the actual compiled output, not this packaging process's environment.
+// Packaging-only architecture jobs receive scripts and compiled output, not the source tree.
+const serverIdentity = JSON.parse(readFileSync(join(distElectron, 'server-build.json'), 'utf8'))
+if (serverIdentity?.schema !== 1 || typeof serverIdentity.backendUrl !== 'string' || !serverIdentity.backendUrl
+  || typeof serverIdentity.channel !== 'string' || !serverIdentity.channel) throw new Error('Compiled server has no environment identity')
 
 // GUGU_SERVER_NODE_PREFIX:一份官方 Node 发行包解开后的安装前缀(bin/node + LICENSE),包里的 node 从这里取。
 // CI 的两个构建容器都是官方 node:<.node-version>-bookworm 镜像,/usr/local 就是镜像构建时按 SHASUMS256 校验过、

@@ -7,9 +7,9 @@ import { askInShell, installConsentPrompt, type InstallConsentAsk } from '../../
 import { extensionContentSecurityPolicy } from '../../session/shared/extensions/app-csp'
 import { appDataTooLarge } from '../../session/shared/extensions/app-data'
 import { GUGU_PUBLISHER, publisherOf, type Publisher } from '../../session/shared/extensions/app-identity'
-import { appFrameChannel, appOrigin } from './appOrigin'
+import { appFrameChannel, appOrigin, gateOrigin } from './appOrigin'
 import { ICON_PIXELS, fileIconKey, iconSizeRefusal, iconTypeRefusal } from '../../session/shared/extensions/app-icon'
-import { APP_RUNTIME_FORGET_PAGE, injectAppRuntime, RUNTIME_SCRIPT_TAG } from '../../session/shared/extensions/app-runtime-protocol'
+import { APP_RUNTIME_FORGET_PAGE, APP_RUNTIME_GATE_PAGE, injectAppRuntime, RUNTIME_SCRIPT_TAG } from '../../session/shared/extensions/app-runtime-protocol'
 import {
   attachmentInstallPlan,
   couldUpdateUnasked,
@@ -151,8 +151,11 @@ function rememberedAll(): Record<string, string> {
   }
 }
 
-/** Every page is the gugu page's to frame (frame-ancestors): the phone draws each App in an iframe of it. */
-const cspOf = (manifest: ExtensionManifest) => extensionContentSecurityPolicy(location.origin, manifest.permissions?.network ?? [])
+/**
+ * Every page is the gugu page's to frame, through the App's own gate (frame-ancestors names every ancestor): the phone
+ * draws each App in its gate's iframe, in an iframe of this page.
+ */
+const cspOf = (manifest: ExtensionManifest) => extensionContentSecurityPolicy(`${location.origin} ${gateOrigin(manifest.id)}`, manifest.permissions?.network ?? [])
 
 function tell(): void {
   const installed = Object.values(index.installed)
@@ -886,11 +889,11 @@ function setOpenWithDefault(args: { key: string; tabKind: string | null }): Resu
 }
 
 /**
- * Where an App's page is: its own origin (appOrigin.ts — never this page's, which is what makes `allow-same-origin` on
- * its frame harmless), and the page (`entry`, or a tab's own).
+ * Where an App's page is drawn: its gate (appOrigin.ts `gateOrigin`), which frames the page (`entry`, or a tab's own) in
+ * the App's own origin — never this page's, which is what makes `allow-same-origin` on its frame harmless.
  */
 function pageUrl(appId: string, page: string): string {
-  return `${appOrigin(appId)}/${page.replace(/^\/+/, '')}`
+  return `${gateOrigin(appId)}${APP_RUNTIME_GATE_PAGE}?page=${encodeURIComponent(page.replace(/^\/+/, ''))}`
 }
 
 /**

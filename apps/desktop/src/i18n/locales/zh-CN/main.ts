@@ -238,9 +238,9 @@ export default {
         "gap_too_large": "断开太久、缺的太多，时间线已整份重载。"
       },
       "outcome": {
-        "done": "本轮结束",
-        "cancelled": "本轮已取消",
-        "error": "本轮出错"
+        "done": "已结束",
+        "cancelled": "已取消",
+        "error": "出错了"
       },
       "compacting": "正在压缩上下文…",
       "compacted": "上下文已压缩 —— 往上的内容它记得的是摘要",
@@ -248,7 +248,7 @@ export default {
       "contextReset": "引擎换了一条新会话 —— 往上的内容它没有",
       "modelUnavailable": "你选的模型这个引擎现在用不了，已改用它的默认模型",
       "modelSubstituted": "引擎没用你选的那个模型，换成了别的",
-      "thought": "想过一轮",
+      "thought": "思考过",
       "toolOutput": "输出"
     },
     "settlement": {
@@ -433,7 +433,6 @@ export default {
         "zh-CN": "简体中文"
       },
       "light": "浅色",
-      "plain-white": "素白",
       "notifications": "通知",
       "notificationsChat": "聊天消息通知",
       "notificationsChatAria": "开启聊天消息通知",
@@ -645,9 +644,6 @@ export default {
       "shareNoGuguNumber": "{{name}} 还没有咕咕号，暂时无法生成名片",
       "shareUnavailable": "这个会话还没有可分享的 agent 身份",
       "taskCreated": "会话已创建",
-      "taskDeliverFailed": "消息未送达 {{name}}。",
-      "taskDeliverFailedCount_one": "{{name}} 有 {{count}} 条消息未送达。",
-      "taskDeliverFailedCount_other": "{{name}} 有 {{count}} 条消息未送达。",
       "unownedAgentDm": "他人的 Agent 不能私聊，请在共享群聊中与它协作"
     },
     "update": {

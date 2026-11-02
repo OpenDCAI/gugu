@@ -1,9 +1,11 @@
-import type { LifeView } from '@/session/shared/core/sessions/session-life'
+import { lifeHoldIsFailure, type LifeView } from '@/session/shared/core/sessions/session-life'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { rendererLogger } from './log'
+import { translateSessionMessage } from '@renderer/localization/locale-store'
 export type SessionInput = {
   id: string; accountId: string; deviceId: string | null; sessionId: string; text: string; createdAt: number
   attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
+  files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]
   failure?: SessionInputFailure
 }
 /** Failures the sender itself names; any other send error keeps the host's own words. */
@@ -21,8 +23,6 @@ export type HostPendingRow = LifeView['pending']['items'][number]
 /** from: a delivery (another task's or agent's message) shows its sender and body, read the way the transcript reads it. */
 export type SessionInputBubble = { id: string; text: string; from?: string | null } & (
   | { state: 'sending' }
-  /** The host holds it (a failed start, sign-out): it goes when the person retries or sends again. */
-  | { state: 'held' }
   /** The person stopped the session before it went: it goes with their next message. */
   | { state: 'stopped' }
   /** failure: the sender named it (retry re-sends its copy); hostReason: the host row failed, in the host's words. */
@@ -42,7 +42,9 @@ export function sessionInputBubbles(sender: readonly SessionInput[], host: reado
       const base = delivered ? { id: row.messageId, text: delivered.body, from: delivered.segments[0]?.facts?.from ?? null } : { id: row.messageId, text: row.text }
       switch (row.state) {
         case 'accepted': return []
-        case 'queued': case 'dispatching': return [{ ...base, state: hold === 'user-stop' ? 'stopped' : hold ? 'held' : 'sending' }]
+        case 'queued': case 'dispatching':
+          if (hold === 'user-stop') return [{ ...base, state: 'stopped' }]
+          return [lifeHoldIsFailure(hold) ? { ...base, state: 'failed', failure: null, hostReason: null } : { ...base, state: 'sending' }]
         case 'failed': return [{ ...base, state: 'failed', failure: null, hostReason: row.failure }]
         case 'unknown': return [{ ...base, state: 'unknown' }]
       }
@@ -51,6 +53,12 @@ export function sessionInputBubbles(sender: readonly SessionInput[], host: reado
       .map((input): SessionInputBubble => ({ id: input.id, text: input.text,
         ...(input.failure ? { state: 'failed', failure: input.failure, hostReason: null } : { state: 'sending' }) })),
   ]
+}
+
+/** A queued file sent to an old host keeps its caption and explains what was omitted. */
+export function withoutQueuedAttachments(input: SessionInput, count: number): SessionInput {
+  const { files: _files, failure: _failure, ...body } = input
+  return { ...body, text: [input.text, translateSessionMessage('composer.attachmentsNotSent', { count })].filter(Boolean).join('\n\n') }
 }
 export interface SessionInputStorage {
   list(accountId: string): Promise<SessionInput[]>
@@ -65,12 +73,14 @@ export class SessionInputOutbox {
   private writing: Promise<unknown> = Promise.resolve()
   constructor(readonly accountId: string, private readonly storage: SessionInputStorage,
     private readonly send: (input: SessionInput) => Promise<void>, private readonly current: () => boolean,
-    private readonly changed: () => void = () => {}) {}
+    private readonly changed: () => void = () => {},
+    private readonly beforeEnqueue: (input: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments'>) => void = () => {}) {}
 
-  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'attachments'>): Promise<SessionInput> {
+  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments'>): Promise<SessionInput> {
     if (!this.current()) throw new Error('Session input account changed')
     const written = this.writing.catch(() => undefined).then(async () => {
       if (!this.current()) throw new Error('Session input account changed')
+      this.beforeEnqueue(target)
       const last = Math.max(0, ...(await this.list()).map(input => input.createdAt))
       const input: SessionInput = { ...target, accountId: this.accountId, id: crypto.randomUUID(), createdAt: Math.max(Date.now(), last + 1) }
       await this.storage.put(input)
