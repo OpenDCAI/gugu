@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
-import { app, BrowserWindow } from 'electron';
+import { app } from 'electron';
 import pidusage from 'pidusage';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
 import { appSettingsService } from '@main/core/settings/settings-service';
@@ -13,7 +13,7 @@ import { listResourceProcesses, collectLedgerResourceRoots } from './owned-proce
 import { collectResourceContext } from './context';
 import { resourceHistory } from './history';
 import { parsePtySessionId } from '@shared/core/pty/ptySessionId';
-import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
+import { resourceSnapshotChannel, type ResourceSamplingFailure } from '@shared/events/resourceEvents';
 import type {
   ResourceAppProcess,
   ResourceAppUsage,
@@ -28,6 +28,9 @@ const TOTAL_MEMORY_BYTES = os.totalmem();
 
 type ProcessUsage = { cpu?: number; memory: number; ppid?: number };
 type ProcessUsageMap = Record<string, ProcessUsage>;
+class ProcessListReadError extends Error {
+  constructor(cause: unknown) { super('Resource process list could not be read', { cause }); }
+}
 
 const runId = randomUUID();
 let inFlight: Promise<ResourceSnapshot> | null = null;
@@ -38,12 +41,27 @@ export function sampleOnce(): Promise<ResourceSnapshot> {
 async function collectSample(): Promise<ResourceSnapshot> {
   const active = ptySessionRegistry.listActiveSessions();
   const { usage: appUsage, processes: electronProcesses } = sampleAppUsage();
+  if (process.platform === 'win32') {
+    // Preserve the existing Windows scope until a native tree reader is available.
+    const localPids = active.flatMap(a => typeof a.pid === 'number' && a.pid > 0 ? [a.pid] : []);
+    const usage = await samplePidUsage(localPids);
+    const entries: ResourcePtyEntry[] = active.flatMap(a => {
+      const parsed = parsePtySessionId(a.ptySessionId);
+      const u = typeof a.pid === 'number' ? usage[String(a.pid)] : undefined;
+      if (!parsed || (typeof a.pid === 'number' && (!u || u.memory < 2 * 1024 * 1024))) return [];
+      return [{ ptySessionId: a.ptySessionId, ...parsed, pid: a.pid, ppid: u?.ppid, cpu: u?.cpu ?? 0, memory: u?.memory ?? 0, providerId: a.metadata?.providerId, title: a.metadata?.title }];
+    });
+    return completeSnapshot(appUsage, electronProcesses, entries, undefined, 'electron-and-pty-roots');
+  }
   const roots: ResourceProcessRoot[] = [
     { id: 'electron-main', pid: process.pid, kind: 'electron', label: 'Main' },
     ...electronProcesses.map(p => ({ id: `electron:${p.pid}`, pid: p.pid, kind: 'electron' as const, label: p.name ?? p.type })),
     ...active.flatMap(a => typeof a.pid === 'number' && a.pid > 0 ? [{ id: a.ptySessionId, pid: a.pid, kind: 'pty' as const, label: a.metadata?.title ?? a.ptySessionId }] : []),
   ];
-  const [processes, acpRoots] = await Promise.all([listResourceProcesses(), collectAcpResourceRoots()]);
+  const [processes, acpRoots] = await Promise.all([
+    listResourceProcesses().catch((cause: unknown) => { throw new ProcessListReadError(cause); }),
+    collectAcpResourceRoots(),
+  ]);
   roots.push(...acpRoots, ...await collectLedgerResourceRoots(processes));
   const candidates = accountProcessTrees(roots, processes, {}).pidsByRoot;
   const usage = await samplePidUsage([...new Set([...candidates.values()].flat())]);
@@ -84,6 +102,16 @@ async function collectSample(): Promise<ResourceSnapshot> {
     });
   }
 
+  return completeSnapshot(appUsage, appProcesses, entries, processGroups, 'owned-process-tree');
+}
+
+async function completeSnapshot(
+  appUsage: ResourceAppUsage,
+  appProcesses: ResourceAppProcess[],
+  entries: ResourcePtyEntry[],
+  processGroups: ResourceSnapshot['processGroups'],
+  processTreeScope: ResourceSnapshot['processTreeScope'],
+): Promise<ResourceSnapshot> {
   return {
     timestamp: Date.now(),
     runId,
@@ -95,6 +123,7 @@ async function collectSample(): Promise<ResourceSnapshot> {
     entries,
     processGroups,
     memoryMetric: 'rss',
+    processTreeScope,
     ...(hasResourceMonitorInternals() ? { internals: { renderers: await collectRendererMetrics() } } : {}),
   };
 }
@@ -189,13 +218,12 @@ export function hasResourceMonitorInternals(): boolean {
 
 export function startResourceSampler(): void {
   if (timer) return;
-  app.on('browser-window-focus', sampleSoon);
   sampleSoon();
 }
 
-function sampleSoon(): void {
+function sampleSoon(delay = 0): void {
   if (timer) clearTimeout(timer);
-  timer = setTimeout(() => void tick(), 0);
+  timer = setTimeout(() => void tick(), delay);
 }
 
 async function tick(): Promise<void> {
@@ -203,21 +231,23 @@ async function tick(): Promise<void> {
   sampling = true;
   const current = timer;
   let snap: ResourceSnapshot | null = null;
+  let samplingError: ResourceSamplingFailure | null = null;
   try {
     snap = await sampleOnce();
   } catch (err) {
     log.warn('resource-sampler: sample failed', err);
+    samplingError = { timestamp: Date.now(), reason: err instanceof ProcessListReadError ? 'process-list-read-failed' : 'sample-failed' };
   }
   sampling = false;
   if (!timer) return;
-  if (timer !== current) return sampleSoon();
+  if (timer !== current) return sampleSoon(openSubscriptions.size ? 0 : BACKGROUND_SAMPLE_INTERVAL_MS);
   if (snap) {
     try { resourceHistory.append(snap); }
     catch (error) { snap.recordingError = 'write-failed'; log.warn('resource history write failed', error); }
   }
-  if (openSubscriptions.size) events.emit(resourceSnapshotChannel, snap);
-  // The monitor covers the whole app: a foreground auxiliary window also counts.
-  const delay = BrowserWindow.getFocusedWindow() ? SAMPLE_INTERVAL_MS : BACKGROUND_SAMPLE_INTERVAL_MS;
+  if (openSubscriptions.size) events.emit(resourceSnapshotChannel, samplingError ? { samplingError } : snap);
+  // Keep the same complete process-tree metric in history, at a lower cost without a viewer.
+  const delay = openSubscriptions.size ? SAMPLE_INTERVAL_MS : BACKGROUND_SAMPLE_INTERVAL_MS;
   timer = setTimeout(() => void tick(), delay);
 }
 
@@ -225,7 +255,6 @@ export function stopResourceSampler(): void {
   if (timer) {
     clearTimeout(timer);
     timer = null;
-    app.off('browser-window-focus', sampleSoon);
     cpuBaseline = null;
     try {
       pidusage.clear();
@@ -245,11 +274,13 @@ export function setResourceMonitorOpen(
   const latestSequence = latestSequenceByClient.get(clientId) ?? 0;
   if (sequence <= latestSequence) return;
   latestSequenceByClient.set(clientId, sequence);
+  const hadViewers = openSubscriptions.size > 0;
   if (open) {
     openSubscriptions.set(subscriptionId, internals);
   } else {
     openSubscriptions.delete(subscriptionId);
   }
+  if (timer && hadViewers !== (openSubscriptions.size > 0)) sampleSoon(openSubscriptions.size ? 0 : BACKGROUND_SAMPLE_INTERVAL_MS);
   void reconcileResourceSampler();
 }
 

@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
+import { resourceSnapshotChannel, type ResourceMonitorUpdate } from '@shared/events/resourceEvents';
 import type { ResourceSnapshot } from '@shared/resource-monitor';
 
 const setOpen = vi.fn();
 const getSnapshot = vi.fn();
-let snapshotHandler: ((snap: ResourceSnapshot | null) => void) | null = null;
+let snapshotHandler: ((snap: ResourceMonitorUpdate) => void) | null = null;
 const offSnapshot = vi.fn(() => { snapshotHandler = null; });
 
 vi.mock('@renderer/lib/ipc', () => ({
   rpc: { resourceMonitor: { setOpen, getSnapshot } },
   events: {
-    on: vi.fn((channel: typeof resourceSnapshotChannel, cb: (snap: ResourceSnapshot | null) => void) => {
+    on: vi.fn((channel: typeof resourceSnapshotChannel, cb: (snap: ResourceMonitorUpdate) => void) => {
       if (channel === resourceSnapshotChannel) snapshotHandler = cb;
       return offSnapshot;
     }),
@@ -177,6 +177,26 @@ describe('ResourceMonitorStore', () => {
     await flushPromises();
     expect(store.isLoadingInitialSnapshot).toBe(false);
     expect(store.snapshot).toBeNull();
+  });
+
+  it('marks retained data stale on a failed process list and clears the status only on a later valid sample', async () => {
+    const { ResourceMonitorStore } = await import('./resource-monitor-store');
+    const store = new ResourceMonitorStore(); store.start();
+    snapshotHandler?.({ samplingError: { timestamp: 1, reason: 'process-list-read-failed' } });
+    expect(store.isLoadingInitialSnapshot).toBe(false);
+    expect(store.snapshot).toBeNull();
+    expect(store.samplingFailure?.timestamp).toBe(1);
+    snapshotHandler?.(snapshot(2));
+    expect(store.samplingFailure).toBeNull();
+    snapshotHandler?.({ samplingError: { timestamp: 4, reason: 'process-list-read-failed' } });
+    expect(store.snapshot?.timestamp).toBe(2);
+    expect(store.samplingFailure?.timestamp).toBe(4);
+    snapshotHandler?.(snapshot(3)); // A manual refresh started before the failure.
+    expect(store.samplingFailure?.timestamp).toBe(4);
+    snapshotHandler?.(snapshot(5));
+    expect(store.samplingFailure).toBeNull();
+    snapshotHandler?.({ samplingError: { timestamp: 4, reason: 'sample-failed' } });
+    expect(store.samplingFailure).toBeNull();
   });
 
   it('ignores old sample callbacks and subscription failures after reopen', async () => {

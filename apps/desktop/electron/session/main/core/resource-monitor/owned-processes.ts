@@ -10,9 +10,7 @@ function output(file: string, args: string[]): Promise<string> {
 
 export async function listResourceProcesses(): Promise<ResourceProcess[]> {
   if (process.platform === 'win32') {
-    const json = await output('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress']);
-    const data = JSON.parse(json);
-    return (Array.isArray(data) ? data : [data]).map(p => ({ pid: p.ProcessId, ppid: p.ParentProcessId, name: p.Name, command: p.CommandLine ?? '' }));
+    throw new Error('Windows process-tree collection needs a native implementation');
   }
   const text = await output('ps', ['-axo', 'pid=,ppid=,command=']);
   return text.split('\n').flatMap(line => {

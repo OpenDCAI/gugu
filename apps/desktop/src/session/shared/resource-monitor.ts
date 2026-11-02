@@ -82,6 +82,7 @@ export interface ResourceSnapshot {
   /** Non-Electron, non-PTY processes, partitioned by their closest owned root. */
   processGroups?: ResourceProcessGroup[];
   memoryMetric?: 'rss';
+  processTreeScope?: 'owned-process-tree' | 'electron-and-pty-roots';
   runId?: string;
   context?: ResourceContext;
   recordingError?: string;

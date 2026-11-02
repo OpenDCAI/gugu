@@ -76,6 +76,10 @@ export const enUSCapabilityMessages = {
   // ── settings · resource monitor ────────────────────────────────────────────
   'resourceMonitor.title': 'Resource monitor',
   'resourceMonitor.retry': 'Retry',
+  'resourceMonitor.processListFailed': 'Could not read the process list',
+  'resourceMonitor.sampleFailed': 'Resource sampling failed',
+  'resourceMonitor.staleData': 'Showing stale data',
+  'resourceMonitor.windowsPartial': 'Windows: agent child processes are not included',
   'resourceMonitor.writeFailed': 'Recording failed. Check that the disk is writable, then switch monitoring off and on to retry. Existing history is kept.',
   'resourceMonitor.historyFailed': 'Could not read or save the history. Retry the operation.',
   'resourceMonitor.windowFailed': 'Could not open the floating monitor. Try again.',
@@ -924,6 +928,10 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   // ── 设置 · 资源监视器 ───────────────────────────────────────────────────────
   'resourceMonitor.title': '资源监视器',
   'resourceMonitor.retry': '重试',
+  'resourceMonitor.processListFailed': '进程列表读取失败',
+  'resourceMonitor.sampleFailed': '资源采样失败',
+  'resourceMonitor.staleData': '当前显示过期数据',
+  'resourceMonitor.windowsPartial': 'Windows：未包含 agent 子进程',
   'resourceMonitor.writeFailed': '记录失败。请确认磁盘可写，关闭再开启监控重试。已有历史保留。',
   'resourceMonitor.historyFailed': '历史记录读取或保存失败，请重试。',
   'resourceMonitor.windowFailed': '悬浮监视窗未能打开，请重试。',
