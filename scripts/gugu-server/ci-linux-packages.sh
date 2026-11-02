@@ -107,8 +107,8 @@ for arch in x64 arm64; do
     # Exercise the old supervisor contract before any current CLI prepares the account home.
     su smoke -c "$d/node/bin/node /pkg/smoke-legacy-account.mts $d/bin/gugu-server"
     su smoke -c "$d/bin/gugu-server run > /tmp/run.log 2>&1 &"
-    for i in $(seq 1 60); do grep -qs "咕咕 server 已启动" /tmp/run.log && break; sleep 1; done
-    grep -q "咕咕 server 已启动" /tmp/run.log || { cat /tmp/run.log; echo "::error::$PKG 起不来"; exit 1; }
+    for i in $(seq 1 60); do grep -qs "Not signed in; waiting for login" /tmp/run.log && break; sleep 1; done
+    grep -q "Not signed in; waiting for login" /tmp/run.log || { cat /tmp/run.log; echo "::error::$PKG 未进入等待登录"; exit 1; }
     case "$PKG" in *-beta.*)
       [ "$(readlink "$home")" = "$legacy" ] || { echo "::error::$PKG did not preserve its channel home"; exit 1; }
       su smoke -c "/home/smoke/.local/bin/gugu-server-beta status" | grep -q "数据目录:$legacy" || exit 1
