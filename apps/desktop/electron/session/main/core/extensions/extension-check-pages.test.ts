@@ -323,6 +323,18 @@ describe('hidden widget checks', () => {
     expect(report.snapshot).toContain('button "Go"');
     expect(report.pictures).toBeUndefined();
   });
+  it('a widget that stops answering while its size is set is quiet, not a load error', async () => {
+    const pictures = await import('./extension-look-picture');
+    const size = vi.spyOn(pictures, 'showAtSize').mockImplementationOnce(() => new Promise(() => {}));
+    try {
+      const report = await check({ widget, caller: 's1', phone: true, look: false });
+      expect(report.stuck).toBe('quiet');
+      expect(report.loadError).toBeUndefined();
+      expect(report.page).toBeUndefined();
+    } finally {
+      size.mockRestore();
+    }
+  });
   it.each(['missing', 'disabled', 'view', 'platform'] as const)('%s returns the same unavailable reason/text without a page', async reason => {
     if (reason === 'missing') widgetAvailability.missing = true;
     if (reason === 'disabled') widgetAvailability.enabled = false;

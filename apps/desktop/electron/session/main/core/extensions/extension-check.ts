@@ -177,6 +177,7 @@ export async function checkExtensionSurface(request: ExtensionCheckRequest): Pro
       // Frames from here on, as on screen (#7126): what it draws by frames settles before it is read and pictured.
       try {
         await byDeadline(keepPainting(contents), Date.now() + EXTENSION_STEP_WAIT_MS, SILENT);
+        if (widget) await byDeadline(showAtSize(contents, page.size), Date.now() + EXTENSION_STEP_WAIT_MS, SILENT);
       } catch (error) {
         if (!heard(error)) {
           const message = `gugu could not keep the hidden page drawing, so what moves by frames may be pictured at its start: ${error instanceof Error ? error.message : String(error)}`;
@@ -184,7 +185,6 @@ export async function checkExtensionSurface(request: ExtensionCheckRequest): Pro
           log.warn('app_check could not keep the page painting', { extensionId: request.extensionId, message });
         }
       }
-      if (widget) await byDeadline(showAtSize(contents, page.size), Date.now() + EXTENSION_STEP_WAIT_MS, SILENT);
     }
     // Loaded or not, what it shows by now is worth reading: let it settle — its files opened, then quiet — and read.
     let shown = '';
