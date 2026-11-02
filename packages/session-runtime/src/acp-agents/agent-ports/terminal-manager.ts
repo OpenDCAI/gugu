@@ -86,10 +86,10 @@ export class AgentTerminalManager {
       spec.cwd,
       proc,
       (chunk, truncated) => {
-        this.hooks.onTerminalOutput({ sessionId, scope, terminalId, chunk, truncated, snapshot: terminal.snapshot() });
+        this.hooks.onTerminalOutput({ sessionId, scope, terminalId, chunk, truncated, snapshot: terminal.snapshot(false) });
       },
       (exitStatus) => {
-        this.hooks.onTerminalExit({ sessionId, scope, terminalId, exitStatus, snapshot: terminal.snapshot() });
+        this.hooks.onTerminalExit({ sessionId, scope, terminalId, exitStatus, snapshot: terminal.snapshot(false) });
       },
       spec.outputByteLimit
     );

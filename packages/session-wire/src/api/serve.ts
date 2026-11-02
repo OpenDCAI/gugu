@@ -156,12 +156,12 @@ export function serve(
     );
   }
 
-  function replySnapshot(id: string, topic: string): void {
+  function replySnapshot(id: string, topic: string, capabilities?: readonly string[]): void {
     const start = performanceNow();
     replyRequest(id, async (signal) => {
       if (signal.aborted) throw new WireError('CANCELLED', 'Wire snapshot cancelled');
       try {
-        const snapshot = await requireLiveSource(controller, topic).snapshot();
+        const snapshot = await requireLiveSource(controller, topic, capabilities).snapshot();
         instrumentation?.snapshot?.({
           requestId: id,
           topic,
@@ -214,7 +214,7 @@ export function serve(
         replyControllerCallWithUpload(message.id, message.path, message.input, message.upload);
         break;
       case 'snapshot':
-        replySnapshot(message.id, message.topic);
+        replySnapshot(message.id, message.topic, message.capabilities);
         break;
       case 'attach':
         replyRequest(message.id, async (signal) => {
@@ -224,7 +224,7 @@ export function serve(
             await existing.ready;
             return undefined;
           }
-          const source = requireLiveSource(controller, message.topic);
+          const source = requireLiveSource(controller, message.topic, message.capabilities);
           const attachment: ServerAttachment = {
             ready: Promise.resolve(),
             disposed: false,
@@ -352,8 +352,8 @@ function createChannelId(): string {
   return `blob_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
-function requireLiveSource(controller: Controller, topic: string) {
-  const source = controller.resolveLive(topic);
+function requireLiveSource(controller: Controller, topic: string, capabilities?: readonly string[]) {
+  const source = controller.resolveLive(topic, capabilities);
   if (!source) throw new WireError('UNKNOWN_TOPIC', `Unknown live topic '${topic}'`);
   return source;
 }
