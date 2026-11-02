@@ -70,6 +70,10 @@ function localizedCli({ prerequisite, ...method }: Extract<AuthMethod, { kind: '
   };
 }
 
+function localizedMcpOAuth({ help, ...method }: Extract<AuthMethod, { kind: 'mcp-oauth' }>, locale: string | undefined) {
+  return { ...method, ...(help ? { help: pick(help, locale) } : {}) };
+}
+
 function localizedAuth(auth: IntegrationAuthDescriptor, locale: string | undefined, custodyHere: 'platform' | 'local' | undefined) {
   return {
     ...auth,
@@ -78,6 +82,8 @@ function localizedAuth(auth: IntegrationAuthDescriptor, locale: string | undefin
         ? localizedForm(method, locale, custodyHere)
         : method.kind === 'cli'
           ? localizedCli(method, locale)
+          : method.kind === 'mcp-oauth'
+            ? localizedMcpOAuth(method, locale)
           : method
     ),
   };

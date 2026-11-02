@@ -142,6 +142,7 @@ function SetupBody({
   const { t } = useTranslation('assistant')
   const plan = setupPlanOf(item, platform.kind)
   if (plan.kind === 'form') return <FormSetup item={item} rpc={rpc} onConnected={onConnected} />
+  if (plan.kind === 'platform-browser') return <PlatformBrowserSetup item={item} rpc={rpc} onConnected={onConnected} />
   if (plan.kind === 'browser') return <BrowserSetup item={item} serverUrl={plan.serverUrl} rpc={rpc} onConnected={onConnected} />
   if (plan.kind === 'cli') return <CliSetup item={item} rpc={rpc} deviceId={deviceId} assistantName={assistantName} onConnected={onConnected} />
   if (plan.kind === 'github') return <GithubSetup item={item} rpc={rpc} deviceId={deviceId} onConnected={onConnected} />
@@ -299,6 +300,57 @@ function FormSetup({ item, rpc, onConnected }: { item: IntegrationMetadata; rpc:
       </Button>
     </form>
   )
+}
+
+/** The confidential client stays on the platform; phones only open a URL and poll status. */
+function PlatformBrowserSetup({ item, rpc, onConnected }: {
+  item: IntegrationMetadata; rpc: MachineRpc; onConnected: () => void
+}) {
+  const { t } = useTranslation('assistant')
+  const openInBrowser = useContext(AuthorizationBrowser)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const generation = useRef(0)
+  const attempt = useRef<string | null>(null)
+  const cancel = useCallback((id: string) => {
+    void rpc.integrations.platformOAuthCancel(item.id, id).catch((failure) =>
+      rendererLogger('actions/PhoneConnectorSetup').warn({ error: failure }, 'OAuth attempt cleanup failed'))
+  }, [item.id, rpc])
+  useEffect(() => () => { generation.current += 1; if (attempt.current) cancel(attempt.current) }, [cancel])
+  const start = async () => {
+    const current = ++generation.current
+    setBusy(true); setError(null)
+    let id: string | null = null
+    try {
+      const begun = await rpc.integrations.platformOAuthStart(item.id)
+      id = begun.attemptId
+      if (generation.current !== current) return
+      attempt.current = id
+      openInBrowser(begun.authorizationUrl)
+      while (generation.current === current && Date.now() < begun.expiresAt) {
+        const status = await rpc.integrations.platformOAuthStatus(item.id, id)
+        if (generation.current !== current) return
+        if (status.state === 'connected') { onConnected(); return }
+        if (status.state === 'failed') throw new Error(status.error ?? t(`connectors.setup.${failureKey({ step: 'authorize', reason: 'failed' })}`, { name: item.name }))
+        await new Promise<void>((resolve) => setTimeout(resolve, 1000))
+      }
+      if (generation.current === current) throw new Error(t(`connectors.setup.${failureKey({ step: 'authorize', reason: 'timeout' })}`, { name: item.name }))
+    } catch (failure) {
+      if (generation.current === current) setError(messageForUser(failure))
+    } finally {
+      if (id) cancel(id)
+      if (generation.current === current) { attempt.current = null; setBusy(false) }
+    }
+  }
+  return <div className="ta-phone-setup">
+    {item.auth.methods.map((method) => method.kind === 'mcp-oauth' && method.help
+      ? <p key={method.kind} className="ta-page-sub ta-pad">{method.help}</p> : null)}
+    {busy ? <Waiting>{t('connectors.setup.preparing', { name: item.name })}</Waiting> : null}
+    {error ? <p className="ta-phone-error" role="alert">{error}</p> : null}
+    <Button variant="ghost" className="ta-wide-btn" data-tone="primary" disabled={busy} onClick={() => void start()}>
+      {t('connectors.setup.authorize')}
+    </Button>
+  </div>
 }
 
 // ── 浏览器授权 ───────────────────────────────────────────────────────────
