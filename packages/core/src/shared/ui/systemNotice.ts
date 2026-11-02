@@ -44,7 +44,7 @@ export function turnFailureReason(msg: NoticeRow): AgentFailureReason | null {
 }
 
 /** A row saying the host holds messages for an agent that has not taken them yet (`agentInboxReader` notAdmitted,
- * `deviceCommandRuntime` undelivered). Not drawn: the waiting messages carry it on their own bubbles (queuedMessageIds). */
+ * `deviceCommandRuntime` undelivered). Not drawn: only the sender's waiting messages say it, on their own bubbles (deliveryWaits). */
 export function isPendingDelivery(msg: NoticeRow): boolean {
   const reason = turnFailureReason(msg)
   return reason === 'notAdmitted' || reason === 'undelivered'
@@ -55,54 +55,65 @@ export function visibleDeliveryMessages<T extends MessageItem>(messages: readonl
 }
 
 type WaitLine = Pick<MessageItem, 'id' | 'seq' | 'is_mine' | 'retracted_at' | 'thread_root_id' | 'content_type' | 'sender_user_id' | 'client_message_id' | 'readers' | 'delivery_blocks'>
-type Waiting = { message: WaitLine; agentId: string; rowSeq: number }
+/** queued: the agent is coming. undelivered: no running instance holds it, so waiting alone will not bring it. */
+export type DeliveryWait = 'queued' | 'undelivered'
+export type HeldMessage = { wait: DeliveryWait; undeliveredTo: readonly string[] }
+type Waiting = { message: WaitLine; agentId: string; rowSeq: number; wait: DeliveryWait }
 
 /** My messages an agent with a pending-delivery row in their line has not read yet (its precise read row or watermark). */
 function waitingOn(messages: readonly WaitLine[], memberReadSeqs: Readonly<Record<string, number>>): Waiting[] {
-  const rowsByThread = new Map<string | null, Map<string, number>>()
+  const rowsByThread = new Map<string | null, Map<string, { seq: number; wait: DeliveryWait }>>()
   for (const msg of messages) {
     if (!msg.sender_user_id || !isPendingDelivery(msg)) continue
-    const rows = rowsByThread.get(msg.thread_root_id ?? null) ?? new Map<string, number>()
-    rows.set(msg.sender_user_id, Math.max(rows.get(msg.sender_user_id) ?? 0, msg.seq))
+    const rows = rowsByThread.get(msg.thread_root_id ?? null) ?? new Map<string, { seq: number; wait: DeliveryWait }>()
+    // The agent's newest row is what is true of it now.
+    if ((rows.get(msg.sender_user_id)?.seq ?? 0) < msg.seq) rows.set(msg.sender_user_id, { seq: msg.seq, wait: turnFailureReason(msg) === 'undelivered' ? 'undelivered' : 'queued' })
     rowsByThread.set(msg.thread_root_id ?? null, rows)
   }
   const waiting: Waiting[] = []
   for (const message of messages) {
     if (!message.is_mine || message.seq <= 0 || message.retracted_at || message.content_type === 'system') continue
-    for (const [agentId, rowSeq] of rowsByThread.get(message.thread_root_id ?? null) ?? []) {
+    for (const [agentId, row] of rowsByThread.get(message.thread_root_id ?? null) ?? []) {
       if (message.readers?.includes(agentId) || (memberReadSeqs[agentId] ?? 0) >= message.seq) continue
       if (message.delivery_blocks?.some((block) => block.agent_user_id === agentId)) continue
-      waiting.push({ message, agentId, rowSeq })
+      waiting.push({ message, agentId, rowSeq: row.seq, wait: row.wait })
     }
   }
   return waiting
 }
 
-/** What to look up in `chat.message_agent_wakes` before `queuedMessageIds` can answer. */
+/** What to look up in `chat.message_agent_wakes` before `deliveryWaits` can answer. */
 export function pendingDeliveryMessageIds(messages: readonly WaitLine[], memberReadSeqs: Readonly<Record<string, number>>): string[] {
   return [...new Set(waitingOn(messages, memberReadSeqs).map((wait) => wait.message.id))].sort()
 }
 
 /**
- * My messages still queued for an agent: it has a pending-delivery row in their line that still holds one of its unread
+ * My messages still waiting on an agent: it has a pending-delivery row in their line that still holds one of its unread
  * messages from before the row, and this message wakes it (`wakes` = chat.message_agent_wakes, the host's own answer).
  * Reading a message takes it out; once the agent has read everything the row held, the row holds nothing more.
+ * A message waiting on several agents says the one that needs the person: undelivered.
  */
-export function queuedMessageIds(
+export function deliveryWaits(
   messages: readonly WaitLine[],
   memberReadSeqs: Readonly<Record<string, number>>,
   wakes: ReadonlyMap<string, ReadonlySet<string>>,
-): Set<string> {
+): Map<string, HeldMessage> {
   const byLine = new Map<string, Waiting[]>()
   for (const wait of waitingOn(messages, memberReadSeqs)) {
     if (!wakes.get(wait.message.id)?.has(wait.agentId)) continue
     const key = JSON.stringify([wait.message.thread_root_id ?? null, wait.agentId])
     byLine.set(key, [...(byLine.get(key) ?? []), wait])
   }
-  const queued = new Set<string>()
+  const held = new Map<string, HeldMessage>()
   for (const waits of byLine.values()) {
     if (!waits.some((wait) => wait.message.seq < wait.rowSeq)) continue
-    for (const wait of waits) queued.add(wait.message.id)
+    for (const { message, wait, agentId } of waits) {
+      const known = held.get(message.id)
+      held.set(message.id, {
+        wait: known?.wait === 'undelivered' ? 'undelivered' : wait,
+        undeliveredTo: wait === 'undelivered' ? [...(known?.undeliveredTo ?? []), agentId] : known?.undeliveredTo ?? [],
+      })
+    }
   }
-  return queued
+  return held
 }

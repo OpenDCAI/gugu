@@ -1633,7 +1633,7 @@ export function storedTextFile(host: GuguHost, entry: AppFileEntry, content: str
 export const openFiles = new Map<string, OpenFile>();
 
 /** What a file is kept under on this page: its place and its id there. */
-export function fileKey(entry: Pick<AppFileEntry, 'id' | 'chat' | 'session'>): string {
+export function fileKey(entry: Pick<AppFileEntry, 'id' | 'chat' | 'workspace'>): string {
   return `${placeKey(placeOfFile(entry))}#${entry.id}`;
 }
 

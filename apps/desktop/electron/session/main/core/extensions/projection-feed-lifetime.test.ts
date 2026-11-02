@@ -24,7 +24,7 @@ function setup(createDecoder = decoder) {
   const resources = new ExtensionProjections(() => {});
   const source = resources.open(principal, { input: async () => {}, disconnect: async () => {}, close() {},
     refresh() { source.publish({ ...frame, sequence: 1 }); } });
-  const page = { kind: 'page', extensionId: principal.extensionId, pageId: 1, binding: { sessionId: principal.sessionId } } as BridgeCaller;
+  const page = { kind: 'page', extensionId: principal.extensionId, pageId: 1, binding: { workspace: `session:${principal.sessionId}` } } as BridgeCaller;
   const authority = new ProjectionMediaAccess(resources, () => 0).open(page, source.id);
   const closed = deferred();
   const publish = vi.fn(async (sequence: number, _data: Uint8Array) => ({ sequence, width: 128, height: 96, rtpTimestamp: sequence * 9000 }));

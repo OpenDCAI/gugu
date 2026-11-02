@@ -66,7 +66,7 @@ function humanItem(id: string, role: GroupMemberItem['role'] = 'member'): GroupM
 function collab(agents: GroupAgentItem[], humans: GroupMemberItem[]): GroupCollabSnapshot {
   return {
     scheduler: { chat_id: 'chat-1', paused: false, queue_count: 0, blocked_count: 0, summary: null, updated_at: '2026-09-24T00:00:00.000Z' },
-    humans, agents, tasks: [], outputs: [],
+    humans, agents, tasks: [],
   }
 }
 const SNAPSHOT = collab(

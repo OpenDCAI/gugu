@@ -2,7 +2,7 @@
   "id": "arxiv-search",
   "name": "arXiv Search",
   "version": "1.0.0",
-  "apiVersion": 24,
+  "apiVersion": 25,
   "defaultLocale": "en",
   "entry": "index.html",
   "permissions": {

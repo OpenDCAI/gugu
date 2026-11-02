@@ -52,6 +52,7 @@ const mocks = vi.hoisted(() => ({
   listLocalPlatformModels: vi.fn(),
   assertLocalHarnessLaunchable: vi.fn(async (_pluginId: string, _transport: string) => {}),
   resolveProjectWorkspace: vi.fn(),
+  resolveCreateEffort: vi.fn(),
   /** The new-session box's two reads (`useEffectiveProvider`): the listed agents and which are installed. */
   listAgents: vi.fn(),
   listInstalled: vi.fn(),
@@ -146,7 +147,7 @@ vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({
   localAgentForSession: mocks.localAgentForSession,
 }));
 // 点名项目 → 项目根工作区那一步(登记 / 打开项目)由 create-session 自己的测试判;这里只看编排把谁交给它、落在哪。
-vi.mock('../session-timeline/create-session', () => ({ resolveProjectWorkspace: mocks.resolveProjectWorkspace }));
+vi.mock('../session-timeline/create-session', () => ({ resolveProjectWorkspace: mocks.resolveProjectWorkspace, resolveCreateEffort: mocks.resolveCreateEffort }));
 vi.mock('@main/core/session-timeline/preview-rpc', () => ({ readSessionPreview: mocks.readSessionPreview }));
 vi.mock('../extensions/extensions-root', () => ({
   extensionsService: () => ({
@@ -289,6 +290,7 @@ describe('session orchestration', () => {
     mocks.sessionpageProjectGroupForSession.mockImplementation(async () => mocks.sessionpageProjectGroup);
     mocks.mounted.clear();
     mocks.resolveProjectWorkspace.mockReset();
+    mocks.resolveCreateEffort.mockReset();
     mocks.resolveProjectWorkspace.mockImplementation(async (input: unknown) => ({
       ok: false,
       error: { code: 'project_not_found', message: `unexpected project resolution ${JSON.stringify(input)}` },
@@ -582,7 +584,7 @@ describe('session orchestration', () => {
       setOtherMachines({
         devices: async () => [], isThisDevice: async () => false, appSpawn,
         sessions: async () => ({ sessions: [], unreached: [] }), archive: vi.fn(),
-        appMessage: vi.fn(), appReadFile: vi.fn(), appCall: vi.fn(),
+        appMessage: vi.fn(), appCall: vi.fn(),
       });
       try {
         expect(await spawnSessionForApp({ extensionId: 'context', extensionName: 'Context', envelope, prompt: 'inspect', device: 'device:remote', project: '/remote/project', harness: 'codex' })).toEqual({ agentId: 'user:remote-agent' });
@@ -704,6 +706,17 @@ describe('session orchestration', () => {
       const row = fixture.sqlite.prepare('SELECT config FROM sessions WHERE id = ?').get(sessionId) as { config: string | null };
       return row.config ? (JSON.parse(row.config) as Record<string, unknown>) : {};
     }
+
+    it('uses the target machine model catalog to validate thinking and persists the accepted level', async () => {
+      project2Root();
+      mocks.resolveCreateEffort.mockResolvedValueOnce({ ok: true, value: 'native-level' });
+      const result = await runRemoteSessionAction({ ...remoteCaller, model: 'native-model' }, {
+        action: 'spawn', prompt: 'inspect', project_id: 'project-2', thinking: 'native-level',
+      }) as { session_id: string };
+      expect(mocks.resolveCreateEffort).toHaveBeenCalledWith({ harness: 'codex', sessionView: 'general', model: 'native-model', effort: 'native-level' });
+      expect(configOf(result.session_id)).toMatchObject({ effort: 'native-level' });
+      expect(admittedTurns(result.session_id)).toHaveLength(1);
+    });
 
     it('prepares one stable dormant account-work seat without delivering or starting its first turn', async () => {
       project2Root();
@@ -1412,6 +1425,22 @@ describe('session orchestration', () => {
     await expect(sessionPlatformModel(result.session_id)).resolves.toBeNull();
   });
 
+  it('validates thinking before creating a local child and persists it through the existing effort field', async () => {
+    mocks.resolveCreateEffort.mockResolvedValueOnce({ ok: true, value: 'native-level' });
+    const result = await runSessionAction(context, { action: 'spawn', prompt: 'inspect', thinking: 'native-level' }) as { session_id: string };
+    expect(mocks.resolveCreateEffort).toHaveBeenCalledWith({ harness: 'codex', sessionView: 'general', model: undefined, effort: 'native-level' });
+    const row = fixture.sqlite.prepare('SELECT config FROM sessions WHERE id = ?').get(result.session_id) as { config: string };
+    expect(JSON.parse(row.config)).toMatchObject({ effort: 'native-level' });
+    expect(admittedTurns(result.session_id)).toHaveLength(1);
+  });
+
+  it('rejects unsupported thinking without leaving a child row', async () => {
+    mocks.resolveCreateEffort.mockResolvedValueOnce({ ok: false, error: { code: 'effort_rejected', message: 'native-model offers only native-level' } });
+    await expect(runSessionAction(context, { action: 'spawn', prompt: 'inspect', thinking: 'unoffered' })).rejects.toThrow(/effort_rejected: native-model/);
+    expect(childRows()).toEqual([]);
+    expectNothingStarted();
+  });
+
   it('refuses a harness the launch gate refuses before creating a child, with the gate\'s own words', async () => {
     const said = 'claude tui requires harness runtime 2.1.69 or newer; found 2.1.0. Update it, then retry.';
     mocks.assertLocalHarnessLaunchable.mockRejectedValueOnce(new Error(said));
@@ -1894,7 +1923,7 @@ describe('session orchestration', () => {
         sessions: [{ deviceId: 'device-c', label: 'Third computer', session: { conversationId: 'chosen-remote', projectId: 'remote-project', parentConversationId: 'unreachable-ancestor' } as SessionpageSessionSummary, listsAgents: true }],
         unreached: [{ deviceId: 'device-d', label: 'Offline computer', detail: 'no answer' }],
       }),
-      archive: vi.fn(), appMessage: vi.fn(), appReadFile: vi.fn(), appCall: vi.fn(),
+      archive: vi.fn(), appMessage: vi.fn(), appCall: vi.fn(),
     });
     const action = { action: 'spawn' as const, prompt: 'x', project_id: 'project-2', parent_session_id: 'chosen-remote' };
     const child = await (remoteCaller
@@ -2354,7 +2383,6 @@ describe('session_set_parent', () => {
       }),
       archive: async () => undefined,
       appMessage: async () => ({ id: 'unused' }),
-      appReadFile: async () => { throw new Error('no file is read in this test'); },
       appCall: async () => { throw new Error('no App call is made in this test'); },
     });
 

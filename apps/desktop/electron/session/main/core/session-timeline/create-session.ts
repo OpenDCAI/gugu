@@ -347,6 +347,34 @@ export interface CreateSessionDeps {
   ensureAgentInstalled: (provider: string) => Promise<void>;
 }
 
+/** Validate against the same harness/model effort catalog as the creation picker. */
+export async function resolveCreateEffort(
+  request: SessionpageSessionCreateModelsRequest & { effort?: string }
+): Promise<CreateSessionResult<string | null>> {
+  if (request.effort === undefined) return { ok: true, value: null };
+  const effort = request.effort.trim();
+  if (!effort) return fail('effort_rejected', 'Reasoning effort must not be empty');
+  let options: { id: string }[];
+  if (request.model?.trim().startsWith('platform:')) {
+    const catalog = await createModels(request);
+    if (!catalog.ok) return catalog;
+    options = catalog.value.efforts;
+  } else {
+    const { probeHarnessCatalogState } = await import('@main/core/agents/session-discovery');
+    const state = await probeHarnessCatalogState(
+      request.harness, sessionRuntimeOfView(request.sessionView ?? DEFAULT_SESSION_VIEW), request.model?.trim() || undefined,
+    );
+    if (state.kind !== 'ready') {
+      return fail('effort_rejected', `Cannot verify ${request.harness} reasoning levels: ${state.kind}${state.kind === 'unavailable' ? `: ${state.reason}` : ''}`);
+    }
+    options = state.efforts;
+  }
+  if (!options.some((option) => option.id === effort)) {
+    return fail('effort_rejected', `${request.harness} does not offer reasoning effort '${effort}' for ${request.model ?? 'its default model'}; available: ${options.map((option) => option.id).join(', ')}`);
+  }
+  return { ok: true, value: effort };
+}
+
 // 这个模块顶层只有类型 import,真依赖在它里面也是用时再取 —— 静态 import 不会把 electron 拖进单测。
 const defaultCreateSessionDeps: CreateSessionDeps = { ensureAgentInstalled };
 
@@ -426,7 +454,9 @@ async function createSessionSteps(
       return failStart('model_rejected', (error as Error)?.message ?? String(error), provider, requestedPlatform);
     }
   }
-  const effort = request.effort?.trim() || null;
+  const resolvedEffort = await resolveCreateEffort({ ...request, sessionView: view.view });
+  if (!resolvedEffort.ok) return resolvedEffort;
+  const effort = resolvedEffort.value;
 
   /*
    * ⚠️ 建会话那整条配方**用时再取**,❌ 不在模块顶层 import(理由见 agentPayloads 抬头)。

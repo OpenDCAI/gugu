@@ -28,8 +28,13 @@ export interface ExtensionViewClaim {
   /** The session this slot is in — absent for a slot in no session (a chat's side panel, the dock). */
   sessionId?: string;
   tabId: string;
-  /** 这一格画在哪个对话里(右栏);有它,页的 context 就带上 `chat`(真源原则 13:只是事实,不是目标)。 */
+  /** 这一格是哪个群/私聊自己的右栏:它的页归这个聊天(常驻页按它分份)。 */
   chatId?: string;
+  /**
+   * 任务里那一格所在的对话(`AppWhere.conversation`):主人和这个任务的 agent 的私聊(群右栏的那一格就是 `chatId`)。页的
+   * context 带上 `chat`(真源原则 13:只是事实,不是目标);❌ 不决定常驻页分几份 —— 那只看 `chatId`。
+   */
+  conversation?: string;
   /** 这一格的页签每个任务一份(manifest `perSession`):页属于 `sessionId` 那个任务,不跟着挪。 */
   perSession?: boolean;
   /**

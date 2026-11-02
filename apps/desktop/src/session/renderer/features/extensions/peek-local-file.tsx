@@ -1,3 +1,4 @@
+import { workspaceSession } from '@shared/extensions/app-runtime-protocol';
 import { useCallback, useEffect, useState } from 'react';
 import type { PeekTarget } from '@shared/extensions/app-runtime-protocol';
 import { OpenWithSystemButton } from '@renderer/features/sessions/editor/file-content-types';
@@ -39,8 +40,8 @@ export function PeekLocalFile({ target, tabId }: { target: LocalPeek; tabId: str
       <ExtensionTabPane
         extensionId={extensionId}
         tabKind={opener.tabKind}
-        sessionId={'session' in target.place ? target.place.session : null}
-        {...('project' in target.place ? { projectId: target.place.project } : {})}
+        sessionId={workspaceSession(target.place)}
+        {...(workspaceSession(target.place) ? {} : { projectId: target.projectId })}
         tabId={tabId}
         filePath={target.path}
       />
@@ -69,7 +70,7 @@ export function PeekLocalFile({ target, tabId }: { target: LocalPeek; tabId: str
  * session there. A session's is held by its session. 'ready', why not, or null while asking.
  */
 function useHeldWorkspace(target: LocalPeek): 'ready' | string | null {
-  const project = 'project' in target.place ? target.place.project : null;
+  const project = workspaceSession(target.place) ? null : target.projectId;
   const { workspaceId } = target;
   const [held, setHeld] = useState<'ready' | string | null>(project ? null : 'ready');
   useEffect(() => {

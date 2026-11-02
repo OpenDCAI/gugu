@@ -186,14 +186,32 @@ export function localizedManifestText(
   manifest: Pick<ExtensionManifest, 'name' | 'defaultLocale' | 'localized'> & Partial<Pick<ExtensionManifest, 'examples' | 'subtitle'>>,
   locale: string
 ): { name: string; subtitle: string; examples: readonly string[] } {
-  const table = manifest.localized ?? {};
-  const entry = sameLanguage(locale, manifest.defaultLocale)
-    ? undefined
-    : (table[locale] ?? Object.entries(table).find(([tag]) => sameLanguage(tag, locale))?.[1]);
+  const entry = localizedEntry(manifest, locale);
   return {
     name: entry?.name ?? manifest.name,
     subtitle: entry ? (entry.subtitle ?? '') : (manifest.subtitle ?? ''),
     examples: entry?.examples ?? manifest.examples ?? [],
+  };
+}
+
+/** The `localized` entry a reader in `locale` gets: none in `defaultLocale`'s language; the full tag first, then the language. */
+function localizedEntry(manifest: Pick<ExtensionManifest, 'defaultLocale' | 'localized'>, locale: string) {
+  const table = manifest.localized ?? {};
+  return sameLanguage(locale, manifest.defaultLocale)
+    ? undefined
+    : (table[locale] ?? Object.entries(table).find(([tag]) => sameLanguage(tag, locale))?.[1]);
+}
+
+/** A tab's title and its toolbar commands as a reader in `locale` sees them (`localized.<tag>.tabs`); the base where none. */
+export function localizedTabText(
+  manifest: Pick<ExtensionManifest, 'defaultLocale' | 'localized'>,
+  tab: Pick<ExtensionManifest['contributes']['tabs'][number], 'name' | 'title' | 'toolbar'>,
+  locale: string
+): { title: string; toolbar: { id: string; title: string }[] } {
+  const text = localizedEntry(manifest, locale)?.tabs?.[tab.name];
+  return {
+    title: text?.title ?? tab.title,
+    toolbar: (tab.toolbar ?? []).map((command) => ({ id: command.id, title: text?.toolbar?.[command.id] ?? command.title })),
   };
 }
 

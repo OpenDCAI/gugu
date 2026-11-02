@@ -775,7 +775,8 @@ async function probeOnce(
    * 三格各有去处:`env` 叠进适配器进程环境,`sessionMeta` 并进 `session/new` 的 `_meta`,
    * `platform` 交给插件的 `buildSpawn` —— 与真会话 Chat UI 注入的三种信封一一对应。
    */
-  probeCredentials: ProbePlatformCredentials | null
+  probeCredentials: ProbePlatformCredentials | null,
+  model?: string
 ): Promise<HarnessCatalogState> {
   // 取真实路径:macOS 的 tmpdir 在 /var → /private/var 这条符号链接后面。插件按 cwd 给的「按次信任」
   // (codex 的 `-c projects."<cwd>"…`)必须和 harness 自己看到的目录逐字相同,否则它当成没标过,
@@ -843,7 +844,7 @@ async function probeOnce(
       const watchdog = watchForInactivity(child, pluginId);
       try {
         const sessionMeta = mergeTrustedSessionMeta(spec.sessionMeta, probeCredentials?.sessionMeta);
-        const state = await Promise.race([rpc.readCatalog(cwd, sessionMeta), processFailed, watchdog.stalled]);
+        const state = await Promise.race([rpc.readCatalog(cwd, sessionMeta, model), processFailed, watchdog.stalled]);
         log.info(`${pluginId}: 模型目录 ${describe(state)}`);
         return state;
       } finally {
@@ -900,9 +901,10 @@ async function probeOnce(
  */
 export async function probeHarnessModelCatalog(
   pluginId: string,
-  leg: SessionpageLeg
+  leg: SessionpageLeg,
+  model?: string
 ): Promise<HarnessCatalogState> {
-  const first = await probeOnce(pluginId, leg, null);
+  const first = await probeOnce(pluginId, leg, null, model);
   if (first.kind !== 'auth-required') return first;
 
   // 占位凭据按这家真会话的 Chat UI 注入信封生成;需要落盘的文档只写进这一趟的临时目录,探完整目录删掉。
@@ -913,7 +915,7 @@ export async function probeHarnessModelCatalog(
   const scratchDir = await mkdtemp(join(tmpdir(), `gugu-probe-creds-${pluginId}-`));
   try {
     const probeCredentials = await resolveProbePlatformEnv(pluginId, scratchDir);
-    const second = await probeOnce(pluginId, leg, probeCredentials);
+    const second = await probeOnce(pluginId, leg, probeCredentials, model);
     if (second.kind === 'ready') {
       log.info(`${pluginId}: 未登录,但占位凭据那趟读到 ${second.efforts.length} 档推理强度`);
       return { ...first, efforts: second.efforts, selectedEffort: second.selectedEffort };
@@ -1001,7 +1003,7 @@ class AcpProbeClient {
     });
   }
 
-  async readCatalog(cwd: string, sessionMeta?: Record<string, unknown>): Promise<HarnessCatalogState> {
+  async readCatalog(cwd: string, sessionMeta?: Record<string, unknown>, model?: string): Promise<HarnessCatalogState> {
     const initialized = await this.request('initialize', {
       protocolVersion: 1,
       // 探针一律拒绝反向请求（它不该产生任何副作用），所以这里就得**如实声明 false** ——
@@ -1104,10 +1106,29 @@ class AcpProbeClient {
       };
     }
 
-    const response = created as {
+    let response = created as {
+      sessionId?: string;
       configOptions?: RawConfigOption[];
       models?: { availableModels?: unknown[]; currentModelId?: unknown };
     } | null;
+    // Read the requested model's axis in this disposable session, never the default model's axis.
+    if (model) {
+      const option = response?.configOptions?.find((o) => o.category === 'model');
+      const selected = option?.currentValue ?? response?.models?.currentModelId;
+      if (selected !== model) {
+        const configId = option?.configId ?? option?.id;
+        if (!response?.sessionId || !configId || !toChoices(option).some((o) => o.id === model)) {
+          throw new Error(`Cannot select model '${model}' to verify its reasoning levels`);
+        }
+        const updated = await this.request('session/set_config_option', {
+          sessionId: response.sessionId, configId, type: 'id', value: model,
+        }) as { configOptions?: RawConfigOption[] };
+        response = { ...response, configOptions: updated.configOptions };
+        if (response.configOptions?.find((o) => o.category === 'model')?.currentValue !== model) {
+          throw new Error(`Harness did not confirm model '${model}' for reasoning validation`);
+        }
+      }
+    }
     const options = response?.configOptions ?? [];
     // 档位与模型来自同一份 configOptions —— 顺手取走，不然换源时会把强度控件一起弄丢。
     const effortOption = options.find((o) => o.category === 'thought_level');

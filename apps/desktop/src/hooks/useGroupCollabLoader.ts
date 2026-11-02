@@ -27,7 +27,6 @@ export const EMPTY_GROUP_COLLAB: GroupCollabSnapshot = {
   humans: [],
   agents: [],
   tasks: [],
-  outputs: [],
 }
 
 // Outer bound for one getGroupCollab read; the happy path is <500ms.
