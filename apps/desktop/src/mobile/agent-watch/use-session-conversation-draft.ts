@@ -9,6 +9,7 @@ const flushed = () => {}
 /** Desktop native timelines hand the same durable text to ACP; phone drafts keep their existing store. */
 export function useSessionConversationDraft(deviceId: string, sessionId: string, nativeOffline: boolean) {
   const chat = useChatDraft(`session:${deviceId}/${sessionId}`)
+  const { text: chatText, setText: setChatText, flush: flushChat } = chat
   const account = useSessionInputAccount()
   const key = `${account}/${deviceId}/${sessionId}`
   const [kept, setKept] = useState(() => ({ key, text: nativeOffline ? readNativeOfflineDraft(deviceId, sessionId) : '' }))
@@ -17,14 +18,14 @@ export function useSessionConversationDraft(deviceId: string, sessionId: string,
     if (!nativeOffline || !account) return
     // Consume an older desktop timeline draft once, so ACP cannot leave a stale second copy behind.
     const stored = readNativeOfflineDraft(deviceId, sessionId)
-    const text = chat.text ? appendToDraft(stored, chat.text) : stored
-    if (chat.text) {
+    const text = chatText ? appendToDraft(stored, chatText) : stored
+    if (chatText) {
       writeNativeOfflineDraft(deviceId, sessionId, text)
-      chat.setText(''); chat.flush()
+      setChatText(''); flushChat()
     }
     const next = { key, text }
     current.current = next; setKept(next)
-  }, [nativeOffline, account, key, deviceId, sessionId, chat.text, chat.setText, chat.flush])
+  }, [nativeOffline, account, key, deviceId, sessionId, chatText, setChatText, flushChat])
   const setText = useCallback((update: SetStateAction<string>) => {
     const previous = current.current.key === key ? current.current.text : readNativeOfflineDraft(deviceId, sessionId)
     const text = typeof update === 'function' ? update(previous) : update
