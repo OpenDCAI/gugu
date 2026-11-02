@@ -42,16 +42,16 @@ export interface DeviceServerRollback {
  * downloading = 后台正在下新版本;ready = 新版本已下好,等这台机器上没有 agent 在干活时切过去。
  */
 export interface DeviceServerUpdate {
-  /** Source of the target. A supervisor-ready target needs explicit capability to restart this account only. Missing on old hosts. */
+  /** Legacy hosts distinguish account/supervisor updates. Single-process hosts report no scope. */
   scope?: 'account' | 'supervisor'
   /** failed:#6264 换成和桌面匹配的那一版没成(下载 / 试跑失败、换过去起不来),设备行给「更新没成功 · 重试」。 */
-  state: 'downloading' | 'ready' | 'failed'
+  state: 'idle' | 'downloading' | 'ready' | 'switching' | 'failed'
   version: string
   /** Fresh count of this account's agents whose work a restart would interrupt. Absent = unknown. */
   busy_agents?: number
   /** boot-failed (failed): it installed but did not start; only the confirmed restart for this version retries it. */
   reason?: 'boot-failed'
-  /** Existing account state-machine result, correlated with the host's confirmed restart acknowledgement. */
+  /** Host result correlated with the confirmed restart acknowledgement. */
   lastOutcome?: VersionRequestOutcome
 }
 

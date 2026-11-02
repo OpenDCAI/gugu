@@ -27,7 +27,7 @@ describe('server update activity reported by the account that is waiting', () =>
     }
   })
 
-  it('reads the current account activity, and never attributes that count to a daemon-wide update', () => {
+  it('reads only the installation update while using the single account's activity', () => {
     const files: Record<string, string> = {
       '/srv/accounts/u/data/server-update.json': ready,
       '/srv/accounts/u/data/activity.json': activity(2),
@@ -35,10 +35,11 @@ describe('server update activity reported by the account that is waiting', () =>
     }
     const env = { GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv', GUGU_TASK_HOST_USER_DATA: '/srv/accounts/u/data' }
     const deps = { platform: () => 'linux', release: () => '6', arch: () => 'x64', uid: () => 1000, homedir: () => '/home/user', nowMs: () => now,
-      readText: (path: string) => files[path] ?? null, statfs: () => ({ bavail: 10, blocks: 20, bsize: 4096 }) }
-    expect(resolveDeviceHostInfo(env, deps).server_update).toMatchObject({ busy_agents: 2, scope: 'account' })
+      readText: vi.fn((path: string) => files[path] ?? null), statfs: () => ({ bavail: 10, blocks: 20, bsize: 4096 }) }
+    expect(resolveDeviceHostInfo(env, deps).server_update).toMatchObject({ busy_agents: 2 })
+    expect(deps.readText).not.toHaveBeenCalledWith('/srv/accounts/u/data/server-update.json')
     delete files['/srv/accounts/u/data/server-update.json']
-    expect(resolveDeviceHostInfo(env, deps).server_update).toEqual({ state: 'ready', version: '0.2.58-beta.1057.1', scope: 'supervisor' })
+    expect(resolveDeviceHostInfo(env, deps).server_update).toEqual({ state: 'ready', version: '0.2.58-beta.1057.1', busy_agents: 2 })
   })
   it('reports fresh supervisor capability and the existing activity failure ledger', () => {
     const files: Record<string, string> = {
@@ -58,25 +59,25 @@ describe('server update activity reported by the account that is waiting', () =>
     const deps = { nowMs: () => now, readText: (file: string) => file === '/srv/data/server-update.json' ? update : null, uid: () => 1000 }
     expect(resolveDeviceHostInfo(env, deps).server_update).toBeUndefined()
     update = JSON.stringify({ state: 'ready', version: '0.2.58-beta.1058.1', at: now })
-    expect(resolveDeviceHostInfo(env, deps).server_update).toMatchObject({ state: 'ready', version: '0.2.58-beta.1058.1', scope: 'supervisor' })
+    expect(resolveDeviceHostInfo(env, deps).server_update).toMatchObject({ state: 'ready', version: '0.2.58-beta.1058.1' })
     update = JSON.stringify({ state: 'failed', version: env.GUGU_APP_VERSION, at: now })
-    expect(resolveDeviceHostInfo(env, deps).server_update).toMatchObject({ state: 'failed', version: env.GUGU_APP_VERSION, scope: 'supervisor' })
+    expect(resolveDeviceHostInfo(env, deps).server_update).toMatchObject({ state: 'failed', version: env.GUGU_APP_VERSION })
   })
 
 })
 
 
-describe('account request outcomes in device heartbeats', () => {
+describe('installation request outcomes in device heartbeats', () => {
   it.each(['switched', 'rolledBack', 'failed', 'refused', 'waiting'] as const)('preserves the existing %s result through the heartbeat and device normalization', kind => {
     const lastOutcome = { kind, request: 1234 }
-    const account = JSON.stringify({ state: 'failed', version: '0.3.1', at: now,
-      account: { lastOutcome: { ...lastOutcome, at: now, target: '0.3.1', cause: 'boot' } } })
+    const account = JSON.stringify({ state: 'idle', version: '0.3.1', at: now,
+      lastOutcome: { ...lastOutcome, at: now, target: '0.3.1', cause: 'boot' } })
     const env = { GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv', GUGU_TASK_HOST_USER_DATA: '/account' }
     const info = resolveDeviceHostInfo(env, { nowMs: () => now, uid: () => 1000,
-      readText: file => file === '/account/server-update.json' ? account : null })
+      readText: file => file === '/srv/data/server-update.json' ? account : null })
     const device = normalizeDeviceRow({ device_id: 'remote', label: 'Remote', hostname: 'remote', platform: 'linux', status: 'online',
       last_seen_at: '2026-11-02T00:00:00Z', capabilities: info })
-    expect(device.capabilities.server_update).toEqual({ state: 'failed', version: '0.3.1', scope: 'account', lastOutcome })
+    expect(device.capabilities.server_update).toEqual({ state: 'idle', version: '0.3.1', lastOutcome })
   })
 
   it.each([null, {}, { kind: 'invented', request: 1234 }, { kind: 'failed', request: '1234' }, { kind: 'failed' }])('does not invent an acknowledgement from an invalid or automatic outcome (%j)', lastOutcome => {

@@ -30,7 +30,7 @@ function server(scope: 'account' | 'supervisor' | undefined, capability: boolean
   } })
 }
 
-it.each(['account', 'supervisor'] as const)('uses the same confirmation message for a restartable %s target', async scope => {
+it.each(['account', 'supervisor', undefined] as const)('uses the same confirmation message for a restartable %s target', async scope => {
   state.devices = [server(scope, true)]
   await harness.render(<SshLinkSignIn />)
   expect(document.querySelector('[data-testid=ssh-link-update-ask]')?.textContent).toContain(
@@ -39,7 +39,7 @@ it.each(['account', 'supervisor'] as const)('uses the same confirmation message 
   expect(document.body.textContent).not.toContain('空闲')
 })
 
-it.each([['supervisor', false], [undefined, true]] as const)('keeps the existing message without a confirmable scope/capability', async (scope, capability) => {
+it.each([['supervisor', false]] as const)('keeps the existing message without a confirmable scope/capability', async (scope, capability) => {
   state.devices = [server(scope, capability)]
   await harness.render(<SshLinkSignIn />)
   expect(document.body.textContent).toContain('空闲')
@@ -59,7 +59,7 @@ async function confirmRestart() {
   await clickElement(document.querySelector<HTMLElement>('[data-testid=ssh-link-update-confirm-now]')!)
 }
 
-it.each(['account', 'supervisor'] as const)('sends the displayed %s target as an explicit confirmed restart', async scope => {
+it.each(['account', 'supervisor', undefined] as const)('sends the displayed %s target as an explicit confirmed restart', async scope => {
   state.devices = [server(scope, true)]
   await harness.render(<SshLinkSignIn />)
   await confirmRestart()

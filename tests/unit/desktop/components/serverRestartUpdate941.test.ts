@@ -85,13 +85,13 @@ describe('confirmed server update feedback', () => {
     expect(restart).toHaveBeenCalledExactlyOnceWith('remote', target, true)
   })
 
-  it('requires explicit capability for a supervisor target and keeps modern unknown scope unknown', async () => {
+  it('requires explicit capability for a supervisor target and accepts the single-process target', async () => {
     const withoutCapability = server({ state: 'ready', version: target, scope: 'supervisor' })
     delete withoutCapability.capabilities.server_confirmed_restart
     await render(withoutCapability)
     expect(node('update-now')).toBeNull()
     await render(server({ state: 'ready', version: target, scope: undefined }))
-    expect(node('update-now')).toBeNull()
+    expect(node('update-now')).not.toBeNull()
     expect(restart).not.toHaveBeenCalled()
   })
 
@@ -118,7 +118,7 @@ describe('confirmed server update feedback', () => {
     expect(node('update')!.textContent).toBe('新版本已就绪，2 个任务在运行')
     expect(node('update')!.dataset.tone).toBe('accent')
     expect(node('update')!.title).toContain('现在重启更新')
-    expect(Boolean(node('update-now'))).toBe(scope === 'account')
+    expect(node('update-now')).not.toBeNull()
   })
 
   it('confirms once, keeps Restarting after the RPC ack, and finishes on the new version heartbeat', async () => {
@@ -260,4 +260,19 @@ describe('confirmed server update feedback', () => {
     expect(toast).toHaveBeenCalledWith(expect.any(String), 'error', expect.stringContaining('idle retry transport refused'))
   })
 
+})
+
+
+it.each(['switched', 'rolledBack', 'failed', 'refused'] as const)('accepts the installation-wide %s receipt without an account scope', async kind => {
+  restart.mockResolvedValue({ requested: true, at: 1234 })
+  await render(server({ state: 'ready', version: target, scope: undefined }))
+  await click('update-now'); await click('update-now-yes')
+  expect(restart).toHaveBeenCalledWith('remote', target, true)
+  expect(node('restarting')).not.toBeNull()
+  await render(server({ state: 'idle', version: current, scope: undefined, lastOutcome: { kind, request: 999 } }))
+  expect(node('restarting')).not.toBeNull()
+  await render(server({ state: 'idle', version: current, scope: undefined, lastOutcome: { kind, request: 1234 } }))
+  expect(node('restarting')).toBeNull()
+  expect(node('update-now')).toBeNull()
+  expect(toast).not.toHaveBeenCalled()
 })

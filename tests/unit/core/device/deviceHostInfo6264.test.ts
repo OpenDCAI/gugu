@@ -54,7 +54,7 @@ describe('#6264 设备行上报「这是台什么机器」', () => {
       arch: 'arm64',
       os_name: 'Ubuntu 22.04.5 LTS',
       home_dir: '/home/ubuntu',
-      server_update: { state: 'ready', version: '0.3.0', scope: 'supervisor' },
+      server_update: { state: 'ready', version: '0.3.0' },
       remote_protocol: REMOTE_PROTOCOL_VERSION,
       min_client_protocol: MIN_CLIENT_PROTOCOL,
     })
@@ -63,7 +63,7 @@ describe('#6264 设备行上报「这是台什么机器」', () => {
     expect(readText).not.toHaveBeenCalledWith('/srv/gugu/data/server-update.json')
   })
 
-  it('reports a ready supervisor separately from the current account version and activity count', () => {
+  it('projects the installation target with the single account's fresh activity', () => {
     const now = 1_000_000
     const target = '0.3.1-beta.1128'
     const files: Record<string, string> = {
@@ -76,11 +76,11 @@ describe('#6264 设备行上报「这是台什么机器」', () => {
     const capabilities = { app_version: target, ...resolveDeviceHostInfo(env, deps) }
     expect(normalizeDeviceRow({ device_id: 'remote', label: 'Remote', hostname: 'remote', platform: 'linux', status: 'online',
       last_seen_at: '2026-11-02T06:11:00Z', capabilities }).capabilities).toMatchObject({
-      app_version: target, server_update: { state: 'ready', version: target, scope: 'supervisor' },
+      app_version: target, server_update: { state: 'ready', version: target },
     })
-    expect(capabilities.server_update).not.toHaveProperty('busy_agents')
+    expect(capabilities.server_update?.busy_agents).toBe(12)
     delete files['/srv/gugu/accounts/u/data/activity.json']
-    expect(resolveDeviceHostInfo(env, deps).server_update).toEqual({ state: 'ready', version: target, scope: 'supervisor' })
+    expect(resolveDeviceHostInfo(env, deps).server_update).toEqual({ state: 'ready', version: target })
   })
 
   it('远程 SSH / 远程隧道随心跳报(账号目录里记的那一条);没记的不报(= 远程隧道);桌面不报;设备行按形状收', () => {
@@ -176,19 +176,19 @@ describe('#6264 被移除的 server:库拒收心跳 ⇒ 宿主只通知一次', 
 describe('#6264 server 要人知道的事:磁盘、升级被退回、两边版本', () => {
   it('server 报数据目录所在盘的余量与退回记录;统计不到磁盘就不报', () => {
     const files: Record<string, string> = {
-      '/srv/gugu/data/server-rollback.json': JSON.stringify({ version: '0.3.1', restored: '0.3.0', at: 5_000 }),
+      '/srv/gugu/data/server-update.json': JSON.stringify({ state: 'idle', version: '0.3.0', at: 5_000, lastOutcome: { kind: 'rolledBack', bad: '0.3.1', back: '0.3.0', at: 5_000 } }),
       '/srv/gugu/data/supervisor-health.json': JSON.stringify({ version: '0.3.0', pid: 1, startedAt: 5_500, at: 5_900 }),
     }
     const deps = {
       platform: () => 'linux', release: () => '6.1', arch: () => 'x64', readText: (p: string) => files[p] ?? null, nowMs: () => 6_000,
       statfs: () => ({ bavail: 1000, blocks: 4000, bsize: 4096 }),
     }
-    // 报心跳的账号进程钉在和桌面匹配的 0.3.5 上(ThinkPad 10-07 的形状):退回说的是守护进程,照报。
-    const info = resolveDeviceHostInfo({ GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv/gugu', GUGU_TASK_HOST_VERSION: '0.3.5' }, deps)
+    // Rollback and the running package now belong to this same process.
+    const info = resolveDeviceHostInfo({ GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv/gugu', GUGU_TASK_HOST_VERSION: '0.3.0' }, deps)
     expect(info.server_disk).toEqual({ free_bytes: 4_096_000, total_bytes: 16_384_000 })
     expect(info.server_rollback).toEqual({ version: '0.3.1', restored: '0.3.0' })
     files['/srv/gugu/data/supervisor-health.json'] = JSON.stringify({ version: '0.3.2', pid: 1, startedAt: 5_500, at: 5_900 })
-    expect(resolveDeviceHostInfo({ GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv/gugu', GUGU_TASK_HOST_VERSION: '0.3.0' }, deps).server_rollback).toBeUndefined()
+    expect(resolveDeviceHostInfo({ GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv/gugu', GUGU_TASK_HOST_VERSION: '0.3.2' }, deps).server_rollback).toBeUndefined()
     const noDisk = resolveDeviceHostInfo({ GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv/gugu' }, { ...deps, statfs: () => { throw new Error('ENOSYS') } })
     expect(noDisk.server_disk).toBeUndefined()
   })

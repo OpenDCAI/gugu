@@ -39,9 +39,10 @@ export type DeviceRowModel = {
 
 /** Shared by the device action and the prompt for the same reported update. */
 export function canRestartServerUpdate(update: DeviceServerUpdate | null | undefined, capabilities: Device['capabilities']): boolean {
-  return update?.scope === 'account'
-    || (update?.scope === 'supervisor' && update.state === 'ready' && serverSupportsConfirmedRestart(capabilities))
-    || (update?.scope === undefined && !serverSupportsConfirmedRestart(capabilities))
+  if (serverSupportsConfirmedRestart(capabilities)) {
+    return update?.state === 'ready' || (update?.state === 'failed' && update.reason === 'boot-failed')
+  }
+  return update?.scope === 'account' || update?.scope === undefined
 }
 
 /** 平台标识(node 的 process.platform 与库里几种写法)→ 给人看的系统名。 */

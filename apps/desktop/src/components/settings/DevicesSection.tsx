@@ -478,13 +478,12 @@ function DeviceRow({
   // 「有新版本」在等空闲:人可以「现在重启更新」(先说清会中断正在跑的 agent,再点一次才发)。点过就收起,心跳报回新版本时这颗标签自己没了。
   const [updateNow, setUpdateNow] = useState<'ask' | { version: string; deadline: number; before: NonNullable<DeviceRowModel['update']>; request?: number | 'pending' } | null>(null)
   const restarting = updateNow !== null && typeof updateNow === 'object' ? updateNow : null
-  // A supervisor-ready target can use the same confirmed, account-only restart.
-  // An absent scope on a modern host remains unknown.
+  // Legacy and installation-wide hosts share the same explicit restart action.
   const canRestart = canRestartServerUpdate(model.update, device.capabilities)
   // 起不来的那一版只有确认重启能再试(普通「重试」解不开它的冷却):失败行给「现在重启更新」,❌ 给一颗按了没用的「重试」。
   const bootFailed = model.update?.state === 'failed' && model.update.reason === 'boot-failed'
   const restartable = canRestart && (model.update?.state === 'ready' || bootFailed)
-  const outcome = model.update?.scope === 'account' ? model.update.lastOutcome : undefined
+  const outcome = model.update?.lastOutcome
   // New hosts answer this exact request. Old ACKs have no identity: yield to a changed host fact.
   const answered = restarting && (model.update?.scope !== restarting.before.scope || (typeof restarting.request === 'number'
     ? outcome?.request === restarting.request && outcome.kind !== 'waiting'
@@ -538,7 +537,7 @@ function DeviceRow({
             <span className="truncate text-[length:var(--font-body)] font-semibold text-[var(--fg)]">{device.label}</span>
             {model.kind === 'this' && <Chip tone="accent">{t('devices.current')}</Chip>}
             {restarting && <Chip tone="accent" data-testid="settings-device-restarting">{t('devices.update.restarting')}</Chip>}
-            {!restarting && model.update && model.update.state !== 'failed' && (
+            {!restarting && (model.update?.state === 'ready' || model.update?.state === 'downloading') && (
               <Chip
                 tone={model.update.state === 'ready' && !supervisorReady ? 'accent' : 'default'}
                 title={supervisorReady ? readyText : t(model.update.state === 'ready' ? 'devices.update.readyHint' : 'devices.update.downloadingHint', { version: model.update.version })}

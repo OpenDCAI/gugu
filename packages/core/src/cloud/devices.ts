@@ -322,10 +322,10 @@ function normalizeServerRollback(value: unknown): { server_rollback?: DeviceServ
 function normalizeServerUpdate(value: unknown): { server_update?: DeviceServerUpdate } {
   if (!value || typeof value !== 'object') return {}
   const row = value as Record<string, unknown>
-  if (row.state !== 'downloading' && row.state !== 'ready' && row.state !== 'failed') return {}
+  if (row.state !== 'idle' && row.state !== 'downloading' && row.state !== 'ready' && row.state !== 'switching' && row.state !== 'failed') return {}
   if (typeof row.version !== 'string' || !row.version) return {}
   const count = row.busy_agents
-  const outcome = row.scope === 'account' ? parseVersionRequestOutcome(row.lastOutcome) : undefined
+  const outcome = parseVersionRequestOutcome(row.lastOutcome)
   return { server_update: { state: row.state, version: row.version.slice(0, 64),
     ...(outcome ? { lastOutcome: outcome } : {}),
     ...(row.scope === 'account' || row.scope === 'supervisor' ? { scope: row.scope } : {}),
