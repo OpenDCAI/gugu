@@ -101,7 +101,7 @@ if [ -z "${GUGU_SERVER_HOME:-}" ] && [ "$CHANNEL" != stable ] &&
 fi
 if [ -z "${GUGU_SERVER_HOME:-}" ] && [ -f "$SERVER_HOME/channel" ] &&
   [ "$(cat "$SERVER_HOME/channel")" != "$CHANNEL" ]; then
-  die "已有安装属于另一个通道:$SERVER_HOME。请为新通道显式指定独立的 GUGU_SERVER_HOME。"
+  die "已有安装属于另一个通道:${SERVER_HOME}。请为新通道显式指定独立的 GUGU_SERVER_HOME。"
 fi
 
 # 数据目录里会放登录态和密钥:只归本人(0700)。已有的旧安装也收回来(以前可能按 0002 建成了组可写)。
