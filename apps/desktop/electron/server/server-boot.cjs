@@ -1,0 +1,138 @@
+// Shipped verbatim. The launcher loads this before parsing any application module.
+const fs = require('node:fs')
+const path = require('node:path')
+
+const file = (home, name) => path.join(home, 'data', name)
+const readJson = name => JSON.parse(fs.readFileSync(name, 'utf8'))
+const version = value => typeof value === 'string' && /^[0-9A-Za-z._-]{1,64}$/.test(value) && !value.startsWith('.')
+function writeJson(name, value) {
+  fs.mkdirSync(path.dirname(name), { recursive: true })
+  const temporary = `${name}.${process.pid}.tmp`
+  fs.writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 })
+  fs.renameSync(temporary, name)
+}
+function live(pid) {
+  try { process.kill(pid, 0) } catch (error) { return error.code !== 'ESRCH' }
+  if (process.platform !== 'linux') return true
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
+    if (/^[ZX]/.test(stat.slice(stat.lastIndexOf(')') + 2))) return false
+    return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('server.js')
+  } catch { return true }
+}
+function ownsHomeLock(home) {
+  try { return Number(fs.readFileSync(file(home, 'server.lock'), 'utf8')) === process.pid } catch { return false }
+}
+function claimHomeLock(home) {
+  return ownsHomeLock(home) ? () => {
+    try { if (ownsHomeLock(home)) fs.rmSync(file(home, 'server.lock')) } catch { /* Already released. */ }
+  } : null
+}
+function acquireHomeLock(home, alive = live) {
+  const lock = file(home, 'server.lock')
+  fs.mkdirSync(path.dirname(lock), { recursive: true })
+  const acquire = () => {
+    let fd
+    try { fd = fs.openSync(lock, 'wx', 0o600) }
+    catch (error) { if (error.code === 'EEXIST') return false; throw error }
+    const owned = fs.fstatSync(fd)
+    try { fs.writeFileSync(fd, String(process.pid)) }
+    catch (error) {
+      // A failed PID write must not leave an empty lock behind.
+      const current = fs.lstatSync(lock)
+      if (current.ino === owned.ino && current.dev === owned.dev) fs.rmSync(lock)
+      throw error
+    } finally { fs.closeSync(fd) }
+    return true
+  }
+  if (!acquire()) {
+    const holder = Number(fs.readFileSync(lock, 'utf8').trim())
+    // Invalid/empty content can belong to a writer between open(wx) and its PID write.
+    if (!Number.isSafeInteger(holder) || holder <= 0 || alive(holder)) return null
+    const stale = `${lock}.stale-${process.pid}-${Date.now()}`
+    try { fs.renameSync(lock, stale) }
+    catch (error) { if (error.code === 'ENOENT') return null; throw error }
+    try {
+      if (Number(fs.readFileSync(stale, 'utf8').trim()) !== holder) {
+        // Another starter replaced the stale lock. Restore it without overwriting any newer owner.
+        try { fs.linkSync(stale, lock) } catch (error) { if (error.code !== 'EEXIST') throw error }
+        return null
+      }
+      if (!acquire()) return null
+    } finally { fs.rmSync(stale, { force: true }) }
+  }
+  return claimHomeLock(home)
+}
+function validatePending(value) {
+  if (!value || !version(value.from) || !version(value.to) || !Number.isSafeInteger(value.attempts)
+    || value.attempts < 0 || (value.request !== undefined && !Number.isFinite(value.request))) {
+    throw new Error('Invalid pending server verification record')
+  }
+  return value
+}
+function readPendingVerify(home) {
+  const pending = file(home, 'pending-verify.json')
+  if (!fs.existsSync(pending)) return null
+  try { return validatePending(readJson(pending)) }
+  catch (error) {
+    const evidence = `${pending}.invalid-${Date.now()}-${process.pid}`
+    process.stderr.write(`[server] INVALID STARTUP VERIFICATION: ${error.message}; retaining ${evidence}; continuing current package.\n`)
+    try { fs.renameSync(pending, evidence) }
+    catch (renameError) { process.stderr.write(`[server] Could not retain invalid verification record: ${renameError.message}\n`) }
+    return null
+  }
+}
+function writePendingVerify(home, value) { writeJson(file(home, 'pending-verify.json'), validatePending(value)) }
+function markServerReady(home, now = Date.now()) {
+  const pending = readPendingVerify(home)
+  if (!pending) return
+  writeJson(file(home, 'server-update.json'), { state: 'idle', version: pending.to, at: now,
+    lastOutcome: { kind: 'switched', target: pending.to, at: now,
+      ...(pending.request !== undefined ? { request: pending.request } : {}) } })
+  fs.rmSync(file(home, 'pending-verify.json'), { force: true })
+}
+function checkPendingBoot(home) {
+  const pending = readPendingVerify(home)
+  if (!pending) return false
+  writePendingVerify(home, { ...pending, attempts: pending.attempts + 1 })
+  if (pending.attempts < 3) return false
+  const versions = fs.realpathSync(path.join(home, 'versions'))
+  const previous = fs.realpathSync(path.join(versions, pending.from))
+  if (path.dirname(previous) !== versions) throw new Error('Rollback package is outside this installation')
+  const badFile = file(home, 'bad-versions.json')
+  const bad = fs.existsSync(badFile) ? readJson(badFile) : {}
+  if (!bad || typeof bad !== 'object' || Array.isArray(bad)) throw new Error('Invalid bad versions record')
+  const temporary = path.join(home, `current.boot-${process.pid}`)
+  fs.symlinkSync(path.relative(home, previous), temporary)
+  fs.renameSync(temporary, path.join(home, 'current'))
+  const at = Date.now()
+  writeJson(badFile, { ...bad, [pending.to]: at })
+  writeJson(file(home, 'server-update.json'), { state: 'idle', version: pending.from, at,
+    lastOutcome: { kind: 'rolledBack', bad: pending.to, back: pending.from, at,
+      ...(pending.request !== undefined ? { request: pending.request } : {}) } })
+  fs.rmSync(file(home, 'pending-verify.json'))
+  return true
+}
+
+module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, readPendingVerify, writePendingVerify, markServerReady }
+
+// Importing these same helpers from a bundle never counts another attempt.
+if (process.argv[2] === 'run' && process.execArgv.some((arg, i) => arg === '--require' && process.execArgv[i + 1] === __filename)) {
+  const home = process.env.GUGU_SERVER_HOME
+  let release
+  try {
+    release = acquireHomeLock(home)
+    if (!release) {
+      process.stderr.write('[server] Installation lock is held; refusing a duplicate start.\n')
+      process.exit(78)
+    }
+    process.on('exit', release)
+    if (checkPendingBoot(home)) process.exit(75)
+  } catch (error) {
+    process.stderr.write(`[server] Startup verification failed: ${error.message}\n`)
+    if (release && process.env.GUGU_SERVER_SUPERVISED !== 'systemd') {
+      try { fs.writeFileSync(file(home, 'stopped'), '') } catch { /* Preserve configuration exit 78. */ }
+    }
+    process.exit(78)
+  }
+}

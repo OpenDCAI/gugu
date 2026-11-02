@@ -479,7 +479,7 @@ import { createPushedRuntimeAuthProvider, type PushedRuntimeAuth } from './runti
 import { createServerAuthProvider, type ServerAuthProvider } from './server/server-auth'
 import { ensureUtf8Locale } from './server/server-locale'
 import { killAccountTmuxServer, SESSION_FILE } from './server/server-layout'
-import { EXIT_RESTART, EXIT_SIGNED_OUT, isSingleServerRun } from './server/server-exit'
+import { EXIT_CONFIG, EXIT_RESTART, EXIT_SIGNED_OUT, isSingleServerRun } from './server/server-exit'
 import { markStopped } from './server/server-keeper'
 import { registerServerSshInstallIpc } from './server/ssh-install/ipc'
 import { registerServerSshUninstallIpc } from './server/ssh-uninstall-ipc'
@@ -6503,10 +6503,14 @@ app.whenReady().then(async () => {
     // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
     const activityFile = join(app.getPath('userData'), 'activity.json')
-    const { markServerReady } = await import('./server/server-startup')
+    const { markServerReady, ownsHomeLock } = await import('./server/server-startup')
     // #6264 同一份读数也是升级看门狗判「新版本站稳了没有」的依据(server-upgrade-guard.ts):带上自己的版本与起始时刻。
     const activityStartedAt = Date.now()
     const reportActivity = (): void => {
+      if (isSingleServerRun() && !ownsHomeLock(process.env.GUGU_SERVER_HOME!)) {
+        createLogger('server').error('Installation lock ownership was lost; stopping this server.')
+        process.exit(EXIT_CONFIG)
+      }
       const activity = loadEmdashBridge()?.sessionpageVersionSwitchActivity?.()
       try {
         writeFileSync(activityFile, JSON.stringify({

@@ -162,7 +162,7 @@ const sessionMainVite: ElectronOptions['vite'] = {
       // 绝不内联;清单是 verify-packaged-natives 探针的单一来源。
       // #7191 浏览器工具(@playwright/mcp + 它锁定的 playwright-core)运行时从 app/node_modules 加载:它们靠 __dirname
       // 找自己的文件,打进主进程包会断;根 dependencies 声明两者,electron-builder 原样带进包。
-      external: ['ws', '@playwright/mcp', 'playwright-core', ...EMDASH_EXTERNAL],
+      external: ['ws', '@playwright/mcp', 'playwright-core', './server-boot.cjs', ...EMDASH_EXTERNAL],
       output: {
         // Electron 28 = Node 18:`globalThis.crypto` 不是全局,会话页 runtime 裸用
         // crypto.randomUUID()。注入到每个产物(主进程、worker、共享 chunk),幂等。
@@ -173,6 +173,14 @@ const sessionMainVite: ElectronOptions['vite'] = {
     },
   },
   plugins: [
+    {
+      name: 'gugu-server-boot-preload',
+      generateBundle() {
+        // Both the launcher and application import this exact, unbundled implementation.
+        this.emitFile({ type: 'asset', fileName: 'server-boot.cjs', source: readFileSync(
+          fileURLToPath(new URL('./apps/desktop/electron/server/server-boot.cjs', import.meta.url)), 'utf8') })
+      },
+    },
     // @@@deterministic-mse (#7066) — 渲染层、主进程、两个 preload 共用这一个插件:同一个 sha 打几次产物逐字节相同。
     deterministicModuleSideEffects(),
     serverPackageIdentity(bakedSupabaseUrl, serverChannelForDb(process.env.VITE_SUPABASE_URL || bakedSupabaseUrl || null)),

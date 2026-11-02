@@ -5,7 +5,6 @@ import type { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runSingleServer } from '../../../../apps/desktop/electron/server/server-run'
 import { readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
-import * as processAlive from '../../../../apps/desktop/electron/server/process-alive'
 
 vi.mock('../../../../apps/desktop/electron/server/server-service', () => ({ repairServiceDefinition: vi.fn() }))
 vi.mock('../../../../apps/desktop/electron/server/server-updater', () => ({ managedLayout: () => null }))
@@ -26,6 +25,8 @@ beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-single-run-'))
   process.env.GUGU_SERVER_HOME = home
   process.env.GUGU_SERVER_SUPERVISED = 'keeper'
+  fs.mkdirSync(path.join(home, 'data'))
+  fs.writeFileSync(path.join(home, 'data/server.lock'), String(process.pid))
   signalHandlers = { SIGINT: signals.listeners('SIGINT'), SIGTERM: signals.listeners('SIGTERM'), exit: signals.listeners('exit') }
   vi.spyOn(process, 'exit').mockImplementation(code => { throw new Error(`exit ${code}`) })
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
@@ -41,12 +42,12 @@ afterEach(() => {
 })
 
 describe('installation run enters the account body without a child process', () => {
-  it('takes the home lock, counts the boot, then prepares and enters the only account in this PID', async () => {
+  it('claims its preloaded home lock without counting again, then enters the only account in this PID', async () => {
     signIn()
     writePendingVerify(home, { from: '1.0.0', to: '2.0.0', attempts: 0 })
     const prepare = vi.fn(() => {
       expect(fs.readFileSync(path.join(home, 'data/server.lock'), 'utf8')).toBe(String(process.pid))
-      expect(readPendingVerify(home)?.attempts).toBe(1)
+      expect(readPendingVerify(home)?.attempts).toBe(0)
     })
     const body = vi.fn(async (userId: string) => { expect(userId).toBe(id); expect(prepare).toHaveBeenCalledOnce() })
     await runSingleServer(prepare, body)
@@ -55,8 +56,7 @@ describe('installation run enters the account body without a child process', () 
 
   it('a duplicate run leaves verification and the active keeper’s stop flag untouched', async () => {
     writePendingVerify(home, { from: '1.0.0', to: '2.0.0', attempts: 0 })
-    fs.writeFileSync(path.join(home, 'data/server.lock'), String(process.pid))
-    vi.spyOn(processAlive, 'isOwnProcessAlive').mockReturnValue(true)
+    fs.writeFileSync(path.join(home, 'data/server.lock'), '49213')
     const prepare = vi.fn(), body = vi.fn(async () => undefined)
     await expect(runSingleServer(prepare, body)).rejects.toThrow('exit 78')
     expect(prepare).not.toHaveBeenCalled()

@@ -1,7 +1,7 @@
 /** One installation, one signed-in account, one long-lived server process. */
 import path from 'node:path'
 import fs from 'node:fs'
-import { acquireHomeLock, checkPendingBoot, markServerReady, onlySignedInAccount } from './server-startup'
+import { claimHomeLock, markServerReady, onlySignedInAccount, ownsHomeLock } from './server-startup'
 import { EXIT_CONFIG } from './server-exit'
 import { applyLoginShell, clearStopped, liveKeeperPid, markStopped, startKeeper } from './server-keeper'
 import { listAccounts, serverHome, supervisorDataDir } from './server-layout'
@@ -19,7 +19,7 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
     if (process.env.GUGU_SERVER_SUPERVISED !== 'systemd') markStopped(home)
     process.exit(EXIT_CONFIG)
   }
-  const release = acquireHomeLock(home)
+  const release = claimHomeLock(home)
   if (!release) {
     let holder: number | null = null
     try { holder = Number(fs.readFileSync(path.join(home, 'data/server.lock'), 'utf8')) } catch { /* The holder may have just exited. */ }
@@ -27,10 +27,6 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
     process.exit(EXIT_CONFIG)
   }
   process.on('exit', release)
-  try {
-    const restart = checkPendingBoot(home)
-    if (restart) process.exit(restart)
-  } catch (error) { return exitConfig(error instanceof Error ? error.message : String(error)) }
   prepare()
   const layout = managedLayout()
   if (layout) {
@@ -42,7 +38,13 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   clearStopped(home)
   applyLoginShell(home)
   const startedAt = Date.now()
-  const health = () => writeSupervisorHealth(home, { version: process.env.GUGU_TASK_HOST_VERSION ?? null, pid: process.pid, startedAt })
+  const health = () => {
+    if (!ownsHomeLock(home)) {
+      warn('Installation lock ownership was lost; stopping this server.')
+      process.exit(EXIT_CONFIG)
+    }
+    writeSupervisorHealth(home, { version: process.env.GUGU_TASK_HOST_VERSION ?? null, pid: process.pid, startedAt })
+  }
   health()
   setInterval(health, SUPERVISOR_HEALTH_MS).unref()
   for (const account of listAccounts()) removeLegacyBrowserLogins(account.dataDir, { info: warn, warn })

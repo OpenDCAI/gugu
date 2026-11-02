@@ -1,0 +1,126 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { once } from 'node:events'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { serverLauncher } from '../../../../scripts/gugu-server/launcher.mjs'
+
+let home: string
+const children: ChildProcess[] = []
+const data = (name: string) => path.join(home, 'data', name)
+const app = () => path.join(home, 'versions/2.0.0/app/dist-electron/server.js')
+const command = () => path.join(home, 'current/bin/gugu-server')
+const environment = () => ({ HOME: home, PATH: process.env.PATH, GUGU_SERVER_HOME: home, GUGU_SERVER_SUPERVISED: 'keeper' })
+const read = (name: string) => JSON.parse(fs.readFileSync(data(name), 'utf8'))
+function pending(): void {
+  fs.writeFileSync(data('pending-verify.json'), JSON.stringify({ from: '1.0.0', to: '2.0.0', attempts: 0, request: 42 }))
+}
+function run(args = ['run']) {
+  return spawnSync(command(), args, { env: environment(), encoding: 'utf8' })
+}
+beforeEach(() => {
+  home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gugu launcher ')))
+  fs.mkdirSync(data(''), { recursive: true })
+  fs.writeFileSync(path.join(home, 'channel'), 'stable')
+  for (const version of ['1.0.0', '2.0.0']) {
+    const dir = path.join(home, 'versions', version)
+    for (const sub of ['bin', 'node/bin', 'app/dist-electron']) fs.mkdirSync(path.join(dir, sub), { recursive: true })
+    fs.symlinkSync(process.execPath, path.join(dir, 'node/bin/node'))
+    fs.copyFileSync(path.resolve('apps/desktop/electron/server/server-boot.cjs'), path.join(dir, 'app/dist-electron/server-boot.cjs'))
+    fs.writeFileSync(path.join(dir, 'bin/gugu-server'), serverLauncher(version, 'stable'), { mode: 0o755 })
+  }
+  fs.symlinkSync('versions/2.0.0', path.join(home, 'current'))
+})
+afterEach(async () => {
+  for (const child of children.splice(0)) {
+    if (child.exitCode === null && child.signalCode === null) {
+      const closed = once(child, 'close')
+      child.kill('SIGTERM')
+      await closed
+    }
+  }
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+describe('the packaged launcher verifies before loading application code', () => {
+  it('counts three syntax failures and rolls back on the fourth launch before parsing server.js', () => {
+    pending()
+    fs.writeFileSync(app(), 'const broken = ;')
+    for (const attempt of [1, 2, 3]) {
+      const result = run()
+      expect(result.status, result.stderr).toBe(1)
+      expect(result.stderr).toContain('SyntaxError')
+      expect(read('pending-verify.json').attempts).toBe(attempt)
+      expect(fs.existsSync(data('server.lock'))).toBe(false)
+    }
+    const rolledBack = run()
+    expect(rolledBack.status, rolledBack.stderr).toBe(75)
+    expect(rolledBack.stderr).not.toContain('SyntaxError')
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/1.0.0'))
+    expect(read('bad-versions.json')['2.0.0']).toBeTypeOf('number')
+    expect(read('server-update.json').lastOutcome).toMatchObject({ kind: 'rolledBack', bad: '2.0.0', back: '1.0.0', request: 42 })
+    expect(fs.existsSync(data('pending-verify.json'))).toBe(false)
+  })
+
+  it('counts an application dependency failure before any startup body can run', () => {
+    pending()
+    fs.writeFileSync(app(), "require('./missing-native-addon.node')")
+    const result = run()
+    expect(result.status, result.stderr).toBe(1)
+    expect(result.stderr).toContain('MODULE_NOT_FOUND')
+    expect(read('pending-verify.json').attempts).toBe(1)
+  })
+
+  it('owns the lock in the same PID as the body, including the default run command', () => {
+    pending()
+    fs.writeFileSync(app(), `const fs=require('node:fs');process.stdout.write(JSON.stringify({pid:process.pid,lock:fs.readFileSync(${JSON.stringify(data('server.lock'))},'utf8'),command:process.argv[2]}))`)
+    const result = run([])
+    expect(result.status, result.stderr).toBe(0)
+    const body = JSON.parse(result.stdout)
+    expect(body).toMatchObject({ lock: String(body.pid), command: 'run' })
+    expect(read('pending-verify.json').attempts).toBe(1)
+    expect(fs.existsSync(data('server.lock'))).toBe(false)
+  })
+
+  it.each(['run-account', 'status', 'selftest'])('%s bypasses home locking and attempts', verb => {
+    pending()
+    fs.writeFileSync(data('server.lock'), '12345')
+    fs.writeFileSync(app(), 'process.stdout.write(process.argv[2])')
+    const result = run([verb, 'fixture-account'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toBe(verb)
+    expect(read('pending-verify.json').attempts).toBe(0)
+    expect(fs.readFileSync(data('server.lock'), 'utf8')).toBe('12345')
+  })
+
+  it('refuses a duplicate while a real server body is alive without counting or stopping it', async () => {
+    pending()
+    fs.writeFileSync(app(), "process.stdin.resume();process.stdout.write('ready');process.stdin.on('data',()=>process.exit(0))")
+    const child = spawn(command(), ['run'], { env: environment(), stdio: ['pipe', 'pipe', 'pipe'] })
+    children.push(child)
+    const [output] = await once(child.stdout!, 'data')
+    expect(String(output)).toBe('ready')
+    const result = run()
+    expect(result.status, result.stderr).toBe(78)
+    expect(read('pending-verify.json').attempts).toBe(1)
+    expect(fs.readFileSync(data('server.lock'), 'utf8')).toBe(String(child.pid))
+    expect(fs.existsSync(data('stopped'))).toBe(false)
+    const closed = once(child, 'close')
+    child.stdin!.end('exit')
+    await closed
+    expect(child.exitCode).toBe(0)
+  })
+
+  it('retains a damaged pending record and runs the current package without guessing a rollback', () => {
+    fs.writeFileSync(data('pending-verify.json'), '{damaged')
+    fs.writeFileSync(app(), "process.stdout.write('current started')")
+    const result = run()
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stderr).toContain('INVALID STARTUP VERIFICATION')
+    expect(result.stdout).toBe('current started')
+    const evidence = fs.readdirSync(data('')).find(name => name.startsWith('pending-verify.json.invalid-'))!
+    expect(fs.readFileSync(data(evidence), 'utf8')).toBe('{damaged')
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/2.0.0'))
+  })
+})

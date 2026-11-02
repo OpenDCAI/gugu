@@ -1,9 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { acquireHomeLock, assertAccountLogin, checkPendingBoot, EXIT_RESTART, markServerReady, onlySignedInAccount, readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
-import { readBadVersions } from '../../../../apps/desktop/electron/server/server-upgrade-guard'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { acquireHomeLock, assertAccountLogin, markServerReady, onlySignedInAccount, readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
 import type { ServerAccount } from '../../../../apps/desktop/electron/server/server-layout'
 
 let home: string
@@ -12,7 +11,7 @@ beforeEach(() => {
   for (const version of ['1.0.0', '2.0.0']) fs.mkdirSync(path.join(home, 'versions', version), { recursive: true })
   fs.symlinkSync('versions/2.0.0', path.join(home, 'current'))
 })
-afterEach(() => fs.rmSync(home, { recursive: true, force: true }))
+afterEach(() => { vi.restoreAllMocks(); fs.rmSync(home, { recursive: true, force: true }) })
 const account = (userId: string, signedIn = true): ServerAccount => ({ userId, signedIn, email: `${userId}@example.test`,
   addedAt: null, dir: '', dataDir: '', homeDir: '', signedOut: null })
 
@@ -34,33 +33,46 @@ describe('single-process server startup', () => {
     release()
   })
 
-  it('rolls back after exactly three launches failed to reach a stable state, irrespective of elapsed time', () => {
-    writePendingVerify(home, { from: '1.0.0', to: '2.0.0', attempts: 0, request: 42 })
-    for (const now of [100, 200_100, 9_000_000]) expect(checkPendingBoot(home, now)).toBeNull()
-    expect(readPendingVerify(home)?.attempts).toBe(3)
-    expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/2.0.0'))
-    expect(checkPendingBoot(home, 9_000_001)).toBe(EXIT_RESTART)
-    expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/1.0.0'))
-    expect(readBadVersions(home)).toEqual({ '2.0.0': 9_000_001 })
-    expect(readPendingVerify(home)).toBeNull()
-    expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8')).lastOutcome)
-      .toMatchObject({ kind: 'rolledBack', bad: '2.0.0', back: '1.0.0', request: 42 })
-  })
-
   it('clears pending verification on reaching a stable state and retains the request result', () => {
     writePendingVerify(home, { from: '1.0.0', to: '2.0.0', attempts: 0, request: 42 })
-    checkPendingBoot(home)
     markServerReady(home, 500)
     expect(readPendingVerify(home)).toBeNull()
     expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8')))
       .toMatchObject({ state: 'idle', version: '2.0.0', lastOutcome: { kind: 'switched', target: '2.0.0', request: 42 } })
-    expect(checkPendingBoot(home, 100_000)).toBeNull()
   })
 
-  it('rejects malformed verification records without selecting or deleting a package', () => {
-    writePendingVerify(home, { from: '../other', to: '2.0.0', attempts: 0 })
-    expect(() => checkPendingBoot(home)).toThrow('Invalid pending')
+  it('retains malformed verification evidence and continues current without selecting or deleting a package', () => {
+    fs.mkdirSync(path.join(home, 'data'))
+    fs.writeFileSync(path.join(home, 'data/pending-verify.json'), '{broken')
+    const log = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    expect(readPendingVerify(home)).toBeNull()
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('INVALID STARTUP VERIFICATION'))
+    const evidence = fs.readdirSync(path.join(home, 'data')).find(name => name.startsWith('pending-verify.json.invalid-'))!
+    expect(fs.readFileSync(path.join(home, 'data', evidence), 'utf8')).toBe('{broken')
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/2.0.0'))
+  })
+
+  it('restores a fresh owner encountered while recovering a previously dead PID', () => {
+    fs.mkdirSync(path.join(home, 'data'))
+    const lock = path.join(home, 'data/server.lock')
+    fs.writeFileSync(lock, '999999')
+    const rename = fs.renameSync
+    vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (from === lock) fs.writeFileSync(lock, String(process.pid))
+      rename(from, to)
+    })
+    expect(acquireHomeLock(home, () => false)).toBeNull()
+    expect(fs.readFileSync(lock, 'utf8')).toBe(String(process.pid))
+  })
+
+  it('removes its own lock if writing its PID fails', () => {
+    const write = fs.writeFileSync
+    vi.spyOn(fs, 'writeFileSync').mockImplementation((file, ...args) => {
+      if (typeof file === 'number') throw new Error('ENOSPC fixture')
+      return write(file, ...args)
+    })
+    expect(() => acquireHomeLock(home)).toThrow('ENOSPC fixture')
+    expect(fs.existsSync(path.join(home, 'data/server.lock'))).toBe(false)
   })
 
   it('waits with no signed-in account and accepts exactly one without deleting signed-out data', () => {
