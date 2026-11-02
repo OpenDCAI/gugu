@@ -470,11 +470,18 @@ describe('membership revision resource keys', () => {
 })
 
 describe('readMemberRosterRevision (#6470)', () => {
+  it.each([
+    ['own', true], ['roster', false], [undefined, false],
+  ])('reads membership kind %s while preserving legacy roster semantics', (kind, own) => {
+    expect(readMemberRosterRevision({ chat_id: 'group', user_id: 'peer', kind, tombstone: false }))
+      .toMatchObject({ chatId: 'group', memberId: 'peer', left: false, own })
+  })
+
   it('tells a leave (tombstone) apart from a join or row update', () => {
     expect(readMemberRosterRevision({ chat_id: 'topic-1', user_id: 'agent-9', tombstone: false }))
-      .toEqual({ chatId: 'topic-1', memberId: 'agent-9', left: false })
+      .toEqual({ chatId: 'topic-1', memberId: 'agent-9', left: false, own: false })
     expect(readMemberRosterRevision({ chat_id: 'topic-1', user_id: 'agent-9', tombstone: true }))
-      .toEqual({ chatId: 'topic-1', memberId: 'agent-9', left: true })
+      .toEqual({ chatId: 'topic-1', memberId: 'agent-9', left: true, own: false })
     expect(readMemberRosterRevision({ chat_id: 'topic-1', tombstone: false }).memberId).toBeNull()
   })
 
