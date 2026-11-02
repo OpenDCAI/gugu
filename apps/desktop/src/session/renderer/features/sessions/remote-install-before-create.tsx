@@ -3,10 +3,13 @@
 // 新建框(new-session-page.tsx 的 NewSessionComposer)经 useRemoteInstallBeforeCreate 接这一截。
 import { useState, type ReactElement } from 'react';
 import type { AgentInstallProgress } from '@gugu/session-core/workspace-server';
+import type { DependencyInstallResult } from '@gugu/session-core/deps/runtime/types';
+import { getAgentInstallErrorPresentation } from '@renderer/features/settings/agents-page/agent-install';
 import { installProgressLine } from '@renderer/features/settings/agents-page/install-progress-line';
 import { onMachineEvent, rpcOn } from '@renderer/lib/ipc';
 import { useAgents } from '@renderer/lib/stores/use-agents';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import { log } from '@renderer/utils/logger';
 import { agentInstallProgressChannel } from '@shared/events/appEvents';
 
 type RemoteInstall = { harness: string; progress: AgentInstallProgress | null };
@@ -42,14 +45,20 @@ export function remoteInstallNote(
 async function installOnMachine(
   deviceId: string,
   providerId: string,
-  onProgress: (progress: AgentInstallProgress | null) => void
+  onProgress: (progress: AgentInstallProgress | null) => void,
+  translate: ReturnType<typeof useSessionMessages>['translate']
 ): Promise<void> {
   onProgress(null);
   const stop = onMachineEvent(deviceId, agentInstallProgressChannel, (progress) => {
     if (progress.providerId === providerId) onProgress(progress);
   });
   try {
-    await rpcOn(deviceId).agents.install(providerId as never);
+    const result = await rpcOn(deviceId).agents.install(providerId as never) as DependencyInstallResult | null | undefined;
+    if (result?.success === true) return;
+    if (result?.success !== false || !result.error) throw new Error('Invalid agents.install result from remote machine');
+    const { message, diagnostic } = getAgentInstallErrorPresentation(result.error, { translate });
+    if (diagnostic) log.error('remote agent installation failed', { providerId, diagnostic });
+    throw new Error(message);
   } finally {
     stop();
   }
@@ -70,7 +79,8 @@ export function useRemoteInstallBeforeCreate(
   const beforeCreate =
     machine && agent?.reading === 'not-detected'
       ? () => installOnMachine(machine.deviceId, agent.id, (progress) =>
-          setRemoteInstall({ harness: agent.id, progress })
+          setRemoteInstall({ harness: agent.id, progress }),
+          translate
         ).finally(() => setRemoteInstall(null))
       : undefined;
   const note = machine ? remoteInstallNote(agent, machine.label, remoteInstall, translate) : null;
