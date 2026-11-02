@@ -16,6 +16,8 @@ import {
 } from '../lib/sshLinkChannel'
 import type { SshPrompt } from '../session/shared/ssh-prompt'
 import { useDevicesStore } from '../store/devicesContext'
+import { canRestartServerUpdate } from '../lib/deviceRowModel'
+import { useSessionMessages } from '../session/renderer/localization/use-session-messages'
 import { IconButton } from './ui/IconButton'
 import { SshPromptCard, SshPromptFrame } from './settings/addServer/SshPromptCard'
 import { Button } from './ui/Button'
@@ -36,6 +38,7 @@ import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 
 export function SshLinkSignIn() {
   const { t } = useTranslation('settings')
+  const { translate } = useSessionMessages()
   const { devices } = useDevicesStore()
   const [problems, setProblems] = useState<ReadonlyMap<string, SshLinkFailure>>(() => new Map())
   const [dismissed, setDismissed] = useState<ReadonlyMap<string, SshLinkFailure>>(() => new Map())
@@ -72,6 +75,9 @@ export function SshLinkSignIn() {
     ? { deviceId: signingMachine.device_id, name: signingMachine.label, reason: 'signInRequired' }
     : (notice ?? (tunnelWaiting ? { deviceId: tunnelWaiting.device_id, name: tunnelWaiting.label, reason: 'waitingIdle' } : null))
   if (!shown) return null
+  const tunnelUpdate = !notice ? tunnelWaiting?.capabilities.server_update : undefined
+  const confirmableUpdate = tunnelUpdate?.state === 'ready' && tunnelWaiting
+    && canRestartServerUpdate(tunnelUpdate, tunnelWaiting.capabilities) ? tunnelUpdate : null
 
   const startSignIn = () => {
     const deviceId = shown.deviceId
@@ -121,7 +127,11 @@ export function SshLinkSignIn() {
             }
           >
             <p className="m-0 text-[length:var(--font-body)] leading-[1.5]">
-              {t(confirmRestart === shown.deviceId ? 'devices.link.updateNowConfirm' : 'devices.link.waitingIdle', { name: shown.name })}
+              {confirmRestart === shown.deviceId
+                ? t('devices.link.updateNowConfirm', { name: shown.name })
+                : confirmableUpdate
+                  ? translate('remoteHost.notice.updateReady', { device: shown.name, version: confirmableUpdate.version })
+                  : t('devices.link.waitingIdle', { name: shown.name })}
             </p>
           </SshPromptFrame>
         ) : activePrompt ? (

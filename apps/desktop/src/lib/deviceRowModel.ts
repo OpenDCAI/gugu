@@ -1,6 +1,6 @@
 import type { Device } from '@gugu/core/shared/types/chat'
 import type { DeviceServerUpdate } from '@gugu/core/shared/types/deviceHost'
-import { serverMachineNotices, type ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth'
+import { serverMachineNotices, serverSupportsConfirmedRestart, type ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth'
 import { deviceAcceptsWork } from '@gugu/core/cloud/cloudComputer'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import type { DeviceBoundAgent } from './chat'
@@ -35,6 +35,13 @@ export type DeviceRowModel = {
   /** #6264 这台 server 有件事要人知道(版本对不上 / 磁盘快满 / 升级被退回),按要紧程度排;别的机器为空。 */
   notices: ServerMachineNotice[]
   connection: DeviceConnection
+}
+
+/** Shared by the device action and the prompt for the same reported update. */
+export function canRestartServerUpdate(update: DeviceServerUpdate | null | undefined, capabilities: Device['capabilities']): boolean {
+  return update?.scope === 'account'
+    || (update?.scope === 'supervisor' && update.state === 'ready' && serverSupportsConfirmedRestart(capabilities))
+    || (update?.scope === undefined && !serverSupportsConfirmedRestart(capabilities))
 }
 
 /** 平台标识(node 的 process.platform 与库里几种写法)→ 给人看的系统名。 */

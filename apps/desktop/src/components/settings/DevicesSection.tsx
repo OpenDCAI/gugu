@@ -8,6 +8,7 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { formatRelativeTime } from '../../lib/relativeTime'
 import {
   deviceRowModel,
+  canRestartServerUpdate,
   filterDevices,
   hasOtherMachines,
   type DeviceFilter,
@@ -479,9 +480,7 @@ function DeviceRow({
   const restarting = updateNow !== null && typeof updateNow === 'object' ? updateNow : null
   // A supervisor-ready target can use the same confirmed, account-only restart.
   // An absent scope on a modern host remains unknown.
-  const canRestart = model.update?.scope === 'account'
-    || (model.update?.scope === 'supervisor' && model.update.state === 'ready' && serverSupportsConfirmedRestart(device.capabilities))
-    || (model.update?.scope === undefined && !serverSupportsConfirmedRestart(device.capabilities))
+  const canRestart = canRestartServerUpdate(model.update, device.capabilities)
   // 起不来的那一版只有确认重启能再试(普通「重试」解不开它的冷却):失败行给「现在重启更新」,❌ 给一颗按了没用的「重试」。
   const bootFailed = model.update?.state === 'failed' && model.update.reason === 'boot-failed'
   const restartable = canRestart && (model.update?.state === 'ready' || bootFailed)
