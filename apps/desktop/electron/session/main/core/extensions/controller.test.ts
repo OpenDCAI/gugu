@@ -537,17 +537,33 @@ process.stdin.on('end', () => process.exit(0));
     expect(configured.at(-1)?.networkHosts).toEqual(['b.example.com']);
   });
 
-  it('network withdrawal and regrant both retire programs so the next launch has the current hosts', async () => {
-    await installViaController(['a.example.com']);
+  it.each([
+    ['confined tools', EXTENSION_API_VERSION, [{ tools: 'tools.js' }], true],
+    ['legacy tools', 27, [{ tools: 'tools.js' }], false],
+    ['command program', EXTENSION_API_VERSION, [{ name: 'fixture', command: 'node' }], false],
+    ['page only', EXTENSION_API_VERSION, [], false],
+    ['mixed with confined tools', EXTENSION_API_VERSION, [{ tools: 'tools.js' }, { name: 'fixture', command: 'node' }], true],
+  ] as const)('network withdrawal/regrant retires only an App with confined programs: %s', async (_kind, apiVersion, servers, shouldRetire) => {
+    const source = writeBundle(['a.example.com'], undefined, servers.length ? ['agents:tools'] : undefined);
+    const file = join(source, 'manifest.json');
+    const manifest = JSON.parse(readFileSync(file, 'utf8'));
+    manifest.apiVersion = apiVersion;
+    if (servers.length) { manifest.contributes.mcpServers = servers; manifest.contributes.instructions = 'Fixture tools.'; }
+    writeFileSync(file, JSON.stringify(manifest));
+    writeFileSync(join(source, 'tools.js'), "export const fixture = { description: 'Fixture.', inputSchema: { type: 'object' }, run: async () => 'ok' }");
+    const inspected = await folderAsk(source);
+    const installed = await folderGiven(source, inspected.ask.manifestDigest);
+    expect(installed.success, installed.error).toBe(true);
     const retire = vi.spyOn(appPrograms, 'revokeExtensionPrograms').mockResolvedValue();
     try {
-      const result = await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'a.example.com', granted: false });
-      expect(result.success, result.error).toBe(true);
-      expect(retire).toHaveBeenCalledExactlyOnceWith(EXTENSION_ID);
-      retire.mockClear();
-      const restored = await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'a.example.com', granted: true });
-      expect(restored.success, restored.error).toBe(true);
-      expect(retire).toHaveBeenCalledExactlyOnceWith(EXTENSION_ID);
+      for (const granted of [false, true]) {
+        retire.mockClear();
+        const result = await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'a.example.com', granted });
+        expect(result.success, result.error).toBe(true);
+        expect(retire).toHaveBeenCalledTimes(shouldRetire ? 1 : 0);
+        if (shouldRetire) expect(retire).toHaveBeenCalledWith(EXTENSION_ID);
+        expect(configured.at(-1)?.networkHosts).toEqual(granted ? ['a.example.com'] : []);
+      }
     } finally { retire.mockRestore(); }
   });
 
