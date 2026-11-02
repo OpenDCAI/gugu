@@ -23,6 +23,7 @@ import { ChildAcpProcessHost } from './child-process-host';
 import { LocalAttachmentStore } from './local-attachment-store';
 import { createPromptAttachmentResolver } from './resolve-prompt-attachment';
 import { LocalPromptQueueStore } from './local-prompt-queue-store';
+import { LocalTerminalOutputArchive } from './local-terminal-output-archive';
 
 export type BootAcpRuntimeProcessOptions = {
   pluginRegistry: PluginRegistry<CLIAgentPluginProvider>;
@@ -43,6 +44,7 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
   const env = options.env ?? process.env;
   const logger = initProcessLogging({ name: 'acp-agents-runtime', env });
 
+  const childHost = new ChildAcpProcessHost();
   void serveWorkerProcess(
     (scope) => {
       const attachmentsDir = env.GUGU_ACP_ATTACHMENTS_DIR;
@@ -50,7 +52,6 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
         throw new Error('ACP runtime process started without GUGU_ACP_ATTACHMENTS_DIR');
       }
 
-      const childHost = new ChildAcpProcessHost();
       const platformSessionClosed = createEventStreamHost(
         acpRuntimeApiContract.platformSessionClosed
       );
@@ -88,6 +89,7 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
         recoverDelivery: options.recoverDelivery,
         resolveAttachment: createPromptAttachmentResolver(attachmentStore),
         attachmentStore,
+        terminalOutputArchive: new LocalTerminalOutputArchive(join(attachmentsDir, 'terminal-output')),
         promptQueueStore,
         logger,
         onPlatformSessionClosed: (sessionId, platformAccessSessionId) =>
@@ -114,6 +116,6 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
         workerValidatePolicy(env)
       );
     },
-    { port: options.port, exit: options.exit, logger }
+    { port: options.port, exit: options.exit, logger, onOutputPressure: paused => childHost.setOutputPaused(paused) }
   );
 }
