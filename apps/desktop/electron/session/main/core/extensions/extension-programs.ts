@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
+import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { DEFAULT_REQUEST_TIMEOUT_MSEC } from '@modelcontextprotocol/sdk/shared/protocol.js';
@@ -12,6 +13,7 @@ import { extensionsService } from './extensions-root';
 import { revokeExtensionProgramAccess, withExtensionProgramAccess } from './extension-program-access';
 import { programRuntimePath } from './app-runtime-dir';
 import { PROGRAM_CALL_META_KEY } from '@shared/extensions/app-runtime-protocol';
+import { confinedEnv, confinedNodeArgs, CONFINE_HOSTS_ENV, type ProgramConfinement } from '@shared/extensions/program-confinement';
 import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink';
 import { firstSentence } from '../../../../mcp/first-sentence';
 import {
@@ -55,6 +57,7 @@ export interface ExtensionProgram {
   dataDir: string;
   /** F16 It runs on gugu's own node (`"command": "node"`): it gets the global `gugu`, as the App's pages do. */
   onGuguNode?: true;
+  confine?: ProgramConfinement | null;
 }
 
 export interface ExtensionPrograms {
@@ -319,11 +322,16 @@ class ProgramTransport extends OwnedStdioTransport {
       // The guide promises the program this folder; before, it existed only once a page had read or written data.
       fs.mkdirSync(program.dataDir, { recursive: true });
       const at = runtime();
+      const confine = program.confine;
+      if (confine && !at) throw new Error('This build has no runtime to confine App tools');
+      const flags = confine && at ? confinedNodeArgs(confine, dirname(at)) : [];
+      const env = confine ? confinedEnv(confine) : { [CONFINE_HOSTS_ENV]: '' };
+      if (confine) fs.mkdirSync(env.TMPDIR!, { recursive: true });
       return {
         command: program.command,
-        args: at ? ['--import', pathToFileURL(at).href, ...program.args] : program.args,
+        args: at ? [...flags, '--import', pathToFileURL(at).href, ...program.args] : program.args,
         cwd: program.cwd,
-        env: program.env,
+        env: { ...program.env, ...env },
         ...(at ? { stdio: ['pipe', 'pipe', 'pipe', 'ipc'] as const, serialization: 'advanced' as const } : {}),
       };
     }, {

@@ -1,11 +1,11 @@
 import { existsSync, readdirSync, readFileSync, type Dirent } from 'node:fs'
-import { isAbsolute, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import type { ExtensionSkill } from '@gugu/session-core/agents/plugins'
 import type { AcpMcpServer } from './acp-engine-utils'
 import type { ExtensionProgram } from './session/main/core/extensions/extension-programs'
 import { resolvesInside } from './session/main/core/extensions/path-containment'
-import { hostProgramLine, programName } from '@shared/extensions/manifest'
+import { hostProgramLine, isConfinedToolProgram, programName } from '@shared/extensions/manifest'
 
 /**
  * What installed extensions give every agent session: their own MCP programs (and skills,
@@ -19,6 +19,8 @@ import { hostProgramLine, programName } from '@shared/extensions/manifest'
 
 export interface ExtensionAgentContribution {
   extensionId: string
+  apiVersion?: number
+  networkHosts?: readonly string[]
   /** The manifest's base `name` and its `contributes.instructions`: the App's line in `<gugu_apps>`. */
   name: string
   instructions?: string
@@ -195,6 +197,9 @@ export function extensionAgentPrograms(
         cwd: contribution.rootDir,
         dataDir: contribution.dataDir,
         ...(runsOnGuguNode ? { onGuguNode: true as const } : {}),
+        confine: isConfinedToolProgram(contribution.apiVersion, server) && host.toolsRuntime
+          ? { fsRead: [contribution.rootDir, dirname(host.toolsRuntime), contribution.dataDir], fsWrite: [contribution.dataDir], hosts: [...(contribution.networkHosts ?? [])] }
+          : null,
       })
     }
   }

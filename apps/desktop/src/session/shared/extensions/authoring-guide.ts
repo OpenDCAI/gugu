@@ -1,4 +1,4 @@
-import { EXTENSION_API_VERSION } from './bridge-protocol';
+import { EXTENSION_API_VERSION, EXTENSION_TOOL_CONFINEMENT_API_VERSION } from './bridge-protocol';
 
 /**
  * 交给 agent 的「怎么写一个 tab 扩展」简报。
@@ -466,8 +466,13 @@ export const follow = {
   API 21: run receives non-enumerable \`signal\` (AbortSignal). Pass it to drivers; abort queued actions, never replay unknown results.
   Return human steps immediately; the agent asks via existing questions/messages, then retries.
   run returns a string verbatim or JSON; a throw is the error the agent reads. A non-tool export stops the module,
-  naming it. Keep helpers unexported or in imported bundle files. Node built-ins work; \`node_modules\` does not.
-- Tools run with the person's full rights only where installed. Another owner must install the App to give its agent
+  naming it. Keep helpers unexported or in imported bundle files. Node built-ins follow the restrictions below; \`node_modules\` does not work.
+- From API ${EXTENSION_TOOL_CONFINEMENT_API_VERSION}, tools modules read only their bundle/runtime/data folders and write only their data folder
+  (TMPDIR is its .tmp). Other files go through gugu.files and declared files:read/write. Network is limited to granted
+  permissions.network hosts; IP literals, listeners, subprocesses, native addons, WASI, inspector, sqlite and eval workers
+  are refused. Bundle file workers inherit the same restrictions. This is a permission model, not an OS security sandbox.
+  Older tools modules and command programs retain the person's full rights and the broad consent. Use command form
+  when a program needs those rights. Another owner must install the App to give its agent
   these tools; never have agents write their ids into your data.
 - Another language, or an existing MCP server: \`{ "name", "command", "args"? }\`, MCP over stdio.
   \`command\` \`node\` runs on gugu's own runtime; \`./x\` is a program in your bundle; anything else

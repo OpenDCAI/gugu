@@ -40,7 +40,7 @@ export function validateExtensionBundle(
  * `bundleEntryRejection`,文件数与总字节不超过解包上限。跳过的名字与打包同一份。判据是共享的
  * `bundleProblems`(手机装包走同一份,L9),这里只按目录走一遍。
  */
-function packageProblems(root: string): string[] {
+export function packageProblems(root: string, linksOnly = false): string[] {
   const entries: BundleEntry[] = [];
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -55,5 +55,5 @@ function packageProblems(root: string): string[] {
     }
   };
   walk(root);
-  return bundleProblems(entries);
+  return bundleProblems(linksOnly ? entries.filter((entry) => entry.kind === 'link') : entries);
 }

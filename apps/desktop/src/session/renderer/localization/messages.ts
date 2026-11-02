@@ -275,6 +275,11 @@ const enUSCoreMessages = {
   'extensions.permissionsAgentsTools':
     'Runs a program of its own on your computer to give the agents here its tools. The program can reach the internet and read and write your files{skills}',
   'extensions.permissionsAgentsToolsSkills': '; it also brings skills for the agents to read',
+  'extensions.permissionsAgentsToolsConfined':
+    'Runs a program of its own on your computer to give the agents here its tools. Gugu keeps it from reaching the internet{hosts} and from your files except through Gugu{skills}',
+  'extensions.permissionsAgentsToolsConfinedOn':
+    'Runs a program of its own on {machine} to give the agents there its tools. Gugu keeps it from reaching the internet{hosts} and from your files there except through Gugu{skills}',
+  'extensions.permissionsAgentsToolsHosts': ' except {hosts}',
   'extensions.permissionsAgentsSkillsOnly': 'Gives the agents on this computer its skills to read',
   'extensions.permissionsComputerUseView':
     "Lets your agents (those on your other computers too) operate the apps on {computer} through Gugu's computer control, once you allow Accessibility and Screen Recording there; each task's Computer tab shows the window its agent works in and its steps",
@@ -1315,6 +1320,9 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'extensions.permissionsAgentsControlAllMachines': '在{computer}上所有项目、所有会话里起 agent、停 agent、给 agent 派活，还能给你所有其它电脑上的 agent 发消息——派活会消耗你的额度',
   'extensions.permissionsAgentsTools': '会在你的电脑上运行它自带的程序，给这台电脑上的 agent 加上工具。程序能联网，也能读写你的文件{skills}',
   'extensions.permissionsAgentsToolsSkills': '；附带供 agent 阅读的技能说明',
+  'extensions.permissionsAgentsToolsConfined': '会在你的电脑上运行它自带的程序，给这台电脑上的 agent 加上工具。咕咕会阻止程序联网{hosts}；它只能通过咕咕读写你的文件{skills}',
+  'extensions.permissionsAgentsToolsConfinedOn': '会在「{machine}」上运行它自带的程序，给那台电脑上的 agent 加上工具。咕咕会阻止程序联网{hosts}；它只能通过咕咕读写那台电脑上你的文件{skills}',
+  'extensions.permissionsAgentsToolsHosts': '，但可连接 {hosts}',
   'extensions.permissionsAgentsSkillsOnly': '给这台电脑上的 agent 加上它的技能说明',
   'extensions.permissionsComputerUseView': '让你的 agent（含别的电脑上的）经咕咕的电脑控制操作{computer}上的 App，要先在系统里允许「辅助功能」和「屏幕录制」；每个任务的「电脑」页签显示它的 agent 正在操作的窗口和每一步',
   'extensions.permissionsAgentsToolsOn': '会在「{machine}」上运行它自带的程序，给那台电脑上的 agent 加上工具。程序能联网，也能读写那台电脑上你的文件{skills}',

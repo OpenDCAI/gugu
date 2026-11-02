@@ -6,6 +6,7 @@ import {
   declaredContexts,
   EXTENSION_API_VERSION_MIN_SUPPORTED,
   isValidExtensionId,
+  isConfinedToolProgram,
   parseExtensionManifest,
   safeParseExtensionManifest,
   capabilityCovered,
@@ -19,6 +20,7 @@ import { EXTENSION_ORIGINS, keptRevocations, type ExtensionOrigin } from '@share
 import { appIdentityOf, appKey, type AppIdentity } from '@shared/extensions/app-identity';
 import { resolveAppSettings, type AppSettings } from '@shared/extensions/app-settings';
 import { requireAppPlatform } from '@shared/extensions/app-platforms';
+import { packageProblems } from './extension-validate';
 
 import { z } from 'zod';
 import { BUNDLE_SKIP_NAMES } from '@shared/extensions/market';
@@ -803,6 +805,10 @@ export class ExtensionsService {
     }
     const text = readManifestText(source);
     const manifest = parseExtensionManifest(parseManifestJson(text, source));
+    if (manifest.contributes.mcpServers?.some((server) => isConfinedToolProgram(manifest.apiVersion, server))) {
+      const problems = packageProblems(source, true);
+      if (problems.length) throw new Error(problems.join('\n'));
+    }
     if (manifest.entry) resolveExistingBundleFile(source, manifest.entry, 'entry');
     for (const tab of manifest.contributes.tabs) if (tab.entry) resolveExistingBundleFile(source, tab.entry, `tab ${tab.name}`);
     // Over the raw bytes, not the parsed object: what the user agreed to is the

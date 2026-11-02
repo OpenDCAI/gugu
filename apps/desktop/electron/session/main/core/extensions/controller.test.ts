@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as appPrograms from './extension-programs';
 
 // behavior tab-extensions (#2374) —— controller 这一层的**接线**。
 //
@@ -534,6 +535,19 @@ process.stdin.on('end', () => process.exit(0));
     expect(result.success, result.error).toBe(true);
     // The declared list still has both; only what was granted may be enforced.
     expect(configured.at(-1)?.networkHosts).toEqual(['b.example.com']);
+  });
+
+  it('network withdrawal retires the programs; granting it again does not claim to revoke them', async () => {
+    await installViaController(['a.example.com']);
+    const retire = vi.spyOn(appPrograms, 'revokeExtensionPrograms').mockResolvedValue();
+    try {
+      const result = await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'a.example.com', granted: false });
+      expect(result.success, result.error).toBe(true);
+      expect(retire).toHaveBeenCalledExactlyOnceWith(EXTENSION_ID);
+      retire.mockClear();
+      await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'a.example.com', granted: true });
+      expect(retire).not.toHaveBeenCalled();
+    } finally { retire.mockRestore(); }
   });
 
   it('reconfigures the live session the moment a host is taken back', async () => {

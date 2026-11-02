@@ -904,6 +904,8 @@ export async function runEmdashExtensionAction(
 export function emdashExtensionAgentContributions(): {
   extensionId: string
   name: string
+  apiVersion: number
+  networkHosts: string[]
   instructions?: string
   /** The manifest as installed: what an agent's app_search filters and shows (app-search.ts). */
   manifest: ExtensionManifest
@@ -939,6 +941,8 @@ export function emdashExtensionAgentContributions(): {
       return {
       extensionId: manifest.id,
       name: manifest.name,
+      apiVersion: manifest.apiVersion,
+      networkHosts: service.grantedHosts(manifest.id),
       ...(manifest.contributes.instructions ? { instructions: manifest.contributes.instructions } : {}),
       manifest,
       enabled: service.isEnabled(manifest.id),
