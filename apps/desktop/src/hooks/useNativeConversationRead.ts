@@ -18,13 +18,13 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
   useEffect(() => { const id = key.current; if (!shown) publishNativeConversationVisibility(id, null); return () => publishNativeConversationVisibility(id, null) }, [shown, sessionId])
   const chats = useChatSummaries()
   const imFirst = [...chats.values()].find(chat => chat.peerUserId === summary?.agent?.userId)?.firstUnreadMessageId
-  const current = useRef({ shown, sessionId, deviceId, view: null as ChatView | null, visible: new Set<NativeItemId>(), entering: true })
+  const current = useRef({ shown, sessionId, deviceId, view: null as ChatView | null, visible: new Set<NativeItemId>(), entering: true, atTail: false })
   // @@@entry-open — where the reader lands is the view's own intent (the row they scrolled to, else the end); an unread
   // reply never moves them. Entering a conversation only opens the folds around its first unread (the earliest of the
   // native journal and the IM count of MCP sends, late data still counts), so a reader who scrolls there can see and
   // acknowledge it. Once each time the page is shown (replies that came in while it was hidden are folded the same way).
   if (current.current.sessionId !== sessionId || current.current.deviceId !== deviceId) {
-    current.current = { shown, sessionId, deviceId, view: null, visible: new Set(), entering: true }
+    current.current = { shown, sessionId, deviceId, view: null, visible: new Set(), entering: true, atTail: false }
   } else if (shown && !current.current.shown) {
     current.current.entering = true
   }
@@ -73,11 +73,12 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
     return () => { active = false; clearInterval(timer) }
   }, [shown, sessionId, deviceId, summary?.nativeInputVersion, summary?.nativeUnreadKeys, summary?.nativeUnreadAliases])
   return {
+    onAtBottomChange: useCallback((atTail: boolean) => { current.current.atTail = atTail }, []),
     onReady: (view: ChatView) => { current.current.view = view; place() },
     onVisibleItems: useCallback((ids: readonly string[]) => {
       const state = current.current
       if (!state.shown) return
-      if (state.sessionId) publishNativeConversationVisibility(key.current, { sessionId: state.sessionId, visible: ids, dmIds: dmMessageIdsByItem(readTurns.current()) })
+      if (state.sessionId) publishNativeConversationVisibility(key.current, { sessionId: state.sessionId, visible: ids, dmIds: dmMessageIdsByItem(readTurns.current()), atTail: state.atTail })
       for (const id of ids) state.visible.add(nativeItemId(id))
     }, []),
   }

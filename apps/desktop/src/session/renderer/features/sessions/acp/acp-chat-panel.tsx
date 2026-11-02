@@ -2259,7 +2259,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             commands={transcriptCommands}
             shown={visibility.shown}
             onVisibleItems={reading.onVisibleItems}
-            onAtBottomChange={setAtBottom}
+            onAtBottomChange={atBottom => { setAtBottom(atBottom); reading.onAtBottomChange(atBottom) }}
             onReachStart={handleReachStart}
             layout={{ ...chatLayout, agentConversation: true }}
             style={{ position: 'absolute', inset: 0 }}

@@ -5,6 +5,7 @@ import type { ChatView } from '@gugu/session-chat-ui'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import { createReactHarness } from '../../../support/testHarness'
 import { useNativeConversationRead } from '../../../../apps/desktop/src/hooks/useNativeConversationRead'
+import { useNativeConversationVisibility } from '../../../../apps/desktop/src/lib/nativeConversationVisibility'
 import { updateDeviceSessions, removeDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 
 const scope = vi.hoisted(() => ({ visible: vi.fn(async (_request: { conversationId: string; itemIds: string[] }) => ({ unreadKeys: ['msg_covered'] })) }))
@@ -13,6 +14,29 @@ vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn:
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup(); removeDeviceSessions('host'); scope.visible.mockClear() })
+
+it('publishes the native tail only with a settled visible-item report and drops hidden readers', async () => {
+  let controls!: ReturnType<typeof useNativeConversationRead>
+  let entries!: ReturnType<typeof useNativeConversationVisibility>
+  function Fixture({ shown, sessionId }: { shown: boolean; sessionId: string }) {
+    controls = useNativeConversationRead('host', sessionId, shown, () => [])
+    entries = useNativeConversationVisibility()
+    return null
+  }
+  await harness.render(<Fixture shown sessionId="s" />)
+  await act(async () => controls.onAtBottomChange(true))
+  expect(entries.size).toBe(0)
+  await act(async () => controls.onVisibleItems(['native-tail']))
+  expect([...entries.values()]).toEqual([expect.objectContaining({ sessionId: 's', atTail: true })])
+  await act(async () => { controls.onAtBottomChange(false); controls.onVisibleItems(['earlier']) })
+  expect([...entries.values()]).toEqual([expect.objectContaining({ atTail: false })])
+  await harness.render(<Fixture shown={false} sessionId="s" />)
+  await act(async () => controls.onVisibleItems(['hidden']))
+  expect(entries.size).toBe(0)
+  await harness.render(<Fixture shown sessionId="other" />)
+  await act(async () => controls.onVisibleItems(['other-tail-not-confirmed']))
+  expect([...entries.values()]).toEqual([expect.objectContaining({ sessionId: 'other', atTail: false })])
+})
 
 it('opens at the first unread provider identity and acknowledges only visible replies, without scrolling', async () => {
   updateDeviceSessions('host', { sessions: [{ conversationId: 's', nativeInputVersion: 1, nativeUnreadKeys: ['msg_first', 'msg_covered'] } as never] })

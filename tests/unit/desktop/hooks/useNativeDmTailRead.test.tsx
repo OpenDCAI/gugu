@@ -1,0 +1,74 @@
+// @vitest-environment jsdom
+import { act } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useNativeDmTailRead } from '../../../../apps/desktop/src/hooks/useNativeDmTailRead'
+import { chat, message, createReactHarness } from '../../../support/testHarness'
+const scope = vi.hoisted(() => ({ write: vi.fn(async (_target: unknown) => undefined), active: true, listener: null as null | ((active: boolean) => void) }))
+vi.mock('../../../../apps/desktop/src/lib/readWriter', () => ({ chatSeq: (seq: number) => seq, writeRead: scope.write }))
+vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { subscribeAppActive: (listener: (active: boolean) => void) => {
+  scope.listener = listener; listener(scope.active); return () => { scope.listener = null }
+} } }))
+let harness: ReturnType<typeof createReactHarness>
+const refresh = vi.fn(async () => undefined)
+function fixture() {
+  return { chat: chat({ id: 'dm', kind: 'ai', unread_count: 20, last_read_seq: 5, next_message_seq: 26, read_state_version: 3 }),
+    messages: [message({ id: 'last', chat_id: 'dm', seq: 25 })], loading: false, hasNewer: false, atTail: true, refresh }
+}
+function Reader({ input }: { input: ReturnType<typeof fixture> }) { useNativeDmTailRead(input); return null }
+beforeEach(() => { harness = createReactHarness(); scope.write.mockReset(); scope.write.mockResolvedValue(undefined); refresh.mockClear(); scope.active = true })
+afterEach(() => harness.cleanup())
+
+describe('native DM opening watermark', () => {
+  it('waits for the captured tail window and keeps later arrivals outside that opening', async () => {
+    const input = fixture()
+    await harness.render(<Reader input={{ ...input, loading: true }} />)
+    expect(scope.write).not.toHaveBeenCalled()
+    await harness.render(<Reader input={{ ...input, loading: false, hasNewer: true }} />)
+    expect(scope.write).not.toHaveBeenCalled()
+    await harness.render(<Reader input={{ ...input, messages: [message({ seq: 24 })] }} />)
+    expect(scope.write).not.toHaveBeenCalled()
+    await harness.render(<Reader input={{ ...input, chat: { ...input.chat, next_message_seq: 27 }, messages: [...input.messages, message({ seq: 26 })] }} />)
+    expect(scope.write).toHaveBeenCalledExactlyOnceWith({ kind: 'main', chatId: 'dm', seq: 25 })
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for actual foreground without changing the opening watermark', async () => {
+    scope.active = false
+    const input = fixture()
+    await harness.render(<Reader input={input} />)
+    expect(scope.write).not.toHaveBeenCalled()
+    await act(async () => scope.listener?.(true))
+    expect(scope.write).toHaveBeenCalledExactlyOnceWith({ kind: 'main', chatId: 'dm', seq: 25 })
+  })
+
+  it('requires the native viewport to report its tail', async () => {
+    const input = fixture()
+    await harness.render(<Reader input={{ ...input, atTail: false }} />)
+    expect(scope.write).not.toHaveBeenCalled()
+    await harness.render(<Reader input={input} />)
+    expect(scope.write).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves a manual unread intent that arrives while the page is opening', async () => {
+    const input = fixture()
+    await harness.render(<Reader input={{ ...input, loading: true }} />)
+    await harness.render(<Reader input={{ ...input, chat: { ...input.chat, is_marked_unread: true, read_state_version: 4 } }} />)
+    expect(scope.write).not.toHaveBeenCalled()
+  })
+
+  it('still reaches the captured tail after individual visible replies advance the watermark', async () => {
+    const input = fixture()
+    await harness.render(<Reader input={{ ...input, atTail: false }} />)
+    await harness.render(<Reader input={{ ...input, chat: { ...input.chat, last_read_seq: 12, read_state_version: 4 } }} />)
+    expect(scope.write).toHaveBeenCalledExactlyOnceWith({ kind: 'main', chatId: 'dm', seq: 25 })
+  })
+
+  it('does not refresh after a failed write or repeatedly submit the same failed opening', async () => {
+    scope.write.mockRejectedValueOnce(new Error('offline'))
+    const input = fixture()
+    await harness.render(<Reader input={input} />)
+    await harness.render(<Reader input={{ ...input, messages: [...input.messages] }} />)
+    expect(scope.write).toHaveBeenCalledTimes(1)
+    expect(refresh).not.toHaveBeenCalled()
+  })
+})
