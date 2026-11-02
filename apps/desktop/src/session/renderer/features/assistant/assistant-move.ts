@@ -81,6 +81,8 @@ export type MoveJournal = {
   copies?: CopyCheckpoint['files'];
   sourceWorkdir?: string;
   model?: AgentModelSelection;
+  /** Confirmed handoff report and non-secret account references for source-independent activation retries. */
+  completion?: { report: MoveReport; accounts: MoveAccountRef[] };
 };
 
 export type MoveProgress = {
@@ -128,9 +130,66 @@ export interface MoveDeps {
   isAdopted(): Promise<boolean>;
   /** 让新家上的助理从头读一遍新拷来的文件(停掉运行时,下条消息再起)。 */
   restart(): Promise<void>;
+  /** Completed handoff retries only restore online intent; they must not stop the target again. */
+  restoreOnline?(): Promise<void>;
   journal: { load(): MoveJournal | null; save(journal: MoveJournal): void | Promise<void>; clear(): void | Promise<void> };
   onProgress?: (progress: MoveProgress) => void;
   now?: () => number;
+}
+
+type MoveAccountRef = { integrationId: string; accountId: string; displayName?: string };
+type MoveCompletionDeps = Pick<MoveDeps, 'direction' | 'assistantId' | 'journal' | 'isAdopted' | 'onProgress'> & {
+  activate(): Promise<void>;
+  disconnect(account: MoveAccountRef): Promise<void>;
+};
+
+function emptyMoveReport(): MoveReport {
+  return { files: 0, skippedFiles: [], accounts: { moved: [], skipped: [], kept: [], unsupported: false },
+    schedules: { restored: 0, skipped: [], unsupported: [], unreadable: false }, warnings: [] };
+}
+
+/** Resume the already committed handoff without opening either filesystem or replaying transferred data. */
+export async function resumeMoveCompletion(deps: MoveCompletionDeps): Promise<MoveReport | null> {
+  const saved = deps.journal.load();
+  if (!saved?.source || saved.direction !== deps.direction || saved.assistantId !== deps.assistantId || !saved.targetDeviceId
+    || !(['adopt', 'files', 'accounts', 'schedules'] as const).every(step => saved.done.includes(step))) return null;
+  try {
+    if (!await deps.isAdopted()) throw new Error('The assistant is no longer at the recorded target');
+  } catch (cause) { throw new MoveError('adopt', cause, false); }
+  return completeMove(deps, saved, structuredClone(saved.completion?.report ?? emptyMoveReport()), saved.completion?.accounts);
+}
+
+async function completeMove(deps: Pick<MoveCompletionDeps, 'activate' | 'disconnect' | 'journal' | 'onProgress'>,
+  journal: MoveJournal, report: MoveReport, accounts: MoveAccountRef[] | undefined): Promise<MoveReport> {
+  const guard = async (step: MoveStep, run: () => Promise<unknown>) => {
+    try { await run(); }
+    catch (cause) { throw cause instanceof MoveError ? cause : new MoveError(step, cause, false); }
+  };
+  const finish = async (step: MoveStep) => {
+    if (!journal.done.includes(step)) journal.done.push(step);
+    await guard(step, async () => deps.journal.save(journal));
+  };
+  deps.onProgress?.({ step: 'restart' });
+  await guard('restart', deps.activate);
+  await finish('restart');
+  if (!accounts) {
+    // Earlier journals cannot prove which source accounts were verified. Restore availability but retain recovery.
+    report.warnings.push('revoke: source account verification references are missing; recovery retained for manual cleanup');
+    return report;
+  }
+  deps.onProgress?.({ step: 'revoke' });
+  for (const account of accounts) {
+    try {
+      await deps.disconnect(account);
+      report.accounts.moved.push(account);
+    } catch (cause) {
+      report.accounts.kept.push({ integrationId: account.integrationId, accountId: account.accountId });
+      report.warnings.push(`revoke ${account.integrationId}/${account.accountId}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+  }
+  await finish('revoke');
+  await guard('revoke', async () => deps.journal.clear());
+  return report;
 }
 
 /** 接过被对面明确拒绝(没开始):`adopt()` 抛的错上带 `notStarted: true`,旧家就还是原样。其余失败一律当「可能已经落定」。 */
@@ -180,19 +239,16 @@ export async function planMove(source: MoveSide): Promise<MovePlan> {
 
 export async function runMove(deps: MoveDeps): Promise<MoveReport> {
   const now = deps.now ?? Date.now;
-  const report: MoveReport = {
-    files: 0,
-    skippedFiles: [],
-    accounts: { moved: [], skipped: [], kept: [], unsupported: false },
-    schedules: { restored: 0, skipped: [], unsupported: [], unreadable: false },
-    warnings: [],
-  };
+  const report = emptyMoveReport();
   const saved = deps.journal.load();
   // 日志没记旧家是哪台(老版本留下的)= 不接着用:从头来一遍是安全的(拷贝覆盖、账号 upsert、重排去重)。
   const resumed = saved && saved.direction === deps.direction && saved.assistantId === deps.assistantId && saved.source ? saved : null;
   if (resumed?.source && (resumed.source.deviceId !== deps.sourceHome.deviceId || resumed.source.kind !== deps.sourceHome.kind)) {
     throw new MoveError('preflight', new Error('the journal was written for a different source home'), false);
   }
+  const completed = await resumeMoveCompletion({ ...deps, activate: deps.restoreOnline ?? deps.restart,
+    disconnect: account => deps.source.integrations.disconnect(account.integrationId, account.accountId) });
+  if (completed) return completed;
   const journal: MoveJournal = resumed ?? {
     direction: deps.direction,
     assistantId: deps.assistantId,
@@ -374,27 +430,11 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
     const result = await guard('schedules', () => target!.schedules.restore(journal.schedules!));
     report.schedules = { ...result, unsupported: [], unreadable: report.schedules.unreadable };
   }
+  const accounts = verified.map(({ integrationId, accountId, displayName }) => ({ integrationId, accountId, displayName }));
+  journal.completion = { report: structuredClone(report), accounts };
   await finish('schedules');
-
-  // Restart changes desired status: failure can leave the target offline. Keep recovery and source credentials until confirmed.
-  progress('restart');
-  await guard('restart', deps.restart);
-  await finish('restart');
-
-  // 5. 剪切:新家核对过的账号,把旧家那一份撤掉(owner:有账号的服务只存一份)。撤不掉的如实记下,不当成搬家失败。
-  progress('revoke');
-  for (const account of verified) {
-    try {
-      await deps.source.integrations.disconnect(account.integrationId, account.accountId);
-      report.accounts.moved.push({ integrationId: account.integrationId, accountId: account.accountId, displayName: account.displayName });
-    } catch (cause) {
-      report.accounts.kept.push({ integrationId: account.integrationId, accountId: account.accountId });
-      report.warnings.push(`revoke ${account.integrationId}/${account.accountId}: ${cause instanceof Error ? cause.message : String(cause)}`);
-    }
-  }
-  await finish('revoke');
-  await guard('revoke', async () => deps.journal.clear());
-  return report;
+  return completeMove({ ...deps, activate: deps.restart,
+    disconnect: account => deps.source.integrations.disconnect(account.integrationId, account.accountId) }, journal, report, accounts);
 }
 
 /** 确认框里列「这次会带走哪些账号」:名字、不含任何密钥;命令行那几家与读不出密钥的另列「要重新连」。 */

@@ -31,6 +31,7 @@ import {
   isUnknownMethod,
   planMove,
   runMove,
+  resumeMoveCompletion,
   type MoveDeps,
   type MoveDirection,
   type MoveHomeRef,
@@ -384,6 +385,7 @@ export function buildMoveDeps(
         return sideOf(machine, '云上', env.assistantId, machine.home, deviceId, workdir);
       },
       restart: () => restartAssistant(env.assistantId),
+      restoreOnline: () => restoreOnlineAssistant(env.assistantId),
     };
   }
   let localWorkdir: string | null = null;
@@ -425,6 +427,7 @@ export function buildMoveDeps(
       reloadMyAssistant(env.ownerUserId);
     },
     restart: () => restartAssistant(env.assistantId),
+    restoreOnline: () => restoreOnlineAssistant(env.assistantId),
   };
 }
 
@@ -436,6 +439,12 @@ export async function restartAssistant(assistantId: string): Promise<void> {
     // Even a failed offline response may have committed. Always attempt to restore online intent.
     await contactsService.setAgentDesiredStatus(assistantId, 'online');
   }
+  const identity = (await readDisplayIdentities([assistantId]))[0];
+  if (identity?.desired_status !== 'online') throw new Error('The assistant online intent has not been confirmed');
+}
+
+async function restoreOnlineAssistant(assistantId: string): Promise<void> {
+  await contactsService.setAgentDesiredStatus(assistantId, 'online');
   const identity = (await readDisplayIdentities([assistantId]))[0];
   if (identity?.desired_status !== 'online') throw new Error('The assistant online intent has not been confirmed');
 }
@@ -468,6 +477,18 @@ export async function runAssistantMove(env: MoveEnv, direction: MoveDirection, o
     throw new MoveError('preflight', new Error('Resume the unfinished move before starting another direction'), false);
   }
   const savedJournal = recorded?.assistantId === env.assistantId && recorded.direction === direction ? recorded : null;
+  const completed = await resumeMoveCompletion({ direction, assistantId: env.assistantId, journal, onProgress,
+    isAdopted: async () => !!savedJournal?.targetDeviceId
+      && (direction !== 'to-computer' || savedJournal.targetDeviceId === env.localDeviceId)
+      && await homeDeviceOf(env.assistantId) === savedJournal.targetDeviceId,
+    activate: () => restoreOnlineAssistant(env.assistantId),
+    disconnect: async account => {
+      const sourceDevice = savedJournal!.source!.deviceId;
+      const result = await rpcOn(sourceDevice === env.localDeviceId ? null : sourceDevice).integrations.disconnect(account.integrationId, account.accountId);
+      if (!result?.success) throw new Error(result?.error ?? 'disconnect failed');
+    },
+  });
+  if (completed) return completed;
   const sourceHome = savedJournal?.assistantId === env.assistantId && savedJournal.direction === direction && savedJournal.source
     ? savedJournal.source : sourceHomeFor(env, direction);
   const source = await openSource(env, direction, sourceHome, savedJournal?.sourceWorkdir);

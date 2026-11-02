@@ -274,8 +274,17 @@ export async function copyUserInstructions(args: {
     throw new MoveCopyError('conflict', `${args.toPath} changed while reading instructions`, args.toPath);
   }
   // 旧家人写的是空、新家也没有人写的 = 不必写(也别把一份只有管家段的文件重写一遍)。
-  if (!user && !splitInstructions(current).user) return false;
+  const currentUser = splitInstructions(current).user;
+  if (!user && !currentUser) return false;
   const content = composeInstructions(current, user);
+  if (args.checkpoint && !currentUser) {
+    // Preparing a local home recreates managed-only instructions after the user moves a conflict aside.
+    // No user content remains to overwrite; retain the current managed block and the native whole-file CAS.
+    args.checkpoint.files[args.toPath] = { before: snapshot!.hash, after: await textHash(content) };
+    await args.checkpoint.save();
+    await args.to.writeText(args.toPath, content, snapshot!.revision);
+    return true;
+  }
   const write = args.checkpoint ? await prepareCopy(args.to, args.toPath, await textHash(content), args.checkpoint, snapshot!) : null;
   if (!write?.skip) await args.to.writeText(args.toPath, content, write?.revision);
   return true;

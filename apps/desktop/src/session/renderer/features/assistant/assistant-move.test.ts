@@ -212,14 +212,52 @@ function baseDeps(over: Partial<MoveDeps> & Pick<MoveDeps, 'direction' | 'source
 }
 
 describe('助理搬家编排 (#7199)', () => {
+  it.each(['to-cloud', 'to-computer'] as const)('restores online after completed handoff without reading the retired source (%s)', async direction => {
+    const events: string[] = [];
+    const local = localSide(events, { schedules: [SCHEDULE], accounts: [{ integrationId: 'notion', accountId: 'default', credentials: { t: 1 } }] });
+    const cloud = cloudSide(events, { schedules: direction === 'to-computer' ? [SCHEDULE] : [], accounts: direction === 'to-computer' ? [{ integrationId: 'notion', accountId: 'default', credentials: { t: 1 } }] : [] });
+    const source = direction === 'to-cloud' ? local : cloud;
+    const target = direction === 'to-cloud' ? cloud : local;
+    let adopted = false;
+    let desired = 'online';
+    const deps = baseDeps({ direction, source, openTarget: async () => target,
+      isAdopted: async () => adopted,
+      adopt: async () => { adopted = true; source.sched.length = 0; },
+      restart: async () => { desired = 'offline'; throw new Error('online request lost'); },
+    }, events);
+    await expect(runMove(deps)).rejects.toMatchObject({ step: 'restart' });
+    expect(JSON.stringify(deps.journal.load()?.completion)).not.toContain('credentials');
+    const schedulesBefore = structuredClone(target.sched);
+    await target.fs.writeText(target.paths.instructions, 'NEW-AT-TARGET');
+    let sourceReads = 0;
+    const unavailable = async () => { sourceReads++; throw new Error('retired source offline'); };
+    source.fs.list = unavailable;
+    source.fs.readText = unavailable;
+    source.integrations.exportForMove = unavailable;
+    source.schedules.list = unavailable;
+    source.integrations.disconnect = async () => { throw new Error('retired source offline'); };
+    deps.openTarget = async () => { throw new Error('do not reopen a completed target'); };
+    let activations = 0;
+    Object.assign(deps, { restoreOnline: async () => { activations++; desired = 'online'; } });
+    const result = await runMove(deps);
+    expect(desired).toBe('online');
+    expect(activations).toBe(1);
+    expect(sourceReads).toBe(0);
+    expect(target.sched).toEqual(schedulesBefore);
+    expect(target.d.text(target.paths.instructions)).toBe('NEW-AT-TARGET');
+    expect(result.accounts.kept).toContainEqual({ integrationId: 'notion', accountId: 'default' });
+    expect(result.warnings.some(warning => warning.startsWith('revoke '))).toBe(true);
+  });
   it.each(['to-cloud', 'to-computer'] as const)('preserves target edits made during an interrupted move (%s)', async (direction) => {
     const events: string[] = [];
     const local = localSide(events, { files: { '/gh/assistant': 'dir', '/gh/assistant/.claude': 'dir', '/gh/assistant/.claude/memory': 'dir', '/gh/assistant/.claude/memory/note.md': 'OLD' } });
     const cloud = cloudSide(events, { files: { '/home/u': 'dir', '/home/u/.claude': 'dir', '/home/u/.claude/projects': 'dir', '/home/u/.claude/projects/-home-u-助理': 'dir', '/home/u/.claude/projects/-home-u-助理/memory': 'dir', '/home/u/.claude/projects/-home-u-助理/memory/note.md': 'OLD' } });
     const source = direction === 'to-cloud' ? local : cloud;
     const target = direction === 'to-cloud' ? cloud : local;
-    const deps = baseDeps({ direction, source, openTarget: async () => target, restart: async () => { throw new Error('interrupted'); } }, events);
-    await expect(runMove(deps)).rejects.toMatchObject({ step: 'restart' });
+    source.sched.push(SCHEDULE);
+    target.schedules.restore = async () => { throw new Error('interrupted before schedule handoff'); };
+    const deps = baseDeps({ direction, source, openTarget: async () => target }, events);
+    await expect(runMove(deps)).rejects.toMatchObject({ step: 'schedules' });
     const note = `${target.paths.memoryDir}/note.md`;
     target.d.nodes.set(note, { kind: 'file', bytes: new TextEncoder().encode('NEW-AT-TARGET') });
     deps.isAdopted = async () => true;

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ setStatus: vi.fn(), identities: vi.fn(), openMachine: vi.fn(), rpc: vi.fn() }));
+const mocks = vi.hoisted(() => ({ setStatus: vi.fn(), identities: vi.fn(), openMachine: vi.fn(), rpc: vi.fn(), invoke: vi.fn() }));
+vi.mock('@/platform/desktopIpc', () => ({ desktopIpc: () => ({ invoke: mocks.invoke }) }));
 vi.mock('@/lib/contacts', () => ({ contactsService: { setAgentDesiredStatus: mocks.setStatus } }));
 vi.mock('@/lib/identityReadAdapter', () => ({ readDisplayIdentities: mocks.identities }));
 vi.mock('@/lib/assistantSetup', () => ({ assistantResumeStore: {} }));
@@ -11,11 +12,36 @@ vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({ remoteHos
 vi.mock('@renderer/lib/ipc', () => ({ rpcOn: mocks.rpc }));
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: {} }));
 vi.mock('./assistant-machine', () => ({ openAssistantMachine: mocks.openMachine }));
-import { machineFs, openSource, restartAssistant } from './assistant-move-wire';
+import { machineFs, openSource, restartAssistant, runAssistantMove } from './assistant-move-wire';
+import { ASSISTANT_HOME_CHANNELS } from '@/lib/assistantHomeIpc';
 import type { AssistantMachine } from './assistant-machine-core';
 beforeEach(() => { vi.resetAllMocks(); });
 
 describe('move restart desired status handoff', () => {
+  it.each(['to-cloud', 'to-computer'] as const)('resumes completed handoff through the real entry without opening the source (%s)', async direction => {
+    const targetId = direction === 'to-cloud' ? 'cloud' : 'local';
+    let raw: string | null = JSON.stringify({ direction, assistantId: 'agent', startedAt: 1,
+      source: { kind: direction === 'to-cloud' ? 'computer' : 'cloud', deviceId: direction === 'to-cloud' ? 'local' : 'cloud' },
+      targetDeviceId: targetId, sourceWorkdir: '/old/home', done: ['preflight', 'files', 'accounts', 'adopt', 'schedules'], schedules: [],
+      completion: { accounts: [], report: { files: 1, skippedFiles: [], accounts: { moved: [], skipped: [], kept: [], unsupported: false }, schedules: { restored: 1, skipped: [], unsupported: [], unreadable: false }, warnings: [] } },
+    });
+    mocks.invoke.mockImplementation(async (channel, _owner, value) => {
+      if (channel === ASSISTANT_HOME_CHANNELS.moveJournalRead) return raw;
+      if (channel === ASSISTANT_HOME_CHANNELS.moveJournalWrite) { raw = value; return; }
+      if (channel === ASSISTANT_HOME_CHANNELS.moveJournalClear) { raw = null; return; }
+      throw new Error('retired source unavailable');
+    });
+    mocks.openMachine.mockRejectedValue(new Error('retired source unavailable'));
+    mocks.setStatus.mockResolvedValue({});
+    mocks.identities.mockResolvedValue([{ device_id: targetId, desired_status: 'online' }]);
+    const result = await runAssistantMove({ ownerUserId: 'owner', assistantId: 'agent', assistantName: 'Assistant', localDeviceId: 'local',
+      home: direction === 'to-cloud' ? { kind: 'cloud', deviceId: 'cloud' } : { kind: 'computer', deviceId: 'local', thisDevice: true, online: true, known: true, label: null } }, direction);
+    expect(result.files).toBe(1);
+    expect(mocks.setStatus.mock.calls.map(args => args[1])).toEqual(['online']);
+    expect(mocks.openMachine).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(raw).toBeNull();
+  });
   it('rejects when offline commits and the online request fails', async () => {
     let desired = 'online';
     mocks.setStatus.mockImplementation(async (_id, status) => {
