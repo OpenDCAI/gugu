@@ -63,9 +63,9 @@ describe('ImagePreviewProvider', () => {
     vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1280)
     const { default: PhotoSwipeCtor } = await import('photoswipe')
     const init = PhotoSwipeCtor.prototype.init
-    let pswp!: PhotoSwipe
+    const instances: PhotoSwipe[] = []
     vi.spyOn(PhotoSwipeCtor.prototype, 'init').mockImplementation(function (this: PhotoSwipe) {
-      pswp = this
+      instances.push(this)
       return init.call(this)
     })
     const thumb = document.createElement('img')
@@ -73,6 +73,7 @@ describe('ImagePreviewProvider', () => {
     let finish!: (url: string) => void
     const original = new Promise<string>(resolve => { finish = resolve })
     await openViewer({ images: [{ url: 'blob:thumbnail', alt: 'geometry', thumb, full: () => original }] })
+    const pswp = instances[0]
     const slide = pswp.currSlide!
     await act(async () => {
       slide.zoomTo(1.8, { x: 400, y: 300 }, 0, true)
