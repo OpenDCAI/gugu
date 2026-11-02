@@ -36,6 +36,6 @@ export const NeedsYouTaskRow = observer(function NeedsYouTaskRow({ task, onClick
     accessory={<Zap size={11} className="shrink-0 text-[var(--agent-bolt)]" />}
     meta={Number.isFinite(time) ? formatCalendarDay(new Date(time).toISOString()) : undefined}
     subtitle={session.title}
-    trailing={presentation && <span role="img" aria-label={agentStatusText(presentation.label)}><AgentContactStatusMark tone={displayStatusOf(presentation.tone)} /></span>}
+    trailing={presentation && <span className="inline-flex" role="img" aria-label={agentStatusText(presentation.label)}><AgentContactStatusMark tone={displayStatusOf(presentation.tone)} /></span>}
   />
 })
