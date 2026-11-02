@@ -34,10 +34,10 @@ afterEach(() => {
 })
 const report = (version: string) => recordDesktopReport(data(), { id: 'desktop', version, protocol: 17 }, clock)
 const confirm = (target: string) => requestVersionSwitch(data(), 'confirmed product action', ++clock, true, target)
-function driver() {
+function driver(verifyBoot: (binary: string) => Promise<void> = async () => undefined) {
   const layout = { home, versions: path.join(home, 'versions'), version: '1.0.0' }
   return createAccountDriver({ layout, followSupervisor: false,
-    lifecycle: createServerVersionLifecycle({ layout, verifyBoot: async () => undefined }),
+    lifecycle: createServerVersionLifecycle({ layout, verifyBoot }),
     log: { info: vi.fn(), warn: vi.fn() }, now: () => clock,
     child: () => running ? { pid: 42, startedAt: 1, restarting: false } : undefined,
     started: () => running, restart: vi.fn(),
@@ -107,5 +107,20 @@ describe('confirmed account target lifecycle', () => {
     recordDesktopReport(data(), { id: 'another-desktop', version: '0.9.0', protocol: 17 }, ++clock)
     await tick(driver())
     expect(readAccountState(data())).toMatchObject({ version: '2.0.0', phase: { kind: 'running' } })
+  })
+
+  it('ends a failed confirmation without retrying it after cooldown and returns to the desktop target', async () => {
+    const verify = vi.fn(async (binary: string) => {
+      if (binary.includes(`${path.sep}2.0.0${path.sep}`)) throw new Error('candidate cannot boot')
+    })
+    confirm('2.0.0')
+    const subject = driver(verify)
+    await tick(subject)
+    clock += 6 * 60 * 60 * 1000 + 1
+    await tick(subject)
+    expect(verify.mock.calls.filter(([binary]) => binary.includes(`${path.sep}2.0.0${path.sep}`))).toHaveLength(1)
+    expect(readAccountState(data())).toMatchObject({ version: '1.0.0', phase: { kind: 'running' },
+      lastOutcome: { kind: 'failed', target: '2.0.0', cause: 'boot' } })
+    expect(readAccountState(data())?.confirmedTarget).toBeUndefined()
   })
 })
