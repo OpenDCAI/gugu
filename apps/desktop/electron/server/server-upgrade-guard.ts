@@ -27,6 +27,7 @@ export { UPGRADE_PENDING_FILE, readUpgradeMarker, writeUpgradeMarker, clearUpgra
 import { spawn } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import path from 'node:path'
+import { controllerOwnsUpdates } from './server-installation'
 import { SERVER_ROLLBACK_FILE, SUPERVISOR_HEALTH_FILE } from '@gugu/core'
 import { isOwnProcessAlive, SERVER_PROCESS_MARK } from './process-alive'
 import { readVersionPin, versionBinary } from './server-account-versions'
@@ -135,9 +136,9 @@ export function readProbe(home: string, marker: UpgradeMarker, watchingSince: nu
   }
   // service install 的 shell 不一定带云标志;以实际守护进程继承的控制器环境为准。
   const supervisorPid = supervisorLockHolder(home)
-  let followsSupervisor = false
+  let followsSupervisor = controllerOwnsUpdates(home, {})
   try {
-    followsSupervisor = supervisorPid !== null && fs.readFileSync(`/proc/${supervisorPid}/environ`, 'utf8').split('\0').includes('GUGU_CLOUD_COMPUTER=1')
+    followsSupervisor ||= supervisorPid !== null && fs.readFileSync(`/proc/${supervisorPid}/environ`, 'utf8').split('\0').includes('GUGU_CLOUD_COMPUTER=1')
   } catch {
     // /proc 不可读(如普通 macOS SSH server)时仍按原来的逐账号 pin 判断。
   }

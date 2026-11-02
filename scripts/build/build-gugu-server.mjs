@@ -35,6 +35,7 @@ import {
   RUNTIME_PACKAGES,
 } from '../gugu-server/runtime-packages.mts'
 import { defaultMiseCacheDir, obtainMiseArchive } from './mise-archive-cache.mts'
+import { packageIdentity, SERVER_PACKAGE_IDENTITY } from '../../apps/desktop/electron/server/server-installation.ts'
 
 const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
 const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -53,6 +54,8 @@ const distElectron = process.env.GUGU_SERVER_DIST_ELECTRON ?? join(root, 'apps',
 if (!existsSync(join(distElectron, 'server.js'))) {
   throw new Error('找不到 apps/desktop/dist-electron/server.js —— 先构建主进程(pnpm build:app 的第二阶段)')
 }
+// The identity must come from the actual compiled output, not this packaging process's environment.
+packageIdentity(JSON.parse(readFileSync(join(distElectron, SERVER_PACKAGE_IDENTITY), 'utf8')))
 
 // GUGU_SERVER_NODE_PREFIX:一份官方 Node 发行包解开后的安装前缀(bin/node + LICENSE),包里的 node 从这里取。
 // CI 的两个构建容器都是官方 node:<.node-version>-bookworm 镜像,/usr/local 就是镜像构建时按 SHASUMS256 校验过、

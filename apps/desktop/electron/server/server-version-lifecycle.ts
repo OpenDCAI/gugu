@@ -6,6 +6,7 @@ import path from 'node:path'
 import { pruneVersions, readVersionPin, writeVersionPin } from './server-account-versions'
 import { readAccountState } from './server-account-machine'
 import { listAccounts } from './server-layout'
+import { assertPackageEnvironment } from './server-installation'
 
 export const UPGRADE_PENDING_FILE = 'upgrade-pending.json'
 /** The staged package installed but did not boot an account: a boot failure, not an install failure. */
@@ -40,6 +41,7 @@ export function clearUpgradeMarker(home: string): void {
 export function pointCurrent(home: string, versionDir: string): void {
   const versions = fs.realpathSync(path.join(home, 'versions'))
   if (path.dirname(fs.realpathSync(versionDir)) !== versions) throw new Error('Version is outside the managed versions directory')
+  assertPackageEnvironment(home, versionDir)
   const current = path.join(home, 'current')
   const tmp = `${current}.tmp-${process.pid}`
   fs.rmSync(tmp, { force: true })
@@ -103,6 +105,7 @@ export function createServerVersionLifecycle(options: {
       flights.set(version, stage)
       try {
         Promise.resolve(work())
+          .then(() => assertPackageEnvironment(layout.home, path.join(layout.versions, version)))
           .then(() => Promise.resolve((options.verifyBoot ?? checkAccountBoot)(path.join(layout.versions, version, 'bin', 'gugu-server')))
             .catch((error: unknown) => { throw new AccountBootRejectedError(error instanceof Error ? error.message : String(error)) }))
           .then(() => { stage.ready = true; resolve() }, reject)
@@ -114,6 +117,7 @@ export function createServerVersionLifecycle(options: {
     },
     switchSupervisor(marker: UpgradeMarker, beforeSwitch: () => void): void {
       requireBoot(marker.to)
+      assertPackageEnvironment(layout.home, marker.toDir)
       if (!writeUpgradeMarker(layout.home, marker)) throw new Error('Cannot persist the upgrade rollback pointer')
       beforeSwitch()
       pointCurrent(layout.home, marker.toDir)

@@ -26,6 +26,8 @@ PACKAGE=""
 PKG_VERSION=""
 PKG_SHA256=""
 KEEP_CURRENT=0
+UPDATE_OWNER=server
+MIGRATE_FROM=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -37,6 +39,8 @@ while [ $# -gt 0 ]; do
     --version) PKG_VERSION="$2"; shift 2 ;;
     --sha256) PKG_SHA256="$2"; shift 2 ;;
     --keep-current) KEEP_CURRENT=1; shift ;;
+    --update-owner) UPDATE_OWNER="$2"; shift 2 ;;
+    --migrate-from) MIGRATE_FROM="$2"; shift 2 ;;
     *) echo "不认识的参数:$1" >&2; exit 2 ;;
   esac
 done
@@ -164,6 +168,17 @@ else
 fi
 # Retain the existing timestamp fact; reclamation is owned by the supervisor.
 touch "$TARGET"
+
+# Installation, upgrade and explicit rollback share the server's environment contract. The
+# previous server can inspect a historical package that predates this command without starting it.
+VERIFIER="$TARGET/bin/gugu-server"
+if ! "$VERIFIER" help 2>/dev/null | grep -q prepare-install; then
+  if [ -x "$SERVER_HOME/current/bin/gugu-server" ] && "$SERVER_HOME/current/bin/gugu-server" help 2>/dev/null | grep -q prepare-install; then
+    VERIFIER="$SERVER_HOME/current/bin/gugu-server"
+  fi
+fi
+GUGU_SERVER_HOME="$SERVER_HOME" "$VERIFIER" prepare-install --candidate "$TARGET" --channel "$CHANNEL" \
+  --update-owner "$UPDATE_OWNER" --migrate-from "$MIGRATE_FROM" || die "安装环境无法核实,保留原版本和账号资料"
 
 # 切换 current:先建临时软链,再改名覆盖。
 # ⚠ 不能只写 `mv -f current.tmp current`:current 是指向目录的软链,GNU / BSD 的 mv 都会把 current.tmp

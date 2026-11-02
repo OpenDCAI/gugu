@@ -23,6 +23,7 @@ import { startDetached } from './server-service'
 import type { SupervisorLog } from './server-supervisor'
 import { touchVersion, versionManifestUrl } from './server-account-versions'
 import { readBadVersions, spawnUpgradeGuard } from './server-upgrade-guard'
+import { controllerOwnsUpdates, readInstallation } from './server-installation'
 
 /**
  * 新版本最迟半小时就发现(原先 6 小时:新 Beta 要好几个小时才到云机器上,10-27 owner 撞到)。
@@ -100,11 +101,11 @@ export function platformKey(): string {
 }
 
 function readChannel(home: string): string {
-  try {
-    return fs.readFileSync(path.join(home, 'channel'), 'utf8').trim() || 'stable'
-  } catch {
-    return 'stable'
-  }
+  const installation = readInstallation(home)
+  if (installation) return installation.channel
+  const channel = fs.readFileSync(path.join(home, 'channel'), 'utf8').trim()
+  if (!/^[a-z][a-z0-9-]*$/.test(channel)) throw new Error('Server update channel is missing or invalid')
+  return channel
 }
 
 async function fetchManifest(home: string): Promise<ServerManifest> {
@@ -211,6 +212,12 @@ export type ServerUpdaterDeps = {
 
 export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
   const { log } = deps
+  // Managed accounts follow this supervisor. Only the controller may select its package;
+  // otherwise this second selector can override the controller's verified environment.
+  if (controllerOwnsUpdates(process.env.GUGU_SERVER_HOME ?? '')) {
+    log.info('受控云电脑的版本由平台控制器管理')
+    return () => {}
+  }
   const layout = managedLayout()
   if (!layout) {
     log.info('不是经 install.sh 装的布局,不做自动升级')

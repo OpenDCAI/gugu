@@ -25,6 +25,7 @@ import { rotateByCopyTruncate, rotateByRename, SERVICE_LOG_CHECK_MS } from './se
 import { ensureUpgradeGuard, writeSupervisorHealth, SUPERVISOR_HEALTH_MS } from './server-upgrade-guard'
 import { createAccountDriver } from './server-account-driver'
 import { managedLayout, startServerUpdater } from './server-updater'
+import { controllerOwnsUpdates } from './server-installation'
 
 const RECONCILE_MS = 3_000
 const CHILD_STOP_GRACE_MS = 30_000
@@ -132,7 +133,7 @@ export async function runSupervisor(): Promise<void> {
 
   const layout = managedLayout()
   const lifecycle = layout ? createServerVersionLifecycle({ layout, running: () => [...children.values()].flatMap(child => child.version ? [child.version] : []) }) : null
-  const followSupervisor = process.env.GUGU_CLOUD_COMPUTER === '1'
+  const followSupervisor = controllerOwnsUpdates(home)
   // 换版:先留一句「更新」,账号进程开机收残据此说清在跑的那一轮是被更新打断的。
   const restart = (userId: string): void => {
     noteExitReason(accountDataDir(userId), 'update')

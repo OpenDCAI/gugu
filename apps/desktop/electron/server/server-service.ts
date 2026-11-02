@@ -22,6 +22,7 @@ import { readAccountRuntime } from './server-account-runtime'
 import { recordLoginShell, startKeeper } from './server-keeper'
 import { activityProof, listAccounts, supervisorDataDir } from './server-layout'
 import { SERVICE_UMASK } from './server-permissions'
+import { controllerOwnsUpdates } from './server-installation'
 import { spawnUpgradeGuard, writeUpgradeMarker } from './server-upgrade-guard'
 import { ownServerNames } from './server-names'
 
@@ -298,7 +299,7 @@ export function describeProcess(pid: number, environ: string | null, cmdline: st
   const supervised = env.get('GUGU_SERVER_SUPERVISED')
   return {
     pid,
-    ...(env.get('GUGU_CLOUD_COMPUTER') === '1' ? { managedCloud: true } : {}),
+    ...(controllerOwnsUpdates(env.get('GUGU_SERVER_HOME') ?? '', Object.fromEntries(env)) ? { managedCloud: true } : {}),
     version: env.get('GUGU_TASK_HOST_VERSION') || fromPath,
     supervisedBy:
       environ === null
@@ -357,6 +358,8 @@ export type InstallServiceDeps = {
   isAlive: (pid: number) => boolean
   /** 这台机器上有没有 agent 正在干活(跑一轮或等人批准)。 */
   isBusy: () => boolean
+  /** A controller may wait for idle, but cannot interrupt an account to enforce a package target. */
+  requireIdle?: boolean
   /** 让在跑的那个正常退出(SIGTERM:收子进程、放锁)。 */
   stop: (pid: number) => void
   /** 马上要把在跑的旧版本换下来(重新执行安装命令 = 现在就升级):请升级看门狗盯着,新版本站不稳就退回去。 */
@@ -393,6 +396,10 @@ export async function installServiceWith(out: Out, deps: InstallServiceDeps): Pr
   if (before && alreadyRunning && accountsReady(before)) {
     out(`${label(targetVersion)} 已在运行(进程 ${before.pid})。`)
     return true
+  }
+  if (before && !alreadyRunning && deps.requireIdle && deps.isBusy()) {
+    out('账号尚未确认空闲,保留正在运行的版本,等待下次换版。')
+    return false
   }
   if (!alreadyRunning) {
     if (before) {
@@ -481,6 +488,7 @@ export async function installService(out: Out): Promise<boolean> {
     accountsMatchPackage: (version) => listAccounts().filter((account) => account.signedIn).every((account) => readAccountRuntime(account.dataDir).version === version),
     isAlive: isProcessAlive,
     isBusy: () => listAccounts().some((account) => account.signedIn && activityProof(account.dataDir) !== 'idle'),
+    requireIdle: controllerOwnsUpdates(home),
     stop: (pid) => {
       try {
         process.kill(pid, 'SIGTERM')

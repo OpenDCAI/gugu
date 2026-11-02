@@ -431,6 +431,7 @@ describe('测试环境:桌面报给 server 的版本可覆盖', () => {
 // The download-site manifest backfill script and its case belong to the official release tooling, not this repository.
 describe('测试下载站补「钉在这一版上的清单」', () => {
   it('fetchVersionManifest:先读钉在这一版上的清单;没有时通道清单正好是这一版也认;都不是就说没有', async () => {
+    fs.writeFileSync(path.join(home, 'channel'), 'stable\n')
     const prev = process.env.GUGU_SERVER_DOWNLOAD_BASE
     process.env.GUGU_SERVER_DOWNLOAD_BASE = 'http://cdn'
     const sha = 'a'.repeat(64)
