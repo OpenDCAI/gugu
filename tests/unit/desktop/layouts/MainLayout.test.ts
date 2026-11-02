@@ -274,11 +274,19 @@ vi.mock('../../../../apps/desktop/src/store/contactsContext', async () => {
 })
 // gugu-dev#181 桌面上打开一条对话 = 请会话页摆出它那块(会话页装的那座桥,这里装一份假的、只记下请求)。
 const sessionPageViewRequests = { openChat: vi.fn(), openSession: vi.fn() }
+const notificationClicks = vi.hoisted(() => ({
+  listener: null as ((click: { chatId: string | null }) => void) | null,
+  unsubscribe: vi.fn(),
+}))
 const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted(() => ({
   platformMock: {
     kind: 'electron',
     capabilities: { notifications: false, appUpdates: false, sessionHost: true },
     showNotification: vi.fn(),
+    subscribeNotificationClicks: vi.fn((listener: (click: { chatId: string | null }) => void) => {
+      notificationClicks.listener = listener
+      return notificationClicks.unsubscribe
+    }),
     installUpdate: vi.fn()
   },
   chatStoreMock: {
@@ -335,6 +343,9 @@ beforeEach(() => {
   activationProbe.prewarm.mockReset()
   platformMock.kind = 'electron'
   platformMock.capabilities.sessionHost = true
+  notificationClicks.listener = null
+  notificationClicks.unsubscribe.mockClear()
+  platformMock.subscribeNotificationClicks.mockClear()
   chatStoreMock.chats = []
   chatStoreMock.activeChatId = null
   chatStoreMock.setActiveChatId.mockReset()
@@ -1066,6 +1077,7 @@ describe('MainLayout: opening a topic on the desktop', () => {
   const ways: Array<[string, () => void, string]> = [
     ['a conversation link', () => { clickLink(conversationLink(TOPIC)) }, SRC],
     ['a notification', () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: TOPIC } })) }, TOPIC],
+    ['a phone notification', () => { notificationClicks.listener!({ chatId: TOPIC }) }, TOPIC],
     ['an App naming it', () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: { chatId: TOPIC, itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } } })) }, SRC],
   ]
   it.each(ways)('from %s, through the one door', async (_way, open, target) => {
@@ -1078,6 +1090,23 @@ describe('MainLayout: opening a topic on the desktop', () => {
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(target, false)
     if (_way === 'a conversation link') expect(drainTopicSplitRequest(SRC)).toMatchObject({ chatId: TOPIC, sourceChatId: SRC })
     else expect(drainTopicSplitRequest(SRC)).toBeNull()
+  })
+  it('unsubscribes notification clicks when MainLayout unmounts', async () => {
+    await renderMainLayoutWithToast()
+    expect(platformMock.subscribeNotificationClicks).toHaveBeenCalled()
+    notificationClicks.unsubscribe.mockClear()
+    await harness.render(null)
+    expect(notificationClicks.unsubscribe).toHaveBeenCalledOnce()
+  })
+  it('does not navigate for a phone notification without a chatId', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await renderMainLayoutWithToast()
+    chatStoreMock.setActiveChatId.mockClear()
+    sessionPageViewRequests.openChat.mockClear()
+    await act(async () => { notificationClicks.listener!({ chatId: null }) })
+    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+    expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
   })
 })
 

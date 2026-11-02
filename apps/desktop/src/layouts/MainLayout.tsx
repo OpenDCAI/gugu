@@ -592,8 +592,7 @@ function InnerLayout({
 
 
   useEffect(() => {
-    const handler = (event: Event) => {
-      const { chatId } = (event as CustomEvent<{ chatId?: unknown }>).detail ?? {}
+    const open = (chatId: unknown) => {
       if (typeof chatId !== 'string' || chatId.length === 0) return
       if (openChatBlock(chatId, 'notification-open')) return
 
@@ -602,8 +601,13 @@ function InnerLayout({
       setMobilePane('chat')
       focusComposerForUserEntry('notification-open')
     }
+    const handler = (event: Event) => open((event as CustomEvent<{ chatId?: unknown }>).detail?.chatId)
     window.addEventListener(UI_EVENTS.notificationClicked, handler)
-    return () => window.removeEventListener(UI_EVENTS.notificationClicked, handler)
+    const unsubscribe = platform.subscribeNotificationClicks?.(({ chatId }) => open(chatId))
+    return () => {
+      window.removeEventListener(UI_EVENTS.notificationClicked, handler)
+      unsubscribe?.()
+    }
   }, [setActiveTab, focusComposerForUserEntry, openChatBlock, setActiveChatId])
 
 
