@@ -19,7 +19,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { isProcessAlive } from './process-alive'
 import { readAccountRuntime } from './server-account-runtime'
-import { recordLoginShell, startKeeper } from './server-keeper'
+import { liveKeeperPid, recordLoginShell, startKeeper } from './server-keeper'
 import { activityProof, listAccounts, supervisorDataDir } from './server-layout'
 import { SERVICE_UMASK } from './server-permissions'
 import { assertPackageEnvironment, controllerOwnsUpdates } from './server-package-environment.mts'
@@ -554,5 +554,6 @@ export function describeService(): string {
   }
   const cron = hasCrontab() ? tryRun('crontab', ['-l']) : { ok: false, out: '' }
   if (cron.ok && cron.out.split('\n').some(isCronLine)) return 'crontab @reboot 自启(无 systemd 用户会话)'
+  if (liveKeeperPid(serverHome()) !== null) return 'keeper 正在守护,未登记开机自启(执行 gugu-server service install)'
   return '未注册常驻服务(执行 gugu-server service install)'
 }

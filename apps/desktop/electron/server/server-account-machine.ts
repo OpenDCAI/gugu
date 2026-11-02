@@ -58,6 +58,8 @@ export type AccountState = {
   failures: Record<string, Failure>
   child: ChildState
   lastOutcome: Outcome | null
+  /** Explicit selection survives consumption; unchanged desktop reports cannot revoke it. */
+  confirmedTarget?: { target: string; desktopVersions: Record<string, string>; request: number }
 }
 export const INITIAL_ACCOUNT_STATE: AccountState = { version: null, supervisor: null, previous: null, phase: { kind: 'running' }, failures: {}, child: 'none', lastOutcome: null }
 
@@ -245,6 +247,11 @@ export function parseAccountState(text: string | null): AccountState | null {
       failures: value.failures && typeof value.failures === 'object' ? value.failures : {},
       child: value.child === 'running' || value.child === 'restarting' ? value.child : 'none',
       lastOutcome: value.lastOutcome ?? null,
+      ...(value.confirmedTarget && isServerVersion(value.confirmedTarget.target)
+        && typeof value.confirmedTarget.request === 'number' && Number.isFinite(value.confirmedTarget.request)
+        && value.confirmedTarget.desktopVersions && typeof value.confirmedTarget.desktopVersions === 'object' && !Array.isArray(value.confirmedTarget.desktopVersions)
+        && Object.values(value.confirmedTarget.desktopVersions).every(isServerVersion)
+        ? { confirmedTarget: value.confirmedTarget } : {}),
     }
   } catch {
     return null

@@ -110,8 +110,23 @@ export function createAccountDriver(options: {
     if (options.followSupervisor) return layout.version
     const request = readVersionSwitchRequest(account.dataDir, now())
     const reports = readDesktopReports(account.dataDir)
+    const reported = pickTargetVersion(reports, now())
+    const state = load(account.userId)
+    let confirmation = state.confirmedTarget
+    if (request?.confirmed && request.at !== confirmation?.request) {
+      confirmation = { target: request.target ?? reported ?? current, request: request.at,
+        desktopVersions: Object.fromEntries(Object.entries(reports).map(([id, report]) => [id, report.version])) }
+    } else if (confirmation && Object.entries(reports).some(([id, report]) =>
+      confirmation.desktopVersions[id] !== undefined
+        ? report.version !== confirmation.desktopVersions[id]
+        : !Object.values(confirmation.desktopVersions).includes(report.version))) {
+      // A version change ends the selection. Renewals and disappearing/expired reports do not.
+      if (request?.at === confirmation.request) run(account, { type: 'consumeRequest' })
+      confirmation = undefined
+    }
+    if (confirmation !== state.confirmedTarget) persist(account.userId, { ...state, confirmedTarget: confirmation })
     // 没有一台桌面报过版本:就留在现在这一版。
-    return (request?.confirmed ? request.target : undefined) ?? pickTargetVersion(reports, now()) ?? (Object.keys(reports).length ? layout.version : current)
+    return confirmation?.target ?? reported ?? (Object.keys(reports).length ? layout.version : current)
   }
 
   const run = (account: ServerAccount, effect: AccountEffect): void => {
