@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { capacitorPlatform } from '../../../../apps/desktop/src/platform/capacitor'
 
 const { addListener } = vi.hoisted(() => ({ addListener: vi.fn() }))
@@ -8,7 +8,7 @@ vi.mock('@capacitor-mlkit/barcode-scanning', () => ({ BarcodeFormat: { QrCode: '
 
 type Tap = { actionId: string; notification: { extra?: { chatId?: unknown } } }
 let fire: (event: Tap) => void
-let remove: ReturnType<typeof vi.fn>
+let remove: Mock<() => Promise<void>>
 beforeEach(() => {
   addListener.mockReset()
   remove = vi.fn(async () => {})
