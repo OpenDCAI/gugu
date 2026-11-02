@@ -16,6 +16,8 @@ const { requests, tableError, chatDb } = vi.hoisted(() => {
 })
 vi.mock('../../../apps/desktop/src/lib/supabase', () => ({ chatDb }))
 import { writeIdempotentChatMessage } from '../../../apps/desktop/src/lib/chatMessageWriter'
+import { ChatWindowCache } from '../../../apps/desktop/src/store/chatWindowCache'
+import { messageItemFromRow } from '@gugu/core/cloud/messageItem'
 
 const input = { id: 'message', chatId: 'chat', senderUserId: 'sender', toUserIds: null, content: 'hello', contentType: 'text', replyToMessageId: null, threadRootId: null, isThreadRoot: false, isWhisper: false }
 const messageRow = {
@@ -50,6 +52,27 @@ describe('message send confirmation request budget', () => {
     tableError.blocks = true
     await expect(writeIdempotentChatMessage(input, client())).resolves.toMatchObject({ id: input.id })
     expect(requests).toEqual(['send_message_with_overlays'])
+  })
+
+  it.each(['ack first', 'revision first'])('keeps the confirmed refusal through a body-only message echo (%s)', async (order) => {
+    const cache = new ChatWindowCache(input.senderUserId)
+    const viewport = {}
+    const stop = cache.subscribe(input.chatId, () => {}, undefined, viewport)
+    try {
+      const acknowledged = await writeIdempotentChatMessage(input, client())
+      const echoed = messageItemFromRow(messageRow, input.senderUserId)!
+      for (const message of order === 'ack first' ? [acknowledged, echoed] : [echoed, acknowledged]) {
+        cache.set(input.chatId, [message])
+      }
+      tableError.blocks = true
+      const { loadMessageOverlays } = await import('../../../apps/desktop/src/lib/chatMessageRevalidation')
+      await expect(loadMessageOverlays([input.id], input.senderUserId)).rejects.toThrow('refusal table unavailable')
+      for (const messages of [cache.rows(input.chatId), cache.history(input.chatId, viewport).getSnapshot().messages]) {
+        expect(messages[0]?.delivery_blocks).toEqual(acknowledged.delivery_blocks)
+      }
+      cache.set(input.chatId, [{ ...echoed, delivery_blocks: [] }])
+      expect(cache.rows(input.chatId)[0]?.delivery_blocks).toEqual([])
+    } finally { stop() }
   })
 
   it.each(['reactions', 'deliveries', 'delivery_blocks'])('s3: reports an older database when %s is absent', async (column) => {
