@@ -25,9 +25,9 @@ const wipe = binding.extend({ assistantId: z.uuid() })
 let deviceId: (() => Promise<string | null>) | null = null
 export function setAssistantHomeDeviceResolver(resolver: () => Promise<string | null>): void { deviceId = resolver }
 const fail = (code: Parameters<typeof assistantServerFailure>[0]): never => { throw new AssistantServerSetupError(assistantServerFailure(code)) }
-type CloseProvision = Pick<AssistantProvisionRow, 'agent_user_id' | 'agent'> & { provisioned_agent_user_id: string | null }
+type CloseProvision = Pick<AssistantProvisionRow, 'agent_user_id' | 'agent' | 'phase'> & { provisioned_agent_user_id: string | null }
 const retiredProvision = (row: CloseProvision) => !!row.provisioned_agent_user_id &&
-  (row.agent_user_id === null || typeof provisionIdentityRemovedAt(row) === 'string')
+  ((row.agent_user_id === null && row.phase === 'completed') || typeof provisionIdentityRemovedAt(row) === 'string')
 const closeSelect = `${ASSISTANT_PROVISION_SELECT},provisioned_agent_user_id,operation_id`
 
 async function account(input: AssistantServerBinding) {
