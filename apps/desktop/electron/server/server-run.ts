@@ -50,7 +50,7 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   for (const account of listAccounts()) removeLegacyBrowserLogins(account.dataDir, { info: warn, warn })
 
   const stopWhileWaiting = (): void => {
-    if (process.env.GUGU_SERVER_SUPERVISED !== 'systemd') markStopped(home)
+    if (!['systemd', 'launchd'].includes(process.env.GUGU_SERVER_SUPERVISED ?? '')) markStopped(home)
     process.exit(143)
   }
   process.on('SIGTERM', stopWhileWaiting)

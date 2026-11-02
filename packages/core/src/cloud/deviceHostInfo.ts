@@ -80,7 +80,7 @@ export function describeOsName(input: { platform: string; release: string; osRel
  * ❌ 不因为一个坏文件让心跳失败 —— 那会把整台机器显示成离线,拿主要的换次要的。
  */
 export function parseServerUpdateState(text: string, nowMs: number, activityText?: string | null): DeviceServerUpdate | null {
-  let data: { state?: unknown; version?: unknown; at?: unknown; reason?: unknown; cause?: unknown; lastOutcome?: unknown; account?: { lastOutcome?: unknown } }
+  let data: { state?: unknown; version?: unknown; at?: unknown; reason?: unknown; cause?: unknown; lastOutcome?: unknown }
   try {
     data = JSON.parse(text) as typeof data
   } catch {
@@ -94,7 +94,7 @@ export function parseServerUpdateState(text: string, nowMs: number, activityText
     data.state === 'downloading' ? SERVER_UPDATE_DOWNLOADING_STALE_MS : data.state === 'failed' ? SERVER_UPDATE_FAILED_STALE_MS : SERVER_UPDATE_READY_STALE_MS
   if (data.state !== 'idle' && age > limit) return null
   const update: DeviceServerUpdate = { state: data.state, version: data.version }
-  const outcome = parseVersionRequestOutcome(data.lastOutcome ?? data.account?.lastOutcome)
+  const outcome = parseVersionRequestOutcome(data.lastOutcome)
   if (outcome) update.lastOutcome = outcome
   if (data.state === 'failed' && (data.cause === 'boot' || data.reason === 'boot-failed')) update.reason = 'boot-failed'
   if (data.state === 'ready' && activityText) {

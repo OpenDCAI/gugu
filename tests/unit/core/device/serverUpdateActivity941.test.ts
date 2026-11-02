@@ -81,7 +81,12 @@ describe('installation request outcomes in device heartbeats', () => {
   })
 
   it.each([null, {}, { kind: 'invented', request: 1234 }, { kind: 'failed', request: '1234' }, { kind: 'failed' }])('does not invent an acknowledgement from an invalid or automatic outcome (%j)', lastOutcome => {
-    const account = JSON.stringify({ state: 'failed', version: '0.3.1', at: now, account: { lastOutcome } })
+    const account = JSON.stringify({ state: 'failed', version: '0.3.1', at: now, lastOutcome })
     expect(parseServerUpdateState(account, now)).toEqual({ state: 'failed', version: '0.3.1' })
   })
+  it('does not take a nested legacy account receipt as the installation result', () => {
+    const legacy = JSON.stringify({ state: 'idle', version: '0.3.1', at: now, account: { lastOutcome: { kind: 'switched', request: 1234 } } })
+    expect(parseServerUpdateState(legacy, now)).toEqual({ state: 'idle', version: '0.3.1' })
+  })
+
 })

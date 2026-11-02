@@ -307,10 +307,10 @@ function registerCron(executable: string, home: string): boolean {
 function registerLaunchd(out: Out, executable: string, home: string): void {
   fs.mkdirSync(path.dirname(plistPath()), { recursive: true })
   fs.writeFileSync(plistPath(), launchdPlist(executable, home, logFile()))
-  clearStopped(home)
   const uid = String(os.userInfo().uid)
   for (const domain of [`gui/${uid}`, `user/${uid}`]) {
     tryRun('launchctl', ['bootout', `${domain}/${names().launchdLabel}`])
+    clearStopped(home)
     const r = tryRun('launchctl', ['bootstrap', domain, plistPath()])
     if (r.ok) {
       out(`已注册为 launchd 用户代理(${plistPath()})。`)

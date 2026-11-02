@@ -3360,7 +3360,7 @@ let signalStopping = false
 const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
   if (isSingleServerRun()) {
     if (code === 143 && !existsSync(join(app.getPath('userData'), SESSION_FILE))) code = EXIT_SIGNED_OUT
-    if (code !== EXIT_RESTART && process.env.GUGU_SERVER_SUPERVISED !== 'systemd') markStopped(process.env.GUGU_SERVER_HOME!)
+    if (code !== EXIT_RESTART && !['systemd', 'launchd'].includes(process.env.GUGU_SERVER_SUPERVISED ?? '')) markStopped(process.env.GUGU_SERVER_HOME!)
   }
   // 有人要它停(stop / systemd / 守护进程收账号进程):留一句,开机收残据此说「重启打断了这一轮」(守护进程换版时先写了 update,不改)。
   noteExitReason(app.getPath('userData'), 'restart')
