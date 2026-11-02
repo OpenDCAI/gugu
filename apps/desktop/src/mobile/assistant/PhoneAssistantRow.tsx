@@ -8,6 +8,7 @@ import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { formatCalendarDay } from '@/i18n/format'
 import { useChatStore } from '@/store/chatContext'
 import { PhoneGuguTabIcon } from './PhoneGuguTabIcon'
+import { PhoneMessageAvatar } from '../chat/PhoneMessageAvatar'
 import type { PhoneAssistantState } from './usePhoneAssistant'
 
 /**
@@ -33,9 +34,9 @@ export function PhoneAssistantRow({ state, onOpen }: { state: PhoneAssistantStat
       data-testid={AUTOMATION_TEST_IDS.mobileAssistantNav}
       emphasis={unread > 0}
       onClick={onOpen}
-      leading={contact
+      leading={<PhoneMessageAvatar>{contact
         ? <Avatar name={name} avatarUrl={contact.avatar} seed={contact.id} size={48} isAgent harnessBadge={false} />
-        : <PhoneGuguTabIcon name={name} fresh={state.stage.stage === 'onboarding'} />}
+        : <PhoneGuguTabIcon name={name} fresh={state.stage.stage === 'onboarding'} />}</PhoneMessageAvatar>}
       title={name}
       meta={chat ? formatCalendarDay(chatActivityAt(chat)) : undefined}
       subtitle={chat ? chatPreviewText(chat) : undefined}

@@ -3,6 +3,7 @@ import { ipcMain } from 'electron'
 import { join } from 'node:path'
 import { resolveGuguHome } from '@gugu/core/local/state/paths'
 import { createMoveJournalFileStore } from './assistant-move-journal'
+import { stdSerializers } from 'pino'
 import { ASSISTANT_HOME_CHANNELS, type PrepareLocalHomeInput } from '../src/lib/assistantHomeIpc'
 import { prepareLocalAssistantHome, wipeLocalAssistantHome } from './assistant-home-prepare'
 import { createAssistantSetupPreparation } from './assistant-setup-preparation'
@@ -25,6 +26,7 @@ export function installAssistantHome(): void {
     prepare: async (id, signal) => (await runtime()).prepareAssistantRuntime(id, signal),
     cleanup: async (id) => (await runtime()).discardAssistantPreparation(id),
     install: prepareLocalAssistantHome,
+    failed: (attemptId, stage, err) => log.warn({ attemptId, stage, error: err instanceof Error ? stdSerializers.errWithCause(err) : err }, 'Local assistant setup failed'),
     changed: (id, state) => { const owner = owners.get(id); if (owner && !owner.isDestroyed()) owner.send(ASSISTANT_HOME_CHANNELS.preparationChanged, { id, ...state }) } })
   const owned = (event: Electron.IpcMainInvokeEvent, id: string) => {
     if (owners.get(id) !== event.sender) throw new Error('This assistant preparation belongs to another window')
