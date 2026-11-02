@@ -14,9 +14,15 @@ import type { DisplayIdentity } from '../../../../apps/desktop/src/lib/displayId
 import type { MemberProfileCardModel } from '../../../../apps/desktop/src/components/MemberProfileCard'
 import { createNode, createReactHarness } from '../../../support/testHarness'
 
-vi.mock('../../../../apps/desktop/src/store/auth', () => ({ useAuth: () => ({ user: null }) }))
+vi.mock('../../../../apps/desktop/src/store/auth', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../apps/desktop/src/store/auth')>(),
+  useAuth: () => ({ user: null }),
+}))
 vi.mock('../../../../apps/desktop/src/lib/openMessageSender', () => ({ openMessageSender: vi.fn() }))
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...await importOriginal<typeof import('react-i18next')>(),
+  useTranslation: () => ({ t: (key: string) => key }),
+}))
 
 // Reference bodies and hue readings from the approved eight-avatar comparison.
 const agents = [
