@@ -5,7 +5,7 @@ import { expect, it, vi } from 'vitest';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const state = vi.hoisted(() => ({ navigate: vi.fn(), expand: vi.fn(), toggle: vi.fn() }));
+const state = vi.hoisted(() => ({ navigate: vi.fn(), expand: vi.fn(), toggle: vi.fn(), beside: vi.fn(), screen: false }));
 vi.mock('@renderer/features/projects/hooks/use-confirm-delete-project', () => ({ useConfirmDeleteProject: () => vi.fn() }));
 vi.mock('@renderer/features/projects/stores/project', () => ({ isUnregisteredProject: () => false }));
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
@@ -22,7 +22,7 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
     needsYouCountForProject: () => 0, projectMembersOf: () => ['business'], hasNameTwin: () => false,
     ensureProjectExpanded: state.expand, toggleProjectExpanded: state.toggle },
 }));
-vi.mock('@renderer/app/screen-layout-actions', () => ({ isScreenView: () => false, showBesideOnScreen: vi.fn() }));
+vi.mock('@renderer/app/screen-layout-actions', () => ({ isScreenView: () => state.screen, showBesideOnScreen: state.beside }));
 vi.mock('@/lib/composerVerbBridge', () => ({ readComposerVerb: () => null, setComposerVerb: vi.fn() }));
 vi.mock('@renderer/features/projects/project-task-entry', () => ({ prepareProjectTask: vi.fn() }));
 vi.mock('@renderer/features/sessions/composer-drafts', () => ({ composerDrafts: { get: () => '' }, projectDraftKey: () => '' }));
@@ -57,7 +57,12 @@ it('opens an actual project on the assistant device and retains its project cont
     expect(state.navigate).toHaveBeenCalledWith('project', { projectId: 'business' });
     expect(state.expand).toHaveBeenCalledWith('business');
     expect(state.toggle).not.toHaveBeenCalled();
+    state.screen = true;
+    await act(async () => host.querySelector('[data-project-row="business"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })));
+    expect(state.beside).toHaveBeenCalledWith({ kind: 'project', projectId: 'business' });
+    expect(state.navigate).toHaveBeenCalledTimes(1);
   } finally {
+    state.screen = false;
     await act(async () => root.unmount());
     host.remove();
   }

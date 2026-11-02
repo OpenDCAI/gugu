@@ -144,7 +144,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
     // onto it — ↓ afterwards continues from here.
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
     // ⌘ 点 = 项目块拼到正看着那块右边(gugu-dev#181:项目是一块,和会话行同一个手势)。
-    if (beside && isScreenView(appState.navigation.currentViewId) && !standInDevice && !assistantHome) {
+    if (beside && isScreenView(appState.navigation.currentViewId) && !standInDevice && !assistantGroup) {
       showBesideOnScreen({ kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) });
       sidebarStore.ensureProjectExpanded(projectId);
       return;
