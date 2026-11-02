@@ -106,8 +106,8 @@ it('cancel and IME Enter never commit; blank edits cannot be saved', async () =>
 });
 
 it.each([
-  { locale: 'zh-CN', steer: '现在插入第 1 条排队消息', send: '立即发送第 2 条排队消息', steerTitle: '不打断它，agent 下一步就会看到', sendTitle: '会取消当前回合;队列里能与它合并的条目会随它同发' },
-  { locale: 'en-US', steer: 'Insert queued message 1 now', send: 'Send now: queued message 2', steerTitle: 'Doesn’t stop the agent; it sees this at its next step', sendTitle: 'Cancels the active turn; queued entries that can merge with this one go in the same message' },
+  { locale: 'zh-CN', steer: '现在插入第 1 条排队消息', send: '立即发送第 2 条排队消息', steerTitle: '不打断它，agent 下一步就会看到', sendTitle: '会取消正在进行的回复;队列里能与它合并的条目会随它同发' },
+  { locale: 'en-US', steer: 'Insert queued message 1 now', send: 'Send now: queued message 2', steerTitle: 'Doesn’t stop the agent; it sees this at its next step', sendTitle: 'Cancels the reply in progress; queued entries that can merge with this one go in the same message' },
 ])('triggers each real action by its accessible name and queue position in $locale', async ({ locale, steer, send, steerTitle, sendTitle }) => {
   const h = await mount(PROMPTS, 640, locale);
   const steerButton = page.getByRole('button', { name: steer, exact: true });
