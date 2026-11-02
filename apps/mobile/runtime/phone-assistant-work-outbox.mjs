@@ -3,7 +3,7 @@ import { createAssistantWorkNoticeWakePump } from '../../../packages/core/src/cl
 import { CloudComputerError, createCloudComputerClient } from '../../../packages/core/src/cloud/cloudComputer.ts'
 import { assistantWorkDeliveryTarget } from '../../../packages/core/src/cloud/assistantWorkRouting.ts'
 import { createAssistantWorkAvailabilityNotifier } from '../../../packages/core/src/cloud/assistantWorkAvailability.ts'
-import { pickAssistant } from '../../../packages/core/src/shared/assistantProvision.ts'
+import { ASSISTANT_PROVISION_SELECT, pickAssistant } from '../../../packages/core/src/shared/assistantProvision.ts'
 
 /** The phone consumes the same cloud event queue; it keeps no second durable outbox. */
 export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, instanceId, isReady, requester, receive, controller: controllerOverride, warn = () => {} }) {
@@ -47,7 +47,7 @@ export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, insta
     unavailable: createAssistantWorkAvailabilityNotifier({
       context,
       assistant: async (_ctx, signal) => {
-        const {data, error} = await cloud.identity.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+        const {data, error} = await cloud.identity.from('agent_provisions').select(ASSISTANT_PROVISION_SELECT)
           .eq('owner_user_id', ownerId).eq('member_key', 'assistant').abortSignal(signal)
         if (error) throw error
         return pickAssistant(data ?? [])?.agentId ?? null

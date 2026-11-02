@@ -192,6 +192,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const commands: ChatCommands = {
     ...(nativeRecord && !phoneHost ? userAttachments : {}),
     classifyLink: classifyFileLink, onOpenLink: followConversationLink, onOpenSender: openMessageSender,
+    onOpenFile: ({ path }) => outputs.openFile(path),
     conversationAgentSession: () => sessionId, conversationAgentUserId: () => agentUserId ?? null,
     ...quotes.commands,
     onDismissBackgroundTask: ({ entryId }) => { dismissSubagent(sessionId, entryId); setDismissals(value => value + 1) },
