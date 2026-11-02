@@ -254,6 +254,7 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     return { terminals: [], runtimes: [], host_runtime_capability: 0 }
   }
   const row = value as Record<string, unknown>
+  const updateOutcome = parseVersionRequestOutcome(row.server_update_outcome)
   return {
     terminals: Array.isArray(row.terminals)
       ? row.terminals.filter((terminal): terminal is string => typeof terminal === 'string' && terminal.length > 0)
@@ -282,6 +283,7 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     ...(row.server_confirmed_restart === true ? { server_confirmed_restart: true as const } : {}),
     ...(parseSessionBootFailures(row.server_boot_failures).length ? { server_boot_failures: parseSessionBootFailures(row.server_boot_failures) } : {}),
     ...normalizeServerUpdate(row.server_update),
+    ...(updateOutcome ? { server_update_outcome: updateOutcome } : {}),
     ...normalizeServerDisk(row.server_disk),
     ...normalizeServerRollback(row.server_rollback),
     ...(isPositiveInt(row.remote_protocol) ? { remote_protocol: row.remote_protocol } : {}),

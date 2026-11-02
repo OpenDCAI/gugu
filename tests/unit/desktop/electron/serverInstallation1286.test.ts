@@ -35,7 +35,7 @@ function failPendingBoots(): void {
   const codes: Array<number | null> = []
   for (let attempt = 0; attempt < 4; attempt++) {
     const result = spawnSync(process.execPath, ['--require', path.resolve('apps/desktop/electron/server/server-boot.cjs'), script, 'run'], {
-      env: { ...process.env, GUGU_SERVER_HOME: home, GUGU_SERVER_SUPERVISED: 'systemd' }, encoding: 'utf8',
+      env: { ...process.env, GUGU_TASK_HOST_VERSION: pending.to, GUGU_SERVER_HOME: home, GUGU_SERVER_SUPERVISED: 'systemd' }, encoding: 'utf8',
     })
     codes.push(result.status)
     if (attempt < 3) expect(result.stderr).toContain('fixture failed before readiness')
