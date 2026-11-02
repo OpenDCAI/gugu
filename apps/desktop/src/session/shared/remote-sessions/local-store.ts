@@ -15,6 +15,8 @@
  * 否则屏幕上会留下一份过期且永不更新的历史 —— 它不报错，和「读得慢」分辨不出来。
  */
 
+import { createIndexedDbHandle, type IndexedDbHandle } from '@/lib/indexedDbHandle'
+
 // 名字是历史原因留下的(这个库先给手机「看会话」用,后来桌面的远程会话目录也存在这里):改名会让所有手机冷一次,
 // 又没有实际收益,❌ 改。
 const DB_NAME = 'gugu.agentWatch.v1'
@@ -85,17 +87,17 @@ function run<T>(request: IDBRequest<T>): Promise<T> {
   })
 }
 
-function createIndexedDbStore(db: IDBDatabase): AgentWatchLocalStore {
-  const tx = (store: AgentWatchStoreName, mode: IDBTransactionMode): IDBObjectStore =>
-    db.transaction(store, mode).objectStore(store)
+function createIndexedDbStore(handle: IndexedDbHandle): AgentWatchLocalStore {
+  const tx = async (store: AgentWatchStoreName, mode: IDBTransactionMode): Promise<IDBObjectStore> =>
+    (await handle.get()).transaction(store, mode).objectStore(store)
   return {
-    readAll: (store) => run(tx(store, 'readonly').getAll() as IDBRequest<LocalRow[]>),
-    read: (store, key) =>
-      run(tx(store, 'readonly').get(key) as IDBRequest<LocalRow | undefined>).then((row) => row ?? null),
-    put: (store, row) => run(tx(store, 'readwrite').put(row)).then(() => undefined),
-    delete: (store, key) => run(tx(store, 'readwrite').delete(key)).then(() => undefined),
+    readAll: async (store) => run((await tx(store, 'readonly')).getAll() as IDBRequest<LocalRow[]>),
+    read: async (store, key) =>
+      (await run((await tx(store, 'readonly')).get(key) as IDBRequest<LocalRow | undefined>)) ?? null,
+    put: async (store, row) => { await run((await tx(store, 'readwrite')).put(row)) },
+    delete: async (store, key) => { await run((await tx(store, 'readwrite')).delete(key)) },
     async clear() {
-      for (const name of AGENT_WATCH_STORES) await run(tx(name, 'readwrite').clear())
+      for (const name of AGENT_WATCH_STORES) await run((await tx(name, 'readwrite')).clear())
     }
   }
 }
@@ -111,9 +113,10 @@ let opening: Promise<AgentWatchLocalStore> | null = null
 export function getAgentWatchStore(factory?: IDBFactory): Promise<AgentWatchLocalStore> {
   if (opening) return opening
   const idb = factory ?? (typeof indexedDB === 'undefined' ? null : indexedDB)
+  const handle = idb ? createIndexedDbHandle(() => openDatabase(idb)) : null
   opening = idb
-    ? openDatabase(idb)
-        .then(createIndexedDbStore)
+    ? handle!.get()
+        .then(() => createIndexedDbStore(handle!))
         .catch(() => createMemoryStore())
     : Promise.resolve(createMemoryStore())
   return opening
