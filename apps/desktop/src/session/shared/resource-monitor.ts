@@ -79,9 +79,32 @@ export interface ResourceSnapshot {
   app: ResourceAppUsage;
   appProcesses: ResourceAppProcess[];
   entries: ResourcePtyEntry[];
+  /** Non-Electron, non-PTY processes, partitioned by their closest owned root. */
+  processGroups?: ResourceProcessGroup[];
+  memoryMetric?: 'rss';
   runId?: string;
   context?: ResourceContext;
   recordingError?: string;
   /** Only while an open monitor page has advanced diagnostics expanded. */
   internals?: { renderers: RendererMetrics[] };
+}
+
+export interface ResourceProcessGroup {
+  id: string;
+  kind: 'runtime' | 'session';
+  label: string;
+  sessionId?: string;
+  projectId?: string;
+  cpu?: number;
+  memory: number;
+  processes: { pid: number; ppid: number; name: string; cpu?: number; memory: number }[];
+}
+
+/** Historical samples without process groups keep their original meaning. */
+export function resourceTotals(snapshot: ResourceSnapshot): ResourceAppUsage {
+  const additional = [...snapshot.entries, ...(snapshot.processGroups ?? [])];
+  return {
+    memoryBytes: snapshot.app.memoryBytes === undefined ? undefined : snapshot.app.memoryBytes + additional.reduce((sum, item) => sum + item.memory, 0),
+    cpuPercent: snapshot.app.cpuPercent === undefined ? undefined : snapshot.app.cpuPercent + additional.reduce((sum, item) => sum + (item.cpu ?? 0), 0),
+  };
 }

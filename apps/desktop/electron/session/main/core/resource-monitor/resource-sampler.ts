@@ -1,4 +1,3 @@
-import { execFile } from '@gugu/core/local/childProcess';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { app, BrowserWindow } from 'electron';
@@ -8,6 +7,9 @@ import { appSettingsService } from '@main/core/settings/settings-service';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { collectRendererMetrics } from './renderer-metrics';
+import { collectAcpResourceRoots } from '../acp/runtime-process/resource-roots';
+import { accountProcessTrees, type ResourceProcessRoot } from './process-accounting';
+import { listResourceProcesses, collectLedgerResourceRoots } from './owned-processes';
 import { collectResourceContext } from './context';
 import { resourceHistory } from './history';
 import { parsePtySessionId } from '@shared/core/pty/ptySessionId';
@@ -23,11 +25,9 @@ const SAMPLE_INTERVAL_MS = 1500;
 const BACKGROUND_SAMPLE_INTERVAL_MS = 10_000;
 const CPU_COUNT = os.cpus().length;
 const TOTAL_MEMORY_BYTES = os.totalmem();
-const STALE_LOCAL_PTY_MEMORY_BYTES = 2 * 1024 * 1024;
 
-type ProcessUsage = { cpu: number; memory: number; ppid?: number };
+type ProcessUsage = { cpu?: number; memory: number; ppid?: number };
 type ProcessUsageMap = Record<string, ProcessUsage>;
-type ProcessTreeSnapshot = { trees: Map<number, number[]>; sampledPids: number[] };
 
 const runId = randomUUID();
 let inFlight: Promise<ResourceSnapshot> | null = null;
@@ -37,20 +37,32 @@ export function sampleOnce(): Promise<ResourceSnapshot> {
 }
 async function collectSample(): Promise<ResourceSnapshot> {
   const active = ptySessionRegistry.listActiveSessions();
-  const localPids = active
-    .map((a) => a.pid)
-    .filter((p): p is number => typeof p === 'number' && p > 0);
-
-  const { trees: processTrees, sampledPids } = await listProcessTrees(localPids);
-  const usage = await samplePidUsage(sampledPids);
+  const { usage: appUsage, processes: appProcesses } = sampleAppUsage();
+  const roots: ResourceProcessRoot[] = [
+    { id: 'electron-main', pid: process.pid, kind: 'electron', label: 'Main' },
+    ...appProcesses.map(p => ({ id: `electron:${p.pid}`, pid: p.pid, kind: 'electron' as const, label: p.name ?? p.type })),
+    ...active.flatMap(a => typeof a.pid === 'number' && a.pid > 0 ? [{ id: a.ptySessionId, pid: a.pid, kind: 'pty' as const, label: a.metadata?.title ?? a.ptySessionId }] : []),
+  ];
+  const [processes, acpRoots] = await Promise.all([listResourceProcesses(), collectAcpResourceRoots()]);
+  roots.push(...acpRoots, ...await collectLedgerResourceRoots(processes));
+  const candidates = accountProcessTrees(roots, processes, {}).pidsByRoot;
+  const usage = await samplePidUsage([...new Set([...candidates.values()].flat())]);
+  // Electron CPU uses its cumulative baseline; RSS uses the same OS sampler as child processes.
+  for (const p of appProcesses) {
+    const sampled = usage[String(p.pid)];
+    if (sampled) p.memory = sampled.memory;
+    usage[String(p.pid)] = { memory: p.memory, cpu: p.cpu, ppid: sampled?.ppid };
+  }
+  if (appProcesses.length) appUsage.memoryBytes = appProcesses.reduce((sum, p) => sum + p.memory, 0);
+  const { groups: processGroups, pidsByRoot } = accountProcessTrees(roots, processes, usage);
 
   const entries: ResourcePtyEntry[] = [];
   for (const a of active) {
     const parsed = parsePtySessionId(a.ptySessionId);
     if (!parsed) continue;
-    const tree = typeof a.pid === 'number' ? processTrees.get(a.pid) : undefined;
+    const tree = typeof a.pid === 'number' ? pidsByRoot.get(a.ptySessionId) : undefined;
     const u = tree ? aggregateProcessUsage(tree, usage) : undefined;
-    if (isStaleLocalPty(a.pid, u)) continue;
+    if (typeof a.pid === 'number' && !processes.some(p => p.pid === a.pid)) continue;
     entries.push({
       ptySessionId: a.ptySessionId,
       projectId: parsed.projectId,
@@ -65,7 +77,6 @@ async function collectSample(): Promise<ResourceSnapshot> {
     });
   }
 
-  const { usage: appUsage, processes: appProcesses } = sampleAppUsage();
   return {
     timestamp: Date.now(),
     runId,
@@ -75,6 +86,8 @@ async function collectSample(): Promise<ResourceSnapshot> {
     app: appUsage,
     appProcesses,
     entries,
+    processGroups,
+    memoryMetric: 'rss',
     ...(hasResourceMonitorInternals() ? { internals: { renderers: await collectRendererMetrics() } } : {}),
   };
 }
@@ -100,67 +113,6 @@ async function samplePidUsage(localPids: number[]): Promise<ProcessUsageMap> {
   }
 }
 
-/**
- * node-pty gives us the PTY's process group leader, which is usually a tiny
- * shell wrapper (`sh -c ...`). Agent CLIs and lifecycle scripts run as children
- * of that wrapper, so sampling only the root PID makes active agents look like
- * 3-6 MB shells. On POSIX, include descendants so the monitor reflects the
- * resource cost of the whole PTY session. Windows falls back to root PID
- * sampling, matching the previous behavior.
- */
-async function listProcessTrees(localPids: number[]): Promise<ProcessTreeSnapshot> {
-  const fallback = new Map(localPids.map((pid) => [pid, [pid]]));
-  const fallbackSnapshot = { trees: fallback, sampledPids: localPids };
-  if (localPids.length === 0 || process.platform === 'win32') return fallbackSnapshot;
-
-  try {
-    const stdout = await execFileText('ps', ['-axo', 'pid=,ppid=']);
-    const livePids = new Set<number>();
-    const childrenByParent = new Map<number, number[]>();
-    for (const line of stdout.split('\n')) {
-      const [pidText, ppidText] = line.trim().split(/\s+/);
-      const pid = Number(pidText);
-      const ppid = Number(ppidText);
-      if (!Number.isInteger(pid) || !Number.isInteger(ppid) || pid <= 0 || ppid < 0) continue;
-      livePids.add(pid);
-      const siblings = childrenByParent.get(ppid) ?? [];
-      siblings.push(pid);
-      childrenByParent.set(ppid, siblings);
-    }
-
-    const trees = new Map<number, number[]>();
-    for (const rootPid of localPids) {
-      const visited = new Set<number>();
-      const stack = [rootPid];
-      while (stack.length > 0) {
-        const pid = stack.pop();
-        if (pid === undefined || visited.has(pid)) continue;
-        visited.add(pid);
-        const children = childrenByParent.get(pid);
-        if (children) stack.push(...children);
-      }
-      trees.set(rootPid, [...visited]);
-    }
-    const sampledPids = [...new Set([...trees.values()].flat())].filter((pid) => livePids.has(pid));
-    return { trees, sampledPids };
-  } catch (err) {
-    log.warn('resource-sampler: process tree lookup failed', err);
-    return fallbackSnapshot;
-  }
-}
-
-function execFileText(file: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(file, args, { maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      resolve(String(stdout));
-    });
-  });
-}
-
 function aggregateProcessUsage(pids: number[], usage: ProcessUsageMap): ProcessUsage | undefined {
   let cpu = 0;
   let memory = 0;
@@ -169,15 +121,10 @@ function aggregateProcessUsage(pids: number[], usage: ProcessUsageMap): ProcessU
     const item = usage[String(pid)];
     if (!item) continue;
     found = true;
-    cpu += item.cpu;
+    cpu += item.cpu ?? 0;
     memory += item.memory;
   }
   return found ? { cpu, memory } : undefined;
-}
-
-function isStaleLocalPty(pid: number | undefined, usage: ProcessUsage | undefined): boolean {
-  if (pid === undefined || !usage) return false;
-  return usage.cpu === 0 && usage.memory < STALE_LOCAL_PTY_MEMORY_BYTES;
 }
 
 /**

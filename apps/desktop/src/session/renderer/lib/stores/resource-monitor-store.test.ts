@@ -58,7 +58,21 @@ describe('ResourceMonitorStore', () => {
     };
     snapshotHandler?.(snap);
     expect(store.totalCpuPercent).toBe(4);
-    expect(formatReport(snap, []).split('\n')).toEqual(['CPU (100% = one core) 4.0% Memory 0 B', 'Main 4.0% 0 B (pid=1)']);
+    expect(formatReport(snap, []).split('\n')).toEqual(['CPU (100% = one core) 4.0% Memory (RSS) 0 B', 'Main 4.0% 0 B (pid=1)']);
+  });
+  it('includes shared runtime and session children in the live totals and report', async () => {
+    const { ResourceMonitorStore } = await import('./resource-monitor-store');
+    const { formatReport } = await import('@renderer/features/command-palette/resource-monitor-utils');
+    const store = new ResourceMonitorStore(); store.watch();
+    const snap: ResourceSnapshot = { ...snapshot(10), app: { memoryBytes: 20, cpuPercent: 2 }, processGroups: [{
+      id: 'session:a', kind: 'session', sessionId: 'a', label: 'Build', memory: 90, cpu: 7,
+      processes: [{ pid: 42, ppid: 10, name: 'tsgo', memory: 90, cpu: 7 }],
+    }] };
+    snapshotHandler?.(snap);
+    expect(store.totalMemoryBytes).toBe(110);
+    expect(store.totalCpuPercent).toBe(9);
+    expect(store.entryCount).toBe(1);
+    expect(formatReport(snap, [])).toContain('tsgo 7.0% 90 B (pid=42 ppid=10)');
   });
   beforeEach(() => {
     vi.resetAllMocks();

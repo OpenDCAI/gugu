@@ -1,7 +1,7 @@
 import { computed, makeObservable, observable, runInAction } from 'mobx';
 import { events, rpc } from '@renderer/lib/ipc';
 import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
-import type { ResourceSnapshot } from '@shared/resource-monitor';
+import { resourceTotals, type ResourceSnapshot } from '@shared/resource-monitor';
 
 export class ResourceMonitorStore {
   snapshot: ResourceSnapshot | null = null;
@@ -41,15 +41,11 @@ export class ResourceMonitorStore {
    */
   get totalCpuPercent(): number | undefined {
     const snap = this.snapshot;
-    if (!snap || snap.app.cpuPercent === undefined) return undefined;
-    let sum = snap.app.cpuPercent;
-    for (const e of snap.entries) sum += e.cpu;
-    return sum;
+    return snap ? resourceTotals(snap).cpuPercent : undefined;
   }
 
   get totalMemoryBytes(): number | undefined {
-    const app = this.appMemoryBytes;
-    return app === undefined ? undefined : app + this.agentMemoryBytes;
+    return this.snapshot ? resourceTotals(this.snapshot).memoryBytes : undefined;
   }
 
   get appMemoryBytes(): number | undefined {
@@ -59,12 +55,12 @@ export class ResourceMonitorStore {
   get agentMemoryBytes(): number {
     if (!this.snapshot) return 0;
     let sum = 0;
-    for (const e of this.snapshot.entries) sum += e.memory;
+    for (const e of [...this.snapshot.entries, ...(this.snapshot.processGroups ?? [])]) sum += e.memory;
     return sum;
   }
 
   get entryCount(): number {
-    return this.snapshot?.entries.length ?? 0;
+    return (this.snapshot?.entries.length ?? 0) + (this.snapshot?.processGroups?.filter(g => g.kind === 'session').length ?? 0);
   }
 
   start(): void {

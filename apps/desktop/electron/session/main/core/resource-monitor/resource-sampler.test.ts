@@ -27,6 +27,8 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('./renderer-metrics', () => ({ collectRendererMetrics: collect }));
 vi.mock('./context', () => ({ collectResourceContext: async () => ({ windows: [] }) }));
 vi.mock('./history', () => ({ resourceHistory: { append } }));
+vi.mock('../acp/runtime-process/resource-roots', () => ({ collectAcpResourceRoots: async () => [] }));
+vi.mock('./owned-processes', () => ({ listResourceProcesses: async () => [], collectLedgerResourceRoots: async () => [] }));
 
 function tab(cumulativeCPUUsage: number, pid = 7) {
   return { pid, type: 'Tab', cpu: { percentCPUUsage: 0, cumulativeCPUUsage }, memory: { workingSetSize: 1 } };
