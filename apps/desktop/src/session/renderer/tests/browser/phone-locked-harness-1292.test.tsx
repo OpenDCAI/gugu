@@ -130,10 +130,10 @@ it.each([false, true])(
     expect(send).not.toBeNull()
     expect(
       harness.container.querySelectorAll(
-        '[data-slot="composer-actions-end"] > button:not([data-slot="composer-locked-agent"])'
+        '[data-slot="composer-actions-end"] > button:not([data-composer-locked-agent])'
       )
     ).toHaveLength(1)
-    expect(locked.dataset.slot).toBe('composer-locked-agent')
+    expect(locked.hasAttribute('data-composer-locked-agent')).toBe(true)
     expect(
       locked.getBoundingClientRect().bottom <= send.getBoundingClientRect().top ||
         locked.getBoundingClientRect().right <= send.getBoundingClientRect().left
@@ -179,7 +179,7 @@ it.each([false, true])(
     const send = harness.container.querySelector('button[aria-label="发送消息"]')!
     const attach = harness.container.querySelector('[data-slot="composer-actions-start"] > button')!
     expect(getComputedStyle(bar).gridTemplateColumns.split(' ')).toHaveLength(3)
-    expect(harness.container.querySelector('[data-slot="composer-locked-agent"]')).toBeNull()
+    expect(harness.container.querySelector('[data-composer-locked-agent]')).toBeNull()
     expect(
       harness.container.querySelectorAll('[data-slot="composer-actions-end"] > button')
     ).toHaveLength(1)

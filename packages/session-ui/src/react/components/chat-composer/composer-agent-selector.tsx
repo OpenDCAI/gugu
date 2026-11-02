@@ -94,7 +94,7 @@ export function ComposerAgentSelector({
         size="sm"
         icon
         disabled
-        data-slot={locked ? 'composer-locked-agent' : undefined}
+        data-composer-locked-agent={locked ? '' : undefined}
         className={locked ? styles.agentLockedIndicator : undefined}
         aria-label={triggerLabel}
         title={triggerLabel}
