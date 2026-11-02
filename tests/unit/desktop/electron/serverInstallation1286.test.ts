@@ -42,6 +42,32 @@ afterEach(() => {
 })
 
 describe('installation backend and package ownership', () => {
+  it('initializes a never-used whole home created by an older account boot checker', () => {
+    for (const id of ['first', 'second']) {
+      const directory = path.join(home, 'accounts', id)
+      fs.mkdirSync(path.join(directory, 'data'), { recursive: true })
+      fs.writeFileSync(path.join(directory, 'account.json'), '{}')
+    }
+    expect(prepareInstallation(home, identity())).toEqual({ ...identity(), updateOwner: 'server' })
+  })
+
+  it.each(['home entry', 'another account data', 'account entry', 'account metadata'])('keeps rejecting an unverified installation with a skeleton and %s', extra => {
+    const directory = path.join(home, 'accounts', 'unused')
+    fs.mkdirSync(path.join(directory, 'data'), { recursive: true })
+    fs.writeFileSync(path.join(directory, 'account.json'), '{}')
+    if (extra === 'home entry') fs.writeFileSync(path.join(home, 'channel'), 'beta')
+    if (extra === 'another account data') {
+      const data = path.join(home, 'accounts', 'existing', 'data')
+      fs.mkdirSync(data, { recursive: true })
+      fs.writeFileSync(path.join(home, 'accounts', 'existing', 'account.json'), '{}')
+      fs.writeFileSync(path.join(data, 'sessions.db'), 'existing account state')
+    }
+    if (extra === 'account entry') fs.writeFileSync(path.join(directory, 'name'), 'existing name')
+    if (extra === 'account metadata') fs.writeFileSync(path.join(directory, 'account.json'), '{"addedAt":"existing"}')
+    expect(() => prepareInstallation(home, identity())).toThrow('Existing account environment cannot be verified')
+    expect(readInstallation(home)).toBeNull()
+  })
+
   it('keeps standalone historical first installation while refusing an unverifiable existing or managed installation', () => {
     const source = path.join(home, 'archive', 'gugu-server-1.0.0')
     fs.mkdirSync(path.join(source, 'bin'), { recursive: true })
