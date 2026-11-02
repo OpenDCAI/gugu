@@ -98,8 +98,7 @@ function ReserveExpandHarness() {
   onCleanup(() => state.dispose());
 
   // Seed a SHORT transcript — fewer rows than one viewport height.
-  // With pinUserMessages this creates a non-zero activeTurnReserve so the
-  // transcript rests at scrollTop === maxScrollTop even without streaming.
+  // The transcript rests at its real bottom without extra trailing space.
   state.transcript.history.seed(makeShortTranscript());
 
   let viewport: HTMLElement | undefined;
