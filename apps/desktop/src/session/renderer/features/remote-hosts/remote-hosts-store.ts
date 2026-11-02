@@ -654,12 +654,14 @@ export class RemoteHostsStore {
   /** 读那台机器的项目清单并入项目表(连上时 / 那台机器上新建了项目时)。 */
   async syncProjects(deviceId: string): Promise<void> {
     try {
-      const [projects, home] = await Promise.all([
+      const [projects, home, catalog] = await Promise.all([
         rpcOn(deviceId).projects.getProjects(),
         rpcOn(deviceId).app.getHomeDirectory().catch(() => null),
+        Promise.resolve().then(() => rpcOn(deviceId).sessionTimeline.sessionsList()).catch(() => null),
       ]);
       if (home) this.rememberHomeDir(deviceId, home);
-      appState.projects.syncMachineProjects(deviceId, projects);
+      if (catalog?.sessions.length) appState.projects.syncMachineProjects(deviceId, projects, catalog.sessions);
+      else appState.projects.syncMachineProjects(deviceId, projects);
       runInAction(() => {
         const state = this.hosts.get(deviceId);
         if (state) state.synced = true;
@@ -726,7 +728,9 @@ export class RemoteHostsStore {
       return;
     }
     if (!this.accountIsNewer(deviceId)) return;
-    appState.projects.syncMachineProjects(deviceId, accountProjectsOf(deviceId, records));
+    const sessions = this.sessionsOf(deviceId).sessions;
+    if (sessions.length) appState.projects.syncMachineProjects(deviceId, accountProjectsOf(deviceId, records), sessions);
+    else appState.projects.syncMachineProjects(deviceId, accountProjectsOf(deviceId, records));
     projectGroupsStore.applyBindings(deviceId, accountBindingsOf(deviceId, records));
   }
 

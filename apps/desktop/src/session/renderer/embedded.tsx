@@ -72,6 +72,7 @@ import { groupParticipantRequests } from './features/chats/group-participant-req
 import { wireGroupParticipantAccount } from './features/chats/group-participant-account';
 import { installSessionTabViews, prewarmSessionTabViews } from './features/sessions/session-tab-views';
 import { appState } from './lib/stores/app-state';
+import { prepareSessionProjectRestore } from './features/sessions/restore-session-projects';
 import { SessionLocalizationProvider } from './localization/localization-provider';
 import { reportSessionRendererBootFailure } from '@/session/shared/lib/session-renderer-boot';
 
@@ -253,21 +254,24 @@ async function bootstrap() {
     settleOptional(rpc.viewState.getAll()),
     settleOptional(prefetchAppSettingsKey('interface')),
     settleOptional(prefetchAppSettingsKey('browser')),
+    settleOptional(rpc.sessionTimeline.sessionsList()),
   ]);
-  const [navState, sidebarState, allViewStateResult] = results;
+  const [navState, sidebarState, allViewStateResult, , , localSessions] = results;
   for (const result of results) {
     if (result.status === 'rejected') log.warn('Renderer bootstrap optional state failed:', result.reason);
   }
-  const navResult = navState.status === 'fulfilled' ? (navState.value as NavigationSnapshot) : null;
+  const savedNav = navState.status === 'fulfilled' ? (navState.value as NavigationSnapshot) : null;
   const sidebarResult = sidebarState.status === 'fulfilled' ? sidebarState.value : null;
   const allViewState = allViewStateResult.status === 'fulfilled' && allViewStateResult.value
     ? (allViewStateResult.value as Record<string, unknown>)
     : {};
 
-  viewStateCache.populate(allViewState);
+  const restored = prepareSessionProjectRestore(savedNav, allViewState,
+    localSessions.status === 'fulfilled' ? localSessions.value?.sessions ?? [] : []);
+  viewStateCache.populate(restored.views);
 
   setupNavigationGuards();
-  if (navResult) appState.navigation.restoreSnapshot(navResult);
+  if (restored.navigation) appState.navigation.restoreSnapshot(restored.navigation);
   setupAppCommandProvider();
   setupExtensionCommandProvider();
   setupViewCommandProvider();

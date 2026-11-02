@@ -8,7 +8,8 @@ import { automations, editorBuffers, kv, projectRemotes, projects, projectSettin
 import { sessionWorkspaceManager } from '@main/core/sessions/session-workspace-manager';
 import { projectEvents } from '../project-events';
 import { log } from '@main/lib/logger';
-import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
+import { IMPLICIT_SESSION_HOME_PROJECT_ID, isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
+import { alignSessionProjectReferences } from '@shared/core/projects/session-project-references';
 import { projectPathKey } from '../path-utils';
 import { readProjectRegistration } from './project-registration-origin';
 import { resolveAgentSessionProject } from './resolve-agent-session-project';
@@ -92,7 +93,12 @@ function snapshot(projectId: string, tx: AppDb | DrizzleTx = db) {
   const terminalRows = tx.select().from(terminals).where(eq(terminals.projectId, projectId)).orderBy(terminals.id).all();
   const buffers = tx.select().from(editorBuffers).where(eq(editorBuffers.projectId, projectId)).orderBy(editorBuffers.id).all();
   const remotes = tx.select().from(projectRemotes).where(eq(projectRemotes.projectId, projectId)).orderBy(projectRemotes.remoteName).all();
-  return { project, tasks, directories, schedules, inbox, settings, terminalRows, buffers, remotes };
+  const locations = tasks.map(row => ({ conversationId: row.id, projectId: IMPLICIT_SESSION_HOME_PROJECT_ID }));
+  const viewState = tx.select().from(kv).where(like(kv.key, 'view-state:%')).orderBy(kv.key).all().filter(row => {
+    try { const value: unknown = JSON.parse(row.value); return alignSessionProjectReferences(value, locations) !== value; }
+    catch { return false; }
+  });
+  return { project, tasks, directories, schedules, inbox, settings, terminalRows, buffers, remotes, viewState };
 }
 const fingerprint = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function replaceProject<T>(value: T, from: string, to: string): T {
@@ -188,6 +194,9 @@ export async function migrateAssistantProject(input: AssistantProjectCandidate):
     for (const { row, id } of buffers) tx.update(editorBuffers).set({ id, projectId: taskProject.id }).where(eq(editorBuffers.id, row.id)).run();
     for (const row of current.inbox) tx.update(kv).set({ value: JSON.stringify(replaceProject(JSON.parse(row.value) as unknown,
       candidate.projectId, taskProject.id)) }).where(eq(kv.key, row.key)).run();
+    const locations = current.tasks.map(row => ({ conversationId: row.id, projectId: taskProject.id }));
+    for (const row of current.viewState) tx.update(kv).set({ value: JSON.stringify(alignSessionProjectReferences(
+      JSON.parse(row.value) as unknown, locations)), updatedAt: Date.now() }).where(eq(kv.key, row.key)).run();
     // Keep every workspace ID and exact path. A former root is now a task directory.
     for (const row of current.directories) {
       if (row.id === current.project?.repositoryWorkspaceId || row.projectId === candidate.projectId) {

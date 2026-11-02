@@ -18,6 +18,7 @@ import { recordProjectRegistration } from './project-registration-origin';
 import { readProjects } from './getProjects';
 import { resolveAssistantSessionWorkspace } from './task-directory-workspace';
 import { sessionHere } from '../../extensions/extension-show-session';
+import { viewStateService } from '../../view-state/view-state-service';
 
 const TASKS = '00000000-0000-4000-8000-000000000001';
 describe('assistant project registration removal', () => {
@@ -55,12 +56,14 @@ describe('assistant project registration removal', () => {
   });
 
   it('removes a proven automatic registration only after backing it up; keeps history, parents, files, buffers and workspace IDs', async () => {
+    await viewStateService.save('navigation', { currentViewId: 'session', viewParams: { session: { projectId: 'old', sessionId: 'assistant' } } });
     origin('automatic');
     const result = await migrateAssistantProject(candidate());
     expect(result.status).toBe('removed'); expect(result.taskProjectId).toBe(TASKS);
     expect(readProjects().map(row => row.id)).toEqual([TASKS]);
     // Notifications and OS session links resolve this canonical row, not a stale project hint.
     expect(await sessionHere('assistant')).toBe(TASKS);
+    expect(await viewStateService.get('navigation')).toEqual({ currentViewId: 'session', viewParams: { session: { projectId: TASKS, sessionId: 'assistant' } } });
     expect(fixture.sqlite.prepare('SELECT id,project_id,workspace_id,provider_session_id,parent_session_id,archived_at FROM sessions ORDER BY id').all()).toEqual([
       { id: 'assistant', project_id: TASKS, workspace_id: 'cwd', provider_session_id: 'native-history', parent_session_id: null, archived_at: null },
       { id: 'child', project_id: TASKS, workspace_id: 'cwd', provider_session_id: null, parent_session_id: 'assistant', archived_at: null },
@@ -71,6 +74,8 @@ describe('assistant project registration removal', () => {
     expect(readFileSync(join(path, 'memory.md'), 'utf8')).toBe('keep this memory\n'); expect(readdirSync(path)).toEqual(['memory.md']);
     const backup = JSON.parse(readFileSync(result.backup!, 'utf8'));
     expect(backup.before.project.id).toBe('old'); expect(backup.before.tasks).toHaveLength(2); expect(backup.before.buffers[0].content).toBe('unsaved');
+    expect(backup.before.viewState).toHaveLength(1);
+    expect(JSON.parse(backup.before.viewState[0].value).viewParams.session.projectId).toBe('old');
     expect(statSync(result.backup!).mode & 0o777).toBe(0o600);
     expect(await getAssistantProjectCleanupReport()).toMatchObject({ total: 0, removed: [{ projectId: 'old', deviceId: 'device-own' }] });
   });
