@@ -326,7 +326,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     onDiscarded: removeRow,
   })
 
-  return {
+  const wiring: OutboxWiring = {
     outbox,
     async stageAttachment(message, dependsOn) {
       await outbox.stageUpload(outboxRecordForMessage(message, { kind: 'upload' }, dependsOn))
@@ -358,6 +358,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       }
     },
     async forward(source, targetChatId, senderUserId) {
+      const { stageAttachment, commitAttachment } = wiring
       const file = 'itemId' in source
       const message: MessageItem = { ...(file ? { content: source.name, content_type: 'system' as const } : source),
         id: crypto.randomUUID(), chat_id: targetChatId, sender_user_id: senderUserId,
@@ -388,18 +389,21 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
           row = await placeholderRow(attachment, undefined, { chatId: targetChatId, senderId: senderUserId, toUserIds: null })
           // Persist the file intent while forwarding, including its dependency. Replay
           // must not rely on an onSent callback from this renderer's lifetime.
-          await this.stageAttachment(row.message, message.id)
+          await stageAttachment(row.message, message.id)
           io.appendMessage(row.message)
           void outbox.delivered(row.message.id).then(row.release, () => {})
           const prepared = await prepareChatAttachment(await attachmentsEndpoint(), attachment, {
             chat_id: targetChatId, as: senderUserId, request_id: row.message.id,
           })
-          await this.commitAttachment(row.message, prepared, {
+          await commitAttachment(row.message, prepared, {
             message_id: row.message.id, chat_id: targetChatId, sender_user_id: senderUserId,
             file_name: ref.name, content_type: ref.mimeType, to_user_ids: [],
           }, undefined, message.id)
         } catch (error) {
-          if (row) await outbox.failUpload(row.message.id, error)
+          if (row) {
+            await outbox.failUpload(row.message.id, error)
+            row.release()
+          }
           io.toast(i18n.t('forward.fileFailed', { ns: 'messaging', name: ref.name }), 'warning')
         }
       }
@@ -505,4 +509,5 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       if (active) void outbox.discard(clientMessageId).catch((err) => { if (active) console.error('[chatOutbox] discard failed', err) })
     },
   }
+  return wiring
 }

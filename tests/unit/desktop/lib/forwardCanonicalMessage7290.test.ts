@@ -65,7 +65,8 @@ function acknowledgeCard() {
 it('persists prepared files and their card dependency before a queued card is sent, then replays in order after restart', async () => {
   const f = fixture()
   const send = vi.spyOn(chatService, 'sendMessage').mockImplementation(() => new Promise(() => {}))
-  await f.wiring.forward(task(), 'destination', 'me')
+  const { forward } = f.wiring
+  await forward(task(), 'destination', 'me')
   const stored = readOutboxRecords(await f.repository)
   const card = stored.find(row => row.payload.contentType === 'card')!
   const attachment = stored.find(row => row.operation?.kind === 'attachment')!
