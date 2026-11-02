@@ -202,11 +202,10 @@ The host handles Escape, Tab traversal, Back and focus restoration.
 Free:
 
 - \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, modal?, operator, locale, themeMode, capabilities, layout? }\`.
-  \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members }\` (\`groupId\`: the group; null in a private
-  chat). Topics open Apps in their source chat's shared panel. \`members\`: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`, current through
-  \`onContextChanged\` for Apps declaring API 25 or earlier. From API 26, context omits \`members\` and roster changes do not push context;
-  read them with \`gugu.chats.members({ chat: ctx.chat.id })\` (\`chat:read\`). \`avatar\`: their face, a \`data:\` image for \`<img src>\`. Pick people and agents from it;
-  never copy it into a file. \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\` — its agent
+  \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members? }\`; \`groupId\` is null in DMs. Topics use their source chat.
+  API ≤25 includes \`members\` and pushes roster changes. API ≥26 omits both: call \`gugu.chats.members({ chat: ctx.chat.id })\` (\`chat:read\`).
+  Members: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`; \`avatar\` is a \`data:\` image. Pick from these; never copy them into files.
+  \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\` — its agent
   (\`user:<uuid>\`), project, working copy's path (with \`files:*\`); \`deviceId\`: on another computer (no \`root\`). \`file\`: what this page was opened for — \`files.open(ctx.file)\`.
   \`operator\`: who works the page — \`{ kind: 'person' }\` or \`{ kind: 'agent', id }\`.
   \`capabilities\` is what you may do RIGHT NOW, after any revocation — not what you asked for.
