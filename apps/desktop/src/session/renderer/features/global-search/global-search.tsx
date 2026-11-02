@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
-import { FileText, Search, X } from '@/lib/icons'
+import { FileText, MessageSquare, Search, User, Users, X } from '@/lib/icons'
 import { useChatSummaries } from '@/lib/chatSummariesBridge'
 import { followLink } from '@/lib/guguLinks'
 import { UI_EVENTS } from '@/lib/uiEvents'
@@ -11,8 +11,10 @@ import { matchRanges } from '@shared/core/search'
 import { Shortcut } from '@renderer/lib/ui/shortcut'
 import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { cn } from '@renderer/utils/utils'
-import { updateSearchSession, useSearchSession, type SearchChip, type SearchFacet } from './search-session'
-import { instant, SEARCH_LIMIT, useGlobalSearch, type SearchHit } from './use-global-search'
+import { PALETTE_HEADING_CLASS, PALETTE_INPUT_CLASS, PaletteFooter, PaletteInputRow } from '../command-palette/palette-shell'
+import { PALETTE_ITEM_CLASS } from '../command-palette/palette-item-styles'
+import { updateSearchSession, useSearchSession, type SearchChip } from './search-session'
+import { instant, SEARCH_LIMIT, useGlobalSearch, type SearchCompletion, type SearchHit } from './use-global-search'
 
 function Highlighted({ text, query }: { text: string; query: string }): ReactNode {
   const parts: ReactNode[] = []
@@ -42,21 +44,24 @@ export function openHit(hit: SearchHit): void {
 }
 
 /**
- * The global search panel (the desktop modal and the phone's full-screen page). One filter row, newest first, the
+ * The global search panel (the desktop modal and the phone's full-screen page). Explicit scope chips, newest first, the
  * matched sentence leading each row; scope by typing in: / from:, or by a group's header. `tasks`: this device has
  * local tasks to search (the phone has none, so it has no task filter).
  */
 export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () => void }) {
   const { translate } = useSessionMessages()
-  const { text, chips, facet, selectedId } = useSearchSession()
+  const { text, chips, selectedId } = useSearchSession()
   const summaries = useChatSummaries()
-  const view = useGlobalSearch(text, chips, facet, tasks)
+  const view = useGlobalSearch(text, chips, tasks)
   const [composition, setComposition] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  const facets: readonly SearchFacet[] = tasks ? ['all', 'message', 'task', 'file'] : ['all', 'message', 'file']
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const chatName = (chatId: string) => summaries.get(chatId)?.alias || summaries.get(chatId)?.name || translate('globalSearch.unknownChat')
-  const chipLabel = (chip: SearchChip) => chip.kind === 'in' ? chatName(chip.chatId) : chip.kind === 'in-task' ? chip.title : chip.name
+  const chipLabel = (chip: SearchChip) => chip.kind === 'in' ? chatName(chip.chatId) : chip.kind === 'in-task' ? chip.title
+    : chip.kind === 'from' ? chip.name : translate(`globalSearch.chip.${chip.value}`)
+  const chipIcon = (chip: SearchChip) => chip.kind === 'from' ? User : chip.kind === 'has' ? FileText
+    : chip.kind === 'in-task' || (chip.kind === 'is' && chip.value === 'task') ? MessageSquare : Users
   const groups: { key: string; label: string; task: boolean; scope: SearchChip; hits: SearchHit[] }[] = []
   for (const hit of view.hits) {
     let group = groups.find((existing) => existing.key === hit.group)
@@ -70,94 +75,102 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
   }
   const ordered = groups.flatMap((group) => group.hits)
   const selected = ordered.find((hit) => hit.id === selectedId) ?? ordered[0] ?? null
+  const selectedCompletion = view.completions.find((item) => item.id === selectedId) ?? view.completions[0] ?? null
   const scoped = view.scopes.some((chip) => chip.kind === 'in' || chip.kind === 'in-task')
   const hasQuery = !!text.trim()
 
-  useEffect(() => { listRef.current?.querySelector('[data-selected="true"]')?.scrollIntoView({ block: 'nearest' }) }, [selected?.id])
+  useEffect(() => { listRef.current?.querySelector('[data-selected="true"]')?.scrollIntoView({ block: 'nearest' }) }, [selected?.id, selectedCompletion?.id])
 
   const open = (hit: SearchHit) => { onClose(); openHit(hit) }
   const move = (direction: 1 | -1) => {
-    if (!ordered.length) return
-    const at = selected ? ordered.indexOf(selected) : -1
-    updateSearchSession({ selectedId: ordered[Math.min(ordered.length - 1, Math.max(0, at + direction))]!.id })
+    const items = view.completing ? view.completions : ordered
+    if (!items.length) return
+    const current = view.completing ? selectedCompletion : selected
+    const at = items.findIndex((item) => item.id === current?.id)
+    updateSearchSession({ selectedId: items[Math.min(items.length - 1, Math.max(0, at + direction))]!.id })
   }
   const setChips = (next: SearchChip[]) => updateSearchSession({ chips: next, selectedId: null })
-  const cycleFacet = (direction: 1 | -1) =>
-    updateSearchSession({ facet: facets[(facets.indexOf(facet) + direction + facets.length) % facets.length]!, selectedId: null })
+  const complete = (item: SearchCompletion) => {
+    const chip = item.chip
+    const next = chip ? [...chips.filter((old) => chip.kind === 'in' || chip.kind === 'in-task'
+      ? old.kind !== 'in' && old.kind !== 'in-task' : old.kind !== chip.kind), chip] : chips
+    updateSearchSession({ text: item.text, chips: next, selectedId: null })
+    inputRef.current?.focus()
+  }
   const countLabel = (count: number) => (view.capped && count >= SEARCH_LIMIT ? `${SEARCH_LIMIT}+` : String(count))
+  const status = hasQuery && !view.completing && <div className="relative px-4 pb-2 text-xs text-foreground/40" role="status">
+    {translate('globalSearch.summary', { count: countLabel(view.hits.length), groups: String(groups.length) })}
+    {view.loading && <span aria-hidden className="absolute inset-x-0 -bottom-px h-px overflow-hidden"><span className="block h-full w-1/3 animate-[gs-scan_1s_ease-in-out_infinite] bg-[var(--accent)]" /></span>}
+  </div>
 
   return (
     <div className="flex max-h-[min(600px,80vh)] flex-col overflow-hidden max-sm:h-full max-sm:max-h-none" data-testid="global-search">
-      <div className="flex h-12 shrink-0 items-center gap-2 px-4">
-        <Search className="h-4 w-4 shrink-0 text-foreground/40" />
-        {chips.map((chip, index) => (
+      <PaletteInputRow icon={<Search />} status={status}>
+        {chips.map((chip, index) => {
+          const Icon = chipIcon(chip)
+          return (
           <span key={`${chip.kind}:${index}`} className="flex h-6 max-w-40 shrink-0 items-center gap-1 rounded-md bg-foreground/[0.06] pl-2 pr-1 text-xs text-foreground/75">
+            <Icon className="h-3 w-3 shrink-0" />
             <span className="truncate">{chipLabel(chip)}</span>
             <button type="button" aria-label={translate('globalSearch.removeChip')} onClick={() => setChips(chips.filter((_, at) => at !== index))}
               className="grid h-5 w-5 place-items-center rounded text-foreground/40 hover:bg-foreground/10 hover:text-foreground"><X className="h-3 w-3" /></button>
           </span>
-        ))}
-        <input autoFocus value={composition ?? text} data-testid="global-search-input" aria-label={translate('globalSearch.placeholder')}
+        )})}
+        <input ref={inputRef} autoFocus value={composition ?? text} data-testid="global-search-input" aria-label={translate('globalSearch.placeholder')}
           placeholder={translate(chips.length ? 'globalSearch.placeholderScoped' : 'globalSearch.placeholder')}
-          className="h-full min-w-24 flex-1 bg-transparent text-[length:var(--font-title)] outline-none placeholder:text-foreground/35"
+          className={PALETTE_INPUT_CLASS}
           onCompositionStart={(event) => setComposition(event.currentTarget.value)}
           onCompositionEnd={(event) => { setComposition(null); updateSearchSession({ text: event.currentTarget.value, selectedId: null }) }}
           onChange={(event) => { if (composition === null) updateSearchSession({ text: event.target.value, selectedId: null }); else setComposition(event.target.value) }}
           onKeyDown={(event) => {
             if (composition !== null || event.nativeEvent.isComposing || event.keyCode === 229) return
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); move(event.key === 'ArrowDown' ? 1 : -1) }
-            else if (event.key === 'Enter') { event.preventDefault(); if (selected) open(selected) }
-            else if (event.key === 'Tab') { event.preventDefault(); cycleFacet(event.shiftKey ? -1 : 1) }
+            else if (event.key === 'Enter') { event.preventDefault(); if (view.completing) { if (selectedCompletion) complete(selectedCompletion) } else if (selected) open(selected) }
+            else if (event.key === 'Tab' && view.completing && selectedCompletion) { event.preventDefault(); complete(selectedCompletion) }
             else if (event.key === 'Backspace' && !event.currentTarget.value && chips.length) { event.preventDefault(); setChips(chips.slice(0, -1)) }
           }} />
         <button type="button" onClick={onClose} className="shrink-0 text-sm text-foreground/60 sm:hidden">{translate('globalSearch.cancel')}</button>
-      </div>
-
-      {hasQuery && (
-        <div className="relative flex h-9 shrink-0 items-end gap-5 overflow-x-auto border-b border-foreground/[0.08] px-4 [scrollbar-width:none]" role="tablist">
-          {facets.map((value) => {
-            const on = facet === value
-            const count = view.counts[value]
-            return (
-              <button type="button" role="tab" aria-selected={on} key={value} tabIndex={-1}
-                onClick={() => updateSearchSession({ facet: value, selectedId: null })}
-                className={cn('relative flex h-full shrink-0 items-center gap-2 text-[length:var(--font-body)] transition-colors',
-                  on ? 'text-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-[2px] after:rounded-full after:bg-foreground' : 'text-foreground/50 hover:text-foreground/80')}>
-                {translate(`globalSearch.facet.${value}`)}
-                {count ? <span className="tabular-nums text-foreground/35">{countLabel(count)}</span> : null}
-              </button>
-            )
-          })}
-          {view.loading && <span aria-hidden className="absolute inset-x-0 -bottom-px h-px overflow-hidden"><span className="block h-full w-1/3 animate-[gs-scan_1s_ease-in-out_infinite] bg-[var(--accent)]" /></span>}
-        </div>
-      )}
+      </PaletteInputRow>
 
       <div ref={listRef} className={cn('flex-1 overflow-y-auto px-2', hasQuery && 'min-h-48 pb-2')} role="listbox" aria-label={translate('globalSearch.results')}>
         {view.error && <div role="alert" className="px-3 py-3 text-sm text-[var(--em-foreground-destructive)]">{messageForUser(view.error)}</div>}
-        {!hasQuery && (
-          <div className="border-t border-foreground/[0.08] px-3 pb-4 pt-3 text-[length:var(--font-body)] leading-6 text-foreground/50">
-            <div>{translate(tasks ? 'globalSearch.introWhat' : 'globalSearch.introWhatChats')}</div>
-            <div>{translate('globalSearch.introScope')} <code className="rounded bg-foreground/[0.06] px-1 font-mono text-xs text-foreground/70">in:</code> <code className="rounded bg-foreground/[0.06] px-1 font-mono text-xs text-foreground/70">from:</code></div>
-          </div>
-        )}
-        {hasQuery && view.unresolved && <div className="px-3 py-8 text-center text-sm text-foreground/45">{translate('globalSearch.unresolved', { text: view.unresolved })}</div>}
-        {hasQuery && !view.unresolved && !view.loading && !view.error && ordered.length === 0 && (
+        {view.completing && <>
+          <div className={PALETTE_HEADING_CLASS}>{translate(view.completionKey === 'in' ? 'globalSearch.completeIn'
+            : view.completionKey === 'from' ? 'globalSearch.completeFrom' : 'globalSearch.introScope')}</div>
+          {view.completions.map((item) => {
+            const on = item.id === selectedCompletion?.id
+            const Icon = item.icon === 'task' ? MessageSquare : item.icon === 'person' ? User : item.icon === 'chat' ? Users : null
+            return <button type="button" role="option" aria-selected={on} data-selected={on} key={item.id}
+              onMouseMove={() => { if (!on) updateSearchSession({ selectedId: item.id }) }}
+              onMouseDown={(event) => event.preventDefault()} onClick={() => complete(item)}
+              className={cn(PALETTE_ITEM_CLASS, 'w-full gap-3 text-left outline-none')}>
+              {Icon ? <Icon className="h-4 w-4 shrink-0 text-foreground/40" /> : null}
+              <span className={cn('truncate', item.description && 'w-20 shrink-0 font-mono text-xs')}>{item.label}</span>
+              {item.description && <span className="flex-1 text-foreground/60">{translate(item.description as Parameters<typeof translate>[0])}</span>}
+              {on && <span className="ml-auto text-foreground/35"><Shortcut hotkey="Tab" variant="keycaps" /></span>}
+            </button>
+          })}
+          {view.completions.length === 0 && !view.loading && !view.error && <div className="px-3 py-8 text-center text-sm text-foreground/45">{translate('globalSearch.unresolved', { text })}</div>}
+          <div className="px-3 pb-3 pt-4 text-xs leading-6 text-foreground/40">{translate(tasks ? 'globalSearch.introWhat' : 'globalSearch.introWhatChats')}</div>
+        </>}
+        {hasQuery && !view.completing && !view.loading && !view.error && ordered.length === 0 && (
           <div className="flex flex-col items-center gap-2 px-3 py-10 text-center text-sm text-foreground/45">
             <span>{view.query ? translate('globalSearch.emptyFor', { text: view.query }) : translate('globalSearch.typeWords')}</span>
-            {view.query && (facet !== 'all' || chips.length > 0) && (
+            {view.query && chips.length > 0 && (
               <button type="button" className="text-[length:var(--font-body)] text-foreground/70 underline-offset-4 hover:underline"
-                onClick={() => updateSearchSession({ facet: 'all', chips: [], selectedId: null })}>{translate('globalSearch.widen')}</button>
+                onClick={() => updateSearchSession({ chips: [], selectedId: null })}>{translate('globalSearch.widen')}</button>
             )}
           </div>
         )}
         {groups.map((group) => (
           <Fragment key={group.key}>
-            {!scoped && <button type="button" title={translate('globalSearch.scopeTo')}
-              className="flex w-full items-center gap-2 px-3 pb-1 pt-3 text-left text-xs text-foreground/45 hover:text-foreground/70"
-              onClick={() => setChips([...chips, group.scope])}>
+            {!scoped && <div className={PALETTE_HEADING_CLASS} data-search-group>
+              {group.task ? <MessageSquare className="h-3 w-3" /> : <Users className="h-3 w-3" />}
               <span className="truncate font-medium">{group.label}</span>
               {group.task && <span className="shrink-0 text-foreground/35">· {translate('globalSearch.task')}</span>}
-            </button>}
+              {group.hits.some((hit) => hit.id === selected?.id) && <button type="button" className="ml-auto shrink-0 text-foreground/35 hover:text-foreground/70"
+                onClick={() => setChips([...chips, group.scope])}>{translate('globalSearch.scopeTo')}</button>}
+            </div>}
             {group.hits.map((hit) => {
               const isSelected = hit.id === selected?.id
               const sender = hit.kind === 'message' ? hit.sender : translate(hit.role === 'assistant' ? 'globalSearch.agent' : 'globalSearch.you')
@@ -165,7 +178,7 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
                 <button type="button" role="option" aria-selected={isSelected} data-selected={isSelected} key={hit.id}
                   onMouseMove={() => { if (!isSelected) updateSearchSession({ selectedId: hit.id }) }}
                   onClick={() => open(hit)}
-                  className={cn('flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left outline-none', isSelected && 'bg-foreground/[0.06]')}>
+                  className={cn(PALETTE_ITEM_CLASS, 'w-full items-start gap-3 text-left outline-none')}>
                   <span className="mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-foreground/[0.07] text-[length:var(--font-caption)] font-medium text-foreground/55">
                     {hit.kind === 'message' && hit.file ? <FileText size={11} /> : Array.from(sender)[0]}
                   </span>
@@ -184,11 +197,7 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
         ))}
       </div>
 
-      <div className="flex shrink-0 items-center gap-4 border-t border-foreground/[0.08] px-4 py-2 text-xs text-foreground/40 max-sm:hidden">
-        <span className="flex items-center gap-1"><Shortcut hotkey="ArrowUp" variant="keycaps" /><Shortcut hotkey="ArrowDown" variant="keycaps" />{translate('globalSearch.hintSelect')}</span>
-        <span className="flex items-center gap-1"><Shortcut hotkey="Tab" variant="keycaps" />{translate('globalSearch.hintFilter')}</span>
-        <span className="ml-auto flex items-center gap-1"><Shortcut hotkey="Escape" variant="keycaps" />{translate('globalSearch.hintClose')}</span>
-      </div>
+      <PaletteFooter completion><Shortcut hotkey="Escape" variant="keycaps" />{translate('globalSearch.hintClose')}</PaletteFooter>
     </div>
   )
 }

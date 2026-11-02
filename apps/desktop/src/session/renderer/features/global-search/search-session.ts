@@ -6,19 +6,17 @@ export type SearchChip =
   | { kind: 'in'; chatId: string }
   | { kind: 'in-task'; taskId: string; title: string }
   | { kind: 'from'; userId: string; name: string }
-
-/** The filter row: everything, chat messages, task content, or files sent in chats. */
-export type SearchFacet = 'all' | 'message' | 'task' | 'file'
+  | { kind: 'is'; value: 'task' | 'chat' }
+  | { kind: 'has'; value: 'file' }
 
 export interface SearchSession {
   text: string
   chips: SearchChip[]
-  facet: SearchFacet
   /** The highlighted result (null: the first one). */
   selectedId: string | null
 }
 
-const EMPTY: SearchSession = { text: '', chips: [], facet: 'all', selectedId: null }
+const EMPTY: SearchSession = { text: '', chips: [], selectedId: null }
 let session = EMPTY
 const listeners = new Set<() => void>()
 

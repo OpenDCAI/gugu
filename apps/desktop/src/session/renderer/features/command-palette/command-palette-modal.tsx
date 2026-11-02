@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Command } from 'cmdk';
-import { FolderOpen, MessageSquare, Search } from '@/lib/icons';
+import { ChevronRight, FolderOpen, MessageSquare, Search } from '@/lib/icons';
 import { useObserver } from 'mobx-react-lite';
 import { useState } from 'react';
 import { i18n } from '@/i18n';
@@ -18,6 +18,7 @@ import type { SessionMessageKey } from '@renderer/localization/messages';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { getCommandIcon } from './command-icons';
 import { PALETTE_ITEM_CLASS } from './palette-item-styles';
+import { PALETTE_GROUP_CLASS, PALETTE_INPUT_CLASS, PaletteFooter, PaletteInputRow } from './palette-shell';
 import { PaletteProjectsGroup } from './palette-projects-group';
 import { PaletteChatGroups } from './palette-chats';
 import { openGlobalSearch } from '@renderer/features/global-search/search-session';
@@ -29,7 +30,7 @@ interface CommandPaletteProps {
   initialQuery?: string;
 }
 
-const GROUP_CLASS = '[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-foreground/50';
+const GROUP_CLASS = PALETTE_GROUP_CLASS;
 
 /** O and P differ only in their initial input; the prefix is the mode's only state. */
 export function CommandPaletteModal(props: CommandPaletteProps & BaseModalProps) {
@@ -67,17 +68,23 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
     , search, ({ title, description }) => [title, description]));
   // 本机索引负责召回(短查询的 LIKE 没有分数);排序与 @ 选人同一套,同分保留索引给的顺序。
   const ranked = rankPaletteMatches(results, search, (item) => [item.title], { recallOnly: true });
-  const tasks = ranked.filter((item) => item.kind === 'session');
+  const tasks = ranked.filter((item) => item.kind === 'session').slice(0, search ? undefined : 5);
   const projects = ranked.filter((item) => item.kind === 'project');
+  const searchMessages = () => { onClose(); openGlobalSearch({ text: search }); };
 
   return (
-    <Command className="flex flex-col overflow-hidden" shouldFilter={false} loop>
-      <div className="border-b border-foreground/10 bg-[var(--em-surface-input)] px-1">
+    <Command className="flex flex-col overflow-hidden" shouldFilter={false} loop onKeyDown={(event) => {
+      if (!commandsMode && (event.metaKey || event.ctrlKey) && event.key === 'Enter'
+        && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+        event.preventDefault(); searchMessages();
+      }
+    }}>
+      <PaletteInputRow icon={commandsMode ? <ChevronRight /> : <Search />}>
         <Command.Input value={query} onValueChange={setQuery}
           placeholder={commandsMode ? translate('palette.commandPlaceholder') : translate('palette.switchPlaceholder')}
-          className="w-full bg-transparent px-3 py-3 text-sm outline-none placeholder:text-foreground/40" autoFocus />
-      </div>
-      <Command.List className="max-h-96 overflow-y-auto p-1">
+          className={PALETTE_INPUT_CLASS} autoFocus />
+      </PaletteInputRow>
+      <Command.List className="max-h-96 overflow-y-auto px-2 pb-2">
         <Command.Empty className="py-8 text-center text-sm text-foreground/40">
           {translate('palette.noResults', { query: search })}
         </Command.Empty>
@@ -120,19 +127,23 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
             <PaletteChatGroups query={search} groupClassName={GROUP_CLASS} onClose={onClose} />
             {/* Switching is by name only; what was said is the search panel's: the last row hands the words over. */}
             {search && (
-              <Command.Item value="search-messages" className={PALETTE_ITEM_CLASS} onSelect={() => { onClose(); openGlobalSearch({ text: search }); }}>
+              <>
+              <Command.Separator className="mx-3 my-2 h-px bg-foreground/[0.08]" />
+              <Command.Item value="search-messages" className={PALETTE_ITEM_CLASS} onSelect={searchMessages}>
                 <Search size={14} className="shrink-0 text-foreground/40" />
                 <span className="flex-1 truncate">{translate('palette.searchMessages', { query: search })}</span>
+                <Shortcut hotkey="Mod+Enter" variant="keycaps" />
               </Command.Item>
+              </>
             )}
           </>
         )}
       </Command.List>
-      <div className="flex items-center gap-4 border-t border-foreground/10 px-3 py-2 text-xs text-foreground/40">
-        <span><Shortcut hotkey="ArrowUp" variant="keycaps" /><Shortcut hotkey="ArrowDown" variant="keycaps" /> {translate('common.navigate')}</span>
-        <span><Shortcut hotkey="Enter" variant="keycaps" /> {translate('common.select')}</span>
-        <span className="ml-auto">{translate('palette.prefixHint')}</span>
-      </div>
+      <PaletteFooter>
+        {translate(commandsMode ? 'palette.removePrefix' : 'palette.typePrefix')}
+        <Shortcut hotkey=">" variant="keycaps" />
+        {translate(commandsMode ? 'palette.switchHint' : 'palette.commandsHint')}
+      </PaletteFooter>
     </Command>
   );
 }

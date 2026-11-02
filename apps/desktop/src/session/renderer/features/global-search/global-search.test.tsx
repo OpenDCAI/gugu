@@ -11,9 +11,9 @@ import type { TaskTurnHit } from '@shared/core/search'
 import { GlobalSearch } from './global-search'
 import { resetSearchSession, updateSearchSession } from './search-session'
 
-const remote = vi.hoisted(() => ({ opened: [] as unknown[], turns: vi.fn(), messages: vi.fn() }))
+const remote = vi.hoisted(() => ({ opened: [] as unknown[], turns: vi.fn(), messages: vi.fn(), titles: vi.fn() }))
 vi.mock('@/lib/guguLinks', () => ({ followLink: (target: unknown) => { remote.opened.push(target); return true } }))
-vi.mock('@renderer/lib/ipc', () => ({ rpc: { search: { taskTurns: remote.turns } } }))
+vi.mock('@renderer/lib/ipc', () => ({ rpc: { search: { taskTurns: remote.turns, commandPalette: remote.titles } } }))
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: remote.messages } }))
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }))
 
@@ -39,6 +39,7 @@ beforeEach(() => {
   closed = 0
   remote.turns.mockReset().mockResolvedValue([turn])
   remote.messages.mockReset().mockResolvedValue({ data: rows, error: null })
+  remote.titles.mockReset().mockResolvedValue([])
   publishChatSummaries([
     { id: GROUP, kind: 'group', unread_count: 0, name: '搜索测试群甲', last_message_at: '2026-10-31T00:00:00Z' },
     { id: OTHER, kind: 'group', unread_count: 0, name: '设计组', last_message_at: '2026-10-31T00:00:00Z' },
@@ -62,42 +63,44 @@ async function render(text: string, tasks = true) {
   await settle()
 }
 const options = () => [...host.querySelectorAll<HTMLElement>('[role=option]')]
-const headers = () => [...host.querySelectorAll<HTMLElement>('[role=listbox] > button:not([role=option])')].map((button) => button.textContent)
-const tab = (key: string) => [...host.querySelectorAll<HTMLElement>('[role=tab]')].find((button) => button.textContent!.startsWith(key))!
+const headers = () => [...host.querySelectorAll<HTMLElement>('[data-search-group]')].map((header) => header.querySelector('span')?.textContent)
 
 describe('global search panel', () => {
   it('lists chat messages and task content newest first, grouped by where they were said, the whole word highlighted', async () => {
     await render('回滚')
     expect(remote.messages).toHaveBeenCalledWith('message_search_as', { p_chat_id: null, p_query: '回滚', p_limit: 100 })
     expect(remote.turns).toHaveBeenCalledWith({ query: '回滚', limit: 100 })
-    expect(headers()).toEqual(['搜索测试群甲', '发布排查· globalSearch.task', '设计组'])
+    expect(headers()).toEqual(['搜索测试群甲', '发布排查', '设计组'])
     expect(options().map((option) => option.querySelector('mark')?.textContent)).toEqual(['回滚', '回滚', '回滚'])
-    expect(tab('globalSearch.facet.all').textContent).toBe('globalSearch.facet.all3')
-    expect(tab('globalSearch.facet.message').textContent).toBe('globalSearch.facet.message2')
-    expect(tab('globalSearch.facet.file').textContent).toBe('globalSearch.facet.file1')
+    expect(host.querySelector('[role=status]')?.textContent).toBe('globalSearch.summary')
+    expect(host.querySelector('[role=tablist]')).toBeNull()
   })
 
-  it('Tab moves through the filters; a filter shows only its hits', async () => {
+  it('Tab completes a filter instead of cycling invisible facets', async () => {
     await render('回滚')
     const input = host.querySelector<HTMLInputElement>('[data-testid=global-search-input]')!
     await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })) })
-    expect(tab('globalSearch.facet.message').getAttribute('aria-selected')).toBe('true')
-    expect(options()).toHaveLength(2)
-    await act(async () => tab('globalSearch.facet.task').click())
+    expect(options()).toHaveLength(3)
+    await act(async () => updateSearchSession({ text: 'is:task 回滚' }))
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })) })
+    await settle()
     expect(options().map((option) => option.textContent)).toEqual([expect.stringContaining('已经把回滚开关打开了')])
   })
 
   it('a group header narrows to that conversation, asking the cloud for that chat only and not the tasks', async () => {
     await render('回滚')
     remote.turns.mockClear()
-    await act(async () => [...host.querySelectorAll<HTMLElement>('[role=listbox] > button:not([role=option])')][0]!.click())
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-search-group] button')!.click())
     await settle()
     expect(remote.messages).toHaveBeenLastCalledWith('message_search_as', { p_chat_id: GROUP, p_query: '回滚', p_limit: 100 })
     expect(remote.turns).not.toHaveBeenCalled()
   })
 
-  it('typed in: resolves to a conversation by name; an unknown one finds nothing instead of searching everywhere', async () => {
+  it('typed in: waits for explicit selection; an unknown one never searches everywhere', async () => {
     await render('in:设计 回滚')
+    expect(remote.messages).not.toHaveBeenCalled()
+    await act(async () => { host.querySelector('input')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })) })
+    await settle()
     expect(remote.messages).toHaveBeenLastCalledWith('message_search_as', { p_chat_id: OTHER, p_query: '回滚', p_limit: 100 })
     remote.messages.mockClear()
     await act(async () => updateSearchSession({ text: 'in:不存在的群 回滚' }))
@@ -117,9 +120,10 @@ describe('global search panel', () => {
     expect(takeTaskReveal('s1')).toBe(messageQuoteLink({ kind: 'session', sessionId: 's1', itemId: 's1:turn:s3:m' }))
   })
 
-  it('without local tasks (the phone) it searches chats only and has no task filter', async () => {
+  it('without local tasks (the phone) it searches chats only', async () => {
     await render('回滚', false)
     expect(remote.turns).not.toHaveBeenCalled()
-    expect([...host.querySelectorAll('[role=tab]')].map((button) => button.textContent!.replace(/\d+$/, ''))).toEqual(['globalSearch.facet.all', 'globalSearch.facet.message', 'globalSearch.facet.file'])
+    expect(options()).toHaveLength(2)
+    expect(host.querySelector('[role=tablist]')).toBeNull()
   })
 })

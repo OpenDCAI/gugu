@@ -21,8 +21,8 @@ import { createModal, type ModalRegistryEntry } from '@/components/ui/modal-regi
 export type { ModalSize, ModalPosition, ModalRegistryEntry } from '@/components/ui/modal-registry'
 
 export const modalRegistry = {
-  commandPaletteModal: createModal(CommandPaletteModal, { size: 'md' }),
-  globalSearchModal: createModal(GlobalSearchModal, { size: 'lg' }),
+  commandPaletteModal: createModal(CommandPaletteModal, { size: 'md', position: 'top' }),
+  globalSearchModal: createModal(GlobalSearchModal, { size: 'lg', position: 'top' }),
   localFolderProjectModal: createModal(LocalFolderProjectModal, { size: 'sm' }),
   createProjectNameModal: createModal(CreateProjectNameModal, { size: 'sm' }),
   githubDeviceFlowModal: createModal(GithubDeviceFlowModal, { size: 'md' }),

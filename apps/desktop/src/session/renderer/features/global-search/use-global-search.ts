@@ -7,9 +7,9 @@ import { useDebounce } from '@renderer/lib/hooks/useDebounce'
 import { rpc } from '@renderer/lib/ipc'
 import { excerpt } from '@shared/core/search'
 import { rankPaletteMatches } from '../command-palette/palette-rank'
-import type { SearchChip, SearchFacet } from './search-session'
+import type { SearchChip } from './search-session'
 
-/** One page per source: the counts beside the filters are these rows, shown as "100+" when a source returns a full page. */
+/** One page per source, shown as "100+" when a source returns a full page. */
 export const SEARCH_LIMIT = 100
 
 type MessageRow = { id: string; chat_id: string; sender_user_id: string | null; sender_name: string; content: string | null; created_at: string; file_item_id: string | null }
@@ -19,18 +19,27 @@ export type SearchHit =
   | { kind: 'task'; id: string; group: string; taskId: string; projectId: string; title: string; itemId: string; role: 'user' | 'assistant'; text: string; at: string }
 
 export interface SearchView {
-  /** What is searched for once in: / from: are taken out of the typed text. */
   query: string
-  /** The chips plus whatever the typed in: / from: resolved to. */
   scopes: SearchChip[]
-  /** A typed in: / from: that matches nothing. */
-  unresolved: string | null
+  completing: boolean
+  completionKey: string
+  completions: SearchCompletion[]
   hits: SearchHit[]
-  counts: Record<SearchFacet, number>
   capped: boolean
   loading: boolean
   error: Error | null
 }
+
+export type SearchCompletion = {
+  id: string
+  label: string
+  description?: string
+  icon?: 'chat' | 'task' | 'person'
+  chip?: SearchChip
+  text: string
+}
+
+const PREFIXES = ['in:', 'from:', 'is:task', 'is:chat', 'has:file'] as const
 
 /** Milliseconds of a hit's time: cloud messages are ISO; local task turns are SQLite CURRENT_TIMESTAMP (UTC, no zone). */
 export const instant = (at: string) => Date.parse(/[TZ+]/.test(at.slice(10)) ? at : `${at.replace(' ', 'T')}Z`)
@@ -47,31 +56,61 @@ function useIdentities() {
  * what was said in local tasks (search.taskTurns, only where this device has tasks). Both come newest first, so the
  * merged list is newest first too; there is no other order.
  */
-export function useGlobalSearch(text: string, chips: readonly SearchChip[], facet: SearchFacet, tasks: boolean): SearchView {
+export function useGlobalSearch(text: string, chips: readonly SearchChip[], tasks: boolean): SearchView {
   const summaries = useChatSummaries()
   const identities = useIdentities()
-  const typed = useDebounce(text, 100)
-
   const scopes: SearchChip[] = [...chips]
-  let unresolved: string | null = null
+  let prefix: { key: string; value: string; start: number; end: number } | null = null
   const words: string[] = []
-  for (const word of typed.trim().split(/\s+/).filter(Boolean)) {
-    const [, key, value] = /^(in|from):(.+)$/i.exec(word) ?? []
-    if (key?.toLowerCase() === 'in') {
-      const chat = rankPaletteMatches([...summaries], value!, ([, summary]) => [summary.name, summary.alias])[0]
-      if (chat) scopes.push({ kind: 'in', chatId: chat[0] })
-      else unresolved = word
-    } else if (key?.toLowerCase() === 'from') {
-      const person = rankPaletteMatches(Object.entries(identities), value!, ([, identity]) => [identity.display_name])[0]
-      if (person) scopes.push({ kind: 'from', userId: person[0], name: person[1].display_name })
-      else unresolved = word
+  // The same parser feeds completion and the query. Names become scopes only after explicit selection.
+  for (const match of text.matchAll(/\S+/g)) {
+    const word = match[0]
+    const [, key, value] = /^(in|from|is|has)[:：](.*)$/i.exec(word) ?? []
+    if (!prefix && key) prefix = { key: key.toLowerCase(), value: value!, start: match.index, end: match.index + word.length }
+    else if (!prefix && PREFIXES.some((item) => item.startsWith(word.toLowerCase()))) {
+      prefix = { key: '', value: word.toLowerCase(), start: match.index, end: match.index + word.length }
     } else words.push(word)
   }
-  const query = words.join(' ')
+  if (!text.trim()) prefix = { key: '', value: '', start: 0, end: 0 }
+  const query = useDebounce(words.join(' '), 100)
+  const replacePrefix = (replacement: string) => prefix
+    ? `${text.slice(0, prefix.start)}${replacement}${text.slice(prefix.end)}`.trim().replace(/\s+/g, ' ') : text
+  const titleQuery = useQuery({
+    queryKey: ['cmdk-search', prefix?.value ?? ''],
+    queryFn: () => rpc.search.commandPalette({ query: prefix?.value ?? '' }),
+    enabled: tasks && prefix?.key === 'in',
+    staleTime: 5_000,
+  })
+  const titles = titleQuery.data ?? []
+  let completions: SearchCompletion[] = []
+  if (prefix?.key === 'in') {
+    completions = rankPaletteMatches([
+      ...[...summaries].map(([chatId, chat]) => ({ id: `in:${chatId}`, label: chat.alias || chat.name || '', alias: chat.name,
+        icon: 'chat' as const, chip: { kind: 'in' as const, chatId }, text: replacePrefix('') })),
+      ...titles.filter((item) => item.kind === 'session').map((item) => ({ id: `in-task:${item.id}`, label: item.title, alias: null,
+        icon: 'task' as const, chip: { kind: 'in-task' as const, taskId: item.id, title: item.title }, text: replacePrefix('') })),
+    ].filter((item) => item.label), prefix.value, (item) => [item.label, item.alias])
+  } else if (prefix?.key === 'from') {
+    completions = rankPaletteMatches(Object.entries(identities), prefix.value, ([, person]) => [person.display_name])
+      .map(([userId, person]) => ({ id: `from:${userId}`, label: person.display_name, icon: 'person',
+        chip: { kind: 'from', userId, name: person.display_name }, text: replacePrefix('') }))
+  } else if (prefix) {
+    const typedPrefix = prefix.key ? `${prefix.key}:${prefix.value.toLowerCase()}` : prefix.value
+    completions = PREFIXES.filter((value) => value.startsWith(typedPrefix) && (tasks || value !== 'is:task')).map((value) => ({
+      id: value, label: value, description: `globalSearch.prefix.${value.replace(/:$/, '').replace(':', '.')}`,
+      chip: value === 'is:task' ? { kind: 'is', value: 'task' } : value === 'is:chat' ? { kind: 'is', value: 'chat' }
+        : value === 'has:file' ? { kind: 'has', value: 'file' } : undefined,
+      text: replacePrefix(value === 'in:' || value === 'from:' ? value : ''),
+    }))
+  }
   const inChat = scopes.find((chip) => chip.kind === 'in')
   const inTask = scopes.find((chip) => chip.kind === 'in-task')
   const from = scopes.find((chip) => chip.kind === 'from')
-  const runnable = !!query && !unresolved
+  const kind = scopes.find((chip) => chip.kind === 'is')?.value
+  const files = scopes.some((chip) => chip.kind === 'has')
+  const searchMessages = !inTask && kind !== 'task'
+  const searchTasks = tasks && !inChat && !from && kind !== 'chat' && !files
+  const runnable = !!query && !prefix && query === words.join(' ')
 
   const messages = useQuery({
     queryKey: ['global-search-messages', query, inChat?.chatId ?? null],
@@ -80,36 +119,31 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
       if (error) throw new Error(error.message)
       return data as MessageRow[]
     },
-    enabled: runnable && !inTask,
+    enabled: runnable && searchMessages,
     staleTime: 5_000,
   })
   const turns = useQuery({
     queryKey: ['global-search-task-turns', query],
     queryFn: () => rpc.search.taskTurns({ query, limit: SEARCH_LIMIT }),
-    enabled: runnable && tasks && !inChat && !from,
+    enabled: runnable && searchTasks,
     staleTime: 5_000,
   })
 
-  const messageHits: SearchHit[] = inTask ? [] : (messages.data ?? [])
-    .filter((row) => !from || row.sender_user_id === from.userId)
+  const messageHits: SearchHit[] = !searchMessages ? [] : (messages.data ?? [])
+    .filter((row) => (!from || row.sender_user_id === from.userId) && (!files || row.file_item_id !== null))
     .map((row) => ({ kind: 'message', id: `m:${row.id}`, group: row.chat_id, chatId: row.chat_id, messageId: row.id, senderId: row.sender_user_id,
       sender: row.sender_name, text: excerpt(row.content ?? '', query), at: row.created_at, file: row.file_item_id !== null }))
-  const taskHits: SearchHit[] = !tasks || inChat || from ? [] : (turns.data ?? [])
+  const taskHits: SearchHit[] = !searchTasks ? [] : (turns.data ?? [])
     .filter((hit) => !inTask || hit.sessionId === inTask.taskId)
     .map((hit) => ({ kind: 'task', id: `t:${hit.sessionId}:${hit.itemId}`, group: `task:${hit.sessionId}`, taskId: hit.sessionId, projectId: hit.projectId,
       title: hit.title, itemId: hit.itemId, role: hit.role, text: hit.excerpt, at: hit.at }))
   const all = [...messageHits, ...taskHits].sort((a, b) => instant(b.at) - instant(a.at))
-  const counts: Record<SearchFacet, number> = {
-    all: all.length,
-    message: messageHits.length,
-    task: taskHits.length,
-    file: messageHits.filter((hit) => hit.kind === 'message' && hit.file).length,
-  }
-  const shown = facet === 'all' ? all : all.filter((hit) => facet === 'task' ? hit.kind === 'task' : hit.kind === 'message' && (facet === 'message' || hit.file))
   return {
-    query, scopes, unresolved, hits: runnable ? shown : [], counts: runnable ? counts : { all: 0, message: 0, task: 0, file: 0 },
-    capped: (messages.data?.length ?? 0) >= SEARCH_LIMIT || (turns.data?.length ?? 0) >= SEARCH_LIMIT,
-    loading: runnable && (messages.isFetching || turns.isFetching || text !== typed),
-    error: (messages.error as Error | null) ?? (turns.error as Error | null),
+    query, scopes, completing: !!prefix, completionKey: prefix?.key ?? '', completions, hits: runnable ? all : [],
+    capped: (searchMessages && (messages.data?.length ?? 0) >= SEARCH_LIMIT) || (searchTasks && (turns.data?.length ?? 0) >= SEARCH_LIMIT),
+    loading: prefix?.key === 'in' ? titleQuery.isFetching : !prefix && !!words.length
+      && (query !== words.join(' ') || (searchMessages && messages.isFetching) || (searchTasks && turns.isFetching)),
+    error: prefix ? (prefix.key === 'in' ? titleQuery.error as Error | null : null)
+      : (searchMessages ? messages.error as Error | null : null) ?? (searchTasks ? turns.error as Error | null : null),
   }
 }
