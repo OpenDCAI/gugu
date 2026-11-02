@@ -7,7 +7,7 @@ import { ChatComposer, type PromptEditorRef } from '@gugu/session-ui/react/compo
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
 import { ComposerTray, useComposerTrayBand } from '@renderer/features/sessions/composer-tray'
 import { LOCAL_LIBRARY_HOST } from '@renderer/features/library/library-host'
-import { sessionComposerBox, sessionComposerCardClassName, sessionComposerEmptyHeightPx } from '@renderer/features/sessions/session-composer-styles'
+import { sessionComposerBox, sessionComposerCardClassName, sessionComposerEmptyHeightPx, sessionComposerTrayClassName } from '@renderer/features/sessions/session-composer-styles'
 // 主题层与同目录 composer-narrow-pane-7052 同一套。
 import '@gugu/session-ui/styles/global'
 import '@gugu/session-ui/theme/theme.css'
@@ -59,7 +59,7 @@ describe('the session composer\'s box', () => {
       </SessionLocalizationProvider>
     )
     const fixture = () => container!.querySelector<HTMLElement>('[data-testid="tray-composer"]')!
-    const tray = () => fixture().querySelector<HTMLElement>('[data-slot="composer"]')!.firstElementChild as HTMLElement
+    const tray = () => fixture().getElementsByClassName(sessionComposerTrayClassName)[0] as HTMLElement
     const card = () => fixture().querySelector<HTMLElement>('[data-slot="composer-bar"]')!
     const band = () => container!.querySelector<HTMLElement>('[data-slot="composer-permission-request"]')!
     await until('tray and permission band have layout', () => !!fixture() && !!card() && !!band() && card().getBoundingClientRect().height > 0)
@@ -100,7 +100,7 @@ describe('the session composer\'s box', () => {
       </SessionLocalizationProvider>
     )
     const fixture = () => container!.querySelector<HTMLElement>('[data-testid="tray-composer"]')
-    const tray = () => fixture()!.querySelector<HTMLElement>('[data-slot="composer"]')!.children[kind === 'queue' ? 1 : 0] as HTMLElement
+    const tray = () => fixture()!.getElementsByClassName(sessionComposerTrayClassName)[0] as HTMLElement
     const card = () => fixture()!.querySelector<HTMLElement>('[data-slot="composer-bar"]')!
     const next = () => kind === 'queue' ? card() : fixture()!.querySelector<HTMLElement>(`[data-slot="composer-${kind === 'permission' ? 'permission-request' : 'notice'}"]`)!
     await until('stack has layout', () => !!fixture() && !!next() && next().getBoundingClientRect().height > 0 && next().parentElement!.getAnimations().length === 0)
@@ -116,6 +116,38 @@ describe('the session composer\'s box', () => {
     } else {
       expect(getComputedStyle(next()).borderTopWidth).toBe('0px')
       expect(next().getBoundingClientRect().bottom).toBe(card().getBoundingClientRect().top)
+    }
+  })
+
+  it.each(['tray', 'permission', 'notice'] as const)('keeps the task outline around the whole %s stack', async (kind) => {
+    root!.render(
+      <SessionLocalizationProvider>
+        <ComposerTray projectPicker={<span>Project</span>} devicePicker={<span>Device</span>} host={LOCAL_LIBRARY_HOST}>
+          <TrayComposer
+            tone="task"
+            permissionRequest={kind === 'permission' ? { requestId: 'task-outline', title: 'Read', options: [] } : undefined}
+            onResolvePermission={() => {}}
+            notice={kind === 'notice' ? { variant: 'warning', message: 'Notice' } : undefined}
+            onSubmit={() => {}}
+          />
+        </ComposerTray>
+      </SessionLocalizationProvider>
+    )
+    const tray = () => container!.getElementsByClassName(sessionComposerTrayClassName)[0] as HTMLElement
+    const card = () => container!.querySelector<HTMLElement>('[data-slot="composer-bar"]')!
+    await until('task outline has layout', () => !!tray() && !!card() && card().getBoundingClientRect().height > 0)
+    expect(getComputedStyle(tray()).borderRightColor).toBe(getComputedStyle(card()).borderRightColor)
+    expect(getComputedStyle(card()).boxShadow).toBe('none')
+    const stack = container!.querySelector<HTMLElement>('[data-composer-stack]')!
+    expect(stack).not.toBeNull()
+    expect(stack.getBoundingClientRect().top).toBe(tray().getBoundingClientRect().top)
+    expect(stack.getBoundingClientRect().bottom).toBe(card().getBoundingClientRect().bottom)
+    expect(stack.getBoundingClientRect().left).toBe(card().getBoundingClientRect().left)
+    expect(stack.getBoundingClientRect().right).toBe(card().getBoundingClientRect().right)
+    expect(getComputedStyle(stack).boxShadow).not.toBe('none')
+    if (kind !== 'tray') {
+      const band = container!.querySelector<HTMLElement>(`[data-slot="composer-${kind === 'permission' ? 'permission-request' : 'notice'}"]`)!
+      expect(getComputedStyle(band).borderRightColor).toBe(getComputedStyle(card()).borderRightColor)
     }
   })
 

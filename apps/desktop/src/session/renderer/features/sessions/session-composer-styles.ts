@@ -61,6 +61,7 @@ export const sessionComposerTrayClassName =
  * arbitrary 的 color-mix() 不出规则(也实测过,同样是无声透明)。
  */
 export const sessionComposerTrayStyle = {
+  borderColor: 'var(--composer-outline-border, var(--em-border))',
   backgroundColor:
     'color-mix(in srgb, var(--em-surface-base) 60%, var(--em-surface-base-hover) 40%)',
 } as const;

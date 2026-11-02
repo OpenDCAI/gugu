@@ -767,261 +767,263 @@ export function ChatComposer({
         />
       )}
 
-      {bandAbove}
+      <div data-composer-stack="" className={styles.composerStack({ tone })}>
+        {bandAbove}
 
-      {/* Permission band — shown when the agent is awaiting user approval. */}
-      {permissionRequest && onResolvePermission && (
-        <PermissionBand
-          request={permissionRequest}
-          queueCount={permissionQueueCount}
-          onResolve={onResolvePermission}
-        />
-      )}
+        {/* Permission band — shown when the agent is awaiting user approval. */}
+        {permissionRequest && onResolvePermission && (
+          <PermissionBand
+            request={permissionRequest}
+            queueCount={permissionQueueCount}
+            onResolve={onResolvePermission}
+          />
+        )}
 
-      {/* Notice band — height + opacity animate on enter/exit via the
-          grid-rows 0fr↔1fr technique so add/remove transitions are smooth.
-          Hidden when the permission band is active. */}
-      {!permissionRequest && (
-        <div
-          className={cx(
-            styles.noticeAnimWrapper,
-            notice ? styles.noticeAnimVisible : styles.noticeAnimHidden
-          )}
-          aria-hidden={!notice}
-        >
-          <div className={styles.noticeOverflowClip}>
-            {retainedNotice && <NoticeBand notice={retainedNotice} />}
-          </div>
-        </div>
-      )}
-
-      <div
-        data-slot="composer-bar"
-        data-drag-active={dragActive || undefined}
-        className={styles.composerShell({ hasBand: !!hasBand, dragActive, tone })}
-        onPaste={queueEdit ? undefined : handlePaste}
-        onDragOver={queueEdit ? undefined : handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={queueEdit ? undefined : handleDrop}
-      >
-        {/* Attachment chips — anatomy vendored from assistant-ui (#5269), see composer-attachment-chip.tsx */}
-        {!queueEdit && <ComposerAttachmentStrip attachments={attachments} status={attachmentStatus}
-          onView={onViewAttachment} onRemove={onAttachmentsChange ? removeAttachment : undefined} onRetry={onRetryAttachment} />}
-
-        {/* Editor area */}
-        <div
-          data-slot="composer-input"
-          className={styles.editorArea}
-          // @@@composer-click-target 的收尾:编辑器已经长满内容盒,只剩这块的**内距**接不到
-          // 点击(padding 不属于任何子元素)。落在内距上的那一下在这里转成聚焦,光标停在
-          // 上一次的位置。`preventDefault` 是必须的:不拦的话浏览器会把焦点收给这个 div
-          // 自己,紧接着把刚给出去的焦点又抢回来。
-          // 判 `e.target !== e.currentTarget` 才不会抢编辑器自己的点击(那一下要让
-          // ProseMirror 原样处理,否则拖选、点某个字定位光标全废)。
-          onMouseDown={(e) => {
-            if (disabled) return;
-            if (e.target !== e.currentTarget) return;
-            e.preventDefault();
-            editorRef.current?.focus();
-          }}
-        >
-          {leading ? (
-            <div className={styles.editorLeadRow}>
-              <span className={styles.editorLead}>{leading}</span>
-              <div className={styles.editorLeadBody}>{promptEditor}</div>
+        {/* Notice band — height + opacity animate on enter/exit via the
+            grid-rows 0fr↔1fr technique so add/remove transitions are smooth.
+            Hidden when the permission band is active. */}
+        {!permissionRequest && (
+          <div
+            className={cx(
+              styles.noticeAnimWrapper,
+              notice ? styles.noticeAnimVisible : styles.noticeAnimHidden
+            )}
+            aria-hidden={!notice}
+          >
+            <div className={styles.noticeOverflowClip}>
+              {retainedNotice && <NoticeBand notice={retainedNotice} />}
             </div>
-          ) : promptEditor}
-        </div>
+          </div>
+        )}
 
-        {/* Toolbar */}
         <div
-          data-slot="composer-toolbar"
-          data-disclosure={toolbarDisclosure.level}
-          ref={toolbarDisclosure.ref}
-          className={styles.toolbar}
+          data-slot="composer-bar"
+          data-drag-active={dragActive || undefined}
+          className={styles.composerShell({ hasBand: !!hasBand, dragActive })}
+          onPaste={queueEdit ? undefined : handlePaste}
+          onDragOver={queueEdit ? undefined : handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={queueEdit ? undefined : handleDrop}
         >
-          {/* Left: attach + permission (Codex 版式:模型那一组归右边,见 toolbarRight) */}
-          <div data-slot="composer-actions-start" className={styles.toolbarLeft}>
-            {/* 附件在最左,用 + 而不是回形针 —— 这一格的语义是「往这条消息里加东西」,
-                回形针窄化成了「附文件」。图标换了,行为没换,插的还是文件绝对路径的 @提及。 */}
-            {onAttach && (
-              <Button
-                variant="ghost"
-                // size 从 sm(1.5rem)长到 base(2rem):与同排触发器、发送键同高。
-                size="base"
-                icon
-                className={styles.attachButtonRound}
-                onClick={onAttach}
-                disabled={disabled || !!queueEdit}
-                aria-label={translate('composer.addAttachment')}
-              >
-                <Plus />
-              </Button>
-            )}
-            {permissionModeItems.length > 0 && (
-              <ComboboxPopover<ComposerPermissionModeItem>
-                items={permissionModeItems}
-                value={selectedPermissionMode ?? null}
-                onValueChange={(id) => onPermissionModeChange?.(id)}
-                itemToKey={(item) => item.id}
-                itemToLabel={(item) => item.name}
-                disabled={disabled}
-                searchPlaceholder={translate('common.search')}
-                className={permissionModeIsFirst ? styles.permissionModeTrigger : undefined}
-                contentStyle={{ minWidth: '18rem' }}
-                // 面板自己不留内距 —— 与模型/agent 面板同一族,见 @@@composer-panel-row。
-                contentClassName={styles.composerPanelContent}
-                // 底排不画下拉箭头 —— 见 composer-model-menu.tsx 的 @@@composer-no-chevron。
-                // ComboboxPopover 自己画一枚,只有这一处关掉;另外 8 个消费方(设置页等)不受影响。
-                hideChevron
-                // 与模型面板同一族的行与搜索框 —— 见 @@@composer-panel-row。
-                itemClassName={styles.composerPanelItem}
-                searchLeftAddon={<Search />}
-                renderTrigger={(selected) => (
-                  <span
-                    data-slot="composer-permission-mode"
-                    data-permission-mode-id={selected?.id}
-                    // 档 2 起名字被收掉、只剩图标:悬停时把名字说出来。
-                    title={selected?.name ?? translate('composer.permissions')}
-                    className={cx(
-                      styles.permissionModeContent,
-                      selected?.destructive && styles.permissionModeContentDestructive,
-                    )}
-                  >
-                    {/* @@@composer-permission-icon — 图标**只在名字被收掉之后**才出现
-                        (档 2 起,见 chat-composer.css.ts 里配对的 globalStyle)。
+          {/* Attachment chips — anatomy vendored from assistant-ui (#5269), see composer-attachment-chip.tsx */}
+          {!queueEdit && <ComposerAttachmentStrip attachments={attachments} status={attachmentStatus}
+            onView={onViewAttachment} onRemove={onAttachmentsChange ? removeAttachment : undefined} onRetry={onRetryAttachment} />}
 
-                        owner 2026-09-07:「感叹号图标也没必要」—— 档 0 名字就写着「完全访问」,
-                        再挂一枚感叹号是把同一件事说两遍,而这一排最缺的就是横向空间。
-                        危险性在档 0 由**文字颜色**承担(destructive 那条是橙的),不靠图标。
-
-                        ❌ 但不能整枚删掉:档 2 起名字被藏,图标是这颗控件仅剩的身份 ——
-                        删了那一档就是个空药丸。形状随危险性换(⚠ / 盾)而不只换色调:
-                        余光里形状比色相好认,而这是底排唯一一个能造成破坏的控件。 */}
-                    {selected?.destructive ? (
-                      <CircleAlert
-                        className={styles.permissionModeIcon}
-                        style={{ width: '0.75rem', height: '0.75rem', flexShrink: 0 }}
-                      />
-                    ) : (
-                      <ShieldCheck
-                        className={styles.permissionModeIcon}
-                        style={{ width: '0.75rem', height: '0.75rem', flexShrink: 0 }}
-                      />
-                    )}
-                    <span className={styles.permissionModeLabel}>
-                      {selected?.name ?? translate('composer.permissions')}
-                    </span>
-                  </span>
-                )}
-                renderItem={(item) => (
-                  <div
-                    className={styles.composerPanelItemText}
-                    data-permission-mode-id={item.id}
-                  >
-                    <span className={styles.composerPanelItemName}>{item.name}</span>
-                    {item.description && (
-                      <span className={styles.composerPanelItemDesc}>{item.description}</span>
-                    )}
-                  </div>
-                )}
-              />
-            )}
-            {/* 外来控件(现在是「编程 | 通用」)要能按档位换形态,见 use-toolbar-disclosure。 */}
-            <ToolbarDisclosureProvider value={toolbarDisclosure.level}>
-              {toolbarExtra}
-            </ToolbarDisclosureProvider>
+          {/* Editor area */}
+          <div
+            data-slot="composer-input"
+            className={styles.editorArea}
+            // @@@composer-click-target 的收尾:编辑器已经长满内容盒,只剩这块的**内距**接不到
+            // 点击(padding 不属于任何子元素)。落在内距上的那一下在这里转成聚焦,光标停在
+            // 上一次的位置。`preventDefault` 是必须的:不拦的话浏览器会把焦点收给这个 div
+            // 自己,紧接着把刚给出去的焦点又抢回来。
+            // 判 `e.target !== e.currentTarget` 才不会抢编辑器自己的点击(那一下要让
+            // ProseMirror 原样处理,否则拖选、点某个字定位光标全废)。
+            onMouseDown={(e) => {
+              if (disabled) return;
+              if (e.target !== e.currentTarget) return;
+              e.preventDefault();
+              editorRef.current?.focus();
+            }}
+          >
+            {leading ? (
+              <div className={styles.editorLeadRow}>
+                <span className={styles.editorLead}>{leading}</span>
+                <div className={styles.editorLeadBody}>{promptEditor}</div>
+              </div>
+            ) : promptEditor}
           </div>
 
-          {/* Right: usage donut + harness + model + send/stop */}
-          <div data-slot="composer-actions-end" className={styles.toolbarRight}>
-            {contextUsage && contextUsage.size > 0 && (
-              <ContextUsageIndicator usage={contextUsage} disabled={disabled} />
-            )}
-            {/* Harness (agent) selector first, then model — owner-specified order: gugu wants
-                the Harness picked explicitly first rather than folded into the model trigger's icon. */}
-            {agentOptionsLoading && !agentOptions?.length && (
-              <ComposerAgentLoading label={translate('composer.agent')} title={translate('composer.agentsLoading')} />
-            )}
-            {agentOptions && agentOptions.length > 0 && !(agentLocked && hideLockedAgent) && (
-              <ComposerAgentSelector
-                options={agentOptions}
-                selectedId={selectedAgent}
-                onSelect={(id) => onAgentChange?.(id)}
-                onAction={(id) => onAgentAction?.(id)}
-                locked={agentLocked}
-                disabled={disabled}
-                label={translate('composer.agent')}
-                searchPlaceholder={translate('composer.searchAgents')}
-                lockedLabel={selectedAgentItem
-                  ? translate('composer.agentLocked', { agentName: selectedAgentItem.name })
-                  : undefined}
-                optionTestIdPrefix="composer-agent-option"
-                searchTestId="composer-agent-search"
-              />
-            )}
-            {/* 模型 + 推理强度:Codex 点开是一个两行折叠面板,不是铺开的模型列表 ——
-                「模型」和「推理强度」结构对称,各自显示当前值并向右飞出二级。
-                解剖与那批注释随组件一起搬去了 `composer-model-menu.tsx`(#4981 A1),
-                渲染出来的 DOM 一个字节都没变。 */}
-            <ComposerModelMenu
-              panel={modelPanel}
-              disabled={disabled}
-              triggerTitle={selectedAgentTitle}
-              modelItems={modelItems}
-              selectedModel={selectedModel}
-              onModelChange={onModelChange}
-              openRequest={modelMenuOpenRequest}
-              modelUnlock={modelUnlock}
-              onModelUnlock={onModelUnlock}
-              onManageModels={onManageModels}
-              modelUpgrade={modelUpgrade}
-              onModelUpgrade={onModelUpgrade}
-              effortItems={effortItems}
-              selectedEffort={selectedEffort}
-              onEffortChange={onEffortChange}
-              defaultEffort={defaultEffort}
-            />
+          {/* Toolbar */}
+          <div
+            data-slot="composer-toolbar"
+            data-disclosure={toolbarDisclosure.level}
+            ref={toolbarDisclosure.ref}
+            className={styles.toolbar}
+          >
+            {/* Left: attach + permission (Codex 版式:模型那一组归右边,见 toolbarRight) */}
+            <div data-slot="composer-actions-start" className={styles.toolbarLeft}>
+              {/* 附件在最左,用 + 而不是回形针 —— 这一格的语义是「往这条消息里加东西」,
+                  回形针窄化成了「附文件」。图标换了,行为没换,插的还是文件绝对路径的 @提及。 */}
+              {onAttach && (
+                <Button
+                  variant="ghost"
+                  // size 从 sm(1.5rem)长到 base(2rem):与同排触发器、发送键同高。
+                  size="base"
+                  icon
+                  className={styles.attachButtonRound}
+                  onClick={onAttach}
+                  disabled={disabled || !!queueEdit}
+                  aria-label={translate('composer.addAttachment')}
+                >
+                  <Plus />
+                </Button>
+              )}
+              {permissionModeItems.length > 0 && (
+                <ComboboxPopover<ComposerPermissionModeItem>
+                  items={permissionModeItems}
+                  value={selectedPermissionMode ?? null}
+                  onValueChange={(id) => onPermissionModeChange?.(id)}
+                  itemToKey={(item) => item.id}
+                  itemToLabel={(item) => item.name}
+                  disabled={disabled}
+                  searchPlaceholder={translate('common.search')}
+                  className={permissionModeIsFirst ? styles.permissionModeTrigger : undefined}
+                  contentStyle={{ minWidth: '18rem' }}
+                  // 面板自己不留内距 —— 与模型/agent 面板同一族,见 @@@composer-panel-row。
+                  contentClassName={styles.composerPanelContent}
+                  // 底排不画下拉箭头 —— 见 composer-model-menu.tsx 的 @@@composer-no-chevron。
+                  // ComboboxPopover 自己画一枚,只有这一处关掉;另外 8 个消费方(设置页等)不受影响。
+                  hideChevron
+                  // 与模型面板同一族的行与搜索框 —— 见 @@@composer-panel-row。
+                  itemClassName={styles.composerPanelItem}
+                  searchLeftAddon={<Search />}
+                  renderTrigger={(selected) => (
+                    <span
+                      data-slot="composer-permission-mode"
+                      data-permission-mode-id={selected?.id}
+                      // 档 2 起名字被收掉、只剩图标:悬停时把名字说出来。
+                      title={selected?.name ?? translate('composer.permissions')}
+                      className={cx(
+                        styles.permissionModeContent,
+                        selected?.destructive && styles.permissionModeContentDestructive,
+                      )}
+                    >
+                      {/* @@@composer-permission-icon — 图标**只在名字被收掉之后**才出现
+                          (档 2 起,见 chat-composer.css.ts 里配对的 globalStyle)。
 
-            {queueEdit ? (
-              <>
-                <Button type="button" variant="ghost" size="sm" disabled={!!queueEdit.pending}
-                  onClick={() => finishQueueEdit(null)}>{translate('common.cancel')}</Button>
-                <Button type="button" variant="primary" size="sm" disabled={disabled || !!queueEdit.pending || !queueEdit.text.trim()}
-                  onClick={() => finishQueueEdit(editorRef.current?.getText() ?? '')}>{translate('common.save')}</Button>
-              </>
-            ) : showSubmitButton ? (
-              isWorking ? (
-                <Button
-                  variant="primary"
-                  tone="destructive"
-                  size="base"
-                  icon
-                  // ❌ 停止键不套 sendButtonInk:停止是 destructive,红色是它在说
-                  //    "这会中断正在跑的东西",不该被换成与正文同色的墨点。
-                  className={styles.sendButtonRound}
-                  data-composer-action="stop"
-                  disabled={disabled || stopDisabled}
-                  aria-busy={stopDisabled || undefined}
-                  onClick={onStop}
-                  aria-label={translate('composer.stopGeneration')}
-                >
-                  <span className={styles.stopIcon} aria-hidden="true" />
-                </Button>
-              ) : (
-                <Button
-                  variant="primary"
-                  size="base"
-                  icon
-                  className={cx(styles.sendButtonRound, styles.sendButtonInk)}
-                  onClick={() => handleSubmit(editorRef.current?.getText() ?? '')}
-                  disabled={disabled || !canSubmit}
-                  aria-label={translate('composer.sendMessage')}
-                >
-                  <ArrowUp />
-                </Button>
-              )
-            ) : null}
+                          owner 2026-09-07:「感叹号图标也没必要」—— 档 0 名字就写着「完全访问」,
+                          再挂一枚感叹号是把同一件事说两遍,而这一排最缺的就是横向空间。
+                          危险性在档 0 由**文字颜色**承担(destructive 那条是橙的),不靠图标。
+
+                          ❌ 但不能整枚删掉:档 2 起名字被藏,图标是这颗控件仅剩的身份 ——
+                          删了那一档就是个空药丸。形状随危险性换(⚠ / 盾)而不只换色调:
+                          余光里形状比色相好认,而这是底排唯一一个能造成破坏的控件。 */}
+                      {selected?.destructive ? (
+                        <CircleAlert
+                          className={styles.permissionModeIcon}
+                          style={{ width: '0.75rem', height: '0.75rem', flexShrink: 0 }}
+                        />
+                      ) : (
+                        <ShieldCheck
+                          className={styles.permissionModeIcon}
+                          style={{ width: '0.75rem', height: '0.75rem', flexShrink: 0 }}
+                        />
+                      )}
+                      <span className={styles.permissionModeLabel}>
+                        {selected?.name ?? translate('composer.permissions')}
+                      </span>
+                    </span>
+                  )}
+                  renderItem={(item) => (
+                    <div
+                      className={styles.composerPanelItemText}
+                      data-permission-mode-id={item.id}
+                    >
+                      <span className={styles.composerPanelItemName}>{item.name}</span>
+                      {item.description && (
+                        <span className={styles.composerPanelItemDesc}>{item.description}</span>
+                      )}
+                    </div>
+                  )}
+                />
+              )}
+              {/* 外来控件(现在是「编程 | 通用」)要能按档位换形态,见 use-toolbar-disclosure。 */}
+              <ToolbarDisclosureProvider value={toolbarDisclosure.level}>
+                {toolbarExtra}
+              </ToolbarDisclosureProvider>
+            </div>
+
+            {/* Right: usage donut + harness + model + send/stop */}
+            <div data-slot="composer-actions-end" className={styles.toolbarRight}>
+              {contextUsage && contextUsage.size > 0 && (
+                <ContextUsageIndicator usage={contextUsage} disabled={disabled} />
+              )}
+              {/* Harness (agent) selector first, then model — owner-specified order: gugu wants
+                  the Harness picked explicitly first rather than folded into the model trigger's icon. */}
+              {agentOptionsLoading && !agentOptions?.length && (
+                <ComposerAgentLoading label={translate('composer.agent')} title={translate('composer.agentsLoading')} />
+              )}
+              {agentOptions && agentOptions.length > 0 && !(agentLocked && hideLockedAgent) && (
+                <ComposerAgentSelector
+                  options={agentOptions}
+                  selectedId={selectedAgent}
+                  onSelect={(id) => onAgentChange?.(id)}
+                  onAction={(id) => onAgentAction?.(id)}
+                  locked={agentLocked}
+                  disabled={disabled}
+                  label={translate('composer.agent')}
+                  searchPlaceholder={translate('composer.searchAgents')}
+                  lockedLabel={selectedAgentItem
+                    ? translate('composer.agentLocked', { agentName: selectedAgentItem.name })
+                    : undefined}
+                  optionTestIdPrefix="composer-agent-option"
+                  searchTestId="composer-agent-search"
+                />
+              )}
+              {/* 模型 + 推理强度:Codex 点开是一个两行折叠面板,不是铺开的模型列表 ——
+                  「模型」和「推理强度」结构对称,各自显示当前值并向右飞出二级。
+                  解剖与那批注释随组件一起搬去了 `composer-model-menu.tsx`(#4981 A1),
+                  渲染出来的 DOM 一个字节都没变。 */}
+              <ComposerModelMenu
+                panel={modelPanel}
+                disabled={disabled}
+                triggerTitle={selectedAgentTitle}
+                modelItems={modelItems}
+                selectedModel={selectedModel}
+                onModelChange={onModelChange}
+                openRequest={modelMenuOpenRequest}
+                modelUnlock={modelUnlock}
+                onModelUnlock={onModelUnlock}
+                onManageModels={onManageModels}
+                modelUpgrade={modelUpgrade}
+                onModelUpgrade={onModelUpgrade}
+                effortItems={effortItems}
+                selectedEffort={selectedEffort}
+                onEffortChange={onEffortChange}
+                defaultEffort={defaultEffort}
+              />
+
+              {queueEdit ? (
+                <>
+                  <Button type="button" variant="ghost" size="sm" disabled={!!queueEdit.pending}
+                    onClick={() => finishQueueEdit(null)}>{translate('common.cancel')}</Button>
+                  <Button type="button" variant="primary" size="sm" disabled={disabled || !!queueEdit.pending || !queueEdit.text.trim()}
+                    onClick={() => finishQueueEdit(editorRef.current?.getText() ?? '')}>{translate('common.save')}</Button>
+                </>
+              ) : showSubmitButton ? (
+                isWorking ? (
+                  <Button
+                    variant="primary"
+                    tone="destructive"
+                    size="base"
+                    icon
+                    // ❌ 停止键不套 sendButtonInk:停止是 destructive,红色是它在说
+                    //    "这会中断正在跑的东西",不该被换成与正文同色的墨点。
+                    className={styles.sendButtonRound}
+                    data-composer-action="stop"
+                    disabled={disabled || stopDisabled}
+                    aria-busy={stopDisabled || undefined}
+                    onClick={onStop}
+                    aria-label={translate('composer.stopGeneration')}
+                  >
+                    <span className={styles.stopIcon} aria-hidden="true" />
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="base"
+                    icon
+                    className={cx(styles.sendButtonRound, styles.sendButtonInk)}
+                    onClick={() => handleSubmit(editorRef.current?.getText() ?? '')}
+                    disabled={disabled || !canSubmit}
+                    aria-label={translate('composer.sendMessage')}
+                  >
+                    <ArrowUp />
+                  </Button>
+                )
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
