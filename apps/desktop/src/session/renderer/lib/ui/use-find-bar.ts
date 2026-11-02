@@ -20,10 +20,16 @@ export function useFindBar({
   rootRef,
   backend,
   debounceMs = 0,
+  enabled = true,
+  onOpen,
+  isActive,
 }: {
   rootRef: RefObject<HTMLElement | null>;
   backend: FindBackend | null;
   debounceMs?: number;
+  enabled?: boolean;
+  onOpen?: () => void;
+  isActive?: (element: HTMLElement) => boolean;
 }) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -107,12 +113,13 @@ export function useFindBar({
 
   useCommandProvider({
     scopeId: 'session-sub',
-    isActive: (element) => !!element && !!rootRef.current?.contains(element),
+    isActive: (element) => enabled && !!element && !!rootRef.current?.contains(element) && (!isActive || isActive(element)),
     getCommands: () => !backend ? [] : [{
       id: 'app.find', hideFromPalette: true,
       execute: () => {
         if (latest.current.isOpen) return focusInput();
         returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        onOpen?.();
         setIsOpen(true);
       },
     }],

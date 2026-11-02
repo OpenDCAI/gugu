@@ -85,11 +85,6 @@ const fill = (db = sqlite()): Promise<void> => {
   return (backfill as (connection: Database.Database) => Promise<void>)(db);
 };
 
-function oneIntervalPerTransaction(): void {
-  let tick = 0;
-  vi.spyOn(performance, 'now').mockImplementation(() => tick += 50);
-}
-
 function expected(db = sqlite()) {
   // The original one-shot v8 projection is the oracle for pagination and interleaved trigger writes.
   return db.prepare(`SELECT t.session_id, t.seq,
@@ -157,6 +152,26 @@ describe('derived-index structure rebuilds are atomic', () => {
 });
 
 describe('post-ready turn-text backfill', () => {
+  it('commits at most one 64-turn chunk before releasing the lock for live writers', async () => {
+    legacy(401);
+    await initialization.initializeDatabase(sqlite());
+    const filling = fill();
+    try {
+      await setImmediate();
+      const saved = value('turn_text_backfill_cursor');
+      expect(saved).toBeDefined();
+      const cursor = JSON.parse(saved!) as [string, number];
+      const committed = sqlite().prepare('SELECT count(*) n FROM session_turns WHERE (session_id,seq) <= (?,?)').get(...cursor);
+      expect(committed).toEqual({ n: 64 });
+      expect(value('turn_text_backfilled')).toBeUndefined();
+      const live = new Database(sqlite().name, { timeout: 0 });
+      try {
+        live.prepare("INSERT INTO kv(key,value,updated_at) VALUES ('inbox-lock-probe','committed',0)").run();
+      } finally { live.close(); }
+    } finally { await filling; }
+    expect(rows()).toEqual(expected());
+  });
+
   it('creates every search table without reading historical messages in initializeDatabase', async () => {
     legacy(401);
     await initialization.initializeDatabase(sqlite());
@@ -170,7 +185,6 @@ describe('post-ready turn-text backfill', () => {
     legacy(401);
     await initialization.initializeDatabase(sqlite());
     expect(rows()).toEqual([]);
-    oneIntervalPerTransaction();
     sqlite().exec(`CREATE TRIGGER interrupt_cursor BEFORE INSERT ON kv WHEN NEW.key='turn_text_backfill_cursor'
       BEGIN SELECT RAISE(ABORT, 'cursor write failed'); END;`);
     await expect(fill()).rejects.toThrow('cursor write failed');
@@ -190,7 +204,6 @@ describe('post-ready turn-text backfill', () => {
     legacy(401);
     await initialization.initializeDatabase(sqlite());
     expect(rows()).toEqual([]);
-    oneIntervalPerTransaction();
     sqlite().exec(`CREATE TRIGGER interrupt_second_batch BEFORE INSERT ON kv
       WHEN NEW.key='turn_text_backfill_cursor' AND EXISTS(SELECT 1 FROM kv WHERE key='turn_text_backfill_cursor')
       BEGIN SELECT RAISE(ABORT, 'second batch interrupted'); END;`);
@@ -219,7 +232,6 @@ describe('post-ready turn-text backfill', () => {
     legacy(401);
     await initialization.initializeDatabase(sqlite());
     expect(rows()).toEqual([]);
-    oneIntervalPerTransaction();
     const filling = fill();
     try {
       expect(rows()).toEqual([]);

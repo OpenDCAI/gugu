@@ -111,12 +111,10 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
     win.setAlwaysOnTop(true, 'floating')
     win.show()
     win.focus()
-    tellMain(QUICK_CHAT_CHANNELS.visibility, true)
   }
   const hide = () => {
     if (!win || win.isDestroyed() || !win.isVisible()) return
     win.hide()
-    tellMain(QUICK_CHAT_CHANNELS.visibility, false)
   }
   const toggle = () => {
     if (win && !win.isDestroyed()) {
@@ -173,13 +171,20 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
 
   const adopt = (child: BrowserWindow) => {
     win = child
+    // Native visibility can change independently of the shortcut (e.g. App activation).
+    // Keep the portal's inert state in step with the window itself.
+    child.on('show', () => tellMain(QUICK_CHAT_CHANNELS.visibility, true))
+    child.on('hide', () => tellMain(QUICK_CHAT_CHANNELS.visibility, false))
     // 关窗 = 收起;真关(主窗重载)走 destroy,不经过这里。
     child.on('close', (event) => {
       event.preventDefault()
       hide()
     })
     child.on('closed', () => {
-      if (win === child) win = null
+      if (win === child) {
+        win = null
+        tellMain(QUICK_CHAT_CHANNELS.visibility, false)
+      }
     })
     child.on('blur', () => {
       if (!pinned) hide()
@@ -200,7 +205,7 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
     if (pendingShow) {
       pendingShow = false
       show()
-    }
+    } else tellMain(QUICK_CHAT_CHANNELS.visibility, child.isVisible())
   }
 
   return { auxWindow: { name: QUICK_CHAT_WINDOW_NAME, options: quickChatWindowOptions, adopt }, hide }

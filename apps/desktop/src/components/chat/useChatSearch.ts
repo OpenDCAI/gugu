@@ -1,4 +1,3 @@
-import { useCommandProvider } from '@renderer/lib/commands/use-command-provider'
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { isChatSearchTarget } from '@/lib/chatSearchTarget'
@@ -9,7 +8,7 @@ export function useChatSearch(chatId: string | null, enabled: boolean, messages:
   const [searchMode, setSearchMode] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const open = useCallback(() => { setSearchQuery(''); setSearchMode(true) }, [])
+  const open = useCallback((query = '') => { setSearchQuery(query); setSearchMode(true) }, [])
   useEffect(() => { setSearchMode(false); setSearchQuery('') }, [chatId])
   useEffect(() => {
     if (!searchMode) return
@@ -26,18 +25,9 @@ export function useChatSearch(chatId: string | null, enabled: boolean, messages:
     window.addEventListener(UI_EVENTS.openChatSearch, onOpen)
     return () => { window.removeEventListener(UI_EVENTS.openChatSearch, onOpen) }
   }, [chatId, enabled, open, surface, viewportKey])
-  useCommandProvider({
-    // The visible chat also answers from the sidebar; focused terminal/editor commands take precedence.
-    scopeId: 'app',
-    isActive: (element) => enabled && !!chatId && isChatSearchTarget(surface.current, chatId, element),
-    getCommands: () => !chatId ? [] : [{
-      id: 'app.find', hideFromPalette: true,
-      execute: open,
-    }],
-  })
   const isFiltering = searchMode && !!searchQuery.trim()
   const displayedMessages = isFiltering ? messages.filter((message) => !message.retracted_at
     && message.content_type !== 'attachment' && (message.content ?? '').toLowerCase().includes(searchQuery.toLowerCase())) : messages
-  return { searchMode, setSearchMode, searchQuery, setSearchQuery, searchInputRef, isFiltering, displayedMessages }
+  return { open, searchMode, setSearchMode, searchQuery, setSearchQuery, searchInputRef, isFiltering, displayedMessages }
 }
 
