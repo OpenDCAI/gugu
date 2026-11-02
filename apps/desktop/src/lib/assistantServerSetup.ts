@@ -25,8 +25,10 @@ export type AssistantServerSetupRecord = {
   operationId: string
   draft: AssistantSetupDraft
   installationStarted: boolean
+  preparationStarted?: boolean
   model: string | null
   provisionOperationId?: string
+  provisionRecord?: ProvisionResumeRecord
 }
 export type AssistantServerSetupOptions = {
   signal?: AbortSignal
@@ -81,7 +83,8 @@ export function setUpAssistantOnServer(draft: AssistantSetupDraft, deviceId: str
     const ownerUserId = await getCurrentAuthUserId()
     if (pendingServerAssistant(ownerUserId) || assistantResumeStore.list(ownerUserId).length) return fail('preparation_busy')
     const target = await targetAvailable(deviceId)
-    const record: AssistantServerSetupRecord = { version: 1, ownerUserId, deviceId, deviceLabel: target.label, operationId: crypto.randomUUID(), draft, installationStarted: false, model: null }
+    if (options.signal?.aborted) throw aborted()
+    const record: AssistantServerSetupRecord = { version: 1, ownerUserId, deviceId, deviceLabel: target.label, operationId: crypto.randomUUID(), draft, installationStarted: false, preparationStarted: false, model: null }
     // Save the original target and draft before the first target mutation.
     save(record)
     return drive(record, options)
@@ -104,11 +107,25 @@ async function prepare(record: AssistantServerSetupRecord, options: AssistantSer
     options.onInstalling?.()
   }
   if (record.installationStarted) options.onInstalling?.()
-  let state = unwrap(await api.start({ ...args, ownerProfile: cleanAssistantSetupDraft(record.draft).ownerProfile }))
+  let state: AssistantServerPreparation
+  if (options.signal?.aborted) {
+    // Returning from a failed setup is cancellation, never a retry that might
+    // cross the active-write fence before the cancelled caller can poll again.
+    if (record.preparationStarted === false) { forget(record); throw aborted() }
+    options.onProgress?.({ phase: 'cancelling', cancellable: false })
+    const cancelled = unwrap(await api.cancel(args))
+    if (cancelled.cancelled) { forget(record); throw aborted() }
+    state = cancelled.state
+  } else {
+    record.preparationStarted = true
+    save(record)
+    state = unwrap(await api.start({ ...args, ownerProfile: cleanAssistantSetupDraft(record.draft).ownerProfile }))
+  }
   for (;;) {
     if (state.installationStarted) installing()
     if (state.phase !== 'prepared') options.onProgress?.({ phase: state.phase, cancellable: state.cancellable, ...(state.error ? { error: state.error } : {}) })
     if (options.signal?.aborted && state.cancellable) {
+      options.onProgress?.({ phase: 'cancelling', cancellable: false })
       const cancelled = unwrap(await api.cancel(args))
       if (cancelled.cancelled) { forget(record); throw aborted() }
       state = cancelled.state
@@ -123,10 +140,11 @@ async function prepare(record: AssistantServerSetupRecord, options: AssistantSer
 }
 
 async function drive(record: AssistantServerSetupRecord, options: AssistantServerSetupOptions): Promise<CreateAgentOnDeviceResult> {
+  let provisioning = !!record.provisionOperationId
   try {
     await owner(record)
     const pending = assistantResumeStore.list(record.ownerUserId).find(item =>
-      item.operationId === record.provisionOperationId || (!record.provisionOperationId && item.deviceId === record.deviceId))
+      item.operationId === record.provisionOperationId || (!record.provisionOperationId && item.deviceId === record.deviceId)) ?? record.provisionRecord
     if (pending) {
       if (pending.deviceId !== record.deviceId) return fail('input_mismatch')
       if (!record.provisionOperationId) { record.provisionOperationId = pending.operationId; save(record) }
@@ -138,6 +156,7 @@ async function drive(record: AssistantServerSetupRecord, options: AssistantServe
       return result
     }
     options.onProgress?.({ phase: 'checking', cancellable: !record.installationStarted })
+    if (options.signal?.aborted && !record.installationStarted) await prepare(record, options)
     const preflight = unwrap(await machineRpc(record.deviceId).assistantHome.preflight({ ownerUserId: record.ownerUserId, deviceId: record.deviceId }))
     const prepared = await prepare(record, options)
     if (!prepared.home) return fail('workspace_failed')
@@ -152,6 +171,7 @@ async function drive(record: AssistantServerSetupRecord, options: AssistantServe
     save(record)
     const clean = cleanAssistantSetupDraft(record.draft)
     options.onProgress?.({ phase: 'creating', cancellable: false })
+    provisioning = true
     let operationIdUsed = false
     const provision = await provisionSingleAgent(record.deviceId, {
       memberKey: 'assistant', displayName: clean.name, agentType: 'claude-code',
@@ -160,7 +180,7 @@ async function drive(record: AssistantServerSetupRecord, options: AssistantServe
       resumeStore: assistantResumeStore, model,
       newId: () => { if (operationIdUsed) return crypto.randomUUID(); operationIdUsed = true; return record.operationId },
       assistant: { childHarness: ASSISTANT_CHILD_HARNESS, firstTask: ASSISTANT_FIRST_TASK },
-      onAttemptRecorded: next => { record.provisionOperationId = next.operationId; save(record) },
+      onAttemptRecorded: next => { record.provisionOperationId = next.operationId; record.provisionRecord = next; save(record) },
     })
     const result = completedAssistantSetup(provision)
     forget(record)
@@ -169,7 +189,7 @@ async function drive(record: AssistantServerSetupRecord, options: AssistantServe
   } catch (cause) {
     if ((cause as Error)?.name === 'AbortError') throw cause
     const failure = cause instanceof AssistantServerSetupError ? { code: cause.code, retryable: cause.retryable, next: cause.next }
-      : assistantServerFailure(record.provisionOperationId ? 'provision_failed' : 'target_unreachable')
+      : assistantServerFailure(provisioning ? 'provision_failed' : 'target_unreachable')
     options.onProgress?.({ phase: 'failed', cancellable: !record.installationStarted, error: failure })
     throw cause instanceof AssistantServerSetupError ? cause : new AssistantServerSetupError(failure, { cause })
   }

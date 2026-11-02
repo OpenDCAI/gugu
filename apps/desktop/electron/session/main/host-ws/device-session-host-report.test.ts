@@ -122,6 +122,17 @@ describe('taskhost.open 带来的桌面版本', () => {
 });
 
 describe('taskhost.call(一问一答,不开窗口)', () => {
+  it('binds assistant home requests to the authenticated remote account', async () => {
+    const frameHost = new FrameSessionHost();
+    const prepare = vi.fn(() => ({ phase: 'runtime' }));
+    frameHost.ipcMain.handle('assistantHome.start', prepare);
+    const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => frameHost });
+    const request = { channel: 'assistantHome.start', args: [{ ownerUserId: 'owner' }] };
+    expect(await handlers['taskhost.call']!(request, ctx)).toMatchObject({ result: { value: { phase: 'runtime' } } });
+    expect(await handlers['taskhost.call']!({ ...request, args: [{ ownerUserId: 'another' }] }, ctx)).toMatchObject({ error: { message: expect.stringContaining('No handler registered') } });
+    expect(await handlers['taskhost.call']!(request, { ...ctx, request: { ...ctx.request, user_id: '' } })).toMatchObject({ error: { message: expect.stringContaining('No handler registered') } });
+    expect(prepare).toHaveBeenCalledOnce();
+  });
   it('can read and edit the host books while window controls and unlisted app calls remain refused', async () => {
     const frameHost = new FrameSessionHost();
     const entry = { id: 'phone-trial', content: 'old' };
