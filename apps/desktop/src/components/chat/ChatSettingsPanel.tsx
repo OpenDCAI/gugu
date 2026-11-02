@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useChatStore } from '@/store/chatContext'
 import { useTranslation } from 'react-i18next'
 import type { AgentDisplayStatus, ChatItem, GroupCollabSnapshot, MessageItem, NotificationLevel } from '@gugu/core/shared/types/chat'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
@@ -70,6 +72,8 @@ function ChatRightPanelBody({ activeChat, initialPage, onClose, onClearMessages,
 
   const MAX_SHOWN = 9
   const shownMembers = drawerProfiles.slice(0, MAX_SHOWN)
+  const { identitiesById } = useChatStore('identitiesById')
+  const names = useShownAgentName(shownMembers.map(member => ({ name: member.displayName, createdAt: member.type === 'agent' ? identitiesById[member.id]?.created_at ?? undefined : undefined })))
   const overflow = drawerProfiles.length - MAX_SHOWN
 
   return (
@@ -97,7 +101,7 @@ function ChatRightPanelBody({ activeChat, initialPage, onClose, onClearMessages,
         <>
           <div style={{ fontSize: 'var(--font-caption)', color: 'var(--text-tertiary)', padding: '12px 14px 6px', userSelect: 'none' }}>{t('chatArea.settings.members')}</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '0 14px 10px' }}>
-            {shownMembers.map((m) => (
+            {shownMembers.map((m, index) => (
               <div key={m.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
                 <MemberProfileAvatarButton
                   member={m}
@@ -114,7 +118,7 @@ function ChatRightPanelBody({ activeChat, initialPage, onClose, onClearMessages,
                   }}
                 />
                 <span style={{ fontSize: '10px', color: COLOR_MUTED, maxWidth: '36px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {m.displayName}
+                  {names[index]}
                 </span>
               </div>
             ))}

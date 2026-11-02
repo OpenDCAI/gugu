@@ -14,7 +14,7 @@
  * record. A correct `floor` just means the name a session starts with is the name it keeps.
  */
 import { coreLogger } from '../log'
-import { normalizeAgentType } from '../agentTypes'
+import { normalizeAgentType, VALID_AGENT_TYPES } from '../agentTypes'
 import { getAgentTypeLabel } from './enums/agentTypeModels'
 export type OwnedAgentLike = { display_name: string }
 
@@ -31,6 +31,19 @@ export function agentNameSerial(name: string, label: string): number | null {
 /** The same engine-default identity name used by automatic naming and task cards. */
 export function isAgentDefaultName(name: string, agentType: string | null | undefined): boolean {
   return agentNameSerial(name, getAgentTypeLabel(normalizeAgentType(agentType))) !== null
+}
+
+export const AGENT_NAMING_WINDOW_MS = 60_000
+
+/** A display-only deadline, measured from the identity (or session) creation time. */
+export function agentNamingUntil(name: string, agentType: string | null | undefined, createdAt: string | number | undefined, now: number): number | null {
+  const created = typeof createdAt === 'number' ? createdAt : Date.parse(createdAt ?? '')
+  const until = created + AGENT_NAMING_WINDOW_MS
+  if (!Number.isFinite(until) || now >= until) return null
+  const isDefault = agentType
+    ? isAgentDefaultName(name, agentType)
+    : VALID_AGENT_TYPES.some(type => isAgentDefaultName(name, type))
+  return isDefault ? until : null
 }
 
 export function nextAgentDefaultName(

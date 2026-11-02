@@ -3,7 +3,8 @@ import {act} from 'react'
 import type {AssistantPanelWindow,AssistantPanelBridge} from '../../../../apps/desktop/src/lib/assistantPanelBridge'
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
-import {createReactHarness,renderWithAppProviders,clickElement} from '../../../support/testHarness'
+import {createReactHarness,renderWithAppProviders,clickElement,displayIdentity} from '../../../support/testHarness'
+import {installIdentityDirectoryBridge,publishIdentityDirectory} from '../../../../apps/desktop/src/lib/identityDirectoryBridge'
 import {PhoneTasks} from '../../../../apps/desktop/src/mobile/assistant/PhoneTasks'
 import {AssistantTasksPage} from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-tasks'
 import {OPEN_ASSISTANT_TASK_CHAT} from '../../../../apps/desktop/src/lib/assistantTaskChat'
@@ -17,7 +18,22 @@ vi.mock('../../../../apps/desktop/src/store/devicesContext',()=>({useDevicesStor
 vi.mock('../../../../apps/desktop/src/session/shared/remote-sessions/session-directory',async original=>({...await original<object>(),useDirectoryDevices:()=>[],useLiveDeviceSessions:()=>{throw new Error('Task lists must not read device sessions')}}))
 let harness:ReturnType<typeof createReactHarness>
 beforeEach(()=>{harness=createReactHarness();(window as AssistantPanelWindow).__GUGU_ASSISTANT_PANEL__={accountId:()=> 'owner',subscribeAccount:()=>()=>{},subscribeChanges:()=>()=>{},files:()=>({paths:{memoryDir:'memory'},collection:cloud.schedules})} as unknown as AssistantPanelBridge;cloud.schedules.mockReset().mockResolvedValue([]);cloud.list.mockReset().mockResolvedValue([{work_id:'work',title:'codex (2)',coordinator_session_id:'home-session',coordinator_device_id:'home',executors:[{session_id:'worker',device_id:'phone',agent_user_id:'executor'}],executor_outcomes:{},outcome:'completed',updated_at:'2026-10-26T08:00:00Z'}])})
-afterEach(()=>{harness.cleanup();delete (window as AssistantPanelWindow).__GUGU_ASSISTANT_PANEL__})
+afterEach(()=>{harness.cleanup();delete (window as AssistantPanelWindow).__GUGU_ASSISTANT_PANEL__;publishIdentityDirectory(null,null);vi.useRealTimers()})
+it.each(['phone','desktop'])('%s shows naming from executor identity age and opens the raw work title',async shell=>{
+ const createdAt='2026-11-02T08:00:00.000Z'
+ vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(createdAt)
+ installIdentityDirectoryBridge()
+ publishIdentityDirectory({executor:displayIdentity('executor',{type:'agent',display_name:'Codex 5',created_at:createdAt})},()=>{})
+ cloud.list.mockResolvedValue([{work_id:'naming',title:'Codex 5',coordinator_session_id:'home-session',coordinator_device_id:'home',executors:[{session_id:'worker',device_id:'phone',agent_user_id:'executor'}],executor_outcomes:{},outcome:'active',updated_at:'2026-11-02T09:00:00Z'}])
+ const common={assistant:{id:`naming-${shell}`,display_name:'Assistant',avatar:null,created_at:null},chatId:'dm',ownerName:'Owner',home:{kind:'cloud',deviceId:'home'},homeDeviceId:'home',readiness:'unreachable',askInChat:vi.fn(),go:vi.fn()}
+ const opened=vi.fn();window.addEventListener(OPEN_ASSISTANT_TASK_CHAT,opened)
+ try{
+  await renderWithAppProviders(harness,<QueryClientProvider client={new QueryClient()}>{shell==='phone'?<PhoneTasks {...common as unknown as PhonePageProps} machine={{state:'opening'}} sub={null}/>:<AssistantTasksPage context={{...common,machineLoading:true,route:{tab:'tasks'}} as unknown as AssistantContext}/>}</QueryClientProvider>,{auth:{id:'owner'}})
+  await vi.waitFor(()=>expect(harness.container.querySelector('[data-testid="assistant-subagent-worker"]')?.textContent).toContain('正在起名…'))
+  await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="assistant-subagent-worker"]')!)
+  expect(opened.mock.calls[0][0].detail).toMatchObject({title:'Codex 5',taskAgentId:'executor',workId:'naming'})
+ }finally{window.removeEventListener(OPEN_ASSISTANT_TASK_CHAT,opened)}
+})
 it.each(['phone','desktop'])('%s can open a dispatched task before its agent identity is admitted',async shell=>{
  const assistantId=`pending-${shell}`
  cloud.list.mockResolvedValue([{work_id:'prepared-work',title:'Just dispatched',coordinator_session_id:'main',coordinator_device_id:'home',executors:[{session_id:'prepared-seat',device_id:'sleeping',agent_user_id:null}],executor_outcomes:{},outcome:'active',updated_at:new Date().toISOString()}])

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { agentNameSerial, isAgentDefaultName, nextAgentDefaultName, resolveAgentDefaultName } from '@gugu/core/shared/agentDefaultName'
+import { AGENT_NAMING_WINDOW_MS, agentNamingUntil, agentNameSerial, isAgentDefaultName, nextAgentDefaultName, resolveAgentDefaultName } from '@gugu/core/shared/agentDefaultName'
+import { VALID_AGENT_TYPES } from '@gugu/core/agentTypes'
+import { getAgentTypeLabel } from '@gugu/core/shared/enums/agentTypeModels'
 
 const owned = (...names: string[]) => names.map((display_name) => ({ display_name }))
 
@@ -11,6 +13,55 @@ it('shares the identity default-name definition across naming and presentation',
   expect(isAgentDefaultName('Named at spawn', 'codex')).toBe(false)
   expect(isAgentDefaultName('Claude (3)', 'claude-code')).toBe(false)
   expect(isAgentDefaultName('Codex 158', 'claude-code')).toBe(false)
+})
+
+describe('the identity naming display window', () => {
+  const createdAt = '2026-11-02T08:00:00.000Z'
+  const created = Date.parse(createdAt)
+  const until = created + AGENT_NAMING_WINDOW_MS
+  const deadline = (name: string, elapsed = 0) => agentNamingUntil(name, 'codex', createdAt, created + elapsed)
+
+  it('shows an explicit spawn name immediately', () => {
+    expect(deadline('Research assistant')).toBeNull()
+  })
+  it('stops the placeholder as soon as automatic naming succeeds', () => {
+    expect(deadline('Codex 158')).toBe(until)
+    expect(deadline('Lunar Eclipse Cause', 2_000)).toBeNull()
+  })
+  it.each(['disabled', 'no credits', 'short prompt', 'timeout'])('expires an unchanged default name at 60 seconds when naming has %s', () => {
+    expect(deadline('Codex 158', 59_999)).toBe(until)
+    expect(deadline('Codex 158', 60_000)).toBeNull()
+  })
+  it('shows the default before accepting a late harness title', () => {
+    expect(deadline('Codex 158', 59_999)).toBe(until)
+    expect(deadline('Codex 158', 60_000)).toBeNull()
+    expect(deadline('Late harness title', 61_000)).toBeNull()
+  })
+  it('shows a manual rename immediately during the window', () => {
+    expect(deadline('My assistant', 1_000)).toBeNull()
+  })
+  it('accepts the default-shaped manual name ambiguity only within the window', () => {
+    expect(deadline('Codex 5', 1_000)).toBe(until)
+    expect(deadline('Codex 5', 60_000)).toBeNull()
+  })
+  it('leaves older identities unchanged even when they still have default names', () => {
+    expect(deadline('Codex 158', 86_400_000)).toBeNull()
+    expect(deadline('codex (3)')).toBeNull()
+  })
+  it('recognizes every registered engine when the identity has no engine type', () => {
+    for (const type of VALID_AGENT_TYPES) {
+      expect(agentNamingUntil(`${getAgentTypeLabel(type)} 5`, undefined, createdAt, created)).toBe(until)
+    }
+    expect(agentNamingUntil('Codex 5', null, createdAt, created)).toBe(until)
+    expect(agentNamingUntil('Research assistant', undefined, createdAt, created)).toBeNull()
+    expect(agentNamingUntil('Codex 5', 'claude-code', createdAt, created)).toBeNull()
+  })
+  it('uses known creation times, including numeric timestamps and small server clock skew', () => {
+    expect(agentNamingUntil('Codex 5', 'codex', created, created)).toBe(until)
+    expect(agentNamingUntil('Codex 5', 'codex', created + 150, created)).toBe(until + 150)
+    expect(agentNamingUntil('Codex 5', 'codex', undefined, created)).toBeNull()
+    expect(agentNamingUntil('Codex 5', 'codex', 'invalid', created)).toBeNull()
+  })
 })
 
 describe('#6396 默认序号 = 用过的最大号 + 1', () => {

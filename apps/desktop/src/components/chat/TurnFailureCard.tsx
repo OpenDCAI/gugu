@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { useTranslation } from 'react-i18next'
 import { turnFailurePresentation, type TurnFailureReason } from '@gugu/core/shared/turnFailurePresentation'
 import { AlertTriangle, X } from '@/lib/icons'
@@ -24,9 +26,11 @@ type TurnFailureCardProps = {
 }
 
 /** The same presentation for a persisted chat failure and a retryable device command. */
-export function TurnFailureCard({ reason, displayName, agentId, avatar, createdAt, count = 1, recovered = false,
+export function TurnFailureCard({ reason, displayName: name, agentId, avatar, createdAt, count = 1, recovered = false,
   placement, onRetry, retrying, onOpenSettings, onDismiss }: TurnFailureCardProps) {
   const { t } = useTranslation('messaging')
+  const identity = useAvatarIdentity(agentId ?? '')
+  const displayName = useShownAgentName({ name, createdAt: agentId ? identity?.created_at ?? undefined : undefined })
   const [expanded, setExpanded] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
   const presentation = turnFailurePresentation(reason)

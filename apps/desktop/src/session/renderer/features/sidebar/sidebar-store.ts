@@ -1,5 +1,4 @@
 import { computed, makeAutoObservable, observable, runInAction } from 'mobx';
-import { formatSessionTitleForDisplay } from '@renderer/features/sessions/session-title-utils';
 import {
   buildSessionTree,
   familiesByRoot,
@@ -111,8 +110,9 @@ type SidebarSessionEntry = {
   isPinned: boolean;
   time: number;
   group: SidebarStateGroup | null;
-  /** 显示用的标题(「对话」里那一行、文件夹卡上的头像提示)。 */
+  /** Raw addressing name; components decide how to display it. */
   title: string;
+  createdAt?: string;
 };
 
 type SidebarSessionRow = {
@@ -743,7 +743,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
             ? new Date(session.data.lastInteractedAt).getTime()
             : 0,
           group: sidebarStateGroup(mountedSessionPresentation(session)),
-          title: formatSessionTitleForDisplay(session.data.providerId, session.data.title),
+          title: session.data.title,
+          createdAt: session.data.createdAt,
         });
       }
     }
@@ -777,7 +778,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
         // Direct-link freshness only governs access; identified agents share presence with avatars.
         group: sidebarStateGroup(sessionPresentation(session, listed.live,
           session.agent?.userId ?? sessionAgentBindings.bindingFor(session.conversationId)?.agentUserId)),
-        title: formatSessionTitleForDisplay(session.harness, session.title),
+        title: session.title,
       });
     }
     entries.sort((a, b) => b.time - a.time);
@@ -920,7 +921,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
               ? new Date(session.data.lastInteractedAt).getTime()
               : 0,
             group: sidebarStateGroup(mountedSessionPresentation(session)),
-            title: formatSessionTitleForDisplay(session.data.providerId, session.data.title),
+            title: session.data.title,
+            createdAt: session.data.createdAt,
           });
         }
       }

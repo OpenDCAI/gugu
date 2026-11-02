@@ -1,3 +1,6 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { readIdentityDirectoryBridge } from '@/lib/identityDirectoryBridge'
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings'
 import { observer } from 'mobx-react-lite';
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from 'react';
 import { Check, Monitor, Plus, Server } from '@/lib/icons';
@@ -269,9 +272,14 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   const running = runningIds.size;
   const agents = [...sessions]
     .sort((x, y) => Number(runningIds.has(y.sessionId)) - Number(runningIds.has(x.sessionId)) || y.time - x.time)
-    .map((entry) => ({ sessionId: entry.sessionId, url: senderAvatarUrl(`session:${entry.sessionId}`), title: entry.title }))
-    .filter((agent): agent is { sessionId: string; url: string; title: string } => agent.url !== null);
-  const shownAgents = agents.slice(0, 6);
+    .map((entry) => {
+      const agentId = sessionAgentBindings.bindingFor(entry.sessionId)?.agentUserId;
+      const identity = agentId ? readIdentityDirectoryBridge()?.getSnapshot()?.[agentId] : undefined;
+      return { sessionId: entry.sessionId, url: senderAvatarUrl(`session:${entry.sessionId}`), title: entry.title, createdAt: entry.createdAt ?? identity?.created_at ?? undefined };
+    })
+    .filter((agent): agent is { sessionId: string; url: string; title: string; createdAt: string | undefined } => agent.url !== null);
+  const shownNames = useShownAgentName(agents.map(agent => ({ name: agent.title, createdAt: agent.createdAt })));
+  const shownAgents = agents.slice(0, 6).map((agent, index) => ({ ...agent, title: shownNames[index] }));
 
   const folders = state.folders ?? [];
   // 「刚挂上」只在挂上后的两分钟里算数:过后它就是一个普通的文件夹,❌ 一直挂着那个标。
@@ -559,7 +567,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
                     <img key={agent.sessionId} src={agent.url} alt="" title={agent.title} />
                   ))}
                   {agents.length > shownAgents.length ? (
-                    <span className="gg-folder-card__more" title={agents.slice(shownAgents.length).map((agent) => agent.title).join('\n')} aria-label={translate('projects.folders.agentMore', { count: agents.length - shownAgents.length })}>{translate('projects.folders.agentCount', { count: agents.length })}</span>
+                    <span className="gg-folder-card__more" title={shownNames.slice(shownAgents.length).join('\n')} aria-label={translate('projects.folders.agentMore', { count: agents.length - shownAgents.length })}>{translate('projects.folders.agentCount', { count: agents.length })}</span>
                   ) : null}
                 </div>
                 <AttachButton machines={attachMachines} onAttach={onAttach} onAddMachine={onAddMachine} label={translate('projects.folders.attach')} heading={translate('projects.folders.attachOn')} addLabel={translate('projects.folders.addMachine')} />

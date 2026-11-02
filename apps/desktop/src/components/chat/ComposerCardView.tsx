@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation'
-import { isAgentDefaultName } from '@gugu/core/shared/agentDefaultName'
 import type { ComposerCard, QuestionCard, TaskCard } from '@gugu/core/shared/ui/taskCardModels'
 import { composerCardCopy } from '../../lib/composerCardCopy'
 import type { AgentDisplayStatus } from '@gugu/core/shared/types/chat'
@@ -9,7 +8,7 @@ import { Check, Clock, Sparkles } from '@/lib/icons'
 import { AgentHarnessIcon, EngineIcon } from '../AgentHarnessIdentity'
 import { Avatar } from '../Avatar'
 import { useAgentDisplayStatuses } from '../../hooks/useAgentDisplayStatus'
-import { useDeadlineClock } from '../../hooks/useDeadlineClock'
+import { useShownAgentName } from '../../hooks/useShownAgentName'
 import { useAvatarIdentity } from '../../lib/avatarIdentity'
 import { listMyAgentJoinRequests } from '../../lib/groupAgentJoinService'
 import { rendererLogger } from '../../lib/log'
@@ -44,7 +43,7 @@ export function ComposerCardHead({ type, agentUserId }: { type: ComposerCard['ty
  * gugu-dev#181 任务卡 / 已安排卡:一个面、三行 —— 是什么(右上时刻)、原话、交给谁(行尾一个状态标记,与侧栏同一套读数)。
  * 量值照聊天里的兄弟卡(App 安装包卡:12px 圆角、1px 边、12px 内边距、行距 8px);❌ 上下两截、❌ 另起状态条。
  */
-export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time, createdAt, memberProfiles, onOpenTopic }: {
+export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time, memberProfiles, onOpenTopic }: {
   card: Exclude<ComposerCard, QuestionCard>
   isMine: boolean
   isGroup: boolean
@@ -54,8 +53,6 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
   memberProfiles?: Record<string, MemberProfileCardModel>
   /** 发出的时刻(卡头右上;群里自己发的那条没有名字时刻那一行)。 */
   time: ReactNode
-  /** Message creation time bounds the temporary default-name placeholder. */
-  createdAt?: string
   /**
    * 手机:点任务卡 = 切到它那枚页签(它开在这张卡上的话题;owner 10-26「任务那枚页签 = 话题,从任务卡开」)。
    * 谁的卡都能点 —— 话题跟着群,群里的人都看得见;过程在派它的那台电脑上,话题里是它每一轮说的话。
@@ -67,13 +64,12 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
   const task = card.type === 'task' ? card : null
   const agent = task && memberProfiles?.[task.agentUserId]
   const owned = agent?.ownerUserId ? agent.ownerUserId === user?.id : isMine
-  const identity = useAvatarIdentity(task && owned ? task.agentUserId : '')
-  const agentName = identity?.display_name ?? task?.agentName ?? ''
-  const postedAt = Date.parse(createdAt ?? '')
-  const now = Date.now()
-  const namingUntil = owned && task?.agentType && isAgentDefaultName(agentName, task.agentType)
-    && postedAt <= now && now < postedAt + 60_000 ? postedAt + 60_000 : null
-  useDeadlineClock(namingUntil)
+  const identity = useAvatarIdentity(task?.agentUserId ?? '')
+  const agentName = useShownAgentName({
+    name: identity?.display_name ?? task?.agentName ?? '',
+    agentType: task?.agentType,
+    createdAt: identity?.created_at ?? undefined,
+  })
   const place = useTaskCardPlace(task, owned, agent?.ownerDisplayName || senderName)
   const seated = !!task && !!memberProfiles?.[task.agentUserId] && memberProfiles[task.agentUserId]!.membership !== 'former'
   const join = useMyAgentJoin(owned && isGroup && !seated ? chatId : null, task?.agentUserId ?? null)
@@ -93,7 +89,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
         <span className="break-words text-[var(--font-caption)] text-[var(--muted-fg)]">{place.label}</span>
       ) : task && (
         <TaskCardHandedTo
-          agentName={namingUntil === null ? agentName : t('message.taskCard.naming')}
+          agentName={agentName}
           agentAvatar={identity?.avatar ?? task.agentAvatar ?? null}
           agentUserId={task.agentUserId}
           note={join === 'pending' ? `· ${t('message.taskCard.awaitingApproval')}` : join === 'rejected' ? `· ${t('message.taskCard.rejected')}` : place.label ? `· ${place.label}` : ''}

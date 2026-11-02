@@ -54,14 +54,18 @@ const ring = () => harness.container.querySelector('[data-testid="message-read-r
 describe('task cards follow the current agent identity', () => {
   const at = '2026-11-02T08:00:00.000Z'
   const content = () => harness.container.querySelector<HTMLElement>('[data-testid="composer-card"]')!
-  const renderTask = (card: TaskCard = CARD, createdAt = at, compactMobile = false) => renderWithAppProviders(harness,
-    bubble(message({ id: 'live-card', is_mine: true, content_type: 'card', content: serializeComposerCard(card), created_at: createdAt }), compactMobile))
+  const renderTask = async (card: TaskCard = CARD, createdAt = at, compactMobile = false, identityCreatedAt: string | null = at) => {
+    await act(async () => publishIdentityDirectory(identityCreatedAt ? { [card.agentUserId]: displayIdentity(card.agentUserId, {
+      type: 'agent', display_name: card.agentName, owner_user_id: 'user-1', created_at: identityCreatedAt,
+    }) } : {}, () => {}))
+    await renderWithAppProviders(harness, bubble(message({ id: 'live-card', is_mine: true, content_type: 'card', content: serializeComposerCard(card), created_at: createdAt }), compactMobile))
+  }
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
     vi.setSystemTime(at)
   })
 
-  it.each(['zh-CN', 'en-US'] as const)('shows a bounded naming placeholder for a just-posted engine default (%s)', async (locale) => {
+  it.each(['zh-CN', 'en-US'] as const)('shows a bounded naming placeholder for a newly created identity (%s)', async (locale) => {
     setLocalePreference(locale)
     await renderTask()
     const placeholder = locale === 'zh-CN' ? '正在起名…' : 'Naming the agent…'
@@ -91,15 +95,29 @@ describe('task cards follow the current agent identity', () => {
     expect(content().textContent).not.toContain('研究助手')
   })
 
-  it('uses the message age, explicit names and legacy cards without inventing a naming state', async () => {
-    await renderTask(CARD, '2026-11-02T07:59:00.000Z')
-    expect(content().textContent).toContain('Codex 1')
-    await renderTask({ ...CARD, agentName: 'Named at spawn' })
-    expect(content().textContent).toContain('Named at spawn')
-    const { agentType: _legacy, ...legacy } = CARD
-    await renderTask(legacy)
+  it('uses identity age independently of the card message age', async () => {
+    await renderTask(CARD, '2026-11-02T07:00:00.000Z')
+    expect(content().textContent).toContain('正在起名…')
+    await renderTask(CARD, at, false, '2026-11-02T07:59:00.000Z')
     expect(content().textContent).toContain('Codex 1')
     expect(content().textContent).not.toContain('正在起名…')
+  })
+
+  it('keeps explicit names and missing identities raw, and recognizes legacy engine defaults', async () => {
+    await renderTask({ ...CARD, agentName: 'Named at spawn' })
+    expect(content().textContent).toContain('Named at spawn')
+    await renderTask(CARD, at, false, null)
+    expect(content().textContent).toContain('Codex 1')
+    expect(content().textContent).not.toContain('正在起名…')
+    const { agentType: _legacy, ...legacy } = CARD
+    await renderTask(legacy)
+    expect(content().textContent).toContain('正在起名…')
+  })
+
+  it('shows the placeholder on the first frame when identity creation is slightly ahead of the client clock', async () => {
+    await renderTask(CARD, at, false, '2026-11-02T08:00:00.150Z')
+    expect(content().textContent).toContain('正在起名…')
+    expect(content().textContent).not.toContain('Codex 1')
   })
 })
 

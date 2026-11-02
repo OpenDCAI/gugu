@@ -1,4 +1,6 @@
 import { observer } from 'mobx-react-lite'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
@@ -158,6 +160,8 @@ export const SessionRow = observer(function SessionRow({
 }) {
   const { t } = useTranslation('main')
   const { t: tFlow } = useTranslation('mobileTaskFlow')
+  const identity = useAvatarIdentity(session.agent?.userId ?? '')
+  const shownName = useShownAgentName({ name: session.title, createdAt: identity?.created_at ?? undefined })
   const shownStatus = useShownAgentStatus()
   const presentation = shownStatus.presentation(session.agent?.userId, sessionPresentation(session, statusAvailable ?? session.supported))
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -215,7 +219,7 @@ export const SessionRow = observer(function SessionRow({
       onContextMenu={onMenu ? (event) => { event.preventDefault(); onMenu(session, event.currentTarget) } : undefined}
       onClick={openable ? () => onOpen(session) : undefined}
     >
-      <ListRowContent title={session.title} leading={
+      <ListRowContent title={shownName} leading={
         <SessionAvatar
           agentId={session.agent?.userId}
           sessionId={session.conversationId}

@@ -303,6 +303,26 @@ function stubClipboard() {
   return writeText
 }
 
+it('keeps the copyable addressing name raw while the sidebar row shows the naming placeholder', async () => {
+  const createdAt = '2026-11-02T08:00:00.000Z'
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(createdAt))
+  const clipboard = stubClipboard()
+  registry.loaded.set('conv-1', { providerId: 'codex', title: 'Codex 5', createdAt })
+  try {
+    sidebarIdentityCard.release('conv-1')
+    await userEvent.hover(park())
+    mount()
+    await mounted()
+    const row = host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!
+    expect(row.textContent).toMatch(/正在起名…|Naming the agent…/)
+    const card = await openCard(row)
+    const copy = card.querySelector<HTMLElement>('[data-identity-row="sessionName"]')!
+    expect(copy.textContent).toMatch(/正在起名…|Naming the agent…/)
+    await userEvent.click(copy)
+    expect(pairOf(clipboard.mock.calls[0][0])).toEqual(['session', 'Codex 5'])
+  } finally { clock.mockRestore() }
+})
+
 /**
  * 复制出去的那一段。测试进程的语言随机器走,两种文案都算;要判的是「标签：值」这个形状与值 ——
  * 中文「任务名：X」,英文「Task: X」。

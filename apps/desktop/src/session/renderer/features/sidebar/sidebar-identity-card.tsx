@@ -53,10 +53,7 @@ import { TailValue } from './sidebar-identity-tail';
  *    点外 / Esc 由 Base UI 出。
  *  · 右键菜单开了、行开始被拖了,卡当场收:那两件事都是「不在看这张卡了」。
  *
- * 值的显示与复制**同一个真源**:卡上显示的就是复制出去的那两个值。❌ 不挂原生 title:一个飘在别处的
- * 浏览器 tooltip 只会打断排版(owner 2026-09-21 实机)。
- * 没有咕咕身份的会话,agent 那一行写「未分配」且不可复制 —— ❌ 不拿标题冒充人名、❌ 把「未分配」当成一个值
- * 粘出去。
+ * 显示沿用起名占位投影；复制始终取同一个原名真源。❌ 不挂原生 title。
  */
 
 const OPEN_DELAY_MS = 400;
@@ -220,18 +217,20 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
   projectId,
   sessionId,
   title,
+  displayTitle = title,
   anchor,
   onDismiss,
 }: {
   projectId: string;
   sessionId: string;
   title: string;
+  displayTitle?: string;
   /** 取行本体。传取值函数:虚拟列表重渲染会换掉行节点,拿着旧节点定位是对着脱离文档的元素算坐标。 */
   anchor: () => Element | null;
   onDismiss: () => void;
 }) {
   const { translate } = useSessionMessages();
-  const rows: RowSpec[] = [{ key: 'sessionName', label: translate('identityCard.sessionName'), value: title }];
+  const rows: RowSpec[] = [{ key: 'sessionName', label: translate('identityCard.sessionName'), value: title, display: displayTitle }];
   // 在哪:设备 + 文件夹。别的机器上的会话没挂载时没有工作区,只知道项目目录(会话目录那一行不带 cwd)。
   const machine = machineRegistry.machineOf(projectId);
   const place = identityPlace({
@@ -273,7 +272,7 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
             data-sidebar-identity-card
             data-session-id={sessionId}
             role="dialog"
-            aria-label={translate('identityCard.dialog', { name: title })}
+            aria-label={translate('identityCard.dialog', { name: displayTitle })}
             onPointerLeave={(event) => {
               if (!staysOnCard(event)) onDismiss();
             }}

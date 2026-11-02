@@ -1,3 +1,4 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { AUTOMATION_TEST_IDS, type AutomationTestId } from '../lib/automationDom'
 import { MemberProfileCard, type MemberProfileChatTarget, type MemberProfileEditControls } from './MemberProfileCard'
 import type { ActiveMemberProfile } from './memberProfileModels'
@@ -49,9 +50,10 @@ export function MemberProfilePopover({
   const enrichedMember = bio !== profile.member.bio || email !== profile.member.email || displayName !== profile.member.displayName
     ? { ...profile.member, displayName, bio, email }
     : profile.member
+  const shownName = useShownAgentName({ name: displayName, createdAt: profile.member.type === 'agent' ? identitiesById[profile.member.id]?.created_at ?? undefined : undefined })
   const side = profile.preferredSide ?? 'left'
   const mobile = useMobileShell()
-  const ariaLabel = t('profile.profileDialog', { name: displayName })
+  const ariaLabel = t('profile.profileDialog', { name: shownName })
   const card = <MemberProfileCard member={enrichedMember} onOpenChat={onOpenChat} onWhisper={onWhisper} editControls={editControls} aliasControls={aliasControls} fill={mobile} />
   const memberData = { 'data-profile-member-id': profile.member.id, 'data-profile-member-type': profile.member.type, 'data-profile-member-role': profile.member.role }
 

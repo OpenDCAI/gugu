@@ -1,4 +1,5 @@
 import { useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { ChevronLeft } from '@/lib/icons'
 import { cn } from '@/lib/cn'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
@@ -59,6 +60,7 @@ function ContactRow({ contact, currentUserId, selected, multiSelected, selection
   const shownStatus = useShownAgentStatus().status(contact.id, status) // #7199 宿主闲时收回着:不画睡团
   const isAnotherUsersAgent = contact.type === 'agent' && Boolean(contact.owner_user_id) && contact.owner_user_id !== currentUserId
   const canSelect = selectionMode && !isAnotherUsersAgent
+  const shownName = useShownAgentName({ name: displayName(contact), agentType: contact.agent_type, createdAt: !selectionMode && contact.type === 'agent' ? contact.created_at ?? undefined : undefined })
   const hasRowMenu = !selectionMode && !isAnotherUsersAgent && allowsLiveActions && Boolean(onStartChat || onPin || onMarkUnread || onToggleNotif || onRemove)
   return (
     <>
@@ -75,10 +77,10 @@ function ContactRow({ contact, currentUserId, selected, multiSelected, selection
         leading={
           <>
             {canSelect ? <SelectionCheckbox checked={multiSelected} /> : null}
-            <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size={mobile ? 'md' : 'sm'} isAgent={contact.type === 'agent'} agentStatus={contact.type === 'agent' ? shownStatus : undefined} />
+            <Avatar name={shownName} avatarUrl={contact.avatar} seed={contact.id} size={mobile ? 'md' : 'sm'} isAgent={contact.type === 'agent'} agentStatus={contact.type === 'agent' ? shownStatus : undefined} />
           </>
         }
-        title={displayName(contact)}
+        title={shownName}
         accessory={!allowsLiveActions ? <RemovedAgentContactBadge /> : null}
         onClick={canSelect ? onToggleSelection : onSelect}
         onKeyDown={rowKeyActivate(canSelect ? onToggleSelection : onSelect)}

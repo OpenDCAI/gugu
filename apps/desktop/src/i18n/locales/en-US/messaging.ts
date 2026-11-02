@@ -788,7 +788,6 @@ export default {
       "tooLarge": "This SVG could not be drawn: it is larger than 64 KB"
     },
     "taskCard": {
-      "naming": "Naming the agent…",
       "task": "New task",
       "schedule": "Scheduled",
       "handedTo": "Assigned to",
