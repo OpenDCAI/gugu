@@ -5,29 +5,38 @@ import { REMOTE_WORKSPACE_CHUNK_BYTES } from '@gugu/session-core/session-record/
 import { AppFileError } from '@shared/extensions/app-files-core';
 import { placeKey, workspaceSession, type AppFileEntry, type WorkspacePlace } from '@shared/extensions/app-runtime-protocol';
 import type { ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
-import { fileChangesChannel, type FileChangesEvent } from '@shared/core/fs/fsEvents';
-import { tapMainEvents } from '@main/lib/events';
 import type { FileTreeProjector } from '@main/core/files/file-tree/projector';
 import { workingCopyEntry } from './local-files';
 
 /**
  * A working copy's files as an App reads them, on the machine it is on — the file panel's own chain: the file tree
- * (`FileTreeProjector`, one directory at a time), the chunked read (`readWorkspaceChunk`) and the working copy's change
- * stream (`fileChangesChannel`). Nothing here walks a folder, reads a file whole or watches the disk: it only turns those
- * into `gugu.files` answers (entries named by their path there).
+ * (`FileTreeProjector`, one directory at a time), the chunked read (`readWorkspaceChunk`) and the files runtime's change
+ * feed. Nothing here walks a folder or reads a file whole: it only turns those into `gugu.files` answers (entries named
+ * by their path there).
+ *
+ * The folder comes from the session's or project's own record, and nothing here mounts it: mounting a workspace runs the
+ * project's setup and run scripts (`createWorkspaceFactory`), which a page reading a folder must never set off.
  */
 
 /** A subscription to the working copy's tree: a page keeps one while it is open, so the folders it listed stay loaded. */
-interface View { place: WorkspacePlace; root: string; workspaceId: string; projector: FileTreeProjector; subscriptionId: string }
+interface View { place: WorkspacePlace; root: string; projector: FileTreeProjector; subscriptionId: string; close: () => Promise<void> }
 
 async function openView(place: WorkspacePlace): Promise<View> {
   // Imported when used: a page let go of (`releaseWorkingCopies`) must not load the workspace stack to do it.
-  const [{ localRootOf }, { resolveWorkspace }] = await Promise.all([import('./app-files'), import('@main/core/projects/utils')]);
-  const { workspaceRoot: root, projectId, workspaceId } = await localRootOf(place);
-  const projector = workspaceId ? resolveWorkspace(projectId, workspaceId)?.fileTreeProjector : undefined;
-  const opened = projector ? await projector.openProjection() : null;
-  if (!projector || !workspaceId || !opened?.success) throw new AppFileError('not-found', 'This folder is not open on its computer');
-  return { place, root, workspaceId, projector, subscriptionId: opened.data.subscriptionId };
+  const [{ localRootOf }, { acquireWorkspaceRuntime }, { runtimeManager }, { FileTreeProjector: Projector }] = await Promise.all([
+    import('./app-files'),
+    import('@main/core/workspaces/workspace-runtime'),
+    import('@main/core/runtime/runtime-manager'),
+    import('@main/core/files/file-tree/projector'),
+  ]);
+  const { workspaceRoot: root } = await localRootOf(place);
+  const unreadable = () => new AppFileError('not-found', 'This folder cannot be read on its computer');
+  const runtime = await acquireWorkspaceRuntime({ manager: runtimeManager }, root, true).catch(() => { throw unreadable(); });
+  const projector = new Projector(runtime.fileTree, () => undefined);
+  const close = async () => { projector.dispose(); await runtime.release(); };
+  const opened = await projector.openProjection();
+  if (!opened.success) { await close(); throw unreadable(); }
+  return { place, root, projector, subscriptionId: opened.data.subscriptionId, close };
 }
 
 const views = new Map<string, Promise<View>>();
@@ -69,7 +78,7 @@ export async function listWorkingCopy(place: WorkspacePlace, folder: string | un
     if (!listed.success) throw new AppFileError('not-found', `No folder ${JSON.stringify(folder ?? '')} in this working copy`);
     return await entriesOf(view, listed.data);
   } finally {
-    if (pageId === null) await view.projector.closeProjection(view.subscriptionId);
+    if (pageId === null) await view.close();
   }
 }
 
@@ -78,7 +87,7 @@ export function releaseWorkingCopies(pageId: number): void {
   for (const [key, view] of views) {
     if (!key.startsWith(`${pageId}/`)) continue;
     views.delete(key);
-    void view.then((open) => open.projector.closeProjection(open.subscriptionId), () => undefined);
+    void view.then((open) => open.close(), () => undefined);
   }
 }
 
@@ -95,36 +104,44 @@ export async function readWorkingCopy(place: WorkspacePlace, file: string, offse
   }
 }
 
-const watchers = new Set<{ workspaceId: string; root: string; folder: string; hear: (change: ExtensionFileChangeBatch) => void }>();
-
 /**
  * `files.onChanged({ workspace, folder? }, fn)`: what changed in the working copy — below `folder` when one is named —
- * by its path there, from the change stream the file panel and the search index hear. A session's working copy on
- * another machine sends nothing across machines: the watch is taken and stays quiet (listing again shows its changes).
+ * by its path there, from the change feed the file panel and the search index hear. Where a whole tree is watched one
+ * directory at a time (Linux, `@@@tree-by-directories`) the feed only carries directories someone watches, so the folder
+ * named is watched here and what a page has listed is watched by its tree; deeper changes reach a page on Linux only
+ * from there. A session's working copy on another machine sends nothing across machines: the watch is taken and stays
+ * quiet (listing again shows its changes).
  */
 export async function watchWorkingCopy(place: WorkspacePlace, folder: string | undefined, hear: (change: ExtensionFileChangeBatch) => void): Promise<() => void> {
   const session = workspaceSession(place);
   const { sessionMachine } = await import('./app-programs-elsewhere');
   if (session && await sessionMachine(session).catch(() => null)) return () => {};
-  const { localRootOf } = await import('./app-files');
-  const { workspaceRoot: root, workspaceId } = await localRootOf(place);
-  if (!workspaceId) throw new AppFileError('not-found', 'This folder is not open on its computer');
-  const watcher = { workspaceId, root, folder: relOf(root, folderPath(root, folder) ?? root), hear };
-  watchers.add(watcher);
-  return () => void watchers.delete(watcher);
-}
-
-tapMainEvents((channel, data) => {
-  if (channel !== fileChangesChannel.name || watchers.size === 0) return;
-  const { workspaceId, update } = data as FileChangesEvent;
-  for (const watcher of watchers) {
-    if (watcher.workspaceId !== workspaceId) continue;
-    if (update.kind === 'resync') {
-      watcher.hear({ kind: 'resync' });
-      continue;
-    }
-    const changes = update.changes.map((change) => ({ kind: change.kind, path: relOf(watcher.root, change.path) }))
-      .filter(({ path: rel }) => rel && !rel.startsWith('..') && (!watcher.folder || rel === watcher.folder || rel.startsWith(`${watcher.folder}/`)));
-    if (changes.length > 0) watcher.hear({ kind: 'changes', changes });
+  const [{ localRootOf }, { runtimeManager }] = await Promise.all([import('./app-files'), import('@main/core/runtime/runtime-manager')]);
+  const { workspaceRoot: root } = await localRootOf(place);
+  const named = folderPath(root, folder) ?? root;
+  const below = relOf(root, named);
+  const cannotWatch = () => new AppFileError('not-found', 'This folder cannot be watched on its computer');
+  const lease = await runtimeManager.acquire();
+  const feed = lease.value.files.watchChanges(root, (update) => {
+    if (update.kind === 'resync') return hear({ kind: 'resync' });
+    const changes = update.changes.map((change) => ({ kind: change.kind, path: relOf(root, change.path) }))
+      .filter(({ path: rel }) => rel && !rel.startsWith('..') && (!below || rel === below || rel.startsWith(`${below}/`)));
+    if (changes.length > 0) hear({ kind: 'changes', changes });
+  }, { ignore: ['**/{.git,node_modules}/**'] });
+  if (!feed.success) {
+    await lease.release();
+    throw cannotWatch();
   }
-});
+  const directory = lease.value.files.watchDirectory(named);
+  const stop = () => {
+    if (directory.success) directory.data();
+    feed.data.unsubscribe();
+    void lease.release();
+  };
+  const ready = await feed.data.ready();
+  if (!directory.success || !ready.success) {
+    stop();
+    throw cannotWatch();
+  }
+  return stop;
+}

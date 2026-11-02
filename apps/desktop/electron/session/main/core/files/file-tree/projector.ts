@@ -33,8 +33,8 @@ export type FileTreeProjectionPush = {
 };
 
 /**
- * Per-path main-process projector. It is the single client of the core `FileTree` for one path and
- * the per-view projection hub toward renderer (and, later, mobile) clients.
+ * Main-process projector over one path's core `FileTree`, the per-view projection hub toward renderer
+ * (and, later, mobile) clients. A mounted workspace has one; a page listing a working copy has its own over the same tree.
  *
  * - Subscribes once to the core tree and reduces its keyed delta stream into an inline
  *   `scope -> listing` union cache (no exported primitive; just a Map + a small reducer).

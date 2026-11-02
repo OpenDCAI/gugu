@@ -39,11 +39,11 @@ describe('file preview missing-object actions', () => {
   }
   it.each([[false, 'file'], [true, 'file'], [false, 'image'], [true, 'image']] as const)('blocks reading a missing %s/%s preview without another request', async (mobile, kind) => {
     io.bytes.mockResolvedValue({ status: 'missing' })
-    io.image.mockRejectedValue(new MissingFileObjectError())
     await render(kind === 'image' ? { ...file, kind: 'image', fileName: 'photo.png', mimeType: 'image/png' } : file, mobile)
     await settled(translate('attachmentView.fileMissing'))
     await act(async () => { download()?.click(); external()?.click() })
-    expect(kind === 'image' ? io.image : io.bytes).toHaveBeenCalledTimes(1)
+    expect(io.bytes).toHaveBeenCalledTimes(1)
+    expect(io.image).not.toHaveBeenCalled()
     expect(io.external).not.toHaveBeenCalled()
     assertNoReadActions()
   })
