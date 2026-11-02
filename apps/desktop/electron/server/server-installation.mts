@@ -98,6 +98,13 @@ export function prepareInstallation(home: string, identity: ServerPackageIdentit
   options: { updateOwner?: ServerInstallation['updateOwner']; migrateFrom?: string } = {}): ServerInstallation {
   const candidate = packageIdentity(identity)
   const existing = readInstallation(home)
+  // A legacy managed supervisor may already have crossed backends. Neither its current package
+  // nor another self-update marker proves the original account environment; the controller must migrate it first.
+  const accounts = path.join(home, 'accounts')
+  if (!existing && options.updateOwner === 'controller' && !options.migrateFrom
+    && fs.existsSync(accounts) && fs.readdirSync(accounts).length) {
+    throw new Error('Legacy managed server requires an explicit verified migration source')
+  }
   const backend = existing?.backendUrl ?? legacyBackend(home, options.migrateFrom)
   if (backend) sameBackend(backend, candidate.backendUrl)
   // Controller ownership is durable: a systemd restart with a smaller environment cannot re-enable self-upgrades.

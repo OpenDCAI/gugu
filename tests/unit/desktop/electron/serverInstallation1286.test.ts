@@ -55,7 +55,7 @@ describe('installation backend and package ownership', () => {
     const account = path.join(home, 'accounts', 'original', 'data')
     fs.mkdirSync(account, { recursive: true })
     fs.writeFileSync(path.join(account, 'server-session.enc'), 'original encrypted credentials')
-    prepareInstallation(home, identity(), { updateOwner: 'controller' })
+    prepareInstallation(home, identity(), { updateOwner: 'controller', migrateFrom: '1.0.0' })
     expect(fs.readFileSync(path.join(home, 'channel'), 'utf8')).toBe('beta\n')
     expect(fs.readFileSync(path.join(account, 'server-session.enc'), 'utf8')).toBe('original encrypted credentials')
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(old)
@@ -110,6 +110,20 @@ describe('installation backend and package ownership', () => {
     expect(readInstallation(home)?.backendUrl).toBe(A)
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(wrong)
     expect(() => assertPackageEnvironment(home, wrong)).toThrow('another backend')
+  })
+
+  it('does not let a legacy managed self-update use its own current package to adopt existing accounts', () => {
+    const wrong = candidate('2.0.0', B)
+    const original = candidate('1.0.0', A, true)
+    fs.symlinkSync(wrong, path.join(home, 'current'))
+    const data = path.join(home, 'accounts', 'original', 'data')
+    fs.mkdirSync(data, { recursive: true })
+    fs.writeFileSync(path.join(data, 'server-session.enc'), 'original credentials')
+    expect(() => prepareInstallation(home, identity(B, 'stable'), { updateOwner: 'controller' })).toThrow('verified migration source')
+    expect(readInstallation(home)).toBeNull()
+    prepareInstallation(home, identity(), { updateOwner: 'controller', migrateFrom: path.basename(original) })
+    expect(readInstallation(home)?.backendUrl).toBe(A)
+    expect(fs.readFileSync(path.join(data, 'server-session.enc'), 'utf8')).toBe('original credentials')
   })
 
   it('does not infer an environment from an unreadable or mixed legacy package', () => {
