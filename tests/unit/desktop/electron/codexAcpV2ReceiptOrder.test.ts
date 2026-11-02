@@ -173,3 +173,44 @@ it.each(['no active turn to steer', 'expected active turn id `old` but found `ne
     else expect(await prompt).toEqual({ messageId: 'start' });
   } finally { await p.close(); }
 });
+
+
+it('fails only the uninserted receipt of a compacting foreground turn on its native failure', async () => {
+  const p = await fixture(`
+ if (m.method === 'turn/start') {
+  inputs.push(m)
+  const id = 'turn-' + inputs.length
+  out({ method: 'turn/started', params: { threadId: 'thread', turn: { id } } })
+  out({ id: m.id, result: { turn: { id } } })
+  if (inputs.length === 1) {
+   out({ method: 'item/started', params: { threadId: 'thread', turnId: id, item: { type: 'contextCompaction', id: 'compact' } } })
+   out({ method: 'turn/completed', params: { threadId: 'thread', turn: { id: 'older', status: 'completed' } } })
+   return out({ method: 'turn/completed', params: { threadId: 'thread', turn: { id, status: 'failed', error: { message: 'native compaction refused' } } } })
+  }
+  out({ method: 'item/started', params: { threadId: 'thread', turnId: id, item: { type: 'userMessage', id: 'next-native', clientId: m.params.clientUserMessageId, content: m.params.input } } })
+  return out({ method: 'turn/completed', params: { threadId: 'thread', turn: { id, status: 'completed' } } })
+ }`);
+  const params = { sessionId: 'thread', prompt: [{ type: 'text' as const, text: 'body' }] };
+  try {
+    await expect(p.agent.request(v2.methods.agent.session.prompt, params)).rejects.toMatchObject({ code: -32603, message: 'native compaction refused' });
+    expect(p.updates.filter(update => update.sessionUpdate === 'compaction_update')).toEqual([
+      { sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' },
+    ]);
+    expect(await p.agent.request(v2.methods.agent.session.prompt, params)).toEqual({ messageId: 'next-native' });
+  } finally { await p.close(); }
+});
+
+
+it('preserves an already inserted receipt when its native turn later compacts and fails', async () => {
+  const p = await fixture(`
+ if (m.method === 'turn/start') {
+  out({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'turn' } } })
+  out({ id: m.id, result: { turn: { id: 'turn' } } })
+  out({ method: 'item/started', params: { threadId: 'thread', turnId: 'turn', item: { type: 'userMessage', id: 'inserted', clientId: m.params.clientUserMessageId, content: m.params.input } } })
+  out({ method: 'item/started', params: { threadId: 'thread', turnId: 'turn', item: { type: 'contextCompaction', id: 'compact' } } })
+  return out({ method: 'turn/completed', params: { threadId: 'thread', turn: { id: 'turn', status: 'failed', error: { message: 'native compaction refused' } } } })
+ }`);
+  try {
+    expect(await p.agent.request(v2.methods.agent.session.prompt, { sessionId: 'thread', prompt: [{ type: 'text', text: 'body' }] })).toEqual({ messageId: 'inserted' });
+  } finally { await p.close(); }
+});

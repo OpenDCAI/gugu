@@ -213,7 +213,8 @@ export interface AcpAgentApi {
     requestId: string;
     message: Extract<NormalizedEvent, { kind: 'message' }>;
     /**
-     * A native receipt that has not arrived by then is cancelled and rejected as `prompt_admission_timeout`.
+     * A native receipt missing after this interval is cancelled as `prompt_admission_timeout`.
+     * Native compaction suspends the interval; its completion starts the same interval again.
      * Transports without a native receipt ignore it: their admission is the provider's first event or the RPC.
      */
     admissionTimeoutMs?: number;
