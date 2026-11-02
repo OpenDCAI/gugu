@@ -59,7 +59,7 @@ describe('#6264 设备行上报「这是台什么机器」', () => {
       min_client_protocol: MIN_CLIENT_PROTOCOL,
     })
     readText.mockClear()
-    expect(resolveDeviceHostInfo({ GUGU_SERVER_HOME: '/srv/gugu' }, deps)).toEqual({ host_kind: 'desktop', arch: 'arm64', os_name: 'Ubuntu 22.04.5 LTS', home_dir: '/home/ubuntu' })
+    expect(resolveDeviceHostInfo({ GUGU_SERVER_HOME: '/srv/gugu' }, deps)).toEqual({ host_kind: 'desktop', arch: 'arm64', os_name: 'Ubuntu 22.04.5 LTS', home_dir: '/home/ubuntu', remote_protocol: REMOTE_PROTOCOL_VERSION, min_client_protocol: MIN_CLIENT_PROTOCOL })
     expect(readText).not.toHaveBeenCalledWith('/srv/gugu/data/server-update.json')
   })
 

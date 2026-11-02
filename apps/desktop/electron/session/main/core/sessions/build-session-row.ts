@@ -99,7 +99,7 @@ function providerSessionIdAtBirth(input: BuildSessionRowInput): string | null {
  */
 export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
   const initialPrompt = input.initialPrompt?.trim();
-  const initialQueue = input.initialQueue?.filter((prompt) => prompt.text.trim());
+  const initialQueue = input.initialQueue?.filter((prompt) => prompt.text.trim() || prompt.files?.length);
   const agentDisplayName = input.agentDisplayName.trim();
   if (!agentDisplayName) throw new Error(`Session ${input.id} cannot be created without a name`);
 

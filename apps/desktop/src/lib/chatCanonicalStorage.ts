@@ -9,6 +9,7 @@ import { currentGroupAdmin } from './groupAdmin'
 import { dataClient } from './supabase'
 import { forwardAttachment, shareAttachment } from '@gugu/core/cloud/attachmentsApi'
 import { attachmentsEndpoint } from './attachmentsEndpoint'
+import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 
 /**
  * A file of a chat's folder forwarded as a file card (the folder's 「转发」): sent by reference (attachments/share), the bytes
@@ -74,6 +75,24 @@ export async function forwardCanonicalMessage(
     .select('id, chat_id, content, content_type, created_at')
     .single()
   if (insertError) throw new Error(insertError.message)
+  const card = fileRef.content_type === 'card' ? parseComposerCard(content) : null
+  if (card?.type === 'task' && card.files?.length) {
+    const [{ resolveFile, fileReader, fileReadSignal }, { snapshotBlob }, { sendFileToChat }, { toast }] = await Promise.all([
+      import('./fileAccess'), import('@gugu/core/shared/fileResolver'), import('./attachmentsEndpoint'), import('@renderer/lib/hooks/use-toast'),
+    ])
+    // Forwarding explicitly sends bytes to the destination, with the same audience rules as a manual file send.
+    for (const ref of card.files) {
+      try {
+        const file = await resolveFile({ item_id: ref.itemId, version: ref.version }, fileReader(senderId), { signal: fileReadSignal() })
+        if (file.status !== 'ready') throw new Error('File is no longer available')
+        try {
+          await sendFileToChat(new File([await snapshotBlob({ ...file, size: file.revision.size_bytes }, ref.mimeType)], ref.name, { type: ref.mimeType }), { chatId: targetChatId, senderId })
+        } finally { await file.dispose() }
+      } catch {
+        toast({ title: i18n.t('forward.fileFailed', { ns: 'messaging', name: ref.name }), tier: 'warning' })
+      }
+    }
+  }
   return inserted as {
     id: string
     chat_id: string

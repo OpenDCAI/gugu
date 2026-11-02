@@ -1,3 +1,4 @@
+import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 import type {
   ChatContext,
   ChatState,
@@ -9,8 +10,6 @@ import {
   attachmentRefSchema,
   permissionTitle,
   permissionDescription,
-  type AttachmentMimeType,
-  type AttachmentRef,
   type HistoryCursor,
   type GuguPermissionMode,
   isDestructivePermissionMode,
@@ -36,7 +35,6 @@ import { commandToken } from '@gugu/session-core/acp/commands';
 import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
 import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
 import { errorDetail } from '@gugu/session-shared';
-import { WireError, type BlobSource } from '@gugu/session-wire';
 import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
 import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
@@ -662,7 +660,7 @@ export class AcpChatStore {
     if (!await this.revertMessage(itemId, false) || this.session !== session) return;
     runInAction(() => { this.messageEdit = null; });
     // History is already cut back: a send that fails keeps the edited words in the draft.
-    await this.submitPrompt(edit.text, attachments).catch(() => this.setDraftText([edit.text, this.draftText].filter(Boolean).join('\n')));
+    await this.submitPrompt(edit.text, attachments, item.files).catch(() => this.setDraftText([edit.text, this.draftText].filter(Boolean).join('\n')));
   }
 
   async revertMessage(itemId: string, restoreDraft = true): Promise<boolean> {
@@ -1087,23 +1085,6 @@ export class AcpChatStore {
     this.messageCount = turns.reduce((count, turn) => count + turn.items.length, 0);
   }
 
-  async uploadAttachment(input: {
-    uploadId?: string;
-    data?: Uint8Array;
-    source?: BlobSource;
-    size?: number;
-    mimeType: AttachmentMimeType;
-    name?: string;
-    originalPath?: string;
-    signal?: AbortSignal;
-    onProgress?: (progress: { sent: number; total?: number }) => void;
-  }): Promise<AttachmentRef | null> {
-    const result = await this.session?.uploadAttachment(input);
-    if (!result) throw new WireError('DISCONNECTED', 'ACP session is not connected');
-    if (!result.success) throw result.error;
-    return result.data;
-  }
-
   async resolveToolImage(itemId: string, index: number): Promise<string | null> {
     const generation = this._historyGeneration;
     const stored = findToolItem(this._storedHistoryTurns, itemId)
@@ -1130,17 +1111,6 @@ export class AcpChatStore {
     } catch (error) {
       log.warn('Failed to fetch tool image', { error });
       return null;
-    }
-  }
-
-  async deleteAttachment(id: string): Promise<void> {
-    const session = this._requireSession('acpFailure.attachment');
-    if (!session) return;
-    try {
-      const result = await session.deleteAttachment(id);
-      if (!result.success) this._toastError('acpFailure.attachment', result.error);
-    } catch (error) {
-      this._toastError('acpFailure.attachment', error);
     }
   }
 
@@ -1205,10 +1175,10 @@ export class AcpChatStore {
    * Both sends take the one custody path (sender outbox → host session_pending), persisted session or side chat;
    * the host decides whether the input runs now or queues.
    */
-  async submitPrompt(text: string, attachments: AcpPromptAttachment[] = []): Promise<void> {
+  async submitPrompt(text: string, attachments: AcpPromptAttachment[] = [], files: TurnFileRef[] = []): Promise<void> {
     try {
       if (this.reverting || this.messageEdit) throw new Error('A message is being edited; send or cancel the edit first');
-      await sendThroughCustody(this, text, attachments);
+      await sendThroughCustody(this, text, attachments, files);
     } catch (error) {
       // The one toast of a failed send; the caller keeps its words.
       this._toastError('acpFailure.sendMessage', error);
@@ -1421,7 +1391,7 @@ export class AcpChatStore {
     const existing = session.sessionState.current().queuedPrompts.find((prompt) => prompt.id === id);
     if (!existing) return false;
     const input: PromptInput = {
-      text: editedConversationQueueText(existing.text, text), hiddenContext: existing.hiddenContext, attachments: existing.attachments,
+      text: editedConversationQueueText(existing.text, text), hiddenContext: existing.hiddenContext, attachments: existing.attachments, files: existing.files,
       ...(existing.origin ? { origin: existing.origin } : {}),
     };
     try {
@@ -2815,6 +2785,7 @@ function queuedPromptTurn(prompt: QueuedPrompt): TranscriptTurn {
         seq: 0,
         role: 'user',
         text: prompt.text,
+        ...(prompt.files?.length ? { files: prompt.files } : {}),
         ...(prompt.attachments?.length
           ? {
               attachments: prompt.attachments.map((attachment, index) => ({
