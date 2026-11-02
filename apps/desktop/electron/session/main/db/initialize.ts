@@ -94,7 +94,8 @@ export function applyMigrations(
 }
 
 const SEARCH_INDEX_VERSION = '9';
-const TURN_TEXT_BACKFILL_RANGE_SIZE = 4;
+const TURN_TEXT_BACKFILL_MAX_TURNS = 64;
+const TURN_TEXT_BACKFILL_MAX_BYTES = 1024 * 1024;
 const TURN_TEXT_BACKFILL_BUDGET_MS = 50;
 
 /**
@@ -210,10 +211,10 @@ function ensureTurnText(connection: BetterSqlite3.Database): void {
 export async function backfillTurnText(connection: BetterSqlite3.Database): Promise<void> {
   const read = connection.prepare('SELECT value FROM kv WHERE key = ?');
   const write = connection.prepare('INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch())');
-  const edge = connection.prepare(`SELECT session_id, seq FROM session_turns
-    WHERE (session_id, seq) > (?, ?) ORDER BY session_id, seq LIMIT 1 OFFSET ?`);
-  const tail = connection.prepare(`SELECT session_id, seq FROM session_turns
-    WHERE (session_id, seq) > (?, ?) ORDER BY session_id DESC, seq DESC LIMIT 1`);
+  const next = connection.prepare(`SELECT session_id, seq, sum(b) OVER (ORDER BY session_id, seq) AS bytes
+    FROM (SELECT session_id, seq, octet_length(data) AS b FROM session_turns
+      WHERE (session_id, seq) > (?, ?) ORDER BY session_id, seq LIMIT ?)
+    ORDER BY session_id, seq`);
   const insert = connection.prepare(`INSERT INTO turn_text_rows (session_id, seq, item_id, role, text)
     ${turnTextMessages('t').replace('FROM json_each', 'FROM session_turns AS t CROSS JOIN json_each')}
     AND (t.session_id, t.seq) > (?, ?) AND (t.session_id, t.seq) <= (?, ?)
@@ -224,9 +225,9 @@ export async function backfillTurnText(connection: BetterSqlite3.Database): Prom
     let cursor = (saved ? JSON.parse(saved.value) : ['', -1]) as [string, number];
     const started = performance.now();
     do {
-      const end = (edge.get(...cursor, TURN_TEXT_BACKFILL_RANGE_SIZE - 1) ?? tail.get(...cursor)) as
-        | { session_id: string; seq: number }
-        | undefined;
+      const turns = next.all(...cursor, TURN_TEXT_BACKFILL_MAX_TURNS) as { session_id: string; seq: number; bytes: number }[];
+      // Include the whole turn that crosses the byte limit, even when it alone exceeds the limit.
+      const end = turns.find((turn) => turn.bytes >= TURN_TEXT_BACKFILL_MAX_BYTES) ?? turns.at(-1);
       if (!end) {
         write.run('turn_text_backfilled', SEARCH_INDEX_VERSION);
         connection.prepare("DELETE FROM kv WHERE key = 'turn_text_backfill_cursor'").run();
