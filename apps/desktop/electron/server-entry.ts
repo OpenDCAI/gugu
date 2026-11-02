@@ -227,9 +227,6 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
     }
     case undefined:
     case 'run': {
-      const waitPid = Number(process.env.GUGU_SERVER_WAIT_PID)
-      delete process.env.GUGU_SERVER_WAIT_PID
-      if (Number.isInteger(waitPid) && waitPid > 0) await waitForPidExit(waitPid)
       // 旧版本按宽松 umask 建过的目录与文件:每次启动收一遍(升级换版后的第一次启动就把老机器修好)。
       const { runSingleServer } = await import('./server/server-run')
       await runSingleServer(() => {

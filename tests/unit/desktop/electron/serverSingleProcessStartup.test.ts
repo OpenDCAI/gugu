@@ -2,16 +2,17 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { acquireHomeLock, assertAccountLogin, markServerReady, onlySignedInAccount, readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
+import { acquireHomeLock, assertAccountLogin, markServerReady, onlySignedInAccount, ownsHomeLock, readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
 import type { ServerAccount } from '../../../../apps/desktop/electron/server/server-layout'
 
 let home: string
 beforeEach(() => {
+  vi.stubEnv('GUGU_TASK_HOST_VERSION', '2.0.0')
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-single-start-'))
   for (const version of ['1.0.0', '2.0.0']) fs.mkdirSync(path.join(home, 'versions', version), { recursive: true })
   fs.symlinkSync('versions/2.0.0', path.join(home, 'current'))
 })
-afterEach(() => { vi.restoreAllMocks(); fs.rmSync(home, { recursive: true, force: true }) })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); fs.rmSync(home, { recursive: true, force: true }) })
 const account = (userId: string, signedIn = true): ServerAccount => ({ userId, signedIn, email: `${userId}@example.test`,
   addedAt: null, dir: '', dataDir: '', homeDir: '', signedOut: null })
 
@@ -39,6 +40,29 @@ describe('single-process server startup', () => {
     expect(readPendingVerify(home)).toBeNull()
     expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8')))
       .toMatchObject({ state: 'idle', version: '2.0.0', lastOutcome: { kind: 'switched', target: '2.0.0', request: 42 } })
+  })
+
+  it('cannot let the outgoing version claim readiness for a package it has not run', () => {
+    writePendingVerify(home, { from: '1.0.0', to: '2.0.0', attempts: 0, request: 42 })
+    process.env.GUGU_TASK_HOST_VERSION = '1.0.0'
+    markServerReady(home, 500)
+    expect(readPendingVerify(home)).toEqual({ from: '1.0.0', to: '2.0.0', attempts: 0, request: 42 })
+    expect(fs.existsSync(path.join(home, 'data/server-update.json'))).toBe(false)
+  })
+
+  it.each(['EMFILE', 'EIO'])('does not treat a transient %s read as proof of losing the lock', code => {
+    const release = acquireHomeLock(home)!
+    const read = fs.readFileSync
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    vi.spyOn(fs, 'readFileSync').mockImplementation((file, ...args) => {
+      if (String(file).endsWith('server.lock')) throw Object.assign(new Error(code), { code })
+      return read(file, ...args)
+    })
+    expect(ownsHomeLock(home)).toBeUndefined()
+    vi.restoreAllMocks()
+    expect(ownsHomeLock(home)).toBe(true)
+    release()
+    expect(ownsHomeLock(home)).toBe(false)
   })
 
   it('retains malformed verification evidence and continues current without selecting or deleting a package', () => {

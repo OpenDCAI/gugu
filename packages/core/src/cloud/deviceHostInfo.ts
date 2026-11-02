@@ -86,16 +86,14 @@ export function parseServerUpdateState(text: string, nowMs: number, activityText
   } catch {
     return null
   }
-  if (data.state !== 'idle' && data.state !== 'downloading' && data.state !== 'ready' && data.state !== 'switching' && data.state !== 'failed') return null
+  if (data.state !== 'downloading' && data.state !== 'ready' && data.state !== 'switching' && data.state !== 'failed') return null
   if (typeof data.version !== 'string' || !data.version) return null
   if (typeof data.at !== 'number' || !Number.isFinite(data.at)) return null
   const age = nowMs - data.at
   const limit =
     data.state === 'downloading' ? SERVER_UPDATE_DOWNLOADING_STALE_MS : data.state === 'failed' ? SERVER_UPDATE_FAILED_STALE_MS : SERVER_UPDATE_READY_STALE_MS
-  if (data.state !== 'idle' && age > limit) return null
+  if (age > limit) return null
   const update: DeviceServerUpdate = { state: data.state, version: data.version }
-  const outcome = parseVersionRequestOutcome(data.lastOutcome)
-  if (outcome) update.lastOutcome = outcome
   if (data.state === 'failed' && (data.cause === 'boot' || data.reason === 'boot-failed')) update.reason = 'boot-failed'
   if (data.state === 'ready' && activityText) {
     try {
@@ -214,6 +212,10 @@ export function resolveDeviceHostInfo(env: NodeJS.ProcessEnv = process.env, deps
     const activityText = accountDir ? readText(join(accountDir, 'activity.json')) : null
     const update = text ? parseServerUpdateState(text, nowMs, activityText) : null
     if (update && !(update.state === 'ready' && update.version === env.GUGU_APP_VERSION)) info.server_update = update
+    try {
+      const outcome = parseVersionRequestOutcome(JSON.parse(text ?? '{}').lastOutcome)
+      if (outcome) info.server_update_outcome = outcome
+    } catch { /* An unavailable outcome is not an active update or a failed heartbeat. */ }
     try {
       const health = JSON.parse(readText(join(home, 'data', SUPERVISOR_HEALTH_FILE)) ?? '{}') as { confirmedRestart?: unknown; at?: unknown }
       if (health.confirmedRestart === true && typeof health.at === 'number' && nowMs - health.at >= 0 && nowMs - health.at < SERVER_ACTIVITY_STALE_MS) {

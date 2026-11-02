@@ -483,7 +483,7 @@ function DeviceRow({
   // 起不来的那一版只有确认重启能再试(普通「重试」解不开它的冷却):失败行给「现在重启更新」,❌ 给一颗按了没用的「重试」。
   const bootFailed = model.update?.state === 'failed' && model.update.reason === 'boot-failed'
   const restartable = canRestart && (model.update?.state === 'ready' || bootFailed)
-  const outcome = model.update?.lastOutcome
+  const outcome = device.capabilities.server_update_outcome ?? model.update?.lastOutcome
   const hostWaiting = outcome?.kind === 'waiting'
   // New hosts answer this exact request. Old ACKs have no identity: yield to a changed host fact.
   const answered = restarting && (model.update?.scope !== restarting.before.scope || (typeof restarting.request === 'number'

@@ -1,7 +1,7 @@
 /** One installation, one signed-in account, one long-lived server process. */
 import path from 'node:path'
 import fs from 'node:fs'
-import { claimHomeLock, markServerReady, onlySignedInAccount, ownsHomeLock } from './server-startup'
+import { claimHomeLock, legacyGuardActive, markServerReady, onlySignedInAccount, ownsHomeLock } from './server-startup'
 import { EXIT_CONFIG } from './server-exit'
 import { applyLoginShell, clearStopped, liveKeeperPid, markStopped, startKeeper } from './server-keeper'
 import { listAccounts, serverHome, supervisorDataDir } from './server-layout'
@@ -17,6 +17,8 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   const warn = (message: string): void => { process.stderr.write(`[server] ${message}\n`) }
   const exitConfig = (message: string): never => {
     warn(message)
+    // The deployed guard must still be able to restore the old multi-account server.
+    if (legacyGuardActive(home)) process.exit(1)
     if (process.env.GUGU_SERVER_SUPERVISED !== 'systemd') markStopped(home)
     process.exit(EXIT_CONFIG)
   }
@@ -46,7 +48,7 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   applyLoginShell(home)
   const startedAt = Date.now()
   const health = () => {
-    if (!ownsHomeLock(home)) {
+    if (ownsHomeLock(home) === false) {
       warn('Installation lock ownership was lost; stopping this server.')
       process.exit(EXIT_CONFIG)
     }
@@ -62,6 +64,8 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   }
   process.on('SIGTERM', stopWhileWaiting)
   process.on('SIGINT', stopWhileWaiting)
+  const restartWhileWaiting = (): void => { process.exit(75) }
+  process.on('SIGUSR2', restartWhileWaiting)
   let account
   try { account = onlySignedInAccount(listAccounts()) }
   catch (error) { return exitConfig(error instanceof Error ? error.message : String(error)) }
@@ -87,6 +91,7 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   }
   process.removeListener('SIGTERM', stopWhileWaiting)
   process.removeListener('SIGINT', stopWhileWaiting)
+  process.removeListener('SIGUSR2', restartWhileWaiting)
   bootingAccount = true
   await runAccount(account.userId)
 }

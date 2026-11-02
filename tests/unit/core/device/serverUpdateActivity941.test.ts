@@ -10,6 +10,15 @@ const ready = JSON.stringify({ state: 'ready', version: '0.2.58-beta.1057.1', at
 const activity = (busyAgents: unknown, at = now) => JSON.stringify({ busyAgents, at })
 
 describe('server update activity reported by the account that is waiting', () => {
+  it('keeps the idle receipt separate so released desktops do not show a permanent update', () => {
+    const lastOutcome = { kind: 'switched', request: 42 }
+    const text = JSON.stringify({ state: 'idle', version: '2.0.0', at: now, lastOutcome })
+    const info = resolveDeviceHostInfo({ GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv' }, {
+      nowMs: () => now, readText: file => file.endsWith('/server-update.json') ? text : null, uid: () => 1000,
+    })
+    expect(info.server_update).toBeUndefined()
+    expect(info).toMatchObject({ server_update_outcome: lastOutcome })
+  })
   it('reports fresh counts including a known zero, without changing the target version', () => {
     expect(parseServerUpdateState(ready, now, activity(3))).toMatchObject({ version: '0.2.58-beta.1057.1', busy_agents: 3 })
     expect(parseServerUpdateState(ready, now, activity(0))).toMatchObject({ busy_agents: 0 })
@@ -77,7 +86,8 @@ describe('installation request outcomes in device heartbeats', () => {
       readText: file => file === '/srv/data/server-update.json' ? account : null })
     const device = normalizeDeviceRow({ device_id: 'remote', label: 'Remote', hostname: 'remote', platform: 'linux', status: 'online',
       last_seen_at: '2026-11-02T00:00:00Z', capabilities: info })
-    expect(device.capabilities.server_update).toEqual({ state: 'idle', version: '0.3.1', lastOutcome })
+    expect(device.capabilities.server_update).toBeUndefined()
+    expect(device.capabilities.server_update_outcome).toEqual(lastOutcome)
   })
 
   it.each([null, {}, { kind: 'invented', request: 1234 }, { kind: 'failed', request: '1234' }, { kind: 'failed' }])('does not invent an acknowledgement from an invalid or automatic outcome (%j)', lastOutcome => {
@@ -86,7 +96,7 @@ describe('installation request outcomes in device heartbeats', () => {
   })
   it('does not take a nested legacy account receipt as the installation result', () => {
     const legacy = JSON.stringify({ state: 'idle', version: '0.3.1', at: now, account: { lastOutcome: { kind: 'switched', request: 1234 } } })
-    expect(parseServerUpdateState(legacy, now)).toEqual({ state: 'idle', version: '0.3.1' })
+    expect(parseServerUpdateState(legacy, now)).toBeNull()
   })
 
 })

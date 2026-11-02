@@ -30,7 +30,25 @@ function live(pid) {
   } catch { return true }
 }
 function ownsHomeLock(home) {
-  try { return Number(fs.readFileSync(file(home, 'server.lock'), 'utf8')) === process.pid } catch { return false }
+  try { return Number(fs.readFileSync(file(home, 'server.lock'), 'utf8')) === process.pid }
+  catch (error) {
+    if (error.code === 'ENOENT') return false
+    process.stderr.write(`[server] Could not verify installation lock (${error.code || error.message}); retaining this process and checking again.\n`)
+    return undefined
+  }
+}
+function waitForPreviousPid() {
+  const pid = Number(process.env.GUGU_SERVER_WAIT_PID)
+  delete process.env.GUGU_SERVER_WAIT_PID
+  if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) return
+  const deadline = Date.now() + 60_000
+  process.stderr.write(`[server] Waiting for previous server (pid ${pid}) before acquiring the installation lock.\n`)
+  const pause = new Int32Array(new SharedArrayBuffer(4))
+  while (Date.now() < deadline) {
+    try { process.kill(pid, 0) } catch (error) { if (error.code === 'ESRCH') return }
+    Atomics.wait(pause, 0, 0, 100)
+  }
+  process.stderr.write('[server] Previous server wait expired; checking installation lock normally.\n')
 }
 function claimHomeLock(home) {
   return ownsHomeLock(home) ? () => {
@@ -94,7 +112,7 @@ function readPendingVerify(home) {
 function writePendingVerify(home, value) { writeJson(file(home, 'pending-verify.json'), validatePending(value)) }
 function markServerReady(home, now = Date.now()) {
   const pending = readPendingVerify(home)
-  if (!pending) return
+  if (!pending || process.env.GUGU_TASK_HOST_VERSION !== pending.to) return
   writeJson(file(home, 'server-update.json'), { state: 'idle', version: pending.to, previous: pending.from, at: now,
     lastOutcome: { kind: 'switched', target: pending.to, at: now,
       ...(pending.request !== undefined ? { request: pending.request } : {}) } })
@@ -125,7 +143,7 @@ function checkPendingBoot(home) {
     return false
   }
   const pending = readPendingVerify(home)
-  if (!pending) return false
+  if (!pending || process.env.GUGU_TASK_HOST_VERSION !== pending.to) return false
   writePendingVerify(home, { ...pending, attempts: pending.attempts + 1 })
   if (pending.attempts < 3) return false
   const versions = fs.realpathSync(path.join(home, 'versions'))
@@ -151,6 +169,7 @@ if (process.argv[2] === 'run' && process.execArgv.some((arg, i) => arg === '--re
   const home = process.env.GUGU_SERVER_HOME
   let release
   try {
+    waitForPreviousPid()
     release = acquireHomeLock(home)
     if (!release) {
       const empty = fs.readFileSync(file(home, 'server.lock'), 'utf8').trim() === ''

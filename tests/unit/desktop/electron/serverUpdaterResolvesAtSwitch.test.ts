@@ -58,6 +58,24 @@ function updater(isBusy: () => boolean, verifyBoot: (binary: string) => Promise<
 }
 
 describe('server self-upgrade resolves its target at the moment it switches', () => {
+  it('pauses outgoing reports before committing a switch, and resumes them if activation fails', async () => {
+    stage('0.2.53-beta.62.1')
+    published = '0.2.53-beta.62.1'
+    const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => undefined,
+      layout: { home, versions: path.join(home, 'versions'), version: '0.2.53-beta.59.1' } })
+    const resume = vi.fn()
+    const beforeSwitch = vi.fn(() => resume)
+    vi.spyOn(lifecycle, 'switchSupervisor').mockImplementation(() => {
+      expect(beforeSwitch).toHaveBeenCalledOnce()
+      throw new Error('current could not be replaced')
+    })
+    const control = startServerUpdater({ lifecycle, isBusy: () => false, beforeSwitch,
+      shutdown: vi.fn(), log: { info: vi.fn(), warn: vi.fn() } })
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(resume).toHaveBeenCalledOnce()
+    expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8'))).toMatchObject({ state: 'failed' })
+    control.dispose()
+  })
   it('a newer version published while waiting for idle is the one switched to — one restart, not two', async () => {
     stage('0.2.53-beta.62.1')
     stage('0.2.53-beta.63.1')
@@ -136,6 +154,10 @@ describe('server self-upgrade resolves its target at the moment it switches', ()
     expect(shutdown).toHaveBeenCalledOnce()
     expect(readPendingVerify(home)).toMatchObject({ from: '0.2.53-beta.59.1', to: '0.2.53-beta.62.1', attempts: 0, request: at })
     expect(fs.readlinkSync(path.join(home, 'current'))).toBe('versions/0.2.53-beta.62.1')
+    // Only the target process can acknowledge that it reached readiness.
+    markServerReady(home)
+    expect(readPendingVerify(home)).not.toBeNull()
+    process.env.GUGU_TASK_HOST_VERSION = '0.2.53-beta.62.1'
     markServerReady(home)
     const state = JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8'))
     expect(state).toMatchObject({ state: 'idle', lastOutcome: { kind: 'switched', target: '0.2.53-beta.62.1', request: at } })

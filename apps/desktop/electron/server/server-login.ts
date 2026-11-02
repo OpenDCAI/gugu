@@ -137,6 +137,11 @@ async function readFirstStdinLine(): Promise<string> {
 export const LOGIN_EXIT_TUNNEL_CLOSED = 3
 
 export async function runServerLogin(out: Out = defaultOut, args: readonly string[] = []): Promise<number> {
+  const existing = listAccounts().find(account => account.signedIn)
+  if (existing) {
+    out(`This server is already signed in as ${existing.email ?? existing.userId}. To sign in again or change accounts, run gugu-server logout first.`)
+    return 1
+  }
   // #6264 人给这台机器的名字(桌面经 SSH 带来的别名,或手敲的 `--name`):两种登法都按它命名。
   const nameAt = args.indexOf('--name')
   const name = nameAt >= 0 ? args[nameAt + 1]?.trim() || null : null

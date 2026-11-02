@@ -72,6 +72,34 @@ describe('the packaged launcher verifies before loading application code', () =>
     expect(read('pending-verify.json').attempts).toBe(1)
   })
 
+  it('does not count a different running version against the pending target', () => {
+    pending()
+    const old = path.join(home, 'versions/1.0.0')
+    fs.writeFileSync(path.join(old, 'app/dist-electron/server.js'), "process.stdout.write('old version')")
+    const result = spawnSync(path.join(old, 'bin/gugu-server'), ['run'], { env: environment(), encoding: 'utf8' })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toBe('old version')
+    expect(read('pending-verify.json').attempts).toBe(0)
+    expect(fs.existsSync(data('bad-versions.json'))).toBe(false)
+  })
+
+  it('waits for the previous server to exit before acquiring its lock', async () => {
+    fs.writeFileSync(app(), "process.stdin.resume();process.stdout.write('ready');process.stdin.on('data',()=>process.exit(0))")
+    const old = spawn(command(), ['run'], { env: environment(), stdio: ['pipe', 'pipe', 'pipe'] })
+    children.push(old)
+    expect(String((await once(old.stdout!, 'data'))[0])).toBe('ready')
+    const next = spawn(command(), ['run'], { env: { ...environment(), GUGU_SERVER_WAIT_PID: String(old.pid) }, stdio: ['pipe', 'pipe', 'pipe'] })
+    children.push(next)
+    expect(String((await once(next.stderr!, 'data'))[0])).toContain('Waiting for previous server')
+    const oldClosed = once(old, 'close')
+    old.stdin!.end('exit'); await oldClosed
+    expect(String((await once(next.stdout!, 'data'))[0])).toBe('ready')
+    expect(fs.readFileSync(data('server.lock'), 'utf8')).toBe(String(next.pid))
+    const nextClosed = once(next, 'close')
+    next.stdin!.end('exit'); await nextClosed
+    expect(next.exitCode).toBe(0)
+  })
+
   it('owns the lock in the same PID as the body, including the default run command', () => {
     pending()
     fs.writeFileSync(app(), `const fs=require('node:fs');process.stdout.write(JSON.stringify({pid:process.pid,lock:fs.readFileSync(${JSON.stringify(data('server.lock'))},'utf8'),command:process.argv[2]}))`)

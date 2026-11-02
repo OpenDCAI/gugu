@@ -3360,7 +3360,10 @@ const killEnginesOnCrash = (label: string): void => {
 // 有上限(停不下来照样退);再来一个信号 = 不等了。桌面上信号仍是立即终止(正常退出走 before-quit)。
 const SERVER_SIGNAL_STOP_TIMEOUT_MS = 5_000
 let signalStopping = false
-const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
+let stopServerActivity = (): void => {}
+let startServerActivity = (): void => {}
+const exitOnSignal = (label: 'SIGINT' | 'SIGTERM' | 'SIGUSR2', code: number): void => {
+  stopServerActivity()
   if (isSingleServerRun()) {
     if (code === 143 && !existsSync(join(app.getPath('userData'), SESSION_FILE))) code = EXIT_SIGNED_OUT
     if (code !== EXIT_RESTART && !['systemd', 'launchd'].includes(process.env.GUGU_SERVER_SUPERVISED ?? '')) markStopped(process.env.GUGU_SERVER_HOME!)
@@ -3380,9 +3383,11 @@ const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
 }
 process.on('SIGINT', () => exitOnSignal('SIGINT', 130)) // 128 + SIGINT(2)
 process.on('SIGTERM', () => exitOnSignal('SIGTERM', 143)) // 128 + SIGTERM(15)
+if (SERVER_MODE) process.on('SIGUSR2', () => exitOnSignal('SIGUSR2', EXIT_RESTART))
 if (isSingleServerRun()) singleServerUpdater()?.bindRuntime({
   // A5 includes work pending hydration and authorization; do not sample activity.json.
   isBusy: () => loadEmdashBridge()?.sessionpageVersionSwitchActivity?.().busy ?? true,
+  beforeSwitch: () => { stopServerActivity(); return () => startServerActivity() },
   shutdown: () => {
     noteExitReason(app.getPath('userData'), 'update')
     exitOnSignal('SIGTERM', EXIT_RESTART)
@@ -6548,8 +6553,10 @@ app.whenReady().then(async () => {
     const { markServerReady, ownsHomeLock } = await import('./server/server-startup')
     // Already shipped watchdogs still read this PID-bound version and start time during the transition.
     const activityStartedAt = Date.now()
+    let activityStopped = false
     const reportActivity = (): void => {
-      if (isSingleServerRun() && !ownsHomeLock(process.env.GUGU_SERVER_HOME!)) {
+      if (activityStopped || signalStopping) return
+      if (isSingleServerRun() && ownsHomeLock(process.env.GUGU_SERVER_HOME!) === false) {
         createLogger('server').error('Installation lock ownership was lost; stopping this server.')
         process.exit(EXIT_CONFIG)
       }
@@ -6569,9 +6576,23 @@ app.whenReady().then(async () => {
         createLogger('server').warn({ err: error }, '忙闲写不进去')
       }
     }
-    loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
-    reportActivity()
-    setInterval(reportActivity, 10_000).unref()
+    let unsubscribeActivity: (() => void) | undefined
+    let activityTimer: ReturnType<typeof setInterval> | undefined
+    stopServerActivity = () => {
+      activityStopped = true
+      if (activityTimer) clearInterval(activityTimer)
+      activityTimer = undefined
+      unsubscribeActivity?.(); unsubscribeActivity = undefined
+    }
+    startServerActivity = () => {
+      if (signalStopping || activityTimer) return
+      activityStopped = false
+      unsubscribeActivity = loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
+      activityTimer = setInterval(reportActivity, 10_000)
+      activityTimer.unref()
+      reportActivity()
+    }
+    startServerActivity()
     return
   }
   tray = new Tray(loadTrayIcon())

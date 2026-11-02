@@ -183,6 +183,19 @@ describe('confirmed server update feedback', () => {
     expect(node('restarting')).toBeNull()
     expect(toast).not.toHaveBeenCalled()
   })
+  it('ends the exact request on the separate idle receipt without an active update badge', async () => {
+    restart.mockResolvedValue({ requested: true, at: 42 })
+    await render(server({ state: 'ready', version: target, scope: undefined })); await click('update-now'); await click('update-now-yes')
+    const next = server()
+    delete next.capabilities.server_update
+    next.capabilities.server_update_outcome = { request: 41, kind: 'switched' }
+    await render(next)
+    expect(node('restarting')).not.toBeNull()
+    next.capabilities.server_update_outcome = { request: 42, kind: 'switched' }
+    await render(next)
+    expect(node('restarting')).toBeNull()
+    expect(node('update')).toBeNull()
+  })
 
   const legacyChanges = [
     { name: 'ready to failure', before: { state: 'ready', version: target }, after: { state: 'failed', version: target } },

@@ -18,7 +18,7 @@ beforeEach(() => {
   }
   pointCurrent(home, path.join(home, 'versions', '3.0.0'))
 })
-afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); if (saved === undefined) delete process.env.GUGU_SERVER_HOME; else process.env.GUGU_SERVER_HOME = saved })
+afterEach(() => { vi.unstubAllEnvs(); fs.rmSync(home, { recursive: true, force: true }); if (saved === undefined) delete process.env.GUGU_SERVER_HOME; else process.env.GUGU_SERVER_HOME = saved })
 const layout = () => ({ home, versions: path.join(home, 'versions'), version: '3.0.0' })
 
 
@@ -53,6 +53,7 @@ describe('one installation version lifecycle', () => {
     pointCurrent(home, path.join(home, 'versions/4.0.0'))
     fs.rmSync(prepared)
     writePendingVerify(home, { from: '3.0.0', to: '4.0.0', attempts: 1 })
+    vi.stubEnv('GUGU_TASK_HOST_VERSION', '4.0.0')
     markServerReady(home, now)
     expect(lifecycle.reclaim()).not.toContain('4.0.0')
   })
@@ -65,6 +66,7 @@ describe('one installation version lifecycle', () => {
       expect(fs.realpathSync(path.join(home, 'current'))).toBe(next.fromDir)
     })
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(next.toDir)
+    vi.stubEnv('GUGU_TASK_HOST_VERSION', '4.0.0')
     markServerReady(home, now)
     expect(readPendingVerify(home)).toBeNull()
     expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8'))).toMatchObject({ state: 'idle', lastOutcome: { kind: 'switched', target: '4.0.0' } })

@@ -68,6 +68,8 @@ export interface DeviceHostInfo {
   server_confirmed_restart?: true
   server_boot_failures?: SessionBootFailure[]
   server_update?: DeviceServerUpdate
+  /** Latest installation request result, also reported when no update is active. */
+  server_update_outcome?: VersionRequestOutcome
   /** 这台咕咕 server 以 root 身份运行(智能体能改整台机器);不是 = 缺席。 */
   runs_as_root?: true
   server_disk?: DeviceServerDisk

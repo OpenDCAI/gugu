@@ -173,7 +173,7 @@ export async function stageVersion(layout: Pick<Layout, 'versions'>, manifest: S
   }
 }
 
-export type ServerUpdaterRuntime = { isBusy: () => boolean; shutdown: () => void }
+export type ServerUpdaterRuntime = { isBusy: () => boolean; beforeSwitch?: () => (() => void) | void; shutdown: () => void }
 export type ServerUpdaterDeps = ServerUpdaterRuntime & {
   log: { info: (message: string, fields?: Record<string, unknown>) => void; warn: (message: string, fields?: Record<string, unknown>) => void }
   lifecycle?: ServerVersionLifecycle | null
@@ -326,8 +326,14 @@ export function startServerUpdater(deps: ServerUpdaterDeps): ServerUpdater {
       if (!received?.confirmed && runtime.isBusy()) return schedule(IDLE_POLL_MS)
       // The lifecycle verifies the environment and boot before recording pending/current.
       publish({ state: 'switching', version: target })
-      lifecycle!.switchSupervisor({ from: layout!.version, to: target, fromDir: layout!.running,
-        toDir: path.join(layout!.versions, target), switchedAt: Date.now(), ...(received ? { request: received.at } : {}) }, () => {})
+      const resumeActivity = runtime.beforeSwitch?.()
+      try {
+        lifecycle!.switchSupervisor({ from: layout!.version, to: target, fromDir: layout!.running,
+          toDir: path.join(layout!.versions, target), switchedAt: Date.now(), ...(received ? { request: received.at } : {}) }, () => {})
+      } catch (error) {
+        resumeActivity?.()
+        throw error
+      }
       deps.log.info('Switching server package', { from: layout!.version, to: target, request: received?.at })
       control.dispose()
       runtime.shutdown()

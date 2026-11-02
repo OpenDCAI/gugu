@@ -320,7 +320,8 @@ export function machineNoticeLabel(
   const update = options.serverUpdate;
   if (update) {
     if (update.state === 'ready') return translate('remoteHost.notice.updateReady', { device, version: update.version });
-    return translate(update.state === 'downloading' ? 'remoteHost.status.updating' : 'remoteHost.status.updateFailed', { device });
+    if (update.state === 'downloading') return translate('remoteHost.status.updating', { device });
+    if (update.state === 'failed') return translate('remoteHost.status.updateFailed', { device });
   }
   for (const notice of notices ?? []) {
     if (options.protocolOnly && (notice.kind === 'disk-low' || notice.kind === 'rolled-back')) continue;

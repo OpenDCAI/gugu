@@ -33,6 +33,11 @@ describe('SSH prepared updates share installation controls and A7 outcomes', () 
     expect(f.call).toHaveBeenCalledExactlyOnceWith('device', VERSION_RETRY_RPC, {}, { timeoutMs: 15_000 })
     expect(f.readCapabilities).toHaveBeenCalledOnce()
   })
+  it('accepts the separate installation outcome after idle removes the active update projection', async () => {
+    const f = fixture(ready, [caps({ app_version: '2.0.0', server_update_outcome: { request: 42, kind: 'switched' } })])
+    expect((await f.run())?.steps.find(step => step.id === 'service')?.status).toBe('done')
+    expect(f.call).toHaveBeenCalledOnce()
+  })
   it.each(['failed', 'rolledBack', 'refused'] as const)('does not report %s as a completed switch', async kind => {
     const f = fixture(ready, [state(42, kind)])
     expect((await f.run())?.failure).toMatchObject({ reason: 'serviceFailed', detail: `Server update ${kind}` })

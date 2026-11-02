@@ -172,7 +172,7 @@ export function sshServerUpgradeRunner(options: {
       let reported: DeviceCapabilities | null = capabilities
       while (now() < deadline) {
         reported = await options.readCapabilities(deviceId).catch(() => null)
-        const outcome = reported?.server_update?.lastOutcome
+        const outcome = reported?.server_update_outcome ?? reported?.server_update?.lastOutcome
         if (outcome?.request === receipt.at && outcome.kind !== 'waiting') {
           if (outcome.kind !== 'switched') return fail('serviceFailed', `Server update ${outcome.kind}`)
           run.setStep('download', { status: 'skipped', skippedBecause: 'alreadyInstalled', version: update.version })

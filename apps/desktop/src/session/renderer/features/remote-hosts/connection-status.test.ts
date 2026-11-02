@@ -113,6 +113,9 @@ describe('connection-status(#6264 侧栏的点 / 聊天末尾那一行)', () => 
 });
 
 describe('machineNoticeLabel(#6264 那台机器连得上,但有件事会让操作失败)', () => {
+  it.each(['idle', 'switching'] as const)('does not label %s as an update failure', state => {
+    expect(machineNoticeLabel([], 'Server', zh, { serverUpdate: { state, version: '2.0.0' } })).toBeNull()
+  })
   it('按要紧程度只说第一件;磁盘余量写成人读得懂的大小', () => {
     expect(machineNoticeLabel([{ kind: 'disk-low', freeBytes: 312 * 1024 * 1024 }], 'Linux 1', zh)).toBe(
       'Linux 1 磁盘只剩 312 MB，保存和更新可能失败'
