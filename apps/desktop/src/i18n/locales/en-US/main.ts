@@ -205,6 +205,7 @@ export default {
     },
     "output": {
       "machineOnly": "Opens only on that computer",
+      "notOpened": "This session hasn't opened this file yet.",
       "fileMissing": "The file is no longer on that computer.",
       "fileChanged": "The file changed while it was being read. Tap again.",
       "tooLarge": "The file is too large. The phone shows files up to {{limit}}.",

@@ -17,6 +17,7 @@ import { appRuntimeDir } from '@main/core/extensions/app-runtime-dir';
 
 /** What serving an extension needs. Read per request — see setupExtensionProtocol. */
 export interface ExtensionBundle {
+  apiVersion?: number;
   extensionId: string;
   /** Absolute path of the installed bundle directory. */
   rootDir: string;
@@ -96,7 +97,7 @@ export function setupExtensionProtocol(
     if (!fromRuntime && /\.html?$/i.test(resolved)) {
       headers.set('Content-Type', 'text/html; charset=utf-8');
       headers.delete('Content-Length');
-      return new Response(injectAppRuntime(await response.text()), {
+      return new Response(injectAppRuntime(await response.text(), bundle.apiVersion), {
         status: response.status,
         statusText: response.statusText,
         headers,

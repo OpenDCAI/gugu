@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   tier: 'plus' as 'free' | 'plus',
   pending: null as unknown,
   nativePending: null as unknown,
+  recoveryError: null as Error | null,
   previewMove: vi.fn(),
   runAssistantMove: vi.fn(),
   list: vi.fn(async () => [{ id: 'notion', name: 'Notion' }]),
@@ -20,7 +21,10 @@ vi.mock('../../../../apps/desktop/src/lib/billing/membership', () => ({
 }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-move-wire', () => ({
   pendingMove: () => mocks.pending,
-  recoverPendingMove: async () => mocks.nativePending ?? mocks.pending,
+  recoverPendingMove: async () => {
+    if (mocks.recoveryError) throw mocks.recoveryError
+    return mocks.nativePending ?? mocks.pending
+  },
   previewMove: (...args: unknown[]) => mocks.previewMove(...args),
   runAssistantMove: (...args: unknown[]) => mocks.runAssistantMove(...args),
 }))
@@ -44,6 +48,7 @@ beforeEach(() => {
   mocks.tier = 'plus'
   mocks.pending = null
   mocks.nativePending = null
+  mocks.recoveryError = null
   mocks.previewMove.mockReset()
   mocks.runAssistantMove.mockReset()
   resetMoveForTests()
@@ -72,6 +77,15 @@ const q = (id: string) => harness.container.querySelector(`[data-testid="${id}"]
 const body = () => document.body.textContent ?? ''
 
 describe('搬家入口', () => {
+  it('keeps the current home visible while recovery is unreadable and blocks a new move', async () => {
+    mocks.recoveryError = new Error('Recovery unavailable')
+    await render(computer)
+    expect(q('assistant-move-current-home')?.textContent).toContain('这台电脑')
+    expect(q('assistant-move-current-home')?.textContent).toContain('当前住处')
+    expect(body()).toContain('暂时读不到搬家恢复记录，请重试。')
+    expect((q('assistant-move-to-cloud') as HTMLButtonElement).disabled).toBe(true)
+  })
+
   it('recovers the resume entry from native storage after localStorage is lost', async () => {
     mocks.nativePending = { assistantId: 'agent-1', direction: 'to-cloud', source: { kind: 'computer', deviceId: 'dev-mac' } }
     await render(cloud)

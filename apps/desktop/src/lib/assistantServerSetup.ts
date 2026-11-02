@@ -63,7 +63,6 @@ async function targetAvailable(id: string) {
 async function owner(record: AssistantServerSetupRecord) {
   if (!desktopIpc()) return fail('unsupported_platform')
   if (await getCurrentAuthUserId() !== record.ownerUserId) return fail('account_changed')
-  await targetAvailable(record.deviceId)
 }
 const binding = (record: AssistantServerSetupRecord): AssistantServerOperation => ({ ownerUserId: record.ownerUserId, deviceId: record.deviceId, operationId: record.operationId })
 let inFlight: Promise<CreateAgentOnDeviceResult> | null = null
@@ -112,7 +111,6 @@ async function prepare(record: AssistantServerSetupRecord, options: AssistantSer
   if (options.signal?.aborted) {
     // Returning from a failed setup is cancellation, never a retry that might
     // cross the active-write fence before the cancelled caller can poll again.
-    if (record.preparationStarted === false) { forget(record); throw aborted() }
     options.onProgress?.({ phase: 'cancelling', cancellable: false })
     const cancelled = unwrap(await api.cancel(args))
     if (cancelled.cancelled) { forget(record); throw aborted() }
@@ -146,6 +144,14 @@ async function drive(record: AssistantServerSetupRecord, options: AssistantServe
     await owner(record)
     const pending = assistantResumeStore.list(record.ownerUserId).find(item =>
       item.operationId === record.provisionOperationId || (!record.provisionOperationId && item.deviceId === record.deviceId)) ?? record.provisionRecord
+    // An explicit false means no start was submitted. Releasing this local-only
+    // operation needs the current account, not an available remote machine.
+    // Missing legacy flags and any provisioning evidence still require the target.
+    if (options.signal?.aborted && record.preparationStarted === false && !record.installationStarted && !record.provisionOperationId && !pending) {
+      forget(record)
+      throw aborted()
+    }
+    await targetAvailable(record.deviceId)
     if (pending) {
       if (pending.deviceId !== record.deviceId) return fail('input_mismatch')
       if (!record.provisionOperationId) { record.provisionOperationId = pending.operationId; save(record) }
@@ -162,6 +168,7 @@ async function drive(record: AssistantServerSetupRecord, options: AssistantServe
     const prepared = await prepare(record, options)
     if (!prepared.home) return fail('workspace_failed')
     await owner(record)
+    await targetAvailable(record.deviceId)
     // Both the model directory and credential check are executed on the target.
     const catalog = await fetchAgentHarnessModels(record.deviceId, 'claude', false)
     const model = preflight.modelSource === 'platform'

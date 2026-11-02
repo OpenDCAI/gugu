@@ -36,6 +36,15 @@ function frame(key: string, type: number, write: (e: encoding.Encoder) => void =
 }
 
 describe('injectAppRuntime', () => {
+  it('stamps each page\'s declared API and replaces an older tag without inserting a second runtime', () => {
+    const original = '<!doctype html><main>App</main>';
+    const legacy = injectAppRuntime(original, 26);
+    const modern = injectAppRuntime(original, 27);
+    expect(legacy).toContain('data-gugu-api-version="26"');
+    expect(modern).toContain('data-gugu-api-version="27"');
+    expect(injectAppRuntime(legacy, 27)).toBe(modern);
+    expect(injectAppRuntime(modern, 27)).toBe(modern);
+  });
   it('writes the same tag the phone build puts into preinstalled Apps (vite.config.mts injectAppRuntimeTag)', () => {
     // That config cannot import this module, so it builds the tag itself: pin both to one form.
     expect(TAG).toBe(`<script src="/_gugu/${APP_RUNTIME_VERSION}/gugu.js"></script>`);
