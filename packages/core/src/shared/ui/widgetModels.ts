@@ -4,9 +4,13 @@ export interface WidgetMessage {
   text: string
   app: string
   view: string
+  height?: number
   data?: Record<string, unknown>
 }
 
+export const WIDGET_HEIGHT_MIN = 64
+export const WIDGET_HEIGHT_MAX = 520
+export const WIDGET_HEIGHT_ERROR = `height must be an integer from ${WIDGET_HEIGHT_MIN} to ${WIDGET_HEIGHT_MAX}`
 export const WIDGET_DATA_MAX_BYTES = 4096
 export const WIDGET_CONTENT_MAX_BYTES = 6144
 const bytes = (text: string) => new TextEncoder().encode(text).length
@@ -39,6 +43,7 @@ export function widgetMessageError(value: unknown): string | null {
   if ('id' in value || 'title' in value) return 'widget cannot contain top-level id or title'
   if (typeof value.text !== 'string' || !value.text.length || [...value.text].length > 200) return 'text must contain 1–200 plain text characters'
   if (typeof value.app !== 'string' || !value.app.length || typeof value.view !== 'string' || !value.view.length) return 'app and view are required'
+  if (value.height !== undefined && (typeof value.height !== 'number' || !Number.isInteger(value.height) || value.height < WIDGET_HEIGHT_MIN || value.height > WIDGET_HEIGHT_MAX)) return WIDGET_HEIGHT_ERROR
   if (value.data !== undefined) {
     if (!object(value.data)) return 'data must be a JSON object'
     const size = bytes(JSON.stringify(value.data))
@@ -54,8 +59,8 @@ export function parseWidgetMessage(content: string | null | undefined): WidgetMe
     const raw: unknown = JSON.parse(content)
     if (widgetMessageError(raw)) return null
     if (dataSourceBytes(content) > WIDGET_DATA_MAX_BYTES) return null
-    const { text, app, view, data } = raw as WidgetMessage
-    return { v: 2, text, app, view, ...(data === undefined ? {} : { data }) }
+    const { text, app, view, height, data } = raw as WidgetMessage
+    return { v: 2, text, app, view, ...(height === undefined ? {} : { height }), ...(data === undefined ? {} : { data }) }
   } catch { return null }
 }
 
