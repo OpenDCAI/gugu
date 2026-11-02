@@ -63,10 +63,18 @@ it('uses the ordinary pending projection on the phone, keeping acceptance and re
   await until('acknowledgement removes only its spinner', () => !harness.container.querySelector('[data-send-state="sending"]'));
   expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
   expect(harness.container.querySelector('[data-user-card]')!.getBoundingClientRect().top).toBe(top);
+  await act(async () => { state().rows = [{ ...input, failure: { code: 'host-offline' } }]; changed(); });
+  await until('offline input stays visible with its failure explanation', () => !!harness.container.querySelector('[data-send-state="failed"]'));
+  expect(harness.container.querySelector('[data-send-state="failed"] button')).toBeNull();
+  expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
+  await act(async () => { state().rows = [{ ...input, failure: { code: 'host-not-ready' } }]; changed(); });
+  await until('a host that is not ready still exposes retry', () => !!harness.container.querySelector('[data-send-state="failed"] button'));
+  await act(async () => { harness.container.querySelector<HTMLButtonElement>('[data-send-state="failed"] button')!.click(); });
+  expect(retry).toHaveBeenCalledOnce();
   await act(async () => { state().rows = [{ ...input, failure: { code: 'send-failed', message: 'connection refused' } }]; changed(); });
   await until('phone failure exposes in-place retry', () => !!harness.container.querySelector('[data-send-state="failed"] button'));
   await act(async () => { harness.container.querySelector<HTMLButtonElement>('[data-send-state="failed"] button')!.click(); });
-  expect(retry).toHaveBeenCalledOnce();
+  expect(retry).toHaveBeenCalledTimes(2);
   expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
 });
 
