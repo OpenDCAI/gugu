@@ -640,7 +640,7 @@ export interface AppFileOpened {
    */
   bytes?: ArrayBuffer;
   /**
-   * A working copy's file that is not a document: nothing is sent with the answer; the page reads it in pieces
+   * A stored chat file or working copy that is not opened as text: nothing is sent with the answer; it is read in pieces
    * (`filesRead`, 512 KB each) — `f.read(offset, length)`, or `f.blob()` for all of it.
    */
   chunked?: true;

@@ -12,7 +12,7 @@ function fixture(overrides: Partial<FileRevision> = {}) {
   const dispose = vi.fn(async () => {}), snapshot: FileBytes = { size: bytes.length, read: async (offset, length) => bytes.slice(offset, offset + length), dispose };
   const open = vi.fn(async () => snapshot);
   const resolve = createFileResolver({ local: async context => context.actor.actorId === owner && ('item_id' in context.ref && context.ref.item_id === localRevision.item_id) ? { revision: localRevision, open } : null, metadata: never, managed: never, ssh: never, temporary: never });
-  const platform: FilesPlatform = { account: never, identities: never, faces: never, hasCapability: () => true, sync: { ensureFor: () => undefined,} as never, filesUrl: () => { throw Error('No file service for a local read'); }, warn: never,
+  const platform: FilesPlatform = { account: never, identities: never, faces: never, hasCapability: () => true, sync: { ensureFor: () => undefined, pageFor: () => ({}) } as never, filesUrl: () => { throw Error('No file service for a local read'); }, warn: never,
     resolveFile: async (ref, actor, options) => resolve({ item_id: 'id' in ref ? ref.id : revision.item_id!, version: options.version }, { accountId: owner, actorId: actor ?? owner }, { localOnly: true }),
   };
   return { files: createAppFiles(platform), never, open, dispose, platform };
@@ -44,10 +44,18 @@ describe('App stored files enter the canonical local resolver before all cloud m
   });
   it('opens the actual cached publication read-only without account refresh, workspace lookup or identities', async () => {
     const f = fixture(), opened = await f.files.open(surface, { ref: { id: revision.item_id! } });
-    expect(new Uint8Array(opened.bytes!)).toEqual(bytes);
+    expect(opened).toMatchObject({ chunked: true });
+    expect(f.open).not.toHaveBeenCalled();
     expect(opened).toMatchObject({ access: 'ro', docName: '', entry: { id: revision.item_id, chat: 'group', path: 'files/original.bin', parentId: 'folder', version: 1, createdAt: null } });
     expect(opened.self.userId).toBe(`user:${owner}`);
-    expect(f.never).not.toHaveBeenCalled(); expect(f.open).toHaveBeenCalledTimes(1); expect(f.dispose).toHaveBeenCalledTimes(1);
+    expect(f.never).not.toHaveBeenCalled();
+    f.platform.account = async () => ({ token: "synthetic", userId: owner });
+    const ref = { id: revision.item_id!, version: 1 };
+    const range = await f.files.read(surface, { ref, offset: 0, length: bytes.length });
+    expect(Buffer.from(range.data, "base64")).toEqual(Buffer.from(bytes));
+    expect(f.open).toHaveBeenCalledTimes(1);
+    await f.files.close(surface, { ref });
+    expect(f.dispose).toHaveBeenCalledTimes(1);
   });
   it('a download returns only the lazy original handle; a kept version uses the same local entry', async () => {
     const f = fixture(), source = await f.files.downloadSource(surface, { ref: { chat: 'group', name: 'files/original.bin' } });
@@ -68,6 +76,7 @@ describe('App stored files enter the canonical local resolver before all cloud m
     await expect(f.files.open(surface, { ref: { id: revision.item_id! } })).rejects.toMatchObject({ code: 'denied' });
     expect(f.open).not.toHaveBeenCalled();
     const opened = await f.files.open({ ...surface, itemId: revision.item_id! }, { ref: { id: revision.item_id! } });
-    expect(opened.access).toBe('ro'); expect(new Uint8Array(opened.bytes!)).toEqual(bytes); expect(f.never).not.toHaveBeenCalled();
+    expect(opened.access).toBe('ro'); expect(opened).toMatchObject({ chunked: true });
+    expect(f.open).not.toHaveBeenCalled(); expect(f.never).not.toHaveBeenCalled();
   });
 });

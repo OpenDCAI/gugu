@@ -280,6 +280,13 @@ export class SyncConnection {
 }
 
 export class FileSyncRelay {
+  private readonly pageReleaseListeners = new Set<(pageId: number) => void>();
+
+  /** The existing page/revocation lifetime also owns read-only stored snapshots. */
+  onPageRelease(listener: (pageId: number) => void): () => void {
+    this.pageReleaseListeners.add(listener);
+    return () => { this.pageReleaseListeners.delete(listener); };
+  }
   private readonly pages = new Map<number, PageSync>();
   /** The connection new open files go to, per identity (`identityKey`). */
   private readonly currents = new Map<string, SyncConnection>();
@@ -356,6 +363,7 @@ export class FileSyncRelay {
    * the connections here and now: a person taken out of a group is cut off at once (真源原则 9).
    */
   revoke(id: number, reason: SyncRevokeReason | null, docNames?: (grant: Grant) => boolean): Promise<void> {
+    if (reason !== null) for (const listener of this.pageReleaseListeners) listener(id);
     const page = this.pages.get(id);
     if (!page) return Promise.resolve();
     const letGo: Promise<void>[] = [];
@@ -586,6 +594,7 @@ export class FileSyncRelay {
 
   /** The page is gone: finish what it handed over, close its connections, keep its wills. */
   pageGone(id: number): void {
+    for (const listener of this.pageReleaseListeners) listener(id);
     const page = this.pages.get(id);
     if (!page) return;
     this.pages.delete(id);

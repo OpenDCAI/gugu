@@ -47,3 +47,13 @@ it('uses the existing idle deadline when opening is cancelled before any guest c
   vi.advanceTimersByTime(30_000);
   expect(c.close).toHaveBeenCalledWith(1000, 'idle');
 });
+
+it('stored range lifetimes use page revocation/removal, not a document epoch reopening', async () => {
+  vi.useFakeTimers();
+  const c = connection(), released = vi.fn();
+  c.relay.onPageRelease(released);
+  c.relay.attachPage(2, 'reader', { post: vi.fn(), close: vi.fn() });
+  await c.relay.revoke(2, null); expect(released).not.toHaveBeenCalled();
+  await c.relay.revoke(2, 'unbound'); expect(released).toHaveBeenLastCalledWith(2);
+  c.relay.pageGone(2); expect(released).toHaveBeenCalledTimes(2);
+});

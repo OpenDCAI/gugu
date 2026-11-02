@@ -287,8 +287,8 @@ export async function reopenAppFile(page: DesktopFilePage, args: { ref?: unknown
 }
 
 /** Let go of an open file: the grant goes, wherever the file lives. */
-export function closeAppFile(page: DesktopFilePage, args: { docName: string }): void {
-  files.close(chatSurface(page), args);
+export function closeAppFile(page: DesktopFilePage, args: { docName?: string; ref?: ChatFileRef & { version?: number } }): Promise<void> {
+  return files.close(chatSurface(page), args);
 }
 
 /**
@@ -309,12 +309,15 @@ export async function listAppFiles(page: DesktopFilePage, args: { place?: unknow
   return listWorkingCopy(place, folder, page.pageId);
 }
 
-/** `f.read(offset, length)`: up to 512 KB of a working copy's file, read on the machine its working copy is on. */
+/** `f.read(offset, length)`: a pinned chat snapshot or a working copy, through the same range packet. */
 export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; offset?: unknown; length?: unknown }): Promise<{ size: number; offset: number; data: string }> {
   const ref = fileRefOf(args.ref);
-  if (isChat(ref)) throw new AppFileError('invalid', "A chat's file is opened whole: files.open");
-  const offset = Number(args.offset) || 0;
-  const length = Number(args.length) || 0;
+  const offset = Number(args.offset ?? 0);
+  const length = Number(args.length ?? 0);
+  if (isChat(ref)) return files.read(chatSurface(page), { ref: { ...ref, version: (args.ref as { version?: number })?.version }, offset, length });
+  if (!extensionsService().hasCapability(page.extensionId, 'files:read')) {
+    throw new AppFileError('denied', 'Not permitted: reading a working copy needs "files:read"');
+  }
   const there = await onItsMachine(page, ref, 'filesRead', { ref, offset, length });
   if (there.there) return there.value as { size: number; offset: number; data: string };
   const { readWorkingCopy } = await import('./working-copy-files');

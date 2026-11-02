@@ -95,7 +95,7 @@ function storedFile(host: GuguHost, entry: AppFileEntry, bytes: ArrayBuffer): ob
   const blob = new Blob([bytes], { type: entry.contentType });
   const preview = workspaceStoredText(entry.name, entry.contentType, new Uint8Array(bytes));
   if (preview) return storedTextFile(host, entry, preview.text, bytes);
-  return Object.freeze({ entry: { ...entry }, type: 'binary', readOnly: true, blob: async () => blob, close: () => undefined });
+  return Object.freeze({ entry: { ...entry }, type: 'binary', readOnly: true, size: bytes.byteLength, bytes: async () => new Uint8Array(await blob.arrayBuffer()), blob: async () => blob, close: () => undefined });
 }
 
 /** The pieces one `f.read` asks for at most: what the host reads a working copy's file in (512 KB). */
@@ -106,13 +106,20 @@ const CHUNK_BYTES = 512 * 1024;
  * bytes at an offset (a viewer scrolls a 100 MB log this way), `blob()` all of it.
  */
 function chunkedFile(host: GuguHost, entry: AppFileEntry): object {
-  const ref = refOf(entry);
+  const plain = refOf(entry);
+  const ref = { ...plain, ...(!('workspace' in plain) ? { version: entry.version ?? undefined } : {}) };
+  let size = entry.size;
+  let closed = false;
   const read = async (offset = 0, length = CHUNK_BYTES): Promise<Uint8Array<ArrayBuffer>> => {
+    if (closed) throw guguError('failed', 'This file handle is closed.');
+    if (!Number.isSafeInteger(offset) || offset < 0 || length !== Infinity && (!Number.isSafeInteger(length) || length < 0)) throw guguError('invalid', 'A file range needs a non-negative integer offset and length.');
     const out: Uint8Array[] = [];
     let at = Math.max(0, Math.floor(offset));
     let left = Math.max(0, length === Infinity ? Infinity : Math.floor(length));
     while (left > 0) {
       const chunk = await host.appFiles.read({ ref, offset: at, length: Math.min(left, CHUNK_BYTES) });
+      if (closed) throw guguError('failed', 'This file handle is closed.');
+      size = chunk.size;
       const bytes = Uint8Array.from(atob(chunk.data), (c) => c.charCodeAt(0));
       if (bytes.byteLength === 0) break;
       out.push(bytes);
@@ -132,11 +139,16 @@ function chunkedFile(host: GuguHost, entry: AppFileEntry): object {
     entry: { ...entry },
     type: 'binary',
     readOnly: true,
-    size: entry.size,
+    get size() { return size; },
     read,
+    bytes: () => read(0, Infinity),
     // All of it, to its end: a file on another machine comes with no size until its first piece says it.
     blob: async () => new Blob([await read(0, Infinity)], { type: entry.contentType }),
-    close: () => undefined,
+    close: () => {
+      if (closed) return Promise.resolve();
+      closed = true;
+      return host.appFiles.close({ ref });
+    },
   });
 }
 

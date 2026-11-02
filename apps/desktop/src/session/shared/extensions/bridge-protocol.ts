@@ -823,7 +823,7 @@ export const BRIDGE_VERBS = {
   filesClose: { needs: null },
   filesList: { needs: 'files:read', machine: 'place' },
   /** Up to 512 KB of a working copy's file at an offset (`f.read`): how a file of any size is read, on its own machine. */
-  filesRead: { needs: 'files:read', machine: 'place' },
+  filesRead: { needs: null, machine: 'place' },
   /**
    * Files across every chat the reader is in (gugu-supabase 20261017002319): found by a piece of their path, and the ones
    * this person opened last. `files:read` already reads any chat they are in, so it is the same consent.
@@ -974,6 +974,7 @@ export function callRefusal(
  * - `not-found` / `ambiguous`: `gugu.files` naming a file that is not there, or not only once.
  * - `too-large`: an upload over the workspace's per-file limit.
  * - `rate-limited`: `dispatch` to a member of a chat over the server's limit (30 a minute per person and App); later ones go through.
+ * - `stale-version`: the pinned version of a range-read file is no longer available.
  * - `content-changed`: `files.replace(…, { expectedVersion })` on a file replaced since that version was read.
  * - `unavailable`: `readAgentHistory` on an agent that is there, whose conversation gugu has no way to read now (not open,
  *   and its engine keeps no record gugu reads) — apart from `not-found`, an agent you cannot see (#7126); and a `machine`
@@ -985,7 +986,7 @@ export function callRefusal(
  */
 export const BRIDGE_ERROR_CODES = [
   'denied', 'invalid', 'failed', 'not-found', 'ambiguous', 'too-large', 'rate-limited', 'content-changed', 'unavailable',
-  'name-taken', 'not-installed', 'version-mismatch',
+  'name-taken', 'not-installed', 'version-mismatch', 'stale-version',
 ] as const;
 export type BridgeErrorCode = (typeof BRIDGE_ERROR_CODES)[number];
 

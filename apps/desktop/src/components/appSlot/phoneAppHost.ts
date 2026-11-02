@@ -227,6 +227,7 @@ const files = createAppFiles({
   filesUrl: rendererFileServiceUrl,
   warn: (message, data) => log.warn(data ?? {}, message),
   sync: {
+    onPageRelease: (listener) => relay.onPageRelease(listener),
     ensureFor: (asAgent) => { relay.ensureFor(asAgent) },
     pageFor: (pageId) => {
       const hosted = frames.get(pageId)
@@ -716,6 +717,8 @@ export function hostAppFrame(
       }
       case 'filesClose':
         return Promise.resolve(files.close(surface(), args as never))
+      case 'filesRead':
+        return files.read(surface(), { ref: { ...chatRef(args.ref), version: (args.ref as { version?: number })?.version }, offset: Number(args.offset), length: Number(args.length) })
       case 'filesList':
         return files.groupFiles(chatPlace(args.place), typeof args.folder === 'string' ? { folder: args.folder } : {})
       case 'filesSearch':
