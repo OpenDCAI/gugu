@@ -90,6 +90,7 @@ export function connectStdioAcpV2(
       let timer: ReturnType<typeof setTimeout> | undefined;
       let compactionId: string | null = null;
       let sawCompaction = false;
+      let sawUserEcho = false;
       let fail!: (error: Error) => void;
       const deadline = new Promise<never>((_resolve, reject) => { fail = reject; });
       const arm = () => {
@@ -102,6 +103,7 @@ export function connectStdioAcpV2(
       const admission = {
         sessionId: params.sessionId,
         observe(event: NormalizedEvent) {
+          if (event.kind === 'message' && event.role === 'user') sawUserEcho = true;
           if (event.kind === 'compaction') {
             if (event.status === 'in_progress' && compactionId === null) {
               compactionId = event.compactionId;
@@ -111,10 +113,16 @@ export function connectStdioAcpV2(
               compactionId = null;
               arm();
             }
-          } else if (sawCompaction && event.kind === 'agent_state' && event.state === 'idle') {
-            clearTimeout(timer);
-            fail(Object.assign(new Error(event.error?.message ?? 'Native turn ended before prompt acceptance'),
-              event.error ?? { code: -32603 }));
+          } else if (compactionId !== null && event.kind === 'agent_state' && event.state === 'idle') {
+            compactionId = null;
+            // The native echo and its correlated RPC receipt may precede/follow idle independently.
+            // An observed echo is not admission; it leaves that decision to the original receipt.
+            if (sawUserEcho) arm();
+            else {
+              clearTimeout(timer);
+              fail(Object.assign(new Error(event.error?.message ?? 'Native turn ended before prompt acceptance'),
+                event.error ?? { code: -32603 }));
+            }
           }
         },
         cancel() {

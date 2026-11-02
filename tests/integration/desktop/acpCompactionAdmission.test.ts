@@ -50,7 +50,7 @@ describe('native compaction admission over a child process stdio', () => {
     expect(await sent.admission).toMatchObject({ success: true });
     expect(await sent.completion).toMatchObject({ success: true });
     expect(records.filter(record => record.event === 'cancel')).toEqual([]);
-    expect(cell!.history().committed[0].items).toContainEqual(expect.objectContaining({ kind: 'message', messageId: 'persisted-user' }));
+    expect(cell!.history().committed[0].items).toContainEqual(expect.objectContaining({ kind: 'message', role: 'user', id: expect.stringContaining(':persisted-user'), text: 'body' }));
   }, 130_000);
 
   it('still cancels a genuinely silent unaccepted prompt with the existing 60-second deadline', async () => {
