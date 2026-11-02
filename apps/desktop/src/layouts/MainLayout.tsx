@@ -591,24 +591,24 @@ function InnerLayout({
   }, [mobile, activeTab])
 
 
-  useEffect(() => {
-    const open = (chatId: unknown) => {
-      if (typeof chatId !== 'string' || chatId.length === 0) return
-      if (openChatBlock(chatId, 'notification-open')) return
+  const openNotification = useCallback((chatId: unknown) => {
+    if (typeof chatId !== 'string' || chatId.length === 0) return
+    if (openChatBlock(chatId, 'notification-open')) return
 
-      setActiveChatId(chatId)
-      setActiveTab('chats')
-      setMobilePane('chat')
-      focusComposerForUserEntry('notification-open')
-    }
-    const handler = (event: Event) => open((event as CustomEvent<{ chatId?: unknown }>).detail?.chatId)
-    window.addEventListener(UI_EVENTS.notificationClicked, handler)
-    const unsubscribe = platform.subscribeNotificationClicks?.(({ chatId }) => open(chatId))
-    return () => {
-      window.removeEventListener(UI_EVENTS.notificationClicked, handler)
-      unsubscribe?.()
-    }
+    setActiveChatId(chatId)
+    setActiveTab('chats')
+    setMobilePane('chat')
+    focusComposerForUserEntry('notification-open')
   }, [setActiveTab, focusComposerForUserEntry, openChatBlock, setActiveChatId])
+  const openNotificationRef = useRef(openNotification)
+  openNotificationRef.current = openNotification
+  useEffect(() => {
+    const handler = (event: Event) => openNotification((event as CustomEvent<{ chatId?: unknown }>).detail?.chatId)
+    window.addEventListener(UI_EVENTS.notificationClicked, handler)
+    return () => window.removeEventListener(UI_EVENTS.notificationClicked, handler)
+  }, [openNotification])
+  // Keep the first native listener alive: the plugin delivers the retained cold-start tap only once.
+  useEffect(() => platform.subscribeNotificationClicks?.(({ chatId }) => openNotificationRef.current(chatId)), [])
 
 
   // 群成员面板的「新建 Agent 并加入本群」:手机与联系人页「新建 Agent」同一条(会话页选机器),只是带上这个群;
