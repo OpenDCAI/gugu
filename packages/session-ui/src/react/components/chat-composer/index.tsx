@@ -365,6 +365,8 @@ export interface ChatComposerProps {
   onCommand?: (item: CommandItem) => void;
   /** Session-state notice shown flush above the input (e.g. ACP stop reasons). */
   notice?: ComposerNotice | null;
+  /** The host already renders a band flush above this composer. */
+  hasBandAbove?: boolean;
   /**
    * Pending ACP permission request to show in the band above the input.
    * When present, the notice band is replaced by the permission band.
@@ -458,6 +460,7 @@ export function ChatComposer({
   onViewAttachment,
   onRetryAttachment,
   notice,
+  hasBandAbove = false,
   permissionRequest,
   permissionQueueCount = 1,
   onResolvePermission,
@@ -711,7 +714,7 @@ export function ChatComposer({
     !!onReorderQueuedPrompts &&
     !!onSendQueuedPromptNow;
   // The permission band takes priority over the notice band.
-  const hasBand = !!(permissionRequest ?? notice);
+  const hasBand = hasBandAbove || !!(permissionRequest ?? notice);
   const receiveEditor = React.useCallback((handle: PromptEditorRef | null) => {
     editorRef.current = handle;
     if (typeof editorApiRef === 'function') editorApiRef(handle);

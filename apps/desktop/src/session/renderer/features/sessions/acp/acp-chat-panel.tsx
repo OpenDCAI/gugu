@@ -104,7 +104,7 @@ import { pathAttachmentTarget } from '@gugu/session-chat-ui/markdown-attachment-
 import { readMermaidTheme } from '@gugu/session-chat-ui/mermaid';
 import { composerAttachmentSource } from './composer-attachment-source';
 import { SessionScheduleChip } from '../session-schedule-chip';
-import { sessionComposerFrameLiftClassName, sessionComposerTrayClassName, sessionComposerTrayStyle } from '../session-composer-styles';
+import { sessionComposerTrayClassName, sessionComposerTrayStyle } from '../session-composer-styles';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
@@ -1693,7 +1693,7 @@ const ComposerForStore = observer(function ComposerForStore({
       <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life} inTranscript={store.transcriptPendingId ?? store.stoppedRowId} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
-        className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
+        hasBandAbove={schedules.length > 0}
         hideLockedAgent
         isWorking={a.isWorking}
         attachmentStatus={sendHold === 'waiting' ? translate('composer.attachmentWaiting') : undefined}

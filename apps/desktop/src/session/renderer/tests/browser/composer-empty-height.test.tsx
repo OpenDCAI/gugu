@@ -1,9 +1,11 @@
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import { ChatComposer, type PromptEditorRef } from '@gugu/session-ui/react/components'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
+import { ComposerTray } from '@renderer/features/sessions/composer-tray'
+import { LOCAL_LIBRARY_HOST } from '@renderer/features/library/library-host'
 import { sessionComposerBox, sessionComposerCardClassName, sessionComposerEmptyHeightPx } from '@renderer/features/sessions/session-composer-styles'
 // 主题层与同目录 composer-narrow-pane-7052 同一套。
 import '@gugu/session-ui/styles/global'
@@ -12,6 +14,8 @@ import '@gugu/session-ui/theme/semantic.css'
 import '@gugu/session-ui/styles/base.css'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
+
+vi.mock('@/components/needsYou/NeedsYouSlot', () => ({ NeedsYouSlot: () => null }))
 
 /**
  * gugu-dev#181 核对 21:会话页、新建会话页的输入框和格子里的群框是同一个框 —— 一样高,文字、底排在同一个位置。
@@ -38,6 +42,38 @@ afterEach(() => {
 })
 
 describe('the session composer\'s box', () => {
+  it('joins the context tray to the card using the existing permission-band outline', async () => {
+    root!.render(
+      <SessionLocalizationProvider>
+        <div data-testid="tray-composer">
+          <ComposerTray projectPicker={<span>Project</span>} devicePicker={<span>Device</span>} host={LOCAL_LIBRARY_HOST}>
+            <ChatComposer hasBandAbove onSubmit={() => {}} />
+          </ComposerTray>
+        </div>
+        <ChatComposer permissionRequest={{ requestId: 'band-geometry', title: 'Read', options: [] }} onSubmit={() => {}} />
+      </SessionLocalizationProvider>
+    )
+    const fixture = () => container!.querySelector<HTMLElement>('[data-testid="tray-composer"]')!
+    const tray = () => fixture().firstElementChild as HTMLElement
+    const card = () => fixture().querySelector<HTMLElement>('[data-slot="composer-bar"]')!
+    const band = () => container!.querySelector<HTMLElement>('[data-slot="composer-permission-request"]')!
+    await until('tray and permission band have layout', () => !!fixture() && !!card() && !!band() && card().getBoundingClientRect().height > 0)
+    const trayRect = tray().getBoundingClientRect()
+    const cardRect = card().getBoundingClientRect()
+    expect(trayRect.left).toBe(cardRect.left)
+    expect(trayRect.right).toBe(cardRect.right)
+    expect(trayRect.bottom).toBe(cardRect.top)
+    const trayStyle = getComputedStyle(tray())
+    const bandStyle = getComputedStyle(band())
+    for (const property of ['borderTopLeftRadius', 'borderTopRightRadius', 'borderTopWidth', 'borderTopStyle', 'borderTopColor', 'borderBottomWidth'] as const) {
+      expect(trayStyle[property], property).toBe(bandStyle[property])
+    }
+    expect(trayStyle.paddingTop).toBe(trayStyle.paddingBottom)
+    expect(trayStyle.backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
+    expect(getComputedStyle(card()).borderTopLeftRadius).toBe('0px')
+    expect(getComputedStyle(card()).borderTopRightRadius).toBe('0px')
+  })
+
   it.each([false, true])('grows from its desktop or mobile minimum to the existing cap (mobile=%s)', async (mobile) => {
     const minimum = mobile ? 46 : sessionComposerBox.editorMinHeightPx
     const editorApiRef: { current: PromptEditorRef | null } = { current: null }

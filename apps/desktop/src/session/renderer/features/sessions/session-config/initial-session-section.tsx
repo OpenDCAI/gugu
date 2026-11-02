@@ -1372,6 +1372,7 @@ export interface ComposerVerbLook {
 
 interface InitialSessionFieldProps {
   state: InitialSessionState;
+  hasBandAbove?: boolean;
   linkedIssue?: LinkedIssue;
   includeIssueContextByDefault: boolean;
   enableMentions?: boolean;
@@ -1395,6 +1396,7 @@ interface InitialSessionFieldProps {
 
 export function InitialSessionField({
   state,
+  hasBandAbove,
   linkedIssue,
   includeIssueContextByDefault,
   enableMentions = true,
@@ -1829,6 +1831,7 @@ export function InitialSessionField({
         {...dropHandlers}
       >
         <ChatComposer
+          hasBandAbove={hasBandAbove}
           canSubmit={canSubmit}
           showSubmitButton={!!onSubmit}
           placeholder={

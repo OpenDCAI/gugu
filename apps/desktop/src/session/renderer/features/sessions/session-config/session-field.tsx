@@ -4,6 +4,7 @@ import { useSessionState } from './session-state-context';
 interface SessionFieldProps {
   placeholder?: string | ((agentName: string) => string);
   verb?: ComposerVerbLook;
+  hasBandAbove?: boolean;
   textareaClassName?: string;
   enableMentions?: boolean;
   onPromptBlur?: () => void;
@@ -18,6 +19,7 @@ interface SessionFieldProps {
 export function SessionField({
   placeholder,
   verb,
+  hasBandAbove,
   textareaClassName,
   enableMentions,
   onPromptBlur,
@@ -36,6 +38,7 @@ export function SessionField({
       enableMentions={enableMentions}
       placeholder={placeholder}
       verb={verb}
+      hasBandAbove={hasBandAbove}
       textareaClassName={textareaClassName}
       onPromptBlur={onPromptBlur}
       showAutoApproveToggle={showAutoApproveToggle}
