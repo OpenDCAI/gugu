@@ -1,6 +1,4 @@
 import { reaction } from 'mobx'
-import { machineClient } from '@/session/renderer/lib/machine-clients'
-import { HOST_WS_PROTOCOL_VERSION } from '@/session/shared/lib/ipc/host-ws-protocol'
 import type { TurnFileRef } from '@gugu/session-core/session-record/contract'
 import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_FOLDER_FILES } from '@gugu/session-core/session-record/contract'
 import { machineCodec } from '@/session/renderer/lib/machine-routing'
@@ -24,6 +22,10 @@ export function taskAttachmentUsesSsh(deviceId: string): boolean {
   return findRemoteHostsBridge()?.listDevices().find(device => device.id === deviceId)?.connectVia === 'ssh'
 }
 
+function assertTaskAttachmentProtocol(protocol: number | undefined): void {
+  if ((protocol ?? 0) < REMOTE_PROTOCOL_VERSION) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
+}
+
 export async function pushTaskDirectory(to: TaskAttachmentTarget, entry: FileSystemDirectoryEntry): Promise<string> {
   const items = await entryUploadItems(entry as unknown as DropEntry)
   if (items.length > MAX_ATTACHMENT_FOLDER_FILES || items.reduce((size, item) => size + item.size, 0) > MAX_ATTACHMENT_BYTES) {
@@ -44,8 +46,7 @@ export async function pushTaskDirectory(to: TaskAttachmentTarget, entry: FileSys
 export async function pushTaskFiles(to: TaskAttachmentTarget, id: string, items: UploadItem[], onProgress?: (sent: number, total: number) => void, signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted()
   if (!to.deviceId || !taskAttachmentUsesSsh(to.deviceId)) throw new Error('This computer has no SSH connection to the task host')
-  const hello = machineClient(to.deviceId)?.hello()
-  if (!hello || hello.protocol < HOST_WS_PROTOCOL_VERSION) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
+  assertTaskAttachmentProtocol(readCachedDevices().find(row => row.device_id === to.deviceId)?.capabilities?.remote_protocol)
   if (!to.projectId || !to.workspaceId) throw new Error('The task workspace is not available')
   const files = rpcOn(to.deviceId).workspace.files
   const root = await files.getAbsolutePath(to.projectId, to.workspaceId, '.')
@@ -87,7 +88,7 @@ export async function prefetchTaskFiles(to: TaskAttachmentTarget, files: TurnFil
   const input = { conversationId: to.sessionId, files }
   const device = to.deviceId ? readCachedDevices().find(row => row.device_id === to.deviceId) : null
   if (device?.is_online === false) return
-  if (device?.capabilities?.remote_protocol !== undefined && device.capabilities.remote_protocol < REMOTE_PROTOCOL_VERSION) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
+  if (device?.capabilities?.remote_protocol !== undefined) assertTaskAttachmentProtocol(device.capabilities.remote_protocol)
   const timeoutMs = 60_000 + Math.ceil(files.reduce((total, file) => total + file.sizeBytes, 0) / (64 * 1024)) * 1000
   let results: Array<{ itemId: string; ok: boolean; error?: string; code?: string }>
   if (to.deviceId && device?.capabilities?.host_kind === 'phone') {
@@ -98,8 +99,8 @@ export async function prefetchTaskFiles(to: TaskAttachmentTarget, files: TurnFil
     const reply = await callDeviceRpc<{ value: typeof results; protocol?: number }>(to.deviceId, 'taskhost.call',
       { channel: 'sessionTimeline.prefetchFiles', args: [machineCodec(to.deviceId).outbound(input)], protocol: REMOTE_PROTOCOL_VERSION }, { timeoutMs, signal })
     if (reply.error) throw new Error(reply.error.message)
-    if (!reply.result || (reply.result.protocol ?? 0) < REMOTE_PROTOCOL_VERSION) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
-    results = reply.result.value
+    assertTaskAttachmentProtocol(reply.result?.protocol)
+    results = reply.result!.value
   } else {
     let abort = () => {}
     try {
