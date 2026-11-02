@@ -118,6 +118,36 @@ describe('assistant project registration removal', () => {
     expect(readProjects().some(row => row.id === 'old')).toBe(true);
   });
 
+  it('discovers restored canonical assistant projects at startup before someone opens the assistant', async () => {
+    origin('automatic');
+    setAssistantProjectCleanupOwner(async () => 'owner-own', async () => 'device-own', async () => [{ assistantId: 'agent-own', sessionId: 'assistant' }]);
+    await runPendingAssistantProjectCleanup(true);
+    expect(readProjects().map(row => row.id)).toEqual([TASKS]);
+    expect((await getAssistantProjectCleanupReport()).removed).toHaveLength(1);
+  });
+
+  it('does not block startup or guess ownership while role discovery is unavailable; retries after reconnect', async () => {
+    origin('automatic');
+    const discover = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue([{ assistantId: 'agent-own', sessionId: 'assistant' }]);
+    setAssistantProjectCleanupOwner(async () => 'owner-own', async () => 'device-own', discover);
+    await expect(runPendingAssistantProjectCleanup(true)).resolves.toBeUndefined();
+    expect(readProjects().some(row => row.id === 'old')).toBe(true);
+    await runPendingAssistantProjectCleanup(true);
+    expect(readProjects().map(row => row.id)).toEqual([TASKS]);
+  });
+
+  it('reports a discovered unknown legacy directory even outside app-owned directories, retaining all files', async () => {
+    const outer = mkdtempSync(join(tmpdir(), 'legacy-assistant-outside-'));
+    fixture.sqlite.prepare('UPDATE projects SET path=? WHERE id=?').run(outer, 'old');
+    fixture.sqlite.prepare('UPDATE workspaces SET path=? WHERE id=?').run(outer, 'cwd');
+    setAssistantProjectCleanupOwner(async () => 'owner-own', async () => 'device-own', async () => [{ assistantId: 'agent-own', sessionId: 'assistant' }]);
+    try {
+      await runPendingAssistantProjectCleanup(true);
+      expect(await getAssistantProjectCleanupReport()).toMatchObject({ total: 1, retained: [{ projectId: 'old', path: outer, deviceId: 'device-own', reason: 'legacy-origin-unknown' }] });
+      expect(readProjects().some(row => row.id === 'old')).toBe(true);
+    } finally { rmSync(outer, { recursive: true, force: true }); }
+  });
+
   it('cannot inspect or change another account’s pending registration', async () => {
     origin('automatic'); noteAssistantProjectCandidate(candidate());
     setAssistantProjectCleanupOwner(async () => 'another-owner', async () => 'device-own');

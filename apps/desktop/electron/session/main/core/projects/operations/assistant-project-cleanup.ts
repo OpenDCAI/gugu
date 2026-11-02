@@ -27,12 +27,15 @@ export type AssistantProjectCleanupEntry = AssistantProjectCandidate & {
 const keyOf = (projectId: string) => PREFIX + projectId;
 let currentOwner: (() => Promise<string | null>) | null = null;
 let currentDevice: (() => Promise<string | null>) | null = null;
+let discoverBindings: (() => Promise<readonly { assistantId: string; sessionId: string }[]>) | null = null;
 const attemptedOwners = new Set<string>();
 const running = new Map<string, Promise<void>>();
 let databaseReady = false;
-export function setAssistantProjectCleanupOwner(read: () => Promise<string | null>, device?: () => Promise<string | null>) {
+export function setAssistantProjectCleanupOwner(read: () => Promise<string | null>, device?: () => Promise<string | null>,
+  discover?: () => Promise<readonly { assistantId: string; sessionId: string }[]>) {
   currentOwner = read;
   currentDevice = device ?? null;
+  discoverBindings = discover ?? null;
   attemptedOwners.clear();
 }
 function store(entry: AssistantProjectCleanupEntry) {
@@ -214,11 +217,26 @@ export async function runPendingAssistantProjectCleanup(databaseInitialized = fa
   const prior = running.get(ownerId);
   if (prior) return prior;
   if (attemptedOwners.has(ownerId)) return;
-  attemptedOwners.add(ownerId);
   const pending = (async () => {
-    for (const entry of storedEntries().filter(entry => entry.ownerId === ownerId && entry.status === 'retained')) {
-      try { await migrateAssistantProject(entry); }
-      catch (error) { log.error('assistant-project-cleanup: failed; registration retained', { projectId: entry.projectId, error: String(error) }); }
+    try {
+      if (discoverBindings) {
+        const bindings = await discoverBindings(), deviceId = await currentDevice?.();
+        if (!deviceId || await currentOwner?.() !== ownerId) throw new Error('Assistant cleanup identity changed');
+        for (const binding of bindings) {
+          const task = db.select().from(sessions).where(eq(sessions.id, binding.sessionId)).get();
+          if (!task || isImplicitSessionHomeProjectId(task.projectId)) continue;
+          const project = db.select().from(projects).where(eq(projects.id, task.projectId)).get();
+          if (project && !project.archivedAt) noteAssistantProjectCandidate({ ...binding, projectId: project.id, path: project.path, ownerId, deviceId });
+        }
+      }
+      attemptedOwners.add(ownerId);
+      for (const entry of storedEntries().filter(entry => entry.ownerId === ownerId && entry.status === 'retained')) {
+        try { await migrateAssistantProject(entry); }
+        catch (error) { log.error('assistant-project-cleanup: failed; registration retained', { projectId: entry.projectId, error: String(error) }); }
+      }
+    } catch (error) {
+      attemptedOwners.delete(ownerId);
+      log.error('assistant-project-cleanup: discovery unavailable; registrations retained for retry', { ownerId, error: String(error) });
     }
   })();
   running.set(ownerId, pending);

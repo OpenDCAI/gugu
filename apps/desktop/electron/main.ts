@@ -399,7 +399,7 @@ import { applySessionMaterialization } from './session-materialization'
 import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
 import { startupDiscovery } from './sessionpage/startup-discovery'
 import { createAssistantPanelRuntime } from './sessionpage/assistant-panel-runtime'
-import { isPersonalAssistantAgent } from './sessionpage/assistant-agent-role'
+import { isPersonalAssistantAgent, personalAssistantSessionBindings } from './sessionpage/assistant-agent-role'
 import { assistantWorkBinding, assistantWorkForAgent } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
@@ -5091,7 +5091,13 @@ app.whenReady().then(async () => {
     })
     emdash.setSessionAdmissionPreparation((sessionId,text) => assistantPanel.prepare(sessionId,text))
     emdash.setProjectGroupHost(createSessionpageProjectGroupHost({ getAuth: getSessionpageAuth, env: process.env }))
-    emdash.setAssistantProjectCleanupOwner(async () => (await getSessionpageAuth())?.userId ?? null, localDeviceId)
+    emdash.setAssistantProjectCleanupOwner(async () => (await getSessionpageAuth())?.userId ?? null, localDeviceId, async () => {
+      const auth = await getSessionpageAuth()
+      if (!auth) return []
+      const bindings = await personalAssistantSessionBindings(auth, await listAgents(process.env, { includeGuests: true }))
+      if ((await getSessionpageAuth())?.userId !== auth.userId) throw new Error('Assistant cleanup account changed')
+      return bindings
+    })
     onElectronCloudAnswer(() => { void emdash.runPendingAssistantProjectCleanup().catch(error =>
       createLogger('assistant-project-cleanup').error({ error: String(error) }, 'Project cleanup remains pending')) })
     onProjectGroupMappingChanged(({ projectId }) => emdash.notifyProjectGroupBindingChanged(projectId))
