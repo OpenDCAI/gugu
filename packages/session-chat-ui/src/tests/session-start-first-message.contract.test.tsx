@@ -42,6 +42,35 @@ const FIRST = 'Look at this project.'
 const header = (host: HTMLElement) => host.querySelector<HTMLElement>('[data-slot="turn-process"]')
 
 describe('session start with a first message', () => {
+  it.each(['committed', 'active'] as const)('removes stopped actions when a newer %s response takes over', async kind => {
+    const { state, host, view } = mount('double', { agentConversation: true })
+    view.setCommands({ onContinueTurn: () => {}, onDiscardTurn: () => {} })
+    const stopped = {
+      id: 'stopped', seq: 0, initiator: 'user', startedAt: 1, endedAt: 2,
+      items: [
+        { kind: 'message', id: 'old-user', seq: 0, role: 'user', text: 'First request' },
+        { kind: 'message', id: 'old-agent', seq: 1, role: 'assistant', text: 'Partial answer' },
+      ],
+      outcome: { kind: 'cancelled', reason: 'cancelled' },
+    } as TranscriptTurn
+    state.transcript.history.seed([stopped])
+    await until('latest stopped response has both actions', () => Boolean(
+      host.querySelector('[data-slot="turn-outcome-continue"]') && host.querySelector('[data-slot="turn-outcome-discard"]')
+    ))
+    const next = {
+      id: 'next', seq: 1, initiator: 'user', startedAt: 3,
+      items: [{ kind: 'message', id: 'next-user', seq: 0, role: 'user', text: 'Continue the request' }],
+      ...(kind === 'committed' ? { endedAt: 4, outcome: { kind: 'done' } } : {}),
+    } as TranscriptTurn
+    // Append keeps the old committed outcome cached; an active snapshot does not rebuild it either.
+    if (kind === 'committed') state.transcript.history.append([next])
+    else state.transcript.activeTurn.set(next)
+    await until('new response appears', () => host.textContent?.includes('Continue the request') === true)
+    expect(host.querySelector('[data-slot="turn-outcome-continue"]')).toBeNull()
+    expect(host.querySelector('[data-slot="turn-outcome-discard"]')).toBeNull()
+    expect(host.textContent).toContain('Stopped')
+  })
+
   it.each(['single', 'double'] as ChatLayoutPreset[])(
     'shows the first message as already running while the session is set up ($0 layout)',
     async (preset) => {

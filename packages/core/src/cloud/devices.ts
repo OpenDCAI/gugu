@@ -1,5 +1,6 @@
 import { permanentlyRemove } from './agentIdentityRemoval'
 import { parseSessionBootFailures } from '../shared/sessionBootTasks'
+import { parseVersionRequestOutcome } from '../shared/serverVersionOutcome'
 import { isImplicitSessionHomeProjectId } from '../shared/sessionProject'
 import { normalizeDeviceActionsSummary, type DeviceActionsSummary } from '../shared/deviceActions'
 import { parseMachineLimitRefusal, type MachineLimitRefusal } from './machineLimit'
@@ -324,7 +325,9 @@ function normalizeServerUpdate(value: unknown): { server_update?: DeviceServerUp
   if (row.state !== 'downloading' && row.state !== 'ready' && row.state !== 'failed') return {}
   if (typeof row.version !== 'string' || !row.version) return {}
   const count = row.busy_agents
+  const outcome = row.scope === 'account' ? parseVersionRequestOutcome(row.lastOutcome) : undefined
   return { server_update: { state: row.state, version: row.version.slice(0, 64),
+    ...(outcome ? { lastOutcome: outcome } : {}),
     ...(row.scope === 'account' || row.scope === 'supervisor' ? { scope: row.scope } : {}),
     ...(row.reason === 'boot-failed' ? { reason: row.reason } : {}),
     ...(typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? { busy_agents: count } : {}) } }

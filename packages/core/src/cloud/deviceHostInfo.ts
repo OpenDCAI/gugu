@@ -1,4 +1,5 @@
 import { parseSessionBootFailures } from '../shared/sessionBootTasks'
+import { parseVersionRequestOutcome } from '../shared/serverVersionOutcome'
 /**
  * #6264「设置 → 设备」每一行要写清楚的那几件事:这是一台什么机器(桌面 / 咕咕 server)、什么系统、
  * 什么架构、它自己的升级走到哪一步了。由那台机器自己随心跳报(心跳是 gugu_devices 行的唯一写者),
@@ -79,7 +80,7 @@ export function describeOsName(input: { platform: string; release: string; osRel
  * ❌ 不因为一个坏文件让心跳失败 —— 那会把整台机器显示成离线,拿主要的换次要的。
  */
 export function parseServerUpdateState(text: string, nowMs: number, activityText?: string | null): DeviceServerUpdate | null {
-  let data: { state?: unknown; version?: unknown; at?: unknown; reason?: unknown }
+  let data: { state?: unknown; version?: unknown; at?: unknown; reason?: unknown; account?: { lastOutcome?: unknown } }
   try {
     data = JSON.parse(text) as typeof data
   } catch {
@@ -93,6 +94,8 @@ export function parseServerUpdateState(text: string, nowMs: number, activityText
     data.state === 'downloading' ? SERVER_UPDATE_DOWNLOADING_STALE_MS : data.state === 'failed' ? SERVER_UPDATE_FAILED_STALE_MS : SERVER_UPDATE_READY_STALE_MS
   if (age > limit) return null
   const update: DeviceServerUpdate = { state: data.state, version: data.version }
+  const outcome = parseVersionRequestOutcome(data.account?.lastOutcome)
+  if (outcome) update.lastOutcome = outcome
   if (data.state === 'failed' && data.reason === 'boot-failed') update.reason = data.reason
   if (data.state === 'ready' && activityText) {
     try {

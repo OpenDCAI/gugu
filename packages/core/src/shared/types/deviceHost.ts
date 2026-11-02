@@ -1,4 +1,5 @@
 import type { SessionBootFailure } from '../sessionBootTasks'
+import type { VersionRequestOutcome } from '../serverVersionOutcome'
 // #6264 心跳随行报的「这是台什么机器」(见 packages/core/src/cloud/deviceHostInfo.ts);
 // 设备行上以 DeviceCapabilities 的可选字段出现:老宿主不报 = 不知道(界面退回平台名),❌ 补默认值。
 
@@ -50,6 +51,8 @@ export interface DeviceServerUpdate {
   busy_agents?: number
   /** boot-failed (failed): it installed but did not start; only the confirmed restart for this version retries it. */
   reason?: 'boot-failed'
+  /** Existing account state-machine result, correlated with the host's confirmed restart acknowledgement. */
+  lastOutcome?: VersionRequestOutcome
 }
 
 export interface DeviceHostInfo {

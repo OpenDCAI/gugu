@@ -7,6 +7,8 @@ import { runInNewContext } from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
 import { sessionBootTasks } from '../../../../apps/desktop/electron/session/main/core/boot-tasks'
 import { resolveDeviceHostInfo } from '../../../../packages/core/src/cloud/deviceHostInfo'
+import { hydrateLife, shouldStartOnHydrate } from '../../../../packages/core/src/local/session-life/step'
+import type { Hold } from '../../../../packages/core/src/local/session-life/types'
 
 vi.mock('../../../../packages/core/src/cloud/remoteTunnel', () => ({ tunnelRelayUp: () => false, tunnelActiveAt: () => null }))
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }))
@@ -23,6 +25,8 @@ async function boot(fail: string, fatal = false) {
   const statusHooks: Array<(event: unknown) => void> = []
   const sessionHooks = new Map<string, (id: string) => void>()
   const rows: Record<string, Array<{ id: string }>> = { sessions: [], projects: [] }
+  const pending = new Map<string, { queued: number[]; dispatching: number[] }>()
+  const lifeRows = new Map<string, { archived: boolean; hold: Hold | null }>()
   const noop: unknown = new Proxy(function () { return noop }, {
     get(_target, key) {
       if (key === 'then') return undefined
@@ -34,11 +38,17 @@ async function boot(fail: string, fatal = false) {
   const fault = (operation: string) => () => { if (fail === operation) throw new Error(`refused ${operation}`) }
   const overrides: Record<string, Record<string, unknown>> = {
     './core/boot-tasks': { sessionBootTasks: tasks },
+    '@main/core/session-timeline/service': { listSessionStates: () => ({ projects: [], sessions: [] }) },
+    '@main/core/sessions/session-pending': { lifeSessions: () => [...pending.keys()], lifeStore: {
+      pending: (id: string) => pending.get(id)!, read: (id: string) => lifeRows.get(id) ?? { archived: false, hold: null },
+    } },
+    '@gugu/core/local/session-life/step': { hydrateLife, shouldStartOnHydrate },
+    './core/integrations/integration-connection-service': { integrationConnectionService: new Proxy({ hasPendingAuthorizations: () => false }, { get: (target, key) => key in target ? target[key as keyof typeof target] : stub[key as string] }) },
     '@main/db/schema': { sessions: { name: 'sessions' }, projects: { name: 'projects' } },
     '@main/db/client': { db: { select: () => ({ from: (table: { name: string }) => ({
       where: () => ({ all: () => rows[table.name] }),
     }) }) } },
-    electron: { app: { getPath: () => home, isPackaged: true }, session: { defaultSession: { resolveProxy: () => 'DIRECT' } } },
+    electron: { app: { getPath: () => home, getVersion: () => '0.3.1-fixture', isPackaged: true }, session: { defaultSession: { resolveProxy: () => 'DIRECT' } } },
     '@main/db/initialize': { initializeDatabase: async () => { if (fatal) throw new Error('database init failed') } },
     '../../migrations/task-to-session': { runTaskToSessionOnce: async () => null },
     '../../migrations/session-naming': { runSessionNamingOnce: async () => null },
@@ -68,15 +78,36 @@ async function boot(fail: string, fatal = false) {
   const module = { exports: {} as {
     bootSessionHostCore: (options: unknown) => Promise<void>
     sessionpageBootFailures: () => unknown[]
+    sessionpageVersionSwitchActivity: () => { busy: boolean; busyAgents: number }
   } }
   runInNewContext(compiled.outputText, { require: load, module, exports: module.exports, process, console, Buffer, setTimeout, clearTimeout, setInterval, clearInterval, __dirname: path.dirname(entry) })
   try {
     await module.exports.bootSessionHostCore({ hostIpc: { ipcMain: {} }, browserFeatures: false, scheduleDiscovery: async () => {} })
-    return { tasks, registered, statusHooks, sessionHooks, rows, readFailures: module.exports.sessionpageBootFailures, failures: module.exports.sessionpageBootFailures() }
+    return { tasks, registered, statusHooks, sessionHooks, rows, pending, lifeRows, activity: module.exports.sessionpageVersionSwitchActivity, readFailures: module.exports.sessionpageBootFailures, failures: module.exports.sessionpageBootFailures() }
   } finally { fs.rmSync(home, { recursive: true, force: true }) }
 }
 
 describe('real session host boot entry', () => {
+  it.each(['queued', 'dispatching'] as const)('keeps the account busy while an admitted delivery is %s', async state => {
+    const result = await boot('')
+    expect(result.activity()).toEqual({ busy: false, busyAgents: 0 })
+    result.pending.set('scheduled-or-session-message', { queued: [], dispatching: [], [state]: [1] })
+    expect(result.activity()).toEqual({ busy: true, busyAgents: 0 })
+    result.pending.set('scheduled-or-session-message', { queued: [], dispatching: [] })
+    expect(result.activity()).toEqual({ busy: false, busyAgents: 0 })
+  })
+
+  it.each([
+    { archived: true, hold: null },
+    { archived: false, hold: { reason: 'user-stop', barrier: 1 as never } },
+    { archived: false, hold: { reason: 'start-failed', barrier: 1 as never, stage: 'identity', awaitsPerson: true, cause: { name: 'IdentityMissing', message: 'Needs the person' } } },
+  ] satisfies Array<{ archived: boolean; hold: Hold | null }>)('does not block upgrades on an old queue held for a person or archived ($hold.reason)', async row => {
+    const result = await boot('')
+    result.pending.set('stopped', { queued: [1], dispatching: [] })
+    result.lifeRows.set('stopped', row)
+    expect(result.activity()).toEqual({ busy: false, busyAgents: 0 })
+  })
+
   it.each(['interval', 'status', 'dispatch', 'deferred'])('continues registration after %s recovery throws and projects the failure to Devices', async operation => {
     const result = await boot(operation)
     expect(result.registered).toHaveBeenCalledOnce()

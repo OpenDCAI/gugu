@@ -19,6 +19,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
 import { SERVER_UPDATE_STATE_FILE } from '@gugu/core/cloud/deviceHostInfo'
+import type { FailureCause, Outcome } from '@gugu/core/shared/serverVersionOutcome'
+export type { FailureCause, Outcome } from '@gugu/core/shared/serverVersionOutcome'
 
 export const ACCOUNT_STATE_FILE = SERVER_UPDATE_STATE_FILE
 /** 一版失败之后多久不再自己试。 */
@@ -30,16 +32,8 @@ export const notPublishedRetryMs = (attempts: number): number =>
 export const QUICK_EXITS_TO_ROLL_BACK = 3
 export const BOOT_READY_TIMEOUT_MS = 120_000
 
-export type FailureCause = 'install' | 'unreachable' | 'boot'
 export type Failure = { cause: FailureCause; at: number; until: number; attempts: number }
 export type SwitchRequest = { at: number; confirmed: boolean; target?: string }
-/** 守护进程对一次换版请求(或一次自动换版)的结论;request = 那次请求的 at。 */
-export type Outcome =
-  | { kind: 'switched'; target: string; at: number; request?: number }
-  | { kind: 'rolledBack'; bad: string; back: string | null; at: number; request?: number }
-  | { kind: 'failed'; target: string; cause: FailureCause; at: number; request?: number }
-  | { kind: 'refused'; target: string; cause: FailureCause; at: number; request: number }
-  | { kind: 'waiting'; target: string; at: number; request: number }
 export type Phase =
   | { kind: 'running' }
   | { kind: 'staging'; target: string; request?: number }
@@ -187,6 +181,9 @@ function tick(state: AccountState, event: Extract<AccountEvent, { type: 'tick' }
   }
 }
 
+// urgent comes only from a person's explicit confirmation: restart this account now, mark interrupted
+// work as interrupted by the update, and let the new host resume it. Unconfirmed requests and supervisor
+// self-updates still wait for idle; urgent never means the person cancelled their work.
 function switchTo(s: AccountState, target: string, now: number, urgent: boolean, request: number | undefined): Step {
   const running = s.child === 'running'
   return {

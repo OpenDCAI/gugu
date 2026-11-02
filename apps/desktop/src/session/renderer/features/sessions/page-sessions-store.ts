@@ -106,7 +106,7 @@ export class PageSessionsStore implements IDisposable {
       const keep = new Set(sessions.map((session) => session.id));
       for (const session of sessions) {
         const store = this.sessions.get(session.id);
-        if (store) Object.assign(store.data, session);
+        if (store) store.applySession(session);
         else this.addSession(session);
       }
       for (const id of [...this.sessions.keys()]) {
@@ -382,29 +382,36 @@ export class SessionStore {
    * `null` = 宿主没有陈述任何一态。没有状态源的终端会话(#6206)恒为 `null`,由行上显示「状态不可用」;
    * ❌ 在这里把 `null` 归一成 `idle` —— 那正是「没证据却说空闲」。
    */
-  status: AgentStatus | null;
+  status!: AgentStatus | null;
   /** 附属态(spec agent-status-vocabulary,只给显示);`null` = 这一刻没有,画基础态。 */
-  detail: AgentStatusDetail | null;
-  seen: boolean;
+  detail!: AgentStatusDetail | null;
+  seen!: boolean;
   /** 声明了的状态来源读不出时写入者给的那句原因(随状态输出到达);`null` = 正常。 */
   statusSourceFault: string | null = null;
 
   constructor(session: Session) {
     this.data = session;
-    this.status = session.agentStatus ?? null;
-    this.detail = session.agentStatusDetail ?? null;
-    this.seen = session.agentStatusSeen ?? true;
+    this.applySession(session);
     makeObservable(this, {
       data: observable,
       status: observable,
       detail: observable,
       seen: observable,
       statusSourceFault: observable,
+      applySession: action,
       applyStatus: action,
       markSeen: action,
       indicatorStatus: computed,
       groupStatus: computed,
     });
+  }
+
+  /** Reconnect brings a complete host row, including status changes missed while disconnected. */
+  applySession(session: Session): void {
+    Object.assign(this.data, session);
+    this.status = session.agentStatus ?? null;
+    this.detail = session.agentStatusDetail ?? null;
+    this.seen = session.agentStatusSeen ?? true;
   }
 
   // @@@sessionpage otty-state — RAW (not seen-gated) projection used to bucket THIS conversation into a

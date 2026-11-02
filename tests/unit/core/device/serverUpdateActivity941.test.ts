@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { parseServerUpdateState, resolveDeviceHostInfo } from '../../../../packages/core/src/cloud/deviceHostInfo'
+import { normalizeDeviceRow } from '../../../../packages/core/src/cloud/devices'
 import { SERVER_ACTIVITY_STALE_MS } from '../../../../packages/core/src/cloud/serverMachineHealth'
 
-vi.mock('../../../../packages/core/src/cloud/remoteTunnel', () => ({ tunnelRelayUp: () => false, tunnelActiveAt: () => null }))
+vi.mock('../../../../packages/core/src/cloud/remoteTunnel', () => ({ REMOTE_TUNNEL_OPEN: false, tunnelRelayUp: () => false, tunnelActiveAt: () => null }))
 
 const now = 1_000_000
 const ready = JSON.stringify({ state: 'ready', version: '0.2.58-beta.1057.1', at: now })
@@ -62,4 +63,24 @@ describe('server update activity reported by the account that is waiting', () =>
     expect(resolveDeviceHostInfo(env, deps).server_update).toMatchObject({ state: 'failed', version: env.GUGU_APP_VERSION, scope: 'supervisor' })
   })
 
+})
+
+
+describe('account request outcomes in device heartbeats', () => {
+  it.each(['switched', 'rolledBack', 'failed', 'refused', 'waiting'] as const)('preserves the existing %s result through the heartbeat and device normalization', kind => {
+    const lastOutcome = { kind, request: 1234 }
+    const account = JSON.stringify({ state: 'failed', version: '0.3.1', at: now,
+      account: { lastOutcome: { ...lastOutcome, at: now, target: '0.3.1', cause: 'boot' } } })
+    const env = { GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv', GUGU_TASK_HOST_USER_DATA: '/account' }
+    const info = resolveDeviceHostInfo(env, { nowMs: () => now, uid: () => 1000,
+      readText: file => file === '/account/server-update.json' ? account : null })
+    const device = normalizeDeviceRow({ device_id: 'remote', label: 'Remote', hostname: 'remote', platform: 'linux', status: 'online',
+      last_seen_at: '2026-11-02T00:00:00Z', capabilities: info })
+    expect(device.capabilities.server_update).toEqual({ state: 'failed', version: '0.3.1', scope: 'account', lastOutcome })
+  })
+
+  it.each([null, {}, { kind: 'invented', request: 1234 }, { kind: 'failed', request: '1234' }, { kind: 'failed' }])('does not invent an acknowledgement from an invalid or automatic outcome (%j)', lastOutcome => {
+    const account = JSON.stringify({ state: 'failed', version: '0.3.1', at: now, account: { lastOutcome } })
+    expect(parseServerUpdateState(account, now)).toEqual({ state: 'failed', version: '0.3.1' })
+  })
 })

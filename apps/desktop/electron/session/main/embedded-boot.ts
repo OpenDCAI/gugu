@@ -17,6 +17,7 @@ import { sessionBootTasks } from './core/boot-tasks'
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
 import { takeLastExit } from '../../lib/exit-reason'
+import { resumeHostUpdate } from './core/agent-status/resume-host-update'
 import type { BirthGroup } from '@shared/core/sessions/create-session';
 export { readCurrentActivityInput,readCurrentAssistantWorkInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
@@ -370,6 +371,7 @@ import {
 import { log } from '@main/lib/logger'
 import { events } from '@main/lib/events'
 import { installSessionLife, sessionLife } from '@main/core/sessions/session-life'
+import { hydrateLife, shouldStartOnHydrate } from '@gugu/core/local/session-life/step'
 import { admitCreationTurns, bindIdentityThenCreate, claimIdentityCreation } from '@main/core/sessions/session-life-creation'
 import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-agent'
 import { isLifeSession, lifeSessions, lifeStore } from '@main/core/sessions/session-pending'
@@ -595,6 +597,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   const occupancy = dataDirHeldByAnotherHost(dataDir)
   // Terminal records to read once at boot; the persisted facts are read here, before the sweep settles their status.
   let ptyRecordResume: string[] = []
+  let updateInterrupted: string[] = []
+  let lastExit: ReturnType<typeof takeLastExit> = { reason: 'unclean', at: null }
   // 先宣告再收残:占用判定明确排除本进程的 pid,所以宣告不会让自己跳过自己的收残;
   // 而先宣告能把「两个宿主几乎同时开机、都读到『没人占』」的窗口收窄到写文件那一瞬。
   // (❌ 不为此上文件级互斥锁:那一瞬撞上的后果 = 退回今天的行为,不是新的损坏。)
@@ -618,7 +622,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     })
     ptyRecordResume = ptyRecordResumeSet()
     // 上一次是怎么退出的(更新 / 重启 / 没正常退出):被打断的那几条会话据此说清原因。读一次就删。
-    await sessionBootTasks.run('status-sweep', '', () => agentStatusWriter.settleAfterRestart(tmuxSessionNames, takeLastExit(dataDir)))
+    lastExit = takeLastExit(dataDir)
+    updateInterrupted = await sessionBootTasks.run('status-sweep', '', () => agentStatusWriter.settleAfterRestart(tmuxSessionNames, lastExit.reason)) ?? []
     // 上一个进程投到一半就没了的消息：现在认领为「结果未知」终态（不能重投，只能如实说）。
     // 必须在任何人看见会话之前做完 —— 正常在途不经过这里，所以新建会话不会闪这条提示。
     sessionBootTasks.runSync('dispatch-sweep', '', claimInterruptedDispatches)
@@ -786,6 +791,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // profile 上那把钥匙其实没有任何东西要解)。改由 githubController.getAccountState 惰性触发
   // 且只跑一次 —— renderer 的 GithubContext 在 mount 时就查这个 RPC,功能没有损失。
   // ❌ 别把 reconcile 挪回开机。
+
+  await resumeHostUpdate(updateInterrupted, lastExit, app.getVersion())
 
 }
 
@@ -2461,7 +2468,7 @@ function refreshDigestAgents(): void {
 /**
  * #6264 server 换版时这台机器(这个账号)算不算忙 —— 写进 activity.json 的 busy,守护进程据此决定现在换还是等空闲。
  * 只数账号进程一重启就会被打断的会话(`busyForVersionSwitch`,「会不会被打断」读 `sessionProcess(id).home`);
- * tmux 里的终端会话换版后照名字接回,不拦换版。未结束的集成授权同样会被重启打断,也计入 activity.json。
+ * tmux 里的终端会话换版后照名字接回,不拦换版。未结束的集成授权和可自动恢复的待投递工作同样计入。
  * 本机读数,❌ 进云端摘要。
  */
 export function sessionpageBusyForVersionSwitch(): boolean {
@@ -2494,7 +2501,12 @@ export function sessionpageVersionSwitchActivity(): { busy: boolean; busyAgents:
       sessionProcess(session.conversationId)?.home ?? null,
     ),
   ).length
-  return { busy: integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
+  const pendingDelivery = lifeSessions().some(sessionId => {
+    const pending = lifeStore.pending(sessionId)
+    return pending.dispatching.length > 0 || (pending.queued.length > 0
+      && shouldStartOnHydrate(hydrateLife(lifeStore.read(sessionId)), pending))
+  })
+  return { busy: pendingDelivery || integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
 }
 
 /** Refresh the account heartbeat at authorization boundaries, without waiting

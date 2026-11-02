@@ -306,9 +306,10 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     // #6264 设备行「更新没成功 · 重试」:请守护进程不看冷却、再试一次换成和桌面匹配的那一版。
     [VERSION_RESTART_RPC]: (payload) => {
       const request = payload as { version?: unknown; confirmed?: unknown } | null;
-      return requestConfirmedVersionRestart(process.env, request?.version, request?.confirmed)
-        ? { result: { requested: true } }
-        : { error: { code: 'invalid_payload', message: 'A confirmed target version is required' } };
+      const at = requestConfirmedVersionRestart(process.env, request?.version, request?.confirmed);
+      return at === false
+        ? { error: { code: 'invalid_payload', message: 'A confirmed target version is required' } }
+        : { result: { requested: true, at } };
     },
     [VERSION_RETRY_RPC]: () =>
       requestVersionRetry(process.env)

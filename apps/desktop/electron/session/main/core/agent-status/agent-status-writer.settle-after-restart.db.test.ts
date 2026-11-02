@@ -92,7 +92,8 @@ describe('settling after a restart leaves sessions whose engine survived in tmux
   });
 
   it('a session still running in tmux keeps its reading; the ones whose engine died with the host are settled', async () => {
-    await agentStatusWriter.settleAfterRestart(new Set([tmuxName('in-tmux'), tmuxName('in-tmux-asking'), 'gugu-someone-else']));
+    const settled = await agentStatusWriter.settleAfterRestart(new Set([tmuxName('in-tmux'), tmuxName('in-tmux-asking'), 'gugu-someone-else']));
+    expect(settled.sort()).toEqual(['acp', 'pty-gone']);
 
     expect(status('in-tmux').status).toBe('working');
     expect(status('in-tmux-asking').status).toBe('needs_user');
@@ -130,7 +131,7 @@ describe('settling after a restart leaves sessions whose engine survived in tmux
   });
   it('records one task update refusal and continues restart recovery for the other tasks', async () => {
     fixture.sqlite.exec(`CREATE TRIGGER refuse_one_status BEFORE UPDATE ON sessions WHEN OLD.id='pty-gone' BEGIN SELECT RAISE(ABORT,'status fixture refusal'); END;`);
-    await expect(agentStatusWriter.settleAfterRestart(new Set())).resolves.toBeUndefined();
+    await expect(agentStatusWriter.settleAfterRestart(new Set())).resolves.not.toContain('pty-gone');
     expect(status('pty-gone').status).toBe('working');
     expect(status('acp').status).toBe('error');
     expect(sessionBootTasks.snapshot()).toContainEqual(expect.objectContaining({ operation: 'status-recovery', taskId: 'pty-gone' }));

@@ -300,22 +300,24 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
    * `tmuxSessionNames` 是开机时问一次 tmux 的结果,活没活与接回同一个判据(`sessionsAliveInTmux`)。
    * 在任何会话能说话之前跑完;这之后由行恢复的日志只会遇到静止的读数。
    */
-  async settleAfterRestart(tmuxSessionNames: ReadonlySet<string>, lastExit: InterruptedBy = 'unclean'): Promise<void> {
+  async settleAfterRestart(tmuxSessionNames: ReadonlySet<string>, lastExit: InterruptedBy = 'unclean'): Promise<string[]> {
     const inFlight = await db
       .select({ id: sessions.id })
       .from(sessions)
       .where(inArray(sessions.agentStatus, ['working', 'needs_user']));
     const alive = sessionsAliveInTmux(tmuxSessionNames);
     const gone = inFlight.filter((row) => !alive.has(row.id)).map((row) => row.id);
-    if (gone.length === 0) return;
+    const settled: string[] = [];
     for (const sessionId of gone) {
       await sessionBootTasks.run('status-recovery', sessionId, async () => {
         await db.update(sessions)
           .set({ agentStatus: 'error', agentStatusDetail: null, agentStatusSeen: 0 })
           .where(eq(sessions.id, sessionId));
         recordInterruptedTurns([sessionId], lastExit);
+        settled.push(sessionId);
       });
     }
+    return settled;
   }
 
   /** 宿主停下了在飞的一切(停止键、ACP 取消 / 关闭):被打断,不是做完也不是失败。 */
