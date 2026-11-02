@@ -8,7 +8,6 @@ import type { AcpProcessHost } from '@gugu/session-core/acp/node';
 import type { AgentPluginHost, ResolvedAcpProvider } from '@gugu/session-core/agents/plugins';
 import type { Logger } from '@gugu/session-shared/logger';
 import type { AttachmentStore } from './attachment-store';
-import type { TerminalOutputArchive } from './terminal-output';
 
 export type AcpStartInput = AcpRuntimeStartInput;
 
@@ -37,7 +36,6 @@ export interface AcpRuntimeDeps {
   mergeEnvelopes?: (texts: readonly string[]) => string;
   recoverDelivery?: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean, receivedMessageIds?: ReadonlySet<string>) => string | null;
   attachmentStore?: AttachmentStore;
-  terminalOutputArchive?: TerminalOutputArchive;
   logger: Logger;
   /** Notifies the privileged main process when an adapter-held platform token has no consumer. */
   onPlatformSessionClosed?: (sessionId: string, platformAccessSessionId?: string) => void;

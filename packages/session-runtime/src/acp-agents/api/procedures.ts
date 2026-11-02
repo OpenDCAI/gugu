@@ -47,7 +47,6 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     return `ACP prompt failed (${error.type})`;
   };
   return {
-    readTerminalOutput: (input: { sessionId: string; terminalId: string; offset: number; limit: number }) => runtime.readTerminalOutput(input),
     startSession(input: {
       input: StartSessionInput;
     }): Promise<Result<{ providerSessionId: string }, AcpStartSessionError>> {

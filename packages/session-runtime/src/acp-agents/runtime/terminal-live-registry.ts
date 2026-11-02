@@ -1,6 +1,6 @@
 import { LEGACY_TERMINAL_OUTPUT_BYTE_LIMIT, TERMINAL_OUTPUT_BYTE_LIMIT, terminalEntityId, patchEntityMeta, type NormalizedEvent, type TerminalState } from '@gugu/session-core/acp';
 import type { AgentTerminalHooks } from '../agent-ports/terminal-manager';
-import { TerminalOutput, type TerminalOutputArchive } from './terminal-output';
+import { TerminalOutput } from './terminal-output';
 
 type TerminalRecord = {
   state: Omit<TerminalState, 'output'>;
@@ -25,7 +25,7 @@ export class TerminalLiveRegistry {
   private readonly legacySnapshots = new Map<string, TerminalState[]>();
   private readonly outputBudgets = new Map<string, { bytes: number; recent: Map<TerminalRecord, number> }>();
 
-  constructor(private readonly onSessionChanged?: (sessionId: string) => void, private readonly archive?: TerminalOutputArchive) {}
+  constructor(private readonly onSessionChanged?: (sessionId: string) => void) {}
 
   readonly hooks: AgentTerminalHooks = {
     onTerminalCreated: ({ sessionId, scope, snapshot }) => this.hostSnapshot(sessionId, scope, snapshot),
@@ -45,7 +45,6 @@ export class TerminalLiveRegistry {
     const record = this.session(sessionId).get(terminalId);
     if (!record) throw new Error('Host terminal output arrived before creation');
     const bytes = Buffer.from(chunk);
-    this.archive?.append(sessionId, terminalId, bytes);
     record.output.append(bytes);
     this.boundOutput(sessionId, record);
     const { output: _output, ...state } = snapshot;
@@ -61,7 +60,6 @@ export class TerminalLiveRegistry {
     if (!record) {
       record = { state: { ...state, terminalId }, output: new TerminalOutput() };
       const bytes = Buffer.from(output);
-      this.archive?.seed(sessionId, terminalId, bytes);
       record.output.reset(bytes);
       this.session(sessionId).set(terminalId, record);
     }
@@ -83,7 +81,6 @@ export class TerminalLiveRegistry {
     if (record.state.owner !== 'agent') throw new Error('Agent update targets a host-owned terminal');
     if (event.kind === 'terminal_chunk') {
       const bytes = Buffer.from(event.terminal.data, 'base64');
-      this.archive?.append(sessionId, terminalId, bytes);
       record.output.append(bytes);
     } else {
       const update = event.terminal;
@@ -95,10 +92,6 @@ export class TerminalLiveRegistry {
       // An explicit null remains the protocol's clear operation.
       if (update.output !== undefined && (!record.output.streamed || update.output === null)) {
         const bytes = Buffer.from(update.output?.data ?? '', 'base64');
-        if (existing) {
-          this.archive?.reset(sessionId, terminalId);
-          this.archive?.append(sessionId, terminalId, bytes);
-        } else this.archive?.seed(sessionId, terminalId, bytes);
         record.output.reset(bytes);
       }
       if (update.exitStatus !== undefined) record.state = { ...record.state, exitStatus: update.exitStatus === null ? null : {
@@ -166,10 +159,10 @@ export class TerminalLiveRegistry {
       };
       if (wire) return record.wireSnapshot ??= {
         ...record.state, output: '', outputChunks: record.output.snapshot(),
-        ...(this.archive ? { outputBytes: this.archive.size(sessionId, record.state.terminalId) } : {}),
+        outputBytes: record.output.bytes,
       };
       return record.snapshot ??= { ...record.state, output: record.output.text(),
-        ...(this.archive ? { outputBytes: this.archive.size(sessionId, record.state.terminalId) } : {}),
+        outputBytes: record.output.bytes,
       };
     });
     cache.set(sessionId, snapshots);
@@ -182,11 +175,6 @@ export class TerminalLiveRegistry {
     this.wireSnapshots.delete(sessionId);
     this.legacySnapshots.delete(sessionId);
     this.outputBudgets.delete(sessionId);
-  }
-
-  readOutput(sessionId: string, terminalId: string, offset: number, limit: number) {
-    if (!this.archive) throw new Error('Terminal output archive unavailable');
-    return this.archive.read(sessionId, terminalId, offset, limit);
   }
 
   route(sessionId: string, connectionKey: string, providerSessionId: string, event: NormalizedEvent): NormalizedEvent | null {

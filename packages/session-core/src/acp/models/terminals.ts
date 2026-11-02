@@ -40,7 +40,7 @@ export const terminalStateSchema = z.object({
   output: z.string(),
   /** Incremental live presentation; stable keys avoid replacing the accumulated output over IPC. */
   outputChunks: z.record(z.string(), z.string()).optional(),
-  /** Complete archived byte length, independent of the bounded live window. */
+  /** Total received byte length since reset; bytes outside the live window are discarded. */
   outputBytes: z.number().int().nonnegative().optional(),
   /** True when output was truncated due to the outputByteLimit cap. */
   truncated: z.boolean(),

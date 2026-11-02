@@ -1,5 +1,4 @@
 const HIGH_WATER_BYTES = 8 * 1024 * 1024;
-const MAX_IN_FLIGHT_BYTES = 32 * 1024 * 1024;
 
 function stringBytes(value: string): number {
   let bytes = Buffer.byteLength(value) + 2;
@@ -23,13 +22,14 @@ export function messageBytes(value: unknown): number {
   return bytes;
 }
 
-/** Pressure must reach producers; merely respecting Node's boolean without pausing input still grows a JS queue. */
+/** This is an output pressure threshold, not a universal RPC message-size limit.
+ * Histories and image replies have no 32 MiB contract limit and must not crash the worker.
+ * Pressure must reach producers; merely respecting Node's boolean without pausing input still grows a JS queue. */
 export function createIpcPressureSender(
   send: (message: unknown, callback: (error: Error | null) => void) => boolean,
   onError: (error: Error) => void,
   onPressure: (paused: boolean) => void,
   highWaterBytes = HIGH_WATER_BYTES,
-  maxBytes = MAX_IN_FLIGHT_BYTES,
 ) {
   let pendingBytes = 0;
   let paused = false;
@@ -44,8 +44,6 @@ export function createIpcPressureSender(
     },
     send(message: unknown): void {
       const bytes = messageBytes(message);
-      if (pendingBytes + bytes > maxBytes)
-        throw new Error('IPC byte budget exceeded: output producer did not pause');
       pendingBytes += bytes;
       let completed = false;
       const done = (error: Error | null) => {

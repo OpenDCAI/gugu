@@ -23,7 +23,6 @@ import { ChildAcpProcessHost } from './child-process-host';
 import { LocalAttachmentStore } from './local-attachment-store';
 import { createPromptAttachmentResolver } from './resolve-prompt-attachment';
 import { LocalPromptQueueStore } from './local-prompt-queue-store';
-import { LocalTerminalOutputArchive } from './local-terminal-output-archive';
 
 export type BootAcpRuntimeProcessOptions = {
   pluginRegistry: PluginRegistry<CLIAgentPluginProvider>;
@@ -89,7 +88,6 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
         recoverDelivery: options.recoverDelivery,
         resolveAttachment: createPromptAttachmentResolver(attachmentStore),
         attachmentStore,
-        terminalOutputArchive: new LocalTerminalOutputArchive(join(attachmentsDir, 'terminal-output')),
         promptQueueStore,
         logger,
         onPlatformSessionClosed: (sessionId, platformAccessSessionId) =>

@@ -190,10 +190,6 @@ export const acpApiContract = defineContract({
     data: toolImageLookupSchema,
     error: acpGetHistoryErrorSchema,
   }),
-  readTerminalOutput: procedure({
-    input: sessionKeySchema.extend({ terminalId: z.string(), offset: z.number().int().nonnegative(), limit: z.number().int().min(1).max(65536) }),
-    output: z.object({ data: z.string(), nextOffset: z.number().int(), bytes: z.number().int() }),
-  }),
   getStoredQueue: procedure({
     input: sessionKeySchema,
     output: z.array(promptInputSchema.pick({ text: true, origin: true })),

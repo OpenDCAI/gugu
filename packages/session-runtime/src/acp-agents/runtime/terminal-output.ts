@@ -1,19 +1,6 @@
 import { StringDecoder } from 'node:string_decoder';
 import { TERMINAL_OUTPUT_BYTE_LIMIT } from '@gugu/session-core/acp';
 
-export interface TerminalOutputArchive {
-  seed(sessionId: string, terminalId: string, data: Uint8Array): void;
-  size(sessionId: string, terminalId: string): number;
-  append(sessionId: string, terminalId: string, data: Uint8Array): void;
-  reset(sessionId: string, terminalId: string): void;
-  read(
-    sessionId: string,
-    terminalId: string,
-    offset: number,
-    limit: number,
-  ): { data: string; nextOffset: number; bytes: number };
-}
-
 /** Each decoded chunk enters the live window once. Old chunks leave without copying their neighbours. */
 export class TerminalOutput {
   private decoder = new StringDecoder('utf8');
