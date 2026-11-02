@@ -308,7 +308,6 @@ export interface SessionpageProvisionDeps {
    * 单账号机器上永远正确);在场 ⇒ 别家的行被停放、当前账号自己登记一个。
    */
   isAgentOwnedByCurrentUser?: (agentUserId: string) => Promise<boolean>
-  /** #6396 这个账号各名字前缀用到几号(identity.agent_name_serials)。缺席 ⇒ 走 supabase 适配器;测试注入用。 */
   /**
    * #5331 一次往返供给:铸身份 + 名字唯一性 + 进项目群合成一个 RPC(identity.provision_taskpage_agent)。
    * 新身份只从这里铸。宿主接线时给 @gugu/core 的实现。
