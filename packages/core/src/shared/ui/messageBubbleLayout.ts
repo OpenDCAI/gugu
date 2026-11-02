@@ -5,10 +5,12 @@ export const MESSAGE_BUBBLE_LAYOUT = {
   bubblePadX: { phone: 16, desktop: 12 },
 } as const
 
-/** CDP viewports use integer pixels; the real iframe may have a fractional CSS width. */
-export function phoneWidgetWidth(viewportWidth: number): number {
+export const PHONE_VIEWPORT_WIDTH = 412
+
+/** The check models this phone viewport; CDP rounds its fractional iframe width down to an integer. */
+export function phoneWidgetWidth(): number {
   const layout = MESSAGE_BUBBLE_LAYOUT
-  const row = viewportWidth - 2 * layout.rowPadX
+  const row = PHONE_VIEWPORT_WIDTH - 2 * layout.rowPadX
   // At the check's 412px phone viewport the 78% column fits beside the avatar and gap without shrinking.
   const column = row * layout.column.phone
   return Math.floor(Math.min(420, column - 2 * layout.bubblePadX.phone))

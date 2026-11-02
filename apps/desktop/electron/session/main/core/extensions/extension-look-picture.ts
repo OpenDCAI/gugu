@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { PHONE_VIEWPORT_WIDTH } from '@gugu/core/shared/ui/messageBubbleLayout';
 import { BrowserWindow, type WebContents } from 'electron';
 import { APP_RUNTIME_VERSION } from '@shared/extensions/app-runtime-protocol';
 import type { ExtensionPicture } from '@shared/extensions/extension-check';
@@ -35,7 +36,7 @@ export interface PictureSize {
  * as its pane — 952 in the 1280-wide window it opens at, beside the 260 sidebar (mac1 10-13, `session_open_in_tab`).
  */
 export const GROUP_PANEL: PictureSize = { width: 520, touch: false, says: '520 wide (a group\'s side panel)' };
-export const PHONE: PictureSize = { width: 412, touch: true, says: '412 wide (a phone, touch)' };
+export const PHONE: PictureSize = { width: PHONE_VIEWPORT_WIDTH, touch: true, says: '412 wide (a phone, touch)' };
 /** A tab on the task page: `shown`, its width there now if it is open, else one pane of the window it opens at. */
 export function taskPane(shown: number | null): PictureSize {
   return shown === null

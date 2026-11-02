@@ -468,7 +468,7 @@ function openPage(request: ExtensionCheckRequest): CheckPage {
   // Where it opens (owner 10-13): a group's panel, a phone, or a tab of the session as wide as it is shown there now.
   const widgetHeight = installed.manifest.contributes.tabs.find((tab) => tab.name === request.tabName)?.widget?.height;
   const size: PictureSize = request.widget
-    ? { width: request.phone ? phoneWidgetWidth(PHONE.width) : 420, height: widgetHeight!, touch: request.phone === true, says: 'the widget slot, in the current theme' }
+    ? { width: request.phone ? phoneWidgetWidth() : 420, height: widgetHeight!, touch: request.phone === true, says: 'the widget slot, in the current theme' }
     : request.phone
     ? PHONE
     : request.chatId

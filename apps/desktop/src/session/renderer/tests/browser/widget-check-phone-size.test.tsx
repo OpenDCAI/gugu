@@ -36,5 +36,5 @@ it.each([false, true])('phone412 widget iframe matches the hidden check viewport
   expect(actual.height).toBe(240)
   expect(actual.width).toBeGreaterThan(200)
   expect(actual.width).toBeLessThan(412 - 28)
-  expect(Math.abs(actual.width - phoneWidgetWidth(412))).toBeLessThan(1)
+  expect(Math.abs(actual.width - phoneWidgetWidth())).toBeLessThan(1)
 })
