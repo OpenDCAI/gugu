@@ -7,7 +7,7 @@ export type AgentQuotaReason = 'weekly' | 'monthly' | 'exhausted' | 'rate-limite
  * outcomeUnknown = Gugu handed it over but cannot know whether the agent took it, and does not resend it.
  */
 export const AGENT_FAILURE_REASONS = [
-  'weeklyQuota', 'monthlyQuota', 'quota', 'rateLimited', 'modelUnavailable', 'authentication', 'network', 'timeout', 'generic', 'notAdmitted', 'undelivered', 'outcomeUnknown',
+  'weeklyQuota', 'monthlyQuota', 'quota', 'rateLimited', 'modelUnavailable', 'authentication', 'network', 'timeout', 'generic', 'notAdmitted', 'undelivered', 'outcomeUnknown', 'deliveryRejected',
 ] as const
 export type AgentFailureReason = (typeof AGENT_FAILURE_REASONS)[number]
 

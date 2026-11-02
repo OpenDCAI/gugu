@@ -98,9 +98,9 @@ describe('session peer sidebar titles', () => {
 describe('ACP inbox delivery goes into session-life', () => {
   afterEach(() => { emdashAgentRegistry.setBridge(null); unregisterEmdashAgent('agent-1') })
 
-  const rig = () => {
+  const rig = (state: 'queued' | 'accepted' | 'failed' | 'unknown' = 'queued') => {
     let seq = 0
-    const enqueue = vi.fn(() => ({ seq: ++seq }))
+    const enqueue = vi.fn(() => ({ seq: ++seq, state }))
     emdashAgentRegistry.setBridge({ sessionLife: () => ({ enqueue }), emdashSessionSummaries: async () => [] })
     registerEmdashAgent({ guguAgentUserId: 'agent-1', sessionId: 'conv-1' })
     return { enqueue }
@@ -111,7 +111,7 @@ describe('ACP inbox delivery goes into session-life', () => {
     const { enqueue } = rig()
     const router = new SessionpageLocalDeliveryRouter([emdashAgentRegistry])
     await expect(router.injectForAgent('agent-1', { id: 'm1', text: 'envelope', sources: [row('m1'), row('m2')] })).resolves.toBe('enqueued')
-    expect(enqueue).toHaveBeenCalledExactlyOnceWith({ sessionId: 'conv-1', messageId: 'm1', text: 'envelope', kind: 'inbox-batch',
+    expect(enqueue).toHaveBeenCalledExactlyOnceWith({ sessionId: 'conv-1', text: 'envelope', kind: 'inbox-batch',
       sources: [{ agentUserId: 'agent-1', ...(row('m1') as object) }, { agentUserId: 'agent-1', ...(row('m2') as object) }] })
   })
 
@@ -136,6 +136,14 @@ describe('ACP inbox delivery goes into session-life', () => {
     const result = await new SessionpageLocalDeliveryRouter([emdashAgentRegistry]).injectForAgentWithCompletion('agent-1', { id: 'm1', text: 'rename', sources: [] })
     if (typeof result === 'string') throw new Error('expected a completion')
     await expect(result.completion).resolves.toBeUndefined()
+  })
+
+  it.each(['accepted', 'failed', 'unknown'] as const)('a repeated %s receipt settles immediately instead of waiting forever', async state => {
+    rig(state)
+    const result = await new SessionpageLocalDeliveryRouter([emdashAgentRegistry]).injectForAgentWithCompletion('agent-1', { id: 'transport', text: 'body', sources: [row('cloud')] })
+    if (typeof result === 'string') throw new Error('expected a completion')
+    if (state === 'accepted') await expect(result.completion).resolves.toBeUndefined()
+    else await expect(result.completion).rejects.toMatchObject({ reason: state === 'unknown' ? 'outcomeUnknown' : 'generic' })
   })
 
   it('nothing injects into an ACP session directly', async () => {

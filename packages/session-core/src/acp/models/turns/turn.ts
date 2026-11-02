@@ -58,8 +58,12 @@ export type DoneTurnReason = z.infer<typeof doneTurnReasonSchema>;
 export const cancelledTurnReasonSchema = z.enum(['cancelled', 'interrupted_for_message']);
 export type CancelledTurnReason = z.infer<typeof cancelledTurnReasonSchema>;
 
-/** Runtime-normalized failure categories that can settle a transcript turn. */
+/**
+ * Transcript failure categories. The runtime normalizes its failures here; send_failed is produced only by the
+ * renderer's queued-input projection before dispatch, never by the runtime or persisted as provider history.
+ */
 export const errorTurnReasonSchema = z.enum([
+  'send_failed',
   'prompt_failed',
   'process_closed',
   'spawn_failed',

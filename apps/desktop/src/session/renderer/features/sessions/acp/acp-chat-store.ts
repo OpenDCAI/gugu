@@ -37,7 +37,7 @@ import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/se
 import { errorDetail } from '@gugu/session-shared';
 import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
 import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
-import { ACP_START_FAILED, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
+import { ACP_START_FAILED, lifeHoldIsFailure, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
 import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
 import { batch } from 'solid-js';
@@ -128,6 +128,10 @@ function stoppedTurnId(rowId: string): string {
   return `${rowId}:stopped`;
 }
 
+function failedTurnId(rowId: string): string {
+  return `${rowId}:failed`;
+}
+
 export class AcpChatStore {
   readonly chatContext: ChatContext;
   readonly chatState: ChatState;
@@ -147,8 +151,10 @@ export class AcpChatStore {
    * send on it sits where its turn will be, ❌ first in the tray above the composer and then up in the transcript.
    */
   transcriptPendingId: string | null = null;
-  /** The row the person stopped before it went: drawn as a stopped turn, where it was, until it goes (`_drawStoppedRow`). */
+  /** The row the person stopped before it went: drawn where it was until it goes. */
   stoppedRowId: string | null = null;
+  /** Failed-start inputs remain in host custody and are projected into the transcript, never stored as history. */
+  failedRowIds: string[] = [];
   /**
    * #6552 在飞的开场(`_runBootstrap`)数。>0 且还没挂上会话 = 引擎会话在起:这段里模型 / 强度照样能选 ——
    * 选择交给运行时,由启动在 `session/new` 之后设模型/强度那一步采用。计数而不是布尔:重挂 / 重试会在
@@ -315,6 +321,7 @@ export class AcpChatStore {
       _lifeRetriedVersion: observable,
       transcriptPendingId: observable,
       stoppedRowId: observable,
+      failedRowIds: observable.ref,
       loadError: computed,
       _bootstrapsInFlight: observable,
       starting: computed,
@@ -803,7 +810,7 @@ export class AcpChatStore {
         const row = view?.pending.items.find(item => item.messageId === drawn);
         if (shown?.id === drawn) {
           // Accepted: its turn is on its way to this page, and takes the row over when it lands (no empty frame between).
-          // Failed / held: the tray says why.
+          // A failed start is drawn below as a transcript turn; other host row failures remain in the tray.
           if (!row || row.state === 'accepted') session.setPendingPrompt({ ...shown, starting: false, held: false });
           else { session.setPendingPrompt(null); this._syncMessageCount(); }
         }
@@ -815,7 +822,7 @@ export class AcpChatStore {
         session.setPendingPrompt(null);
         this._syncMessageCount();
       }
-      this._drawStoppedRow(bubbles[0]?.state === 'stopped' ? bubbles[0] : null, view);
+      this._drawQueuedTurns(bubbles[0]?.state === 'stopped' ? bubbles[0] : null, view);
       if (!head || this.chatState.transcript.state.activeTurnSnapshot) return;
       if (session.state.pendingPrompt && session.state.pendingPrompt.id !== head.id) return;
       this.transcriptPendingId = head.id;
@@ -833,40 +840,52 @@ export class AcpChatStore {
   }
 
   /**
-   * A stop before the message went ends it like any stopped turn: it stays where it was, with its stopped line and its
-   * actions. The row itself stays queued, and goes first when the person continues or sends again; then this turn leaves
-   * and the row draws as the next turn, ❌ the same words twice.
+   * Inputs stopped or failed before dispatch stay where their turn belongs. Host custody owns them; these projections
+   * leave when the host resumes and redraw after a history seed, without replacing a turn already running.
    */
-  private _drawStoppedRow(stopped: { id: string } | null, view: LifeView | null): void {
+  private _drawQueuedTurns(stopped: { id: string } | null, view: LifeView | null): void {
     const transcript = this.chatState.transcript;
     const turns = () => transcript.state.committedTurns;
     const live = transcript.state.activeTurnSnapshot;
-    const previous = this.stoppedRowId;
-    if (previous && previous !== stopped?.id) {
-      this.stoppedRowId = null;
+    const failed = view && lifeHoldIsFailure(view.hold)
+      ? [...view.pending.items].filter(row => row.state === 'queued' || row.state === 'dispatching').sort((a, b) => a.seq - b.seq) : [];
+    const wanted = [
+      ...(stopped ? [{ rowId: stopped.id, turnId: stoppedTurnId(stopped.id), outcome: { kind: 'cancelled', reason: 'cancelled' } as const }] : []),
+      ...failed.map(row => ({ rowId: row.messageId, turnId: failedTurnId(row.messageId), outcome: { kind: 'error', reason: 'send_failed' } as const })),
+    ];
+    const wantedIds = new Set(wanted.map(item => item.turnId));
+    const previousIds = [...(this.stoppedRowId ? [stoppedTurnId(this.stoppedRowId)] : []), ...this.failedRowIds.map(failedTurnId)];
+    const removed = new Set(previousIds.filter(id => !wantedIds.has(id)));
+    if (removed.size) {
       // A seed clears the active turn by contract: one that landed in the meantime stays.
       batch(() => {
-        transcript.history.seed(turns().filter(turn => turn.id !== stoppedTurnId(previous)));
+        transcript.history.seed(turns().filter(turn => !removed.has(turn.id)));
         if (live) transcript.activeTurn.set(live);
       });
       this._syncMessageCount();
     }
-    // A turn is running (stopped from elsewhere while attached): its own outcome says so, nothing to draw ahead of it.
-    if (!stopped || live) return;
-    this.stoppedRowId = stopped.id;
-    if (turns().some(turn => turn.id === stoppedTurnId(stopped.id))) return;
-    const row = view?.pending.items.find(item => item.messageId === stopped.id);
-    if (!row) return;
-    transcript.history.append([{
-      id: stoppedTurnId(stopped.id),
-      seq: (turns().at(-1)?.seq ?? -1) + 1,
-      initiator: row.kind === 'ordinary' ? 'user' : 'agent',
-      ...(row.sentAt !== undefined ? { startedAt: row.sentAt } : {}),
-      // The row's own text: a delivery's envelope reads as that delivery here too, ❌ as the person's words.
-      items: [{ kind: 'message', id: stopped.id, seq: 0, role: 'user', text: row.text }],
-      outcome: { kind: 'cancelled', reason: 'cancelled' },
-    } as TranscriptTurn]);
-    this._syncMessageCount();
+    if (this.stoppedRowId !== stopped?.id) this.stoppedRowId = null;
+    this.failedRowIds = this.failedRowIds.filter(id => wantedIds.has(failedTurnId(id)));
+    if (live) return;
+    this.stoppedRowId = stopped?.id ?? null;
+    this.failedRowIds = failed.map(row => row.messageId);
+    let appended = false;
+    for (const item of wanted) {
+      if (turns().some(turn => turn.id === item.turnId)) continue;
+      const row = view?.pending.items.find(row => row.messageId === item.rowId);
+      if (!row) continue;
+      transcript.history.append([{
+        id: item.turnId,
+        seq: (turns().at(-1)?.seq ?? -1) + 1,
+        initiator: row.kind === 'ordinary' ? 'user' : 'agent',
+        ...(row.sentAt !== undefined ? { startedAt: row.sentAt } : {}),
+        // Preserve the envelope for deliveries, just as the real transcript does.
+        items: [{ kind: 'message', id: item.rowId, seq: 0, role: 'user', text: row.text }],
+        outcome: item.outcome,
+      } as TranscriptTurn]);
+      appended = true;
+    }
+    if (appended) this._syncMessageCount();
   }
 
   /** 「继续」 on a message stopped before it went: the host starts and sends it, once, ❌ with a prompt about continuing. */

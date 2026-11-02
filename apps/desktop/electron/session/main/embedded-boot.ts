@@ -322,6 +322,7 @@ export {
 export {
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,
+  rejectPendingSessionDirectMessage,
   recordFailedSessionDirectMessage,
   // 宿主在「投递属主注册好了」那一刻要用它把排队的首轮送出去 —— 收件箱 pull 看不见 `ordinary` 行。
   drainSessionMessageOutboxById,
