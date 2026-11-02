@@ -188,20 +188,23 @@ export type ServerUpdater = {
 let activeUpdater: ServerUpdater | null = null
 /** The one run process owns this instance; both cloud and SSH handlers call it. */
 export const singleServerUpdater = (): ServerUpdater | null => activeUpdater
-export function serverUpdateRpcHandlers(): DeviceRpcHandlers {
-  const idle = () => activeUpdater?.retryWhenIdle()
-    ? { result: { requested: true } }
-    : { error: { code: 'unavailable', message: 'Server updates are not managed by this process' } }
-  return {
-    [VERSION_RETRY_RPC]: idle,
-    [LEGACY_VERSION_RETRY_RPC]: idle,
-    [VERSION_RESTART_RPC]: payload => {
-      const value = payload as { version?: unknown; confirmed?: unknown } | null
-      const at = activeUpdater?.restartConfirmed(value?.version, value?.confirmed)
-      return typeof at === 'number' ? { result: { requested: true, at } }
-        : { error: { code: 'invalid_payload', message: 'Confirm the current ready target version before restarting' } }
-    },
+/** Local attach calls and authenticated device RPCs share the same updater actions. */
+export function callServerUpdate(type: string, payload: unknown) {
+  if (type === VERSION_RETRY_RPC || type === LEGACY_VERSION_RETRY_RPC) {
+    return activeUpdater?.retryWhenIdle() ? { result: { requested: true } }
+      : { error: { code: 'unavailable', message: 'Server updates are not managed by this process' } }
   }
+  if (type === VERSION_RESTART_RPC) {
+    const value = payload as { version?: unknown; confirmed?: unknown } | null
+    const at = activeUpdater?.restartConfirmed(value?.version, value?.confirmed)
+    return typeof at === 'number' ? { result: { requested: true, at } }
+      : { error: { code: 'invalid_payload', message: 'Confirm the current ready target version before restarting' } }
+  }
+  return { error: { code: 'unknown_method', message: 'Unsupported server update action' } }
+}
+export function serverUpdateRpcHandlers(): DeviceRpcHandlers {
+  return Object.fromEntries([VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC, VERSION_RESTART_RPC]
+    .map(type => [type, (payload: unknown) => callServerUpdate(type, payload)]))
 }
 const FAILURE_COOLDOWN_MS = 6 * 60 * 60 * 1000
 

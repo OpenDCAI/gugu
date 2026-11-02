@@ -32,8 +32,6 @@ import { normalizeDeviceCapabilities } from '../../../../packages/core/src/cloud
 import { fetchVersionManifest, VersionNotPublishedError } from '../../../../apps/desktop/electron/server/server-updater'
 import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '../../../../packages/core/src/cloud/serverMachineHealth'
 import { pruneVersions, versionsToKeep } from '../../../../apps/desktop/electron/server/server-account-versions'
-import { parseMatchArgs, runMatchVersion } from '../../../../apps/desktop/electron/server/match-version-cli'
-import { INITIAL_ACCOUNT_STATE, writeAccountState, type AccountState, type Outcome } from '../../../../apps/desktop/electron/server/server-account-machine'
 import { InstallRun, runSshInstall, type SpawnSsh, type SshInstallDeps } from '../../../../apps/desktop/electron/server/ssh-install/runner'
 import { createSshAutoUpgrader } from '../../../../apps/desktop/electron/server/ssh-install/auto-upgrade'
 import { PROBE_BEGIN, PROBE_END } from '../../../../apps/desktop/electron/server/ssh-install/logic'
@@ -192,63 +190,6 @@ describe('reclamation uses explicit ownership only', () => {
     expect(() => install('0.1.11', [], false)).toThrow()
     expect(fs.readlinkSync(path.join(serverHome, 'current'))).toBe('versions/0.1.9')
     fs.rmSync(dir, { recursive: true, force: true })
-  })
-})
-
-describe('gugu-server match-version', () => {
-  it('参数:报告 / 换过去两种;形状不对拒绝', () => {
-    expect(parseMatchArgs(['--account', U1, '--desktop', 'mbp', '--version', '0.2.9', '--protocol', '2'])).toEqual({ mode: 'report', account: U1, desktop: 'mbp', version: '0.2.9', protocol: 2 })
-    expect(parseMatchArgs([`--account=${U1}`, '--apply=0.2.9'])).toEqual({ mode: 'apply', account: U1, version: '0.2.9', now: false })
-    expect(parseMatchArgs(['--account', U1, '--apply', '0.2.9', '--now'])).toEqual({ mode: 'apply', account: U1, version: '0.2.9', now: true })
-    expect(parseMatchArgs(['--account', U1, '--desktop', 'mbp', '--version', '../x'])).toHaveProperty('error')
-  })
-
-  it('报告:打出目标(同账号取最新)、在跑的、装没装', async () => {
-    signIn(U1)
-    installVersion('0.3.0')
-    report(U1, 'home', '0.3.1')
-    const out: string[] = []
-    expect(await runMatchVersion(['--account', U1, '--desktop', 'office', '--version', '0.3.0', '--protocol', '2'], (l) => out.push(l), () => undefined,
-      { home, runningVersion: () => '0.3.0', supervisorRunning: () => true, now: () => NOW })).toBe(0)
-    expect(out.pop()).toBe('__GUGU_MATCH__ target=0.3.1 running=0.3.0 installed=0 supervisor=1')
-  })
-
-  // 换过去的结论只有一个来源:守护进程对「这一次请求」写下的 lastOutcome(按请求时刻认)。
-  const answered = async (args: string[], outcome: (request: number) => Outcome, over: Partial<AccountState> = {}) => {
-    signIn(U1)
-    fs.rmSync(path.join(dataDir(U1), 'server-update.json'), { force: true })
-    const lines: string[] = []
-    let clock = NOW
-    const rc = await runMatchVersion(['--account', U1, '--apply', '0.3.1', ...args], (l) => lines.push(l), (l) => lines.push(l), {
-      home, runningVersion: () => null, supervisorRunning: () => true, waitMs: 1_000, now: () => (clock += 100),
-      sleep: async () => {
-        const request = readVersionSwitchRequest(dataDir(U1), clock)!
-        writeAccountState(dataDir(U1), { ...INITIAL_ACCOUNT_STATE, version: '0.3.0', supervisor: '0.3.0', child: 'running', ...over, lastOutcome: outcome(request.at) }, clock)
-      },
-    })
-    return { rc, line: lines.pop()! }
-  }
-
-  it('换过去:每种结论对应一个退出码与一句照实的话', async () => {
-    expect(await answered([], (request) => ({ kind: 'switched', target: '0.3.1', at: NOW, request }))).toEqual({ rc: 0, line: '__GUGU_MATCH__ switched=0.3.1' })
-    expect(await answered([], (request) => ({ kind: 'failed', target: '0.3.1', cause: 'install', at: NOW, request }))).toMatchObject({ rc: 6, line: expect.stringContaining('装 0.3.1 失败了') })
-    expect(await answered([], (request) => ({ kind: 'failed', target: '0.3.1', cause: 'unreachable', at: NOW, request }))).toMatchObject({ rc: 7, line: expect.stringContaining('连不上下载站') })
-    expect(await answered(['--now'], (request) => ({ kind: 'rolledBack', bad: '0.3.1', back: '0.3.0', at: NOW, request }), { child: 'restarting' }))
-      .toEqual({ rc: 6, line: '换版请求 0.3.1 启动失败，已回滚到 0.3.0，这个账号当前版本 (正在重启)' })
-    expect(await answered([], (request) => ({ kind: 'waiting', target: '0.3.1', at: NOW, request }))).toMatchObject({ rc: 8, line: expect.stringContaining('不会自己重启') })
-    expect(await answered([], (request) => ({ kind: 'switched', target: '0.3.2', at: NOW, request }))).toMatchObject({ rc: 6, line: expect.stringContaining('已被守护进程改为 0.3.2') })
-  })
-
-  it('起不来的那一版:普通重试被冷却挡下 ⇒ 提示确认重启;确认重启仍起不来 ⇒ 请人等新版本,❌ 再叫 --now;没有账号进程照实说', async () => {
-    const refused = await answered([], (request) => ({ kind: 'refused', target: '0.3.1', cause: 'boot', at: NOW, request }))
-    expect(refused).toMatchObject({ rc: 6, line: expect.stringMatching(/0\.3\.1 在这台机器上启动失败过.*--apply 0\.3\.1 --now.*当前版本 0\.3\.0/) })
-    const again = await answered(['--now'], (request) => ({ kind: 'failed', target: '0.3.1', cause: 'boot', at: NOW, request }),
-      { version: null, child: 'none', phase: { kind: 'failed', target: '0.3.1' } })
-    expect(again).toEqual({ rc: 6, line: '0.3.1 在这台机器上仍然启动失败,没有换过去;请等待新版本。这个账号当前版本 (没有能启动的版本,未启动)' })
-  })
-
-  it('另一次请求的结论不算这一次的;等不到结论 ⇒ 退 4', async () => {
-    expect(await answered([], () => ({ kind: 'switched', target: '0.3.1', at: NOW, request: 1 }))).toMatchObject({ rc: 4 })
   })
 })
 

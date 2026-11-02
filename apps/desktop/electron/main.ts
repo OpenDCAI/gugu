@@ -480,7 +480,7 @@ import { createServerAuthProvider, type ServerAuthProvider } from './server/serv
 import { ensureUtf8Locale } from './server/server-locale'
 import { killAccountTmuxServer, SESSION_FILE } from './server/server-layout'
 import { EXIT_CONFIG, EXIT_RESTART, EXIT_SIGNED_OUT, isSingleServerRun } from './server/server-exit'
-import { singleServerUpdater, serverUpdateRpcHandlers } from './server/server-updater'
+import { singleServerUpdater, serverUpdateRpcHandlers, callServerUpdate } from './server/server-updater'
 import { markStopped } from './server/server-keeper'
 import { registerServerSshInstallIpc } from './server/ssh-install/ipc'
 import { registerServerSshUninstallIpc } from './server/ssh-uninstall-ipc'
@@ -6241,7 +6241,7 @@ app.whenReady().then(async () => {
             // #7199 心跳随行报「隧道最近一次有流量」(会话页宿主的心跳不算):云电脑的管家据此判闲置。
             onActivity: () => noteTunnelActivity(),
           })
-          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link,
+          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link, serverUpdate: callServerUpdate,
             timeZone: context => applyOwnerTimeZoneContext(context), resume: since => {
             if (since !== undefined) recordDeviceSleep({ since, until: Date.now(), source: 'fc-confirmed' })
             resumeAccountMessaging('controller')

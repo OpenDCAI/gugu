@@ -96,7 +96,7 @@ const USAGE = `用法:
   gugu-server resume --account <账号 id>
                                  通知保留的账号进程恢复连接并立即补收消息
   gugu-server match-version --account <账号 id> (--desktop <桌面 id> --version <版本> | --apply <版本>)
-                                 让这个账号跑和桌面匹配的那一版(桌面经 SSH 自动调用)`
+                                 旧桌面兼容入口:查看 current/已准备目标，或确认重启到已准备目标`
 
 function fail(error: unknown): never {
   stderr(`[server] ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`)
@@ -426,11 +426,7 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
           return runningVersionOf(pid, read) ?? (activity.pid === pid && typeof activity.version === 'string' ? activity.version : null)
         },
         supervisorRunning: () => lockHolder(supervisorDataDir()) !== null,
-        managedSupervisorVersion: async () => {
-          const { readRunningServer } = await import('./server/server-service')
-          const supervisor = readRunningServer()
-          return supervisor?.managedCloud ? supervisor.version : null
-        },
+
       }))
     }
     case 'help':
