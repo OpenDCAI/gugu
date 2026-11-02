@@ -34,8 +34,10 @@ const child = spawn(binary, ['run-account', userId], {
     GUGU_SERVER_ACCOUNT: userId, GUGU_SERVER_WAIT_PID: '', HOME: home, USERPROFILE: home },
 })
 console.log(`legacy boot probe launched: pid=${child.pid}`)
-child.stdout.resume()
-child.stderr.resume()
+let output = Buffer.alloc(0)
+const collect = (chunk: Buffer) => { output = Buffer.concat([output, chunk]).subarray(-16_384) }
+child.stdout.on('data', collect)
+child.stderr.on('data', collect)
 child.on('error', error => ready.reject(error))
 const exited = new Promise<void>(resolve => child.once('close', () => resolve()))
 child.once('exit', code => ready.reject(new Error(`Legacy account boot exited before readiness (${code})`)))
@@ -43,6 +45,8 @@ const timeout = setTimeout(() => ready.reject(new Error('Legacy account boot did
 try {
   await ready.promise
   console.log(`legacy boot ready: pid=${child.pid}`)
+} catch (error) {
+  throw new Error(`${error instanceof Error ? error.message : String(error)}\n${output.toString()}`, { cause: error })
 } finally {
   clearTimeout(timeout)
   watcher.close()
@@ -54,5 +58,5 @@ try {
   fs.rmSync(home, { recursive: true, force: true })
 }
 if (child.exitCode !== 0 && child.exitCode !== 143 && child.signalCode !== 'SIGTERM') {
-  throw new Error(`Legacy account boot exited with ${child.exitCode}, signal ${child.signalCode}`)
+  throw new Error(`Legacy account boot exited with ${child.exitCode}, signal ${child.signalCode}\n${output.toString()}`)
 }
