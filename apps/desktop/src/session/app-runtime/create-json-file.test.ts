@@ -28,6 +28,13 @@ describe('files.create JSON names', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('honors an explicit text content type even for a JSON name', async () => {
+    const { create, files } = setup();
+    const content = '[not JSON';
+    await files.create({ chat, name: 'notes.json' }, content, { contentType: 'text/plain' });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ content, contentType: 'text/plain' }));
+  });
+
   it('leaves strings under other names unchanged, including explicit text content types', async () => {
     const { create, files } = setup();
     const content = '{not JSON';

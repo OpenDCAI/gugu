@@ -186,7 +186,7 @@ export function createFile(host: GuguHost, target: unknown, content: string | ob
   const name = (target as { name?: unknown }).name;
   const folder = folderNamed((target as { folder?: unknown }).folder);
   if (typeof name !== 'string' || !name.trim()) throw guguError('invalid', 'A file needs a name: files.create({ chat | session, name }, content)');
-  const isJson = typeof content !== 'string' || name.endsWith('.json');
+  const isJson = typeof content !== 'string' || (name.endsWith('.json') && !options?.contentType);
   const data: unknown = isJson && typeof content === 'string' ? checked(() => JSON.parse(content)) : content;
   if (isJson && (data === null || typeof data !== 'object' || Array.isArray(data))) {
     throw guguError('invalid', 'A JSON file must hold an object at the top (its root is shared per key)');
