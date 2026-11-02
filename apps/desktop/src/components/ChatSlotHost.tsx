@@ -23,7 +23,7 @@ const EMPTY: ReadonlyMap<string, HTMLElement> = new Map()
 // memo: the shell re-renders on every tab switch; the chat blocks it portals must not (@@@shell-tab-store).
 export const ChatSlotHost = memo(function ChatSlotHost(handlers: AssistantChatHandlers) {
   const entryReady = useOwnedAgentEntries()
-  const { chats, identitiesById } = useChatStore('chats', 'identitiesById')
+  const { chats, identitiesById, chatsRead } = useChatStore('chats', 'identitiesById', 'chatsRead')
   // 会话页据此决定项目块正中摆文件夹卡(群里还没有消息)还是消息流,会话里「来自 X」写群名。列表读成之前那份空列表是
   // 「还不知道」:不发,❌ 发一份空的让每个项目块先画首页。
   // 名字与对话列表那一行同一个函数(chatDisplayName):私聊没有自己的名字,写对方(备注优先)——列表、⌘K 面板、
@@ -48,8 +48,8 @@ export const ChatSlotHost = memo(function ChatSlotHost(handlers: AssistantChatHa
         if ((chat?.kind === 'dm' || chat?.kind === 'ai') && isOwnedAgentPeer(chat.peer_user_id)) {
           return [createPortal(<OwnedAgentRedirect chatId={chatId} />, element, key)]
         }
-        // Ownership is still loading: do not flash a legacy agent transcript from a restored block.
-        if (privateChat && (!chat.peer_user_id || !identitiesById[chat.peer_user_id])) return []
+        // Wait only for the initial directory publication. Missing identities can be permanent for human DMs.
+        if (privateChat && !chatsRead && (!chat.peer_user_id || !identitiesById[chat.peer_user_id])) return []
         return [createPortal(
           <InChatSlot.Provider value={{ projectName: projectGroupChats.has(chatId) ? chats.find((chat) => chat.id === chatId)?.name ?? null : null }}>
             <TaskChatScope chatId={chatId}>
