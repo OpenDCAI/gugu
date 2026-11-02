@@ -159,3 +159,36 @@ it('ends the supplemental read at its UI deadline without waiting for a slow hos
     expect(calls).toBe(1)
   } finally { vi.useRealTimers() }
 })
+
+
+it('leaves plain human session-direct sends and manual queues out of the incoming projection', () => {
+  const human = { ...row('human', 1), text: 'human input', kind: 'session-direct' as const }
+  expect(projectSessionPendingDeliveries([], view([human]), [])).toEqual([])
+  expect(projectSessionPendingDeliveries([], view([{ ...human, state: 'accepted' }]), [])).toEqual([])
+  expect(projectSessionPendingDeliveries([], view([{ ...human, state: 'unknown' }]), [])[0]).toMatchObject({ received: false, delivery: { state: 'unknown' } })
+})
+
+it('finds a plain unknown receipt using the complete anchor context, without sender-host clock comparisons', () => {
+  const anchor = turn('anchor', 'Earlier input')
+  const input = { ...row('unknown-human', 1, 'unknown'), text: 'Next input' }
+  const waiting = projectSessionPendingDeliveries([], view([input]), [anchor])
+  const native = turn('native-next', input.text)
+  const found = projectSessionPendingDeliveries(waiting, view([input]), [anchor, native])
+  expect(found[0]?.nativeEcho).toEqual({ turnId: native.id, itemId: native.items[0]!.id })
+  const projection = projectPendingMessages([anchor, native], null, found)
+  expect(projection.waiting).toEqual([])
+  expect(projection.committed[1]?.items[0]).toMatchObject({ sendStatus: { state: 'unknown' } })
+  expect(projectSessionPendingDeliveries(found, view([]), [anchor, native])).toEqual([])
+})
+
+it('rechecks mutable active messages instead of caching an incomplete native envelope list', () => {
+  const input = row('later', 1, 'unknown')
+  const pending = projectSessionPendingDeliveries([], view([input]), [])
+  const active = turn('active', envelope('earlier'))
+  const cache: PendingMessageProjectionCache = new WeakMap()
+  expect(projectPendingMessages([], active, pending, cache).waiting).toHaveLength(1)
+  active.items.push({ ...turn('later-native', input.text).items[0]!, seq: 1 })
+  const projection = projectPendingMessages([], active, pending, cache)
+  expect(projection.waiting).toEqual([])
+  expect(projection.active?.items[1]).toMatchObject({ sendStatus: { state: 'unknown' } })
+})

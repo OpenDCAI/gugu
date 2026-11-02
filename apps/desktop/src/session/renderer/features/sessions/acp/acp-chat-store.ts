@@ -43,7 +43,7 @@ import { sendThroughCustody } from './queue-native-input';
 import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
 import { queuedSessionInputs, retrySessionInputs, subscribeSessionInputs } from '@/lib/sessionInputOutboxBridge';
 import { projectSessionPendingInput } from '@/lib/pendingSessionInput';
-import { loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries';
+import { isTranscriptDelivery, loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries';
 import { batch } from 'solid-js';
 import { AcpLiveSession, AcpStartError, asValueSource } from '@renderer/lib/acp/acp-live-session';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
@@ -852,7 +852,7 @@ export class AcpChatStore {
     }
     const drawn = this.transcriptPendingId;
     const bubbles = view ? sessionInputBubbles([], view.pending.items, view.hold) : [];
-    const head = bubbles[0]?.state === 'sending' && view?.pending.items.find(row => row.messageId === bubbles[0]?.id)?.kind === 'ordinary'
+    const head = bubbles[0]?.state === 'sending' && view?.pending.items.some(row => row.messageId === bubbles[0]?.id && !isTranscriptDelivery(row))
       && (starting || view?.kind === 'ready') ? bubbles[0] : null;
     runInAction(() => {
       if (drawn && head?.id !== drawn) {

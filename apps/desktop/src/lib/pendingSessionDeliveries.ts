@@ -4,18 +4,24 @@ import type { LifeView } from '@/session/shared/core/sessions/session-life'
 import { lifeHoldIsFailure } from '@/session/shared/core/sessions/session-life'
 import { sessionInputBaseline } from './pendingSessionInput'
 import { messageForUser } from './userFacingError'
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
+
+// Existing-session human sends also use session-direct; only envelopes identify an agent delivery.
+export function isTranscriptDelivery(input: Pick<LifeView['pending']['items'][number], 'kind' | 'state' | 'text'>): boolean {
+  return input.kind === 'inbox-batch' || (input.kind === 'session-direct' && (input.state === 'unknown' || readDeliveryEnvelope(input.text) !== null))
+}
 
 /** The receiver's host queue and native transcript share one incoming-delivery projection on every surface. */
 export function projectSessionPendingDeliveries(previous: readonly PendingPrompt[], view: LifeView | null,
   turns: readonly TranscriptTurn[], starting?: PendingPrompt['starting']): PendingPrompt[] {
   if (!view) return previous.filter(input => input.delivery?.state !== 'accepted' || (!input.nativeEcho && !pendingPromptLanded(input, turns)));
-  const rows = view?.pending.items.filter(row => row.kind !== 'ordinary') ?? []
+  const rows = view?.pending.items.filter(isTranscriptDelivery) ?? []
   const ids = new Set([...previous.map(input => input.id), ...rows.map(row => row.messageId)])
   return [...ids].flatMap(id => {
     const prior = previous.find(input => input.id === id)
     const row = rows.find(input => input.messageId === id)
     if (!prior && !row) return []
-    const input: PendingPrompt = prior ?? { id, text: row!.text, sentAt: row!.sentAt, received: true,
+    const input: PendingPrompt = prior ?? { id, text: row!.text, sentAt: row!.sentAt, received: readDeliveryEnvelope(row!.text) !== null,
       hostSequence: row!.seq, baselineMessageIds: sessionInputBaseline(turns).baseline,
       afterTurnId: turns.at(-1)?.id, held: true }
     const failedStart = view !== null && lifeHoldIsFailure(view.hold) && (row?.state === 'queued' || row?.state === 'dispatching')
