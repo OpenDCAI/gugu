@@ -1,5 +1,8 @@
 // #7199 个人助理住在这台电脑上时,它的家由主进程在本机准备(assistant-home-prepare.ts);这里只是把它挂到 IPC 上。
 import { ipcMain } from 'electron'
+import { join } from 'node:path'
+import { resolveGuguHome } from '@gugu/core/local/state/paths'
+import { createMoveJournalFileStore } from './assistant-move-journal'
 import { stdSerializers } from 'pino'
 import { ASSISTANT_HOME_CHANNELS, type PrepareLocalHomeInput } from '../src/lib/assistantHomeIpc'
 import { prepareLocalAssistantHome, wipeLocalAssistantHome } from './assistant-home-prepare'
@@ -7,6 +10,11 @@ import { createAssistantSetupPreparation } from './assistant-setup-preparation'
 import { createLogger } from './lib/logger'
 
 export function installAssistantHome(): void {
+  // Resolve lazily: GUGU_HOME is established after static imports.
+  const journal = () => createMoveJournalFileStore(join(resolveGuguHome(process.env), 'assistant-moves'))
+  ipcMain.handle(ASSISTANT_HOME_CHANNELS.moveJournalRead, (_event, owner: string) => journal().read(owner))
+  ipcMain.handle(ASSISTANT_HOME_CHANNELS.moveJournalWrite, (_event, owner: string, value: string) => journal().write(owner, value))
+  ipcMain.handle(ASSISTANT_HOME_CHANNELS.moveJournalClear, (_event, owner: string) => journal().clear(owner))
   const owners = new Map<string, Electron.WebContents>()
   const watched = new WeakSet<Electron.WebContents>()
   const log = createLogger('assistant-setup-preparation')

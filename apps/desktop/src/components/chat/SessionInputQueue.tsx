@@ -23,7 +23,7 @@ export function SessionInputQueue({ sessionId, waitingForConnection, life = null
   const { t } = useTranslation('messaging')
   const [retryError, setRetryError] = useState<string | null>(null)
   const bubbles = sessionInputBubbles(waitingForConnection ? pending : [], life?.pending.items ?? [], life?.hold ?? null)
-    .filter(bubble => !inTranscript.includes(bubble.id))
+    .filter(bubble => !inTranscript.includes(bubble.id) && !pending.some(input => input.id === bubble.id && input.queued === false))
   if (!bubbles.length && !retryError) return null
   const retry = async () => {
     setRetryError(null)

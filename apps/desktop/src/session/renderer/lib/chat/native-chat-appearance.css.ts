@@ -61,15 +61,25 @@ globalStyle(`${nativeChatAppearance} [data-chat-root]::before`, {
   zIndex: 11,
 });
 
-globalStyle(`${nativeChatAppearance} [data-chat-composer-placement="bottom"]::before`, {
+const bottomComposer = `${nativeChatAppearance} [data-chat-composer-placement="bottom"]`;
+const desktopComposerColumn = `${bottomComposer} > :last-child:not([data-phone-shell] *)`;
+
+// Desktop follows the content column and covers the top corners. The phone
+// keeps its layer fade separate from the column's existing full-width glass.
+globalStyle(desktopComposerColumn, {
+  position: 'relative',
+  vars: { '--composer-edge-cover': 'var(--radius-thread)' },
+});
+
+globalStyle(`${desktopComposerColumn}::before, ${bottomComposer}:is([data-phone-shell] *)::before`, {
   content: '""',
   position: 'absolute',
-  bottom: '100%',
+  bottom: 'calc(100% - var(--composer-edge-cover, 0px))',
   left: 0,
   right: 0,
-  height: CHAT_COMPOSER_EDGE_FADE_PX,
+  height: `calc(${CHAT_COMPOSER_EDGE_FADE_PX}px + var(--composer-edge-cover, 0px))`,
   // Stay above the transcript within the composer's stacking context, but below the card.
   zIndex: -1,
   pointerEvents: 'none',
-  background: 'linear-gradient(to top, var(--chat-bg), transparent)',
+  background: 'linear-gradient(to top, var(--chat-bg) var(--composer-edge-cover, 0px), transparent)',
 });

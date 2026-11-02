@@ -39,6 +39,7 @@ export function ExtensionTabPane({
   filePath,
   projectId,
   chatId,
+  resourceChat,
   itemId,
 }: {
   extensionId: string;
@@ -58,6 +59,7 @@ export function ExtensionTabPane({
   projectId?: string;
   /** Drawn for a chat (a chat's tab in a window of its own), and the chat file it was opened for. */
   chatId?: string;
+  resourceChat?: string;
   itemId?: string;
 }) {
   const { translate } = useSessionMessages();
@@ -66,6 +68,8 @@ export function ExtensionTabPane({
   // Read when it binds (a ref: the chat list coming in later must not re-attach the webview).
   const conversationRef = useRef<string | null>(null);
   conversationRef.current = chatId ?? taskConversation;
+  const resourceChatRef = useRef(resourceChat);
+  resourceChatRef.current = resourceChat;
   const workspace = sessionId ? sessionWorkspace(sessionId) : projectId && filePath ? projectWorkspace(projectId) : null;
   const [surface, setSurface] = useState<ExtensionSurface | null>(null);
   const [failure, setFailure] = useState<SurfaceFailure | null>(null);
@@ -186,6 +190,7 @@ export function ExtensionTabPane({
             extensionId,
             workspace,
             conversation: conversationRef.current,
+            ...(resourceChatRef.current ? { resourceChat: resourceChatRef.current } : {}),
             tabId,
             tabKind,
             ...(filePath ? { filePath } : {}),

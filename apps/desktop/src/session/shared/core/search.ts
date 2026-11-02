@@ -7,6 +7,7 @@ export interface SearchItem {
   title: string;
   subtitle: string;
   score: number;
+  lastInteractedAt?: string | null;
 }
 
 /** A message said in a local task, as task search finds it (turn_text). */

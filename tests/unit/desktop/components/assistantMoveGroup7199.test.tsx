@@ -9,6 +9,8 @@ import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 const mocks = vi.hoisted(() => ({
   tier: 'plus' as 'free' | 'plus',
   pending: null as unknown,
+  nativePending: null as unknown,
+  recoveryError: null as Error | null,
   previewMove: vi.fn(),
   runAssistantMove: vi.fn(),
   list: vi.fn(async () => [{ id: 'notion', name: 'Notion' }]),
@@ -19,6 +21,10 @@ vi.mock('../../../../apps/desktop/src/lib/billing/membership', () => ({
 }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-move-wire', () => ({
   pendingMove: () => mocks.pending,
+  recoverPendingMove: async () => {
+    if (mocks.recoveryError) throw mocks.recoveryError
+    return mocks.nativePending ?? mocks.pending
+  },
   previewMove: (...args: unknown[]) => mocks.previewMove(...args),
   runAssistantMove: (...args: unknown[]) => mocks.runAssistantMove(...args),
 }))
@@ -31,7 +37,9 @@ vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assist
 
 import { AssistantMoveGroup } from '../../../../apps/desktop/src/components/assistant/AssistantMoveGroup'
 import { AssistantMoveDialog } from '../../../../apps/desktop/src/components/assistant/AssistantMoveDialog'
-import { resetMoveForTests } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-move-controller'
+import { resetMoveForTests, startMove } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-move-controller'
+import { MoveError } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-move'
+import { MoveCopyError } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-move-copy'
 import type { AssistantHomePlace } from '../../../../apps/desktop/src/lib/assistantHome'
 
 let harness: ReturnType<typeof createReactHarness>
@@ -39,6 +47,8 @@ beforeEach(() => {
   harness = createReactHarness()
   mocks.tier = 'plus'
   mocks.pending = null
+  mocks.nativePending = null
+  mocks.recoveryError = null
   mocks.previewMove.mockReset()
   mocks.runAssistantMove.mockReset()
   resetMoveForTests()
@@ -67,6 +77,35 @@ const q = (id: string) => harness.container.querySelector(`[data-testid="${id}"]
 const body = () => document.body.textContent ?? ''
 
 describe('搬家入口', () => {
+  it('keeps the current home visible while recovery is unreadable and blocks a new move', async () => {
+    mocks.recoveryError = new Error('Recovery unavailable')
+    await render(computer)
+    expect(q('assistant-move-current-home')?.textContent).toContain('这台电脑')
+    expect(q('assistant-move-current-home')?.textContent).toContain('当前住处')
+    expect(body()).toContain('暂时读不到搬家恢复记录，请重试。')
+    expect((q('assistant-move-to-cloud') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('recovers the resume entry from native storage after localStorage is lost', async () => {
+    mocks.nativePending = { assistantId: 'agent-1', direction: 'to-cloud', source: { kind: 'computer', deviceId: 'dev-mac' } }
+    await render(cloud)
+    expect(q('assistant-move-resume')).not.toBeNull()
+    expect((q('assistant-move-to-computer') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it.each(['restart', 'files'] as const)('shows actionable failure rather than completion after %s fails', async step => {
+    const cause = step === 'files' ? new MoveCopyError('conflict', 'newer target file', '/new/note.md') : new Error('online request lost')
+    mocks.runAssistantMove.mockRejectedValue(new MoveError(step, cause, false))
+    await render(computer)
+    await act(async () => {
+      await startMove({ ownerUserId: 'owner-1', assistantId: 'agent-1', assistantName: '小满', localDeviceId: 'dev-mac', home: computer }, 'to-cloud', new Map(), 'zh-CN')
+    })
+    expect(document.body.querySelector('[data-phase="failed"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-phase="done"]')).toBeNull()
+    expect(body()).not.toContain('不影响使用')
+    expect(body()).toContain(step === 'files' ? '/new/note.md' : '可能暂时无法回复')
+    expect(document.body.querySelector('[data-testid="assistant-move-retry"]')?.textContent).toContain('接着搬')
+  })
   it('住这台电脑 + 会员:「搬到云上」可点;没有「会员到期」那一行', async () => {
     await render(computer)
     expect(q('assistant-move-to-cloud')).not.toBeNull()
