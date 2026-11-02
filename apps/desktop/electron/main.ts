@@ -63,6 +63,7 @@ import {
   RENDERER_LOG_CHANNEL,
 } from './lib/logger'
 import { autoApproveFromPermissionMode } from '@gugu/session-core/acp'
+import { signalProcessDescendantsSync } from '@gugu/session-core/acp/node'
 import { classifyFatal, recordFatalSync } from './lib/fatal-triage'
 import { pathToFileURL } from 'node:url'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
@@ -3341,7 +3342,7 @@ const killEnginesOnCrash = (label: string): void => {
     appendFileSync(join(logDir, 'reap-probe.log'), `${new Date().toISOString()} reap-begin label=${label}\n`)
   } catch { /* 探针不许反噬关停 */ }
   shutdownLogger.info({ label }, 'native leg reap: begin')
-  reap('workers', killAllWorkersSync)
+  reap('workers', () => killAllWorkersSync(pids => signalProcessDescendantsSync(pids, 'SIGKILL')))
   reap('codex-app-server', killAllCodexAppServerProcessGroupsSync)
   reap('opencode-serve-attach', () => opencodeServeAttachSessionDelivery.disposeSync())
   reap('droid-daemon', () => droidDaemonSessionDelivery.disposeSync())

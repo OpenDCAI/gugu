@@ -24,8 +24,11 @@ const DEFAULT_SUPERVISION: ProcessSupervision = {
 const workers = new Set<ManagedProcess>();
 
 /** Crash/signal exit: no graceful close that could cancel an active session. */
-export function killAllWorkersSync(): void {
+export function killAllWorkersSync(beforeKill?: (pids: number[]) => void): void {
   let failure: unknown;
+  try {
+    beforeKill?.([...workers].flatMap(worker => worker.pid === undefined ? [] : [worker.pid]));
+  } catch (error) { failure = error; }
   for (const worker of workers) {
     const pid = worker.pid;
     if (pid === undefined) continue;

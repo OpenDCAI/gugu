@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { sessionBootTasks } from '../../../../apps/desktop/electron/session/main/core/boot-tasks'
 import { resolveDeviceHostInfo } from '../../../../packages/core/src/cloud/deviceHostInfo'
 import { hydrateLife, shouldStartOnHydrate } from '../../../../packages/core/src/local/session-life/step'
+import { busyForVersionSwitch, parseAgentStatusView } from '../../../../packages/core/src/shared/agentStatus'
 import type { Hold } from '../../../../packages/core/src/local/session-life/types'
 
 vi.mock('../../../../packages/core/src/cloud/remoteTunnel', () => ({ tunnelRelayUp: () => false, tunnelActiveAt: () => null }))
@@ -25,6 +26,7 @@ async function boot(fail: string, fatal = false) {
   const statusHooks: Array<(event: unknown) => void> = []
   const sessionHooks = new Map<string, (id: string) => void>()
   const rows: Record<string, Array<{ id: string }>> = { sessions: [], projects: [] }
+  const states: Array<{ conversationId: string; runtime: 'acp'; status: { status: 'working'; detail: 'running' } }> = []
   const pending = new Map<string, { queued: number[]; dispatching: number[] }>()
   const lifeRows = new Map<string, { archived: boolean; hold: Hold | null }>()
   const noop: unknown = new Proxy(function () { return noop }, {
@@ -38,7 +40,8 @@ async function boot(fail: string, fatal = false) {
   const fault = (operation: string) => () => { if (fail === operation) throw new Error(`refused ${operation}`) }
   const overrides: Record<string, Record<string, unknown>> = {
     './core/boot-tasks': { sessionBootTasks: tasks },
-    '@main/core/session-timeline/service': { listSessionStates: () => ({ projects: [], sessions: [] }) },
+    '@main/core/session-timeline/service': { listSessionStates: () => ({ projects: [], sessions: states }) },
+    '@gugu/core/shared/agentStatus': { busyForVersionSwitch, parseAgentStatusView },
     '@main/core/sessions/session-pending': { lifeSessions: () => [...pending.keys()], lifeStore: {
       pending: (id: string) => pending.get(id)!, read: (id: string) => lifeRows.get(id) ?? { archived: false, hold: null },
     } },
@@ -83,16 +86,24 @@ async function boot(fail: string, fatal = false) {
   runInNewContext(compiled.outputText, { require: load, module, exports: module.exports, process, console, Buffer, setTimeout, clearTimeout, setInterval, clearInterval, __dirname: path.dirname(entry) })
   try {
     await module.exports.bootSessionHostCore({ hostIpc: { ipcMain: {} }, browserFeatures: false, scheduleDiscovery: async () => {} })
-    return { tasks, registered, statusHooks, sessionHooks, rows, pending, lifeRows, activity: module.exports.sessionpageVersionSwitchActivity, readFailures: module.exports.sessionpageBootFailures, failures: module.exports.sessionpageBootFailures() }
+    return { tasks, registered, statusHooks, sessionHooks, rows, states, pending, lifeRows, activity: module.exports.sessionpageVersionSwitchActivity, readFailures: module.exports.sessionpageBootFailures, failures: module.exports.sessionpageBootFailures() }
   } finally { fs.rmSync(home, { recursive: true, force: true }) }
 }
 
 describe('real session host boot entry', () => {
+  it('counts each interrupted session once across live status and admitted delivery', async () => {
+    const result = await boot('')
+    result.states.push({ conversationId: 'working', runtime: 'acp', status: { status: 'working', detail: 'running' } })
+    result.pending.set('working', { queued: [], dispatching: [1] })
+    expect(result.activity()).toEqual({ busy: true, busyAgents: 1 })
+    result.pending.set('chat-ui-delivery', { queued: [2, 3], dispatching: [] })
+    expect(result.activity()).toEqual({ busy: true, busyAgents: 2 })
+  })
   it.each(['queued', 'dispatching'] as const)('keeps the account busy while an admitted delivery is %s', async state => {
     const result = await boot('')
     expect(result.activity()).toEqual({ busy: false, busyAgents: 0 })
     result.pending.set('scheduled-or-session-message', { queued: [], dispatching: [], [state]: [1] })
-    expect(result.activity()).toEqual({ busy: true, busyAgents: 0 })
+    expect(result.activity()).toEqual({ busy: true, busyAgents: 1 })
     result.pending.set('scheduled-or-session-message', { queued: [], dispatching: [] })
     expect(result.activity()).toEqual({ busy: false, busyAgents: 0 })
   })

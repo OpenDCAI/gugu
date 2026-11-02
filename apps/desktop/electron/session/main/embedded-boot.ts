@@ -2494,19 +2494,17 @@ export function sessionpageBootFailures() {
 }
 
 export function sessionpageVersionSwitchActivity(): { busy: boolean; busyAgents: number } {
-  const busyAgents = listSessionStates().sessions.filter((session) =>
-    busyForVersionSwitch(
-      parseAgentStatusView(session.status ?? null),
-      session.runtime,
-      sessionProcess(session.conversationId)?.home ?? null,
-    ),
-  ).length
-  const pendingDelivery = lifeSessions().some(sessionId => {
+  const sessions = new Map(listSessionStates().sessions.map(session => [session.conversationId, session]))
+  const life = new Set(lifeSessions())
+  const busyAgents = [...new Set([...sessions.keys(), ...life])].filter(sessionId => {
+    const session = sessions.get(sessionId)
+    if (session && busyForVersionSwitch(parseAgentStatusView(session.status ?? null), session.runtime, sessionProcess(sessionId)?.home ?? null)) return true
+    if (!life.has(sessionId)) return false
     const pending = lifeStore.pending(sessionId)
     return pending.dispatching.length > 0 || (pending.queued.length > 0
       && shouldStartOnHydrate(hydrateLife(lifeStore.read(sessionId)), pending))
-  })
-  return { busy: pendingDelivery || integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
+  }).length
+  return { busy: integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
 }
 
 /** Refresh the account heartbeat at authorization boundaries, without waiting

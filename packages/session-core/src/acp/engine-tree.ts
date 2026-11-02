@@ -64,6 +64,28 @@ export function defaultEngineTreeOps(): EngineTreeOps {
   };
 }
 
+/** Host exit: snapshot while workers still live, before killing their detached adapters. */
+export function signalProcessDescendantsSync(roots: readonly number[], signal: NodeJS.Signals, ops = defaultEngineTreeOps()): void {
+  if (ops.isWindows || roots.length === 0) return;
+  const table = ops.snapshotSync();
+  const ownGroup = table.find(member => member.pid === process.pid)?.pgid;
+  const descendants = collectDescendantProcesses(table, [...roots]).filter(member => member.pid !== process.pid);
+  let failure: unknown;
+  const kill = (pid: number): void => {
+    try { ops.kill(pid, signal); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') failure ??= error; }
+  };
+  // Only a detached leader inside the owned tree can name a group. Never signal the host/wrapper group.
+  if (ownGroup !== undefined) {
+    for (const member of descendants) {
+      if (member.pid === member.pgid && member.pgid !== ownGroup) kill(-member.pgid);
+    }
+  }
+  // Include tools which left their adapter's group, using the same pre-signal snapshot.
+  for (const member of descendants.reverse()) kill(member.pid);
+  if (failure !== undefined) throw failure;
+}
+
 /**
  * 停一棵引擎树:整组(Windows 上整树)由 `OwnedChild` 停,POSIX 再补上换了组的逃逸后代。
  * Windows 上 taskkill /T 沿父子链走,换组逃逸不存在。

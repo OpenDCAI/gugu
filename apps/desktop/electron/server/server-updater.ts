@@ -13,7 +13,6 @@ import { execFileSync } from '@gugu/core/local/childProcess'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
 import { VERSION_RESTART_RPC, VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC } from '@gugu/core/cloud/serverMachineHealth'
@@ -22,6 +21,8 @@ import { createServerUpdateStateWriter, readUpdateRecord, type ServerUpdateRecor
 export { createServerUpdateStateWriter } from './server-update-state'
 import type { FailureCause, Outcome } from '@gugu/core/shared/serverVersionOutcome'
 import { serverDownloadBase } from './server-download'
+import { downloadServerPackage, DownloadSiteUnreachableError } from './server-package-download'
+export { DownloadSiteUnreachableError } from './server-package-download'
 import { touchVersion, versionManifestUrl } from './server-account-versions'
 import { legacyGuardActive, readBadVersions } from './server-startup'
 import { controllerOwnsUpdates, readInstallation } from './server-package-environment.mts'
@@ -99,7 +100,6 @@ export class VersionNotPublishedError extends Error {}
  * 两份清单都没拿到任何应答(被拒、解析不了、连接超时):这台机器连不上下载站。由这一次真下载来判,❌ 另做联网检测。
  * 实测(mac1,10-09):被拒 16 ms、解析不了 37 ms;黑洞每次 fetch 卡满 undici 的 10 s 连接超时,两份清单最坏 21 s。
  */
-export class DownloadSiteUnreachableError extends Error {}
 
 /**
  * #6264 某一个版本的清单(给账号换到和桌面匹配的那一版用):`<根>/<版本>/<os>-<arch>.txt`。
@@ -147,9 +147,7 @@ export async function stageVersion(layout: Pick<Layout, 'versions'>, manifest: S
   try {
     const archive = local ?? path.join(tmp, 'pkg.tar.gz')
     if (!local) {
-      const response = await fetch(manifest.url)
-      if (!response.ok || !response.body) throw new Error(`下载失败(${response.status}):${manifest.url}`)
-      await pipeline(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream), fs.createWriteStream(archive))
+      await downloadServerPackage(manifest.url, archive)
     }
     const actual = await sha256File(archive)
     if (actual !== manifest.sha256) throw new Error(`包校验不通过:期望 ${manifest.sha256},实际 ${actual}`)
