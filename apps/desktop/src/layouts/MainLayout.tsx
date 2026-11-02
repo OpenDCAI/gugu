@@ -290,12 +290,21 @@ function InnerLayout({
   }, [setActiveTab, chatsAreBlocks, focusComposerForUserEntry, mobile, openAssistantChat, openOwnedAgent, t])
   const chatsRef = useRef(chats)
   chatsRef.current = chats
-  const openChatTarget = useCallback((chatId: string): string => {
+  const openChatTarget = useCallback((chatId: string, purpose?: 'resource'): string => {
     setOpenedPhoneApp(null)
     const chat = chatsRef.current.find((candidate) => candidate.id === chatId)
     const topic = chat?.kind === 'topic' && chat.source_chat_id ? chat : null
     const shownChatId = topic?.source_chat_id ?? chatId
-    const viewportKey = openChatBlock(shownChatId)
+    let viewportKey: string | null
+    if (purpose && chatsAreBlocks) {
+      // A file ask is consumed by ChatAreaPanel. Redirecting its owned-agent DM to a task leaves that ask unclaimed.
+      const sessionPage = readSessionpageViewRequestBridge()
+      if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
+      setSettingsModalOpen(false)
+      setActiveTab('tasks')
+      sessionPage.openChat(shownChatId, false, purpose)
+      viewportKey = chatSlotKey(shownChatId)
+    } else viewportKey = openChatBlock(shownChatId)
     if (!viewportKey) {
       setActiveTab('chats')
       setMobilePane('chat')
@@ -303,7 +312,7 @@ function InnerLayout({
     }
     if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id! })
     return topic ? `${viewportKey ?? 'chats'}:topic` : viewportKey ?? 'chats'
-  }, [setActiveTab, openChatBlock, setActiveChatId])
+  }, [setActiveTab, openChatBlock, setActiveChatId, chatsAreBlocks, t])
   const [appDetail, setAppDetail] = useState<import('@gugu/core/shared/ui/guguLink').AppDetailLink>()
   useLinkNavigation({ ownerId: user.id, chats, contacts,
     openSender: (target, sourceChatId) => handleSwitchToChat(target, undefined, sourceChatId),
@@ -312,7 +321,7 @@ function InnerLayout({
       setAppDetail(target)
       openSettingsSection('apps')
     },
-    openFile: (chatId, target, source) => { openChatTarget(chatId); askChat(chatId, { itemId: target.itemId, ...(target.at ? { at: target.at } : {}), ...(source.message ? { message: source.message } : {}), ...(source.restore ? { restore: source.restore } : {}) }) },
+    openFile: (chatId, target, source) => { openChatTarget(chatId, 'resource'); askChat(chatId, { itemId: target.itemId, ...(target.at ? { at: target.at } : {}), ...(source.message ? { message: source.message } : {}), ...(source.restore ? { restore: source.restore } : {}) }) },
     openApp: (chatId, extensionId, tab) => { openChatTarget(chatId); askChat(chatId, { app: extensionId, ...(tab ? { tab } : {}) }) },
     openOwnApp: (extensionId, tab) => { const page = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === `${extensionId}.${tab}`); if (!page) throw new Error('App tab is unavailable'); setOpenedPhoneApp({ kind: page.kind, name: page.extensionName }) },
     openProject: (projectId) => { setOpenedPhoneApp(null); setActiveTab('tasks'); appState.navigation.navigate('project', { projectId }) },
@@ -649,7 +658,7 @@ function InnerLayout({
         toast(t('groupFile.notInGroup'), 'error')
         return false
       }
-      ask(chat.id, openChatTarget(chat.id))
+      ask(chat.id, openChatTarget(chat.id, resource ? 'resource' : undefined))
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
     }

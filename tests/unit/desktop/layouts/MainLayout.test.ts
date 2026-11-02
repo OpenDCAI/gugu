@@ -967,7 +967,7 @@ describe('MainLayout: files.openWith', () => {
     await renderMainLayoutWithToast()
     fileOwner.mockResolvedValue({ data: { chat_id: 'topic-file' }, error: null })
     await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1' }, { restore }) })
-    if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false)
+    if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false, 'resource')
     else expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('source')
     expect(drainTopicSplitRequest('source')).toBeNull()
     expect(takeChatAsk('source')).toEqual({ itemId: 'F1', restore })
@@ -979,7 +979,7 @@ describe('MainLayout: files.openWith', () => {
     await renderMainLayoutWithToast()
     await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail })) })
     // 桌面上对话是会话页这屏的一块:请会话页把它摆出来。
-    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('g-open', false)
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('g-open', false, 'resource')
     expect(takeChatAsk('g-open'), 'a page asked: what it opens has that page as its 上一页').toEqual({ itemId: 'F1', opener: detail, fromPage: true })
   })
 
@@ -1005,6 +1005,20 @@ describe('MainLayout: files.openWith', () => {
 })
 
 
+it.each(['owned', 'group'] as const)('opens a %s file on its file host and preserves the authorized source message', async kind => {
+  const chatId = 'file-chat'
+  const source = message({ id: 'receipt', chat_id: chatId, file_item_id: 'F1', file_version: 1 })
+  chatStoreMock.chats = [{ id: chatId, kind: kind === 'owned' ? 'dm' : 'group', peer_user_id: kind === 'owned' ? 'agent' : null }] as never
+  if (kind === 'owned') taskRoute.contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'user-1' }]
+  fileOwner.mockResolvedValue({ data: { chat_id: chatId }, error: null })
+  openNativeConversation.mockClear()
+  await renderMainLayoutWithToast()
+  await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1', version: 1 }, { message: source }) })
+  expect(sessionPageViewRequests.openChat).toHaveBeenCalledExactlyOnceWith(chatId, false, 'resource')
+  expect(openNativeConversation).not.toHaveBeenCalled()
+  expect(takeChatAsk(chatId)).toEqual({ itemId: 'F1', message: source })
+})
+
 describe('MainLayout: personal assistant destinations', () => {
   const shell = { cloudAvailable: false, canHostHere: true, cloud: null, loadError: null,
     assistant: { id: 'personal-agent', display_name: '咕咕', avatar: null, created_at: null },
@@ -1029,7 +1043,10 @@ describe('MainLayout: personal assistant destinations', () => {
         if (name === 'resource-file' && 'itemId' in detail) await openLinkTarget({ kind: 'file', itemId: detail.itemId })
         else window.dispatchEvent(new CustomEvent(name, { detail }))
       })
-      expect(navigate).toHaveBeenCalledWith('assistant')
+      if ('itemId' in detail) {
+        expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('personal-dm', false, 'resource')
+        expect(navigate).not.toHaveBeenCalled()
+      } else expect(navigate).toHaveBeenCalledWith('assistant')
       expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
       if ('itemId' in detail) expect((takeChatAsk('personal-dm') as { itemId?: string } | null)?.itemId).toBe('personal-file')
       if ('text' in detail) expect(chatStoreMock.writeDraft).toHaveBeenCalledWith('personal-dm', { at: 'end', text: 'follow-up' })
@@ -1089,7 +1106,7 @@ describe('MainLayout: opening a topic on the desktop', () => {
       open()
       for (let i = 0; i < 5; i += 1) await Promise.resolve()
     })
-    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(target, false)
+    expect(sessionPageViewRequests.openChat.mock.calls[0]).toEqual(_way === 'an App naming it' ? [target, false, 'resource'] : [target, false])
     if (_way === 'a conversation link') expect(drainTopicSplitRequest(SRC)).toMatchObject({ chatId: TOPIC, sourceChatId: SRC })
     else expect(drainTopicSplitRequest(SRC)).toBeNull()
   })
@@ -1163,7 +1180,7 @@ describe('MainLayout: an App requested from a topic uses the shared source slot'
       window.dispatchEvent(new CustomEvent(eventName, { detail: { chatId: 'topic-app', extensionId: 'board' } }))
     })
     expect(resourceChat).toHaveBeenLastCalledWith('layout-token', 'topic-app', 'user-1')
-    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source-app', false)
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source-app', false, 'resource')
     expect(takeChatAsk('source-app')).toEqual({ app: 'board' })
     expect(takeChatAsk('topic-app')).toBeNull()
     expect(drainTopicSplitRequest('source-app')).toBeNull()
