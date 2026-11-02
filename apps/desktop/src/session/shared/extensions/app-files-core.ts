@@ -778,7 +778,7 @@ export function createAppFiles(platform: FilesPlatform) {
       throw error;
     } finally {
       held.active--;
-      if (held.file && snapshots.get(key) === held) touch(key, held);
+      if (held.file !== undefined && snapshots.get(key) === held) touch(key, held);
     }
   }
 
