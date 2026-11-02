@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAccountDriver } from '../../../../apps/desktop/electron/server/server-account-driver'
 import { INITIAL_ACCOUNT_STATE, readAccountState, writeAccountState } from '../../../../apps/desktop/electron/server/server-account-machine'
 import { createServerVersionLifecycle } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
-import { recordDesktopReport, requestVersionSwitch, VERSION_SWITCH_FILE } from '../../../../packages/core/src/cloud/serverDesktopVersions'
+import { DESKTOP_REPORT_TTL_MS, recordDesktopReport, requestVersionSwitch, VERSION_SWITCH_FILE } from '../../../../packages/core/src/cloud/serverDesktopVersions'
+import { desktopReportId } from '../../../../packages/core/src/cloud/serverMachineHealth'
 
 let home: string
 let clock: number
@@ -32,7 +33,7 @@ afterEach(() => {
   else process.env.GUGU_SERVER_HOME = savedHome
   fs.rmSync(home, { recursive: true, force: true })
 })
-const report = (version: string) => recordDesktopReport(data(), { id: 'desktop', version, protocol: 17 }, clock)
+const report = (version: string, device = 'desktop') => recordDesktopReport(data(), { id: desktopReportId(device, version), version, protocol: 17 }, ++clock)
 const confirm = (target: string) => requestVersionSwitch(data(), 'confirmed product action', ++clock, true, target)
 function driver(verifyBoot: (binary: string) => Promise<void> = async () => undefined) {
   const layout = { home, versions: path.join(home, 'versions'), version: '1.0.0' }
@@ -75,6 +76,8 @@ describe('confirmed account target lifecycle', () => {
     confirm('2.0.0')
     const subject = driver()
     await tick(subject)
+    // The former desktop is no longer active; normal version selection can downgrade.
+    clock += DESKTOP_REPORT_TTL_MS + 1
     report('0.9.0')
     running = false
     await tick(subject, 2)
@@ -104,7 +107,7 @@ describe('confirmed account target lifecycle', () => {
   it('keeps the confirmation when a desktop outside its baseline reports an older version', async () => {
     confirm('2.0.0')
     await tick(driver())
-    recordDesktopReport(data(), { id: 'another-desktop', version: '0.9.0', protocol: 17 }, ++clock)
+    report('0.9.0', 'another-desktop')
     await tick(driver())
     expect(readAccountState(data())).toMatchObject({ version: '2.0.0', phase: { kind: 'running' } })
   })
@@ -122,5 +125,48 @@ describe('confirmed account target lifecycle', () => {
     expect(readAccountState(data())).toMatchObject({ version: '1.0.0', phase: { kind: 'running' },
       lastOutcome: { kind: 'failed', target: '2.0.0', cause: 'boot' } })
     expect(readAccountState(data())?.confirmedTarget).toBeUndefined()
+  })
+
+  it('ends confirmation when the same device reports a new version under its real report id', async () => {
+    confirm('2.0.0')
+    const subject = driver()
+    await tick(subject)
+    report('3.0.0')
+    requestVersionSwitch(data(), 'new desktop protocol report', ++clock)
+    await tick(subject)
+    expect(readAccountState(data())?.confirmedTarget).toBeUndefined()
+    expect(readAccountState(data())?.phase).toEqual({ kind: 'waiting', target: '3.0.0' })
+  })
+
+  it('keeps confirmation when a parallel baseline version on the same device renews its report', async () => {
+    report('2.0.0')
+    confirm('3.0.0')
+    const subject = driver()
+    await tick(subject)
+    report('1.0.0')
+    await tick(subject)
+    expect(readAccountState(data())).toMatchObject({ version: '3.0.0', confirmedTarget: { target: '3.0.0' } })
+  })
+
+  it('keeps confirmation when a different physical device reports a newer version', async () => {
+    confirm('2.0.0')
+    const subject = driver()
+    await tick(subject)
+    report('3.0.0', 'another-desktop')
+    await tick(subject)
+    expect(readAccountState(data())).toMatchObject({ version: '2.0.0', confirmedTarget: { target: '2.0.0' } })
+  })
+
+  it('still ends confirmation when an older client changes a fixed report id in place', async () => {
+    fs.rmSync(path.join(data(), 'desktop-versions.json'))
+    recordDesktopReport(data(), { id: 'legacy-desktop', version: '1.0.0', protocol: 17 }, ++clock)
+    confirm('2.0.0')
+    const subject = driver()
+    await tick(subject)
+    recordDesktopReport(data(), { id: 'legacy-desktop', version: '3.0.0', protocol: 17 }, ++clock)
+    requestVersionSwitch(data(), 'legacy desktop protocol report', ++clock)
+    await tick(subject)
+    expect(readAccountState(data())?.confirmedTarget).toBeUndefined()
+    expect(readAccountState(data())?.phase).toEqual({ kind: 'waiting', target: '3.0.0' })
   })
 })

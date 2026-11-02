@@ -164,3 +164,9 @@ export const SERVER_UPDATE_CONTROL_RPCS: ReadonlySet<string> = new Set([
 export function desktopReportId(deviceId: string, version: string): string {
   return `${deviceId}:${version.replace(/[^A-Za-z0-9_-]/g, '_')}`.slice(0, 128)
 }
+
+/** Recover the device shared by versioned reports; older clients use a fixed ID. */
+export function desktopReportDevice(id: string): string {
+  const separator = id.lastIndexOf(':')
+  return separator < 0 ? id : id.slice(0, separator)
+}

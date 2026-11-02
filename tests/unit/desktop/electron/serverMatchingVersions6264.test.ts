@@ -469,6 +469,14 @@ describe('测试下载站补「钉在这一版上的清单」', () => {
 })
 
 describe('同一台电脑上两个版本的咕咕(正式版 + Beta / 开发实例)不互相覆盖(#6264 实测 d22 来回切版本)', () => {
+  it('recovers the stable device from versioned, truncated and legacy report IDs', async () => {
+    const { desktopReportDevice, desktopReportId } = await import('@gugu/core/cloud/serverMachineHealth')
+    for (const version of ['1.0.0', '3.0.0:preview', 'v'.repeat(160)]) {
+      expect(desktopReportDevice(desktopReportId('device:desktop', version))).toBe('device:desktop')
+    }
+    expect(desktopReportDevice('legacy-desktop')).toBe('legacy-desktop')
+  })
+
   it('报告标识带版本;两条都在时取最新那一版,不随上报顺序来回变', async () => {
     const { desktopReportId } = await import('@gugu/core/cloud/serverMachineHealth')
     const { pickTargetVersion } = await import('@gugu/core/cloud/serverDesktopVersions')

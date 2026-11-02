@@ -6,6 +6,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pickTargetVersion, readDesktopReports, readVersionSwitchRequest, VERSION_SWITCH_FILE } from '@gugu/core/cloud/serverDesktopVersions'
+import { desktopReportDevice } from '@gugu/core/cloud/serverMachineHealth'
 import { incomingPackage, readVersionPin, versionBinary, touchVersion, writeVersionPin, VERSION_PIN_FILE } from './server-account-versions'
 import { activityProof, accountDataDir, type ServerAccount } from './server-layout'
 import type { ServerVersionLifecycle } from './server-version-lifecycle'
@@ -117,9 +118,14 @@ export function createAccountDriver(options: {
     if (request?.confirmed && request.at !== confirmation?.request) {
       confirmation = { target: request.target ?? reported ?? current, request: request.at,
         desktopVersions: Object.fromEntries(Object.entries(reports).map(([id, report]) => [id, report.version])) }
-    } else if (confirmation && baseline && Object.entries(reports).some(([id, report]) =>
-      baseline[id] !== undefined && report.version !== baseline[id])) {
-      // A version change ends the selection. Renewals and disappearing/expired reports do not.
+    } else if (confirmation && baseline && Object.entries(reports).some(([id, report]) => {
+      if (baseline[id] !== undefined) return report.version !== baseline[id]
+      const versions = Object.entries(baseline)
+        .filter(([known]) => desktopReportDevice(known) === desktopReportDevice(id))
+        .map(([, version]) => version)
+      return versions.length > 0 && !versions.includes(report.version)
+    })) {
+      // A known device reporting a new version ends the selection; baseline renewals do not.
       if (request?.at === confirmation.request) run(account, { type: 'consumeRequest' })
       confirmation = undefined
     }

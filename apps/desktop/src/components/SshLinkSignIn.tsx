@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { serverMachineNotices } from '@gugu/core/cloud/serverMachineHealth'
+import { serverMachineNotices, serverSupportsConfirmedRestart } from '@gugu/core/cloud/serverMachineHealth'
 import { X } from '../lib/icons'
-import { retryServerVersionMatch } from '../lib/serverVersionRetry'
+import { restartServerVersionNow, retryServerVersionMatch } from '../lib/serverVersionRetry'
 import type { SshLinkFailure } from '../lib/sshLink'
 import { pickSshLinkNotice, type SshLinkNotice } from '../lib/sshLinkNotice'
 import {
@@ -34,7 +34,7 @@ import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 //  · 指纹变了 / 被拒绝 / 没登这个账号 / 没装:如实说(被拒绝 ❌ 当成太旧去升级 —— 升级只因为版本)。
 // 后台开的连接从不自己弹问(BatchMode),所以人不点就不会被突然问密码;收起之后同一台同一种原因不再出现。
 //  · 版本对不上、那台机器上有 agent 在跑(它在等空闲再换):问人「现在重启更新」,收起 = 稍后。远程隧道的机器也在这里问
-//    (它的心跳报「装好了、等空闲」+ 协议太旧),点了走设备行「重试」那条设备 RPC —— 只有人点的请求才不等空闲。
+//    (它的心跳报「装好了、等空闲」+ 协议太旧),可确认时走设备行的显式目标重启,只有人点的请求才不等空闲。
 
 export function SshLinkSignIn() {
   const { t } = useTranslation('settings')
@@ -89,10 +89,11 @@ export function SshLinkSignIn() {
     })
   }
   const dismiss = () => setDismissed((prev) => new Map(prev).set(shown.deviceId, shown.reason))
-  // 人点了「现在重启更新」又确认了:远程 SSH 的这台电脑替它当场换(--now);远程隧道 / 云电脑走设备行「重试」那条设备 RPC。只有人点的才不等空闲。
+  // Keep the SSH upgrader; restartable cloud targets use the device row's explicit confirmation.
   const restartNow = () => {
     const deviceId = shown.deviceId
     if (isSshMachine(deviceId)) void requestSshServerUpgrade(deviceId, { force: true, now: true })
+    else if (confirmableUpdate && tunnelWaiting) void restartServerVersionNow(deviceId, confirmableUpdate.version, serverSupportsConfirmedRestart(tunnelWaiting.capabilities))
     else void retryServerVersionMatch(deviceId)
     setConfirmRestart(null)
     setDismissed((prev) => new Map(prev).set(deviceId, 'waitingIdle'))
