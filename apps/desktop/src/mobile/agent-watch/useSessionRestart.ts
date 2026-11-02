@@ -6,6 +6,8 @@ import { sessionInputBubbles } from '@/lib/sessionInputOutbox'
 import { messageForUser } from '@/lib/userFacingError'
 import { machineRpc } from './sessionpage-rpc'
 
+type RestartAttempt = { key: string; afterVersion: number }
+
 /** Restart is the desktop's existing host action; only its lifecycle, never a local timer, says Starting. */
 export function useSessionRestart({ deviceId, projectId, sessionId, missing, online, local, onReady }: {
   deviceId: string; projectId: string; sessionId: string; missing: boolean; online: boolean; local: boolean
@@ -16,10 +18,11 @@ export function useSessionRestart({ deviceId, projectId, sessionId, missing, onl
   current.current = key
   const ready = useRef(onReady)
   ready.current = onReady
-  const inFlight = useRef<string | null>(null)
+  const inFlight = useRef<RestartAttempt | null>(null)
+  const observed = useRef<RestartAttempt | null>(null)
   const baseline = useRef<{ key: string; version: number } | null>(null)
   const [eligible, setEligible] = useState<string | null>(null)
-  const [attempt, setAttempt] = useState<{ key: string; afterVersion: number } | null>(null)
+  const [attempt, setAttempt] = useState<RestartAttempt | null>(null)
   const [view, setView] = useState<{ key: string; value: LifeView } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<{ key: string; message: string } | null>(null)
@@ -46,6 +49,7 @@ export function useSessionRestart({ deviceId, projectId, sessionId, missing, onl
         const next = await machineRpc(deviceId, local).sessions.lifeView(sessionId)
         if (!active) return
         if (next.version > attempt.afterVersion) {
+          observed.current = attempt
           setView({ key, value: next })
           setError(null)
           if (next.kind === 'ready') {
@@ -66,20 +70,26 @@ export function useSessionRestart({ deviceId, projectId, sessionId, missing, onl
   }, [attempt, key, deviceId, sessionId, online, local])
 
   const start = async (fresh: boolean) => {
-    if (inFlight.current === key || !online || (fresh && eligible !== key)) return
-    inFlight.current = key
+    if (inFlight.current?.key === key || !online || (fresh && eligible !== key)) return
     const afterVersion = view?.key === key ? view.value.version : baseline.current?.key === key ? baseline.current.version : 0
-    setAttempt({ key, afterVersion })
+    const request = { key, afterVersion }
+    inFlight.current = request
+    setAttempt(request)
     setBusy(key); setError(null); setView(null)
     try {
       const host = machineRpc(deviceId, local)
       if (fresh) await host.sessions.restartSession(projectId, sessionId)
       else await host.sessions.lifeStart(sessionId)
     } catch (cause) {
-      if (current.current === key) { setAttempt(null); setError({ key, message: messageForUser(cause) }) }
+      // Once the host has progressed, its lifecycle settles this attempt even if the RPC acknowledgement is lost.
+      if (current.current === key && inFlight.current === request && observed.current !== request) {
+        setAttempt(null); setError({ key, message: messageForUser(cause) })
+      }
     } finally {
-      if (inFlight.current === key) inFlight.current = null
-      if (current.current === key) setBusy(null)
+      if (inFlight.current === request) {
+        inFlight.current = null
+        if (current.current === key) setBusy(null)
+      }
     }
   }
   const life = view?.key === key ? view.value : null
