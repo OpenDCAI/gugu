@@ -14,7 +14,7 @@ import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reaso
 //    行之间没有分隔线,靠节奏与 hover 底呼吸;两条 hairline 只画在表的上下(区段边界是页面唯一欠着的线)。
 //    **整行点一下就复制**,复制图标只在 hover 时露出,复制成功就地换成 ✓ 「已复制」,❌ 飞到右上角的 toast
 //    (那条车道被顶栏动作占着,飞过去就是盖住按钮)。与侧栏身份卡同一套行,一个观感。
-//  ⚠️ 咕咕主体这套 Tailwind 的间距刻度是 xs/sm/md/lg(tailwind.config.cjs),❌ 数字刻度(px-md)在这里是哑类。
+//  间距读 tokens.css 的普通 CSS 变量；xs/sm/md/lg 不注册为 Tailwind spacing 刻度。
 //  · 咕咕号用 mono(design.md:mono 只给「你会敲进去的东西」),标签用正文字。
 //  · 脚:一个动作。有号 → 生成名片海报;没号 → 开启公开并分配咕咕号(咕咕号懒分配:只有开启「公开」时才铸),
 //    说明文字只在没号态出现一句,有号态一个字都没有。
@@ -78,8 +78,8 @@ interface ShareRow {
   mono: boolean
 }
 
-// ⚠️ 这个浮层 portal 到 body 下、在 .gugu-skin 作用域**之外**,咕咕主体那套 Tailwind 工具类在这里一个都不生效
-// (实测 pl-md 在 body 上是 0、在 .gugu-skin 里是 12px)。所以布局一律内联样式 + tokens 变量,与本仓其它
+// 这个浮层 portal 到 body 下、在 .gugu-skin 作用域之外；间距直接读普通 CSS 变量,
+// 布局用内联样式 + tokens 变量,与本仓其它
 // 锚定浮层(ReadReceiptPopover 等)同一做法;❌ 别再往这里写 className 布局。
 // 字号只有一个:--font-body(owner 2026-09-21:「文字大小不统一」)—— 标签、值、提示、标题都是它。
 const rowBase: React.CSSProperties = {
