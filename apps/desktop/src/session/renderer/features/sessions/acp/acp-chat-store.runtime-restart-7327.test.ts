@@ -21,6 +21,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { runInAction } from 'mobx';
+import type { TranscriptTurn } from '@gugu/session-core/acp';
 
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
   getAcpRuntimeClient: async () => ({}),
@@ -38,6 +39,8 @@ vi.mock('@renderer/lib/hooks/use-toast', () => ({
 type StoreModule = typeof import('./acp-chat-store');
 type StoreCtor = StoreModule['AcpChatStore'];
 type Store = InstanceType<StoreCtor>;
+const storedHistory = vi.fn(async () => ({ turns: [] as TranscriptTurn[], originTurnIds: [] as string[], nextCursor: null }));
+const turn = (id: string): TranscriptTurn => ({ id, seq: 0, initiator: 'user', items: [] }) as unknown as TranscriptTurn;
 
 // 桥必须在模块图加载之前就位(同 acp-chat-store.session-absent.test.ts 的先例与理由)。
 Object.defineProperty(document, 'fonts', {
@@ -47,7 +50,7 @@ Object.defineProperty(document, 'fonts', {
 Object.defineProperty(window, 'electronAPI', {
   configurable: true,
   value: {
-    invoke: () => Promise.resolve([]),
+    invoke: (channel: string) => channel === 'sessions.getStoredHistory' ? storedHistory() : Promise.resolve([]),
     eventSend: () => {},
     eventOn: () => () => {},
     getPathForFile: () => '',
@@ -58,11 +61,11 @@ const { AcpChatStore }: StoreModule = await import('./acp-chat-store');
 /** 一份 replica 的最小形状:`current()` + `onChange()`,能从外面推一次新值。 */
 function replica<T>(initial: T) {
   let value = initial;
-  const listeners = new Set<() => void>();
+  const listeners = new Set<(value: T) => void>();
   const goneListeners = new Set<(error: { code: string }) => void>();
   return {
     current: () => value,
-    onChange: (cb: () => void) => {
+    onChange: (cb: (value: T) => void) => {
       listeners.add(cb);
       return () => listeners.delete(cb);
     },
@@ -73,7 +76,7 @@ function replica<T>(initial: T) {
     ready: Promise.resolve(),
     push(next: T) {
       value = next;
-      for (const listener of [...listeners]) listener();
+      for (const listener of [...listeners]) listener(value);
     },
     /** 重连被拒、不会再好:新进程里没有这份实例。 */
     gone() {
@@ -147,9 +150,42 @@ function attachedStore() {
 beforeEach(() => {
   toasts.length = 0;
   custody.mockClear();
+  storedHistory.mockReset();
+  storedHistory.mockResolvedValue({ turns: [], originTurnIds: [], nextCursor: null });
 });
 
 describe('#7327 运行时进程重启过之后的聊天面', () => {
+  it('discards a running frame on Gone and reads the recovered stored history', async () => {
+    const { store, session, boot } = attachedStore();
+    store.chatState.transcript.activeTurn.set(turn('stale-frame'));
+    store.chatState.session.setGenerating(true);
+    storedHistory.mockResolvedValue({ turns: [turn('recovered')], originTurnIds: [], nextCursor: null });
+    expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe('stale-frame');
+    expect(store.chatState.session.state.generating).toBe(true);
+
+    session.sessionState.gone();
+
+    expect(store.session).toBeNull();
+    expect(store.chatState.transcript.state.activeTurnSnapshot).toBeNull();
+    expect(store.chatState.session.state.generating).toBe(false);
+    await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns.map((item) => item.id)).toEqual(['recovered']));
+    expect(storedHistory).toHaveBeenCalledTimes(1);
+    expect(boot).not.toHaveBeenCalled();
+    store.dispose();
+  });
+
+  it('keeps normal Closed handling separate from Gone recovery', () => {
+    const { store, session } = attachedStore();
+    store.chatState.transcript.activeTurn.set(turn('retained-frame'));
+
+    session.sessionState.push({ ...readyState, lifecycle: 'closed' });
+
+    expect(store.session).toBeNull();
+    expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe('retained-frame');
+    expect(storedHistory).not.toHaveBeenCalled();
+    store.dispose();
+  });
+
   it('状态副本说「没了」:session 置空、界面订阅摘掉,记录留着,不当场重起', () => {
     const { store, session, disposed, boot } = attachedStore();
     // 阳性对照:被测场景成立 —— 句柄在、订阅挂着。
