@@ -6,6 +6,7 @@ import { DevicesSection } from '@/components/settings/DevicesSection'
 import { ToastContext } from '@/components/toastContext'
 import { DevicesContext, type DevicesContextValue } from '@/store/devicesContext'
 import type { Device } from '@gugu/core/shared/types/chat'
+import { setLocalePreference } from '@/i18n'
 
 const retry = vi.hoisted(() => vi.fn(async (_deviceId: string) => true))
 const restart = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string, _confirmedRpc: boolean) => true))
@@ -68,6 +69,30 @@ describe('confirmed server update feedback', () => {
     await render(server({ state: 'ready', version: target, scope: undefined }))
     expect(node('update-now')).toBeNull()
     expect(restart).not.toHaveBeenCalled()
+  })
+
+  it.each(['zh-CN', 'en-US'] as const)('explains the ready supervisor in %s when the account is already current', async (locale) => {
+    setLocalePreference(locale)
+    const version = '0.3.1-beta.1128'
+    for (const count of [1, 12, 0, undefined]) {
+      await render(server({ state: 'ready', version, scope: 'supervisor', busy_agents: count }, version))
+      const expected = locale === 'zh-CN'
+        ? `服务进程 ${version} 已就绪，空闲后自动切换`
+        : `Service process ${version} is ready; switches automatically when idle`
+      expect(node('update')!.textContent).toBe(expected)
+      expect(node('update')!.title).toBe(expected)
+      expect(node('update')!.hasAttribute('data-tone')).toBe(false)
+      expect(node('update-now')).toBeNull()
+    }
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it.each(['account', undefined] as const)('preserves ready feedback for scope %s', async (scope) => {
+    await render(server({ state: 'ready', version: target, scope, busy_agents: 2 }))
+    expect(node('update')!.textContent).toBe('新版本已就绪，2 个任务在运行')
+    expect(node('update')!.dataset.tone).toBe('accent')
+    expect(node('update')!.title).toContain('现在重启更新')
+    expect(Boolean(node('update-now'))).toBe(scope === 'account')
   })
 
   it('confirms once, keeps Restarting after the RPC ack, and finishes on the new version heartbeat', async () => {

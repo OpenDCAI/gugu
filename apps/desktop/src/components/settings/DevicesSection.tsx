@@ -509,6 +509,11 @@ function DeviceRow({
       ? t(model.kind === 'server' ? 'devices.serverVersion' : 'devices.appVersion', { version: model.version })
       : t('devices.versionUnknown')
   const acceptsWork = deviceAcceptsWork(device)
+  const supervisorReady = model.update?.scope === 'supervisor' && model.update.state === 'ready'
+  const hasBusyTasks = typeof model.update?.busy_agents === 'number' && model.update.busy_agents > 0
+  const readyText = supervisorReady
+    ? t('devices.update.supervisorReady', { version: model.update?.version })
+    : t(hasBusyTasks ? 'devices.update.readyCount' : 'devices.update.ready', { count: model.update?.busy_agents })
 
   return (
     <div
@@ -528,12 +533,12 @@ function DeviceRow({
             {restarting && <Chip tone="accent" data-testid="settings-device-restarting">{t('devices.update.restarting')}</Chip>}
             {!restarting && model.update && model.update.state !== 'failed' && (
               <Chip
-                tone={model.update.state === 'ready' ? 'accent' : 'default'}
-                title={t(model.update.state === 'ready' ? 'devices.update.readyHint' : 'devices.update.downloadingHint', { version: model.update.version })}
+                tone={model.update.state === 'ready' && !supervisorReady ? 'accent' : 'default'}
+                title={supervisorReady ? readyText : t(model.update.state === 'ready' ? 'devices.update.readyHint' : 'devices.update.downloadingHint', { version: model.update.version })}
                 data-testid="settings-device-update"
               >
                 {model.update.state === 'ready'
-                  ? t(typeof model.update.busy_agents === 'number' && model.update.busy_agents > 0 ? 'devices.update.readyCount' : 'devices.update.ready', { count: model.update.busy_agents })
+                  ? readyText
                   : t('devices.update.downloading', { version: model.update.version })}
               </Chip>
             )}

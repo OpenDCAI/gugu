@@ -789,6 +789,7 @@ export default {
       "ready": "New version ready",
       "readyCount_one": "New version ready, {{count}} task running",
       "readyCount_other": "New version ready, {{count}} tasks running",
+      "supervisorReady": "Service process {{version}} is ready; switches automatically when idle",
       "readyHint": "{{version}} downloaded. It will not restart on its own so no task is interrupted; choose Restart and update now to switch.",
       "updateNow": "Restart and update now",
       "updateNowConfirm": "Restart Gugu on {{name}} now? Tasks running there will be interrupted.",
