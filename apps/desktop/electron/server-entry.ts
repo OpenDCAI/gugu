@@ -212,13 +212,13 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       })
       if (owner === 'controller' && directory) {
         if (args.includes('--activate')) {
-          const { activateServerPackage, ServerPackageBusyError } = await import('./server/server-version-lifecycle')
+          const { activateServerPackage, ServerPackageDeferredError } = await import('./server/server-version-lifecycle')
           const { spawnUpgradeGuard } = await import('./server/server-upgrade-guard')
           try {
             await activateServerPackage(serverHome, directory, { migrateFrom: argument('--migrate-from'),
               beforeSwitch: () => { if (!spawnUpgradeGuard(serverHome)) throw new Error('Cannot start the upgrade rollback watchdog') } })
           } catch (error) {
-            if (error instanceof ServerPackageBusyError) { stderr(error.message); return process.exit(75) }
+            if (error instanceof ServerPackageDeferredError) { stderr(error.message); return process.exit(75) }
             throw error
           }
         } else {

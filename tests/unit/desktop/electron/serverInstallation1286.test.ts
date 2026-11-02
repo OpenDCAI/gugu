@@ -130,6 +130,25 @@ describe('installation backend and package ownership', () => {
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(original)
   })
 
+  it('keeps a rolled-back package blocked across controller wakes and permits a different release', async () => {
+    const original = candidate('1.0.0'), rejected = candidate('2.0.0'), next = candidate('3.0.0')
+    fs.symlinkSync(original, path.join(home, 'current'))
+    prepareInstallation(home, identity(), { updateOwner: 'controller' })
+    const verifyBoot = vi.fn(async () => {}), beforeSwitch = vi.fn()
+    const options = { verifyBoot, beforeSwitch, isBusy: () => false }
+    await activateServerPackage(home, rejected, options)
+    expect(await rollbackUpgrade(home, readUpgradeMarker(home)!, { now: () => 123, lockHolder: () => null, kill: vi.fn(), isAlive: () => false,
+      sleep: async () => {}, restartsAutomatically: () => true, startKeeper: vi.fn(), log: vi.fn() })).toBe(true)
+    await expect(activateServerPackage(home, rejected, options)).rejects.toThrow('previously failed')
+    expect(verifyBoot).toHaveBeenCalledOnce()
+    expect(beforeSwitch).toHaveBeenCalledOnce()
+    expect(readUpgradeMarker(home)).toBeNull()
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(original)
+    await activateServerPackage(home, next, options)
+    expect(beforeSwitch).toHaveBeenCalledTimes(2)
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(next)
+  })
+
   it('rejects a runtime backend override before account startup', () => {
     expect(() => assertRuntimeBackend(identity(), B)).toThrow('another backend')
     expect(() => assertRuntimeBackend(identity(), `${A}/`)).not.toThrow()
