@@ -20,6 +20,7 @@ import {
 const log = createLogger('assistant-server-home')
 const binding = z.object({ ownerUserId: z.uuid(), deviceId: z.uuid() }).strict()
 const operation = binding.extend({ operationId: z.uuid() })
+const cancellation = operation.extend({ state: z.object({ operationId: z.uuid(), phase: z.literal('cancelled'), installationStarted: z.boolean(), cancellable: z.literal(false) }) })
 const start = operation.extend({ ownerProfile: z.string().max(8000) })
 const wipe = binding.extend({ assistantId: z.uuid() })
 let deviceId: (() => Promise<string | null>) | null = null
@@ -57,6 +58,7 @@ function preparation() {
   if (service) return service
   const directory = join(resolveGuguHome(), 'assistant-setup')
   const journal = join(directory, 'server-preparation.json')
+  const cancelledDirectory = join(directory, 'cancelled')
   return service = createAssistantServerPreparation({
     read: async () => {
       try { return JSON.parse(await readFile(journal, 'utf8')) as ServerPreparationRecord }
@@ -67,6 +69,20 @@ function preparation() {
       const temporary = `${journal}.${process.pid}.tmp`
       await writeFile(temporary, JSON.stringify(record), { mode: 0o600 })
       await rename(temporary, journal)
+    },
+    readCancellation: async input => {
+      try {
+        const record = cancellation.parse(JSON.parse(await readFile(join(cancelledDirectory, `${input.operationId}.json`), 'utf8')))
+        if (record.ownerUserId !== input.ownerUserId || record.deviceId !== input.deviceId || record.operationId !== input.operationId || record.state.operationId !== input.operationId) fail('input_mismatch')
+        return record.state
+      } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error }
+    },
+    writeCancellation: async (input, state) => {
+      await mkdir(cancelledDirectory, { recursive: true })
+      const file = join(cancelledDirectory, `${input.operationId}.json`)
+      const temporary = `${file}.${process.pid}.tmp`
+      await writeFile(temporary, JSON.stringify({ ownerUserId: input.ownerUserId, deviceId: input.deviceId, operationId: input.operationId, state }), { mode: 0o600 })
+      await rename(temporary, file)
     },
     validate,
     retired: async input => {

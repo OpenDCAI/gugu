@@ -2,6 +2,8 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import type { ProvisionResumeRecord } from '../../../../apps/desktop/src/lib/agentProvision'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
+import { createAssistantServerPreparation } from '../../../../apps/desktop/electron/assistant-server-preparation'
+import type { AssistantServerPreparation } from '../../../../apps/desktop/src/lib/assistantServerSetupTypes'
 
 const mocks = vi.hoisted(() => ({
   owner: 'owner', online: true, stored: [] as ProvisionResumeRecord[],
@@ -87,6 +89,26 @@ it('cancels a failed preparation on back without restarting the installer', asyn
   expect(mocks.start).toHaveBeenCalledOnce()
   expect(mocks.cancel).toHaveBeenCalledOnce()
   expect(pendingServerAssistant('owner')).toBeNull()
+})
+it('releases the renderer record after cancelling a start that never reached the target, and fences its late arrival', async () => {
+  const cancellations = new Map<string, AssistantServerPreparation>()
+  const prepare = vi.fn()
+  const service = createAssistantServerPreparation({
+    read: async () => null, write: vi.fn(), validate: vi.fn(), retired: async () => false,
+    readCancellation: async input => cancellations.get(input.operationId) ?? null,
+    writeCancellation: async (input, state) => { cancellations.set(input.operationId, state) },
+    prepare, cleanup: vi.fn(), wipe: vi.fn(), install: vi.fn(), log: vi.fn(),
+  })
+  mocks.start.mockRejectedValueOnce(new Error('transport closed before delivery'))
+  mocks.cancel.mockImplementation(async input => ok(await service.cancel(input)))
+  await expect(setUpAssistantOnServer(draft, 'server')).rejects.toMatchObject({ code: 'target_unreachable' })
+  const delayed = mocks.start.mock.calls[0]![0]
+  expect(pendingServerAssistant('owner')?.preparationStarted).toBe(true)
+  const abort = new AbortController(); abort.abort()
+  await expect(resumeServerAssistant({ signal: abort.signal })).rejects.toMatchObject({ name: 'AbortError' })
+  expect(pendingServerAssistant('owner')).toBeNull()
+  expect(await service.start(delayed)).toMatchObject({ phase: 'cancelled' })
+  expect(prepare).not.toHaveBeenCalled()
 })
 it('does not silently replace a missing platform model with the target subscription', async () => {
   mocks.models.mockResolvedValueOnce({ models: [{ id: 'subscription', source: 'harness' }], selected: 'subscription', selectedCredential: 'credentialed' })
