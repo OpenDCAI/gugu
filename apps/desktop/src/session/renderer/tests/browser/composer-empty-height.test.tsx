@@ -50,7 +50,7 @@ describe('the session composer\'s box', () => {
             <ChatComposer hasBandAbove onSubmit={() => {}} />
           </ComposerTray>
         </div>
-        <ChatComposer permissionRequest={{ requestId: 'band-geometry', title: 'Read', options: [] }} onSubmit={() => {}} />
+        <ChatComposer permissionRequest={{ requestId: 'band-geometry', title: 'Read', options: [] }} onResolvePermission={() => {}} onSubmit={() => {}} />
       </SessionLocalizationProvider>
     )
     const fixture = () => container!.querySelector<HTMLElement>('[data-testid="tray-composer"]')!
