@@ -123,7 +123,10 @@ if (process.argv[2] === 'run' && process.execArgv.some((arg, i) => arg === '--re
   try {
     release = acquireHomeLock(home)
     if (!release) {
-      process.stderr.write('[server] Installation lock is held; refusing a duplicate start.\n')
+      const empty = fs.readFileSync(file(home, 'server.lock'), 'utf8').trim() === ''
+      process.stderr.write(empty
+        ? '[server] Installation lock file is empty. Confirm that no server is running, then remove data/server.lock and start again.\n'
+        : '[server] Installation lock is held; refusing a duplicate start.\n')
       process.exit(78)
     }
     process.on('exit', release)

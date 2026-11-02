@@ -123,4 +123,15 @@ describe('the packaged launcher verifies before loading application code', () =>
     expect(fs.readFileSync(data(evidence), 'utf8')).toBe('{damaged')
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/2.0.0'))
   })
+
+  it('explains safe recovery from an empty lock without counting or loading the body', () => {
+    pending()
+    fs.writeFileSync(data('server.lock'), '')
+    fs.writeFileSync(app(), "process.stdout.write('body must not run')")
+    const result = run()
+    expect(result.status, result.stderr).toBe(78)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('Confirm that no server is running, then remove data/server.lock')
+    expect(read('pending-verify.json').attempts).toBe(0)
+  })
 })
