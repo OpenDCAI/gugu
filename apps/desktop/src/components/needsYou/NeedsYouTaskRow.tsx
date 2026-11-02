@@ -8,6 +8,7 @@ import { observer } from 'mobx-react-lite'
 import { Avatar } from '../Avatar'
 import { AgentContactStatusMark } from '../AgentContactStatusMark'
 import { ListRow } from '../ui/ListRow'
+import { PhoneMessageAvatar } from '@/mobile/chat/PhoneMessageAvatar'
 import type { NeedsYouTask } from './useNeedsYouTasks'
 
 /** Attention tasks retain their canonical status without restoring standalone tasks to Chats. */
@@ -31,11 +32,12 @@ export const NeedsYouTaskRow = observer(function NeedsYouTaskRow({ task, onClick
     aria-selected={false}
     onClick={onClick}
     onKeyDown={onKeyDown}
-    leading={<Avatar name={name} avatarUrl={agent?.avatar ?? null} seed={agentId} size="sm" isAgent />}
+    leading={<PhoneMessageAvatar badge={presentation && <span className="inline-flex" role="img" aria-label={agentStatusText(presentation.label)}><AgentContactStatusMark tone={displayStatusOf(presentation.tone)} /></span>}>
+      <Avatar name={name} avatarUrl={agent?.avatar ?? null} seed={agentId} size={48} isAgent harnessBadge={false} />
+    </PhoneMessageAvatar>}
     title={name}
     accessory={<Zap size={11} className="shrink-0 text-[var(--agent-bolt)]" />}
     meta={Number.isFinite(time) ? formatCalendarDay(new Date(time).toISOString()) : undefined}
     subtitle={session.title}
-    trailing={presentation && <span className="inline-flex" role="img" aria-label={agentStatusText(presentation.label)}><AgentContactStatusMark tone={displayStatusOf(presentation.tone)} /></span>}
   />
 })

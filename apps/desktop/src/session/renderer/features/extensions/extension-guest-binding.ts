@@ -43,7 +43,7 @@ export class ExtensionGuestBinding {
       }
       const reply = await (previous ? this.dispatch.retarget : this.dispatch.bind)(guest.webContentsId, target);
       if (this.guest !== guest) return null;
-      if (reply.success) guest.target = { tabId: target.tabId, workspace: target.workspace, conversation: target.conversation, itemId: target.itemId };
+      if (reply.success) guest.target = { tabId: target.tabId, workspace: target.workspace, conversation: target.conversation, itemId: target.itemId, widget: target.widget };
       return { ...reply, webContentsId: guest.webContentsId };
     });
     guest.tail = work.catch(() => undefined);

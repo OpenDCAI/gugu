@@ -220,6 +220,8 @@ it('shows a failed phone task as an error and opens its source without an approv
   expect([...row.querySelectorAll('[role="img"]')].map(mark => mark.getAttribute('aria-label'))).toContain(agentStatusText('error'))
   expect(row.querySelector('[data-agent-status-glyph="needs_user"]')).toBeNull()
   expect(row.querySelector('.gg-c-st-dot-mark')?.className).toContain('--agent-tone-error')
+  expect(row.querySelector('.gg-phone-message-avatar-badge .gg-c-st-dot-mark')).not.toBeNull()
+  expect(row.querySelector('.gg-list-row-trailing')).toBeNull()
   await act(async () => row.click())
   expect(followLink).toHaveBeenCalledWith({ kind: 'session', sessionId: 'failed' })
   expect(respond).not.toHaveBeenCalled()

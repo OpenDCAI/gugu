@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { addShape, boundsOf, boxBetween, commit, cropDocument, deleteShape, editShape, hitTest, inside, newHistory, redo, transformShape, undo, type AnnotateColor, type AnnotateDocument, type AnnotateTool, type Box, type Point, type Shape } from './annotateModel'
 
 type View = { zoom: number; x: number; y: number }
@@ -14,8 +14,11 @@ const centerOf = (a: Point, b: Point) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) /
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
 const editable = (target: EventTarget | null) => target instanceof HTMLElement && !!target.closest('input,textarea,[contenteditable="true"]')
 const toolKeys: Record<string, AnnotateTool> = { r: 'rect', a: 'arrow', n: 'marker', p: 'pen', t: 'text', m: 'mosaic', c: 'crop' }
+const fitFor = (viewport: { width: number; height: number }, image: Pick<Box, 'width' | 'height'>) =>
+  Math.max(.001, Math.min(1, (viewport.width - 32) / image.width, (viewport.height - 32) / image.height))
 
-export function useAnnotateCanvas(initial: AnnotateDocument) {
+export function useAnnotateCanvas(initial: AnnotateDocument, imageBounds?: () => DOMRectReadOnly | undefined) {
+  const { width: initialWidth, height: initialHeight } = initial.crop
   const [history, setHistory] = useState(() => newHistory(initial))
   const [draft, setDraft] = useState<AnnotateDocument | null>(null)
   const [cropDraft, setCropDraft] = useState<Box>()
@@ -31,7 +34,7 @@ export function useAnnotateCanvas(initial: AnnotateDocument) {
   const gesture = useRef<Gesture | null>(null), pointers = useRef(new Map<number, Point>()), space = useRef(false)
   const working = useRef<AnnotateDocument | null>(null)
   const doc = draft ?? history.present
-  const fit = Math.max(.001, Math.min(1, (viewport.width - 32) / doc.crop.width, (viewport.height - 32) / doc.crop.height))
+  const fit = fitFor(viewport, doc.crop)
   const scale = fit * view.zoom
   const show = (next: AnnotateDocument) => { working.current = next; setDraft(next) }
   const save = (next: AnnotateDocument) => {
@@ -60,14 +63,23 @@ export function useAnnotateCanvas(initial: AnnotateDocument) {
   const redoEdit = () => { finishTextEdit(); resetGesture(); setHistory(redo) }
   const chooseTool = (next: AnnotateTool) => { finishTextEdit(); setSelected(null); setTool(next) }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = stage.current
     if (!element) return
     const resize = () => setViewport({ width: element.clientWidth, height: element.clientHeight })
     const observer = new ResizeObserver(resize)
     observer.observe(element); resize()
+    const bounds = imageBounds?.()
+    if (bounds) {
+      const rect = element.getBoundingClientRect()
+      setView({
+        zoom: bounds.width / initialWidth / fitFor({ width: element.clientWidth, height: element.clientHeight }, { width: initialWidth, height: initialHeight }),
+        x: bounds.left + bounds.width / 2 - rect.left - element.clientWidth / 2,
+        y: bounds.top + bounds.height / 2 - rect.top - element.clientHeight / 2,
+      })
+    }
     return () => observer.disconnect()
-  }, [])
+  }, [imageBounds, initialWidth, initialHeight])
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase(), mod = event.metaKey || event.ctrlKey

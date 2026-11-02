@@ -5,6 +5,7 @@ import type { ChatLayoutPreset } from '@session-chat/core/layout/preset'
 import type { TranscriptTurn } from '@session-chat/model'
 import { createChatState } from '@session-chat/state/chat-state'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { page } from 'vitest/browser'
 import { until } from '../../../../tests/support/awaitCondition'
 
 /**
@@ -131,13 +132,36 @@ describe('session start with a first message', () => {
   it('a queued first message says Starting, stays through a history seed, and keeps its clock', async () => {
     const { state, host } = mount('double', { agentConversation: true })
     const sentAt = Date.now() - 3000
-    state.session.setPendingPrompt({ id: 'row', text: FIRST, sentAt, starting: true, held: true })
+    state.session.setPendingPrompt({ id: 'row', text: FIRST, sentAt, starting: 'starting', held: true })
     await until('the state line says Starting with seconds', () => /Starting · [3-9]s/.test(host.textContent ?? ''))
 
     state.transcript.history.seed([])
     await until('a later render', () => state.session.state.pendingPrompt?.id === 'row')
     expect(state.session.state.pendingPrompt, 'a seed is not its turn').toMatchObject({ id: 'row', held: true })
     expect(host.textContent).toContain(FIRST)
+  })
+
+  it.each([false, true])('restoring an existing session reuses its one process line (conversation: %s)', async (agentConversation) => {
+    await page.viewport(800, 650)
+    const { state, host } = mount('double', { agentConversation })
+    const sentAt = Date.now() - 3000
+    state.session.setPendingPrompt({ id: 'restoring-row', text: FIRST, sentAt, starting: 'restoring', held: true })
+    await until('the message and its restoring label', () =>
+      host.textContent?.includes(FIRST) === true && host.textContent.includes('Restoring')
+    )
+    expect(host.querySelectorAll('[data-user-card]')).toHaveLength(1)
+    expect(host.querySelectorAll('[data-slot="turn-process"]')).toHaveLength(1)
+    const message = host.querySelector<HTMLElement>('[data-user-card]')!.getBoundingClientRect()
+    expect(message.right).toBeLessThanOrEqual(window.innerWidth)
+    expect(message.bottom).toBeLessThanOrEqual(window.innerHeight)
+    expect(host.textContent).not.toMatch(/Sending|Starting|Thinking/)
+
+    state.session.setPendingPrompt({ id: 'restoring-row', text: FIRST, sentAt, held: true })
+    await until('the existing line returns to processing', () =>
+      !host.textContent?.includes('Restoring') && host.textContent?.includes('Thinking') === true
+    )
+    expect(host.querySelectorAll('[data-slot="turn-process"]')).toHaveLength(1)
+    expect(host.querySelectorAll('[data-user-card]')).toHaveLength(1)
   })
 
   it('a required sign-in shows under the held first message, which no longer runs', async () => {

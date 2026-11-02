@@ -33,6 +33,40 @@ beforeEach(() => { resetAgentInboxReaderStateForTests(); vi.useFakeTimers() })
 afterEach(() => { resetAgentInboxReaderStateForTests(); vi.useRealTimers() })
 
 describe('inbox recovery without another incoming message', () => {
+  it.each(['SQLITE_BUSY', 'SQLITE_BUSY_SNAPSHOT', 'SQLITE_BUSY_TIMEOUT', 'SQLITE_LOCKED'])(
+    'retries %s without a failed receipt, read acknowledgement or source-chat disclosure', async code => {
+      const { deps, inject, postDisclosure } = inbox()
+      const cause = Object.assign(new Error('database is locked'), { code })
+      const error = new Error('admission transaction failed', { cause })
+      inject.mockRejectedValueOnce(error)
+      deps.recordFailure = vi.fn(async () => {})
+      await expect(pullAgentInbox(AGENT, deps)).rejects.toBe(error)
+      expect(deps.recordFailure).not.toHaveBeenCalled()
+      expect(postDisclosure).not.toHaveBeenCalled()
+      expect(deps.markRead).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(inject).toHaveBeenCalledTimes(2)
+      expect(inject.mock.calls.map(([input]) => input.sourceMessageId)).toEqual([MESSAGE, MESSAGE])
+      expect(deps.markRead).toHaveBeenCalledTimes(1)
+      expect(postDisclosure).not.toHaveBeenCalled()
+    },
+  )
+
+  it('does not report a transient storage error from an already admitted completion or resend its input', async () => {
+    const { deps, inject, postDisclosure } = inbox()
+    let fail!: (error: Error) => void
+    inject.mockResolvedValueOnce({ verdict: 'accepted', completion: new Promise<void>((_, reject) => { fail = reject }) })
+    const result = await pullAgentInbox(AGENT, deps)
+    const error = Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' })
+    const completion = expect(result.completion).rejects.toBe(error)
+    fail(error)
+    await completion
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(postDisclosure).not.toHaveBeenCalled()
+    expect(inject).toHaveBeenCalledTimes(1)
+    expect(deps.markRead).toHaveBeenCalledTimes(1)
+  })
+
   it('immediately admits image text and its folder link after one download failure, without a disclosure or second download', async () => {
     const { deps, inject, postDisclosure } = inbox({
       content: '[附件] screen.png (image/png)\n[Size] 3\n[Kind] image\n[Caption]\nPlease explain the screenshot',
