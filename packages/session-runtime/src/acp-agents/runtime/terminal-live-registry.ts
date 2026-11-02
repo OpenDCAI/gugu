@@ -154,6 +154,7 @@ export class TerminalLiveRegistry {
     if (!session) return [];
     const snapshots = [...session.values()].map((record) => {
       if (wire === 'legacy') return record.legacySnapshot ??= { ...record.state,
+        outputBytes: record.output.bytes,
         output: record.output.text(LEGACY_TERMINAL_OUTPUT_BYTE_LIMIT),
         truncated: record.state.truncated || record.output.retainedBytes > LEGACY_TERMINAL_OUTPUT_BYTE_LIMIT,
       };
