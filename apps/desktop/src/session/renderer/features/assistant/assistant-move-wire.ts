@@ -393,8 +393,14 @@ export function buildMoveDeps(
 
 /** 让新家上的助理从头读一遍刚拷来的说明与记忆:停掉运行时,再标回在线,下一条消息会重新起它。 */
 async function restartAssistant(assistantId: string): Promise<void> {
-  await contactsService.setAgentDesiredStatus(assistantId, 'offline');
-  await contactsService.setAgentDesiredStatus(assistantId, 'online');
+  try {
+    await contactsService.setAgentDesiredStatus(assistantId, 'offline');
+  } finally {
+    // Even a failed offline response may have committed. Always attempt to restore online intent.
+    await contactsService.setAgentDesiredStatus(assistantId, 'online');
+  }
+  const identity = (await readDisplayIdentities([assistantId]))[0];
+  if (identity?.desired_status !== 'online') throw new Error('The assistant online intent has not been confirmed');
 }
 
 /** 确认框要的:会拷多少、会带走哪些账号(只有名字)、哪些要在新家重新连。只读,不动任何东西。 */

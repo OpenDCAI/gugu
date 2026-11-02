@@ -361,26 +361,36 @@ describe('助理搬家编排 (#7199)', () => {
     expect(events).not.toContain('adopt');
   });
 
-  it('重启没成不算搬家失败,记一笔 warning;之后账号照常剪切', async () => {
+  it.each(['to-cloud', 'to-computer'] as const)('restart online failure retains recovery and source credentials (%s)', async (direction) => {
     const events: string[] = [];
     const local = localSide(events, {
       files: { '/gh/assistant': 'dir', '/gh/assistant/.claude': 'dir' },
       accounts: [{ integrationId: 'notion', accountId: 'default', credentials: { t: 1 } }],
     });
-    const report = await runMove(
-      baseDeps(
+    const target = cloudSide(events);
+    let desired = 'online';
+    const deps = baseDeps(
         {
-          direction: 'to-cloud',
+          direction,
           source: local,
-          openTarget: async () => cloudSide(events),
+          openTarget: async () => target,
           restart: async () => {
-            throw new Error('device busy');
+            desired = 'offline';
+            throw new Error('online request lost');
           },
         },
         events
-      )
-    );
-    expect(report.warnings).toEqual(['restart: device busy']);
+      );
+    await expect(runMove(deps)).rejects.toMatchObject({ step: 'restart', sourceIntact: false });
+    expect(desired).toBe('offline');
+    expect(deps.journal.load()?.done).toContain('schedules');
+    expect(deps.journal.load()?.done).not.toContain('restart');
+    expect(local.stored).toHaveLength(1);
+    deps.isAdopted = async () => true;
+    deps.restart = async () => { desired = 'online'; };
+    await runMove(deps);
+    expect(desired).toBe('online');
+    expect(deps.journal.load()).toBeNull();
     expect(local.stored).toEqual([]);
   });
 

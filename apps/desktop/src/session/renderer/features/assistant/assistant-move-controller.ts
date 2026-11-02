@@ -23,6 +23,7 @@ export type MoveFailureReason =
   | 'too_large'
   | 'file_too_large'
   | 'unreadable'
+  | 'restart'
   | 'generic';
 
 export type MovePhase =
@@ -69,6 +70,7 @@ export function moveBusy(): boolean {
 }
 
 export function failureReason(error: unknown): MoveFailureReason {
+  if (error instanceof MoveError && error.step === 'restart') return 'restart';
   const cause = error instanceof MoveError ? error.cause : error;
   if (cause instanceof MoveCopyError) {
     return cause.code === 'file_too_large' ? 'file_too_large' : cause.code === 'too_large' ? 'too_large' : cause.code === 'unreadable' ? 'unreadable' : 'generic';

@@ -359,14 +359,10 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
   }
   finish('schedules');
 
-  // 4. 重启:让新家上的助理从头读一遍刚拷来的记忆与说明。失败不算搬家失败(下次醒来也会读到),如实记一笔。
+  // Restart changes desired status: failure can leave the target offline. Keep recovery and source credentials until confirmed.
   progress('restart');
-  try {
-    await deps.restart();
-    finish('restart');
-  } catch (cause) {
-    report.warnings.push(`restart: ${cause instanceof Error ? cause.message : String(cause)}`);
-  }
+  await guard('restart', deps.restart);
+  finish('restart');
 
   // 5. 剪切:新家核对过的账号,把旧家那一份撤掉(owner:有账号的服务只存一份)。撤不掉的如实记下,不当成搬家失败。
   progress('revoke');

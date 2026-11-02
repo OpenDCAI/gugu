@@ -234,6 +234,7 @@ export default {
     "failedIntact": "{{name}} is still in its old home. Nothing changed.",
     "failedResume": "What already moved won't be redone; you can carry on.",
     "failedReason": {
+      "restart": "The assistant may still be offline. Once the connection recovers, choose Resume move to confirm it is back online.",
       "plan_required": "Moving to the cloud needs a membership.",
       "credits_exhausted": "Out of credits, so a cloud home can't be opened right now.",
       "already_exists": "The cloud still has a previous home; moving straight into it isn't supported yet.",

@@ -234,6 +234,7 @@ export default {
     "failedIntact": "{{name}}还在原来的家里，什么都没变。",
     "failedResume": "已经搬过去的不会重来，可以接着搬。",
     "failedReason": {
+      "restart": "还没确认助理恢复在线，可能暂时无法回复。网络恢复后点「接着搬」，重新确认在线。",
       "plan_required": "搬到云上要开通会员。",
       "credits_exhausted": "积分用完了，云上暂时开不了家。",
       "already_exists": "云上还留着上一个家，现在还不能直接搬上去。",
