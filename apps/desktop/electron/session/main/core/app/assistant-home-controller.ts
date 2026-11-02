@@ -6,7 +6,7 @@ import { userIdFromSupabaseAccessToken } from '@gugu/core/cloud/runtimeAuthProvi
 import { resolveGuguHome } from '@gugu/core/local/state/paths'
 import { platformModelsEnabled } from '@gugu/core/cloud/optionalServices'
 import { ASSISTANT_DEFAULT_MODEL } from '@gugu/core/shared/assistantPolicy'
-import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
+import { ASSISTANT_PROVISION_SELECT, pickAssistant, provisionIdentityRemovedAt, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
 import { createRPCController } from '@shared/lib/ipc/rpc'
 import { currentAccountAccessToken } from '../extensions/account-token'
 import { createLogger } from '../../../../lib/logger'
@@ -25,6 +25,10 @@ const wipe = binding.extend({ assistantId: z.uuid() })
 let deviceId: (() => Promise<string | null>) | null = null
 export function setAssistantHomeDeviceResolver(resolver: () => Promise<string | null>): void { deviceId = resolver }
 const fail = (code: Parameters<typeof assistantServerFailure>[0]): never => { throw new AssistantServerSetupError(assistantServerFailure(code)) }
+type CloseProvision = Pick<AssistantProvisionRow, 'agent_user_id' | 'agent'> & { provisioned_agent_user_id: string | null }
+const retiredProvision = (row: CloseProvision) => !!row.provisioned_agent_user_id &&
+  (row.agent_user_id === null || typeof provisionIdentityRemovedAt(row) === 'string')
+const closeSelect = `${ASSISTANT_PROVISION_SELECT},provisioned_agent_user_id,operation_id`
 
 async function account(input: AssistantServerBinding) {
   const token = await currentAccountAccessToken()
@@ -40,7 +44,7 @@ async function account(input: AssistantServerBinding) {
 async function validate(input: AssistantServerBinding, starting: boolean) {
   const { client } = await account(input)
   if (!starting) return
-  const { data, error } = await client.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+  const { data, error } = await client.from('agent_provisions').select(ASSISTANT_PROVISION_SELECT)
     .eq('owner_user_id', input.ownerUserId).eq('member_key', 'assistant')
   if (error) throw error
   if (pickAssistant((data ?? []) as AssistantProvisionRow[])) fail('assistant_exists')
@@ -67,11 +71,11 @@ function preparation() {
     validate,
     retired: async input => {
       const { client } = await account(input)
-      const { data, error } = await client.from('agent_provisions').select('agent_user_id,provisioned_agent_user_id')
+      const { data, error } = await client.from('agent_provisions').select(closeSelect)
         .eq('owner_user_id', input.ownerUserId).eq('device_id', input.deviceId)
         .eq('operation_id', input.operationId).eq('member_key', 'assistant')
       if (error) throw error
-      return !!data?.length && data.every(row => row.agent_user_id === null && !!row.provisioned_agent_user_id)
+      return !!data?.length && data.every(retiredProvision)
     },
     prepare: async (id, signal) => (await import('../../../../assistant-runtime-prepare')).prepareAssistantRuntime(id, signal),
     cleanup: async (id, keepRuntime) => (await import('../../../../assistant-runtime-prepare')).cleanupAssistantRuntimePreparation(id, keepRuntime),
@@ -95,12 +99,12 @@ export const assistantHomeController = createRPCController({
   checkClose: (input: z.infer<typeof wipe>) => reply(async () => {
     const parsed = wipe.parse(input)
     const { client } = await account(parsed)
-    const { data, error } = await client.from('agent_provisions').select('agent_user_id,provisioned_agent_user_id,operation_id')
+    const { data, error } = await client.from('agent_provisions').select(closeSelect)
       .eq('owner_user_id', parsed.ownerUserId).eq('device_id', parsed.deviceId).eq('member_key', 'assistant')
     if (error) throw error
     const matched = data?.find(row => row.provisioned_agent_user_id === parsed.assistantId)
     if (!matched) return fail('target_not_owned')
-    if (data.some(row => row.agent_user_id && row.agent_user_id !== parsed.assistantId)) return fail('assistant_exists')
+    if (data.some(row => row.agent_user_id && row.agent_user_id !== parsed.assistantId && !retiredProvision(row))) return fail('assistant_exists')
     await preparation().assertProvision(matched.operation_id)
     return { ready: true as const }
   }),
@@ -115,15 +119,15 @@ export const assistantHomeController = createRPCController({
   wipe: (input: z.infer<typeof wipe>) => reply(async () => {
     const parsed = wipe.parse(input)
     const { client } = await account(parsed)
-    // Archival clears agent_user_id; the immutable provisioned identity remains
-    // available for an interrupted close to finish home cleanup.
-    const { data, error } = await client.from('agent_provisions').select('agent_user_id,provisioned_agent_user_id,operation_id')
+    // Governed archival retains the identity. Its removed_at receipt, or the
+    // older hard-deleted identity, must be visible before wiping the home.
+    const { data, error } = await client.from('agent_provisions').select(closeSelect)
       .eq('owner_user_id', parsed.ownerUserId).eq('device_id', parsed.deviceId)
       .eq('member_key', 'assistant')
     if (error) throw error
     const matched = data?.find(row => row.provisioned_agent_user_id === parsed.assistantId)
     if (!matched) return fail('target_not_owned')
-    if (data.some(row => row.agent_user_id)) return fail('preparation_busy')
+    if (!retiredProvision(matched) || data.some(row => row.agent_user_id && !retiredProvision(row))) return fail('preparation_busy')
     await preparation().assertProvision(matched.operation_id)
     await account(parsed)
     return preparation().closeHome(matched.operation_id)

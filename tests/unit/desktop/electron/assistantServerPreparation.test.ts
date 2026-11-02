@@ -49,6 +49,18 @@ describe('durable account-host assistant preparation', () => {
     expect(f.deps.install).toHaveBeenCalledTimes(2)
     expect(f.disk()?.attempt).toBe(2)
   })
+  it('retains the operation and reports runtime publication failure before any home write', async () => {
+    const f = fixture()
+    f.runtime.commit.mockRejectedValueOnce(new Error('published runtime not discoverable'))
+    await f.service.start(input)
+    expect(await f.wait('failed')).toMatchObject({ error: { code: 'runtime_failed' }, installationStarted: true })
+    expect(f.deps.wipe).not.toHaveBeenCalled()
+    expect(f.deps.install).not.toHaveBeenCalled()
+    await f.service.start(input)
+    await f.wait('prepared')
+    expect(f.disk()?.operationId).toBe(input.operationId)
+    expect(f.disk()?.attempt).toBe(2)
+  })
   it('survives an account process restart and keeps its original target and installation fence', async () => {
     const f = fixture({ ...input, version: 1, attempt: 1, freshCleared: true,
       state: { operationId: input.operationId, phase: 'workspace', installationStarted: true, cancellable: false } })
