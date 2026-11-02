@@ -151,7 +151,7 @@ async function drive(record: AssistantServerSetupRecord, options: AssistantServe
       if (!record.provisionOperationId) { record.provisionOperationId = pending.operationId; save(record) }
       options.onInstalling?.()
       options.onProgress?.({ phase: 'starting', cancellable: false })
-      const result = await resumeServerAssistantProvision(pending)
+      const result = await resumeProvision(pending)
       forget(record)
       options.onProgress?.({ phase: 'ready', cancellable: false })
       return result
@@ -199,7 +199,11 @@ async function drive(record: AssistantServerSetupRecord, options: AssistantServe
 }
 
 /** Recovery from the shared assistant shell also respects the recorded target. */
-export async function resumeServerAssistantProvision(record: ProvisionResumeRecord): Promise<CreateAgentOnDeviceResult> {
+export function resumeServerAssistantProvision(record: ProvisionResumeRecord): Promise<CreateAgentOnDeviceResult> {
+  return singleFlight(() => resumeProvision(record))
+}
+
+async function resumeProvision(record: ProvisionResumeRecord): Promise<CreateAgentOnDeviceResult> {
   if (await getCurrentAuthUserId() !== record.ownerUserId) return fail('account_changed')
   await targetAvailable(record.deviceId)
   const stored = pendingServerAssistant(record.ownerUserId)
