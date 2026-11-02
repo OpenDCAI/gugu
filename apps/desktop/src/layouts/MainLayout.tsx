@@ -72,7 +72,6 @@ import { ServerLoginApproveHost } from '../mobile/server-login/ServerLoginApprov
 import { AssistantShellHost } from '../components/assistant/AssistantShellHost'
 import { OwnedAgentResourcesHost } from '../components/appSlot/OwnedAgentResourcesHost'
 import { ChatSlotHost } from '../components/ChatSlotHost'
-import { OfflineSessionSlotHost } from '../components/chat/OfflineSessionSlotHost'
 import { ChatListSlotHost } from '../components/ChatListSlotHost'
 import { AssistantTaskChatOpener } from '../components/assistant/AssistantTaskChatOpener'
 import { FeedbackHost } from '../components/FeedbackHost'
@@ -1306,7 +1305,6 @@ function InnerLayout({
           onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile}
         /></>
       )}
-      {!mobile && sessionHostAvailable && <OfflineSessionSlotHost />}
 
     </div>
   )
