@@ -5,7 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { installService, restartServerAfterLogin } from '../../../../apps/desktop/electron/server/server-service'
 
 const command = vi.hoisted(() => vi.fn())
-vi.mock('@gugu/core/local/childProcess', () => ({
+vi.mock('@gugu/core/local/childProcess', async importOriginal => ({
+  ...await importOriginal<typeof import('@gugu/core/local/childProcess')>(),
   spawnSync: (cmd: string, args: string[]) => command(cmd, args),
   execFileSync: (cmd: string, args: string[]) => {
     const r = command(cmd, args)
