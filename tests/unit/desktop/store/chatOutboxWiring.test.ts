@@ -45,7 +45,7 @@ function optimisticMessage(id: string): MessageItem {
   }
 }
 
-function wiringHarness(messageId: string) {
+function wiringHarness(messageId: string, adapter = createMemoryLocalSyncDb()) {
   let messages = [optimisticMessage(messageId)]
   let threadMessages: MessageItem[] = []
   const toast = vi.fn<OutboxWiringIo['toast']>()
@@ -56,7 +56,7 @@ function wiringHarness(messageId: string) {
     messages = upsertMessageById(messages, message)
   })
   const repository = openImRepository('owner-1', {
-    adapter: createMemoryLocalSyncDb(),
+    adapter,
     storage: window.localStorage,
   })
   const io: OutboxWiringIo = {
@@ -77,6 +77,7 @@ function wiringHarness(messageId: string) {
   return {
     wiring: createOutboxWiring(io),
     messages: () => messages,
+    echo: (message: MessageItem) => { messages = upsertMessageById(messages, message) },
     patchChat,
     toast,
     appendMessage,
@@ -196,6 +197,45 @@ describe('committed outbound reconciliation', () => {
     await vi.waitFor(() => {
       expect(harness.messages().find((m) => m.id === row.id)).toMatchObject({ seq: 42 })
     })
+  })
+
+  it.each([true, false])('keeps one sent bubble when realtime echo arrives before ack=%s', async (echoFirst) => {
+    const row = persistedMessage('echo-ack-order')
+    let releaseResponse!: () => void
+    let releaseAck!: () => void
+    let sending!: () => void
+    const sendStarted = new Promise<void>((resolve) => { sending = resolve })
+    const response = new Promise<void>((resolve) => { releaseResponse = resolve })
+    const ack = new Promise<void>((resolve) => { releaseAck = resolve })
+    vi.spyOn(chatService, 'sendMessage').mockImplementation(async () => { sending(); await response; return row })
+    const adapter = createMemoryLocalSyncDb()
+    const commit = adapter.commit.bind(adapter)
+    let ackStarted = false
+    let ackDone = false
+    vi.spyOn(adapter, 'commit').mockImplementation(async (operations) => {
+      if (operations.some((operation) => operation.type === 'delete' && operation.store === 'outbox')) {
+        ackStarted = true
+        await ack
+        await commit(operations)
+        ackDone = true
+      } else await commit(operations)
+    })
+    const harness = wiringHarness(row.id, adapter)
+    await harness.wiring.enqueue(enqueueInput(row.id))
+    await sendStarted
+    if (echoFirst) harness.echo(row)
+    releaseResponse()
+    await vi.waitFor(() => expect(ackStarted).toBe(true))
+    expect(harness.messages()).toHaveLength(1)
+    expect(harness.messages()[0]).toMatchObject({ seq: 42, local_send_state: null })
+    expect(harness.wiring.outbox.pendingFor(row.chat_id, null)).toEqual([])
+    releaseAck()
+    await vi.waitFor(() => expect(ackDone).toBe(true))
+    if (!echoFirst) harness.echo(row)
+    expect(harness.messages()).toHaveLength(1)
+    expect(harness.messages()[0]).toMatchObject({ seq: 42, local_send_state: null })
+    expect(harness.appendMessage).toHaveBeenCalledTimes(1)
+    harness.wiring.dispose()
   })
 })
 

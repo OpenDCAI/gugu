@@ -40,10 +40,11 @@ it('emits one content-free record only after the authoritative response and dura
   await ackEntered
   expect(logger.info).not.toHaveBeenCalled()
   releaseAck()
-  await outbox.delivered(record.clientMessageId)
+  await vi.waitFor(() => expect(logger.info).toHaveBeenCalledTimes(1))
   expect(logger.info.mock.calls).toEqual([[{
     clientId: 'client-a', submitToEnqueueMs: 20, enqueueToHttpMs: 30,
-    httpToResponseMs: 200, responseToAckMs: 10, totalMs: 260,
+    submitToOptimisticMs: null, optimisticToSaveMs: null, chainWaitMs: null, commitMs: null, commitToEnqueueMs: null,
+    httpToResponseMs: 200, responseToShownMs: 0, responseToAckMs: 10, totalMs: 260,
   }, 'message send timing']])
   expect(logger.warn).not.toHaveBeenCalled()
   expect(chatSendTimings.has(record.clientMessageId)).toBe(false)
@@ -57,12 +58,27 @@ it('uses the two-second threshold on the injected monotonic clock, with absent s
   chatSendTimings.set('at-threshold', { submit: 0 })
   finishChatSendTiming('at-threshold')
   expect(logger.info).toHaveBeenCalledWith({ clientId: 'at-threshold', submitToEnqueueMs: null,
-    enqueueToHttpMs: null, httpToResponseMs: null, responseToAckMs: null, totalMs: 2000 }, 'message send timing')
+    submitToOptimisticMs: null, optimisticToSaveMs: null, chainWaitMs: null, commitMs: null, commitToEnqueueMs: null,
+    enqueueToHttpMs: null, httpToResponseMs: null, responseToShownMs: null, responseToAckMs: null, totalMs: 2000 }, 'message send timing')
   clock.mockReturnValue(2001)
   chatSendTimings.set('slow', { submit: 0 })
   finishChatSendTiming('slow')
   expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ clientId: 'slow', totalMs: 2001 }), 'message send timing')
   expect(chatSendTimings.size).toBe(0)
+})
+
+it('reports actual enqueue phases and retains the commit-to-resume residual instead of hiding it', () => {
+  vi.spyOn(performance, 'now').mockReturnValue(200)
+  for (const enqueue of [90, 110]) {
+    chatSendTimings.set('phases', { submit: 0, optimisticAt: 10, saveStartAt: 20, chainStartAt: 50,
+      commitDoneAt: 90, enqueue, http: 120, response: 150, shown: 160, ack: 200 })
+    finishChatSendTiming('phases', true)
+    const fields = logger.info.mock.lastCall?.[0]
+    expect(fields).toMatchObject({ submitToOptimisticMs: 10, optimisticToSaveMs: 10, chainWaitMs: 30,
+      commitMs: 40, commitToEnqueueMs: enqueue - 90, responseToShownMs: 10, responseToAckMs: 50 })
+    expect(fields.submitToOptimisticMs + fields.optimisticToSaveMs + fields.chainWaitMs + fields.commitMs + fields.commitToEnqueueMs)
+      .toBe(fields.submitToEnqueueMs)
+  }
 })
 
 it('keeps the first HTTP attempt timestamp and never changes malformed request validation', async () => {

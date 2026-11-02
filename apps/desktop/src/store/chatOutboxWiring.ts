@@ -162,12 +162,14 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       applyThreadSnapshot({ chatId, rootId: threadRootId, msgs, chats: io.chats(),
         setThreadMessages: (update) => io.setThreadMessages(update, chatId), patchChat: io.patchChat,
         activeChatId: () => chatId, activeThreadRootId: () => io.activeThreadRootId(chatId) })
+      const timing = chatSendTimings.get(record.clientMessageId); if (timing) timing.shown = performance.now()
     } else {
       // @@@4439 ack-seq-jump — 权威 row 经 store 的单行摄入 chokepoint 落窗:appendMessage 在合并时
       // 检测权威 seq 是否越过窗口旧尾,越过即异步重验证被跳过的区间(交错落库的入站行不得沉到增量
       // 游标下方——那会让 realtime/下一次发送/reload 三路取数永久漏掉它)。重验证不阻塞本函数:
       // #1884 的水位推进与侧栏预览都不依赖它。
       io.appendMessage(persisted)
+      const timing = chatSendTimings.get(record.clientMessageId); if (timing) timing.shown = performance.now()
       // #1884 自己刚发的消息自己已读——立即推水位,不等 realtime 回显的 markRead 竞态。
       advanceReadWatermark(io.chats(), chatId, persisted.seq, io.patchChat)
     }
@@ -218,11 +220,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
           isWhisper: record.payload.isWhisper,
         }),
     onState: reflectState,
-    onSent: (record, acknowledged) =>
-      handleSent(record, acknowledged as MessageItem).catch((err) => {
-        // 连带动作失败(回读/摘要刷新)不影响送达事实——realtime 回显会补;大声记录不静默。
-        console.error('[chatOutbox] post-send side effects failed', err)
-      }),
+    onSent: (record, delivered) => handleSent(record, delivered as MessageItem),
     onDiscarded: removeRow,
   })
 
@@ -256,7 +254,6 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
         updatedAt: nowIso,
       }
       if (input.beforeDeliver) beforeDeliverHooks.set(record.clientMessageId, input.beforeDeliver)
-      chatSendTimings.set(input.id, { submit: input.submittedAt ?? performance.now() })
       try {
         await outbox.enqueue(record)
         if (!active) chatSendTimings.delete(input.id)

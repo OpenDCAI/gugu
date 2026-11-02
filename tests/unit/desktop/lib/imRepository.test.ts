@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
 import { createMemoryLocalSyncDb, type LocalImDbAdapter } from '../../../../apps/desktop/src/lib/localSyncDb'
 import {
@@ -18,6 +18,7 @@ import {
 import { message as messageFixture } from '../../../support/testHarness'
 import type { DisplayIdentity } from '../../../../apps/desktop/src/lib/displayIdentity'
 import { readPerfCounters } from '../../../../apps/desktop/src/lib/perfCounters'
+import { chatSendTimings, type ChatSendTiming } from '../../../../apps/desktop/src/lib/chatSendTiming'
 function identity(id: string, over: Partial<DisplayIdentity> = {}): DisplayIdentity {
   return {
     id, type: 'human', display_name: id, avatar: null, gugu_number: null, bio: null,
@@ -76,6 +77,41 @@ describe('account-scoped normalized IM repository', () => {
   beforeEach(() => {
     window.localStorage.clear()
     adapter = createMemoryLocalSyncDb()
+  })
+  afterEach(() => { chatSendTimings.clear(); vi.restoreAllMocks() })
+
+  it('times only the tracked enqueue transaction and separates its queued wait from commit', async () => {
+    const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
+    let now = 0
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now)
+    let release!: () => void
+    let entered!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    const started = new Promise<void>((resolve) => { entered = resolve })
+    const prior = repository.transaction(async () => { entered(); await blocked })
+    await started
+    const timing: ChatSendTiming = { submit: 0, optimisticAt: 10 }
+    chatSendTimings.set('timed', timing)
+    const commit = adapter.commit.bind(adapter)
+    vi.spyOn(adapter, 'commit').mockImplementation(async (operations) => {
+      if (operations.some((operation) => operation.type === 'put' && operation.store === 'outbox')) now = 90
+      await commit(operations)
+    })
+    now = 20
+    const queued = putOutboxRecord(repository, outbox('timed', 'account-a'))
+    expect(timing.saveStartAt).toBe(20)
+    expect(timing.chainStartAt).toBeUndefined()
+    now = 50
+    release()
+    await prior
+    await queued
+    expect(timing).toMatchObject({ saveStartAt: 20, chainStartAt: 50, commitDoneAt: 90 })
+    clock.mockClear()
+    await putOutboxRecord(repository, { ...outbox('timed', 'account-a'), state: 'sending' })
+    await putOutboxRecord(repository, outbox('untracked', 'account-a'))
+    expect(clock).not.toHaveBeenCalled()
+    expect(timing).toMatchObject({ saveStartAt: 20, chainStartAt: 50, commitDoneAt: 90 })
+    repository.close()
   })
   it('keeps a removed identity removed when an older observation of it is published', async () => {
     const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })

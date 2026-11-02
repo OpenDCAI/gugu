@@ -331,6 +331,74 @@ describe('chatOutbox 状态机', () => {
   })
 })
 describe('评审修复回归锁(#1762 review)', () => {
+  it('publishes the authoritative row before a blocked durable ack and removes it from pending projections', async () => {
+    const saved = new Map<string, OutboxRecord>()
+    const enteredAck = deferred()
+    const releaseAck = deferred()
+    const sent = vi.fn()
+    const authoritative = { id: 'server-first', seq: 42 }
+    const outbox = createChatOutbox({
+      load: async () => [...saved.values()],
+      save: async (record) => { saved.set(record.clientMessageId, record) },
+      remove: async (id) => { saved.delete(id) },
+      deliver: async () => authoritative,
+      ack: async (record) => {
+        expect(sent).toHaveBeenCalledWith(record, authoritative)
+        enteredAck.resolve()
+        await releaseAck.promise
+        saved.delete(record.clientMessageId)
+      },
+      onState: () => {}, onSent: sent, onDiscarded: () => {}, setTimeout: () => 0,
+    })
+    await outbox.enqueue(makeRecord(authoritative.id))
+    await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(1))
+    await enteredAck.promise
+    expect(outbox.pendingFor('chat-1', null)).toEqual([])
+    expect(saved.has(authoritative.id)).toBe(true)
+    await outbox.delivered(authoritative.id)
+    releaseAck.resolve()
+    await vi.waitFor(() => expect(saved.size).toBe(0))
+    outbox.dispose()
+  })
+
+  it('keeps a server-confirmed message sent when ack fails and replays its durable row idempotently after restart', async () => {
+    const saved = new Map<string, OutboxRecord>()
+    const server = new Map<string, { id: string; seq: number }>()
+    const states: string[] = []
+    let failAck = true
+    const build = () => createChatOutbox({
+      load: async () => [...saved.values()],
+      save: async (record) => { saved.set(record.clientMessageId, record) },
+      remove: async (id) => { saved.delete(id) },
+      deliver: async (record) => {
+        if (!server.has(record.clientMessageId)) server.set(record.clientMessageId, { id: record.clientMessageId, seq: 42 })
+        return server.get(record.clientMessageId)
+      },
+      ack: async (record) => {
+        if (failAck) throw new Error('local disk unavailable')
+        saved.delete(record.clientMessageId)
+      },
+      onState: (record) => { states.push(record.state) },
+      onSent: () => { states.push('sent') }, onDiscarded: () => {}, setTimeout: () => 0,
+    })
+    const first = build()
+    await first.enqueue(makeRecord('ack-failure'))
+    await vi.waitFor(() => expect(states).toContain('sent'))
+    await first.delivered('ack-failure')
+    expect(states).not.toContain('failed')
+    expect(saved.get('ack-failure')?.state).toBe('sending')
+    expect(first.pendingFor('chat-1', null)).toEqual([])
+    first.dispose()
+    failAck = false
+    const restarted = build()
+    await restarted.restore()
+    await vi.waitFor(() => expect(saved.size).toBe(0))
+    expect(server.size).toBe(1)
+    expect([...server.keys()]).toEqual(['ack-failure'])
+    expect(states).not.toContain('failed')
+    restarted.dispose()
+  })
+
   it('dispose before durable ack starts preserves the row and never enters ack', async () => {
     const saved = new Map<string, OutboxRecord>()
     const deliveryStarted = deferred()

@@ -24,6 +24,7 @@ import { adoptOptimisticChatRow } from '../lib/optimisticChatIdentity'
 import { applyMessageWindowRevalidation } from '../lib/chatMessageRevalidation'
 import { platform } from '../platform'
 import { createOutboxWiring, type OutboxWiring } from './chatOutboxWiring'
+import { chatSendTimings } from '../lib/chatSendTiming'
 import { markLatestThreadRead, markManualUnreadAndRefresh } from '../lib/chatUnreadLocator'
 import { useChatUnreadStreamNavigation } from '../lib/chatUnreadStreamNavigation'
 import { ChatStoreProvider, type SendMessageOptions, type SendAttachmentOptions, useDraftAttachmentsStore, useDraftMentionsStore, useTextDraftStore, useDraftQuotesStore, type RefreshChatsOptions } from './chatContext'
@@ -693,6 +694,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         local_send_state: 'sending',
       }
 
+      chatSendTimings.set(id, { submit: opts.submittedAt ?? performance.now() })
       // @@@threads (#957) — 话题内消息带 thread_root_id，getMessages 会把它从主时间线过滤掉，
       // 故乐观更新落 threadMessages（而非主线，避免闪一下又消失）。主线消息走原乐观追加。
       if (threadRootId) {
@@ -707,6 +709,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         setMessagesAndCache((prev) => [...prev, tempMsg], targetChatId)
       }
 
+      const timing = chatSendTimings.get(id); if (timing) timing.optimisticAt = performance.now()
       // @@@send-outbox (#1762 洞③/#1941) — 入队即返回(resolve ≠ 已送达):投递/超时/退避重试/失败
       // 可见性全归 outbox(唯一 chokepoint);送达连带动作(权威 row/水位/预览/agent 运行态点亮)在
       // wiring.onSent,实时发送与 reload 恢复投递同一条路径。

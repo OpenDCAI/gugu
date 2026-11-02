@@ -45,7 +45,7 @@ export interface OutboxDeps {
   deliver(record: OutboxRecord): Promise<unknown>
   /** 状态迁移 → UI(乐观行 local_send_state 同步;'pending'/'sending' 由 UI 统一显示为发送中)。 */
   onState(record: OutboxRecord): void
-  /** writer 确认送达后的连带动作(水位/预览/运行态点亮)。行已从 outbox 删除。 */
+  /** writer 确认送达后的连带动作；先发布权威行，durable ack 随后在后台提交。 */
   onSent(record: OutboxRecord, acknowledged?: unknown): void | Promise<void>
   onDiscarded(record: OutboxRecord): void
   /** 注入时钟(测试用假定时器)。 */
@@ -81,6 +81,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
 
   // 内存队列:clientMessageId → record(与持久层同步写)。Map 保持插入序,FIFO。
   const records = new Map<string, OutboxRecord>()
+  const pendingTimings = new Set<string>()
   // 正在跑的车道(chatId)。车道 = 该会话的单在途 FIFO drain。
   const drainingLanes = new Set<string>()
   let disposed = false
@@ -118,33 +119,37 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
   }
 
   async function settleSent(record: OutboxRecord, delivered: unknown, operationEpoch: number): Promise<void> {
-    const acknowledged = deps.ack
-      ? await deps.ack(record, delivered, () => isActive(operationEpoch))
-      : await deps.remove(record.clientMessageId)
     if (!isActive(operationEpoch)) return
     records.delete(record.clientMessageId)
-    finishChatSendTiming(record.clientMessageId, true)
     resolveWaiter(record.clientMessageId)
-    // onSent 是无超时的网络副作用(摘要刷新等)——不得 await:网关挂起时会把整个
-    // drain 队列静默卡死(后续消息永远「发送中」,连 failed 都到不了)。副作用失败由回调自报。
-    void Promise.resolve(deps.onSent(record, acknowledged)).catch((err) => {
-      console.error('[chatOutbox] onSent side effects failed', err)
-    })
+    if (chatSendTimings.has(record.clientMessageId)) pendingTimings.add(record.clientMessageId)
+    // Invoke before entering the durable write chain; callback completion and ack do not block the lane.
+    void (async () => {
+      try {
+        await deps.onSent(record, delivered)
+        const timing = chatSendTimings.get(record.clientMessageId)
+        if (timing) timing.shown ??= performance.now()
+        if (timing?.ack !== undefined) finishChatSendTiming(record.clientMessageId, true)
+      } catch (error) {
+        outboxLog.error({ error }, 'onSent side effects failed')
+        finishChatSendTiming(record.clientMessageId)
+      } finally {
+        if (!chatSendTimings.has(record.clientMessageId)) pendingTimings.delete(record.clientMessageId)
+      }
+    })()
+    if (deps.ack) await deps.ack(record, delivered, () => isActive(operationEpoch))
+    else await deps.remove(record.clientMessageId)
+    const timing = chatSendTimings.get(record.clientMessageId)
+    if (timing) timing.ack = performance.now()
+    finishChatSendTiming(record.clientMessageId, true)
+    if (!chatSendTimings.has(record.clientMessageId)) pendingTimings.delete(record.clientMessageId)
   }
 
   function settleSentInBackground(record: OutboxRecord, delivered: unknown, operationEpoch: number): void {
-    void settleSent(record, delivered, operationEpoch).catch(async (error) => {
-      if (!isActive(operationEpoch) || !records.has(record.clientMessageId)) return
-      try {
-        const failed = await persist(record, 'failed', {
-          lastError: error instanceof Error ? error.message : String(error),
-        }, operationEpoch)
-        if (!isActive(operationEpoch) || !records.has(record.clientMessageId)) return
-        deps.onState(failed)
-        rejectWaiter(failed.clientMessageId, failed.lastError ?? i18n.t('outbox.sendFailed', { ns: 'messaging' }))
-      } catch (persistError) {
-        outboxLog.error({ error: persistError }, 'durable ack failure could not be persisted')
-      }
+    void settleSent(record, delivered, operationEpoch).catch((error) => {
+      if (isActive(operationEpoch)) outboxLog.error({ error, clientMessageId: record.clientMessageId }, 'durable ack failed; authoritative message remains sent')
+      finishChatSendTiming(record.clientMessageId)
+      pendingTimings.delete(record.clientMessageId)
     })
   }
 
@@ -225,6 +230,8 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       if (disposed) return
       disposed = true
       for (const id of records.keys()) chatSendTimings.delete(id)
+      for (const id of pendingTimings) chatSendTimings.delete(id)
+      pendingTimings.clear()
       epoch += 1
       records.clear()
       for (const id of waiters.keys()) rejectWaiter(id, 'outbox scope disposed')

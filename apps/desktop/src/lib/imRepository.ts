@@ -8,6 +8,7 @@ import type {
 } from '@gugu/core/shared/types/chat'
 import { displayIdentityFromRow, type DisplayIdentity } from './displayIdentity'
 import { recordImTransaction } from './perfCounters'
+import { chatSendTimings, type ChatSendTiming } from './chatSendTiming'
 import { assertIdentityClosure } from './identityClosure'
 import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
 import { rendererLogger } from './log'
@@ -101,7 +102,7 @@ export interface ImRepositoryTransaction {
 export interface AccountImRepository {
   readonly accountId: string
   snapshot(): ImRepositorySnapshot
-  transaction<T>(mutate: (transaction: ImRepositoryTransaction) => T | Promise<T>): Promise<T>
+  transaction<T>(mutate: (transaction: ImRepositoryTransaction) => T | Promise<T>, sendTiming?: ChatSendTiming): Promise<T>
   putIdentities(rows: readonly unknown[]): Promise<void>
   subscribe<T>(selector: Selector<T>, listener: Listener<T>): () => void
   reset(): Promise<void>
@@ -208,9 +209,11 @@ function createAccountRepository(
       ensureOpen()
       return current
     },
-    transaction(mutate) {
+    transaction(mutate, sendTiming) {
       ensureOpen()
+      if (sendTiming) sendTiming.saveStartAt = performance.now()
       const run = writeChain.then(async () => {
+        if (sendTiming) sendTiming.chainStartAt = performance.now()
         recordImTransaction()
         const operations: LocalImDbOperation[] = []
         const transaction = createTransaction(accountId, operations, current)
@@ -218,6 +221,7 @@ function createAccountRepository(
         validateOperations(accountId, operations)
         const applied = applyOperations(current, operations, accountId)
         await adapter.commit(applied.operations)
+        if (sendTiming) sendTiming.commitDoneAt = performance.now()
         current = applied.snapshot
         publish()
         return result
@@ -485,7 +489,8 @@ export function readOutboxRecords(repository: AccountImRepository): OutboxRecord
 }
 
 export async function putOutboxRecord(repository: AccountImRepository, record: OutboxRecord): Promise<void> {
-  await repository.transaction((transaction) => transaction.putOutbox(record))
+  const timing = chatSendTimings.get(record.clientMessageId)
+  await repository.transaction((transaction) => transaction.putOutbox(record), timing?.saveStartAt === undefined ? timing : undefined)
 }
 
 export async function deleteOutboxRecord(repository: AccountImRepository, clientMessageId: string): Promise<void> {
