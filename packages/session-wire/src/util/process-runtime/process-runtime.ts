@@ -10,6 +10,7 @@ import type { ValidatePolicy } from '../../api/with-validation';
 import type { WireInstrumentation } from '../../observability';
 import type { ManagedProcess, ProcessHost, ProcessSpec } from '../../process/types';
 import { createScope, type Scope } from '../scope';
+import { createIpcPressureSender } from './ipc-pressure';
 
 const RUNTIME_SIGNAL_KIND = 'wire-runtime-signal';
 /** Shared child-runtime readiness budget; ACP initialize uses the same no-ready-signal semantics. */
@@ -62,6 +63,8 @@ export type ProcessRuntimePort = {
 export type ServeWorkerProcessOptions = ServeOptions & {
   logger?: Logger;
   failOnCleanupError?: boolean;
+  /** Pause worker-owned output sources while parent IPC is congested. */
+  onOutputPressure?: (paused: boolean) => void;
   /**
    * Test seam for running the child-side helper without a real Node fork or
    * Electron utility process.
@@ -184,7 +187,7 @@ export async function serveWorkerProcess(
       logger.error('worker process failed to post a message to its parent', {
         error: error.message,
       });
-    });
+    }, options.onOutputPressure);
   let exiting = false;
 
   const transport = createRuntimeTransport(port);
@@ -424,7 +427,7 @@ function isRuntimeSignal(
   return record.kind === RUNTIME_SIGNAL_KIND && record.event === event;
 }
 
-function resolveParentPort(onSendError: (error: Error) => void): ProcessRuntimePort {
+function resolveParentPort(onSendError: (error: Error) => void, onPressure?: (paused: boolean) => void): ProcessRuntimePort {
   if (typeof process === 'undefined') {
     throw new Error('serveWorkerProcess requires an IPC channel to the parent process');
   }
@@ -466,18 +469,14 @@ function resolveParentPort(onSendError: (error: Error) => void): ProcessRuntimeP
     throw new Error('serveWorkerProcess requires an IPC channel to the parent process');
   }
 
+  const sender = onPressure ? createIpcPressureSender(
+    (message, callback) => currentProcess.send!(message as Parameters<NonNullable<NodeJS.Process['send']>>[0], callback),
+    onSendError, onPressure
+  ) : { send: (message: unknown) => {
+    currentProcess.send!(message as Parameters<NonNullable<NodeJS.Process['send']>>[0], (error: Error | null) => { if (error) onSendError(error); });
+  } };
   return {
-    // @@@unhandled-error-event (#4942) — `process.send()` 不带回调时,发送失败(管道已关 = 父进程没了)
-    // 由 Node **异步地**变成 process 上的 'error' 事件;零监听者就是未捕获异常。带上回调就把这条失败
-    // 收进正常返回值里 —— ❌ 不是吞错:调用方本来就把这次发送当作 best-effort(要等确认的走 sendAndWait)。
-    send(message) {
-      currentProcess.send?.(
-        message as Parameters<NonNullable<NodeJS.Process['send']>>[0],
-        (error: Error | null) => {
-          if (error) onSendError(error);
-        }
-      );
-    },
+    send: (message) => sender.send(message),
     sendAndWait(message) {
       return new Promise<void>((resolve, reject) => {
         const send = currentProcess.send as (

@@ -6,6 +6,7 @@ import { ok, type Result } from '@gugu/session-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@shared/core/projects/session-home-project';
 import { createLocalProject, getLocalProjectPathStatus } from './create-local-project';
+import { recordProjectRegistration } from './project-registration-origin';
 
 const mocks = vi.hoisted(() => ({
   acquireRuntimeMock: vi.fn(),
@@ -51,6 +52,8 @@ vi.mock('./project-folders', () => ({
 }));
 
 vi.mock('./getProjects', () => ({ getLocalProjectByPath: mocks.rootOwnerMock }));
+
+vi.mock('./project-registration-origin', () => ({ recordProjectRegistration: vi.fn() }));
 
 vi.mock('@main/core/projects/project-events', () => ({ projectEvents: { _emit: mocks.emitMock } }));
 
@@ -375,8 +378,10 @@ describe('createLocalProject', () => {
     try {
       expectOk(await createLocalProject({ id: 'home-id', name: 'me', path: home }));
       expect(mocks.valuesMock).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'project' }));
+      expect(recordProjectRegistration).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: 'home-id', source: 'person' }), expect.anything());
       expectOk(await createLocalProject({ id: 'home-id', name: 'me', path: home, automatic: true }));
       expect(mocks.valuesMock).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'workspace' }));
+      expect(recordProjectRegistration).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: 'home-id', source: 'automatic' }), expect.anything());
       // 替人登记、但不是咕咕自己要用的目录:照常是项目。
       const repo = tempProjectPath();
       expectOk(await createLocalProject({ id: 'repo-id', name: 'repo', path: repo, automatic: true }));
@@ -398,12 +403,15 @@ describe('createLocalProject', () => {
     expect(set).toHaveBeenCalledWith(expect.objectContaining({ kind: 'project' }));
     expect(mocks.emitMock).toHaveBeenCalledWith('project:created', claimed);
     expect(mocks.insertMock).not.toHaveBeenCalled();
+    expect(recordProjectRegistration).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'home-id', source: 'person' }));
 
     // 替人登记的入口撞上它:还是那个 workspace,❌ 改成项目。
     set.mockClear();
+    vi.mocked(recordProjectRegistration).mockClear();
     mocks.rootOwnerMock.mockResolvedValue(kept);
     await createLocalProject({ name: 'me', path: '/home/me', allowNonGit: true, reuseExisting: true, exactPath: true, automatic: true });
     expect(set).not.toHaveBeenCalled();
+    expect(recordProjectRegistration).not.toHaveBeenCalled();
   });
 
   it('creates a non-git local folder as a gitless project when allowNonGit is set (使用现有文件夹)', async () => {

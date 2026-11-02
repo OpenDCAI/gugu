@@ -1,7 +1,8 @@
-import { defineContract, eventStream, procedure } from '@gugu/session-wire';
+import { defineContract, eventStream, liveModel, liveState, procedure } from '@gugu/session-wire';
 import { z } from 'zod';
 import { agentRunContextSchema } from '../../agents/agent-run-context';
 import { acpStartInputSchema } from './commands';
+import { terminalStateSchema } from '../models/terminals';
 import { promptInputSchema } from '../models/prompt';
 import { sessionNoticeCodeSchema, transcriptTurnSchema } from '../models/turns';
 import { acpApiContract, acpSessionLifecycleProcedures } from './contract';
@@ -131,6 +132,12 @@ const detachedPromptWaitInputSchema = z.object({ requestId: z.string() });
 export const acpRuntimeApiContract = defineContract({
   ...acpApiContract,
   ...acpSessionLifecycleProcedures,
+  // Private worker state; the public session contract retains its old set of states.
+  // Declared clients are routed here by the host's subscription handshake.
+  session: liveModel({
+    key: acpApiContract.session.keySchema,
+    states: { ...acpApiContract.session.states, terminalChunks: liveState({ data: z.array(terminalStateSchema) }) },
+  }),
   startSession: procedure({
     input: z.object({ input: acpRuntimeStartInputSchema }),
     output: acpSessionLifecycleProcedures.startSession.output,

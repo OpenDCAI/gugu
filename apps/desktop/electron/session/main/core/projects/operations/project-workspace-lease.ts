@@ -6,6 +6,9 @@ import { workspaceRegistry } from '@main/core/workspaces/workspace-registry';
 import { projectManager } from '../project-manager';
 import { getProjectById } from './getProjects';
 import { resolveProjectFolder } from './project-folders';
+import { resolveAssistantSessionWorkspace } from './task-directory-workspace';
+import { openProject } from './openProject';
+import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
 
 /**
  * 新建会话页的草稿工作区(还没有会话时,输入框的文件工具就在这里干活)。可以是项目的根目录,也可以是挂在它下面的
@@ -75,4 +78,20 @@ export async function releaseProjectWorkspace(projectId: string, workspaceId: st
       message: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+/** Read/write an assistant directory without registering it as a project or a user-added folder. */
+export async function acquireTaskDirectory(projectId: string, directory: string) {
+  if (!isImplicitSessionHomeProjectId(projectId)) throw new Error('A task workspace is required');
+  const { workspaceId, path } = await resolveAssistantSessionWorkspace(directory);
+  const opened = await openProject(projectId);
+  if (!opened.success) return opened;
+  const project = projectManager.getProject(projectId);
+  if (!project) throw new Error('Task workspace is not open');
+  const acquired = await workspaceRegistry.acquire(workspaceId, projectId, createWorkspaceFactory(workspaceId, {
+    session: { id: workspaceId, title: '' }, workDir: path, projectId, projectPath: project.repoPath,
+    workspaceRuntime: { manager: runtimeManager }, settings: project.settings, logPrefix: 'TaskDirectoryLease',
+    ...workspaceGitContext(project, { kind: 'path', path }),
+  }));
+  return ok({ workspaceId: acquired.workspace.id });
 }

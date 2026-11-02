@@ -10,6 +10,7 @@ export interface RawAcpLogMeta {
 
 export interface RawAcpLogExportMeta extends RawAcpLogMeta {
   generatedAt: string;
+  droppedEvents?: number;
 }
 
 export interface RawAcpSessionUpdateEvent {
@@ -98,6 +99,15 @@ export interface RawAcpLogEntry {
 }
 
 const DEFAULT_MAX_ENTRIES = 50_000;
+const DEFAULT_MAX_BYTES = 4 * 1024 * 1024;
+
+function eventBytes(value: unknown): number {
+  if (typeof value === 'string') return Buffer.byteLength(value) + 8;
+  if (value === null || typeof value !== 'object') return 8;
+  let bytes = 16;
+  for (const [key, child] of Object.entries(value)) bytes += Buffer.byteLength(key) + eventBytes(child);
+  return bytes;
+}
 
 /**
  * Append-only, fixture-compatible log of raw ACP traffic observed by a session.
@@ -105,11 +115,15 @@ const DEFAULT_MAX_ENTRIES = 50_000;
  */
 export class RawAcpLog {
   private seq = 0;
+  private bytes = 0;
+  private dropped = 0;
+  private readonly sizes: number[] = [];
   private readonly entries: RawAcpLogEntry[] = [];
 
   constructor(
     private readonly meta: RawAcpLogMeta,
-    private readonly maxEntries = DEFAULT_MAX_ENTRIES
+    private readonly maxEntries = DEFAULT_MAX_ENTRIES,
+    private readonly maxBytes = DEFAULT_MAX_BYTES
   ) {}
 
   setAcpSessionId(acpSessionId: string): void {
@@ -117,8 +131,17 @@ export class RawAcpLog {
   }
 
   record(event: RawAcpEvent): void {
-    this.entries.push({ seq: this.seq++, ts: Date.now(), event });
-    if (this.entries.length > this.maxEntries) this.entries.shift();
+    const seq = this.seq++;
+    const bytes = eventBytes(event);
+    if (bytes > this.maxBytes) { this.dropped++; return; }
+    this.entries.push({ seq, ts: Date.now(), event });
+    this.sizes.push(bytes);
+    this.bytes += bytes;
+    while (this.entries.length > this.maxEntries || this.bytes > this.maxBytes) {
+      this.entries.shift();
+      this.bytes -= this.sizes.shift()!;
+      this.dropped++;
+    }
   }
 
   snapshot(): { meta: RawAcpLogExportMeta; events: RawAcpLogEntry[] } {
@@ -126,6 +149,7 @@ export class RawAcpLog {
       meta: {
         ...this.meta,
         generatedAt: new Date().toISOString(),
+        ...(this.dropped ? { droppedEvents: this.dropped } : {}),
       },
       events: structuredClone(this.entries),
     };

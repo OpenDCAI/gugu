@@ -33,6 +33,8 @@ import { ProjectPathConflictError } from './project-creation-error';
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
 import { cachedDevicesAccount } from '@/store/devicesCache';
 import { libraryDeviceId } from '@/components/assistant/assistant-library-client';
+import { reconcileSessionProjectLocations } from '@renderer/features/sessions/restore-session-projects';
+import type { SessionProjectLocation } from '@shared/core/projects/session-project-references';
 
 export class ProjectManagerStore {
   projects = observable.map<string, ProjectStore>();
@@ -481,7 +483,7 @@ export class ProjectManagerStore {
    * 与本机项目同一套界面(照 Zed:机器是项目的属性)。**只登记,❌ 挂**:侧栏的行来自会话目录,
    * 要用到某个项目时才由 ensureMounted 挂上。清单里没有了的那台机器的项目拿掉(在那台机器上删掉的)。
    */
-  syncMachineProjects(deviceId: string, projects: readonly LocalProject[]): void {
+  syncMachineProjects(deviceId: string, projects: readonly LocalProject[], sessions: readonly SessionProjectLocation[] = []): void {
     machineRegistry.register(
       deviceId,
       projects.map((project) => project.id)
@@ -496,6 +498,7 @@ export class ProjectManagerStore {
         }
         if (!known) this.projects.set(project.id, createUnmountedProject(project, 'idle'));
       }
+      reconcileSessionProjectLocations(sessions);
       for (const [id, store] of [...this.projects]) {
         if (keep.has(id) || this.pendingCreationIds.has(id)) continue;
         if (machineRegistry.machineOf(id) !== deviceId) continue;

@@ -50,13 +50,13 @@ export function withValidation<Defs extends ContractDefinitions>(
       const output = await controller.call(path, parsedInput, meta);
       return policy === 'full' && validator.parseOutput ? validator.parseOutput(output) : output;
     },
-    resolveLive(topic: string) {
+    resolveLive(topic: string, capabilities?: readonly string[]) {
       const { refId, rawKey } = splitTopic(topic);
       const keySchema = liveKeys.get(refId);
-      if (!keySchema) return controller.resolveLive(topic);
+      if (!keySchema) return controller.resolveLive(topic, capabilities);
 
       const parsedKey = keySchema.parse(rawKey);
-      return controller.resolveLive(encodeTopic(refId, parsedKey));
+      return controller.resolveLive(encodeTopic(refId, parsedKey), capabilities);
     },
     dispose() {
       controller.dispose?.();

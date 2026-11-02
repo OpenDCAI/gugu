@@ -61,6 +61,8 @@ import { stripUntrustedSessionAuthority, trustedPlatformInputPatch } from './ses
 
 export { mergeTrustedSessionMeta, stripUntrustedSessionAuthority } from './session-meta';
 
+import { withTerminalOutputNegotiation } from './terminal-output-negotiation';
+
 const ACP_WIRE_CHANNEL = 'acp-wire';
 
 
@@ -831,7 +833,7 @@ function exposeRendererWire(): () => void {
     },
     () => acpWorker.get(),
     (handle) =>
-      withValidation(acpApiContract, forwardController(acpApiContract, decorateRuntimeClient(handle.client)), runtimeWireValidationPolicy()),
+      withTerminalOutputNegotiation(withValidation(acpApiContract, forwardController(acpApiContract, decorateRuntimeClient(handle.client)), runtimeWireValidationPolicy()), forwardController(acpRuntimeApiContract, handle.client)),
     { channel: ACP_WIRE_CHANNEL }
   );
 }
