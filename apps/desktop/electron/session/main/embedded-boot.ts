@@ -369,6 +369,7 @@ import {
 import { log } from '@main/lib/logger'
 import { events } from '@main/lib/events'
 import { installSessionLife, sessionLife } from '@main/core/sessions/session-life'
+import { hydrateLife, shouldStartOnHydrate } from '@gugu/core/local/session-life/step'
 import { admitCreationTurns, bindIdentityThenCreate, claimIdentityCreation } from '@main/core/sessions/session-life-creation'
 import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-agent'
 import { isLifeSession, lifeSessions, lifeStore } from '@main/core/sessions/session-pending'
@@ -2467,7 +2468,7 @@ function refreshDigestAgents(): void {
 /**
  * #6264 server 换版时这台机器(这个账号)算不算忙 —— 写进 activity.json 的 busy,守护进程据此决定现在换还是等空闲。
  * 只数账号进程一重启就会被打断的会话(`busyForVersionSwitch`,「会不会被打断」读 `sessionProcess(id).home`);
- * tmux 里的终端会话换版后照名字接回,不拦换版。未结束的集成授权同样会被重启打断,也计入 activity.json。
+ * tmux 里的终端会话换版后照名字接回,不拦换版。未结束的集成授权和可自动恢复的待投递工作同样计入。
  * 本机读数,❌ 进云端摘要。
  */
 export function sessionpageBusyForVersionSwitch(): boolean {
@@ -2500,7 +2501,12 @@ export function sessionpageVersionSwitchActivity(): { busy: boolean; busyAgents:
       sessionProcess(session.conversationId)?.home ?? null,
     ),
   ).length
-  return { busy: integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
+  const pendingDelivery = lifeSessions().some(sessionId => {
+    const pending = lifeStore.pending(sessionId)
+    return pending.dispatching.length > 0 || (pending.queued.length > 0
+      && shouldStartOnHydrate(hydrateLife(lifeStore.read(sessionId)), pending))
+  })
+  return { busy: pendingDelivery || integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
 }
 
 /** Refresh the account heartbeat at authorization boundaries, without waiting
