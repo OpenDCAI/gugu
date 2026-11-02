@@ -199,6 +199,8 @@ export function resolveDeviceHostInfo(env: NodeJS.ProcessEnv = process.env, deps
   const info: DeviceHostInfo = {
     host_kind: isServer ? 'server' : 'desktop',
     arch: (deps.arch ?? osArch)(),
+    remote_protocol: REMOTE_PROTOCOL_VERSION,
+    min_client_protocol: MIN_CLIENT_PROTOCOL,
   }
   const osName = osNameOnce(platform, (deps.release ?? osRelease)(), readText)
   if (osName) info.os_name = osName
@@ -235,8 +237,6 @@ export function resolveDeviceHostInfo(env: NodeJS.ProcessEnv = process.env, deps
     const rollbackText = readText(join(home, 'data', SERVER_ROLLBACK_FILE))
     const rollback = rollbackText ? parseServerRollback(rollbackText, nowMs, supervisorVersionOf(readText(join(home, 'data', SUPERVISOR_HEALTH_FILE)))) : null
     if (rollback) info.server_rollback = rollback
-    info.remote_protocol = REMOTE_PROTOCOL_VERSION
-    info.min_client_protocol = MIN_CLIENT_PROTOCOL
     // #6264 远程 SSH / 远程隧道:设备列表据此标连法,机器上限据此数远程隧道那一档。
     // 一次小文件读,随 30 秒一次的心跳;没记 = 不报(= 远程隧道)。
     const via = readServerConnectVia(env.GUGU_TASK_HOST_USER_DATA, readText)

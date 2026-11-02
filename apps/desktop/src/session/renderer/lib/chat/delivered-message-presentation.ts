@@ -3,6 +3,7 @@ import type { MessageItem } from '@gugu/core/shared/types/chat';
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import { parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels';
 import { createEffect, createRoot } from 'solid-js';
+import { parseSentAttachmentLink } from '@gugu/session-core/session-record/send-receipt';
 
 export function originalMessagePresentation(message: MessageItem): DeliveryMessagePresentation | null {
   if (message.content_type !== 'attachment' || message.retracted_at) return null;
@@ -42,7 +43,7 @@ export function connectDeliveredMessagePresentation(state: ChatState, load: (id:
 }
 
 export async function resolveDeliveredAttachment(id: string): Promise<string | null> {
-  const messageId = /^gugu-message-file:\/\/([0-9a-f-]{36})$/i.exec(id)?.[1];
+  const messageId = parseSentAttachmentLink(id)?.messageId;
   if (!messageId) return null;
   const { attachmentBytes } = await import('@/lib/attachmentBytes');
   const result = await attachmentBytes({ kind: 'message', messageId }, 'thumb');

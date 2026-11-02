@@ -11,6 +11,7 @@ import {
 import { HelpCircle, ShieldCheck } from '@/lib/icons'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
+import { useToast } from '@/components/toastContext'
 import { MOBILE_RESPONDER_ID } from './useAgentWatchSession'
 import { appInstallAskOf } from '@/session/shared/extensions/host-actions'
 import { answerAppInstall, appInstallWords } from '@/session/renderer/features/extensions/app-install-approval'
@@ -44,6 +45,7 @@ export function SettlementCard({
   onRespond: (input: SettlementResponse) => void
 }) {
   const { t } = useTranslation('main')
+  const { toast } = useToast()
   const kind = settlement.kind ?? 'permission'
   const options = settlement.options ?? []
   const pending = settlement.state === 'pending'
@@ -67,7 +69,7 @@ export function SettlementCard({
       ...(machine ? { machine } : {}),
       respond: async ({ optionId: picked, digest }) =>
         onRespond({ itemId: settlement.itemId, optionId: picked, kind, ...(digest ? { digest } : {}) }),
-    })
+    }).catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'))
   }
 
   return (

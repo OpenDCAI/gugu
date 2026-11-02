@@ -14,18 +14,19 @@ import { clickElement, createNode, createReactHarness, message } from '../../../
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
-import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_COMPOSE_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_COMPOSE_EVENT, APP_SHOW_SESSION_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { sheetStack } from '../../../../apps/desktop/src/components/ui/sheetStack'
 import { rememberAssistantTaskChat } from '../../../../apps/desktop/src/lib/assistantTaskChat'
 import { installAssistantShellBridge, publishAssistantShell } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stores/app-state'
 import { MOBILE_TABS } from '@gugu/core/shared/enums/sidebarTabModels'
-import { i18n } from '../../../../apps/desktop/src/i18n'
-import type { Notice } from '../../../../apps/desktop/src/lib/notices'
-const deliveryNotice = vi.hoisted(() => vi.fn<(notice: Notice) => string>(() => 'notice'))
-vi.mock('../../../../apps/desktop/src/lib/notices', async (original) => ({
-  ...await original<object>(), notify: deliveryNotice,
-}))
-const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[] }))
+const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[], remote: false }))
+vi.mock('../../../../apps/desktop/src/lib/ownedAgentConversation', async original => {
+  const actual = await original<typeof import('../../../../apps/desktop/src/lib/ownedAgentConversation')>()
+  return { ...actual, ownedAgentConversation: (...args: Parameters<typeof actual.ownedAgentConversation>) => taskRoute.remote
+    ? Promise.resolve({ kind: 'remote', deviceId: 'host', session: { conversationId: 'task-session', projectId: 'project', title: 'Task', harness: 'claude', supported: true } })
+    : actual.ownedAgentConversation(...args) }
+})
 const openNativeConversation = vi.hoisted(() => vi.fn(async () => true))
 vi.mock('../../../../apps/desktop/src/lib/guguLinks', async original => ({
   ...await original<object>(), openTarget: openNativeConversation,
@@ -190,8 +191,13 @@ vi.mock('../../../../apps/desktop/src/mobile/assistant/MobileAssistantTab', asyn
 const agentWatchProbe = vi.hoisted(() => ({ rootMounts: 0, rootUnmounts: 0 }))
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/AgentWatchPage', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
+  const { useBackLayer } = await vi.importActual<typeof import('../../../../apps/desktop/src/components/ui/sheetStack')>('../../../../apps/desktop/src/components/ui/sheetStack')
   return {
-    AgentWatchPage: ({ active, createRequest }: { active: boolean; createRequest?: number }) => React.createElement('div', { 'data-testid': 'mock-agent-watch-page', 'data-active': String(active), 'data-create-request': String(createRequest ?? 0) }),
+    AgentWatchPage: ({ active, createRequest, onExit }: { active: boolean; createRequest?: number; onExit: () => void }) => {
+      useBackLayer(onExit, active)
+      return React.createElement('div', { 'data-testid': 'mock-agent-watch-page', 'data-active': String(active), 'data-create-request': String(createRequest ?? 0) },
+        React.createElement('button', { 'data-testid': 'mock-session-back', onClick: onExit }, 'back'))
+    },
     AgentWatchRoot: () => {
       React.useEffect(() => {
         agentWatchProbe.rootMounts += 1
@@ -326,6 +332,7 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
+  taskRoute.remote = false
   vi.stubGlobal('matchMedia', () => ({ matches: false }))
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
     configurable: true,
@@ -335,7 +342,6 @@ beforeEach(() => {
     },
   })
   taskRoute.contacts = []
-  deliveryNotice.mockClear()
   fileOwner.mockResolvedValue({ data: { chat_id: 'personal-dm' }, error: null })
   activationProbe.calls.length = 0
   chatAreaProbe.mounts = 0
@@ -402,42 +408,6 @@ function layerOpen(testId: string): boolean {
   return document.querySelector(`[data-testid="${testId}"]`)?.hasAttribute('data-open') ?? false
 }
 
-describe('MainLayout: task delivery failure notices', () => {
-  const fail = async (agentUserId: string, messageId?: string, error = 'Provider refused the request') => {
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent(UI_EVENTS.sessionpageDeliverFailed, { detail: { agentUserId, messageId, error } }))
-    })
-    return deliveryNotice.mock.calls.at(-1)![0]
-  }
-  const description = (name: string, count: number) => i18n.t('shell.toast.taskDeliverFailedCount', { ns: 'main', name, count })
-
-  it('updates one task notice with the actual redacted cause and distinct source message count', async () => {
-    taskRoute.contacts = [{ id: 'agent-1', display_name: 'Ledger' }]
-    await renderMainLayoutWithToast()
-    const first = await fail('agent-1', 'message-1', 'Denied /Users/alice/private with sk-test_secret\nprivate stack')
-    expect(first.title).toBe('Denied [path] with [redacted token]')
-    expect(first.description).toBe(description('Ledger', 1))
-    expect((await fail('agent-1', 'message-1')).description).toBe(description('Ledger', 1))
-    const second = await fail('agent-1', 'message-2')
-    expect(second.key).toBe(first.key)
-    expect(second.description).toBe(description('Ledger', 2))
-    expect((await fail('agent-2', 'message-3')).key).not.toBe(first.key)
-  })
-
-  it.each(['onDismiss', 'onAutoClose'] as const)('starts a new message count after %s, ignoring an old notice callback', async (close) => {
-    await renderMainLayoutWithToast()
-    const old = await fail('agent-1', 'message-1')
-    old[close]?.()
-    expect((await fail('agent-1', 'message-2')).description).toBe(description('agent-1', 1))
-    old[close]?.()
-    expect((await fail('agent-1', 'message-3')).description).toBe(description('agent-1', 2))
-  })
-
-  it('does not invent a message count for an event without a source message', async () => {
-    await renderMainLayoutWithToast()
-    expect((await fail('agent-1')).description).toBe(i18n.t('shell.toast.taskDeliverFailed', { ns: 'main', name: 'agent-1' }))
-  })
-})
 // 安卓返回键(同 ui/sheetStack.ts 的 NATIVE_BACK_EVENT)。
 async function nativeBack() {
   await act(async () => {
@@ -554,6 +524,36 @@ describe('MainLayout', () => {
     }))
     expect(harness.container.querySelector('[data-testid="mock-phone-partners"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-chat-new-project"]'), 'no phone 新项目 entry on the desktop').toBeNull()
+  })
+  it.each(['messages', 'contacts', 'project', 'notification'] as const)('adds one session layer from %s and returns to the retained source', async source => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    taskRoute.remote = true
+    taskRoute.contacts = [{ id: 'task-agent', type: 'agent', owner_user_id: 'user-1' }]
+    chatStoreMock.chats = [{ id: 'task-dm', kind: 'dm', peer_user_id: 'task-agent' }] as never
+    await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
+    if (source !== 'messages') {
+      await clickElement(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileContactsNav}"]`) as HTMLElement)
+      if (source !== 'contacts') await clickElement(harness.container.querySelector('[data-testid="mock-phone-partners-push"]') as HTMLElement)
+    }
+    const before = sheetStack.length
+    for (const method of ['header', 'native']) {
+      await act(async () => {
+        if (source === 'notification') notificationClicks.listener?.({ chatId: 'task-dm' })
+        else window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: { deviceId: 'host', session: { conversationId: 'task-session', supported: true } } }))
+        await Promise.resolve()
+      })
+      expect(layerOpen('mobile-sessions-layer')).toBe(true)
+      expect(sheetStack).toHaveLength(before + 1)
+      if (source !== 'messages') expect(harness.container.querySelector('[data-testid="mock-phone-partners"]')?.getAttribute('data-active')).toBe('true')
+      if (method === 'header') await clickElement(harness.container.querySelector('[data-testid="mock-session-back"]') as HTMLElement)
+      else await nativeBack()
+      expect(layerOpen('mobile-sessions-layer')).toBe(false)
+      expect(sheetStack).toHaveLength(before)
+      const page = source === 'messages' ? 'chats' : 'contacts'
+      expect(harness.container.querySelector(`[data-mobile-tab-page="${page}"]`)?.hasAttribute('inert')).toBe(false)
+      expect(Boolean(harness.container.querySelector('nav'))).toBe(source === 'messages' || source === 'contacts')
+    }
   })
   // 伙伴里只有项目群聊那一行(话题不成行,owner 10-28):进去落在群聊页签,❌ 开话题分屏。
   it('returns from a project group opened in Partners to the retained project directory without showing the root tab bar', async () => {
@@ -967,7 +967,7 @@ describe('MainLayout: files.openWith', () => {
     await renderMainLayoutWithToast()
     fileOwner.mockResolvedValue({ data: { chat_id: 'topic-file' }, error: null })
     await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1' }, { restore }) })
-    if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false)
+    if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false, 'resource')
     else expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('source')
     expect(drainTopicSplitRequest('source')).toBeNull()
     expect(takeChatAsk('source')).toEqual({ itemId: 'F1', restore })
@@ -979,7 +979,7 @@ describe('MainLayout: files.openWith', () => {
     await renderMainLayoutWithToast()
     await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail })) })
     // 桌面上对话是会话页这屏的一块:请会话页把它摆出来。
-    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('g-open', false)
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('g-open', false, 'resource')
     expect(takeChatAsk('g-open'), 'a page asked: what it opens has that page as its 上一页').toEqual({ itemId: 'F1', opener: detail, fromPage: true })
   })
 
@@ -1005,6 +1005,46 @@ describe('MainLayout: files.openWith', () => {
 })
 
 
+it.each(['owned', 'group'] as const)('opens a %s file on its file host and preserves the authorized source message', async kind => {
+  const chatId = 'file-chat'
+  const source = message({ id: 'receipt', chat_id: chatId, file_item_id: 'F1', file_version: 1 })
+  chatStoreMock.chats = [{ id: chatId, kind: kind === 'owned' ? 'dm' : 'group', peer_user_id: kind === 'owned' ? 'agent' : null }] as never
+  if (kind === 'owned') taskRoute.contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'user-1' }]
+  fileOwner.mockResolvedValue({ data: { chat_id: chatId }, error: null })
+  openNativeConversation.mockClear()
+  await renderMainLayoutWithToast()
+  await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1', version: 1 }, { message: source }) })
+  expect(sessionPageViewRequests.openChat).toHaveBeenCalledExactlyOnceWith(chatId, false, 'resource')
+  expect(openNativeConversation).not.toHaveBeenCalled()
+  expect(takeChatAsk(chatId)).toEqual({ itemId: 'F1', message: source })
+})
+
+it('opens an App card in an owned DM on its resource host instead of redirecting to the task', async () => {
+  chatStoreMock.chats = [{ id: 'owned-app', kind: 'dm', peer_user_id: 'agent' }] as never
+  taskRoute.contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'user-1' }]
+  openNativeConversation.mockClear()
+  await renderMainLayoutWithToast()
+  await act(async () => { await openLinkTarget({ kind: 'app', extensionId: 'board', tab: 'main', path: '', query: {}, place: { chat: 'owned-app' } }) })
+  expect(sessionPageViewRequests.openChat).toHaveBeenCalledExactlyOnceWith('owned-app', false, 'resource')
+  expect(openNativeConversation).not.toHaveBeenCalled()
+  expect(takeChatAsk('owned-app')).toEqual({ app: 'board', tab: 'main' })
+})
+
+it('rejects file navigation when the task bridge is absent, and toasts a failed Open With event', async () => {
+  chatStoreMock.chats = [{ id: 'file-chat', kind: 'dm' }] as never
+  fileOwner.mockResolvedValue({ data: { chat_id: 'file-chat' }, error: null })
+  const toast = vi.fn()
+  await renderMainLayoutWithToast(toast)
+  delete (window as unknown as Record<string, unknown>).__GUGU_SESSIONPAGE_VIEW_REQUESTS__
+  await act(async () => { await expect(openLinkTarget({ kind: 'file', itemId: 'F1' })).rejects.toThrow() })
+  expect(takeChatAsk('file-chat')).toBeNull()
+  await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: {
+    chatId: 'file-chat', itemId: 'F1', name: 'proof.txt', typedName: 'proof.txt', choice: { kind: 'none' },
+  } })) })
+  expect(toast).toHaveBeenCalledWith(expect.any(String), 'error')
+  expect(takeChatAsk('file-chat')).toBeNull()
+})
+
 describe('MainLayout: personal assistant destinations', () => {
   const shell = { cloudAvailable: false, canHostHere: true, cloud: null, loadError: null,
     assistant: { id: 'personal-agent', display_name: '咕咕', avatar: null, created_at: null },
@@ -1029,7 +1069,10 @@ describe('MainLayout: personal assistant destinations', () => {
         if (name === 'resource-file' && 'itemId' in detail) await openLinkTarget({ kind: 'file', itemId: detail.itemId })
         else window.dispatchEvent(new CustomEvent(name, { detail }))
       })
-      expect(navigate).toHaveBeenCalledWith('assistant')
+      if ('itemId' in detail) {
+        expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('personal-dm', false, 'resource')
+        expect(navigate).not.toHaveBeenCalled()
+      } else expect(navigate).toHaveBeenCalledWith('assistant')
       expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
       if ('itemId' in detail) expect((takeChatAsk('personal-dm') as { itemId?: string } | null)?.itemId).toBe('personal-file')
       if ('text' in detail) expect(chatStoreMock.writeDraft).toHaveBeenCalledWith('personal-dm', { at: 'end', text: 'follow-up' })
@@ -1089,7 +1132,7 @@ describe('MainLayout: opening a topic on the desktop', () => {
       open()
       for (let i = 0; i < 5; i += 1) await Promise.resolve()
     })
-    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(target, false)
+    expect(sessionPageViewRequests.openChat.mock.calls[0]).toEqual(_way === 'an App naming it' ? [target, false, 'resource'] : [target, false])
     if (_way === 'a conversation link') expect(drainTopicSplitRequest(SRC)).toMatchObject({ chatId: TOPIC, sourceChatId: SRC })
     else expect(drainTopicSplitRequest(SRC)).toBeNull()
   })
@@ -1163,7 +1206,7 @@ describe('MainLayout: an App requested from a topic uses the shared source slot'
       window.dispatchEvent(new CustomEvent(eventName, { detail: { chatId: 'topic-app', extensionId: 'board' } }))
     })
     expect(resourceChat).toHaveBeenLastCalledWith('layout-token', 'topic-app', 'user-1')
-    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source-app', false)
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source-app', false, 'resource')
     expect(takeChatAsk('source-app')).toEqual({ app: 'board' })
     expect(takeChatAsk('topic-app')).toBeNull()
     expect(drainTopicSplitRequest('source-app')).toBeNull()

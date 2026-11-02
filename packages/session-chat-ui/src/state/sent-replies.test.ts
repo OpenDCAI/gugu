@@ -131,7 +131,7 @@ it('projects text, a confirmed file card and text at their actual call positions
   const record = { ...turn(first), items: [turn(first).items[0], first, file, last] };
   const projected = withSentReplies(record, { allDestinations: true });
   expect(words(projected).map(item => item.kind === 'message' ? item.text : '')).toEqual(['First', 'proof.txt', 'Last']);
-  expect(words(projected)[1]).toMatchObject({ sentAttachment: { name: 'proof.txt', href: `gugu-file://${id}?v=2` } });
+  expect(words(projected)[1]).toMatchObject({ sentAttachment: { name: 'proof.txt', href: `gugu-message-file://7417511d-8f36-4cbc-8cbb-81ce9f97df73` } });
   expect(withSentReplies(projected, { allDestinations: true })).toBe(projected);
 });
 
@@ -185,4 +185,52 @@ it('keeps a distant DM reply and direct output in order', () => {
   expect(words(withSentReplies(record, { allDestinations: true })).map(item => item.text)).toEqual(['T1062-DISTANT-OK', 'T1062-DISTANT-OK 已发出。']);
   const direct = conversationMessages([record])[0]!.items.find(item => item.id === 'direct');
   expect(direct?.kind === 'message' && messageReplyReference(direct)).toBeNull();
+});
+
+const secondId = '7417511d-8f36-4cbc-8cbb-81ce9f97df73';
+const relay = (recipients: object[]): McpToolCall => ({ ...send(), tool: 'session_message',
+  rawInput: JSON.stringify({ to: ['session:first', 'session:second'], text: 'Delegated result' }),
+  outputText: JSON.stringify({ content: [{ type: 'text', text: JSON.stringify({ route: 'session-direct', recipients }) }] }),
+});
+it.each([1, 2])('projects a confirmed session_message to %s recipients once using receipt ids and count', count => {
+  const call = relay([id, secondId].slice(0, count).map((message_id, index) => ({ to: `session:${index}`, status: index ? 'accepted' : 'delivered', message_id: `msg:${message_id}` })));
+  const projected = withSentReplies(turn(call), { allDestinations: true });
+  expect(words(projected)).toMatchObject([{ id: `send:sent:${id}`, text: 'Delegated result', sentTo: { kind: 'session', count } }]);
+  expect(withSentReplies(projected, { allDestinations: true })).toBe(projected);
+});
+it('keeps failed, partial, unconfirmed, nested and non-Gugu session sends as tool output', () => {
+  const success = { status: 'delivered', message_id: id };
+  for (const call of [relay([{ status: 'failed', error: 'offline' }]), relay([success, { status: 'failed' }]), relay([]),
+    { ...relay([success]), status: 'error' as const }, { ...relay([success]), parentToolCallId: 'nested' },
+    { ...relay([success]), server: 'untrusted' }, { ...relay([success]), outputText: JSON.stringify({ isError: true, content: [{ type: 'text', text: JSON.stringify({ recipients: [success] }) }] }) },
+  ]) expect(words(withSentReplies(turn(call), { allDestinations: true }))).toEqual([]);
+});
+const fileCall = (key: string, messageId: string, chat = '127ec4f0-30b1-4583-b469-706756153bdd'): McpToolCall => ({
+  ...send(), id: key, toolCallId: key, tool: 'message_send_file',
+  rawInput: JSON.stringify({ chat_id: chat, file_path: '/private/proof.png' }),
+  outputText: JSON.stringify({ message_id: messageId, file_name: 'proof.png', source_link: `gugu-chat://${chat}/${messageId}` }),
+});
+it.each([false, true])('groups adjacent files to one destination in conversation=%s and keeps every receipt on replay', allDestinations => {
+  const first = fileCall('first', id), second = fileCall('second', secondId);
+  const record = { ...turn(first), items: [first, second] };
+  const projected = withSentReplies(record, { allDestinations });
+  expect(words(projected)).toHaveLength(1);
+  expect(words(projected)[0]).toMatchObject({ id: `first:sent:${id}`, sentAttachments: [{ messageId: id, kind: 'image' }, { messageId: secondId, kind: 'image' }] });
+  expect(projected.items.map(item => item.id)).toEqual(['first', 'second', `first:sent:${id}`]);
+  expect(withSentReplies(projected, { allDestinations })).toBe(projected);
+  expect(record.items).toHaveLength(2);
+});
+it('does not group files across a failed send, another destination, ordinary text or another tool', () => {
+  const first = fileCall('first', id), second = fileCall('second', secondId);
+  for (const separator of [{ ...fileCall('failed', 'failed'), status: 'error' as const },
+    fileCall('other', '8417511d-8f36-4cbc-8cbb-81ce9f97df73', 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'),
+    { kind: 'message' as const, id: 'text', seq: 3, role: 'assistant' as const, text: 'Another output' },
+    { ...send(), tool: 'message_history', id: 'read' }]) {
+    const projected = withSentReplies({ ...turn(first), items: [first, separator, second] }, { allDestinations: true });
+    expect(words(projected).filter(item => 'sentAttachments' in item)).toHaveLength(separator.id === 'other' ? 3 : 2);
+  }
+});
+it('treats the raw session error receipt as authoritative over flattened output', () => {
+  const call = { ...relay([{ status: 'delivered', message_id: id }]), rawOutput: JSON.stringify({ isError: true, content: [] }) };
+  expect(words(withSentReplies(turn(call), { allDestinations: true }))).toHaveLength(0);
 });

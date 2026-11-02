@@ -3,6 +3,7 @@ import { imSelectors } from './imRepository'
 import { rendererLogger } from './log'
 
 export const ACCOUNT_REVISION_CURSOR_KEY = 'account-revision-cursor'
+const ACCOUNT_REVISION_SKIPPED_KEY = 'account-revision-skipped'
 const DEFAULT_PAGE_SIZE = 100
 // R1 — drain 失败(网络、服务端报错、页序号不连续)后从已提交游标整体重拉的退避节拍。
 export const DRAIN_RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 30000] as const
@@ -64,6 +65,8 @@ export function createAccountRevisionRuntime(
   }
 
   const handlers = new Map<string, RevisionHandler>()
+  const warnedEvents = new Set<string>()
+  let replayPending = false
   let started = false
   let active = false
   let generation = 0
@@ -110,6 +113,39 @@ export function createAccountRevisionRuntime(
     return revision
   }
 
+  const readSkipped = (): Record<string, string> =>
+    imSelectors.syncState(ACCOUNT_REVISION_SKIPPED_KEY)(repository.snapshot()) as Record<string, string> | undefined ?? {}
+
+  const replaySkipped = async (runGeneration: number): Promise<void> => {
+    const skipped = readSkipped()
+    const events = new Set(Object.keys(skipped).filter((event) => handlers.has(event)))
+    if (events.size === 0) return
+    let cursor = [...events].reduce((first, event) => BigInt(skipped[event]!) < BigInt(first) ? skipped[event]! : first, readCursor())
+    cursor = String(BigInt(cursor) - 1n)
+    const through = BigInt(readCursor())
+    const signal = abortController!.signal
+    while (active && generation === runGeneration && BigInt(cursor) < through) {
+      const page = await source.syncSince(cursor, pageSize, signal)
+      signal.throwIfAborted()
+      validatePage(page, cursor)
+      if (page.operations.length === 0) throw new Error('account revision replay is empty before the committed cursor')
+      const lastRevision = page.operations[page.operations.length - 1]!.revision
+      await repository.transaction((transaction) => {
+        if (!active || generation !== runGeneration) return
+        for (const operation of page.operations) {
+          if (BigInt(operation.revision) <= through && events.has(operation.event)) {
+            handlers.get(operation.event)!(operation, transaction)
+          }
+        }
+        if (BigInt(lastRevision) >= through) {
+          const remaining = Object.fromEntries(Object.entries(readSkipped()).filter(([event]) => !events.has(event)))
+          transaction.putSyncState(ACCOUNT_REVISION_SKIPPED_KEY, remaining)
+        }
+      })
+      cursor = lastRevision
+    }
+  }
+
   const applyPage = async (
     page: AccountRevisionPage,
     cursor: string,
@@ -122,12 +158,25 @@ export function createAccountRevisionRuntime(
     const lastRevision = page.operations[page.operations.length - 1]!.revision
     await repository.transaction((transaction) => {
       if (!active || generation !== runGeneration) return
+      let skipped = readSkipped()
+      let skippedChanged = false
       for (const operation of page.operations) {
         const handler = handlers.get(operation.event)
-        if (!handler) throw new Error(`unknown account revision event: ${operation.event}`)
+        if (!handler) {
+          if (!Object.hasOwn(skipped, operation.event)) {
+            skipped = { ...skipped, [operation.event]: operation.revision }
+            skippedChanged = true
+          }
+          if (!warnedEvents.has(operation.event)) {
+            warnedEvents.add(operation.event)
+            runtimeLog.warn({ accountId, event: operation.event, revision: operation.revision }, 'skipping unknown account revision event')
+          }
+          continue
+        }
         handler(operation, transaction)
       }
       if (!active || generation !== runGeneration) return
+      if (skippedChanged) transaction.putSyncState(ACCOUNT_REVISION_SKIPPED_KEY, skipped)
       transaction.putSyncState(ACCOUNT_REVISION_CURSOR_KEY, { revision: lastRevision })
     })
     return active && generation === runGeneration ? lastRevision : cursor
@@ -141,6 +190,10 @@ export function createAccountRevisionRuntime(
   }
 
   const drain = async (runGeneration: number): Promise<void> => {
+    if (replayPending) {
+      await replaySkipped(runGeneration)
+      replayPending = false
+    }
     do {
       wakePending = false
       pendingHead = null
@@ -212,6 +265,7 @@ export function createAccountRevisionRuntime(
       active = true
       generation += 1
       abortController = new AbortController()
+      replayPending = Object.keys(readSkipped()).some((event) => handlers.has(event))
       unsubscribeWake = source.subscribeWake(accountId, scheduleWake, scheduleWake)
       scheduleWake()
     },

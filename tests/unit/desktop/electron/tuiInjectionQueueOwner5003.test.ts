@@ -87,7 +87,7 @@ function readerDeps(
     accessToken: 'owner-token',
     groupRulesLedger: memoryGroupRulesLedger(),
     inject: (input) => router.injectForAgentWithCompletion(input.agentUserId, {
-      id: input.messageId ?? 'no-id',
+      id: input.sourceMessageId ?? 'no-id',
       text: input.text,
     }),
     fetchUnread: async () => queue.shift() ?? [],

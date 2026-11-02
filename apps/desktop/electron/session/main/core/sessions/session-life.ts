@@ -213,6 +213,12 @@ export class SessionLife {
     return { seq: result.seq, state: result.state };
   }
 
+  /** A reader-rejected item stays visible as failed and never enters provider admission. */
+  rejectInbox(input: Extract<EnqueuePending, { kind: 'inbox-batch' }>, cause: unknown): void {
+    this.ports.store(input.sessionId).enqueue({ ...input, failure: toSerializedError(cause) });
+    this.publish(input.sessionId, this.entry(input.sessionId));
+  }
+
   private deliver(sessionId: string, seq: Seq): void {
     const refused = this.account === null ? 'no account is signed in' : this.leaving ? 'sign-out is in progress' : null;
     if (refused) {

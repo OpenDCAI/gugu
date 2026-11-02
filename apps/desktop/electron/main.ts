@@ -11,6 +11,7 @@ import { renderFirstTurn, type FirstTurnRender } from '@gugu/core/local/agent/fi
 import { createDesktopFileAccess } from './desktopFileAccess'
 import { createNativeFileHost, registerNativeFileIpc } from './nativeFileHost'
 import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
+import { writeTaskCopy } from './projectFilePublication'
 import { resourceMonitorWindow } from './resource-monitor-window'
 import { linkProjectDevice } from './session/main/core/projects/project-device-link'
 import {
@@ -192,6 +193,7 @@ import {
 } from '@gugu/core/local/agent/deviceCommandRuntime'
 import {
   discloseInboxRowsFailed,
+  DisclosedFailure,
   kickAgentInboxPull,
   markInboxRowsRead,
   readAgentInboxBatchAuditForTest,
@@ -508,7 +510,6 @@ import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@g
 import { announceLocalDeviceIdentity } from './local-device-identity'
 import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
 import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
-import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
 import { emdashPlatformReleaseIntent } from './session/main/core/acp/emdash-platform-injector'
 import type {
   EmdashSessionStartInfo as EmdashStartInfo,
@@ -1011,6 +1012,20 @@ function createDeviceSessionpageBridge() {
   return {
     ...bridge,
     downloadAttachment: desktopFiles.download,
+    rejectAgentInbox: async (input: import('@gugu/core/local/agent/agentInboxReader').AgentInboxInjectionInput, cause: unknown) => {
+      const local = (input.sources ?? []).filter(source => source.row.localSessionDirect);
+      if (local.length) {
+        const emdash = loadEmdashBridge();
+        if (!emdash) throw new Error('session-page session runtime is unavailable');
+        for (const source of local) emdash.rejectPendingSessionDirectMessage(source.row.localSessionDirect!.sessionId, source.row.id, cause);
+      }
+      const sessionId = getSessionpageLocalDelivery().sessionIdForAgent(input.agentUserId);
+      if (!sessionId) throw new Error(`No recipient session owns rejected inbox input for ${input.agentUserId}`);
+      const emdash = loadEmdashBridge();
+      if (!emdash) throw new Error('session-page session runtime is unavailable');
+      emdash.sessionLife().rejectInbox({ sessionId, text: input.text, kind: 'inbox-batch',
+        sources: (input.sources ?? []).map(source => ({ ...source, agentUserId: input.agentUserId })) }, cause);
+    },
     fetchLocalSessionDirectInbox: async (agentUserId: string) => {
       // @@@4629 属主解析走认领者注册表 —— ❌ 别退回「查会话页 agent 注册表,查不到再查 local-session」:
       // 那两个是内核角色,promote 把 native 认领者(codex app-server / opencode serve-attach)扶正时正好
@@ -2164,30 +2179,6 @@ function startDeviceRuntimeWhenRendererReady(): void {
     warn: (message) => console.warn(message),
     onAuthExpired: (message) => { void showAuthExpiredNotification(message) },
     ...(serverAuth ? { onDeviceRemoved: serverDeviceRemovedHandler(serverAuth) } : {}),
-    onAgentDeliverFailure: (failure) => {
-      console.error(
-        `[agent-turn] deliver ${failure.commandId} failed terminally (agent=${failure.agentUserId} chat=${failure.chatId} thread=${failure.threadRootId ?? 'main'}): ${failure.error}`
-        + (failure.cause ? ` (cause: ${failure.cause})` : '')
-      )
-      sendUiEvent(MAIN_UI_EVENTS.agentStream, {
-        agentUserId: failure.agentUserId,
-        conversationId: failure.chatId,
-        threadRootId: failure.threadRootId,
-        event: { type: 'error', message: failure.error, commandId: failure.commandId }
-      } satisfies AgentStreamPayload)
-      // @@@no-auto-dm — 判据是「这个 agent 是不是会话页 agent」,那是 liveSessionIdByAgent 的
-      // 定义(非 null = 投递归会话页)。曾经拿 chatIdForAgent 顶替:私聊一律在 provision 时开,于是
-      // 「有 chatId」恰好等价于「是会话页 agent」—— 现在私聊只找不建,没开过私聊的会话页 agent
-      // chatId 就是 null,再按它判就会把该报给会话页的投递失败**静默吞掉**。
-      const sessionpageSessionId = emdashAgentRegistry.liveSessionIdByAgent(failure.agentUserId)
-      if (sessionpageSessionId) {
-        sendUiEvent(MAIN_UI_EVENTS.sessionpageDeliverFailed, {
-          agentUserId: failure.agentUserId,
-          messageId: failure.messageId,
-          error: failure.error,
-        })
-      }
-    },
   })
   // server 没有窗口可等:登录态在主进程手里,设备循环直接起。
   if (SERVER_MODE || !mainWindow) {
@@ -2383,7 +2374,8 @@ function drainProjectFiles() { void desktopFiles.drain().catch(error => createLo
 const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
   alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
-  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, { message }), publication: desktopFiles.publish.local,
+  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message, task) => desktopFiles.publish(chat, file, null, actor, undefined, { message, ...(task ? { task: true, itemId: task.itemId } : {}) }),
+  taskCopy: (name, bytes, mimeType) => writeTaskCopy(join(resolveGuguHome(process.env), 'attachments'), name, bytes, mimeType), publication: desktopFiles.publish.local,
   openPath: path => shell.openPath(path), published: directory => trackRemoteFileDirectory(remoteFileOpenDirectories, directory),
 })
 registerNativeFileIpc(ipcMain, nativeFiles, error => createLogger('files').warn({ error: String(error) }, 'Native file operation failed'))
@@ -5002,12 +4994,21 @@ app.whenReady().then(async () => {
     // mapped offline target is queued, while transport errors remain fail-loud. Never a pty write.
     emdashAgentRegistry.setBridge(emdash)
     emdash.setSessionLifeSourceHost({
-      markRead: row => settleSessionLifeSources([row], markInboxRowsRead),
-      // By the row's state: failed and unknown are final (Life never redelivers them); a start failure's rows stay queued.
+      // The agent accepted the row: its unit's delivery succeeded, whether or not the read receipt then lands.
+      markRead: async (row) => {
+        emdashAgentRegistry.settleInbox([row])
+        await settleSessionLifeSources([row], markInboxRowsRead)
+      },
+      // By the row's state: failed and unknown are final (Life never redelivers them) and fail the unit's delivery with what
+      // was disclosed, so its command records it; a start failure's rows stay queued and their units wait for the retry.
       reportFailure: async (rows, cause) => {
-        await settleSessionLifeSources(rows.filter(row => row.state === 'failed'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'failed', cause }))
-        await settleSessionLifeSources(rows.filter(row => row.state === 'unknown'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'unknown' }))
-        await settleSessionLifeSources(rows.filter(row => row.state === 'queued'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'retained' }))
+        for (const [state, outcome] of [['failed', { kind: 'failed', cause }], ['unknown', { kind: 'unknown' }], ['queued', { kind: 'retained' }]] as const) {
+          const settled = rows.filter(row => row.state === state)
+          await settleSessionLifeSources(settled, async (agent, sources, deps) => {
+            const disclosure = await discloseInboxRowsFailed(agent, sources, deps, outcome)
+            if (state !== 'queued') emdashAgentRegistry.settleInbox(settled.filter(row => row.sources.some(source => source.agentUserId === agent)), new DisclosedFailure(cause, disclosure))
+          })
+        }
       },
     })
     // @@@sessionpage TASKPAGE-FUSION — re-map every persisted session-page agent binding at boot so it stays
@@ -5214,6 +5215,7 @@ app.whenReady().then(async () => {
       knownChatId: string | null | undefined
       messageId: string
       text: string
+      files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]
       /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡(task-card-first-turn.ts),❌ 进 agent 私聊。 */
       taskChatId?: string
       projectId: string
@@ -5235,6 +5237,7 @@ app.whenReady().then(async () => {
           chatId: input.taskChatId,
           messageId: input.messageId,
           text: content,
+          files: input.files,
           deviceId,
           machineLabel: (await getLocalDeviceSelfSnapshot())?.label || hostname(),
           senderIdentities: await envelopeSenderIdentities(auth.userId, auth.accessToken),
@@ -5586,6 +5589,7 @@ app.whenReady().then(async () => {
           messageId: info.initialMessageId,
           text: chatPageFirstTurnText,
           taskChatId: info.taskChatId,
+          files: info.initialMessageFiles,
           projectId: info.projectId,
         })
         provisionedChatId = delivered.chatId
@@ -6450,7 +6454,12 @@ app.whenReady().then(async () => {
       },
     )
   }
-  if (!SERVER_MODE) loadMainWindowContents()
+  if (!SERVER_MODE) {
+    loadMainWindowContents()
+    void sessionHostBoot?.then(() => {
+      loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
+    }).catch((error: unknown) => createLogger('search/backfill').error({ error: String(error) }, 'Search backfill could not start after backend boot'))
+  }
   startDeviceRuntimeWhenRendererReady()
   // server 的升级另有一套(后台下好、没有 agent 在跑时切换),❌ 走桌面这套弹界面的更新器。
   if (!SERVER_MODE) {
@@ -6475,6 +6484,7 @@ app.whenReady().then(async () => {
     if (!sessionHostBoot) throw new Error('Session backend boot was not started')
     await sessionHostBoot
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
+    loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
     // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
     const activityFile = join(app.getPath('userData'), 'activity.json')

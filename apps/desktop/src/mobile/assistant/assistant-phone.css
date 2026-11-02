@@ -3,8 +3,8 @@
  * 内容组件沿用桌面助理的数据与动作，手机表面、字阶和触控尺寸收在 #7333 母版上。
  */
 
-/* 只覆盖手机助理的字阶、触控尺寸和形状;颜色(渐变底、玻璃、气泡)照 assistant-today.css 那一套,
-   和手机全线同一个底(owner 10-26,OpenDCAI/gugu#446)。 */
+/* 只覆盖手机助理的字阶、触控尺寸和形状;颜色由 tokens.css 提供,
+   和手机全线同一个中性纯色底。 */
 .ta-phone,
 [data-theme='light'] .ta-phone {
   --phone-font-note: var(--phone-font-caption, calc((var(--font-caption) + var(--font-body)) / 2));

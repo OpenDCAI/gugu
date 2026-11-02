@@ -1,4 +1,5 @@
 import { createServerVersionLifecycle } from './server-version-lifecycle'
+import { repairLegacyServerLaunchers } from './server-installation'
 /**
  * 咕咕 server 的守护进程(`gugu-server run`,系统服务拉起的就是它)。
  *
@@ -25,6 +26,7 @@ import { rotateByCopyTruncate, rotateByRename, SERVICE_LOG_CHECK_MS } from './se
 import { ensureUpgradeGuard, writeSupervisorHealth, SUPERVISOR_HEALTH_MS } from './server-upgrade-guard'
 import { createAccountDriver } from './server-account-driver'
 import { managedLayout, startServerUpdater } from './server-updater'
+import { controllerOwnsUpdates } from './server-package-environment.mts'
 
 const RECONCILE_MS = 3_000
 const CHILD_STOP_GRACE_MS = 30_000
@@ -108,6 +110,8 @@ export async function runSupervisor(): Promise<void> {
     // 专门的退出码:看门人见到它就收手,❌ 两个一直互相顶(server-keeper.ts)。
     process.exit(SUPERVISOR_EXIT_ALREADY_RUNNING)
   }
+  try { repairLegacyServerLaunchers(process.env.GUGU_SERVER_HOME!) }
+  catch (error) { log.warn('Could not update the legacy server command', { error: String(error) }) }
   process.on('exit', release)
   // Include signed-out accounts: their saved website logins must not wait for another sign-in.
   for (const account of listAccounts()) removeLegacyBrowserLogins(account.dataDir, log)
@@ -132,7 +136,7 @@ export async function runSupervisor(): Promise<void> {
 
   const layout = managedLayout()
   const lifecycle = layout ? createServerVersionLifecycle({ layout, running: () => [...children.values()].flatMap(child => child.version ? [child.version] : []) }) : null
-  const followSupervisor = process.env.GUGU_CLOUD_COMPUTER === '1'
+  const followSupervisor = controllerOwnsUpdates(home)
   // 换版:先留一句「更新」,账号进程开机收残据此说清在跑的那一轮是被更新打断的。
   const restart = (userId: string): void => {
     noteExitReason(accountDataDir(userId), 'update')

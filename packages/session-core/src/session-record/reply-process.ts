@@ -3,6 +3,7 @@ import type { TranscriptItem, TranscriptTurn } from '../acp/models/turns/turn';
 import { isGuguServer } from '../acp/models/turns/opened-outputs';
 import type { McpToolCall, ToolCallItem } from '../acp/models/turns/tool-calls';
 import { readDeliveryEnvelope, type DeliveryReadFacts } from '@gugu/core/local/agent/deliveryEnvelope';
+import { sendReceipt } from './send-receipt';
 
 export type ReplyProcess = { thinkingMs: number; thoughts: number; tools: number; commands: number };
 
@@ -35,7 +36,7 @@ export function sourceChatMatches(facts: DeliveryReadFacts, chatId: unknown): bo
 }
 
 function isRootGuguTool(item: ToolCallItem, tool: string): item is McpToolCall {
-  return item.kind === 'mcp-tool-call' && item.tool === tool && isGuguServer(item.server) && !item.parentToolCallId;
+  return item.kind === 'mcp-tool-call' && (item.tool === tool || item.tool.endsWith(`__${tool}`)) && isGuguServer(item.server) && !item.parentToolCallId;
 }
 
 function isRootSend(item: ToolCallItem): item is McpToolCall {
@@ -58,6 +59,7 @@ export type AgentSendTarget =
        * private chat is the agent's own from the owner's side, so 「发到 Claude 1」 would read as sent to itself.
        */
       peer?: string;
+      recipientUserId?: string;
     }
   | { kind: 'session'; count: number };
 
@@ -78,13 +80,17 @@ function inputFactsBefore(turn: TranscriptTurn, item: TranscriptItem): DeliveryR
 function chatSendTarget(args: Record<string, unknown>, item: TranscriptItem, turn?: TranscriptTurn): Extract<AgentSendTarget, { kind: 'chat' }> {
   const whisper = args.whisper === true;
   const facts = turn ? inputFactsBefore(turn, item) : null;
-  const here = facts !== null && sourceChatMatches(facts, args.chat_id);
-  const linked = here && facts.sourceLink ? parseConversationLink(facts.sourceLink)?.chatId ?? null : null;
+  const receipt = item.kind === 'mcp-tool-call' && item.status === 'done' ? sendReceipt(item.rawOutput || item.outputText) : null;
+  const delivered = typeof receipt?.source_link === 'string' ? parseConversationLink(receipt.source_link)?.chatId : null;
+  const here = facts !== null && (sourceChatMatches(facts, args.chat_id) || (!!delivered && sourceChatMatches(facts, delivered)));
+  const linked = delivered ?? (here && facts.sourceLink ? parseConversationLink(facts.sourceLink)?.chatId ?? null : null);
   const conversationId = linked ?? (typeof args.chat_id === 'string' && CONVERSATION_ID.test(args.chat_id) ? args.chat_id.toLowerCase() : null);
   const peer = here && facts.chatKind === 'dm' && facts.from ? facts.from.replace(/\s*[(（][^()（）]*[)）]\s*$/, '').trim() : '';
+  const recipientUserId = typeof args.chat_id === 'string' && args.chat_id.startsWith('user:') ? args.chat_id.slice(5)
+    : here && facts.chatKind === 'dm' && facts.fromId?.startsWith('user:') ? facts.fromId.slice(5) : undefined;
   return { kind: 'chat', conversationId,
     ...(!conversationId && typeof args.chat_id === 'string' ? { chatId: args.chat_id } : {}),
-    threadRootId: here && !whisper ? facts.thread : null, whisper, ...(peer ? { peer } : {}) };
+    threadRootId: here && !whisper ? facts.thread : null, whisper, ...(peer ? { peer } : {}), ...(recipientUserId ? { recipientUserId } : {}) };
 }
 
 /** Text and file sends share a destination; a captionless file does not have `text` to parse. */
@@ -113,8 +119,30 @@ export function agentSendOf(item: TranscriptItem, turn?: TranscriptTurn): AgentS
     args = JSON.parse(item.rawInput ?? '') as Record<string, unknown>;
   } catch { return null; }
   if (!args || typeof args.text !== 'string' || !args.text.trim()) return null;
-  if (relay) return { text: args.text, to: { kind: 'session', count: Array.isArray(args.to) ? args.to.length : 0 } };
+  if (relay) {
+    const sent = successfulSessionSend(item);
+    if (item.status === 'done' && (item.rawOutput || item.outputText) && !sent) return null;
+    return { text: args.text, to: { kind: 'session', count: sent?.messageIds.length ?? (Array.isArray(args.to) ? args.to.length : 0) } };
+  }
   return { text: args.text, to: chatSendTarget(args, item, turn) };
+}
+
+/** Every recipient must have a successful delivery receipt; partial failures remain readable as tool output. */
+export function successfulSessionSend(item: ToolCallItem): { text: string; id: string; messageIds: string[] } | null {
+  if (!isRootGuguTool(item, 'session_message') || item.status !== 'done') return null;
+  const output = sendReceipt(item.rawOutput || item.outputText);
+  if (!Array.isArray(output?.recipients) || !output.recipients.length) return null;
+  const messageIds: string[] = [];
+  for (const recipient of output.recipients) {
+    if (!recipient || !['queued', 'accepted', 'delivered'].includes(recipient.status) || typeof recipient.message_id !== 'string') return null;
+    const id = recipient.message_id.replace(/^msg:/, '');
+    if (!CONVERSATION_ID.test(id)) return null;
+    messageIds.push(id.toLowerCase());
+  }
+  try {
+    const args = JSON.parse(item.rawInput ?? '') as Record<string, unknown>;
+    return typeof args?.text === 'string' && args.text.trim() ? { text: args.text, id: messageIds[0]!, messageIds } : null;
+  } catch { return null; }
 }
 
 /** Only the explicit send to this input's destination can preview an IM reply. */

@@ -193,7 +193,7 @@ class FakeCloud {
   }
 }
 
-type Injection = Pick<AgentInboxInjectionInput, 'messageId' | 'text' | 'attachments'>
+type Injection = { messageId?: string } & Pick<AgentInboxInjectionInput, 'text' | 'attachments'>
 
 function makeDeps(
   cloud: FakeCloud,
@@ -207,7 +207,7 @@ function makeDeps(
     agentSpokeAfter: async () => false,
     groupRulesLedger: memoryGroupRulesLedger(),
     inject: async (input) => {
-      injections.push({ messageId: input.messageId, text: input.text, attachments: input.attachments })
+      injections.push({ messageId: input.sourceMessageId, text: input.text, attachments: input.attachments })
       return 'accepted' as AgentInboxInjectionVerdict
     },
     wake: (agentUserId) => { wakes.push(agentUserId) },
@@ -232,6 +232,30 @@ function assertPerMessageAttribution(text: string, ids: string[]): void {
       if (!segment.includes(attr)) throw new Error(`segment msg:${id} lost its ${attr} fact`)
     }
   }
+}
+
+// Model the host's durable failed-source membership without writing a false agent read.
+function installTerminalRejections(deps: AgentInboxReaderDeps) {
+  deps.queuesInbox ??= () => true
+  const rejected = new Map<string, Set<string>>()
+  const previous = deps.claimedSources
+  const record = deps.recordFailure
+  deps.recordFailure = vi.fn(async (input, cause) => {
+    await record?.(input, cause)
+    const ids = rejected.get(input.agentUserId) ?? new Set<string>()
+    for (const source of input.sources ?? []) ids.add(source.row.id)
+    rejected.set(input.agentUserId, ids)
+  })
+  deps.claimedSources = async (agent, ids) => new Map([
+    ...await previous?.(agent, ids) ?? [],
+    ...ids.filter(id => rejected.get(agent)?.has(id)).map(id => [id, false] as const),
+  ])
+  return rejected
+}
+function makeTerminalDeps(cloud: FakeCloud, overrides: Partial<AgentInboxReaderDeps> = {}) {
+  const rig = makeDeps(cloud, { postDisclosure: async () => {}, ...overrides })
+  installTerminalRejections(rig.deps)
+  return rig
 }
 
 describe('archived session admission', () => {
@@ -312,19 +336,21 @@ describe('an enqueuing host (session-life)', () => {
     expect(cloud.markReadCalls).toEqual([{ chatId: chat, messageId: row(1).id }, { chatId: chat, messageId: row(2).id }])
   })
 
-  it('a skipped row waits while queued rows ahead of it are unread, on this pull and the next', async () => {
+  it('a rejected row is terminal while earlier queued rows remain unread', async () => {
     const cloud = cloudWith(1, 2)
     cloud.post({ ...row(3), id: `msg:${row(3).id}` })
-    const held = new Set<string>()
+    const held = new Map<string, boolean>()
     const marked: string[] = []
     const { deps } = makeDeps(cloud, {
-      inject: async (input) => { for (const source of input.sources ?? []) held.add(source.row.id); return 'enqueued' },
+      inject: async (input) => { for (const source of input.sources ?? []) held.set(source.row.id, true); return 'enqueued' },
       markRead: async ({ messageId }) => { marked.push(messageId) },
-      claimedSources: (_agent, ids) => new Map(ids.filter((id) => held.has(id)).map((id) => [id, true])),
+      recordFailure: async input => { for (const source of input.sources ?? []) held.set(source.row.id, false) },
+      claimedSources: (_agent, ids) => new Map(ids.filter((id) => held.has(id)).map((id) => [id, held.get(id)!])),
     })
-    await pullAgentInbox(AGENT, deps)
+    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow()
     await pullAgentInbox(AGENT, deps)
     expect(marked).toEqual([])
+    expect(held.get(`msg:${row(3).id}`)).toBe(false)
   })
 
   it('an unknown outcome is said truthfully, then settled; a retained one is said and stays unread', async () => {
@@ -341,14 +367,44 @@ describe('an enqueuing host (session-life)', () => {
     expect(marked).toEqual([row(1).id])
   })
 
+  // A failure row is public: about whispers alone it would tell the chat who was whispered to (the #1247 rule for undelivered).
+  it('a failed batch of whispers posts no public row and is left to the owner; a batch with a public message still says it', async () => {
+    const cloud = cloudWith(1, 2)
+    const said: Array<{ reason: string }> = []
+    const { deps } = makeDeps(cloud, { postDisclosure: async (row) => { said.push({ reason: row.reason }) } })
+    const source = (seq: number, isWhisper: boolean) => ({ row: { ...row(seq), chatKind: 'group', chatPublicId: null, chatName: null, chatCreatorUserId: null, listenMode: 'active',
+      notificationLevel: 'all', lastReadSeq: 0, senderType: 'human', senderDisplayName: null, senderGuguNumber: null, contentType: 'text', toUserIds: [AGENT],
+      isWhisper, replyToMessageId: null, replyToSenderUserId: null, replyToContent: null, threadRootId: null, isThreadRoot: false } as AgentInboxUnreadRow })
+    await discloseInboxRowsFailed(AGENT, [source(1, true)], deps, { kind: 'failed', cause: new Error('fetch failed') })
+    expect(said).toEqual([])
+    await discloseInboxRowsFailed(AGENT, [source(1, true), source(2, false)], deps, { kind: 'failed', cause: new Error('fetch failed') })
+    expect(said).toEqual([{ reason: 'network' }])
+  })
+
+  // session-life reports a failed row with a serialized cause ({ name, message }, not an Error); the disclosure returns what
+  // it did, so the unit's delivery command records the same reason (#1264 评审①: it used to be dropped as generic).
+  it('a session-life failure is classified from its serialized cause and returned to settle the unit', async () => {
+    const cloud = cloudWith(1, 2)
+    const said: Array<{ reason: string }> = []
+    const { deps } = makeDeps(cloud, { postDisclosure: async (row) => { said.push({ reason: row.reason }) }, agentSpokeAfter: async () => false })
+    const source = (seq: number, isWhisper: boolean) => ({ row: { ...row(seq), chatKind: 'group', chatPublicId: null, chatName: null, chatCreatorUserId: null, listenMode: 'active',
+      notificationLevel: 'all', lastReadSeq: 0, senderType: 'human', senderDisplayName: null, senderGuguNumber: null, contentType: 'text', toUserIds: [AGENT],
+      isWhisper, replyToMessageId: null, replyToSenderUserId: null, replyToContent: null, threadRootId: null, isThreadRoot: false } as AgentInboxUnreadRow })
+    await expect(discloseInboxRowsFailed(AGENT, [source(1, true)], deps, { kind: 'failed', cause: { name: 'Error', message: "You've hit your weekly limit" } }))
+      .resolves.toEqual({ said: false, reason: 'weeklyQuota' })
+    await expect(discloseInboxRowsFailed(AGENT, [source(2, false)], deps, { kind: 'failed', cause: { name: 'TypeError', message: 'fetch failed' } }))
+      .resolves.toEqual({ said: true, reason: 'network' })
+    expect(said).toEqual([{ reason: 'network' }])
+  })
+
   it('a claimed row that already ended (failed / unknown) does not hold back a skipped row behind it', async () => {
     const cloud = cloudWith(1)
     cloud.post({ ...row(2), id: `msg:${row(2).id}` })
     const marked: string[] = []
-    const { deps } = makeDeps(cloud, { inject: async () => 'enqueued', markRead: async ({ messageId }) => { marked.push(messageId) },
+    const { deps } = makeTerminalDeps(cloud, { inject: async () => 'enqueued', markRead: async ({ messageId }) => { marked.push(messageId) },
       claimedSources: (_agent, ids) => new Map(ids.filter((id) => id === row(1).id).map((id) => [id, false])) })
-    await pullAgentInbox(AGENT, deps)
-    expect(marked).toEqual([`msg:${row(2).id}`])
+    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow()
+    expect(marked).toEqual([])
   })
 
   it('leaves rows the host already holds out of every later unit (frozen batches never overlap)', async () => {
@@ -424,8 +480,9 @@ describe('inbox batch request budgets', () => {
     expect(d.injections.map((entry) => entry.text.includes(seed))).toEqual([false])
   })
 
-  it('t5: a rejected admission leaves bootstrap uncommitted so the next pull fetches once again', async () => {
+  it('t5: a rejected admission leaves bootstrap uncommitted so a later item fetches once again', async () => {
     const d = batch([1, 1, 1])
+    installTerminalRejections(d.deps)
     const inject = d.deps.inject
     d.deps.inject = async () => { throw new Error('admission rejected') }
     await expect(pullAgentInbox(AGENT, d.deps)).rejects.toThrow('admission rejected')
@@ -433,10 +490,25 @@ describe('inbox batch request budgets', () => {
     d.fetchThreadMessages.mockClear()
     d.resolveGuguIds.mockClear()
     d.deps.inject = inject
+    d.append(4, 1)
     await pullAgentInbox(AGENT, d.deps)
     expect({ first, second: { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length },
       contexts: d.injections.map((entry) => entry.text.includes(seed)) })
-      .toEqual({ first: { fetches: 1, identities: 1 }, second: { fetches: 1, identities: 1 }, contexts: [true, false, false] })
+      .toEqual({ first: { fetches: 1, identities: 1 }, second: { fetches: 1, identities: 1 }, contexts: [true] })
+  })
+
+  it('a rejected first queued item passes the uncommitted thread seed to the next item without refetching', async () => {
+    const d = batch([1, 1, 1])
+    installTerminalRejections(d.deps)
+    const inject = d.deps.inject
+    d.deps.inject = async input => {
+      if (input.sources?.[0]?.row.seq === 1) throw new Error('bad first item')
+      return inject(input)
+    }
+    await expect(pullAgentInbox(AGENT, d.deps)).rejects.toThrow('bad first item')
+    expect(d.injections.map(entry => entry.text.includes(seed))).toEqual([true, false])
+    expect(d.fetchThreadMessages).toHaveBeenCalledTimes(1)
+    expect(d.resolveGuguIds).toHaveBeenCalledTimes(1)
   })
 
   it('t6: a failed fetch is tried once this batch and retried for the next batch', async () => {
@@ -783,7 +855,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     const { deps, injections } = makeDeps(cloud, {
       fetchLocalUnread: async () => (deleted ? [] : [row]),
       inject: async (input) => {
-        injections.push({ messageId: input.messageId, text: input.text })
+        injections.push({ messageId: input.sourceMessageId, text: input.text })
         if (failed) {
           failed = false
           throw new Error('provider unavailable')
@@ -831,7 +903,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(injections).toHaveLength(3)
   })
 
-  it('a row no host can deliver is skipped on its own: the rest is delivered and the cursor passes it', async () => {
+  it('a row no host can deliver is failed on its own: the rest is delivered without reading the failed row', async () => {
     const chat = '00000000-0000-4000-8000-000000000003'
     const cloud = new FakeCloud()
     cloud.addChat(chat, 'group')
@@ -842,31 +914,30 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     cloud.post({ chatId: chat, id: 'msg:20000000-0000-4000-8000-000000000001', seq: 2, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'Agent 本次回复出错，未能完成' })
     cloud.post({ chatId: chat, id: '10000000-0000-4000-8000-000000000010', seq: 3, senderUserId: HUMAN, senderType: 'human', content: 'after' })
     const disclosed: unknown[] = []
-    const { deps, injections, outcomes } = makeDeps(cloud, { postDisclosure: async (row) => { disclosed.push(row) } })
+    const { deps, injections, outcomes } = makeTerminalDeps(cloud, { postDisclosure: async (row) => { disclosed.push(row) } })
 
-    const result = await pullAgentInbox(AGENT, deps)
-
-    expect(result).toMatchObject({ injected: 2, verdict: 'accepted' })
+    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow()
     expect(injections.map((injection) => injection.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f', '10000000-0000-4000-8000-000000000010'])
-    expect(cloud.watermark(chat, AGENT)).toBe(3)
-    expect(disclosed).toEqual([])
-    expect(outcomes.every((outcome) => outcome.ok)).toBe(true)
-    // The next pull no longer sees it: it does not fail every later delivery to this agent.
-    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'idle' })
+    expect(cloud.markReadCalls.map(item => item.messageId)).toEqual(injections.map(item => item.messageId))
+    expect(disclosed).toEqual([expect.objectContaining({ reason: 'deliveryRejected', key: expect.stringMatching(/^delivery-rejected:/) })])
+    expect(outcomes.some((outcome) => !outcome.ok)).toBe(true)
+    // The unread failed source is already terminal locally: it does not fail later deliveries.
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0 })
+    expect(disclosed).toHaveLength(1)
   })
 
-  it('a batch of only undeliverable rows injects nothing and still moves the cursor past them', async () => {
+  it('a batch of only undeliverable rows injects nothing and does not claim an agent read', async () => {
     const chat = '00000000-0000-4000-8000-000000000003'
     const cloud = new FakeCloud()
     cloud.addChat(chat, 'group')
     cloud.join(chat, AGENT, { listenMode: 'active' })
     cloud.join(chat, HUMAN)
     cloud.post({ chatId: chat, id: 'msg:20000000-0000-4000-8000-000000000001', seq: 1, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'notice' })
-    const { deps, injections } = makeDeps(cloud)
+    const { deps, injections } = makeTerminalDeps(cloud)
 
-    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'accepted' })
+    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow()
     expect(injections).toEqual([])
-    expect(cloud.watermark(chat, AGENT)).toBe(1)
+    expect(cloud.watermark(chat, AGENT)).toBe(0)
   })
 
   it('inbox entries are admitted one by one while attachments remain solo', async () => {
@@ -1028,7 +1099,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(parsed.namedIdentities?.get(AGENT)).toEqual({ guguNumber: 7, displayName: 'Claude 1', isAgent: true })
   })
 
-  it('next-tool-call rows merge at steer admission while idle-only rows stay per-entry', async () => {
+  it.each([false, true])('next-tool-call rows merge only for a direct transport (queue-backed=%s)', async queueBacked => {
     const cloud = new FakeCloud()
     cloud.addChat('00000000-0000-4000-8000-00000000000f', 'group')
     cloud.join('00000000-0000-4000-8000-00000000000f', AGENT, { listenMode: 'active' })
@@ -1040,13 +1111,15 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     const { deps, injections } = makeDeps(cloud, {
       onBatch: (batch) => batches.push(batch),
       deliveryTiming: async (): Promise<AgentInboxDeliveryTiming> => 'next-tool-call',
+      claimedSources: () => new Map(), // A source ledger exists on native transports too; it is not an admission capability.
+      queuesInbox: () => queueBacked,
     })
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 3, injected: 3, verdict: 'accepted' })
-    expect(batches).toEqual([{ agentUserId: AGENT, rows: 3, units: 1 }])
-    expect(injections).toHaveLength(1)
-    expect(injections[0]!.text).toContain('<gugu_deliveries count="3"')
-    for (const id of ['10000000-0000-4000-8000-00000000001b', '10000000-0000-4000-8000-00000000001c', '10000000-0000-4000-8000-00000000001d']) expect(injections[0]!.text).toContain(`msg="msg:${id}"`)
+    expect(batches).toEqual([{ agentUserId: AGENT, rows: 3, units: queueBacked ? 3 : 1 }])
+    expect(injections).toHaveLength(queueBacked ? 3 : 1)
+    if (!queueBacked) expect(injections[0]!.text).toContain('<gugu_deliveries count="3"')
+    assertPerMessageAttribution(injections.map(entry => entry.text).join('\n'), ['10000000-0000-4000-8000-00000000001b', '10000000-0000-4000-8000-00000000001c', '10000000-0000-4000-8000-00000000001d'])
   })
 
   it('必失败对照:段级断言能判假 —— 吞掉一段/抹掉一格都必须红', () => {
@@ -1317,7 +1390,7 @@ describe('P-E7 nudge 风暴:恰好一次注入', () => {
     const injections: Injection[] = []
     const { deps } = makeDeps(cloud, {
       inject: async (input) => {
-        injections.push({ messageId: input.messageId, text: input.text })
+        injections.push({ messageId: input.sourceMessageId, text: input.text })
         await gate
         return 'accepted'
       },
@@ -1341,7 +1414,7 @@ describe('P-E7 nudge 风暴:恰好一次注入', () => {
     const gate = new Promise<void>((resolve) => { release = resolve })
     const { deps, injections } = makeDeps(cloud, {
       inject: async (input) => {
-        injections.push({ messageId: input.messageId, text: input.text })
+        injections.push({ messageId: input.sourceMessageId, text: input.text })
         await gate
         return 'accepted'
       },
@@ -1475,8 +1548,8 @@ describe('三态判决与失败面', () => {
       expect(body.content).not.toMatch(/failed|could not hand|失败/)
     } finally { vi.unstubAllGlobals() }
     const cloud = seed()
-    const { deps } = makeDeps(cloud, { inject: async () => { throw new Error('runtime not ready') }, postDisclosure: async () => {} })
-    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('runtime not ready')
+    const { deps } = makeDeps(cloud, { inject: async () => 'not-live', postDisclosure: async () => {} })
+    await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ verdict: 'not-live' })
     expect(cloud.markReadCalls).toEqual([])
     const recovered = makeDeps(cloud)
     await pullAgentInbox(AGENT, recovered.deps)
@@ -1493,40 +1566,40 @@ describe('三态判决与失败面', () => {
     expect(cloud.markReadCalls).toEqual([])
   })
 
-  it('批注入真失败:游标不动、按来源 chat 落批粒度披露(只说原因,❌ 内部编号)、灯记异常、错误上抛', async () => {
+  it('逐条注入失败:每条终态披露并结清(只说原因,❌ 内部编号)、灯记异常、错误上抛', async () => {
     const cloud = seed()
     cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-000000000010', seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'boom' })
     const disclosures: Array<{ chatId: string; key: string; reason: string }> = []
-    const { deps, outcomes } = makeDeps(cloud, {
+    const { deps, outcomes } = makeTerminalDeps(cloud, {
       inject: async () => { throw new Error('provider exploded') },
       postDisclosure: async (input) => { disclosures.push({ chatId: input.chatId, key: input.key, reason: input.reason }) },
     })
     await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('provider exploded')
     expect(cloud.markReadCalls).toEqual([])
-    expect(disclosures).toHaveLength(1)
+    expect(disclosures).toHaveLength(2)
     expect(disclosures[0]!.chatId).toBe('00000000-0000-4000-8000-000000000003')
     // #7103 owner 10-11:这一行给对话里所有人看 ⇒ 只带原因,❌ 内部编号、❌ 上游原文;没受理是咕咕这边的错。
-    expect(disclosures[0]!.reason).toBe('notAdmitted')
-    expect(outcomes).toEqual([{ ok: false }])
+    expect(disclosures.every(item => item.reason === 'deliveryRejected' && item.key.startsWith('delivery-rejected:'))).toBe(true)
+    expect(outcomes).toEqual([{ ok: false }, { ok: false }])
   })
 
-  it('同一群消息的失败按 agent 去重;同一 agent 重拉仍用同一个 key', async () => {
+  it('失败按 agent 独立结清;同一 agent 不再重投已失败来源', async () => {
     const cloud = new FakeCloud()
     cloud.addChat('00000000-0000-4000-8000-000000000003', 'group')
     cloud.join('00000000-0000-4000-8000-000000000003', AGENT)
     cloud.join('00000000-0000-4000-8000-000000000003', OTHER_AGENT)
     cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'hello' })
     const keys: string[] = []
-    const { deps } = makeDeps(cloud, {
+    const { deps } = makeTerminalDeps(cloud, {
       inject: async () => { throw new Error('provider failed') },
       postDisclosure: async ({ key }) => { keys.push(key) },
     })
-    for (const agent of [AGENT, AGENT, OTHER_AGENT]) {
+    for (const agent of [AGENT, OTHER_AGENT]) {
       await expect(pullAgentInbox(agent, deps)).rejects.toThrow('provider failed')
     }
-    expect(keys).toHaveLength(3)
-    expect(keys[0]).toBe(keys[1])
-    expect(keys[0]).not.toBe(keys[2])
+    await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 0 })
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).not.toBe(keys[1])
   })
 
   // 编号 17 (10-12): the row in the chat is this failure's one notice — the error says so, and the host adds no failure bar.
@@ -1541,7 +1614,8 @@ describe('三态判决与失败面', () => {
       const thrown = await pullAgentInbox(AGENT, deps).then(() => null, (error: unknown) => error)
       expect(isSaidInChat(thrown)).toBe(said)
       expect((thrown as Error).message).toBe('provider exploded')
-      expect(said ? (thrown as Error).cause : thrown).toBe(failure)
+      // Said or not, the failure carries how it was disclosed and keeps the original as its cause.
+      expect((thrown as Error).cause).toBe(failure)
     }
     expect(isSaidInChat(failure)).toBe(false)
     expect(isSaidInChat(new Error('never pulled'))).toBe(false)
@@ -1655,8 +1729,8 @@ describe('三态判决与失败面', () => {
     const injections: string[] = []
     const { deps } = makeDeps(cloud, {
       inject: async (input) => {
-        injections.push(input.messageId!)
-        machineQueue.push(input.messageId!)
+        injections.push(input.sourceMessageId!)
+        machineQueue.push(input.sourceMessageId!)
         return { verdict: 'accepted', completion: Promise.resolve() }
       },
     })
@@ -1673,15 +1747,16 @@ describe('三态判决与失败面', () => {
     expect(cloud.markReadCalls).toEqual([{ chatId: '00000000-0000-4000-8000-000000000003', messageId: '10000000-0000-4000-8000-00000000000f' }])
   })
 
-  it('kick 入口吞不了错:失败只 loud log,游标滞后留给下一个触发', async () => {
+  it('kick 入口记录已披露的终态失败,不反复重投坏消息', async () => {
     const cloud = seed()
-    const { deps } = makeDeps(cloud, {
+    const { deps } = makeTerminalDeps(cloud, {
       inject: async () => { throw new Error('boom') },
       postDisclosure: async () => {},
     })
     kickAgentInboxPull(AGENT, deps, 'unit')
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(cloud.markReadCalls).toEqual([])
+    expect(deps.recordFailure).toHaveBeenCalledTimes(1)
   })
 
 })
@@ -1745,12 +1820,12 @@ describe('#6036 unread scan pagination', () => {
     expect(cloud.markReadCalls.map((row) => row.messageId)).toEqual(['10000000-0000-4000-8000-000000000012', '10000000-0000-4000-8000-00000000000d', '40000000-0000-4000-8000-000000000001'])
   })
 
-  it('resumes from unread truth after a second-page failure without repeating accepted rows', async () => {
+  it('continues the page after one rejection and never retries that terminal source', async () => {
     const cloud = seed(160)
     const accepted: string[] = []
     let fail = true
-    const { deps } = makeDeps(cloud, {
-      inject: async ({ messageId }) => {
+    const { deps } = makeTerminalDeps(cloud, {
+      inject: async ({ sourceMessageId: messageId }) => {
         if (messageId === '30000000-0000-4000-8000-000000000081' && fail) throw new Error('second page failure')
         accepted.push(messageId!)
         return 'accepted'
@@ -1758,10 +1833,10 @@ describe('#6036 unread scan pagination', () => {
       postDisclosure: async () => {},
     })
     await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('second page failure')
-    expect(accepted).toEqual(backlogIds(80))
+    expect(accepted).toEqual(backlogIds(160).filter(id => id !== '30000000-0000-4000-8000-000000000081'))
     fail = false
     await pullAgentInbox(AGENT, deps)
-    expect(accepted).toEqual([...backlogIds(160), '10000000-0000-4000-8000-000000000012', '40000000-0000-4000-8000-000000000001'])
+    expect(accepted).toEqual([...backlogIds(160).filter(id => id !== '30000000-0000-4000-8000-000000000081'), '10000000-0000-4000-8000-000000000012', '40000000-0000-4000-8000-000000000001'])
   })
 
   it('a finite scan excludes new traffic and the next trigger recovers messages behind its chat cursor', async () => {

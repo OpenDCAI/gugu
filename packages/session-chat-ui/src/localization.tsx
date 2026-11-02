@@ -160,6 +160,7 @@ const fallbackMessages = {
   'transcript.planProgress': 'Plan · {done} of {total} done',
   // agent 经 message_send / session_message 说的话,下面那一行去向(agent-send.def)。
   'transcript.agentSendTo': 'Sent to {chat}',
+  'transcript.agentSendToYou': 'Sent to you',
   'transcript.agentSendToChat': 'Sent · destination name unavailable',
   'transcript.agentSendToThreadIn': 'Sent to a topic in {chat}',
   'transcript.agentSendToThread': 'Sent to a topic',
@@ -213,9 +214,10 @@ const fallbackMessages = {
   'transcript.restorePrompt': 'Restore prompt',
   'transcript.restorePromptHint': 'Put this prompt back in the composer (it is not re-sent)',
   // turn-outcome 的失败原因（#3498）。**纯描述，不含行动建议** ——
-  // 这 11 个 reason 都没有「重试」这条路（同上），所以文案只说发生了什么；
-  // 用户能拿到的那一件事由上面那个按钮说，不由原因文案暗示。
+  // send_failed 是启动前仍在宿主队列里的消息，它的重试在已有条件行；
+  // 其余失败仍没有重试能力。原因只描述事实，动作由各自已有入口说明。
   'transcript.reasonPromptFailed': 'the reply could not be completed',
+  'transcript.reasonSendFailed': 'Could not send',
   'transcript.reasonSignInRequired': 'sign-in needed',
   'transcript.reasonProcessClosed': 'the agent process ended',
   'transcript.reasonSpawnFailed': 'the agent process could not start',
@@ -262,6 +264,7 @@ const fallbackMessages = {
     'The engine no longer has this session — everything above is still here',
   'transcript.condition.adapterLost': 'Lost the connection to the engine',
   'transcript.condition.startFailed': 'The engine could not start',
+  'transcript.condition.historyFailed': 'Could not load the conversation history',
   'transcript.condition.machineUnreachable': "Can't reach the machine this task runs on",
   'transcript.condition.machineAttention': 'The machine this task runs on needs attention',
   'transcript.condition.membershipRequired': 'This Gugu model needs a membership',

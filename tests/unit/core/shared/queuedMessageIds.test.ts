@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import { deliveryWaits, pendingDeliveryMessageIds } from '@gugu/core/shared/ui/systemNotice'
+import { deliveryWaits, pendingDeliveryMessageIds, visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
 
 const A = 'agent-a'
 const B = 'agent-b'
@@ -71,6 +71,24 @@ describe('a message an agent has not taken yet shows as queued on its own bubble
 
   it('never says it on someone else\'s message', () => {
     expect(undelivered([mine('theirs', 1, { is_mine: false, sender_user_id: 'them' }), pending('row', 2, A, 'undelivered')], {}, wakes({ theirs: [A] }))).toEqual([])
+  })
+
+  it('a terminal rejection clears the older retained status and remains visible to the sender', () => {
+    const failure = pending('failed', 4, A, 'deliveryRejected')
+    const messages = [mine('m1', 1), pending('held', 2, A), mine('m2', 3), failure]
+    expect(deliveryWaits(messages, {}, wakes({ m1: [A], m2: [A] })).size).toBe(0)
+    expect(pendingDeliveryMessageIds(messages, {})).toEqual([])
+    expect(visibleDeliveryMessages(messages).map(message => message.id)).toEqual(['m1', 'm2', 'failed'])
+  })
+
+  it('a rejection ends only that agent and thread\'s retained status', () => {
+    const messages = [mine('main', 1), mine('thread', 2, { thread_root_id: 't' }),
+      pending('a-held', 3, A), pending('b-held', 4, B), pending('thread-held', 5, A, 'notAdmitted', { thread_root_id: 't' }),
+      pending('a-failed', 6, A, 'deliveryRejected')]
+    const waits = deliveryWaits(messages, {}, wakes({ main: [A, B], thread: [A] }))
+    expect([...waits.keys()].sort()).toEqual(['main', 'thread'])
+    // Resolving B leaves only the other thread waiting; A's rejected main-line delivery cannot keep spinning.
+    expect([...deliveryWaits(messages, { [B]: 1 }, wakes({ main: [A, B], thread: [A] })).keys()]).toEqual(['thread'])
   })
 
   it('keeps threads apart', () => {

@@ -103,6 +103,7 @@ import {
 } from '@main/core/extensions/extension-background'
 import { rpcRouter } from '@main/rpc' // ← the complete router, every controller
 import { initializeDatabase } from '@main/db/initialize'
+import { startTurnTextBackfillWorker, stopTurnTextBackfillWorker, type SearchBackfillLogger } from '@main/db/turn-text-backfill-runner'
 import { migrateProjectKind } from '@main/core/projects/operations/migrate-project-kind'
 import { closeDatabase, db, sqlite } from '@main/db/client'
 import { resolveDatabasePath } from '@main/db/path'
@@ -137,7 +138,6 @@ import {
   cleanupLegacyBrowserPartitions,
   migrateLegacyBrowserPartitionDirs,
 } from '@main/core/browser/browser-partition-cleanup'
-import { sweepOrphanSessionAttachmentDirectories } from '@main/core/sessions/attachments/session-attachment-store'
 import { projectSettingsService } from '@main/core/projects/settings/project-settings-service'
 import { getProjectById, getProjects } from '@main/core/projects/operations/getProjects'
 import { resolveAgentSessionProject } from '@main/core/projects/operations/resolve-agent-session-project'
@@ -322,6 +322,7 @@ export {
 export {
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,
+  rejectPendingSessionDirectMessage,
   recordFailedSessionDirectMessage,
   // 宿主在「投递属主注册好了」那一刻要用它把排队的首轮送出去 —— 收件箱 pull 看不见 `ordinary` 行。
   drainSessionMessageOutboxById,
@@ -434,6 +435,11 @@ export async function bootEmdashModule(ipcMain: IpcMain, discovery?: Pick<Sessio
     browserFeatures: true,
     ...discovery,
   })
+}
+
+/** Host service readiness, rather than module initialization, starts the optional index work. */
+export function startSessionpageSearchBackfill(logger: SearchBackfillLogger): void {
+  startTurnTextBackfillWorker(logger)
 }
 
 async function maybeStartDevWsHost(): Promise<HostIpc | null> {
@@ -620,14 +626,6 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   searchService.initialize()
   workspaceFileIndexService.initialize()
   void editorBufferService.pruneStale()
-  // 附件目录:既不是一条还在的会话、也没有任何一行附件落在里面 ⇒ 孤儿(创建失败、或者删会话时没清成)。
-  // ⚠️ 只在这里跑:运行中跑会误删一个正在被新建页攒着、会话还没建出来的草稿目录(#5269)。
-  void sweepOrphanSessionAttachmentDirectories().then(
-    (removed) => {
-      if (removed > 0) log.info('task-attachments: swept orphan directories', { removed })
-    },
-    (error: unknown) => log.warn('task-attachments: sweep failed', { error: String(error) })
-  )
   // 依赖体检的 `<bin> --version` 是 detached 起的(不然只杀得掉直接子进程)，收尾在 finally 里 ——
   // 那一半只在我们还活着时有效。被强杀时子进程活下来，stdio 管道读端却没了，不处理 SIGPIPE 的
   // 程序就在写失败上空转：mac1 实测两个 `amp --version` 各占满一核，清掉两个半小时后又长出两个。
@@ -800,6 +798,7 @@ let disposeEmdashModulePromise: Promise<void> | null = null
 let stopPtyRecordSync: () => void = () => {}
 
 async function disposeEmdashModuleOnce(): Promise<void> {
+  stopTurnTextBackfillWorker()
   const failures: unknown[] = []
   const runPhase = async (phase: string, action: () => void | Promise<void>): Promise<void> => {
     const startedAt = performance.now()
@@ -851,7 +850,7 @@ export function disposeEmdashModule(): Promise<void> {
 // The gugu host uses these to make one session-page codex session message another: a gugu `agent.deliver`
 // for a session-page agent is fulfilled by injecting a new ACP turn into that agent's live session-page
 // conversation — NOT by pty writes. FAIL-LOUD: if the conversation is not a live session-page session, `sendPrompt` returns an error and
-// we THROW (surfaced by gugu's onAgentDeliverFailure). A busy-but-live session returning {queued:true}
+// we THROW (the failed agent.deliver command records it; its chat or composer says it). A busy-but-live session returning {queued:true}
 // is not inbox admission; detached callers surface it as an error instead of marking delivery complete.
 
 /**
@@ -2393,7 +2392,7 @@ export { captureSessionpageProjectionViewer } from './core/extensions/extension-
  * 迟早对不上。这里只保证「最近动过的排在前面」。
  */
 export function sessionpageSessionDigest(): Array<{
-  nativeInputVersion?: 1
+  nativeInputVersion?: 1 | 2
   runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string

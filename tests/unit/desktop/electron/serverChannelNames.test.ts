@@ -60,7 +60,7 @@ describe('serverNames:正式版不带后缀,其余通道加 -<通道>', () => {
 function fakePackage(root: string, version: string): { file: string; sha256: string } {
   const stage = path.join(root, 'stage', `gugu-server-${version}`)
   fs.mkdirSync(path.join(stage, 'bin'), { recursive: true })
-  fs.writeFileSync(path.join(stage, 'bin', 'gugu-server'), '#!/bin/sh\necho "home=$GUGU_SERVER_HOME"\n', { mode: 0o755 })
+  fs.writeFileSync(path.join(stage, 'bin', 'gugu-server'), '#!/bin/sh\nif [ "$1" = help ]; then echo prepare-install; else echo "home=$GUGU_SERVER_HOME"; fi\n', { mode: 0o755 })
   fs.writeFileSync(path.join(stage, 'version'), version)
   const file = path.join(root, `gugu-server-${version}.tar.gz`)
   execFileSync('tar', ['-czf', file, '-C', path.dirname(stage), path.basename(stage)])
@@ -76,6 +76,28 @@ function install(home: string, channel: string, pkg: { file: string; sha256: str
 }
 
 describe('install.sh 按通道装', () => {
+  it('upgrades a legacy Beta in place and keeps its accounts visible through the channel path', () => {
+    const root = tmp()
+    const home = path.join(root, 'home')
+    const legacy = path.join(home, '.gugu-server')
+    const account = path.join(legacy, 'accounts', 'existing-account', 'data')
+    fs.mkdirSync(account, { recursive: true })
+    fs.writeFileSync(path.join(legacy, 'channel'), 'beta\n')
+    fs.writeFileSync(path.join(account, 'server-session.enc'), 'synthetic existing session')
+    // A failed status invocation may already have made an empty default directory.
+    fs.mkdirSync(path.join(home, '.gugu-server-beta'))
+    const run = install(home, 'beta', fakePackage(root, '0.4.0-beta.8.1'), '0.4.0-beta.8.1')
+    expect(run.status, run.stderr).toBe(0)
+    expect(fs.readFileSync(path.join(account, 'server-session.enc'), 'utf8')).toBe('synthetic existing session')
+    expect(fs.realpathSync(path.join(home, '.gugu-server-beta'))).toBe(fs.realpathSync(legacy))
+    expect(fs.readFileSync(path.join(home, '.gugu-server-beta', 'current', 'version'), 'utf8')).toBe('0.4.0-beta.8.1')
+    const command = path.join(home, '.local', 'bin', 'gugu-server-beta')
+    expect(spawnSync(command, [], { encoding: 'utf8' }).stdout.trim()).toBe(`home=${legacy}`)
+    const stable = install(home, 'stable', fakePackage(root, '0.4.0'), '0.4.0')
+    expect(stable.status).not.toBe(0)
+    expect(fs.readFileSync(path.join(legacy, 'channel'), 'utf8').trim()).toBe('beta')
+  })
+
   it('同一个用户先装 Beta 再装正式版:两套目录、两条命令,互不覆盖', () => {
     const root = tmp()
     const home = path.join(root, 'home')

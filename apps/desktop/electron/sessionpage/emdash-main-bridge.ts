@@ -12,6 +12,7 @@ export { readAssistantWorkOwnerReceipts } from '../session/main/core/sessions/as
 export { archiveSession } from '../session/main/core/sessions/archiveSession'
 export {
   bootEmdashModule,
+  startSessionpageSearchBackfill,
   startNativeConversationInboxHost,
   setSessionAdmissionPreparation,
   assistantPanelLocal,
@@ -165,6 +166,7 @@ export {
   onSessionpageAuthorizationActivityChange,
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,
+  rejectPendingSessionDirectMessage,
   recordFailedSessionDirectMessage,
   // 会话可用那一刻要排一次 outbox：收件箱 pull 的本机投影只捞 session-direct 行，
   // 用户打的第一句是 ordinary，只有 drain 能送出去（codex 的 90s 死锁即出在这一格）。

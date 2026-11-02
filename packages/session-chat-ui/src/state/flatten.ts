@@ -437,8 +437,7 @@ export function flattenTier(
         resultOwner = conversationOwner;
         if (output.reply) {
           const reply = { ...output.reply, conversationProcess: process,
-            ...(block.fullReply ? { conversationFull: true } : {}),
-            conversationCaret: block.live && block.items.at(-1)?.id === output.reply.id };
+            ...(block.fullReply ? { conversationFull: true } : {}) };
           emitConversationReply(reply, [], steps);
         } else {
           processItem({ kind: 'turn-process', ...process, turnId: turn.id,

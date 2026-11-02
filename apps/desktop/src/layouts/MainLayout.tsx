@@ -1,6 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
 import type { AgentAttention } from '@gugu/core/shared/agentStatus'
-import { notify } from '../lib/notices'
 import { Sheet } from '../components/ui/Sheet'
 import { PaneHeader } from '../components/ui/Pane'
 import { RightPanelBackButton } from '../components/chat/RightPanel'
@@ -60,6 +59,7 @@ import { useSessionpageReveal } from '../hooks/useSessionpageReveal'
 import { useOwnedAgentConversationEntry } from '../hooks/useOwnedAgentConversationEntry'
 import { SessionInputOutboxHost } from '../hooks/useSessionInputOutbox'
 import { NeedsYouHost } from '../components/needsYou/NeedsYouHost'
+import { AgentFailureSlotHost } from '../components/AgentTurnFailureBar'
 import { NeedsYouSlot } from '../components/needsYou/NeedsYouSlot'
 import { AgentSharePopover } from '../components/sessionpage/AgentSharePopover'
 import { SESSIONPAGE_SHARE_ANCHOR_SELECTOR } from '../lib/sessionpageShareAnchor'
@@ -84,7 +84,6 @@ import { chatService } from '../lib/chat'
 import { readAgentCreateDefaults, rememberAgentCreateProject } from '../lib/agentCreateDefaults'
 import { rememberedAgentCreateProject } from '@gugu/core/shared/ui/agentCreateDefaultsModels'
 import { createOptimisticDmChat, createOptimisticGroupChat } from '@gugu/core/shared/ui/chatModels'
-import { agentFailureNeedsModelChoice, agentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import { pushToHost as pushTrayBadgeEnabled } from '../lib/trayBadgeSetting'
 import { hydrateSidebarTint } from '../lib/sidebarTint'
 import { UI_EVENTS } from '../lib/uiEvents'
@@ -178,7 +177,12 @@ function InnerLayout({
   // 手机上从群成员里点的「新建 Agent」:与 watchCreateRequest 一起递进去,null = 不进群。
   const [watchCreateGroup, setWatchCreateGroup] = useState<{ chatId: string; name: string } | null>(null)
   const [openedPhoneApp, setOpenedPhoneApp] = useState<{ kind: string; name: string } | null>(null)
-  const watchOpenRequest = useAppShowSession(() => { setOpenedPhoneApp(null); setActiveTab('tasks') })
+  const [watchParentTab, setWatchParentTab] = useState<SidebarTab | null>(null)
+  const watchOpenRequest = useAppShowSession(() => {
+    if (mobile && shellTab.get() !== 'tasks') setWatchParentTab(shellTab.get())
+    setOpenedPhoneApp(null)
+    setActiveTab('tasks')
+  })
   const { contacts, pendingRequestCount, setAgentPublic } = useContactsStore()
   // 会话页分享名片:{名字, agentUserId, conversationId(留着备用,浮层本身不摆)};咕咕号**每次渲染从通讯录读**(懒分配:开启公开后才有号,
   // 存进 state 就会停在「未分配」那一帧)。非空即渲染浮层 / SharePosterDialog。
@@ -268,7 +272,7 @@ function InnerLayout({
     composerFocusCleanupRef.current = scheduleComposerFocus(reason, { mobileShell: mobile, target })
   }, [mobile])
   useEffect(() => () => composerFocusCleanupRef.current?.(), [])
-  const openOwnedAgent = useOwnedAgentConversationEntry({ ownerId: user.id, chats, contacts, mobile, onOpen: () => setActiveTab('tasks') })
+  const openOwnedAgent = useOwnedAgentConversationEntry({ ownerId: user.id, chats, contacts, mobile, onOpen: () => { if (!mobile) setActiveTab('tasks') } })
   const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason, peerId?: string, draft?: string, sourceChatId?: string): string | null => {
     if (!sourceChatId && openAssistantChat(chatId)) return mobile ? 'assistant' : assistantSlotKey('chat')
     if (openOwnedAgent(chatId, peerId, draft, sourceChatId)) return 'tasks'
@@ -286,12 +290,21 @@ function InnerLayout({
   }, [setActiveTab, chatsAreBlocks, focusComposerForUserEntry, mobile, openAssistantChat, openOwnedAgent, t])
   const chatsRef = useRef(chats)
   chatsRef.current = chats
-  const openChatTarget = useCallback((chatId: string): string => {
+  const openChatTarget = useCallback((chatId: string, purpose?: 'resource'): string => {
     setOpenedPhoneApp(null)
     const chat = chatsRef.current.find((candidate) => candidate.id === chatId)
     const topic = chat?.kind === 'topic' && chat.source_chat_id ? chat : null
     const shownChatId = topic?.source_chat_id ?? chatId
-    const viewportKey = openChatBlock(shownChatId)
+    let viewportKey: string | null
+    if (purpose && chatsAreBlocks) {
+      // A file ask is consumed by ChatAreaPanel. Redirecting its owned-agent DM to a task leaves that ask unclaimed.
+      const sessionPage = readSessionpageViewRequestBridge()
+      if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
+      setSettingsModalOpen(false)
+      setActiveTab('tasks')
+      sessionPage.openChat(shownChatId, false, purpose)
+      viewportKey = chatSlotKey(shownChatId)
+    } else viewportKey = openChatBlock(shownChatId)
     if (!viewportKey) {
       setActiveTab('chats')
       setMobilePane('chat')
@@ -299,7 +312,7 @@ function InnerLayout({
     }
     if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id! })
     return topic ? `${viewportKey ?? 'chats'}:topic` : viewportKey ?? 'chats'
-  }, [setActiveTab, openChatBlock, setActiveChatId])
+  }, [setActiveTab, openChatBlock, setActiveChatId, chatsAreBlocks, t])
   const [appDetail, setAppDetail] = useState<import('@gugu/core/shared/ui/guguLink').AppDetailLink>()
   useLinkNavigation({ ownerId: user.id, chats, contacts,
     openSender: (target, sourceChatId) => handleSwitchToChat(target, undefined, sourceChatId),
@@ -308,8 +321,8 @@ function InnerLayout({
       setAppDetail(target)
       openSettingsSection('apps')
     },
-    openFile: (chatId, target, source) => { openChatTarget(chatId); askChat(chatId, { itemId: target.itemId, ...(target.at ? { at: target.at } : {}), ...(source.message ? { message: source.message } : {}), ...(source.restore ? { restore: source.restore } : {}) }) },
-    openApp: (chatId, extensionId, tab) => { openChatTarget(chatId); askChat(chatId, { app: extensionId, ...(tab ? { tab } : {}) }) },
+    openFile: (chatId, target, source) => { openChatTarget(chatId, 'resource'); askChat(chatId, { itemId: target.itemId, ...(target.at ? { at: target.at } : {}), ...(source.message ? { message: source.message } : {}), ...(source.restore ? { restore: source.restore } : {}) }) },
+    openApp: (chatId, extensionId, tab) => { openChatTarget(chatId, 'resource'); askChat(chatId, { app: extensionId, ...(tab ? { tab } : {}) }) },
     openOwnApp: (extensionId, tab) => { const page = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === `${extensionId}.${tab}`); if (!page) throw new Error('App tab is unavailable'); setOpenedPhoneApp({ kind: page.kind, name: page.extensionName }) },
     openProject: (projectId) => { setOpenedPhoneApp(null); setActiveTab('tasks'); appState.navigation.navigate('project', { projectId }) },
     openChat: openChatTarget,
@@ -326,6 +339,10 @@ function InnerLayout({
   }, [mobile, activeTab])
   const pagerTab = phoneLayerOpen ? phoneRootTab : activeTab
   const exitPhoneLayer = useCallback(() => navigateMobile(() => setActiveTab(phoneRootTab), 'pop'), [setActiveTab, phoneRootTab])
+  const exitPhoneSessions = useCallback(() => navigateMobile(() => {
+    setActiveTab(watchParentTab ?? phoneRootTab)
+    setWatchParentTab(null)
+  }, 'pop'), [setActiveTab, watchParentTab, phoneRootTab])
   const openPhoneAssistant = useCallback(() => navigateMobile(() => {
     setActiveTab('assistant')
     setAssistantChatRequest((n) => n + 1)
@@ -641,7 +658,8 @@ function InnerLayout({
         toast(t('groupFile.notInGroup'), 'error')
         return false
       }
-      ask(chat.id, openChatTarget(chat.id))
+      try { ask(chat.id, openChatTarget(chat.id, resource ? 'resource' : undefined)) }
+      catch (error) { toast(messageForUser(error), 'error'); return false }
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
     }
@@ -714,38 +732,6 @@ function InnerLayout({
     if (!activeChatId || previous === activeChatId || document.documentElement.dataset.mobileDirection) return
     setMobilePane('chat')
   }, [activeChatId])
-
-  const failedDeliveries = useRef(new Map<string, Set<string>>())
-  // One notice per task, with the actual cause and distinct source messages while it is visible.
-  useEffect(() => {
-    const handleSessionpageDeliverFailed = (event: Event) => {
-      const detail = (event as CustomEvent).detail as { agentUserId?: string; messageId?: string | null; error?: string } | undefined
-      if (!detail?.agentUserId) return
-      // #7685 额度/模型类由运行条的 agent 状态位 + 恢复前只弹一次的提示说(AgentTurnFailureSlot)，❌ 每条失败的投递再弹一条。
-      if (agentFailureNeedsModelChoice(agentFailureReason(detail.error))) return
-      const agentId = detail.agentUserId
-      const messages = failedDeliveries.current.get(agentId) ?? new Set<string>()
-      failedDeliveries.current.set(agentId, messages)
-      if (detail.messageId) messages.add(detail.messageId)
-      const clear = () => {
-        if (failedDeliveries.current.get(agentId) === messages) failedDeliveries.current.delete(agentId)
-      }
-      const contact = contacts.find((c) => c.id === agentId)
-      const name = contact?.alias?.trim() || contact?.display_name || agentId
-      notify({
-        key: `sessionpage-delivery:${agentId}`,
-        title: messageForUser(detail.error),
-        description: messages.size
-          ? t('shell.toast.taskDeliverFailedCount', { name, count: messages.size })
-          : t('shell.toast.taskDeliverFailed', { name }),
-        tier: 'error',
-        onDismiss: clear,
-        onAutoClose: clear,
-      })
-    }
-    window.addEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
-    return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
-  }, [contacts, t])
 
   // @@@sessionpage 分享 — 会话页头部点了「分享这个 agent 的名片」:main 只转达 agentUserId + 名字,咕咕号与
   // 头像从**通讯录同一份数据**取(自有 agent 就在 contacts 里),再交给既有的 SharePosterDialog 出卡片 ——
@@ -1000,7 +986,7 @@ function InnerLayout({
       data-phone-shell={mobile ? '' : undefined}
       data-gugu-shell-phase={effectsActive ? 'active' : 'committed-inert'}
       data-desktop-shell={mobile ? undefined : ''}
-      // 手机全线一个底:咕咕页那套渐变 + 玻璃(owner 10-26),壳上挂 data-ta-scope 让 --ta-* 处处可用。
+      // 手机全线一个中性纯色底,壳上挂 data-ta-scope 让 --ta-* 处处可用。
       data-ta-scope={mobile ? '' : undefined}
       style={{
         display: 'flex',
@@ -1138,7 +1124,7 @@ function InnerLayout({
                   {mobile ? (
                     <PhonePartnersPage
                       user={user}
-                      active={activeTab === 'contacts' || projectChatFromPartners}
+                      active={activeTab === 'contacts' || projectChatFromPartners || (activeTab === 'tasks' && watchParentTab === 'contacts')}
                       externalContactId={externalContactId}
                       scanSeed={scanSeed}
                       newProjectRequest={newProjectRequest}
@@ -1191,7 +1177,7 @@ function InnerLayout({
               <div className="gg-aw-tab-slot">
                 <AgentWatchPage
                   active={activeTab === 'tasks'}
-                  onExit={exitPhoneLayer}
+                  onExit={exitPhoneSessions}
                   createRequest={watchCreateRequest}
                   createInGroup={watchCreateGroup}
                   openRequest={watchOpenRequest}
@@ -1294,6 +1280,7 @@ function InnerLayout({
       {/* 摩擦单 F6: an install is consented to here, over whatever view is on screen. */}
       <ExtensionConsentSheet />
       <NeedsYouHost onAttentionChange={setSessionAttention} />
+      <AgentFailureSlotHost />
 
       {/* @@@822 frameless 自绘窗口控制(Windows/Linux 右上角 min/max/close);Mac/web 自渲染为 null。
           ⚠️ **必须挂在整棵壳的最后** —— Electron 把 Blink 收集到的 drag / no-drag 矩形按 **DOM 序**

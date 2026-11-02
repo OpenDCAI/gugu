@@ -2,7 +2,7 @@ import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useNativeAgentChats } from '@/hooks/useNativeAgentChats'
 import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BellOff, Checklist, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Plus, Search, SquarePen, UserRound, Users, X, Zap } from '@/lib/icons'
+import { BellOff, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Plus, Search, SquarePen, UserRound, Users, X, Zap } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
 import { DropdownMenu, MenuItem } from './ui/Menu'
 import { PaneEmptyState } from './ui/PaneEmptyState'
@@ -428,7 +428,7 @@ function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, onNe
     ...(onSessionCreate
       ? [{
           testid: AUTOMATION_TEST_IDS.mobileSessionCreateAction,
-          icon: <Checklist size={15} />,
+          icon: <Zap size={15} />,
           label: t('chatList.createTask'),
           onClick: onSessionCreate,
         }]
