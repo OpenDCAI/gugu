@@ -1,4 +1,3 @@
-import { join } from 'node:path'
 import { platformModelAccessEnv, resolveGuguHome } from '@gugu/core'
 import type {
   CapabilityPackage,
