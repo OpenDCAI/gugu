@@ -4,6 +4,7 @@ import { SessionConversation } from '@/mobile/agent-watch/SessionConversation'
 import { emptyAgentWatchTimeline } from '@/mobile/agent-watch/agent-watch-store'
 import { usePhoneNewTask } from '@/mobile/chat/PhoneNewTask'
 import { ComposerAttachButton } from '@/components/chat/ComposerAttachButton'
+import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
 import {
   createReactHarness,
   renderWithAppProviders
@@ -74,67 +75,125 @@ afterEach(() => {
 })
 const out = '__screenshots__/acceptance1292'
 
-it('1292 phone SessionConversation renders its locked harness before the model', async () => {
-  await i18n.changeLanguage('zh-CN')
-  await page.viewport(390, 844)
-  document.documentElement.dataset.theme = 'light'
-  harness = createReactHarness()
-  harness.container.setAttribute('data-phone-shell', '')
-  harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
-  await renderWithAppProviders(
-    harness,
-    <SessionConversation
-      timeline={emptyAgentWatchTimeline()}
-      deviceId="device"
-      sessionId="acceptance-1292"
-      agentName="Codex"
-      harness="codex"
-      nativeRecord
-      sessionRuntime="acp"
-      respondingItemId={null}
-      onRespond={vi.fn()}
-      onSend={vi.fn()}
-      pendingSends={[]}
-      sending={false}
-      agentWorking={false}
-      onStop={vi.fn()}
-      stopping={false}
-      onLoadOlder={vi.fn()}
-    />,
-    { contacts: {} }
-  )
-  await until(
-    'phone composer model',
-    () => !!harness.container.querySelector('[data-testid="composer-model-trigger"]')
-  )
-  await new Promise((r) => setTimeout(r, 600))
-  const locked = harness.container.querySelector<HTMLButtonElement>(
-    'button[disabled][aria-label*="Codex"]'
-  )!
-  const model = harness.container.querySelector('[data-testid="composer-model-trigger"]')!
-  expect(locked).not.toBeNull()
-  expect(locked.getBoundingClientRect().width).toBeGreaterThan(0)
-  expect(getComputedStyle(locked).opacity).toBe('1')
-  expect(locked.getBoundingClientRect().right).toBeLessThanOrEqual(
-    model.getBoundingClientRect().left
-  )
-  expect(Math.abs(locked.getBoundingClientRect().y - model.getBoundingClientRect().y)).toBeLessThan(
-    8
-  )
-  const send = harness.container.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')!
-  expect(
-    locked.getBoundingClientRect().bottom <= send.getBoundingClientRect().top ||
-      locked.getBoundingClientRect().right <= send.getBoundingClientRect().left
-  ).toBe(true)
-  const permission = harness.container
-    .querySelector('[data-slot="composer-permission-mode"]')!
-    .closest('button')!
-  expect(permission.getBoundingClientRect().right).toBeLessThanOrEqual(
-    locked.getBoundingClientRect().left
-  )
-  expect(model.querySelector('[role="img"]')?.getBoundingClientRect().width ?? 0).toBe(0)
-  await page.screenshot({ path: `${out}/phone-session-component.png` })
-})
+it.each([false, true])(
+  '1292 phone SessionConversation keeps its locked harness beside the model (working=%s)',
+  async (working) => {
+    await i18n.changeLanguage('zh-CN')
+    await page.viewport(390, 844)
+    document.documentElement.dataset.theme = 'light'
+    harness = createReactHarness()
+    harness.container.setAttribute('data-phone-shell', '')
+    harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
+    await renderWithAppProviders(
+      harness,
+      <SessionConversation
+        timeline={emptyAgentWatchTimeline()}
+        deviceId="device"
+        sessionId="acceptance-1292"
+        agentName="Codex"
+        harness="codex"
+        nativeRecord
+        sessionRuntime="acp"
+        respondingItemId={null}
+        onRespond={vi.fn()}
+        onSend={vi.fn()}
+        pendingSends={[]}
+        sending={false}
+        agentWorking={working}
+        onStop={vi.fn()}
+        stopping={false}
+        onLoadOlder={vi.fn()}
+      />,
+      { contacts: {} }
+    )
+    await until(
+      'phone composer model',
+      () => !!harness.container.querySelector('[data-testid="composer-model-trigger"]')
+    )
+    await new Promise((r) => setTimeout(r, 600))
+    const locked = harness.container.querySelector<HTMLButtonElement>(
+      'button[disabled][aria-label*="Codex"]'
+    )!
+    const model = harness.container.querySelector('[data-testid="composer-model-trigger"]')!
+    expect(locked).not.toBeNull()
+    expect(locked.getBoundingClientRect().width).toBeGreaterThan(0)
+    expect(getComputedStyle(locked).opacity).toBe('1')
+    expect(locked.getBoundingClientRect().right).toBeLessThanOrEqual(
+      model.getBoundingClientRect().left
+    )
+    expect(
+      Math.abs(locked.getBoundingClientRect().y - model.getBoundingClientRect().y)
+    ).toBeLessThan(8)
+    const send = harness.container.querySelector<HTMLButtonElement>(
+      working ? 'button[aria-label="停止生成"]' : 'button[aria-label="发送消息"]'
+    )!
+    expect(send).not.toBeNull()
+    expect(
+      harness.container.querySelectorAll(
+        '[data-slot="composer-actions-end"] > button:not([data-slot="composer-locked-agent"])'
+      )
+    ).toHaveLength(1)
+    expect(locked.dataset.slot).toBe('composer-locked-agent')
+    expect(
+      locked.getBoundingClientRect().bottom <= send.getBoundingClientRect().top ||
+        locked.getBoundingClientRect().right <= send.getBoundingClientRect().left
+    ).toBe(true)
+    const permission = harness.container
+      .querySelector('[data-slot="composer-permission-mode"]')!
+      .closest('button')!
+    expect(permission.getBoundingClientRect().right).toBeLessThanOrEqual(
+      locked.getBoundingClientRect().left
+    )
+    expect(model.querySelector('[role="img"]')?.getBoundingClientRect().width ?? 0).toBe(0)
+    await page.screenshot({
+      path: `${out}/${working ? 'phone-session-working' : 'phone-session-component'}.png`
+    })
+  }
+)
+
+it.each([false, true])(
+  '1292 ordinary phone composer preserves its three-column layout (group=%s)',
+  async (group) => {
+    await i18n.changeLanguage('zh-CN')
+    await page.viewport(390, 844)
+    document.documentElement.dataset.theme = 'light'
+    harness = createReactHarness()
+    harness.container.setAttribute('data-phone-shell', '')
+    harness.container.style.cssText = 'width:390px;margin-top:600px'
+    await renderWithAppProviders(
+      harness,
+      <ChatMessageComposer
+        chatId={group ? 'group-control' : 'dm-control'}
+        currentUserId="owner"
+        isGroupChat={group}
+        onSend={vi.fn(async () => {})}
+      />,
+      { contacts: {} }
+    )
+    await until(
+      'ordinary phone composer',
+      () => !!harness.container.querySelector('[data-slot="composer-bar"]')
+    )
+    const bar = harness.container.querySelector('[data-slot="composer-bar"]')!
+    const editor = harness.container.querySelector('[data-slot="composer-input"]')!
+    const send = harness.container.querySelector('button[aria-label="发送消息"]')!
+    const attach = harness.container.querySelector('[data-slot="composer-actions-start"] > button')!
+    expect(getComputedStyle(bar).gridTemplateColumns.split(' ')).toHaveLength(3)
+    expect(harness.container.querySelector('[data-slot="composer-locked-agent"]')).toBeNull()
+    expect(
+      harness.container.querySelectorAll('[data-slot="composer-actions-end"] > button')
+    ).toHaveLength(1)
+    expect(attach.getBoundingClientRect().right).toBeLessThanOrEqual(
+      editor.getBoundingClientRect().left
+    )
+    expect(editor.getBoundingClientRect().right).toBeLessThanOrEqual(
+      send.getBoundingClientRect().left
+    )
+    await page.screenshot({
+      path: `${out}/${group ? 'phone-group-control' : 'phone-dm-control'}.png`
+    })
+  }
+)
 
 it('1292 phone project attachment menu uses the real new-task action lightning', async () => {
   await i18n.changeLanguage('zh-CN')
