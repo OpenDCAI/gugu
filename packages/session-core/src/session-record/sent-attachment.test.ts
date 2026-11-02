@@ -7,15 +7,24 @@ const call: McpToolCall = { kind: 'mcp-tool-call', id: 'file', toolCallId: 'file
   outputText: JSON.stringify({ status: 'sent', message_id: id, file_name: 'proof.txt', file: `gugu-file://${id}?v=3` }) };
 describe('confirmed sent attachments', () => {
   it('uses the receipt identity, filename and pinned file revision', () => {
-    expect(sentAttachmentOf(call)).toEqual({ messageId: id, name: 'proof.txt', href: `gugu-file://${id}?v=3` });
+    expect(sentAttachmentOf(call)).toEqual({ messageId: id, name: 'proof.txt', kind: 'file', href: `gugu-message-file://${id}` });
   });
   it('reads native MCP content and normalizes the message address without exposing a local path', () => {
     const output = { content: [{ type: 'text', text: JSON.stringify({ ok: true, message_id: `msg:${id}`, file_name: 'phone.txt' }) }] };
-    expect(sentAttachmentOf({ ...call, rawOutput: JSON.stringify(output), outputText: undefined })).toEqual({ messageId: id, name: 'phone.txt', href: `gugu-message-file://${id}` });
+    expect(sentAttachmentOf({ ...call, rawOutput: JSON.stringify(output), outputText: undefined })).toEqual({ messageId: id, name: 'phone.txt', kind: 'file', href: `gugu-message-file://${id}` });
   });
   it('requires a successful root Gugu file-send receipt', () => {
     for (const changed of [{ status: 'running' }, { status: 'error' }, { parentToolCallId: 'nested' }, { server: 'unrelated' }, { tool: 'message_send' }, { outputText: 'failed' }]) {
       expect(sentAttachmentOf({ ...call, ...changed } as McpToolCall)).toBeNull();
     }
   });
+});
+
+it.each([['image/png', 'proof.bin', 'image'], [undefined, 'PHOTO.JPEG', 'image'], ['application/octet-stream', 'proof.png', 'file'], [undefined, 'report.pdf', 'file']])('uses MIME %s and filename %s to classify %s', (mime_type, file_name, kind) => {
+  const chatId = '127ec4f0-30b1-4583-b469-706756153bdd';
+  const result = sentAttachmentOf({ ...call, outputText: JSON.stringify({ message_id: id, mime_type, file_name, source_link: `gugu-chat://${chatId}/${id}` }) });
+  expect(result).toMatchObject({ kind, href: `gugu-message-file://${id}?chat=${chatId}` });
+});
+it('does not turn an MCP error into a file when its flattened text still resembles a receipt', () => {
+  expect(sentAttachmentOf({ ...call, rawOutput: JSON.stringify({ isError: true, content: [{ type: 'text', text: call.outputText }] }) })).toBeNull();
 });

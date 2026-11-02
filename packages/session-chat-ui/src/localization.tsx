@@ -160,6 +160,7 @@ const fallbackMessages = {
   'transcript.planProgress': 'Plan · {done} of {total} done',
   // agent 经 message_send / session_message 说的话,下面那一行去向(agent-send.def)。
   'transcript.agentSendTo': 'Sent to {chat}',
+  'transcript.agentSendToYou': 'Sent to you',
   'transcript.agentSendToChat': 'Sent · destination name unavailable',
   'transcript.agentSendToThreadIn': 'Sent to a topic in {chat}',
   'transcript.agentSendToThread': 'Sent to a topic',
