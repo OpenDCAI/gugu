@@ -31,7 +31,7 @@ describe('native file capabilities are scoped and never expose incomplete origin
   it('publishes as the authenticated owner and refuses a lost account or closed window', async () => {
     const f = await fixture(), request = { chatId: 'group', file: { name: 'file.bin', path: join(f.root, 'file.bin'), size: 3, contentType: 'application/octet-stream' } }
     await expect(f.host.publish(1, request)).resolves.toEqual({ id: 'item', version: 1 })
-    expect(f.publish).toHaveBeenCalledWith('group', request.file, 'owner', undefined)
+    expect(f.publish).toHaveBeenCalledWith('group', request.file, 'owner', undefined, undefined)
     f.account(null)
     await expect(f.host.publish(1, request)).rejects.toThrow('unavailable')
     expect(f.publish).toHaveBeenCalledOnce()

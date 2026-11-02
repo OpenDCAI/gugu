@@ -83,6 +83,7 @@ export type SessionForkedFrom = {
 
 export type InitialQueuePrompt = {
   text: string;
+  files?: import('@gugu/session-core/session-record/contract').TurnFileRef[];
   hiddenContext?: string;
   origin: NonNullable<PromptInput['origin']>;
   /** A spawn's delegation is a session-direct message from its caller (a task exchange); absent = ordinary. */
@@ -142,7 +143,7 @@ export type SessionMessage = {
  * this turn, as the next one (at once when idle); `coalesceKey` = a queued message of the same key is replaced, not
  * added to. Only the ACP adapter reads it — a terminal session is refused before anything is sent.
  */
-export type SessionMessageDelivery = { queue: true; coalesceKey?: string; origin?: 'manual'; attachments?: import('@gugu/session-core/acp/client').PromptAttachment[] };
+export type SessionMessageDelivery = { queue: true; coalesceKey?: string; origin?: 'manual'; files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]; attachments?: import('@gugu/session-core/acp/client').PromptAttachment[] };
 
 export type PendingRestart = {
   status: 'restart_failed';

@@ -14,7 +14,7 @@ vi.mock('@gugu/core/cloud/config', async original => ({ ...(await original<objec
 vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: { chatView: 'double' } }) }));
 vi.mock('@/lib/notices', async original => ({ ...(await original<object>()), notify: vi.fn(() => 0) }));
 vi.mock('@/mobile/agent-watch/sessionpage-rpc', async original => ({
-  ...(await original<object>()), fetchSessionOptions: vi.fn(() => new Promise(() => {})), sessionAttachmentRpc: vi.fn(() => ({})),
+  ...(await original<object>()), fetchSessionOptions: vi.fn(() => new Promise(() => {})),
 }));
 
 // #940's four assertions follow the phone's current host after AgentThread was retired.

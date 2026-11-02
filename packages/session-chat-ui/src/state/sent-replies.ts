@@ -1,5 +1,5 @@
 import { agentSendOf, messageSendTargetOf, replyItems, replySend, replySource, sentMessageId, successfulMessageSend } from '@gugu/session-core/session-record/reply-process';
-import { sentAttachmentOf, type AttachmentTurn } from '@gugu/session-core/session-record/sent-attachment';
+import { sentAttachmentOf } from '@gugu/session-core/session-record/sent-attachment';
 import type { TranscriptTurn } from '@session-chat/model';
 
 /** Keep successfully delivered replies readable when their tool process is folded. */
@@ -13,7 +13,7 @@ export function withSentReplies(turn: TranscriptTurn, options: { allDestinations
   const after = new Map<string, TranscriptTurn['items']>();
   for (const item of items) {
     if (item.kind !== 'mcp-tool-call' || item.status !== 'done') continue;
-    const attachment = options.allDestinations ? sentAttachmentOf(item, (turn as AttachmentTurn).sentAttachments) : null;
+    const attachment = options.allDestinations ? sentAttachmentOf(item) : null;
     const send = attachment ? { id: attachment.messageId, text: attachment.name } : options.allDestinations ? successfulMessageSend(item) : source ? replySend(item, source) : null;
     const id = attachment?.messageId ?? sentMessageId(item);
     // 对话布局(allDestinations):发到群里的那一句和这一轮最后说的话撞了字也是两条输出,❌ 当成同一条丢掉 ——

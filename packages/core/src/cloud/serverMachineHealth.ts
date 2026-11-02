@@ -16,7 +16,7 @@ export const SERVER_ACTIVITY_STALE_MS = 60_000
  * 照 VS Code / Zed 的「客户端与 server 版本对不上就明说」(Zed 发了旧客户端不认的消息直接断线:zed#42474),
  * 只是不要求逐版本相等 —— server 自动升级、桌面自动升级,两边总有先后。
  */
-export const REMOTE_PROTOCOL_VERSION = 15
+export const REMOTE_PROTOCOL_VERSION = 16
 /**
  * server 报给桌面:桌面的协议版本低于它 = 这台电脑上的咕咕太旧。
  *
@@ -73,16 +73,17 @@ export const REMOTE_PROTOCOL_VERSION = 15
  * 14: the saved-login form is removed (#848); the later remote-browser removal keeps this window, and removed RPC
  *     methods use the normal unknown-method response.
  * 15: canonical file patches. sessionTimeline sends one patch tool entity with structured changes and raw patch bytes.
+ * 16: task inputs carry folder-file references; attachment sends require this version rather than silently losing files.
  *
  * 向下兼容一档(owner 10-28,换版打断 7 条车道之后):两边只差一档时照常连,由**新的一侧**降级 ——
- * 15 ↔ 14 的改文件实体由 session-record/contract.ts 的 protocol14FileChanges 在线上换算(宿主按开窗时对端报的协议、
- * 客户端按宿主答的协议);14 的界面看到的是它自己的改文件卡。开窗时按那台机器的协议报 hello(`helloProtocol`):
+ * 16 ↔ 15 的文字与窗口照常互通;附件输入要求 16，旧宿主明确拒绝。14 的改文件降级在升到 16 时移除。
+ * 开窗时按那台机器的协议报 hello(`helloProtocol`):
  * 老宿主见到更高的号会当成版本信号、要求当场换版,有 agent 在跑也照换。差两档以上才说「太旧」。
  * 下一次加一时,两个下沿跟着抬到新号减一,并删掉上一档的降级。
  */
-export const MIN_CLIENT_PROTOCOL = 14
+export const MIN_CLIENT_PROTOCOL = 15
 /** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧(同样向下兼容一档)。 */
-export const MIN_SERVER_PROTOCOL = 14
+export const MIN_SERVER_PROTOCOL = 15
 
 /** 开窗时报给那台机器的协议:它比这台低、但还在兼容的一档里,就照它的报(见上);说不出 = 报自己的。纯函数。 */
 export function helloProtocol(serverProtocol: number | null | undefined, own = REMOTE_PROTOCOL_VERSION, minServer = MIN_SERVER_PROTOCOL): number {

@@ -458,6 +458,7 @@ export default {
     "reactWith": "React with {{emoji}}"
   },
   "forward": {
+    "fileFailed": "{{name}} could not be forwarded with the task",
     "batchPreview": "Forward {{count}} messages",
     "batchPreview_one": "Forward {{count}} message",
     "batchPreview_other": "Forward {{count}} messages",
