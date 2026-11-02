@@ -32,7 +32,7 @@ export type { ChatContext, ChatContextOptions } from './chat-context';
 export type { ChatTranslator, ChatTranslationSubscriber, ChatTranslationValues } from './localization';
 
 export { connectSession, createChatState, tailMode, pinTopMode } from './state/chat-state';
-export { pendingPromptTurn } from './state/pending-prompt';
+export { pendingPromptTurn, pendingPromptLanded } from './state/pending-prompt';
 export { turnDiscardedId } from './state/flatten';
 export type {
   ChatState,

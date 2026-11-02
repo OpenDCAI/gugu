@@ -182,6 +182,7 @@ export default {
     "expiredBody": "云上的家还留着，什么都没删。续费后{{name}}继续在云上处理消息，也可以把它搬回你自己的电脑。",
     "renew": "去续费",
     "resumeTitle": "上次搬家没搬完",
+    "recoveryUnreadable": "暂时读不到搬家恢复记录，请重试。",
     "resumeBody": "已经搬过去的不会重来，接着搬就好。",
     "resumeAction": "接着搬",
     "preparing": "正在看{{name}}家里有什么…",
@@ -234,6 +235,10 @@ export default {
     "failedIntact": "{{name}}还在原来的家里，什么都没变。",
     "failedResume": "已经搬过去的不会重来，可以接着搬。",
     "failedReason": {
+      "schedules_unsupported": "新家的咕咕暂不支持恢复定时任务。请更新新家的咕咕，再点「接着搬」。",
+      "conflict": "新家的同名文件已更新：{{path}}。请先把新内容另存并移走同名文件，再点「接着搬」。",
+      "schedules": "原来的定时任务还没恢复，请确认两边都能连接后重试。恢复记录缺失时，请先找回记录再继续。",
+      "restart": "还没确认助理恢复在线，可能暂时无法回复。网络恢复后点「接着搬」，重新确认在线。",
       "plan_required": "搬到云上要开通会员。",
       "credits_exhausted": "积分用完了，云上暂时开不了家。",
       "already_exists": "云上还留着上一个家，现在还不能直接搬上去。",
