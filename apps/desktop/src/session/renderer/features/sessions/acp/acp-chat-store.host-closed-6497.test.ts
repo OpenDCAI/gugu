@@ -158,7 +158,7 @@ describe('#6497 宿主停掉会话之后的聊天面', () => {
     expect(store.affordances.canSubmit).toBe(true);
     expect(boot).not.toHaveBeenCalled();
     store.submitPrompt('resume the original conversation');
-    expect(custody).toHaveBeenCalledWith(store, 'resume the original conversation', []);
+    expect(custody).toHaveBeenCalledWith(store, 'resume the original conversation', [], []);
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(boot, 'the host starts it; the page attaches when it is ready').not.toHaveBeenCalled();
   });

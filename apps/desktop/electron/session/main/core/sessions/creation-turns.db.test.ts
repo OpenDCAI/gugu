@@ -87,4 +87,18 @@ describe('creation turns: one row per creation entry, however often it is reache
     expect(rows('empty')).toEqual({ pending: [], messages: [] });
     expect(mocks.started).toEqual(['empty']);
   });
+  it('defers only an explicit attachment creation; default provision later admits files without a persistent wait', async () => {
+    const files = [{ itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 }];
+    insertSession('files', { initialQueue: [{ text: FIRST, origin: 'manual', files }] });
+    const { sessionCreateController } = await import('./create-controller');
+    await sessionCreateController.provisionWorkspace('files', { deferFirstTurn: true });
+    expect(rows('files')).toEqual({ pending: [], messages: [] });
+    await sessionCreateController.provisionWorkspace('files');
+    expect(rows('files')).toEqual({ pending: [{ id: 'files:creation:0' }], messages: [{ id: 'files:creation:0', content: FIRST }] });
+    const message = fixture.sqlite.prepare("SELECT metadata FROM messages WHERE session_id = 'files'").get() as { metadata: string };
+    expect(JSON.parse(message.metadata).delivery.files).toEqual(files);
+    await sessionCreateController.admitFirstMessages('files');
+    expect(rows('files').pending).toHaveLength(1);
+  });
+
 });

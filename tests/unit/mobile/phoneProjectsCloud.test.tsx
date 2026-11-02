@@ -3,16 +3,16 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { clickElement, createReactHarness, renderWithAppProviders } from '../../support/testHarness'
 import '../../../apps/desktop/src/i18n/registerAssistantCatalog'
 import { AssistantProjectsLibrary, AssistantProjectsCard } from '../../../apps/desktop/src/components/assistant/AssistantProjectsLibrary'
-const state = vi.hoisted(() => ({ read: vi.fn(),refresh: vi.fn(),native: vi.fn(() => { throw new Error('Unexpected device directory read') }) }))
+const state = vi.hoisted(() => ({ read: vi.fn(),refresh: vi.fn(),assistantHome: false,native: vi.fn(() => { throw new Error('Unexpected device directory read') }) }))
 vi.mock('@/platform',() => ({ platform: { capabilities: { agentRuntime: false } } }))
 vi.mock('@/session/renderer/lib/stores/app-state',() => ({ appState: {} }))
 vi.mock('@/hooks/useSessionpageReveal',() => ({ revealSessionpage: vi.fn() }))
 vi.mock('@/lib/deviceProjects',() => ({ listMyDeviceProjects: state.read }))
-vi.mock('@/store/devicesContext',() => ({ useDevicesStore: () => ({ devices: [{ device_id: 'mac',label: 'apple 的 MacBook',is_online: false },{ device_id: 'fc',label: 'FC验收Mac',is_online: false }],loading: false,error: null,refresh: state.refresh }) }))
+vi.mock('@/store/devicesContext',() => ({ useDevicesStore: () => ({ devices: [{ device_id: 'mac',label: 'apple 的 MacBook',is_online: false },{ device_id: 'fc',label: 'FC验收Mac',is_online: false,capabilities: { assistant_home: state.assistantHome,home_dir: '/home/assistant' } }],loading: false,error: null,refresh: state.refresh }) }))
 vi.mock('@/session/shared/remote-sessions/session-directory',() => ({ useLiveDeviceSessions: state.native,deviceSessionsOf: state.native }))
 let harness: ReturnType<typeof createReactHarness>
 const project = (id: string,name: string) => ({ localProjectId: id,name,rootPath: '/fixture',createdAt: '2026-10-26',chatId: null,folders: [] })
-beforeEach(() => { harness = createReactHarness(); state.native.mockClear(); state.read.mockReset().mockResolvedValue({ mac: [project('mac-business','Mac project'),project('gugu','咕咕')],fc: [project('fc-business','FC project')] }) })
+beforeEach(() => { harness = createReactHarness(); state.assistantHome = false; state.native.mockClear(); state.read.mockReset().mockResolvedValue({ mac: [project('mac-business','Mac project'),project('gugu','咕咕')],fc: [project('fc-business','FC project')] }) })
 afterEach(() => harness.cleanup())
 it('lists every account project while both devices are asleep and opens an empty project entry', async () => {
   await renderWithAppProviders(harness,<AssistantProjectsLibrary machine={null} />)
@@ -31,6 +31,16 @@ it('counts the same three entries on the memory page', async () => {
   await vi.waitFor(() => expect(harness.container.textContent).toContain('3 条记录'))
   expect(state.native).not.toHaveBeenCalled()
 })
+it('keeps actual projects on the assistant device separate and named after their projects', async () => {
+  state.assistantHome = true
+  state.read.mockResolvedValue({ fc: [project('first', 'First business'),project('second', 'Second business')] })
+  await renderWithAppProviders(harness, <AssistantProjectsLibrary machine={null} />)
+  await vi.waitFor(() => expect(harness.container.querySelectorAll('[data-testid^="assistant-project-"]')).toHaveLength(2))
+  expect(harness.container.textContent).toContain('First business')
+  expect(harness.container.textContent).toContain('Second business')
+  expect(harness.container.textContent).not.toContain('FC验收Mac')
+  expect(state.native).not.toHaveBeenCalled()
+})
 it('explains a cloud directory failure without inventing an empty list or exposing a retry button', async () => {
   state.read.mockRejectedValue(new Error('private SQL diagnostic'))
   await renderWithAppProviders(harness,<AssistantProjectsLibrary machine={null} />)
@@ -40,7 +50,7 @@ it('explains a cloud directory failure without inventing an empty list or exposi
   expect([...harness.container.querySelectorAll('button')].some(button => button.textContent === '重试')).toBe(false)
 })
 
-it('hides internal task homes without hiding real projects or the current assistant home', async () => {
+it('hides internal task homes while retaining ordinary projects regardless of their names', async () => {
   state.read.mockResolvedValue({
     mac: [project('00000000-0000-4000-8000-000000000001', 'Trial task home'), project('demo', 'Acceptance demo')],
     old: [project('00000000-0000-4000-8000-000000000001', 'Isolated task home')],

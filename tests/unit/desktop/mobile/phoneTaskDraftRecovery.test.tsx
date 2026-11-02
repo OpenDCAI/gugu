@@ -14,7 +14,7 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', async (original) => ({ ...a
 vi.mock('../../../../apps/desktop/src/mobile/local-agent/phoneHostRpc', () => ({ invokePhoneHost: rpc.invoke }))
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   SessionpageRpcError: class SessionpageRpcError extends Error {},
-  fetchSessionOptions: vi.fn(() => new Promise(() => undefined)), setSessionOption: vi.fn(), sessionAttachmentRpc: vi.fn(() => ({})),
+  fetchSessionOptions: vi.fn(() => new Promise(() => undefined)), setSessionOption: vi.fn(),
 }))
 
 vi.mock('../../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { composerContent: import('react').ReactNode; commands: ChatCommands }) => { transcript.commands = props.commands; return createElement('div', {}, props.composerContent) } }))

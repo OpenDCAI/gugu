@@ -276,3 +276,25 @@ test('task input admission is idempotent across transport retries and checks imm
     await assert.rejects(api('sessionTimeline.sessionSetOption', [{ conversationId: f.agent.sessionId, dimension: 'model', value: 'platform:first' }]), { code: 'session_busy' })
   } finally { await f.close() }
 })
+
+test('file input projection survives a host restart and job cleanup, without changing unmatched native records', async () => {
+  const f = await fixture(), at = 1_700_000_000_000;
+  const files = [{ itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 }];
+  try {
+    f.agent.fileInputs = { u1: { text: 'original caption', files } };
+    await f.write([row('u1', null, at, { role: 'user', content: 'original caption\n\n[File saved at local path: /private/brief.txt]' }), row('a1', 'u1', at + 1, assistant('read it'))]);
+    const check = async () => {
+      const first = await f.api.snapshot(f.agent, {}), item = first.turns[0].items.find(item => item.kind === 'message' && item.role === 'user');
+      assert.equal(item.text, 'original caption');
+      assert.deepEqual(item.files, files);
+      assert.doesNotMatch(JSON.stringify(first), /private|File saved/);
+    };
+    await check();
+    f.store.state.jobs = {};
+    f.agent.fileInputs = JSON.parse(JSON.stringify(f.agent.fileInputs));
+    await f.reopen(); await check();
+    await f.append([row('u2', 'a1', at + 2, { role: 'user', content: 'unmapped /original/native/path' }), row('a2', 'u2', at + 3, assistant('done'))]);
+    assert.match(JSON.stringify(await f.api.snapshot(f.agent, {})), /unmapped \/original\/native\/path/);
+    assert.deepEqual(Object.keys(f.agent.fileInputs), ['u1']);
+  } finally { await f.close(); }
+});
