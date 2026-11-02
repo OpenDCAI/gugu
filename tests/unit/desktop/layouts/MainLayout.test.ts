@@ -1019,6 +1019,32 @@ it.each(['owned', 'group'] as const)('opens a %s file on its file host and prese
   expect(takeChatAsk(chatId)).toEqual({ itemId: 'F1', message: source })
 })
 
+it('opens an App card in an owned DM on its resource host instead of redirecting to the task', async () => {
+  chatStoreMock.chats = [{ id: 'owned-app', kind: 'dm', peer_user_id: 'agent' }] as never
+  taskRoute.contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'user-1' }]
+  openNativeConversation.mockClear()
+  await renderMainLayoutWithToast()
+  await act(async () => { await openLinkTarget({ kind: 'app', extensionId: 'board', tab: 'main', path: '', query: {}, place: { chat: 'owned-app' } }) })
+  expect(sessionPageViewRequests.openChat).toHaveBeenCalledExactlyOnceWith('owned-app', false, 'resource')
+  expect(openNativeConversation).not.toHaveBeenCalled()
+  expect(takeChatAsk('owned-app')).toEqual({ app: 'board', tab: 'main' })
+})
+
+it('rejects file navigation when the task bridge is absent, and toasts a failed Open With event', async () => {
+  chatStoreMock.chats = [{ id: 'file-chat', kind: 'dm' }] as never
+  fileOwner.mockResolvedValue({ data: { chat_id: 'file-chat' }, error: null })
+  const toast = vi.fn()
+  await renderMainLayoutWithToast(toast)
+  delete (window as unknown as Record<string, unknown>).__GUGU_SESSIONPAGE_VIEW_REQUESTS__
+  await act(async () => { await expect(openLinkTarget({ kind: 'file', itemId: 'F1' })).rejects.toThrow() })
+  expect(takeChatAsk('file-chat')).toBeNull()
+  await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: {
+    chatId: 'file-chat', itemId: 'F1', name: 'proof.txt', typedName: 'proof.txt', choice: { kind: 'none' },
+  } })) })
+  expect(toast).toHaveBeenCalledWith(expect.any(String), 'error')
+  expect(takeChatAsk('file-chat')).toBeNull()
+})
+
 describe('MainLayout: personal assistant destinations', () => {
   const shell = { cloudAvailable: false, canHostHere: true, cloud: null, loadError: null,
     assistant: { id: 'personal-agent', display_name: '咕咕', avatar: null, created_at: null },

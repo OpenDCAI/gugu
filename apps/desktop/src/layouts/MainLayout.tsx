@@ -322,7 +322,7 @@ function InnerLayout({
       openSettingsSection('apps')
     },
     openFile: (chatId, target, source) => { openChatTarget(chatId, 'resource'); askChat(chatId, { itemId: target.itemId, ...(target.at ? { at: target.at } : {}), ...(source.message ? { message: source.message } : {}), ...(source.restore ? { restore: source.restore } : {}) }) },
-    openApp: (chatId, extensionId, tab) => { openChatTarget(chatId); askChat(chatId, { app: extensionId, ...(tab ? { tab } : {}) }) },
+    openApp: (chatId, extensionId, tab) => { openChatTarget(chatId, 'resource'); askChat(chatId, { app: extensionId, ...(tab ? { tab } : {}) }) },
     openOwnApp: (extensionId, tab) => { const page = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === `${extensionId}.${tab}`); if (!page) throw new Error('App tab is unavailable'); setOpenedPhoneApp({ kind: page.kind, name: page.extensionName }) },
     openProject: (projectId) => { setOpenedPhoneApp(null); setActiveTab('tasks'); appState.navigation.navigate('project', { projectId }) },
     openChat: openChatTarget,
@@ -658,7 +658,8 @@ function InnerLayout({
         toast(t('groupFile.notInGroup'), 'error')
         return false
       }
-      ask(chat.id, openChatTarget(chat.id, resource ? 'resource' : undefined))
+      try { ask(chat.id, openChatTarget(chat.id, resource ? 'resource' : undefined)) }
+      catch (error) { toast(messageForUser(error), 'error'); return false }
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
     }
