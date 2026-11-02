@@ -38,6 +38,7 @@ import type { GuguPermissionMode } from '@gugu/session-core/acp'
 import { GUGU_PLATFORM_BLOCK, estimatePromptTokens } from './product-platform-prompt'
 import { mcpEnvSuffix } from '../src/session/shared/mcp-library'
 import { createLogger } from './lib/logger'
+import { appLine, skillLine } from './extension-agent-lines'
 
 export { PRODUCT_CAPABILITY_PACKAGES } from '@gugu/session-plugins/agents'
 
@@ -1129,8 +1130,6 @@ export const COMPUTER_USE_LINE = 'Computer Use is on: use browser_* tools for we
  */
 export const GUGU_APPS_LINES_TOKEN_BUDGET = 600
 
-const appLine = (app: ExtensionAgentApp) => `- ${app.name} (${app.extensionId}): ${app.instructions}`
-
 const moreAppsLine = (apps: readonly ExtensionAgentApp[]) =>
   `- …more Apps: ${apps.map((app) => `${app.name} (${app.extensionId})`).join(', ')}; catalog_list for details`
 
@@ -1187,7 +1186,7 @@ export function guguAppsBlock(apps: readonly ExtensionAgentApp[], skills: readon
     parts.push(['Apps available in this session:', ...appLines(catalogApps)].join('\n'))
   }
   if (skills.length > 0) {
-    const lines = skills.map((skill) => `- ${skill.name} (App ${skill.extensionId}): ${skill.description}\n  ${join(skill.dir, 'SKILL.md')}`)
+    const lines = skills.map(skillLine)
     parts.push(['Skills from Apps installed in 咕咕. When a task matches one, read its SKILL.md first and follow it.', ...lines].join('\n'))
   }
   parts.push(GUGU_APPS_SEARCH_LINE)

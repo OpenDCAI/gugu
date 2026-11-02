@@ -35,6 +35,7 @@ import { extensionVariants, removeExtensionVariant, prepareVariant, switchExtens
 import { installPrepared, notGivenNoteOf } from './install-prepared';
 import { resolvesInside } from './path-containment';
 import { readExtensionSkills } from '../../../../extension-session-mcp';
+import { appLine, skillLine } from '../../../../extension-agent-lines';
 import { EXTENSION_ARCHIVE_MIME, EXTENSION_ARCHIVE_SUFFIX, packExtensionArchive, packInstalledExtension, unpackExtensionArchive } from './extension-archive';
 import type { CloudExtensionMarket, CloudMarketListing } from './market-catalog';
 import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS, APP_MANAGE_ARGS, manifestFragmentSchema } from '@shared/extensions/app-tool-args';
@@ -117,17 +118,16 @@ const agentActionSchema = z.discriminatedUnion('action', [
  * #6615 问题 11: the tools DO reach this session — through the catalog, read live (D-10). The earlier
  * sentence「this session does not have them」predates the catalog; W-21 measured a Codex agent believing it,
  * spawning a throwaway session to test its own tool and telling the person only new sessions could use it.
- * Skills still reach only sessions that start later (they are handed over at session start).
+ * The install result carries the same App and skill descriptions as the session opening, including a quiet reinstall.
  *
  * D-30: only an agent its owner gave the App to has any of that. A-B 10-06 C4c: the person took the installing agent's
  * group out on the sheet, and the answer still said the tools were in its catalog — the catalog said not given.
  */
-function forAgentsNote(manifest: {
-  id: string;
-  contributes: { mcpServers?: readonly unknown[]; skills?: string };
-}, listed: boolean, given: boolean): { for_agents?: string } {
+function forAgentsNote(installed: { manifest: ExtensionManifest; rootDir: string }, listed: boolean, given: boolean, asked = true): { for_agents?: string } {
+  const { manifest, rootDir } = installed;
   const servers = manifest.contributes.mcpServers ?? [];
   if (servers.length === 0 && !manifest.contributes.skills) return {};
+  if (!given && !asked) return {};
   if (!given) {
     return {
       for_agents:
@@ -136,6 +136,12 @@ function forAgentsNote(manifest: {
     };
   }
   const parts: string[] = [];
+  if (manifest.contributes.instructions) {
+    parts.push(appLine({ extensionId: manifest.id, name: manifest.name, instructions: manifest.contributes.instructions }));
+  }
+  if (manifest.contributes.skills) {
+    parts.push(...readExtensionSkills(manifest.id, path.join(rootDir, manifest.contributes.skills), (message) => console.warn(message)).map(skillLine));
+  }
   if (servers.length > 0) {
     // #6634 问题 16: nothing has asked its programs for their tools yet, so this does not promise they are there —
     // the catalog asks on first use, and a program it has to leave out is named, with why, when a tool is not found.
@@ -152,7 +158,7 @@ function forAgentsNote(manifest: {
   if (manifest.contributes.skills) {
     parts.push(`Its skills are in the catalog too, next to its tools: catalog_list with name "${manifest.id}" shows each one and the SKILL.md to read.`);
   }
-  return { for_agents: parts.join(' ') };
+  return { for_agents: parts.join('\n') };
 }
 
 /** Asked after the install recorded where it was given; a caller without a session (no owner choosing for it) has every App. */
@@ -625,9 +631,7 @@ async function installFromMarketForAgent(
     name: result.name,
     version: result.version,
     tabs: tabKinds(result.manifest),
-    ...(result.asked
-      ? forAgentsNote(result.manifest, service.disclosure(result.id) === 'full', await callerHasApp(dependencies, result.id))
-      : {}),
+    ...forAgentsNote(result, service.disclosure(result.id) === 'full', await callerHasApp(dependencies, result.id), result.asked),
     ...pinnedNext(result, installNext(result.manifest, { market: result.id }, following, skillsLeftOut(result))),
   });
 }
@@ -724,7 +728,7 @@ async function installFolder(
     name: installed.manifest.name,
     version: installed.manifest.version,
     tabs: tabKinds(installed.manifest),
-    ...(done.asked ? forAgentsNote(installed.manifest, service.disclosure(installed.manifest.id) === 'full', await callerHasApp(dependencies, installed.manifest.id)) : {}),
+    ...forAgentsNote(installed, service.disclosure(installed.manifest.id) === 'full', await callerHasApp(dependencies, installed.manifest.id), done.asked),
     ...(from ? installNext(installed.manifest, from, following, skillsLeftOut(installed)) : {}),
     ...notGivenNoteOf(done),
   });
@@ -919,11 +923,12 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       // E-05 for an agent is what it always was: an error with the install's own reason (the card says it to a person).
       if (result.outcome === 'refused') throw new Error(result.reason);
       if (!result.installed) return result;
-      const { manifest } = extensionsService().get(result.id);
+      const installed = extensionsService().get(result.id);
+      const { manifest } = installed;
       return {
         ...result,
         tabs: manifest.contributes.tabs.map((tab) => ({ name: tab.name, tab_kind: extensionTabKind(manifest.id, tab.name) })),
-        ...forAgentsNote(manifest, extensionsService().disclosure(result.id) === 'full', await callerHasApp(dependencies, result.id)),
+        ...forAgentsNote(installed, extensionsService().disclosure(result.id) === 'full', await callerHasApp(dependencies, result.id)),
       };
     }
     case 'check': {
