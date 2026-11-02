@@ -101,6 +101,7 @@ import { useSessionSchedules } from '@renderer/features/automations/use-session-
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
 import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
+import { registerPastedScreenshot } from '@/lib/pastedScreenshot';
 import { useComposerFileUploads } from './use-composer-file-uploads';
 import { shellPort } from '@renderer/lib/shell-port';
 import { getRendererSession } from '@/lib/sessionPublication';
@@ -485,7 +486,7 @@ const ComposerForStore = observer(function ComposerForStore({
   }, []);
 
   /** 拖 / 粘 / 选进来的文件(图片也是):各上一枚 chip,当场开始放进私聊文件夹。 */
-  const attachFiles = useCallback(async (files: File[]) => {
+  const attachFiles = useCallback(async (files: File[], source?: 'paste' | 'drop') => {
     for (const file of files) {
       // 用户读的名字是 `file.name`,❌ 不从盘上的路径反推 —— 从前正是这一步把 `gugu-drop-<uuid>-` 漏到了用户脸上。
       const isImage = file.type.toLowerCase().startsWith('image/');
@@ -495,20 +496,20 @@ const ComposerForStore = observer(function ComposerForStore({
         kind: isImage ? 'image' : 'file',
         mimeType: file.type,
       };
+      if (source === 'paste') registerPastedScreenshot(file);
+      void fileUploads.add(chip, file);
       if (isImage) {
         const previewUrl = await readFileAsDataUrl(file);
-        if (previewUrl) chip.previewUrl = previewUrl;
+        if (previewUrl) setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewUrl } : att));
       } else {
         // 文本类附件的内容在入列时读一份,chip 点开看的就是它(#5269)。
         const preview = await readAttachmentPreviewText(file);
         if (preview) {
-          chip.previewText = preview.text;
-          chip.previewTruncated = preview.truncated;
+          setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewText: preview.text, previewTruncated: preview.truncated } : att));
         }
       }
-      void fileUploads.add(chip, file);
     }
-  }, [fileUploads]);
+  }, [fileUploads, setAttachments]);
 
   /**
    * 拖进来的文件夹。本机会话:落成正文里一条路径 pill(文件夹就在这台电脑上,agent 就地读)。
@@ -1531,14 +1532,16 @@ const ComposerForStore = observer(function ComposerForStore({
         attachments={attachments}
         onAttachmentsChange={handleAttachmentsChange}
         onAttach={handleAttach}
-        onImageFilesDropped={(files) => {
-          attachFiles(files).catch((error: unknown) => log.error('Failed to attach dropped files', { error }));
+        onImageFilesDropped={(files, source) => {
+          attachFiles(files, source).catch((error: unknown) => log.error('Failed to attach dropped files', { error }));
         }}
         onFilesDropped={(files) => {
           attachFiles(files).catch((error: unknown) => log.error('Failed to attach dropped files', { error }));
         }}
         onDirectoriesDropped={attachDirectories}
         onRetryAttachment={fileUploads.retry}
+        onAttachmentQualityChange={id => { if (!sendingRef.current) fileUploads.toggleQuality(id); }}
+        attachmentQualityLocked={sendHold === 'waiting'}
         dataDropTypes={dataDropTypes}
         onDataDropped={onDataDropped}
         onViewAttachment={onViewAttachment}

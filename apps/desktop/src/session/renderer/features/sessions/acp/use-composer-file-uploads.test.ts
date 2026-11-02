@@ -17,6 +17,7 @@ vi.mock('@/lib/attachmentsEndpoint', () => ({
 }));
 vi.mock('@renderer/utils/logger', () => ({ log: { warn: vi.fn() } }));
 
+const { registerPastedScreenshot } = await import('@/lib/pastedScreenshot');
 const { useComposerFileUploads } = await import('./use-composer-file-uploads');
 
 type Hook = ReturnType<typeof useComposerFileUploads>;
@@ -50,6 +51,7 @@ describe('useComposerFileUploads', () => {
   });
   afterEach(async () => {
     await act(async () => root.unmount());
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -157,4 +159,64 @@ describe('useComposerFileUploads', () => {
     await act(async () => { named = await hook!.prepare([{ id: 'b', file: file('b.txt') }]); });
     expect(named).toBeNull();
   });
+  it('waits for screenshot encoding, reuses it on retry and starts a new placement when switching to original', async () => {
+    const originalCreate = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation(((name: string) => name === 'canvas'
+      ? { width: 0, height: 0, getContext: () => ({ drawImage: () => {} }), toBlob: (done: (blob: Blob) => void) => done(new Blob([new Uint8Array(100)], { type: 'image/webp' })) }
+      : originalCreate(name)) as typeof document.createElement);
+    let decoded!: (value: unknown) => void;
+    vi.stubGlobal('createImageBitmap', vi.fn(() => new Promise(resolve => { decoded = resolve; })));
+    const original = new File([new Uint8Array(1000)], 'screen.png', { type: 'image/png' });
+    registerPastedScreenshot(original);
+    prepare.mockImplementation(async (source: File) => ({ ...ref(source.name), name: source.name }));
+    place.mockRejectedValueOnce(new Error('offline')).mockImplementation(async (source: File) => ({ ...ref(source.name), name: source.name }));
+    await act(async () => { void hook!.add({ id: 'image', name: original.name, kind: 'image' }, original); });
+    expect(hook!.unsettled()).toBe(true);
+    expect(place).not.toHaveBeenCalled();
+    await act(async () => { decoded({ width: 3840, height: 2100, close: () => {} }); await hook!.waitForUploads(); });
+    const compressed = place.mock.calls[0]![0];
+    const firstPlacement = place.mock.calls[0]![4].placement;
+    expect(compressed).toMatchObject({ name: 'screen.webp', type: 'image/webp', size: 100 });
+    await act(async () => { hook!.retry('image'); await hook!.waitForUploads(); });
+    expect(place.mock.calls[1]![0]).toBe(compressed);
+    expect(place.mock.calls[1]![4].placement).toBe(firstPlacement);
+    expect(prepare).toHaveBeenCalledOnce();
+    await act(async () => { hook!.toggleQuality('image'); await hook!.waitForUploads(); });
+    expect(place.mock.calls[2]![0]).toBe(original);
+    expect(place.mock.calls[2]![4].placement).not.toBe(firstPlacement);
+    expect(chips[0]).toMatchObject({ name: 'screen.png', imageQuality: 'original', state: 'done' });
+  });
+
+  it('ignores the old representation’s late completion after selecting an original', async () => {
+    const original = new File(['png'], 'screen.png', { type: 'image/png' });
+    registerPastedScreenshot(original);
+    // Original first, so this case focuses on an upload callback instead of the codec.
+    const { toggleScreenshotQuality } = await import('@/lib/pastedScreenshot');
+    toggleScreenshotQuality(original);
+    let finish!: (value: unknown) => void;
+    place.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await act(async () => { void hook!.add({ id: 'image', name: original.name, kind: 'image' }, original); });
+    hook!.forget('image');
+    await act(async () => { await hook!.add({ id: 'image', name: 'new.txt', kind: 'file' }, file('new.txt')); });
+    const after = { ...chips[0] };
+    await act(async () => finish(ref('old')));
+    expect(chips[0]).toEqual(after);
+    expect(hook!.files(['image'])).not.toEqual([ref('old')]);
+  });
+
+  it('shows confirmed bytes with resuming/confirming phases and waits for commit', async () => {
+    let finish!: (value: unknown) => void;
+    place.mockImplementation((_file, _ref, _to, progress, options) => {
+      progress(1, 3); options.onPhase('resuming');
+      return new Promise(resolve => { finish = resolve; });
+    });
+    await act(async () => { void hook!.add({ id: 'r', name: 'r.txt', kind: 'file' }, file('r.txt')); });
+    expect(chips[0]?.meta).toContain('33% · composer.attachmentResuming');
+    await act(async () => { place.mock.calls[0]![3](3, 3); place.mock.calls[0]![4].onPhase('confirming'); });
+    expect(chips[0]?.meta).toContain('100% · composer.attachmentConfirming');
+    expect(hook!.unsettled()).toBe(true);
+    await act(async () => { finish(ref('r')); await hook!.waitForUploads(); });
+    expect(hook!.unsettled()).toBe(false);
+  });
+
 });

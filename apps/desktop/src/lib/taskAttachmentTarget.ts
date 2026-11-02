@@ -1,4 +1,6 @@
 import { reaction } from 'mobx'
+import { ATTACHMENT_UPLOAD_PROTOCOL, type TurnFileRef as TaskFileRef } from '@gugu/session-core/session-record/contract'
+import { resumeTaskAttachment, type AttachmentUploadContext } from './taskAttachmentUpload'
 import type { TurnFileRef } from '@gugu/session-core/session-record/contract'
 import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_FOLDER_FILES } from '@gugu/session-core/session-record/contract'
 import { machineCodec } from '@/session/renderer/lib/machine-routing'
@@ -23,7 +25,7 @@ export function taskAttachmentUsesSsh(deviceId: string): boolean {
 }
 
 export function assertTaskAttachmentProtocol(protocol: number | undefined): void {
-  if ((protocol ?? 0) < REMOTE_PROTOCOL_VERSION) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
+  if ((protocol ?? 0) < 16) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
 }
 
 export async function pushTaskDirectory(to: TaskAttachmentTarget, entry: FileSystemDirectoryEntry): Promise<string> {
@@ -115,4 +117,28 @@ export async function prefetchTaskFiles(to: TaskAttachmentTarget, files: TurnFil
   if (!Array.isArray(results)) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
   const failed = results.filter(result => !result.ok)
   if (failed.length) throw Object.assign(new Error(failed.map(result => result.error).join('\n')), { code: failed[0]?.code })
+}
+
+/** A task file has a durable receiver; directory/file-tree saves retain their own contract. */
+export async function pushTaskAttachment(to: TaskAttachmentTarget, file: TaskFileRef, source: Blob, context: AttachmentUploadContext,
+  onProgress?: (sent: number, total: number) => void, signal?: AbortSignal, onPhase?: (phase: 'uploading' | 'resuming' | 'confirming') => void): Promise<string> {
+  signal?.throwIfAborted()
+  if (!to.deviceId || !taskAttachmentUsesSsh(to.deviceId) || !to.projectId || !to.workspaceId) throw new Error('The SSH task workspace is not available')
+  const protocol = readCachedDevices().find(row => row.device_id === to.deviceId)?.capabilities?.remote_protocol ?? 0
+  if (protocol < ATTACHMENT_UPLOAD_PROTOCOL) throw Object.assign(new Error('Update the task host to resume attachments'), { code: 'host_update_required' })
+  const api = rpcOn(to.deviceId).workspace.files
+  const unwrap = <T,>(result: { success: true; data: T } | { success: false; error: { type: string; message?: string } }): T => {
+    if (!result.success) throw Object.assign(new Error(result.error.message ?? result.error.type), { code: result.error.type })
+    return result.data
+  }
+  return resumeTaskAttachment({ source, itemId: file.itemId, name: file.name,
+    scope: `${to.deviceId}/${to.projectId}/${to.workspaceId}`, context, signal, onProgress, onPhase,
+    transport: {
+      begin: async spec => unwrap(await api.attachmentUploadBegin(to.projectId!, to.workspaceId!, spec)),
+      status: async spec => unwrap(await api.attachmentUploadStatus(to.projectId!, to.workspaceId!, spec)),
+      write: async chunk => unwrap(await api.attachmentUploadWrite(to.projectId!, to.workspaceId!, chunk)),
+      commit: async spec => unwrap(await api.attachmentUploadCommit(to.projectId!, to.workspaceId!, spec)),
+      abort: async spec => unwrap(await api.attachmentUploadAbort(to.projectId!, to.workspaceId!, spec)),
+    },
+  })
 }

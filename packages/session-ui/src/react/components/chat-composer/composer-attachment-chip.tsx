@@ -50,9 +50,11 @@ export interface ComposerAttachmentChipProps {
   onRemove?: (id: string) => void;
   /** 给了、且这枚 chip `retryable`,error 态的 meta 后面跟一段「重试」强调色文字。 */
   onRetry?: (id: string) => void;
+  onQualityChange?: (id: string) => void;
+  qualityLocked?: boolean;
 }
 
-export function ComposerAttachmentChip({ attachment: att, onView, onRemove, onRetry }: ComposerAttachmentChipProps) {
+export function ComposerAttachmentChip({ attachment: att, onView, onRemove, onRetry, onQualityChange, qualityLocked }: ComposerAttachmentChipProps) {
   const { translate } = useMessages();
   const state: ComposerAttachmentState = att.state ?? 'done';
   const KindIcon = attachmentKindIcon(att);
@@ -80,6 +82,7 @@ export function ComposerAttachmentChip({ attachment: att, onView, onRemove, onRe
       onKeyDown={
         previewKind
           ? (event) => {
+              if (event.target !== event.currentTarget) return;
               if (event.key === 'Enter') {
                 event.preventDefault();
                 onView?.(att);
@@ -89,13 +92,13 @@ export function ComposerAttachmentChip({ attachment: att, onView, onRemove, onRe
             }
           : undefined
       }
-      onKeyUp={previewKind ? (event) => { if (event.key === ' ') onView?.(att); } : undefined}
+      onKeyUp={previewKind ? (event) => { if (event.target === event.currentTarget && event.key === ' ') onView?.(att); } : undefined}
       className={styles.attachmentChip}
     >
       <span className={styles.attachmentIconCell}>{cell}</span>
       <span className={styles.attachmentLabel}>
         <span className={styles.attachmentName}>{att.name}</span>
-        {(att.meta || canRetry) && (
+        {(att.meta || canRetry || att.imageQuality) && (
           <span className={styles.attachmentMeta({ error: state === 'error' })} title={state === 'error' ? att.meta : undefined}>
             {att.meta}
             {canRetry && (
@@ -114,6 +117,13 @@ export function ComposerAttachmentChip({ attachment: att, onView, onRemove, onRe
                 </button>
               </>
             )}
+            {att.imageQuality && onQualityChange && <>
+              {att.meta || canRetry ? ' · ' : null}
+              <button type="button" className={styles.attachmentRetry} disabled={qualityLocked}
+                onClick={event => { event.stopPropagation(); onQualityChange(att.id); }}>
+                {translate(att.imageQuality === 'compressed' ? 'composer.sendOriginal' : 'composer.useCompressed')}
+              </button>
+            </>}
           </span>
         )}
       </span>

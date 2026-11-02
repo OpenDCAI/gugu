@@ -16,7 +16,8 @@ export const SERVER_ACTIVITY_STALE_MS = 60_000
  * 照 VS Code / Zed 的「客户端与 server 版本对不上就明说」(Zed 发了旧客户端不认的消息直接断线:zed#42474),
  * 只是不要求逐版本相等 —— server 自动升级、桌面自动升级,两边总有先后。
  */
-export const REMOTE_PROTOCOL_VERSION = 16
+// 17 adds durable task attachment upload/status/commit verbs; editor saves are unchanged.
+export const REMOTE_PROTOCOL_VERSION = 17
 /**
  * server 报给桌面:桌面的协议版本低于它 = 这台电脑上的咕咕太旧。
  *

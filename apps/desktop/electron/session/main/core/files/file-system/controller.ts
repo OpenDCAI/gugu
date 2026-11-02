@@ -22,6 +22,10 @@ import {
   type WorkspaceWriteChunk,
 } from '../workspace-transfer';
 
+import { createAttachmentUploads } from '../attachment-uploads';
+import type { AttachmentUploadSpec, AttachmentUploadChunk } from '@gugu/session-core/session-record/contract';
+
+const attachmentUploads = createAttachmentUploads();
 const uploads = createWorkspaceUploads();
 /** watchDirectory 的租约:id → 撤掉它。 */
 const directoryWatches = new Map<string, () => void>();
@@ -169,6 +173,36 @@ export const workspaceFileSystemController = createRPCController({
     const resolved = resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     return transfer(() => readWorkspaceChunk(resolved.data.env.path, request));
+  },
+
+  attachmentUploadBegin: async (projectId: string, workspaceId: string, request: AttachmentUploadSpec) => {
+    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    if (!resolved.success) return resolved;
+    return transfer(() => attachmentUploads.begin(resolved.data.env.path, request));
+  },
+
+  attachmentUploadStatus: async (projectId: string, workspaceId: string, request: AttachmentUploadSpec) => {
+    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    if (!resolved.success) return resolved;
+    return transfer(() => attachmentUploads.status(resolved.data.env.path, request));
+  },
+
+  attachmentUploadWrite: async (projectId: string, workspaceId: string, request: AttachmentUploadChunk) => {
+    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    if (!resolved.success) return resolved;
+    return transfer(() => attachmentUploads.write(resolved.data.env.path, request));
+  },
+
+  attachmentUploadCommit: async (projectId: string, workspaceId: string, request: AttachmentUploadSpec) => {
+    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    if (!resolved.success) return resolved;
+    return transfer(() => attachmentUploads.commit(resolved.data.env.path, request));
+  },
+
+  attachmentUploadAbort: async (projectId: string, workspaceId: string, request: AttachmentUploadSpec) => {
+    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    if (!resolved.success) return resolved;
+    return transfer(() => attachmentUploads.abort(resolved.data.env.path, request));
   },
 
   /** #6264 按块写一份文件(从别的电脑上传 / 在别的电脑上存大文件),最后一段落盘并核版本。 */

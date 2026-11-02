@@ -13,6 +13,7 @@ interface SessionFieldProps {
   /** When provided, the send button renders inline in the composer toolbar. */
   onSubmit?: () => void;
   canSubmit?: boolean;
+  attachmentQualityLocked?: boolean;
 }
 
 export function SessionField({
@@ -25,6 +26,7 @@ export function SessionField({
   enableAttachments,
   onSubmit,
   canSubmit,
+  attachmentQualityLocked,
 }: SessionFieldProps) {
   const { initialSession, linkedIssue, includeIssueContextByDefault } = useSessionState();
 
@@ -42,6 +44,7 @@ export function SessionField({
       enableAttachments={enableAttachments}
       onSubmit={onSubmit}
       canSubmit={canSubmit}
+      attachmentQualityLocked={attachmentQualityLocked}
     />
   );
 }
