@@ -86,8 +86,11 @@ export function useHostAskBand(
         ask: install,
         optionId,
         machine,
-        respond: (answer) =>
-          rpc.sessionTimeline.sessionRespond({ conversationId: sessionId, itemId, kind: 'permission', by: 'desktop', ...answer }),
+        respond: async (answer) => {
+          const result = await rpc.sessionTimeline.sessionRespond({ conversationId: sessionId, itemId, kind: 'permission', by: 'desktop', ...answer });
+          if (!result.ok) throw new Error(result.error.message);
+          return result;
+        },
       })
         .then((result) => {
           if (answeredTooLate(result)) toast({ title: translate('extensions.consentNoLongerWaiting') });
