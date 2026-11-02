@@ -42,6 +42,7 @@ import { sendThroughCustody } from './queue-native-input';
 import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
 import { queuedSessionInputs, retrySessionInputs, subscribeSessionInputs } from '@/lib/sessionInputOutboxBridge';
 import { projectSessionPendingInput } from '@/lib/pendingSessionInput';
+import { loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries';
 import { batch } from 'solid-js';
 import { AcpLiveSession, AcpStartError, asValueSource } from '@renderer/lib/acp/acp-live-session';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
@@ -191,6 +192,9 @@ export class AcpChatStore {
 
   private _view: ChatView | null = null;
   private _bootstrapped = false;
+  private _incomingHistoryResolved = new Set<string>();
+  private _incomingHistoryReading = false;
+  private _incomingHistoryRequest = 0;
   /** 转录已放掉(`releaseTranscript`),下一次上屏时重读。 */
   private _transcriptReleased = false;
   /**
@@ -803,6 +807,23 @@ export class AcpChatStore {
       void this._open();
     }
     const session = this.chatState.session;
+    const transcriptState = this.chatState.transcript.state;
+    const turns = [...transcriptState.committedTurns, ...(transcriptState.activeTurnSnapshot ? [transcriptState.activeTurnSnapshot] : [])];
+    const projected = projectSessionPendingDeliveries(session.state.pendingMessages, view, turns);
+    const unresolved = projected.filter(input => {
+      if (input.delivery?.state !== 'unknown' || this._incomingHistoryResolved.has(input.id)) return false;
+      if (session.state.pendingMessages.some(previous => previous.id === input.id) || pendingPromptLanded(input, turns)) {
+        this._incomingHistoryResolved.add(input.id);
+        return false;
+      }
+      return true;
+    });
+    if (!this.historyLoading && unresolved.length && !this._incomingHistoryReading) void this._resolveIncomingHistory(unresolved);
+    const incoming = projected.filter(input => !unresolved.some(held => held.id === input.id));
+    if (!isDeepEqual(session.state.pendingMessages, incoming)) runInAction(() => {
+      session.setPendingMessages(incoming);
+      this._syncMessageCount();
+    });
     const sender = queuedSessionInputs(this.runtimeSessionId);
     const prior = session.state.pendingPrompt;
     const newOrdinaryInput = sender.some(row => row.queued === false && !view?.pending.items.some(host => host.messageId === row.id));
@@ -824,7 +845,7 @@ export class AcpChatStore {
       return;
     }
     const drawn = this.transcriptPendingId;
-    const bubbles = view ? sessionInputBubbles([], view.pending.items, view.hold) : [];
+    const bubbles = view ? sessionInputBubbles([], view.pending.items.filter(row => row.kind === 'ordinary'), view.hold) : [];
     const record = this._sessionRecord();
     const resumes = !!(record?.providerSessionId || record?.forkFromProviderSessionId || this.runtimeView?.forkFromProviderSessionId);
     const starting = view !== null && lifeIsStarting(view) ? (resumes ? 'restoring' : 'starting') : undefined;
@@ -865,6 +886,40 @@ export class AcpChatStore {
     });
   }
 
+  /** Only unresolved legacy receipts read older pages. The ordinary first-page path never waits for this work. */
+  private async _resolveIncomingHistory(inputs: readonly import('@gugu/session-chat-ui').PendingPrompt[]): Promise<void> {
+    this._incomingHistoryReading = true;
+    const request = ++this._incomingHistoryRequest;
+    const alive = () => !this._disposed && request === this._incomingHistoryRequest;
+    try {
+      const newest = this.chatState.transcript.state.committedTurns;
+      const cursor = this._olderSource === 'stored' && typeof this._olderCursor === 'number' ? this._olderCursor : null;
+      const result = await loadPendingDeliveryHistory(newest, cursor, inputs,
+        before => rpc.sessions.getStoredHistory({ sessionId: this.sessionId, before, limit: 100 }), alive);
+      if (!alive()) return;
+      if (result.turns.length) runInAction(() => {
+        const byId = new Map([...this._olderHistoryTurns, ...result.turns].map(turn => [turn.id, turn]));
+        this._olderHistoryTurns = [...byId.values()].sort((a, b) => a.seq - b.seq);
+        this._olderCursor = this._olderCursor === null || result.cursor === null ? null
+          : Math.min(this._olderCursor ?? result.cursor, result.cursor);
+        const live = this.chatState.transcript.state.activeTurnSnapshot;
+        batch(() => {
+          this.chatState.transcript.history.seed(this._composedHistory());
+          if (live) this.chatState.transcript.activeTurn.set(live);
+        });
+        this._syncMessageCount();
+      });
+    } catch (error) {
+      if (alive()) this._toastError('acpFailure.refreshHistory', error);
+    } finally {
+      if (alive()) {
+        for (const input of inputs) this._incomingHistoryResolved.add(input.id);
+        this._incomingHistoryReading = false;
+        this._drawLifeHead(sessionLifeView(this.runtimeSessionId));
+      }
+    }
+  }
+
   /**
    * Inputs stopped or failed before dispatch stay where their turn belongs. Host custody owns them; these projections
    * leave when the host resumes and redraw after a history seed, without replacing a turn already running.
@@ -874,7 +929,7 @@ export class AcpChatStore {
     const turns = () => transcript.state.committedTurns;
     const live = transcript.state.activeTurnSnapshot;
     const failed = view && lifeHoldIsFailure(view.hold)
-      ? [...view.pending.items].filter(row => row.state === 'queued' || row.state === 'dispatching').sort((a, b) => a.seq - b.seq) : [];
+      ? [...view.pending.items].filter(row => row.kind === 'ordinary' && (row.state === 'queued' || row.state === 'dispatching')).sort((a, b) => a.seq - b.seq) : [];
     const wanted = [
       ...(stopped ? [{ rowId: stopped.id, turnId: stoppedTurnId(stopped.id), outcome: { kind: 'cancelled', reason: 'cancelled' } as const }] : []),
       ...failed.map(row => ({ rowId: row.messageId, turnId: failedTurnId(row.messageId), outcome: { kind: 'error', reason: 'send_failed' } as const })),
@@ -921,6 +976,8 @@ export class AcpChatStore {
 
   /** What the host says can be taken back (`discardable`): an older host says nothing, so it offers no discard. */
   canDiscardTurn(turnId: string): boolean {
+    const incoming = this.chatState.session.state.pendingMessages.find(input => input.stopped && turnId === `pending:${input.id}:turn`);
+    if (incoming) return sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === incoming.id)?.discardable === true;
     const id = this.stoppedRowId;
     if (!id || turnId !== stoppedTurnId(id)) return true;
     return sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === id)?.discardable === true;
@@ -928,10 +985,12 @@ export class AcpChatStore {
 
   /** 「丢弃」 on a message stopped before it went: gone from the queue, and the words back in the composer. */
   discardStoppedTurn(turnId: string): void {
-    const id = this.stoppedRowId;
-    if (!id || turnId !== stoppedTurnId(id)) return;
+    const incoming = this.chatState.session.state.pendingMessages.find(input => input.stopped && turnId === `pending:${input.id}:turn`);
+    const id = incoming?.id ?? this.stoppedRowId;
+    if (!id || (!incoming && turnId !== stoppedTurnId(id))) return;
     const row = sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === id);
     void discardSessionLifeRow(this.runtimeSessionId, id).then(() => runInAction(() => {
+      if (incoming) this.chatState.session.setPendingMessages(this.chatState.session.state.pendingMessages.filter(input => input.id !== id));
       if (row) this.setDraftText([row.text, this.draftText.trim()].filter(Boolean).join('\n'));
     })).catch((error: unknown) => {
       // The click already folded the turn away: it did not go, so it comes back into view.
@@ -1002,6 +1061,7 @@ export class AcpChatStore {
       return;
     }
     this._transcriptReleased = true;
+    this.chatState.session.setPendingMessages([]);
     this._resetHistoryState();
     const activeTurn = this.chatState.transcript.state.activeTurnSnapshot;
     this.chatState.transcript.history.seed([]);
@@ -1586,6 +1646,9 @@ export class AcpChatStore {
    * 库页之间会断档(中间又聊了几轮),游标重置后再往上翻又和旧页重叠 —— 同一批回合出现两遍。
    */
   private _resetHistoryState(): void {
+    this._incomingHistoryRequest++;
+    this._incomingHistoryReading = false;
+    this._incomingHistoryResolved.clear();
     this._historyGeneration += 1;
     this._storedHistoryTurns = [];
     this._storedOrigins = [];
@@ -2749,7 +2812,7 @@ export class AcpChatStore {
       0
     );
     const activeCount = state.activeTurnSnapshot?.items.length ?? 0;
-    const pendingPromptCount = this.chatState.session.state.pendingPrompt ? 1 : 0;
+    const pendingPromptCount = (this.chatState.session.state.pendingPrompt ? 1 : 0) + this.chatState.session.state.pendingMessages.length;
     this.messageCount = committedCount + activeCount + pendingPromptCount;
     this.transcriptRevision += 1;
   }

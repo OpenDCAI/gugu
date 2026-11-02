@@ -1,0 +1,106 @@
+import { describe, expect, it } from 'vitest'
+import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
+import { loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries'
+import { activeTurnWithInputs, projectPendingMessages, type PendingMessageProjectionCache } from '@session-chat/state/pending-prompt'
+import type { LifeView } from '@/session/shared/core/sessions/session-life'
+import type { TranscriptTurn } from '@gugu/session-core/acp/client'
+
+const envelope = (id: string, content = 'hello') => renderDeliveryEnvelope({ route: 'session-direct', from: 'Sender', fromType: 'agent', fromId: 'session:sender', messageId: `msg:${id}`, at: '2026-11-02 04:00 UTC-8', content })
+const row = (id: string, seq: number, state: LifeView['pending']['items'][number]['state'] = 'queued') => ({ seq, messageId: id, text: envelope(id), preview: 'hello', kind: 'session-direct' as const, state, failure: null, sentAt: 10000 })
+const view = (items: LifeView['pending']['items']): LifeView => ({ sessionId: 's', version: 1, kind: 'ready', stage: null, pending: { count: items.length, items }, hold: null, failure: null, lastExit: null, nativeSession: null })
+const turn = (id: string, text: string): TranscriptTurn => ({ id, seq: 1, initiator: 'agent', startedAt: 5000, items: [{ kind: 'message', id: `${id}:native-user`, seq: 0, role: 'user', text }] })
+
+describe('incoming delivery custody', () => {
+  it('orders host messages by queue sequence, preserves the envelope, and leaves manual queue inputs alone', () => {
+    const a = row('a', 1), b = row('b', 2)
+    const result = projectSessionPendingDeliveries([], view([b, { ...row('manual', 0), kind: 'ordinary' }, a]), [])
+    expect(result.map(input => input.id)).toEqual(['a', 'b'])
+    expect(result[0]).toMatchObject({ text: a.text, received: true, delivery: { state: 'sending' } })
+    expect(activeTurnWithInputs(null, null, result)?.items).toMatchObject([{ text: a.text }, { text: b.text }])
+  })
+
+  it('holds accepted-before-echo through a history prepend and replaces only the matching receipt', () => {
+    const initial = projectSessionPendingDeliveries([], view([row('a', 1), row('b', 2)]), [])
+    const accepted = projectSessionPendingDeliveries(initial, view([]), [turn('older', envelope('unrelated'))])
+    expect(accepted.map(input => input.delivery?.state)).toEqual(['accepted', 'accepted'])
+    const history = [turn('old', 'old input'), turn('first', envelope('a'))]
+    expect(projectSessionPendingDeliveries(accepted, view([]), history).map(input => input.id)).toEqual(['b'])
+    expect(projectSessionPendingDeliveries(accepted, view([]), [...history, turn('second', envelope('b'))])).toEqual([])
+  })
+
+  it('recognizes early native echoes despite slow host clocks, prefix renumbering, and identical message bodies', () => {
+    const a = row('a', 1), b = row('b', 2)
+    const native = turn('s:turn:6', a.text)
+    const initial = projectSessionPendingDeliveries([], view([a, b]), [native])
+    const projected = projectPendingMessages([], native, initial)
+    expect(projected.waiting.map(input => input.id)).toEqual(['b'])
+    expect(activeTurnWithInputs(projected.active, null, projected.waiting)?.items).toHaveLength(2)
+    const stored = { ...native, id: 's:turn:s6', items: [{ ...native.items[0]!, id: 's:turn:s6:native-user' }] }
+    expect(projectSessionPendingDeliveries(initial, view([{ ...a, state: 'accepted' }, b]), [stored]).map(input => input.id)).toEqual(['b'])
+  })
+
+  it('decorates the last real echo of unknown inbox receipts without duplicating or mutating history', () => {
+    const a = { ...row('a', 1, 'unknown'), kind: 'inbox-batch' as const }
+    const history = [turn('old-replay', a.text), turn('final-echo', a.text)]
+    const inputs = projectSessionPendingDeliveries([], view([a]), history)
+    const result = projectPendingMessages(history, null, inputs)
+    expect(inputs[0]?.delivery).toMatchObject({ state: 'unknown', retryable: false })
+    expect(projectSessionPendingDeliveries(inputs, null, history)[0]?.delivery).toMatchObject({ state: 'unknown', retryable: false })
+    expect(result.waiting).toEqual([])
+    expect(result.committed[0]).toBe(history[0])
+    expect(result.committed[1]?.items[0]).toMatchObject({ sendStatus: { state: 'unknown', retryable: false } })
+    expect(history[1]?.items[0]).not.toHaveProperty('sendStatus')
+    expect(result.committed.flatMap(t => t.items)).toHaveLength(2)
+    const accepted = projectSessionPendingDeliveries(inputs, view([{ ...a, state: 'accepted' }]), history)
+    expect(accepted).toEqual([])
+    expect(projectPendingMessages(history, null, accepted).committed).toBe(history)
+  })
+
+  it('retains unknown-before-history and startup failure without offering an unsafe unknown resend', () => {
+    const unknown = projectSessionPendingDeliveries([], view([row('a', 1, 'unknown')]), [])
+    expect(projectPendingMessages([], null, unknown).waiting).toHaveLength(1)
+    const received = turn('echo', envelope('a'))
+    expect(projectPendingMessages([received], null, unknown).waiting).toHaveLength(0)
+    const failed = projectSessionPendingDeliveries([], { ...view([row('b', 2)]), hold: 'start-failed', kind: 'failed' }, [])
+    expect(failed[0]?.delivery).toMatchObject({ state: 'failed', retryable: true })
+    const stillUnknown = projectSessionPendingDeliveries(unknown, { ...view([row('a', 1, 'unknown')]), hold: 'start-failed', kind: 'failed' }, [])
+    expect(stillUnknown[0]?.delivery).toMatchObject({ state: 'unknown', retryable: false })
+  })
+
+  it('reuses decorated committed turns while an unrelated active turn streams', () => {
+    const item = row('a', 1, 'unknown'), history = [turn('old', item.text)]
+    const inputs = projectSessionPendingDeliveries([], view([item]), history)
+    const cache: PendingMessageProjectionCache = new WeakMap()
+    const first = projectPendingMessages(history, null, inputs, cache)
+    const second = projectPendingMessages(history, turn('current', 'Streaming'), inputs, cache)
+    expect(second.committed[0]).toBe(first.committed[0])
+  })
+})
+
+
+it('resolves unknown native echoes beyond a trimmed first page before publishing the initial transcript', async () => {
+  const inputs = projectSessionPendingDeliveries([], view([row('a', 1, 'unknown'), row('b', 2, 'unknown')]), [])
+  const newest = [turn('latest', 'Latest response')]
+  const reads: number[] = []
+  const result = await loadPendingDeliveryHistory(newest, 30, inputs, async before => {
+    reads.push(before)
+    return before === 30 ? { turns: [turn('b-echo', envelope('b'))], nextCursor: 20 }
+      : { turns: [turn('a-echo', envelope('a'))], nextCursor: 10 }
+  }, () => true)
+  expect(reads).toEqual([30, 20])
+  expect(result.cursor).toBe(10)
+  const projected = projectPendingMessages([...result.turns, ...newest], null, inputs)
+  expect(projected.waiting).toEqual([])
+  expect(projected.committed.map(t => t.id)).toEqual(['a-echo', 'b-echo', 'latest'])
+})
+
+
+it('keeps a genuinely unconfirmed input at the tail only after the history cursor is exhausted', async () => {
+  const inputs = projectSessionPendingDeliveries([], view([row('unconfirmed', 1, 'unknown')]), [])
+  const result = await loadPendingDeliveryHistory([turn('latest', 'Other input')], 10, inputs,
+    async () => ({ turns: [turn('old', 'Old input')], nextCursor: null }), () => true)
+  expect(result.cursor).toBeNull()
+  expect(projectPendingMessages(result.turns, null, inputs).waiting).toHaveLength(1)
+  await expect(loadPendingDeliveryHistory([], 10, inputs,
+    async () => ({ turns: [], nextCursor: 10 }), () => true)).rejects.toThrow('cursor did not advance')
+})

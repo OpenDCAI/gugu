@@ -258,3 +258,51 @@ describe('session start with a first message', () => {
     expect(restart).not.toHaveBeenCalled()
   })
 })
+
+// Incoming receipts carry an envelope ID even when the provider assigns its own user-message ID.
+import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
+import type { PendingPrompt } from '@session-chat/state/pending-prompt'
+const incomingText = (id: string, text: string) => renderDeliveryEnvelope({ route: 'session-direct', from: 'Agent sender', fromType: 'agent', fromId: 'session:sender', messageId: `msg:${id}`, at: '2026-11-02 04:00 UTC-8', content: text })
+
+describe('incoming deliveries share the transcript layout', () => {
+  it.each([false, true])('keeps the envelope and position through acceptance and native echo (busy=%s)', async busy => {
+    const { state, host } = mount('double', { agentConversation: true, pinUserMessages: true })
+    const before: TranscriptTurn = { id: 'current', seq: 0, initiator: 'user', startedAt: Date.now(), items: [{ kind: 'message', id: 'current-user', seq: 0, role: 'user', text: 'Current task' }] }
+    if (busy) state.transcript.activeTurn.set(before)
+    const input: PendingPrompt = { id: 'delivery', text: incomingText('source-a', 'Incoming instruction'), received: true, held: true, sentAt: Date.now(), delivery: { state: 'sending' } }
+    state.session.setPendingMessages([input])
+    await until('incoming sending bubble appears once with sender', () => !!host.querySelector('[data-user-card="delivery"]') && !!host.querySelector('[data-send-state="sending"]') && host.textContent!.includes('Agent sender'))
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const top = host.querySelector('[data-user-card="delivery"]')!.getBoundingClientRect().top
+    state.session.setPendingMessages([{ ...input, delivery: { state: 'accepted' } }])
+    await until('acceptance clears the spinner without removing the message', () => !host.querySelector('[data-send-state="sending"]'))
+    expect(host.querySelector('[data-user-card="delivery"]')!.getBoundingClientRect().top).toBe(top)
+    const native: TranscriptTurn = { ...(busy ? before : { id: 'native', seq: 0, initiator: 'agent' as const, startedAt: input.sentAt }), items: [...(busy ? before.items : []), { kind: 'message', id: 'provider-echo', seq: 1, role: 'user', text: input.text }] }
+    state.transcript.activeTurn.set(native)
+    await until('native echo takes over without a duplicate', () => !!host.querySelector('[data-user-card="provider-echo"]') && !host.querySelector('[data-user-card="delivery"]'))
+    expect(host.querySelector('[data-user-card="provider-echo"]')!.getBoundingClientRect().top).toBe(top)
+  })
+
+  it('measures multiple unknown receipts with compression and a cancelled turn, without duplicating native messages', async () => {
+    const { state, host } = mount('double', { agentConversation: true, pinUserMessages: true })
+    const inputs: PendingPrompt[] = ['a', 'b', 'c'].map(id => ({ id, text: incomingText(`source-${id}`, `Incoming ${id}`), received: true, delivery: { state: 'unknown', retryable: false } }))
+    const history: TranscriptTurn[] = inputs.map((input, seq) => ({ id: `turn-${seq}`, seq, initiator: 'agent', items: [
+      { kind: 'message', id: `echo-${seq}`, seq: 0, role: 'user', text: input.text },
+      ...(seq === 1 ? [{ kind: 'compaction' as const, id: 'compression', seq: 1, compactionId: 'cmp', status: 'in_progress' as const, summary: '', startedAt: Date.now() }] : []),
+    ], ...(seq === 0 ? { outcome: { kind: 'cancelled' as const, reason: 'cancelled' as const } } : {}) }))
+    state.transcript.history.seed(history)
+    state.session.setPendingMessages(inputs)
+    state.session.setCondition({ code: 'auth-required', detail: 'sign-in-missing', label: 'Host status remains visible' })
+    await until('all unknown status lines are present', () => host.querySelectorAll('[data-send-state="unknown"]').length === 3)
+    expect(host.querySelectorAll('[data-user-card]')).toHaveLength(3)
+    expect(host.querySelectorAll('[data-send-state="unknown"] button')).toHaveLength(0)
+    expect(host.textContent).toContain('Compacting')
+    expect(host.textContent).toContain('Stopped')
+    expect(host.textContent).toContain('Host status remains visible')
+    const rows = [...host.querySelectorAll<HTMLElement>('[data-user-card]')].map(el => el.getBoundingClientRect()).sort((a, b) => a.top - b.top)
+    for (let i = 1; i < rows.length; i++) expect(rows[i]!.top).toBeGreaterThan(rows[i-1]!.bottom + 21)
+    state.session.setPendingMessages([])
+    await until('cleared custody removes only status lines', () => !host.querySelector('[data-send-state="unknown"]'))
+    expect(host.querySelectorAll('[data-user-card]')).toHaveLength(3)
+  })
+})

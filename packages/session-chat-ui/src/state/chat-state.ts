@@ -84,6 +84,7 @@ export type ChatSessionState = {
   setPermissions(permissions: readonly AcpPermissionRequest[]): void;
   setPlan(plan: SessionPlans | null): void;
   setPendingPrompt(prompt: PendingPrompt | null): void;
+  setPendingMessages(messages: readonly PendingPrompt[]): void;
   setTerminals(terminals: readonly TerminalState[]): void;
   setGenerating(generating: boolean): void;
   /** 写这条会话此刻的状态；null = 没有条件要说。 */
@@ -101,6 +102,7 @@ export type ChatSessionSnapshot = {
   readonly plan: SessionPlans | null;
   readonly pendingToolCallIds: Set<string>;
   readonly pendingPrompt: PendingPrompt | null;
+  readonly pendingMessages: readonly PendingPrompt[];
   /**
    * 会话还在忙(#4981):在流式、agent 自发的 cycle 没收口、或还有后台子智能体在跑。
    * 与宿主上停止键亮不亮是**同一个**读数(runtime 的 `isGenerating`)。转录靠它判
@@ -315,6 +317,7 @@ function createSessionState(transcript: TranscriptApi): ChatSessionState {
   const [permissions, setPermissions] = createSignal<readonly AcpPermissionRequest[]>([]);
   const [plan, setPlan] = createSignal<SessionPlans | null>(null);
   const [pendingPrompt, setPendingPrompt] = createSignal<PendingPrompt | null>(null);
+  const [pendingMessages, setPendingMessages] = createSignal<readonly PendingPrompt[]>([]);
   const [generating, setGenerating] = createSignal(false);
   const [condition, setCondition] = createSignal<SessionCondition | null>(null);
   // 宿主每来一条消息都会重算一遍花名册;内容没变就别惊动转录(那会重排最后一档)。
@@ -346,6 +349,7 @@ function createSessionState(transcript: TranscriptApi): ChatSessionState {
     get pendingPrompt() {
       return pendingPrompt();
     },
+    get pendingMessages() { return pendingMessages(); },
     get generating() {
       return generating();
     },
@@ -366,6 +370,7 @@ function createSessionState(transcript: TranscriptApi): ChatSessionState {
     setPermissions: (next) => setPermissions([...next]),
     setPlan,
     setPendingPrompt,
+    setPendingMessages,
     setGenerating,
     setCondition,
     setBackgroundTasks,

@@ -259,6 +259,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           stopping={cancelling}
           footerNotice={<><SessionInputQueue sessionId={session.conversationId} waitingForConnection={!answering} />{actionErrorNotice}</>}
           onAtBottom={native ? nativeRecord.loadNewer : undefined}
+          historyReady={!native || nativeRecord.record !== null} historyCursor={native ? nativeRecord.record?.nextCursor : undefined}
           onLoadOlder={native ? nativeRecord.loadOlder : loadOlder}
           onLoadToolImage={loadToolImage}
           emptyNote={answering && (phase === 'loading' || timeline.turns.length > 0) ? (

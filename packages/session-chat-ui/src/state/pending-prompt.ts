@@ -6,6 +6,7 @@
  */
 import type { ChatAttachment, TranscriptTurn, TurnProcessItem } from '@session-chat/model';
 import { nativeMessageKey } from '@gugu/session-core/session-record/native-read';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 
 export type PendingPrompt = {
   id: string;
@@ -25,10 +26,22 @@ export type PendingPrompt = {
   /** Existing user identities cannot acknowledge this input when older history is loaded. */
   baselineMessageIds?: readonly string[];
   afterTurnId?: string;
+  /** Host-owned incoming delivery, with its original envelope and sender. */
+  received?: boolean;
+  hostSequence?: number;
+  stopped?: boolean;
 };
+
+type NativeDelivery = { item: TranscriptTurn['items'][number]; sourceIds: ReadonlySet<string> };
+export type PendingMessageProjectionCache = WeakMap<TranscriptTurn, { inputs: readonly (PendingPrompt | undefined)[]; turn: TranscriptTurn; native?: readonly NativeDelivery[] }>;
+
+function sourceMessageIds(text: string): string[] {
+  return readDeliveryEnvelope(text)?.segments.flatMap(segment => segment.facts?.messageId ? [segment.facts.messageId.replace(/^msg:/, '')] : []) ?? [];
+}
 
 /** A new history seed or an unrelated active turn is not a receipt for this input. */
 export function pendingPromptLanded(prompt: PendingPrompt, turns: readonly TranscriptTurn[]): boolean {
+  const deliveryIds = prompt.received ? sourceMessageIds(prompt.text) : [];
   const baseline = new Set((prompt.baselineMessageIds ?? []).map(nativeMessageKey));
   let anchor = turns.findIndex(turn => turn.id === prompt.afterTurnId);
   // Persisting a runtime turn renumbers its display prefix. Its native user identity remains the same anchor.
@@ -39,8 +52,13 @@ export function pendingPromptLanded(prompt: PendingPrompt, turns: readonly Trans
   }
   const flat = (text: string) => text.replace(/\s+/g, ' ').trim();
   return turns.some((turn, index) => turn.items.some(item => {
-    if (item.kind !== 'message' || item.role !== 'user' || baseline.has(nativeMessageKey(item.id))) return false;
+    if (item.kind !== 'message' || item.role !== 'user') return false;
     if (item.id === prompt.id || (prompt.id.length >= 16 && item.id.includes(prompt.id))) return true;
+    if (deliveryIds.length) {
+      const nativeIds = new Set(sourceMessageIds(item.text));
+      if (deliveryIds.every(id => nativeIds.has(id))) return true;
+    }
+    if (baseline.has(nativeMessageKey(item.id))) return false;
     if (flat(item.text) !== flat(prompt.text)) return false;
     // Sender and host clocks are independent. An empty baseline anchors a first input before the first turn.
     return prompt.afterTurnId === undefined ? baseline.size === 0 : anchor >= 0 && index > anchor;
@@ -56,12 +74,68 @@ export function activeTurnWithPending(turn: TranscriptTurn | null, prompt: Pendi
   return { ...turn, items: [...pendingPromptTurn(prompt).items, ...turn.items] };
 }
 
+/** Incoming deliveries occupy their native position after the current turn's already visible items. */
+export function activeTurnWithInputs(turn: TranscriptTurn | null, prompt: PendingPrompt | null, incoming: readonly PendingPrompt[]): TranscriptTurn | null {
+  const waiting = incoming.filter(input => !pendingPromptLanded(input, turn ? [turn] : []));
+  const active = activeTurnWithPending(turn, prompt);
+  if (!active) return waiting.length ? { ...pendingPromptTurn(waiting[0]!), items: waiting.flatMap(input => pendingPromptTurn(input).items) } : null;
+  if (!waiting.length) return active;
+  return { ...active, items: [...active.items, ...waiting.flatMap(input => pendingPromptTurn(input).items)] };
+}
+
+/** A native echo can exist while its receipt is unknown. Decorate it once instead of adding a second bubble. */
+export function projectPendingMessages(committed: readonly TranscriptTurn[], active: TranscriptTurn | null, incoming: readonly PendingPrompt[], cache?: PendingMessageProjectionCache): {
+  committed: readonly TranscriptTurn[]; active: TranscriptTurn | null; waiting: readonly PendingPrompt[];
+} {
+  if (!incoming.length) return { committed, active, waiting: incoming };
+  const all = [...committed, ...(active ? [active] : [])];
+  const bindings = new Map<string, PendingPrompt>();
+  const waiting: PendingPrompt[] = [];
+  // Committed native messages are immutable. Do not reparse their full envelopes for every streaming token.
+  const native = all.map(turn => {
+    const previous = cache?.get(turn);
+    const messages = previous?.native ?? turn.items.flatMap(item => item.kind === 'message' && item.role === 'user'
+      ? [{ item, sourceIds: new Set(sourceMessageIds(item.text)) }] : []);
+    if (!previous?.native) cache?.set(turn, { inputs: [], turn, ...previous, native: messages });
+    return { turn, messages };
+  });
+  for (const input of incoming) {
+    let match: { turnId: string; itemId: string } | undefined;
+    const ids = input.received ? sourceMessageIds(input.text) : [];
+    for (const { turn, messages } of native) for (const { item, sourceIds } of messages) {
+      const landed = item.id === input.id || (input.id.length >= 16 && item.id.includes(input.id))
+        || (ids.length ? ids.every(id => sourceIds.has(id)) : pendingPromptLanded(input, [{ ...turn, items: [item] }]));
+      if (landed) match = { turnId: turn.id, itemId: item.id };
+    }
+    if (match) bindings.set(`${match.turnId}\0${match.itemId}`, input);
+    else waiting.push(input);
+  }
+  if (!bindings.size) return { committed, active, waiting };
+  const decorate = (turn: TranscriptTurn): TranscriptTurn => {
+    const inputs = turn.items.map(item => bindings.get(`${turn.id}\0${item.id}`));
+    const previous = cache?.get(turn);
+    if (previous && previous.inputs.length === inputs.length && previous.inputs.every((input, index) => input === inputs[index])) return previous.turn;
+    let changed = false;
+    const items = turn.items.map((item, index) => {
+      const input = inputs[index];
+      if (!input?.delivery) return item;
+      changed = true;
+      return { ...item, sendStatus: input.delivery };
+    });
+    const result = changed ? { ...turn, items } : turn;
+    cache?.set(turn, { inputs, turn: result, native: previous?.native });
+    return result;
+  };
+  return { committed: committed.map(decorate), active: active ? decorate(active) : null, waiting };
+}
+
 /** 乐观行画成的那一轮:只有人说的那一句。 */
 export function pendingPromptTurn(prompt: PendingPrompt): TranscriptTurn {
   const turn = {
     id: `pending:${prompt.id}:turn`,
     seq: 0,
-    initiator: 'user',
+    initiator: prompt.received ? 'agent' : 'user',
+    ...(prompt.stopped ? { outcome: { kind: 'cancelled' as const, reason: 'cancelled' as const } } : {}),
     ...(prompt.sentAt !== undefined ? { startedAt: prompt.sentAt } : {}),
     items: [
       {
