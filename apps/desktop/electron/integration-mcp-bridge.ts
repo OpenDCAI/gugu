@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { integrationMcpTransport, type McpTransportKind } from '@gugu/session-plugins/integrations'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
   CallToolRequestSchema,
@@ -37,7 +37,7 @@ export interface LocalIntegrationTools {
  * 是平台的转发口 + 本人现取的会话令牌。`fetch`:认得那一端特有的「不成」应答、把它说成一句清楚的错(平台转发口的
  * 「没连」「存着的凭据被拒」);不给 = 全局 fetch。
  */
-export type IntegrationEndpoint = { url: string; headers: Record<string, string>; fetch?: typeof fetch }
+export type IntegrationEndpoint = { url: string; headers: Record<string, string>; transport?: McpTransportKind; fetch?: typeof fetch }
 
 /** 工具从哪来:转发给对方的托管 MCP,或咕咕自己答。 */
 export type IntegrationUpstream =
@@ -47,8 +47,7 @@ export type IntegrationUpstream =
 export interface IntegrationGrantContext {
   ownerUserId: string
   subjectId: string
-  integrationId: string
-  upstream: IntegrationUpstream
+  entries: () => Promise<readonly IntegrationBridgeEntry[]>
 }
 
 export type IntegrationMcpHost = GuguMcpHost<IntegrationGrantContext>
@@ -58,48 +57,56 @@ async function withUpstream<T>(
   signal: AbortSignal | undefined,
   run: (client: Client) => Promise<T>,
 ): Promise<T> {
-  const { url, headers, fetch } = await upstream.endpoint(signal)
-  const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers }, ...(fetch ? { fetch } : {}) })
+  const transport = integrationMcpTransport(await upstream.endpoint(signal))
   const client = new Client({ name: 'gugu', version: '1.0.0' })
-  await client.connect(transport)
+  let rejectAbort: (reason?: unknown) => void = () => {}
+  const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject })
+  const abort = () => {
+    rejectAbort(signal?.reason)
+    void client.close().catch((error: unknown) => log.warn({ error }, 'integration MCP cancellation failed'))
+  }
+  signal?.throwIfAborted()
+  signal?.addEventListener('abort', abort, { once: true })
   try {
+    await Promise.race([client.connect(transport), aborted])
+    signal?.throwIfAborted()
     return await run(client)
   } finally {
+    signal?.removeEventListener('abort', abort)
     await client.close()
   }
 }
 
 /**
- * 把一家已连接的集成转成会话里的一台 MCP server —— 工具清单与调用**原样转发**给对方的托管 MCP。
- *
- * ❌ 不在这里挑工具、不改名、不加壳:集成给什么,agent 就看见什么。咕咕在这条链上只做两件事,
- * 换令牌和记账;它不是一层策略(与 `gugu-extension-api-gives-mechanism-not-policy` 同一条立场)。
+ * One permanent server per session, including sessions with no connected apps yet.
+ * Names carry the integration id because different services can expose the same tool name.
+ * Each list/call resolves current connections; disconnected tools cannot keep using old grants.
  */
 export function createIntegrationMcpHost(persistence?: GuguMcpHostPersistence): IntegrationMcpHost {
   return new GuguMcpHost<IntegrationGrantContext>(
     (getContext, grantSignal, trackRequest) => {
-      const { integrationId } = getContext()
       const server = new McpServer(
-        { name: integrationId, version: '0.1.0' },
-        { capabilities: { tools: {} } },
+        { name: 'connected-apps', version: '0.1.0' },
+        { capabilities: { tools: { listChanged: true } } },
       )
       server.server.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
-        const { upstream } = getContext()
         const signal = anySignal([grantSignal, extra.signal])
         return trackRequest(
-          upstream.kind === 'local'
-            ? upstream.tools.list(signal).then((tools) => ({ tools }))
-            : withUpstream(upstream, signal, async (client) => ({ tools: (await client.listTools()).tools })),
+          listConnectedTools(await getContext().entries(), signal).then((tools) => ({ tools })),
           'tools/list',
         )
       })
       server.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-        const { upstream } = getContext()
+        const entries = await getContext().entries()
+        const entry = entries.find(({ integrationId }) => request.params.name.startsWith(`${integrationId}__`))
+        if (!entry) throw new Error('This app is no longer connected in Gugu; reconnect it.')
+        const { upstream, integrationId } = entry
+        const params = { ...request.params, name: request.params.name.slice(integrationId.length + 2) }
         const signal = anySignal([grantSignal, extra.signal])
         return trackRequest(
           upstream.kind === 'local'
-            ? upstream.tools.call(request.params.name, request.params.arguments ?? {}, signal)
-            : withUpstream(upstream, signal, (client) => client.callTool(request.params)),
+            ? upstream.tools.call(params.name, params.arguments ?? {}, signal)
+            : withUpstream(upstream, signal, (client) => client.callTool(params)),
           request.params.name,
         )
       })
@@ -108,7 +115,7 @@ export function createIntegrationMcpHost(persistence?: GuguMcpHostPersistence): 
     (context) => ({
       ownerId: context.ownerUserId,
       subjectId: context.subjectId,
-      toolScope: `integration:${context.integrationId}`,
+      toolScope: 'integration:connected-apps',
     }),
     persistence,
   )
@@ -119,8 +126,38 @@ export interface IntegrationBridgeEntry {
   upstream: IntegrationUpstream
 }
 
+async function listConnectedTools(entries: readonly IntegrationBridgeEntry[], signal: AbortSignal): Promise<Tool[]> {
+  const tools: Tool[] = []
+  const unavailable: string[] = []
+  for (const { integrationId, upstream } of entries) {
+    signal.throwIfAborted()
+    try {
+    const listed = upstream.kind === 'local' ? await upstream.tools.list(signal) : await withUpstream(upstream, signal, async (client) => {
+      const all: Tool[] = []
+      const cursors = new Set<string>()
+      let cursor: string | undefined
+      do {
+        const page = await client.listTools(cursor ? { cursor } : undefined, { signal })
+        all.push(...page.tools)
+        cursor = page.nextCursor
+        if (cursor && cursors.has(cursor)) throw new Error(`${integrationId} returned a repeated tools cursor`)
+        if (cursor) cursors.add(cursor)
+      } while (cursor)
+      return all
+    })
+    tools.push(...listed.map((tool) => ({ ...tool, name: `${integrationId}__${tool.name}` })))
+    } catch (error) {
+      signal.throwIfAborted()
+      unavailable.push(integrationId)
+      log.warn({ integrationId, errorType: error instanceof Error ? error.name : 'unknown' }, 'connected app tools unavailable')
+    }
+  }
+  if (unavailable.length && tools.length === 0) throw new Error(`Connected app tools are unavailable: ${unavailable.join(', ')}. Check their connections.`)
+  return tools
+}
+
 /**
- * 每家已连接的集成一台 server。
+ * One stable MCP configuration; new connections are discovered through list_changed.
  *
  * `owner: 'integration'` 是自己一档,不是 `'gugu'` 也不是 `'user'`(见 McpServerOwner):
  * 地址是咕咕的转发口,所以由咕咕投递、不能交给各家原生发现;但它**随连随变**,所以不在
@@ -132,34 +169,17 @@ export async function buildIntegrationBridge(
   grantKey: string,
   ownerUserId: string,
   subjectId: string,
-  entries: readonly IntegrationBridgeEntry[],
+  entries: readonly IntegrationBridgeEntry[] | (() => Promise<readonly IntegrationBridgeEntry[]>),
 ): Promise<AcpMcpServer[]> {
-  if (entries.length === 0) return []
   await host.start()
-  const servers: AcpMcpServer[] = []
-  for (const entry of entries) {
-    try {
-      const grant = await host.grant(`${grantKey}:${entry.integrationId}`, {
-        ownerUserId,
-        subjectId,
-        integrationId: entry.integrationId,
-        upstream: entry.upstream,
-      })
-      servers.push({
-        name: entry.integrationId,
-        transport: 'http',
-        url: grant.url,
-        headers: [{ name: 'Authorization', value: `Bearer ${grant.capability}` }],
-        alwaysLoad: true,
-        owner: 'integration',
-      })
-    } catch (error) {
-      // 一家接不上不该把整条会话拖住 —— 但也❌不能静默:日志里要能看出是哪一家、为什么。
-      log.warn(
-        { integrationId: entry.integrationId, error: (error as Error).message },
-        'integration MCP bridge unavailable for this session',
-      )
-    }
-  }
-  return servers
+  const grant = await host.grant(`${grantKey}:connected-apps`, {
+    ownerUserId,
+    subjectId,
+    entries: typeof entries === 'function' ? entries : async () => entries,
+  })
+  return [{
+    name: 'connected-apps', transport: 'http', url: grant.url,
+    headers: [{ name: 'Authorization', value: `Bearer ${grant.capability}` }],
+    alwaysLoad: true, owner: 'integration',
+  }]
 }

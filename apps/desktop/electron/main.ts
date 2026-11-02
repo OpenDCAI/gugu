@@ -390,7 +390,7 @@ import {
 } from './browser-agent-mcp'
 import { createComputerUsePreview, installedComputerUseApps, type ComputerUsePreview } from './computer-use-program'
 import { sessionOf as computerSessionOf } from './device-actions/families/computer'
-import { connectedSessionIntegrations } from './session/main/core/integrations/session-integrations'
+import { connectedSessionIntegrations, onSessionIntegrationsChanged } from './session/main/core/integrations/session-integrations'
 import { platformCredentials } from './session/main/core/integrations/platform-credentials-instance'
 import { connectedCliSkills } from './session/main/core/integrations/cli/cli-integrations'
 import { integrationCredentialStore } from './session/main/core/integrations/integration-credential-store-instance'
@@ -830,6 +830,7 @@ function stableMcpPersistence(name: string): GuguMcpHostPersistence {
   })
 }
 let integrationMcpHost: IntegrationMcpHost | null = null
+onSessionIntegrationsChanged(() => { void integrationMcpHost?.notifyToolsListChanged() })
 
 /**
  * 这条会话该带哪些**已连接集成**的 MCP server。
@@ -850,10 +851,13 @@ async function integrationMcpServersFor(grantKey: string, subjectId: string): Pr
       { grantKey, integrations: entries.map((entry) => entry.integrationId) },
       'integrations available to this session',
     )
-    if (entries.length === 0) return []
     const { userId } = await requireRuntimeAuth(authProvider, 'gugu integration MCP bridge')
     integrationMcpHost ??= createIntegrationMcpHost(stableMcpPersistence('integration-mcp'))
-    return await buildIntegrationBridge(integrationMcpHost, grantKey, userId, subjectId, entries)
+    return await buildIntegrationBridge(integrationMcpHost, grantKey, userId, subjectId, async () => {
+      const auth = await requireRuntimeAuth(authProvider!, 'gugu integration MCP bridge')
+      if (auth.userId !== userId) throw new Error('This session belongs to a different signed-in account.')
+      return connectedSessionIntegrations()
+    })
   } catch (error) {
     integrationMcpLogger.warn(
       { error: (error as Error).message },

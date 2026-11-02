@@ -38,19 +38,21 @@ export type PlatformCustodyProvider = {
   id: string;
   name: string;
   fields: readonly { id: string; secret: boolean; required: boolean }[];
+  oauth?: true;
 };
 
 /** 注册表里表单连接方式标了 `custody: 'platform'` 的那几家。 */
 export function platformCustodyProviders(): PlatformCustodyProvider[] {
   return integrationPluginRegistry.getAll().flatMap((plugin) => {
     const form = plugin.capabilities.auth.methods.find(
-      (method) => method.kind === 'form' && method.custody === 'platform'
+      (method) => (method.kind === 'form' || method.kind === 'mcp-oauth') && method.custody === 'platform'
     );
-    if (form?.kind !== 'form') return [];
+    if (!form || (form.kind !== 'form' && form.kind !== 'mcp-oauth')) return [];
     return [{
       id: plugin.metadata.id,
       name: plugin.metadata.name,
-      fields: form.fields.map(({ id, secret, required }) => ({ id, secret, required })),
+      fields: form.kind === 'form' ? form.fields.map(({ id, secret, required }) => ({ id, secret, required })) : [],
+      ...(form.kind === 'mcp-oauth' ? { oauth: true as const } : {}),
     }];
   });
 }
@@ -165,6 +167,25 @@ function connectFailure(error: unknown, name: string, secrets: readonly string[]
 }
 
 export class PlatformCredentialService {
+  private readonly connectionListeners = new Set<() => void>();
+  private connectionSignature = '';
+
+  onConnectionChanged(listener: () => void): () => void {
+    this.connectionListeners.add(listener);
+    return () => { this.connectionListeners.delete(listener); };
+  }
+
+  private reportConnections(): void {
+    const signature = JSON.stringify([...(this.snapshot ?? [])].map(([id, accounts]) =>
+      [id, [...accounts].sort(([left], [right]) => left.localeCompare(right))]
+    ).sort(([left], [right]) => String(left).localeCompare(String(right))));
+    if (signature === this.connectionSignature) return;
+    this.connectionSignature = signature;
+    for (const listener of this.connectionListeners) {
+      try { listener(); }
+      catch { this.deps.log.warn('Integration connection observer failed'); }
+    }
+  }
   /** absent = 这个安装压根没有这项服务(唯一把凭据留在本机的情况);unknown = 还没问到过。 */
   private availability: 'unknown' | 'present' | 'absent' = 'unknown';
   private snapshot: Snapshot | null = null;
@@ -222,6 +243,7 @@ export class PlatformCredentialService {
    */
   custody(integrationId: string): 'platform' | 'local' | null {
     if (!this.isPlatformProvider(integrationId)) return null;
+    if (this.provider(integrationId)?.oauth) return 'platform';
     return this.availability === 'absent' || !this.client() ? 'local' : 'platform';
   }
 
@@ -237,6 +259,7 @@ export class PlatformCredentialService {
     }
     this.availability = 'absent';
     this.snapshot = null;
+    this.reportConnections();
     this.fetchedAt = this.now();
     this.failedAt = 0;
     this.lastFailure = null;
@@ -329,6 +352,7 @@ export class PlatformCredentialService {
     }
     this.availability = 'present';
     this.snapshot = snapshot;
+    this.reportConnections();
     this.fetchedAt = this.now();
     this.failedAt = 0;
     this.lastFailure = null;
@@ -356,6 +380,7 @@ export class PlatformCredentialService {
     listed: PlatformIntegrationProvider | undefined,
     known: Map<string, boolean>
   ): Promise<void> {
+    if (provider.oauth) return;
     for (const row of await this.deps.accounts.listAccounts(provider.id)) {
       // #649 只存过默认那一个账号;别的本机行不是它存的,原样不动。
       if (keptByPlatform(row) || row.accountId !== DEFAULT_INTEGRATION_ACCOUNT_ID) continue;
@@ -582,6 +607,7 @@ export class PlatformCredentialService {
 
   /** 表单交给平台;平台验过、存下了,本机只记一行(没有密钥)。`editing`:「编辑凭据」—— 本机没有存着的可沿用,留空就是缺。 */
   connect(integrationId: string, input: IntegrationCredentials, options: { editing?: boolean } = {}): Promise<PlatformConnectResult> {
+    if (this.provider(integrationId)?.oauth) return this.confirmOAuth(integrationId);
     return this.serialize(async () => {
       const provider = this.provider(integrationId);
       if (!provider) return { success: false, error: `Unknown integration: ${integrationId}` };
@@ -646,9 +672,74 @@ export class PlatformCredentialService {
         await this.deps.accounts.upsertAccount({ providerId: integrationId, accountId: row.accountId, meta: platformMeta(row) });
       }
       this.snapshot?.set(integrationId, new Map([[DEFAULT_INTEGRATION_ACCOUNT_ID, true]]));
+      this.reportConnections();
       this.clearBackOff(integrationId);
       return { success: true };
     });
+  }
+
+  /** The broker has already stored the grant; the device only mirrors its status. */
+  private async confirmOAuth(integrationId: string): Promise<Exclude<PlatformConnectResult, { keepHere: true }>> {
+    if (!(await this.refresh({ maxAgeMs: 0 })) || !(await this.isConnected(integrationId))) {
+      return { success: false, ...serviceUnavailable(this.provider(integrationId)?.name ?? integrationId) };
+    }
+    return { success: true };
+  }
+
+  async authorizeOAuth(integrationId: string, signal: AbortSignal, openExternal: (url: string) => Promise<void>): Promise<void> {
+    const client = this.client();
+    if (!client?.beginOAuth || !client.oauthStatus || !client.cancelOAuth) {
+      throw new Error('This Gugu installation does not provide browser authorization for this app.');
+    }
+    const attempt = await client.beginOAuth(integrationId, signal);
+    try {
+      signal.throwIfAborted();
+      await openExternal(attempt.authorizationUrl);
+      while (Date.now() < attempt.expiresAt) {
+        signal.throwIfAborted();
+        const result = await client.oauthStatus(integrationId, attempt.attemptId, signal);
+        if (result.state === 'connected') {
+          const confirmed = await this.confirmOAuth(integrationId);
+          if (!confirmed.success) throw new Error(confirmed.error);
+          return;
+        }
+        if (result.state === 'failed') throw new Error(result.error ?? 'Authorization failed.');
+        await new Promise<void>((resolve, reject) => {
+          const done = () => { signal.removeEventListener('abort', cancel); resolve(); };
+          const timer = setTimeout(done, 1000);
+          const cancel = () => { clearTimeout(timer); signal.removeEventListener('abort', cancel); reject(signal.reason); };
+          signal.addEventListener('abort', cancel, { once: true });
+          if (signal.aborted) cancel();
+        });
+      }
+      throw new Error('Authorization timed out. Try again.');
+    } finally {
+      await client.cancelOAuth(integrationId, attempt.attemptId).catch((error: unknown) =>
+        this.deps.log.warn('Could not discard the finished OAuth attempt', { code: failureOf(error).code }));
+    }
+  }
+
+  async beginOAuth(integrationId: string) {
+    const client = this.client();
+    if (!this.provider(integrationId)?.oauth || !client?.beginOAuth) throw new Error('Browser authorization is not available for this app.');
+    return client.beginOAuth(integrationId);
+  }
+
+  async oauthStatus(integrationId: string, attemptId: string) {
+    const client = this.client();
+    if (!this.provider(integrationId)?.oauth || !client?.oauthStatus) throw new Error('Browser authorization is not available for this app.');
+    const result = await client.oauthStatus(integrationId, attemptId);
+    if (result.state === 'connected') {
+      const confirmed = await this.confirmOAuth(integrationId);
+      if (!confirmed.success) throw new Error(confirmed.error);
+    }
+    return result;
+  }
+
+  async cancelOAuth(integrationId: string, attemptId: string) {
+    const client = this.client();
+    if (!this.provider(integrationId)?.oauth || !client?.cancelOAuth) return;
+    await client.cancelOAuth(integrationId, attemptId);
   }
 
   /** 平台上删掉(所有设备一起断),再删本机这一行。平台没删成 = 本机也不动,卡片还在「已连接」、还能再点。 */
@@ -669,6 +760,7 @@ export class PlatformCredentialService {
       }
       await this.deps.accounts.removeAllAccounts(integrationId);
       this.snapshot?.set(integrationId, new Map());
+      this.reportConnections();
       this.clearBackOff(integrationId);
       return { success: true };
     });
@@ -693,6 +785,7 @@ export class PlatformCredentialService {
   private heard(integrationId: string, stillStored: boolean): void {
     const accounts = this.snapshot?.get(integrationId);
     this.snapshot?.set(integrationId, new Map(stillStored ? [...(accounts?.keys() ?? [])].map((id) => [id, false] as const) : []));
+    this.reportConnections();
     this.invalidate();
     void this.refresh({ maxAgeMs: 0 });
   }

@@ -170,6 +170,8 @@ function IntegrationBrowserAuthorization({
   return (
     <>
       <DialogContentArea className="pt-1">
+        {metadata.auth.methods.map((method) => method.kind === 'mcp-oauth' && method.help
+          ? <p key={method.kind} className="text-sm text-foreground-muted">{method.help}</p> : null)}
         <p className="text-sm text-foreground-muted">
           {waiting
             ? translate('integrations.browserAuthWaiting', { name: metadata.name })
