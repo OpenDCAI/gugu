@@ -18,7 +18,8 @@ export function useMessageFind({ messages, rows, rootRef, listRef, scrollerRef, 
   const backend = useMemo(() => createMessageFind({ messages, rows,
     root: () => rootRef.current, list: () => listRef.current, scroller: () => scrollerRef.current,
   }), [messages, rows, rootRef, listRef, scrollerRef])
-  const closeSearch = useCallback(() => { search.setSearchMode(false); search.setSearchQuery('') }, [search.setSearchMode, search.setSearchQuery])
+  const { setSearchMode, setSearchQuery } = search
+  const closeSearch = useCallback(() => { setSearchMode(false); setSearchQuery('') }, [setSearchMode, setSearchQuery])
   const find = useFindBar({ rootRef, backend, enabled, onOpen: closeSearch,
     isActive: (element) => element.closest('[data-chat-surface]') === rootRef.current,
   })
