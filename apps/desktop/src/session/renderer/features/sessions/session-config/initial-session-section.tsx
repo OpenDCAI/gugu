@@ -1785,6 +1785,7 @@ export function InitialSessionField({
         {...dropHandlers}
       >
         <ChatComposer
+          editorOptions={{ clearOnSubmit: false }}
           canSubmit={canSubmit}
           showSubmitButton={!!onSubmit}
           placeholder={

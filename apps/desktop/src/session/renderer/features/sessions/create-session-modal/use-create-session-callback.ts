@@ -30,6 +30,7 @@ interface CreatedSession {
 interface PendingMessage extends CreatedSession {
   sessionId: string;
   clientMessageId: string;
+  prompt: string;
   text: string;
   files?: TurnFileRef[];
 }
@@ -142,6 +143,7 @@ export function useCreateSessionCallback({
 
   const createSessionNow = useCallback((named: readonly TurnFileRef[]) => {
     if (creatingRef.current) return;
+    const submittedPrompt = initialSession.prompt;
 
     const retry = pendingMessageRef.current;
     if (retry) {
@@ -151,7 +153,7 @@ export function useCreateSessionCallback({
       void sendOrdinaryMessage(retry).then(
         () => {
           pendingMessageRef.current = null;
-          initialSession.setPrompt((current) => retainNewerInput(retry.text, current));
+          initialSession.setPrompt((current) => retainNewerInput(retry.prompt, current));
           onCreated?.({ projectId: retry.projectId, sessionId: retry.sessionId });
           navigate('session', { projectId: retry.projectId, sessionId: retry.sessionId });
           onClose();
@@ -227,6 +229,7 @@ export function useCreateSessionCallback({
           projectId: selectedProjectId,
           sessionId,
           clientMessageId: crypto.randomUUID(),
+          prompt: submittedPrompt,
           text,
           ...(baseSession.type === 'acp' && files.length ? { files } : {}),
         } satisfies PendingMessage
@@ -293,8 +296,8 @@ export function useCreateSessionCallback({
         pendingMessageRef.current = message;
         await sendOrdinaryMessage(message);
         pendingMessageRef.current = null;
-        initialSession.setPrompt((current) => retainNewerInput(message.text, current));
       }
+      initialSession.setPrompt((current) => retainNewerInput(submittedPrompt, current));
       onCreated?.({ projectId: selectedProjectId, sessionId });
       if (openAfterCreate) navigate('session', { projectId: selectedProjectId, sessionId: sessionId });
       else {

@@ -10,6 +10,7 @@ import { machineRegistry } from '@renderer/lib/machine-routing';
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   admit: vi.fn(),
+  start: vi.fn(),
   localSendMessage: vi.fn(),
   logError: vi.fn(),
   logWarn: vi.fn(),
@@ -28,7 +29,7 @@ vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
 }));
 vi.mock('@renderer/lib/ipc', () => ({
   rpc: { sessions: { sendMessage: mocks.localSendMessage } },
-  rpcOn: () => ({ sessionCreate: { admitFirstMessages: mocks.admit } }),
+  rpcOn: () => ({ sessionCreate: { admitFirstMessages: mocks.admit }, sessionTimeline: { sessionStart: mocks.start } }),
 }));
 vi.mock('@/lib/taskAttachmentTarget', () => ({ assertTaskAttachmentProtocol: mocks.assertProtocol, taskAttachmentUsesSsh: () => false, taskAttachmentWorkspacePath: (id: string, name: string) => `.gugu/attachments/${id}/${name}` }));
 vi.mock('@/store/devicesCache', () => ({ readCachedDevices: () => devices }));
@@ -84,9 +85,11 @@ const initialSession = {
 function Probe({
   birthChatId,
   taskChatId,
+  openAfterCreate,
 }: {
   birthChatId?: string
   taskChatId?: string
+  openAfterCreate?: boolean
 }) {
   latest = useCreateSessionCallback({
     selectedProjectId: 'project-1',
@@ -97,6 +100,7 @@ function Probe({
     onCreated: mocks.onCreated,
     birthChatId,
     taskChatId,
+    openAfterCreate,
   });
   return null;
 }
@@ -120,6 +124,7 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     for (const mock of Object.values(mocks)) mock.mockReset();
     mocks.createSession.mockResolvedValue(undefined);
     mocks.localSendMessage.mockResolvedValue({ id: 'local-id', status: 'queued' });
+    mocks.start.mockResolvedValue({ ok: true });
     devices.length = 0;
     initialSession.attachments = [];
     initialSession.prepareAttachments = async () => [];
@@ -458,6 +463,72 @@ describe('useCreateSessionCallback ordinary messaging', () => {
       initialSession.prepareAttachments = async () => [];
       initialSession.placeAttachments = async () => [];
     }
+  });
+
+  it.each(['', '\nnewer draft'])('consumes only the submitted startup draft after creation succeeds (extra=%s)', async extra => {
+    let complete!: () => void;
+    mocks.createSession.mockImplementationOnce(() => new Promise<void>(resolve => { complete = resolve; }));
+    initialSession.prompt = '  original draft  ';
+    initialSession.promptCapability = { kind: 'none', startupDelivery: 'startup-prompt' };
+    await act(async () => root.render(React.createElement(Probe)));
+    await act(async () => latest?.handleCreateSession());
+    expect(initialSession.prompt).toBe('  original draft  ');
+    initialSession.prompt += extra;
+    await act(async () => complete());
+    expect(initialSession.prompt).toBe(extra.replace(/^\n/, ''));
+    expect(mocks.navigate).toHaveBeenCalled();
+  });
+
+  it.each(['startup', 'local-session'])('consumes a successful %s draft when the page stays open', async transport => {
+    initialSession.promptCapability = transport === 'startup' ? { kind: 'none', startupDelivery: 'startup-prompt' } : { kind: 'keystroke' };
+    if (transport === 'local-session') {
+      initialSession.sessionView = 'code';
+      initialSession.sessionpage = { tui: { identity: 'none', messageTransport: 'local-session' } };
+    }
+    await act(async () => root.render(React.createElement(Probe, { openAfterCreate: false })));
+    await act(async () => latest?.handleCreateSession());
+    expect(initialSession.prompt).toBe('');
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(mocks.start).toHaveBeenCalledOnce();
+  });
+
+  it('a successful PTY attachment delivery consumes the raw caption rather than the expanded prompt', async () => {
+    attachFirstFile();
+    initialSession.prompt = '  original caption  ';
+    initialSession.sessionView = 'code';
+    initialSession.sessionpage = { tui: { identity: 'none', messageTransport: 'local-session' } };
+    initialSession.promptCapability = { kind: 'keystroke' };
+    await act(async () => root.render(React.createElement(Probe)));
+    await act(async () => latest?.handleCreateSession());
+    expect(mocks.localSendMessage.mock.calls[0]?.[0].text).toContain('gugu-file://brief?v=1');
+    expect(initialSession.prompt).toBe('');
+  });
+
+  it('documents that editing after delivery failure still retries the original request', async () => {
+    mocks.localSendMessage.mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce({ id: 'retried', status: 'queued' });
+    await act(async () => latest?.handleCreateSession());
+    initialSession.prompt = 'edited after failure';
+    await act(async () => root.render(React.createElement(Probe)));
+    await act(async () => latest?.handleCreateSession());
+    expect(mocks.localSendMessage.mock.calls.map(([request]) => request.text)).toEqual(['make one task', 'make one task']);
+    expect(initialSession.prompt).toBe('edited after failure');
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+  });
+
+  it('a created PTY retry consumes the original caption while keeping newer input', async () => {
+    attachFirstFile();
+    initialSession.sessionView = 'code';
+    initialSession.sessionpage = { tui: { identity: 'none', messageTransport: 'local-session' } };
+    initialSession.promptCapability = { kind: 'keystroke' };
+    mocks.localSendMessage.mockRejectedValueOnce(new Error('not delivered')).mockResolvedValueOnce({ id: 'retried', status: 'queued' });
+    await act(async () => root.render(React.createElement(Probe)));
+    await act(async () => latest?.handleCreateSession());
+    expect(initialSession.prompt).toBe('make one task');
+    initialSession.prompt += '\nnewer draft';
+    await act(async () => root.render(React.createElement(Probe)));
+    await act(async () => latest?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    expect(initialSession.prompt).toBe('newer draft');
   });
 
 });

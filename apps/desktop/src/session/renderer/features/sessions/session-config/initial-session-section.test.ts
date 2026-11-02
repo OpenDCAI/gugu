@@ -1306,6 +1306,11 @@ describe('InitialSessionField', () => {
     await act(async () => {});
   }
 
+  it('lets task creation consume the draft after success instead of clearing on Enter', async () => {
+    await renderField();
+    expect((mocks.lastChatComposerProps as ChatComposerProps).editorOptions?.clearOnSubmit).toBe(false);
+  });
+
   /**
    * 清单口径:**acp 或 pty 任有一条可用即可**（owner 2026-08-28）。
    *
