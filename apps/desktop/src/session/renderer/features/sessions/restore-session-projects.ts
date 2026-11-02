@@ -1,9 +1,22 @@
-import { alignSessionProjectReferences, type SessionProjectLocation } from '@shared/core/projects/session-project-references';
+import { alignSessionProjectReferences, referencedSessionIds, type SessionProjectLocation } from '@shared/core/projects/session-project-references';
 import { appState } from '@renderer/lib/stores/app-state';
 import { screenLayout } from '@renderer/app/screen-layout';
-import { rpc } from '@renderer/lib/ipc';
+import { rpc, rpcOn } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
 import type { NavigationSnapshot } from '@shared/view-state';
+
+/** The host repairs its view-state KV during migration; only saved renderer references need querying. */
+export async function readSavedSessionProjectLocations(navigation: NavigationSnapshot | null): Promise<SessionProjectLocation[]> {
+  let screen: unknown = null;
+  try {
+    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem('gugu.screen-layout.v1');
+    if (raw) screen = JSON.parse(raw);
+  } catch (error) {
+    log.warn('Could not read saved session locations', { error });
+  }
+  const ids = referencedSessionIds(navigation, screen);
+  return ids.length ? rpcOn(null).sessionTimeline.sessionProjectLocations(ids) : [];
+}
 
 function alignSavedScreen(locations: readonly SessionProjectLocation[]): void {
   if (typeof localStorage === 'undefined') return;

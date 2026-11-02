@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { alignSessionProjectReferences } from './session-project-references';
+import { alignSessionProjectReferences, referencedSessionIds } from './session-project-references';
 
 const locations = [{ conversationId: 'assistant', projectId: 'tasks' }, { conversationId: 'child', projectId: 'tasks' }];
 describe('saved session project references', () => {
+  it('collects distinct actual references from navigation, visible panes and parked groups only', () => {
+    expect(referencedSessionIds({ sessionId: 'a', projectId: 'p' },
+      { blocks: [{ sessionId: 'a', projectId: 'p' }], parked: [{ sessionId: 'b', projectId: 'q' }],
+        message: 'session-c', unknown: { sessionId: 'not-a-location' } }, null)).toEqual(['a', 'b']);
+  });
   it('keeps the same last task and multi-pane layout when its project registration changes', () => {
     const before = {
       navigation: { currentViewId: 'session', viewParams: { session: { sessionId: 'assistant', projectId: 'old' }, assistant: { tab: 'today' } } },

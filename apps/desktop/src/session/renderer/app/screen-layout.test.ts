@@ -15,6 +15,7 @@ describe('一屏几块(spec session-page,#7052)', () => {
     screen.showBeside({ sessionId: 'remote', projectId: 'remote-project~device' });
     screen.showBeside({ sessionId: 'assistant', projectId: 'legacy' });
     const saved = screen.snapshot;
+    if (!saved) throw new Error('Expected a saved split layout');
     const aligned = alignSessionProjectReferences(saved, [
       { conversationId: 'ordinary', projectId: 'user-project' },
       { conversationId: 'remote', projectId: 'remote-project~device' },
@@ -30,7 +31,7 @@ describe('一屏几块(spec session-page,#7052)', () => {
       { sessionId: 'assistant', projectId: 'tasks' },
     ]);
     expect(again.focusedSession?.sessionId).toBe('assistant');
-    expect(again.snapshot.layout).toEqual(saved.layout);
+    expect(again.snapshot?.layout).toEqual(saved.layout);
   });
 
   it('第一次看一条会话:屏上一块,就是它', () => {
