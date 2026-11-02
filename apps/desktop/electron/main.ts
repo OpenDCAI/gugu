@@ -6456,7 +6456,9 @@ app.whenReady().then(async () => {
   }
   if (!SERVER_MODE) {
     loadMainWindowContents()
-    loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
+    void sessionHostBoot?.then(() => {
+      loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
+    }).catch((error: unknown) => createLogger('search/backfill').error({ error: String(error) }, 'Search backfill could not start after backend boot'))
   }
   startDeviceRuntimeWhenRendererReady()
   // server 的升级另有一套(后台下好、没有 agent 在跑时切换),❌ 走桌面这套弹界面的更新器。
