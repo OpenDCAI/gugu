@@ -44,7 +44,7 @@ describe.runIf(process.platform !== 'win32')('real-binary boot smoke: a package 
     expect(() => lifecycle.switchSupervisor({ from: previous, to: target,
       fromDir: path.join(home!, 'versions', previous), toDir: path.join(home!, 'versions', target), switchedAt: 1 }, () => {})).toThrow('boot verification')
     expect(fs.readlinkSync(path.join(home, 'current'))).toBe(`versions/${previous}`)
-    binary(target, `${record}${realSignalExit()}const d=process.env.GUGU_TASK_HOST_USER_DATA;require('node:fs').mkdirSync(d,{recursive:true});require('node:fs').writeFileSync(require('node:path').join(d,'activity.json'),JSON.stringify({pid:process.pid,startedAt:Date.now(),at:Date.now(),busy:false,runtimeOwned:true}));setInterval(()=>{},1000)`)
+    binary(target, `${record}${realSignalExit()}const d=process.env.GUGU_TASK_HOST_USER_DATA;require('node:fs').mkdirSync(d,{recursive:true});const startedAt=Date.now();const reportActivity=()=>require('node:fs').writeFileSync(require('node:path').join(d,'activity.json'),JSON.stringify({pid:process.pid,startedAt,at:Date.now(),busy:false,runtimeOwned:true}));reportActivity();setInterval(reportActivity,10_000)`)
     await lifecycle.stage(target, staged)
     expect(lifecycle.ready(target)).toBe(true)
     const rows = fs.readFileSync(readings, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { pid: number; home: string; args: string[] })
