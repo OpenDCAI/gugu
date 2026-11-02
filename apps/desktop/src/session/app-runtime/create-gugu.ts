@@ -46,12 +46,14 @@ export function createGugu(
   const watchers = new Map<string, (change: ExtensionFileChangeBatch) => void>();
   let nextWatch = 0;
   let hearing: (() => void) | null = null;
-  const watch = (watchId: string, place: AppPlace, on: boolean) =>
+  const watch = (watchId: string, place: AppPlace & { folder?: string }, on: boolean) =>
     host.appFiles.watch({ watchId, place, on }).catch((error: unknown) => {
       if (on) void host.reportError(`gugu.files.onChanged(${placeKey(place)}): ${error instanceof Error ? error.message : String(error)}`).catch(() => undefined);
     });
   function onChanged(place: unknown, handler: (change: ExtensionFileChangeBatch) => void): () => void {
-    const where = placeOf(place);
+    // A working copy may name a folder (`'.spec'`): what changes anywhere below it.
+    const folder = (place as { folder?: unknown } | null)?.folder;
+    const where = { ...placeOf(place), ...(typeof folder === 'string' && folder ? { folder } : {}) };
     const watchId = String(++nextWatch);
     if (typeof handler !== 'function') throw guguError('invalid', 'files.onChanged(place, fn) takes a function');
     hearing ??= host.onFilesChanged((id, change) => watchers.get(id)?.(change));

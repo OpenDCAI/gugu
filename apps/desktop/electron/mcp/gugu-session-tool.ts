@@ -133,6 +133,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       transport: z.enum(['acp', 'pty']).optional(),
       harness: z.string().describe('From session_list_harnesses; default: your sub-agent default.').optional(),
       model: z.string().describe('From session_list_models (verbatim) or model.spawn_model_id; platform: ids bill Gugu credits.').optional(),
+      thinking: z.string().trim().min(1).describe('Harness reasoning level.').optional(),
       chat_id: z.string().min(1).describe('A group your owner is in, for the child to join.').optional(),
     }).strict(),
     action: 'spawn',

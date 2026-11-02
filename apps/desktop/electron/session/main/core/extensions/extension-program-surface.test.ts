@@ -352,11 +352,11 @@ describe('an App program as a caller of its App (F16)', () => {
     expect(await call(child, 53, 'messagesHistory', { chat: OTHER_CHAT })).toMatchObject({ ok: true });
     expect(messagesHistory).toHaveBeenLastCalledWith({ chat: OTHER_CHAT }, { asAgent: null });
     // A session's working copy is no chat's: in an agent's call it stays the capability's, never refused here.
-    const local = { ref: { session: 'session-1', name: 'notes.md' } };
+    const local = { ref: { workspace: 'session:session-1', name: 'notes.md' } };
     expect(await call(child, 54, 'filesOpen', local, 'call-1')).toMatchObject({ ok: true });
     expect(openAppFile).toHaveBeenLastCalledWith({ pageId: surface.pageId, extensionId: 'board', handed: null }, local);
     // So is a project's folder (L1, 170 10-19): no membership to check a folder against — the capability's, as a session's.
-    const project = { ref: { project: 'project-1', name: 'docs/plan.md' } };
+    const project = { ref: { workspace: 'project:project-1', name: 'docs/plan.md' } };
     expect(await call(child, 55, 'filesOpen', project, 'call-2')).toMatchObject({ ok: true });
     expect(openAppFile).toHaveBeenLastCalledWith({ pageId: surface.pageId, extensionId: 'board', handed: null }, project);
     await release();
@@ -368,7 +368,7 @@ describe('an App program as a caller of its App (F16)', () => {
     attachProgramSurface('board', child as unknown as ChildProcess);
     expect(await call(child, 70, 'projectsList', {})).toMatchObject({ ok: false, code: 'denied' });
     granted.add('files:read');
-    expect(await call(child, 71, 'projectsList', {}, 'call-1')).toEqual(expect.objectContaining({ ok: true, value: { projects: [{ id: 'project-1', name: 'gugu' }] } }));
+    expect(await call(child, 71, 'projectsList', {}, 'call-1')).toEqual(expect.objectContaining({ ok: true, value: { projects: [{ id: 'project-1', name: 'gugu', workspace: 'project:project-1' }] } }));
   });
 
   // gugu.chats: an agent's call lists its own agent's chats, and reads the members of a chat it handed (or a handed

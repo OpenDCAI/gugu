@@ -15,7 +15,7 @@ const h = vi.hoisted(() => {
     id: 'notes',
     name: 'Notes',
     version,
-    apiVersion: 24, // inside vi.hoisted: runs before any import
+    apiVersion: 25, // inside vi.hoisted: runs before any import
     defaultLocale: 'en',
     entry: 'index.html',
     permissions: { capabilities, network },
@@ -72,7 +72,7 @@ const { toast } = await import('@renderer/lib/hooks/use-toast');
 const { ExtensionsSettingsCard } = await import('./ExtensionsSettingsCard');
 
 // How this build refuses an App written for apiVersion 2, as list() hands it over (#6934).
-const REFUSED = 'Invalid manifest:\n- apiVersion: apiVersion 2 is an older App interface; ask an agent to rewrite the App for apiVersion 24 as app_create writes Apps.';
+const REFUSED = 'Invalid manifest:\n- apiVersion: apiVersion 2 is an older App interface; ask an agent to rewrite the App for apiVersion 25 as app_create writes Apps.';
 
 /** The page opens on the market (#7059); these rows live on 已安装. */
 async function showInstalled(dom: JSDOM) {
@@ -253,7 +253,7 @@ describe('Installing one version from the market: the sheet speaks of that versi
   const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 30))));
   const source = { repo: 'shuxueshuxue/promo-skills', path: '.', commit: '6f46446' + 'a'.repeat(33) };
   const cloudOf = (version: string, releaseNotes: string) => ({
-    version, bundleSha256: 'a'.repeat(64), bundleBytes: 10, apiVersion: 24, minAppVersion: '0.2.40', releaseNotes,
+    version, bundleSha256: 'a'.repeat(64), bundleBytes: 10, apiVersion: 25, minAppVersion: '0.2.40', releaseNotes,
     publishedAt: '2026-10-07T00:00:00Z', firstPublishedAt: '2026-10-07T00:00:00Z', firstRun: false, iconUrl: null, deprecated: null, compat: null, newerNeedsApp: null, source,
   });
   const entryOf = (version: string, releaseNotes: string) => ({
@@ -336,7 +336,7 @@ describe('市场页 (#7059)', () => {
     manifest: { ...h.manifest('1.0.0', network, []), id, name: `App ${id}`, categories, subtitle: `${id} 的一句话` },
     ref: { extensionId: id, version: '1.0.0' },
     cloud: {
-      version: '1.0.0', bundleSha256: 'a'.repeat(64), bundleBytes: 10, apiVersion: 24, minAppVersion: '0.2.40', releaseNotes: '',
+      version: '1.0.0', bundleSha256: 'a'.repeat(64), bundleBytes: 10, apiVersion: 25, minAppVersion: '0.2.40', releaseNotes: '',
       publishedAt: '2026-10-07T00:00:00Z', firstPublishedAt: '2026-10-07T00:00:00Z', firstRun: false, iconUrl: null, deprecated: null, compat: null, newerNeedsApp: null, source, featured: id === 'pomo',
     },
   });

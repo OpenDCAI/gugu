@@ -7,10 +7,10 @@ import { Field } from '../ui/Field'
 import { annotateCaption, deleteShape, editShape, markersOf, newDocument } from './annotateModel'
 import { annotationColors, exportAnnotation, loadAnnotationImage, renderBackground, renderVectors, type AnnotateColors } from './annotateRender'
 import { useAnnotateCanvas } from './useAnnotateCanvas'
-import { useAnnotateSend } from './useAnnotateSend'
+import { useAnnotateActions } from './useAnnotateActions'
 import { AnnotateToolbar } from './AnnotateToolbar'
 import { AnnotateNotes } from './AnnotateNotes'
-import { AnnotateDoneMenu, AnnotateSendBar } from './AnnotateSendBar'
+import { AnnotateDoneMenu } from './AnnotateDoneMenu'
 import { annotationItem } from './annotateSource'
 import './annotate.css'
 
@@ -41,7 +41,7 @@ function AnnotationCanvas({ item, image, mobile, onCancel, onDone }: {
     if (!colors) throw new Error(t('loading'))
     return exportAnnotation(image, editor.doc, colors)
   }
-  const actions = useAnnotateSend(item, editor.doc, output, onDone)
+  const actions = useAnnotateActions(item, editor.doc, output, onDone)
   const { crop } = editor.doc
   const rasterKey = JSON.stringify([crop, editor.doc.shapes.filter(shape => shape.kind === 'mosaic')])
   useLayoutEffect(() => {
@@ -72,7 +72,7 @@ function AnnotationCanvas({ item, image, mobile, onCancel, onDone }: {
   return <div ref={root} className="ia-editor" data-mobile={mobile || undefined} tabIndex={-1} aria-label={t('title')} aria-busy={actions.busy}
     onKeyDown={event => { if (event.key !== 'Escape') event.stopPropagation() }}>
     <header className="ia-header"><Button onClick={onCancel} disabled={actions.busy}>{t('cancel')}</Button><h2>{t('title')}</h2><AnnotateDoneMenu actions={actions} mobile={mobile} /></header>
-    {renderError ? <p role="alert" className="ia-error">{renderError}</p> : null}
+    {renderError || actions.error ? <p role="alert" className="ia-error">{renderError ?? actions.error}</p> : null}
     <div className="ia-workspace">
       <div ref={editor.stage} className="ia-stage" data-tool={editor.tool} onPointerDown={editor.onPointerDown} onPointerMove={editor.onPointerMove}
         onPointerUp={editor.onPointerUp} onPointerCancel={editor.onPointerCancel} onPointerLeave={() => editor.setHovered(null)}
@@ -91,7 +91,6 @@ function AnnotationCanvas({ item, image, mobile, onCancel, onDone }: {
     </div>
     {mobile ? notes : null}
     <AnnotateToolbar editor={editor} />
-    {!mobile ? <AnnotateSendBar actions={actions} /> : actions.error ? <p role="alert" className="ia-error">{actions.error}</p> : null}
     <p className="ia-hint">{t(mobile ? 'touchHint' : 'keyboardHint')}<span className="ia-sr-only">{annotateCaption(editor.doc, '', true)}</span></p>
   </div>
 }

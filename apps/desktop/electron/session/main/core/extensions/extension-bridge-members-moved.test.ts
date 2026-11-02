@@ -42,7 +42,7 @@ const { bindExtensionSurface, chatMembersChanged, pushContext, setExtensionBridg
 const pushes = () => sent.filter(({ event }) => event.type === 'context').length;
 
 const bind = async () => {
-  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabId: 'slot-1', tabKind: 'workspace.main', chatId: CHAT });
+  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabId: 'slot-1', tabKind: 'workspace.main', conversation: CHAT });
   updateExtensionSurfaceLayout(PAGE, { visible: true, width: 440, height: 700 });
   await vi.waitFor(() => expect(pushes()).toBeGreaterThan(0));
 };
@@ -93,7 +93,7 @@ describe('a chat not read yet, asked about several times at once', () => {
     unbindExtensionSurface(PAGE);
     await chatMembersChanged(CHAT, [{ memberId: C, left: false }]);
     sent.length = 0;
-    await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabId: 'slot-1', tabKind: 'workspace.main', chatId: CHAT });
+    await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabId: 'slot-1', tabKind: 'workspace.main', conversation: CHAT });
     pushContext(PAGE);
     pushContext(PAGE);
     // Both asks answered: each push follows the read it waited on.

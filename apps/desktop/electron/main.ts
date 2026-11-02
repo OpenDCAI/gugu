@@ -126,6 +126,7 @@ import { deviceRpcAskerLimitsFromEnv } from './device-rpc-askers'
 import type { MessagePreviewHostDeps } from './session/main/core/session-timeline/preview-rpc'
 import { MESSAGE_PREVIEW_EVENT } from '@gugu/session-core/session-record/message-preview'
 import { createDeviceLinkHost } from './server/device-link-host'
+import { desktopServerChannel } from './server/server-names'
 import { serverDeviceLabel } from '@gugu/core/cloud/serverConnectVia'
 import {
   noteTunnelActivity,
@@ -185,6 +186,7 @@ import {
 } from './sessionpage/session-injection'
 import {
   agentInboxDepsFromBridge,
+  createDeviceCommandHoldingResolver,
   resolveGuguIds as resolveGuguIdsForInbox,
   type AgentRosterRemovalReason,
 } from '@gugu/core/local/agent/deviceCommandRuntime'
@@ -419,7 +421,7 @@ import { EXTENSION_SCHEME } from '../src/session/shared/extensions/scheme'
 import { previewSchemePrivilege } from '../src/session/shared/preview/preview-url'
 import { setExtensionCheckAvailable } from './mcp/gugu-extension-tool'
 import { setGuideLookPicture } from './mcp/gugu-guide-tool'
-import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink'
+import { guguLinkScheme, tierSuffix } from '@gugu/core/shared/ui/guguLink'
 import { agentAppsOf, extensionAgentPrograms } from './extension-session-mcp'
 // 仅类型:编译期擦除,不会把会话页主进程图提升到 app.setPath 之前(运行时加载见 whenReady 里的动态 import)。
 import type { SessionAction } from './sessionpage/emdash-main-bridge'
@@ -679,8 +681,6 @@ registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) 
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
 declare const __GUGU_BUILD_DISTRIBUTION__: string
-// 给别的机器装哪条通道的 server,构建时按连的库定(vite.config.mts → scripts/build/build-env-preflight.mts serverChannelForDb)。
-declare const __GUGU_SERVER_CHANNEL__: 'stable' | 'beta'
 
 // @@@home-unify - one account home shared by desktop, CLI, and runtime host. The DEFAULT instance's
 if (!process.env.GUGU_HOME) {
@@ -690,7 +690,7 @@ if (!process.env.GUGU_HOME) {
     const home =
       __GUGU_TIER__ === 'production'
         ? resolveGuguHome(process.env)
-        : join(homedir(), `.gugu-${__GUGU_TIER__}`)
+        : join(homedir(), `.gugu${tierSuffix(__GUGU_TIER__)}`)
     const legacy = join(app.getPath('userData'), 'gugu-home')
     if (legacy !== home && existsSync(legacy) && !existsSync(home)) {
       mkdirSync(dirname(home), { recursive: true })
@@ -701,7 +701,7 @@ if (!process.env.GUGU_HOME) {
 }
 // @@@tmux-socket-isolation - Gugu must not share tmux's default socket with a user's own Homebrew tmux
 if (!process.env.GUGU_TMUX_SOCKET_LABEL) {
-  process.env.GUGU_TMUX_SOCKET_LABEL = __GUGU_TIER__ === 'production' ? 'gugu' : `gugu-${__GUGU_TIER__}`
+  process.env.GUGU_TMUX_SOCKET_LABEL = `gugu${tierSuffix(__GUGU_TIER__)}`
 }
 // @@@spawn-tmux-bin - Prefer the self-contained tmux built by build:tmux in both packaged
 // and source-launched app instances. Source-launched Electron does not inherit the user's
@@ -2783,7 +2783,7 @@ const updateFeedConfig = updateFeedOptions(updateChannel, process.platform)
 
 // #6264「从桌面用 SSH 一步装好」(设置 → 设备 → 添加一台机器)。server 模式没有窗口、也没人在界面上点,不挂。
 // 装哪条通道跟这台桌面连的库走:连生产库装正式版,别的库装 Beta(❌ 跟 tier 走:开发构建的 tier 也是 production)。
-const serverChannel = __GUGU_SERVER_CHANNEL__
+const serverChannel = desktopServerChannel()
 // #6264「别的机器上的编程只给用 SSH 装上的机器」:这台桌面上用 SSH 装上的机器(本机映射,不上云)。
 const sshMachineStore = SERVER_MODE ? null : createSshMachineStore(defaultSshMachinesFile(app.getPath('userData')))
 // 这台桌面到远程 SSH 机器的设备连接,一台机器一条:窗口(经 ssh-link-ipc)与主进程(agent 的 session_* 跨机器)共用。
@@ -4119,6 +4119,27 @@ ipcMain.handle('sessionpage:retry-platform-recovery', async (_event, sessionId: 
 })
 
 // (重)连接时的那一次对账:这台机器上每个 agent 此刻的条目。之后渲染层只吃 `agent-status-feed`。
+// Local reachability uses the command queue's holding fact, including live sibling instances.
+ipcMain.handle('agent-status-feed:holding', async (_event, agents: unknown) => {
+  if (!Array.isArray(agents)) throw new Error('Agent holding request must be an array')
+  const deviceId = await localDeviceId()
+  if (!deviceId) throw new Error('This computer is not identified')
+  const local = agents.filter(row => row?.deviceId === deviceId)
+  if (!local.length) return {}
+  const lease = deviceRuntimeHost?.getRuntimeLease()
+  const auth = await desktopAuthProvider().getAuth()
+  if (!lease || lease.deviceId !== deviceId || !auth || auth.userId !== lease.ownerId) throw new Error('Local agent host is not ready')
+  const resolve = createDeviceCommandHoldingResolver({
+    client: makeIdentityClient(auth.accessToken) as unknown as DeviceRuntimeIdentityClient,
+    deviceId, instanceId: lease.runtimeInstanceId, env: process.env,
+  })
+  const holdings = await Promise.all(local.map(async row => {
+    const id = requiredSessionpageAgentId(row.agentUserId)
+    return [id, await resolve({ type: 'agent.deliver', payload: { agent_user_id: id } })] as const
+  }))
+  if (deviceRuntimeHost?.getRuntimeLease()?.ownerId !== auth.userId) throw new Error('Agent holding owner changed')
+  return Object.fromEntries(holdings)
+})
 ipcMain.handle('agent-status-feed:snapshot', () => agentStatusFeed.snapshot())
 
 ipcMain.handle('sessionpage:open-agent-file', async (
@@ -4944,7 +4965,6 @@ app.whenReady().then(async () => {
             : emdash.runRemoteSessionAction(caller, action as never, signal),
         app: (caller, action) => emdash.answerAppMessage(caller, action),
         appSpawn: (caller, action) => emdash.spawnAgentForExtension({ extensionId: caller.extensionId, extensionName: caller.extensionName, prompt: action.prompt, ...action.spawn }),
-        appReadFile: (caller, action) => emdash.answerAppReadFile(caller, action),
         appCall: (caller, action) => emdash.answerAppCall(caller, action),
       })
     })
@@ -4956,7 +4976,6 @@ app.whenReady().then(async () => {
       sessions: (since, options) => crossMachine().sessionsElsewhere(since, options),
       archive: (deviceId, sessionId, removeSocialIdentity) => crossMachine().archiveOn(deviceId, sessionId, removeSocialIdentity),
       appMessage: (app, deviceId, sessionId, text, how) => crossMachine().appMessage(app, deviceId, sessionId, text, how),
-      appReadFile: (app, deviceId, action) => crossMachine().appReadFile(app, deviceId, action),
       appCall: (app, deviceId, action) => crossMachine().appCall(app, deviceId, action),
     })
     // 打开会话只有一条路(gugu-links.openLink):agent 的会话先看本机映射,再到它所在的机器上找;本机会话打开前先做平台恢复。

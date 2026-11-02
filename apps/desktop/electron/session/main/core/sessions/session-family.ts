@@ -1,12 +1,11 @@
 import { eq, sql } from 'drizzle-orm';
-import type { AppCallAction, AppMessageOptions, AppMessageReceipt, AppReadFileAction, AppSpawnAction, SessionpageSessionSummary, UnreachedMachine } from '@gugu/session-core/session-record/contract';
+import type { AppCallAction, AppMessageOptions, AppMessageReceipt, AppSpawnAction, SessionpageSessionSummary, UnreachedMachine } from '@gugu/session-core/session-record/contract';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
 import { SESSION_PARENT_CYCLE } from '@shared/core/sessions/sessions';
 import { sessionParentId, storedParent, type SessionParent } from './utils';
-import type { WorkspaceChunk } from '@main/core/files/workspace-transfer';
 
 /**
  * 「连同子会话」(owner 2026-10-01「一起收」「链路统一」):先按父子关系找出要收哪些 —— 父会话这条边(与侧栏建树、
@@ -41,8 +40,6 @@ export type OtherMachines = {
   archive(deviceId: string, sessionId: string, removeSocialIdentity?: boolean): Promise<void>;
   /** 这台机器上的一个 App 给别的机器上的一条会话发消息(`agents:control:all-machines`)。 */
   appMessage(app: { extensionId: string; extensionName: string }, deviceId: string, sessionId: string, text: string, how: AppMessageOptions): Promise<AppMessageReceipt>;
-  /** 这台机器上的一个 App 读别的机器上一条会话工作副本里的一块(`files:read:all-machines`)。 */
-  appReadFile(app: { extensionId: string; extensionName: string }, deviceId: string, action: AppReadFileAction): Promise<WorkspaceChunk>;
   /** 这台机器上一个 App 的页面让别的机器做它的一个跟着会话机器的动词(页面所在的会话在那台机器上)。 */
   appCall(app: { extensionId: string; extensionName: string }, deviceId: string, action: AppCallAction): Promise<unknown>;
 };

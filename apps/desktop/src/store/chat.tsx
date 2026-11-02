@@ -26,7 +26,7 @@ import { platform } from '../platform'
 import { createOutboxWiring, type OutboxWiring } from './chatOutboxWiring'
 import { markLatestThreadRead, markManualUnreadAndRefresh } from '../lib/chatUnreadLocator'
 import { useChatUnreadStreamNavigation } from '../lib/chatUnreadStreamNavigation'
-import { ChatStoreProvider, type SendMessageOptions, type SendAttachmentOptions, useDraftAttachmentsStore, useDraftMentionsStore, useTextDraftStore, type RefreshChatsOptions } from './chatContext'
+import { ChatStoreProvider, type SendMessageOptions, type SendAttachmentOptions, useDraftAttachmentsStore, useDraftMentionsStore, useTextDraftStore, useDraftQuotesStore, type RefreshChatsOptions } from './chatContext'
 import { advanceReadWatermark, applyThreadSnapshot, fetchOpenThreadSnapshot, patchChatRows, reconcileMemberReadSeqs, type PatchChat } from './chatRealtimeMutations'; import { subscribeChatLineRevisions } from '../lib/accountRevisionListeners'; import { chatOnScreen } from '../lib/onScreenChat'
 import { useMessageReadFailures, useMessageSnapshotEpochs } from './chatMessageReads'
 import { useChatConversation, type ChatConversationAccess } from './useChatConversation'
@@ -65,7 +65,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const [chatsLoad, setChatsLoad] = useState<'unread' | 'idle' | 'loading' | 'failed'>('unread') // unread = 这个号的列表还没读成过;failed = 最近一次读失败了(#2118:空着不是「没有」)
   const { track: trackMessageRead, noteFreshRead: noteFreshMessageRead, failureOf: messageReadFailureOf } = useMessageReadFailures() // #7199 读失败按会话、按最新一次读记
   const { dropTextDraft, ...textDraftContext } = useTextDraftStore()
-  const draftMentionContext = useDraftMentionsStore()
+  const draftMentionContext = useDraftMentionsStore(), draftQuoteContext = useDraftQuotesStore()
   // @@@draft-attachment (#1872) - per-chat queued-attachment store (state/set/get/drop live in the hook).
   const { dropDraftAttachments, ...draftAttachmentContext } = useDraftAttachmentsStore()
   const cancelChatOpenRef = useRef<(chatId: string, error: Error) => void>(() => undefined)
@@ -927,7 +927,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         setChatNotificationLevel,
         patchChat,
         ...textDraftContext,
-        ...draftMentionContext,
+        ...draftMentionContext, ...draftQuoteContext,
         ...draftAttachmentContext,
       }}
     >

@@ -20,10 +20,10 @@ const time = (d) => d.toLocaleTimeString('zh-CN', { hour12: false });
 
 function paintWhere(ctx) {
   $('where').innerHTML = [
-    row('项目 id', ctx.session?.projectId ? esc(ctx.session.projectId) : absent('这个任务不挂项目')),
-    row('工作副本', ctx.session?.root ? esc(ctx.session.root) : absent('没有 / 未授 files:read')),
-    row('session id', ctx.session ? esc(ctx.session.id) : absent('这一格不在任务里')),
-    row('agent', ctx.session?.agentId ? esc(ctx.session.agentId) : absent('这个任务还没有 agent')),
+    row('项目 id', ctx.workspace?.projectId ? esc(ctx.workspace.projectId) : absent('这个任务不挂项目')),
+    row('工作副本', ctx.workspace?.root ? esc(ctx.workspace.root) : absent('没有 / 未授 files:read')),
+    row('session id', ctx.workspace ? esc(ctx.workspace.sessionId) : absent('这一格不在任务里')),
+    row('agent', ctx.workspace?.agentId ? esc(ctx.workspace.agentId) : absent('这个任务还没有 agent')),
     row('这一格', esc(ctx.tabId)),
     row('语言 / 主题', `${esc(ctx.locale)} / ${esc(ctx.themeMode)}`),
   ].join('');
@@ -32,10 +32,10 @@ function paintWhere(ctx) {
 async function paintWorkspace(ctx) {
   // 用 files:read 照一眼工作副本的根:项目名字光看 id 认不出来,根目录里有什么一眼就认得出。
   const el = document.getElementById('files');
-  if (!ctx.session?.root) { el.innerHTML = absent('没有工作副本 / 未授 files:read'); return; }
+  if (!ctx.workspace?.root) { el.innerHTML = absent('没有工作副本 / 未授 files:read'); return; }
   try {
     // 条目的 id 就是它在工作副本里的路径:根目录里有什么,取每条的第一段。
-    const top = [...new Set((await window.gugu.files.list({ session: ctx.session.id })).map((e) => (e.id.includes('/') ? `${e.id.split('/')[0]}/` : e.id)))];
+    const top = [...new Set((await window.gugu.files.list({ workspace: ctx.workspace.id })).map((e) => (e.id.includes('/') ? `${e.id.split('/')[0]}/` : e.id)))];
     const names = top.slice(0, 8).map(esc);
     el.innerHTML = names.length ? names.join(' · ') + (top.length > 8 ? ` · …共 ${top.length} 项` : '') : absent('空目录');
   } catch (error) {
@@ -50,7 +50,7 @@ function paintAlive() {
 async function paintAgent(ctx) {
   const agentEl = $('agent');
   const histEl = $('history');
-  if (!ctx.session?.agentId) {
+  if (!ctx.workspace?.agentId) {
     agentEl.innerHTML = row('状态', absent('没有当前任务'));
     histEl.innerHTML = '<span class="muted">没有当前任务</span>';
     return;
@@ -58,14 +58,14 @@ async function paintAgent(ctx) {
   let agent = null;
   try {
     const agents = await window.gugu.listAgents();
-    agent = agents.find((a) => a.agentId === ctx.session.agentId) ?? null;
+    agent = agents.find((a) => a.agentId === ctx.workspace.agentId) ?? null;
     agentEl.innerHTML = agent
       ? [
           row('标题', esc(agent.title ?? '')),
           row('引擎', esc(agent.providerId ?? '—')),
           row('形态', `<span class="pill">${agent.transport === 'acp' ? '面板任务' : '终端任务'}</span>`),
           row('状态', esc(agent.status ?? '—')),
-          row('同一任务里的 agent 数', String(agents.filter((a) => a.sessionId === ctx.session.id).length)),
+          row('同一任务里的 agent 数', String(agents.filter((a) => a.sessionId === ctx.workspace.sessionId).length)),
         ].join('')
       : row('状态', absent('listAgents 里没有这个任务'));
   } catch (error) {
@@ -108,11 +108,11 @@ async function refresh() {
 let unwatch = null;
 function watchSession(ctx) {
   unwatch?.();
-  unwatch = ctx.session?.root ? window.gugu.files.onChanged({ session: ctx.session.id }, () => { if (current) void paintWorkspace(current); }) : null;
+  unwatch = ctx.workspace?.root ? window.gugu.files.onChanged({ workspace: ctx.workspace.id }, () => { if (current) void paintWorkspace(current); }) : null;
 }
 
 window.gugu.onContextChanged((ctx) => {
-  const switched = !current || current.session?.id !== ctx.session?.id || current.session?.agentId !== ctx.session?.agentId;
+  const switched = !current || current.workspace?.id !== ctx.workspace?.id || current.workspace?.agentId !== ctx.workspace?.agentId;
   current = ctx;
   if (switched) { contextChanges += 1; watchSession(ctx); void refresh(); } else { paintWhere(ctx); paintAlive(); }
 });
