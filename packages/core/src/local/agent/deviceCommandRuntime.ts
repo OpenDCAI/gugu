@@ -228,6 +228,7 @@ export interface AgentRuntimeBridge {
    * 明确的通道原子判决)。queued-only admission 必须由注入口响亮失败,不能推进游标。真基础设施错误照旧 THROW。❌ 无 pty 回落。
    */
   injectAgentInbox?(input: AgentInboxInjectionInput): Promise<AgentInboxInjectionResult>
+  rejectAgentInbox?(input: AgentInboxInjectionInput, cause: unknown): Promise<void>
   /** Local session-direct outbox projected into the common inbox reader. */
   fetchLocalSessionDirectInbox?(agentUserId: string): Promise<AgentInboxUnreadRow[]>
   /** Inbox rows this agent's session queue already holds (see AgentInboxReaderDeps.claimedSources). */
@@ -740,6 +741,7 @@ export function agentInboxDepsFromBridge(input: {
     ...(input.ownerUserId ? { ownerUserId: input.ownerUserId } : {}),
     ...(input.env ? { env: input.env } : {}),
     inject: (injection) => bridge.injectAgentInbox!(injection),
+    ...(bridge.rejectAgentInbox ? { recordFailure: (injection: AgentInboxInjectionInput, cause: unknown) => bridge.rejectAgentInbox!(injection, cause) } : {}),
     // 论坛来源:被指派到帖子上的事,与聊天同一个读者、同一批触发。
     fetchForumUnread: (agentUserId: string) => fetchForumUnreadViaRpc(agentUserId, input.accessToken),
     ...(bridge.fetchLocalSessionDirectInbox

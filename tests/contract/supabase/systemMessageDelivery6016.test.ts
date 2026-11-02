@@ -121,7 +121,7 @@ async function readOnce(room: Room, agent: string, chat = room.group): Promise<s
     accessToken: 'owner-authorized-sql-fixture',
     groupRulesLedger: memoryGroupRulesLedger(),
     fetchUnread: () => pull(room, agent, chat),
-    inject: async ({ messageId, text }) => {
+    inject: async ({ sourceMessageId: messageId, text }) => {
       expect(text).toContain('from_id="system:gugu"')
       seen.push(messageId!)
       return 'accepted'
