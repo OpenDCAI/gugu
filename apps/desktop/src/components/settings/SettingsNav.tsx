@@ -155,6 +155,10 @@ const NAV_ITEMS: NavItem[] = [
 
 export function SettingsNav({ activeSection, sections, mobile = false, user, assistantName, onSelect, onBack }: SettingsNavProps) {
   const { t } = useTranslation('main')
+  if (!mobile && import.meta.env.DEV) {
+    const missing = sections.filter((section) => !DESKTOP_NAV_GROUPS.some((group) => group.sections.includes(section)))
+    if (missing.length > 0) throw new Error(`SettingsNav: desktop sections missing a group: ${missing.join(', ')}`)
+  }
   // 手机沿用 core 的分组;只在桌面呈现层重排。宿主不显示的格连同空组一起不画。
   const navGroups = (mobile ? SETTINGS_GROUPS : DESKTOP_NAV_GROUPS)
     .map((group) => ({ id: group.id, items: group.sections.flatMap((key) => (sections.includes(key) ? NAV_ITEMS.filter((item) => item.key === key) : [])) }))
