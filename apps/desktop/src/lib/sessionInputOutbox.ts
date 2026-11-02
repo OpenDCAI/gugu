@@ -1,6 +1,7 @@
 import { lifeHoldIsFailure, type LifeView } from '@/session/shared/core/sessions/session-life'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { rendererLogger } from './log'
+import { createIndexedDbHandle } from './indexedDbHandle'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 export type SessionInput = {
   id: string; accountId: string; deviceId: string | null; sessionId: string; text: string; createdAt: number
@@ -136,25 +137,32 @@ export async function withSessionInputDeadline<T>(operation: Promise<T>, timeout
 
 /** A separate durable store: IM cache recovery must never discard unsent native inputs. */
 export async function openSessionInputStorage(factory: IDBFactory = indexedDB): Promise<SessionInputStorage> {
-  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+  const handle = createIndexedDbHandle(() => new Promise<IDBDatabase>((resolve, reject) => {
     const request = factory.open('gugu.session-input-outbox.v1', 1)
     request.onupgradeneeded = () => request.result.createObjectStore('inputs', { keyPath: ['accountId', 'id'] })
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
-  })
-  const mutate = (run: (store: IDBObjectStore) => void) => new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('inputs', 'readwrite')
-    tx.oncomplete = () => resolve()
-    tx.onabort = () => reject(tx.error ?? new Error('Session input persistence aborted'))
-    tx.onerror = () => reject(tx.error)
-    run(tx.objectStore('inputs'))
-  })
+  }))
+  await handle.get()
+  const mutate = async (run: (store: IDBObjectStore) => void) => {
+    const db = await handle.get()
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('inputs', 'readwrite')
+      tx.oncomplete = () => resolve()
+      tx.onabort = () => reject(tx.error ?? new Error('Session input persistence aborted'))
+      tx.onerror = () => reject(tx.error)
+      run(tx.objectStore('inputs'))
+    })
+  }
   return {
-    list: accountId => new Promise((resolve, reject) => {
-      const request = db.transaction('inputs').objectStore('inputs').getAll(IDBKeyRange.bound([accountId, ''], [accountId, '\uffff']))
-      request.onsuccess = () => resolve(request.result as SessionInput[])
-      request.onerror = () => reject(request.error)
-    }),
+    list: async accountId => {
+      const db = await handle.get()
+      return new Promise<SessionInput[]>((resolve, reject) => {
+        const request = db.transaction('inputs').objectStore('inputs').getAll(IDBKeyRange.bound([accountId, ''], [accountId, '\uffff']))
+        request.onsuccess = () => resolve(request.result as SessionInput[])
+        request.onerror = () => reject(request.error)
+      })
+    },
     put: input => mutate(store => { store.put(input) }),
     remove: (accountId, id) => mutate(store => { store.delete([accountId, id]) }),
   }
