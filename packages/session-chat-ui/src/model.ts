@@ -112,8 +112,6 @@ export type ChatMessage = {
   conversationTerminalReason?: boolean;
   /** The answer immediately before Stop is always shown in full. */
   conversationFull?: boolean;
-  /** The replay segment is live and this reply is its last event (not merely an active turn). */
-  conversationCaret?: boolean;
   /** View-only: the closing reply of a finished turn — the only agent bubble with the time / copy row (design 0 `tail`). */
   conversationTail?: boolean;
   /** Where this message_send output went (same reading as the session page's 「发到 …」 line, `agentSendOf`). */
