@@ -13,6 +13,9 @@ type WorkspaceRow = {
  * This is a retrieval-path compatibility helper — it must never be used to
  * backfill or write values; new rows should always set `kind` explicitly.
  */
+/** What a person sees when a session on such a retired row is asked to run. */
+export const RETIRED_REMOTE_WORKSPACE_MESSAGE = '这条会话用的「自带机器」/ SSH 工作区已下线,不能再运行';
+
 /**
  * 「自带机器」(BYOI)与项目 SSH 工作区随 SSH 远程一起下架(#6264),产品不再写这种行;库里留下的旧行不在这台电脑上,
  * ❌ 当本机目录去开、去扫、去删。这几列在下次迁移时删。
