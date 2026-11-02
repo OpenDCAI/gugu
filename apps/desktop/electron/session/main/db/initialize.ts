@@ -93,8 +93,9 @@ export function applyMigrations(
   }
 }
 
-const SEARCH_INDEX_VERSION = '8';
-const TURN_TEXT_BACKFILL_BATCH_SIZE = 100;
+const SEARCH_INDEX_VERSION = '9';
+const TURN_TEXT_BACKFILL_RANGE_SIZE = 4;
+const TURN_TEXT_BACKFILL_BUDGET_MS = 50;
 
 /**
  * Creates the FTS5 full-text search virtual table used by the command palette.
@@ -109,6 +110,7 @@ function ensureSearchIndex(connection: BetterSqlite3.Database): void {
     // 7: a session is indexed by its one name (task-name.ts), not the dropped `sessions.title` (6 was
     // already taken by the said-in-tasks search, so installs that built 6 rebuild once more).
     // 8: turn_text_rows.item_id holds the message's source identity, the one a reveal compares.
+    // 9: extract each turn's identity before expanding its messages, including in live-write triggers.
     const row = connection.prepare(`SELECT value FROM kv WHERE key = 'fts_version'`).get() as
       | { value: string }
       | undefined;
@@ -166,8 +168,11 @@ function registerSearchText(connection: BetterSqlite3.Database): void {
 
 function turnTextMessages(turn: string): string {
   return `SELECT ${turn}.session_id, ${turn}.seq,
-      message_reference(json_extract(${turn}.data, '$.id'), json_extract(${turn}.data, '$.referenceId'), json_extract(item.value, '$.id')), json_extract(item.value, '$.role'),
-      search_text(json_extract(item.value, '$.text')) FROM json_each(iif(json_valid(${turn}.data), ${turn}.data, '{}'), '$.items') AS item
+      message_reference(json_extract(h.value, '$[0]'), json_extract(h.value, '$[1]'), json_extract(item.value, '$.id')), json_extract(item.value, '$.role'),
+      search_text(json_extract(item.value, '$.text'))
+    FROM json_each(iif(json_valid(${turn}.data),
+      json_array(json_array(json_extract(${turn}.data, '$.id'), json_extract(${turn}.data, '$.referenceId'))), '[]')) AS h
+    CROSS JOIN json_each(iif(json_valid(${turn}.data), ${turn}.data, '{}'), '$.items') AS item
     WHERE json_extract(item.value, '$.kind') = 'message' AND length(search_text(json_extract(item.value, '$.text'))) > 0`;
 }
 
@@ -205,26 +210,33 @@ function ensureTurnText(connection: BetterSqlite3.Database): void {
 export async function backfillTurnText(connection: BetterSqlite3.Database): Promise<void> {
   const read = connection.prepare('SELECT value FROM kv WHERE key = ?');
   const write = connection.prepare('INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch())');
-  const next = connection.prepare(`SELECT t.session_id, t.seq FROM session_turns t
-    WHERE (t.session_id, t.seq) > (?, ?) ORDER BY t.session_id, t.seq LIMIT ?`);
+  const edge = connection.prepare(`SELECT session_id, seq FROM session_turns
+    WHERE (session_id, seq) > (?, ?) ORDER BY session_id, seq LIMIT 1 OFFSET ?`);
+  const tail = connection.prepare(`SELECT session_id, seq FROM session_turns
+    WHERE (session_id, seq) > (?, ?) ORDER BY session_id DESC, seq DESC LIMIT 1`);
   const insert = connection.prepare(`INSERT INTO turn_text_rows (session_id, seq, item_id, role, text)
-    ${turnTextMessages('t').replace('FROM json_each', 'FROM session_turns AS t, json_each')}
-    AND t.session_id = ? AND t.seq = ?
+    ${turnTextMessages('t').replace('FROM json_each', 'FROM session_turns AS t CROSS JOIN json_each')}
+    AND (t.session_id, t.seq) > (?, ?) AND (t.session_id, t.seq) <= (?, ?)
     AND NOT EXISTS (SELECT 1 FROM turn_text_rows r WHERE r.session_id = t.session_id AND r.seq = t.seq)`);
   const batch = connection.transaction(() => {
     if ((read.get('turn_text_backfilled') as { value: string } | undefined)?.value === SEARCH_INDEX_VERSION) return false;
     const saved = read.get('turn_text_backfill_cursor') as { value: string } | undefined;
-    const cursor = (saved ? JSON.parse(saved.value) : ['', -1]) as [string, number];
-    // Bound source turns before skipping indexed ones, so a fully indexed old v8 database still yields.
-    const turns = next.all(...cursor, TURN_TEXT_BACKFILL_BATCH_SIZE) as { session_id: string; seq: number }[];
-    if (turns.length === 0) {
-      write.run('turn_text_backfilled', SEARCH_INDEX_VERSION);
-      connection.prepare("DELETE FROM kv WHERE key = 'turn_text_backfill_cursor'").run();
-      return false;
-    }
-    for (const turn of turns) insert.run(turn.session_id, turn.seq);
-    const last = turns[turns.length - 1]!;
-    write.run('turn_text_backfill_cursor', JSON.stringify([last.session_id, last.seq]));
+    let cursor = (saved ? JSON.parse(saved.value) : ['', -1]) as [string, number];
+    const started = performance.now();
+    do {
+      const end = (edge.get(...cursor, TURN_TEXT_BACKFILL_RANGE_SIZE - 1) ?? tail.get(...cursor)) as
+        | { session_id: string; seq: number }
+        | undefined;
+      if (!end) {
+        write.run('turn_text_backfilled', SEARCH_INDEX_VERSION);
+        connection.prepare("DELETE FROM kv WHERE key = 'turn_text_backfill_cursor'").run();
+        return false;
+      }
+      // A live trigger may already have indexed a turn ahead of the persisted cursor.
+      insert.run(...cursor, end.session_id, end.seq);
+      cursor = [end.session_id, end.seq];
+    } while (performance.now() - started < TURN_TEXT_BACKFILL_BUDGET_MS);
+    write.run('turn_text_backfill_cursor', JSON.stringify(cursor));
     return true;
   });
   do {

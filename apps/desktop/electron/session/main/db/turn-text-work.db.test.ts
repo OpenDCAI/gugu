@@ -71,6 +71,28 @@ describe('turn-text extraction work and identity', () => {
     expect(rows()).toEqual([]);
   });
 
+  for (const path of ['insert', 'update', 'backfill'] as const) {
+    it.each([
+      ['missing referenceId', 'a:turn:0', undefined, 'a:turn:0'],
+      ['numeric id', 42, 'source:numeric', 'source:numeric'],
+      ['numeric referenceId', 'a:turn:0', 42, 'a:turn:0'],
+    ] as const)(`${path} preserves %s identity through native JSON values`, async (_case, id, referenceId, expectedId) => {
+      const data = JSON.stringify({ id, referenceId, items: [
+        { kind: 'message', id: `${id}:message:0`, role: 'user', text: 'first unique' },
+        { kind: 'message', id: `${id}:message:1`, role: 'assistant', text: 'second unique' },
+      ] });
+      if (path === 'update') insert(0, turn(0));
+      if (path === 'backfill') { insert(0, data); resetBackfill(); }
+      if (path === 'insert') insert(0, data);
+      else if (path === 'update') sqlite().prepare("UPDATE session_turns SET data=? WHERE session_id='a'").run(data);
+      else await backfillTurnText(sqlite());
+      expect(rows()).toEqual([
+        { seq: 0, item_id: `${expectedId}:message:0`, role: 'user', text: 'first unique' },
+        { seq: 0, item_id: `${expectedId}:message:1`, role: 'assistant', text: 'second unique' },
+      ]);
+    });
+  }
+
   it('rebuilds existing v8 triggers and resets their completed backfill before upgrading to v9', async () => {
     insert(0, turn(0));
     sqlite().exec(`UPDATE kv SET value='8' WHERE key='fts_version';
@@ -100,7 +122,8 @@ describe('turn-text extraction work and identity', () => {
     try {
       await setImmediate();
       expect(work).toBeGreaterThanOrEqual(50);
-      expect(work).toBeLessThanOrEqual(58);
+      // At most one four-turn interval (two messages per turn) can exceed the budget.
+      expect(work).toBeLessThanOrEqual(50 + 4 * 2);
       expect(rows().length).toBeLessThan(82);
       expect(sqlite().prepare("SELECT value FROM kv WHERE key='turn_text_backfill_cursor'").get()).toBeDefined();
     } finally { await filling; }
