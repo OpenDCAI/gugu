@@ -1448,12 +1448,15 @@ body.barcode-scanner-active #root {
 /* #1284 手机回到中性纯色;嵌套的助理/引导页会重新声明变量,要与外壳一起覆盖。电脑的 .ta-app 不在此范围。 */
 [data-phone-shell],
 [data-phone-shell] :is(.ta-app, .ta-phone, .ta-dialog, [data-ta-menu], [data-ta-scope]),
+:root:has([data-phone-shell]) :is(.ta-dialog, [data-ta-menu]),
 [data-theme='light'] [data-phone-shell],
+[data-theme='light']:has([data-phone-shell]) :is(.ta-dialog, [data-ta-menu]),
 [data-theme='light'] [data-phone-shell] :is(.ta-app, .ta-phone, .ta-dialog, [data-ta-menu], [data-ta-scope]) {
   --ta-app-bg: var(--bg);
   --ta-panel-bg: var(--bg);
 }
 [data-theme='light'] [data-phone-shell],
+[data-theme='light']:has([data-phone-shell]) :is(.ta-dialog, [data-ta-menu]),
 [data-theme='light'] [data-phone-shell] :is(.ta-app, .ta-phone, .ta-dialog, [data-ta-menu], [data-ta-scope]) {
   --ta-bubble-other: var(--muted);
 }

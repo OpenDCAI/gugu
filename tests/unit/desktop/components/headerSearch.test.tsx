@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 // 手机页的搜索收在页头(owner 10-07:常驻搜索框太占地方):平时一颗放大镜,点开才有框;取消 / 安卓返回键收起并清空。
 import { act, createElement, useState, type ReactNode } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createReactHarness, typeInto } from '../../../support/testHarness'
 import { HeaderSearch } from '../../../../apps/desktop/src/components/ui/HeaderSearch'
 import { isSheetOpen } from '../../../../apps/desktop/src/components/ui/sheetStack'
+import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 
 type BackState = Window & { __guguNativeBackHandled?: boolean }
 
@@ -21,7 +22,7 @@ function Page({ mobile, active, initial = '' }: { mobile: boolean; active?: bool
 
 describe('HeaderSearch', () => {
   let harness: ReturnType<typeof createReactHarness> | null = null
-  afterEach(() => { harness?.cleanup(); harness = null })
+  afterEach(() => { harness?.cleanup(); harness = null; vi.restoreAllMocks() })
   const $ = (selector: string) => harness!.container.querySelector(selector) as HTMLElement | null
   const input = () => $('[data-testid="page-search"]') as HTMLInputElement | null
   const query = () => $('[data-testid="query"]')!.textContent
@@ -62,6 +63,20 @@ describe('HeaderSearch', () => {
     await harness.render(createElement(Page, { mobile: true, initial: 'zs' }))
     expect(input()?.value).toBe('zs')
     expect(document.activeElement).not.toBe(input())
+  })
+
+  it('the bottom trigger focuses once without scrolling the containing pager', async () => {
+    harness = createReactHarness()
+    await harness.render(createElement(HeaderSearch, {
+      mobile: true, externalTrigger: 'contacts', value: '', onChange: () => {}, placeholder: 'Search', testId: 'page-search',
+      children: () => createElement('div', null, 'Partners'),
+    }))
+    const focus = vi.spyOn(HTMLInputElement.prototype, 'focus')
+    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openPhoneListSearch, { detail: 'chats' })) })
+    expect(input()).toBeNull()
+    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openPhoneListSearch, { detail: 'contacts' })) })
+    expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true })
+    expect(document.activeElement).toBe(input())
   })
 
   it('安卓返回键 = 取消;页不在屏上时不进返回栈', async () => {
