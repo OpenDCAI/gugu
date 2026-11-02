@@ -11,6 +11,13 @@ export const composerRoot = style({
   containerType: 'inline-size',
 });
 
+// A host band is the top of this same stack; permission/notice continue its outline.
+globalStyle(`${composerRoot}[data-band-above] [data-slot="composer-permission-request"], ${composerRoot}[data-band-above] [data-slot="composer-notice"]`, {
+  borderTopLeftRadius: 0,
+  borderTopRightRadius: 0,
+  borderTopWidth: 0,
+});
+
 /**
  * @@@composer-card-radius — 输入卡片的圆角是 `tokenVars.radiusThread`(16px),**顶上接出来的
  * 每一条 band 都必须写同一个 token**(notice / permission / queued-prompts):不一致的话

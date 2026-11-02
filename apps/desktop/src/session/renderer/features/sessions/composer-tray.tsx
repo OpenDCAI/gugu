@@ -1,10 +1,16 @@
 import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
-import type { ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 import { LibraryHostProvider, type LibraryHost } from '@renderer/features/library/library-host';
 import {
   sessionComposerTrayClassName,
   sessionComposerTrayStyle
 } from './session-composer-styles';
+
+const ComposerTrayBandContext = createContext<ReactNode>(null);
+
+export function useComposerTrayBand(): ReactNode {
+  return useContext(ComposerTrayBandContext);
+}
 
 /**
  * 新建框上面同宽的托盘(项目 · 机器)。新建会话页、项目页与 task-dispatch 共用。
@@ -33,12 +39,15 @@ export function ComposerTray({
   return (
     <>
       <NeedsYouSlot />
-      <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
-        {projectPicker}
-        {devicePicker}
-        {folderPicker}
-      </div>
-      <LibraryHostProvider value={host}>{children}</LibraryHostProvider>
+      <ComposerTrayBandContext.Provider value={
+        <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
+          {projectPicker}
+          {devicePicker}
+          {folderPicker}
+        </div>
+      }>
+        <LibraryHostProvider value={host}>{children}</LibraryHostProvider>
+      </ComposerTrayBandContext.Provider>
     </>
   );
 }

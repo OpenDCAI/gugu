@@ -365,8 +365,8 @@ export interface ChatComposerProps {
   onCommand?: (item: CommandItem) => void;
   /** Session-state notice shown flush above the input (e.g. ACP stop reasons). */
   notice?: ComposerNotice | null;
-  /** The host already renders a band flush above this composer. */
-  hasBandAbove?: boolean;
+  /** Host band joined flush to the card, below queued messages and above permission/notice. */
+  bandAbove?: React.ReactNode;
   /**
    * Pending ACP permission request to show in the band above the input.
    * When present, the notice band is replaced by the permission band.
@@ -460,7 +460,7 @@ export function ChatComposer({
   onViewAttachment,
   onRetryAttachment,
   notice,
-  hasBandAbove = false,
+  bandAbove,
   permissionRequest,
   permissionQueueCount = 1,
   onResolvePermission,
@@ -714,7 +714,7 @@ export function ChatComposer({
     !!onReorderQueuedPrompts &&
     !!onSendQueuedPromptNow;
   // The permission band takes priority over the notice band.
-  const hasBand = hasBandAbove || !!(permissionRequest ?? notice);
+  const hasBand = !!bandAbove || !!(permissionRequest ?? notice);
   const receiveEditor = React.useCallback((handle: PromptEditorRef | null) => {
     editorRef.current = handle;
     if (typeof editorApiRef === 'function') editorApiRef(handle);
@@ -750,7 +750,7 @@ export function ChatComposer({
   );
 
   return (
-    <div ref={rootRef} data-slot="composer" data-mobile={mobile || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
+    <div ref={rootRef} data-slot="composer" data-mobile={mobile || undefined} data-band-above={!!bandAbove || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
       if (queueEdit && event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing && event.keyCode !== 229) {
         event.preventDefault(); finishQueueEdit(null);
       }
@@ -766,6 +766,8 @@ export function ChatComposer({
           onSendNow={onSendQueuedPromptNow}
         />
       )}
+
+      {bandAbove}
 
       {/* Permission band — shown when the agent is awaiting user approval. */}
       {permissionRequest && onResolvePermission && (

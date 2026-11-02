@@ -1672,11 +1672,6 @@ const ComposerForStore = observer(function ComposerForStore({
         granularity={mcpPanel?.granularity ?? 'per-server'}
         onApply={applyMcpSelection}
       />
-      {schedules.length > 0 ? (
-        <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
-          <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
-        </div>
-      ) : null}
       <NeedsYouSlot />
       {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. */}
       {life && lifeIsStarting(life) && !store.transcriptPendingId ? (
@@ -1693,7 +1688,11 @@ const ComposerForStore = observer(function ComposerForStore({
       <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life} inTranscript={store.transcriptPendingId ?? store.stoppedRowId} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
-        hasBandAbove={schedules.length > 0}
+        bandAbove={schedules.length > 0 ? (
+          <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
+            <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
+          </div>
+        ) : null}
         hideLockedAgent
         isWorking={a.isWorking}
         attachmentStatus={sendHold === 'waiting' ? translate('composer.attachmentWaiting') : undefined}

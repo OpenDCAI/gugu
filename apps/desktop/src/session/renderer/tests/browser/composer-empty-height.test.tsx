@@ -1,10 +1,11 @@
+import type { ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import { ChatComposer, type PromptEditorRef } from '@gugu/session-ui/react/components'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
-import { ComposerTray } from '@renderer/features/sessions/composer-tray'
+import { ComposerTray, useComposerTrayBand } from '@renderer/features/sessions/composer-tray'
 import { LOCAL_LIBRARY_HOST } from '@renderer/features/library/library-host'
 import { sessionComposerBox, sessionComposerCardClassName, sessionComposerEmptyHeightPx } from '@renderer/features/sessions/session-composer-styles'
 // 主题层与同目录 composer-narrow-pane-7052 同一套。
@@ -16,6 +17,10 @@ import '@/styles/tokens.css'
 import '@renderer/index.css'
 
 vi.mock('@/components/needsYou/NeedsYouSlot', () => ({ NeedsYouSlot: () => null }))
+
+function TrayComposer(props: ComponentProps<typeof ChatComposer>) {
+  return <ChatComposer {...props} bandAbove={useComposerTrayBand()} />
+}
 
 /**
  * gugu-dev#181 核对 21:会话页、新建会话页的输入框和格子里的群框是同一个框 —— 一样高,文字、底排在同一个位置。
@@ -47,14 +52,14 @@ describe('the session composer\'s box', () => {
       <SessionLocalizationProvider>
         <div data-testid="tray-composer">
           <ComposerTray projectPicker={<span>Project</span>} devicePicker={<span>Device</span>} host={LOCAL_LIBRARY_HOST}>
-            <ChatComposer hasBandAbove onSubmit={() => {}} />
+            <TrayComposer onSubmit={() => {}} />
           </ComposerTray>
         </div>
         <ChatComposer permissionRequest={{ requestId: 'band-geometry', title: 'Read', options: [] }} onResolvePermission={() => {}} onSubmit={() => {}} />
       </SessionLocalizationProvider>
     )
     const fixture = () => container!.querySelector<HTMLElement>('[data-testid="tray-composer"]')!
-    const tray = () => fixture().firstElementChild as HTMLElement
+    const tray = () => fixture().querySelector<HTMLElement>('[data-slot="composer"]')!.firstElementChild as HTMLElement
     const card = () => fixture().querySelector<HTMLElement>('[data-slot="composer-bar"]')!
     const band = () => container!.querySelector<HTMLElement>('[data-slot="composer-permission-request"]')!
     await until('tray and permission band have layout', () => !!fixture() && !!card() && !!band() && card().getBoundingClientRect().height > 0)
@@ -72,6 +77,46 @@ describe('the session composer\'s box', () => {
     expect(trayStyle.backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
     expect(getComputedStyle(card()).borderTopLeftRadius).toBe('0px')
     expect(getComputedStyle(card()).borderTopRightRadius).toBe('0px')
+  })
+
+  it.each(['permission', 'notice', 'queue'] as const)('keeps the tray flush with the card stack when %s is present', async (kind) => {
+    root!.render(
+      <SessionLocalizationProvider>
+        <div data-testid="tray-composer">
+          <ComposerTray projectPicker={<span>Project</span>} devicePicker={<span>Device</span>} host={LOCAL_LIBRARY_HOST}>
+            <TrayComposer
+              permissionRequest={kind === 'permission' ? { requestId: 'stack-geometry', title: 'Read', options: [] } : undefined}
+              onResolvePermission={() => {}}
+              notice={kind === 'notice' ? { variant: 'info', message: 'Notice' } : undefined}
+              queuedPrompts={kind === 'queue' ? [{ id: 'queued', text: 'Queued message', origin: 'manual' }] : []}
+              onEditQueuedPrompt={() => {}}
+              onDeleteQueuedPrompt={() => {}}
+              onReorderQueuedPrompts={() => {}}
+              onSendQueuedPromptNow={() => {}}
+              onSubmit={() => {}}
+            />
+          </ComposerTray>
+        </div>
+      </SessionLocalizationProvider>
+    )
+    const fixture = () => container!.querySelector<HTMLElement>('[data-testid="tray-composer"]')
+    const tray = () => fixture()!.querySelector<HTMLElement>('[data-slot="composer"]')!.children[kind === 'queue' ? 1 : 0] as HTMLElement
+    const card = () => fixture()!.querySelector<HTMLElement>('[data-slot="composer-bar"]')!
+    const next = () => kind === 'queue' ? card() : fixture()!.querySelector<HTMLElement>(`[data-slot="composer-${kind === 'permission' ? 'permission-request' : 'notice'}"]`)!
+    await until('stack has layout', () => !!fixture() && !!next() && next().getBoundingClientRect().height > 0 && next().parentElement!.getAnimations().length === 0)
+    expect(tray().getBoundingClientRect().bottom).toBe(next().getBoundingClientRect().top)
+    expect(getComputedStyle(tray()).borderTopLeftRadius).toBe(getComputedStyle(container!.querySelector<HTMLElement>('[data-slot="composer"]')!).getPropertyValue('--radius-thread').trim())
+    for (const element of [next(), card()]) {
+      expect(getComputedStyle(element).borderTopLeftRadius).toBe('0px')
+      expect(getComputedStyle(element).borderTopRightRadius).toBe('0px')
+    }
+    if (kind === 'queue') {
+      const queued = fixture()!.querySelector<HTMLElement>('[data-slot="composer-queued-prompts"]')!
+      expect(queued.getBoundingClientRect().bottom).toBeLessThanOrEqual(tray().getBoundingClientRect().top)
+    } else {
+      expect(getComputedStyle(next()).borderTopWidth).toBe('0px')
+      expect(next().getBoundingClientRect().bottom).toBe(card().getBoundingClientRect().top)
+    }
   })
 
   it.each([false, true])('grows from its desktop or mobile minimum to the existing cap (mobile=%s)', async (mobile) => {

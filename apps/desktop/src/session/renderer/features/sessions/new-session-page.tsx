@@ -177,7 +177,6 @@ export const NewSessionComposer = observer(function NewSessionComposer({
         includeIssueContextByDefault={includeIssueContextByDefault}
       >
           <SessionField
-            hasBandAbove
             placeholder={placeholder ?? translate('composer.messagePlaceholder')}
             verb={verb}
             // Permission profiles are capability-backed and apply to both task and message-page
