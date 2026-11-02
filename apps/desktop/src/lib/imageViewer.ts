@@ -9,6 +9,10 @@ export interface ImageViewerItem {
   source?: { chatId: string; messageId?: string }
   resource?: ResourceContext
   url: string
+  /** A file can open before its display-only thumbnail arrives. */
+  preview?: () => Promise<string>
+  /** URLs owned by this request, released when the viewer closes. */
+  release?: () => void
   alt: string
   /** Original file facts; alt is display text, not a download name. */
   file?: { name: string; contentType?: string | null }

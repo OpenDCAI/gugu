@@ -840,6 +840,41 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     for (const id of ['rt-old', 'rt-home', 'lt-mine']) sessionRegistry.release(id);
   });
 
+  it.each([true, false])('keeps assistant-host workspaces out of Projects while retaining tasks (live=%s)', (live) => {
+    acquire('rt-assistant', 'd22-home', 'rc-assistant');
+    acquire('rt-executor', 'd22-home', 'rc-executor', 'rc-assistant');
+    acquire('rt-grandchild', REMOTE_SESSION_HOME, 'rc-grandchild', 'rc-executor');
+    acquire('rt-business', 'd22-business', 'rc-business');
+    listed.set('rc-assistant', { ...listed.get('rc-assistant')!, agent: { userId: 'assistant-id' } });
+    listed.set('rc-executor', { ...listed.get('rc-executor')!, status: { status: 'needs_user', detail: null } });
+    const store = new SidebarStore(managerWithPaths([
+      { id: 'd22-home', path: '/root', name: 'Internal home', kind: 'workspace', sessionIds: ['rt-assistant', 'rt-executor'] },
+      { id: REMOTE_SESSION_HOME, path: '/root/.config/app/task-home', sessionIds: ['rt-grandchild'] },
+      { id: 'd22-business', path: '/root/business', name: 'Business', sessionIds: ['rt-business'] },
+      { id: 'local-business', path: '/me/business', name: '咕咕', sessionIds: [] },
+    ]));
+    store.machines = { ...machines, isAssistantHome: () => true, label: () => 'Renamed assistant',
+      sessionsOf: () => ({ sessions: [...listed.values()], live }) };
+    store.setAssistantAgentId('assistant-id');
+    store.expandedSessionIds.add('rc-executor');
+    store.expandAllProjects();
+    try {
+      expect(store.orderedProjects.map((p) => p.id).sort()).toEqual(['d22-business', 'local-business']);
+      expect(store.projectCount).toBe(2);
+      expect(store.projectLabel('d22-home')).toBeNull();
+      expect(store.projectLabel('d22-business')).toBe('Business');
+      expect(store.standaloneSessionEntries.map((e) => [e.sessionId, e.depth])).toEqual([
+        ['rc-executor', 0], ['rc-grandchild', 1],
+      ]);
+      expect(store.rowOfSession('d22-home', 'rc-executor')).toBeNull();
+      expect(store.navChain.some((r) => r.kind === 'conversation' && r.sessionId === 'rc-executor')).toBe(true);
+      expect(store.standaloneSection.rows.find((e) => e.sessionId === 'rc-executor')?.needsAttention).toBe(true);
+      expect(store.sidebarRows.filter((r) => r.kind === 'conversation').map((r) => r.sessionId)).toEqual(['rc-business']);
+    } finally {
+      for (const id of ['rt-assistant', 'rt-executor', 'rt-grandchild', 'rt-business']) sessionRegistry.release(id);
+    }
+  });
+
   // #7341 第二步:同一个项目在本机与 d22 上各有一个本地项目,绑在同一个项目群上 ⇒ 侧栏合成一行。
   it('绑在同一个项目群上的本机项目与 d22 上的项目合成一行,d22 那边的会话挂在这一行下', () => {
     acquire('lt-g', 'local-gugu', 'lc-g');

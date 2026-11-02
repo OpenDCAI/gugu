@@ -34,6 +34,8 @@ export function mergeMessageState(existing: MessageItem | undefined, incoming: M
 
   return {
     ...incoming,
+    // Body-only message_created revisions carry no overlay snapshot.
+    delivery_blocks: incoming.delivery_blocks ?? existing.delivery_blocks,
     delivered,
     delivery_status: deliveryStatus,
     readers: mergedReaders,

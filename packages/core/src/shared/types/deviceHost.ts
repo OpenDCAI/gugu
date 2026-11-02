@@ -69,7 +69,7 @@ export interface DeviceHostInfo {
   runs_as_root?: true
   server_disk?: DeviceServerDisk
   server_rollback?: DeviceServerRollback
-  /** 那台机器说的桌面↔server 协议版本,以及它要求桌面至少是哪一版。 */
+  /** 任务 host 的远端协议版本,以及它要求连接端至少是哪一版。 */
   remote_protocol?: number
   min_client_protocol?: number
   connect_via?: DeviceConnectVia

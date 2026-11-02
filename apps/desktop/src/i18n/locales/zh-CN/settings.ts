@@ -707,13 +707,13 @@ export default {
     "noMatch": "没有匹配的机器。",
     "notice": {
       "desktopTooOld": "请更新咕咕",
-      "desktopTooOldHint": "那台机器的咕咕 server 更新，部分功能不可用。",
+      "desktopTooOldHint": "那台机器的咕咕版本更新，部分功能不可用。",
       "diskLow": "磁盘快满了",
       "diskLowHint": "只剩 {{free}}，更新和保存可能失败。",
       "rolledBack": "更新失败，已回退",
       "rolledBackHint": "{{version}} 未能运行，已回退到 {{restored}}。",
       "serverTooOld": "需要更新",
-      "serverTooOldHint": "版本太旧，部分功能不可用。空闲时会自动更新。"
+      "serverTooOldHint": "请更新那台机器上的咕咕，以使用这些功能。"
     },
     "offline": "离线",
     "online": "在线",

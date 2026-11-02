@@ -1242,6 +1242,11 @@ function startCloudProvision(job: {
         { sessionId: job.sessionId, agentUserId: job.guguAgentUserId, groupChatId: job.groupChatId },
         'project group requires approval for Agents — join request queued, agent not in the group yet',
       )
+    } else if (resolved.kind === 'not-joined') {
+      log.warn(
+        { sessionId: job.sessionId, agentUserId: job.guguAgentUserId, groupChatId: job.groupChatId, priorGroupState: minted.priorGroupState },
+        'cloud identity created without project group membership',
+      )
     } else if (resolved.kind === 'remapped') {
       // 映射里的群已归档、或不是这个账号所在的群(foreign)⇒ 服务端另建了一个:映射与名册都改指新群。会话启动时拿到的旧 id 留在它的系统块里,
       // 那是一个归档群 —— 与老链上「归档群在 provisioning 之外发生」同一形状,下次重开就对了。
@@ -1713,13 +1718,15 @@ async function groupIsUsable(chat: ReturnType<typeof makeChatClient>, chatId: st
  * 一次往返供给回来之后,这个 agent 实际在哪个项目群里(名册记这个)。
  *  · pending_approval:项目群开了「Agent 加入需审批」而账号不是管理员 ⇒ 进了待审请求、这次不在群里;
  *    映射照旧指着项目群(批准后再开会话即在群里),名册 ❌ 记它在群里。
+ *  · 入群失败:身份已铸成,空群返回值为准;映射保留,名册不记群。
  *  · 服务端另建了群(映射的群已归档 / foreign)⇒ 映射与名册改指新群。
  */
 export function resolveProvisionedProjectGroup(
   job: { groupName?: string | null; groupChatId: string },
   minted: { groupChatId: string; priorGroupState: string },
-): { kind: 'pending-approval' | 'remapped' | 'unchanged'; groupChatId: string } {
+): { kind: 'pending-approval' | 'not-joined' | 'remapped' | 'unchanged'; groupChatId: string } {
   if (minted.priorGroupState === 'pending_approval') return { kind: 'pending-approval', groupChatId: '' }
+  if (job.groupName && !minted.groupChatId) return { kind: 'not-joined', groupChatId: '' }
   if (job.groupName && minted.groupChatId && minted.groupChatId !== job.groupChatId) {
     return { kind: 'remapped', groupChatId: minted.groupChatId }
   }

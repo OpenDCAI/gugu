@@ -22,7 +22,7 @@ import { getSupabaseAnonKey, getSupabaseUrl } from '../../cloud/config'
 import { resolveListenModeDefault } from '../../cloud/listenMode'
 import type { ChatKind } from '../../shared/types/chat'
 import { parseAttachmentContent } from '../../shared/ui/attachmentModels'
-import { attachmentFolderLine } from '../../shared/attachmentFolderLine'
+import { attachmentLocationLines } from '../../shared/attachmentFolderLine'
 import {
   buildAgentDeliveryEnvelope,
   buildAgentMentionContext,
@@ -716,6 +716,8 @@ async function injectBatch(
     return { injected: 0, verdict: 'accepted' }
   }
   const rulesPlan = await planGroupRules(agentUserId, rows, deps, env)
+  // Preparation precedes admission: remember this batch's attempts without committing a thread as bootstrapped.
+  const threadSeeds = new Map<string, Promise<string | null>>()
   const prepared: PreparedMessage[] = []
   try {
     for (const row of rows) {
@@ -725,7 +727,7 @@ async function injectBatch(
         ? { version: planned.version, text: planned.text }
         : null
       if (planned) planned.text = null
-      const message = await prepareMessage(agentUserId, row, deps, toolNames, env, groupRules)
+      const message = await prepareMessage(agentUserId, row, deps, toolNames, env, threadSeeds, groupRules)
       if (groupRules && groupRules.text !== null) {
         message.rulesDelivered = { chatId: row.chatId, entry: { version: groupRules.version, contextKey: planned!.contextKey } }
       }
@@ -735,7 +737,7 @@ async function injectBatch(
     // Nothing of this batch was admitted yet: a row that cannot be prepared fails the batch the same way an
     // injection does — disclosed to its chats with the error rethrown as it was, ❌ a pull that just stops.
     deps.onOutcome?.({ agentUserId, ok: false })
-    throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, rows.map((row) => ({ row })), deps))
+    throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, rows.map((row) => ({ row })), deps))
   }
   // Queue-backed (idle-only) rows stay one per admission so the queue can merge at drain. A
   // next-tool-call transport has no queue boundary: the admission itself is the delivery boundary,
@@ -792,11 +794,11 @@ async function injectBatch(
       } else {
         unitVerdict = result.verdict
         completion = result.completion?.catch(async (error: unknown) => {
-          if (isSaidInChat(error)) throw error
+          if (error instanceof DisclosedFailure) throw error
           deps.onOutcome?.({ agentUserId, ok: false })
           // Admission already advanced the cursor. Report provider failure here, where the exact
           // source rows are still known, including pulls started without a device command.
-          throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, unit.members, deps, error))
+          throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, unit.members, deps, error))
         })
       }
     } catch (error) {
@@ -804,7 +806,7 @@ async function injectBatch(
       // The pull is still the failure disclosure boundary: include this failed unit and every
       // later row that was not admitted, but do not re-report rows already accepted above it.
       const unadmitted = units.slice(unitIndex).flatMap((remaining) => remaining.members)
-      throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, unadmitted, deps))
+      throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, unadmitted, deps))
     }
     if (unitVerdict !== 'accepted' && unitVerdict !== 'enqueued') {
       if (unitVerdict === 'not-live') deps.wake?.(agentUserId)
@@ -836,6 +838,7 @@ async function prepareMessage(
   deps: AgentInboxReaderDeps,
   toolNames: AgentDeliveryToolNames | undefined,
   env: NodeJS.ProcessEnv,
+  threadSeeds: Map<string, Promise<string | null>>,
   groupRules: { version: string; text: string | null } | null = null,
 ): Promise<PreparedMessage> {
   if (row.localSessionDirect) {
@@ -861,32 +864,39 @@ async function prepareMessage(
   }
   // #1531:thread root 消息让 agent 的回复进它自身的 thread。
   const effectiveThreadRoot = row.threadRootId ?? (row.isThreadRoot ? row.id : null)
+  const fetchThreadMessages = deps.fetchThreadMessages
   let threadContext: string | null = null
   let bootstrapKey: string | undefined
-  if (effectiveThreadRoot && deps.fetchThreadMessages) {
+  if (effectiveThreadRoot && fetchThreadMessages) {
     const key = `${agentUserId}:${row.chatId}:${effectiveThreadRoot}`
-    if (!threadBootstrapped.has(key)) {
-      try {
-        const threadRows = await deps.fetchThreadMessages(row.chatId, effectiveThreadRoot)
-        const senders = [...new Set(threadRows.map((entry) => entry.senderUserId))]
-        const labels = deps.resolveGuguIds
-          ? await deps.resolveGuguIds(senders, deps.accessToken).catch((error: unknown) => {
-              log.warn({ err: error instanceof Error ? error.message : String(error) }, 'thread-bootstrap identity resolve failed')
-              return new Map<string, GuguIdentity>()
-            })
-          : new Map<string, GuguIdentity>()
-        threadContext = buildThreadBootstrapBody(threadRows, {
-          selfAgentUserId: agentUserId,
-          labelFor: (id) => identityShown(labels, id) ?? encodeTypedId('user', id),
-        })
-        bootstrapKey = key
-      } catch (error) {
-        // fail-loud-warn:拉取失败不阻塞投递,不落标记,下次重注 seed。
-        log.warn(
-          { chatId: row.chatId, threadRootId: effectiveThreadRoot, err: error instanceof Error ? error.message : String(error) },
-          'thread-bootstrap fetch failed; delivering without seed',
-        )
-      }
+    if (!threadBootstrapped.has(key) && !threadSeeds.has(key)) {
+      const seed = (async () => {
+        try {
+          const threadRows = await fetchThreadMessages(row.chatId, effectiveThreadRoot)
+          const senders = [...new Set(threadRows.map((entry) => entry.senderUserId))]
+          const labels = deps.resolveGuguIds
+            ? await deps.resolveGuguIds(senders, deps.accessToken).catch((error: unknown) => {
+                log.warn({ err: error instanceof Error ? error.message : String(error) }, 'thread-bootstrap identity resolve failed')
+                return new Map<string, GuguIdentity>()
+              })
+            : new Map<string, GuguIdentity>()
+          const context = buildThreadBootstrapBody(threadRows, {
+            selfAgentUserId: agentUserId,
+            labelFor: (id) => identityShown(labels, id) ?? encodeTypedId('user', id),
+          })
+          bootstrapKey = key
+          return context
+        } catch (error) {
+          // A failed attempt belongs to this batch only; the next pull can try again.
+          log.warn(
+            { chatId: row.chatId, threadRootId: effectiveThreadRoot, err: error instanceof Error ? error.message : String(error) },
+            'thread-bootstrap fetch failed; delivering without seed',
+          )
+          return null
+        }
+      })()
+      threadSeeds.set(key, seed)
+      threadContext = await seed
     }
   }
   const attachment = parseAttachmentContent(row.content, { id: row.id, file_item_id: row.fileItemId, file_version: row.fileVersion, file_blob_id: row.fileBlobId })
@@ -896,28 +906,31 @@ async function prepareMessage(
   })
   // 条目已删(gone):没有字节可给,正文(名字、大小)照原样交下去。
   let attachments: InlineImage[] | undefined
-  let fileLine = ''
+  let saved: Parameters<typeof attachmentLocationLines>[2] = null
   if (attachment?.kind === 'image' && attachment.source.kind !== 'gone') {
     try {
       const image = await download(attachment.fileName)
       attachments = [{ data: Buffer.from(image.bytes).toString('base64'), mimeType: attachment.mimeType, fileName: attachment.fileName, localPath: image.localPath }]
+      saved = { localPath: image.localPath }
     } catch (error) {
-      fileLine = `\n[Image not saved: ${attachmentFailureReason(error)}]`
+      saved = { failure: attachmentFailureReason(error) }
     }
   }
   // 新式附件的文件(不是图):正文里没有链接(老附件靠正文里的 [URL] 去取),字节和图片一样下到本机,交本地路径。
   // 下不下来(签不到、CDN 回错、超时)就照实说没存下和原因 —— 这一行和同一批的别的行照样交,不卡住收件。
   if (attachment?.kind === 'file' && attachment.source.kind !== 'gone' && attachment.source.kind !== 'url') {
     try {
-      fileLine = `\n[File saved at local path: ${(await download(attachment.fileName)).localPath}]`
+      saved = { localPath: (await download(attachment.fileName)).localPath }
     } catch (error) {
-      fileLine = `\n[File not saved: ${attachmentFailureReason(error)}]`
+      saved = { failure: attachmentFailureReason(error) }
     }
   }
-  const folderLine = attachment?.source.kind === 'item' ? `\n${attachmentFolderLine(attachment.source.itemId, attachment.source.version)}` : ''
+  // 那几行与任务输入框的附件同一个格式(attachmentLocationLines,P3)。
+  const item = attachment?.source.kind === 'item' ? { itemId: attachment.source.itemId, version: attachment.source.version } : null
+  const lines = attachmentLocationLines(item, attachment?.kind === 'image', saved)
   const content = attachments && attachment
-    ? `${attachment.caption || `[Image attached: ${attachment.fileName}]`}${folderLine}${attachments?.[0]?.localPath ? `\n[Image attached at local path: ${attachments[0].localPath}]` : ''}`
-    : `${row.content}${folderLine}${fileLine}`
+    ? `${attachment.caption || `[Image attached: ${attachment.fileName}]`}${lines}`
+    : `${row.content}${lines}`
   const messageContext = buildAgentMentionContext(content, row.toUserIds, identities, agentUserId)
   const chat = { publicId: row.chatPublicId, name: row.chatName, kind: row.chatKind,
     ownDm: (row.chatKind === 'dm' || row.chatKind === 'ai') && !!deps.ownerUserId && row.senderUserId === deps.ownerUserId }
@@ -1013,16 +1026,16 @@ export function markInboxRowsRead(agentUserId: string, sources: readonly AgentIn
  * after admission is; otherwise (a start that failed, retried later) they stay unread for that delivery.
  */
 export async function discloseInboxRowsFailed(agentUserId: string, sources: readonly AgentInboxSource[], deps: AgentInboxReaderDeps,
-  outcome: { kind: 'retained' } | { kind: 'failed'; cause: unknown } | { kind: 'unknown' }): Promise<void> {
+  outcome: { kind: 'retained' } | { kind: 'failed'; cause: unknown } | { kind: 'unknown' }): Promise<Disclosure> {
   deps.onOutcome?.({ agentUserId, ok: false })
-  switch (outcome.kind) {
-    // A start that failed keeps its rows queued for the retry: said as retained, left unread for that delivery.
-    case 'retained': await discloseBatchFailure(agentUserId, sources, deps); return
-    case 'failed': await discloseBatchFailure(agentUserId, sources, deps, outcome.cause); break
-    // Handed over, never resent, outcome unknown: said truthfully, then settled like a final failure.
-    case 'unknown': await discloseBatchFailure(agentUserId, sources, deps, undefined, 'outcomeUnknown'); break
-  }
+  // A start that failed keeps its rows queued for the retry: said as retained, left unread for that delivery.
+  if (outcome.kind === 'retained') return discloseBatchFailure(agentUserId, sources, deps)
+  // Handed over, never resent, outcome unknown: said truthfully, then settled like a final failure.
+  const said = outcome.kind === 'failed'
+    ? await discloseBatchFailure(agentUserId, sources, deps, outcome.cause)
+    : await discloseBatchFailure(agentUserId, sources, deps, undefined, 'outcomeUnknown')
   await advanceCursor(agentUserId, sources.map((source) => ({ ...source, envelope: '' })), deps)
+  return said
 }
 
 /**
@@ -1039,18 +1052,26 @@ async function advanceCursor(
   const markRead = deps.markRead
     ?? ((input: AgentDeliveredMessageRead) => markAgentDeliveredMessageRead(input, { accessToken: deps.accessToken }))
   const byChat = new Map<string, PreparedMessage[]>()
+  const forumSeqs = new Map<string, number>()
   for (const member of members) {
     const list = byChat.get(member.row.chatId) ?? []
     list.push(member)
     byChat.set(member.row.chatId, list)
+    if (member.row.forum) {
+      const { postId, seq } = member.row.forum
+      forumSeqs.set(postId, Math.max(forumSeqs.get(postId) ?? seq, seq))
+    }
   }
   for (const [chatId, chatMembers] of byChat) {
     const ordered = [...chatMembers].sort((a, b) => a.row.seq - b.row.seq)
     for (const member of ordered) {
       try {
         if (member.row.forum) {
+          const seq = forumSeqs.get(member.row.forum.postId)
+          if (seq === undefined) continue
+          forumSeqs.delete(member.row.forum.postId)
           const ack = deps.ackForum ?? ((input: { agentUserId: string; postId: string; seq: number }) => ackForumViaRpc(input, deps.accessToken))
-          await ack({ agentUserId, postId: member.row.forum.postId, seq: member.row.forum.seq })
+          await ack({ agentUserId, postId: member.row.forum.postId, seq })
         } else if (member.row.localSessionDirect) {
           if (!deps.markLocalRead) throw new Error('local session-direct row has no markLocalRead handler')
           await deps.markLocalRead({
@@ -1073,7 +1094,7 @@ async function advanceCursor(
         // recoverable skip. Disclose the affected tail and rethrow so the kick caller observes failure;
         // leaving the cursor untouched is deliberate and keeps the cloud row eligible for a later pull.
         deps.onOutcome?.({ agentUserId, ok: false })
-        throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, chatMembers, deps))
+        throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, chatMembers, deps))
       }
     }
   }
@@ -1091,7 +1112,7 @@ async function discloseBatchFailure(
   deps: AgentInboxReaderDeps,
   completionError?: unknown,
   reason: AgentFailureReason = failureReason(completionError),
-): Promise<boolean> {
+): Promise<Disclosure> {
   const post = deps.postDisclosure ?? ((input: DisclosureRow) => postDeliveryDisclosureRow(input, deps.accessToken))
   const byChat = new Map<string, Pick<PreparedMessage, 'row'>[]>()
   const byPost = new Set<string>()
@@ -1147,6 +1168,13 @@ async function discloseBatchFailure(
       log.warn({ agentUserId, chatId, messageIds: ids, reason }, 'quota/model turn failure kept out of the chat; shown as the agent state')
       continue
     }
+    // The row is public: saying it about whispers alone would tell the chat who was whispered to (the rule
+    // `discloseUndeliverable` follows). Left unsaid, the command records reply_notice=context and the owner sees it at the composer.
+    if (chatMembers.every((member) => member.row.isWhisper)) {
+      said = false
+      log.warn({ agentUserId, chatId, messageIds: ids, reason }, 'turn failure on whispers kept out of the public chat; shown to the owner')
+      continue
+    }
     const key = `turn-failure:batch:${createHash('sha256').update([agentUserId, ...ids].join(',')).digest('hex').slice(0, 32)}`
     try {
       await post({ agentUserId, chatId, threadRootId: chatMembers[0]!.row.threadRootId, key, reason })
@@ -1159,7 +1187,7 @@ async function discloseBatchFailure(
       )
     }
   }
-  return said
+  return { said, reason }
 }
 
 async function answeredBeforeFailure(
@@ -1178,35 +1206,40 @@ async function answeredBeforeFailure(
   }
 }
 
+/** An error's message, also for a serialized one (session-life reports `{ name, message }`, not an Error). */
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  if (error instanceof Error) return error.message
+  const message = error && typeof error === 'object' && 'message' in error ? error.message : null
+  return typeof message === 'string' ? message : String(error)
 }
 
 /** 失败的原因(聊天里的披露行与论坛指派上的投递状态同一个):没受理是咕咕这边的错;受理后那一轮失败按上游的原因说。 */
 function failureReason(completionError: unknown): AgentFailureReason {
   if (completionError === undefined) return 'notAdmitted'
-  return agentFailureReason(completionError instanceof Error ? completionError.message : String(completionError)) ?? 'generic'
+  return agentFailureReason(errorText(completionError)) ?? 'generic'
 }
 
+/** What a batch failure's disclosure did: whether its row is in the chat, and the reason it was told with. */
+export type Disclosure = { said: boolean; reason: AgentFailureReason }
+
 /**
- * 编号 17 (10-12 片场试演): a batch's failure once its row is in the chat (`discloseBatchFailure`) — the host puts up no second
- * notice for it (#7125 同一次失败只说一次): the unread stays on the cloud cursor and the next trigger pulls it again, so a Retry
- * adds nothing, and nothing took that notice down once the agent was back. One per failure, wrapping what was thrown (its
- * message kept): the same error object thrown for two batches is not the same failure (148 评审).
+ * A batch's failure once the host has disclosed it (编号 17): whether its row went into the chat (#7125 同一次失败只说一次 —
+ * the host puts up no second notice for a said failure), and the reason it was classified with, so the delivery command
+ * records that same reason and nothing downstream classifies the raw error again. One per failure, wrapping what was
+ * thrown (its message kept): the same error object thrown for two batches is not the same failure (148 评审).
  */
-export class SaidInChatError extends Error {
-  readonly disclosedInChat = true
-  constructor(failure: unknown) {
-    super(failure instanceof Error ? failure.message : String(failure), { cause: failure })
-    this.name = 'SaidInChatError'
+export class DisclosedFailure extends Error {
+  readonly disclosedInChat: boolean
+  readonly reason: AgentFailureReason
+  constructor(failure: unknown, disclosure: Disclosure) {
+    super(errorText(failure), { cause: failure })
+    this.name = 'DisclosedFailure'
+    this.disclosedInChat = disclosure.said
+    this.reason = disclosure.reason
   }
 }
 
-function saidIfDisclosed(error: unknown, said: boolean): unknown {
-  return said ? new SaidInChatError(error) : error
-}
-
-/** This turn failure was said in the chat it came from: the host shows nothing more for it. */
+/** This failure was said in the chat it came from: the host shows nothing more for it. */
 export function isSaidInChat(failure: unknown): boolean {
-  return failure instanceof SaidInChatError
+  return failure instanceof DisclosedFailure && failure.disclosedInChat
 }

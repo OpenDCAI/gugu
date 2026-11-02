@@ -35,11 +35,13 @@ export class AttachmentsError extends Error {
   }
 }
 
-async function call(endpoint: AttachmentsEndpoint, route: string, body: Record<string, unknown>): Promise<unknown> {
+async function call(endpoint: AttachmentsEndpoint, route: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+  signal?.throwIfAborted()
   const response = await (endpoint.fetch ?? fetch)(`${endpoint.supabaseUrl.replace(/\/+$/, '')}/functions/v1/attachments/${route}`, {
     method: 'POST',
     headers: { apikey: endpoint.anonKey, Authorization: `Bearer ${endpoint.token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   })
   const text = await response.text()
   let json: unknown = null
@@ -57,21 +59,22 @@ export async function uploadAttachmentBytes(
   endpoint: AttachmentsEndpoint,
   file: { bytes: Uint8Array | Blob; name: string; contentType: string },
   scope: { chat_id: string | null; as: string; request_id?: string },
-  options?: { onPlan?: (plan: AttachmentUploadPlan) => void; retry?: boolean; onProgress?: (progress: AttachmentByteProgress) => void },
+  options?: { onPlan?: (plan: AttachmentUploadPlan) => void; retry?: boolean; onProgress?: (progress: AttachmentByteProgress) => void; signal?: AbortSignal },
 ): Promise<string> {
   const size = file.bytes instanceof Blob ? file.bytes.size : file.bytes.byteLength
   const form = await call(endpoint, 'upload', {
     size_bytes: size, content_type: file.contentType, as: scope.as, chat_id: scope.chat_id, request_id: scope.request_id ?? crypto.randomUUID(),
-  }) as { staging_key: string; url: string; fields: Record<string, string>; max_bytes: number; expires_at?: string; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
+  }, options?.signal) as { staging_key: string; url: string; fields: Record<string, string>; max_bytes: number; expires_at?: string; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
   options?.onPlan?.(form)
-  await uploadAttachmentPlan(endpoint, form, file, options?.retry === true && !!scope.request_id, options?.onProgress)
+  await uploadAttachmentPlan(endpoint, form, file, options?.retry === true && !!scope.request_id, options?.onProgress, options?.signal)
   return form.staging_key
 }
 
 export type AttachmentUploadPlan = { expires_at?: string; url: string; fields: Record<string, string>; max_bytes: number; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
 
 /** Ordinary and temporary uploads execute the same scoped provider plan; signing remains server-side. */
-export async function uploadAttachmentPlan(endpoint: AttachmentsEndpoint, form: AttachmentUploadPlan, file: { bytes: Uint8Array | Blob; name: string; contentType: string }, allowExisting = false, onProgress?: (progress: AttachmentByteProgress) => void): Promise<void> {
+export async function uploadAttachmentPlan(endpoint: AttachmentsEndpoint, form: AttachmentUploadPlan, file: { bytes: Uint8Array | Blob; name: string; contentType: string }, allowExisting = false, onProgress?: (progress: AttachmentByteProgress) => void, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
   const size = file.bytes instanceof Blob ? file.bytes.size : file.bytes.byteLength
   if (size > form.max_bytes) throw new AttachmentsError('upload', 413, 'too_large', `${file.name} is ${size} bytes; a file is at most ${form.max_bytes}`)
   const method = form.method ?? 'POST'
@@ -83,7 +86,7 @@ export async function uploadAttachmentPlan(endpoint: AttachmentsEndpoint, form: 
     for (const [key, value] of Object.entries(form.fields)) body.append(key, value)
     body.append('file', blob, file.name)
   }
-  const init = { method, body, headers: method === 'PUT' ? { 'content-type': file.contentType, ...form.headers } : form.headers }
+  const init = { method, body, headers: method === 'PUT' ? { 'content-type': file.contentType, ...form.headers } : form.headers, signal }
   const posted = endpoint.upload ? await endpoint.upload(form.url, init, onProgress)
     : await (endpoint.fetch ?? fetch)(form.url, init)
   if (posted.status !== 200 && posted.status !== 204 && !(allowExisting && posted.status === 409)) {
