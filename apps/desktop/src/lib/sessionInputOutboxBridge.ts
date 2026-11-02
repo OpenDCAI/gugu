@@ -27,7 +27,7 @@ export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' 
 export async function retrySessionInputs(): Promise<void> {
   const own = state()
   if (!own.queue || !own.valid()) throw new Error('Session input outbox is not available for this account')
-  await (await own.queue).flush()
+  await (await own.queue).flush(true)
 }
 
 export function useQueuedSessionInputs(sessionId: string): readonly SessionInput[] {

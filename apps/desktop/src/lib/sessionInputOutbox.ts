@@ -74,6 +74,7 @@ export interface SessionInputStorage {
 export class SessionInputOutbox {
   private flushing: Promise<void> | null = null
   private again = false
+  private retryFailures = false
   private writing: Promise<unknown> = Promise.resolve()
   constructor(readonly accountId: string, private readonly storage: SessionInputStorage,
     private readonly send: (input: SessionInput) => Promise<void>, private readonly current: () => boolean,
@@ -97,17 +98,23 @@ export class SessionInputOutbox {
 
   list(): Promise<SessionInput[]> { return this.storage.list(this.accountId) }
 
-  flush(): Promise<void> {
+  flush(retryFailures = false): Promise<void> {
+    this.retryFailures ||= retryFailures
     if (this.flushing) { this.again = true; return this.flushing }
     this.flushing = this.drainUntilCurrent().finally(() => { this.flushing = null })
     return this.flushing
   }
 
   private async drainUntilCurrent(): Promise<void> {
-    do { this.again = false; await this.drain() } while (this.again && this.current())
+    do {
+      this.again = false
+      const retryFailures = this.retryFailures
+      this.retryFailures = false
+      await this.drain(retryFailures)
+    } while (this.again && this.current())
   }
 
-  private async drain(): Promise<void> {
+  private async drain(retryFailures: boolean): Promise<void> {
     const blocked = new Set<string>()
     const rows = (await this.list()).sort((a, b) => a.createdAt - b.createdAt)
     for (const input of rows) {
@@ -115,7 +122,7 @@ export class SessionInputOutbox {
       const target = `${input.deviceId ?? 'local'}/${input.sessionId}`
       if (blocked.has(target)) continue
       try {
-        if (input.failure) {
+        if (input.failure && retryFailures) {
           delete input.failure
           await this.storage.put(input)
           this.changed()

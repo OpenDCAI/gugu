@@ -27,6 +27,30 @@ describe('ordinary input transcript custody', () => {
     expect(projectSessionPendingInput(null, [input()], [host('dispatching')], turns)).toBeNull()
   })
 
+  it('recognizes its echo after the anchor when the remote host clock is five seconds slow', () => {
+    const sending = projectSessionPendingInput(null, [{ ...input(), createdAt: 10000 }], [], [old])!
+    expect(projectSessionPendingInput(sending, [], [], [old, turn('native', 'hello', 5000)])).toBeNull()
+  })
+
+  it('does not acknowledge a second identical input with the first input echo', () => {
+    const firstEcho = turn('first-echo', '好', 30)
+    const second = { ...input(), id: 'second-send', text: '好', createdAt: 40, ...sessionInputBaseline([old, firstEcho]) }
+    const sending = projectSessionPendingInput(null, [second], [], [old, firstEcho])!
+    expect(sending).toMatchObject({ id: 'second-send', delivery: { state: 'sending' } })
+    expect(projectSessionPendingInput(sending, [], [], [turn('older', '好', 1), old, firstEcho])?.id).toBe('second-send')
+    expect(projectSessionPendingInput(sending, [], [], [old, firstEcho, turn('second-echo', '好', 50)])).toBeNull()
+  })
+
+  it('keeps the baseline and turn anchor when persistence renumbers a live display prefix', () => {
+    const nativeId = '01a19c1a-43c7-7b70-82ba-1d17a9390881'
+    const live = { ...turn('s:turn:6', '好'), items: [{ kind: 'message' as const, id: `s:turn:6:message:${nativeId}`, seq: 0, role: 'user' as const, text: '好' }] }
+    const second = { ...input(), text: '好', ...sessionInputBaseline([old, live]) }
+    const sending = projectSessionPendingInput(null, [second], [], [old, live])!
+    const stored = { ...live, id: 's:turn:s6', items: [{ ...live.items[0], id: `s:turn:s6:message:${nativeId}` }] }
+    expect(projectSessionPendingInput(sending, [], [], [old, stored])?.id).toBe(second.id)
+    expect(projectSessionPendingInput(sending, [], [], [old, stored, turn('new-echo', '好', 1)])).toBeNull()
+  })
+
   it('does not mistake paginated older history or an unrelated active turn for a receipt', () => {
     const sending = projectSessionPendingInput(null, [input()], [], [old])!
     const history = [turn('older', 'hello', 1), old, turn('elsewhere', 'another input', 21)]

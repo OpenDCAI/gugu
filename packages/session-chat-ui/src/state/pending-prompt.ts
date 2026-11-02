@@ -5,6 +5,7 @@
  * 两处各拼一份,交接给真的那一轮时总有一处对不上(位置跳、刻度晚到)。
  */
 import type { ChatAttachment, TranscriptTurn, TurnProcessItem } from '@session-chat/model';
+import { nativeMessageKey } from '@gugu/session-core/session-record/native-read';
 
 export type PendingPrompt = {
   id: string;
@@ -28,16 +29,21 @@ export type PendingPrompt = {
 
 /** A new history seed or an unrelated active turn is not a receipt for this input. */
 export function pendingPromptLanded(prompt: PendingPrompt, turns: readonly TranscriptTurn[]): boolean {
-  const anchor = turns.findIndex(turn => turn.id === prompt.afterTurnId);
-  const baseline = new Set(prompt.baselineMessageIds ?? []);
+  const baseline = new Set((prompt.baselineMessageIds ?? []).map(nativeMessageKey));
+  let anchor = turns.findIndex(turn => turn.id === prompt.afterTurnId);
+  // Persisting a runtime turn renumbers its display prefix. Its native user identity remains the same anchor.
+  if (anchor < 0 && prompt.afterTurnId !== undefined) {
+    turns.forEach((turn, index) => {
+      if (turn.items.some(item => item.kind === 'message' && item.role === 'user' && baseline.has(nativeMessageKey(item.id)))) anchor = index;
+    });
+  }
   const flat = (text: string) => text.replace(/\s+/g, ' ').trim();
   return turns.some((turn, index) => turn.items.some(item => {
-    if (item.kind !== 'message' || item.role !== 'user' || baseline.has(item.id)) return false;
+    if (item.kind !== 'message' || item.role !== 'user' || baseline.has(nativeMessageKey(item.id))) return false;
     if (item.id === prompt.id || (prompt.id.length >= 16 && item.id.includes(prompt.id))) return true;
     if (flat(item.text) !== flat(prompt.text)) return false;
-    if (anchor >= 0 && index <= anchor) return false;
-    if (prompt.sentAt !== undefined && turn.startedAt !== undefined) return turn.startedAt >= prompt.sentAt;
-    return anchor >= 0 && index > anchor;
+    // Sender and host clocks are independent. An empty baseline anchors a first input before the first turn.
+    return prompt.afterTurnId === undefined ? baseline.size === 0 : anchor >= 0 && index > anchor;
   }));
 }
 

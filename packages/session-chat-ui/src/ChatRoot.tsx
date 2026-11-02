@@ -652,8 +652,9 @@ export function ChatRoot(props: ChatRootProps) {
         return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
       }
       const activeTurn = activeTurnWithPending(at, pendingPrompt)!;
-      const pendingOnly = !at && pendingPrompt?.delivery && !pendingPrompt.starting;
-      return flattenTier([activeTurn], pendingOnly ? { ...ctx, active: false } : ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
+      // Reserve the same process row from send to startup: adding it at acknowledgement scrolls a long transcript.
+      const failedPending = !at && (pendingPrompt?.delivery?.state === 'failed' || pendingPrompt?.delivery?.state === 'unknown');
+      return flattenTier([activeTurn], failedPending ? { ...ctx, active: false } : ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
     };
     const units = build(false);
     if (!background) return { units, backgroundOwner: null as string | null };

@@ -42,6 +42,26 @@ const FIRST = 'Look at this project.'
 const header = (host: HTMLElement) => host.querySelector<HTMLElement>('[data-slot="turn-process"]')
 
 describe('ordinary sending stays in the transcript', () => {
+  it('keeps the last bubble stationary when a long conversation enters host startup', async () => {
+    const { state, host, view } = mount('double', { agentConversation: true })
+    state.transcript.history.seed(Array.from({ length: 12 }, (_, seq) => ({
+      id: `old-${seq}`, seq, initiator: 'user', startedAt: Date.now() - 30000 + seq,
+      items: [{ kind: 'message', id: `old-${seq}-user`, seq: 0, role: 'user', text: `Previous input ${seq}` },
+        { kind: 'message', id: `old-${seq}-reply`, seq: 1, role: 'assistant', text: `Previous reply ${seq}` }],
+    } as TranscriptTurn)))
+    const pending = { id: 'long-send', text: FIRST, sentAt: Date.now(), held: true, delivery: { state: 'sending' as const } }
+    state.session.setPendingPrompt(pending)
+    view.setScrollMode({ kind: 'tail' })
+    await until('the last bubble is on screen', () => !!host.querySelector('[data-user-card="long-send"]'))
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const before = host.querySelector('[data-user-card="long-send"]')!.getBoundingClientRect().top
+    state.session.setPendingPrompt({ ...pending, starting: true, delivery: { state: 'accepted' } })
+    await until('the host startup line mounts', () => (host.textContent ?? '').includes('Starting'))
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    expect(host.querySelectorAll('[data-user-card="long-send"]')).toHaveLength(1)
+    expect(Math.abs(host.querySelector('[data-user-card="long-send"]')!.getBoundingClientRect().top - before)).toBeLessThanOrEqual(1)
+  })
+
   it.each(['single', 'double'] as ChatLayoutPreset[])('keeps one bubble through acknowledgement, history and native echo (%s)', async preset => {
     const { state, host } = mount(preset, { agentConversation: true, pinUserMessages: true })
     const sentAt = Date.now()
