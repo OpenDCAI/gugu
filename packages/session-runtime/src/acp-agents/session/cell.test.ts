@@ -140,6 +140,21 @@ describe('SessionCell prompts', () => {
     expect(item).toMatchObject({ kind: 'message', role: 'user', text: '看下 #4456' });
   });
 
+  it('sends a manual turn with the context the host attached to it', async () => {
+    const { cell, agent } = makeCell();
+    agent.prompt = vi.fn().mockResolvedValue({ stopReason: 'end_turn' });
+
+    await cell.prompt({ text: 'Check #4456', hiddenContext: '<issue_context/>', origin: 'manual' });
+
+    const request = (agent.prompt as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(request.prompt).toEqual([
+      { type: 'text', text: 'Check #4456' },
+      { type: 'text', text: '<issue_context/>' },
+    ]);
+    const item = cell.history().committed[0].items[0];
+    expect(item).toMatchObject({ kind: 'message', role: 'user', text: 'Check #4456' });
+  });
+
   // ── 命令必须是第一个块 ──────────────────────────────────────────────────────
   //
   // 三家 harness 都只在 prompt 的开头找命令(claude / codex 只读 `prompt[0]`,opencode 把
