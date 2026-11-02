@@ -134,6 +134,7 @@ describe('only its own tab, and only one that claims the file (A2 T6)', () => {
     ['a tab it does not have', { tab: 'nope' }],
     ['another App\'s tab, spelled as a kind', { tab: 'office.sheet' }],
     ['another App\'s tab, by its bare name', { tab: 'sheet' }],
+    ['a forged caller id', { extensionId: 'office', tab: 'sheet' }],
     ['not a name', { tab: 42 }],
     ['an empty name', { tab: '' }],
     ['a null name', { tab: null }],
@@ -167,7 +168,7 @@ describe('a file already open in another App\'s tab (A2 T8, the fast path)', () 
     await bindExtensionSurface({ webContentsId: OFFICE_PAGE, extensionId: 'office', tabId: 'sheet-1', tabKind: 'office.sheet', conversation: CHAT, itemId: 'item-1' });
     vi.spyOn(fileSync, 'openCount').mockImplementation((id) => (id === OFFICE_PAGE ? 1 : 0));
   });
-  afterEach(() => { unbindExtensionSurface(OFFICE_PAGE); vi.restoreAllMocks(); });
+  afterEach(() => { unbindExtensionSurface(OFFICE_PAGE); unbindExtensionSurface(LENS_PAGE); vi.restoreAllMocks(); });
 
   it('T8: { tab } does not bring Office\'s tab forward — it opens its own', async () => {
     expect(await openWith({ ref, tab: 'explore' })).toMatchObject({ ok: true });
@@ -178,5 +179,19 @@ describe('a file already open in another App\'s tab (A2 T8, the fast path)', () 
   it('T8 (control, green before and after): without tab, the tab already showing it is shown', async () => {
     expect(await openWith({ ref })).toMatchObject({ ok: true });
     expect(actions()[0]).toMatchObject({ kind: 'openChatFile', onlyIfOpen: 'office.sheet' });
+  });
+
+  it('resumes its own already-open claiming tab, even with Office also open', async () => {
+    await bindExtensionSurface({ webContentsId: LENS_PAGE, extensionId: 'data-lens', tabId: 'explore-1', tabKind: 'data-lens.explore', conversation: CHAT, itemId: 'item-1' });
+    vi.mocked(fileSync.openCount).mockImplementation((id) => id === OFFICE_PAGE || id === LENS_PAGE ? 1 : 0);
+    expect(await openWith({ ref, tab: 'explore' })).toMatchObject({ ok: true });
+    expect(actions()[0]).toMatchObject({ kind: 'openChatFile', onlyIfOpen: 'data-lens.explore' });
+  });
+
+  it('refuses a stale live binding that no longer claims the file before presenting it', async () => {
+    await bindExtensionSurface({ webContentsId: LENS_PAGE, extensionId: 'data-lens', tabId: 'stale-card', tabKind: 'data-lens.card', conversation: CHAT, itemId: 'item-1' });
+    vi.mocked(fileSync.openCount).mockImplementation((id) => id === LENS_PAGE ? 1 : 0);
+    expect(await openWith({ ref, tab: 'card' })).toMatchObject({ ok: false, code: 'invalid' });
+    expect(actions()).toEqual([]);
   });
 });

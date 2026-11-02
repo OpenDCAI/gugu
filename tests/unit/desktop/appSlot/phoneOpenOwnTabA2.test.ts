@@ -126,6 +126,7 @@ describe('the phone: openWith(file, { tab }) opens its own tab (A2 T9)', () => {
     ['its own tab that does not claim it', { tab: 'card' }],
     ['another App\'s tab', { tab: 'office.sheet' }],
     ['another App\'s bare tab name', { tab: 'sheet' }],
+    ['a forged caller id', { extensionId: 'office', tab: 'sheet' }],
     ['an empty name', { tab: '' }],
     ['a null name', { tab: null }],
     ['not a name', { tab: 42 }],
