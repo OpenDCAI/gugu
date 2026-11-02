@@ -1,4 +1,5 @@
 import { createServerVersionLifecycle } from './server-version-lifecycle'
+import { repairLegacyServerLaunchers } from './server-installation'
 /**
  * 咕咕 server 的守护进程(`gugu-server run`,系统服务拉起的就是它)。
  *
@@ -108,6 +109,8 @@ export async function runSupervisor(): Promise<void> {
     // 专门的退出码:看门人见到它就收手,❌ 两个一直互相顶(server-keeper.ts)。
     process.exit(SUPERVISOR_EXIT_ALREADY_RUNNING)
   }
+  try { repairLegacyServerLaunchers(process.env.GUGU_SERVER_HOME!) }
+  catch (error) { log.warn('Could not update the legacy server command', { error: String(error) }) }
   process.on('exit', release)
   // Include signed-out accounts: their saved website logins must not wait for another sign-in.
   for (const account of listAccounts()) removeLegacyBrowserLogins(account.dataDir, log)

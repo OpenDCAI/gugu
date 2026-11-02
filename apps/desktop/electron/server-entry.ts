@@ -11,7 +11,6 @@
 import { REMOTE_TUNNEL_OPEN } from '@gugu/core/cloud/remoteTunnel'
 import fs from 'node:fs'
 import Module from 'node:module'
-import os from 'node:os'
 import path from 'node:path'
 import { isOwnProcessAlive, isProcessAlive, SERVER_PROCESS_MARK } from './server/process-alive'
 import { ensureCaBundleForChildren } from './server/server-ca-bundle'
@@ -25,16 +24,10 @@ import * as serverShim from './server/server-electron-shim'
 import { runWithRunningVersion } from './server/server-version-match'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { ensurePrivateDir, summarizeChanges, tightenServerTree } from './server/server-permissions'
-import { ownServerNames } from './server/server-names'
+import { resolveServerHome } from './server/server-installation'
 
 
 const stderr = (line: string): void => void process.stderr.write(`${line}\n`)
-
-/** 数据目录:显式 GUGU_SERVER_HOME 最大,否则本通道的目录(server-names.ts:正式版 ~/.gugu-server,Beta ~/.gugu-server-beta)。 */
-function resolveServerHome(): string {
-  const configured = process.env.GUGU_SERVER_HOME?.trim()
-  return configured ? path.resolve(configured) : path.join(os.homedir(), ownServerNames().homeDir)
-}
 
 type ModuleLoader = (request: string, ...rest: unknown[]) => unknown
 const moduleInternals = Module as unknown as { _load: ModuleLoader }
