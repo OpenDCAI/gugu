@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resumeHostUpdate } from './resume-host-update';
 import { sessionDirectMessageId, stableUuid } from '../sessions/session-direct-identity';
+import { sessionBootTasks } from '../boot-tasks';
 
 const mocks = vi.hoisted(() => ({ send: vi.fn(async (..._args: unknown[]) => ({ id: 'notice' })) }));
 vi.mock('../sessions/session-orchestration', () => ({ messageSessionFrom: mocks.send }));
-beforeEach(() => { mocks.send.mockClear(); });
+vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
+beforeEach(() => {
+  mocks.send.mockClear();
+  for (const failure of sessionBootTasks.snapshot()) sessionBootTasks.clear(failure.operation, failure.taskId);
+});
 
 describe('resuming work interrupted by a host update', () => {
   const update = { reason: 'update', at: 1_793_598_000_000 } as const;
@@ -47,9 +52,13 @@ describe('resuming work interrupted by a host update', () => {
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
-  it('propagates delivery failures instead of claiming recovery succeeded', async () => {
+  it('records a delivery failure per task and still resumes the other task', async () => {
     const failure = new Error('fixture delivery refusal');
     mocks.send.mockRejectedValueOnce(failure);
-    await expect(resumeHostUpdate(['session'], update, 'new')).rejects.toBe(failure);
+    await expect(resumeHostUpdate(['broken', 'other'], update, 'new')).resolves.toBeUndefined();
+    expect(mocks.send.mock.calls.map(call => call[1])).toEqual(['broken', 'other']);
+    expect(sessionBootTasks.snapshot()).toEqual([
+      { operation: 'update-resume', taskId: 'broken', message: failure.message },
+    ]);
   });
 });
