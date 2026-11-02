@@ -14,6 +14,7 @@
 //   · 旧家的助理在搬的这段时间里还在写东西:搬上云是接过之后才拷(旧家已停,数两遍),搬回本机是接过之后再补一遍变了的;
 //   · 每一步可重来:拷贝同路径覆盖、账号 upsert、重排按「同一条已在」去重、接过先问「已经在新家了吗」。
 import type { IntegrationMoveExport, IntegrationMoveImport, MovableIntegrationAccount, MoveSkipped } from '@shared/core/integrations/integration-move';
+import type { AgentModelSelection } from '@gugu/core/shared/agentModelSelection';
 import {
   assertPlanFits,
   assertTotalFits,
@@ -23,6 +24,7 @@ import {
   planTree,
   probeReadable,
   type CopyPlan,
+  type CopyCheckpoint,
   type HomeFs,
 } from './assistant-move-copy';
 
@@ -45,6 +47,8 @@ export type MoveSide = {
   label: string;
   /** 这一头的设备 id(核对「旧家 ≠ 新家」用);单测里不给 = 不核。 */
   deviceId?: string | null;
+  /** Retained before retirement removes the source session used to discover this path. */
+  workdir?: string;
   fs: HomeFs;
   /** 这一头「它的家」目录之上已经存在的那一级(拷贝时往下逐层建目录用)。 */
   base: string;
@@ -73,6 +77,12 @@ export type MoveJournal = {
   schedules: MoveSchedule[] | null;
   /** 旧家是哪台(开搬那一刻记下)。没有这一项的日志是老版本留下的,不接着用。 */
   source: MoveHomeRef | null;
+  targetDeviceId?: string;
+  copies?: CopyCheckpoint['files'];
+  sourceWorkdir?: string;
+  model?: AgentModelSelection;
+  /** Confirmed handoff report and non-secret account references for source-independent activation retries. */
+  completion?: { report: MoveReport; accounts: MoveAccountRef[] };
 };
 
 export type MoveProgress = {
@@ -109,6 +119,7 @@ export interface MoveDeps {
   source: MoveSide;
   /** 旧家是哪台:新开一次搬时记进日志;接着搬时必须与日志里那一份一致。 */
   sourceHome: MoveHomeRef;
+  model?: AgentModelSelection;
   /** 搬回本机时目标那一头在「接过」之前就要备好;搬上云时目标要等管家接过之后才有。 */
   openTarget(): Promise<MoveSide>;
   /** 把助理接到目标上,等到库里落定(users.device_id 已是新家)。 */
@@ -119,9 +130,66 @@ export interface MoveDeps {
   isAdopted(): Promise<boolean>;
   /** 让新家上的助理从头读一遍新拷来的文件(停掉运行时,下条消息再起)。 */
   restart(): Promise<void>;
-  journal: { load(): MoveJournal | null; save(journal: MoveJournal): void; clear(): void };
+  /** Completed handoff retries only restore online intent; they must not stop the target again. */
+  restoreOnline?(): Promise<void>;
+  journal: { load(): MoveJournal | null; save(journal: MoveJournal): void | Promise<void>; clear(): void | Promise<void> };
   onProgress?: (progress: MoveProgress) => void;
   now?: () => number;
+}
+
+type MoveAccountRef = { integrationId: string; accountId: string; displayName?: string };
+type MoveCompletionDeps = Pick<MoveDeps, 'direction' | 'assistantId' | 'journal' | 'isAdopted' | 'onProgress'> & {
+  activate(): Promise<void>;
+  disconnect(account: MoveAccountRef): Promise<void>;
+};
+
+function emptyMoveReport(): MoveReport {
+  return { files: 0, skippedFiles: [], accounts: { moved: [], skipped: [], kept: [], unsupported: false },
+    schedules: { restored: 0, skipped: [], unsupported: [], unreadable: false }, warnings: [] };
+}
+
+/** Resume the already committed handoff without opening either filesystem or replaying transferred data. */
+export async function resumeMoveCompletion(deps: MoveCompletionDeps): Promise<MoveReport | null> {
+  const saved = deps.journal.load();
+  if (!saved?.source || saved.direction !== deps.direction || saved.assistantId !== deps.assistantId || !saved.targetDeviceId
+    || !(['adopt', 'files', 'accounts', 'schedules'] as const).every(step => saved.done.includes(step))) return null;
+  try {
+    if (!await deps.isAdopted()) throw new Error('The assistant is no longer at the recorded target');
+  } catch (cause) { throw new MoveError('adopt', cause, false); }
+  return completeMove(deps, saved, structuredClone(saved.completion?.report ?? emptyMoveReport()), saved.completion?.accounts);
+}
+
+async function completeMove(deps: Pick<MoveCompletionDeps, 'activate' | 'disconnect' | 'journal' | 'onProgress'>,
+  journal: MoveJournal, report: MoveReport, accounts: MoveAccountRef[] | undefined): Promise<MoveReport> {
+  const guard = async (step: MoveStep, run: () => Promise<unknown>) => {
+    try { await run(); }
+    catch (cause) { throw cause instanceof MoveError ? cause : new MoveError(step, cause, false); }
+  };
+  const finish = async (step: MoveStep) => {
+    if (!journal.done.includes(step)) journal.done.push(step);
+    await guard(step, async () => deps.journal.save(journal));
+  };
+  deps.onProgress?.({ step: 'restart' });
+  await guard('restart', deps.activate);
+  await finish('restart');
+  if (!accounts) {
+    // Earlier journals cannot prove which source accounts were verified. Restore availability but retain recovery.
+    report.warnings.push('revoke: source account verification references are missing; recovery retained for manual cleanup');
+    return report;
+  }
+  deps.onProgress?.({ step: 'revoke' });
+  for (const account of accounts) {
+    try {
+      await deps.disconnect(account);
+      report.accounts.moved.push(account);
+    } catch (cause) {
+      report.accounts.kept.push({ integrationId: account.integrationId, accountId: account.accountId });
+      report.warnings.push(`revoke ${account.integrationId}/${account.accountId}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+  }
+  await finish('revoke');
+  await guard('revoke', async () => deps.journal.clear());
+  return report;
 }
 
 /** 接过被对面明确拒绝(没开始):`adopt()` 抛的错上带 `notStarted: true`,旧家就还是原样。其余失败一律当「可能已经落定」。 */
@@ -171,19 +239,16 @@ export async function planMove(source: MoveSide): Promise<MovePlan> {
 
 export async function runMove(deps: MoveDeps): Promise<MoveReport> {
   const now = deps.now ?? Date.now;
-  const report: MoveReport = {
-    files: 0,
-    skippedFiles: [],
-    accounts: { moved: [], skipped: [], kept: [], unsupported: false },
-    schedules: { restored: 0, skipped: [], unsupported: [], unreadable: false },
-    warnings: [],
-  };
+  const report = emptyMoveReport();
   const saved = deps.journal.load();
   // 日志没记旧家是哪台(老版本留下的)= 不接着用:从头来一遍是安全的(拷贝覆盖、账号 upsert、重排去重)。
   const resumed = saved && saved.direction === deps.direction && saved.assistantId === deps.assistantId && saved.source ? saved : null;
   if (resumed?.source && (resumed.source.deviceId !== deps.sourceHome.deviceId || resumed.source.kind !== deps.sourceHome.kind)) {
     throw new MoveError('preflight', new Error('the journal was written for a different source home'), false);
   }
+  const completed = await resumeMoveCompletion({ ...deps, activate: deps.restoreOnline ?? deps.restart,
+    disconnect: account => deps.source.integrations.disconnect(account.integrationId, account.accountId) });
+  if (completed) return completed;
   const journal: MoveJournal = resumed ?? {
     direction: deps.direction,
     assistantId: deps.assistantId,
@@ -191,11 +256,15 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
     done: [],
     schedules: null,
     source: deps.sourceHome,
+    sourceWorkdir: deps.source.workdir,
+    model: deps.model,
   };
+  journal.sourceWorkdir ??= deps.source.workdir;
+  journal.model ??= deps.model;
   const progress = (step: MoveStep, bytes?: MoveProgress['bytes']) => deps.onProgress?.({ step, bytes });
-  const finish = (step: MoveStep) => {
+  const finish = async (step: MoveStep) => {
     if (!journal.done.includes(step)) journal.done.push(step);
-    deps.journal.save(journal);
+    await guard(step, async () => deps.journal.save(journal));
   };
   // 「碰过接过」:一旦发出接过(不论后来成没成)旧家就不能再说「原样」—— 超时 / 掉线时那边可能已经落定。
   let adoptTouched = journal.done.includes('adopt');
@@ -224,28 +293,37 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
       }
     }
     if (deps.configure) await guard('adopt', deps.configure);
-    finish('adopt');
+    await finish('adopt');
   };
 
   // 1. 读旧家(只读)。已安排要在接过之前读到手;中断后接着搬时旧家的已安排可能已被撤,用日志里存的。
   progress('preflight');
+  // Adoption may have committed even if its response (and the local completion marker) was lost.
+  if (await guard('preflight', () => deps.isAdopted())) {
+    adoptTouched = true;
+    if (!resumed || journal.schedules === null) {
+      throw new MoveError('schedules', new Error('The original schedule snapshot is missing; restore the move recovery record before resuming'), false);
+    }
+  }
   let plan = await guard('preflight', () => planMove(deps.source));
   // 已经接过之后,旧家的已安排已被撤掉,只能信日志;还没接过就以旧家此刻的为准(上一次读到之后人可能改过)。
-  if (journal.schedules === null || !journal.done.includes('adopt')) {
+  if (journal.schedules === null || !adoptTouched) {
     const listed = await guard('preflight', () => deps.source.schedules.list());
     if (listed !== null) {
       journal.schedules = listed;
     } else if (journal.schedules === null) {
-      // 旧家读不出它的会话、日志里也没有:不知道有没有 —— 记一笔,搬完让人知道「已安排没确认」。
-      journal.schedules = [];
-      report.schedules.unreadable = true;
+      throw new MoveError('schedules', new Error('The original schedules cannot be recovered; reconnect the source home before resuming'), !adoptTouched);
     }
-    deps.journal.save(journal);
+    await guard('preflight', async () => deps.journal.save(journal));
   }
-  finish('preflight');
+  await finish('preflight');
 
   let target: MoveSide | null = null;
   const copyAll = async (to: MoveSide, from: MovePlan, countNew: (tree: string, rel: string) => boolean = () => true) => {
+    if (journal.targetDeviceId && journal.targetDeviceId !== to.deviceId) throw new Error('The move target changed; restore the original target before resuming');
+    journal.targetDeviceId = to.deviceId ?? undefined;
+    const checkpoint: CopyCheckpoint = { files: journal.copies ??= {}, resuming: !!resumed,
+      save: async () => { await deps.journal.save(journal); } };
     progress('files', { done: 0, total: from.totalBytes });
     let done = 0;
     const onBytes = (n: number) => {
@@ -262,10 +340,11 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
         toRoot,
         plan: tree.plan,
         onBytes,
+        checkpoint,
       });
       report.files += tree.plan.files.filter((file) => countNew(tree.name, file.rel)).length;
     }
-    await copyUserInstructions({ from: deps.source.fs, fromPath: deps.source.paths.instructions, to: to.fs, toPath: to.paths.instructions });
+    await copyUserInstructions({ from: deps.source.fs, fromPath: deps.source.paths.instructions, to: to.fs, toPath: to.paths.instructions, checkpoint });
   };
   const noteSkipped = (from: MovePlan) => {
     report.skippedFiles = from.trees.flatMap((tree) => tree.plan.skipped.map((s) => ({ rel: `${tree.name}/${s.rel}`, reason: s.reason })));
@@ -320,18 +399,18 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
     plan = await guard('files', () => planMove(deps.source));
     noteSkipped(plan);
     await guard('files', () => copyAll(target!, plan));
-    finish('files');
+    await finish('files');
     await guard('accounts', () => copyAccounts(target!));
-    finish('accounts');
+    await finish('accounts');
   } else {
     // 搬回本机:本机的家先备好、先拷,最后才接过 —— 拷失败时助理还好好地住在云上。
     target = await guard('files', () => deps.openTarget());
     assertDistinct(target);
     noteSkipped(plan);
     await guard('files', () => copyAll(target!, plan));
-    finish('files');
+    await finish('files');
     await guard('accounts', () => copyAccounts(target!));
-    finish('accounts');
+    await finish('accounts');
     await ensureAdopted();
     // 接过 = 云上那边停了、不会再写:先前拷的这段时间里它写的 / 改的,补一遍(只补变了的)。
     const after = await guard('files', () => planMove(deps.source));
@@ -348,40 +427,14 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
   // 3. 重排已安排(接过之后新家才有助理那条会话)。
   progress('schedules');
   if (journal.schedules && journal.schedules.length > 0) {
-    try {
-      const result = await guard('schedules', () => target!.schedules.restore(journal.schedules!));
-      report.schedules = { ...result, unsupported: [], unreadable: report.schedules.unreadable };
-    } catch (cause) {
-      const original = cause instanceof MoveError ? cause.cause : cause;
-      if (!isUnknownMethod(original)) throw cause;
-      report.schedules.unsupported = journal.schedules;
-    }
+    const result = await guard('schedules', () => target!.schedules.restore(journal.schedules!));
+    report.schedules = { ...result, unsupported: [], unreadable: report.schedules.unreadable };
   }
-  finish('schedules');
-
-  // 4. 重启:让新家上的助理从头读一遍刚拷来的记忆与说明。失败不算搬家失败(下次醒来也会读到),如实记一笔。
-  progress('restart');
-  try {
-    await deps.restart();
-    finish('restart');
-  } catch (cause) {
-    report.warnings.push(`restart: ${cause instanceof Error ? cause.message : String(cause)}`);
-  }
-
-  // 5. 剪切:新家核对过的账号,把旧家那一份撤掉(owner:有账号的服务只存一份)。撤不掉的如实记下,不当成搬家失败。
-  progress('revoke');
-  for (const account of verified) {
-    try {
-      await deps.source.integrations.disconnect(account.integrationId, account.accountId);
-      report.accounts.moved.push({ integrationId: account.integrationId, accountId: account.accountId, displayName: account.displayName });
-    } catch (cause) {
-      report.accounts.kept.push({ integrationId: account.integrationId, accountId: account.accountId });
-      report.warnings.push(`revoke ${account.integrationId}/${account.accountId}: ${cause instanceof Error ? cause.message : String(cause)}`);
-    }
-  }
-  finish('revoke');
-  deps.journal.clear();
-  return report;
+  const accounts = verified.map(({ integrationId, accountId, displayName }) => ({ integrationId, accountId, displayName }));
+  journal.completion = { report: structuredClone(report), accounts };
+  await finish('schedules');
+  return completeMove({ ...deps, activate: deps.restart,
+    disconnect: account => deps.source.integrations.disconnect(account.integrationId, account.accountId) }, journal, report, accounts);
 }
 
 /** 确认框里列「这次会带走哪些账号」:名字、不含任何密钥;命令行那几家与读不出密钥的另列「要重新连」。 */
