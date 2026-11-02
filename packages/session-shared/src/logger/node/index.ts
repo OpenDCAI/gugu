@@ -3,11 +3,14 @@
  * Import from '@gugu/session-shared/logger/node' in Node deployments only.
  */
 
-import pinoLib from 'pino';
+import type pinoLib from 'pino';
 import { setRootLogger } from '../context';
 import { installAsyncLogContext } from '../context-node';
 import { createPinoLogger } from '../pino';
 import type { LogFields, Logger } from '../types';
+import { writeLogSync } from './write-log-sync';
+
+export { writeLogSync } from './write-log-sync';
 
 export type InitProcessLoggingOptions = {
   name: string;
@@ -28,7 +31,7 @@ export function initProcessLogging(options: InitProcessLoggingOptions): Logger {
       pid: process.pid,
       ...options.bindings,
     },
-    destination: options.destination ?? pinoLib.destination(2),
+    destination: options.destination ?? { write: (line) => writeLogSync(2, line) },
   });
 
   installAsyncLogContext();

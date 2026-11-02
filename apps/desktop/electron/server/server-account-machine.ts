@@ -184,6 +184,9 @@ function tick(state: AccountState, event: Extract<AccountEvent, { type: 'tick' }
   }
 }
 
+// urgent comes only from a person's explicit confirmation: restart this account now, mark interrupted
+// work as interrupted by the update, and let the new host resume it. Unconfirmed requests and supervisor
+// self-updates still wait for idle; urgent never means the person cancelled their work.
 function switchTo(s: AccountState, target: string, now: number, urgent: boolean, request: number | undefined): Step {
   const running = s.child === 'running'
   return {

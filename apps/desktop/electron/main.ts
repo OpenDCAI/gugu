@@ -1,6 +1,7 @@
 import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
 import { noteExitReason } from './lib/exit-reason'
+import { killAllWorkersSync } from '@gugu/session-wire/worker'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
 import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assistantWorkAvailability'
@@ -3327,6 +3328,7 @@ const killEnginesOnCrash = (label: string): void => {
     appendFileSync(join(logDir, 'reap-probe.log'), `${new Date().toISOString()} reap-begin label=${label}\n`)
   } catch { /* 探针不许反噬关停 */ }
   shutdownLogger.info({ label }, 'native leg reap: begin')
+  reap('workers', killAllWorkersSync)
   reap('codex-app-server', killAllCodexAppServerProcessGroupsSync)
   reap('opencode-serve-attach', () => opencodeServeAttachSessionDelivery.disposeSync())
   reap('droid-daemon', () => droidDaemonSessionDelivery.disposeSync())
