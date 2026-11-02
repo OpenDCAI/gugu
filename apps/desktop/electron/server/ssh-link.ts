@@ -254,12 +254,14 @@ export function createSshLinkManager(options: {
       const link = links.get(deviceId)
       if (!link?.open) return false
       const request = parseDeviceRpcRequest(message)
-      if (request && serverProtocolTooOld(link.protocol, { unknownIsTooOld: false })
-        && !SERVER_UPDATE_CONTROL_RPCS.has(request.type)) {
-        options.onMessage(deviceId, { type: 'broadcast', event: 'broadcast', payload: createDeviceRpcReplyEnvelope(request.type, request.request_id, {
-          error: { code: 'server_outdated', message: '请更新那台机器上的咕咕' },
-        }) })
-        return true
+      if (serverProtocolTooOld(link.protocol, { unknownIsTooOld: false })) {
+        if (!request) return false
+        if (!SERVER_UPDATE_CONTROL_RPCS.has(request.type)) {
+          options.onMessage(deviceId, { type: 'broadcast', event: 'broadcast', payload: createDeviceRpcReplyEnvelope(request.type, request.request_id, {
+            error: { code: 'server_outdated', message: '请更新那台机器上的咕咕' },
+          }) })
+          return true
+        }
       }
       link.child.stdin.write(encodeJsonFrame(FRAME.message, message))
       return true

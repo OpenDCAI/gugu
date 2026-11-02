@@ -462,6 +462,9 @@ describe('桌面主进程:每台机器一条设备连接', () => {
     const envelope = (type: string, id: string) => asBroadcast({ type, request_id: id, user_id: ACCOUNT, payload: {} })
     const writes: Buffer[] = []
     children[0]!.stdin.on('data', chunk => writes.push(Buffer.from(chunk)))
+    expect(links.send('old', asBroadcast({ type: 'taskhost.close', payload: {} }))).toBe(false)
+    await flush()
+    expect(writes).toEqual([])
     expect(links.send('old', envelope('taskhost.call', 'ordinary'))).toBe(true)
     expect(onMessage).toHaveBeenCalledWith('old', expect.objectContaining({ payload: expect.objectContaining({
       type: 'taskhost.call:reply', request_id: 'ordinary', error: { code: 'server_outdated', message: '请更新那台机器上的咕咕' },
