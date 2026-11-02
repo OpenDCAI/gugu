@@ -9,8 +9,8 @@ const state = vi.hoisted(() => ({
   notify: null as null | ((chat: string) => void),
   installAttachment: vi.fn(), installFromMarket: vi.fn(), marketOffers: vi.fn(),
 }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-vi.mock('@/store/auth', () => ({ useAuth: () => ({ user: { id: 'reader' } }) }));
+vi.mock('react-i18next', async original => ({ ...(await original<object>()), useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('@/store/auth', async original => ({ ...(await original<object>()), useAuth: () => ({ user: { id: 'reader' } }) }));
 vi.mock('@/components/chat/useConversationVisibility', () => ({ useConversationVisibility: () => ({ ref: () => undefined, shown: true }) }));
 vi.mock('@/components/appSlot/appsHere', () => ({ appsHere: { ...state, runs: () => true } }));
 vi.mock('@/components/extensionBundle/sharedPackages', async original => ({

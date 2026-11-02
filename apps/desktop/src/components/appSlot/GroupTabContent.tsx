@@ -12,8 +12,9 @@ import { installedExtensionsStore } from '../../session/renderer/features/extens
 import type { AppOpenWithDetail } from '../../session/shared/extensions/app-runtime-protocol'
 import { displayNameOf, openerAhead, openerChoice } from '../../session/shared/extensions/file-openers'
 import { installPackageOf, packageKey, sharedPackagesOf, subscribeSharedPackages, type PackageCard, type SharedPackage } from '../extensionBundle/sharedPackages'
-import { compareExtensionVersions, parseExtensionTabKind, type ExtensionManifest } from '../../session/shared/extensions/manifest'
+import { parseExtensionTabKind, type ExtensionManifest } from '../../session/shared/extensions/manifest'
 import type { ExtensionOrigin } from '../../session/shared/extensions/upgrade'
+import { availableInstallOffers, type AppInstallOffer, type MarketOffer } from '../extensionBundle/installOffers'
 import { groupUpdateFor } from '../../session/shared/extensions/app-card-state'
 import { isInstallRefused } from '../../session/shared/extensions/attachment-install'
 import { groupPageSlot, isFolderItem, type PanelItem } from '../../session/renderer/features/chats/chat-tabs/chat-panel-item'
@@ -53,13 +54,7 @@ const log = rendererLogger('app-slot/group')
  */
 interface Offer {
   appName: string
-  from: { kind: 'shared'; card: PackageCard } | { kind: 'market'; extensionId: string; version: string }
-}
-
-/** A market App this device can install, its version for here (`appsHere.marketOffers`). */
-interface MarketOffer {
-  manifest: ExtensionManifest
-  version: string
+  from: AppInstallOffer['from']
 }
 
 /**
@@ -68,18 +63,11 @@ interface MarketOffer {
  * group's own: the market's copy of the same App is not offered beside it). An installed App is only offered if newer.
  */
 function offerFor(typedName: string, shared: ReadonlyMap<string, SharedPackage>, market: readonly MarketOffer[], installed: ExtensionManifest[], all: readonly ExtensionManifest[], origins: Readonly<Record<string, ExtensionOrigin>>): Offer | null {
-  const notHere = (manifest: ExtensionManifest) => {
-    const mine = all.find((candidate) => candidate.id === manifest.id)
-    return !mine || compareExtensionVersions(mine.version, manifest.version) < 0
-  }
-  const sharedHere = [...shared.values()].filter((pkg) => notHere(pkg.manifest))
-  const marketHere = market.filter((entry) => origins[entry.manifest.id] !== 'fork' && notHere(entry.manifest) && !shared.has(entry.manifest.id))
-  const best = openerAhead(typedName, installed, [...sharedHere.map((pkg) => pkg.manifest), ...marketHere.map((entry) => entry.manifest)], 'chat')
+  const offers = availableInstallOffers(shared, market, all, origins)
+  const best = openerAhead(typedName, installed, offers.map(offer => offer.manifest), 'chat')
   if (!best) return null
-  const pkg = sharedHere.find((candidate) => candidate.manifest.id === best.extensionId)
-  if (pkg) return { appName: appNameOf(best), from: { kind: 'shared', card: pkg.card } }
-  const entry = marketHere.find((candidate) => candidate.manifest.id === best.extensionId)
-  return entry ? { appName: appNameOf(best), from: { kind: 'market', extensionId: entry.manifest.id, version: entry.version } } : null
+  const offer = offers.find(candidate => candidate.manifest.id === best.extensionId)
+  return offer ? { appName: appNameOf(best), from: offer.from } : null
 }
 
 /** How many toolbar entries fit beside the title in a slot at its narrowest (360); the rest fold into the menu. */
