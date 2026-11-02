@@ -129,17 +129,10 @@ const gestureCalls: Record<string, Record<string, unknown>> = {
 }
 
 describe('the phone refuses a verb outside the gesture it needs, in the same sentence as the desktop (L11 B4)', () => {
-  it.each([false, true])('message widgets cannot publish or forward with outer activation %s', async active => {
-    start(['chat:relay', 'files:read', 'files:write'], { messageId: 'message-1', data: {}, senderId: 'sender-1' })
-    activation.isActive = active
-    for (const method of ['forumPost', 'forumReply', 'forumReact', 'forumAward', 'forumRemove', 'forumBlock', 'forumAssign', 'filesForward']) {
-      expect(await call(method, gestureCalls[method]!)).toMatchObject({ ok: false, code: 'unavailable', message: 'Widgets on the phone cannot publish or forward content' })
-    }
-  })
-
-  it.each([false, true])('message widgets cannot dispatch with outer activation %s, including drafts and named recipients', async (active) => {
+  it.each([false, true])('a widget refuses dispatch without its gate gesture, regardless of outer activation %s', async (active) => {
     start(['chat:relay'], { messageId: 'message-1', data: {}, senderId: 'sender-1' })
-    activation.isActive = active
+    pageActivation.isActive = active
+    activation.isActive = false
     const composed = vi.fn()
     window.addEventListener(APP_COMPOSE_EVENT, composed)
     try {
@@ -148,11 +141,28 @@ describe('the phone refuses a verb outside the gesture it needs, in the same sen
         { text: 'draft', draft: true, to: { chat: CHAT } },
         { text: 'named', to: { chat: CHAT, member: 'user:00000000-0000-4000-8000-000000000001' }, gesture: true },
       ]) {
-        expect(await call('dispatch', args)).toMatchObject({ ok: false, code: 'unavailable', message: 'Widgets on the phone cannot send messages' })
+        expect(await call('dispatch', args)).toMatchObject({ ok: false, ...gestureRefusal('dispatch') })
       }
       expect(composed).not.toHaveBeenCalled()
     } finally {
       window.removeEventListener(APP_COMPOSE_EVENT, composed)
+      pageActivation.isActive = false
+    }
+  })
+
+  it.each([false, true])('a widget drafts through the ordinary composer with its gate gesture and outer activation %s', async active => {
+    start([], { messageId: 'message-1', data: {}, senderId: 'sender-1' })
+    activation.isActive = true
+    pageActivation.isActive = active
+    const composed = vi.fn()
+    window.addEventListener(APP_COMPOSE_EVENT, composed)
+    try {
+      expect(await call('dispatch', { text: 'Widget draft', draft: true, to: { chat: CHAT } })).toMatchObject({ ok: true, value: { to: { chat: CHAT } } })
+      expect(composed).toHaveBeenCalledTimes(1)
+      expect(composed.mock.calls[0]![0].detail).toMatchObject({ chatId: CHAT, text: 'Widget draft\n' })
+    } finally {
+      window.removeEventListener(APP_COMPOSE_EVENT, composed)
+      pageActivation.isActive = false
     }
   })
 

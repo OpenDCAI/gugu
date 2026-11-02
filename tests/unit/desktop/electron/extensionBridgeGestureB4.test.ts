@@ -108,12 +108,12 @@ describe('a verb that needs a gesture is judged by one rule, on what the preload
     const has = () => true
     for (const verb of Object.keys(gestureCalls)) {
       const args = verb === 'filesUpload' ? { pick: true } : {}
-      expect(callRefusal(verb, args, { kind: 'page', has, gesture: false })).toEqual(gestureRefusal(verb))
-      expect(callRefusal(verb, args, { kind: 'page', has, gesture: true })).toBeNull()
+      expect(callRefusal(verb, args, { kind: 'page', widget: false, has, gesture: false })).toEqual(gestureRefusal(verb))
+      expect(callRefusal(verb, args, { kind: 'page', widget: false, has, gesture: true })).toBeNull()
     }
     // Upload with bytes and a dispatch naming its target need none; a program never has one.
     expect(needsGesture('filesUpload', { files: [] })).toBe(false)
-    expect(callRefusal('dispatch', { text: 'hi', to: { agent: 'user:0a000000-0000-4000-8000-000000000001' } }, { kind: 'page', has, gesture: false })).toBeNull()
+    expect(callRefusal('dispatch', { text: 'hi', to: { agent: 'user:0a000000-0000-4000-8000-000000000001' } }, { kind: 'page', widget: false, has, gesture: false })).toBeNull()
     expect(callRefusal('clipboardWriteText', {}, { kind: 'program', has })).toMatchObject({ code: 'invalid' })
   })
 })
