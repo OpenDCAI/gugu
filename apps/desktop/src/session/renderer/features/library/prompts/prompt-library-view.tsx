@@ -1,5 +1,6 @@
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { Pencil, Plus, Trash2 } from '@/lib/icons';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useLibraryHost } from '@renderer/features/library/library-host';
 import { DeviceScopeNoticeLine } from '@renderer/features/remote-hosts/device-scope-picker';
 import { deviceScopeNotice } from '@renderer/features/remote-hosts/device-scope-notice';
@@ -76,6 +77,14 @@ function PromptRow({
 }
 
 export function PromptLibraryView() {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useCommandProvider({
+    scopeId: 'session-sub',
+    isActive: (element) => !!element && !!rootRef.current?.contains(element),
+    getCommands: () => [{ id: 'app.find', hideFromPalette: true, execute: () => searchRef.current?.focus() }],
+  });
+
   const actions = usePromptLibraryActions();
   const { prompts: promptLibrary, createPrompt, editPrompt, deletePrompt } = actions;
   const { translate } = useSessionMessages();
@@ -94,13 +103,14 @@ export function PromptLibraryView() {
   );
 
   return (
-    <div className="flex flex-col text-foreground">
+    <div ref={rootRef} className="flex flex-col text-foreground">
       <PageHeader
         sticky
         title={translate('prompts.title')}
       >
         <div className="flex w-full justify-between gap-2">
           <SearchInput
+            ref={searchRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={translate('prompts.searchPlaceholder')}

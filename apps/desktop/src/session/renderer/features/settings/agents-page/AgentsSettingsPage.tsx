@@ -1,5 +1,6 @@
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { RefreshCw } from '@/lib/icons'
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useLibraryHost } from '@renderer/features/library/library-host';
 import { DeviceScopeNoticeLine } from '@renderer/features/remote-hosts/device-scope-picker';
 import { deviceScopeNotice } from '@renderer/features/remote-hosts/device-scope-notice';
@@ -22,6 +23,13 @@ export function AgentsSettingsPage({
   selectedAgentId: string | null;
   onSelectAgent: (agentId: string | null) => void;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useCommandProvider({
+    scopeId: 'session-sub',
+    isActive: (element) => !!element && !!rootRef.current?.contains(element),
+    getCommands: () => [{ id: 'app.find', hideFromPalette: true, execute: () => searchRef.current?.focus() }],
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const { probeAll } = useAgentInstallationStatuses();
@@ -45,7 +53,7 @@ export function AgentsSettingsPage({
   }, [probeAll]);
 
   return (
-    <>
+    <div ref={rootRef} className="contents">
       <PageHeader
         sticky
         title={translate('settings.agents')}
@@ -55,6 +63,7 @@ export function AgentsSettingsPage({
               两组(owner 2026-09-22),再摆一排同样三个词就是同一个事实说两遍。 */}
           <div className="flex items-center gap-2">
             <SearchInput
+              ref={searchRef}
               placeholder={translate('composer.searchAgents')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -84,6 +93,6 @@ export function AgentsSettingsPage({
           />
         </div>
       )}
-    </>
+    </div>
   );
 }

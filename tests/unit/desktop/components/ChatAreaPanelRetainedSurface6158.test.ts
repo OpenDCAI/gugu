@@ -10,7 +10,7 @@ import { act, Fragment } from 'react'
 import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-binder'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
-import { chat, createNode, createReactHarness, displayIdentity, message, renderWithAppProviders } from '../../../support/testHarness'
+import { chat, createNode, createReactHarness, displayIdentity, message, renderWithAppProviders, typeInto } from '../../../support/testHarness'
 import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 
@@ -75,14 +75,15 @@ async function renderPanel(activeTab: 'chats' | 'tasks', markMessageVisible = vi
 }
 
 const composer = () => harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`)
-const searchInput = () => harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderSearchInput}"]`)
+const headerSearchInput = () => harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderSearchInput}"]`)
+
+const searchInput = () => harness.container.querySelector<HTMLInputElement>('input[placeholder="Find..."], input[placeholder="查找…"]')
 
 async function pressFind() {
+  const input = composer() as HTMLElement
+  await act(async () => { input.focus() })
   await act(async () => {
-    const input = composer() as HTMLElement
-    input.focus()
     input.dispatchEvent(new KeyboardEvent('keydown', { ctrlKey: true, code: 'KeyF', key: 'f', bubbles: true, cancelable: true }))
-    await Promise.resolve()
   })
 }
 
@@ -120,7 +121,7 @@ describe('ChatAreaPanel retained while hidden on another tab (#6158)', () => {
     expect(searchInput(), 'positive control: the same shortcut opens search on the chats tab').not.toBeNull()
   })
 
-  it('opens the visible chat search when focus remains outside the composer', async () => {
+  it('does not open find outside the focused conversation scope', async () => {
     await renderPanel('chats')
     const sidebarRow = document.createElement('button')
     harness.container.prepend(sidebarRow)
@@ -128,6 +129,53 @@ describe('ChatAreaPanel retained while hidden on another tab (#6158)', () => {
       sidebarRow.focus()
       sidebarRow.dispatchEvent(new KeyboardEvent('keydown', { ctrlKey: true, code: 'KeyF', key: 'f', bubbles: true, cancelable: true }))
     })
+    expect(searchInput()).toBeNull()
+    await pressFind()
     expect(searchInput()).not.toBeNull()
+    expect(headerSearchInput()).toBeNull()
+  })
+
+  it('does not advance read state when a find jump brings another loaded row into view', async () => {
+    const observers = new Set<{ callback: IntersectionObserverCallback; targets: Set<Element> }>()
+    vi.stubGlobal('IntersectionObserver', class {
+      targets = new Set<Element>()
+      constructor(readonly callback: IntersectionObserverCallback) { observers.add(this) }
+      observe(target: Element) { this.targets.add(target) }
+      unobserve(target: Element) { this.targets.delete(target) }
+      disconnect() { observers.delete(this) }
+    })
+    const reportVisible = () => {
+      for (const observer of observers) for (const target of observer.targets) if (target.hasAttribute('data-msg-id')) {
+        observer.callback([{ target, isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry], observer as unknown as IntersectionObserver)
+      }
+    }
+    try {
+      const markVisible = vi.fn()
+      await renderPanel('chats', markVisible)
+      await act(async () => reportVisible())
+      expect(markVisible).toHaveBeenCalled()
+      markVisible.mockClear()
+      await pressFind()
+      await act(async () => reportVisible())
+      expect(markVisible).not.toHaveBeenCalled()
+      await act(async () => searchInput()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+      await act(async () => reportVisible())
+      expect(markVisible).toHaveBeenCalled()
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('k1/k8 opens find without filtering and hands its keyword to the existing chat search', async () => {
+    await renderPanel('chats')
+    await pressFind()
+    expect(headerSearchInput()).toBeNull()
+    expect(searchInput()).not.toBeNull()
+    expect(document.activeElement).toBe(searchInput())
+    await typeInto(searchInput()!, 'loaded keyword')
+    expect(harness.container.textContent).toContain(PEER_MESSAGE.content)
+    const all = [...harness.container.querySelectorAll('button')].find(button => /Search all in this chat|在本群搜索全部/.test(button.textContent ?? ''))!
+    expect(all).toBeDefined()
+    await act(async () => all.click())
+    expect(searchInput()).toBeNull()
+    expect((headerSearchInput() as HTMLInputElement).value).toBe('loaded keyword')
   })
 })
