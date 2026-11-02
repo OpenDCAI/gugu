@@ -8,6 +8,7 @@ import { useSearchedTaskReveal, useSessionSourceMessage } from './use-session-so
 import { canQueueNativeInput } from './queue-native-input';
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
+import { useRememberNativeTail } from './use-remember-native-tail';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { sessionLifeView } from '../stores/session-life-views';
 import { lifeIsStarting } from '@shared/core/sessions/session-life';
@@ -1588,6 +1589,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const store = activeTab ? (activeTab.resource as AcpChatTabResource).store : null;
 
   const visibility = useConversationVisibility(useContext(PageShownContext));
+  useRememberNativeTail(store?.projectId, store?.runtimeSessionId, store?.affordances.isBusy ?? false, visibility.shown);
   const rootRef = visibility.ref;
   const reading = useNativeConversationRead(store ? machineRegistry.machineOf(store.runtimeSessionId) : null, store?.runtimeSessionId, visibility.shown, () => {
     const transcript = store?.chatState.transcript.state;
