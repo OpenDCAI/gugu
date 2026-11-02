@@ -89,7 +89,7 @@ export class ManagedAgentTerminal {
     this.onOutput(text, this._truncated);
   }
 
-  snapshot(): TerminalState {
+  snapshot(includeOutput = true): TerminalState {
     return {
       terminalId: this.terminalId,
       owner: 'host',
@@ -97,7 +97,7 @@ export class ManagedAgentTerminal {
       command: this.command,
       args: this.args,
       cwd: this.cwd,
-      output: this.chunks.join(''),
+      output: includeOutput ? this.chunks.join('') : '',
       truncated: this._truncated,
       exitStatus: this._exitStatus,
     };

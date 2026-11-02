@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { projectSessionPendingInput, sessionInputBaseline } from '@/lib/pendingSessionInput'
 import { activeTurnWithPending } from '@session-chat/state/pending-prompt'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
-import type { HostPendingRow, SessionInput } from '@/lib/sessionInputOutbox'
+import type { HostPendingRow, SessionInput, SessionInputFailure } from '@/lib/sessionInputOutbox'
 
 const turn = (id: string, text: string, at = 10): TranscriptTurn => ({ id, seq: at, initiator: 'user', startedAt: at,
   items: [{ kind: 'message', id: `${id}:user`, seq: 0, role: 'user', text }] })
@@ -69,6 +69,14 @@ describe('ordinary input transcript custody', () => {
     expect(failed).toMatchObject({ id: 'send', delivery: { state: 'failed', retryable: true, error: 'connection refused' } })
     expect(projectSessionPendingInput(failed, [input()], [], [old])).toMatchObject({ id: 'send', delivery: { state: 'sending' } })
     expect(projectSessionPendingInput(failed, [], [host('failed')], [old])).toMatchObject({ id: 'send', delivery: { state: 'failed' } })
+  })
+
+  it.each<SessionInputFailure>([
+    { code: 'host-offline' }, { code: 'host-not-ready' }, { code: 'phone-unconfirmed' },
+    { code: 'no-acknowledgement' }, { code: 'send-failed', message: 'connection refused' },
+  ])('preserves the manual retry policy for $code', failure => {
+    const failed = projectSessionPendingInput(null, [{ ...input(), failure }], [], [old])!
+    expect(failed).toMatchObject({ id: 'send', delivery: { state: 'failed', retryable: failure.code !== 'host-offline' } })
   })
 
   it('leaves explicitly queued inputs in their existing queue', () => {

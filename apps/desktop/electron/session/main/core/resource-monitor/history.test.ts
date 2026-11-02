@@ -28,6 +28,17 @@ async function exported(store: ResourceHistoryStore) {
 }
 
 describe('bounded local resource history', () => {
+  it('records agent tree totals and keeps their PID details in history', async () => {
+    const { store } = setup();
+    const snapshot: ResourceSnapshot = { ...sample(1), memoryMetric: 'rss', processGroups: [{
+      id: 'session:a', kind: 'session', sessionId: 'a', label: 'Build', cpu: 7, memory: 90,
+      processes: [{ pid: 42, ppid: 10, name: 'tsgo', cpu: 7, memory: 90 }],
+    }] };
+    const id = store.append(snapshot);
+    expect(store.read().points).toEqual([expect.objectContaining({ memory: 110, cpu: 9 })]);
+    expect(store.point(id)).toEqual(snapshot);
+    expect((await exported(store)).samples).toEqual([snapshot]);
+  });
   it('keeps the newest complete points and survives recreating the store', async () => {
     const { connection, store } = setup();
     const ids = [0, 1, 2, 3, 4].map((at) => store.append(sample(at)));

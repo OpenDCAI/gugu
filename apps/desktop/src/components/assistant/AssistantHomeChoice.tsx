@@ -60,7 +60,7 @@ export function AssistantHomeChoice({
               data-testid={member ? 'assistant-setup-claim-cloud' : 'assistant-setup-member'}>
               {t(member ? 'setup.homeCloudAction' : 'setup.homeCloudUpgrade')}
             </Button>
-            <span className="ta-onb-note">{t('setup.homeCloudMember')}</span>
+            {!member ? <span className="ta-onb-note">{t('setup.homeCloudMember')}</span> : null}
           </>}
         </div>
       </div> : null}

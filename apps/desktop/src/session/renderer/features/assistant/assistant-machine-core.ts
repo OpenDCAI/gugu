@@ -49,18 +49,19 @@ export async function openMachineWith(
   {
     deviceId,
     projectId,
+    workspaceId: acquiredWorkspaceId,
     home,
     workdir,
     kind = 'cloud',
-  }: { deviceId: string; projectId: string; home: string; workdir: string; /** 住云上 / 住电脑:它家里几样东西的位置不同(assistantHomePaths)。 */ kind?: AssistantHomeKind }
+  }: { deviceId: string; projectId: string; workspaceId?: string; home: string; workdir: string; /** 住云上 / 住电脑:它家里几样东西的位置不同(assistantHomePaths)。 */ kind?: AssistantHomeKind }
 ): Promise<AssistantMachine> {
   const opened = await rpc.projects.openProject(projectId);
   if (!opened.success) fail({ type: 'project', message: 'message' in opened.error ? String(opened.error.message) : opened.error.type });
-  const workspaceId = opened.data.repositoryWorkspaceId;
+  const workspaceId = acquiredWorkspaceId ?? opened.data.repositoryWorkspaceId;
   if (!workspaceId) fail({ type: 'project', message: `no workspace for ${projectId}` });
   // 项目开着 ≠ 工作区在那台机器上登记着:云电脑睡过一觉醒来,只有助理那条会话真跑起来才会登记它。读写动词认的是登记,
   // 所以这里自己领一份(与新建框的工作区面板同一个动词)。❌ 离开时释放 —— 释放 = 拆掉那个工作区,助理自己的会话也在用它。
-  const acquired = await rpc.projects.acquireProjectWorkspace(projectId, workspaceId);
+  const acquired = acquiredWorkspaceId ? { success: true as const } : await rpc.projects.acquireProjectWorkspace(projectId, workspaceId);
   if (!acquired.success) fail({ type: acquired.error.type, message: acquired.error.message });
   return { deviceId, target: deviceId, rpc, home, projectId, workspaceId, paths: assistantPaths(home, workdir, kind) };
 }

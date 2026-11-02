@@ -13,6 +13,7 @@ import {
   type AcpTerminalProcess,
 } from '@gugu/session-core/acp/node';
 import type { AcpRuntimeProcessHost } from '../runtime/types';
+import { outputPressureGate } from './output-pressure-gate';
 
 class ChildProcessHandle implements AcpProcessHandle {
   private firstError: Error | null = null;
@@ -156,6 +157,24 @@ const fsPort: AcpFs = {
 
 export class ChildAcpProcessHost implements AcpRuntimeProcessHost {
   readonly fs = fsPort;
+  private readonly outputSources = new Set<(paused: boolean) => void>();
+  private outputPaused = false;
+
+  setOutputPaused(paused: boolean): void {
+    this.outputPaused = paused;
+    for (const gate of this.outputSources) gate(paused);
+  }
+
+  private trackOutput(child: ChildProcess, terminal = false): void {
+    // Provider stderr is diagnostic; a host terminal's stderr is command output.
+    for (const source of [child.stdout, ...(terminal ? [child.stderr] : [])]) {
+      if (!source) continue;
+      const gate = outputPressureGate(source);
+      this.outputSources.add(gate);
+      child.once('exit', () => this.outputSources.delete(gate));
+      gate(this.outputPaused);
+    }
+  }
 
   async spawn(spec: {
     command: string;
@@ -179,6 +198,7 @@ export class ChildAcpProcessHost implements AcpRuntimeProcessHost {
     if (!handle.child.stdin || !handle.child.stdout) {
       throw new Error('ChildAcpProcessHost: failed to spawn process - no stdio streams');
     }
+    this.trackOutput(handle.child);
     return handle;
   }
 
@@ -199,6 +219,7 @@ export class ChildAcpProcessHost implements AcpRuntimeProcessHost {
     if (!terminal.child.stdout) {
       throw new Error('ChildAcpProcessHost: failed to spawn terminal - no stdout stream');
     }
+    this.trackOutput(terminal.child, true);
     return terminal;
   }
 }
