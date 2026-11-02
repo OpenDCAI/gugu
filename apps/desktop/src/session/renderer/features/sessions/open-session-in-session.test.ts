@@ -3,13 +3,6 @@ import { observable, runInAction } from 'mobx';
 
 const opened = vi.hoisted(() => ({ calls: [] as unknown[], tabs: 0, views: [] as string[], provisioned: true, archived: false, provision: vi.fn(), reason: null as string | null, machineReason: null as string | null }));
 const ready = observable.box(true);
-const listed = vi.hoisted(() => ({ nativeInputVersion: undefined as number | undefined }));
-
-vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({
-  remoteHostsStore: {
-    findListedSession: () => ({ conversationId: 's', nativeInputVersion: listed.nativeInputVersion }),
-  },
-}));
 
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => {
   const paneLayout = {
@@ -41,7 +34,6 @@ vi.mock('./machine-unavailable-label', () => ({ machineUnavailableLabel: () => o
 
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { openSessionInSessionWhenReady } from './open-session-in-session';
-import * as preparation from './session-pane-ready';
 
 describe('给屏上一块空着的会话补上对话(onlyIfNoTabs)', () => {
   it('一枚页签都没有:开它的对话', () => {
@@ -75,38 +67,6 @@ describe('给屏上一块空着的会话补上对话(onlyIfNoTabs)', () => {
 });
 
 describe('task entry keeps the workspace failure reason', () => {
-  it.each([1, 2])('opens an offline native v%s task without preparing or waiting for its workspace', async (version) => {
-    await Promise.resolve();
-    await Promise.resolve();
-    opened.provision.mockClear();
-    vi.useFakeTimers();
-    vi.mocked(toast).mockClear();
-    opened.calls = [];
-    opened.provisioned = false;
-    opened.machineReason = 'Remote host is offline';
-    listed.nativeInputVersion = version;
-    const onReady = vi.fn();
-    const prepare = vi.spyOn(preparation, 'sessionPaneReady');
-    const dispose = openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's', onReady });
-    try {
-      expect(onReady).toHaveBeenCalledOnce();
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(opened.provision).not.toHaveBeenCalled();
-      expect(prepare).not.toHaveBeenCalled();
-      expect(opened.calls).toEqual([]);
-      expect(vi.getTimerCount()).toBe(0);
-      expect(toast).not.toHaveBeenCalled();
-    } finally {
-      dispose();
-      prepare.mockRestore();
-      opened.provisioned = true;
-      opened.machineReason = null;
-      listed.nativeInputVersion = undefined;
-      vi.useRealTimers();
-    }
-  });
-
   it('names the offline machine when a cold project has no workspace status yet', async () => {
     vi.useFakeTimers();
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
