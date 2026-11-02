@@ -219,6 +219,7 @@ export const extensionsController = createRPCController({
       if (extensionOpened(installed.manifest.id)) events.emit(extensionsQuitChangedChannel, { quit: quitExtensions() });
       configureExtensionSession({
         extensionId: installed.manifest.id,
+        apiVersion: installed.manifest.apiVersion,
         rootDir: installed.rootDir,
         // What it may reach, not what it asked for: a host the user took back
         // is enforced away here and mirrored out of the served CSP.
@@ -249,6 +250,7 @@ export const extensionsController = createRPCController({
    * can never hand one extension another's grants.
    */
   bindSurface: async (args: {
+    resourceChat?: string;
     opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;
     extensionId: string;
@@ -408,6 +410,7 @@ export const extensionsController = createRPCController({
    * 与 bindSurface 分开:bind 只在这张页第一次出现时做一次;之后每切一次会话走这条。
    */
   retargetSurface: async (args: {
+    resourceChat?: string;
     opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;
     tabId: string;
@@ -793,6 +796,7 @@ export const extensionsController = createRPCController({
       const installed = service.get(args.extensionId);
       configureExtensionSession({
         extensionId: installed.manifest.id,
+        apiVersion: installed.manifest.apiVersion,
         rootDir: installed.rootDir,
         networkHosts: service.grantedHosts(installed.manifest.id),
       });

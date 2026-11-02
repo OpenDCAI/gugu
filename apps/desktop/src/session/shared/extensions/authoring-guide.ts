@@ -105,7 +105,7 @@ side panel (its ⋯); a tab that claims files opens only for a file. A page belo
 to one place for its whole life — one session or one chat: its \`session\` / \`chat\` never change,
 and another place gets a page of its own. Within its place the host keeps it alive and
 moves it along — switching sessions never reloads it; \`onContextChanged\` brings what changed
-there (\`chat.members\`, \`layout\` …), so repaint from that. A page no one is looking
+there (\`locale\`, \`layout\` …), so repaint from that. A page no one is looking
 at is hidden, still alive (an App keeps its 3 most recent).
 It is made when something first opens your App there, not at install.
 Opened FOR A FILE (a session file you claimed, a chat file opened with your App), it is a new page
@@ -202,14 +202,13 @@ The host handles Escape, Tab traversal, Back and focus restoration.
 Free:
 
 - \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, modal?, operator, locale, themeMode, capabilities, layout? }\`.
-  \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members }\` (\`groupId\`: the group; null in a private
-  chat). Topics open Apps in their source chat's shared panel. \`members\`: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`, current through
-  \`onContextChanged\`; \`avatar\`: their face, a \`data:\` image for \`<img src>\`. Pick people and agents from it;
-  never copy it into a file. \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\` — its agent
-  (\`user:<uuid>\`), project, working copy's path (with \`files:*\`); \`deviceId\`: on another computer (no \`root\`). \`file\`: what this page was opened for — \`files.open(ctx.file)\`.
-  \`operator\`: who works the page — \`{ kind: 'person' }\` or \`{ kind: 'agent', id }\`.
-  \`capabilities\` is what you may do RIGHT NOW, after any revocation — not what you asked for.
-- \`onContextChanged(fn)\` → theme, language, visibility, size and members changes. Returns an unsubscribe.
+  \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members? }\`; \`groupId\` is null in DMs. Topics use their source chat.
+  API ≤26 includes \`members\`; API ≥27 omits it: call \`gugu.chats.members({ chat: ctx.chat.id })\` (\`chat:read\`).
+  Members: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`; \`avatar\` is a \`data:\` image. Pick from these; never copy them into files.
+  \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\`; \`agentId\` is \`user:<uuid>\`.
+  Local \`root\` needs \`files:*\`; remote sessions carry \`deviceId\` instead. \`file\`: open with \`files.open(ctx.file)\`.
+  \`operator\`: \`{ kind: 'person' }\` or \`{ kind: 'agent', id }\`. \`capabilities\`: current grants, reflecting revocations.
+- \`onContextChanged(fn)\` → theme, language, visibility and size changes; member changes only through API 26. Returns an unsubscribe.
 - \`onCommand(fn)\` → the person picked one of your declared menu/toolbar entries; you get your own id back.
 - \`showContextMenu({ x, y, items: [{ id, label, enabled? }, { type: "separator" }] })\` (API 18, page): App-local point, shared host menu; returns id or null.
 - \`setTabTitle(title)\` → title (max 48); file tabs use it as a tooltip. Host Back closes the file tab.
@@ -814,7 +813,7 @@ program reads as that agent: \`chats.list\` its chats, the rest only a chat it h
 
 - \`gugu.chats.list()\` → \`{ chats: [{ id, name, kind, lastMessageAt }] }\`, all of them, last spoken first: \`kind\`
   \`group\` / \`topic\` / \`dm\` (a private chat's \`name\` is the other one's), \`id\` what every \`chat\` below takes.
-- \`gugu.chats.members({ chat })\` → \`{ members }\`, as \`getContext().chat.members\`: \`{ id, name, kind, avatar? }\`.
+- \`gugu.chats.members({ chat })\` → \`{ members }\`: \`{ id, name, kind, avatar? }\`.
 
 - \`gugu.messages.history({ chat, thread?, before?, limit? })\` → the timeline (\`thread\`: its first message's id, for
   that thread alone), newest first.
@@ -823,7 +822,7 @@ program reads as that agent: \`chats.list\` its chats, the rest only a chat it h
 - Both answer \`{ messages, next }\`: pass \`next\` back as \`before\` for the older page; \`null\`, there is none.
   \`limit\` 1–100 (50). A chat the reader is not in has none.
 - A message: \`{ id, seq, chat, thread, sender: { id, name }, text, contentType, createdAt, refs }\`. \`sender.id\` is
-  \`user:<uuid>\`, as \`chat.members\`; \`null\` for a line gugu wrote (\`system\`: someone joined). \`text\` is as written. \`refs\` is every file link in
+  \`user:<uuid>\`, as \`gugu.chats.members()\`; \`null\` for a line gugu wrote (\`system\`: someone joined). \`text\` is as written. \`refs\` is every file link in
   it, read for you: \`{ file, version?, at? }\` — \`at\` is the place your \`refs\` named.
 
 \`{ file }\` finds every message citing that file, anywhere in it. To count one place, keep the ones whose \`at\` is that
@@ -855,7 +854,7 @@ picture below this text is every piece, each captioned with the markup that draw
 1. Write semantic HTML: it is styled already.
 2. Set no fonts, font sizes, colours or corner radii. Drawing something of your own (a board, a chart): only the tokens below.
 3. Icons are \`<gugu-icon name="…">\`, people are \`<gugu-avatar user="…">\` — never an emoji, an initial or a coloured box.
-4. Read \`gugu.getContext()\` first: \`chat\` is the source group or private chat the page is open in, \`chat.members\` who is in it. Default to that chat; never make the person pick it.
+4. Read \`gugu.getContext()\` first: \`chat\` is the source group or private chat the page is open in. Read its people with \`gugu.chats.members({ chat: ctx.chat.id })\` (declare \`chat:read\`). Default to that chat; never make the person pick it.
 
 ## Elements — one line each
 
@@ -871,7 +870,7 @@ picture below this text is every piece, each captioned with the markup that draw
 ## The host's elements
 
 - \`<gugu-icon name="bell">\` (\`size="md|lg"\`): gugu's icons, named as lucide names them — bell, users, search, settings, plus, x, check, pin, trash-2, chevron-right, refresh, ellipsis… \`customElements.get('gugu-icon').names\` lists them all; a wrong name comes back from \`app_check\` as a hint naming the close ones. \`label="…"\` when it alone says something.
-- \`<gugu-avatar user="user:…">\` (\`size="xs|sm|md|lg"\`, \`name\` to show the name): a member of this chat, with their face; an agent's carries ⚡. Someone not in it: \`label="their name"\`.
+- \`<gugu-avatar user="user:…">\` (\`size="xs|sm|md|lg"\`, \`name\` to show the name): a member of this chat, with their face; an agent's carries ⚡. From API 27, declare \`chat:read\`; the elements share one member read per chat. Someone not in it: \`label="their name"\`.
 - \`<gugu-time datetime="…">\` (ISO or ms): 刚刚 / 3 分钟前 / 08:20 / 昨天 14:20 / 10月3日, kept current, in the person's language.
 - \`<gugu-empty icon="checklist"><strong>No votes yet</strong><small>Start one</small></gugu-empty>\`, with a \`button.primary\` last in it when there is something to do.
 
