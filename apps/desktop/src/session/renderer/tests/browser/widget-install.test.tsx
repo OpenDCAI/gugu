@@ -43,11 +43,12 @@ it.each([{ height: 480, expected: 480 }, { height: 140, expected: 140 }, { heigh
   expect(slot).not.toBeNull();
   expect(getComputedStyle(slot!).height).toBe(`${expected}px`);
 });
-it('does not mount a widget whose message has an invalid height', async () => {
+it('falls back to the manifest height when the message height is invalid', async () => {
   state.manifests = [pkg().manifest];
   await mount(JSON.stringify({ v: 2, app: 'vote', view: 'main', text: 'Vote here', height: 20 }));
-  expect(harness.container.querySelector('[data-widget-bubble]')).toBeNull();
-  expect(harness.container.textContent).toBe('message.widget');
+  const slot = harness.container.querySelector<HTMLElement>('[data-widget-bubble] > div');
+  expect(slot).not.toBeNull();
+  expect(getComputedStyle(slot!).height).toBe('200px');
 });
 
 it('offers an unlisted package from this chat through the same attachment consent entry', async () => {

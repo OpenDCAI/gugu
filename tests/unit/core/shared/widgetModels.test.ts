@@ -21,10 +21,15 @@ describe('widget messages', () => {
     const input = { ...widget, height }
     expect(parseWidgetMessage(serializeWidgetMessage(input))).toEqual(input)
   })
-  it.each([63, 521, 300.5, null, '480'])('rejects an invalid message height %s at the render boundary', height => {
+  it.each([20, 63, 521, 900, 300.5, null, '480', {}, []])('drops invalid height %s only when reading a message', height => {
     const input = { ...widget, height }
     expect(widgetMessageError(input)).toMatch(/height.*64.*520/)
-    expect(parseWidgetMessage(JSON.stringify(input))).toBeNull()
+    expect(parseWidgetMessage(JSON.stringify(input))).toEqual(widget)
+  })
+  it('still validates the other fields when dropping an invalid height', () => {
+    for (const other of [{ text: '' }, { data: [] }, { data: { s: '界'.repeat(1363) } }, { v: 1 }, { id: 'old' }]) {
+      expect(parseWidgetMessage(JSON.stringify({ ...widget, ...other, height: 20 }))).toBeNull()
+    }
   })
   it.each([63, 521, 300.5])('refuses to serialize invalid height %s', height => {
     expect(() => serializeWidgetMessage({ ...widget, height })).toThrow(/height.*64.*520/)
