@@ -477,6 +477,21 @@ describe('the first message keeps one place while its session starts', () => {
   const row = (state: PendingRow['state']): PendingRow =>
     ({ seq: 1, messageId: 'm-first', preview: '说一句你好', text: '说一句你好', kind: 'ordinary', sentAt: 5000, discardable: true, state, failure: state === 'failed' ? 'boom' : null });
 
+  it.each([
+    { record: { providerId: 'claude', providerSessionId: 'prov-old' }, label: 'restoring' },
+    { record: { providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] }, label: 'starting' },
+  ] as const)('uses $label in the existing process line from the host lifecycle', async ({ record, label }) => {
+    const { store } = storeFor(record as Partial<Session>);
+    store.bootstrap();
+    life.pend(store.sessionId, 'starting', [row('queued')]);
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first'));
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ starting: label, text: '说一句你好', sentAt: 5000 });
+    expect(store.transcriptPendingId).toBe('m-first');
+    life.pend(store.sessionId, 'ready', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.starting).toBeUndefined());
+    expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first');
+  });
+
   it('the transcript draws the queued head as its next turn from the start, not the tray above the composer', async () => {
     const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
     store.bootstrap();
@@ -484,7 +499,7 @@ describe('the first message keeps one place while its session starts', () => {
     await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first'));
     expect(store.chatState.session.state.pendingPrompt?.text).toBe('说一句你好');
     expect(store.transcriptPendingId, 'the tray leaves it out').toBe('m-first');
-    expect(store.chatState.session.state.pendingPrompt, 'its clock is the send; its label the lifecycle').toMatchObject({ sentAt: 5000, starting: true });
+    expect(store.chatState.session.state.pendingPrompt, 'its clock is the send; its label the lifecycle').toMatchObject({ sentAt: 5000, starting: 'starting' });
     expect(store.isEmpty).toBe(false);
 
     // A history seed drops it (the transcript clears pendingPrompt on new committed turns): it is drawn again.
@@ -493,12 +508,12 @@ describe('the first message keeps one place while its session starts', () => {
     await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first'));
 
     life.pend(store.sessionId, 'ready', [row('dispatching')]);
-    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.starting).toBe(false));
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.starting).toBeUndefined());
     expect(store.chatState.session.state.pendingPrompt?.sentAt, 'the same origin').toBe(5000);
 
     life.pend(store.sessionId, 'ready', [row('accepted')]);
     await vi.waitFor(() => expect(store.transcriptPendingId).toBeNull());
-    expect(store.chatState.session.state.pendingPrompt, 'kept until its turn lands: no empty frame').toMatchObject({ id: 'm-first', starting: false, held: false });
+    expect(store.chatState.session.state.pendingPrompt, 'kept until its turn lands: no empty frame').toMatchObject({ id: 'm-first', starting: undefined, held: false });
   });
 
   it('accepted means gone from the view (the real shape): kept, then taken once history has its turn', async () => {
