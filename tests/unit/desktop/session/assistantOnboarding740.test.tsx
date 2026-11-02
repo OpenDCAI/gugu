@@ -16,6 +16,8 @@ vi.mock('react-i18next', async importOriginal => ({ ...(await importOriginal<typ
 vi.mock('@/components/agentAvatar/AgentAvatar', () => ({ AgentAvatar: () => null }))
 vi.mock('@/components/assistant/AssistantSetupIdentity', () => ({ AssistantSetupIdentity: ({ onContinue }: { onContinue: () => void }) => createElement('button', { onClick: onContinue }, 'continue') }))
 vi.mock('@/components/assistant/AssistantIntro', () => ({ AssistantIntro: () => null }))
+vi.mock('@/components/assistant/AssistantServerSetup', () => ({ AssistantServerSetup: () => null }))
+vi.mock('@/lib/assistantServerSetup', () => ({ pendingServerAssistant: () => null }))
 vi.mock('@/components/settings/CloudComputerSection', () => ({ CloudComputerProvisionPanel: () => null, CloudComputerRefusal: () => null }))
 vi.mock('@/lib/assistantSetup', () => ({ setUpAssistantOnThisComputer: f.setup, pendingLocalAssistant: f.pending, resumeLocalAssistant: f.resume,
   AssistantSetupError: f.SetupError, draftAvatarUrl: () => '', claimCloudAssistant: vi.fn() }))

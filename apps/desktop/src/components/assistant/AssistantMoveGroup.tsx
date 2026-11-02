@@ -69,6 +69,11 @@ export function AssistantMoveGroup({ ownerUserId, assistantId, assistantName, ho
   const onComputerHere = home.kind === 'computer' && home.thisDevice
   return (
     <SettingsGroup title={t('move.group')} data-testid="assistant-move-group">
+      {home.kind === 'cloud' || onComputerHere ? <SettingsRow
+        title={t(home.kind === 'cloud' ? 'setup.homeCloudTitle' : 'setup.homeComputerTitle')}
+        control={<span className="gg-settings-row-value">{t('move.currentHome')}</span>}
+        data-testid="assistant-move-current-home"
+      /> : null}
       {membershipFailed ? <SettingsRow title={t('setup.membershipUnreadable')} description={membershipFailed} control={<Button size="sm" onClick={() => setMembershipAttempt((attempt) => attempt + 1)}>{t('setup.retry')}</Button>} /> : null}
       {pending && env ? (
         <SettingsRow
@@ -96,6 +101,7 @@ export function AssistantMoveGroup({ ownerUserId, assistantId, assistantName, ho
       ) : null}
       {home.kind === 'cloud' && env ? (
         <SettingsRow
+          stack
           title={t('move.toComputerTitle')}
           description={t('move.toComputerBody')}
           control={
@@ -108,6 +114,7 @@ export function AssistantMoveGroup({ ownerUserId, assistantId, assistantName, ho
       ) : null}
       {onComputerHere && env ? (
         <SettingsRow
+          stack
           title={t('move.toCloudTitle')}
           description={member === false ? t('move.toCloudNeedsMember') : !cloudAvailable ? t('move.cloudUnavailable') : t('move.toCloudBody')}
           control={
