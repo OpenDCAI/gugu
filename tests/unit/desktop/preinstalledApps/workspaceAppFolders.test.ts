@@ -46,6 +46,8 @@ const gugu = {
   onLink: vi.fn(() => () => {}),
   showMessage: vi.fn(async () => {}),
   files: {
+    // Asked as a row's menu opens (a list carries no delete answer); the rig answers from its fixtures.
+    canDelete: vi.fn(async (files: unknown) => [files].flat().map((file) => (file as { canDelete?: boolean }).canDelete === true)),
     viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => ENTRIES.map((e) => ({ ...e }))),
     onChanged: vi.fn(() => () => {}),

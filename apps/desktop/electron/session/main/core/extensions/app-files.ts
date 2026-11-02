@@ -109,6 +109,8 @@ export interface DesktopFilePage {
   extensionId: string;
   handed: (AppFileRef & { id: string }) | null;
   asAgent?: string | null;
+  /** A page's own chat, as it was bound: already its resource container (`surfaceResourceChat`). */
+  boundChat?: string | null;
 }
 
 
@@ -354,10 +356,10 @@ async function onItsMachine(page: DesktopFilePage, place: WorkspacePlace, method
 }
 
 /** Across every chat whoever the page works as is in (`files:read`, checked at the door): by a piece of the path; opened last. */
-export async function appFileViewPreferences(_page: DesktopFilePage, args: { place?: unknown; showAppData?: boolean }) {
+export async function appFileViewPreferences(page: DesktopFilePage, args: { place?: unknown; showAppData?: boolean }) {
   const place = placeOf(args.place);
   if (!('chat' in place)) throw new AppFileError('invalid', 'Folder preferences belong to a chat');
-  return files.viewPreferences(place.chat, args.showAppData);
+  return files.viewPreferences(place.chat, args.showAppData, page.asAgent ? null : page.boundChat);
 }
 
 export async function searchAppFiles(page: DesktopFilePage, args: unknown): Promise<AppFileEntry[]> {
@@ -436,6 +438,17 @@ export async function replaceAppFile(page: DesktopFilePage, args: { ref?: unknow
   if (isChat(ref)) return files.replace(chatSurface(page), { ref, file, expectedVersion });
   if (expectedVersion !== null) throw new AppFileError('invalid', "A working copy's file has no versions here: replace it without expectedVersion");
   return local.replace(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, file });
+}
+
+/**
+ * Whether whoever reads may delete each file, in the order asked: a chat file's answer is the database's (its delete's own
+ * rule); a working copy's is this computer's — yes for a file here, no for one only another computer has.
+ */
+export async function appFilesCanDelete(page: DesktopFilePage, args: { refs?: unknown }): Promise<boolean[]> {
+  const refs = (Array.isArray(args.refs) ? args.refs : []).map((ref) => fileRefOf(ref));
+  const chat = await files.canDelete(chatSurface(page), { refs: refs.filter(isChat) });
+  let next = 0;
+  return Promise.all(refs.map(async (ref) => (isChat(ref) ? chat[next++]! : !(await sessionElsewhere(ref as WorkspacePlace)))));
 }
 
 /** G2 A chat file's kept versions. A working copy's history is its own (git): not kept here, said so. */

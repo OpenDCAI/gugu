@@ -77,6 +77,8 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 24 (App model v2): `description` and `contributes.agentInstructions` are gone; `contributes.instructions` is the App's
 // line for agents and `defaultLocale` says what language the base fields are in. The product page is the market's
 // `store/` listing (app-listing.ts). No earlier manifest runs here any more (EXTENSION_API_VERSION_MIN_SUPPORTED, owner 10-31).
+// 25: `files.canDelete(file | files)`, a page's — whether this person may delete each, asked as a file's menu opens; a listed entry
+// no longer carries `canDelete` (answering it for every file held the whole list).
 export const EXTENSION_API_VERSION = 25;
 
 /**
@@ -836,6 +838,8 @@ export const BRIDGE_VERBS = {
    * open read-write: the file the host handed this page needs nothing, any other `files:write` (checked in `app-files.ts`).
    */
   filesReplace: { needs: null },
+  /** Whether whoever reads may delete each file: asked as a file's menu opens, for that file (a list never carries it). */
+  filesCanDelete: { needs: 'files:read', only: 'page' },
   /** A chat file's kept versions, and one version's content (G2). Gated like open read-only, in `app-files.ts`. */
   filesVersions: { needs: null },
   filesReadVersion: { needs: null },

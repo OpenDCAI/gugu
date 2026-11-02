@@ -13,7 +13,7 @@ export function installPlan(service: ExtensionsService, manifest: ExtensionManif
   // One written for an older interface is replaced as any installed App is: by what the person approved of it.
   const older = displaced ? null : service.olderInterface(manifest.id);
   const revokedPermissions = displaced || older ? service.revokedPermissions(manifest.id) : [];
-  const approved = displaced ? service.approvedManifest(manifest.id) : older ? ({ permissions: older.permissions } as ExtensionManifest) : undefined;
+  const approved = displaced ? service.approvedManifest(manifest.id) : older ? { version: older.version, permissions: older.permissions } : undefined;
   const { newlyAsked, asks } = installAsks({
     installed: approved,
     installedOrigin: displaced || older ? service.origins()[manifest.id] : undefined,
