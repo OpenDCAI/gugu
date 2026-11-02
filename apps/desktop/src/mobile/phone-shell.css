@@ -79,6 +79,13 @@
   background: transparent;
 }
 
+/* #1290: Android WebView can repeat the unlayered root headings while compositing
+   the horizontal pager. Give just these two headers their own layers; leave the
+   pages, scrolling content and detail headers in their existing coordinate spaces. */
+[data-phone-shell] [data-phone-root-list] .gg-pane-header[data-mobile] {
+  transform: translateZ(0);
+}
+
 [data-phone-shell] .gg-pane-header .gg-pane-heading-title[data-title-level='page'] {
   font-size: var(--font-size-xl);
   line-height: var(--lh-page);
