@@ -9,7 +9,7 @@
 
 你把事情直接交给 Agent，它按任务需要调用工具和设备，组织协作，交回结果。
 
-[English](README.md) · **简体中文** · [关于咕咕](#关于咕咕) · [官网](https://gugu.nextmind.space/zh/) · [文档](https://gugu.nextmind.space/help/)
+[English](README.md) · **简体中文** · [关于咕咕](#关于咕咕) · [官网](https://gugu.nextmind.space/zh/) · [文档](https://gugu.nextmind.space/help/) · [产品对比](https://gugu.nextmind.space/help/comparison/overview/)
 
 [![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-C76B4A?style=flat-square)](#主要功能) [![Codex](https://img.shields.io/badge/agent-Codex-252525?style=flat-square)](#主要功能) [![MCP](https://img.shields.io/badge/tools-MCP-6A50D4?style=flat-square)](#主要功能) [![Skills](https://img.shields.io/badge/workflows-Skills-328788?style=flat-square)](#主要功能) [![Gugu Apps](https://img.shields.io/badge/extensions-Gugu%20Apps-E58F28?style=flat-square)](#主要功能)
 
