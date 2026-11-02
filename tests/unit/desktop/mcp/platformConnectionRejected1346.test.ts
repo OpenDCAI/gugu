@@ -8,6 +8,8 @@ import { PlatformCredentialService } from '../../../../apps/desktop/electron/ses
 function fixture() {
   let version = '2026-11-02T12:00:00.000001Z'
   let connected = true
+  let rejectCurrentOnForward = false
+  const consumedVersions: string[] = []
   let release: (() => void) | null = null
   let hold: Promise<void> | null = null
   const read = vi.fn(async () => {
@@ -20,14 +22,22 @@ function fixture() {
   })
   const client = createPlatformIntegrationsClient({
     baseUrl: 'https://platform.test', accessToken: async () => 'fixture-user-jwt',
-    fetch: (async (input) => String(input).endsWith('/integrations') ? read() : Response.json({ error: 'credential_rejected' }, { status: 409 })) as typeof fetch,
+    fetch: (async (input) => {
+      if (String(input).endsWith('/integrations')) return read()
+      // The broker resolves the grant for every request, even for an old endpoint URL.
+      consumedVersions.push(version)
+      if (rejectCurrentOnForward) connected = false
+      // The broker maps upstream 401/403 to this 409 after persisting the rejection.
+      return Response.json({ error: 'credential_rejected' }, { status: 409 })
+    }) as typeof fetch,
   })
   const accounts = {
     listAccounts: vi.fn(async () => []), upsertAccount: vi.fn(async () => ({})),
     removeAccount: vi.fn(), removeAllAccounts: vi.fn(), clearSecret: vi.fn(), resolveSecret: vi.fn(),
   } as unknown as PlatformCredentialDeps['accounts']
   const service = new PlatformCredentialService({ client: () => client, accounts, providers: () => [{ id: 'baidu-pan', name: '百度网盘', fields: [], oauth: true }], log: { info: vi.fn(), warn: vi.fn() } })
-  return { service, read,
+  return { service, read, consumedVersions,
+    rejectCurrentOnForward: () => { rejectCurrentOnForward = true },
     nextGrant: () => { version = '2026-11-02T12:01:00.000001Z'; connected = true },
     rejected: () => { connected = false },
     hold: () => { hold = new Promise<void>((resolve) => { release = resolve }) },
@@ -36,6 +46,22 @@ function fixture() {
 }
 
 describe('platform OAuth rejection state (#1346 review)', () => {
+  it('refreshes the actual current grant when an old endpoint consumes it and the upstream rejects it', async () => {
+    const f = fixture()
+    await f.service.refresh()
+    const old = await f.service.mcpEndpoint('baidu-pan')
+    f.nextGrant()
+    await f.service.refresh({ maxAgeMs: 0 })
+    expect(await f.service.isConnected('baidu-pan')).toBe(true)
+    f.rejectCurrentOnForward()
+    const before = f.read.mock.calls.length
+    await expect(old.fetch(old.url, { method: 'POST' })).rejects.toThrow()
+    expect(f.consumedVersions).toEqual(['2026-11-02T12:01:00.000001Z'])
+    await vi.waitFor(() => expect(f.read.mock.calls.length).toBeGreaterThan(before))
+    await f.service.refresh({ maxAgeMs: 0 })
+    expect(await f.service.isConnected('baidu-pan')).toBe(false)
+    expect(await f.service.check('baidu-pan')).toMatchObject({ connected: false, errorType: 'authorization_expired' })
+  })
   it('refreshes after rejection but cannot replace it with a stale connected answer about the same grant', async () => {
     const f = fixture()
     await f.service.refresh()
@@ -49,7 +75,7 @@ describe('platform OAuth rejection state (#1346 review)', () => {
     f.nextGrant()
     await f.service.refresh({ maxAgeMs: 0 })
     expect(await f.service.isConnected('baidu-pan')).toBe(true)
-    // Reusing an old endpoint after clearing its rejection marker still refers to the old version.
+    // The endpoint retains old local metadata; refresh must preserve the server's healthy new grant.
     await expect(endpoint.fetch(endpoint.url, { method: 'POST' })).rejects.toThrow()
     expect(await f.service.isConnected('baidu-pan')).toBe(true)
   })

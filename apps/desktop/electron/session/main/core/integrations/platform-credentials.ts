@@ -802,8 +802,13 @@ export class PlatformCredentialService {
 
   private heard(integrationId: string, stillStored: boolean, versions?: Map<string, string | null>): void {
     if (stillStored && this.provider(integrationId)?.oauth && versions) {
-      // A late failure of an old request cannot invalidate a newer authorization.
-      if ([...versions].some(([id, version]) => this.versions.get(integrationId)?.get(id) !== version)) return;
+      // Endpoint creation does not identify the grant consumed by a reused endpoint.
+      // Do not mark a newer grant from this old version, but always reconcile with the server.
+      if ([...versions].some(([id, version]) => this.versions.get(integrationId)?.get(id) !== version)) {
+        this.invalidate();
+        void this.refresh({ maxAgeMs: 0 });
+        return;
+      }
       this.rejectedVersions.set(integrationId, new Map(versions));
     }
     const accounts = this.snapshot?.get(integrationId);
