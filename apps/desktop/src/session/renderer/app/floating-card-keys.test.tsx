@@ -35,7 +35,7 @@ afterEach(() => {
 function Dock({ cardShown, hideCard }: { cardShown: boolean; hideCard: () => void }) {
   const dockRef = useRef<HTMLDivElement>(null);
   useFloatingCardKeys(cardShown, hideCard, dockRef);
-  return <div ref={dockRef} data-region="composer"><div contentEditable data-testid="prompt-editor" tabIndex={0} /></div>;
+  return <div ref={dockRef}><div data-region="composer"><div contentEditable data-testid="prompt-editor" tabIndex={0} /></div></div>;
 }
 
 function escapeInEditor(): void {

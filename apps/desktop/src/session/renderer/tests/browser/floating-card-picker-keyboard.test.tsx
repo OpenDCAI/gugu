@@ -6,6 +6,7 @@ import { until } from '../../../../../../../tests/support/awaitCondition';
 import { Sheet } from '@/components/ui/Sheet';
 import { RemoteFolderPicker } from '@/components/RemoteFolderPicker';
 import { useFloatingCardKeys } from '../../app/floating-card-keys';
+import '@/styles/tokens.css';
 
 vi.mock('@/lib/deviceFs', () => ({
   deviceFsListDirectory: async () => ({ result: { path: '/home/work', home: '/home/work', entries: [{ name: 'project', kind: 'directory' }] } }),
@@ -35,8 +36,10 @@ function ProjectDock({ withCard }: { withCard: boolean }) {
   return (
     <>
       <div data-testid="floating-card-state">{cardShown ? 'shown' : 'hidden'}</div>
-      <div ref={dockRef} data-region="composer">
-        <div contentEditable data-testid="prompt-editor" suppressContentEditableWarning />
+      <div ref={dockRef}>
+        <div data-region="composer">
+          <div contentEditable data-testid="prompt-editor" suppressContentEditableWarning />
+        </div>
       </div>
       <Sheet onClose={() => {}} ariaLabel="Choose remote folder">
         <RemoteFolderPicker deviceId="remote-device" initialPath="~" onSelect={() => {}} onCancel={() => {}} />
