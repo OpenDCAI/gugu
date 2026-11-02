@@ -10,6 +10,7 @@ import { installShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
 import { NeedsYouHost } from '../../../../apps/desktop/src/components/needsYou/NeedsYouHost'
 import { assistantTimelineClient } from '../../../../apps/desktop/src/components/assistant/assistantTimelineClient'
 import { phoneTimelineClient } from '../../../../apps/desktop/src/mobile/local-agent/phoneTimelineClient'
+import { agentStatusText } from '../../../../apps/desktop/src/lib/agentStatusText'
 
 const state = vi.hoisted(() => ({ tasks: [] as unknown[], settlements: {} as Record<string, unknown>, link: 'ok', mobile: false, pages: [] as { projectId: string; sessionId: string }[], wholePage: true, tab: 'acp-chat' }))
 const followLink = vi.hoisted(() => vi.fn())
@@ -31,7 +32,7 @@ let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   vi.clearAllMocks()
   installShellSlots()
-  state.tasks = [{ deviceId: 'server', machine: 'Remote host', local: false, session: { conversationId: 'task', title: 'Install Reader', projectId: 'project', runtime: 'pty', supported: true } }]
+  state.tasks = [{ deviceId: 'server', machine: 'Remote host', local: false, session: { conversationId: 'task', title: 'Install Reader', projectId: 'project', runtime: 'pty', supported: true, status: { status: 'needs_user', detail: 'approval' } } }]
   state.settlements = { install: { itemId: 'install', kind: 'permission', title: 'Review Reader', state: 'pending', origin: { source: 'app-install', payload: { request: {} } } } }
   state.link = 'ok'
   state.mobile = false
@@ -195,7 +196,7 @@ it('reports waiting tasks to the existing rail even when the current task has it
 
 it('shows local and remote pending tasks in the phone list with the existing sidebar warning mark', async () => {
   state.mobile = true
-  state.tasks.push({ deviceId: 'local', machine: 'This computer', local: true, session: { conversationId: 'local-task', title: 'Review local task', projectId: 'project', runtime: 'acp', supported: true, lastInteractedAt: null } })
+  state.tasks.push({ deviceId: 'local', machine: 'This computer', local: true, session: { conversationId: 'local-task', title: 'Review local task', projectId: 'project', runtime: 'acp', supported: true, lastInteractedAt: null, status: { status: 'needs_user', detail: 'approval' } } })
   const onAttentionChange = vi.fn()
   await renderWithAppProviders(harness, <><NeedsYouSlot list /><NeedsYouHost onAttentionChange={onAttentionChange} /></>)
   const rows = document.querySelectorAll('[data-needs-you-list-slot] [data-session-line]')
@@ -206,6 +207,21 @@ it('shows local and remote pending tasks in the phone list with the existing sid
   expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
   await act(async () => { (rows[1] as HTMLElement).click() })
   expect(followLink).toHaveBeenCalledWith({ kind: 'session', sessionId: 'local-task' })
+  expect(respond).not.toHaveBeenCalled()
+})
+
+it('shows a failed phone task as an error and opens its source without an approval (#1165)', async () => {
+  state.mobile = true
+  state.tasks = [{ deviceId: 'server', machine: 'Remote host', local: false, session: { conversationId: 'failed', title: 'Failed task', status: { status: 'error', detail: null } } }]
+  state.settlements = {}
+  await renderWithAppProviders(harness, <><NeedsYouSlot list /><NeedsYouHost /></>)
+  const row = document.querySelector<HTMLElement>('[data-session-line="failed"]')!
+  expect(row).not.toBeNull()
+  expect([...row.querySelectorAll('[role="img"]')].map(mark => mark.getAttribute('aria-label'))).toContain(agentStatusText('error'))
+  expect(row.querySelector('[data-agent-status-glyph="needs_user"]')).toBeNull()
+  expect(row.querySelector('.gg-c-st-dot-mark')?.className).toContain('--agent-tone-error')
+  await act(async () => row.click())
+  expect(followLink).toHaveBeenCalledWith({ kind: 'session', sessionId: 'failed' })
   expect(respond).not.toHaveBeenCalled()
 })
 
