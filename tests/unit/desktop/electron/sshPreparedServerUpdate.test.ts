@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { DeviceCapabilities } from '@gugu/core/shared/types/deviceHost'
+import type { DeviceCapabilities } from '@gugu/core/shared/types/chat'
 import { VERSION_RESTART_RPC, VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC } from '@gugu/core/cloud/serverMachineHealth'
 import { createSshAutoUpgrader, sshServerUpgradeRunner } from '../../../../apps/desktop/electron/server/ssh-install/auto-upgrade'
 

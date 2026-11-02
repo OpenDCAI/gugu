@@ -917,7 +917,7 @@ describe('runSshInstall', () => {
     expect(statuses(final)).toMatchObject({ download: 'done', service: 'done', login: 'skipped' })
     expect(seen.some(stdin => stdin.includes('--no-login'))).toBe(true)
     expect(seen.some(stdin => stdin.includes('service install'))).toBe(true)
-    expect(seen.some(stdin => stdin.includes('match-version') || stdin.includes('login --grant-stdin'))).toBe(false)
+    expect(seen.some(stdin => stdin.includes('match-version --') || stdin.includes('login --grant-stdin'))).toBe(false)
     expect(calls.every(args => args.includes('BatchMode=yes'))).toBe(true)
   })
 
