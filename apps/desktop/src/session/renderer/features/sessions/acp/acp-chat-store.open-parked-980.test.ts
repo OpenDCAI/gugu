@@ -24,6 +24,20 @@ import type { TranscriptTurn } from '@gugu/session-core/acp';
 import type { Session } from '@shared/core/sessions/sessions';
 
 const records = vi.hoisted(() => new Map<string, Partial<Session>>());
+const link = vi.hoisted(() => ({
+  state: 'open' as 'open' | 'closed',
+  reconnected: new Set<() => void>(),
+}));
+vi.mock('@renderer/lib/machine-clients', async (original) => ({
+  ...(await original<typeof import('@renderer/lib/machine-clients')>()),
+  machineClient: () => ({ api: { invoke: (channel: string, ...args: unknown[]) => window.electronAPI!.invoke(channel, ...args) } }),
+  machineLinkState: () => link.state,
+  machineLinkHandingOff: () => false,
+  onMachineReconnected: (_machine: string, listener: () => void) => {
+    link.reconnected.add(listener);
+    return () => link.reconnected.delete(listener);
+  },
+}));
 vi.mock('../stores/session-registry', () => ({
   sessionRegistry: {
     get: (id: string) =>
@@ -122,6 +136,8 @@ const host = {
   /** 库里那份;每读一次取队首(读完留最后一份)。 */
   storedPages: [] as StoredPage[],
   storedReads: [] as Array<{ limit?: number; fromSeq?: number }>,
+  storedFailure: null as Error | null,
+  storedPending: null as Promise<StoredPage> | null,
   sync: vi.fn(async (_sessionId: string): Promise<{ inserted: number }> => ({ inserted: 0 })),
 };
 
@@ -138,6 +154,8 @@ Object.defineProperty(window, 'electronAPI', {
       if (channel !== 'sessions.getStoredHistory') return Promise.resolve([]);
       const params = args[0] as { limit?: number; fromSeq?: number };
       host.storedReads.push(params);
+      if (host.storedFailure) return Promise.reject(host.storedFailure);
+      if (host.storedPending) return host.storedPending;
       // 开场补读那一页之后新落库的(`fromSeq`):这些用例里没有。
       if (params.fromSeq !== undefined) return Promise.resolve({ turns: [], originTurnIds: [], nextCursor: null });
       const page = host.storedPages.length > 1 ? host.storedPages.shift()! : host.storedPages[0];
@@ -149,6 +167,8 @@ Object.defineProperty(window, 'electronAPI', {
   },
 });
 const { AcpChatStore } = await import('./acp-chat-store');
+const { MACHINE_LINK_GRACE_MS } = await import('./acp-chat-store');
+const { machineRegistry } = await import('@renderer/lib/machine-routing');
 const { isTerminalLoadError } = await import('./acp-load-error');
 type Store = InstanceType<typeof AcpChatStore>;
 
@@ -216,6 +236,10 @@ beforeEach(() => {
   running.watchCalls = 0;
   host.storedPages = [page(turn('s0', 0), turn('s1', 1))];
   host.storedReads = [];
+  host.storedFailure = null;
+  host.storedPending = null;
+  link.state = 'open';
+  link.reconnected.clear();
   host.sync.mockReset().mockResolvedValue({ inserted: 0 });
   runtime.getStoredQueue.mockClear();
   custody.mockClear();
@@ -227,6 +251,80 @@ beforeEach(() => {
 });
 
 describe('#980 打开一条没在跑的会话', () => {
+  it('shows loading for a persisted conversation while its history read is pending', async () => {
+    const history = Promise.withResolvers<StoredPage>();
+    host.storedPending = history.promise;
+    const { store } = storeFor();
+    store.bootstrap();
+    expect(store.isEmpty).toBe(false);
+    expect(store.showHistoryLoading).toBe(true);
+    history.resolve(page(turn('loaded', 0)));
+    await parked(store);
+    expect(store.showHistoryLoading).toBe(false);
+    expect(committedIds(store)).toEqual(['loaded']);
+    store.dispose();
+  });
+
+  it.each([false, true])('a failed history read stays visible and retries without starting the agent (released=%s)', async (released) => {
+    const { store } = storeFor();
+    if (released) {
+      store.bootstrap();
+      await parked(store);
+      store.releaseTranscript();
+    }
+    host.storedFailure = new Error('history read refused');
+    store.bootstrap();
+    await vi.waitFor(() => expect(store.loadError).toEqual({ kind: 'history_unavailable', message: 'history read refused' }));
+    expect(store.historyLoading).toBe(false);
+    expect(store.showHistoryLoading).toBe(false);
+    host.storedFailure = null;
+    store.retry();
+    await vi.waitFor(() => expect(committedIds(store)).toEqual(['s0', 's1']));
+    expect(store.loadError).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+    expect(life.start).not.toHaveBeenCalled();
+    store.dispose();
+  });
+
+  it.each([[false, false], [false, true], [true, false], [true, true]])('a restored connection rereads idle history (released=%s, grace expired=%s)', async (released, expired) => {
+    vi.useFakeTimers();
+    const { store } = storeFor();
+    const machine = 'history-remote-1306';
+    machineRegistry.register(machine, [store.sessionId]);
+    try {
+      if (released) {
+        store.bootstrap();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(committedIds(store)).toEqual(['s0', 's1']);
+        store.releaseTranscript();
+      }
+      link.state = 'closed';
+      host.storedFailure = Object.assign(new Error('remote window closed'), { code: 'unreachable' });
+      store.bootstrap();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(store.showHistoryLoading).toBe(true);
+      if (expired) {
+        await vi.advanceTimersByTimeAsync(MACHINE_LINK_GRACE_MS);
+        expect(store.loadError).toMatchObject({ kind: 'connection_lost', deviceId: machine });
+        expect(store.historyLoading).toBe(false);
+      } else expect(store.loadError).toBeNull();
+      expect(running.watchers.size).toBe(released ? 1 : 0);
+      host.storedFailure = null;
+      link.state = 'open';
+      for (const listener of [...link.reconnected]) listener();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(committedIds(store)).toEqual(['s0', 's1']);
+      expect(store.loadError).toBeNull();
+      expect(store.historyLoading).toBe(false);
+      expect(create).not.toHaveBeenCalled();
+      expect(life.start).not.toHaveBeenCalled();
+    } finally {
+      store.dispose();
+      machineRegistry.forgetMachine(machine);
+      vi.useRealTimers();
+    }
+  });
+
   it('只画对话:库里那份上屏,❌ 起 agent;停着、输入框能用,没有「启动中」也没有失败那一行', async () => {
     const { store } = storeFor();
     store.bootstrap();

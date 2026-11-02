@@ -10,6 +10,8 @@ import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { sessionLifeView } from '../stores/session-life-views';
 import { lifeIsStarting } from '@shared/core/sessions/session-life';
 import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
+import { AgentFailureSlot } from '@/components/AgentFailureSlot';
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { useSessionMessageQuotes } from './use-session-message-quotes';
 import { useSessionPromptEditor } from './use-session-prompt-editor';
@@ -1366,6 +1368,7 @@ const ComposerForStore = observer(function ComposerForStore({
   );
 
   const a = store.affordances;
+  const agentUserId = sessionAgentBindings.bindingFor(store.sessionId)?.agentUserId ?? null;
 
   // gugu-dev#181 ⑫ 会话里也能派:选了「新任务」,这一框换成新任务的框(卡落项目群;没有项目的落它的私聊)。
   if (verb) {
@@ -1424,6 +1427,8 @@ const ComposerForStore = observer(function ComposerForStore({
         </div>
       ) : null}
       <NeedsYouSlot />
+      {/* This task's agent's failed deliveries (the shell draws the same bar a chat's composer shows). */}
+      {agentUserId ? <AgentFailureSlot agentUserId={agentUserId} /> : null}
       {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. */}
       {life && lifeIsStarting(life) && !store.transcriptPendingId ? (
         <div className="flex justify-center px-3 py-1 text-xs text-foreground-muted" data-life-stage={life.stage?.at}>
@@ -1933,6 +1938,13 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             detail: error.message,
             actions: [retry],
           };
+        case 'history_unavailable':
+          return {
+            code: 'history-unavailable',
+            label: `${translate('transcript.condition.historyFailed')}: ${error.message}`,
+            detail: error.message,
+            actions: [retry],
+          };
         default: {
           // 咕咕这一侧的失败按原因表说、给原因表的按钮(#7103);咕咕以外的(harness / provider)递它的原话(#4657)+ 重试。
           const reason = failureReason(error.message);
@@ -2263,9 +2275,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
           ❌ 这里不再有任何错误分支:失败一律是消息列表末尾的一行(session-condition),
           见本文件 useEffect「把加载失败翻成列表里的一行」。 */}
       {overlaySlot &&
-        store.historyLoading &&
-        store.loadError === null &&
-        store.isEmpty &&
+        store.showHistoryLoading &&
         createPortal(
           <div
             className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background-secondary-1 text-sm text-foreground-muted"

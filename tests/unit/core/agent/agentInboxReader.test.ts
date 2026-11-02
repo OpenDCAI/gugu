@@ -341,6 +341,36 @@ describe('an enqueuing host (session-life)', () => {
     expect(marked).toEqual([row(1).id])
   })
 
+  // A failure row is public: about whispers alone it would tell the chat who was whispered to (the #1247 rule for undelivered).
+  it('a failed batch of whispers posts no public row and is left to the owner; a batch with a public message still says it', async () => {
+    const cloud = cloudWith(1, 2)
+    const said: Array<{ reason: string }> = []
+    const { deps } = makeDeps(cloud, { postDisclosure: async (row) => { said.push({ reason: row.reason }) } })
+    const source = (seq: number, isWhisper: boolean) => ({ row: { ...row(seq), chatKind: 'group', chatPublicId: null, chatName: null, chatCreatorUserId: null, listenMode: 'active',
+      notificationLevel: 'all', lastReadSeq: 0, senderType: 'human', senderDisplayName: null, senderGuguNumber: null, contentType: 'text', toUserIds: [AGENT],
+      isWhisper, replyToMessageId: null, replyToSenderUserId: null, replyToContent: null, threadRootId: null, isThreadRoot: false } as AgentInboxUnreadRow })
+    await discloseInboxRowsFailed(AGENT, [source(1, true)], deps, { kind: 'failed', cause: new Error('fetch failed') })
+    expect(said).toEqual([])
+    await discloseInboxRowsFailed(AGENT, [source(1, true), source(2, false)], deps, { kind: 'failed', cause: new Error('fetch failed') })
+    expect(said).toEqual([{ reason: 'network' }])
+  })
+
+  // session-life reports a failed row with a serialized cause ({ name, message }, not an Error); the disclosure returns what
+  // it did, so the unit's delivery command records the same reason (#1264 评审①: it used to be dropped as generic).
+  it('a session-life failure is classified from its serialized cause and returned to settle the unit', async () => {
+    const cloud = cloudWith(1, 2)
+    const said: Array<{ reason: string }> = []
+    const { deps } = makeDeps(cloud, { postDisclosure: async (row) => { said.push({ reason: row.reason }) }, agentSpokeAfter: async () => false })
+    const source = (seq: number, isWhisper: boolean) => ({ row: { ...row(seq), chatKind: 'group', chatPublicId: null, chatName: null, chatCreatorUserId: null, listenMode: 'active',
+      notificationLevel: 'all', lastReadSeq: 0, senderType: 'human', senderDisplayName: null, senderGuguNumber: null, contentType: 'text', toUserIds: [AGENT],
+      isWhisper, replyToMessageId: null, replyToSenderUserId: null, replyToContent: null, threadRootId: null, isThreadRoot: false } as AgentInboxUnreadRow })
+    await expect(discloseInboxRowsFailed(AGENT, [source(1, true)], deps, { kind: 'failed', cause: { name: 'Error', message: "You've hit your weekly limit" } }))
+      .resolves.toEqual({ said: false, reason: 'weeklyQuota' })
+    await expect(discloseInboxRowsFailed(AGENT, [source(2, false)], deps, { kind: 'failed', cause: { name: 'TypeError', message: 'fetch failed' } }))
+      .resolves.toEqual({ said: true, reason: 'network' })
+    expect(said).toEqual([{ reason: 'network' }])
+  })
+
   it('a claimed row that already ended (failed / unknown) does not hold back a skipped row behind it', async () => {
     const cloud = cloudWith(1)
     cloud.post({ ...row(2), id: `msg:${row(2).id}` })
@@ -1541,7 +1571,8 @@ describe('三态判决与失败面', () => {
       const thrown = await pullAgentInbox(AGENT, deps).then(() => null, (error: unknown) => error)
       expect(isSaidInChat(thrown)).toBe(said)
       expect((thrown as Error).message).toBe('provider exploded')
-      expect(said ? (thrown as Error).cause : thrown).toBe(failure)
+      // Said or not, the failure carries how it was disclosed and keeps the original as its cause.
+      expect((thrown as Error).cause).toBe(failure)
     }
     expect(isSaidInChat(failure)).toBe(false)
     expect(isSaidInChat(new Error('never pulled'))).toBe(false)

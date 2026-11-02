@@ -12,7 +12,6 @@ import { AuthContext, type AuthUser } from '../../../../apps/desktop/src/store/a
 import { ChatStoreProvider, type ChatContextValue } from '../../../../apps/desktop/src/store/chatContext'
 import { deriveThreadScope } from '../../../../apps/desktop/src/store/threadScope'
 import { DevicesContext, type DevicesContextValue } from '../../../../apps/desktop/src/store/devicesContext'
-import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { chat, chatStore, createReactHarness, device, displayIdentity, message } from '../../../support/testHarness'
 
 const counts = vi.hoisted(() => ({ bubble: new Map<string, number>(), metaRow: 0, panelCommits: 0 }))
@@ -178,31 +177,6 @@ describe('聊天页渲染预算', () => {
     console.info(`[render-budget] ${kind} new message: bubbles=${bubbleRenders()} metaRows=${counts.metaRow}`)
     expect(counts.bubble.get('m-new')).toBe(1)
     expect(bubbleRenders()).toBe(1)
-  })
-
-  it('别的会话来了一片流式输出,当前会话一次都不重渲', async () => {
-    const store = makeStore('ai')
-    await mount(store)
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent(UI_EVENTS.agentStream, { detail: { conversationId: 'chat-2', agentUserId: PEER, event: { type: 'message_chunk', text: 'x' } } }))
-    })
-    await flushFrames()
-    console.info(`[render-budget] foreign stream chunk: panelCommits=${counts.panelCommits} bubbles=${bubbleRenders()}`)
-    expect(counts.panelCommits).toBe(0)
-    expect(bubbleRenders()).toBe(0)
-  })
-
-  // Agent DMs now consume the project timeline, not the retired IM stream path.
-  it('旧 IM 流事件不再驱动共享 agent 转录', async () => {
-    const store = makeStore('ai')
-    await mount(store)
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent(UI_EVENTS.agentStream, { detail: { conversationId: 'chat-1', agentUserId: PEER, event: { type: 'message_chunk', text: 'x' } } }))
-    })
-    await flushFrames()
-    console.info(`[render-budget] own stream chunk: panelCommits=${counts.panelCommits} bubbles=${bubbleRenders()}`)
-    expect(counts.panelCommits).toBe(0)
-    expect(bubbleRenders()).toBe(0)
   })
 
   it('草稿落盘(别的会话)不让任何气泡或元指示行重渲', async () => {

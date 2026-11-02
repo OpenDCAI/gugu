@@ -193,6 +193,7 @@ import {
 } from '@gugu/core/local/agent/deviceCommandRuntime'
 import {
   discloseInboxRowsFailed,
+  DisclosedFailure,
   kickAgentInboxPull,
   markInboxRowsRead,
   readAgentInboxBatchAuditForTest,
@@ -509,7 +510,6 @@ import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@g
 import { announceLocalDeviceIdentity } from './local-device-identity'
 import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
 import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
-import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
 import { emdashPlatformReleaseIntent } from './session/main/core/acp/emdash-platform-injector'
 import type {
   EmdashSessionStartInfo as EmdashStartInfo,
@@ -2165,30 +2165,6 @@ function startDeviceRuntimeWhenRendererReady(): void {
     warn: (message) => console.warn(message),
     onAuthExpired: (message) => { void showAuthExpiredNotification(message) },
     ...(serverAuth ? { onDeviceRemoved: serverDeviceRemovedHandler(serverAuth) } : {}),
-    onAgentDeliverFailure: (failure) => {
-      console.error(
-        `[agent-turn] deliver ${failure.commandId} failed terminally (agent=${failure.agentUserId} chat=${failure.chatId} thread=${failure.threadRootId ?? 'main'}): ${failure.error}`
-        + (failure.cause ? ` (cause: ${failure.cause})` : '')
-      )
-      sendUiEvent(MAIN_UI_EVENTS.agentStream, {
-        agentUserId: failure.agentUserId,
-        conversationId: failure.chatId,
-        threadRootId: failure.threadRootId,
-        event: { type: 'error', message: failure.error, commandId: failure.commandId }
-      } satisfies AgentStreamPayload)
-      // @@@no-auto-dm — 判据是「这个 agent 是不是会话页 agent」,那是 liveSessionIdByAgent 的
-      // 定义(非 null = 投递归会话页)。曾经拿 chatIdForAgent 顶替:私聊一律在 provision 时开,于是
-      // 「有 chatId」恰好等价于「是会话页 agent」—— 现在私聊只找不建,没开过私聊的会话页 agent
-      // chatId 就是 null,再按它判就会把该报给会话页的投递失败**静默吞掉**。
-      const sessionpageSessionId = emdashAgentRegistry.liveSessionIdByAgent(failure.agentUserId)
-      if (sessionpageSessionId) {
-        sendUiEvent(MAIN_UI_EVENTS.sessionpageDeliverFailed, {
-          agentUserId: failure.agentUserId,
-          messageId: failure.messageId,
-          error: failure.error,
-        })
-      }
-    },
   })
   // server 没有窗口可等:登录态在主进程手里,设备循环直接起。
   if (SERVER_MODE || !mainWindow) {
@@ -5004,12 +4980,21 @@ app.whenReady().then(async () => {
     // mapped offline target is queued, while transport errors remain fail-loud. Never a pty write.
     emdashAgentRegistry.setBridge(emdash)
     emdash.setSessionLifeSourceHost({
-      markRead: row => settleSessionLifeSources([row], markInboxRowsRead),
-      // By the row's state: failed and unknown are final (Life never redelivers them); a start failure's rows stay queued.
+      // The agent accepted the row: its unit's delivery succeeded, whether or not the read receipt then lands.
+      markRead: async (row) => {
+        emdashAgentRegistry.settleInbox([row])
+        await settleSessionLifeSources([row], markInboxRowsRead)
+      },
+      // By the row's state: failed and unknown are final (Life never redelivers them) and fail the unit's delivery with what
+      // was disclosed, so its command records it; a start failure's rows stay queued and their units wait for the retry.
       reportFailure: async (rows, cause) => {
-        await settleSessionLifeSources(rows.filter(row => row.state === 'failed'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'failed', cause }))
-        await settleSessionLifeSources(rows.filter(row => row.state === 'unknown'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'unknown' }))
-        await settleSessionLifeSources(rows.filter(row => row.state === 'queued'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'retained' }))
+        for (const [state, outcome] of [['failed', { kind: 'failed', cause }], ['unknown', { kind: 'unknown' }], ['queued', { kind: 'retained' }]] as const) {
+          const settled = rows.filter(row => row.state === state)
+          await settleSessionLifeSources(settled, async (agent, sources, deps) => {
+            const disclosure = await discloseInboxRowsFailed(agent, sources, deps, outcome)
+            if (state !== 'queued') emdashAgentRegistry.settleInbox(settled.filter(row => row.sources.some(source => source.agentUserId === agent)), new DisclosedFailure(cause, disclosure))
+          })
+        }
       },
     })
     // @@@sessionpage TASKPAGE-FUSION — re-map every persisted session-page agent binding at boot so it stays
