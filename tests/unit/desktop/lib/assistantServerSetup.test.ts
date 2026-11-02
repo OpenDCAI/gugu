@@ -122,3 +122,18 @@ it('never resumes another account or a provisioning target that disagrees with t
   expect(mocks.resume).not.toHaveBeenCalled()
   expect(mocks.ipc).not.toHaveBeenCalled()
 })
+it('joins the existing server setup when the assistant shell tries to recover its new identity', async () => {
+  let finish!: (value: unknown) => void
+  mocks.provision.mockImplementationOnce(async (deviceId, _member, deps) => {
+    const record = { ownerUserId: 'owner', deviceId, operationId: deps.newId() } as ProvisionResumeRecord
+    mocks.stored = [record]; deps.onAttemptRecorded(record)
+    return new Promise(resolve => { finish = resolve })
+  })
+  const started = setUpAssistantOnServer(draft, 'server')
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+  const shell = resumeServerAssistantProvision(mocks.stored[0]!)
+  expect(shell).toBe(started)
+  expect(mocks.resume).not.toHaveBeenCalled()
+  finish({ agentUserId: 'assistant', sessionId: 'session' })
+  await expect(shell).resolves.toMatchObject({ agentUserId: 'assistant' })
+})
