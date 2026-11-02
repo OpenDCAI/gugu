@@ -3,10 +3,13 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Settlement } from '@gugu/session-core/session-record/contract';
+import { i18n } from '@/i18n';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { useHostAskBand } from './use-session-host-ask';
 
 const mocks = vi.hoisted(() => ({
   snapshot: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn(), respond: vi.fn(), toast: vi.fn(), sheet: vi.fn(),
+  machineId: null as string | null,
 }));
 vi.mock('@renderer/lib/ipc', () => ({
   events: { on: () => () => {} },
@@ -15,10 +18,10 @@ vi.mock('@renderer/lib/ipc', () => ({
     sessionSnapshot: mocks.snapshot, sessionSubscribe: mocks.subscribe, sessionUnsubscribe: mocks.unsubscribe,
   } }),
 }));
-vi.mock('@renderer/lib/machine-routing', () => ({ machineRegistry: { machineOf: () => null } }));
-vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({ remoteHostsStore: { device: () => undefined } }));
+vi.mock('@renderer/lib/machine-routing', () => ({ machineRegistry: { machineOf: () => mocks.machineId } }));
+vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({ remoteHostsStore: { device: () => ({ label: 'Build desktop' }) } }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: mocks.toast }));
-vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }));
+vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: translateSessionMessage }) }));
 vi.mock('@renderer/utils/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('./install-consent', () => ({ askInShell: mocks.sheet, installConsentPrompt: () => ({ title: 'Install Reader?' }) }));
 vi.mock('@shared/extensions/manifest', async (original) => ({
@@ -44,6 +47,8 @@ function Probe() {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  mocks.machineId = null;
+  await i18n.changeLanguage('en-US');
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   mocks.snapshot.mockResolvedValue({ ok: true, value: { settlements: [ask], cursor: {} } });
   mocks.subscribe.mockResolvedValue(undefined);
@@ -61,16 +66,30 @@ afterEach(() => {
 });
 
 describe('session approval band response feedback', () => {
-  it.each([
-    ['session_not_found', 'This session is no longer on the host'],
-    ['host_ask_refused', 'The host refused this install answer'],
-  ])('shows the host message when the answer returns %s', async (code, message) => {
+  it('shows the host message when the answer is refused', async () => {
+    const code = 'host_ask_refused';
+    const message = 'The host refused this install answer';
     mocks.respond.mockResolvedValue({ ok: false, error: { code, message } });
     await act(async () => band!.resolve('decline'));
     expect(mocks.respond).toHaveBeenCalledWith({
       conversationId: 'session-1', itemId: 'ask-1', kind: 'permission', by: 'desktop', optionId: 'decline',
     });
     expect(mocks.toast).toHaveBeenCalledExactlyOnceWith({ title: message, variant: 'destructive' });
+  });
+
+  it.each([
+    ['en-US', null, 'This computer no longer has this task'],
+    ['en-US', 'remote-machine', 'Build desktop no longer has this task'],
+    ['zh-CN', null, '这台电脑 上已经没有这个会话了'],
+  ])('uses the viewing locale %s and device %s for a missing session', async (locale, machineId, title) => {
+    await i18n.changeLanguage(locale);
+    mocks.machineId = machineId;
+    await act(async () => root.render(<Probe />));
+    mocks.respond.mockResolvedValue({ ok: false, error: {
+      code: 'session_not_found', message: '这台机器上没有会话 session-private-id',
+    } });
+    await act(async () => band!.resolve('decline'));
+    expect(mocks.toast).toHaveBeenCalledExactlyOnceWith({ title, variant: 'destructive' });
   });
 
   it.each([true, false])('keeps a resolved answer silent (accepted=%s)', async (accepted) => {
@@ -82,7 +101,7 @@ describe('session approval band response feedback', () => {
   it('keeps the no-longer-waiting notice for a withdrawn ask', async () => {
     mocks.respond.mockResolvedValue({ ok: true, value: { accepted: false, settlement: { ...ask, state: 'cancelled' } } });
     await act(async () => band!.resolve('decline'));
-    expect(mocks.toast).toHaveBeenCalledExactlyOnceWith({ title: 'extensions.consentNoLongerWaiting' });
+    expect(mocks.toast).toHaveBeenCalledExactlyOnceWith({ title: 'No longer waiting: this ask is over, nothing was installed.' });
   });
 
   it('keeps transport errors on the same destructive toast path', async () => {

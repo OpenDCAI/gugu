@@ -1494,7 +1494,7 @@ export async function respond(
   input: SessionpageSessionRespondRequest
 ): Promise<SessionTimelineResult<SessionpageSessionRespondResult>> {
   const row = readSessionRow(input.conversationId);
-  if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
+  if (!row) return fail('session_not_found', '这台机器上没有这条会话');
   const target = writeTargetFrom(row);
 
   const acquired = await acquire(input.conversationId);

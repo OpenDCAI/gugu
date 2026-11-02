@@ -88,14 +88,19 @@ export function useHostAskBand(
         machine,
         respond: async (answer) => {
           const result = await rpc.sessionTimeline.sessionRespond({ conversationId: sessionId, itemId, kind: 'permission', by: 'desktop', ...answer });
-          if (!result.ok) throw new Error(result.error.message);
+          if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code });
           return result;
         },
       })
         .then((result) => {
           if (answeredTooLate(result)) toast({ title: translate('extensions.consentNoLongerWaiting') });
         })
-        .catch((error: unknown) => toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' }));
+        .catch((error: unknown) => {
+          const title = error instanceof Error && 'code' in error && error.code === 'session_not_found'
+            ? translate('remoteHost.condition.sessionGone', { device: machine ?? translate('task.deviceLocal') })
+            : error instanceof Error ? error.message : String(error);
+          toast({ title, variant: 'destructive' });
+        });
     },
     [sessionId, itemId, install, machine, translate]
   );
