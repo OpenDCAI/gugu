@@ -30,10 +30,13 @@ export type PendingPrompt = {
   received?: boolean;
   hostSequence?: number;
   stopped?: boolean;
+  /** Once found, a receipt stays on this native message even if a later history window omits it. */
+  nativeEcho?: { turnId: string; itemId: string };
 };
 
 type NativeDelivery = { item: TranscriptTurn['items'][number]; sourceIds: ReadonlySet<string> };
 export type PendingMessageProjectionCache = WeakMap<TranscriptTurn, { inputs: readonly (PendingPrompt | undefined)[]; turn: TranscriptTurn; native?: readonly NativeDelivery[] }>;
+const projectionEchoes = new WeakMap<PendingMessageProjectionCache, Map<string, NonNullable<PendingPrompt['nativeEcho']>>>();
 
 function sourceMessageIds(text: string): string[] {
   return readDeliveryEnvelope(text)?.segments.flatMap(segment => segment.facts?.messageId ? [segment.facts.messageId.replace(/^msg:/, '')] : []) ?? [];
@@ -53,6 +56,7 @@ export function pendingPromptLanded(prompt: PendingPrompt, turns: readonly Trans
   const flat = (text: string) => text.replace(/\s+/g, ' ').trim();
   return turns.some((turn, index) => turn.items.some(item => {
     if (item.kind !== 'message' || item.role !== 'user') return false;
+    if (prompt.nativeEcho) return nativeMessageKey(item.id) === nativeMessageKey(prompt.nativeEcho.itemId);
     if (item.id === prompt.id || (prompt.id.length >= 16 && item.id.includes(prompt.id))) return true;
     if (deliveryIds.length) {
       const nativeIds = new Set(sourceMessageIds(item.text));
@@ -63,6 +67,15 @@ export function pendingPromptLanded(prompt: PendingPrompt, turns: readonly Trans
     // Sender and host clocks are independent. An empty baseline anchors a first input before the first turn.
     return prompt.afterTurnId === undefined ? baseline.size === 0 : anchor >= 0 && index > anchor;
   }));
+}
+
+export function pendingPromptNativeEcho(prompt: PendingPrompt, turns: readonly TranscriptTurn[]): PendingPrompt['nativeEcho'] {
+  if (prompt.nativeEcho) return prompt.nativeEcho;
+  let echo: PendingPrompt['nativeEcho'];
+  for (const turn of turns) for (const item of turn.items) {
+    if (item.kind === 'message' && item.role === 'user' && pendingPromptLanded(prompt, [{ ...turn, items: [item] }])) echo = { turnId: turn.id, itemId: item.id };
+  }
+  return echo;
 }
 
 /** Keep the input visible when a native turn starts before its user-message echo arrives. */
@@ -91,6 +104,9 @@ export function projectPendingMessages(committed: readonly TranscriptTurn[], act
   const all = [...committed, ...(active ? [active] : [])];
   const bindings = new Map<string, PendingPrompt>();
   const waiting: PendingPrompt[] = [];
+  let remembered = cache ? projectionEchoes.get(cache) : undefined;
+  if (cache && !remembered) { remembered = new Map(); projectionEchoes.set(cache, remembered); }
+  for (const id of remembered?.keys() ?? []) if (!incoming.some(input => input.id === id)) remembered?.delete(id);
   // Committed native messages are immutable. Do not reparse their full envelopes for every streaming token.
   const native = all.map(turn => {
     const previous = cache?.get(turn);
@@ -101,14 +117,16 @@ export function projectPendingMessages(committed: readonly TranscriptTurn[], act
   });
   for (const input of incoming) {
     let match: { turnId: string; itemId: string } | undefined;
+    const known = input.nativeEcho ?? remembered?.get(input.id);
     const ids = input.received ? sourceMessageIds(input.text) : [];
     for (const { turn, messages } of native) for (const { item, sourceIds } of messages) {
-      const landed = item.id === input.id || (input.id.length >= 16 && item.id.includes(input.id))
-        || (ids.length ? ids.every(id => sourceIds.has(id)) : pendingPromptLanded(input, [{ ...turn, items: [item] }]));
+      const landed = known ? nativeMessageKey(item.id) === nativeMessageKey(known.itemId)
+        : item.id === input.id || (input.id.length >= 16 && item.id.includes(input.id))
+          || (ids.length ? ids.every(id => sourceIds.has(id)) : pendingPromptLanded(input, [{ ...turn, items: [item] }]));
       if (landed) match = { turnId: turn.id, itemId: item.id };
     }
-    if (match) bindings.set(`${match.turnId}\0${match.itemId}`, input);
-    else waiting.push(input);
+    if (match) { bindings.set(`${match.turnId}\0${match.itemId}`, input); remembered?.set(input.id, match); }
+    else if (!known) waiting.push(input);
   }
   if (!bindings.size) return { committed, active, waiting };
   const decorate = (turn: TranscriptTurn): TranscriptTurn => {

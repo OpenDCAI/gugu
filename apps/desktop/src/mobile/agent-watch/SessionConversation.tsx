@@ -181,8 +181,9 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     readFileChunk: local ? input => readConversationFile(true, deviceId, input) : undefined })
   const background = usePhoneBackgroundTasks(deviceId, sessionId, timeline.turns, dismissals, !phoneHost, localClient?.fetchBackgroundTasks)
   const nativeTurns = timeline.turns
-  const life = useSessionLifeView(deviceId, sessionId, local, !phoneHost && hostReachable)
   const senderInputs = useQueuedSessionInputs(sessionId)
+  const life = useSessionLifeView(deviceId, sessionId, local, !phoneHost && hostReachable,
+    timeline.queuedPrompts.length > 0 || pendingSends.length > 0 || senderInputs.length > 0)
   const pendingInput = useRef<{ sessionId: string; prompt: PendingPrompt | null }>({ sessionId, prompt: null })
   const pendingPrompt = projectSessionPendingInput(pendingInput.current.sessionId === sessionId ? pendingInput.current.prompt : null,
     senderInputs, life.view?.pending.items ?? [], nativeTurns)

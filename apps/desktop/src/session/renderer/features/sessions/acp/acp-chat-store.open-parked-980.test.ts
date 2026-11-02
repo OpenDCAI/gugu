@@ -55,6 +55,7 @@ vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNa
 
 /** session-life 的桩:`lifeStart` 记下,LifeView 由用例推(`life.settle`)。 */
 const life = vi.hoisted(() => ({
+  reads: 0,
   start: vi.fn(async (_sessionId: string) => {}),
   discard: vi.fn(async (_sessionId: string, _messageId: string) => {}),
   stop: vi.fn(async (_sessionId: string) => {}),
@@ -79,6 +80,7 @@ vi.mock('../stores/session-life-views', async () => {
   return {
     sessionLifeView: (sessionId: string) => { life.viewed.add(sessionId); return views.get(sessionId) ?? null; },
     readSessionLife: async (sessionId: string) => {
+      life.reads++;
       if (!views.has(sessionId)) runInAction(() => views.set(sessionId, { kind: 'dormant', hold: null, version: 0, failure: null, pending: { items: [], count: 0 } } as View));
       return views.get(sessionId)!;
     },
@@ -230,6 +232,28 @@ const parked = (store: Store) => vi.waitFor(() => {
 });
 
 describe('sender custody uses the ordinary transcript row', () => {
+  it('keeps the normal first page to one history request without a fresh lifecycle read', async () => {
+    const { store } = storeFor();
+    host.storedPages = [{ turns: [turn('normal', 1)], originTurnIds: ['normal'], nextCursor: 1 }];
+    life.reads = 0;
+    store.bootstrap();
+    await parked(store);
+    expect(host.storedReads).toHaveLength(1);
+    expect(life.reads).toBe(0);
+    expect(store.chatState.session.state.pendingMessages).toEqual([]);
+  });
+
+  it('uses restoring while an ordinary input is still sending into a resumed session', async () => {
+    const { store } = storeFor({ providerId: 'claude', providerSessionId: 'prov-existing' });
+    store.bootstrap();
+    await parked(store);
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'restoring-send',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'hello', createdAt: 5000, queued: false }] });
+    inputsChanged();
+    life.pend(store.sessionId, 'starting', []);
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'restoring-send', starting: 'restoring', delivery: { state: 'sending' } });
+  });
+
   it('shows an unacknowledged input before a host lifecycle row exists, then keeps its accepted projection', async () => {
     const { store } = storeFor();
     store.bootstrap();

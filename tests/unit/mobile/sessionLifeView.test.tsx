@@ -54,3 +54,20 @@ it('reports read failure, refreshes after reconnection, and accepts the restarte
   await act(async () => { for (const cb of host.links) cb(true); host.reads[1]!.resolve(view('a', 1)) })
   expect(latest.view?.version).toBe(1)
 })
+
+it('does not add a read on a normal open, and reads once when a real pending input appears', async () => {
+  function Pending({ pending }: { pending: boolean }) {
+    latest = useSessionLifeView('device', 'a', false, true, pending)
+    return null
+  }
+  root = createRoot(container)
+  await act(async () => { root.render(<Pending pending={false} />) })
+  expect(host.events.size).toBe(1)
+  expect(host.reads).toHaveLength(0)
+  await act(async () => { root.render(<Pending pending />) })
+  expect(host.reads).toHaveLength(1)
+  await act(async () => { host.reads[0]!.resolve(view('a', 3)); root.render(<Pending pending={false} />) })
+  await act(async () => { for (const cb of host.events) cb(view('a', 2)) })
+  expect(latest.view?.version).toBe(3)
+  expect(host.reads).toHaveLength(1)
+})

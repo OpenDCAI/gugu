@@ -3,6 +3,7 @@ import type {
   ChatContext,
   ChatState,
   ChatView,
+  PendingPrompt,
   TranscriptTurn,
 } from '@gugu/session-chat-ui';
 import { connectSession, createChatState, pendingPromptLanded, pinTopMode, runningBackgroundTaskIds, turnDiscardedId } from '@gugu/session-chat-ui';
@@ -807,9 +808,14 @@ export class AcpChatStore {
       void this._open();
     }
     const session = this.chatState.session;
+    const record = this._sessionRecord();
+    const resumes = !!(record?.providerSessionId || record?.forkFromProviderSessionId || this.runtimeView?.forkFromProviderSessionId);
+    const starting: PendingPrompt['starting'] = view !== null && lifeIsStarting(view) ? (resumes ? 'restoring' : 'starting') : undefined;
     const transcriptState = this.chatState.transcript.state;
     const turns = [...transcriptState.committedTurns, ...(transcriptState.activeTurnSnapshot ? [transcriptState.activeTurnSnapshot] : [])];
-    const projected = projectSessionPendingDeliveries(session.state.pendingMessages, view, turns);
+    const projections = new Set([...(this.stoppedRowId ? [stoppedTurnId(this.stoppedRowId)] : []), ...this.failedRowIds.map(failedTurnId)]);
+    const nativeTurns = turns.filter(turn => !projections.has(turn.id));
+    const projected = projectSessionPendingDeliveries(session.state.pendingMessages, view, nativeTurns, starting);
     const unresolved = projected.filter(input => {
       if (input.delivery?.state !== 'unknown' || this._incomingHistoryResolved.has(input.id)) return false;
       if (session.state.pendingMessages.some(previous => previous.id === input.id) || pendingPromptLanded(input, turns)) {
@@ -834,7 +840,7 @@ export class AcpChatStore {
         [...transcript.committedTurns, ...(transcript.activeTurnSnapshot ? [transcript.activeTurnSnapshot] : [])]);
       runInAction(() => {
         this.transcriptPendingId = pending?.id ?? sender.find(row => row.queued === false)?.id ?? null;
-        const next = pending ? { ...pending, starting: view !== null && lifeIsStarting(view),
+        const next = pending ? { ...pending, starting,
           ...(view?.kind === 'failed' && view.failure && view.pending.items.some(row => row.messageId === pending.id)
             ? { delivery: { state: 'failed' as const, error: view.failure.message } } : {}) } : null;
         if (!isDeepEqual(prior, next)) {
@@ -845,11 +851,9 @@ export class AcpChatStore {
       return;
     }
     const drawn = this.transcriptPendingId;
-    const bubbles = view ? sessionInputBubbles([], view.pending.items.filter(row => row.kind === 'ordinary'), view.hold) : [];
-    const record = this._sessionRecord();
-    const resumes = !!(record?.providerSessionId || record?.forkFromProviderSessionId || this.runtimeView?.forkFromProviderSessionId);
-    const starting = view !== null && lifeIsStarting(view) ? (resumes ? 'restoring' : 'starting') : undefined;
-    const head = bubbles[0]?.state === 'sending' && (starting || view?.kind === 'ready') ? bubbles[0] : null;
+    const bubbles = view ? sessionInputBubbles([], view.pending.items, view.hold) : [];
+    const head = bubbles[0]?.state === 'sending' && view?.pending.items.find(row => row.messageId === bubbles[0]?.id)?.kind === 'ordinary'
+      && (starting || view?.kind === 'ready') ? bubbles[0] : null;
     runInAction(() => {
       if (drawn && head?.id !== drawn) {
         this.transcriptPendingId = null;
@@ -887,7 +891,7 @@ export class AcpChatStore {
   }
 
   /** Only unresolved legacy receipts read older pages. The ordinary first-page path never waits for this work. */
-  private async _resolveIncomingHistory(inputs: readonly import('@gugu/session-chat-ui').PendingPrompt[]): Promise<void> {
+  private async _resolveIncomingHistory(inputs: readonly PendingPrompt[]): Promise<void> {
     this._incomingHistoryReading = true;
     const request = ++this._incomingHistoryRequest;
     const alive = () => !this._disposed && request === this._incomingHistoryRequest;
@@ -929,7 +933,7 @@ export class AcpChatStore {
     const turns = () => transcript.state.committedTurns;
     const live = transcript.state.activeTurnSnapshot;
     const failed = view && lifeHoldIsFailure(view.hold)
-      ? [...view.pending.items].filter(row => row.kind === 'ordinary' && (row.state === 'queued' || row.state === 'dispatching')).sort((a, b) => a.seq - b.seq) : [];
+      ? [...view.pending.items].filter(row => row.state === 'queued' || row.state === 'dispatching').sort((a, b) => a.seq - b.seq) : [];
     const wanted = [
       ...(stopped ? [{ rowId: stopped.id, turnId: stoppedTurnId(stopped.id), outcome: { kind: 'cancelled', reason: 'cancelled' } as const }] : []),
       ...failed.map(row => ({ rowId: row.messageId, turnId: failedTurnId(row.messageId), outcome: { kind: 'error', reason: 'send_failed' } as const })),

@@ -55,7 +55,7 @@ describe('ordinary sending stays in the transcript', () => {
     await until('the last bubble is on screen', () => !!host.querySelector('[data-user-card="long-send"]'))
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     const before = host.querySelector('[data-user-card="long-send"]')!.getBoundingClientRect().top
-    state.session.setPendingPrompt({ ...pending, starting: true, delivery: { state: 'accepted' } })
+    state.session.setPendingPrompt({ ...pending, starting: 'starting', delivery: { state: 'accepted' } })
     await until('the host startup line mounts', () => (host.textContent ?? '').includes('Starting'))
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     expect(host.querySelectorAll('[data-user-card="long-send"]')).toHaveLength(1)
@@ -305,4 +305,40 @@ describe('incoming deliveries share the transcript layout', () => {
     await until('cleared custody removes only status lines', () => !host.querySelector('[data-send-state="unknown"]'))
     expect(host.querySelectorAll('[data-user-card]')).toHaveLength(3)
   })
+})
+
+it('shows a sending indicator alongside the existing restoring process line without moving the input', async () => {
+  const { state, host } = mount('double', { agentConversation: true })
+  const input: PendingPrompt = { id: 'restoring-send', text: FIRST, held: true, starting: 'restoring', delivery: { state: 'sending' } }
+  state.session.setPendingPrompt(input)
+  await until('restoring and sending are visible together', () => host.textContent!.includes('Restoring') && !!host.querySelector('[data-send-state="sending"]'))
+  const top = host.querySelector('[data-user-card="restoring-send"]')!.getBoundingClientRect().top
+  state.session.setPendingPrompt({ ...input, delivery: { state: 'accepted' } })
+  await until('acknowledgement removes the spinner while recovery continues', () => !host.querySelector('[data-send-state="sending"]'))
+  expect(host.textContent).toContain('Restoring')
+  expect(host.querySelector('[data-user-card="restoring-send"]')!.getBoundingClientRect().top).toBe(top)
+})
+
+it('removes the tail fallback as soon as out-of-budget native history arrives, and keeps the native identity afterward', async () => {
+  const { state, host } = mount('double', { agentConversation: true })
+  const input: PendingPrompt = { id: 'budget-fallback', text: incomingText('budget-source', 'Legacy unconfirmed input'), received: true, delivery: { state: 'unknown', retryable: false } }
+  const newest: TranscriptTurn = { id: 'newer', seq: 100, initiator: 'user', items: [{ kind: 'message', id: 'newer-user', seq: 0, role: 'user', text: 'Newer input' }] }
+  state.transcript.history.seed([newest])
+  state.session.setPendingMessages([input])
+  await until('the budget fallback is in the normal transcript', () => !!host.querySelector('[data-user-card="budget-fallback"]'))
+  const native: TranscriptTurn = { id: 'legacy', seq: 50, initiator: 'agent', items: [{ kind: 'message', id: 'legacy-native', seq: 0, role: 'user', text: input.text }] }
+  state.transcript.history.seed([native, newest])
+  await until('native history removes the fallback in the same handoff', () => !!host.querySelector('[data-user-card="legacy-native"]') && !host.querySelector('[data-user-card="budget-fallback"]'))
+  expect(host.querySelectorAll('[data-send-state="unknown"]')).toHaveLength(1)
+  state.transcript.history.prepend([{ id: 'older', seq: 10, initiator: 'user', items: [{ kind: 'message', id: 'older-user', seq: 0, role: 'user', text: 'Earlier history' }] }])
+  await until('an unrelated older page has rendered', () => !!host.querySelector('[data-user-card="older-user"]'))
+  expect(host.querySelectorAll('[data-user-card="legacy-native"]')).toHaveLength(1)
+  expect(host.querySelector('[data-user-card="budget-fallback"]')).toBeNull()
+  expect(host.querySelectorAll('[data-send-state="unknown"]')).toHaveLength(1)
+  state.transcript.history.seed([newest])
+  await until('a narrower history window omits the native row', () => !host.querySelector('[data-user-card="legacy-native"]'))
+  expect(host.querySelector('[data-user-card="budget-fallback"]')).toBeNull()
+  state.transcript.history.seed([native, newest])
+  await until('the same native row returns with its receipt', () => !!host.querySelector('[data-user-card="legacy-native"]') && !!host.querySelector('[data-send-state="unknown"]'))
+  expect(host.querySelector('[data-user-card="budget-fallback"]')).toBeNull()
 })

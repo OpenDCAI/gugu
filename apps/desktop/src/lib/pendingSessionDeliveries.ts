@@ -1,14 +1,14 @@
-import { pendingPromptLanded, type PendingPrompt } from '@session-chat/state/pending-prompt'
+import { pendingPromptLanded, pendingPromptNativeEcho, type PendingPrompt } from '@session-chat/state/pending-prompt'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import type { LifeView } from '@/session/shared/core/sessions/session-life'
-import { lifeHoldIsFailure, lifeIsStarting } from '@/session/shared/core/sessions/session-life'
+import { lifeHoldIsFailure } from '@/session/shared/core/sessions/session-life'
 import { sessionInputBaseline } from './pendingSessionInput'
 import { messageForUser } from './userFacingError'
 
 /** The receiver's host queue and native transcript share one incoming-delivery projection on every surface. */
 export function projectSessionPendingDeliveries(previous: readonly PendingPrompt[], view: LifeView | null,
-  turns: readonly TranscriptTurn[]): PendingPrompt[] {
-  if (!view) return previous.filter(input => input.delivery?.state !== 'accepted' || !pendingPromptLanded(input, turns));
+  turns: readonly TranscriptTurn[], starting?: PendingPrompt['starting']): PendingPrompt[] {
+  if (!view) return previous.filter(input => input.delivery?.state !== 'accepted' || (!input.nativeEcho && !pendingPromptLanded(input, turns)));
   const rows = view?.pending.items.filter(row => row.kind !== 'ordinary') ?? []
   const ids = new Set([...previous.map(input => input.id), ...rows.map(row => row.messageId)])
   return [...ids].flatMap(id => {
@@ -27,8 +27,8 @@ export function projectSessionPendingDeliveries(previous: readonly PendingPrompt
         : row?.state === 'accepted' || (!row && view) ? { state: 'accepted' }
           : stopped ? { state: 'accepted' }
           : prior?.delivery?.state === 'accepted' ? prior.delivery : { state: 'sending' }
-    const next = { ...input, starting: view !== null && lifeIsStarting(view), stopped, delivery }
-    return !stopped && delivery.state === 'accepted' && pendingPromptLanded(next, turns) ? [] : [next]
+    const next = { ...input, starting, stopped, delivery, nativeEcho: pendingPromptNativeEcho(input, turns) }
+    return !stopped && delivery.state === 'accepted' && next.nativeEcho ? [] : [next]
   }).sort((a, b) => (a.hostSequence ?? 0) - (b.hostSequence ?? 0))
 }
 
