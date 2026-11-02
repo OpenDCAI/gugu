@@ -5,3 +5,5 @@ export function ownsHomeLock(home: string): boolean
 export function readPendingVerify(home: string): PendingVerify | null
 export function writePendingVerify(home: string, pending: PendingVerify): void
 export function markServerReady(home: string, now?: number): void
+export function writeJson(file: string, value: unknown): void
+export function pointCurrent(home: string, directory: string): void

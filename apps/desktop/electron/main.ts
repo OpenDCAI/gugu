@@ -480,6 +480,7 @@ import { createServerAuthProvider, type ServerAuthProvider } from './server/serv
 import { ensureUtf8Locale } from './server/server-locale'
 import { killAccountTmuxServer, SESSION_FILE } from './server/server-layout'
 import { EXIT_CONFIG, EXIT_RESTART, EXIT_SIGNED_OUT, isSingleServerRun } from './server/server-exit'
+import { singleServerUpdater, serverUpdateRpcHandlers } from './server/server-updater'
 import { markStopped } from './server/server-keeper'
 import { registerServerSshInstallIpc } from './server/ssh-install/ipc'
 import { registerServerSshUninstallIpc } from './server/ssh-uninstall-ipc'
@@ -1683,7 +1684,7 @@ function createPrimaryDeviceRpcHandlers(io?: { openTopicPublisher: OpenTopicPubl
   const base = projectionDeviceRuntime.track(bridge.createSessionpageSessionDeviceRpcHandlers(io
     ? { preview: messagePreviewHostDeps(io), projection: projectionDeviceRuntime.options } : undefined))
   // #7199 第二步:别的机器上的 agent 调这台电脑的单个动作(请执行 / 结果收到)。
-  return { ...base, handlers: { ...base.handlers, ...assistantWorkDeliveryHost().rpcHandlers(), ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
+  return { ...base, handlers: { ...base.handlers, ...serverUpdateRpcHandlers(), ...assistantWorkDeliveryHost().rpcHandlers(), ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
 }
 
 let assistantWorkOutbox: AssistantWorkOutboxHost | null = null
@@ -3368,6 +3369,14 @@ const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
 }
 process.on('SIGINT', () => exitOnSignal('SIGINT', 130)) // 128 + SIGINT(2)
 process.on('SIGTERM', () => exitOnSignal('SIGTERM', 143)) // 128 + SIGTERM(15)
+if (isSingleServerRun()) singleServerUpdater()?.bindRuntime({
+  // A5 includes work pending hydration and authorization; do not sample activity.json.
+  isBusy: () => loadEmdashBridge()?.sessionpageVersionSwitchActivity?.().busy ?? true,
+  shutdown: () => {
+    noteExitReason(app.getPath('userData'), 'update')
+    exitOnSignal('SIGTERM', EXIT_RESTART)
+  },
+})
 process.on('SIGCONT', () => {
   // Node timers resume with wall-clock debt after SIGSTOP. Provider turn
   // completion waiters must not consume that debt as a lost turn.

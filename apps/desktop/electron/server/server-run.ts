@@ -5,7 +5,7 @@ import { claimHomeLock, markServerReady, onlySignedInAccount, ownsHomeLock } fro
 import { EXIT_CONFIG } from './server-exit'
 import { applyLoginShell, clearStopped, liveKeeperPid, markStopped, startKeeper } from './server-keeper'
 import { listAccounts, serverHome, supervisorDataDir } from './server-layout'
-import { managedLayout } from './server-updater'
+import { managedLayout, startServerUpdater } from './server-updater'
 import { repairLegacyServerLaunchers } from './server-installation'
 import { repairServiceDefinition } from './server-service'
 import { removeLegacyBrowserLogins } from '../lib/remove-legacy-browser-logins'
@@ -64,6 +64,14 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   if (!account) {
     markServerReady(home)
     process.stdout.write('[server] Not signed in; waiting for login.\n')
+  }
+  let bootingAccount = Boolean(account)
+  const updater = startServerUpdater({ isBusy: () => bootingAccount,
+    shutdown: () => process.exit(75),
+    log: { info: (message, fields) => warn(`${message}${fields ? ` ${JSON.stringify(fields)}` : ''}`),
+      warn: (message, fields) => warn(`${message}${fields ? ` ${JSON.stringify(fields)}` : ''}`) } })
+  process.on('exit', () => updater.dispose())
+  if (!account) {
     while (!account) {
       await new Promise(resolve => setTimeout(resolve, 3_000))
       try { account = onlySignedInAccount(listAccounts()) }
@@ -72,5 +80,6 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   }
   process.removeListener('SIGTERM', stopWhileWaiting)
   process.removeListener('SIGINT', stopWhileWaiting)
+  bootingAccount = true
   await runAccount(account.userId)
 }

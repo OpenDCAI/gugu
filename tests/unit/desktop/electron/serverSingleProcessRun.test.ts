@@ -7,7 +7,8 @@ import { runSingleServer } from '../../../../apps/desktop/electron/server/server
 import { readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
 
 vi.mock('../../../../apps/desktop/electron/server/server-service', () => ({ repairServiceDefinition: vi.fn() }))
-vi.mock('../../../../apps/desktop/electron/server/server-updater', () => ({ managedLayout: () => null }))
+vi.mock('../../../../apps/desktop/electron/server/server-updater', () => ({ managedLayout: () => null,
+  startServerUpdater: () => ({ dispose: vi.fn() }) }))
 
 let home: string
 const environment = { ...process.env }

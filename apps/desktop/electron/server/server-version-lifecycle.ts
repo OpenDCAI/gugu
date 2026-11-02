@@ -7,13 +7,15 @@ import { pruneVersions, readVersionPin, writeVersionPin } from './server-account
 import { readAccountState } from './server-account-machine'
 import { activityProof, listAccounts } from './server-layout'
 import { assertPackageEnvironment } from './server-package-environment.mts'
+import { pointCurrent as pointCurrentFile } from './server-boot.cjs'
+import { readPendingVerify, writePendingVerify } from './server-startup'
 
 export const UPGRADE_PENDING_FILE = 'upgrade-pending.json'
 /** The staged package installed but did not boot an account: a boot failure, not an install failure. */
 export class AccountBootRejectedError extends Error {}
 export class ServerPackageDeferredError extends Error {}
 
-export type UpgradeMarker = { from: string; to: string; fromDir: string; toDir: string; switchedAt: number }
+export type UpgradeMarker = { from: string; to: string; fromDir: string; toDir: string; switchedAt: number; request?: number }
 const dataDir = (home: string) => path.join(home, 'data')
 
 export function readUpgradeMarker(home: string): UpgradeMarker | null {
@@ -40,14 +42,8 @@ export function clearUpgradeMarker(home: string): void {
 }
 
 export function pointCurrent(home: string, versionDir: string): void {
-  const versions = fs.realpathSync(path.join(home, 'versions'))
-  if (path.dirname(fs.realpathSync(versionDir)) !== versions) throw new Error('Version is outside the managed versions directory')
   assertPackageEnvironment(home, versionDir)
-  const current = path.join(home, 'current')
-  const tmp = `${current}.tmp-${process.pid}`
-  fs.rmSync(tmp, { force: true })
-  fs.symlinkSync(path.relative(home, versionDir), tmp)
-  fs.renameSync(tmp, current)
+  pointCurrentFile(home, versionDir)
 }
 
 /** The watchdog records an actual successful transition, never a directory-number or mtime guess. */
@@ -81,6 +77,8 @@ export function createServerVersionLifecycle(options: {
     try { keep.add(path.basename(fs.realpathSync(path.join(layout.home, 'current')))) } catch { return [] }
     const marker = readUpgradeMarker(layout.home)
     if (marker) { keep.add(marker.from); keep.add(marker.to) }
+    const pending = readPendingVerify(layout.home)
+    if (pending) { keep.add(pending.from); keep.add(pending.to) }
     for (const account of listAccounts()) {
       for (const report of Object.values(readDesktopReports(account.dataDir))) keep.add(report.version)
       const state = readAccountState(account.dataDir) ?? readVersionPin(account.dataDir)
@@ -119,10 +117,16 @@ export function createServerVersionLifecycle(options: {
     switchSupervisor(marker: UpgradeMarker, beforeSwitch: () => void): void {
       requireBoot(marker.to)
       assertPackageEnvironment(layout.home, marker.toDir)
-      if (!writeUpgradeMarker(layout.home, marker)) throw new Error('Cannot persist the upgrade rollback pointer')
-      beforeSwitch()
-      pointCurrent(layout.home, marker.toDir)
-      fs.rmSync(path.join(layout.versions, '.prepared', marker.to), { force: true })
+      writePendingVerify(layout.home, { from: marker.from, to: marker.to, attempts: 0,
+        ...(marker.request !== undefined ? { request: marker.request } : {}) })
+      try {
+        beforeSwitch()
+        pointCurrent(layout.home, marker.toDir)
+      } catch (error) {
+        fs.rmSync(path.join(layout.home, 'data/pending-verify.json'), { force: true })
+        throw error
+      }
+      // The new run releases its own publication lease after taking the home lock.
     },
     reclaim,
   }

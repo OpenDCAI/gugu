@@ -1,4 +1,6 @@
 import { createServerVersionLifecycle } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
+import { markServerReady, readPendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
+import { VERSION_RESTART_RPC, VERSION_RETRY_RPC } from '../../../../packages/core/src/cloud/serverMachineHealth'
 /*
  * 守护进程自升级:切到哪一版在**切的那一刻**现取清单,❌ 用等空闲开始时取到的那一版。
  * 10-08 ThinkPad 实读:59.1 在 08:11 取到 62.1、等空闲 2 h 38 min,其间发布了 63.1;10:49 切到的仍是 62.1,
@@ -15,7 +17,7 @@ vi.mock('../../../../apps/desktop/electron/server/server-upgrade-guard', async (
   spawnUpgradeGuard: () => undefined,
 }))
 
-const { startServerUpdater } = await import('../../../../apps/desktop/electron/server/server-updater')
+const { serverUpdateRpcHandlers, startServerUpdater } = await import('../../../../apps/desktop/electron/server/server-updater')
 
 const SHA = 'a'.repeat(64)
 let home: string
@@ -42,7 +44,8 @@ beforeEach(() => {
   fetched.length = 0
   vi.stubGlobal('fetch', async (url: string) => {
     fetched.push(url)
-    return new Response(`${published} ${SHA} https://example.invalid/${published}.tar.gz\n`)
+    const version = url.match(/\/(0\.2\.53-beta\.[0-9]+\.1)\//)?.[1] ?? published
+    return new Response(`${version} ${SHA} https://example.invalid/${version}.tar.gz\n`)
   })
 })
 
@@ -53,11 +56,11 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true })
 })
 
-function updater(isBusy: () => boolean) {
+function updater(isBusy: () => boolean, verifyBoot: (binary: string) => Promise<void> = async () => undefined) {
   const log = { info: vi.fn(), warn: vi.fn() }
   const shutdown = vi.fn()
-  const stop = startServerUpdater({ lifecycle: createServerVersionLifecycle({ verifyBoot: async () => undefined, layout: { home, versions: path.join(home, 'versions'), version: '0.2.53-beta.59.1' } }), log, isBusy, shutdown, stateWriter: { set: () => {}, clear: () => {} } })
-  return { log, shutdown, stop }
+  const stop = startServerUpdater({ lifecycle: createServerVersionLifecycle({ verifyBoot, layout: { home, versions: path.join(home, 'versions'), version: '0.2.53-beta.59.1' } }), log, isBusy, shutdown })
+  return { log, shutdown, stop: stop.dispose, control: stop }
 }
 
 describe('server self-upgrade resolves its target at the moment it switches', () => {
@@ -75,7 +78,7 @@ describe('server self-upgrade resolves its target at the moment it switches', ()
     await vi.advanceTimersByTimeAsync(30_000) // 下一轮等空闲:空闲了
 
     expect(shutdown).toHaveBeenCalledTimes(1)
-    expect(log.info).toHaveBeenCalledWith('没有 agent 在跑,切到新版本', { from: '0.2.53-beta.59.1', to: '0.2.53-beta.63.1' })
+    expect(readPendingVerify(home)).toMatchObject({ from: '0.2.53-beta.59.1', to: '0.2.53-beta.63.1', attempts: 0 })
     expect(fs.readlinkSync(path.join(home, 'current'))).toBe(path.join('versions', '0.2.53-beta.63.1'))
     stop()
   })
@@ -121,6 +124,56 @@ describe('server self-upgrade resolves its target at the moment it switches', ()
     await vi.advanceTimersByTimeAsync(60_000)
     expect(fetched).toHaveLength(2)
     expect(shutdown).toHaveBeenCalledTimes(1)
+    stop()
+  })
+
+  it('binds a busy restart to its acknowledged ready target even after the channel advances', async () => {
+    stage('0.2.53-beta.62.1'); stage('0.2.53-beta.63.1')
+    published = '0.2.53-beta.62.1'
+    const { control, shutdown, stop } = updater(() => true)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(control.restartConfirmed('0.2.53-beta.63.1', true)).toBe(false)
+    expect(control.restartConfirmed(published, false)).toBe(false)
+    const handler = serverUpdateRpcHandlers()[VERSION_RESTART_RPC]
+    const result = await handler({ version: published, confirmed: true }, {} as never)
+    const at = (result as { result: { at: number } }).result.at
+    published = '0.2.53-beta.63.1'
+    await vi.advanceTimersByTimeAsync(0)
+    expect(shutdown).toHaveBeenCalledOnce()
+    expect(readPendingVerify(home)).toMatchObject({ from: '0.2.53-beta.59.1', to: '0.2.53-beta.62.1', attempts: 0, request: at })
+    expect(fs.readlinkSync(path.join(home, 'current'))).toBe('versions/0.2.53-beta.62.1')
+    markServerReady(home)
+    const state = JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8'))
+    expect(state).toMatchObject({ state: 'idle', lastOutcome: { kind: 'switched', target: '0.2.53-beta.62.1', request: at } })
+    expect(fs.existsSync(path.join(home, 'accounts'))).toBe(false)
+    stop()
+  })
+
+  it('an idle-only RPC never grants permission to interrupt busy work', async () => {
+    stage('0.2.53-beta.62.1'); published = '0.2.53-beta.62.1'
+    const { shutdown, stop } = updater(() => true)
+    await vi.advanceTimersByTimeAsync(60_000)
+    const result = await serverUpdateRpcHandlers()[VERSION_RETRY_RPC]({ confirmed: true }, {} as never)
+    expect(result).toMatchObject({ result: { requested: true } })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(shutdown).not.toHaveBeenCalled()
+    expect(readPendingVerify(home)).toBeNull()
+    stop()
+  })
+
+  it('a cooling failed target does not hide a later release', async () => {
+    stage('0.2.53-beta.62.1'); stage('0.2.53-beta.63.1'); published = '0.2.53-beta.62.1'
+    const verify = vi.fn(async (binary: string) => {
+      if (binary.includes('beta.62.1')) throw new Error('boot fixture rejected')
+    })
+    const { shutdown, stop } = updater(() => false, verify)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(shutdown).not.toHaveBeenCalled()
+    expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8'))).toMatchObject({ state: 'failed', cause: 'boot' })
+    published = '0.2.53-beta.63.1'
+    await vi.advanceTimersByTimeAsync(29 * 60_000)
+    expect(shutdown).toHaveBeenCalledOnce()
+    expect(readPendingVerify(home)?.to).toBe(published)
     stop()
   })
 })

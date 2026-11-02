@@ -302,6 +302,6 @@ describe('one package selector for a managed installation', () => {
     await vi.advanceTimersByTimeAsync(61 * 60_000)
     expect(fetch).not.toHaveBeenCalled()
     expect(stateWriter.clear).not.toHaveBeenCalled()
-    stop()
+    stop.dispose()
   })
 })

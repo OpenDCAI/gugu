@@ -11,6 +11,15 @@ function writeJson(name, value) {
   fs.writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 })
   fs.renameSync(temporary, name)
 }
+function pointCurrent(home, directory) {
+  const versions = fs.realpathSync(path.join(home, 'versions'))
+  const target = fs.realpathSync(directory)
+  if (path.dirname(target) !== versions) throw new Error('Version is outside the managed versions directory')
+  const temporary = path.join(home, `current.boot-${process.pid}`)
+  fs.rmSync(temporary, { force: true })
+  fs.symlinkSync(path.relative(home, target), temporary)
+  fs.renameSync(temporary, path.join(home, 'current'))
+}
 function live(pid) {
   try { process.kill(pid, 0) } catch (error) { return error.code !== 'ESRCH' }
   if (process.platform !== 'linux') return true
@@ -102,9 +111,7 @@ function checkPendingBoot(home) {
   const badFile = file(home, 'bad-versions.json')
   const bad = fs.existsSync(badFile) ? readJson(badFile) : {}
   if (!bad || typeof bad !== 'object' || Array.isArray(bad)) throw new Error('Invalid bad versions record')
-  const temporary = path.join(home, `current.boot-${process.pid}`)
-  fs.symlinkSync(path.relative(home, previous), temporary)
-  fs.renameSync(temporary, path.join(home, 'current'))
+  pointCurrent(home, previous)
   const at = Date.now()
   writeJson(badFile, { ...bad, [pending.to]: at })
   writeJson(file(home, 'server-update.json'), { state: 'idle', version: pending.from, at,
@@ -114,7 +121,7 @@ function checkPendingBoot(home) {
   return true
 }
 
-module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, readPendingVerify, writePendingVerify, markServerReady }
+module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, readPendingVerify, writePendingVerify, markServerReady, writeJson, pointCurrent }
 
 // Importing these same helpers from a bundle never counts another attempt.
 if (process.argv[2] === 'run' && process.execArgv.some((arg, i) => arg === '--require' && process.execArgv[i + 1] === __filename)) {

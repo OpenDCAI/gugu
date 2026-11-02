@@ -1,4 +1,4 @@
-import type { ServerVersionLifecycle } from './server-version-lifecycle'
+import { AccountBootRejectedError, createServerVersionLifecycle, type ServerVersionLifecycle } from './server-version-lifecycle'
 /**
  * 咕咕 server 自己升级(product spec 第 5 条):后台悄悄下好、校验、解开,
  * **这台机器上没有 agent 在跑的时候**才切过去;切的时候终端会话(tmux)不受影响。
@@ -16,13 +16,15 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { SERVER_UPDATE_STATE_FILE } from '@gugu/core'
-import { compareServerVersions } from '@gugu/core/cloud/serverDesktopVersions'
+import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
+import { VERSION_RESTART_RPC, VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC } from '@gugu/core/cloud/serverMachineHealth'
+import { compareServerVersions, isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
+import type { FailureCause, Outcome } from '@gugu/core/shared/serverVersionOutcome'
 import { serverDownloadBase } from './server-download'
-import { liveKeeperPid } from './server-keeper'
-import { startDetached } from './server-service'
 import type { SupervisorLog } from './server-supervisor'
 import { touchVersion, versionManifestUrl } from './server-account-versions'
-import { readBadVersions, spawnUpgradeGuard } from './server-upgrade-guard'
+import { readBadVersions } from './server-upgrade-guard'
+import { writeJson } from './server-startup'
 import { controllerOwnsUpdates, readInstallation } from './server-package-environment.mts'
 
 /**
@@ -38,7 +40,7 @@ export type ServerManifest = { version: string; sha256: string; url: string }
 
 export function parseManifest(text: string): ServerManifest {
   const [version, sha256, url] = text.trim().split(/\s+/)
-  if (!version || !/^[0-9a-f]{64}$/.test(sha256 ?? '') || !url) throw new Error(`版本清单格式不对:${text.trim()}`)
+  if (!isServerVersion(version) || !/^[0-9a-f]{64}$/.test(sha256 ?? '') || !url) throw new Error(`版本清单格式不对:${text.trim()}`)
   return { version, sha256, url }
 }
 
@@ -51,22 +53,25 @@ type Layout = { home: string; versions: string; current: string; running: string
  */
 export type ServerUpdateStateWriter = {
   /** reason 'unreachable' = 连不上下载站(桌面经 SSH 读到它就把包的字节传过来,见 match-version-cli.ts)。 */
-  set: (state: 'downloading' | 'ready' | 'failed', version: string, reason?: 'unreachable') => void
+  set: (state: ServerUpdateRecord['state'], version: string, reason?: 'unreachable', fields?: Partial<ServerUpdateRecord>) => void
   clear: () => void
+}
+
+export type ServerUpdateRecord = {
+  state: 'idle' | 'downloading' | 'ready' | 'switching' | 'failed'
+  version: string
+  at: number
+  cause?: FailureCause
+  until?: number
+  attempts?: number
+  lastOutcome?: Outcome
 }
 
 export function createServerUpdateStateWriter(home: string, now: () => number = Date.now): ServerUpdateStateWriter {
   const file = path.join(home, 'data', SERVER_UPDATE_STATE_FILE)
   return {
-    set(state, version, reason) {
-      try {
-        fs.mkdirSync(path.dirname(file), { recursive: true })
-        const tmp = `${file}.${process.pid}.tmp`
-        fs.writeFileSync(tmp, JSON.stringify({ state, version, at: now(), ...(reason ? { reason } : {}) }))
-        fs.renameSync(tmp, file)
-      } catch {
-        // 写不进去只影响界面上的一行提示,❌ 不为它打断升级
-      }
+    set(state, version, reason, fields) {
+      writeJson(file, { state, version, at: now(), ...(reason ? { reason } : {}), ...fields })
     },
     clear() {
       fs.rmSync(file, { force: true })
@@ -111,7 +116,7 @@ function readChannel(home: string): string {
 async function fetchManifest(home: string): Promise<ServerManifest> {
   const base = serverDownloadBase()
   const url = `${base}/${readChannel(home)}/${platformKey()}.txt`
-  const response = await fetch(url, { cache: 'no-store' })
+  const response = await fetch(url, { cache: 'no-store' }).catch(() => { throw new DownloadSiteUnreachableError(`Cannot reach the server release feed: ${url}`) })
   if (!response.ok) throw new Error(`取版本清单失败(${response.status}):${url}`)
   return parseManifest(await response.text())
 }
@@ -197,126 +202,196 @@ export async function stageVersion(layout: Pick<Layout, 'versions'>, manifest: S
   }
 }
 
-export type ServerUpdaterDeps = {
+export type ServerUpdaterRuntime = { isBusy: () => boolean; shutdown: () => void }
+export type ServerUpdaterDeps = ServerUpdaterRuntime & {
   log: SupervisorLog
-  lifecycle: ServerVersionLifecycle | null
-  /** 这台机器上有没有 agent 正在干活(在跑一轮,或卡在等人批准)。 */
-  isBusy: () => boolean
-  /** 走正常退出流程(收子进程、放锁)。 */
-  shutdown: () => void
-  /** 升级状态写到哪(缺省:数据目录下的状态文件)。测试注入用。 */
+  lifecycle?: ServerVersionLifecycle | null
   stateWriter?: ServerUpdateStateWriter
-  /** 各账号正在用 / 要用的版本(清旧版本时不许删,见 server-account-versions.ts)。 */
   inUse?: () => string[]
 }
+export type ServerUpdater = {
+  dispose: () => void
+  bindRuntime: (runtime: ServerUpdaterRuntime) => void
+  retryWhenIdle: () => boolean
+  restartConfirmed: (target: unknown, confirmed: unknown) => number | false
+}
+let activeUpdater: ServerUpdater | null = null
+/** The one run process owns this instance; both cloud and SSH handlers call it. */
+export const singleServerUpdater = (): ServerUpdater | null => activeUpdater
+export function serverUpdateRpcHandlers(): DeviceRpcHandlers {
+  const idle = () => activeUpdater?.retryWhenIdle()
+    ? { result: { requested: true } }
+    : { error: { code: 'unavailable', message: 'Server updates are not managed by this process' } }
+  return {
+    [VERSION_RETRY_RPC]: idle,
+    [LEGACY_VERSION_RETRY_RPC]: idle,
+    [VERSION_RESTART_RPC]: payload => {
+      const value = payload as { version?: unknown; confirmed?: unknown } | null
+      const at = activeUpdater?.restartConfirmed(value?.version, value?.confirmed)
+      return typeof at === 'number' ? { result: { requested: true, at } }
+        : { error: { code: 'invalid_payload', message: 'Confirm the current ready target version before restarting' } }
+    },
+  }
+}
+const FAILURE_COOLDOWN_MS = 6 * 60 * 60 * 1000
 
-export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
-  const { log } = deps
-  // Managed accounts follow this supervisor. Only the controller may select its package;
-  // otherwise this second selector can override the controller's verified environment.
-  if (controllerOwnsUpdates(process.env.GUGU_SERVER_HOME ?? '')) {
-    log.info('受控云电脑的版本由平台控制器管理')
-    return () => {}
-  }
+function readUpdateRecord(home: string): ServerUpdateRecord | null {
+  try {
+    const value = JSON.parse(fs.readFileSync(path.join(home, 'data', SERVER_UPDATE_STATE_FILE), 'utf8')) as ServerUpdateRecord
+    return ['idle', 'downloading', 'ready', 'switching', 'failed'].includes(value.state)
+      && isServerVersion(value.version) && Number.isFinite(value.at) ? value : null
+  } catch { return null }
+}
+
+export function startServerUpdater(deps: ServerUpdaterDeps): ServerUpdater {
   const layout = managedLayout()
-  if (!layout) {
-    log.info('不是经 install.sh 装的布局,不做自动升级')
-    return () => {}
-  }
+  let runtime: ServerUpdaterRuntime = deps
   let stopped = false
   let ticking = false
-  /** 已装好、在等空闲的那一版 —— 只用于等待期间续写状态,❌ 当切换目标(切之前总是现取清单)。 */
-  let waitingWith: string | null = null
+  let request: { at: number; confirmed: boolean; target?: string } | null = null
+  let nextRequest = 0
   let retry: ReturnType<typeof setTimeout> | null = null
-  const state = deps.stateWriter ?? createServerUpdateStateWriter(layout.home)
-  // 上一个守护进程留下的(它在等空闲时被停掉、或升级已经完成)一律作废,从此刻的事实重来。
-  state.clear()
-
-  /**
-   * 取清单 → 装 → 空闲就切;忙就 30 s 后整个再来一遍。切到哪一版**每次都现取**,❌ 记住等待开始时的那一版:
-   * 等空闲可能等上几个小时,这期间发布了更新的版本,切过去的就得是它(10-08 实读:59.1 等了 2 h 38 min,
-   * 切到的是开头取到的 62.1,起来 60 s 后又升到 63.1,账号进程因此多重启一次)。
-   */
-  const tick = async (idlePoll = false): Promise<void> => {
-    if (stopped || ticking) return
-    ticking = true
-    try {
-      // 等空闲的那 30 s 一轮、此刻仍忙:不取清单(等的是空闲;新版本由半小时那一轮去发现、后台装上)。
-      if (idlePoll && waitingWith !== null && deps.isBusy()) {
-        state.set('ready', waitingWith)
-        return void retryWhenIdle(waitingWith)
-      }
-      const manifest = await fetchManifest(layout.home)
-      // 与账号换版同一把尺(`-beta.N` 也比):0.2.51-beta.46.1 → 0.2.51-beta.48.1 是升级,只比主版本会当成同一版。
-      if (compareServerVersions(manifest.version, layout.version) <= 0) {
-        waitingWith = null
-        deps.lifecycle?.hold('supervisor-update', null)
-        return void state.clear()
-      }
-      // #6264 这个版本在这台机器上起不来过(看门狗退回来的):不再自动升到它,等下一个版本。
-      if (readBadVersions(layout.home)[manifest.version] !== undefined) {
-        log.info('这个版本上次在这台机器上没站稳,跳过', { version: manifest.version })
-        waitingWith = null
-        deps.lifecycle?.hold('supervisor-update', null)
-        return void state.clear()
-      }
-      if (!fs.existsSync(path.join(layout.versions, manifest.version, 'bin', 'gugu-server'))) {
-        log.info('发现新版本,后台下载', { current: layout.version, next: manifest.version })
-        state.set('downloading', manifest.version)
-        // #6264 下载前先清:留下各账号在用的 + 最近 5 份(同一台机器上几个账号各跑各的版本,❌ 只留一份)。
-        deps.lifecycle?.hold('supervisor-update', manifest.version)
-        deps.lifecycle?.reclaim()
-      }
-      if (!deps.lifecycle) throw new Error('Supervisor version lifecycle is not initialised')
-      deps.lifecycle.hold('supervisor-update', manifest.version)
-      await deps.lifecycle.stage(manifest.version, () => stageVersion(layout, manifest))
-      const versionDir = path.join(layout.versions, manifest.version)
-      // 每一轮都续写一次:读侧据此知道守护进程还在等,而不是早就没了。
-      state.set('ready', manifest.version)
-      if (deps.isBusy()) return void retryWhenIdle(manifest.version)
-      if (stopped) return
-      log.info('没有 agent 在跑,切到新版本', { from: layout.version, to: manifest.version })
-      // #6264 先留下「从哪切到哪」,再请看门狗(用本进程 —— 已知能跑的这一版)盯着:新版本站不稳就切回来。
-      deps.lifecycle.switchSupervisor({
-        from: layout.version,
-        to: manifest.version,
-        fromDir: layout.running,
-        toDir: versionDir,
-        switchedAt: Date.now(),
-      }, () => {
-      const guard = spawnUpgradeGuard(layout.home)
-      log.info('升级看门狗已就位', { guard: guard ?? null })
-      })
-      if (!process.env.GUGU_SERVER_SUPERVISED && liveKeeperPid(layout.home) === null) {
-        // 没有系统服务管:自己先起新版本,它会等本进程退干净(放掉单实例锁)再启动。
-        startDetached(path.join(layout.current, 'bin', 'gugu-server'), { GUGU_SERVER_WAIT_PID: String(process.pid) })
-      }
-      deps.shutdown()
-    } catch (error) {
-      log.warn('检查/下载新版本失败,下次再试', { error: error instanceof Error ? error.message : String(error) })
-      // 在等空闲时取清单失败(断网一下):照旧等,下一轮再取;❌ 一次失败就把等待丢到半小时以后。
-      if (waitingWith !== null) retryWhenIdle(waitingWith)
-      else { state.clear(); deps.lifecycle?.hold('supervisor-update', null) }
-    } finally {
-      ticking = false
-    }
+  let first: ReturnType<typeof setTimeout> | null = null
+  let timer: ReturnType<typeof setInterval> | null = null
+  const controller = layout ? controllerOwnsUpdates(layout.home) : false
+  const lifecycle = layout ? deps.lifecycle ?? createServerVersionLifecycle({ layout }) : null
+  const state = layout ? deps.stateWriter ?? createServerUpdateStateWriter(layout.home) : null
+  let record = layout ? readUpdateRecord(layout.home) : null
+  const publish = (value: Omit<ServerUpdateRecord, 'at'>): void => {
+    const current = layout ? readUpdateRecord(layout.home) ?? record : record
+    const next = { ...value, at: Date.now(), ...(value.lastOutcome ? {} : current?.lastOutcome ? { lastOutcome: current.lastOutcome } : {}) }
+    state?.set(next.state, next.version, next.cause === 'unreachable' ? 'unreachable' : undefined, next)
+    record = next
   }
-  const retryWhenIdle = (version: string): void => {
-    waitingWith = version
+  const schedule = (delay: number): void => {
+    if (stopped) return
     if (retry !== null) clearTimeout(retry)
-    retry = setTimeout(() => void tick(true), IDLE_POLL_MS)
+    retry = setTimeout(() => { retry = null; void tick(true) }, delay)
     retry.unref()
   }
-
-  const first = setTimeout(() => void tick(), FIRST_CHECK_DELAY_MS)
-  first.unref()
-  const timer = setInterval(() => void tick(), CHECK_INTERVAL_MS)
-  timer.unref()
-  return () => {
-    stopped = true
-    deps.lifecycle?.hold('supervisor-update', null)
-    clearTimeout(first)
-    clearInterval(timer)
-    if (retry !== null) clearTimeout(retry)
+  const control: ServerUpdater = {
+    bindRuntime: value => { runtime = value },
+    retryWhenIdle() {
+      if (!layout || stopped || controller) return false
+      request = { at: nextRequest = Math.max(Date.now(), nextRequest + 1), confirmed: false }
+      schedule(0)
+      return true
+    },
+    restartConfirmed(target, confirmed) {
+      if (!layout || stopped || confirmed !== true || !isServerVersion(target)) return false
+      // A platform controller can prepare the same state file from another process.
+      record = readUpdateRecord(layout.home) ?? record
+      if (!record || record.version !== target || (record.state !== 'ready' && !(record.state === 'failed' && record.cause === 'boot'))) return false
+      const at = nextRequest = Math.max(Date.now(), nextRequest + 1)
+      try { publish({ ...record, lastOutcome: { kind: 'waiting', target, at, request: at } }) }
+      catch (error) {
+        deps.log.warn('Could not persist the confirmed server update', { error: String(error) })
+        return false
+      }
+      request = { at, confirmed: true, target }
+      // Leave the RPC response a turn to publish its acknowledgement before exit 75.
+      schedule(0)
+      return at
+    },
+    dispose() {
+      stopped = true
+      if (first !== null) clearTimeout(first)
+      if (timer !== null) clearInterval(timer)
+      if (retry !== null) clearTimeout(retry)
+      lifecycle?.hold('server-update', null)
+      if (activeUpdater === control) activeUpdater = null
+    },
   }
+  if (!layout || !lifecycle) {
+    deps.log.info('Not a managed installation; automatic server updates are disabled')
+    return control
+  }
+  activeUpdater = control
+
+  async function tick(idlePoll = false): Promise<void> {
+    if (stopped || ticking) return
+    ticking = true
+    record = readUpdateRecord(layout!.home) ?? record
+    const received = request
+    let target = received?.target ?? record?.version ?? layout!.version
+    let resolved = false
+    try {
+      if (controller && !received?.confirmed) return
+      if (idlePoll && !received?.confirmed && record?.state === 'ready' && runtime.isBusy()) {
+        publish({ state: 'ready', version: record.version })
+        return schedule(IDLE_POLL_MS)
+      }
+      const manifest = received?.confirmed
+        ? controller || fs.existsSync(path.join(layout!.versions, target, 'bin/gugu-server'))
+          ? { version: target, sha256: '', url: '' }
+          : await fetchVersionManifest(layout!.home, target)
+        : await fetchManifest(layout!.home)
+      resolved = true
+      target = manifest.version
+      if (stopped || request !== received) return
+      // A failure cools down its target, not subsequently published releases.
+      if (!received && record?.state === 'failed' && record.version === target && typeof record.until === 'number' && record.until > Date.now()) return
+      if (target === layout!.version || (!received?.confirmed && compareServerVersions(target, layout!.version) <= 0)) {
+        publish({ state: 'idle', version: layout!.version,
+          ...(received ? { lastOutcome: { kind: 'switched', target: layout!.version, at: Date.now(), request: received.at } as Outcome } : {}) })
+        if (request === received) request = null
+        return
+      }
+      if (!received?.confirmed && readBadVersions(layout!.home)[target] !== undefined) {
+        publish({ state: 'failed', version: target, cause: 'boot', until: Date.now() + FAILURE_COOLDOWN_MS,
+          ...(received ? { lastOutcome: { kind: 'refused', target, cause: 'boot', at: Date.now(), request: received.at } as Outcome } : {}) })
+        if (request === received) request = null
+        return
+      }
+      lifecycle!.hold('server-update', target)
+      if (!lifecycle!.ready(target)) deps.log.info('Preparing server update', { from: layout!.version, to: target })
+      publish({ state: 'downloading', version: target })
+      lifecycle!.reclaim()
+      await lifecycle!.stage(target, () => {
+        if (controller) {
+          if (!fs.existsSync(path.join(layout!.versions, target, 'bin/gugu-server'))) throw new Error('The controller has not prepared this package')
+          return Promise.resolve()
+        }
+        return stageVersion(layout!, manifest)
+      })
+      if (stopped || request !== received) return
+      publish({ state: 'ready', version: target })
+      if (!received?.confirmed && runtime.isBusy()) return schedule(IDLE_POLL_MS)
+      // The lifecycle verifies the environment and boot before recording pending/current.
+      publish({ state: 'switching', version: target })
+      lifecycle!.switchSupervisor({ from: layout!.version, to: target, fromDir: layout!.running,
+        toDir: path.join(layout!.versions, target), switchedAt: Date.now(), ...(received ? { request: received.at } : {}) }, () => {})
+      deps.log.info('Switching server package', { from: layout!.version, to: target, request: received?.at })
+      control.dispose()
+      runtime.shutdown()
+    } catch (error) {
+      if (stopped || request !== received) return
+      if (!resolved && idlePoll && record?.state === 'ready') {
+        deps.log.warn('Could not refresh the release feed; continuing to wait', { error: String(error) })
+        return schedule(IDLE_POLL_MS)
+      }
+      const cause: FailureCause = error instanceof AccountBootRejectedError ? 'boot' : error instanceof DownloadSiteUnreachableError ? 'unreachable' : 'install'
+      const attempts = record?.state === 'failed' && record.version === target ? (record.attempts ?? 0) + 1 : 1
+      const until = Date.now() + (error instanceof VersionNotPublishedError
+        ? Math.min(5 * 60 * 1000 * 2 ** (attempts - 1), FAILURE_COOLDOWN_MS) : FAILURE_COOLDOWN_MS)
+      try {
+        publish({ state: 'failed', version: target, cause, until, attempts,
+          lastOutcome: { kind: 'failed', target, cause, at: Date.now(), ...(received ? { request: received.at } : {}) } })
+      } catch (writeError) { deps.log.warn('Could not persist server update failure', { error: String(writeError) }) }
+      if (request === received) request = null
+      lifecycle!.hold('server-update', null)
+      deps.log.warn('Server update failed; waiting for retry or the next check', { target, error: error instanceof Error ? error.message : String(error), until })
+    } finally {
+      ticking = false
+      if (!stopped && request && request !== received) schedule(0)
+    }
+  }
+  if (controller) deps.log.info('The platform controller selects server packages')
+  else {
+    first = setTimeout(() => void tick(), FIRST_CHECK_DELAY_MS)
+    first.unref()
+    timer = setInterval(() => void tick(), CHECK_INTERVAL_MS)
+    timer.unref()
+  }
+  return control
 }
