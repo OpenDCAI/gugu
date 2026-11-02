@@ -65,6 +65,14 @@ function preparation() {
       await rename(temporary, journal)
     },
     validate,
+    retired: async input => {
+      const { client } = await account(input)
+      const { data, error } = await client.from('agent_provisions').select('agent_user_id,provisioned_agent_user_id')
+        .eq('owner_user_id', input.ownerUserId).eq('device_id', input.deviceId)
+        .eq('operation_id', input.operationId).eq('member_key', 'assistant')
+      if (error) throw error
+      return !!data?.length && data.every(row => row.agent_user_id === null && !!row.provisioned_agent_user_id)
+    },
     prepare: async (id, signal) => (await import('../../../../assistant-runtime-prepare')).prepareAssistantRuntime(id, signal),
     cleanup: async (id, keepRuntime) => (await import('../../../../assistant-runtime-prepare')).cleanupAssistantRuntimePreparation(id, keepRuntime),
     wipe: () => wipeLocalAssistantHome(),

@@ -36,6 +36,7 @@ export type AssistantServerSetupOptions = {
   onProgress?: (state: AssistantServerSetupProgress) => void
 }
 const key = (owner: string) => `gugu.assistant.server-setup:${owner}`
+export function clearServerAssistantSetup(ownerUserId: string): void { window.localStorage.removeItem(key(ownerUserId)) }
 const fail = (code: AssistantServerFailure['code'], cause?: unknown): never => { throw new AssistantServerSetupError(assistantServerFailure(code), { cause }) }
 const aborted = () => Object.assign(new Error('Assistant setup cancelled'), { name: 'AbortError' })
 const unwrap = <T>(reply: AssistantServerReply<T>): T => {
@@ -43,7 +44,7 @@ const unwrap = <T>(reply: AssistantServerReply<T>): T => {
   return reply.value
 }
 function save(record: AssistantServerSetupRecord) { window.localStorage.setItem(key(record.ownerUserId), JSON.stringify(record)) }
-function forget(record: AssistantServerSetupRecord) { window.localStorage.removeItem(key(record.ownerUserId)) }
+function forget(record: AssistantServerSetupRecord) { clearServerAssistantSetup(record.ownerUserId) }
 export function pendingServerAssistant(ownerUserId: string): AssistantServerSetupRecord | null {
   const raw = window.localStorage.getItem(key(ownerUserId))
   if (!raw) return null
@@ -189,6 +190,8 @@ async function drive(record: AssistantServerSetupRecord, options: AssistantServe
   } catch (cause) {
     if ((cause as Error)?.name === 'AbortError') throw cause
     const failure = cause instanceof AssistantServerSetupError ? { code: cause.code, retryable: cause.retryable, next: cause.next }
+      : (cause as { code?: string })?.code === 'server_outdated' || (cause as { code?: string })?.code === 'unknown_method'
+        || String((cause as Error)?.message).includes("No handler registered for 'assistantHome.") ? assistantServerFailure('server_update_required')
       : assistantServerFailure(provisioning ? 'provision_failed' : 'target_unreachable')
     options.onProgress?.({ phase: 'failed', cancellable: !record.installationStarted, error: failure })
     throw cause instanceof AssistantServerSetupError ? cause : new AssistantServerSetupError(failure, { cause })

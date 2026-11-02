@@ -9,7 +9,7 @@ function fixture(initial: ServerPreparationRecord | null = null) {
   const deps = {
     read: vi.fn(async () => disk ? structuredClone(disk) : null),
     write: vi.fn(async (record: ServerPreparationRecord) => { disk = structuredClone(record) }),
-    validate: vi.fn(async () => {}), prepare: vi.fn(async (_id: string, _signal: AbortSignal) => runtime), cleanup: vi.fn(async () => {}),
+    validate: vi.fn(async () => {}), retired: vi.fn(async () => false), prepare: vi.fn(async (_id: string, _signal: AbortSignal) => runtime), cleanup: vi.fn(async () => {}),
     wipe: vi.fn(async () => ({ workdir: '/account/assistant', existed: true })), install: vi.fn(async () => ({ home: '/account', workdir: '/account/assistant' })), log: vi.fn(),
   }
   const service = createAssistantServerPreparation(deps)
@@ -125,5 +125,18 @@ describe('durable account-host assistant preparation', () => {
     expect(f.deps.wipe).toHaveBeenCalledTimes(3)
     await expect(f.service.closeHome(input.operationId)).rejects.toMatchObject({ code: 'input_mismatch' })
     expect(f.deps.wipe).toHaveBeenCalledTimes(3)
+  })
+  it('allows fresh setup to finish residual cleanup only after authoritative identity retirement', async () => {
+    const f = fixture()
+    await f.service.start(input)
+    await f.wait('prepared')
+    f.deps.wipe.mockRejectedValueOnce(new Error('close cleanup interrupted'))
+    await expect(f.service.closeHome(input.operationId)).rejects.toThrow('close cleanup interrupted')
+    await expect(f.service.start({ ...input, operationId: 'new' })).rejects.toMatchObject({ code: 'preparation_busy' })
+    f.deps.retired.mockResolvedValueOnce(true)
+    await f.service.start({ ...input, operationId: 'new' })
+    await vi.waitFor(() => expect(f.disk()?.state.phase).toBe('prepared'))
+    expect(f.disk()?.operationId).toBe('new')
+    await expect(f.service.closeHome(input.operationId)).rejects.toMatchObject({ code: 'input_mismatch' })
   })
 })

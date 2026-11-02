@@ -30,6 +30,7 @@ import { UI_EVENTS } from '../../lib/uiEvents'
 import { rendererLogger } from '../../lib/log'
 import { desktopIpc } from '../../platform/desktopIpc'
 import { machineRpc } from '../../mobile/agent-watch/sessionpage-rpc'
+import { clearServerAssistantSetup } from '../../lib/assistantServerSetup'
 import { useAuth } from '../../store/auth'
 import { useContactsStore } from '../../store/contactsContext'
 import { useDevicesStore } from '../../store/devicesContext'
@@ -122,6 +123,7 @@ export function AssistantCloseHost() {
       },
       resetLocalState: () => {
         writeSetupStep(ownerUserId, null)
+        clearServerAssistantSetup(ownerUserId)
         retireCustomizeCard(ownerUserId)
         for (const record of assistantResumeStore.list(ownerUserId)) assistantResumeStore.forget(ownerUserId, record.operationId)
         moveJournalStore(ownerUserId).clear()
