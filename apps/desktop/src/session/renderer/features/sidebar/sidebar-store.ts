@@ -12,12 +12,10 @@ import {
 import { type ProjectStore } from '@renderer/features/projects/stores/project';
 import type { ProjectManagerStore } from '@renderer/features/projects/stores/project-manager';
 import { pageSessions } from '@renderer/features/sessions/stores/session-selectors';
-import { isImplicitSessionHomeProject, isWorkspaceProject } from '@renderer/features/sessions/session-home-project-constants';
+import { isWorkspaceProject } from '@renderer/features/sessions/session-home-project-constants';
 import { nameTwinIds } from '@renderer/features/projects/name-twins';
 import {
   EMPTY_MACHINE_HOME_LAYOUT,
-  HOME_PROJECT_LABEL,
-  machineHomeLayout,
   type MachineHomeLayout,
 } from '@renderer/features/remote-hosts/machine-home';
 import { events, onMachineEvent } from '@renderer/lib/ipc';
@@ -274,10 +272,10 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
    */
   get sidebarProjects(): SidebarProjectRef[] {
     // #609 workspace(任务工作区、主目录等咕咕自己要用的目录;哪台机器上的都算)不是项目:不单列,会话在「任务」里。
-    // 例外只有个人助理那台并成的那一行(#7199)。被并进别的行的项目不单列。
-    const { homeRows, rowOf } = this.homeLayout;
+    // 只按真实的项目群绑定合并;个人助理所在设备也没有工作区例外。
+    const { rowOf } = this.homeLayout;
     const all: SidebarProjectRef[] = Array.from(this.projectManager.projects.values())
-      .filter((project) => (!isWorkspaceProject(project) || homeRows.has(project.id)) && !rowOf.has(project.id))
+      .filter((project) => !isWorkspaceProject(project) && !rowOf.has(project.id))
       .filter((project) => project.id !== this.assistantHomeProjectId)
       .sort((a, b) => this.compareSidebarProjects(a, b))
       .map((project) => ({ kind: 'local', id: project.id, project }));
@@ -394,23 +392,10 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     return more && !more.expanded && last?.sessionId === node.sessionId ? more.foldKey : null;
   }
 
-  /**
-   * #6264 每台别的机器的主目录那一行,以及它的任务工作区并到哪一行(读取时归属,见 machine-home.ts)。
-   */
+  /** 同一个项目群绑定的本地项目合成一行;助理的设备与其它设备遵循同一规则。 */
   get homeLayout(): MachineHomeLayout {
-    const machines = this.machines;
-    if (!machines) return EMPTY_MACHINE_HOME_LAYOUT;
-    const base = machineHomeLayout(
-      Array.from(this.projectManager.projects.values(), (p) => ({ id: p.id, path: p.data?.path })),
-      {
-        machineOf: (id) => machines.machineOf(id),
-        homeDir: (deviceId) => machines.homeDir(deviceId),
-        isSessionHome: (id) => isImplicitSessionHomeProject({ id }),
-        foldAll: (deviceId) => machines.isAssistantHome?.(deviceId) === true,
-      }
-    );
     // #7341 绑在同一个项目群上的本地项目(各台机器上的)合成一行。
-    return foldProjectGroups(base, this.projectGroups);
+    return foldProjectGroups(EMPTY_MACHINE_HOME_LAYOUT, this.projectGroups);
   }
 
   /** #7341 同群折叠:哪一行代表哪几个本地项目(纯函数在 project-group-layout.ts)。 */
@@ -462,12 +447,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   /** 会话所在项目行的名字(侧栏里那一行怎么写,它就怎么写)。 */
   projectLabel(projectId: string): string | null {
     const row = this.rowProjectIdOf(projectId);
-    if (this.homeLayout.homeRows.has(row)) {
-      // #7199 个人助理住的那台:那一组叫它的名字(宿主把那台的 label 换成了它的名字),❌「~」。
-      const machine = this.machines?.machineOf(row) ?? null;
-      if (machine && this.machines?.isAssistantHome?.(machine)) return this.machines.label(machine) ?? HOME_PROJECT_LABEL;
-      return HOME_PROJECT_LABEL;
-    }
     // #609 workspace 不是项目,没有项目名可标(本机的任务工作区从前会标出「任务工作区」)。
     const project = this.projectManager.projects.get(row);
     return project && !isWorkspaceProject(project) ? project.name ?? null : null;
@@ -1044,12 +1023,11 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   }
 
   /**
-   * #609 会话列在「任务」里的项目:每台机器上的 workspace(并进个人助理那一行的除外),加本机助理的家。
+   * #609 会话列在「任务」里的项目:每台机器上的 workspace,加本机助理的家。
    * 「任务」是一张平铺的表,❌ 按机器分组。
    */
   private isTasksProject(project: { id: string; data?: { kind?: string } | null }): boolean {
-    const { homeRows, rowOf } = this.homeLayout;
-    if (homeRows.has(project.id) || rowOf.has(project.id)) return false;
+    if (this.homeLayout.rowOf.has(project.id)) return false;
     return isWorkspaceProject(project) || (!this.isRemote(project.id) && project.id === this.assistantHomeProjectId);
   }
 
