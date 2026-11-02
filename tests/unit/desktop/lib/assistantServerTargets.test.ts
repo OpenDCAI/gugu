@@ -2,8 +2,9 @@ import { expect, it } from 'vitest'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { assistantServerTargets } from '../../../../apps/desktop/src/lib/assistantServerTargets'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
+import { normalizeDeviceRow } from '@gugu/core/cloud/devices'
 
-const server = (patch: Partial<Device> = {}): Device => ({ device_id: 'server', label: 'Server', hostname: 'host', platform: 'linux', is_online: true, status: 'online', last_seen_at: '',
+const server = (patch: Partial<Device> = {}): Device => ({ device_id: 'server', label: 'Server', hostname: 'host', platform: 'linux', is_online: true, status: 'online', last_seen_at: '2026-11-02T00:00:00Z',
   capabilities: { terminals: [], runtimes: [], host_kind: 'server', arch: 'x64', remote_protocol: REMOTE_PROTOCOL_VERSION, assistant_home_setup: 1 }, ...patch })
 it('only lists account-owned self-hosted servers, preserving exact disabled reasons', () => {
   const source = server()
@@ -28,4 +29,10 @@ it('rejects a future host whose minimum client is newer, and accepts supported a
   const row = server()
   expect(assistantServerTargets([server({ capabilities: { ...row.capabilities, arch: 'arm64' } })])[0]?.selectable).toBe(true)
   expect(assistantServerTargets([server({ capabilities: { ...row.capabilities, min_client_protocol: REMOTE_PROTOCOL_VERSION + 1 } })])[0]?.reason).toBe('server_update_required')
+})
+it('preserves the capability through the real device directory normalizer', () => {
+  const row = normalizeDeviceRow(server())
+  expect(assistantServerTargets([row])[0]).toMatchObject({ selectable: true })
+  const legacy = normalizeDeviceRow(server({ capabilities: { ...server().capabilities, assistant_home_setup: undefined } }))
+  expect(assistantServerTargets([legacy])[0]).toMatchObject({ reason: 'server_update_required' })
 })
