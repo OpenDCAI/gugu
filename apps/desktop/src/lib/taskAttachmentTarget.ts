@@ -18,9 +18,9 @@ export type TaskAttachmentTarget = {
 
 export const taskAttachmentWorkspacePath = (id: string, name: string) => `.gugu/attachments/${id}/${name}`
 
-/** Only this computer's explicit SSH mapping can carry attachment bytes. A tunnel is a different route. */
+/** Both the saved SSH choice and this computer's current SSH mapping are required to carry attachment bytes. */
 export function taskAttachmentUsesSsh(deviceId: string): boolean {
-  return findRemoteHostsBridge()?.listDevices().find(device => device.id === deviceId)?.connectVia === 'ssh'
+  return isSshMachine(deviceId) && findRemoteHostsBridge()?.listDevices().find(device => device.id === deviceId)?.connectVia === 'ssh'
 }
 
 export function assertTaskAttachmentProtocol(protocol: number | undefined): void {

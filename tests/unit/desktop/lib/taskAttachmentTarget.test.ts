@@ -18,6 +18,12 @@ import { prefetchTaskFiles, pushTaskFiles, pushTaskAttachment, taskAttachmentUse
 describe('task attachment SSH route', () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.devices = []; mocks.items = []; mocks.hello = { protocol: 5 }; mocks.ssh = true;
     mocks.cached = [{ device_id: 'host', is_online: true, capabilities: { remote_protocol: 16 } }] })
+  it('does not select a saved SSH device without this computer\'s SSH mapping', () => {
+    mocks.devices = [{ id: 'host', connectVia: 'ssh' }]; mocks.ssh = false
+    expect(taskAttachmentUsesSsh('host')).toBe(false)
+    mocks.ssh = true
+    expect(taskAttachmentUsesSsh('host')).toBe(true)
+  })
   it.each([4, null])('uses attachment capability 16 independently of hello %s', async protocol => {
     mocks.devices = [{ id: 'host', connectVia: 'ssh' }]
     mocks.hello = protocol === null ? null : { protocol }
