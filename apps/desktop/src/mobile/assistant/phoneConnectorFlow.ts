@@ -3,6 +3,7 @@ import {
   cliMethodOf,
   formMethodOf,
   mcpOAuthServerUrlOf,
+  keptByPlatform,
 } from '@/session/renderer/features/integrations/integration-setup-model'
 
 // #7199 手机助理 App 的「连接应用」:连 / 断一家云端账号服务的纯逻辑(没有界面、不直接碰 rpc —— 依赖都从参数进来,
@@ -22,6 +23,7 @@ export type PlatformKind = 'electron' | 'capacitor' | 'web'
 export type SetupPlan =
   | { kind: 'form' }
   | { kind: 'browser'; serverUrl: string }
+  | { kind: 'platform-browser' }
   | { kind: 'cli' }
   | { kind: 'github' }
   /** `needs-app` = 这条路要咕咕手机 App 的原生能力(网页版没有);`no-method` = 目录里没有手机上认得的连接方式。 */
@@ -37,6 +39,7 @@ export function setupPlanOf(metadata: AuthDescribed, platformKind: PlatformKind)
   if (metadata.id === 'github') return { kind: 'github' }
   if (cliMethodOf(metadata)) return { kind: 'cli' }
   const serverUrl = mcpOAuthServerUrlOf(metadata)
+  if (serverUrl && keptByPlatform(metadata)) return { kind: 'platform-browser' }
   if (serverUrl) return platformKind === 'capacitor' ? { kind: 'browser', serverUrl } : { kind: 'unavailable', reason: 'needs-app' }
   if (formMethodOf(metadata)) return { kind: 'form' }
   return { kind: 'unavailable', reason: 'no-method' }

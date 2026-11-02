@@ -171,6 +171,10 @@ export class IntegrationConnectionService {
     this.startAuthorizationActivity(controller);
     controller.signal.addEventListener('abort', () => this.stopAuthorizationActivity(controller), { once: true });
     try {
+      if (plugin.capabilities.auth.methods.some((method) => method.kind === 'mcp-oauth' && method.custody === 'platform')) {
+        await platformCredentials.authorizeOAuth(integrationId, controller.signal, (url) => shell.openExternal(url));
+        return { success: true, credentials: { platformOAuth: integrationId } };
+      }
       const credentials = await authorizeMcpServer({
         serverUrl,
         signal: controller.signal,
