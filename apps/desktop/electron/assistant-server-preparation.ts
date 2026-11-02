@@ -1,5 +1,5 @@
 import type { PreparedAssistantRuntime } from './assistant-runtime-prepare'
-import type { PrepareLocalHomeResult } from '../src/lib/assistantHomeIpc'
+import type { PrepareLocalHomeResult, WipeLocalHomeResult } from '../src/lib/assistantHomeIpc'
 import {
   AssistantServerSetupError, assistantServerFailure,
   type AssistantServerStart, type AssistantServerPreparation, type AssistantServerOperation,
@@ -20,7 +20,7 @@ export function createAssistantServerPreparation(deps: {
   validate(input: AssistantServerOperation, starting: boolean): Promise<void>
   prepare(id: string, signal: AbortSignal): Promise<PreparedAssistantRuntime>
   cleanup(id: string, keepRuntime: boolean): Promise<void>
-  wipe(): Promise<unknown>
+  wipe(): Promise<WipeLocalHomeResult>
   install(ownerProfile: string): Promise<PrepareLocalHomeResult>
   log(error: unknown, operationId: string): void
 }) {
@@ -91,11 +91,16 @@ export function createAssistantServerPreparation(deps: {
         if (active || !['prepared', 'cancelled'].includes(journal.state.phase)) return fail('preparation_busy')
       })
     },
-    closed() {
+    closeHome(operationId: string) {
       return serial(async () => {
         await load()
+        if (!journal || journal.operationId !== operationId) return fail('input_mismatch')
         if (active) return fail('preparation_busy')
-        if (journal) await save(journal, { ...journal.state, phase: 'cancelled', cancellable: false })
+        // One serial transaction with start: a late close cannot wipe a newly
+        // prepared home after an earlier close already completed.
+        const result = await deps.wipe()
+        await save(journal, { ...journal.state, phase: 'cancelled', cancellable: false })
+        return result
       })
     },
     start(input: AssistantServerStart) {

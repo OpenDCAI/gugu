@@ -10,7 +10,7 @@ function fixture(initial: ServerPreparationRecord | null = null) {
     read: vi.fn(async () => disk ? structuredClone(disk) : null),
     write: vi.fn(async (record: ServerPreparationRecord) => { disk = structuredClone(record) }),
     validate: vi.fn(async () => {}), prepare: vi.fn(async (_id: string, _signal: AbortSignal) => runtime), cleanup: vi.fn(async () => {}),
-    wipe: vi.fn(async () => {}), install: vi.fn(async () => ({ home: '/account', workdir: '/account/assistant' })), log: vi.fn(),
+    wipe: vi.fn(async () => ({ workdir: '/account/assistant', existed: true })), install: vi.fn(async () => ({ home: '/account', workdir: '/account/assistant' })), log: vi.fn(),
   }
   const service = createAssistantServerPreparation(deps)
   const wait = async (phase: string) => { await vi.waitFor(async () => expect((await service.status(input)).phase).toBe(phase)); return service.status(input) }
@@ -119,9 +119,11 @@ describe('durable account-host assistant preparation', () => {
     await f.service.start(input)
     await f.wait('prepared')
     await expect(f.service.start({ ...input, operationId: 'new' })).rejects.toMatchObject({ code: 'preparation_busy' })
-    await f.service.closed()
+    await f.service.closeHome(input.operationId)
     await f.service.start({ ...input, operationId: 'new' })
     await vi.waitFor(() => expect(f.disk()?.state.phase).toBe('prepared'))
-    expect(f.deps.wipe).toHaveBeenCalledTimes(2)
+    expect(f.deps.wipe).toHaveBeenCalledTimes(3)
+    await expect(f.service.closeHome(input.operationId)).rejects.toMatchObject({ code: 'input_mismatch' })
+    expect(f.deps.wipe).toHaveBeenCalledTimes(3)
   })
 })

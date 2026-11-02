@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase'
-import { userIdFromSupabaseAccessToken } from '@gugu/core'
+import { userIdFromSupabaseAccessToken } from '@gugu/core/cloud/runtimeAuthProvider'
 import { resolveGuguHome } from '@gugu/core/local/state/paths'
 import { platformModelsEnabled } from '@gugu/core/cloud/optionalServices'
 import { ASSISTANT_DEFAULT_MODEL } from '@gugu/core/shared/assistantPolicy'
@@ -118,8 +118,6 @@ export const assistantHomeController = createRPCController({
     if (data.some(row => row.agent_user_id)) return fail('preparation_busy')
     await preparation().assertProvision(matched.operation_id)
     await account(parsed)
-    const result = await wipeLocalAssistantHome()
-    await preparation().closed()
-    return result
+    return preparation().closeHome(matched.operation_id)
   }),
 })
