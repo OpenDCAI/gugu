@@ -12,7 +12,7 @@ it('keeps Electron notification support probes inside the host gate', () => {
       if (entry.isDirectory()) { scan(file); continue }
       if (!file.endsWith('.ts') || file.endsWith('.test.ts') || relative(root, file) === 'session/headless/electron-shim.ts') continue
       const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
-      function visit(node: ts.Node): void {
+      const visit = (node: ts.Node): void => {
         if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
           && node.expression.name.text === 'isSupported'
           && /(?:^|\.)Notification$/.test(node.expression.expression.getText(source))) {
