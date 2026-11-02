@@ -18,6 +18,10 @@ vi.mock('@/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: [d
   projects: [{ localProjectId: 'project', chatId: 'project-chat', name: 'task-project', rootPath: '/project', createdAt: '2026-11-02T00:00:00Z', folders: [] }],
 })] }) }))
 vi.mock('@/hooks/useAgentDisplayStatus', () => ({ useAgentDisplayStatuses: () => ({ codex: 'error' }) }))
+vi.mock('@/lib/agentPresenceMobx', async () => {
+  const { presentAgentStatus } = await import('@gugu/core/shared/agentStatusPresentation')
+  return { observedAgentPresence: () => ({ presentation: presentAgentStatus({ reading: { status: 'needs_user', detail: 'approval' } }) }) }
+})
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
@@ -25,7 +29,7 @@ afterEach(() => { harness.cleanup(); delete document.documentElement.dataset.the
 
 const waiting: NeedsYouTask = {
   deviceId: 'host', machine: 'Test host', local: false, phoneHost: false,
-  session: { conversationId: 'waiting', title: 'Codex 1', agent: { userId: 'codex' }, runtime: 'acp', supported: true } as NeedsYouTask['session'],
+  session: { conversationId: 'waiting', title: 'Codex 1', agent: { userId: 'codex' }, status: { status: 'needs_user', detail: 'approval' }, runtime: 'acp', supported: true } as NeedsYouTask['session'],
 }
 const assistant: PhoneAssistantState = { available: true, assistant: null, chatId: null, cloudDeviceId: null,
   homeDeviceId: null, home: null, ownerName: null, stage: { stage: 'onboarding' } as PhoneAssistantState['stage'] }

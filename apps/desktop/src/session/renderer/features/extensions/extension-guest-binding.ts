@@ -2,6 +2,7 @@ import type { AppWhere, PreparedChatFile } from '@shared/extensions/app-runtime-
 
 /** Where a page is aimed (`AppWhere`), in which tab, for which file. */
 export interface ExtensionGuestTarget extends AppWhere {
+  resourceChat?: string;
   opening?: PreparedChatFile;
   tabId: string;
   itemId?: string;

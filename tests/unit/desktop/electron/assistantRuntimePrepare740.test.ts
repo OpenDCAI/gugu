@@ -9,6 +9,7 @@ vi.mock('@gugu/session-core/deps/runtime', () => ({ agentProgramsOf: () => [{ de
 vi.mock('../../../../apps/desktop/electron/session/main/core/agents/plugin-registry', () => ({ getPlugin: () => ({}) }))
 vi.mock('../../../../apps/desktop/electron/session/main/core/dependencies/managed-agent-home', () => ({
   managedAgentPrefix: () => f.root, managedMiseBinDir: () => path.join(f.root, 'bin'),
+  agentBinDirsInPriorityOrder: () => [path.join(f.root, 'bin')], vendorInstallDirs: () => [],
 }))
 vi.mock('../../../../apps/desktop/electron/session/main/utils/userEnv', () => ({ ensureUserBinDirsInPath: vi.fn() }))
 vi.mock('../../../../apps/desktop/electron/session/main/core/dependencies/mise-installer', () => ({ runMiseOperation: f.install }))

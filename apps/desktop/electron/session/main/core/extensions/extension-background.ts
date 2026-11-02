@@ -192,6 +192,7 @@ export function syncExtensionBackgrounds(): void {
     try {
       startExtensionBackground(manifest, {
         extensionId: manifest.id,
+        apiVersion: manifest.apiVersion,
         rootDir,
         networkHosts: service.grantedHosts(manifest.id),
       });

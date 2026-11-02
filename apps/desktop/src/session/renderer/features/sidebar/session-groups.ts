@@ -2,8 +2,8 @@ import { isNeedsYou, type AgentStatusPresentation } from '@gugu/core/shared/agen
 
 // @@@sessionpage otty-state — sidebar status groups (spec session-page「会话列表与状态」): conversations
 // hang directly under their project, bucketed by the same presentation as the agent avatar.
-// The sections are the shared model's sidebar projection: needs-you = needs_user only.
-// Errors keep their red row status without asking for input. Idle/stateless
+// The sections are the shared model's sidebar projection: needs-you = waits and failures.
+// Errors retain their red row status within Needs you. Idle/stateless
 // conversations get NO section label — they sit flat below, newest first. Grouping always uses the
 // root's presentation; unread emphasis does not move a family between sections.
 export type SidebarStateGroup = 'needs-you' | 'working';

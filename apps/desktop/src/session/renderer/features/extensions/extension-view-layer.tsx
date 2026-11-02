@@ -241,6 +241,7 @@ export const ExtensionPage = observer(function ExtensionPage({
         workspace: claim?.sessionId ? sessionWorkspace(claim.sessionId) : null,
         // A chat's slot is in that chat; a session's slot in the person's private chat with its agent.
         conversation: claim?.chatId ?? claim?.conversation ?? null,
+        ...(claim?.resourceChat ? { resourceChat: claim.resourceChat } : {}),
         tabId: claim?.tabId ?? '',
         ...(claim?.itemId ? { itemId: claim.itemId } : {}),
         ...(claim?.takeOpening ? { opening: claim.takeOpening() } : {}),

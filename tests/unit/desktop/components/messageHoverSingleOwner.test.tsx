@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { MessageHoverRegion } from '../../../../apps/desktop/src/components/chat/HoverActionBar'
 import { claimHoverOwner, releaseHoverOwner } from '../../../../apps/desktop/src/components/chat/hover-owner'
@@ -30,6 +30,27 @@ describe('message hover bar: one row owns it at a time', () => {
     expect(claimHoverOwner(b)).toBe(false)
     releaseHoverOwner(a)
     expect(claimHoverOwner(b)).toBe(true)
+  })
+
+  it.each([false, true])('protects travel toward the actual popup, including flipped placement (below: %s)', (below) => {
+    const trigger = document.createElement('div')
+    const popup = document.createElement('div')
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 600, 80))
+    vi.spyOn(popup, 'getBoundingClientRect').mockReturnValue(new DOMRect(590, below ? 282 : 158, 110, 40))
+    expect(claimHoverOwner(a, false, { trigger, popup })).toBe(true)
+    expect(claimHoverOwner(b, false, undefined, { x: 650, y: below ? 300 : 180 })).toBe(false)
+    // Same neighboring row, away from the path to the right-aligned popup: no timer is needed.
+    expect(claimHoverOwner(b, false, undefined, { x: 110, y: below ? 300 : 180 })).toBe(true)
+  })
+
+  it('uses the shifted left popup instead of assuming the popup is above the pointer', () => {
+    const trigger = document.createElement('div')
+    const popup = document.createElement('div')
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 600, 80))
+    vi.spyOn(popup, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 170, 110, 40))
+    expect(claimHoverOwner(a, false, { trigger, popup })).toBe(true)
+    expect(claimHoverOwner(b, false, undefined, { x: 140, y: 180 })).toBe(false)
+    expect(claimHoverOwner(b, false, undefined, { x: 690, y: 180 })).toBe(true)
   })
 })
 

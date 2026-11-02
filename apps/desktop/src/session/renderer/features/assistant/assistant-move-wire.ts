@@ -2,7 +2,6 @@
 // 读写它的家同一组动词)、账号与已安排走 integrations.* / automations.*、接过走管家 /provision 或客户端 saga。
 // 界面在 components/assistant/AssistantMoveGroup;这里没有任何 React。
 import type { MovableIntegrationAccount } from '@shared/core/integrations/integration-move';
-import { WORKSPACE_WRITE_FORCE } from '@gugu/session-core/session-record/contract';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { CloudComputerError } from '@gugu/core/cloud/cloudComputer';
 import { readDisplayIdentities } from '@/lib/identityReadAdapter';
@@ -21,15 +20,18 @@ import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-s
 import { rpcOn } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';
 import { isAssistantSession } from './assistant-lineage';
-import { AssistantFileError, listDirectory, makeFolder, readText, writeText, type AssistantMachine } from './assistant-machine-core';
+import { AssistantFileError, listDirectory, makeFolder, readText, type AssistantMachine } from './assistant-machine-core';
 import { homeTarget } from './assistant-home-sessions';
 import { rendererLogger } from '@/lib/log';
 import { openAssistantMachine } from './assistant-machine';
-import type { HomeFs } from './assistant-move-copy';
+import { COPY_CHUNK_BYTES, type HomeFs } from './assistant-move-copy';
+import { durableMoveJournal } from './assistant-move-journal';
 import {
+  MoveError,
   isUnknownMethod,
   planMove,
   runMove,
+  resumeMoveCompletion,
   type MoveDeps,
   type MoveDirection,
   type MoveHomeRef,
@@ -99,7 +101,7 @@ function mtimeOf(entry: { modifiedAt?: unknown }): number | null {
 export function machineFs(machine: AssistantMachine): HomeFs {
   if (!machine.rpc) throw new Error('The explicit move requires its native source and destination')
   const files = machine.rpc.workspace.files;
-  return {
+  const fs: HomeFs = {
     async list(dir) {
       return (await listDirectory(machine, dir)).map((entry) => ({ name: entry.name, type: entry.type, size: entry.size, mtime: mtimeOf(entry) }));
     },
@@ -109,7 +111,15 @@ export function machineFs(machine: AssistantMachine): HomeFs {
       if (!result.success) throw rpcError(result.error as { type?: string; message?: string });
       return fromBase64(result.data.data);
     },
-    async writeChunk({ path, uploadId, offset, data, total, final }) {
+    async revision(path) {
+      const result = await files.readChunk(machine.projectId, machine.workspaceId, { path, offset: 0, length: 0 });
+      if (!result.success) {
+        if (result.error.type === 'not_found') return null;
+        throw rpcError(result.error as { type?: string; message?: string });
+      }
+      return result.data.etag;
+    },
+    async writeChunk({ path, uploadId, offset, data, total, final, expectedRevision }) {
       const result = await files.writeChunk(machine.projectId, machine.workspaceId, {
         path,
         uploadId,
@@ -117,17 +127,29 @@ export function machineFs(machine: AssistantMachine): HomeFs {
         data: toBase64(data),
         total,
         final,
-        expectedEtag: WORKSPACE_WRITE_FORCE,
+        expectedEtag: expectedRevision ?? null,
       });
-      if (!result.success) throw rpcError(result.error as { type?: string; message?: string });
+      if (!result.success) throw Object.assign(rpcError(result.error as { type?: string; message?: string }), { path });
       return result.data.committed ? { size: result.data.committed.size } : null;
     },
     async makeDir(parent, name) {
       await makeFolder(machine, parent, name);
     },
     readText: (path) => readText(machine, path),
-    writeText: (path, content) => writeText(machine, path, content),
+    async writeText(path, content, expectedRevision) {
+      const data = new TextEncoder().encode(content);
+      const uploadId = crypto.randomUUID();
+      let offset = 0;
+      do {
+        const chunk = data.slice(offset, offset + COPY_CHUNK_BYTES);
+        const result = await fs.writeChunk({ path, uploadId, offset, data: chunk, total: data.length,
+          final: offset + chunk.length >= data.length, expectedRevision });
+        offset += chunk.length;
+        if (offset >= data.length && result?.size !== data.length) throw new Error('Instruction write was not confirmed');
+      } while (offset < data.length);
+    },
   };
+  return fs;
 }
 
 async function sessionsOn(target: string | null): Promise<readonly SessionpageSessionSummary[]> {
@@ -146,11 +168,12 @@ async function assistantSessionOn(target: string | null, assistantId: string, wa
  * `base` = 这一头「它的家」目录之上已经存在的那一级,拷贝往下逐层建目录:云上是主目录(整台都是它的家,工作区就是主目录项目),
  * 本机是它的工作目录(它的一切都在这一个目录里;工作区只圈这一个目录,往上建会被拦)。
  */
-function sideOf(machine: AssistantMachine, label: string, assistantId: string, base: string, deviceId: string): MoveSide {
+function sideOf(machine: AssistantMachine, label: string, assistantId: string, base: string, deviceId: string, workdir: string): MoveSide {
   const target = machine.target === undefined ? machine.deviceId : machine.target;
   return {
     label,
     deviceId,
+    workdir,
     fs: machineFs(machine),
     base,
     paths: {
@@ -234,7 +257,7 @@ export function moveJournalStore(ownerUserId: string): MoveDeps['journal'] {
       }
     },
     save(journal) {
-      // 日志丢了只意味着「不能接着搬」(要从头再来),不该让搬家本身失败:写不进去就不写。
+      // Native storage is authoritative; this is only the synchronous UI cache.
       try {
         localStorage.setItem(journalKey(ownerUserId), JSON.stringify(journal));
       } catch {
@@ -249,6 +272,21 @@ export function moveJournalStore(ownerUserId: string): MoveDeps['journal'] {
       }
     },
   };
+}
+
+async function recoveryJournalStore(ownerUserId: string): Promise<MoveDeps['journal']> {
+  const ipc = desktopIpc();
+  if (!ipc) throw new Error('Move recovery requires the desktop host');
+  return durableMoveJournal(moveJournalStore(ownerUserId), {
+    read: async () => await ipc.invoke(ASSISTANT_HOME_CHANNELS.moveJournalRead, ownerUserId) as string | null,
+    write: async (raw) => { await ipc.invoke(ASSISTANT_HOME_CHANNELS.moveJournalWrite, ownerUserId, raw); },
+    clear: async () => { await ipc.invoke(ASSISTANT_HOME_CHANNELS.moveJournalClear, ownerUserId); },
+  });
+}
+
+export async function recoverPendingMove(ownerUserId: string, assistantId: string): Promise<MoveJournal | null> {
+  const journal = (await recoveryJournalStore(ownerUserId)).load();
+  return journal?.assistantId === assistantId && journal.source ? journal : null;
 }
 
 /**
@@ -276,22 +314,22 @@ async function homeDeviceOf(assistantId: string): Promise<string | null> {
 }
 
 /** 旧家那一头(只读)。`sourceHome` 来自日志或此刻它住的地方,❌ 在这里再读一次「它住哪」。 */
-export async function openSource(env: MoveEnv, direction: MoveDirection, sourceHome: MoveHomeRef = sourceHomeFor(env, direction)): Promise<MoveSide> {
+export async function openSource(env: MoveEnv, direction: MoveDirection, sourceHome: MoveHomeRef = sourceHomeFor(env, direction), savedWorkdir?: string): Promise<MoveSide> {
   if (direction === 'to-cloud') {
     if (sourceHome.kind !== 'computer' || sourceHome.deviceId !== env.localDeviceId) throw new Error('the source home is not this computer');
     // 本机上的家:工作目录就是它在这台电脑上的那个(只问不写:人还没确认,旧家一个字节都不动)。
     const prepared = await prepareLocalHome(true);
     const home: AssistantHomePlace = { kind: 'computer', deviceId: env.localDeviceId, thisDevice: true, label: null, online: true, known: true };
     const machine = await openAssistantMachine(home, prepared.workdir);
-    return sideOf(machine, '这台电脑', env.assistantId, prepared.workdir, env.localDeviceId);
+    return sideOf(machine, '这台电脑', env.assistantId, prepared.workdir, env.localDeviceId, prepared.workdir);
   }
   // 搬回本机:云上的家要先醒着(管家有家就放行,会员到期也行、不计费)。
   const deviceId = sourceHome.deviceId;
   await wakeCloudComputer({ purpose: 'move_out' });
   await cloudDeviceReady(deviceId);
-  const workdir = await cloudWorkdir(deviceId, env.assistantId);
+  const workdir = savedWorkdir ?? await cloudWorkdir(deviceId, env.assistantId);
   const machine = await openAssistantMachine({ kind: 'cloud', deviceId }, workdir);
-  return sideOf(machine, '云上', env.assistantId, machine.home, deviceId);
+  return sideOf(machine, '云上', env.assistantId, machine.home, deviceId, workdir);
 }
 
 export function buildMoveDeps(
@@ -344,9 +382,10 @@ export function buildMoveDeps(
         await cloudDeviceReady(deviceId);
         const workdir = await cloudWorkdir(deviceId, env.assistantId);
         const machine = await openAssistantMachine({ kind: 'cloud', deviceId }, workdir);
-        return sideOf(machine, '云上', env.assistantId, machine.home, deviceId);
+        return sideOf(machine, '云上', env.assistantId, machine.home, deviceId, workdir);
       },
       restart: () => restartAssistant(env.assistantId),
+      restoreOnline: () => restoreOnlineAssistant(env.assistantId),
     };
   }
   let localWorkdir: string | null = null;
@@ -364,7 +403,7 @@ export function buildMoveDeps(
       const prepared = await prepareLocalHome();
       localWorkdir = prepared.workdir;
       const home: AssistantHomePlace = { kind: 'computer', deviceId: env.localDeviceId, thisDevice: true, label: null, online: true, known: true };
-      return sideOf(await openAssistantMachine(home, prepared.workdir), '这台电脑', env.assistantId, prepared.workdir, env.localDeviceId);
+      return sideOf(await openAssistantMachine(home, prepared.workdir), '这台电脑', env.assistantId, prepared.workdir, env.localDeviceId, prepared.workdir);
     },
     async adopt() {
       const workdir = localWorkdir ?? (await prepareLocalHome()).workdir;
@@ -388,13 +427,26 @@ export function buildMoveDeps(
       reloadMyAssistant(env.ownerUserId);
     },
     restart: () => restartAssistant(env.assistantId),
+    restoreOnline: () => restoreOnlineAssistant(env.assistantId),
   };
 }
 
 /** 让新家上的助理从头读一遍刚拷来的说明与记忆:停掉运行时,再标回在线,下一条消息会重新起它。 */
-async function restartAssistant(assistantId: string): Promise<void> {
-  await contactsService.setAgentDesiredStatus(assistantId, 'offline');
+export async function restartAssistant(assistantId: string): Promise<void> {
+  try {
+    await contactsService.setAgentDesiredStatus(assistantId, 'offline');
+  } finally {
+    // Even a failed offline response may have committed. Always attempt to restore online intent.
+    await contactsService.setAgentDesiredStatus(assistantId, 'online');
+  }
+  const identity = (await readDisplayIdentities([assistantId]))[0];
+  if (identity?.desired_status !== 'online') throw new Error('The assistant online intent has not been confirmed');
+}
+
+async function restoreOnlineAssistant(assistantId: string): Promise<void> {
   await contactsService.setAgentDesiredStatus(assistantId, 'online');
+  const identity = (await readDisplayIdentities([assistantId]))[0];
+  if (identity?.desired_status !== 'online') throw new Error('The assistant online intent has not been confirmed');
 }
 
 /** 确认框要的:会拷多少、会带走哪些账号(只有名字)、哪些要在新家重新连。只读,不动任何东西。 */
@@ -419,18 +471,39 @@ export async function previewMove(env: MoveEnv, direction: MoveDirection) {
 }
 
 export async function runAssistantMove(env: MoveEnv, direction: MoveDirection, onProgress?: MoveDeps['onProgress']): Promise<MoveReport> {
-  const sourceHome = sourceHomeFor(env, direction);
-  const source = await openSource(env, direction, sourceHome);
+  const journal = await recoveryJournalStore(env.ownerUserId);
+  const recorded = journal.load();
+  if (recorded?.assistantId === env.assistantId && recorded.direction !== direction) {
+    throw new MoveError('preflight', new Error('Resume the unfinished move before starting another direction'), false);
+  }
+  const savedJournal = recorded?.assistantId === env.assistantId && recorded.direction === direction ? recorded : null;
+  const completed = await resumeMoveCompletion({ direction, assistantId: env.assistantId, journal, onProgress,
+    isAdopted: async () => !!savedJournal?.targetDeviceId
+      && (direction !== 'to-computer' || savedJournal.targetDeviceId === env.localDeviceId)
+      && await homeDeviceOf(env.assistantId) === savedJournal.targetDeviceId,
+    activate: () => restoreOnlineAssistant(env.assistantId),
+    disconnect: async account => {
+      const sourceDevice = savedJournal!.source!.deviceId;
+      const result = await rpcOn(sourceDevice === env.localDeviceId ? null : sourceDevice).integrations.disconnect(account.integrationId, account.accountId);
+      if (!result?.success) throw new Error(result?.error ?? 'disconnect failed');
+    },
+  });
+  if (completed) return completed;
+  const sourceHome = savedJournal?.assistantId === env.assistantId && savedJournal.direction === direction && savedJournal.source
+    ? savedJournal.source : sourceHomeFor(env, direction);
+  const source = await openSource(env, direction, sourceHome, savedJournal?.sourceWorkdir);
   const saved = await readAgentModelSelection(env.assistantId);
   const target = direction === 'to-cloud' ? null : sourceHome.deviceId;
-  const own = direction !== 'to-cloud' && saved.desired.source === 'default' ? await assistantSessionOn(target, env.assistantId, SESSION_WAIT_MS) : null;
+  const own = !savedJournal?.model && direction !== 'to-cloud' && saved.desired.source === 'default' ? await assistantSessionOn(target, env.assistantId, SESSION_WAIT_MS) : null;
   const options = own ? await rpcOn(target).sessionTimeline.sessionOptions({ conversationId: own.conversationId }) : null;
   if (options && !options.ok) throw new Error(options.error.message);
   const protocol = platformProtocolForAgentType('claude-code');
   if (!protocol) throw new Error('The assistant harness has no model protocol');
-  const model = direction === 'to-cloud' ? cloudMoveModel(saved.desired, protocol)
-    : moveModelSelection(saved.desired, options?.ok ? options.value : {}, protocol);
+  const model = savedJournal?.model ?? (direction === 'to-cloud' ? cloudMoveModel(saved.desired, protocol)
+    : moveModelSelection(saved.desired, options?.ok ? options.value : {}, protocol));
   const deps = buildMoveDeps(env, direction, source, sourceHome, onProgress, model);
+  deps.journal = journal;
+  deps.model = model;
   deps.configure = async () => {
     const outcome = await setAgentModelSelection(env.assistantId, model);
     if (!outcome.ok) throw new Error(outcome.error);

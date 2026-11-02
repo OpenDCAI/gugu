@@ -16,6 +16,23 @@ function hash32(s: string): number {
   }
   return h >>> 0;
 }
+function projectCoverPalette(projectId: string) {
+  return HUES[hash32(`cover:${projectId}`) % HUES.length];
+}
+function coverSaturation(running: number) {
+  return running ? 1.15 + Math.min(running, 8) * 0.08 : 0.25;
+}
+function saturatedColor(hex: string, saturation: number) {
+  const rgb = [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16));
+  const luma = rgb[0] * 0.213 + rgb[1] * 0.715 + rgb[2] * 0.072;
+  return `rgb(${rgb.map((value) => Math.round(Math.max(0, Math.min(255, luma + saturation * (value - luma))))).join(' ')})`;
+}
+/** Mobile uses the same identity palette and running-state colors, without cover gradients. */
+export function projectFolderAvatarColors(projectId: string, running: number) {
+  const [back, , face] = projectCoverPalette(projectId).map(tokenHex);
+  const saturation = coverSaturation(running);
+  return { back: saturatedColor(back, saturation), face: saturatedColor(face, saturation) };
+}
 function seeded(seed: string) {
   let x = hash32(seed) || 1;
   return () => {
@@ -26,7 +43,7 @@ function seeded(seed: string) {
   };
 }
 export function ProjectCover({ projectId, running, width, height, uid, saturationBoost = 1 }: { projectId: string; running: number; width: number; height: number; uid: string; saturationBoost?: number }) {
-  const [a, b, base] = HUES[hash32(`cover:${projectId}`) % HUES.length].map(tokenHex);
+  const [a, b, base] = projectCoverPalette(projectId).map(tokenHex);
   const blobs = useMemo(() => {
     const r = seeded(`svg:${projectId}`);
     return [a, b, a, b, tokenHex('--color-white')].map((fill, i) => ({
@@ -39,12 +56,8 @@ export function ProjectCover({ projectId, running, width, height, uid, saturatio
     }));
   }, [projectId, a, b, width, height]);
   // 在跑的越多越鲜,没人在跑褪成灰:扫一眼就知道哪个项目在动。
-  const saturation = (running ? 1.15 + Math.min(running, 8) * 0.08 : 0.25) * saturationBoost;
-  const saturated = (hex: string) => {
-    const rgb = [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16));
-    const luma = rgb[0] * 0.213 + rgb[1] * 0.715 + rgb[2] * 0.072;
-    return `rgb(${rgb.map((value) => Math.round(Math.max(0, Math.min(255, luma + saturation * (value - luma))))).join(' ')})`;
-  };
+  const saturation = coverSaturation(running) * saturationBoost;
+  const saturated = (hex: string) => saturatedColor(hex, saturation);
   // Soft gradients paint the same seeded palette without allocating SVG blur surfaces.
   const feather = width / 9 * 2;
   return <>

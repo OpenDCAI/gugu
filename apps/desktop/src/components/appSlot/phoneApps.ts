@@ -9,7 +9,7 @@ import { appDataTooLarge } from '../../session/shared/extensions/app-data'
 import { GUGU_PUBLISHER, publisherOf, type Publisher } from '../../session/shared/extensions/app-identity'
 import { appFrameChannel, appOrigin, gateOrigin } from './appOrigin'
 import { ICON_PIXELS, fileIconKey, iconSizeRefusal, iconTypeRefusal } from '../../session/shared/extensions/app-icon'
-import { APP_RUNTIME_FORGET_PAGE, APP_RUNTIME_GATE_PAGE, injectAppRuntime, RUNTIME_SCRIPT_TAG } from '../../session/shared/extensions/app-runtime-protocol'
+import { APP_RUNTIME_FORGET_PAGE, APP_RUNTIME_GATE_PAGE, appRuntimeScriptTag, injectAppRuntime } from '../../session/shared/extensions/app-runtime-protocol'
 import {
   attachmentInstallPlan,
   couldUpdateUnasked,
@@ -274,7 +274,7 @@ async function load(): Promise<void> {
   }
   for (const record of Object.values(index.installed)) {
     index.serve[record.manifest.id] = { root: `file:${record.dir}`, csp: cspOf(record.manifest) }
-    if (!unreadable && record.runtimeTag !== RUNTIME_SCRIPT_TAG) await retag(record)
+    if (!unreadable && record.runtimeTag !== appRuntimeScriptTag(record.manifest.apiVersion)) await retag(record)
   }
   if (unreadable) {
     tell()
@@ -306,9 +306,9 @@ function reload(): Promise<void> {
 async function retag(record: InstalledRecord): Promise<void> {
   for (const page of record.pages) {
     const { text } = await appStore.readText({ dir: record.dir, path: page })
-    await appStore.writeText({ dir: record.dir, path: page, text: injectAppRuntime(text.split(record.runtimeTag).join('')) })
+    await appStore.writeText({ dir: record.dir, path: page, text: injectAppRuntime(text.split(record.runtimeTag).join(''), record.manifest.apiVersion) })
   }
-  record.runtimeTag = RUNTIME_SCRIPT_TAG
+  record.runtimeTag = appRuntimeScriptTag(record.manifest.apiVersion)
 }
 
 // ─── install ───────────────────────────────────────────────────────────────
@@ -673,7 +673,7 @@ async function store(
   try {
     for (const [path, data] of files) {
       // Every page of the App gets the runtime's line, as the desktop's protocol gives it to every page it serves.
-      const out = HTML.test(path) ? new TextEncoder().encode(injectAppRuntime(new TextDecoder().decode(data))) : data
+      const out = HTML.test(path) ? new TextEncoder().encode(injectAppRuntime(new TextDecoder().decode(data), manifest.apiVersion)) : data
       if (HTML.test(path)) pages.push(path)
       await appStore.stage({ stage, path, base64: base64(out) })
     }
@@ -691,7 +691,7 @@ async function store(
     manifestDigest: meta.manifestDigest,
     origin: meta.origin,
     installedAt: new Date().toISOString(),
-    runtimeTag: RUNTIME_SCRIPT_TAG,
+    runtimeTag: appRuntimeScriptTag(manifest.apiVersion),
     pages,
     icons,
   }
