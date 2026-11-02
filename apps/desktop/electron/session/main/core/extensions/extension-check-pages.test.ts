@@ -329,7 +329,7 @@ describe('hidden widget checks', () => {
     try {
       const report = await check({ widget, caller: 's1', phone: true, look: false });
       expect(report.stuck).toBe('quiet');
-      expect(report.loadError).toBeUndefined();
+      expect(report.loadError).toBeNull();
       expect(report.page).toBeUndefined();
     } finally {
       size.mockRestore();
