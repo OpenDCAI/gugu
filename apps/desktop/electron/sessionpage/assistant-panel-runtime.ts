@@ -195,7 +195,7 @@ export function createAssistantPanelRuntime(deps: {
           observe(target,target,target !== paths.instructions,name => !name.startsWith('.') && !name.endsWith('.tmp'))
         } catch { /* Its parent observes first creation or replacement. */ }
         let parent = dirname(target), child = basename(target)
-        while (true) {
+        while (parent) {
           const outside = relative(binding.kind === 'cloud' ? binding.home : binding.cwd,parent)
           if (isAbsolute(outside) || outside.split(sep)[0] === '..') break
           const expected = child
