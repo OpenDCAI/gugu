@@ -67,7 +67,12 @@ export async function prepareAssistantRuntime(id: string, signal: AbortSignal): 
             }
             assertOwned()
           } catch (error) {
-            assertOwned()
+            try { assertOwned() }
+            catch (lockError) {
+              throw new Error('Assistant runtime publication failed after its lock was lost', {
+                cause: new AggregateError([error, lockError]),
+              })
+            }
             for (const { source, destination } of installed.reverse()) await rollbackManagedLauncher(source, destination)
             published = false
             throw error

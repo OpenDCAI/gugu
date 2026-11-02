@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import lockfile from 'proper-lockfile'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const f = vi.hoisted(() => ({ root: '', available: false, unusable: false, probe: vi.fn(), install: vi.fn() }))
@@ -32,7 +33,7 @@ beforeEach(async () => {
     return { success: true }
   })
 })
-afterEach(async () => { await rm(f.root, { recursive: true, force: true }) })
+afterEach(async () => { vi.restoreAllMocks(); await rm(f.root, { recursive: true, force: true }) })
 
 it('atomically replaces an existing unusable launcher', async () => {
   await mkdir(path.dirname(launcher()), { recursive: true })
@@ -86,4 +87,25 @@ it('serializes concurrent preparations and preserves the first usable publicatio
   await Promise.all([one.dispose(), two.dispose()])
   expect(['prepared@one', 'prepared@two']).toContain(await readFile(launcher(), 'utf8'))
   expect((await readFile(launcher(), 'utf8')).startsWith('prepared')).toBe(true)
+})
+
+it('preserves the original verification failure when the publication lock is lost', async () => {
+  const lock = lockfile.lock
+  let loseLock!: () => void
+  vi.spyOn(lockfile, 'lock').mockImplementationOnce(async (...args) => {
+    const release = await lock(...args)
+    loseLock = () => args[1]?.onCompromised?.(Object.assign(new Error('lock compromised'), { code: 'ECOMPROMISED' }))
+    return async () => { await release(); throw new Error('lock release failed') }
+  })
+  const prepared = await prepare('one')
+  f.probe.mockImplementation(async () => {
+    if ((await readFile(launcher(), 'utf8').catch(() => '')).startsWith('prepared')) loseLock()
+    f.available = false
+  })
+  const error = await prepared.commit().then(() => { throw new Error('Expected verification to fail') }, (error: Error & { cause: AggregateError }) => error)
+  expect(error).toBeInstanceOf(Error)
+  expect(error.cause.errors[0].cause.errors[0].message).toContain('could not be started')
+  expect(error.cause.errors[0].cause.errors[1].message).toBe('lock compromised')
+  expect(error.cause.errors[1].message).toBe('lock release failed')
+  await prepared.dispose()
 })
