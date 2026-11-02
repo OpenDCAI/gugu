@@ -1919,7 +1919,7 @@ async function startSessionpageAgentSessionClaimed(
       // From the workspace's persisted record (the path mounting it uses): nothing has mounted a new session yet, and
       // the in-memory registry holds a workspace only once something mounts or leases it (a new account has neither).
       const projectPath = persistedWorkspacePath(repositoryWorkspaceId)
-      if (!projectPath) throw new Error(`session-page project ${project.id} workspace ${repositoryWorkspaceId} has no path`)
+      if (!projectPath) throw new Error(`session-page project ${project.id} workspace ${repositoryWorkspaceId} has no local path`)
       session = await bindIdentityThenCreate(() => bindIdentity(projectPath), () => attachAgentToSession({
       id: sessionId,
       projectId: project.id,

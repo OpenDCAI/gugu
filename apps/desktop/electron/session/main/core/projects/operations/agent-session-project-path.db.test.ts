@@ -63,4 +63,14 @@ describe('agent.create on a project nothing has mounted', () => {
     expect(resolveWorkspace(project.id, workspaceId!)).toBeNull();
     expect(persistedWorkspacePath(workspaceId!)).toBe(mocks.home);
   });
+
+  it('a retired remote row has no local path: its stored path is never handed on as one', () => {
+    fixture.sqlite.exec(`
+      INSERT INTO workspaces (id, kind, location, type, path, key) VALUES ('ws-ssh', 'project-root', 'remote', 'project-ssh', '/srv/app', 'k-ssh');
+      INSERT INTO workspaces (id, kind, location, type, path, key) VALUES ('ws-byoi', 'byoi', 'local', 'byoi', '/srv/byoi', 'k-byoi');
+    `);
+    expect(persistedWorkspacePath('ws-ssh')).toBeNull();
+    expect(persistedWorkspacePath('ws-byoi')).toBeNull();
+    expect(persistedWorkspacePath('ws-missing')).toBeNull();
+  });
 });
