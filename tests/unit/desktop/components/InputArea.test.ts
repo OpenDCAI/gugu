@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 import { act, createElement, Fragment, Profiler, useCallback, useMemo, useState, type SetStateAction } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatMessageComposer } from '../../../../apps/desktop/src/components/chat/ChatMessageComposer'
 import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
 import { ChatStoreProvider, type DraftAttachment, type DraftMention } from '../../../../apps/desktop/src/store/chatContext'
-import { chat, chatStore, contactsStore, message } from '../../../support/testHarness'
+import { chat, chatStore, contactsStore, createReactHarness, message } from '../../../support/testHarness'
 import { publishProjectGroupChats } from '../../../../apps/desktop/src/session/renderer/features/projects/stores/project-group-chats-bridge'
 import { ContactsContext } from '../../../../apps/desktop/src/store/contactsContext'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
@@ -24,7 +23,7 @@ vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({
 const mobileShellState = vi.hoisted(() => ({ enabled: false }))
 vi.mock('../../../../apps/desktop/src/hooks/useMobileShell', () => ({ useMobileShell: () => mobileShellState.enabled }))
 let container: HTMLDivElement
-let root: Root
+let harness: ReturnType<typeof createReactHarness>
 async function flush() {
   await act(async () => {
     await Promise.resolve()
@@ -36,34 +35,29 @@ beforeEach(() => {
   mobileShellState.enabled = false
   setLocalePreference('zh-CN')
   toastMock.mockClear()
-  container = document.createElement('div')
-  document.body.appendChild(container)
-  root = createRoot(container)
+  harness = createReactHarness()
+  container = harness.container
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:gugu-preview')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
 })
 afterEach(() => {
-  act(() => {
-    root.unmount()
-  })
-  container.remove()
+  harness.cleanup()
   setLocalePreference('zh-CN')
   vi.useRealTimers()
-  vi.restoreAllMocks()
 })
 describe('ChatMessageComposer', () => {
   it.each([[true, 'native-range', false], [true, undefined, true], [false, undefined, true]] as const)('preserves native selection focus for automatic quotes (phone=%s, token=%s)', async (mobile, selectionId, focus) => {
     mobileShellState.enabled = mobile
     const onSend = vi.fn(async () => {})
-    await act(async () => { root.render(createElement(ChatMessageComposer, { onSend })) })
+    await harness.render(createElement(ChatMessageComposer, { onSend }))
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 0 })
     const source = document.createTextNode('Beta')
     document.body.append(source)
     const range = document.createRange(); range.selectNodeContents(source)
     window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range)
-    await act(async () => { root.render(createElement(ChatMessageComposer, { onSend,
+    await harness.render(createElement(ChatMessageComposer, { onSend,
       quoteContent: { messageId: 'source-1', senderName: 'Ada', content: 'Beta', originalContent: 'Alpha Beta', selectionId, source: message({ id: 'source-1' }) },
-    })) })
+    }))
     const editor = container.querySelector('[contenteditable]')!
     expect(document.activeElement === editor).toBe(focus)
     if (!focus) expect(window.getSelection()?.toString()).toBe('Beta')
@@ -73,12 +67,10 @@ describe('ChatMessageComposer', () => {
   it.each([false, true])('sends a selected excerpt in the existing quote format while preserving its message ID (phone=%s)', async mobile => {
     mobileShellState.enabled = mobile
     const onSend = vi.fn(async () => {})
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend,
-        quoteContent: { messageId: 'source-1', senderName: 'Ada', content: 'Beta paragraph\n\nFirst item', originalContent: 'Alpha paragraph\n\nBeta paragraph\n\nFirst item', source: message({ id: 'source-1' }) },
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend,
+      quoteContent: { messageId: 'source-1', senderName: 'Ada', content: 'Beta paragraph\n\nFirst item', originalContent: 'Alpha paragraph\n\nBeta paragraph\n\nFirst item', source: message({ id: 'source-1' }) },
+    }))
     await flush()
     await typeInComposer('Please explain this part.')
     await clickSend()
@@ -89,12 +81,10 @@ describe('ChatMessageComposer', () => {
     const onSend = vi.fn(async () => {})
     const onSendAttachments = vi.fn(async () => {})
     const onQuoteConsumed = vi.fn()
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, { onSend, onSendAttachments, onQuoteConsumed,
-        chatId: 'group-1', isGroupChat: true, currentUserId: 'me',
-        quoteContent: { messageId: 'source-image', senderName: 'Ada', content: '[Attachment]', source: message({ id: 'source-image' }) },
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, { onSend, onSendAttachments, onQuoteConsumed,
+      chatId: 'group-1', isGroupChat: true, currentUserId: 'me',
+      quoteContent: { messageId: 'source-image', senderName: 'Ada', content: '[Attachment]', source: message({ id: 'source-image' }) },
+    }))
     const image = new File(['png'], 'annotated.png', { type: 'image/png' })
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     Object.defineProperty(input, 'files', { configurable: true, value: [image] })
@@ -108,7 +98,7 @@ describe('ChatMessageComposer', () => {
   it('keeps touch Enter for a new line and sends only through the visible control', async () => {
     mobileShellState.enabled = true
     const onSend = vi.fn<(content: string) => Promise<void>>(async () => {})
-    await act(async () => { root.render(createElement(ChatMessageComposer, { onSend })) })
+    await harness.render(createElement(ChatMessageComposer, { onSend }))
     const textarea = container.querySelector('[contenteditable]') as HTMLElement
     await act(async () => {
       writeComposer(textarea, '手机输入')
@@ -126,9 +116,7 @@ describe('ChatMessageComposer', () => {
     expect(onSend.mock.calls[0]?.[0]).toBe('手机输入')
   })
   it('switches composer chrome without changing the draft or command token', async () => {
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}) }))
-    })
+    await harness.render(createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}) }))
     await flush()
     const textarea = container.querySelector('[contenteditable]') as HTMLElement
     await act(async () => {
@@ -148,10 +136,8 @@ describe('ChatMessageComposer', () => {
   // throw itself can't be reproduced here; the per-key commit count is the contract that prevents it.
   it('#6200 a keystroke commits once — no state write trails the input', async () => {
     let commits = 0
-    await act(async () => {
-      root.render(createElement(Profiler, { id: 'composer', onRender: () => { commits += 1 } },
-        createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}) })))
-    })
+    await harness.render(createElement(Profiler, { id: 'composer', onRender: () => { commits += 1 } },
+      createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}) })))
     await flush()
     const textarea = container.querySelector('[contenteditable]') as HTMLElement
     // The first input after mount also yields one commit in which no component renders (no update origin —
@@ -173,9 +159,7 @@ describe('ChatMessageComposer', () => {
     expect(readComposer(textarea)).toBe('hello')
   })
   it('revokes pending image preview urls when unmounted', async () => {
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}) }))
-    })
+    await harness.render(createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}) }))
     const input = container.querySelector('input[type="file"]') as HTMLInputElement | null
     expect(input).not.toBeNull()
     const file = new File(['image'], 'avatar.png', { type: 'image/png' })
@@ -188,22 +172,19 @@ describe('ChatMessageComposer', () => {
     })
     await flush()
     expect(URL.createObjectURL).toHaveBeenCalledWith(file)
-    act(() => {
-      root.unmount()
-    })
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:gugu-preview')
+    const revokeObjectURL = vi.mocked(URL.revokeObjectURL)
+    harness.cleanup()
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:gugu-preview')
   })
   it('restores pending attachments and reports send failures', async () => {
     const file = new File(['image'], 'avatar.png', { type: 'image/png' })
     const onSendAttachments = vi.fn(async () => {
       throw new Error('upload denied /Users/test/private sk-synthetic-secret\nstack detail')
     })
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend: vi.fn(async () => {}),
-        onSendAttachments,
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend: vi.fn(async () => {}),
+      onSendAttachments,
+    }))
     const input = container.querySelector('input[type="file"]') as HTMLInputElement | null
     expect(input).not.toBeNull()
     Object.defineProperty(input, 'files', {
@@ -237,9 +218,7 @@ describe('ChatMessageComposer', () => {
     const onSend = vi.fn()
       .mockRejectedValueOnce(new Error('text denied'))
       .mockResolvedValueOnce(undefined)
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, { onSend, onSendAttachments }))
-    })
+    await harness.render(createElement(ChatMessageComposer, { onSend, onSendAttachments }))
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     Object.defineProperty(input, 'files', { configurable: true, value: [file] })
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
@@ -263,9 +242,7 @@ describe('ChatMessageComposer', () => {
       throw new Error('second file denied')
     })
     const onSend = vi.fn(async () => {})
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, { onSend, onSendAttachments }))
-    })
+    await harness.render(createElement(ChatMessageComposer, { onSend, onSendAttachments }))
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     Object.defineProperty(input, 'files', { configurable: true, value: [sentFile, failedFile, remainingFile] })
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
@@ -286,14 +263,12 @@ describe('ChatMessageComposer', () => {
     expect(onSend).toHaveBeenCalledTimes(1)
   })
   it('uses disabled placeholder and hover hint independently', async () => {
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend: vi.fn(async () => {}),
-        disabled: true,
-        disabledReason: 'Agent 正在激活，完成后可发送消息',
-        placeholder: 'Agent 正在激活中，稍后即可对话…',
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend: vi.fn(async () => {}),
+      disabled: true,
+      disabledReason: 'Agent 正在激活，完成后可发送消息',
+      placeholder: 'Agent 正在激活中，稍后即可对话…',
+    }))
     const textarea = container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`) as HTMLElement | null
     expect(textarea).not.toBeNull()
     expect(textarea?.getAttribute('aria-disabled')).toBe('true')
@@ -370,9 +345,7 @@ describe('ChatMessageComposer', () => {
     let finish: () => void = () => {}
     const beforeSend = vi.fn(() => new Promise<void>((resolve) => { finish = resolve }))
     const onSendAttachments = vi.fn(async () => {})
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}), onSendAttachments, beforeSend }))
-    })
+    await harness.render(createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}), onSendAttachments, beforeSend }))
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     Object.defineProperty(input, 'files', { configurable: true, value: [new File(['a'], 'a.txt', { type: 'text/plain' })] })
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
@@ -386,9 +359,7 @@ describe('ChatMessageComposer', () => {
   it('a failed send merges back into a draft typed while it was in flight instead of overwriting it', async () => {
     let rejectSend: (e: Error) => void = () => {}
     const onSendAttachments = vi.fn(() => new Promise<void>((_, reject) => { rejectSend = reject }))
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}), onSendAttachments }))
-    })
+    await harness.render(createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}), onSendAttachments }))
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     Object.defineProperty(input, 'files', { configurable: true, value: [new File(['a'], 'first.txt', { type: 'text/plain' })] })
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
@@ -410,9 +381,7 @@ describe('ChatMessageComposer', () => {
     let rejectSend: (e: Error) => void = () => {}
     const onSendAttachments = vi.fn(() => new Promise<void>((_, reject) => { rejectSend = reject }))
     const chips = () => container.querySelectorAll('[data-slot="composer-attachment"]')
-    await act(async () => {
-      root.render(createElement(StatefulHost, { chatId: 'chat-a', onSend: vi.fn(async () => {}), onSendAttachments }))
-    })
+    await harness.render(createElement(StatefulHost, { chatId: 'chat-a', onSend: vi.fn(async () => {}), onSendAttachments }))
     await flush()
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     Object.defineProperty(input, 'files', { configurable: true, value: [new File(['secret'], 'secret.txt', { type: 'text/plain' })] })
@@ -422,17 +391,13 @@ describe('ChatMessageComposer', () => {
     await clickSend()
     expect(onSendAttachments).toHaveBeenCalledTimes(1)
     expect(chips(), 'optimistic clear emptied the composer').toHaveLength(0)
-    await act(async () => {
-      root.render(createElement(StatefulHost, { chatId: 'chat-b', onSend: vi.fn(async () => {}), onSendAttachments }))
-    })
+    await harness.render(createElement(StatefulHost, { chatId: 'chat-b', onSend: vi.fn(async () => {}), onSendAttachments }))
     await flush()
     await act(async () => { rejectSend(new Error('upload denied')); await Promise.resolve() })
     await flush()
     expect(chips(), 'failed send must not leak into the now-active chat-b').toHaveLength(0)
     expect(toastMock).toHaveBeenCalledWith('发送失败：upload denied', 'error')
-    await act(async () => {
-      root.render(createElement(StatefulHost, { chatId: 'chat-a', onSend: vi.fn(async () => {}), onSendAttachments }))
-    })
+    await harness.render(createElement(StatefulHost, { chatId: 'chat-a', onSend: vi.fn(async () => {}), onSendAttachments }))
     await flush()
     expect(chips(), 'failed send is recoverable in its original chat-a').toHaveLength(1)
   })
@@ -441,7 +406,7 @@ describe('ChatMessageComposer', () => {
     const onSendAttachments = vi.fn(() => new Promise<void>((_, reject) => { rejectSend = reject }))
     const chips = () => container.querySelectorAll('[data-slot="composer-attachment"]')
     const render = async (chatId: string) => {
-      await act(async () => { root.render(createElement(StatefulHost, { chatId, onSend: vi.fn(async () => {}), onSendAttachments })) })
+      await harness.render(createElement(StatefulHost, { chatId, onSend: vi.fn(async () => {}), onSendAttachments }))
       await flush()
     }
     const attach = async (name: string) => {
@@ -475,9 +440,7 @@ describe('ChatMessageComposer', () => {
     })
     const onSend = vi.fn(() => new Promise<void>((_, reject) => { rejectText = reject }))
     const chips = () => container.querySelectorAll('[data-slot="composer-attachment"]')
-    await act(async () => {
-      root.render(createElement(StatefulHost, { chatId: 'chat-a', onSend, onSendAttachments }))
-    })
+    await harness.render(createElement(StatefulHost, { chatId: 'chat-a', onSend, onSendAttachments }))
     await flush()
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     Object.defineProperty(input, 'files', { configurable: true, value: [new File(['sent'], 'sent.txt', { type: 'text/plain' })] })
@@ -487,17 +450,13 @@ describe('ChatMessageComposer', () => {
     expect(onSendAttachments).toHaveBeenCalledTimes(1)
     expect(onSend).toHaveBeenCalledTimes(1)
     expect(chips(), 'optimistic clear emptied chat-a while text is in flight').toHaveLength(0)
-    await act(async () => {
-      root.render(createElement(StatefulHost, { chatId: 'chat-b', onSend, onSendAttachments }))
-    })
+    await harness.render(createElement(StatefulHost, { chatId: 'chat-b', onSend, onSendAttachments }))
     await flush()
     await act(async () => { rejectText(new Error('text denied')); await Promise.resolve() })
     await flush()
     expect(readComposer(container.querySelector('[contenteditable]'))).toBe('')
     expect(chips(), 'the committed attachment must not leak into chat-b').toHaveLength(0)
-    await act(async () => {
-      root.render(createElement(StatefulHost, { chatId: 'chat-a', onSend, onSendAttachments }))
-    })
+    await harness.render(createElement(StatefulHost, { chatId: 'chat-a', onSend, onSendAttachments }))
     await flush()
     expect(readComposer(container.querySelector('[contenteditable]'))).toBe('unsent text')
     expect(chips(), 'the committed attachment must not be restored into chat-a either').toHaveLength(0)
@@ -505,7 +464,7 @@ describe('ChatMessageComposer', () => {
   it('#951 token-boundary: typing @Bobby routes to Bobby, never Bob (no substring misroute)', async () => {
     const groupMembers = [rosterMember('u-bob', 'Bob'), rosterMember('u-bobby', 'Bobby')]
     const onSend = vi.fn(async () => {})
-    await act(async () => { root.render(createElement(StatefulHost, { chatId: 'group-1', onSend, groupMembers })) })
+    await harness.render(createElement(StatefulHost, { chatId: 'group-1', onSend, groupMembers }))
     await flush()
     await typeInComposer('@Bob')
     await clickMentionOption('Bob') // picks Bob → mentionTargets=[u-bob], text "@Bob "
@@ -517,7 +476,7 @@ describe('ChatMessageComposer', () => {
   it('#6819 a pick of Claude lapses once the text reads @Claude 2 (longest match, as send routing reads it)', async () => {
     const groupMembers = [rosterMember('u-claude', 'Claude'), rosterMember('u-claude-2', 'Claude 2')]
     const onSend = vi.fn(async () => {})
-    await act(async () => { root.render(createElement(StatefulHost, { chatId: 'group-1', onSend, groupMembers })) })
+    await harness.render(createElement(StatefulHost, { chatId: 'group-1', onSend, groupMembers }))
     await flush()
     await typeInComposer('@Claude')
     await clickMentionOption('Claude')
@@ -530,9 +489,7 @@ describe('ChatMessageComposer', () => {
     const readiness = new Promise<void>(() => {}) // 模拟重开会话:永远没就绪
     const beforeSend = vi.fn(() => readiness)
     const onSend = vi.fn(async () => {})
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, { onSend, beforeSend, chatId: 'dm-agent' }))
-    })
+    await harness.render(createElement(ChatMessageComposer, { onSend, beforeSend, chatId: 'dm-agent' }))
     await typeInComposer('你好')
     await clickSend()
     expect(readComposer(container.querySelector('[contenteditable]')), '输入框不等会话就绪').toBe('')
@@ -546,10 +503,10 @@ describe('ChatMessageComposer', () => {
   ])('replies privately to the original peer for $sender_user_id → $to_user_ids', async (pair) => {
     const onSend = vi.fn(async () => {})
     const quoteContent = { messageId: 'private-source', senderName: 'Ada', content: 'private', source: message({ ...pair, is_whisper: true }) }
-    await act(async () => { root.render(createElement(ChatMessageComposer, {
+    await harness.render(createElement(ChatMessageComposer, {
       onSend, chatId: 'group-1', isGroupChat: true, currentUserId: 'me', quoteContent,
       groupMembers: [rosterMember('ada', 'Ada')],
-    })) })
+    }))
     expect(container.textContent).toContain('悄悄话给 Ada')
     await typeInComposer('private reply')
     await clickSend()
@@ -560,10 +517,10 @@ describe('ChatMessageComposer', () => {
   it('requires Exit whisper mode to publish a private reply and defaults a new reply back to private', async () => {
     const onSend = vi.fn(async () => {})
     const source = message({ sender_user_id: 'ada', to_user_ids: ['me'], is_whisper: true })
-    const renderQuote = async () => act(async () => { root.render(createElement(ChatMessageComposer, {
+    const renderQuote = async () => harness.render(createElement(ChatMessageComposer, {
       onSend, chatId: 'group-1', isGroupChat: true, currentUserId: 'me',
       quoteContent: { messageId: source.id, senderName: 'Ada', content: 'private', source },
-    })) })
+    }))
     await renderQuote()
     await act(async () => { (container.querySelector('button[aria-label="退出悄悄话"]') as HTMLButtonElement).click() })
     await typeInComposer('public reply')
@@ -578,9 +535,9 @@ describe('ChatMessageComposer', () => {
   })
   it('does not send a reply whose original privacy metadata is unavailable', async () => {
     const onSend = vi.fn(async () => {})
-    await act(async () => { root.render(createElement(ChatMessageComposer, {
+    await harness.render(createElement(ChatMessageComposer, {
       onSend, quoteContent: { messageId: 'missing', senderName: 'Ada', content: 'unavailable' },
-    })) })
+    }))
     expect(container.querySelector('[data-chat-composer-host]')?.getAttribute('title')).toContain('原消息不可用')
     expect(container.querySelector('[contenteditable]')?.getAttribute('contenteditable')).toBe('false')
     expect(onSend).not.toHaveBeenCalled()
@@ -590,21 +547,21 @@ describe('ChatMessageComposer', () => {
     { currentUserId: 'me', sender_user_id: null },
   ])('disables private replies when the pair cannot be resolved: $sender_user_id / $currentUserId', async ({ currentUserId, sender_user_id }) => {
     const onSend = vi.fn(async () => {})
-    await act(async () => { root.render(createElement(ChatMessageComposer, {
+    await harness.render(createElement(ChatMessageComposer, {
       onSend, currentUserId,
       quoteContent: { messageId: 'unavailable-private-source', senderName: 'Ada', content: 'private',
         source: message({ sender_user_id, to_user_ids: ['me'], is_whisper: true }) },
-    })) })
+    }))
     expect(container.querySelector('[data-chat-composer-host]')?.getAttribute('title')).toContain('原消息不可用')
     expect(container.querySelector('[contenteditable]')?.getAttribute('contenteditable')).toBe('false')
     expect(onSend).not.toHaveBeenCalled()
   })
   it('preserves the reply id when whisper mode was selected manually', async () => {
     const onSend = vi.fn(async () => {})
-    await act(async () => { root.render(createElement(ChatMessageComposer, {
+    await harness.render(createElement(ChatMessageComposer, {
       onSend, currentUserId: 'me', whisperTarget: { userId: 'ada', displayName: 'Ada' },
       quoteContent: { messageId: 'public-source', senderName: 'Ada', content: 'public', source: message({ is_whisper: false }) },
-    })) })
+    }))
     await typeInComposer('manual private reply')
     await clickSend()
     expect(onSend).toHaveBeenCalledWith('manual private reply', expect.objectContaining({ toUserIds: ['ada'], isWhisper: true, replyToMessageId: 'public-source' }))
@@ -613,15 +570,13 @@ describe('ChatMessageComposer', () => {
     const agent = rosterMember('agent-codex', 'Codex 8', 'agent')
     const onSend = vi.fn(async () => {})
     const render = async (props: Record<string, unknown>) => {
-      await act(async () => {
-        root.render(createElement(ChatMessageComposer, {
-          onSend,
-          chatId: 'group-1',
-          isGroupChat: true,
-          groupMembers: [agent],
-          ...props,
-        }))
-      })
+      await harness.render(createElement(ChatMessageComposer, {
+        onSend,
+        chatId: 'group-1',
+        isGroupChat: true,
+        groupMembers: [agent],
+        ...props,
+      }))
       await flush()
     }
     await render({})
@@ -665,14 +620,12 @@ describe('ChatMessageComposer', () => {
     const agentA = rosterMember('a-1', '旧成员', 'agent')
     const agentB = rosterMember('a-2', '新入群 Agent', 'agent')
     const onSend = vi.fn(async () => {})
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend,
-        chatId: 'group-1',
-        isGroupChat: true,
-        groupMembers: [agentA],
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend,
+      chatId: 'group-1',
+      isGroupChat: true,
+      groupMembers: [agentA],
+    }))
     await flush()
     const ta = container.querySelector('[contenteditable]') as HTMLElement
     const setVal = (v: string, caret: number) => {
@@ -685,14 +638,12 @@ describe('ChatMessageComposer', () => {
     expect(document.body.textContent).not.toContain('新入群 Agent')
     await act(async () => { setVal('', 0) })
     await flush()
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend,
-        chatId: 'group-1',
-        isGroupChat: true,
-        groupMembers: [agentA, agentB],
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend,
+      chatId: 'group-1',
+      isGroupChat: true,
+      groupMembers: [agentA, agentB],
+    }))
     await flush()
     await act(async () => { setVal('@', 1) })
     await flush()
@@ -701,15 +652,13 @@ describe('ChatMessageComposer', () => {
   it('#2166 warns only for an explicitly offline resolved agent status', async () => {
     const offlineAgent = rosterMember('offline-agent', '设备离线 Agent', 'agent')
     const reachableAgent = rosterMember('reachable-agent', '可对话 Agent', 'agent')
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend: vi.fn(async () => {}),
-        chatId: 'group-1',
-        isGroupChat: true,
-        groupMembers: [offlineAgent, reachableAgent],
-        agentStatuses: { 'offline-agent': 'offline', 'reachable-agent': 'idle' },
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend: vi.fn(async () => {}),
+      chatId: 'group-1',
+      isGroupChat: true,
+      groupMembers: [offlineAgent, reachableAgent],
+      agentStatuses: { 'offline-agent': 'offline', 'reachable-agent': 'idle' },
+    }))
     await flush()
     await typeInComposer('@')
     const offlineOption = Array.from(document.body.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes('设备离线 Agent'))
@@ -728,12 +677,10 @@ describe('ChatMessageComposer', () => {
   })
   it('3a a name with a space stays pickable, and picking it closes the popup', async () => {
     const onSend = vi.fn(async (_content: string, _opts?: unknown) => {})
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend, chatId: 'group-1', isGroupChat: true,
-        groupMembers: [rosterMember('a-2', 'Claude 2', 'agent'), rosterMember('a-3', 'gpt-5.4', 'agent')],
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend, chatId: 'group-1', isGroupChat: true,
+      groupMembers: [rosterMember('a-2', 'Claude 2', 'agent'), rosterMember('a-3', 'gpt-5.4', 'agent')],
+    }))
     await flush()
     await typeInComposer('@Claude 2')
     const options = () => Array.from(document.body.querySelectorAll('[role="option"]')).map((el) => el.textContent ?? '')
@@ -752,13 +699,11 @@ describe('ChatMessageComposer', () => {
   it('ranks loaded group history and inserts the keyboard-selected identity', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 9, 25, 12))
     const onSend = vi.fn(async () => {})
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend, chatId: 'group-1', isGroupChat: true, currentUserId: 'me',
-        groupMembers: [rosterMember('alice', 'Alice', 'human'), rosterMember('atlas', 'Atlas', 'agent')],
-        messages: [message({ chat_id: 'group-1', sender_user_id: 'me', to_user_ids: ['atlas'], created_at: '2026-10-25T11:59:00Z' })],
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend, chatId: 'group-1', isGroupChat: true, currentUserId: 'me',
+      groupMembers: [rosterMember('alice', 'Alice', 'human'), rosterMember('atlas', 'Atlas', 'agent')],
+      messages: [message({ chat_id: 'group-1', sender_user_id: 'me', to_user_ids: ['atlas'], created_at: '2026-10-25T11:59:00Z' })],
+    }))
     await flush()
     await typeInComposer('@a')
     const options = Array.from(document.body.querySelectorAll('[role="option"]'))
@@ -775,16 +720,14 @@ describe('ChatMessageComposer', () => {
     publishProjectGroupChats(['project-group'], new Map([['project-group', ['ada']]]), new Map())
     const onSend = vi.fn(async () => {})
     const topic = chatId === 'project-topic'
-    await act(async () => {
-      root.render(createElement(ChatStoreProvider, { value: chatStore({ chats: [chat({
-        id: chatId, kind: topic ? 'topic' : 'group', source_chat_id: topic ? 'project-group' : null,
-      })] }) }, createElement(ChatMessageComposer, {
-        onSend, chatId, isGroupChat: true, currentUserId: 'me',
-        groupMembers: [rosterMember('atlas', 'Atlas', 'agent'), rosterMember('ada', 'Ada', 'agent')],
-        participantIds: topic ? ['atlas', 'ada'] : undefined,
-        messages: [message({ chat_id: chatId, sender_user_id: 'me', to_user_ids: ['atlas'], created_at: '2026-10-25T11:59:00Z' })],
-      })))
-    })
+    await harness.render(createElement(ChatStoreProvider, { value: chatStore({ chats: [chat({
+      id: chatId, kind: topic ? 'topic' : 'group', source_chat_id: topic ? 'project-group' : null,
+    })] }) }, createElement(ChatMessageComposer, {
+      onSend, chatId, isGroupChat: true, currentUserId: 'me',
+      groupMembers: [rosterMember('atlas', 'Atlas', 'agent'), rosterMember('ada', 'Ada', 'agent')],
+      participantIds: topic ? ['atlas', 'ada'] : undefined,
+      messages: [message({ chat_id: chatId, sender_user_id: 'me', to_user_ids: ['atlas'], created_at: '2026-10-25T11:59:00Z' })],
+    })))
     await flush()
     await typeInComposer('@a')
     const options = Array.from(document.body.querySelectorAll('[role="option"]'))
@@ -801,14 +744,12 @@ describe('ChatMessageComposer', () => {
   it('#6722 keeps the keyboard-highlighted mention visible beyond the first popup viewport', async () => {
     const members = Array.from({ length: 12 }, (_, index) =>
       rosterMember(`agent-${index}`, `Agent ${index}`, 'agent'))
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend: vi.fn(async () => {}),
-        chatId: 'group-1',
-        isGroupChat: true,
-        groupMembers: members,
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend: vi.fn(async () => {}),
+      chatId: 'group-1',
+      isGroupChat: true,
+      groupMembers: members,
+    }))
     await flush()
     await typeInComposer('@')
 
@@ -845,13 +786,11 @@ describe('ChatMessageComposer', () => {
     const onSend = vi.fn(async () => {})
     const members = Array.from({ length: 5 }, (_, index) =>
       rosterMember(`agent-${index}`, `Agent ${index}`, 'agent'))
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend,
-        isGroupChat: true,
-        groupMembers: members,
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend,
+      isGroupChat: true,
+      groupMembers: members,
+    }))
     await flush()
     await typeInComposer('@Agent')
 
@@ -868,13 +807,11 @@ describe('ChatMessageComposer', () => {
     await flush()
     expect(document.body.querySelector('[role="option"][aria-selected="true"]')?.textContent).toContain('Agent 4')
 
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend,
-        isGroupChat: true,
-        groupMembers: members.slice(0, 2),
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend,
+      isGroupChat: true,
+      groupMembers: members.slice(0, 2),
+    }))
     await flush()
 
     expect(document.body.querySelectorAll('[role="option"]')).toHaveLength(2)
@@ -888,11 +825,9 @@ describe('ChatMessageComposer', () => {
   it('the aside composer keeps focus after picking a mention with Enter and after sending with Enter', async () => {
     const onSendAside = vi.fn(async () => {})
     const members = [rosterMember('a-1', 'Ada', 'agent')]
-    await act(async () => {
-      root.render(createElement(Fragment, null,
-        createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}), chatId: 'group-1', isGroupChat: true, groupMembers: members }),
-        createElement(ChatMessageComposer, { onSend: onSendAside, chatId: 'topic-1', isGroupChat: true, groupMembers: members, surface: 'aside' })))
-    })
+    await harness.render(createElement(Fragment, null,
+      createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}), chatId: 'group-1', isGroupChat: true, groupMembers: members }),
+      createElement(ChatMessageComposer, { onSend: onSendAside, chatId: 'topic-1', isGroupChat: true, groupMembers: members, surface: 'aside' })))
     await flush()
     const main = container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`) as HTMLElement
     const aside = container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposerAside}"]`) as HTMLElement
@@ -914,14 +849,12 @@ describe('ChatMessageComposer', () => {
     expect(document.activeElement, 'sending moved the caret to the main composer').toBe(aside)
   })
   it('3a finds members by pinyin and by the alias the owner gave them', async () => {
-    await act(async () => {
-      root.render(createElement(ContactsContext.Provider, {
-        value: contactsStore({ contacts: [{ id: 'u-1', display_name: 'Ada Lovelace', avatar: null, bio: null, alias: '数学家' }] }),
-      }, createElement(ChatMessageComposer, {
-        onSend: vi.fn(async () => {}), chatId: 'group-1', isGroupChat: true,
-        groupMembers: [rosterMember('u-1', 'Ada Lovelace'), rosterMember('u-2', '张三丰')],
-      })))
-    })
+    await harness.render(createElement(ContactsContext.Provider, {
+      value: contactsStore({ contacts: [{ id: 'u-1', display_name: 'Ada Lovelace', avatar: null, bio: null, alias: '数学家' }] }),
+    }, createElement(ChatMessageComposer, {
+      onSend: vi.fn(async () => {}), chatId: 'group-1', isGroupChat: true,
+      groupMembers: [rosterMember('u-1', 'Ada Lovelace'), rosterMember('u-2', '张三丰')],
+    })))
     await flush()
     const options = () => Array.from(document.body.querySelectorAll('[role="option"]')).map((el) => el.textContent ?? '')
     await typeInComposer('@zsf')
@@ -930,12 +863,10 @@ describe('ChatMessageComposer', () => {
     expect(options().some((text) => text.includes('Ada Lovelace'))).toBe(true)
   })
   it('3a no match keeps the popup with「没有匹配的成员」until the text reads as a sentence', async () => {
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend: vi.fn(async () => {}), chatId: 'group-1', isGroupChat: true,
-        groupMembers: [rosterMember('u-1', 'Ada')],
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend: vi.fn(async () => {}), chatId: 'group-1', isGroupChat: true,
+      groupMembers: [rosterMember('u-1', 'Ada')],
+    }))
     await flush()
     vi.useFakeTimers()
     await typeInComposer('@nobody')
@@ -947,13 +878,11 @@ describe('ChatMessageComposer', () => {
     expect(document.body.querySelector('[role="listbox"]')).toBeNull()
   })
   it('shares attachment chips and preserves the whisper / quote close controls', async () => {
-    await act(async () => {
-      root.render(createElement(ChatMessageComposer, {
-        onSend: vi.fn(async () => {}), chatId: 'group-1',
-        whisperTarget: { userId: 'u-1', displayName: 'Ada' }, onExitWhisper: vi.fn(),
-        quoteContent: { messageId: 'm-1', senderName: 'Ada', content: 'hi' }, onQuoteConsumed: vi.fn(),
-      }))
-    })
+    await harness.render(createElement(ChatMessageComposer, {
+      onSend: vi.fn(async () => {}), chatId: 'group-1',
+      whisperTarget: { userId: 'u-1', displayName: 'Ada' }, onExitWhisper: vi.fn(),
+      quoteContent: { messageId: 'm-1', senderName: 'Ada', content: 'hi' }, onQuoteConsumed: vi.fn(),
+    }))
     await flush()
     await act(async () => {
       window.dispatchEvent(new CustomEvent('__chat_composer_attach_files', { detail: { files: [new File(['x'], 'note.txt', { type: 'text/plain' })] } }))

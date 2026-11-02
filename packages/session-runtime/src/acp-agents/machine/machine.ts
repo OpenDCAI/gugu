@@ -639,12 +639,10 @@ export function mergeTypedPrompts(sources: readonly QueuedPrompt[]): QueuedPromp
   if (sources.length === 1) return head;
   const join = (parts: readonly (string | undefined)[]): string =>
     parts.filter((part): part is string => !!part?.trim()).join('\n\n');
-  const hiddenContext = join(sources.map((prompt) => prompt.hiddenContext));
   return {
     id: head.id,
     origin: 'typed',
     text: join(sources.map((prompt) => prompt.text)),
-    ...(hiddenContext ? { hiddenContext } : {}),
     createdAt: head.createdAt,
     updatedAt: Math.max(...sources.map((prompt) => prompt.updatedAt)),
   };

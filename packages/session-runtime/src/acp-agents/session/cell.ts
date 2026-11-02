@@ -2081,8 +2081,10 @@ export class SessionCell {
       const turnContextBlocks = [prepared?.text, prepared?.beforeText, turnContext]
         .filter((text): text is string => !!text).map(text => ({ type: 'text' as const, text }));
       const textBlocks = prompt.text ? [{ type: 'text' as const, text: prompt.text }] : [];
+      // hiddenContext is host context for this message, such as a mentioned or scheduled issue.
+      // Typed turns carry someone's words verbatim, without host context beside them.
       const trailingBlocks =
-        prompt.origin === undefined && prompt.hiddenContext
+        prompt.origin !== 'typed' && prompt.hiddenContext
           ? [{ type: 'text' as const, text: prompt.hiddenContext }]
           : [];
       // behavior `acp 命令必须是第一个块` —— 三家 harness 都只在 prompt 的**开头**找命令:
