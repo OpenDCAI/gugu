@@ -189,6 +189,8 @@ export class PlatformCredentialService {
   /** absent = 这个安装压根没有这项服务(唯一把凭据留在本机的情况);unknown = 还没问到过。 */
   private availability: 'unknown' | 'present' | 'absent' = 'unknown';
   private snapshot: Snapshot | null = null;
+  private versions = new Map<string, Map<string, string | null>>();
+  private readonly rejectedVersions = new Map<string, Map<string, string | null>>();
   private fetchedAt = 0;
   /** 上一次没问到的时刻:之后一阵子「看一眼」的读不再等平台(开会话的那一次照样现问)。 */
   private failedAt = 0;
@@ -339,6 +341,17 @@ export class PlatformCredentialService {
     }
     // 问的时候登录已经换了:这是上一个人的答复,❌ 照抄、❌ 拿它的 key 去传。
     if (generation !== this.generation) return false;
+    const versions = new Map(listed.map((provider) => [provider.provider,
+      new Map(provider.accounts.map((account) => [account.accountId, account.updatedAt])),
+    ]));
+    // A list response about the same credential version cannot undo an observed rejection.
+    for (const [id, rejected] of this.rejectedVersions) {
+      for (const [account, version] of rejected) {
+        if (versions.get(id)?.get(account) === version) snapshot.get(id)?.set(account, false);
+        else rejected.delete(account);
+      }
+      if (rejected.size === 0) this.rejectedVersions.delete(id);
+    }
     for (const provider of providers) {
       try {
         await this.moveLocalKeys(client, provider, listed.find((row) => row.provider === provider.id), snapshot.get(provider.id)!);
@@ -349,9 +362,11 @@ export class PlatformCredentialService {
           code: failureOf(error).code,
         });
       }
+      if (generation !== this.generation) return false;
     }
     this.availability = 'present';
     this.snapshot = snapshot;
+    this.versions = versions;
     this.reportConnections();
     this.fetchedAt = this.now();
     this.failedAt = 0;
@@ -774,15 +789,21 @@ export class PlatformCredentialService {
     signal?.throwIfAborted();
     const client = this.client();
     if (!client) throw new Error(`${integrationId} is kept on this computer here; there is no platform forwarder.`);
+    const versions = new Map(this.versions.get(integrationId));
     const endpoint = await client.mcpEndpoint(integrationId, {
       onNotConnected: () => this.heard(integrationId, false),
-      onCredentialRejected: () => this.heard(integrationId, true),
+      onCredentialRejected: () => this.heard(integrationId, true, versions),
     });
     signal?.throwIfAborted();
     return endpoint;
   }
 
-  private heard(integrationId: string, stillStored: boolean): void {
+  private heard(integrationId: string, stillStored: boolean, versions?: Map<string, string | null>): void {
+    if (stillStored && this.provider(integrationId)?.oauth && versions) {
+      // A late failure of an old request cannot invalidate a newer authorization.
+      if ([...versions].some(([id, version]) => this.versions.get(integrationId)?.get(id) !== version)) return;
+      this.rejectedVersions.set(integrationId, versions);
+    }
     const accounts = this.snapshot?.get(integrationId);
     this.snapshot?.set(integrationId, new Map(stillStored ? [...(accounts?.keys() ?? [])].map((id) => [id, false] as const) : []));
     this.reportConnections();
