@@ -489,7 +489,12 @@ export class ProjectManagerStore {
     const keep = new Set(projects.map((project) => project.id));
     runInAction(() => {
       for (const project of projects) {
-        if (!this.projects.has(project.id)) this.projects.set(project.id, createUnmountedProject(project, 'idle'));
+        const known = this.projects.get(project.id);
+        // 重连后的分类覆盖旧副本,保留已挂载的会话;远端不能改写本机项目的类别(#581)。
+        if (known?.data && machineRegistry.machineOf(project.id) === deviceId && known.data.kind !== project.kind) {
+          known.data = { ...known.data, kind: project.kind };
+        }
+        if (!known) this.projects.set(project.id, createUnmountedProject(project, 'idle'));
       }
       for (const [id, store] of [...this.projects]) {
         if (keep.has(id) || this.pendingCreationIds.has(id)) continue;
