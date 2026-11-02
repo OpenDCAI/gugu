@@ -268,8 +268,11 @@ say "已安装咕咕 server $VERSION → $SERVER_HOME/current"
 if [ "$DO_SERVICE" = 1 ]; then
   # service install 负责「现在真在跑的是这个版本」:已经有 server 在跑(重新执行安装命令 = 急着升级)时,
   # 它把在跑的那个换到新版本上,最后报出此刻在跑的版本与进程号;没换成就说清怎么办、以非 0 退出。
-  "$BIN" service install ||
+  if "$BIN" service install; then :; else
+    SERVICE_RC=$?
     say "server 未能以 $VERSION 启动(见上);处理后执行:$CMD service install"
+    exit "$SERVICE_RC"
+  fi
 fi
 
 if [ "$DO_LOGIN" = 1 ]; then

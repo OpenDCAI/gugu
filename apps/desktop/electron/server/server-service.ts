@@ -56,13 +56,14 @@ function logFile(): string {
   return path.join(dir, 'service.log')
 }
 
-function tryRun(cmd: string, args: string[]): { ok: boolean; out: string } {
+function tryRun(cmd: string, args: string[]): { ok: boolean; out: string; status: number | null; stdout: string; stderr: string } {
   try {
     const out = execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-    return { ok: true, out: out.trim() }
+    return { ok: true, out: out.trim(), status: 0, stdout: out, stderr: '' }
   } catch (error) {
-    const e = error as { stdout?: string; stderr?: string; message: string }
-    return { ok: false, out: `${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || e.message }
+    const e = error as { status?: number; stdout?: string; stderr?: string; message: string }
+    return { ok: false, out: `${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || e.message,
+      status: e.status ?? null, stdout: e.stdout ?? '', stderr: e.stderr ?? e.message }
   }
 }
 
@@ -155,6 +156,7 @@ export function launchdPlist(executable: string, home: string, log: string): str
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>AbandonProcessGroup</key><true/>
+  <key>ExitTimeOut</key><integer>30</integer>
   <key>StandardOutPath</key><string>${esc(log)}</string>
   <key>StandardErrorPath</key><string>${esc(log)}</string>
 </dict>
@@ -187,7 +189,8 @@ export function restartServerAfterLogin(out: Out): void {
   if (!process.env.GUGU_SERVER_HOME) return
   const home = serverHome()
   clearStopped(home)
-  if (readRunningServer()) return
+  const running = readRunningServer()
+  if (running) { out(`An active process already holds the server lock (pid ${running.pid}). Run gugu-server status for details.`); return }
   let result: { ok: boolean; out: string }
   if (process.platform === 'linux' && fs.existsSync(unitPath())) {
     result = reachSystemdUserSession()
@@ -304,20 +307,45 @@ function registerCron(executable: string, home: string): boolean {
   }
 }
 
-function registerLaunchd(out: Out, executable: string, home: string): void {
+async function registerLaunchd(out: Out, executable: string, home: string): Promise<void> {
+  const uid = String(os.userInfo().uid)
+  const domains = [`gui/${uid}`, `user/${uid}`]
+  const trace: string[] = []
+  const run = (args: string[]) => {
+    const r = tryRun('launchctl', args)
+    trace.push(`launchctl ${args.join(' ')}: status=${r.status}\nstdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
+    return r
+  }
+  const fail = (reason: string): never => { throw new Error(`${reason}\n${trace.join('\n')}`) }
+  const absent = (r: ReturnType<typeof tryRun>) => !r.ok && /Could not find (?:service|domain)\b/.test(r.stderr)
+  // Remove every old registration before publishing a new one in either domain.
+  for (const domain of domains) {
+    const target = `${domain}/${names().launchdLabel}`
+    const before = run(['print', target])
+    if (absent(before)) continue
+    if (!before.ok) fail('Could not inspect the existing launchd service')
+    const seconds = Number(before.stdout.match(/exit timeout\s*=\s*(\d+)/)?.[1])
+    const deadline = Date.now() + (seconds > 0 ? seconds * 1000 + 5000 : CONFIRM_TIMEOUT_MS)
+    if (!run(['bootout', target]).ok) fail('Could not unload the existing launchd service')
+    for (;;) {
+      const state = run(['print', target])
+      if (absent(state)) break
+      if (!state.ok) fail('Could not confirm that the launchd service unloaded')
+      if (Date.now() >= deadline) fail('The launchd service did not unload before its exit deadline')
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
   fs.mkdirSync(path.dirname(plistPath()), { recursive: true })
   fs.writeFileSync(plistPath(), launchdPlist(executable, home, logFile()))
-  const uid = String(os.userInfo().uid)
-  for (const domain of [`gui/${uid}`, `user/${uid}`]) {
-    tryRun('launchctl', ['bootout', `${domain}/${names().launchdLabel}`])
-    clearStopped(home)
-    const r = tryRun('launchctl', ['bootstrap', domain, plistPath()])
+  clearStopped(home)
+  for (const domain of domains) {
+    const r = run(['bootstrap', domain, plistPath()])
     if (r.ok) {
       out(`已注册为 launchd 用户代理(${plistPath()})。`)
       return
     }
   }
-  throw new Error('launchctl bootstrap 失败')
+  fail('launchctl bootstrap failed')
 }
 
 // ── 此刻在跑的那一个 ─────────────────────────────────────────────────────────────
@@ -413,7 +441,7 @@ export type InstallServiceDeps = {
   /** 马上要把在跑的旧版本换下来(重新执行安装命令 = 现在就升级):请升级看门狗盯着,新版本站不稳就退回去。 */
   beforeReplace?: (before: RunningServer) => void
   registerSystemd: (out: Out) => void
-  registerLaunchd: (out: Out) => void
+  registerLaunchd: (out: Out) => void | Promise<void>
   /** 兜底开机自启(crontab @reboot);返回有没有写成。 */
   registerCron: () => boolean
   /** 后台起一个新的;给了 waitPid 就让它等那个进程退干净(放掉单实例锁)再启动 —— 与自动升级换版同一招。 */
@@ -465,7 +493,7 @@ export async function installServiceWith(out: Out, deps: InstallServiceDeps): Pr
         deps.registerSystemd(out)
         break
       case 'launchd':
-        deps.registerLaunchd(out)
+        await deps.registerLaunchd(out)
         break
       case 'fallback': {
         const cronOk = deps.registerCron()
