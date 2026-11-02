@@ -5,15 +5,17 @@
  */
 import type { AgentSendTarget } from '@gugu/session-core/session-record/reply-process';
 import type { ChatTranslator } from '@session-chat/localization';
+import type { SelfIdentity } from '@session-chat/lib/self-identity';
 
 /**
  * The host resolves the actual chat name; an unknown name stays explicitly unavailable.
  * 发到话题:这条会话绑在那个话题上,话落在那里(服务器按会话定,agent 选不了)。
  */
-export function agentSendLabel(to: AgentSendTarget, translate: ChatTranslator, chatName: (chatId: string) => string | null): string {
+export function agentSendLabel(to: AgentSendTarget, translate: ChatTranslator, chatName: (chatId: string) => string | null, self?: SelfIdentity | null): string {
   if (to.kind === 'session') {
     return to.count > 1 ? translate('transcript.agentSendToSessions', { count: to.count }) : translate('transcript.agentSendToSession');
   }
+  if (self && to.recipientUserId === self.userId && !to.whisper && !to.threadRootId) return translate('transcript.agentSendToYou');
   // 回到它正在答的那个私聊:写对方的名字(宿主给私聊起的名字从主人这边看就是 agent 自己,MBP 验收 10-28)。
   const chatId = to.conversationId ?? to.chatId;
   const chat = to.peer ?? (chatId ? chatName(chatId) : null);

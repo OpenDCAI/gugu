@@ -34,6 +34,13 @@ it('keeps an attachment display label out of the transmitted reply body', async 
   expect(contentWithQuote('看看', state.quote)).toBe('看看')
 })
 
+it('quotes only a widget description, preserving the structural source', async () => {
+  const source = message({ content_type: 'widget', content: JSON.stringify({ v: 2, text: '**Plain** results', app: 'board', view: 'main', data: { count: 3 } }) })
+  await act(async () => state.onQuote(source))
+  expect(state.quote).toMatchObject({ content: '**Plain** results', source })
+  expect(state.quote?.originalContent).toBeUndefined()
+})
+
 it('preserves explicit excerpts, the source and the native cancellation token', async () => {
   const source = message({ id: 'source', content: 'Beta', is_whisper: true, to_user_ids: ['peer'] })
   await act(async () => state.onQuote(source, { originalContent: 'Alpha Beta', selectionId: 'range-1' }))

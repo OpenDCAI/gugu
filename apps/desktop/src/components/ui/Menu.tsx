@@ -69,8 +69,8 @@ const menuItemLabel = 'gg-menu-item-label min-w-0 flex-1'
 export const menuSurfaceClassName = menuPopup
 export const menuRowClassName = menuItem
 export const menuRowLabelClassName = menuItemLabel
-const menuSurfacePadding = 4
-const menuRowPadding = '6px 10px'
+const menuSurfacePadding = 'var(--gg-menu-padding, 4px)'
+const menuRowPadding = 'var(--gg-menu-item-padding, 6px 10px)'
 
 /** A pointer coordinate (context menu) or the element the menu was opened from. */
 export type MenuAnchorProps =

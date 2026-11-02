@@ -7,7 +7,7 @@ import { useToast } from '@/components/toastContext'
 import { IconButton } from '@/components/ui/IconButton'
 import { Button } from '@/components/ui/Button'
 import { DropdownMenu, MenuItem } from '@/components/ui/Menu'
-import { Check, ChevronDown, Folder, X } from '@/lib/icons'
+import { Check, ChevronDown, Folder, X, Zap } from '@/lib/icons'
 import { rendererLogger } from '@/lib/log'
 import { useDevicesStore } from '@/store/devicesContext'
 import { ProjectFolderCard } from '@renderer/features/projects/components/main-panel/project-folder-card'
@@ -231,7 +231,7 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
 
   return {
     action: project && stage.kind === 'off'
-      ? { id: 'phone-new-task', label: t('composer.phoneTask.action'), icon: <Folder size={16} />, onSelect: () => setStage({ kind: 'on', folder: null, picking: true }) }
+      ? { id: 'phone-new-task', label: t('composer.phoneTask.action'), icon: <Zap size={16} />, onSelect: () => setStage({ kind: 'on', folder: null, picking: true }) }
       : null,
     active: stage.kind !== 'off',
     placeholder: stage.kind === 'on' && agentName ? t('composer.phoneTask.placeholder', { agent: agentName }) : undefined,

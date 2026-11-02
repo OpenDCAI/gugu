@@ -1,5 +1,7 @@
 import { observer } from 'mobx-react-lite'
 import { useNativeSessionRecord } from './useNativeSessionRecord'
+import { useSessionRestart } from './useSessionRestart'
+import { SessionLoadFailure } from './SessionLoadFailure'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { showPhoneAppView } from '@/components/appSlot/phoneAppState'
 import { reaction } from 'mobx'
@@ -99,8 +101,11 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   } =
     useAgentWatchSession(device.device_id, session.conversationId, online, firstPrompt, phoneHost, local)
 
-  const native = !phoneHost && session.runtime === 'acp' && session.nativeInputVersion === 1
+  const native = !phoneHost && session.runtime === 'acp' && (session.nativeInputVersion === 1 || session.nativeInputVersion === 2)
   const nativeRecord = useNativeSessionRecord(device.device_id, session.conversationId, native, online, local)
+  const recovery = useSessionRestart({ deviceId: device.device_id, projectId: session.projectId, sessionId: session.conversationId,
+    missing: native && nativeRecord.errorCode === 'record_not_found', online, local,
+    onReady: () => { reload(); return nativeRecord.reload() } })
   // The directory says a crashed / unplugged machine is online until its lease runs out (about two minutes): its not
   // answering is the earlier fact. Same note as offline; the reads keep trying and the page comes back by itself.
   const hostSilent = !local && online && ((link === 'lost' && (!error || remoteFailureKind(errorCode) === 'machine-unreachable')) || (native && nativeRecord.unreachable))
@@ -215,17 +220,14 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
         offlineNotice
       ) : null}
 
-      {answering && (error || nativeRecord.error) ? (
-        <AgentWatchNote
+      {answering && !recovery.pendingPrompt && !recovery.refreshing && (error || nativeRecord.error || recovery.error) ? (
+        <SessionLoadFailure
           title={t('agentWatch.timeline.loadFailed')}
-          detail={nativeRecord.error ?? error ?? undefined}
-          tone="danger"
-          testId="agent-watch-timeline-error"
-        >
-          <Button variant="secondary" size="lg" onClick={reload}>
-            {t('agentWatch.timeline.reload')}
-          </Button>
-        </AgentWatchNote>
+          detail={recovery.error ?? nativeRecord.error ?? error ?? ''}
+          reloadLabel={t('agentWatch.timeline.reload')}
+          onReload={() => { if (recovery.retry) void recovery.retry(); else reload() }}
+          recovery={recovery}
+        />
       ) : null}
 
       {/* ⚠️ 此前是 `phase !== 'error'`:首次拉取失败就把时间线**和输入框**一起藏掉。
@@ -234,6 +236,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
         <SessionConversation
           agentName={session.title}
           agentUserId={agentUserId}
+          harness={session.harness}
           timeline={conversation}
           deviceId={device.device_id}
           sessionId={session.conversationId}
@@ -244,10 +247,11 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}
           onRespond={respond}
-          onSend={async (text, attachments) => { await enqueueSessionInput({ deviceId: device.device_id, sessionId: session.conversationId, text, ...(attachments?.length ? { attachments } : {}) }); if (native) nativeRecord.followTail() }}
+          onSend={async (text, files) => { await enqueueSessionInput({ deviceId: device.device_id, sessionId: session.conversationId, text, ...(files?.length ? { files } : {}) }); if (native) nativeRecord.followTail() }}
           pendingSends={pendingSends}
+          startupPrompt={recovery.pendingPrompt}
           sending={sending}
-          agentWorking={attention === 'running'}
+          agentWorking={attention === 'running' || recovery.pendingPrompt !== null}
           headerRunning={presentation?.tone === 'running'}
           onStop={cancel}
           stopping={cancelling}

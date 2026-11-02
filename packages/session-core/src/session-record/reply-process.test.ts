@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { liveReplyOf } from './live-reply';
-import { agentSendOf, canYieldRepliedAssistant, filterTurnsForChat, messageSendTargetOf, replyProcess, replyProcesses } from './reply-process';
+import { agentSendOf, canYieldRepliedAssistant, filterTurnsForChat, messageSendTargetOf, replyProcess, replyProcesses, replySend, replySource, successfulMessageSend } from './reply-process';
 import { renderDeliveryEnvelope, mergeDeliveryEnvelopes } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { TranscriptTurn } from '../acp/models/turns/turn';
 import type { McpToolCall } from '../acp/models/turns/tool-calls';
@@ -145,6 +145,27 @@ describe('agentSendOf: what the agent said through 咕咕, and where it went', (
   it('session_message counts its recipients', () => {
     const relay = { ...send(), tool: 'session_message', rawInput: JSON.stringify({ to: ['session:a', 'session:b'], text: 'done' }) };
     expect(agentSendOf(relay)).toEqual({ text: 'done', to: { kind: 'session', count: 2 } });
+  });
+  it('shows a widget send as plain text in the task timeline', () => {
+    const widget = { ...send(), tool: 'widget_send', rawInput: JSON.stringify({ chat_id: '999', app: 'board', view: 'main', text: 'Build results', data: { count: 3 } }) };
+    expect(agentSendOf(widget)).toEqual({ text: 'Build results', to: { kind: 'chat', conversationId: null, chatId: '999', threadRootId: null, whisper: false } });
+  });
+
+  it('unwraps a real catalog widget call for timeline text, receipts and chat attribution', () => {
+    const args = { chat_id: '999', app: 'board', view: 'main', text: 'Build results', data: { count: 3 } };
+    const widget = { ...send(), tool: 'catalog_call', rawInput: JSON.stringify({ tool: 'widget_send', args }),
+      status: 'done' as const, outputText: `sent (id=msg:${messageId})` };
+    expect(agentSendOf(widget)).toEqual({ text: 'Build results', to: { kind: 'chat', conversationId: null, chatId: '999', threadRootId: null, whisper: false } });
+    expect(successfulMessageSend(widget)).toEqual({ id: messageId, text: 'Build results', chat: '999' });
+    expect(filterTurnsForChat([turn(widget)], '999')).toHaveLength(1);
+    const reply = { ...widget, rawInput: JSON.stringify({ tool: 'widget_send', args: { ...args, chat_id: 'dm' } }) };
+    expect(replySend(reply, replySource(turn())!)).toEqual({ text: 'Build results' });
+    for (const bad of [{ ...widget, server: 'other' }, { ...widget, parentToolCallId: 'nested' },
+      { ...widget, status: 'error' as const }, { ...widget, rawInput: '{truncated' },
+      { ...widget, rawInput: JSON.stringify({ tool: 'app_search', args }) }]) {
+      expect(agentSendOf(bad)).toBeNull();
+      expect(successfulMessageSend(bad)).toBeNull();
+    }
   });
 
   it.each(['message_send_file', 'mcp__gugu__message_send_file'])('names a captionless %s destination without turning the attachment into text', toolName => {

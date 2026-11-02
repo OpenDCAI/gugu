@@ -1,17 +1,18 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   SETTINGS_SECTIONS,
   SESSION_HOST_SETTINGS_SECTIONS,
 } from '../../../../packages/core/src/shared/enums/settingsSectionModels'
 import { SettingsNav } from '../../../../apps/desktop/src/components/settings/SettingsNav'
-import { createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
+import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
+import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness() })
-afterEach(() => { harness.cleanup() })
+beforeEach(() => { harness = createReactHarness(); setLocalePreference('zh-CN') })
+afterEach(() => { harness.cleanup(); setLocalePreference('zh-CN') })
 
-const render = (sections: readonly string[], extra: { assistantName?: string | null } = {}) =>
+const render = (sections: readonly string[], extra: { assistantName?: string | null; mobile?: boolean; onSelect?: (section: string) => void } = {}) =>
   renderWithAppProviders(harness, createNode(SettingsNav, {
     activeSection: 'account',
     sections,
@@ -26,10 +27,34 @@ const groups = () =>
 
 const captions = () => [...harness.container.querySelectorAll('.gg-settings-nav-caption')].map((el) => el.textContent)
 
-// product spec:一个设置,左栏分组,每组一行小标题。咕咕自己的设置是其中第一组(owner 10-16)。
+// SettingsPanel excludes apps/phone on desktop. Permission/session-host capability filters
+// can only remove more entries, so this covers every section a desktop host may supply.
+const desktopSections = SETTINGS_SECTIONS.filter((section) => section !== 'apps' && section !== 'phone')
+
+// Desktop order follows the approved sidebar; mobile retains its existing groups.
 describe('the one settings nav', () => {
-  it('draws every section in its group, in the spec order', async () => {
-    await render(SETTINGS_SECTIONS)
+  it('draws the approved desktop groups and order', async () => {
+    await render(desktopSections)
+    expect(groups()).toEqual([
+      ['account', 'subscriptions', 'usage'],
+      ['assistant', 'connectors'],
+      ['general', 'interface', 'model', 'permissions'],
+      ['sessions', 'devices', 'browser', 'files'],
+      ['resource-monitor', 'about'],
+    ])
+  })
+
+  it('includes every desktop-eligible section exactly once', async () => {
+    await render(desktopSections)
+    expect(groups().flat().sort()).toEqual([...desktopSections].sort())
+  })
+
+  it('reports a desktop section without a group in development', async () => {
+    await expect(render([...desktopSections, 'channels'])).rejects.toThrow('desktop sections missing a group: channels')
+  })
+
+  it('preserves every mobile group and its existing order', async () => {
+    await render(SETTINGS_SECTIONS, { mobile: true })
     expect(groups()).toEqual([
       ['assistant', 'connectors'],
       ['account', 'usage', 'files', 'subscriptions'],
@@ -41,7 +66,7 @@ describe('the one settings nav', () => {
 
   // 手机「我的」没有会话页那几格(订阅、云端连接应用也在其中:读数要会话页宿主):同一份分组,少掉的格不画,整组空了就连组带小标题一起不画。
   it('drops the sections a host does not show, and a group left empty', async () => {
-    await render(SETTINGS_SECTIONS.filter((section) => !SESSION_HOST_SETTINGS_SECTIONS.includes(section) && section !== 'devices' && section !== 'channels' && section !== 'apps' && section !== 'phone'))
+    await render(SETTINGS_SECTIONS.filter((section) => !SESSION_HOST_SETTINGS_SECTIONS.includes(section) && section !== 'devices' && section !== 'channels' && section !== 'apps' && section !== 'phone'), { mobile: true })
     expect(groups()).toEqual([
       ['assistant'],
       ['account', 'usage', 'files'],
@@ -50,25 +75,53 @@ describe('the one settings nav', () => {
     ])
   })
 
+  it('filters unavailable desktop sections and omits empty groups', async () => {
+    await render(['account', 'usage', 'files', 'general', 'permissions', 'model'])
+    expect(groups()).toEqual([
+      ['account', 'usage'],
+      ['general', 'model', 'permissions'],
+      ['files'],
+    ])
+    expect(captions()).toEqual(['账户', '偏好', '工作'])
+  })
+
   it('drops the whole 咕咕 group when the host has no cloud computer', async () => {
-    await render(SETTINGS_SECTIONS.filter((section) => section !== 'assistant' && section !== 'connectors'))
-    expect(groups()[0]).toEqual(['account', 'usage', 'files', 'subscriptions'])
+    await render(desktopSections.filter((section) => section !== 'assistant' && section !== 'connectors'))
+    expect(groups()[0]).toEqual(['account', 'subscriptions', 'usage'])
   })
 
   // 组名:咕咕那组用它现在的名字;「关于」组只有一格、同名,不画小标题。手机上咕咕组只剩「资料」一格也画组名(否则不知道是谁的资料)。
-  it('captions each group, the first with the assistant name; 关于 has none', async () => {
-    await render(SETTINGS_SECTIONS, { assistantName: '小咕' })
-    expect(captions()).toHaveLength(4)
-    expect(captions()[0]).toBe('小咕')
+  it('captions desktop groups and keeps the assistant current name', async () => {
+    await render(desktopSections, { assistantName: '小咕' })
+    expect(captions()).toEqual(['账户', '小咕', '偏好', '工作', '诊断'])
+  })
+
+  it('preserves mobile captions and the uncaptioned About entry', async () => {
+    await render(SETTINGS_SECTIONS, { assistantName: '小咕', mobile: true })
+    expect(captions()).toEqual(['小咕', '我的', '偏好', '工作'])
     expect(harness.container.querySelector('[data-group="about"] .gg-settings-nav-caption')).toBeNull()
     harness.cleanup()
     harness = createReactHarness()
     await render(['assistant', 'account'], { assistantName: null })
-    expect(captions()[0]).toBe('咕咕')
+    expect(captions()).toEqual(['账户', '咕咕'])
+  })
+
+  it('translates the desktop group captions into English', async () => {
+    setLocalePreference('en-US')
+    await render(desktopSections)
+    expect(captions()).toEqual(['Account', 'Gugu', 'Preferences', 'Work', 'Diagnostics'])
+  })
+
+  it('keeps navigation selection connected after an entry moves groups', async () => {
+    const onSelect = vi.fn()
+    await render(desktopSections, { onSelect })
+    await clickElement(harness.container.querySelector<HTMLElement>('[data-group="work"] [data-testid="settings-nav-files"]')!)
+    expect(onSelect).toHaveBeenCalledWith('files')
+    expect(harness.container.querySelector('[aria-current="page"]')?.getAttribute('data-testid')).toBe('settings-nav-account')
   })
 
   it('has no second 咕咕 entry: the assistant section is the only one that opens its settings', async () => {
-    await render(SETTINGS_SECTIONS)
+    await render(desktopSections)
     expect(harness.container.querySelector('[data-testid="settings-nav-layer-assistant"]')).toBeNull()
     expect(harness.container.querySelectorAll('[data-testid="settings-nav-assistant"]')).toHaveLength(1)
   })

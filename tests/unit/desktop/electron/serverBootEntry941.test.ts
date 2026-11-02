@@ -5,10 +5,11 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
-import { SessionBootTasks } from '../../../../packages/core/src/shared/sessionBootTasks'
+import { sessionBootTasks } from '../../../../apps/desktop/electron/session/main/core/boot-tasks'
 import { resolveDeviceHostInfo } from '../../../../packages/core/src/cloud/deviceHostInfo'
 
 vi.mock('../../../../packages/core/src/cloud/remoteTunnel', () => ({ tunnelRelayUp: () => false, tunnelActiveAt: () => null }))
+vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }))
 
 const requireBuiltin = createRequire(import.meta.url)
 const entry = path.resolve(__dirname, '../../../../apps/desktop/electron/session/main/embedded-boot.ts')
@@ -16,7 +17,8 @@ const entry = path.resolve(__dirname, '../../../../apps/desktop/electron/session
 /** Execute the real composition root; unrelated service boundaries are inert, not a copied boot sequence. */
 async function boot(fail: string, fatal = false) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-boot-entry941-'))
-  const tasks = new SessionBootTasks(vi.fn())
+  const tasks = sessionBootTasks
+  for (const failure of tasks.snapshot()) tasks.clearTask(failure.taskId)
   const registered = vi.fn()
   const statusHooks: Array<(event: unknown) => void> = []
   const sessionHooks = new Map<string, (id: string) => void>()

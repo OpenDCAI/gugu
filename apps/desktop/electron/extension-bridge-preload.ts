@@ -66,7 +66,24 @@ async function call(method: string, args?: unknown): Promise<unknown> {
  * for the first one (the preload runs before the page).
  */
 const events = hostEventHub();
-ipcRenderer.on(EXTENSION_BRIDGE_EVENT_CHANNEL, (_event: unknown, payload: ExtensionHostEvent) => events.deliver(payload));
+let messageView = false;
+const relayWidgetWheel = (event: WheelEvent) => {
+  if (!event.isTrusted || event.ctrlKey) return;
+  event.preventDefault();
+  const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? innerHeight : 1;
+  ipcRenderer.sendToHost('gugu-widget-wheel', { x: event.deltaX * unit, y: event.deltaY * unit });
+};
+ipcRenderer.on(EXTENSION_BRIDGE_EVENT_CHANNEL, (_event: unknown, payload: ExtensionHostEvent) => {
+  if (payload.type === 'context') {
+    const next = payload.context.widget !== undefined && !payload.context.modal;
+    if (next !== messageView) {
+      if (next) window.addEventListener('wheel', relayWidgetWheel, { capture: true, passive: false });
+      else window.removeEventListener('wheel', relayWidgetWheel, true);
+      messageView = next;
+    }
+  }
+  events.deliver(payload);
+});
 
 /**
  * The members, from one table (`HOST_CALLS` / `HOST_EVENTS`): who has each is its `BRIDGE_VERBS` row (`only`) — the

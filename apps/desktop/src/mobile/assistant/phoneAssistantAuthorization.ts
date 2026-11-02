@@ -34,7 +34,7 @@ export function phoneAssistantAuthorization(deviceId: string, home: AssistantHom
   const integrations = new Proxy(native.integrations,{
     get(target,key,receiver) {
       const method = Reflect.get(target,key,receiver)
-      if (['connect','authorize','cliLoginStart','cliToolPrepare'].includes(String(key))) return async (...args: unknown[]) => {
+      if (['connect','authorize','platformOAuthStart','cliLoginStart','cliToolPrepare'].includes(String(key))) return async (...args: unknown[]) => {
         await prepare()
         return method(...args)
       }

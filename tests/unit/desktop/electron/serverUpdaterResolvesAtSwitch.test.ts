@@ -38,6 +38,7 @@ beforeEach(() => {
   process.env.GUGU_TASK_HOST_APP_PATH = path.join(home, 'versions', '0.2.53-beta.59.1', 'app')
   process.env.GUGU_TASK_HOST_VERSION = '0.2.53-beta.59.1'
   process.env.GUGU_SERVER_SUPERVISED = '1'
+  fs.writeFileSync(path.join(home, 'channel'), 'stable\n')
   fetched.length = 0
   vi.stubGlobal('fetch', async (url: string) => {
     fetched.push(url)

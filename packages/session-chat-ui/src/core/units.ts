@@ -32,7 +32,7 @@ import type { DeliveryMessagePresentation } from '../state/delivery-presentation
 
 import type { Component } from 'solid-js';
 import type { ChatTranslator } from '@session-chat/localization';
-import type { AcpPermissionRequest, ChatItem, SessionPlans, SyntheticItem, SessionCondition } from '@session-chat/model';
+import type { AcpPermissionRequest, ChatItem, SessionPlans, SyntheticItem, SessionCondition, TurnProcessItem } from '@session-chat/model';
 import type { BackgroundTasks } from '@session-chat/state/chat-state';
 import type { ChatCaches } from './caches';
 import type { MeasureCtx, RenderCtx } from './define';
@@ -146,7 +146,7 @@ export type SegmentCtx = {
    */
   condition?: () => SessionCondition | null;
   /** The pending prompt's session is still starting: its live line says so. */
-  pendingStarting?: () => boolean;
+  pendingStarting?: () => TurnProcessItem['starting'];
   /**
    * 此刻还在跑的后台任务,连同那张单子展开着没有。同样只有**最后一档**读它 —— 它贴在列表末尾,不是历史。
    * 一条都没有 ⇒ null。

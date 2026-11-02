@@ -165,6 +165,8 @@ export interface AppPlatform {
   subscribeIncomingShares?: (listener: (share: IncomingShare) => void) => () => void
   /** 系统交给 App 打开的 https 链接(安卓 App Links);拉起 App 的那一条在第一次订阅时补发。只有安卓壳有这个口。 */
   subscribeOpenedLinks?: (listener: (url: string) => void) => () => void
+  /** 用户点了咕咕发的系统通知;拉起 App 的那一次在首次订阅时补发。只有安卓壳有此口,桌面走 notificationClicked。 */
+  subscribeNotificationClicks?: (listener: (click: { chatId: string | null }) => void) => () => void
   writeHumanAuthSession: (session: HumanAuthSession) => Promise<void>
   /** 登出了,还是会话永久丢了(主进程据此决定 getAuth 是答「没登录」还是抛「会话丢了」)。 */
   clearHumanAuthSession: (reason: 'signed-out' | 'lost') => Promise<void>

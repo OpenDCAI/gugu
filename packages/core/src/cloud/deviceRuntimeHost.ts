@@ -9,7 +9,6 @@ import {
   markDeviceOffline,
   syncDeviceHeartbeat,
   cleanupLegacyDeviceRows,
-  type AgentDeliverFailure,
   type AgentRuntimeStateRpcClient,
   type DeviceCapabilitiesSource,
   type DeviceSessionDigestSource,
@@ -162,8 +161,6 @@ export interface DeviceRuntimeHostOptions {
   onDeviceRemoved?: (message: string) => void
   machineIdentifier?: DeviceMachineIdentifier
   deviceIdCacheWriter?: DeviceIdCacheWriter
-  // #2115 — agent.deliver 终态失败上抛(→ electron main 发 error 流事件,renderer 显失败提示+重试)。
-  onAgentDeliverFailure?: (failure: AgentDeliverFailure) => void
 }
 
 export interface DeviceRuntimeHostTickResult {
@@ -816,7 +813,6 @@ export function createDeviceRuntimeHostLoop(
           },
           onRuntimeStateReportError: (error) =>
             options.warn?.(`[device-runtime] ${(error as Error).message}`),
-          onAgentDeliverFailure: options.onAgentDeliverFailure,
         },
         env
       )
