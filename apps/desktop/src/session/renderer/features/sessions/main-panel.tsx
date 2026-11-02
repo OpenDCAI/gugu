@@ -1,4 +1,4 @@
-import { OfflineSessionSlot } from '@renderer/lib/offline-session-slot';
+import { OfflineSessionInput } from '@/components/chat/OfflineSessionInput';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useRef, type ReactNode } from 'react';
@@ -24,7 +24,6 @@ import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-s
 import { useCloudComputerGate } from './use-cloud-computer-gate';
 import { machineUnavailableLabel } from './machine-unavailable-label';
 import { machineRegistry } from '@renderer/lib/machine-routing';
-import { openSessionInSessionWhenReady } from './open-session-in-session';
 
 const spinnerLog = rendererLogger('sessionpage/loading-span');
 
@@ -141,20 +140,6 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
   const unreachable = machineUnavailableLabel(projectId);
   const deviceId = machineRegistry.machineOf(projectId);
   const device = deviceId ? remoteHostsStore.device(deviceId) : null;
-  const native = remoteHostsStore.findListedSession(sessionId)?.nativeInputVersion;
-  const needsWorkspace = kind === 'project-mounting' || kind === 'provisioning' || kind === 'idle' || kind === 'provision-error' || kind === 'project-error';
-  const offlineNative = Boolean(needsWorkspace && unreachable && !cloud && deviceId && (native === 1 || native === 2));
-  const recovery = useRef({ projectId, sessionId, pending: false });
-  useEffect(() => {
-    if (recovery.current.projectId !== projectId || recovery.current.sessionId !== sessionId) {
-      recovery.current = { projectId, sessionId, pending: false };
-    }
-    if (offlineNative) recovery.current.pending = true;
-    if (!recovery.current.pending || unreachable || kind !== 'ready') return;
-    recovery.current.pending = false;
-    // Fill a previously offline single block too, preserving any restored/user-selected tabs.
-    return openSessionInSessionWhenReady({ projectId, sessionId, onlyIfNoTabs: true });
-  }, [offlineNative, unreachable, kind, projectId, sessionId]);
   const tunnelProgress = device?.tunnel === 'connecting' && !device.directTerminal
     ? translate('remoteWorkspace.tunnel.connecting') : null;
 
@@ -184,7 +169,7 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
   }
 
   // #7199 这条会话在一台没醒着的云电脑上:先说「正在唤醒」等它醒(打开会话那一下已叫醒它),❌ 先去准备文件、连不上就报失败。
-  if (cloud && needsWorkspace) {
+  if (cloud && (kind === 'project-mounting' || kind === 'provisioning' || kind === 'idle' || kind === 'provision-error' || kind === 'project-error')) {
     if (cloud.failure) {
       return (
         <SessionErrorScreen
@@ -201,9 +186,9 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
     );
   }
 
-  if (offlineNative) return <OfflineSessionSlot sessionId={sessionId} />;
-  if (unreachable && needsWorkspace) {
-    return <div className="flex h-full w-full items-center justify-center text-sm text-foreground-muted">{unreachable}</div>;
+  if (unreachable && (kind === 'project-mounting' || kind === 'provisioning' || kind === 'idle' || kind === 'provision-error' || kind === 'project-error')) {
+    return deviceId ? <OfflineSessionInput deviceId={deviceId} sessionId={sessionId} label={unreachable} />
+      : <div className="flex h-full w-full items-center justify-center text-sm text-foreground-muted">{unreachable}</div>;
   }
 
   if (kind === 'project-mounting' || kind === 'provisioning') {

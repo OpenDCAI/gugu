@@ -57,9 +57,6 @@ export function readShellSlots(w: Window = window): ShellSlots | null {
 export const CHAT_SLOT_PREFIX = 'chat:'
 export const chatSlotKey = (chatId: string) => `${CHAT_SLOT_PREFIX}${chatId}`
 
-/** The offline task gate leaves the shared timeline in the shell's account context. */
-export const OFFLINE_SESSION_SLOT_PREFIX = 'session-offline:'
-
 /**
  * 同一个对话在块的页签条上的几格(gugu-dev#181:块里没有群聊头,头上那些东西挪到页签条):
  * `actions` = 右端那排图标(搜索、群文件夹、成员、历史、⋯),`title` = 对话块第一枚页签上的头像和名字,
