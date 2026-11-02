@@ -179,11 +179,11 @@ describe('#6016 system delivery follows event-time listening state; #6860 unaddr
     expect((await pull(room, agent)).map(row => row.id)).toEqual([bad])
     resetAgentInboxReaderStateForTests()
     await expect(pullAgentInbox(agent, deps)).resolves.toMatchObject({ injected: 0 })
-    const beforeOpen = await db.query<{ unread_count: string }>('SELECT unread_count FROM chat.count_unread_per_chat() WHERE chat_id=$1', [room.group])
+    const beforeOpen = await db.query<{ unread_count: string }>('SELECT COALESCE(sum(unread_count),0)::text AS unread_count FROM chat.list_unread_locators($1)', [room.group])
     expect(Number(beforeOpen.rows[0]?.unread_count ?? 0)).toBe(1) // The real failure notice, not either of the owner's own messages.
     const tail = await db.query<{ seq: number }>('SELECT max(seq)::int AS seq FROM chat.messages WHERE chat_id=$1', [room.group])
     await db.query('SELECT chat.mark_read($1,$2)', [room.group, tail.rows[0]!.seq])
-    const ownerUnread = await db.query<{ unread_count: string }>('SELECT unread_count FROM chat.count_unread_per_chat() WHERE chat_id=$1', [room.group])
+    const ownerUnread = await db.query<{ unread_count: string }>('SELECT COALESCE(sum(unread_count),0)::text AS unread_count FROM chat.list_unread_locators($1)', [room.group])
     expect(Number(ownerUnread.rows[0]?.unread_count ?? 0)).toBe(0)
     const ownerLocators = await db.query('SELECT * FROM chat.list_unread_locators($1)', [room.group])
     expect(ownerLocators.rows).toEqual([])
