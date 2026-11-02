@@ -493,6 +493,16 @@ describe('the first message keeps one place while its session starts', () => {
     expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first');
   });
 
+  it('a dispatching message in a restoring session still shows restoring', async () => {
+    const { store } = storeFor({ providerId: 'claude', providerSessionId: 'prov-old' });
+    store.bootstrap();
+    life.pend(store.sessionId, 'starting', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBe('m-first'));
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'm-first', starting: 'restoring' });
+    life.pend(store.sessionId, 'ready', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.starting).toBeUndefined());
+  });
+
   it('the transcript draws the queued head as its next turn from the start, not the tray above the composer', async () => {
     const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
     store.bootstrap();
