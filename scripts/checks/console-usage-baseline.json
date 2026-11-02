@@ -201,13 +201,8 @@
   },
   {
     "rule": "console-member",
-    "file": "apps/desktop/src/store/chatOutbox.ts",
-    "count": 1
-  },
-  {
-    "rule": "console-member",
     "file": "apps/desktop/src/store/chatOutboxWiring.ts",
-    "count": 4
+    "count": 3
   },
   {
     "rule": "console-member",

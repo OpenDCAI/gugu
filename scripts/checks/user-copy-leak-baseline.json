@@ -117,7 +117,7 @@
   {
     "rule": "copy-leaks-raw-error-field",
     "file": "apps/desktop/src/store/chatOutbox.ts",
-    "count": 2
+    "count": 1
   },
   {
     "rule": "copy-leaks-raw-error-field",
