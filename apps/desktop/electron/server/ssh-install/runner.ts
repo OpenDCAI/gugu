@@ -41,6 +41,7 @@ import {
   liveLine,
   logLines,
   loginScript,
+  oneLineInstallCommand,
   manifestUrl,
   MIN_FREE_KB,
   parseDownloadProgress,
@@ -364,6 +365,9 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
     if (found.accounts.some(account => account.userId !== userId)) {
       throw new StepFailure('loginFailed', 'This system user is already signed in to another Gugu account. Sign out first or use another system user.')
     }
+
+    // A version signal is not consent to restart work through the fallback installer.
+    if (upgradeOnly && !deps.now) throw new StepFailure('serverTooOld', oneLineInstallCommand(deps.downloadBase, deps.channel, found.fetcher === 'wget' ? 'wget' : 'curl'))
 
     // ③ 下载:已经装过、这台桌面跟它说得上话 ⇒ 不重装。重装会立刻改 current 指针,绕过「空闲时才切版本」(behavior 第 5 条),
     //    版本交给那台机器自己的后台升级。
