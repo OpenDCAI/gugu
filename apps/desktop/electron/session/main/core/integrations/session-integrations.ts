@@ -10,14 +10,6 @@ import { integrationConnectionService } from './integration-connection-service';
 import { isMailIntegration, mailIntegrationTools } from './mail/mail-tools';
 import type { PlatformCredentialService } from './platform-credentials';
 import { platformCredentials } from './platform-credentials-instance';
-import { providerAccountRegistry } from '@main/core/provider-accounts/provider-account-registry-instance';
-
-/** No credentials in notifications: consumers re-read the authenticated connection list. */
-export function onSessionIntegrationsChanged(listener: () => void): () => void {
-  const stopAccounts = providerAccountRegistry.onChanged(listener);
-  const stopPlatform = platformCredentials.onConnectionChanged(listener);
-  return () => { stopAccounts(); stopPlatform(); };
-}
 
 /**
  * 一家已连接、能以 MCP 工具交给 agent 的集成 —— 会话里给 agent 的就是这些。

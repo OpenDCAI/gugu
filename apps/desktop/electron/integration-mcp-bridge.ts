@@ -170,7 +170,7 @@ export async function buildIntegrationBridge(
   ownerUserId: string,
   subjectId: string,
   entries: readonly IntegrationBridgeEntry[] | (() => Promise<readonly IntegrationBridgeEntry[]>),
-): Promise<AcpMcpServer[]> {
+): Promise<Extract<AcpMcpServer, { url: string }>[]> {
   await host.start()
   const grant = await host.grant(`${grantKey}:connected-apps`, {
     ownerUserId,
