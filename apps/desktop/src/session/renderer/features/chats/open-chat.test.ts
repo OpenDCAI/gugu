@@ -17,14 +17,15 @@ beforeEach(() => {
 it('keeps ordinary owned-agent navigation on its existing task', () => {
   host.owned.mockReturnValue(true);
   openChatOnScreen('owned-dm', false);
-  expect(host.owned).toHaveBeenCalledWith('owned-dm');
+  expect(host.owned).toHaveBeenCalledWith('owned-dm', undefined, undefined, undefined, undefined);
   expect(host.show).not.toHaveBeenCalled();
 });
-it('mounts an owned DM file host without looking for an agent session', () => {
-  host.owned.mockImplementation(() => { throw new Error('No session directory entry'); });
+it('opens owned DM resources in the existing native session without an IM block', () => {
+  host.owned.mockReturnValue(true);
   openChatOnScreen('owned-dm', false, 'resource');
-  expect(host.owned).not.toHaveBeenCalled();
-  expect(host.show).toHaveBeenCalledExactlyOnceWith({ kind: 'chat', chatId: 'owned-dm' });
+  expect(host.owned).toHaveBeenCalledExactlyOnceWith('owned-dm', undefined, undefined, undefined, 'resource');
+  expect(host.show).not.toHaveBeenCalled();
+  expect(host.beside).not.toHaveBeenCalled();
 });
 it('keeps group files in their project block and preserves ordinary beside entry', () => {
   host.project.mockReturnValue('device-project'); host.row.mockReturnValue('sidebar-project');

@@ -41,7 +41,7 @@ function noteOpened(itemId: string): void {
  * claims the file, the one kept for its kind (「始终用它」), or the person picks — and it opens as a tab beside the chat
  * (`openPanelItem`). The pick, an App's several files and a file that cannot open are said over the chat (`overlay`).
  */
-export function useChatOpener(chatId: string | null): { overlay: ReactNode; openWith: (detail: AppOpenWithDetail, returnTo?: string) => void } {
+export function useChatOpener(chatId: string | null, onShow?: (chatId: string, tabId: string) => void): { overlay: ReactNode; openWith: (detail: AppOpenWithDetail, returnTo?: string) => void } {
   const { t } = useTranslation('messaging')
   const mobile = useMobileShell()
   const asking = useRef(0)
@@ -60,9 +60,10 @@ export function useChatOpener(chatId: string | null): { overlay: ReactNode; open
     const shown = { ...item, ...(from.message ? { message: from.message } : {}) }
     // A pending message is not tab state: neither JSON nor structured-clone snapshots carry it.
     if (item.takeOpening) Object.defineProperty(shown, 'takeOpening', { get: () => item.takeOpening, enumerable: false })
-    openPanelItem(target, shown, { ...(from.returnTo ? { returnTo: from.returnTo } : {}), ...(from.restore ? { restore: from.restore } : {}) })
+    const tabId = openPanelItem(target, shown, { ...(from.returnTo ? { returnTo: from.returnTo } : {}), ...(from.restore ? { restore: from.restore } : {}) })
+    if (tabId) onShow?.(target, tabId)
     if (item.itemId) noteOpened(item.itemId)
-  }, [])
+  }, [onShow])
 
   // The file asked last is the one opened: a pill clicked, then another (or a file in an App's list), before the first's
   // answer is back — whichever answer comes last, the chat ends on the later ask (#7257). Each ask takes the next number.

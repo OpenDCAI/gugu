@@ -14,6 +14,7 @@
  * so they stay in sync automatically.
  */
 
+import { chatResourceTabProvider } from './chat-resource-tab-provider';
 import { browserTabProvider } from '@renderer/features/browser/browser-tab-provider';
 import { type KindOf, type OpenArgsOf } from '@renderer/features/tabs/core/tab-provider-registry';
 import { createTabView } from '@renderer/features/tabs/tab-view-factory';
@@ -34,6 +35,7 @@ export const sessionTabView = createTabView(
     acpChatTabProvider,
     sideChatTabProvider,
     fileTabProvider,
+    chatResourceTabProvider,
     reviewTabProvider,
     diffTabProvider,
     browserTabProvider,
