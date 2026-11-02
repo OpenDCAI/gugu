@@ -212,7 +212,10 @@ async function prepareLocalHome(dryRun = false): Promise<PrepareLocalHomeResult>
 /** 它在云上那条会话跑在哪个目录(项目路径);项目表还没同步过来就等一会儿。 */
 async function cloudWorkdir(deviceId: string, assistantId: string): Promise<string> {
   const own = await assistantSessionOn(deviceId, assistantId, SESSION_WAIT_MS);
-  return until('the assistant project on the cloud home', SESSION_WAIT_MS, async () => appState.projects.projects.get(own.projectId)?.data?.path ?? null);
+  return until('the assistant directory on the cloud home', SESSION_WAIT_MS, async () => {
+    const project = appState.projects.projects.get(own.projectId)?.data;
+    return own.cwd ?? (project?.kind !== 'workspace' ? project?.path ?? null : null);
+  });
 }
 
 async function cloudDeviceReady(deviceId: string): Promise<void> {

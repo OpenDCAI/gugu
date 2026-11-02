@@ -501,7 +501,7 @@ describe('SidebarStore project ordering', () => {
     sessionRegistry.release('home-task');
   });
 
-  it('keeps executors in the Sessions section when the assistant home project row is hidden', () => {
+  it('keeps task-workspace executors in Tasks without an assistant-project hiding exception', () => {
     const home = 'assistant-home';
     const record = (id: string, parentSessionId?: string) => ({
       id, projectId: home, providerId: 'codex', title: id, runtime: 'acp' as const,
@@ -517,9 +517,9 @@ describe('SidebarStore project ordering', () => {
         { id: home, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: records.map((r) => r.id) },
         { id: 'business', createdAt: '2026-01-01T00:00:00.000Z', sessionIds: [] },
       ]);
+      (manager.projects.get(home) as unknown as { data: { kind?: string } }).data = { kind: 'workspace' };
       const store = new SidebarStore(manager);
       store.setAssistantAgentId('assistant');
-      store.setAssistantHomeProjectId(home);
       store.expandedSessionIds.add('executor');
       expect(store.orderedProjects.map((p) => p.id)).toEqual(['business']);
       expect(store.standaloneSessionEntries.map((r) => [r.sessionId, r.depth])).toEqual([
@@ -528,8 +528,11 @@ describe('SidebarStore project ordering', () => {
       expect(store.rowOfSession(home, 'executor')).toBeNull();
       expect(store.navChain.some((r) => r.kind === 'conversation' && r.sessionId === 'executor')).toBe(true);
       // With the project visible again its sessions return to the project, without duplicates.
-      store.setAssistantHomeProjectId(null);
-      expect(store.standaloneSessionEntries).toEqual([]);
+      (manager.projects.get(home) as unknown as { data: { kind?: string } }).data = {};
+      const userProjectStore = new SidebarStore(manager);
+      userProjectStore.setAssistantAgentId('assistant');
+      expect(userProjectStore.orderedProjects.map((p) => p.id)).toContain(home);
+      expect(userProjectStore.standaloneSessionEntries).toEqual([]);
       expect(manager.projects.size).toBe(2);
     } finally {
       identity.mockRestore();

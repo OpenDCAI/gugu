@@ -223,12 +223,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
    * owner:「它不应该生活在任务区」—— 它自己的会话不进这里的任何列表;它派出来的照常在,行上标「助理发起」。
    */
   assistantAgentId: string | null = null;
-  /**
-   * #7199 个人助理住在这台电脑上时它的工作目录那个项目:它不住任务区,那个项目是它的家,❌ 在「项目」里单列一行。
-   * 人自己后来在那个目录里开的别的会话照常出现在别处(项目行被藏、会话仍在「任务」分区),所以只藏项目行。
-   */
-  assistantHomeProjectId: string | null = null;
-
   constructor(private readonly projectManager: ProjectManagerStore) {
     makeAutoObservable<this, 'revealedSessionKey'>(this, {
       revealedSessionKey: false,
@@ -276,7 +270,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     const { rowOf } = this.homeLayout;
     const all: SidebarProjectRef[] = Array.from(this.projectManager.projects.values())
       .filter((project) => !isWorkspaceProject(project) && !rowOf.has(project.id))
-      .filter((project) => project.id !== this.assistantHomeProjectId)
       .sort((a, b) => this.compareSidebarProjects(a, b))
       .map((project) => ({ kind: 'local', id: project.id, project }));
     if (this.projectOrder.length === 0) return all;
@@ -755,10 +748,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     this.assistantAgentId = id;
   }
 
-  setAssistantHomeProjectId(id: string | null): void {
-    this.assistantHomeProjectId = id;
-  }
-
   /** 别的机器上一个项目的会话:来自会话目录(列出不挂载),新的在前。个人助理自己的那条不在内(它的子 agent 就成了根)。 */
   private remoteEntries(projectId: string, machine: string): SidebarSessionEntry[] {
     const listed = this.machines?.sessionsOf?.(machine);
@@ -1023,12 +1012,12 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   }
 
   /**
-   * #609 会话列在「任务」里的项目:每台机器上的 workspace,加本机助理的家。
+   * #609 会话列在「任务」里的项目:每台机器上的 workspace。
    * 「任务」是一张平铺的表,❌ 按机器分组。
    */
   private isTasksProject(project: { id: string; data?: { kind?: string } | null }): boolean {
     if (this.homeLayout.rowOf.has(project.id)) return false;
-    return isWorkspaceProject(project) || (!this.isRemote(project.id) && project.id === this.assistantHomeProjectId);
+    return isWorkspaceProject(project);
   }
 
   togglePinnedCollapsed(): void {

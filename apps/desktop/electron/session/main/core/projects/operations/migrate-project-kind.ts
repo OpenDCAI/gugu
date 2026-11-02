@@ -4,6 +4,7 @@ import { db } from '@main/db/client';
 import { projects, workspaces } from '@main/db/schema';
 import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
 import { isAppKeptDirectory, type AppKeptDirectories } from '../app-kept-directory';
+import { readProjectRegistration } from './project-registration-origin';
 
 function writeRecord(file: string, record: ProjectKindMigrationRecord): void {
   const tmp = `${file}.${process.pid}.tmp`;
@@ -24,19 +25,26 @@ function readRecord(file: string): ProjectKindMigrationRecord {
  * #609 / project-machine-model 迁移:库里已有的、登记在「咕咕自己要用的目录」(isAppKeptDirectory:~、task-home、GUGU_HOME
  * 底下)上的项目改成 workspace —— 从前 server 落主目录、App 派活、助理的家、导入 ~ 里的会话都建过这种项目。
  * 用户自己往里加过文件夹的不动(那是他在用的项目)。会话不挪:projectId 不变,它们因为项目成了 workspace 而列进「任务」。
- * 人在「添加项目」里亲手加的 ~ 本该留作项目(owner 10-28),但老库里查不出一个项目是谁加的(projects 表没有来源,
- * 活动记录 project.created 也不带入口),所以照降;要留的人从记录文件回滚,或者再「添加项目」一次(新版记成项目)。
+ * 只处理有自动新建来源记录的行;老库没有来源的、或人后来亲手添加/领用的目录不再按路径猜测降类。
+ * 固定 ID 的任务工作区本来就是 app 的记录,与来源无关。过去的降类记录仍留作回滚依据。
  *
  * 幂等:只看 kind='project' 的行,判据是纯函数,重跑结果一样。可回滚:改了哪些行记在 `file` 里,
  * rollbackProjectKindMigration 按它改回 'project';比这一版旧的客户端本来就不认 kind。
  */
 export function migrateProjectKind(file: string, dirs?: AppKeptDirectories): string[] {
   const candidates = db
-    .select({ id: projects.id, path: projects.path })
+    .select({ id: projects.id, path: projects.path, createdAt: projects.createdAt })
     .from(projects)
     .where(and(eq(projects.kind, 'project'), eq(projects.workspaceProvider, 'local')))
     .all()
-    .filter((row) => { try { return isImplicitSessionHomeProjectId(row.id) || isAppKeptDirectory(row.path, dirs); } catch { return false; } });
+    .filter((row) => {
+      if (isImplicitSessionHomeProjectId(row.id)) return true;
+      const origin = readProjectRegistration(row.id);
+      // A legacy path/category is not proof of who registered it. In particular,
+      // do not demote a directory the person explicitly added or reclaimed.
+      if (origin?.source !== 'automatic' || origin.path !== row.path || origin.createdAt !== row.createdAt) return false;
+      try { return isAppKeptDirectory(row.path, dirs); } catch { return false; }
+    });
   if (candidates.length === 0) return [];
   const withUserFolders = new Set(
     db.select({ projectId: workspaces.projectId }).from(workspaces).where(isNotNull(workspaces.attachedAt)).all().map((row) => row.projectId),

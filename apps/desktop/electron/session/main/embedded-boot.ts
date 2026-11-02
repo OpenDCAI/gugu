@@ -142,6 +142,9 @@ import {
 import { projectSettingsService } from '@main/core/projects/settings/project-settings-service'
 import { getProjectById, getProjects } from '@main/core/projects/operations/getProjects'
 import { resolveAgentSessionProject } from '@main/core/projects/operations/resolve-agent-session-project'
+import { resolveAssistantSessionWorkspace } from '@main/core/projects/operations/task-directory-workspace'
+import { runPendingAssistantProjectCleanup } from '@main/core/projects/operations/assistant-project-cleanup'
+export { setAssistantProjectCleanupOwner, runPendingAssistantProjectCleanup } from '@main/core/projects/operations/assistant-project-cleanup'
 import { persistedWorkspacePath, resolveSession, resolveWorkspace } from '@main/core/projects/utils'
 import { RETIRED_REMOTE_WORKSPACE_MESSAGE } from '@main/core/workspaces/resolve-workspace-kind'
 import { archiveSession } from '@main/core/sessions/archiveSession'
@@ -537,6 +540,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   await backupBeforeTaskToSession(sqlite, resolveDatabasePath())
   await backupBeforeSessionNaming(sqlite, resolveDatabasePath())
   await initializeDatabase()
+  await runPendingAssistantProjectCleanup(true)
   // #609 已有的、登记在 ~ / task-home / GUGU_HOME 底下的项目改成 workspace(会话随之列进「任务」);幂等,失败不拦启动。
   try {
     const demoted = migrateProjectKind(path.join(app.getPath('userData'), 'project-kind-migration.json'))
@@ -1725,6 +1729,8 @@ export interface SessionpageAgentSessionStartInput {
   displayName: string
   agentType: string
   projectPath: string
+  /** Set by the authenticated host after checking the provision's assistant role. */
+  assistant?: { deviceId: string; ownerId: string }
   chatId: string
   initialText?: string
   initialPrompt?: string
@@ -1839,7 +1845,10 @@ async function startSessionpageAgentSessionClaimed(
     agentSessionLog.info({ agentUserId: input.agentUserId, stage, elapsedMs: Date.now() - startedAt }, 'agent session start stage — #4181')
   agentSessionLog.info({ agentUserId: input.agentUserId, agentType: input.agentType, displayName: input.displayName }, 'agent session start begin — #4181')
   // 目录还没登记 / 隐式任务工作区还没建(没有渲染层的咕咕 server)时当场补齐,见 resolve-agent-session-project.ts。
-  const project = await resolveAgentSessionProject(input.projectPath)
+  const assistantWorkspace = input.assistant ? await resolveAssistantSessionWorkspace(input.projectPath, {
+    sessionId: input.existingSessionId, assistantId: input.agentUserId, deviceId: input.assistant.deviceId, ownerId: input.assistant.ownerId,
+  }) : null
+  const project = assistantWorkspace?.project ?? await resolveAgentSessionProject(input.projectPath)
   throwIfAborted()
   mark('projects-loaded')
   const opened = projectManager.getProject(project.id)
@@ -1849,7 +1858,7 @@ async function startSessionpageAgentSessionClaimed(
       return result.data
     })
   mark('project-opened')
-  const repositoryWorkspaceId = opened.repositoryWorkspaceId ?? project.repositoryWorkspaceId
+  const repositoryWorkspaceId = assistantWorkspace?.workspaceId ?? opened.repositoryWorkspaceId ?? project.repositoryWorkspaceId
   if (!repositoryWorkspaceId)
     throw new Error(`session-page project ${project.id} has no repository workspace to run in`)
   const provider = toAgentProviderId(pluginIdForAgentType(input.agentType))

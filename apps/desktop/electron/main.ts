@@ -399,6 +399,7 @@ import { applySessionMaterialization } from './session-materialization'
 import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
 import { startupDiscovery } from './sessionpage/startup-discovery'
 import { createAssistantPanelRuntime } from './sessionpage/assistant-panel-runtime'
+import { isPersonalAssistantAgent } from './sessionpage/assistant-agent-role'
 import { assistantWorkBinding, assistantWorkForAgent } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
@@ -966,12 +967,15 @@ function createDeviceSessionpageBridge() {
       if (!emdash) throw new Error('session-page agent session runtime is unavailable')
       bmark('sessionpage-loaded')
       const existingSessionId = await sessionpageAgentSessionForStart(input.agentUserId, auth.userId)
+      const assistant = await isPersonalAssistantAgent(auth, input.agentUserId)
+      if ((await authProvider?.getAuth())?.userId !== auth.userId) throw new Error('Agent creation account changed')
       return emdash.startSessionpageAgentSession({
         agentUserId: input.agentUserId,
         existingSessionId,
         displayName: input.displayName,
         agentType: input.agentType,
         projectPath: input.projectPath,
+        assistant: assistant ? { deviceId, ownerId: auth.userId } : undefined,
         chatId: input.chatId,
         initialText: input.initialText,
         initialPrompt: input.initialPrompt,
@@ -5087,6 +5091,9 @@ app.whenReady().then(async () => {
     })
     emdash.setSessionAdmissionPreparation((sessionId,text) => assistantPanel.prepare(sessionId,text))
     emdash.setProjectGroupHost(createSessionpageProjectGroupHost({ getAuth: getSessionpageAuth, env: process.env }))
+    emdash.setAssistantProjectCleanupOwner(async () => (await getSessionpageAuth())?.userId ?? null, localDeviceId)
+    onElectronCloudAnswer(() => { void emdash.runPendingAssistantProjectCleanup().catch(error =>
+      createLogger('assistant-project-cleanup').error({ error: String(error) }, 'Project cleanup remains pending')) })
     onProjectGroupMappingChanged(({ projectId }) => emdash.notifyProjectGroupBindingChanged(projectId))
     setSessionpageAgentCardRevoker(revokeAgentCards)
     // @@@task-shell-port (#5057) 「咕咕自营模型」那五个钩子的实现与网页版无头宿主共用一份

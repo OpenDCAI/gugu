@@ -646,6 +646,8 @@ export type SessionpageSessionReloadModelRequest = {
 export type SessionpageProjectSummary = { id: string; name: string; path: string; kind?: 'workspace' };
 
 export type SessionpageSessionSummary = {
+  /** Actual persisted execution directory; it can differ from the task workspace's project root. */
+  cwd?: string;
   /** The host preserves clientMessageId on raw session inputs. Absent on older hosts. */
   nativeInputVersion?: 1 | 2;
   /** Live native activity, not a second IM row. Offline heartbeat digests carry no message text. */
