@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { userEvent } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 import { Sheet } from '@/components/ui/Sheet';
 import { RemoteFolderPicker } from '@/components/RemoteFolderPicker';
@@ -72,6 +72,6 @@ it('lets the picker cancel its name input with Escape without dismissing the flo
   await until('the picker or floating card handles Escape', () => !document.querySelector('[data-testid="remote-folder-new-name"]') || host.querySelector('[data-testid="floating-card-state"]')!.textContent === 'hidden');
   expect(document.querySelector('[data-testid="remote-folder-new-name"]')).toBeNull();
   expect(host.querySelector('[data-testid="floating-card-state"]')!.textContent).toBe('shown');
-  expect(document.querySelector('[aria-label="Choose remote folder"]')).not.toBeNull();
+  await expect.element(page.getByRole('dialog', { name: 'Choose remote folder', exact: true })).toBeVisible();
   expect(host.querySelector('[data-testid="prompt-editor"]')!.textContent).toBe('');
 });
