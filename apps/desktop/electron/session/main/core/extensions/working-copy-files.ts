@@ -106,8 +106,11 @@ export async function readWorkingCopy(place: WorkspacePlace, file: string, offse
 
 /**
  * `files.onChanged({ workspace, folder? }, fn)`: what changed in the working copy — below `folder` when one is named —
- * by its path there, from the change feed the file panel and the search index hear. A session's working copy on another
- * machine sends nothing across machines: the watch is taken and stays quiet (listing again shows its changes).
+ * by its path there, from the change feed the file panel and the search index hear. Where a whole tree is watched one
+ * directory at a time (Linux, `@@@tree-by-directories`) the feed only carries directories someone watches, so the folder
+ * named is watched here and what a page has listed is watched by its tree; deeper changes reach a page on Linux only
+ * from there. A session's working copy on another machine sends nothing across machines: the watch is taken and stays
+ * quiet (listing again shows its changes).
  */
 export async function watchWorkingCopy(place: WorkspacePlace, folder: string | undefined, hear: (change: ExtensionFileChangeBatch) => void): Promise<() => void> {
   const session = workspaceSession(place);
@@ -115,7 +118,9 @@ export async function watchWorkingCopy(place: WorkspacePlace, folder: string | u
   if (session && await sessionMachine(session).catch(() => null)) return () => {};
   const [{ localRootOf }, { runtimeManager }] = await Promise.all([import('./app-files'), import('@main/core/runtime/runtime-manager')]);
   const { workspaceRoot: root } = await localRootOf(place);
-  const below = relOf(root, folderPath(root, folder) ?? root);
+  const named = folderPath(root, folder) ?? root;
+  const below = relOf(root, named);
+  const cannotWatch = () => new AppFileError('not-found', 'This folder cannot be watched on its computer');
   const lease = await runtimeManager.acquire();
   const feed = lease.value.files.watchChanges(root, (update) => {
     if (update.kind === 'resync') return hear({ kind: 'resync' });
@@ -125,7 +130,18 @@ export async function watchWorkingCopy(place: WorkspacePlace, folder: string | u
   }, { ignore: ['**/{.git,node_modules}/**'] });
   if (!feed.success) {
     await lease.release();
-    throw new AppFileError('not-found', 'This folder cannot be watched on its computer');
+    throw cannotWatch();
   }
-  return () => { feed.data.unsubscribe(); void lease.release(); };
+  const directory = lease.value.files.watchDirectory(named);
+  const stop = () => {
+    if (directory.success) directory.data();
+    feed.data.unsubscribe();
+    void lease.release();
+  };
+  const ready = await feed.data.ready();
+  if (!directory.success || !ready.success) {
+    stop();
+    throw cannotWatch();
+  }
+  return stop;
 }

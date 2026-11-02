@@ -466,7 +466,7 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
   if (watching.has(watchId)) throw Object.assign(new Error('This file watch is already registered'), { code: 'invalid' });
   let disk: { stop: () => void } | null = null;
   if (isWorkspace(place)) {
-    // The working copy's own change stream (the file panel's), under the folder named: no watch of its own.
+    // The working copy's change feed, the one the file panel hears, under the folder named: the same native watch.
     const { watchWorkingCopy } = await import('@main/core/extensions/working-copy-files');
     const stop = await watchWorkingCopy(place, folder, (change) => {
       if (extensionsService().hasCapability(caller.extensionId, 'files:read')) caller.hear({ type: 'filesChanged', watchId, place, change });
@@ -1826,7 +1826,8 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
       // what it opened is never refused.
       const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, await caller.resourcePage(args), args);
-      if (method === 'filesList' && (args.place as { workspace?: unknown } | null)?.workspace) workingCopyPages.add(caller.pageId);
+      const listsWorkingCopy = method === 'filesList' && Boolean((args.place as { workspace?: unknown } | null)?.workspace);
+      if (listsWorkingCopy) workingCopyPages.add(caller.pageId);
       const verbs = {
         filesOpen: 'openAppFile',
         filesReopen: 'reopenAppFile',
@@ -1846,7 +1847,13 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesVersions: 'appFileVersions',
         filesReadVersion: 'readAppFileVersion',
       } as const satisfies Record<typeof method, keyof typeof files>;
-      return await (files[verbs[method]] as (on: typeof page, input: never) => unknown)(page, args as never);
+      const answer = await (files[verbs[method]] as (on: typeof page, input: never) => unknown)(page, args as never);
+      // The page went away while it listed: `stopPageWatches` let go before this listing's tree was kept.
+      if (listsWorkingCopy && !workingCopyPages.has(caller.pageId)) {
+        const { releaseWorkingCopies } = await import('@main/core/extensions/working-copy-files');
+        releaseWorkingCopies(caller.pageId);
+      }
+      return answer;
     }
 
     case 'filesWatch':

@@ -12,9 +12,11 @@ const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'working-copy
 fs.writeFileSync(path.join(root, 'README.md'), 'hello');
 fs.mkdirSync(path.join(root, 'src'));
 
-const released = { tree: 0, feed: 0, unsubscribed: 0 };
+const released = { tree: 0, feed: 0, unsubscribed: 0, directory: 0 };
 let opensFail = false;
 let watchFails = false;
+let readyFails = false;
+const watchedDirectories: string[] = [];
 let feed: (update: unknown) => void = () => undefined;
 
 vi.mock('./app-files', () => ({ localRootOf: async () => ({ workspaceRoot: root, projectId: 'p', workspaceId: 'ws' }) }));
@@ -53,7 +55,14 @@ vi.mock('@main/core/runtime/runtime-manager', () => ({
           watchChanges: (_root: string, cb: (update: unknown) => void) => {
             if (watchFails) return err({ type: 'unavailable' });
             feed = cb;
-            return ok({ unsubscribe: () => { released.unsubscribed += 1; } });
+            return ok({
+              ready: async () => (readyFails ? err({ type: 'unavailable' }) : ok<void>()),
+              unsubscribe: () => { released.unsubscribed += 1; },
+            });
+          },
+          watchDirectory: (dir: string) => {
+            watchedDirectories.push(dir);
+            return ok(() => { released.directory += 1; });
           },
         },
       },
@@ -68,8 +77,9 @@ const place = { workspace: { session: 'never-opened' } } as never;
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
 beforeEach(() => {
-  released.tree = 0; released.feed = 0; released.unsubscribed = 0;
-  opensFail = false; watchFails = false; feed = () => undefined;
+  released.tree = 0; released.feed = 0; released.unsubscribed = 0; released.directory = 0;
+  opensFail = false; watchFails = false; readyFails = false; feed = () => undefined;
+  watchedDirectories.length = 0;
 });
 
 describe('a working copy nothing has opened', () => {
@@ -103,12 +113,19 @@ describe('a working copy nothing has opened', () => {
     feed({ kind: 'resync' });
     expect(heard).toEqual([{ kind: 'changes', changes: [{ kind: 'modify', path: 'src/a.ts' }] }, { kind: 'resync' }]);
     stop();
-    expect(released).toMatchObject({ unsubscribed: 1, feed: 1 });
+    expect(watchedDirectories).toEqual([path.join(root, 'src')]);
+    expect(released).toMatchObject({ unsubscribed: 1, directory: 1, feed: 1 });
   });
 
   it('a watch that cannot start is an error, never a quiet success', async () => {
     watchFails = true;
     await expect(watchWorkingCopy(place, undefined, () => undefined)).rejects.toMatchObject({ code: 'not-found' });
     expect(released.feed).toBe(1);
+  });
+
+  it('a watch whose native start fails later is an error too, and lets everything go', async () => {
+    readyFails = true;
+    await expect(watchWorkingCopy(place, undefined, () => undefined)).rejects.toMatchObject({ code: 'not-found' });
+    expect(released).toMatchObject({ unsubscribed: 1, directory: 1, feed: 1 });
   });
 });
