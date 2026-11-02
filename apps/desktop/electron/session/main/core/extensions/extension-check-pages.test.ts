@@ -44,7 +44,10 @@ vi.mock('electron', () => ({
           isAttached: () => true,
           attach: () => undefined,
           sendCommand: async (method: string) => {
-            if (method === 'Accessibility.getFullAXTree') return TREE;
+            if (method === 'Accessibility.getFullAXTree') {
+              navigation.push(`snapshot:${id}`);
+              return TREE;
+            }
             if (method === 'DOM.getBoxModel') return { model: { border: [0, 0, 40, 0, 40, 20, 0, 20] } };
             return {};
           },
@@ -316,6 +319,8 @@ describe('hidden widget checks', () => {
     const report = await check({ widget, chatId: 'chat-1', caller: 's1', phone: true, look: false });
     expect(report.widget?.size).toEqual({ w: 267, h: 240 });
     expect(windows[0]!.size).toEqual({ width: 267, height: 240 });
+    expect(navigation.slice(0, 3)).toEqual(['loaded:100', 'sized:100', 'snapshot:100']);
+    expect(report.snapshot).toContain('button "Go"');
     expect(report.pictures).toBeUndefined();
   });
   it.each(['missing', 'disabled', 'view', 'platform'] as const)('%s returns the same unavailable reason/text without a page', async reason => {

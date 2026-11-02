@@ -184,6 +184,7 @@ export async function checkExtensionSurface(request: ExtensionCheckRequest): Pro
           log.warn('app_check could not keep the page painting', { extensionId: request.extensionId, message });
         }
       }
+      if (widget) await byDeadline(showAtSize(contents, page.size), Date.now() + EXTENSION_STEP_WAIT_MS, SILENT);
     }
     // Loaded or not, what it shows by now is worth reading: let it settle — its files opened, then quiet — and read.
     let shown = '';
