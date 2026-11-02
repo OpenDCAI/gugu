@@ -220,7 +220,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
         offlineNotice
       ) : null}
 
-      {answering && !recovery.pendingPrompt && (recovery.error || (!recovery.busy && (error || nativeRecord.error))) ? (
+      {answering && !recovery.pendingPrompt && !recovery.refreshing && (error || nativeRecord.error || recovery.error) ? (
         <SessionLoadFailure
           title={t('agentWatch.timeline.loadFailed')}
           detail={recovery.error ?? nativeRecord.error ?? error ?? ''}

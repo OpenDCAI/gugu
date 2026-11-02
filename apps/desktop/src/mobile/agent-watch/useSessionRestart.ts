@@ -53,7 +53,6 @@ export function useSessionRestart({ deviceId, projectId, sessionId, missing, onl
             if (active) setAttempt(null)
             return
           }
-          if (next.kind === 'failed') { setAttempt(null); return }
           if (next.kind === 'dormant' && next.hold !== null) { setAttempt(null); return }
         }
       } catch (cause) {
@@ -91,8 +90,9 @@ export function useSessionRestart({ deviceId, projectId, sessionId, missing, onl
     ? { id: head.id, text: head.text, starting: 'starting', held: true, ...(row?.sentAt !== undefined ? { sentAt: row.sentAt } : {}) }
     : null
   return {
-    canStartFresh: missing && eligible === key,
-    busy: busy === key || attempt?.key === key,
+    canStartFresh: missing && eligible === key && life?.kind !== 'failed' && life?.kind !== 'ready',
+    busy: busy === key || (attempt?.key === key && life?.kind !== 'failed'),
+    refreshing: attempt?.key === key && life?.kind === 'ready',
     pendingPrompt,
     error: error?.key === key ? error.message : life?.failure?.message ?? null,
     startFresh: () => start(true),
