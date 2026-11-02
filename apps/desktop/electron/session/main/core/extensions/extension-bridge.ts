@@ -1039,6 +1039,11 @@ export function setExtensionBridgeHost(next: ExtensionBridgeHost | null): void {
   host = next;
 }
 
+/** The same presentation facts every App context receives, also when no App page can be opened. */
+export function extensionPresentation(): ReturnType<ExtensionBridgeHost['presentation']> {
+  return requireHost().presentation();
+}
+
 function requireHost(): ExtensionBridgeHost {
   if (!host) throw new Error('App bridge host is not installed');
   return host;

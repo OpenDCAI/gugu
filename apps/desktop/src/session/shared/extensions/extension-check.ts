@@ -80,6 +80,13 @@ export interface ExtensionStepResult {
   shown?: CheckReadings['shown'];
 }
 
+/** Resolved by the social host after the same message visibility and membership checks as attachments. */
+export const WIDGET_CHECK_SCHEMA = z.object({
+  id: z.string().min(1), messageId: z.string().min(1), senderId: z.string().min(1),
+  text: z.string(), data: z.record(z.string(), z.unknown()),
+});
+export type WidgetCheck = z.infer<typeof WIDGET_CHECK_SCHEMA>;
+
 export interface ExtensionCheckRequest {
   extensionId: string;
   /** Installed, switched on and a tab of this extension — checked before the host is asked. */
@@ -98,6 +105,8 @@ export interface ExtensionCheckRequest {
   /** Done once it settled, at one size: where it opens with a mouse, or a phone's width with touch (`phone`). */
   steps?: ExtensionStepRequest[];
   phone?: boolean;
+  look?: boolean;
+  widget?: WidgetCheck;
   /** The session asking: a page it opens is kept for it alone to go on with (absent: closed after this check). */
   caller?: string;
   /** Who works the page (owner 10-14): the agent of the session asking — never the person, whose screen it is not on. */
@@ -107,6 +116,13 @@ export interface ExtensionCheckRequest {
 }
 
 export interface ExtensionCheckReport {
+  rendered?: boolean;
+  reason?: 'missing' | 'disabled' | 'view' | 'platform';
+  text?: string;
+  locale?: string;
+  themeMode?: 'light' | 'dark';
+  widget?: { id: string; message_id: string; chat_id: string; app_version?: string; size?: { w: number; h: number } };
+  note?: string;
   /** The page finished loading and its scripts ran. */
   loaded: boolean;
   /** Why it did not: failed to load, crashed, timed out. */

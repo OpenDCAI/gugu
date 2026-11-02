@@ -77,7 +77,9 @@ export const APP_INSTALL_ARGS = {
 
 export const APP_CHECK_ARGS = {
   // F14 (L7-b) The tab_kind app_install / app_search hand back: one value names the App and its tab.
-  tab_kind: z.string().min(1).describe('Which tab of which App, exactly as app_install and app_search hand it back ("<id>.<tab>").'),
+  tab_kind: z.string().min(1).describe('"<id>.<tab>" from app_install/app_search; inferred for a widget message, otherwise required.').optional(),
+  message_id: z.string().min(1).describe('A widget message (msg:…) you can read; checks that card with its original data. Instead of item_id/chat_id/file_path.').optional(),
+  widget_id: z.string().min(1).describe('Instead of message_id: the widget id (currently its message id).').optional(),
   // F5 The host already read chat_id / item_id as this agent (acp-engine-utils withMessageAttachment).
   item_id: z.string().min(1).describe('A chat\'s file (workspace__list) the tab opens: it runs opened on that file, in that file\'s chat. An App of chat files wants it.').optional(),
   chat_id: z.string().min(1).describe('Only without item_id: a chat you are in, and the tab runs as it does in that chat\'s side panel. With item_id it must be that file\'s chat.').optional(),
@@ -86,9 +88,19 @@ export const APP_CHECK_ARGS = {
   // Owner 10-12: what to click, fill, call and wait for once it settled; at a phone's width with touch (`phone`).
   steps: z.array(EXTENSION_STEP_SCHEMA).min(1).max(30).describe('Once it settled, in order, as a person would: {"click":{role,name}}, {"fill":{role,name},"text"}, {"press":"Enter"} (or Escape, Tab, Backspace, an arrow: on what has the focus), {"waitFor":{role,name} or {text}} (up to 5 s); "look": true adds a picture after that step. Name a control by its role and name as the snapshot says them; several alike: add "within": {role,name} or {role,text}. One match or the step fails, listing candidates; the first failure stops the rest. Up to 15 s in all.').optional(),
   phone: z.boolean().describe('With steps: run them at a phone\'s width, tapping instead of clicking.').optional(),
+  look: z.boolean().describe('Include pictures (default true).').optional(),
   // Owner 10-13: go on with the page an earlier check of this session kept, where it was left.
   page: z.string().min(1).describe('The page an earlier app_check of yours answered with: the steps go on there, where it was left (its selection, scroll, open dialog). Alone with tab_kind and steps.').optional(),
 };
+
+/** Public targets only; the host resolves a widget's chat and binding after checking its message. */
+export function appCheckTargetError(args: { tab_kind?: unknown; message_id?: unknown; widget_id?: unknown; item_id?: unknown; chat_id?: unknown; file_path?: unknown }): string | null {
+  const widget = args.message_id !== undefined || args.widget_id !== undefined;
+  if (args.message_id !== undefined && args.widget_id !== undefined) return 'app_check: pass message_id or widget_id, not both';
+  if (widget && [args.item_id, args.chat_id, args.file_path].some((value) => value !== undefined)) return 'app_check: a widget message cannot be combined with item_id, chat_id or file_path';
+  if (!widget && args.tab_kind === undefined) return 'app_check: tab_kind is required without a widget message';
+  return null;
+}
 
 /** A resource reference selects the installed copy on its registered device, never a local namesake. */
 export const APP_MANAGE_ARGS = {
