@@ -97,7 +97,6 @@ export const sessionTimelineController = createRPCController({
     if (owned.get(sender)?.exchanges.delete(subscriptionId)) unwatchTaskExchanges(`${sender}:${subscriptionId}`);
   }),
   sessionsList: async () => service.listSessions(),
-  sessionProjectLocations: async (sessionIds: string[]) => (await import('./session-project-locations')).sessionProjectLocations(sessionIds),
   sessionOfAgent: (agentUserId: string) => service.sessionOfAgent(agentUserId),
   sessionNativeRecord: service.nativeRecord,
   sessionNativeToolImage: service.nativeToolImage,

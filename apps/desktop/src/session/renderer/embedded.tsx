@@ -49,7 +49,7 @@ import { setupViewCommandProvider } from '@renderer/lib/commands/view-command-pr
 import { wireCommitHistoryInvalidation } from '@renderer/lib/commit-history-invalidation';
 import { wireExternalLinkRequests } from '@renderer/lib/external-link-requests';
 import { wireSessionsOnScreenReport } from '@renderer/app/sessions-on-screen';
-import { rpc } from '@renderer/lib/ipc';
+import { rpc, rpcOn } from '@renderer/lib/ipc';
 import { wireModelRegistryInvalidation } from '@renderer/lib/monaco/invalidation-bridges';
 import { monacoBootstrap } from '@renderer/lib/monaco/monaco-bootstrap';
 import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
@@ -72,7 +72,7 @@ import { groupParticipantRequests } from './features/chats/group-participant-req
 import { wireGroupParticipantAccount } from './features/chats/group-participant-account';
 import { installSessionTabViews, prewarmSessionTabViews } from './features/sessions/session-tab-views';
 import { appState } from './lib/stores/app-state';
-import { prepareSessionProjectRestore, readSavedSessionProjectLocations } from './features/sessions/restore-session-projects';
+import { restoreSavedScreenSessionLocations, savedScreenSessionIds } from './features/sessions/restore-session-projects';
 import { SessionLocalizationProvider } from './localization/localization-provider';
 import { reportSessionRendererBootFailure } from '@/session/shared/lib/session-renderer-boot';
 
@@ -251,27 +251,22 @@ async function bootstrap() {
   const results = await Promise.allSettled([
     settleOptional(rpc.viewState.get('navigation') as Promise<NavigationSnapshot> | null),
     settleOptional(rpc.viewState.get('sidebar')),
-    settleOptional(rpc.viewState.getAll()),
+    settleOptional(rpcOn(null).viewState.getForRestore(savedScreenSessionIds())),
     settleOptional(prefetchAppSettingsKey('interface')),
     settleOptional(prefetchAppSettingsKey('browser')),
-    settleOptional(readSavedSessionProjectLocations()),
   ]);
-  const [navState, sidebarState, allViewStateResult, , , localLocations] = results;
+  const [navState, sidebarState, allViewStateResult] = results;
   for (const result of results) {
     if (result.status === 'rejected') log.warn('Renderer bootstrap optional state failed:', result.reason);
   }
   const savedNav = navState.status === 'fulfilled' ? (navState.value as NavigationSnapshot) : null;
   const sidebarResult = sidebarState.status === 'fulfilled' ? sidebarState.value : null;
-  const allViewState = allViewStateResult.status === 'fulfilled' && allViewStateResult.value
-    ? (allViewStateResult.value as Record<string, unknown>)
-    : {};
-
-  const restored = prepareSessionProjectRestore(savedNav, allViewState,
-    localLocations.status === 'fulfilled' ? localLocations.value ?? [] : []);
-  viewStateCache.populate(restored.views);
+  const restoreState = allViewStateResult.status === 'fulfilled' ? allViewStateResult.value : null;
+  restoreSavedScreenSessionLocations(restoreState?.locations ?? []);
+  viewStateCache.populate(restoreState?.views ?? {});
 
   setupNavigationGuards();
-  if (restored.navigation) appState.navigation.restoreSnapshot(restored.navigation);
+  if (savedNav) appState.navigation.restoreSnapshot(savedNav);
   setupAppCommandProvider();
   setupExtensionCommandProvider();
   setupViewCommandProvider();

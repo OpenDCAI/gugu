@@ -1,12 +1,10 @@
 import { alignSessionProjectReferences, referencedSessionIds, type SessionProjectLocation } from '@shared/core/projects/session-project-references';
 import { appState } from '@renderer/lib/stores/app-state';
 import { screenLayout } from '@renderer/app/screen-layout';
-import { rpc, rpcOn } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
-import type { NavigationSnapshot } from '@shared/view-state';
 
 /** The host repairs its view-state KV during migration; only saved renderer references need querying. */
-export async function readSavedSessionProjectLocations(): Promise<SessionProjectLocation[]> {
+export function savedScreenSessionIds(): string[] {
   let screen: unknown = null;
   try {
     const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem('gugu.screen-layout.v1');
@@ -14,8 +12,7 @@ export async function readSavedSessionProjectLocations(): Promise<SessionProject
   } catch (error) {
     log.warn('Could not read saved session locations', { error });
   }
-  const ids = referencedSessionIds(screen);
-  return ids.length ? rpcOn(null).sessionTimeline.sessionProjectLocations(ids) : [];
+  return referencedSessionIds(screen);
 }
 
 function alignSavedScreen(locations: readonly SessionProjectLocation[]): void {
@@ -30,15 +27,9 @@ function alignSavedScreen(locations: readonly SessionProjectLocation[]): void {
   }
 }
 
-/** Before restoring guards/layouts, align local snapshots with the host's actual session rows. */
-export function prepareSessionProjectRestore(
-  navigation: NavigationSnapshot | null, views: Record<string, unknown>, locations: readonly SessionProjectLocation[],
-) {
+/** The host already repaired navigation/view-state KV; the renderer owns only its saved screen. */
+export function restoreSavedScreenSessionLocations(locations: readonly SessionProjectLocation[]): void {
   alignSavedScreen(locations);
-  const next = alignSessionProjectReferences(navigation, locations);
-  if (next && next !== navigation) void rpc.viewState.save('navigation', next).catch(error =>
-    log.warn('Could not save the restored session location', { error }));
-  return { navigation: next, views: alignSessionProjectReferences(views, locations) };
 }
 
 /** A remote directory changed: update references before the old project is removed and guards revalidate. */
