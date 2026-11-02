@@ -4,7 +4,7 @@ import { hostAppFrame } from '../../../../apps/desktop/src/components/appSlot/ph
 import { listenAppModals, type AppModalPresentation } from '../../../../apps/desktop/src/components/appModal/appModal';
 import { installedExtensionsStore } from '../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store';
 import { EXTENSION_API_VERSION, parseExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest';
-import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol';
+import { APP_FRAME_MARKER, APP_RUNTIME_GATE_PAGE } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol';
 
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => ({}) }));
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererAccessToken: () => null }));
@@ -45,7 +45,7 @@ describe('App modals in the phone host', () => {
   it('uses the same sandbox origin, receives initial data and returns the form result without another gesture', async () => {
     const result = call(frame, 'modalOpen', { id: 'phone-one', entry: 'new.html', title: 'New', data: { column: 'todo' } });
     await vi.waitFor(() => expect(presentation).toBeDefined());
-    expect(presentation?.url).toBe('https://board.apps.gugu.invalid/new.html');
+    expect(presentation?.url).toBe(`https://board.gate.gugu.invalid${APP_RUNTIME_GATE_PAGE}?page=new.html`);
     child = document.createElement('iframe'); child.src = presentation!.url; document.body.append(child); watch(child);
     detach = presentation!.attach(child);
     from(child, { t: 'hello' });

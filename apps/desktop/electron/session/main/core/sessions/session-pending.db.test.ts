@@ -11,6 +11,8 @@ vi.mock('@main/db/client', () => ({
   },
 }));
 
+import { eq } from 'drizzle-orm';
+import { sessions } from '@main/db/schema';
 import { enqueuePending, lifeStore } from './session-pending';
 
 const source = (messageId: string) => ({ agentUserId: 'agent', row: { id: messageId, chatId: 'chat', seq: 1 } as never });
@@ -44,6 +46,26 @@ describe('session_pending store', () => {
     expect(() => enqueuePending(batch('b2', ['c1']))).toThrow(/overlaps claimed sources/);
     expect(() => enqueuePending(batch('b3', ['c2', 'c3']))).toThrow(/overlaps claimed sources/);
     expect(fixture.sqlite.prepare('SELECT count(*) AS n FROM session_pending').get()).toEqual({ n: 1 });
+  });
+
+  it('a discard takes the message and its row, and creation turns can not re-admit it', () => {
+    fixture.sqlite.prepare("UPDATE sessions SET config = ? WHERE id = 's'").run(JSON.stringify({ version: '1', type: 'acp', agentDisplayName: 'T', firstUtterance: 'first', initialQueue: [{ text: 'first', origin: 'manual' }] }));
+    expect(lifeStore.pending('s')).toEqual({ queued: [], dispatching: [] });
+    const seeded = fixture.db.select({ config: sessions.config }).from(sessions).where(eq(sessions.id, 's')).get();
+    expect(seeded?.config, 'the fixture really is a stored config').toMatchObject({ type: 'acp', initialQueue: [{ text: 'first' }] });
+    const keep = enqueuePending({ sessionId: 's', messageId: 'keep', text: 'keep', kind: 'ordinary' }).seq;
+    const gone = enqueuePending({ sessionId: 's', messageId: 's:creation:0', text: 'first', kind: 'ordinary',
+      sources: [source('src')] }).seq;
+
+    lifeStore.commit('s', [{ e: 'delete-row', seq: gone }]);
+
+    expect(fixture.sqlite.prepare("SELECT id FROM messages WHERE session_id = 's' ORDER BY id").all()).toEqual([{ id: 'keep' }]);
+    expect(lifeStore.pending('s')).toEqual({ queued: [keep], dispatching: [] });
+    expect(fixture.sqlite.prepare('SELECT count(*) AS n FROM session_pending_source').get(), 'its sources go with the row').toEqual({ n: 0 });
+    const after = fixture.db.select({ config: sessions.config }).from(sessions).where(eq(sessions.id, 's')).get();
+    expect(after?.config).toMatchObject({ type: 'acp' });
+    expect(after?.config, 'creation can not re-admit it').not.toHaveProperty('initialQueue');
+    expect(() => lifeStore.commit('s', [{ e: 'delete-row', seq: gone }]), 'a row already gone is loud').toThrow(/no pending row/);
   });
 
   it('commits receipts and holds in one transaction and claims interrupted dispatches as unknown', () => {

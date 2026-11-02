@@ -131,7 +131,7 @@ export function PhoneSkillsManager({ deviceId, sessionId, busy, onClose }: { dev
             </>
           ) : (
             <>
-              <SettingsNote>保存后从下一轮生效，已有对话和记录保留。</SettingsNote>
+              <SettingsNote>保存后从下次回复生效，已有对话和记录保留。</SettingsNote>
               <div className="gg-phone-skills-actions"><Button variant="ghost" disabled={saving} onClick={close}>取消</Button><Button variant="primary" disabled={disabled || !dirty} onClick={() => void save()} data-testid="phone-skills-save">{saving ? '正在保存' : '保存'}</Button></div>
             </>
           )}

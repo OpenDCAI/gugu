@@ -128,6 +128,16 @@ export const transitionCases: readonly { row: number; name: string; run: () => v
 ]
 
 export const invariantCases: readonly { name: string; run: () => void }[] = [
+  { name: 'discarding takes only a row a person\'s stop holds, and leaves the stop in place', run() {
+    const r = decide(dormant(STOP), { k: 'discard-row', seq: seq(10) }, pending([10]))
+    assert.deepEqual(r[1], [{ e: 'delete-row', seq: seq(10) }])
+    assert.ok(r[0].kind === 'dormant' && r[0].hold?.reason === 'user-stop')
+    assert.throws(() => decide(dormant(STOP), { k: 'discard-row', seq: seq(11) }, pending([10])), LifeProtocolError)
+    assert.deepEqual(decide(stopping('user-stop'), { k: 'discard-row', seq: seq(10) }, pending([10]))[1], [{ e: 'delete-row', seq: seq(10) }])
+    assert.throws(() => decide(stopping('version-switch'), { k: 'discard-row', seq: seq(10) }, pending([10])), LifeProtocolError)
+    assert.throws(() => decide(dormant(), { k: 'discard-row', seq: seq(10) }, pending([10])), LifeProtocolError)
+    assert.throws(() => decide(ready(), { k: 'discard-row', seq: seq(10) }, pending([10])), LifeProtocolError)
+  } },
   { name: 'a failure only the person resolves: new input waits queued (deliver, settle, hydrate); an explicit start still starts it', run() {
     const AWAITS = { ...FAILED, awaitsPerson: true as const }
     noChange(dormant(AWAITS), deliver, pending([20]))

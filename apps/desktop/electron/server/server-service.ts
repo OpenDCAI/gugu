@@ -398,7 +398,7 @@ export async function installServiceWith(out: Out, deps: InstallServiceDeps): Pr
     if (before) {
       out(`正在把 ${label(before.version)}(进程 ${before.pid})换成 ${targetVersion ?? '这一版'}。`)
       if (deps.isBusy()) {
-        out('⚠ 有 agent 正在运行,这一轮会被中断。')
+        out('⚠ 有 agent 正在运行,正在进行的回复会被中断。')
       }
     }
 

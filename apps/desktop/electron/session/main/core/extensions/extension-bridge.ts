@@ -41,6 +41,7 @@ import {
   needsGesture,
   gestureRefusal,
   callRefusal,
+  type CallRefusalCaller,
 } from '@shared/extensions/bridge-protocol';
 import type {
   ExtensionHostAction,
@@ -174,6 +175,8 @@ export interface BridgeCaller {
   callingAgent?: string | null;
   /** The task stamped by main for this exact program call; never read from the tool arguments. */
   callingSession?: string;
+  /** A page's: whether its preload read the person's activation as the call left the page (`CallRefusalCaller`). */
+  gesture?: boolean;
 }
 
 /** Events to a page or the background page: their webContents, while it lives. */
@@ -187,7 +190,7 @@ function hearOn(webContentsId: number): (event: ExtensionHostEvent) => boolean {
   };
 }
 
-function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCaller {
+function pageCaller(binding: SurfaceBinding, webContentsId: number, gesture: boolean): BridgeCaller {
   const filePage = () => ({
     takeOpening: () => {
       const opening = binding.opening;
@@ -210,6 +213,7 @@ function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCalle
     filePage,
     resourcePage: filePage,
     hear: hearOn(webContentsId),
+    gesture,
   };
 }
 
@@ -217,7 +221,7 @@ function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCalle
 export async function captureSessionpageProjectionViewer(webContentsId: number) {
   const binding = bindings.get(webContentsId), contents = webContents.fromId(webContentsId);
   if (!binding || !contents || contents.isDestroyed() || !sessionOfBinding(binding)) throw new Error('Projection viewer page is unavailable');
-  const page = extensionProjections.viewerPage(pageCaller(binding, webContentsId));
+  const page = extensionProjections.viewerPage(pageCaller(binding, webContentsId, false));
   try {
     const version = extensionsService().get(binding.extensionId).manifest.version;
     const assertCurrent = () => {
@@ -393,7 +397,7 @@ export function reportBlockedNavigation(webContentsId: number, url: string): voi
     // Not a URL at all: said as it was written.
   }
   const message = `This page stays on its own origin: going to ${where} was stopped. Open links with gugu.openBrowserTab(url).`;
-  void reportFrom(pageCaller(binding, webContentsId), message, 'error').catch(() => undefined);
+  void reportFrom(pageCaller(binding, webContentsId, false), message, 'error').catch(() => undefined);
 }
 
 /** `app_check`: hear what this page reports with `gugu.reportError`, until the returned stop. */
@@ -1476,8 +1480,8 @@ function deliverToEveryPage(extensionId: string, event: ExtensionHostEvent, keep
  * agent working the page gets instead of the person's screen — then the verb. A page, the background page and a program differ only in what their context
  * holds and in the few verbs about a page itself.
  */
-export async function answerCall(caller: BridgeCaller, method: string, args: Record<string, unknown>, gesture = false): Promise<ExtensionBridgeResponse> {
-  if (method === 'dispatch' && caller.binding?.widget && !gesture) {
+export async function answerCall(caller: BridgeCaller, method: string, args: Record<string, unknown>): Promise<ExtensionBridgeResponse> {
+  if (method === 'dispatch' && caller.binding?.widget && caller.gesture !== true) {
     const refusal = gestureRefusal(method);
     return { ok: false, code: refusal.code, message: refusal.message };
   }
@@ -1485,8 +1489,9 @@ export async function answerCall(caller: BridgeCaller, method: string, args: Rec
     try { return { ok: true, value: await extensionProjections.call(caller, method, args) }; }
     catch (error) { return failure(caller.extensionId, method, error); }
   }
-  // The gesture was read in the preload's world (and a program has none): not here.
-  const refusal = callRefusal(method, args, { kind: caller.kind, has: (capability) => extensionsService().hasCapability(caller.extensionId, capability) });
+  const has: CallRefusalCaller['has'] = (capability) => extensionsService().hasCapability(caller.extensionId, capability);
+  // A page's gesture was read in its preload's world and came with the call (`pageCaller`); a program has none.
+  const refusal = callRefusal(method, args, caller.kind === 'page' ? { kind: 'page', has, gesture: caller.gesture === true } : { kind: caller.kind, has });
   if (refusal) return { ok: false, ...refusal };
   const facts = verbFacts(method)!;
   // A page an agent works (owner 10-14): what would reach the person's screen is handed back to the agent instead — after
@@ -1991,7 +1996,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
 
     case 'clipboardWriteText':
-      // The gesture was checked in the preload (the only world a page cannot reach).
+      // The gesture was judged at the door (`callRefusal`, on what the preload read).
       await clipboard.writeText(pageArgument('clipboardWriteText', args));
       return undefined;
 
@@ -2112,7 +2117,7 @@ export function registerExtensionBridge(): void {
       if (!binding || binding.extensionId !== extensionId) {
         return { ok: false, code: 'failed', message: 'This page is not bound yet' };
       }
-      return await answerCall(pageCaller(binding, event.sender.id), method, args, request.gesture === true);
+      return await answerCall(pageCaller(binding, event.sender.id, request.gesture === true), method, args);
     }
   );
   // The theme a page loads in, for its first paint (EXTENSION_THEME_CHANNEL): what its context will say. The page is

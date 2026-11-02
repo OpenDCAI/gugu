@@ -69,13 +69,13 @@ describe('the verb row: what a call needs', () => {
 
   it('at the door: no chat:relay refuses a named member, not the sheet; a program never opens the sheet', () => {
     const has = () => false;
-    expect(callRefusal('dispatch', { to: { chat: GROUP, member: `user:${AGENT}` }, text: 'x' }, { kind: 'page', has })).toMatchObject({ code: 'denied', message: expect.stringContaining('chat:relay') });
+    expect(callRefusal('dispatch', { to: { chat: GROUP, member: `user:${AGENT}` }, text: 'x' }, { kind: 'page', has, gesture: true })).toMatchObject({ code: 'denied', message: expect.stringContaining('chat:relay') });
     expect(callRefusal('dispatch', { text: 'x' }, { kind: 'page', has, gesture: true })).toBeNull();
     expect(callRefusal('dispatch', { text: 'x' }, { kind: 'page', has, gesture: false })).toMatchObject({ code: 'denied', message: expect.stringContaining('gesture') });
     expect(callRefusal('dispatch', { text: 'x' }, { kind: 'program', has })).toMatchObject({ code: 'denied' });
     expect(callRefusal('dispatch', { to: { agent: `user:${AGENT}` }, text: 'x' }, { kind: 'program', has: () => true })).toBeNull();
     // The old verbs are not verbs any more.
-    for (const gone of ['compose', 'send', 'messageAgent', 'spawnAgent']) expect(callRefusal(gone, {}, { kind: 'page', has })).toMatchObject({ code: 'invalid' });
+    for (const gone of ['compose', 'send', 'messageAgent', 'spawnAgent']) expect(callRefusal(gone, {}, { kind: 'page', has, gesture: true })).toMatchObject({ code: 'invalid' });
   });
 
   it('what goes with which target is said where it does not', () => {

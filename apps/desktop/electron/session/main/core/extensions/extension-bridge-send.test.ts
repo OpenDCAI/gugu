@@ -56,7 +56,7 @@ const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-pro
 registerExtensionBridge();
 const handle = handlers.get(EXTENSION_BRIDGE_CHANNEL)!;
 const call = (sender: number, args: Record<string, unknown>, method = 'dispatch') =>
-  handle({ sender: { id: sender, session: {} } }, { method, args });
+  handle({ sender: { id: sender, session: {} } }, { method, args, gesture: true });
 
 const AGENT = 'user:0a000000-0000-4000-8000-000000000016';
 const CHAT = '0b000000-0000-4000-8000-000000000016';
@@ -80,7 +80,9 @@ describe('gugu.dispatch over the bridge', () => {
     await bindExtensionSurface({ webContentsId: WIDGET, extensionId: 'chess', tabId: 'widget:message', tabKind: 'chess.main', conversation: CHAT, widget });
     widget.data.count = 99;
     expect(extensionSurfaceBindingForTests(WIDGET)?.widget?.data.count).toBe(1);
-    expect(await call(WIDGET, { to: MEMBER, text: 'onload', gesture: true })).toMatchObject({ ok: false, code: 'denied' });
+    for (const gesture of [undefined, false]) {
+      expect(await handle({ sender: contentsOf(WIDGET) }, { method: 'dispatch', args: { to: MEMBER, text: 'onload', gesture: true }, gesture })).toMatchObject({ ok: false, code: 'denied' });
+    }
     expect(dispatchForApp).not.toHaveBeenCalled();
     dispatchForApp.mockResolvedValue({ id: 'sent' });
     expect(await handle({ sender: contentsOf(WIDGET) }, { method: 'dispatch', args: { to: MEMBER, text: 'clicked' }, gesture: true })).toEqual({ ok: true, value: { id: 'sent' } });

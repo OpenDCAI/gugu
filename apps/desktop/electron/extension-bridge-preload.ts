@@ -7,10 +7,9 @@ import {
   EXTENSION_BRIDGE_CHANNEL,
   EXTENSION_BRIDGE_EVENT_CHANNEL,
   EXTENSION_THEME_CHANNEL,
-  gestureRefusal,
-  needsGesture,
   CHECK_PAGE_ARG,
   type PageCounts,
+  type ExtensionBridgeRequest,
   type ExtensionBridgeResponse,
   type ExtensionHostEvent,
 } from '../src/session/shared/extensions/bridge-protocol';
@@ -42,17 +41,15 @@ installProcessMetricsResponder(ipcRenderer, process, 'app');
  */
 
 async function call(method: string, args?: unknown): Promise<unknown> {
+  // Whether the person's input landed in this page (a click, a key): read here, in the preload's world, where a page
+  // script can neither fake nor extend it — and before anything is awaited: the activation lapses. Main judges it with
+  // every other refusal (`callRefusal`), as the phone's host judges what its gate read.
   const gesture = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive === true;
-  // A verb that needs the person's gesture (a click, a key) is checked here, in the preload's world, where a page
-  // script can neither fake nor extend it — and before anything is awaited: the activation lapses.
-  if (needsGesture(method, args) && !gesture) {
-    throw gestureRefusal(method);
-  }
   const response = (await ipcRenderer.invoke(EXTENSION_BRIDGE_CHANNEL, {
     method,
     args,
     gesture,
-  })) as ExtensionBridgeResponse;
+  } satisfies ExtensionBridgeRequest)) as ExtensionBridgeResponse;
   if (response.ok) return response.value;
   // Carrying the code out means an extension can tell "the user said no" apart
   // from "that failed" and stop asking, instead of retrying against a wall.

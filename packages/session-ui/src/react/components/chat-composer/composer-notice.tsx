@@ -22,9 +22,9 @@ export function stopReasonNotice(reason: string): ComposerNotice | null {
     case 'max_turn_requests':
       return {
         variant: 'error',
-        title: 'Turn limit reached',
+        title: 'Request limit reached',
         message:
-          'The agent hit the maximum number of turn requests. Send a new message to continue.',
+          'The agent reached the request limit. Send a new message to continue.',
       };
     case 'max_tokens':
       return {
