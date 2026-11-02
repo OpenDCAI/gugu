@@ -27,7 +27,7 @@ describe('server update activity reported by the account that is waiting', () =>
     }
   })
 
-  it('reads only the installation update while using the single account's activity', () => {
+  it('reads only the installation update while using the activity from the single account', () => {
     const files: Record<string, string> = {
       '/srv/accounts/u/data/server-update.json': ready,
       '/srv/accounts/u/data/activity.json': activity(2),

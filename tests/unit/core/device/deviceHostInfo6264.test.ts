@@ -63,7 +63,7 @@ describe('#6264 设备行上报「这是台什么机器」', () => {
     expect(readText).not.toHaveBeenCalledWith('/srv/gugu/data/server-update.json')
   })
 
-  it('projects the installation target with the single account's fresh activity', () => {
+  it('projects the installation target with the fresh activity from the single account', () => {
     const now = 1_000_000
     const target = '0.3.1-beta.1128'
     const files: Record<string, string> = {
