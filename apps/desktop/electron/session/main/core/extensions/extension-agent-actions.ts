@@ -366,7 +366,6 @@ const kept = (report: ExtensionCheckReport) =>
 
 export function checkResult(report: ExtensionCheckReport, now = Date.now()) {
   const widget = report.widget ? { rendered: report.rendered, widget: report.widget, text: report.text, locale: report.locale, themeMode: report.themeMode, note: report.note } : {};
-  if (report.rendered === false) return { ok: false, loaded: false, ...widget, reason: report.reason };
   // What the page threw also comes through the runtime's reportError (摩擦单 F63), as "<message> (<file>:<line>)": said
   // once, by the console's copy, which carries the line of source (F75).
   const thrown = new Set(report.errors.filter((error) => error.kind !== 'reportError' && error.source).map((error) => `${error.message} (${error.source})`));
@@ -410,6 +409,7 @@ export function checkResult(report: ExtensionCheckReport, now = Date.now()) {
   return {
     ok,
     ...widget,
+    ...(report.reason ? { reason: report.reason } : {}),
     loaded: report.loaded,
     ...(report.loadError ? { load_error: report.loadError } : {}),
     ...(report.stuck ? { stuck: report.stuck } : {}),
@@ -423,7 +423,7 @@ export function checkResult(report: ExtensionCheckReport, now = Date.now()) {
     ...(report.pictures?.length ? { pictures: report.pictures } : {}),
     ...(report.page ? { page: report.page } : {}),
     elapsed_ms: report.elapsedMs,
-    next: ok
+    next: report.rendered === false ? report.text! : ok
       ? `It loaded without errors.${heard} ${stepWords}${host}${busy}${report.tools?.length ? `Its tools for agents: ${report.tools.join(', ')}. ` : ''}Read snapshot too: it is what the person sees — if it says something is missing (no file bound, nothing to show), that is still a bug. ${look}${kept(report)}Tell the person it is done only when it works and looks right.`
       : `It does not work yet: ${why}${stepWords}fix what load_error, errors and console say, app_install again, and app_check again.${heard} ${host}${busy}${look}${kept(report)}Do not tell the person it is done until a check comes back ok.`,
   };
