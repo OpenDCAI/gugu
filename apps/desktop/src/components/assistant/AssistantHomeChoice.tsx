@@ -88,7 +88,7 @@ export function AssistantHomeChoice({
       </div>}
     </div>
     {cloudCheck.error ? <p className="ta-onb-error" role="alert">{tc(`cloudComputer.reason.${cloudComputerFailureKind(cloudCheck.error)}`)}</p> : null}
-    {error ? <p className="ta-onb-error" role="alert" data-testid="assistant-setup-error">{error}</p> : null}
+    {error ? <p className="ta-onb-error" role="alert" data-testid="assistant-setup-error">{t('setup.failed')}</p> : null}
     {cloudFailure ? <CloudComputerRefusal failure={cloudFailure} prefixKey="devices.cloud.provisionFailed" onUpgrade={onUpgrade} /> : null}
     {back}
   </>

@@ -1,4 +1,4 @@
-import { link, mkdir, rm } from 'node:fs/promises'
+import { link, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { agentProgramsOf, type DependencyId } from '@gugu/session-core/deps/runtime'
 import { getDependencyManager } from './session/main/core/dependencies/dependency-managers'
@@ -7,6 +7,7 @@ import { managedAgentPrefix, managedMiseBinDir } from './session/main/core/depen
 import { runMiseOperation } from './session/main/core/dependencies/mise-installer'
 import { AgentInstallFailedError } from './session/main/core/agents/ensure-agent-installed'
 import { ensureUserBinDirsInPath } from './session/main/utils/userEnv'
+import { replaceManagedLauncher, rollbackManagedLauncher, withManagedLauncherPublication } from './session/main/core/dependencies/managed-launcher-publication'
 
 export type PreparedAssistantRuntime = { commit(): Promise<void>; dispose(): Promise<void> }
 
@@ -49,29 +50,43 @@ export async function prepareAssistantRuntime(id: string, signal: AbortSignal): 
     return {
       async commit() {
         if (!prepared.length) return
-        await mkdir(managedMiseBinDir(), { recursive: true })
-        // On a clean account this directory did not exist at process startup.
-        // Use the same PATH refresh as the normal managed installer.
-        ensureUserBinDirsInPath()
-        for (const { dependency, launcher } of prepared) {
-          // Another installer may have completed while we prepared. Re-probe
-          // before publication; never replace an already usable runtime.
-          await manager.probe(dependency)
-          if (manager.get(dependency)?.status === 'available') continue
-          // Atomic, exclusive publication preserves a concurrent install.
-          try { await link(path.join(launcherDir, launcher), path.join(managedMiseBinDir(), launcher)) }
-          catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-            await manager.probe(dependency)
-            if (manager.get(dependency)?.status === 'available') continue
+        await withManagedLauncherPublication(async assertOwned => {
+          // On a first install the directory did not exist at startup, so PATH
+          // enrichment skipped it. Publication just created it on every OS.
+          ensureUserBinDirsInPath()
+          const installed: Array<{ source: string; destination: string }> = []
+          try {
+            for (const { dependency, launcher } of prepared) {
+              await manager.probe(dependency)
+              if (manager.get(dependency)?.status === 'available') continue
+              const source = path.join(launcherDir, launcher)
+              const destination = path.join(managedMiseBinDir(), launcher)
+              const temporary = destination + '.' + crypto.randomUUID() + '.tmp'
+              try {
+                await link(source, temporary)
+                assertOwned()
+                await replaceManagedLauncher(temporary, destination)
+                installed.push({ source, destination })
+                published = true
+              } finally { await rm(temporary, { force: true }) }
+            }
+            for (const { dependency } of prepared) {
+              await manager.probe(dependency)
+              if (manager.get(dependency)?.status !== 'available') throw new Error('The prepared assistant runtime could not be started')
+            }
+            assertOwned()
+          } catch (error) {
+            try { assertOwned() }
+            catch (lockError) {
+              throw new Error('Assistant runtime publication failed after its lock was lost', {
+                cause: new AggregateError([error, lockError]),
+              })
+            }
+            for (const { source, destination } of installed.reverse()) await rollbackManagedLauncher(source, destination)
+            published = false
             throw error
           }
-          published = true
-        }
-        for (const { dependency } of prepared) {
-          await manager.probe(dependency)
-          if (manager.get(dependency)?.status !== 'available') throw new Error('The prepared assistant runtime could not be started')
-        }
+        })
       },
       async dispose() {
         // Published launchers refer into this immutable tree. Keep their runtime;

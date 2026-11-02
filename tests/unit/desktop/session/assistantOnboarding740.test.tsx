@@ -106,7 +106,7 @@ it('keeps a committed startup failure on its setup page and advances only after 
   await render()
   await click(container.querySelector('button'))
   await click(container.querySelector('[data-testid="assistant-setup-install-here"]'))
-  expect(container.querySelector('[role="alert"]')?.textContent).toBe('CLI startup refused')
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe('setup.failed')
   expect(f.writeStep).toHaveBeenLastCalledWith('owner', 'shell')
   expect(f.writeStep.mock.calls).not.toContainEqual(['owner', 'connect'])
   await click([...container.querySelectorAll('button')].find(button => button.textContent === 'setup.retry') ?? null)
@@ -123,4 +123,20 @@ it('keeps interrupted setup in shell until its resumed startup actually complete
   expect(f.writeStep).toHaveBeenLastCalledWith('owner', 'shell')
   await act(async () => finish())
   expect(f.writeStep).toHaveBeenLastCalledWith('owner', 'connect')
+})
+
+it.each([false, true])('shows a localized retry message for launcher errors (installation started: %s)', async started => {
+  f.setup.mockImplementationOnce(async (_draft, _device, options) => {
+    if (started) options.onInstalling?.()
+    throw new Error("EEXIST: file already exists, link 'C:\\private\\prepared\\claude.cmd' -> 'C:\\private\\bin\\claude.cmd'")
+  })
+  await render()
+  await click(container.querySelector('button'))
+  await click(container.querySelector('[data-testid="assistant-setup-install-here"]'))
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe('setup.failed')
+  expect(container.textContent).not.toContain('EEXIST')
+  expect(container.textContent).not.toContain('private')
+  expect(started
+    ? [...container.querySelectorAll('button')].some(button => button.textContent === 'setup.retry')
+    : container.querySelector('[data-testid="assistant-setup-install-here"]') !== null).toBe(true)
 })
