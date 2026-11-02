@@ -75,6 +75,12 @@ describe('ordinary input transcript custody', () => {
     expect(projectSessionPendingInput(null, [{ ...input(), queued: true }], [], [old])).toBeNull()
   })
 
+  it('keeps an offline sender input in the transcript without requiring a retry', () => {
+    expect(projectSessionPendingInput(null, [{ ...input(), failure: { code: 'host-offline' } }], [], [old])).toMatchObject({
+      id: 'send', text: 'hello', delivery: { state: 'failed', retryable: false, error: expect.any(String) },
+    })
+  })
+
   it('keeps an unknown host outcome visible without offering an unsafe resend', () => {
     const sending = projectSessionPendingInput(null, [input()], [], [old])!
     expect(projectSessionPendingInput(sending, [], [host('unknown')], [old])).toMatchObject({
