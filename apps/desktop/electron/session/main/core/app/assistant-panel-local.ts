@@ -15,7 +15,6 @@ import { platformCredentials } from '@main/core/integrations/platform-credential
 import { listAgents } from '@gugu/core'
 import { agentsForOwner } from '@gugu/core/local/state/agentOwner'
 import type { AssistantPanelChange } from '@gugu/core/cloud/assistantPanel'
-import { noteAssistantProjectCandidate } from '../projects/operations/assistant-project-cleanup'
 import { readUserLibraryVolume, readUserLibraryEntry, writeUserLibraryEntry, removeUserLibraryEntry, onUserLibraryChanged } from './user-library'
 
 /** This bridge lives in the embedded module, beside the actual registries and
@@ -29,7 +28,10 @@ export const assistantPanelLocal = {
     if (!row?.workspaceId) throw new Error('PANEL_SESSION_HOME_UNAVAILABLE')
     const [workspace] = await db.select({ path: workspaceTable.path }).from(workspaceTable).where(eq(workspaceTable.id,row.workspaceId)).limit(1)
     if (!workspace?.path) throw new Error('PANEL_SESSION_HOME_UNAVAILABLE')
-    if (identity) noteAssistantProjectCandidate({ ...identity, sessionId, projectId: row.projectId, path: workspace.path })
+    if (identity) {
+      const { noteAssistantProjectCandidate } = await import('../projects/operations/assistant-project-cleanup')
+      noteAssistantProjectCandidate({ ...identity, sessionId, projectId: row.projectId, path: workspace.path })
+    }
     return { cwd: workspace.path,projectId: row.projectId }
   },
   async sessions(ownerId: string) {
