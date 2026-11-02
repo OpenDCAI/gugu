@@ -1,5 +1,7 @@
 import { action, makeObservable, observable } from 'mobx';
 import type { PeekTarget } from '@shared/extensions/app-runtime-protocol';
+import { isRenderableImage } from '@gugu/core/shared/imageMime.mjs';
+import { openAttachmentImage } from '@/lib/attachmentBytes';
 
 const key = (sessionId: string | null, tabId: string) => `${sessionId ?? ''}\u0000${tabId}`;
 
@@ -20,6 +22,11 @@ class PeekStore {
   }
 
   open(sessionId: string | null, tabId: string, target: PeekTarget): void {
+    if (target.kind === 'chat' && target.detail.choice.kind === 'none' && isRenderableImage(target.detail.name, target.detail.file.contentType)) {
+      const { detail } = target;
+      openAttachmentImage({ kind: 'item', itemId: detail.itemId, version: detail.file.version }, detail.name, { chatId: detail.chatId });
+      return;
+    }
     this.peeks.set(key(sessionId, tabId), target);
   }
 

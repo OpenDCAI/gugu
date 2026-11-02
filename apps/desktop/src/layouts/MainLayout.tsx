@@ -207,7 +207,8 @@ function InnerLayout({
     writeDraft,
     draftAttachments,
     setDraftAttachments,
-  } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'writeDraft', 'draftAttachments', 'setDraftAttachments')
+    identitiesById, setDraftQuote,
+  } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'writeDraft', 'draftAttachments', 'setDraftAttachments', 'identitiesById', 'setDraftQuote')
   // A compose's images join the attachments already queued for its chat.
   const draftAttachmentsRef = useRef(draftAttachments)
   draftAttachmentsRef.current = draftAttachments
@@ -270,7 +271,7 @@ function InnerLayout({
   const openOwnedAgent = useOwnedAgentConversationEntry({ ownerId: user.id, chats, contacts, mobile, onOpen: () => setActiveTab('tasks') })
   const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason, peerId?: string, draft?: string, sourceChatId?: string): string | null => {
     if (!sourceChatId && openAssistantChat(chatId)) return mobile ? 'assistant' : assistantSlotKey('chat')
-    if (openOwnedAgent(chatId, peerId, draft, sourceChatId)) { setActiveTab('tasks'); return 'tasks' }
+    if (openOwnedAgent(chatId, peerId, draft, sourceChatId)) return 'tasks'
     if (!chatsAreBlocks) return null
     const sessionPage = readSessionpageViewRequestBridge()
     if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
@@ -590,20 +591,24 @@ function InnerLayout({
   }, [mobile, activeTab])
 
 
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const { chatId } = (event as CustomEvent<{ chatId?: unknown }>).detail ?? {}
-      if (typeof chatId !== 'string' || chatId.length === 0) return
-      if (openChatBlock(chatId, 'notification-open')) return
+  const openNotification = useCallback((chatId: unknown) => {
+    if (typeof chatId !== 'string' || chatId.length === 0) return
+    if (openChatBlock(chatId, 'notification-open')) return
 
-      setActiveChatId(chatId)
-      setActiveTab('chats')
-      setMobilePane('chat')
-      focusComposerForUserEntry('notification-open')
-    }
+    setActiveChatId(chatId)
+    setActiveTab('chats')
+    setMobilePane('chat')
+    focusComposerForUserEntry('notification-open')
+  }, [setActiveTab, focusComposerForUserEntry, openChatBlock, setActiveChatId])
+  const openNotificationRef = useRef(openNotification)
+  openNotificationRef.current = openNotification
+  useEffect(() => {
+    const handler = (event: Event) => openNotification((event as CustomEvent<{ chatId?: unknown }>).detail?.chatId)
     window.addEventListener(UI_EVENTS.notificationClicked, handler)
     return () => window.removeEventListener(UI_EVENTS.notificationClicked, handler)
-  }, [setActiveTab, focusComposerForUserEntry, openChatBlock, setActiveChatId])
+  }, [openNotification])
+  // Keep the first native listener alive: the plugin delivers the retained cold-start tap only once.
+  useEffect(() => platform.subscribeNotificationClicks?.(({ chatId }) => openNotificationRef.current(chatId)), [])
 
 
   // 群成员面板的「新建 Agent 并加入本群」:手机与联系人页「新建 Agent」同一条(会话页选机器),只是带上这个群;
@@ -648,8 +653,11 @@ function InnerLayout({
       if (openOwnedAgent(detail.chatId, undefined, {
         text: [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n'),
         files: detail.images?.map(image => new File([image.bytes], image.name, { type: image.type })), append: true,
-      })) return
+      })) { setDraftQuote(detail.chatId, null); return }
       const placed = (chatId: string) => {
+        if (detail.quote) setDraftQuote(chatId, { messageId: detail.quote.id, source: detail.quote,
+          senderName: identitiesById[detail.quote.sender_user_id ?? '']?.display_name ?? '',
+          content: detail.quote.content_type === 'attachment' ? t('chatArea.attachment', { ns: 'messaging' }) : detail.quote.content ?? '' })
         const text = [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n')
         if (text) writeDraft(chatId, { at: 'end', text })
         if (detail.images?.length) {
@@ -693,7 +701,7 @@ function InnerLayout({
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
       window.removeEventListener(UI_EVENTS.openApp, onOpenInChat)
     }
-  }, [focusComposerForUserEntry, openOwnedAgent, openChatTarget, writeDraft, setDraftAttachments, t, toast, user.id])
+  }, [focusComposerForUserEntry, openOwnedAgent, openChatTarget, writeDraft, setDraftAttachments, setDraftQuote, identitiesById, t, toast, user.id])
 
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),

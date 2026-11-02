@@ -40,6 +40,7 @@ import {
   verbFacts,
   needsGesture,
   callRefusal,
+  type CallRefusalCaller,
 } from '@shared/extensions/bridge-protocol';
 import type {
   ExtensionHostAction,
@@ -172,6 +173,8 @@ export interface BridgeCaller {
   callingAgent?: string | null;
   /** The task stamped by main for this exact program call; never read from the tool arguments. */
   callingSession?: string;
+  /** A page's: whether its preload read the person's activation as the call left the page (`CallRefusalCaller`). */
+  gesture?: boolean;
 }
 
 /** Events to a page or the background page: their webContents, while it lives. */
@@ -185,7 +188,7 @@ function hearOn(webContentsId: number): (event: ExtensionHostEvent) => boolean {
   };
 }
 
-function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCaller {
+function pageCaller(binding: SurfaceBinding, webContentsId: number, gesture: boolean): BridgeCaller {
   const filePage = () => ({
     takeOpening: () => {
       const opening = binding.opening;
@@ -195,6 +198,7 @@ function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCalle
     pageId: webContentsId,
     extensionId: binding.extensionId,
     handed: handedFileOf(binding),
+    boundChat: binding.conversation,
     ...(binding.operator.kind === 'agent' ? { asAgent: binding.operator.id.replace(/^user:/, '') } : {}),
   });
   return {
@@ -207,6 +211,7 @@ function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCalle
     filePage,
     resourcePage: filePage,
     hear: hearOn(webContentsId),
+    gesture,
   };
 }
 
@@ -214,7 +219,7 @@ function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCalle
 export async function captureSessionpageProjectionViewer(webContentsId: number) {
   const binding = bindings.get(webContentsId), contents = webContents.fromId(webContentsId);
   if (!binding || !contents || contents.isDestroyed() || !sessionOfBinding(binding)) throw new Error('Projection viewer page is unavailable');
-  const page = extensionProjections.viewerPage(pageCaller(binding, webContentsId));
+  const page = extensionProjections.viewerPage(pageCaller(binding, webContentsId, false));
   try {
     const version = extensionsService().get(binding.extensionId).manifest.version;
     const assertCurrent = () => {
@@ -390,7 +395,7 @@ export function reportBlockedNavigation(webContentsId: number, url: string): voi
     // Not a URL at all: said as it was written.
   }
   const message = `This page stays on its own origin: going to ${where} was stopped. Open links with gugu.openBrowserTab(url).`;
-  void reportFrom(pageCaller(binding, webContentsId), message, 'error').catch(() => undefined);
+  void reportFrom(pageCaller(binding, webContentsId, false), message, 'error').catch(() => undefined);
 }
 
 /** `app_check`: hear what this page reports with `gugu.reportError`, until the returned stop. */
@@ -460,13 +465,13 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
     return;
   }
   watching = fileWatchesFor(caller.pageId);
-  const resource = 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
+  const resource = 'chat' in place ? { chat: await resourceChatFor(caller, place.chat) } : place;
   if (pageWatches.get(caller.pageId) !== watching) return;
   asCallingAgent(caller, caller.filePage({ place: resource }, true), { place });
   if (watching.has(watchId)) throw Object.assign(new Error('This file watch is already registered'), { code: 'invalid' });
   let disk: { stop: () => void } | null = null;
   if (isWorkspace(place)) {
-    // The working copy's own change stream (the file panel's), under the folder named: no watch of its own.
+    // The working copy's change feed, the one the file panel hears, under the folder named: the same native watch.
     const { watchWorkingCopy } = await import('@main/core/extensions/working-copy-files');
     const stop = await watchWorkingCopy(place, folder, (change) => {
       if (extensionsService().hasCapability(caller.extensionId, 'files:read')) caller.hear({ type: 'filesChanged', watchId, place, change });
@@ -1064,6 +1069,12 @@ export async function bringSessionUp(session: { sessionId: string; projectId: st
  */
 const chatsDrawnIn = new Map<string, { chat: ExtensionChat | null; members: NonNullable<ExtensionHostContext['chat']>['members'] }>();
 
+/** A page's own chat is bound as its resource container (`surfaceResourceChat`); any other is looked up, as whoever works the call. */
+function resourceChatFor(caller: BridgeCaller, chat: string): Promise<string> {
+  const asAgent = caller.callingAgent ?? caller.filePage({ place: { chat } }, true).asAgent ?? null;
+  return !asAgent && caller.binding?.conversation === chat ? Promise.resolve(chat) : resourceChatOf(chat, { asAgent });
+}
+
 /** A person's live chat context already names its resource container. Agent membership is checked as that agent. */
 async function surfaceResourceChat(chatId: string | undefined, operator?: ExtensionOperator): Promise<string | null> {
   if (!chatId) return null;
@@ -1080,6 +1091,13 @@ async function readChatMembers(chatId: string): Promise<void> {
   const files = await import('@main/core/extensions/app-files');
   const [members, chat] = await Promise.all([files.chatMembersOf(chatId), files.surfaceChatOf(chatId)]);
   chatsDrawnIn.set(chatId, { chat, members });
+}
+/** Pages of a chat not read yet wait on the one read under way, not a read each (a folder's page asks three ways at once). */
+const chatsBeingRead = new Map<string, Promise<void>>();
+function chatRead(chatId: string): Promise<void> {
+  const reading = chatsBeingRead.get(chatId) ?? readChatMembers(chatId).finally(() => chatsBeingRead.delete(chatId));
+  chatsBeingRead.set(chatId, reading);
+  return reading;
 }
 const unread = (chatId: string) => (error: unknown) =>
   log.warn('The chat could not be read', { chatId, message: error instanceof Error ? error.message : String(error) });
@@ -1223,7 +1241,7 @@ export function pushContext(webContentsId: number): void {
   const chatId = binding.conversation;
   if (chatId && !chatsDrawnIn.has(chatId)) {
     // Never pushed without its chat: no `chat` would read as not in a chat. Unread, `getContext` says so.
-    void readChatMembers(chatId).then(() => chatsDrawnIn.has(chatId) && pushContext(webContentsId), unread(chatId));
+    void chatRead(chatId).then(() => chatsDrawnIn.has(chatId) && pushContext(webContentsId), unread(chatId));
     return;
   }
   const send = (workspace: ExtensionWorkspace | undefined) => {
@@ -1461,8 +1479,9 @@ export async function answerCall(caller: BridgeCaller, method: string, args: Rec
     try { return { ok: true, value: await extensionProjections.call(caller, method, args) }; }
     catch (error) { return failure(caller.extensionId, method, error); }
   }
-  // The gesture was read in the preload's world (and a program has none): not here.
-  const refusal = callRefusal(method, args, { kind: caller.kind, has: (capability) => extensionsService().hasCapability(caller.extensionId, capability) });
+  const has: CallRefusalCaller['has'] = (capability) => extensionsService().hasCapability(caller.extensionId, capability);
+  // A page's gesture was read in its preload's world and came with the call (`pageCaller`); a program has none.
+  const refusal = callRefusal(method, args, caller.kind === 'page' ? { kind: 'page', has, gesture: caller.gesture === true } : { kind: caller.kind, has });
   if (refusal) return { ok: false, ...refusal };
   const facts = verbFacts(method)!;
   // A page an agent works (owner 10-14): what would reach the person's screen is handed back to the agent instead — after
@@ -1564,7 +1583,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       if (!binding) return contextOutside(extensionId);
       // In a chat, the members and the chat come with the first answer (not a moment later). The chat unread is said (the
       // files API's own error), never left out: no `chat` would tell the App it is not in one.
-      if (binding.conversation && !chatsDrawnIn.has(binding.conversation)) await readChatMembers(binding.conversation);
+      if (binding.conversation && !chatsDrawnIn.has(binding.conversation)) await chatRead(binding.conversation);
       return contextFor(binding, await workspaceOf(binding));
 
     case 'getAppState':
@@ -1816,6 +1835,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesCreate':
     case 'filesRemove':
     case 'filesReplace':
+    case 'filesCanDelete':
     case 'filesVersions':
     case 'filesReadVersion':
     case 'filesRename':
@@ -1826,7 +1846,8 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
       // what it opened is never refused.
       const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, await caller.resourcePage(args), args);
-      if (method === 'filesList' && (args.place as { workspace?: unknown } | null)?.workspace) workingCopyPages.add(caller.pageId);
+      const listsWorkingCopy = method === 'filesList' && Boolean((args.place as { workspace?: unknown } | null)?.workspace);
+      if (listsWorkingCopy) workingCopyPages.add(caller.pageId);
       const verbs = {
         filesOpen: 'openAppFile',
         filesReopen: 'reopenAppFile',
@@ -1843,10 +1864,19 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesMkdir: 'makeAppFolder',
         filesMove: 'moveAppFile',
         filesReplace: 'replaceAppFile',
+        filesCanDelete: 'appFilesCanDelete',
         filesVersions: 'appFileVersions',
         filesReadVersion: 'readAppFileVersion',
       } as const satisfies Record<typeof method, keyof typeof files>;
-      return await (files[verbs[method]] as (on: typeof page, input: never) => unknown)(page, args as never);
+      try {
+        return await (files[verbs[method]] as (on: typeof page, input: never) => unknown)(page, args as never);
+      } finally {
+        // The page went away while it listed: `stopPageWatches` let go before this listing's tree was kept.
+        if (listsWorkingCopy && !workingCopyPages.has(caller.pageId)) {
+          const { releaseWorkingCopies } = await import('@main/core/extensions/working-copy-files');
+          releaseWorkingCopies(caller.pageId);
+        }
+      }
     }
 
     case 'filesWatch':
@@ -1965,7 +1995,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
 
     case 'clipboardWriteText':
-      // The gesture was checked in the preload (the only world a page cannot reach).
+      // The gesture was judged at the door (`callRefusal`, on what the preload read).
       await clipboard.writeText(pageArgument('clipboardWriteText', args));
       return undefined;
 
@@ -2085,7 +2115,7 @@ export function registerExtensionBridge(): void {
       if (!binding || binding.extensionId !== extensionId) {
         return { ok: false, code: 'failed', message: 'This page is not bound yet' };
       }
-      return await answerCall(pageCaller(binding, event.sender.id), method, args);
+      return await answerCall(pageCaller(binding, event.sender.id, request.gesture === true), method, args);
     }
   );
   // The theme a page loads in, for its first paint (EXTENSION_THEME_CHANNEL): what its context will say. The page is

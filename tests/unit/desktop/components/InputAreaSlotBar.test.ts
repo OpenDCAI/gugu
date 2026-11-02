@@ -2,7 +2,6 @@
 // gugu-dev#181 ⑫:画在会话页格子里(项目块、对话块)的对话,输入框的「+ / 新任务 / 发送」进框内底排;
 // 手机和格子外照旧是两坞在框外 —— 手机那一支不能跟着变。
 import { act, createElement, useCallback, useMemo, useState, type SetStateAction } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readComposer } from '../../../support/composerEditor'
 import { ChatMessageComposer } from '../../../../apps/desktop/src/components/chat/ChatMessageComposer'
@@ -11,30 +10,26 @@ import { InChatSlot } from '../../../../apps/desktop/src/lib/shellSlots'
 import { sessionComposerDockedWidthClassName } from '../../../../apps/desktop/src/session/renderer/features/sessions/session-composer-styles'
 import { setComposerVerb } from '../../../../apps/desktop/src/lib/composerVerbBridge'
 import { ChatStoreProvider } from '../../../../apps/desktop/src/store/chatContext'
-import { chatStore } from '../../../support/testHarness'
+import { chatStore, createReactHarness } from '../../../support/testHarness'
 
 const shell = vi.hoisted(() => ({ mobile: false }))
 vi.mock('../../../../apps/desktop/src/hooks/useMobileShell', () => ({ useMobileShell: () => shell.mobile }))
 vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({ useToast: () => ({ toast: vi.fn() }) }))
 
 let container: HTMLDivElement
-let root: Root
+let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   setLocalePreference('en-US')
-  container = document.createElement('div')
-  document.body.appendChild(container)
-  root = createRoot(container)
+  harness = createReactHarness()
+  container = harness.container
 })
 afterEach(() => {
-  act(() => root.unmount())
-  container.remove()
+  harness.cleanup()
   shell.mobile = false
 })
 
 async function render(inSlot: boolean, projectName: string | null = null) {
-  await act(async () => {
-    root.render(createElement(InChatSlot.Provider, { value: inSlot ? { projectName } : null }, createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}) })))
-  })
+  await harness.render(createElement(InChatSlot.Provider, { value: inSlot ? { projectName } : null }, createElement(ChatMessageComposer, { onSend: vi.fn(async () => {}) })))
   const input = container.querySelector('[contenteditable]') as HTMLElement
   const bar = input.closest('[data-slot="composer-bar"]')!
   return { input, bar, composer: bar.closest('[data-slot="composer"]')!,
@@ -78,7 +73,7 @@ function DraftHost({ chatId }: { chatId: string }) {
 
 describe('ChatMessageComposer and the new-task box', () => {
   it('takes back what was written in the new-task box when its tag is closed', async () => {
-    await act(async () => { root.render(createElement(DraftHost, { chatId: 'chat-carry' })) })
+    await harness.render(createElement(DraftHost, { chatId: 'chat-carry' }))
     const textarea = () => container.querySelector('[contenteditable]') as HTMLElement
     await act(async () => { setComposerVerb('chat-carry', 'task') })
     expect(textarea().closest('[hidden]'), 'the group box steps aside while the new task is open').not.toBeNull()

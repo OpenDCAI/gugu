@@ -34,8 +34,8 @@
  *
  * The slot is read as `nextRowTop - thisRowTop`, which is exactly the size the
  * virtualizer holds for the row. Whole-canvas readings were tried first and are
- * wrong: canvas height is `totalHeight + pads + activeTurnReserve()`, and both
- * the reserve and the idle prefetch's backward pass move it for reasons that
+ * wrong: canvas height includes pads, and the idle prefetch's backward pass
+ * moves it for reasons that
  * have nothing to do with the commit under test.
  *
  * The control test is load-bearing. `estimate()` counts `ceil(len / 60)` body

@@ -18,6 +18,12 @@ export interface MessageOverlay {
   delivery_blocks: NonNullable<MessageItem['delivery_blocks']>
 }
 
+export interface MessageOverlayRows {
+  reactions: { message_id: string; user_id: string; emoji: string }[]
+  deliveries: { message_id: string; status: MessageDeliveryStatus; device_id: string }[]
+  delivery_blocks: { message_id: string; agent_user_id: string; reason: 'agent_archived' }[]
+}
+
 // @@@msg-cache (#621/P2/#947) - the mutable BODY fields of an already-cached message that can change after
 // it was fetched and have no realtime: an edit rewrites content/content_type, a retract stamps
 // retracted_at. A delete (global or delete-for-me) removes the id from the view entirely — that case
@@ -101,20 +107,27 @@ export async function loadMessageOverlays(
   messageIds: string[],
   userId: string
 ): Promise<Map<string, MessageOverlay>> {
-  const out = new Map<string, MessageOverlay>()
-  if (messageIds.length === 0) return out
+  if (messageIds.length === 0) return new Map()
   const [reactions, deliveries, blocks] = await Promise.all([
-    fetchOverlayRows<{ message_id: string; user_id: string; emoji: string }>(
+    fetchOverlayRows<MessageOverlayRows['reactions'][number]>(
       'message_reactions', 'message_id, user_id, emoji', messageIds,
     ),
-    fetchOverlayRows<{ message_id: string; status: MessageDeliveryStatus; device_id: string }>(
+    fetchOverlayRows<MessageOverlayRows['deliveries'][number]>(
       'message_deliveries', 'message_id, status, device_id', messageIds,
     ),
-    fetchOverlayRows<{ message_id: string; agent_user_id: string; reason: 'agent_archived' }>(
+    fetchOverlayRows<MessageOverlayRows['delivery_blocks'][number]>(
       'message_agent_delivery_blocks', 'message_id, agent_user_id, reason', messageIds,
     ),
   ])
+  return foldMessageOverlays(messageIds, userId, { reactions, deliveries, delivery_blocks: blocks })
+}
 
+export function foldMessageOverlays(
+  messageIds: string[],
+  userId: string,
+  { reactions, deliveries, delivery_blocks: blocks }: MessageOverlayRows,
+): Map<string, MessageOverlay> {
+  const out = new Map<string, MessageOverlay>()
   const reactionsMap = new Map<string, ReactionGroup[]>()
   for (const r of reactions) {
     const groups = reactionsMap.get(r.message_id) ?? []

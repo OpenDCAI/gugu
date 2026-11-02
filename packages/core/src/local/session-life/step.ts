@@ -21,6 +21,8 @@ function assertNever(value: never): never {
 // Only this module seals lifecycle values. Hydration can only construct non-running states.
 function seal(value: LifeShape): Life { return value as Life }
 function unchanged(state: Life): Transition { return [state, []] }
+type RowlessEvent = Exclude<Event, { k: 'discard-row' }>
+
 function protocol(state: Life, event: Event): never { throw new LifeProtocolError(state.kind, event.k) }
 
 export function hydrateLife(input: { readonly archived: boolean; readonly hold: Hold | null }): Life {
@@ -185,7 +187,7 @@ function advance(state: Extract<Life, { kind: 'starting' }>, out: StageResult, q
   }
 }
 
-function stepDormant(state: Extract<Life, { kind: 'dormant' }>, event: Event, q: PendingView, ctx: StepContext): Transition {
+function stepDormant(state: Extract<Life, { kind: 'dormant' }>, event: RowlessEvent, q: PendingView, ctx: StepContext): Transition {
   switch (event.k) {
     case 'deliver': return state.hold?.reason === 'sign-out' ? unchanged(state) : start(ctx, state.hold !== null)
     case 'start':
@@ -226,7 +228,7 @@ function stepDormant(state: Extract<Life, { kind: 'dormant' }>, event: Event, q:
   }
 }
 
-function stepFailed(state: Extract<Life, { kind: 'failed' }>, event: Event, q: PendingView, ctx: StepContext): Transition {
+function stepFailed(state: Extract<Life, { kind: 'failed' }>, event: RowlessEvent, q: PendingView, ctx: StepContext): Transition {
   switch (event.k) {
     case 'deliver': case 'start': {
       if (event.k === 'deliver' && awaitsPerson(state.hold)) return unchanged(state)
@@ -251,7 +253,7 @@ function stepFailed(state: Extract<Life, { kind: 'failed' }>, event: Event, q: P
   }
 }
 
-function stepStarting(state: Extract<Life, { kind: 'starting' }>, event: Event, q: PendingView, _ctx: StepContext): Transition {
+function stepStarting(state: Extract<Life, { kind: 'starting' }>, event: RowlessEvent, q: PendingView, _ctx: StepContext): Transition {
   switch (event.k) {
     case 'deliver': case 'start': return unchanged(state)
     case 'stage-ok': return advance(state, event.out, q)
@@ -275,7 +277,7 @@ function stepStarting(state: Extract<Life, { kind: 'starting' }>, event: Event, 
   }
 }
 
-function stepReady(state: Extract<Life, { kind: 'ready' }>, event: Event, q: PendingView, ctx: StepContext): Transition {
+function stepReady(state: Extract<Life, { kind: 'ready' }>, event: RowlessEvent, q: PendingView, ctx: StepContext): Transition {
   switch (event.k) {
     case 'deliver':
       if (state.admission.kind !== 'free') return unchanged(state)
@@ -347,7 +349,7 @@ function settle(state: Extract<Life, { kind: 'stopping' }>, q: PendingView, ctx:
   }
 }
 
-function stepStopping(state: Extract<Life, { kind: 'stopping' }>, event: Event, q: PendingView, ctx: StepContext): Transition {
+function stepStopping(state: Extract<Life, { kind: 'stopping' }>, event: RowlessEvent, q: PendingView, ctx: StepContext): Transition {
   switch (event.k) {
     case 'interrupt': return [seal({ ...state, destination: tighten(state.destination, event, q) }), []]
     case 'deliver':
@@ -371,7 +373,7 @@ function stepStopping(state: Extract<Life, { kind: 'stopping' }>, event: Event, 
   }
 }
 
-function stepArchived(state: Extract<Life, { kind: 'archived' }>, event: Event): Transition {
+function stepArchived(state: Extract<Life, { kind: 'archived' }>, event: RowlessEvent): Transition {
   switch (event.k) {
     case 'deliver': return [state, [{ e: 'write-receipt', seq: event.seq,
       receipt: { state: 'failed', cause: { name: 'SessionArchived', message: 'Session is archived' } } }]]
@@ -387,6 +389,13 @@ function stepArchived(state: Extract<Life, { kind: 'archived' }>, event: Event):
 
 /** Decide and emit effects only. The owner commits receipt/hold effects before doing external IO. */
 export function step(state: Life, event: Event, q: PendingView, ctx: StepContext): Transition {
+  if (event.k === 'discard-row') {
+    // Only a queued row a person's stop holds, also while that stop is still tearing down: anything else is on its way.
+    const stopped = state.kind === 'dormant' ? state.hold?.reason === 'user-stop'
+      : state.kind === 'stopping' && state.destination.kind === 'held' && state.destination.hold.reason === 'user-stop'
+    if (!stopped || !q.queued.includes(event.seq)) return protocol(state, event)
+    return [state, [{ e: 'delete-row', seq: event.seq }]]
+  }
   if ('gen' in event) {
     if (state.kind === 'dormant' || state.kind === 'failed' || state.kind === 'archived' || !sameGen(state.gen, event.gen)) return unchanged(state)
   }

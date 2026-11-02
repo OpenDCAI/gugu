@@ -54,6 +54,11 @@ export function stopSessionLife(sessionId: string): Promise<void> {
   return rpcOn(machineRegistry.machineOf(sessionId)).sessions.lifeStop(sessionId);
 }
 
+/** The person discards their own message they stopped before it went. */
+export function discardSessionLifeRow(sessionId: string, messageId: string): Promise<void> {
+  return rpcOn(machineRegistry.machineOf(sessionId)).sessions.lifeDiscard(sessionId, messageId);
+}
+
 /** The person opened or retried this session: its host's session-life starts it (a page never starts a runtime). */
 export function startSessionLife(sessionId: string): Promise<void> {
   return rpcOn(machineRegistry.machineOf(sessionId)).sessions.lifeStart(sessionId);

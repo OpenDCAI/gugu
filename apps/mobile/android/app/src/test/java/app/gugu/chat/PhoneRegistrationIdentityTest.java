@@ -74,7 +74,7 @@ public class PhoneRegistrationIdentityTest {
             assertTrue(marker(root).getParentFile().mkdirs());
             Files.write(marker(root).toPath(), body.getBytes(StandardCharsets.UTF_8));
             failure(() -> PhoneRegistrationIdentity.open(root, KEY, () -> { fail("must not remigrate corrupt marker"); return CURRENT; }, ATOMIC));
-            assertEquals(body, Files.readString(marker(root).toPath()));
+            assertEquals(body, new String(Files.readAllBytes(marker(root).toPath()), StandardCharsets.UTF_8));
         }
     }
 

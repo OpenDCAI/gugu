@@ -140,6 +140,21 @@ describe('SessionCell prompts', () => {
     expect(item).toMatchObject({ kind: 'message', role: 'user', text: '看下 #4456' });
   });
 
+  it('sends a manual turn with the context the host attached to it', async () => {
+    const { cell, agent } = makeCell();
+    agent.prompt = vi.fn().mockResolvedValue({ stopReason: 'end_turn' });
+
+    await cell.prompt({ text: 'Check #4456', hiddenContext: '<issue_context/>', origin: 'manual' });
+
+    const request = (agent.prompt as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(request.prompt).toEqual([
+      { type: 'text', text: 'Check #4456' },
+      { type: 'text', text: '<issue_context/>' },
+    ]);
+    const item = cell.history().committed[0].items[0];
+    expect(item).toMatchObject({ kind: 'message', role: 'user', text: 'Check #4456' });
+  });
+
   // ── 命令必须是第一个块 ──────────────────────────────────────────────────────
   //
   // 三家 harness 都只在 prompt 的开头找命令(claude / codex 只读 `prompt[0]`,opencode 把
@@ -3100,9 +3115,10 @@ describe('task file context stays separate from the person words', () => {
     cell.push({ kind: 'commands', commands: [{ name: 'review', description: '' }] });
     const ref = { itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
     try {
-      await cell.prompt({ text: '/review', origin: 'manual', hiddenContext: 'still omitted', files: [{ ...ref, path: '/private/brief.txt', promptText: '[File saved at local path: /private/brief.txt]' }] });
+      await cell.prompt({ text: '/review', origin: 'manual', hiddenContext: 'issue context', files: [{ ...ref, path: '/private/brief.txt', promptText: '[File saved at local path: /private/brief.txt]' }] });
       expect(agent.prompt.mock.calls[0][0].prompt).toEqual([
-        { type: 'text', text: '/review' }, { type: 'text', text: '[File saved at local path: /private/brief.txt]' },
+        { type: 'text', text: '/review' }, { type: 'text', text: 'issue context' },
+        { type: 'text', text: '[File saved at local path: /private/brief.txt]' },
       ]);
       const item = cell.history().committed[0].items[0];
       expect(item).toMatchObject({ kind: 'message', role: 'user', text: '/review', files: [ref] });

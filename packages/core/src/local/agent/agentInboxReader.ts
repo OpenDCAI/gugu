@@ -30,6 +30,7 @@ import {
   identityShown,
   mergeDeliveryEnvelopes,
   type AgentDeliveryToolNames,
+  type ChatEnvelopeInfo,
   type GuguIdentity,
 } from './deliveryEnvelope'
 import { markAgentDeliveredMessageRead, type AgentDeliveredMessageRead } from './deliveredReadMarkers'
@@ -715,6 +716,8 @@ async function injectBatch(
     return { injected: 0, verdict: 'accepted' }
   }
   const rulesPlan = await planGroupRules(agentUserId, rows, deps, env)
+  // Preparation precedes admission: remember this batch's attempts without committing a thread as bootstrapped.
+  const threadSeeds = new Map<string, Promise<string | null>>()
   const prepared: PreparedMessage[] = []
   try {
     for (const row of rows) {
@@ -724,7 +727,7 @@ async function injectBatch(
         ? { version: planned.version, text: planned.text }
         : null
       if (planned) planned.text = null
-      const message = await prepareMessage(agentUserId, row, deps, toolNames, env, groupRules)
+      const message = await prepareMessage(agentUserId, row, deps, toolNames, env, threadSeeds, groupRules)
       if (groupRules && groupRules.text !== null) {
         message.rulesDelivered = { chatId: row.chatId, entry: { version: groupRules.version, contextKey: planned!.contextKey } }
       }
@@ -835,6 +838,7 @@ async function prepareMessage(
   deps: AgentInboxReaderDeps,
   toolNames: AgentDeliveryToolNames | undefined,
   env: NodeJS.ProcessEnv,
+  threadSeeds: Map<string, Promise<string | null>>,
   groupRules: { version: string; text: string | null } | null = null,
 ): Promise<PreparedMessage> {
   if (row.localSessionDirect) {
@@ -860,32 +864,39 @@ async function prepareMessage(
   }
   // #1531:thread root 消息让 agent 的回复进它自身的 thread。
   const effectiveThreadRoot = row.threadRootId ?? (row.isThreadRoot ? row.id : null)
+  const fetchThreadMessages = deps.fetchThreadMessages
   let threadContext: string | null = null
   let bootstrapKey: string | undefined
-  if (effectiveThreadRoot && deps.fetchThreadMessages) {
+  if (effectiveThreadRoot && fetchThreadMessages) {
     const key = `${agentUserId}:${row.chatId}:${effectiveThreadRoot}`
-    if (!threadBootstrapped.has(key)) {
-      try {
-        const threadRows = await deps.fetchThreadMessages(row.chatId, effectiveThreadRoot)
-        const senders = [...new Set(threadRows.map((entry) => entry.senderUserId))]
-        const labels = deps.resolveGuguIds
-          ? await deps.resolveGuguIds(senders, deps.accessToken).catch((error: unknown) => {
-              log.warn({ err: error instanceof Error ? error.message : String(error) }, 'thread-bootstrap identity resolve failed')
-              return new Map<string, GuguIdentity>()
-            })
-          : new Map<string, GuguIdentity>()
-        threadContext = buildThreadBootstrapBody(threadRows, {
-          selfAgentUserId: agentUserId,
-          labelFor: (id) => identityShown(labels, id) ?? encodeTypedId('user', id),
-        })
-        bootstrapKey = key
-      } catch (error) {
-        // fail-loud-warn:拉取失败不阻塞投递,不落标记,下次重注 seed。
-        log.warn(
-          { chatId: row.chatId, threadRootId: effectiveThreadRoot, err: error instanceof Error ? error.message : String(error) },
-          'thread-bootstrap fetch failed; delivering without seed',
-        )
-      }
+    if (!threadBootstrapped.has(key) && !threadSeeds.has(key)) {
+      const seed = (async () => {
+        try {
+          const threadRows = await fetchThreadMessages(row.chatId, effectiveThreadRoot)
+          const senders = [...new Set(threadRows.map((entry) => entry.senderUserId))]
+          const labels = deps.resolveGuguIds
+            ? await deps.resolveGuguIds(senders, deps.accessToken).catch((error: unknown) => {
+                log.warn({ err: error instanceof Error ? error.message : String(error) }, 'thread-bootstrap identity resolve failed')
+                return new Map<string, GuguIdentity>()
+              })
+            : new Map<string, GuguIdentity>()
+          const context = buildThreadBootstrapBody(threadRows, {
+            selfAgentUserId: agentUserId,
+            labelFor: (id) => identityShown(labels, id) ?? encodeTypedId('user', id),
+          })
+          bootstrapKey = key
+          return context
+        } catch (error) {
+          // A failed attempt belongs to this batch only; the next pull can try again.
+          log.warn(
+            { chatId: row.chatId, threadRootId: effectiveThreadRoot, err: error instanceof Error ? error.message : String(error) },
+            'thread-bootstrap fetch failed; delivering without seed',
+          )
+          return null
+        }
+      })()
+      threadSeeds.set(key, seed)
+      threadContext = await seed
     }
   }
   const attachment = parseAttachmentContent(row.content, { id: row.id, file_item_id: row.fileItemId, file_version: row.fileVersion, file_blob_id: row.fileBlobId })
@@ -921,6 +932,8 @@ async function prepareMessage(
     ? `${attachment.caption || `[Image attached: ${attachment.fileName}]`}${lines}`
     : `${row.content}${lines}`
   const messageContext = buildAgentMentionContext(content, row.toUserIds, identities, agentUserId)
+  const chat = { publicId: row.chatPublicId, name: row.chatName, kind: row.chatKind,
+    ownDm: (row.chatKind === 'dm' || row.chatKind === 'ai') && !!deps.ownerUserId && row.senderUserId === deps.ownerUserId }
   const envelope = buildAgentDeliveryEnvelope(
     {
       guguUserId: agentUserId,
@@ -937,7 +950,7 @@ async function prepareMessage(
       viaApp: row.viaApp ?? null,
     },
     identities,
-    { publicId: row.chatPublicId, name: row.chatName, kind: row.chatKind },
+    chat,
     formatDeliveryTimestamp(row.createdAt),
     null,
     toolNames,
@@ -946,7 +959,7 @@ async function prepareMessage(
   return {
     row,
     envelope: threadContext
-      ? rebuildEnvelopeWithThreadContext(agentUserId, row, content, identities, toolNames, threadContext, messageContext, groupRules)
+      ? rebuildEnvelopeWithThreadContext(agentUserId, row, content, identities, chat, toolNames, threadContext, messageContext, groupRules)
       : envelope,
     ...(attachments ? { attachments } : {}),
     ...(bootstrapKey ? { bootstrapKey } : {}),
@@ -958,6 +971,7 @@ function rebuildEnvelopeWithThreadContext(
   row: AgentInboxUnreadRow,
   content: string,
   identities: Map<string, GuguIdentity>,
+  chat: ChatEnvelopeInfo,
   toolNames: AgentDeliveryToolNames | undefined,
   threadContext: string,
   messageContext: string | undefined,
@@ -979,7 +993,7 @@ function rebuildEnvelopeWithThreadContext(
       viaApp: row.viaApp ?? null,
     },
     identities,
-    { publicId: row.chatPublicId, name: row.chatName, kind: row.chatKind },
+    chat,
     formatDeliveryTimestamp(row.createdAt),
     null,
     toolNames,
@@ -1038,18 +1052,26 @@ async function advanceCursor(
   const markRead = deps.markRead
     ?? ((input: AgentDeliveredMessageRead) => markAgentDeliveredMessageRead(input, { accessToken: deps.accessToken }))
   const byChat = new Map<string, PreparedMessage[]>()
+  const forumSeqs = new Map<string, number>()
   for (const member of members) {
     const list = byChat.get(member.row.chatId) ?? []
     list.push(member)
     byChat.set(member.row.chatId, list)
+    if (member.row.forum) {
+      const { postId, seq } = member.row.forum
+      forumSeqs.set(postId, Math.max(forumSeqs.get(postId) ?? seq, seq))
+    }
   }
   for (const [chatId, chatMembers] of byChat) {
     const ordered = [...chatMembers].sort((a, b) => a.row.seq - b.row.seq)
     for (const member of ordered) {
       try {
         if (member.row.forum) {
+          const seq = forumSeqs.get(member.row.forum.postId)
+          if (seq === undefined) continue
+          forumSeqs.delete(member.row.forum.postId)
           const ack = deps.ackForum ?? ((input: { agentUserId: string; postId: string; seq: number }) => ackForumViaRpc(input, deps.accessToken))
-          await ack({ agentUserId, postId: member.row.forum.postId, seq: member.row.forum.seq })
+          await ack({ agentUserId, postId: member.row.forum.postId, seq })
         } else if (member.row.localSessionDirect) {
           if (!deps.markLocalRead) throw new Error('local session-direct row has no markLocalRead handler')
           await deps.markLocalRead({

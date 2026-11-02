@@ -54,6 +54,7 @@ export { setPlatformCredentialsProbe } from './core/agent-config/auth-expiry-fro
 // @@@5301 会话页 agent 系统通知的正文注入口。会话页 ❌ 不 import 宿主的语言 store
 // (它有模块级状态,跨界只会拿到复制品) —— 由宿主把当下语言的两句文案推进来。
 export { setSessionAgentNotificationCopy } from './core/agent-hooks/notification-copy'
+export { setSystemNotificationsUsable } from './core/agent-hooks/system-notifications'
 export type { SessionAgentNotificationCopy } from './core/agent-hooks/notification-copy'
 // 宿主的界面语言(App 名字等由会话页这侧拼给人看的字按它挑语言),同上由宿主注入。
 export { setSessionHostLocale } from './core/host-locale'
@@ -140,7 +141,8 @@ import {
 import { projectSettingsService } from '@main/core/projects/settings/project-settings-service'
 import { getProjectById, getProjects } from '@main/core/projects/operations/getProjects'
 import { resolveAgentSessionProject } from '@main/core/projects/operations/resolve-agent-session-project'
-import { resolveSession, resolveWorkspace } from '@main/core/projects/utils'
+import { persistedWorkspacePath, resolveSession, resolveWorkspace } from '@main/core/projects/utils'
+import { RETIRED_REMOTE_WORKSPACE_MESSAGE } from '@main/core/workspaces/resolve-workspace-kind'
 import { archiveSession } from '@main/core/sessions/archiveSession'
 import { getSessions } from '@main/core/sessions/getSessions'
 import { sessionArchivalInventory, sessionArchivalState } from '@main/core/sessions/session-archival'
@@ -1907,8 +1909,10 @@ async function startSessionpageAgentSessionClaimed(
       if (!mounted) throw new Error(`session-page agent session ${session.id} is not mounted`)
       await bindIdentity(mounted.sessionPath)
     } else {
-      const projectPath = resolveWorkspace(project.id, repositoryWorkspaceId)?.path
-      if (!projectPath) throw new Error(`session-page project ${project.id} has no repository workspace path`)
+      // From the workspace's persisted record (the path mounting it uses): nothing has mounted a new session yet, and
+      // the in-memory registry holds a workspace only once something mounts or leases it (a new account has neither).
+      const projectPath = persistedWorkspacePath(repositoryWorkspaceId)
+      if (!projectPath) throw new Error(RETIRED_REMOTE_WORKSPACE_MESSAGE)
       session = await bindIdentityThenCreate(() => bindIdentity(projectPath), () => attachAgentToSession({
       id: sessionId,
       projectId: project.id,

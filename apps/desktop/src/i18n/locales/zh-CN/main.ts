@@ -29,15 +29,7 @@ export default {
     "note": "说明",
     "notePlaceholder": "说说这个编号…",
     "deleteMarker": "删除编号{{number}}",
-    "message": "消息",
-    "messagePlaceholder": "说点什么，或 @ 群成员…",
-    "includeNotes": "附上编号说明",
-    "compose": "放进输入框",
-    "sendTo": "发送到「{{name}}」",
-    "sendWhisperTo": "悄悄话发送给 {{name}}",
-    "whisperRecipient": "对方",
-    "replyToOriginal": "回复原图",
-    "sourceChat": "来源对话",
+    "export": "复制或保存图片",
     "copy": "复制图片",
     "save": "保存到本机",
     "saveFolder": "存进群文件夹",
@@ -45,8 +37,8 @@ export default {
     "saved": "图片已保存",
     "savedToFolder": "已存进群文件夹",
     "noSource": "这张图没有来源对话，可以复制或保存到本机。",
-    "notSignedIn": "请先登录后发送图片",
-    "originalUnavailable": "原图消息已无法读取",
+    "notSignedIn": "请先登录后将图片放进对话",
+    "originalUnavailable": "原消息已不可用，无法回复。",
     "canvas": "标注画布",
     "keyboardHint": "R 框 · A 箭头 · N 编号 · P 画笔 · T 文字 · M 马赛克 · C 裁剪 · 空格加拖动平移 · ⌘ +/− 缩放",
     "touchHint": "单指绘制 · 双指缩放、平移 · 长按标注选择"
@@ -246,9 +238,9 @@ export default {
         "gap_too_large": "断开太久、缺的太多，时间线已整份重载。"
       },
       "outcome": {
-        "done": "本轮结束",
-        "cancelled": "本轮已取消",
-        "error": "本轮出错"
+        "done": "已结束",
+        "cancelled": "已取消",
+        "error": "出错了"
       },
       "compacting": "正在压缩上下文…",
       "compacted": "上下文已压缩 —— 往上的内容它记得的是摘要",
@@ -256,7 +248,7 @@ export default {
       "contextReset": "引擎换了一条新会话 —— 往上的内容它没有",
       "modelUnavailable": "你选的模型这个引擎现在用不了，已改用它的默认模型",
       "modelSubstituted": "引擎没用你选的那个模型，换成了别的",
-      "thought": "想过一轮",
+      "thought": "思考过",
       "toolOutput": "输出"
     },
     "settlement": {

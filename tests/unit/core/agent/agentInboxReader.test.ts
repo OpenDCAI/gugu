@@ -40,6 +40,7 @@ import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDeliver
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
 import { storedMessageLink } from '@gugu/core/shared/ui/guguLink'
+import { forumRowFromRpc } from '@gugu/core/local/agent/forumInbox'
 import type { SessionArchivalState } from '@gugu/core/shared/sessionArchival'
 
 const AGENT = 'agent-0000-0000-0000-000000000001'
@@ -75,7 +76,7 @@ type Membership = { lastReadSeq: number; listenMode: string; notificationLevel: 
 class FakeCloud {
   rows: CloudRow[] = []
   members = new Map<string, Membership>()
-  chatMeta = new Map<string, { kind: 'dm' | 'group'; creatorUserId: string }>()
+  chatMeta = new Map<string, { kind: 'dm' | 'ai' | 'group'; creatorUserId: string }>()
   readRows = new Set<string>()
   /** 假的服务端时钟:join 与 post 都从它取时刻,与真库同一个 now()。 */
   now = '2026-08-29T00:00:00.000Z'
@@ -85,7 +86,7 @@ class FakeCloud {
   /** identity.users as the pull reads it for `named_identities`. */
   identities = new Map<string, { guguNumber: number | null; displayName: string | null; isAgent: boolean }>()
 
-  addChat(chatId: string, kind: 'dm' | 'group', creatorUserId = HUMAN): void {
+  addChat(chatId: string, kind: 'dm' | 'ai' | 'group', creatorUserId = HUMAN): void {
     this.chatMeta.set(chatId, { kind, creatorUserId })
   }
 
@@ -366,6 +367,123 @@ beforeEach(() => {
   resetAgentInboxReaderStateForTests()
 })
 
+describe('inbox batch request budgets', () => {
+  const chatId = '60000000-0000-4000-8000-000000000001'
+  const thread = (index: number) => `61000000-0000-4000-8000-${String(index).padStart(12, '0')}`
+  const seed = 'BATCH-THREAD-CONTEXT'
+
+  function batch(roots: number[], timing: AgentInboxDeliveryTiming = 'idle-only') {
+    const cloud = new FakeCloud()
+    cloud.addChat(chatId, 'dm')
+    cloud.join(chatId, AGENT)
+    const append = (seq: number, root: number) => cloud.post({
+      chatId, id: `62000000-0000-4000-8000-${String(seq).padStart(12, '0')}`, seq,
+      senderUserId: HUMAN, senderType: 'human', content: `Batch message ${seq}`, threadRootId: thread(root),
+    })
+    roots.forEach((root, index) => append(index + 1, root))
+    const fetchThreadMessages = vi.fn(async () => [{ senderUserId: HUMAN, content: seed, createdAt: cloud.now }])
+    const resolveGuguIds = vi.fn(async () => new Map([[HUMAN, { guguNumber: 1001, displayName: 'Ada' }]]))
+    const d = makeDeps(cloud, { fetchThreadMessages, resolveGuguIds, deliveryTiming: () => timing, postDisclosure: async () => {} })
+    return { ...d, append, fetchThreadMessages, resolveGuguIds }
+  }
+
+  it('t1: fetches one seed for three idle admissions and attaches it only to the first', async () => {
+    const d = batch([1, 1, 1])
+    expect(await pullAgentInbox(AGENT, d.deps)).toMatchObject({ injected: 3, verdict: 'accepted' })
+    expect({ fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) })
+      .toEqual({ fetches: 1, identities: 1, contexts: [true, false, false] })
+  })
+
+  it('t2: attaches one seed when the three rows share a next-tool-call unit', async () => {
+    const d = batch([1, 1, 1], 'next-tool-call')
+    await pullAgentInbox(AGENT, d.deps)
+    expect(d.injections).toHaveLength(1)
+    expect({ fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections[0]!.text.split(seed).length - 1 }).toEqual({ fetches: 1, identities: 1, contexts: 1 })
+  })
+
+  it('t3: fetches one seed for each of two threads in the same batch', async () => {
+    const d = batch([1, 1, 2, 2])
+    await pullAgentInbox(AGENT, d.deps)
+    expect({ fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) })
+      .toEqual({ fetches: 2, identities: 2, contexts: [true, false, true, false] })
+  })
+
+  it('t4: a settled thread needs no seed requests in the next batch', async () => {
+    const d = batch([1, 1, 1])
+    await pullAgentInbox(AGENT, d.deps)
+    d.fetchThreadMessages.mockClear()
+    d.resolveGuguIds.mockClear()
+    d.injections.length = 0
+    d.append(4, 1)
+    await pullAgentInbox(AGENT, d.deps)
+    expect(d.fetchThreadMessages).not.toHaveBeenCalled()
+    expect(d.resolveGuguIds).not.toHaveBeenCalled()
+    expect(d.injections.map((entry) => entry.text.includes(seed))).toEqual([false])
+  })
+
+  it('t5: a rejected admission leaves bootstrap uncommitted so the next pull fetches once again', async () => {
+    const d = batch([1, 1, 1])
+    const inject = d.deps.inject
+    d.deps.inject = async () => { throw new Error('admission rejected') }
+    await expect(pullAgentInbox(AGENT, d.deps)).rejects.toThrow('admission rejected')
+    const first = { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length }
+    d.fetchThreadMessages.mockClear()
+    d.resolveGuguIds.mockClear()
+    d.deps.inject = inject
+    await pullAgentInbox(AGENT, d.deps)
+    expect({ first, second: { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length },
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) })
+      .toEqual({ first: { fetches: 1, identities: 1 }, second: { fetches: 1, identities: 1 }, contexts: [true, false, false] })
+  })
+
+  it('t6: a failed fetch is tried once this batch and retried for the next batch', async () => {
+    const d = batch([1, 1, 1])
+    d.fetchThreadMessages.mockRejectedValue(new Error('thread unavailable'))
+    await pullAgentInbox(AGENT, d.deps)
+    const first = { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) }
+    d.fetchThreadMessages.mockClear()
+    d.fetchThreadMessages.mockResolvedValue([{ senderUserId: HUMAN, content: seed, createdAt: '2026-08-29T00:00:00Z' }])
+    d.injections.length = 0
+    d.append(4, 1)
+    await pullAgentInbox(AGENT, d.deps)
+    expect({ first, second: { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) } })
+      .toEqual({ first: { fetches: 1, identities: 0, contexts: [false, false, false] }, second: { fetches: 1, identities: 1, contexts: [true] } })
+  })
+
+  function forumBatch(timing: AgentInboxDeliveryTiming) {
+    const postId = '63000000-0000-4000-8000-000000000001'
+    const rows = [1, 2].map((seq) => forumRowFromRpc({
+      post_id: postId, seq, kind: 'assigned', entity_id: AGENT, actor_user_id: HUMAN, actor_name: 'Ada', actor_is_agent: false,
+      created_at: '2026-08-29T00:00:00Z', post_title: 'Batch budget', post_body: `Forum message ${seq}`,
+      post_author_id: HUMAN, post_author_name: 'Ada', bounty: null, reply_body: null, reply_to_poster_only: null, reply_to: null, reply_count: 0,
+    }))
+    const ackForum = vi.fn(async () => {})
+    const d = makeDeps(new FakeCloud(), { fetchForumUnread: async () => rows, ackForum, deliveryTiming: () => timing })
+    return { ...d, postId, ackForum }
+  }
+
+  it('f1: acknowledges only the maximum forum sequence in a merged admission', async () => {
+    const d = forumBatch('next-tool-call')
+    await pullAgentInbox(AGENT, d.deps)
+    expect(d.injections).toHaveLength(1)
+    expect(d.ackForum.mock.calls).toEqual([[{ agentUserId: AGENT, postId: d.postId, seq: 2 }]])
+  })
+
+  it('f2: idle forum admissions still acknowledge each admitted row immediately', async () => {
+    const d = forumBatch('idle-only')
+    await pullAgentInbox(AGENT, d.deps)
+    expect(d.injections).toHaveLength(2)
+    expect(d.ackForum.mock.calls).toEqual([
+      [{ agentUserId: AGENT, postId: d.postId, seq: 1 }], [{ agentUserId: AGENT, postId: d.postId, seq: 2 }],
+    ])
+  })
+})
+
 // 「这条消息唤醒谁」不在 reader 里:那是云端 chat.message_wakes_agent 一处的事(push 与 pull 共用),
 // 真值表与 push≡pull 的对账在 tests/integration/service/agentWakePredicate6077.test.ts。
 // 这里只留 reader 自己的行为:RPC 交来的每一行都注入。
@@ -482,6 +600,28 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1 })
     expect(readDeliveryEnvelope(injections[0]!.text)?.segments[0]?.facts?.replyTo).toMatchObject({ fromId: `user:${AGENT}`, from: expect.stringContaining('Claude 1') })
+  })
+
+  // The owner's own DM: the envelope states only that fact; <gugu_transport> says how to answer it (agent vs assistant).
+  it.each([
+    ['the owner in its own DM', 'dm', HUMAN, true],
+    ['the owner in an ai DM', 'ai', HUMAN, true],
+    ['someone else in a DM', 'dm', OTHER_AGENT, false],
+    ['the owner in a group', 'group', HUMAN, false],
+  ] as const)('marks only %s as the owner\'s private chat', async (_case, kind, sender, ownDm) => {
+    const chat = '00000000-0000-4000-8000-00000000001e'
+    const cloud = new FakeCloud()
+    cloud.addChat(chat, kind)
+    cloud.join(chat, AGENT)
+    cloud.join(chat, sender)
+    cloud.post({ chatId: chat, id: '10000000-0000-4000-8000-00000000001e', seq: 1, senderUserId: sender, senderType: sender === HUMAN ? 'human' : 'agent', content: 'hi', toUserIds: [AGENT] })
+    const { deps, injections } = makeDeps(cloud, { ownerUserId: HUMAN })
+    await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1 })
+    const arrival = injections[0]!.text.match(/<arrival>(.*)<\/arrival>/)?.[1] ?? ''
+    if (ownDm) {
+      expect(arrival).toContain('Sent by your owner in your private chat with you')
+      expect(arrival).not.toContain('message_send')
+    } else expect(arrival).toContain('reply with message_send')
   })
 
   // #6835 悄悄话:库里的 is_whisper 行到信封上就是一格 whisper_to,agent 知道这句只有它和发信人看得见。

@@ -48,7 +48,7 @@ export function useStoredAgentTurnFailure(chatId: string | null, threadRootId: s
     let generation = 0
     const refresh = () => {
       const current = ++generation
-      void readStoredAgentTurnFailures(user.id, chatId, threadRootId, ids.split(',')).then(({ failures: rows }) => {
+      void readStoredAgentTurnFailures(chatId, threadRootId, ids.split(',')).then(({ failures: rows }) => {
         if (!live || current !== generation) return
         changeDismissals((now) => {
           const pending = rows.filter((row) => now[row.commandId]?.revision === null)

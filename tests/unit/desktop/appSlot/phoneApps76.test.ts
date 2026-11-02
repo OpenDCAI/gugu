@@ -3,9 +3,9 @@ import { EXTENSION_API_VERSION } from '../../../../apps/desktop/src/session/shar
 import JSZip from 'jszip'
 import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { appOrigin } from '../../../../apps/desktop/src/components/appSlot/appOrigin'
+import { appOrigin, gateOrigin } from '../../../../apps/desktop/src/components/appSlot/appOrigin'
 import { extensionContentSecurityPolicy } from '../../../../apps/desktop/src/session/shared/extensions/app-csp'
-import { APP_RUNTIME_FORGET_PAGE, RUNTIME_SCRIPT_TAG } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { APP_RUNTIME_FORGET_PAGE, APP_RUNTIME_GATE_PAGE, RUNTIME_SCRIPT_TAG } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { fileIconKey } from '../../../../apps/desktop/src/session/shared/extensions/app-icon'
 
 // L9 (摩擦单 F76): the phone's App store (phoneApps.ts) — install, update, uninstall, re-tag, where an App's page is,
@@ -242,7 +242,7 @@ describe('U3 the phone App store: install, update, uninstall, re-tag', () => {
     // After the doctype, before the App's own script (injectAppRuntime).
     expect(text('vote@1.0.0', 'index.html')).toBe(`<!doctype html>${RUNTIME_SCRIPT_TAG}<title>1.0.0</title><script src="app.js"></script>`)
     expect(text('vote@1.0.0', 'app.js')).toBe("document.title = '1.0.0'")
-    expect(index().serve.vote).toEqual({ root: 'file:vote@1.0.0', csp: extensionContentSecurityPolicy(SHELL, []) })
+    expect(index().serve.vote).toEqual({ root: 'file:vote@1.0.0', csp: extensionContentSecurityPolicy(`${SHELL} ${gateOrigin('vote')}`, []) })
     // The one store the card, the group's panel and 「用 X 打开」 read on both platforms.
     expect(lastList().extensions.map((app) => app.id)).toEqual(['workspace', 'vote'])
     expect(lastList().origins).toEqual({ workspace: 'preinstalled', vote: 'attachment' })
@@ -471,15 +471,16 @@ describe('the phone draws a tab without an icon of its own with its App\'s (owne
 })
 
 describe('pageUrl: where an App page is on the phone (L3 review)', () => {
-  it("is the App's own origin, the same whoever is signed in — never the shell page's", async () => {
+  it("is the App's gate, which frames the page in the App's own origin — the same whoever is signed in, never the shell page's", async () => {
     const apps = await start()
     for (const token of [jwt(ALICE), jwt(BOB), null]) {
       shell.token = token
       for (const id of ['vote', 'workspace', 'localhost']) {
         const url = new URL(apps.pageUrl(id, '/more/page.html'))
-        expect(url.origin).toBe(appOrigin(id))
-        expect(url.origin).not.toBe(SHELL)
-        expect(url.pathname).toBe('/more/page.html')
+        expect(url.origin).toBe(gateOrigin(id))
+        expect([SHELL, appOrigin(id)]).not.toContain(url.origin)
+        expect(url.pathname).toBe(APP_RUNTIME_GATE_PAGE)
+        expect(url.searchParams.get('page')).toBe('more/page.html')
       }
     }
   })

@@ -1,11 +1,12 @@
 import { act, createElement, type ElementType, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { vi } from 'vitest'
+import type { Editor } from '../../packages/session-ui/node_modules/@tiptap/core'
 import type { ChatItem, Device, MessageItem, NotificationLevel } from '@gugu/core/shared/types/chat'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { ToastContext, type ToastContextValue } from '../../apps/desktop/src/components/toastContext'
 import { AuthContext, type AuthUser } from '../../apps/desktop/src/store/auth'
-import { ChatStoreProvider } from '../../apps/desktop/src/store/chatContext'
+import { ChatStoreProvider, useDraftQuotesStore } from '../../apps/desktop/src/store/chatContext'
 import { createShellTabStore, ShellTabContext } from '../../apps/desktop/src/lib/shellTab'
 import type { SidebarTab } from '../../packages/core/src/shared/enums/sidebarTabModels'
 import type { ChatContextValue } from '../../apps/desktop/src/store/chatContext'
@@ -30,8 +31,17 @@ export function createReactHarness() {
       })
     },
     cleanup() {
+      // TipTap defers destruction to the next tick. Finish owned editor teardown
+      // while jsdom still exists, before Vitest removes its window global.
+      const editors = new Set(Array.from(
+        container.querySelectorAll<HTMLElement & { editor?: Editor }>('[contenteditable]'),
+        (element) => element.editor,
+      ).filter((editor): editor is Editor => typeof editor?.destroy === 'function'))
       act(() => {
         root.unmount()
+        for (const editor of editors) {
+          if (!editor.isDestroyed) editor.destroy()
+        }
       })
       container.remove()
       vi.restoreAllMocks()
@@ -50,6 +60,11 @@ function authUser(overrides: Partial<AuthUser> = {}): AuthUser {
   }
 }
 
+function TestChatStore({ value, children }: { value: ChatContextValue; children?: ReactNode }) {
+  const quotes = useDraftQuotesStore()
+  return createElement(ChatStoreProvider, { value: { ...value, ...quotes } }, children)
+}
+
 export async function renderWithAppProviders(
   harness: ReturnType<typeof createReactHarness>,
   node: ReactNode,
@@ -64,7 +79,7 @@ export async function renderWithAppProviders(
 ) {
   let tree = node
   tree = createElement(ShellTabContext.Provider, { value: createShellTabStore(options.shellTab ?? 'chats') }, tree)
-  tree = createElement(ChatStoreProvider, { value: chatStore({ ...chatWindowStub(options.auth?.id), ...options.chat }) }, tree)
+  tree = createElement(TestChatStore, { value: chatStore({ ...chatWindowStub(options.auth?.id), ...options.chat }) }, tree)
   if (options.contacts) {
     tree = createElement(ContactsContext.Provider, { value: contactsStore(options.contacts) }, tree)
   }
@@ -234,6 +249,8 @@ export function chatStore(overrides: Partial<ChatContextValue> = {}): ChatContex
     drafts: {},
     draftMentions: {},
     draftAttachments: {},
+    draftQuotes: {},
+    setDraftQuote: vi.fn(),
     activeThreadRootId: null,
     threadMessages: [],
     loadingThread: false,

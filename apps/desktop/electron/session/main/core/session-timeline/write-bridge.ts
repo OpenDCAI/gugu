@@ -297,7 +297,7 @@ export async function deliverQuestionAnswer(
     const message = {
       not_found: '这条会话的终端已经不在了',
       not_a_conversation: '这不是一条 agent 会话的终端',
-      question_closed: '终端里的选择器已经关了(在终端里答过、拒过,或这一轮被停了)',
+      question_closed: '终端里的选择器已经关了(在终端里答过、拒过,或执行已停止)',
       question_gone: '这道题问出来之后终端里的 agent 重启过,选择器已经不在了',
       render_timeout: '写了取消键之后终端没有重画',
     }[type];

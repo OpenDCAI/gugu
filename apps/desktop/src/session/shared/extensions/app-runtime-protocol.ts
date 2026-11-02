@@ -1,4 +1,5 @@
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
+import type { MessageItem } from '@gugu/core/shared/types/chat';
 import type { FileOpenerCandidate } from './file-openers';
 import { extensionFromMimeType, mimeTypeFromName, normalizeMimeType } from '@gugu/core/shared/imageMime.mjs';
 /**
@@ -52,6 +53,12 @@ export const APP_RUNTIME_UI_GALLERY = `${APP_RUNTIME_BASE}gallery.html`;
  * built by the phone's bundle only — vite.config.mts phoneAppsPlugin; the desktop clears its partition instead).
  */
 export const APP_RUNTIME_FORGET_PAGE = `${APP_RUNTIME_BASE}forget.html`;
+/**
+ * The phone's gate (gate.ts, built by the phone's bundle only): the one page the shell serves in an App's gate
+ * origin (appOrigin.ts `gateOrigin`). It frames the App's page and stamps each call with whether the person's input
+ * landed in that App — the phone's reading of the gesture, as the desktop's preload reads it.
+ */
+export const APP_RUNTIME_GATE_PAGE = `${APP_RUNTIME_BASE}gate.html`;
 
 /**
  * One position of a JSON file written this often a second, every second for this long, is a clock or a frame loop kept in
@@ -403,12 +410,6 @@ export interface AppFileEntry {
   /** The chat messages it came from, for `gugu.showMessage` — ids only, never their content. */
   sourceMessageIds: string[];
   /**
-   * Whether whoever reads (the person, or the agent a program works for) may delete it, as the folder decides (owner 10-18):
-   * who made it, the owner of the agent that made it, or the chat's owner or an admin — a folder with all in it; never
-   * 「附件」. A working copy's file: true on this computer.
-   */
-  canDelete: boolean;
-  /**
    * `files.upload`'s answer only: the file of its folder that already had the name this one was picked with — the
    * database gave this one 「 (n)」 (子文件夹); `null` when it kept the name it was picked with.
    */
@@ -481,8 +482,12 @@ export type FrameToHost =
   | { m: typeof APP_FRAME_MARKER; t: 'hello' }
   /** The runtime listens for its sync port now: the outer page hands it over (摩擦单 F28). */
   | { m: typeof APP_FRAME_MARKER; t: 'sync-port' }
-  /** `call`: a program's request made inside one tool call — that call's id, as main minted it (program-call.ts). */
-  | { m: typeof APP_FRAME_MARKER; t: 'call'; id: number; method: string; args: unknown; call?: string }
+  /**
+   * `call`: a program's request made inside one tool call — that call's id, as main minted it (program-call.ts).
+   * `gesture`: on the phone, written by the App's gate as it passes the call on, over whatever the App put there
+   * (gate.ts) — whether the person's input landed in this App. The outer page takes it only from the gate.
+   */
+  | { m: typeof APP_FRAME_MARKER; t: 'call'; id: number; method: string; args: unknown; call?: string; gesture?: boolean }
   /** A program's file sync traffic on its IPC channel (F16): what a page's sync port carries. */
   | { m: typeof APP_FRAME_MARKER; t: 'sync'; data: unknown };
 export type HostToFrame =
@@ -543,6 +548,8 @@ export const APP_COMPOSE_EVENT = 'gugu:app-compose';
 export interface AppComposeDetail {
   chatId: string;
   text: string;
+  /** The original reply context, placed with this chat's draft rather than broadcast to the visible panel. */
+  quote?: MessageItem;
   /** G3 Images beside the text, as attachments of the draft: the person sends them, or not. */
   images?: AppComposeImage[];
   /** File references inserted as inline mention tokens in the draft text. */

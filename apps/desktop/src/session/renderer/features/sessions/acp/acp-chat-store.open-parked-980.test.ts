@@ -41,6 +41,7 @@ vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNa
 /** session-life 的桩:`lifeStart` 记下,LifeView 由用例推(`life.settle`)。 */
 const life = vi.hoisted(() => ({
   start: vi.fn(async (_sessionId: string) => {}),
+  discard: vi.fn(async (_sessionId: string, _messageId: string) => {}),
   stop: vi.fn(async (_sessionId: string) => {}),
   fork: vi.fn(async (_fork: unknown) => {}),
   end: vi.fn(async (_forkId: string) => {}),
@@ -51,7 +52,7 @@ const life = vi.hoisted(() => ({
   viewed: new Set<string>(),
 }));
 type Failure = { at: string; message: string; cause: { name: string; message: string; data?: string } };
-type PendingRow = { seq: number; messageId: string; preview: string; text: string; kind: 'ordinary'; sentAt?: number; state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown'; failure: string | null };
+type PendingRow = { seq: number; messageId: string; preview: string; text: string; kind: 'ordinary'; sentAt?: number; discardable?: boolean; state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown'; failure: string | null };
 vi.mock('../stores/session-life-views', async () => {
   const { observable, runInAction } = await import('mobx');
   type View = { kind: string; hold: string | null; version: number; failure: Failure | null; pending: { items: PendingRow[]; count: number } };
@@ -67,6 +68,7 @@ vi.mock('../stores/session-life-views', async () => {
       return views.get(sessionId)!;
     },
     startSessionLife: (sessionId: string) => life.start(sessionId),
+    discardSessionLifeRow: (sessionId: string, messageId: string) => life.discard(sessionId, messageId),
     stopSessionLife: (sessionId: string) => life.stop(sessionId),
     forkSessionLife: (fork: unknown) => life.fork(fork),
     endSessionLife: (forkId: string) => life.end(forkId),
@@ -375,7 +377,7 @@ describe('#980 照旧当场起的', () => {
 
 describe('the first message keeps one place while its session starts', () => {
   const row = (state: PendingRow['state']): PendingRow =>
-    ({ seq: 1, messageId: 'm-first', preview: '说一句你好', text: '说一句你好', kind: 'ordinary', sentAt: 5000, state, failure: state === 'failed' ? 'boom' : null });
+    ({ seq: 1, messageId: 'm-first', preview: '说一句你好', text: '说一句你好', kind: 'ordinary', sentAt: 5000, discardable: true, state, failure: state === 'failed' ? 'boom' : null });
 
   it('the transcript draws the queued head as its next turn from the start, not the tray above the composer', async () => {
     const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
@@ -413,16 +415,108 @@ describe('the first message keeps one place while its session starts', () => {
     await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt).toBeNull());
   });
 
-  it('stopped mid-start: never again says Starting; the composer could stop it, and the tray has it', async () => {
+  it('a seed that already holds its turn, then the acceptance: the row leaves at once, with no later change to trigger it', async () => {
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    store.bootstrap();
+    life.pend(store.sessionId, 'ready', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBe('m-first'));
+    runInAction(() => store.chatState.transcript.history.seed([{ ...turn('t', 0), startedAt: 5000 }]));
+    expect(store.chatState.session.state.pendingPrompt?.held).toBe(true);
+    life.pend(store.sessionId, 'ready', []);
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt).toBeNull());
+  });
+
+  it('stopped mid-start: stays where it was as a stopped turn; continuing puts it back as the next turn, once', async () => {
     const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
     store.bootstrap();
     life.pend(store.sessionId, 'starting', [row('queued')]);
     await vi.waitFor(() => expect(store.affordances.isWorking).toBe(true));
     expect(store.affordances.canCancel).toBe(true);
+
     life.pend(store.sessionId, 'dormant', [row('queued')], 'user-stop');
-    await vi.waitFor(() => expect(store.transcriptPendingId).toBeNull());
+    await vi.waitFor(() => expect(store.stoppedRowId).toBe('m-first'));
+    expect(store.transcriptPendingId, 'never again says Starting').toBeNull();
     expect(store.chatState.session.state.pendingPrompt).toBeNull();
     expect(store.affordances.isWorking).toBe(false);
+    const stopped = () => store.chatState.transcript.state.committedTurns.filter(t => t.id === 'm-first:stopped');
+    await vi.waitFor(() => expect(stopped()).toHaveLength(1)); // The opening's history seed may land first: drawn again after it.
+    expect(stopped()[0]).toMatchObject({ startedAt: 5000, outcome: { kind: 'cancelled' }, items: [{ id: 'm-first', text: '说一句你好' }] });
+
+    // A reconciled history drops it while it is still stopped: drawn again, once.
+    runInAction(() => { store.chatState.transcript.history.seed([]); store.transcriptRevision += 1; });
+    await vi.waitFor(() => expect(stopped()).toHaveLength(1));
+
+    // The person continues: the hold is gone and the same row is on its way again.
+    life.pend(store.sessionId, 'starting', [row('queued')]);
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first'));
+    expect(stopped(), 'the same words once').toHaveLength(0);
+    expect(store.stoppedRowId).toBeNull();
+  });
+
+  it('reopening a session the person stopped does not start it: the stop holds until they continue', async () => {
+    create.mockImplementation(async () => liveSession());
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    life.pend(store.sessionId, 'dormant', [row('queued')], 'user-stop');
+    store.bootstrap();
+    await vi.waitFor(() => expect(store.stoppedRowId).toBe('m-first'));
+    await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns.some(t => t.id === 'm-first:stopped')).toBe(true));
+    expect(life.start, 'opening never undoes a stop').not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+
+    life.pend(store.sessionId, 'ready', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+  });
+
+  it('继续 and 丢弃 on a stopped first message: continue only starts it; discard takes it from the host and returns the words', async () => {
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    life.start.mockClear();
+    store.bootstrap();
+    life.pend(store.sessionId, 'dormant', [row('queued')], 'user-stop');
+    await vi.waitFor(() => expect(store.stoppedRowId).toBe('m-first'));
+    expect(store.canDiscardTurn('m-first:stopped')).toBe(true);
+    store.continueStoppedRow();
+    expect(custody, 'no prompt about continuing').not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(life.start).toHaveBeenCalledWith(store.sessionId));
+
+    store.setDraftText('已经在打的字');
+    store.discardStoppedTurn('m-first:stopped');
+    await vi.waitFor(() => expect(life.discard).toHaveBeenCalledWith(store.sessionId, 'm-first'));
+    await vi.waitFor(() => expect(store.draftText).toBe('说一句你好\n已经在打的字'));
+    life.pend(store.sessionId, 'dormant', [], 'user-stop');
+    await vi.waitFor(() => expect(store.stoppedRowId).toBeNull());
+    expect(store.chatState.transcript.state.committedTurns.some(t => t.id === 'm-first:stopped')).toBe(false);
+  });
+
+  it('a delivered row stays out of 丢弃, and a running turn keeps its place over a stopped row', async () => {
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    store.bootstrap();
+    life.pend(store.sessionId, 'dormant', [{ ...row('queued'), kind: 'session-direct' as 'ordinary', discardable: false }], 'user-stop');
+    await vi.waitFor(() => expect(store.stoppedRowId).toBe('m-first'));
+    await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns.some(t => t.id === 'm-first:stopped')).toBe(true));
+    expect(store.chatState.transcript.state.committedTurns.find(t => t.id === 'm-first:stopped')?.initiator).toBe('agent');
+    expect(store.canDiscardTurn('m-first:stopped')).toBe(false);
+
+    // The stopped turn leaves while a turn landed in the meantime: that turn survives the seed.
+    const running = { ...turn('live', 9), items: [] };
+    runInAction(() => store.chatState.transcript.activeTurn.set(running));
+    life.pend(store.sessionId, 'ready', []);
+    await vi.waitFor(() => expect(store.stoppedRowId).toBeNull());
+    expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe('live');
+  });
+
+  it('a discard the host refuses brings the folded turn back and says so', async () => {
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    store.bootstrap();
+    life.pend(store.sessionId, 'dormant', [row('queued')], 'user-stop');
+    await vi.waitFor(() => expect(store.stoppedRowId).toBe('m-first'));
+    life.discard.mockRejectedValueOnce(new Error('refused'));
+    const view = store.chatState.viewState;
+    view.toggleCollapsed('m-first:stopped:discarded');
+    toasts.length = 0;
+    store.discardStoppedTurn('m-first:stopped');
+    await vi.waitFor(() => expect(toasts).toHaveLength(1));
+    expect(view.isCollapsed('m-first:stopped:discarded')).toBe(false);
+    expect(store.draftText, 'the words stay queued, not doubled').toBe('');
   });
 
   it('stopping says nothing false and an older host (no sentAt) has no clock rather than a NaN', async () => {

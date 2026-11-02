@@ -10,7 +10,7 @@ import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { openLinkTarget } from '../../../../apps/desktop/src/lib/guguLinks'
 import { conversationLink, parseGuguLink } from '@gugu/core/shared/ui/guguLink'
 import { ToastContext } from '../../../../apps/desktop/src/components/toastContext'
-import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
+import { clickElement, createNode, createReactHarness, message } from '../../../support/testHarness'
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
@@ -274,11 +274,20 @@ vi.mock('../../../../apps/desktop/src/store/contactsContext', async () => {
 })
 // gugu-dev#181 桌面上打开一条对话 = 请会话页摆出它那块(会话页装的那座桥,这里装一份假的、只记下请求)。
 const sessionPageViewRequests = { openChat: vi.fn(), openSession: vi.fn() }
+const notificationClicks = vi.hoisted(() => ({
+  listener: null as ((click: { chatId: string | null }) => void) | null,
+  unsubscribe: vi.fn(),
+}))
 const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted(() => ({
   platformMock: {
     kind: 'electron',
     capabilities: { notifications: false, appUpdates: false, sessionHost: true },
     showNotification: vi.fn(),
+    subscribeNotificationClicks: vi.fn((listener: (click: { chatId: string | null }) => void) => {
+      let active = true
+      notificationClicks.listener = (click) => { if (active) listener(click) }
+      return () => { active = false; notificationClicks.unsubscribe() }
+    }),
     installUpdate: vi.fn()
   },
   chatStoreMock: {
@@ -286,6 +295,7 @@ const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted
     identitiesById: {},
     draftAttachments: {},
     setDraftAttachments: vi.fn(),
+    setDraftQuote: vi.fn(),
     activeChatId: null as string | null,
     setActiveChatId: vi.fn(),
     refreshChats: vi.fn(),
@@ -334,12 +344,16 @@ beforeEach(() => {
   activationProbe.prewarm.mockReset()
   platformMock.kind = 'electron'
   platformMock.capabilities.sessionHost = true
+  notificationClicks.listener = null
+  notificationClicks.unsubscribe.mockClear()
+  platformMock.subscribeNotificationClicks.mockClear()
   chatStoreMock.chats = []
   chatStoreMock.activeChatId = null
   chatStoreMock.setActiveChatId.mockReset()
   chatStoreMock.refreshChats.mockReset()
   chatStoreMock.upsertChat.mockReset()
   chatStoreMock.writeDraft.mockReset()
+  chatStoreMock.setDraftQuote.mockReset()
   chatStoreMock.sendMessageToChat.mockReset()
   chatStoreMock.sendMessageToChat.mockResolvedValue(MESSAGE_ID)
   draftValues.clear()
@@ -367,12 +381,13 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
-async function renderMainLayoutWithToast(toast = vi.fn()) {
+async function renderMainLayoutWithToast(toast = vi.fn(), effectsActive = true) {
   await harness.render(createNode(
     ToastContext.Provider,
     { value: { toast } },
     createNode(MainLayout, {
       user: { id: 'user-1', email: 'user@example.com', nickname: 'User' },
+      effectsActive,
     }),
   ))
   return { toast }
@@ -1036,6 +1051,25 @@ describe('MainLayout: personal assistant destinations', () => {
   })
 })
 
+it.each(['group', 'topic', 'owned', 'assistant'] as const)('places an image reply in its %s destination while another chat is active', async kind => {
+  const target = '0b1e7c1a-0000-4000-8000-000000000002', parent = '0b1e7c1a-0000-4000-8000-000000000001'
+  const original = message({ id: 'original-image', chat_id: target, sender_user_id: 'agent', is_whisper: true, to_user_ids: ['user-1'] })
+  const dm = kind === 'owned' || kind === 'assistant'
+  chatStoreMock.activeChatId = 'other-chat'
+  chatStoreMock.chats = [{ id: parent, kind: 'group' }, { id: target, kind: dm ? 'dm' : kind, source_chat_id: kind === 'topic' ? parent : null, peer_user_id: dm ? 'agent' : null }] as never
+  if (kind === 'owned') taskRoute.contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'user-1' }]
+  if (kind === 'assistant') { installAssistantShellBridge(); publishAssistantShell({ assistant: { id: 'agent' }, chatId: target } as never) }
+  await renderMainLayoutWithToast()
+  await act(async () => { window.dispatchEvent(new CustomEvent(APP_COMPOSE_EVENT, { detail: {
+    chatId: target, text: '① Check this', quote: original, images: [{ name: 'edited.png', type: 'image/png', bytes: new ArrayBuffer(3) }],
+  } })) })
+  expect(chatStoreMock.setDraftQuote).toHaveBeenCalledWith(target, kind === 'owned' ? null : expect.objectContaining({ messageId: original.id, source: original }))
+  expect(chatStoreMock.writeDraft).toHaveBeenCalledWith(target, kind === 'owned' ? '① Check this' : { at: 'end', text: '① Check this' })
+  expect(chatStoreMock.setDraftAttachments).toHaveBeenCalledWith(target, [expect.objectContaining({ file: expect.objectContaining({ name: 'edited.png', type: 'image/png' }) })])
+  if (kind === 'topic') expect(drainTopicSplitRequest(parent)).toMatchObject({ chatId: target })
+  if (kind === 'assistant') await act(async () => publishAssistantShell({ assistant: null, chatId: null } as never))
+})
+
 // Links and notifications retain the topic address. Files open the shared source slot.
 
 describe('MainLayout: opening a topic on the desktop', () => {
@@ -1045,6 +1079,7 @@ describe('MainLayout: opening a topic on the desktop', () => {
   const ways: Array<[string, () => void, string]> = [
     ['a conversation link', () => { clickLink(conversationLink(TOPIC)) }, SRC],
     ['a notification', () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: TOPIC } })) }, TOPIC],
+    ['a phone notification', () => { notificationClicks.listener!({ chatId: TOPIC }) }, TOPIC],
     ['an App naming it', () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: { chatId: TOPIC, itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } } })) }, SRC],
   ]
   it.each(ways)('from %s, through the one door', async (_way, open, target) => {
@@ -1057,6 +1092,64 @@ describe('MainLayout: opening a topic on the desktop', () => {
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(target, false)
     if (_way === 'a conversation link') expect(drainTopicSplitRequest(SRC)).toMatchObject({ chatId: TOPIC, sourceChatId: SRC })
     else expect(drainTopicSplitRequest(SRC)).toBeNull()
+  })
+  it('unsubscribes notification clicks when MainLayout unmounts', async () => {
+    await renderMainLayoutWithToast()
+    expect(platformMock.subscribeNotificationClicks).toHaveBeenCalled()
+    notificationClicks.unsubscribe.mockClear()
+    await harness.render(null)
+    expect(notificationClicks.unsubscribe).toHaveBeenCalledOnce()
+  })
+  it('keeps one phone notification subscription across startup rerenders', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await renderMainLayoutWithToast(vi.fn(), false)
+    for (const effectsActive of [true, false, true]) {
+      phoneAssistantMock.state.available = effectsActive
+      phoneAssistantMock.state.chatId = effectsActive ? 'assistant-chat' : null
+      await renderMainLayoutWithToast(vi.fn(), effectsActive)
+    }
+    expect(platformMock.subscribeNotificationClicks).toHaveBeenCalledOnce()
+    expect(notificationClicks.unsubscribe).not.toHaveBeenCalled()
+    await harness.render(null)
+    expect(notificationClicks.unsubscribe).toHaveBeenCalledOnce()
+  })
+  it('delivers the retained cold tap to the latest open and still handles warm clicks', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await renderMainLayoutWithToast(vi.fn(), false)
+    // The plugin consumes its retained tap for the first listener, even if JS receives it later.
+    const coldClick = notificationClicks.listener!
+    const initialOpen = chatStoreMock.setActiveChatId
+    chatStoreMock.setActiveChatId = vi.fn()
+    for (const effectsActive of [true, false, true]) {
+      await renderMainLayoutWithToast(vi.fn(), effectsActive)
+    }
+    await act(async () => { coldClick({ chatId: 'cold-chat' }) })
+    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledExactlyOnceWith('cold-chat')
+    expect(initialOpen).not.toHaveBeenCalled()
+    chatStoreMock.setActiveChatId.mockClear()
+    await act(async () => { notificationClicks.listener!({ chatId: 'warm-chat' }) })
+    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledExactlyOnceWith('warm-chat')
+    chatStoreMock.setActiveChatId.mockClear()
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: 'window-chat' } }))
+    })
+    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledExactlyOnceWith('window-chat')
+    await harness.render(null)
+    chatStoreMock.setActiveChatId.mockClear()
+    await act(async () => { coldClick({ chatId: 'after-unmount' }) })
+    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+  })
+  it('does not navigate for a phone notification without a chatId', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await renderMainLayoutWithToast()
+    chatStoreMock.setActiveChatId.mockClear()
+    sessionPageViewRequests.openChat.mockClear()
+    await act(async () => { notificationClicks.listener!({ chatId: null }) })
+    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+    expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
   })
 })
 

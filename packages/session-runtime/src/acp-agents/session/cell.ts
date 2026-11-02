@@ -1458,7 +1458,7 @@ export class SessionCell {
     }
     if (outcome.kind !== 'cancelled' || outcome.reason === 'interrupted_for_message') {
       this.pendingNativeSteers = [];
-    }
+    } else this.returnPendingNativeSteers();
     // 任何一次落定都先把「可改口」收回:只有紧接着的 prompt-边界分类会再把它打开。
     // ❌ 不许让上一次的暂定状态活过这一次 —— 那就又变回一个时间窗了。
     this.lastFailureProvisional = false;
@@ -2082,8 +2082,10 @@ export class SessionCell {
       const turnContextBlocks = [prepared?.text, prepared?.beforeText, turnContext]
         .filter((text): text is string => !!text).map(text => ({ type: 'text' as const, text }));
       const textBlocks = prompt.text ? [{ type: 'text' as const, text: prompt.text }] : [];
+      // hiddenContext is host context for this message, such as a mentioned or scheduled issue.
+      // Typed turns carry someone's words verbatim, without host context beside them.
       const trailingBlocks = [
-        ...(prompt.origin === undefined && prompt.hiddenContext ? [{ type: 'text' as const, text: prompt.hiddenContext }] : []),
+        ...(prompt.origin !== 'typed' && prompt.hiddenContext ? [{ type: 'text' as const, text: prompt.hiddenContext }] : []),
         ...(prompt.files ?? []).flatMap(file => file.promptText ? [{ type: 'text' as const, text: file.promptText }] : []),
       ];
       // behavior `acp 命令必须是第一个块` —— 三家 harness 都只在 prompt 的**开头**找命令:
@@ -2115,6 +2117,7 @@ export class SessionCell {
         content: promptRequest.prompt,
       });
       if (nativeSteer) {
+        const admissionGeneration = this.nativeAdmissionGeneration;
         let outcome: 'injected' | 'promptRequired';
         try {
           outcome = await this.requestSteering(promptRequest, { requestId, message: submittedMessage });
@@ -2157,7 +2160,10 @@ export class SessionCell {
         // The adapter has the input before a released human tool creates its next boundary.
         this.deps.callbacks?.onPromptSteered?.();
         // A stop can race the admission receipt; it must retain that accepted input too.
-        if (this.closeRequested) this.returnPendingNativeSteers();
+        if (this.closeRequested || admissionGeneration !== this.nativeAdmissionGeneration) {
+          this.returnPendingNativeSteers();
+          this.releaseDispatch();
+        }
         confirmPreparation();
         admit();
         // Admission records this input; the primary ACP stream still owns foreground completion.
