@@ -17,6 +17,7 @@
  * (内存,不持有任何跨进程/跨崩溃真值:进程死,守卫与工作同死,游标未推进,重启重拉)。
  */
 import { createHash } from 'node:crypto'
+import { isSqliteBusy } from '../../shared/sqliteBusy'
 import type { FileRef } from '../../shared/fileResolver'
 import { getSupabaseAnonKey, getSupabaseUrl } from '../../cloud/config'
 import { resolveListenModeDefault } from '../../cloud/listenMode'
@@ -709,13 +710,23 @@ async function injectBatch(
   const threadSeeds = new Map<string, Promise<string | null>>()
   const threadSeedCache = new Map<string, Promise<string | null>>()
   const failures: DisclosedFailure[] = []
+  const completions: Promise<void>[] = []
+  const observeCompletions = () => {
+    for (const completion of completions) void completion.catch(error => log.error({ agentUserId, err: errorText(error) }, 'an already admitted item failed while the inbox pull was interrupted'))
+  }
   const reject = async (members: PreparedMessage[], text: string, error: unknown): Promise<void> => {
+    // No permanent queue receipt or chat disclosure for a temporary storage failure. The outer
+    // pull retries unread rows; a row already queued is excluded by durable source membership.
+    if (isSqliteBusy(error)) { observeCompletions(); throw error }
     for (const member of members) if (member.bootstrapKey) threadSeeds.delete(member.bootstrapKey)
     const sources = members.map(({ row, rulesDelivered, bootstrapKey }) => ({ row, ...(rulesDelivered ? { rulesDelivered } : {}), ...(bootstrapKey ? { bootstrapKey } : {}) }))
     log.error({ agentUserId, messageIds: members.map(member => member.row.id), err: errorText(error) }, 'inbox item rejected; later items will still be processed')
     let recorded = false
     try { if (deps.recordFailure) { await deps.recordFailure({ agentUserId, text, sources }, error); recorded = true } }
-    catch (recordError) { log.error({ agentUserId, err: errorText(recordError) }, 'could not persist rejected inbox item') }
+    catch (recordError) {
+      if (isSqliteBusy(recordError)) { observeCompletions(); throw recordError }
+      log.error({ agentUserId, err: errorText(recordError) }, 'could not persist rejected inbox item')
+    }
     let disclosure: Disclosure = { said: false, reason: recorded ? 'deliveryRejected' : 'notAdmitted' }
     deps.onOutcome?.({ agentUserId, ok: false })
     try {
@@ -782,7 +793,6 @@ async function injectBatch(
 
   let injected = 0
   let enqueued = false
-  const completions: Promise<void>[] = []
   for (let unitIndex = 0; unitIndex < units.length; unitIndex += 1) {
     let unit = units[unitIndex]!
     if (queueBacked) {
@@ -811,7 +821,7 @@ async function injectBatch(
       } else {
         unitVerdict = result.verdict
         completion = result.completion?.catch(async (error: unknown) => {
-          if (error instanceof DisclosedFailure) throw error
+          if (error instanceof DisclosedFailure || isSqliteBusy(error)) throw error
           deps.onOutcome?.({ agentUserId, ok: false })
           // Admission already advanced the cursor. Report provider failure here, where the exact
           // source rows are still known, including pulls started without a device command.
@@ -841,7 +851,7 @@ async function injectBatch(
   }
   // The trigger still observes the failure, after every independent later item has had its admission attempt.
   if (failures.length) {
-    for (const completion of completions) void completion.catch(error => log.error({ agentUserId, err: errorText(error) }, 'an admitted item also failed after another item was rejected'))
+    observeCompletions()
     throw failures[0]
   }
   return {
@@ -1107,6 +1117,7 @@ async function advanceCursor(
           }
         }
       } catch (error) {
+        if (isSqliteBusy(error)) throw error
         log.error(
           { agentUserId, chatId, messageId: member.row.id, err: error instanceof Error ? error.message : String(error) },
           'cursor advance failed after accepted injection; the tail of this chat will be re-pulled (duplicates stay visible by stable id)',

@@ -97,7 +97,7 @@ export function enqueuePending(input: EnqueuePending): { inserted: boolean; seq:
       settledAt: input.failure ? new Date().toISOString() : null, enqueuedAt: new Date().toISOString() }).returning().get();
     for (const source of input.sources ?? []) tx.insert(sessionPendingSource).values({ seq: pending.seq, sessionId: input.sessionId, sourceMessageId: source.row.id }).run();
     return { inserted: true, seq: pending.seq as Seq, state: pending.state };
-  });
+  }, { behavior: 'immediate' });
 }
 
 /**
@@ -171,7 +171,7 @@ export const lifeStore: LifeStore = {
           if (changed.changes !== 1) throw new Error(`Receipt ${effect.seq} has no pending row`);
         }
       }
-    });
+    }, { behavior: 'immediate' });
   },
   claim(sessionId) {
     return db.update(sessionPending).set({ state: 'unknown', attempt: null, settledAt: new Date().toISOString() })
