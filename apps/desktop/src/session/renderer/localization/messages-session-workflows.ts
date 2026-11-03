@@ -198,12 +198,12 @@ export const enUSSessionWorkflowMessages = {
 
   // ── sidebar · identity card (#6092) ───────────────────────────────────────
   'identityCard.dialog': 'Identity of {name}',
-  'identityCard.sessionName': 'Task',
+  'identityCard.sessionName': 'Agent',
   'identityCard.device': 'Device',
   'identityCard.folder': 'Folder',
   'identityCard.folderUnknown': 'Unknown',
   'identityCard.copy': 'Copy {label}',
-  // 复制出去的「Task: X」里标签与值之间那一段(#7334)。
+  // 复制出去的「Agent: X」里标签与值之间那一段(#7334)。
   'identityCard.copyKeySeparator': ': ',
   'identityCard.copied': 'Copied',
   'identityCard.copyFailed': 'Copy failed',
@@ -830,7 +830,7 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
 
   // ── 侧栏 · 身份卡(#6092)────────────────────────────────────────────────
   'identityCard.dialog': '{name} 的身份',
-  'identityCard.sessionName': '任务名',
+  'identityCard.sessionName': 'Agent 名',
   'identityCard.device': '设备',
   'identityCard.folder': '文件夹',
   'identityCard.folderUnknown': '未知',

@@ -325,10 +325,10 @@ it('keeps the copyable addressing name raw while the sidebar row shows the namin
 
 /**
  * 复制出去的那一段。测试进程的语言随机器走,两种文案都算;要判的是「标签：值」这个形状与值 ——
- * 中文「任务名：X」,英文「Task: X」。
+ * 中文「Agent 名：X」,英文「Agent: X」。
  */
 function pairOf(text: string): [string, string] {
-  const m = /^任务名：(.*)$/.exec(text) ?? /^Task: (.*)$/.exec(text)
+  const m = /^Agent 名：(.*)$/.exec(text) ?? /^Agent: (.*)$/.exec(text)
   expect(m, `复制出去的不是「标签：值」的形状:${JSON.stringify(text)}`).not.toBeNull()
   return ['session', m![1]]
 }
@@ -343,7 +343,7 @@ async function openCard(row: HTMLElement): Promise<HTMLElement> {
   return identityCard()!
 }
 
-it('#7334 指针停在行上,右侧弹出身份卡:任务名 / 设备 / 文件夹三行(任务名就是 agent 名,不另摆一行),不摆两枚 ID;卡上没有多余的线', async () => {
+it('#7334 指针停在行上,右侧弹出身份卡:Agent 名 / 设备 / 文件夹三行(统一名称,不另摆一行),不摆两枚 ID;卡上没有多余的线', async () => {
   // 卡开在行右侧要有地方放:默认视口太窄时定位系统会翻到左边再贴边,那量到的就不是「右侧」这一格了。
   await page.viewport(1024, 768)
   sessionAgentBindings.note('conv-1', AGENT_USER_ID)
@@ -368,12 +368,13 @@ it('#7334 指针停在行上,右侧弹出身份卡:任务名 / 设备 / 文件�
 
   const keys = Array.from(card.querySelectorAll<HTMLElement>('[data-identity-row]')).map((el) => el.dataset.identityRow)
   expect(keys).toEqual(['sessionName', 'device', 'folder'])
+  expect(card.textContent).not.toMatch(/任务名|Task/)
   // 在哪(owner 2026-10-28):本机会话写「这台电脑」;这里项目没挂上、也没有工作区 ⇒ 文件夹「未知」,且不可复制。
   expect(card.querySelector('[data-identity-row="device"]')!.textContent).toMatch(/这台电脑|This computer/)
   expect(card.querySelector('[data-identity-row="folder"]')!.textContent).toMatch(/未知|Unknown/)
   expect(card.querySelector('[data-identity-row="folder"]')!.tagName).not.toBe('BUTTON')
   expect(card.querySelector('[data-identity-row="sessionName"]')!.textContent).toContain('软件更新')
-  // 两枚 ID 不在卡上 —— 连前缀也没有。阳性对照:同一张卡的文字里确实读得到任务名(上一句),读法没坏。
+  // 两枚 ID 不在卡上 —— 连前缀也没有。阳性对照:同一张卡的文字里确实读得到 agent 名(上一句),读法没坏。
   expect(card.textContent).not.toContain(AGENT_USER_ID.slice(0, 8))
   expect(card.textContent).not.toContain('conv-1')
   expect(card.textContent).not.toMatch(/Session ID|Agent ID/)
@@ -395,7 +396,7 @@ it('#7334 指针停在行上,右侧弹出身份卡:任务名 / 设备 / 文件�
     expect(cs.borderBottomWidth).toBe('0px')
   }
 
-  // 任务名那一行是一枚复制按钮(owner 2026-10-16:「复制任务名就是复制任务名」)。
+  // Agent 名那一行是一枚复制按钮(owner 2026-10-16:「复制任务名就是复制任务名」)。
   const sessionRow = card.querySelector<HTMLElement>('[data-identity-row="sessionName"]')!
   expect(sessionRow.tagName).toBe('BUTTON')
 
