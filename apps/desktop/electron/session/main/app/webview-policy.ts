@@ -17,6 +17,7 @@ import {
 import { configuredExtensionIds, extensionIdForSession } from '@main/core/extensions/extension-session';
 import { log } from '@main/lib/logger';
 import { extensionIdFromPartition } from '@shared/extensions/partition';
+import { browserWebContentsRegistry } from '@main/core/browser/browser-webcontents-registry';
 
 /** Where the bridge preload landed in this build, or null if it did not — see bridge-preload-path.ts. */
 function extensionBridgePreloadPath(): string | null {
@@ -118,6 +119,13 @@ function handleDidAttachWebview(attached: WebContents): void {
   // webview attaches, while its URL can still be empty that early.
   const extensionId = extensionIdForSession(attached.session);
   if (extensionId) {
+    browserWebContentsRegistry.bindAppShortcuts(attached, (command) => {
+      if (command !== 'app.navigateBack' && command !== 'app.navigateForward') return false;
+      void import('@main/core/extensions/extension-bridge')
+        .then(({ forwardSurfaceNavigation }) => forwardSurfaceNavigation(attached.id, command === 'app.navigateBack' ? -1 : 1))
+        .catch((error: unknown) => log.warn('App tab navigation failed', { error: String(error) }));
+      return true;
+    });
     // An extension may render; it may not spawn windows. A new window sits
     // outside the tab the user opened and outside the sandbox they agreed to.
     attached.setWindowOpenHandler(() => ({ action: 'deny' }));

@@ -57,15 +57,15 @@ export function confirmCloseSessionTab(
         count: others.size,
         kinds: kindsOf(layout, others),
       }),
-      confirmLabel: translateSessionMessage('task.closeSessionAndTabs'),
-      cancelLabel: translateSessionMessage('task.closeSessionOnly'),
+      confirmLabel: translateSessionMessage('task.closeSessionOnly'),
+      cancelLabel: translateSessionMessage('task.closeSessionAndTabs'),
       variant: 'default',
-      onSuccess: () => {
+      onCancel: () => {
         if (decided) return;
         decided = true;
         void closeTabs(layout, others).then(() => resolve(true));
       },
-      onCancel: () => decide(true),
+      onSuccess: () => decide(true),
       onClose: () => decide(false),
     });
   });

@@ -1073,6 +1073,13 @@ function requireHost(): ExtensionBridgeHost {
 }
 
 /** Sends one action to the renderer that draws this surface: a tab of a task, or a slot in no task (`sessionId` null). */
+/** Native guest shortcuts use the same host-stamped own-tab action as navigation.go. */
+export async function forwardSurfaceNavigation(webContentsId: number, delta: -1 | 1): Promise<void> {
+  const binding = bindings.get(webContentsId);
+  if (!binding || binding.modal || binding.widget || binding.embedderId === null) return;
+  await deliver(binding, { kind: 'navigateTab', delta });
+}
+
 function deliver(binding: SurfaceBinding, action: ExtensionHostAction): Promise<ExtensionHostActionResult> {
   return requireHost().deliver(
     {

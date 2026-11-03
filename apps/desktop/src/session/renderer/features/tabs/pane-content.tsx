@@ -30,17 +30,17 @@ export const PaneContent = observer(function PaneContent({
   leadingReservePx?: number;
   contentOverlay?: ReactNode;
 }) {
-  const { paneId, pane } = usePaneContext();
+  const { paneId, pane, isFocusedPane } = usePaneContext();
   const shellRef = useRef<HTMLDivElement | null>(null);
   useCommandProvider(useMemo(() => ({
     scopeId: 'session-sub' as const,
-    isActive: (element: HTMLElement | null) => !!element && !!shellRef.current?.contains(element),
+    isActive: (element: HTMLElement | null) => !!element && !!shellRef.current?.contains(element) || isFocusedPane && document.activeElement === document.body,
     getCommands: () => ([-1, 1] as const).map((delta) => ({
       id: delta === -1 ? 'app.navigateBack' as const : 'app.navigateForward' as const,
       hideFromPalette: true,
       execute() { const id = pane.resolvedActiveTabId; if (id) void pane.go(id, delta); },
     })),
-  }), [pane]));
+  }), [pane, isFocusedPane]));
   const { setNodeRef: dropRef, isOver } = useDroppable({ id: `pane-content-${paneId}` });
   const contentRef = useRef<HTMLDivElement | null>(null);
   const setContentRef = useCallback((element: HTMLDivElement | null) => { dropRef(element); contentRef.current = element; }, [dropRef]);

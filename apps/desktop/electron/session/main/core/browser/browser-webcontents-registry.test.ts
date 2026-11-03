@@ -344,6 +344,24 @@ describe('BrowserWebContentsRegistry', () => {
     });
   });
 
+  it('shares configured native shortcut forwarding with an App guest without consuming its other keys', () => {
+    const registry = withPlatform('darwin', () => new BrowserWebContentsRegistry());
+    const contents = fakeWebContents();
+    const ownTab = vi.fn((id: string) => id === 'app.navigateBack' || id === 'app.navigateForward');
+    registry.bindAppShortcuts(contents as never, ownTab);
+    const back = { preventDefault: vi.fn() };
+    contents.emitEvent('before-input-event', back, { type: 'keyDown', key: '[', meta: true });
+    expect(ownTab).toHaveBeenCalledWith('app.navigateBack');
+    expect(back.preventDefault).toHaveBeenCalledOnce();
+    registry.setKeyboardSettings({ 'app.navigateBack': null });
+    const disabled = { preventDefault: vi.fn() };
+    contents.emitEvent('before-input-event', disabled, { type: 'keyDown', key: '[', meta: true });
+    expect(disabled.preventDefault).not.toHaveBeenCalled();
+    const ordinary = { preventDefault: vi.fn() };
+    contents.emitEvent('before-input-event', ordinary, { type: 'keyDown', key: 'a' });
+    expect(ordinary.preventDefault).not.toHaveBeenCalled();
+  });
+
   it('emits app shortcuts from focused browser webContents', () => {
     for (const { platform, mod } of MOD_PLATFORMS) {
       // 整个 registry 都建在桩里:快捷键表在 registerSession 那一步就解析定型,

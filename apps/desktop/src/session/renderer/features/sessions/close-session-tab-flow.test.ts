@@ -60,7 +60,7 @@ describe('关掉会话自己那枚页签:它还开着别的页签就问「会话
     view.layout = l;
     const answer = confirmCloseSessionTab('s1', ctx, { alone: true });
     expect(modal.last?.description).toContain('"count":2');
-    modal.last!.onSuccess({});
+    modal.last!.onCancel();
     expect(await answer).toBe(true);
     expect(l.closed).toEqual(['side', 'web']);
   });
@@ -69,7 +69,7 @@ describe('关掉会话自己那枚页签:它还开着别的页签就问「会话
     const l = layout();
     view.layout = l;
     const only = confirmCloseSessionTab('s1', ctx, { alone: true });
-    modal.last!.onCancel();
+    modal.last!.onSuccess({});
     expect(await only).toBe(true);
     expect(l.closed).toEqual([]);
 
@@ -83,7 +83,7 @@ describe('关掉会话自己那枚页签:它还开着别的页签就问「会话
     const l = layout();
     view.layout = l;
     const answer = confirmCloseSessionTab('s1', ctx, { alone: true });
-    modal.last!.onSuccess({});
+    modal.last!.onCancel();
     modal.last!.onClose();
     expect(await answer).toBe(true);
   });

@@ -15,7 +15,7 @@ vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => {
   const paneLayout = {
     get groups() {
-      return [{ pane: { tabOrder: Array.from({ length: opened.tabs }, (_, i) => `t${i}`) } }];
+      return [{ pane: { tabOrder: Array.from({ length: opened.tabs }, (_, i) => `t${i}`), entries: new Map() } }];
     },
     open: (...args: unknown[]) => opened.calls.push(args),
   };

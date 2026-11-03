@@ -14,6 +14,12 @@ vi.mock('@main/core/extensions/bridge-preload-path', () => ({ extensionBridgePre
 vi.mock('@main/core/extensions/extension-session', () => ({ extensionIdForSession: () => 'board', configuredExtensionIds: () => new Set(['board']) }));
 vi.mock('@main/core/extensions/extension-bridge', () => ({ reportBlockedNavigation: (...args: unknown[]) => void reported.push(args), forwardSurfaceNavigation: nativeNavigation }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: () => undefined, error: () => undefined, info: () => undefined } }));
+vi.mock('@main/core/browser/browser-webcontents-registry', () => ({ browserWebContentsRegistry: {
+  bindAppShortcuts: (page: EventEmitter, onCommand: (id: string) => boolean) => page.on('before-input-event', (event, input) => {
+    const id = input.meta && input.type === 'keyDown' ? input.key === '[' ? 'app.navigateBack' : input.key === ']' ? 'app.navigateForward' : null : null;
+    if (id && onCommand(id)) event.preventDefault();
+  }),
+} }));
 
 const { governWebContents } = await import('./webview-policy');
 

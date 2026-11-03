@@ -86,7 +86,7 @@ export function ConfirmActionDialog({
           </label>
         ) : null}
       </DialogContentArea>
-      <DialogFooter className={dontAskAgainLabel ? 'sm:flex-wrap' : undefined}>
+      <DialogFooter className="sm:flex-wrap">
         {dontAskAgainLabel ? (
           // 页脚里**自占一行**(basis-full),按钮组折到下一行靠右:它是这次确认的一部分,不是正文里的
           // 又一句说明,但❌ 与按钮抢同一行。xs 确认框只有 320px,复选框 + 取消 + 带键帽的确认钮放不下;
