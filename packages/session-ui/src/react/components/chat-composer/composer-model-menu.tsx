@@ -169,9 +169,12 @@ export function resolveComposerModelPanel(input: {
 
 // ── Model tooltip ─────────────────────────────────────────────────────────────
 
-function formatContextWindow(tokens: number): string {
+export function formatContextWindow(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(0)}M tokens`;
-  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(0)}K tokens`;
+  if (tokens >= 1_000) {
+    const thousands = Math.round(tokens / 1_000);
+    return thousands >= 1_000 ? `${(tokens / 1_000_000).toFixed(0)}M tokens` : `${thousands}K tokens`;
+  }
   return `${tokens} tokens`;
 }
 

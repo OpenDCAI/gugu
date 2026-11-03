@@ -16,9 +16,13 @@ export interface ContextUsage {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatTokens(n: number): string {
+export function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+  if (n >= 1_000) {
+    // 四舍五入到千之后满 1000 就进位到 M:999,600 该显示「1.0M」,不是「1000k」。
+    const thousands = Math.round(n / 1_000);
+    return thousands >= 1_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${thousands}k`;
+  }
   return String(n);
 }
 

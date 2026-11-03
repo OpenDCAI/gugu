@@ -50,6 +50,7 @@ export const COMPACTION_ROW_H = 24;
 
 /** 75888 → `75.9k`。压缩前后动辄几万，原样铺出来读不出量级差。 */
 function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
