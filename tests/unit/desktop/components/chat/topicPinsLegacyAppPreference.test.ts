@@ -15,7 +15,7 @@ describe('topic pins after removing personal App pins', () => {
   it.each(['invalid legacy value', null, [null], { id: 'old-app' }].map((legacy) => ({ legacy })))('ignores obsolete App preferences without migration: $legacy', async ({ legacy }) => {
     const config = { pinnedAppIds: legacy, pinnedTopicIds: ['saved'], workspace: { layout: 'list' } }
     io.rows.set('u/chat:g', { scope: 'chat:g', config, updated_at: '2026-10-29T00:00:00.000Z' })
-    expect(await readChatTopicPins('u', 'g')).toEqual(['saved'])
+    await expect(readChatTopicPins('u', 'g')).resolves.toEqual(['saved'])
     expect(io.rows.get('u/chat:g')?.config).toEqual(config)
     await setChatTopicPin('u', 'g', 'next', true, ['next'])
     expect(io.rows.get('u/chat:g')?.config).toEqual({ ...config, pinnedTopicIds: ['saved', 'next'] })
