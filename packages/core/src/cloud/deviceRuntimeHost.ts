@@ -50,6 +50,10 @@ import {
   publishAgentStatusTransitions,
   publishedStatusOf,
   samePublishedStatus,
+  createAgentRuntimeStatePublisher,
+  recentActionsKey,
+  recentActionsPublication,
+  type PublishedAgentActions,
   type PublishedAgentStatus,
 } from './deviceRuntimeSweep'
 import type { AgentStatusReading } from '../shared/agentStatus'
@@ -385,8 +389,8 @@ export function createDeviceRuntimeHostLoop(
   // @@@activity-edge (#3961) — 「已发布过什么」的记忆,让 2 秒一轮的节律只在读数**变化**时才写。
   // presence 行的每一次写(对账、边沿、建 / 停的收敛写、下线)都经 reportPresence 记进这里,
   // 所以谁都不会把另一个写回旧值,也不会对一个已经写过的值再写一遍。
-  const publishedActivity = new Map<string, PublishedAgentStatus>()
-  const publishedRecentActions = new Map<string, string>()
+  const publishedActivity = new Map<string, PublishedAgentStatus & Pick<AgentRuntimeStateWrite, 'runtimeKind' | 'runtimeLabel'>>()
+  const publishedRecentActions = new Map<string, PublishedAgentActions>()
   let stopped = false
   let queuedCommandWake: {
     promise: Promise<void>
@@ -433,19 +437,16 @@ export function createDeviceRuntimeHostLoop(
    * presence 行的唯一写口:每一次写成功都记进「已发布过什么」。建 / 停 / 下线这类说不出读数的写记成没有读数,
    * 于是下一次边沿发布照常把真实读数补上(❌ 旧的去重表以为它已经发过)。
    */
+  const publishRuntimeState = createAgentRuntimeStatePublisher({ published: publishedActivity, recent: publishedRecentActions, nowMs })
   const makeRuntimeStateReporter = (client: DeviceRuntimeIdentityClient) => {
-    const report = createAgentRuntimeStateReporter(
-      client,
-      { onGoneAgent: dropLocalAgentByGuguUserId },
-      options.operationTimeouts,
-    )
-    return async (state: AgentRuntimeStateWrite): Promise<void> => {
-      await report(state)
-      publishedActivity.set(state.agentUserId, {
-        activityStatus: state.activityStatus,
-        reading: state.agentStatus ? { status: state.agentStatus, detail: state.agentStatusDetail ?? null } : null,
-      })
-    }
+    const report = createAgentRuntimeStateReporter(client, { onGoneAgent: dropLocalAgentByGuguUserId }, options.operationTimeouts)
+    const generation = lifecycleGeneration
+    return (state: AgentRuntimeStateWrite) => publishRuntimeState(async () => {
+      if (state.agentStatus === undefined) return state
+      const recent = await recentActionsForAgent(state.agentUserId)
+      if (generation !== lifecycleGeneration || stopped) throw new Error('device runtime was stopped before state publication')
+      return recent ? { ...state, recentActions: recent.actions, lastActionAt: recent.lastActionAt } : state
+    }, report)
   }
 
   function unsubscribeCommandWake(): void {
@@ -1330,8 +1331,9 @@ export function createDeviceRuntimeHostLoop(
             await dropLocalAgentByGuguUserId(agentUserId, 'cloud-removed', { userId: agentUserId, removedAt: presence.updatedAt })
             publishedActivity.delete(agentUserId)
           } else {
-            publishedActivity.set(agentUserId, { activityStatus: presence.activityStatus, reading: presence.status })
-            publishedRecentActions.set(agentUserId, recentActionsKey({ actions: presence.recentActions, lastActionAt: presence.lastActionAt }))
+            publishedActivity.set(agentUserId, { activityStatus: presence.activityStatus, reading: presence.status,
+              runtimeKind: presence.runtimeKind, runtimeLabel: presence.runtimeLabel })
+            publishedRecentActions.set(agentUserId, { key: recentActionsKey({ actions: presence.recentActions, lastActionAt: presence.lastActionAt }), publishedAt: nowMs() })
           }
         }
       }
@@ -1371,12 +1373,6 @@ export function createDeviceRuntimeHostLoop(
     return await options.runtimeBridge?.recentActionsForAgent?.(agentUserId) ?? null
   }
 
-  // 云端读回的时刻与本机的 ISO 串写法不同,按时刻比,❌ 按字面比(否则每轮对账都当成「变了」再写一遍)。
-  function recentActionsKey(snapshot: { actions: string[]; lastActionAt: string | null } | null): string {
-    if (!snapshot) return ''
-    return JSON.stringify([snapshot.actions, snapshot.lastActionAt ? new Date(snapshot.lastActionAt).toISOString() : null])
-  }
-
   async function publishLocalAgentActivity(generation: number): Promise<void> {
     try {
       const agentUserIds = await localPresenceAgentIds(activeOwnerUserId)
@@ -1386,7 +1382,7 @@ export function createDeviceRuntimeHostLoop(
       // 本机拿不到这个 agent 的近况(没有活会话)= 没有可说的,❌ 当成「变成空了」去写(那一写 SQL 侧 COALESCE 成原值)。
       const recentActionsChanged = (id: string): boolean => {
         const recent = recentSnapshots.get(id) ?? null
-        return recent !== null && publishedRecentActions.get(id) !== recentActionsKey(recent)
+        return recentActionsPublication(publishedRecentActions.get(id), recent, nowMs()) !== null
       }
       // 这条路每 2 秒走一轮,而它真正要写的时刻一次回合只有两个。所以**先判有没有变化,
       // 再决定要不要造客户端** —— 无条件 makeIdentityClient 会在空闲期每 2 秒造一个,
@@ -1407,16 +1403,12 @@ export function createDeviceRuntimeHostLoop(
         published: publishedActivity,
         statusOf: agentStatusOf,
         report: async (agentUserId, published) => {
-          const recent = recentSnapshots.get(agentUserId) ?? null
           await reportRuntimeState({
             agentUserId,
             ...presenceFields(published),
             runtimeKind: 'gugu',
             runtimeLabel: hostname(),
-            recentActions: recent?.actions ?? null,
-            lastActionAt: recent?.lastActionAt ?? null
           })
-          publishedRecentActions.set(agentUserId, recentActionsKey(recent))
         },
         shouldPublish: recentActionsChanged,
         shouldBail: () => generation !== lifecycleGeneration || stopped,

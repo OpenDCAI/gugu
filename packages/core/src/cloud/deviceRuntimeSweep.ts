@@ -1,5 +1,75 @@
+import type { AgentRuntimeStateWrite } from './agentRuntimeStateReporter'
 import type { AgentActivityStatus } from '../shared/types/chat'
 import { isAgentActive, type AgentStatusReading } from '../shared/agentStatus'
+
+export const RECENT_ACTIONS_PUBLISH_INTERVAL_MS = 30_000
+
+/** Compare action instants rather than cloud/local timestamp string spellings. */
+export function recentActionsKey(snapshot: { actions: string[]; lastActionAt: string | null } | null): string {
+  if (!snapshot) return ''
+  return JSON.stringify([snapshot.actions, snapshot.lastActionAt ? new Date(snapshot.lastActionAt).toISOString() : null])
+}
+
+export type PublishedAgentActions = { key: string; publishedAt: number }
+
+export function recentActionsPublication(
+  previous: PublishedAgentActions | undefined,
+  snapshot: Parameters<typeof recentActionsKey>[0],
+  at: number,
+  stateEdge = false,
+): PublishedAgentActions | null {
+  if (stateEdge) return { key: snapshot ? recentActionsKey(snapshot) : previous?.key ?? '', publishedAt: at }
+  if (!snapshot || (previous && at - previous.publishedAt < RECENT_ACTIONS_PUBLISH_INTERVAL_MS)) return null
+  const key = recentActionsKey(snapshot)
+  return previous?.key === key ? null : { key, publishedAt: at }
+}
+
+type PublishedRuntimeState = PublishedAgentStatus & Pick<AgentRuntimeStateWrite, 'runtimeKind' | 'runtimeLabel'>
+
+/** One publication state machine for desktop and phone: edges, trailing actions and failed writes. */
+export function createAgentRuntimeStatePublisher(options: {
+  published?: Map<string, PublishedRuntimeState>
+  recent?: Map<string, PublishedAgentActions>
+  nowMs?: () => number
+} = {}) {
+  const published = options.published ?? new Map<string, PublishedRuntimeState>()
+  const recent = options.recent ?? new Map<string, PublishedAgentActions>()
+  const writing = new Map<string, Promise<void>>()
+  const publish = async (read: () => AgentRuntimeStateWrite | null | Promise<AgentRuntimeStateWrite | null>, report: (state: AgentRuntimeStateWrite) => Promise<void>): Promise<void> => {
+    const state = await read()
+    if (!state) return
+    const id = state.agentUserId
+    const pending = writing.get(id)
+    if (pending) { await pending; return publish(read, report) }
+    const previous = published.get(id)
+    const next = { activityStatus: state.activityStatus,
+      reading: state.agentStatus ? { status: state.agentStatus, detail: state.agentStatusDetail ?? null } : null,
+      runtimeKind: state.runtimeKind ?? null, runtimeLabel: state.runtimeLabel ?? null }
+    const edge = !samePublishedStatus(previous, next)
+      || previous?.runtimeKind !== next.runtimeKind || previous?.runtimeLabel !== next.runtimeLabel
+    const snapshot = state.recentActions == null ? null : { actions: [...state.recentActions], lastActionAt: state.lastActionAt ?? null }
+    const before = recent.get(id)
+    const publication = recentActionsPublication(before, snapshot, (options.nowMs ?? Date.now)(), edge)
+    if (!edge && !publication) return
+    if (publication) recent.set(id, publication)
+    const work = Promise.resolve().then(async () => {
+      await report({ ...state, recentActions: publication ? snapshot?.actions ?? null : null,
+        lastActionAt: publication ? snapshot?.lastActionAt ?? null : null })
+      published.set(id, next)
+    })
+    writing.set(id, work)
+    try { await work } catch (error) {
+      if (publication && recent.get(id) === publication) {
+        if (before) recent.set(id, before)
+        else recent.delete(id)
+      }
+      throw error
+    } finally {
+      if (writing.get(id) === work) writing.delete(id)
+    }
+  }
+  return publish
+}
 
 // 本机 agent 状态边沿发布的纯逻辑(可单测,无 closure/IO 依赖)。gone 的写(DB 里已删/非本 owner,
 // `can_write_agent_runtime_state` 的「not writable」)由 `createAgentRuntimeStateReporter` 这一个 choke point
@@ -65,8 +135,9 @@ export async function publishAgentStatusTransitions(deps: AgentStatusTransitionD
     const next = publishedStatusOf(statusOf?.(agentUserId) ?? null)
     if (samePublishedStatus(published.get(agentUserId), next) && !deps.shouldPublish?.(agentUserId)) continue
     try {
+      const previous = published.get(agentUserId)
       await report(agentUserId, next)
-      published.set(agentUserId, next)
+      if (published.get(agentUserId) === previous) published.set(agentUserId, next)
     } catch (error) {
       // 不记入已发布 ⇒ 下一轮 tick 自动重试。gone 的写已在 reporter 层 drop+swallow,到不了这里。
       warn?.(`[device-runtime] activity publish failed for ${agentUserId}: ${errMsg(error)}`)
