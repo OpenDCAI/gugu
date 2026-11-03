@@ -12,7 +12,7 @@ import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
 import * as headless from '../session/headless/electron-shim'
-import { isOwnProcessAlive, SERVER_PROCESS_MARK } from './process-alive'
+import { accountLockHolder } from './server-account-lock'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -79,24 +79,23 @@ function requestSingleInstanceLock(): boolean {
     return true
   }
   if (tryAcquire()) return true
-  let holder = 0
-  try {
-    holder = Number(fs.readFileSync(lockPath, 'utf8').trim())
-  } catch {
-    holder = 0
-  }
-  // #6264 只认「活着且真是咕咕 server 进程」的持有者:进程号被复用时这把锁不能永远没人敢接。
-  // (守护进程被 kill -9 后留下的孤儿账号进程会自己退出,见 server-parent-watch.ts。)
-  if (isOwnProcessAlive(holder, SERVER_PROCESS_MARK)) return false
+  if (accountLockHolder(headless.app.getPath('userData')) !== null) return false
   fs.rmSync(lockPath, { force: true })
   return tryAcquire()
 }
 
 function releaseSingleInstanceLock(): void {
   if (lockFd === null) return
+  const held = fs.fstatSync(lockFd, { bigint: true })
   fs.closeSync(lockFd)
   lockFd = null
-  fs.rmSync(path.join(headless.app.getPath('userData'), 'server.lock'), { force: true })
+  const file = path.join(headless.app.getPath('userData'), 'server.lock')
+  try {
+    const current = fs.statSync(file, { bigint: true })
+    if (current.dev === held.dev && current.ino === held.ino) fs.rmSync(file, { force: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
 }
 process.on('exit', releaseSingleInstanceLock)
 

@@ -13,6 +13,7 @@ import fs from 'node:fs'
 import Module from 'node:module'
 import path from 'node:path'
 import { isOwnProcessAlive, isProcessAlive, SERVER_PROCESS_MARK } from './server/process-alive'
+import { accountLockHolder } from './server/server-account-lock'
 import { ensureCaBundleForChildren } from './server/server-ca-bundle'
 import {
   accountDataDir,
@@ -121,29 +122,32 @@ function lockHolder(dataDir: string): number | null {
  * 按各账号锁里的进程号收掉。先 SIGTERM 等它正常退出(收会话、放锁),30 秒不走再 SIGKILL。
  */
 async function stopAccountProcesses(): Promise<number[]> {
-  const pids = listAccounts()
-    .map((account) => lockHolder(account.dataDir))
-    .filter((pid): pid is number => pid !== null && pid !== process.pid)
-  for (const pid of pids) {
+  const holders = listAccounts().flatMap((account) => {
+    const pid = accountLockHolder(account.dataDir)
+    return pid !== null && pid !== process.pid ? [{ pid, dataDir: account.dataDir }] : []
+  })
+  const stillOwnsLock = (holder: { pid: number; dataDir: string }) => accountLockHolder(holder.dataDir) === holder.pid
+  for (const holder of holders) {
+    if (!stillOwnsLock(holder)) continue
     try {
-      process.kill(pid, 'SIGTERM')
+      process.kill(holder.pid, 'SIGTERM')
     } catch {
       // 已经退出了
     }
   }
   const deadline = Date.now() + 30_000
-  while (Date.now() < deadline && pids.some((pid) => isProcessAlive(pid))) {
+  while (Date.now() < deadline && holders.some(stillOwnsLock)) {
     await new Promise((resolve) => setTimeout(resolve, 200))
   }
-  for (const pid of pids) {
-    if (!isProcessAlive(pid)) continue
+  for (const holder of holders) {
+    if (!stillOwnsLock(holder)) continue
     try {
-      process.kill(pid, 'SIGKILL')
+      process.kill(holder.pid, 'SIGKILL')
     } catch {
       // 已经退出了
     }
   }
-  return pids
+  return holders.map(({ pid }) => pid)
 }
 
 /** 升级换版时新进程由旧进程拉起:等旧的完全退出(单实例锁放掉)再启动,最多等 60 秒。 */
@@ -176,7 +180,7 @@ function tightenOwnTree(): void {
  */
 function runningVersionFirst(command: string, args: string[], account: { dataDir: string } | { error: string }): number | null {
   if ('error' in account) return null
-  return runWithRunningVersion({ home: serverHome, accountPid: lockHolder(account.dataDir), command, args })
+  return runWithRunningVersion({ home: serverHome, accountPid: accountLockHolder(account.dataDir), command, args })
 }
 
 async function runCommand(command: string | undefined, args: string[]): Promise<void> {
@@ -418,7 +422,7 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       return process.exit(await runMatchVersion(args, out, stderr, {
         home: serverHome,
         runningVersion: (account) => {
-          const pid = lockHolder(account.dataDir)
+          const pid = accountLockHolder(account.dataDir)
           if (pid === null) return null
           // /proc 只有 Linux 有;macOS 上读账号进程自己每 10 秒写的忙闲(带着版本与进程号)。
           const activity = (() => {
