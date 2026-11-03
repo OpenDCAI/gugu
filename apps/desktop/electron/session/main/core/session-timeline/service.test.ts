@@ -44,6 +44,7 @@ const state = vi.hoisted(() => ({
   prepareQuestion: vi.fn(),
   deliverQuestion: vi.fn(),
   questionSend: vi.fn(),
+  acceptedMessage: vi.fn(),
   /** 写侧「这条腿上有没有结算口」;null = 有。 */
   permissionChannelError: vi.fn(),
   /** 活运行时是否存在。null = 这台机器上没有 ACP 运行时进程（watch 返回 null）。 */
@@ -107,7 +108,7 @@ vi.mock('../sessions/session-outputs', () => ({
   sessionOpenedFile: async (sessionId: string, path: string) =>
     (openedOutputs.get(sessionId) ?? []).some((output) => output.kind === 'file' && output.path === path),
 }));
-vi.mock('../sessions/sendMessage', () => ({ sendMessage: (...args: unknown[]) => state.questionSend(...args) }));
+vi.mock('../sessions/sendMessage', () => ({ sendMessage: (...args: unknown[]) => state.questionSend(...args), readAcceptedMessage: (...args: unknown[]) => state.acceptedMessage(...args) }));
 vi.mock('@main/core/automations/repo', () => ({ listSessionSchedules: () => state.schedules }));
 /** 主进程推给渲染层的事件的旁听者(tapMainEvents);用例直接调它们,等于「主进程广播了一条」。 */
 const mainTaps = vi.hoisted(() => new Set<(channel: string, data: unknown) => void>());
@@ -407,6 +408,7 @@ describe('session timeline service', () => {
     state.deliverQuestion = vi.fn();
     state.permissionChannelError = vi.fn(() => null);
     state.questionSend.mockReset().mockResolvedValue({ status: 'delivered' });
+    state.acceptedMessage.mockReset();
     state.acpLive = false;
     state.wake.mockReset().mockImplementation(async () => {
       throw new Error('❌ 没开起来的会话不许走唤醒');
@@ -1105,6 +1107,35 @@ describe('session timeline service', () => {
     state.deliverText = vi.fn(async () => ({ accepted: 'queued' as const }));
     expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: true,
       value: { admission: 'accepted', clientMessageId: 'input' } });
+  });
+
+  it('confirms prior custody after a lost ACK instead of refusing an already owned input', async () => {
+    state.rows[0]!.session.provider = '';
+    state.acceptedMessage.mockReturnValue({ id: 'input', sessionId: 'conv-1', sender: 'user', content: 'hello', metadata: JSON.stringify({ kind: 'ordinary-message' }) });
+    expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: true, value: { admission: 'accepted', clientMessageId: 'input' } });
+    expect(state.deliverText).not.toHaveBeenCalled();
+    expect(await service.send('conv-1', 'changed text', 'input')).toMatchObject({ ok: false, error: { admission: 'uncertain' } });
+    state.acceptedMessage.mockReturnValue(undefined);
+    expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: false, error: { admission: 'rejected' } });
+  });
+
+  it('does not infer rejection when custody storage cannot be read', async () => {
+    state.rows[0]!.session.provider = '';
+    state.acceptedMessage.mockImplementation(() => { throw new Error('receipt storage unavailable'); });
+    expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: false, error: { admission: 'uncertain', message: 'receipt storage unavailable' } });
+  });
+
+  it('joins the original admission while its result is uncertain and never dispatches twice', async () => {
+    let finish!: (value: { accepted: 'queued' }) => void;
+    state.deliverText = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+    const first = service.send('conv-1', 'hello', 'input');
+    state.rows[0]!.session.provider = '';
+    const replay = service.send('conv-1', 'hello', 'input');
+    expect(await service.send('conv-1', 'changed text', 'input')).toMatchObject({ ok: false, error: { admission: 'uncertain' } });
+    finish({ accepted: 'queued' });
+    expect(await replay).toEqual(await first);
+    expect((await replay).ok).toBe(true);
+    expect(state.deliverText).toHaveBeenCalledTimes(1);
   });
 
   it('没人订阅之后到点才 dispose', async () => {

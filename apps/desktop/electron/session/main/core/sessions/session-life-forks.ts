@@ -54,6 +54,9 @@ export function openRuntimeFork(fork: RuntimeFork): void {
 }
 
 export function runtimeFork(forkId: string): RuntimeFork | null { return records.get(forkId)?.fork ?? null; }
+export function runtimeForkInput(forkId: string, messageId: string): PendingRow | undefined {
+  return records.has(forkId) ? rowsOf(forkId).find(row => row.message.id === messageId) : undefined;
+}
 export function runtimeForks(): readonly string[] { return [...records.keys()]; }
 export function runtimeForksOf(parentId: string): readonly string[] {
   return [...records.values()].filter(value => value.fork.parentId === parentId).map(value => value.fork.forkId);

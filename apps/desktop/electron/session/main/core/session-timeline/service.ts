@@ -1,6 +1,7 @@
 import { promptAttachmentSchema, turnFileRefSchema } from '@gugu/session-core/acp/client';
 import { SessionInputAdmissionError, sessionInputAdmission, type SessionInputAdmission } from '@gugu/core/shared/sessionInputAdmission';
 import { createNativeRecordReader } from './native-record';
+import { priorInputAdmission, sameInput, type InputAdmissionPayload } from './input-admission';
 import { ask, withdrawAll } from '../asks';
 import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondAskQuestion } from '../asks/ask';
 import { askSourceSpec } from '../asks/sources';
@@ -1393,14 +1394,40 @@ function writeTargetFrom(row: SessionRow): SessionWriteTarget {
   return mapSessionRowToSession(row);
 }
 
+type InputAdmissionResult = SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string; admission: 'accepted' }>;
+const admittingInputs = new Map<string, { input: InputAdmissionPayload; result: Promise<InputAdmissionResult> }>();
+
 export async function send(
   conversationId: string,
   text: string,
   clientMessageId?: string,
   files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files'],
   attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]
-): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string; admission: 'accepted' }>> {
-  const rejected = (code: string, message: string) => ({ ok: false as const, error: { code, message, admission: 'rejected' as const } });
+): Promise<InputAdmissionResult> {
+  const input = { conversationId, text, clientMessageId, files, attachments };
+  if (!clientMessageId) return sendOnce(input);
+  const key = JSON.stringify([conversationId, clientMessageId]);
+  const pending = admittingInputs.get(key);
+  if (pending) return sameInput(input, pending.input) ? pending.result : {
+    ok: false, error: { code: 'invalid_request', message: '原消息尚在确认，不能更换内容', admission: 'uncertain' },
+  };
+  const result = sendOnce(input);
+  admittingInputs.set(key, { input, result });
+  try { return await result; }
+  finally { admittingInputs.delete(key); }
+}
+
+async function sendOnce({ conversationId, text, clientMessageId, files, attachments }: InputAdmissionPayload): Promise<InputAdmissionResult> {
+  const rejected = (code: string, message: string): InputAdmissionResult => {
+    try {
+      const prior = priorInputAdmission({ conversationId, text, clientMessageId, files, attachments });
+      return prior === 'accepted'
+        ? { ok: true, value: { accepted: 'queued', admission: 'accepted', clientMessageId } }
+        : { ok: false, error: { code, message, admission: prior ?? 'rejected' } };
+    } catch (error) {
+      return { ok: false, error: { code: 'send_failed', message: (error as Error)?.message ?? String(error), admission: 'uncertain' } };
+    }
+  };
   if (files !== undefined && !turnFileRefSchema.array().safeParse(files).success) return rejected('invalid_request', '附件引用无效');
   if (attachments !== undefined && !promptAttachmentSchema.array().safeParse(attachments).success) return rejected('invalid_request', '附件引用无效');
   if (clientMessageId !== undefined && (!clientMessageId.trim() || clientMessageId.length > 256)) return rejected('invalid_request', '消息标识无效');
@@ -1429,6 +1456,7 @@ export async function send(
     const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, files, attachments);
     return { ok: true, value: { ...accepted, admission: 'accepted', ...(clientMessageId ? { clientMessageId } : {}) } };
   } catch (error) {
+    if (sessionInputAdmission(error) === 'rejected') return rejected(error instanceof SessionWriteError || error instanceof SessionInputAdmissionError ? error.code ?? 'send_failed' : 'send_failed', (error as Error)?.message ?? String(error));
     return { ok: false, error: { code: error instanceof SessionWriteError || error instanceof SessionInputAdmissionError ? error.code ?? 'send_failed' : 'send_failed',
       message: (error as Error)?.message ?? String(error), admission: sessionInputAdmission(error) } };
   }
