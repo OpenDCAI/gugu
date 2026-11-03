@@ -27,3 +27,18 @@ it('hands off each id once to the host queue or its own transcript echo', () => 
   ] }
   expect(localQueuedInputs(shown, [two], [], [old, echo])).toEqual([])
 })
+
+it('does not let one native echo consume two identical queued inputs on later renders', () => {
+  const one = { ...input('one'), text: 'same' }, two = { ...input('two'), text: 'same' }
+  const echo: TranscriptTurn = { id: 'new-turn', seq: 2, initiator: 'user', outcome: { kind: 'done' }, items: [
+    { kind: 'message', id: 'native-one', role: 'user', seq: 0, text: 'same' },
+  ] }
+  const remaining = localQueuedInputs([one, two], [], [], [old, echo])
+  expect(remaining.map(input => input.id)).toEqual(['two'])
+  expect(localQueuedInputs(remaining, [], [], [old, echo]).map(input => input.id)).toEqual(['two'])
+  expect(localQueuedInputs(remaining, [two], [], [old, echo]).map(input => input.id)).toEqual(['two'])
+  const next: TranscriptTurn = { ...echo, id: 'next-turn', seq: 3, items: [
+    { kind: 'message', id: 'native-two', role: 'user', seq: 0, text: 'same' },
+  ] }
+  expect(localQueuedInputs(remaining, [], [], [old, echo, next])).toEqual([])
+})
