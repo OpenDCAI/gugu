@@ -124,6 +124,8 @@ import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
 import { handOffLegacyWechat } from './wechat/handoff'
 import { LegacyWechatStore } from './wechat/store'
 import { createDesktopDeviceCommandWakeSubscription } from './device-command-wake'
+import { createDesktopOwnedAgentChangesSubscription } from './owned-agent-changes'
+import { createCloudTaskNameAdopter } from './sessionpage/cloud-task-names'
 import { createDesktopDeviceRpcSubscription, type OpenTopicPublisher } from './device-rpc-responder'
 import { deviceRpcAskerLimitsFromEnv } from './device-rpc-askers'
 import type { MessagePreviewHostDeps } from './session/main/core/session-timeline/preview-rpc'
@@ -2145,6 +2147,19 @@ function startDeviceRuntimeWhenRendererReady(): void {
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,
     subscribeCommandWake: createDesktopDeviceCommandWakeSubscription({ supabase }),
+    subscribeOwnedAgentChanges: createDesktopOwnedAgentChangesSubscription({
+      supabase,
+      warn: message => createLogger('device-runtime').warn({}, message),
+    }),
+    onOwnedAgentsChanged: async () => {
+      void adoptCloudTaskNames?.()
+      try {
+        const auth = await hostAuthProvider.getAuth()
+        if (auth?.accessToken && auth.userId) refreshAgentNamingFacts(auth)
+      } catch (error) {
+        createLogger('sessionpage/provision').warn({ error: String(error) }, 'Owned agents changed: naming facts auth unavailable')
+      }
+    },
     // 会话页会话时间线只挂**主账号**这条频道:任务本地库是这个桌面实例自己的库,
     // 而多账号 host 的频道属于另一个人的 device id —— 给它装等于把本机会话开给别的账号读写。
     // ⚠️ 经桥拿,❌ 别静态 import `session-timeline/device-rpc`:那会把整条链一起打进
@@ -2654,23 +2669,6 @@ ipcMain.on('device-runtime:commands-changed', () => {
 // 渲染层刚建 / 改 / 删了定时任务。agent_scheduled_tasks 上没有任何事件,宿主只在兜底周期(wake 订着时 5 分钟)重读 ⇒ 由发起方说一声。
 ipcMain.on('device-runtime:scheduled-tasks-changed', () => {
   deviceRuntimeHost?.notifyScheduledTasksChanged()
-})
-// #6396 这个账号的 agent 有变动(常见是另一台设备刚建了一个,用掉了一个号)。服务端给本账号每台设备推
-// agent_changed,收它的是渲染层的修订总线;主进程不另开一条订阅,由渲染层转一声。本机下一条会话页会话起名时
-// 「用到几号」就已跟上 —— ❌ 否则要等它落地被服务端改名,会话起来一秒就换名字。
-ipcMain.on('owned-agents:changed', () => {
-  // Another device may have renamed one of this device's tasks: take the cloud names (pending local names win).
-  void adoptCloudTaskNames?.().catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting cloud task names failed'))
-  void authProvider?.getAuth()
-    .then((auth) => {
-      if (auth?.accessToken && auth.userId) refreshAgentNamingFacts({ accessToken: auth.accessToken, userId: auth.userId })
-    })
-    .catch((error: unknown) => {
-      createLogger('sessionpage/provision').warn(
-        { error: error instanceof Error ? error.message : String(error) },
-        '#6396 owned-agents changed: auth unavailable — naming facts refresh on the next change or session',
-      )
-    })
 })
 // @@@local-device-self - The renderer should not ask the cloud whether its own machine
 ipcMain.handle('device:get-self-snapshot', () => getLocalDeviceSelfSnapshot())
@@ -5076,7 +5074,10 @@ app.whenReady().then(async () => {
     publishPendingTaskNames()
     // Cloud names first (a rename on another device is a person's), then the one-time legacy names (0043).
     // Both need the projected roster, so they become available once the session host booted (below).
-    const adoptTaskNames = () => sessionpageIdentityHost.adoptCloudNames().then(() => emdash.adoptLegacyTaskNames()).then(() => undefined)
+    const adoptTaskNames = createCloudTaskNameAdopter({
+      adopt: () => sessionpageIdentityHost.adoptCloudNames().then(() => emdash.adoptLegacyTaskNames()).then(() => undefined),
+      failed: (error) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting cloud task names failed'),
+    })
     const nativeInbox = emdash.startNativeConversationInboxHost({
       open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),
