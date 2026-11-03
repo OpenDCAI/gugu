@@ -14,6 +14,10 @@ export interface TimelineRailMessage {
   sender: DeliveryReadFacts | null
 }
 
+export function isSelfSender(facts: Pick<DeliveryReadFacts, 'fromId'>, selfUserId?: string | null): boolean {
+  return !!selfUserId && facts.fromId === `user:${selfUserId}`
+}
+
 /** The silence control token is never preview copy, including when adjacent to reply text. */
 export function timelineRailPreviewText(text: string): string {
   return text.replaceAll('[NO_REPLY]', '').trim()
@@ -36,9 +40,8 @@ export function timelineRailMessages(text: string, options: TimelineRailOptions 
     if (facts.route === 'session-direct' || facts.route === 'system' || facts.route === 'scheduled') return []
     if (facts.fromType === 'agent' || /^(?:session|agent|system):/.test(facts.fromId ?? '')) return []
     const senderType = facts.fromType ?? (facts.fromId ? options.resolveSenderType?.(facts.fromId) : null)
-    const isSelf = !!options.selfUserId && facts.fromId === `user:${options.selfUserId}`
     // App interactions are explicitly relayed on the person's behalf by this route.
-    if (senderType !== 'human' && !isSelf && facts.route !== 'extension') return []
+    if (senderType !== 'human' && !isSelfSender(facts, options.selfUserId) && facts.route !== 'extension') return []
     if (senderType === 'agent') return []
     return [{ text: prompt, sender: facts }]
   })

@@ -51,6 +51,7 @@ const turns = (count: number): TimelineTurn[] =>
     itemIds: [`u${i}`],
     prompt: `第 ${i + 1} 轮`,
     reply: '回复',
+    mine: true,
   }));
 
 /**

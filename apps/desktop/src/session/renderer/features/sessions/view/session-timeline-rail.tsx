@@ -4,6 +4,8 @@ import { cn } from '@renderer/utils/utils';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import {
   ITEM_SIZE,
+  OWN_PILL_LENGTH,
+  OTHER_PILL_LENGTH,
   PILL_WIDTH,
   markerWidth,
   railCapacity,
@@ -46,7 +48,7 @@ export function SessionTimelineRail({
   railRef,
 }: {
   turns: TimelineTurn[];
-  /** The turn under the reading line; its tick is drawn solid. */
+  /** The turn under the reading line; its tick is blue. */
   currentTurnId: string | null;
   onJump: (anchorItemId: string) => void;
   /** `SessionTimeline` reads the reading line off this node's parent. */
@@ -98,15 +100,15 @@ export function SessionTimelineRail({
         const range = translate('task.timelineTurnRange', { from: tick.from, to: tick.to });
         // design.md:blue 只表示 live/running/connected/**currently selected**;「这一轮是不是
         // 从别处送进来的」是来源属性,不是活的状态,不该抢那个蓝 —— 2026-09-22 按它改:isCurrent
-        // 一件事拿蓝(foreground-info = --live),delivered 只改墨的填充比例(深浅)分来源。
+        // 一件事拿蓝(foreground-info = --live),mine 只改墨的填充比例(深浅)分来源。
         const tone = isCurrent
           ? 'bg-foreground-info'
-          : tick.delivered
-            ? 'bg-foreground/70 group-hover:bg-foreground group-focus-visible:bg-foreground'
+          : tick.mine
+            ? 'bg-foreground'
             : 'bg-foreground-muted/40 group-hover:bg-foreground-muted group-focus-visible:bg-foreground-muted';
-        const jumpLabel = tick.delivered
-          ? translate('task.jumpToDelivery', { sender: label, prompt: turn.prompt.slice(0, 50) })
-          : translate('task.jumpToTurn', { prompt: turn.prompt.slice(0, 50) });
+        const jumpLabel = tick.mine
+          ? translate('task.jumpToTurn', { prompt: turn.prompt.slice(0, 50) })
+          : translate('task.jumpToDelivery', { sender: label, prompt: turn.prompt.slice(0, 50) });
         return (
           <PreviewCard key={turn.id}>
             <PreviewCardTrigger
@@ -138,7 +140,7 @@ export function SessionTimelineRail({
                   'pointer-events-none rounded-full transition-[width,background-color] duration-[var(--dur-med)] ease-out motion-reduce:transition-none',
                   tone
                 )}
-                style={{ width: markerWidth(index, hoveredIndex), height: PILL_WIDTH }}
+                style={{ width: markerWidth(index, hoveredIndex, tick.mine ? OWN_PILL_LENGTH : OTHER_PILL_LENGTH), height: PILL_WIDTH }}
               />
             </PreviewCardTrigger>
             <PreviewCardContent side="right" sideOffset={8} className="w-72">
@@ -146,11 +148,9 @@ export function SessionTimelineRail({
                 data-slot="preview-sender"
                 className={cn(
                   'flex items-center gap-1 text-xs',
-                  // 同一条法:delivered 是来源,不是活的,不拿蓝 —— 用墨深浅(见上方 tone)。
-                  tick.delivered ? 'text-foreground' : 'text-foreground-muted'
+                  tick.mine ? 'font-medium text-foreground' : 'text-foreground-muted'
                 )}
               >
-                {tick.delivered && <span aria-hidden="true" className="size-1.5 rounded-full bg-foreground" />}
                 <span className="truncate">{label}</span>
                 {/* 这一格代表多轮时才写出轮次区间:一格一轮的会话不该多出一行没用的元信息。 */}
                 {spansMany && (

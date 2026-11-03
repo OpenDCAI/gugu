@@ -1,14 +1,9 @@
 import { readDeliveryEnvelope, type DeliveryReadFacts } from '@gugu/core/local/agent/deliveryEnvelope';
-import { timelineRailMessages, timelineRailPreviewText, type TimelineRailOptions } from '@gugu/core/shared/timelineRail';
+import { isSelfSender, timelineRailMessages, timelineRailPreviewText, type TimelineRailOptions } from '@gugu/core/shared/timelineRail';
 import { shownSender, type SelfIdentity, type TranscriptTurn } from '@gugu/session-chat-ui';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 
-/**
- * Who a delivered turn came from. The rail paints these ticks differently from
- * the user's own turns and names the sender in the preview (#4874, owner
- * 2026-09-04:「别人发过来的消息…要看出来消息来自于谁」— identical ticks made
- * the two indistinguishable).
- */
+/** Delivery provenance for previews, independent of whether the turn is the viewer's own. */
 export type TimelineSender =
   | { kind: 'chat'; name: string }
   /** `chatId` 从来源链接里取(信封的 chat 是群号,给 agent 寻址用);名字由画的那一层按它去认。 */
@@ -32,7 +27,8 @@ export interface TimelineTurn {
   itemIds: string[];
   prompt: string;
   reply: string;
-  /** Absent for the user's own turns. */
+  mine: boolean;
+  /** Group deliveries retain their source, including the signed-in person's messages. */
   sender?: TimelineSender;
 }
 
@@ -80,6 +76,7 @@ export function timelineTurnsFromTranscript(
             itemIds: [item.id],
             prompt: human.text,
             reply: '',
+            mine: human.sender === null || isSelfSender(human.sender, self?.userId ?? options.selfUserId),
             ...(human.sender ? { sender: senderOf(human.sender, self) } : {}),
           };
           turns.push(current);
@@ -103,16 +100,12 @@ export function timelineTurnsFromTranscript(
  * 于是「一格 = 一轮」不再恒成立,`from`/`to` 说清它到底代表哪几轮(1 基,闭区间)。
  */
 export interface TimelineTick {
-  /** 代表这一格的那一轮:格子里有投递就取第一条投递,否则取头一轮。 */
+  /** The first own turn in a mixed tick, otherwise the first turn. */
   turn: TimelineTurn;
   from: number;
   to: number;
-  /**
-   * 这一格里有没有别人发来的。tone 认它而不是 `turn.sender` —— 否则一条投递被埋在
-   * 格子中间就整格看不出来,而「要看出来消息来自于谁」是 owner 2026-09-04 定的。
-   * 取第一条投递当代表,正是为了让 tone 与预览卡上的名字对得上。
-   */
-  delivered: boolean;
+  /** Any own input keeps the whole tick emphasized and provides its jump target. */
+  mine: boolean;
 }
 
 /** 按「一格 n 轮」把轮次切成格子:每一轮都归属某一格,❌ 没有一轮被丢在格子之外。 */
@@ -124,12 +117,12 @@ export function ticksFromTurns(
   const ticks: TimelineTick[] = [];
   for (let start = 0; start < turns.length; start += stride) {
     const group = turns.slice(start, start + stride);
-    const delivered = group.find((turn) => turn.sender !== undefined);
+    const own = group.find((turn) => turn.mine);
     ticks.push({
-      turn: delivered ?? group[0],
+      turn: own ?? group[0],
       from: start + 1,
       to: start + group.length,
-      delivered: delivered !== undefined,
+      mine: own !== undefined,
     });
   }
   return ticks;

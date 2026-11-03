@@ -11,8 +11,10 @@
  * 会话画出来都是同一种疏密,轨道也永远落在框内。
  */
 
-/** Marker row height and the resting pill length. */
+/** Marker row height and the default pill length. */
 export const ITEM_SIZE = 12;
+export const OWN_PILL_LENGTH = 18;
+export const OTHER_PILL_LENGTH = 8;
 /** Hovered pill length as a multiple of ITEM_SIZE. */
 export const MAGNIFICATION = 3;
 /** Neighbours on each side of the hovered marker that swell with it. */
@@ -44,10 +46,10 @@ export function turnsPerTick(count: number, capacity: number): number {
 }
 
 // Adapted from Mantine Lens Select (MIT), via the vivid-layer Chat Minimap.
-export function markerWidth(index: number, hoveredIndex: number | null): number {
-  if (hoveredIndex === null) return ITEM_SIZE;
+export function markerWidth(index: number, hoveredIndex: number | null, base = ITEM_SIZE): number {
+  if (hoveredIndex === null) return base;
   const distance = Math.abs(index - hoveredIndex);
-  if (distance >= LENS_RANGE) return ITEM_SIZE;
+  if (distance >= LENS_RANGE) return base;
   const factor = (1 + Math.cos((Math.PI * distance) / LENS_RANGE)) / 2;
-  return ITEM_SIZE + (ITEM_SIZE * MAGNIFICATION - ITEM_SIZE) * factor;
+  return base + (ITEM_SIZE * MAGNIFICATION - ITEM_SIZE) * factor;
 }

@@ -9,6 +9,7 @@
  * Anyone else is still named only by what the envelope says — no guessing.
  */
 import { createContext, useContext } from 'solid-js';
+import { isSelfSender } from '@gugu/core/shared/timelineRail';
 
 export type SelfIdentity = {
   /** Canonical `identity.users.id`; compared against the envelope's `from_id` (`user:<id>`). */
@@ -30,7 +31,7 @@ export function selfIdentityLabel(self: SelfIdentity): string | null {
 }
 
 export function isSelfAddress(fromId: string | null, self: SelfIdentity | null): boolean {
-  return !!self && !!fromId && fromId === `user:${self.userId}`;
+  return isSelfSender({ fromId }, self?.userId);
 }
 
 /**
