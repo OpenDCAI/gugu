@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { MessageItem } from '@gugu/core/shared/types/chat';
-import { useAuth } from '@/store/auth';
+import { useAvatarIdentity } from '@/lib/avatarIdentity';
 import { useMobileShell } from '@/hooks/useMobileShell';
 import { useDebounce } from '@/session/renderer/lib/hooks/useDebounce';
 import { messageForUser } from '@/lib/userFacingError';
@@ -21,21 +21,23 @@ import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
 import { TaskChatFilePreviewHost } from '../assistant/TaskChatFilePreviewHost';
 import { ReadOnlyMessageBubble } from '../chat/ReadOnlyMessageBubble';
 import { useMessageFilePreview } from '../chat/useMessageFilePreview';
-import { useToast } from '../toastContext';
+import { notify } from '@/lib/notices';
+import { useLegacyDmOwner } from './useLegacyDmOwner';
 import { readLegacyDmList, readLegacyDmMessages, mergeLegacyMessages, type LegacyDm, type LegacyDmScope } from './data';
 import { legacyMessageBody } from './message-body';
 
 const log = rendererLogger('legacy-dm-history');
+const previewToast = (title: string, tier: 'error', description?: string) => { notify({ title, tier, description }); };
 
 export function LegacyDmHistoryDialog({ sessionId, onClose }: { sessionId?: string; onClose: () => void }) {
-  const { user } = useAuth();
+  const ownerUserId = useLegacyDmOwner();
   const { translate } = useSessionMessages();
   const mobile = useMobileShell();
-  if (!user) return null;
+  if (!ownerUserId) return null;
   return <Sheet onClose={onClose} desktopWidth="min(768px, 100%)" desktopHeight="680px" desktopMaxHeight="calc(100dvh - 32px)"
     fullScreenMobile ariaLabel={translate(sessionId ? 'legacyDm.history' : 'legacyDm.archive')} testId="legacy-dm-history">
     <TaskChatFilePreviewHost mobile={mobile}>
-      <LegacyDmReader key={`${user.id}:${sessionId ?? ''}`} scope={{ ownerUserId: user.id }} sessionId={sessionId} mobile={mobile} onClose={onClose} />
+      <LegacyDmReader key={`${ownerUserId}:${sessionId ?? ''}`} scope={{ ownerUserId }} sessionId={sessionId} mobile={mobile} onClose={onClose} />
     </TaskChatFilePreviewHost>
   </Sheet>;
 }
@@ -106,11 +108,10 @@ function LegacyDmReader({ scope: owner, sessionId, mobile, onClose }: {
 }
 
 function LegacyDmTranscript({ scope, chat, mobile }: { scope: LegacyDmScope; chat: LegacyDm; mobile: boolean }) {
-  const { user } = useAuth();
+  const owner = useAvatarIdentity(scope.ownerUserId);
   const { t } = useTranslation('messaging');
   const { translate, locale } = useSessionMessages();
-  const { toast } = useToast();
-  const preview = useMessageFilePreview({ mobile, visible: true, closeRightSurfaces: () => {}, toast, readOnly: true });
+  const preview = useMessageFilePreview({ mobile, visible: true, closeRightSurfaces: () => {}, toast: previewToast, readOnly: true });
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [before, setBefore] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -149,7 +150,7 @@ function LegacyDmTranscript({ scope, chat, mobile }: { scope: LegacyDmScope; cha
       {before !== null && <Button variant="ghost" disabled={loading} onClick={() => void older()}>{translate('legacyDm.older')}</Button>}
       {messages.map(message => <ReadOnlyMessageBubble key={message.id} message={message} mobile={mobile} fileCardsOnly
         body={legacyMessageBody(message, t('message.retracted'))}
-        sender={message.is_mine ? { display_name: user?.nickname ?? '', avatar: user?.avatarUrl, type: 'human' }
+        sender={message.is_mine ? { display_name: owner?.display_name ?? '', avatar: owner?.avatar, type: 'human' }
           : chat.agent && message.sender_user_id === chat.agent.id ? chat.agent : { display_name: translate('legacyDm.unknownSender') }}
         timestamp={<time dateTime={message.created_at}> · {formatDateTime(Date.parse(message.created_at), locale)}</time>}
         onOpenFile={file => preview.open(file, message)} />)}
