@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 const fixture = fileURLToPath(new URL('./fixtures/parent-disconnect.ts', import.meta.url));
 
-async function run(disconnect: boolean, late = false) {
-  const child = fork(fixture, late ? ['late'] : [], {
+async function run(disconnect: boolean, mode: 'early' | 'late' | 'backlog' = 'early') {
+  const child = fork(fixture, [mode], {
     execArgv: ['--import', 'tsx'],
     stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
   });
@@ -24,6 +24,20 @@ async function run(disconnect: boolean, late = false) {
       }),
     ]);
     clearTimeout(timer);
+    if (mode === 'backlog') {
+      child.stderr!.pause();
+      const queued = once(child, 'message');
+      child.send('queue');
+      const [message] = await Promise.race([
+        queued,
+        exited.then(() => { throw new Error('Logging fixture exited before queueing warnings'); }),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('Logging fixture did not queue warnings')), 10_000);
+        }),
+      ]);
+      clearTimeout(timer);
+      expect(message).toBe('queued');
+    }
     if (disconnect) {
       child.stderr!.destroy();
       child.disconnect();
@@ -65,7 +79,13 @@ describe('process logging on parent disconnect', () => {
   }, 20_000);
 
   it('exits if the parent disconnected before logging was initialized', async () => {
-    const result = await run(true, true);
+    const result = await run(true, 'late');
+    expect(result.code).toBe(0);
+    expect(result.signal).toBeNull();
+  }, 20_000);
+
+  it('exits with warnings already backlogged before the parent disconnects', async () => {
+    const result = await run(true, 'backlog');
     expect(result.code).toBe(0);
     expect(result.signal).toBeNull();
   }, 20_000);
