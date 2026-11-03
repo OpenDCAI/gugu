@@ -144,15 +144,11 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
     [virtualizer]
   );
 
-  // Expanding the active task's project happens on the navigation itself
-  // (NavigationStore._applyNavigation → sidebarStore.revealActiveSession), not here: this list
-  // remounts without any navigation, and an effect would re-open a project the user folded.
-
   // Scroll the active project/task into view only when the navigation target itself
   // changes, plus the active task's project expansion state. Re-running on every
   // `rows` change would yank the user back to the active row whenever the
-  // sidebar mutates (e.g. deleting an unrelated task), but direct navigation to a
-  // task in a collapsed project needs one rerun after `ensureProjectExpanded`.
+  // sidebar mutates (e.g. deleting an unrelated task). Explicitly expanding a
+  // project may reveal the active row; navigation itself never opens the project.
   useEffect(() => {
     let targetProjectId: string | null = null;
     let targetSessionId: string | null = null;

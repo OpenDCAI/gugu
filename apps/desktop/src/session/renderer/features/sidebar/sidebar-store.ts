@@ -1,4 +1,4 @@
-import { computed, makeAutoObservable, observable, runInAction } from 'mobx';
+import { computed, makeAutoObservable, observable } from 'mobx';
 import { projectSessionTreeRows, summarizeSessionBranches, type ProjectSessionTreeRow } from './sidebar-session-branch';
 import {
   buildSessionTree,
@@ -18,10 +18,7 @@ import {
   EMPTY_MACHINE_HOME_LAYOUT,
   type MachineHomeLayout,
 } from '@renderer/features/remote-hosts/machine-home';
-import { events, onMachineEvent } from '@renderer/lib/ipc';
-import { onEachMachine } from '@renderer/lib/machine-clients';
 import type { Snapshottable } from '@renderer/lib/stores/snapshottable';
-import { sessionCreatedChannel } from '@shared/core/sessions/sessionEvents';
 import type { SidebarListLayout, SidebarListPage, SidebarSnapshot, SidebarSessionSortBy } from '@shared/view-state';
 import { blockKey, type JoinedGroup, type SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
@@ -183,7 +180,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   projectOrder: string[] = [];
   sessionOrderByProject: Record<string, string[]> = {};
   expandedProjectIds = observable.set<string>();
-  /** 「展开显示」点开了的格:项目 id,或「任务」分区的 SESSIONS_SECTION(session-local)。 */
+  /** Persisted manual "Show more" state: project id or the Tasks section key. */
   idleExpandedProjectIds = observable.set<string>();
   /** Persisted disclosure state for parent/child conversation trees. */
   expandedSessionIds = observable.set<string>();
@@ -200,8 +197,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   listLayout: SidebarListLayout = 'split';
   /** 分开时看的是哪一页(persisted)。合在一起时不读它。 */
   listPage: SidebarListPage = 'projects';
-  /** Last task a navigation arrived at (`revealActiveSession`); `null` = left for a non-task view. */
-  private revealedSessionKey: string | null = null;
   /**
    * behavior session-page「会话列表与状态」: 用不用二级分类(agent 状态分组)。设置
    * `interface.showLeftSidebarStateGroups` 的镜像,由 left-sidebar 同步进来 —— 组头渲染在
@@ -230,8 +225,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
    */
   assistantAgentId: string | null = null;
   constructor(private readonly projectManager: ProjectManagerStore) {
-    makeAutoObservable<this, 'revealedSessionKey'>(this, {
-      revealedSessionKey: false,
+    makeAutoObservable(this, {
       machines: observable.ref,
       joinedGroups: observable.ref,
       homeLayout: computed,
@@ -246,19 +240,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       standaloneSessionEntries: computed,
     });
 
-    // A new nested session must be visible immediately. This event-only update preserves restored
-    // disclosure preferences during the initial list while reopening the direct parent on spawn.
-    // 本机的与每台连着的机器上的(别的机器上的会话也会派生子会话)。
-    const expandParent = ({ session }: { session: { parentSessionId?: string | null } }) => {
-      const parentSessionId = session.parentSessionId;
-      if (parentSessionId) {
-        runInAction(() => {
-          this.expandedSessionIds.add(parentSessionId);
-        });
-      }
-    };
-    events.on(sessionCreatedChannel, expandParent);
-    onEachMachine((deviceId) => onMachineEvent(deviceId, sessionCreatedChannel, expandParent));
   }
 
   /** 「项目」分区的项目(本机与别的机器上的,按侧栏次序)。 */
@@ -376,7 +357,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   showSessionBranch(sessionId: string | null): void {
     if (sessionId && !this.placement.nodeById.has(sessionId)) throw new Error(`Unknown session branch: ${sessionId}`);
     this.sessionBranchRootId = sessionId;
-    if (sessionId) this.expandedSessionIds.add(sessionId);
   }
 
   /**
@@ -384,8 +364,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
    * New task → pinned conversations → each project row and its conversations → Tasks-section
    * conversations. A collapsed section or project simply contributes nothing: collapsing means
    * "I don't want to see this", so the keyboard skips it whole instead of auto-expanding it.
-   * The "Show more" idle overflow is the opposite case (a mere length cap) and is auto-expanded
-   * by the mover, otherwise those conversations would be unreachable by keyboard.
+   * "Show more" is also controlled explicitly; moving between sessions never changes disclosure.
    */
   get navChain(): SidebarNavNode[] {
     const nodes: SidebarNavNode[] = [{ kind: 'new-session' }];
@@ -410,26 +389,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     }
 
     return nodes;
-  }
-
-  /**
-   * The fold (a project, or the Tasks section) whose idle overflow hides the station right after `node`, if any. The mover
-   * expands it so ↓ can walk past a "Show more" row instead of dead-ending on it.
-   */
-  idleOverflowProjectAfter(node: SidebarNavNode): string | null {
-    if (node.kind !== 'conversation') return null;
-    const rows = this.sidebarRows;
-    const index = rows.findIndex(
-      (row) => row.kind === 'conversation' && row.sessionId === node.sessionId
-    );
-    if (index !== -1) {
-      const next = rows[index + 1];
-      return next?.kind === 'more' && !next.expanded ? next.projectId : null;
-    }
-    // 「任务」分区:它的「展开显示」跟在分区最后一行后面。
-    const more = this.standaloneMore;
-    const last = this.standaloneSection.rows.at(-1);
-    return more && !more.expanded && last?.sessionId === node.sessionId ? more.foldKey : null;
   }
 
   /** 同一个项目群绑定的本地项目合成一行;助理的设备与其它设备遵循同一规则。 */
@@ -1117,6 +1076,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     return {
       expandedProjectIds: [...this.expandedProjectIds],
       expandedSessionIds: [...this.expandedSessionIds],
+      idleExpandedProjectIds: [...this.idleExpandedProjectIds],
       projectOrder: [...this.projectOrder],
       sessionOrderByProject: { ...this.sessionOrderByProject },
       sessionSortBy: this.sessionSortBy,
@@ -1135,6 +1095,9 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     }
     if (snapshot.expandedSessionIds !== undefined) {
       this.expandedSessionIds.replace(snapshot.expandedSessionIds);
+    }
+    if (snapshot.idleExpandedProjectIds !== undefined) {
+      this.idleExpandedProjectIds.replace(snapshot.idleExpandedProjectIds);
     }
     if (snapshot.projectOrder !== undefined) {
       this.projectOrder = [...snapshot.projectOrder];
@@ -1156,13 +1119,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     if (snapshot.listPage === 'projects' || snapshot.listPage === 'chats') this.listPage = snapshot.listPage;
   }
 
-  /** Called on first load when no snapshot exists — expand all known projects. */
-  expandAllProjects(): void {
-    for (const ref of this.sidebarProjects) {
-      this.expandedProjectIds.add(ref.id);
-    }
-  }
-
   toggleProjectExpanded(projectId: string): void {
     if (this.expandedProjectIds.has(projectId)) {
       this.expandedProjectIds.delete(projectId);
@@ -1175,39 +1131,9 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     this.expandedProjectIds.add(this.rowProjectIdOf(projectId));
   }
 
-  /**
-   * A navigation (never a restore or a remount) arrived at `target`, or at a non-task view (`null`).
-   * Arriving at a task other than the last one opens the project row its session hangs under; a
-   * task whose sessions all sit in Pinned opens nothing — they are not in the project tree.
-   */
-  revealActiveSession(target: { projectId: string; sessionId: string } | null): void {
-    const key = target ? `${target.projectId}\u0000${target.sessionId}` : null;
-    if (key === this.revealedSessionKey) return;
-    this.revealedSessionKey = key;
-    if (!target) return;
-    const row = this.rowOfSession(target.projectId, target.sessionId);
-    if (row !== null && this.sessionHangsUnderRow(row, target.sessionId)) this.expandedProjectIds.add(row);
-  }
-
-  /** Whether this project row would show one of the task's sessions (none loaded yet counts as yes). */
-  private sessionHangsUnderRow(rowId: string, sessionId: string): boolean {
-    const ref = this.sidebarProjects.find((candidate) => candidate.id === rowId);
-    if (!ref) return false;
-    const entries = this.projectEntries(ref);
-    if (!entries.some((entry) => entry.sessionId === sessionId)) return true;
-    const hangsHere = (nodes: SessionTreeNode<SidebarSessionEntry>[]): boolean =>
-      nodes.some((node) => node.item.sessionId === sessionId || hangsHere(node.children));
-    return hangsHere(withoutPinnedSubtrees(buildSessionTree(entries)));
-  }
-
   /** behavior session-page「键盘导航」: ← on a project row collapses it, so the keyboard skips it whole. */
   collapseProject(projectId: string): void {
     this.expandedProjectIds.delete(projectId);
-  }
-
-  /** Walk past a "Show more" row rather than dead-ending on it. */
-  ensureIdleExpanded(foldKey: string): void {
-    this.idleExpandedProjectIds.add(foldKey);
   }
 
   setSessionSortBy(sortBy: SidebarSessionSortBy): void {

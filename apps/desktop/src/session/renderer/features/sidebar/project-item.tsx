@@ -118,9 +118,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   const projectLabel = project.name ?? 'project';
   const hasNameTwin = sidebarStore.hasNameTwin(projectId);
   const disambiguationPath = hasNameTwin ? project.data?.path : undefined;
-  // spec session-page 微决策: first click selects the project (home view + expand); clicking the
-  // already-selected project row toggles its collapse — the row is the second collapse affordance
-  // beside the folder/chevron button (why B saw "active project won't collapse": B clicked the row).
+  // Opening a project never changes disclosure; only its arrow or the explicit keyboard action does.
   const openProject = (beside = false) => {
     // behavior session-page「键盘导航」: the project row is a station too, so a click moves the cursor
     // onto it — ↓ afterwards continues from here.
@@ -128,7 +126,6 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
     // ⌘ 点 = 项目块拼到正看着那块右边(gugu-dev#181:项目是一块,和会话行同一个手势)。
     if (beside && isScreenView(appState.navigation.currentViewId)) {
       showBesideOnScreen({ kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) });
-      sidebarStore.ensureProjectExpanded(projectId);
       return;
     }
     if (isProjectActive) {
@@ -136,14 +133,11 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
       const chatId = projectGroupsStore.chatIdOf(sidebarStore.rowProjectIdOf(projectId));
       if (chatId && readComposerVerb(chatId) === 'task') {
         if (!composerDrafts.get(projectDraftKey(projectId)).trim()) setComposerVerb(chatId, null);
-        sidebarStore.ensureProjectExpanded(projectId);
         return;
       }
-      sidebarStore.toggleProjectExpanded(projectId);
       return;
     }
     navigate('project', { projectId });
-    sidebarStore.ensureProjectExpanded(projectId);
   };
 
   // The project-row action opens the existing project-scoped composer. It must not eagerly
@@ -153,7 +147,6 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
     // gugu-dev#181 悬停的「+」= 在这个项目里开新任务。
     prepareProjectTask(projectId);
     if (!isProjectActive) navigate('project', { projectId });
-    sidebarStore.ensureProjectExpanded(projectId);
   };
 
   const projectCursor = sessionKeyboardNav.cursor;

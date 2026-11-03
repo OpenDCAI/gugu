@@ -124,12 +124,8 @@ describe('「任务」分区的「展开显示」', () => {
       expect(shown()).toEqual(['r1', 'k1', 'k2', 'k3', 'r2', 'r3', 'r4', 'r5']);
       expect(store.standaloneMore).toMatchObject({ expanded: false, hiddenCount: 2 });
 
-      // ↓ 走到分区最后一行时,键盘会自动点开它。
-      const last = { kind: 'conversation', projectId: IMPLICIT_SESSION_HOME_PROJECT_ID, sessionId: 'r5' } as const;
-      const foldKey = store.idleOverflowProjectAfter(last);
-      expect(foldKey).toBe(store.standaloneMore?.foldKey);
-      expect(store.idleOverflowProjectAfter({ ...last, sessionId: 'r4' })).toBeNull();
-
+      // Only the explicit Show more control changes this persisted choice.
+      const foldKey = store.standaloneMore?.foldKey;
       store.toggleIdleExpanded(foldKey!);
       expect(shown()).toEqual(['r1', 'k1', 'k2', 'k3', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7']);
       expect(store.standaloneMore).toMatchObject({ expanded: true, hiddenCount: 2 });
