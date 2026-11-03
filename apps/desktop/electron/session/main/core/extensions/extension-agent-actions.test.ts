@@ -26,6 +26,8 @@ const isEnabled = vi.fn();
 const setAutoUpdate = vi.fn();
 const olderInterface = vi.fn();
 const disclosure = vi.fn((_id: string) => 'progressive');
+const installAttachment = vi.hoisted(() => vi.fn());
+vi.mock('./extension-attachment-install', () => ({ installExtensionFromAttachment: installAttachment }));
 
 // A folder install is published by the account installing it (app-identity.ts).
 const INSTALLING_ACCOUNT = vi.hoisted(() => ({ id: '0a000000-0000-4000-8000-00000000000a' }));
@@ -613,6 +615,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
     )) as { for_agents: string };
     expect(result.for_agents).toContain('From the next session on they are listed natively (the person can switch that back).');
     expect(result.for_agents).not.toContain('can have them listed natively instead');
+    expect(result.for_agents).not.toContain('For the rest of this conversation,');
   });
 
   // D-30 A-B C4c: the person took the installing agent's group out on the sheet — its catalog then says not given.
@@ -659,6 +662,11 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
   };
   const BAD = '---\nname: bad-stamp\ndescription: Use when someone asks for a red stamp (红签): run its script.\n---\n';
   const OK = '---\nname: ok-stamp\ndescription: "Use when someone asks for a green stamp (绿签): run its script."\n---\n';
+  const PLAIN = '---\nname: plain-stamp\ndescription: "Make a plain stamp without decoration."\n---\n';
+  const useLine = 'For the rest of this conversation, when a request fits the ok-stamp skill above (Use when someone asks for a green stamp (绿签): run its script.), ' +
+    'read its SKILL.md first instead of working it out with your own tools; the request does not have to name the App.';
+  const plainUseLine = 'For the rest of this conversation, when a request fits the plain-stamp skill above (Make a plain stamp without decoration.), ' +
+    'read its SKILL.md first instead of working it out with your own tools; the request does not have to name the App.';
 
   function installedWith(skills: Record<string, string>): string {
     const rootDir = path.join(workDir, 'installed', 'skillx-bad');
@@ -674,11 +682,54 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
   const install = () => runExtensionAgentAction(
     { action: 'install', source_dir: '/tmp/stamps-source' },
     { requestInstallConsent, notifyInstalledChanged: vi.fn().mockResolvedValue(undefined), afterInstall: vi.fn() }
-  ) as Promise<{ installed: boolean; next?: string }>;
+  ) as Promise<{ installed: boolean; next?: string; for_agents?: string }>;
 
   beforeEach(() => {
     requestInstallConsent.mockReset();
     requestInstallConsent.mockResolvedValue({ outcome: 'confirmed' });
+  });
+
+  const descriptionLines = (rootDir: string) => [
+    '- 坏签探针 (skillx-bad): Read skill bad-stamp first.',
+    `- ok-stamp (App skillx-bad): Use when someone asks for a green stamp (绿签): run its script.\n  ${path.join(rootDir, 'skills', 'ok-stamp', 'SKILL.md')}`,
+  ].join('\n');
+
+  it.each([false, true])('describes the installed App and parsed skill, including a quiet reinstall=%s', async (quiet) => {
+    const rootDir = installedWith({ 'ok-stamp': OK, 'plain-stamp': PLAIN });
+    if (quiet) {
+      list.mockReturnValue({ extensions: [{ manifest: stamps, rootDir }], invalid: [] });
+      origins.mockReturnValue({ 'skillx-bad': 'folder' });
+      revokedPermissions.mockReturnValue(['agents:tools']);
+    }
+    const answer = await install();
+    expect(answer.for_agents?.startsWith(descriptionLines(rootDir))).toBe(true);
+    expect(answer.for_agents).toContain('catalog_list');
+    for (const [name, line] of [['ok-stamp', useLine], ['plain-stamp', plainUseLine]] as const) {
+      expect(answer.for_agents!.split(line)).toHaveLength(2);
+      expect(answer.for_agents!.indexOf(line)).toBeGreaterThan(answer.for_agents!.indexOf(`- ${name} (App skillx-bad):`));
+      expect(answer.for_agents!.indexOf(line)).toBeLessThan(answer.for_agents!.indexOf('Its skills are in the catalog'));
+    }
+    expect(requestInstallConsent).toHaveBeenCalledTimes(quiet ? 0 : 1);
+
+    const denied = await runExtensionAgentAction(
+      { action: 'install', source_dir: '/tmp/stamps-source' },
+      { requestInstallConsent, notifyInstalledChanged: vi.fn().mockResolvedValue(undefined), afterInstall: vi.fn(), callerHasApp: async () => false },
+    ) as { for_agents?: string };
+    expect(denied.for_agents ?? '').not.toContain(descriptionLines(rootDir));
+    expect(denied.for_agents ?? '').not.toContain('catalog_list');
+    expect(denied.for_agents ?? '').not.toContain('For the rest of this conversation,');
+    if (quiet) expect(denied.for_agents).toBeUndefined();
+    else expect(denied.for_agents).toContain('Its owner did not give it to you');
+  });
+
+  it('describes the App and skill after a confirmed chat attachment install too', async () => {
+    const rootDir = installedWith({ 'ok-stamp': OK });
+    list.mockReturnValue({ extensions: [{ manifest: stamps, rootDir }], invalid: [] });
+    installAttachment.mockResolvedValueOnce({ installed: true, outcome: 'confirmed', id: stamps.id });
+    const answer = await runExtensionAgentAction({ action: 'install_attachment', message_id: 'app-card' }) as { for_agents: string };
+    expect(answer.for_agents.startsWith(descriptionLines(rootDir))).toBe(true);
+    expect(answer.for_agents.split(useLine)).toHaveLength(2);
+    expect(answer.for_agents.indexOf(useLine)).toBeGreaterThan(answer.for_agents.indexOf(path.join(rootDir, 'skills', 'ok-stamp', 'SKILL.md')));
   });
 
   it('the broken one by name, its SKILL.md and why — on the first (asked) install and on the quiet reinstall an author fixing it makes', async () => {
@@ -691,7 +742,7 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
     expect(first.next).toContain(said);
     expect(first.next).not.toContain('ok-stamp');
 
-    // Its own folder install again, asking nothing new: no consent, so no for_agents — said all the same.
+    // Its own folder install again, asking nothing new: no consent; the malformed skill is still reported.
     list.mockReturnValue({ extensions: [{ manifest: stamps }], invalid: [] });
     origins.mockReturnValue({ 'skillx-bad': 'folder' });
     revokedPermissions.mockReturnValue(['agents:tools']);
@@ -1428,6 +1479,26 @@ describe('app_install { market }', () => {
     discard: vi.fn(),
   });
   const quietly = { notifyInstalledChanged: vi.fn().mockResolvedValue(undefined), afterInstall: vi.fn() };
+
+  it('a quiet market reinstall carries the App and parsed skill descriptions without another consent', async () => {
+    const rootDir = path.join(workDir, 'market-reader');
+    const skillDir = path.join(rootDir, 'skills', 'read');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: read\ndescription: Analyse a data file.\n---\n');
+    const app = { ...reader, permissions: { capabilities: ['agents:tools'] }, contributes: { ...reader.contributes, skills: 'skills', instructions: 'Read and chart data files.' } };
+    inspectDirectory.mockReturnValue({ manifest: app, manifestDigest: 'reader-digest' });
+    installFromDirectory.mockReturnValue({ manifest: app, rootDir });
+    list.mockReturnValue({ extensions: [{ manifest: app, rootDir }], invalid: [] });
+    origins.mockReturnValue({ reader: 'market' });
+    revokedPermissions.mockReturnValue(['agents:tools']);
+    const requestInstallConsent = vi.fn();
+    const answer = await runExtensionAgentAction({ action: 'install', market: 'reader' }, { ...quietly, market: marketWith({ reader: offered(app) }), requestInstallConsent }) as { for_agents: string };
+    expect(requestInstallConsent).not.toHaveBeenCalled();
+    expect(answer.for_agents).toContain('- Reader (reader): Read and chart data files.');
+    expect(answer.for_agents).toContain(`- read (App reader): Analyse a data file.\n  ${path.join(skillDir, 'SKILL.md')}`);
+    expect(answer.for_agents).toContain('For the rest of this conversation, when a request fits the read skill above (Analyse a data file.), read its SKILL.md first instead of working it out with your own tools; the request does not have to name the App.');
+    expect(answer.for_agents.split('For the rest of this conversation,')).toHaveLength(2);
+  });
 
   it('reads a device-scoped market App before it is installed (L11)', async () => {
     const market = marketWith({ reader: offered(reader) });
