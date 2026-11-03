@@ -139,3 +139,13 @@ it('an official API connection is not attributed to a cached ChatGPT subscriptio
   await expect(readCodexPlan(ctx(files, { env: { OPENAI_API_KEY: 'key' } }))).resolves.toEqual({ payer: 'api-key' });
   await expect(readCodexPlan(ctx(files))).resolves.toEqual({ payer: 'custom-endpoint', endpoint: 'api.openai.com' });
 });
+
+describe('Codex 配置读不动时', () => {
+  it('config.toml 语法坏了:读数按「没写」继续,不整页报错', async () => {
+    const files = {
+      '.codex/config.toml': 'model_provider = "relay"\n[model_providers.relay\nbase_url = "https://r.example.com/v1"\n',
+      '.codex/auth.json': JSON.stringify(chatgptAuth('plus')),
+    };
+    await expect(readCodexPlan(ctx(files))).resolves.toEqual({ payer: 'subscription', plan: 'ChatGPT Plus' });
+  });
+});

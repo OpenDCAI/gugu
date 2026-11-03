@@ -10,7 +10,15 @@ import { readJsonObject } from '../../helpers/subscription';
 export async function readCodexCredentials(ctx: AgentAuthContext): Promise<Record<string, unknown> | null> {
   if (ctx.env.CODEX_HOME?.trim() && !ctx.fsFollowsConfigRoot) throw new Error('无法读取所选 CODEX_HOME 的登录凭据。');
   const configRaw = await ctx.fs.read('.codex/config.toml');
-  const config = configRaw ? parseTOML(configRaw) : {};
+  // 手改坏的 config.toml 不该让整个订阅读数报错:同一份文件的 `customProviderOf` 就是按「读不出 ⇒ 当没写」处理的。
+  let config: Record<string, unknown> = {};
+  if (configRaw) {
+    try {
+      config = parseTOML(configRaw) as Record<string, unknown>;
+    } catch {
+      config = {};
+    }
+  }
   const store = config.cli_auth_credentials_store ?? 'file';
   if (store === 'ephemeral') return null;
   if (store === 'file') return readJsonObject(ctx, '.codex/auth.json');
