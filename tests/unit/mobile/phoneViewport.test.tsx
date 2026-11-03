@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { act } from 'react'
+import { act, createRef } from 'react'
+import { PhoneViewportShell } from '../../../apps/desktop/src/mobile/PhoneViewportShell'
+import { PhoneTabBar } from '../../../apps/desktop/src/mobile/PhoneTabBar'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { usePhoneViewport, type PhoneViewport } from '../../../apps/desktop/src/mobile/usePhoneViewport'
 import { createReactHarness } from '../../support/testHarness'
@@ -31,6 +33,46 @@ const update = async (target: EventTarget, name: string) => act(async () => { ta
 const keyboard = async (visible: unknown) => act(async () => { window.dispatchEvent(Object.assign(new Event('gugu:phone-keyboard'), { visible })) })
 
 describe('phone shell visible viewport', () => {
+  it('updates shell geometry and navigation without rerendering retained page contents', async () => {
+    const renderPage = vi.fn()
+    const bar = createRef<HTMLElement>()
+    const shell = createRef<HTMLDivElement>()
+    function Page() { renderPage(); return <textarea /> }
+    await harness.render(<PhoneViewportShell mobile ref={shell}>
+      <Page />
+      <PhoneTabBar activeTab="chats" onTabChange={vi.fn()} pendingContactsCount={0} barRef={bar} tabs={['chats', 'contacts']} />
+    </PhoneViewportShell>)
+    const initialRenders = renderPage.mock.calls.length
+    const page = harness.container.querySelector('textarea')!
+    await act(async () => { page.focus() })
+    viewport.height = 430
+    viewport.offsetTop = 24
+    await update(viewport, 'resize')
+    await keyboard(true)
+    expect(shell.current?.style.height).toBe('430px')
+    expect(shell.current?.style.top).toBe('24px')
+    expect(bar.current?.style.getPropertyValue('--phone-nav-viewport-height')).toBe('800px')
+    expect(renderPage).toHaveBeenCalledTimes(initialRenders)
+    await act(async () => { page.blur(); await Promise.resolve() })
+    viewport.height = 800
+    viewport.offsetTop = 0
+    await keyboard(false)
+    await update(viewport, 'resize')
+    expect(shell.current?.style.height).toBe('800px')
+    expect(renderPage).toHaveBeenCalledTimes(initialRenders)
+  })
+
+  it('leaves desktop shell styles untouched by mobile geometry events', async () => {
+    const shell = createRef<HTMLDivElement>()
+    await harness.render(<PhoneViewportShell mobile={false} ref={shell} style={{ height: '100vh', position: 'relative' }}>Desktop</PhoneViewportShell>)
+    viewport.height = 430
+    viewport.offsetTop = 24
+    await update(viewport, 'resize')
+    expect(shell.current?.style.height).toBe('100vh')
+    expect(shell.current?.style.position).toBe('relative')
+    expect(shell.current?.style.top).toBe('')
+  })
+
   it('keeps desktop sizing and focus untouched while disabled, including a later disable', async () => {
     await harness.render(<Probe enabled={false} />)
     await act(async () => { harness.container.querySelector('textarea')!.focus() })

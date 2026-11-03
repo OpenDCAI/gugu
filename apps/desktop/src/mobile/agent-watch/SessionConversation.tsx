@@ -43,7 +43,9 @@ import { nativeUserAttachmentCommands } from './native-user-attachments'
 import { usePhoneSessionQuotes } from './use-phone-session-quotes'
 import { EngineIcon } from '@/components/AgentHarnessIdentity'
 import { engineLabel } from '@/lib/usage/engineLabel'
-import { useQueuedSessionInputs, retrySessionInputs } from '@/lib/sessionInputOutboxBridge'
+import { useQueuedSessionInputs, useSessionInputAccount, retrySessionInputs } from '@/lib/sessionInputOutboxBridge'
+import { localQueuedInputs } from './local-queued-inputs'
+import type { SessionInput } from '@/lib/sessionInputOutbox'
 import { projectSessionPendingInput } from '@/lib/pendingSessionInput'
 import { projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
@@ -102,6 +104,13 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     onDraftApplied?.()
   }, [draft, onDraftApplied, draftText, setDraftText])
   const options = useConversationOptions({ deviceId, sessionId, local, phoneHost, reachable: hostReachable })
+  const senderInputs = useQueuedSessionInputs(sessionId)
+  const account = useSessionInputAccount()
+  const localQueue = useRef<{ key: string; inputs: readonly SessionInput[] }>({ key: '', inputs: [] })
+  const localQueueKey = `${account}/${deviceId}/${sessionId}`
+  const localInputs = mobile && account ? localQueuedInputs(localQueue.current.key === localQueueKey ? localQueue.current.inputs : [],
+    senderInputs, timeline.queuedPrompts, timeline.turns) : []
+  localQueue.current = { key: localQueueKey, inputs: localInputs }
   const queue = useConversationQueue({ deviceId, sessionId, local, phoneHost }, timeline.queuedPrompts.filter(input => !readDeliveryEnvelope(input.text)), agentWorking, options.steers)
   const quotes = usePhoneSessionQuotes({ deviceId, sessionId, timeline, draftText, setDraftText, queue: queue.props, onLoadOlder, editor, view })
   const editorState = useRef({ text: draftText, edit: quotes.composer.queuedPromptEdit })
@@ -188,7 +197,6 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const { openFile, handlers: outputHandlers } = outputs
   const background = usePhoneBackgroundTasks(deviceId, sessionId, timeline.turns, dismissals, !phoneHost, localClient?.fetchBackgroundTasks)
   const nativeTurns = timeline.turns
-  const senderInputs = useQueuedSessionInputs(sessionId)
   const life = useSessionLifeView(deviceId, sessionId, local, !phoneHost && hostReachable,
     timeline.queuedPrompts.length > 0 || pendingSends.length > 0 || senderInputs.length > 0)
   const pendingInput = useRef<{ sessionId: string; prompt: PendingPrompt | null }>({ sessionId, prompt: null })
@@ -257,7 +265,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     {phoneHost ? <PhoneTaskDraftRecovery deviceId={deviceId} sessionId={sessionId} composer={recoveryComposer} sending={sending} /> : null}
     {queue.error ? <div role="alert">{queue.error}</div> : null}
     <input ref={input} type="file" hidden multiple onChange={event => { addFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
-    <AgentConversationComposer {...options.props} {...queue.props} {...lockedHarness(harness)} queuedPrompts={[...queue.props.queuedPrompts, ...pendingSends.slice(1).map(send => ({ id: send.id, text: send.text, origin: 'manual' as const, locked: true }))]} mobile phoneActions={mobile} isWorking={agentWorking} canSubmit={!sending && !stopping && (!!composerDraft.text.trim() || attachments.length > 0)}
+    <AgentConversationComposer {...options.props} {...queue.props} {...lockedHarness(harness)} queuedPrompts={[...queue.props.queuedPrompts, ...localInputs.map(input => ({ id: input.id, text: input.text, origin: 'manual' as const, locked: true })), ...pendingSends.slice(1).map(send => ({ id: send.id, text: send.text, origin: 'manual' as const, locked: true }))]} mobile phoneActions={mobile} isWorking={agentWorking} canSubmit={!sending && !stopping && (!!composerDraft.text.trim() || attachments.length > 0)}
       onStop={agentWorking ? onStop : undefined} editorApiRef={receiveEditor} editorOptions={{ clearOnSubmit: false, enterBehavior: 'newline' }}
       queuedPromptEdit={quotes.composer.queuedPromptEdit} onChangeQueuedPromptEdit={quotes.composer.changeQueuedPromptEdit} onFinishQueuedPromptEdit={quotes.composer.finishQueuedPromptEdit} renderQueuedPromptText={quotes.composer.renderQueuedPromptText}
       onInputChange={composerDraft.setText} onSubmit={submit} onSubmitWhileWorking={submit}
