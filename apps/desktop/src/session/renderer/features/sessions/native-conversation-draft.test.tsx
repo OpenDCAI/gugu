@@ -6,9 +6,9 @@ import { ChatStoreProvider, useChatStore } from '@/store/chatContext';
 import { readNativeOfflineDraft, writeNativeOfflineDraft } from '@/lib/nativeOfflineDraft';
 import { useSessionConversationDraft } from '@/mobile/agent-watch/use-session-conversation-draft';
 
-const scope = vi.hoisted(() => ({ account: 'owner', initial: {} as Record<string, string> }));
+const scope = vi.hoisted(() => ({ account: 'owner' as string | null, initial: {} as Record<string, string> }));
 vi.mock('@/lib/sessionInputOutboxBridge', () => ({
-  state: () => ({ accountId: scope.account, valid: () => true }),
+  state: () => ({ accountId: scope.account, valid: () => scope.account !== null }),
   useSessionInputAccount: () => scope.account,
 }));
 
@@ -91,4 +91,42 @@ it('keeps the existing phone draft writer and flush unchanged', () => {
   act(() => { draft.setText('phone edit'); draft.flush(); });
   expect(persisted['session:host/task']).toBe('phone edit');
   expect(readNativeOfflineDraft('host', 'task')).toBe('desktop only');
+});
+
+it('keeps keystrokes typed before the session input account is ready', () => {
+  scope.account = null;
+  render(<Composer />);
+  act(() => draft.setText('early'));
+  act(() => draft.setText(text => `${text}!`));
+  expect(node.textContent).toBe('early!');
+  scope.account = 'owner';
+  render(<Composer />);
+  expect(node.textContent).toBe('early!');
+  expect(readNativeOfflineDraft('host', 'task')).toBe('early!');
+  expect(persisted['session:host/task']).toBe('');
+  render(null); render(<Composer />);
+  expect(node.textContent).toBe('early!');
+});
+
+it('hands text entered between accounts only to the account that becomes ready', () => {
+  render(<Composer />);
+  act(() => draft.setText('owner draft'));
+  scope.account = null;
+  render(<Composer />);
+  expect(node.textContent).toBe('');
+  act(() => draft.setText('between accounts'));
+  expect(node.textContent).toBe('between accounts');
+  scope.account = 'peer';
+  render(<Composer />);
+  expect(node.textContent).toBe('between accounts');
+  expect(readNativeOfflineDraft('host', 'task')).toBe('between accounts');
+  expect(persisted['session:host/task']).toBe('');
+  scope.account = 'owner';
+  render(<Composer />);
+  expect(node.textContent).toBe('owner draft');
+  expect(readNativeOfflineDraft('host', 'task')).toBe('owner draft');
+  scope.account = 'peer';
+  render(<Composer />);
+  expect(node.textContent).toBe('between accounts');
+  expect(readNativeOfflineDraft('host', 'task')).toBe('between accounts');
 });

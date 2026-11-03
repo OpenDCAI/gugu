@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { MESSAGE_BUBBLE_LAYOUT as layout } from '@gugu/core/shared/ui/messageBubbleLayout'
 
 // @@@bubble-style 消息气泡的视觉样式构造,从 MessageBubble 抽出(纯函数:只依赖 自己/悄悄话/移动端 三布尔)。
 // 抽出动机:MessageBubble 是 CI 冻结的 god file(ci.yml 行数不许增长),#2242 的容器约束修复要往里加代码,
@@ -23,7 +24,7 @@ export function buildBubbleStyle(
     maxWidth: '100cqw',
     minWidth: '44px',
     // 手机 8×16(v7.12「间距只用 4/8/16/24」,owner 10-26);桌面不动。
-    padding: compactMobile ? '8px 16px' : '8px 12px',
+    padding: `8px ${compactMobile ? layout.bubblePadX.phone : layout.bubblePadX.desktop}px`,
     // #7333 IM 人聊 / IM agent 的气泡正文是「消息与长段正文」那一档(16/24,用户裁决),不是紧凑界面的 14/20。
     // 桌面与手机同一档(≥ #1787 的移动 14 下限)。
     fontSize: 'var(--font-prose)',
