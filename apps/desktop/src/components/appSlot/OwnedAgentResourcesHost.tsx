@@ -13,6 +13,8 @@ import { notify } from '@/lib/notices'
 import { messageForUser } from '@/lib/userFacingError'
 import { GroupTabContent } from './GroupTabContent'
 import { useChatOpener } from './useChatOpener'
+import { PaneContext } from '@renderer/features/tabs/pane-context'
+import { getSessionView } from '@/session/renderer/features/sessions/stores/session-selectors'
 
 installOwnedAgentResourceTabs({ read: panelTabOf, open: openPanelItem, close: closeChatTab })
 
@@ -30,7 +32,7 @@ export function OwnedAgentResourcesHost({ ownerId }: { ownerId: string }) {
   return <>{hosts.filter(host => host.ownerId === ownerId).map(host => <ResourceHost key={host.chatId} {...host} />)}</>
 }
 
-function ResourceHost({ ownerId, chatId }: OwnedAgentResourceHost) {
+function ResourceHost({ ownerId, chatId, projectId, sessionId }: OwnedAgentResourceHost) {
   const show = useCallback((chatId: string, tabId: string) => {
     const target = ownedAgentResourceHost(ownerId, chatId)
     const open = readSessionpageViewRequestBridge()?.openChatResource
@@ -40,7 +42,7 @@ function ResourceHost({ ownerId, chatId }: OwnedAgentResourceHost) {
   const opener = useChatOpener(chatId, show, () => canTakeOwnedAgentResource(ownerId, chatId))
   return <>
     {opener.overlay}
-    <ResourcePortals chatId={chatId} panel={tab =>
+    <ResourcePortals chatId={chatId} projectId={projectId} sessionId={sessionId} panel={tab =>
       <GroupTabContent chatId={chatId} tabId={tab.tabId} item={tab.item} tabbed inWindow={readShellSlots()?.getSlots().get(ownedAgentResourceSlotKey(chatId, tab.tabId))?.ownerDocument !== document} mobile={false} visible={tab.shown} onOpenWith={opener.openWith} />
     } />
   </>
@@ -48,11 +50,13 @@ function ResourceHost({ ownerId, chatId }: OwnedAgentResourceHost) {
 
 const EMPTY_SLOTS: ReadonlyMap<string, HTMLElement> = new Map()
 /** Legacy chat blocks may still be restoring; they must not replace this native resource's slot. */
-const ResourcePortals = observer(function ResourcePortals({ chatId, panel }: { chatId: string; panel: (tab: ChatPanelTab) => ReactNode }) {
+const ResourcePortals = observer(function ResourcePortals({ chatId, projectId, sessionId, panel }: { chatId: string; projectId: string; sessionId: string; panel: (tab: ChatPanelTab) => ReactNode }) {
   const slots = readShellSlots()
   const entries = useSyncExternalStore(listener => slots?.subscribeSlots(listener) ?? (() => undefined), () => slots?.getSlots() ?? EMPTY_SLOTS)
   return <>{panelTabsOf(chatId).map(tab => {
     const element = entries.get(ownedAgentResourceSlotKey(chatId, tab.tabId))
-    return element ? createPortal(panel(tab), element, tab.tabId) : null
+    const layout = getSessionView(projectId, sessionId)?.paneLayout
+    const owner = [...(layout?.groups ?? []), ...(layout?.windowPanes.values() ?? [])].find(({ pane }) => [...pane.entries.values()].some(entry => entry.kind === 'chat-resource' && (entry.state as { chatId?: string; sourceTabId?: string }).chatId === chatId && (entry.state as { sourceTabId?: string }).sourceTabId === tab.tabId))
+    return element ? createPortal(<PaneContext.Provider value={owner ? { pane: owner.pane, paneId: owner.paneId, isFocusedPane: layout?.activePaneId === owner.paneId } : null}>{panel(tab)}</PaneContext.Provider>, element, tab.tabId) : null
   })}</>
 })
