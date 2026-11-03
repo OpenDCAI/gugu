@@ -123,6 +123,15 @@ describe('U7 boot presence reconciliation through the real SQLite writer and def
     expect(status('survivor')).toEqual({ status: 'working', detail, seen: 1 });
     expect(interruptedTurnKeys()).toEqual([]);
   });
+  it.each(['plain', 'done'])('U2: preserves a previously seen idle/%s survivor instead of announcing completion again', async detail => {
+    seed('survivor', 'idle', detail); presence('survivor', 'idle');
+    const changes: unknown[] = [], stop = agentStatusWriter.on('agent:status', change => { changes.push(change); });
+    try {
+      await boot(['survivor']);
+      expect(status('survivor')).toEqual({ status: 'idle', detail, seen: 1 });
+      expect(changes).toEqual([]);
+    } finally { stop(); }
+  });
   it.each(['missing', 'dead', 'wrong-pid', 'malformed', 'wrong-session', 'unsupported'])('U3: preserves the stored reading for %s presence and logs once', async mode => {
     seed('survivor', 'working', 'parked', 'pty', mode === 'unsupported' ? 'gemini' : 'claude');
     if (mode === 'dead') { presence('survivor', 'idle'); dead.add(42); }
