@@ -76,7 +76,7 @@ export async function checkAccountBoot(binary: string): Promise<void> {
       try { await owned?.stop({ graceMs: 10_000 }) }
       finally {
         try { fs.rmSync(home, { recursive: true, force: true }) }
-        catch (error) { console.warn(`[server] Could not remove account boot scratch directory ${home}`, error) }
+        catch (error) { process.stderr.write(`[server] WARN Could not remove account boot scratch directory ${home}: ${String(error)}\n`) }
       }
     }
   }

@@ -92,11 +92,11 @@ describe.runIf(process.platform !== 'win32')('account boot cleanup', () => {
       if (path.basename(String(file)).startsWith('gugu-boot-')) throw cleanupError
       remove(file, options)
     })
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const warn = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     if (failure) await expect(checkAccountBoot(binary)).rejects.toThrow('Account boot exited before serving (1)')
     else await expect(checkAccountBoot(binary)).resolves.toBeUndefined()
     const row = reading()
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining(row.home), cleanupError)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(`${row.home}: ${String(cleanupError)}`))
     expect(fs.existsSync(row.home)).toBe(true)
   })
 })
