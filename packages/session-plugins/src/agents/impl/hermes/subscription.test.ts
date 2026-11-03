@@ -92,3 +92,10 @@ describe('Hermes 订阅读数', () => {
     await expect(readHermesPlan(ctx({}, { HERMES_HOME: '/x' }))).resolves.toMatchObject({ payer: 'unknown' });
   });
 });
+
+describe('Hermes config.yaml 的手写形状', () => {
+  it('model 块里列 0 的注释不算块的结束', () => {
+    const yaml = 'model:\n  provider: "nous"\n# 之前试过 provider: "openai"\n  base_url: "https://openrouter.ai/api/v1"\n';
+    expect(parseHermesModelBlock(yaml)).toEqual({ provider: 'nous', baseUrl: 'https://openrouter.ai/api/v1' });
+  });
+});
