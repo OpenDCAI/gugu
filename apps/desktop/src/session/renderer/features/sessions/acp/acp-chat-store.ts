@@ -854,14 +854,15 @@ export class AcpChatStore {
       this._syncMessageCount();
     });
     const prior = session.state.pendingPrompt;
-    const newOrdinaryInput = sender.some(row => row.queued === false && !view?.pending.items.some(host => host.messageId === row.id));
+    const ordinarySender = sender.filter(row => row.admission !== 'rejected');
+    const newOrdinaryInput = ordinarySender.some(row => row.queued === false && !view?.pending.items.some(host => host.messageId === row.id));
     const stoppedOnHost = view?.hold === 'user-stop' && view.pending.items.some(row => row.messageId === prior?.id);
-    if ((!stoppedOnHost || newOrdinaryInput) && (prior?.delivery || sender.some(row => row.queued === false))) {
+    if ((!stoppedOnHost || newOrdinaryInput) && (prior?.delivery || ordinarySender.some(row => row.queued === false))) {
       const transcript = this.chatState.transcript.state;
       const pending = projectSessionPendingInput(prior, sender, view?.pending.items ?? [],
         [...transcript.committedTurns, ...(transcript.activeTurnSnapshot ? [transcript.activeTurnSnapshot] : [])]);
       runInAction(() => {
-        this.transcriptPendingId = pending?.id ?? sender.find(row => row.queued === false)?.id ?? null;
+        this.transcriptPendingId = pending?.id ?? ordinarySender.find(row => row.queued === false)?.id ?? null;
         const next = pending ? { ...pending, starting,
           // Sender custody keeps its delivery status; host-owned startup failures recover through the task action.
           ...(view?.kind === 'failed' && view.failure && !sender.some(row => row.id === pending.id) && view.pending.items.some(row => row.messageId === pending.id)

@@ -309,6 +309,9 @@ describe('sender custody uses the ordinary transcript row', () => {
     expect(store.chatState.session.state.pendingMessages).toMatchObject([
       { id: a.id, delivery: { state: 'failed', retryable: true } }, { id: b.id, delivery: { state: 'failed', retryable: true } },
     ]);
+    expect(store.transcriptPendingId).toBeNull();
+    expect(store.affordances.isWorking).toBe(false);
+    expect(store.affordances.canCancel).toBe(false);
     store.beginMessageEdit(a.id);
     expect(store.messageEdit).toEqual({ itemId: a.id, text: a.text });
     store.cancelMessageEdit(a.id);

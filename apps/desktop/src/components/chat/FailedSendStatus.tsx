@@ -22,7 +22,7 @@ export function FailedSendStatus({ reason, label, onRetry, onDiscard }: {
         <path d="M7.5 4.2v3.6" stroke="var(--danger)" strokeWidth="1.5" strokeLinecap="round" />
         <circle cx="7.5" cy="10.8" r=".8" fill="var(--danger)" />
       </svg>
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label ?? t('message.sendStatus.failed')}</span>
+      <span className="overflow-hidden text-ellipsis">{label ?? t('message.sendStatus.failed')}</span>
     </DropdownMenu.Trigger>
     {open && <DropdownMenu.Content data-testid="message-send-failed-menu" aria-label={t('message.sendStatus.failedActions')}
       side="top" align="end" sideOffset={4} style={{ minWidth: 96 }}>
