@@ -69,7 +69,9 @@ describe('archived-agent delivery revisions', () => {
     const coordinator = createAccountRevisionCoordinator('viewer', repository, {
       syncSince, subscribeWake: (_account, onWake) => { wake = onWake; return () => {} },
     })
-    const off = subscribeChatLineRevisions(coordinator.subscribe, line)
+    const off = subscribeChatLineRevisions(coordinator.subscribe, { ...line,
+      readCommittedMessage: id => repository.snapshot().message.find(row => row.id === id)?.value,
+      noteCommittedMessages: vi.fn() })
     coordinator.start()
     try {
       // Continue to the next page even on the broken parent: the poison revision stays in its inbox.

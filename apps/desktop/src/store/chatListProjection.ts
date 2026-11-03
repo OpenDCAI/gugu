@@ -1,12 +1,10 @@
 import { useCallback, useMemo, useRef, type MutableRefObject } from 'react'
 import { mergeFetchedChatsPreservingActiveLocal } from '@gugu/core/shared/ui/chatModels'
 import { createChatNotificationPayload, shouldNotify } from '@gugu/core/shared/ui/notificationModels'
-import type { ChatItem } from '@gugu/core/shared/types/chat'
+import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
 import { publishChatSnapshot } from '../lib/chatSnapshotPublication'
 import { replaceEqualDeep } from '@tanstack/react-query'
 import { platform } from '../platform'
-import { isChatOnScreen } from '../lib/onScreenChat'
-import { rendererLogger } from '../lib/log'
 import { chatPreviewText } from '../lib/agentTurnFailure'
 import type { AccountImRepository } from '../lib/imRepository'
 import { currentAuthSessionSignal } from '../lib/authSessionLoss'
@@ -18,8 +16,6 @@ import {
 // @@@selection-is-intent (#4314) — 一次刷新没提到某条会话，含义取决于这一发相对「最后一次看见它」有多新：
 // 刚 open_dm 出来的会话还没被任何一发投影过，对它的沉默是仪器还没读到、不是阴性读数。契约见 [[conversation-data]]。
 export type ChatListProjectionLedger = ReturnType<typeof createChatListProjectionLedger>
-
-const chatListLog = rendererLogger('chat/list-projection')
 
 export function createChatListProjectionLedger() {
   const lastSeenSeq = new Map<string, number>()
@@ -69,20 +65,18 @@ export async function applyFetchedChatList(
   return replaceEqualDeep(currentChats as ChatItem[], missing.length > 0 ? [...missing, ...merged] : merged)
 }
 
-/** 刷新带回的新消息通知扇出：与列表状态机无关的纯副作用（#1757 逐域抽取）。 */
-export function notifyForRefreshedChats(
-  previous: readonly ChatItem[],
-  fetched: readonly ChatItem[],
+/** Only the winner of the committed account message's IDB claim calls this outlet. */
+export async function notifyForIngestedMessage(
+  accountId: string,
+  chat: ChatItem,
+  message: MessageItem,
   context: { onScreen: (chatId: string) => boolean; notificationsEnabled: boolean; soundEnabled: boolean },
-): void {
+): Promise<void> {
   if (!platform.capabilities.notifications) return
-  const previousById = new Map(previous.map((chat) => [chat.id, chat]))
-  for (const chat of fetched) {
-    if (!shouldNotify({ kind: 'chat', previous: previousById.get(chat.id), next: chat },
-      { enabled: context.notificationsEnabled, onScreen: context.onScreen(chat.id) })) continue
-    void platform.showNotification({ ...createChatNotificationPayload({ ...chat, last_message_preview: chatPreviewText(chat) }), silent: !context.soundEnabled })
-      .catch((err) => chatListLog.error({ reason: String(err) }, 'show notification failed'))
-  }
+  if (!shouldNotify({ kind: 'message', accountId, chat, message },
+    { enabled: context.notificationsEnabled, onScreen: context.onScreen(chat.id) })) return
+  await platform.showNotification({ ...createChatNotificationPayload({ ...chat,
+    last_message_preview: chatPreviewText({ last_message_preview: message.content, last_message_failure: null }) }), silent: !context.soundEnabled })
 }
 
 // @@@chat-projection — store 这一侧怎么消费投影:属主按账号一个、权威行落地、接到 revision 派发上。
@@ -101,7 +95,6 @@ export function useChatProjectionBinding(deps: {
   onActiveRevoked: (chatId: string) => void
 }) {
   const { ledger, repositoryRef, getRepository, chatsRef, activeChatIdRef, requestSeqRef, setChats, onActiveRevoked } = deps
-  const { chatMessages: notifyMessages, sound: notifySound } = deps.notifications
   const ownerRef = useRef<{ accountId: string; owner: ChatProjection } | null>(null)
 
   const ownerFor = useCallback((accountId: string): ChatProjection => {
@@ -123,14 +116,10 @@ export function useChatProjectionBinding(deps: {
       activeChatId, fetched, requestSeq: options.requestSeq, preserveMissingActive: options.preserveMissingActive,
     }) && (!options.revokedMembership || options.revokedMembership(activeChatId!))
     ledger.recordProjected(fetched, options.requestSeq)
-    if (options.notify) {
-      notifyForRefreshedChats(chatsRef.current, fetched,
-        { onScreen: isChatOnScreen, notificationsEnabled: notifyMessages, soundEnabled: notifySound })
-    }
     setChats(await applyFetchedChatList(ledger, await getRepository(), { fetched, identities },
       { currentChats: chatsRef.current, activeChatId, revokeMissingActive }))
     if (revokeMissingActive && activeChatId) onActiveRevoked(activeChatId)
-  }, [ledger, activeChatIdRef, chatsRef, getRepository, notifyMessages, notifySound, onActiveRevoked, setChats])
+  }, [ledger, activeChatIdRef, chatsRef, getRepository, onActiveRevoked, setChats])
 
   /** 冷启快照:一次「哪些会话属于我」的读 + 与增量同一套族读 ⇒ 2 波(spec I7,没有第二条拉取路)。 */
   const hydrate = useCallback((accountId: string) => ownerFor(accountId)

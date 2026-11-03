@@ -1,6 +1,6 @@
 import type { AgentStatusView } from '../agentStatus'
 import { chatAttention, chatDisplayName } from './chatModels'
-import type { ChatItem } from '../types/chat'
+import type { ChatItem, MessageItem } from '../types/chat'
 
 export type ChatNotificationPayload = {
   title: string
@@ -11,6 +11,7 @@ export type ChatNotificationPayload = {
 /** 一次可能要叫人的变化:会话列表里的一行,或一条 agent 会话的状态读数。 */
 export type NotificationChange =
   | { kind: 'chat'; previous: ChatItem | undefined; next: ChatItem }
+  | { kind: 'message'; chat: ChatItem; message: MessageItem; accountId: string }
   | { kind: 'agent'; previous: AgentStatusView | null; next: AgentStatusView | null }
 
 export type NotificationContext = {
@@ -32,6 +33,17 @@ export type NotificationContext = {
 export function shouldNotify(change: NotificationChange, context: NotificationContext): boolean {
   if (!context.enabled || context.onScreen) return false
   if (change.kind === 'agent') return asksYou(change.next) && !sameAsk(change.previous, change.next)
+  if (change.kind === 'message') {
+    const { chat, message, accountId } = change
+    if (chat.is_muted || message.sender_user_id === accountId || message.chat_id !== chat.id) return false
+    const readSeq = message.thread_root_id && chat.unread_locator?.thread_root_id === message.thread_root_id
+      ? chat.unread_locator.cursor_seq : message.thread_root_id ? 0 : chat.last_read_seq
+    if (message.seq <= readSeq) return false
+    if (chat.kind === 'dm' || chat.kind === 'ai') return true
+    // The existing wire recipient sentinel '*' is @all, not a text-name match.
+    return message.to_user_ids?.includes(accountId) === true || message.to_user_ids?.includes('*') === true
+      || message.reply_to_sender_user_id === accountId
+  }
   const count = chatAttention(change.next).askingYou
   return count > 0 && count > (change.previous ? chatAttention(change.previous).askingYou : 0)
 }

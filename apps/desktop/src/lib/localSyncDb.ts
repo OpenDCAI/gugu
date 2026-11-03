@@ -39,9 +39,12 @@ export type LocalImDbOperation =
 
 export interface LocalImDbAdapter {
   loadAccount(accountId: string): Promise<Record<ImStoreName, LocalImRow[]>>
-  commit(operations: readonly LocalImDbOperation[]): Promise<void>
+  commit(operations: readonly LocalImDbOperation[], claims?: readonly MessageNotificationClaim[]): Promise<void | readonly string[]>
   close(): void
 }
+
+export type MessageNotificationClaim = { accountId: string; messageId: string }
+export const messageNotificationClaimKey = (messageId: string): string => `message-notification:${messageId}`
 
 const KEY_PATHS: Record<ImStoreName, string[]> = {
   identity: ['accountId', 'id'],
@@ -71,10 +74,19 @@ export function createMemoryLocalSyncDb(): LocalImDbAdapter {
         [...stores[name].values()].filter((row) => row.accountId === accountId).map(cloneRow),
       ])) as Record<ImStoreName, LocalImRow[]>
     },
-    async commit(operations) {
+    async commit(operations, claims = []) {
       const next = cloneMemoryStores(stores)
       applyMemoryOperations(next, operations)
+      const won: string[] = []
+      for (const claim of claims) {
+        const key = messageNotificationClaimKey(claim.messageId)
+        const storedKey = serializeKey([claim.accountId, key])
+        if (next.view.has(storedKey)) continue
+        next.view.set(storedKey, { accountId: claim.accountId, key, value: true })
+        won.push(claim.messageId)
+      }
       stores = next
+      return won
     },
     close() {},
   }
@@ -356,13 +368,15 @@ function createIndexedDbAdapter(handle: IndexedDbHandle): LocalImDbAdapter {
         throw new LocalImCacheError(error, outbox)
       }
     },
-    async commit(operations) {
-      if (operations.length === 0) return
+    async commit(operations, claims = []) {
+      if (operations.length === 0 && claims.length === 0) return []
       const touched = operations.some((operation) => operation.type === 'clearAccount')
         ? [...IM_STORE_NAMES]
-        : [...new Set(operations.flatMap((operation) => operation.type === 'clearAccount' ? [] : [operation.store]))]
+        : [...new Set([...operations.flatMap((operation) => operation.type === 'clearAccount' ? [] : [operation.store]),
+          ...(claims.length > 0 ? ['view' as const] : [])])]
       const db = await handle.get()
       const transaction = db.transaction(touched, 'readwrite')
+      const won: string[] = []
       let enqueueError: unknown
       // A clear's cursor must finish BEFORE replacement puts: an advancing
       // IndexedDB cursor would otherwise visit and delete the new rows too.
@@ -385,6 +399,20 @@ function createIndexedDbAdapter(handle: IndexedDbHandle): LocalImDbAdapter {
               transaction.objectStore(operation.store).delete(operation.key)
             }
           }
+          // The check and insert share the body/inbox/cursor transaction. IndexedDB
+          // serializes competing readwrite transactions, including other renderers.
+          for (const claim of claims) {
+            assertId(claim.accountId, 'notification.accountId')
+            assertId(claim.messageId, 'notification.messageId')
+            const key = messageNotificationClaimKey(claim.messageId)
+            const store = transaction.objectStore('view')
+            const request = store.get([claim.accountId, key])
+            request.onsuccess = () => {
+              if (request.result !== undefined) return
+              store.put({ accountId: claim.accountId, key, value: true })
+              won.push(claim.messageId)
+            }
+          }
         } catch (error) {
           enqueueError = error
           transaction.abort()
@@ -393,6 +421,7 @@ function createIndexedDbAdapter(handle: IndexedDbHandle): LocalImDbAdapter {
       const done = transactionDone(transaction)
       enqueue(0)
       await done.catch((error) => { throw enqueueError ?? error })
+      return won
     },
     close: () => handle.close(),
   }

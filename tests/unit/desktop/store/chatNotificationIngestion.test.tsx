@@ -8,8 +8,9 @@ import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import { createAccountRevisionCoordinator, type AccountRevisionCoordinator } from '../../../../apps/desktop/src/lib/accountRevisionCoordinator'
-import type { AccountRevisionSource } from '../../../../apps/desktop/src/lib/accountRevisionRuntime'
+import type { AccountRevisionSource, AccountRevisionOperation } from '../../../../apps/desktop/src/lib/accountRevisionRuntime'
 import { createChatListProjectionLedger, useChatProjectionBinding } from '../../../../apps/desktop/src/store/chatListProjection'
+import * as notifications from '../../../../apps/desktop/src/store/chatListProjection'
 
 const native = vi.hoisted(() => ({ show: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
@@ -58,9 +59,13 @@ let binding: ReturnType<typeof useChatProjectionBinding>
 let releaseCommit: ReturnType<typeof deferred<void>>
 let holdCommit = false
 let coordinator: AccountRevisionCoordinator | null = null
+let enabled = true
+let wake: (head: string) => void
+const pending: AccountRevisionOperation[] = []
 const bodyPresentAtNotification: boolean[] = []
 
 function Owner({ notificationsEnabled = true }: { notificationsEnabled?: boolean }) {
+  enabled = notificationsEnabled
   const [rows, setRows] = useState<ChatItem[]>([noUnread()])
   const chatsRef = useRef(rows)
   useLayoutEffect(() => { chatsRef.current = rows }, [rows])
@@ -79,11 +84,12 @@ function Owner({ notificationsEnabled = true }: { notificationsEnabled?: boolean
 beforeEach(async () => {
   bodyPresentAtNotification.length = 0
   cloudRows.clear()
+  pending.length = 0
   holdCommit = false; releaseCommit = deferred<void>(); coordinator = null
   const memory = createMemoryLocalSyncDb()
-  repository = await openImRepository(ACCOUNT, { adapter: { ...memory, commit: async operations => {
+  repository = await openImRepository(ACCOUNT, { adapter: { ...memory, commit: async (operations, claims) => {
     if (holdCommit) await releaseCommit.promise
-    await memory.commit(operations)
+    return memory.commit(operations, claims)
   } } })
   await repository.transaction(tx => tx.putSyncState('account-revision-cursor', { revision: '0' }))
   native.show.mockReset().mockImplementation(async () => {
@@ -97,6 +103,19 @@ beforeEach(async () => {
   cloudRows.set('messages_view', []); cloudRows.set('rpc:list_unread_locators', []); cloudRows.set('contact_overrides', [])
   harness = createReactHarness()
   await harness.render(<Owner />)
+  await act(async () => { await binding.publish([noUnread()], [displayIdentity(ACCOUNT)], { requestSeq: 0, notify: false }) })
+  const source: AccountRevisionSource = {
+    syncSince: async cursor => ({ operations: pending.filter(operation => BigInt(operation.revision) > BigInt(cursor)), hasMore: false }),
+    subscribeWake: (_account, onWake) => { wake = onWake; return () => undefined },
+  }
+  coordinator = createAccountRevisionCoordinator(ACCOUNT, repository, source, {
+    recover: async () => { throw new Error('complete message fixture must not need recovery') },
+    notify: async message => notifications.notifyForIngestedMessage(ACCOUNT,
+      repository.snapshot().chat.find(row => row.id === GROUP)!.value, message,
+      { onScreen: () => false, notificationsEnabled: enabled, soundEnabled: false }),
+  })
+  coordinator.start()
+  await coordinator.whenIdle() // Initial catchup is a silent baseline, not a live arrival.
 })
 
 afterEach(() => {
@@ -109,6 +128,12 @@ afterEach(() => {
 describe('chat notification ingestion', () => {
   const publish = async (row = nextRow(), requestSeq = 1) => {
     await act(async () => {
+      const id = row.unread_locator?.message_id ?? MESSAGE
+      pending.push({ revision: String(pending.length + 1), event: 'message_created', payload: {
+        chat_id: GROUP, entity_id: id, message: { ...messageRow, id, seq: row.unread_locator?.message_seq ?? 1 },
+      } })
+      wake(String(pending.length))
+      await coordinator!.whenIdle()
       await binding.publish([row], [displayIdentity(ACCOUNT)], { requestSeq, notify: true })
     })
   }
@@ -145,11 +170,9 @@ describe('chat notification ingestion', () => {
     // this does not claim three independent network deliveries were reproduced.
     holdCommit = true
     await act(async () => {
-      const pending = [1, 2, 3].map(requestSeq => {
-        return binding.publish([nextRow()], [displayIdentity(ACCOUNT)], { requestSeq, notify: true })
-      })
+      const publications = [1, 2, 3].map(requestSeq => publish(nextRow(), requestSeq))
       releaseCommit.resolve()
-      await Promise.all(pending)
+      await Promise.all(publications)
     })
     expect(native.show).toHaveBeenCalledTimes(1)
   })
@@ -162,17 +185,12 @@ describe('chat notification ingestion', () => {
     })
     cloudRows.set('messages_view', [messageRow])
     cloudRows.set('rpc:list_unread_locators', [locator])
-    const source: AccountRevisionSource = {
-      syncSince: async cursor => {
-        return { operations: cursor === '0' ? [{ revision: '1', event: 'message_created',
-          payload: { chat_id: GROUP, entity_id: MESSAGE, message: messageRow } }] : [], hasMore: false }
-      },
-      subscribeWake: (_id, _wake, subscribed) => { subscribed(); return () => undefined },
-    }
-    coordinator = createAccountRevisionCoordinator(ACCOUNT, repository, source)
-    const stop = binding.attach(ACCOUNT, coordinator.subscribe)
+    const stop = binding.attach(ACCOUNT, coordinator!.subscribe)
     try {
-      await act(async () => { coordinator!.start(); await coordinator!.whenIdle() })
+      await act(async () => {
+        pending.push({ revision: '1', event: 'message_created', payload: { chat_id: GROUP, entity_id: MESSAGE, message: messageRow } })
+        wake('1'); await coordinator!.whenIdle()
+      })
       expect(native.show).toHaveBeenCalledTimes(1)
       expect(bodyPresentAtNotification).toEqual([true])
     } finally { stop() }

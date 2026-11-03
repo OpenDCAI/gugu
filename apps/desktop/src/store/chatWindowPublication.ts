@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import type { AccountImRepository } from '../lib/imRepository'
+import { readMessageWindow, type AccountImRepository } from '../lib/imRepository'
 import { chatService } from '../lib/chat'
 import { decideColdStartFetch, deltaResultRequiresDegrade } from '../lib/coldStartFetch'
 import { INITIAL_PAGE, NEWER_PAGE, maxMainlineSeq } from './chatMessageWindow'
@@ -33,16 +33,15 @@ export async function openCachedChatWindow(options: {
   revalidate: () => Promise<void>
 }): Promise<void> {
   const { chatId, userId, cache, observer } = options
+  const repository = await options.getRepository()
+  if (!observer.current()) return
+  const sparse = readMessageWindow(repository, chatId)?.sparse === true
+  const disk = seedCacheFromDisk(cache, repository, chatId)
   let painted = !!cache.get(chatId)?.some((message) => message.seq >= 0)
-  if (!painted) {
-    const repository = await options.getRepository()
-    if (!observer.current()) return
-    const disk = seedCacheFromDisk(cache, repository, chatId)
-    if (disk) { observer.painted(disk.rows, disk.hasMoreOlder); painted = true }
-  }
+  if (disk) { observer.painted(disk.rows, disk.hasMoreOlder); painted = true }
   if (!observer.current()) return
   const maxSeq = maxMainlineSeq(cache.get(chatId))
-  const plan = decideColdStartFetch({
+  const plan = sparse ? { kind: 'initialLoad' as const } : decideColdStartFetch({
     hasCache: painted, maxSeq,
     expectedTailSeq: options.expectedTailSeq ?? maxSeq,
     // A topic visible to an observer may have no list row. Only a server delta proves its tail.
