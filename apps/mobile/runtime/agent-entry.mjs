@@ -107,7 +107,7 @@ export function bindAgentEntry(entry, { input, output, onError, onTimeout, onClo
     }
     return closing
   }
-  input.on('line', (line) => { if (!closing) { const stopped = entry.handleLine(line); if (stopped) close(stopped) } })
+  input.on('line', (line) => { const stopped = entry.handleLine(line); if (stopped && !closing) close(stopped) })
   input.once('close', close)
   output.on('error', (error) => {
     close()
