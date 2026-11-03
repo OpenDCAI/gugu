@@ -1,13 +1,13 @@
 import { useQueuedSessionInputs } from '@/lib/sessionInputOutboxBridge'
-import { sessionInputBubbles, type SessionInputFailure } from '@/lib/sessionInputOutbox'
+import { sessionInputBubbles } from '@/lib/sessionInputOutbox'
 import type { LifeView } from '@/session/shared/core/sessions/session-life'
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
 import { readMessageQuote } from '@gugu/core/shared/ui/messageQuote'
 import { conversationQuoteText } from '@session-chat/state/conversation-quote-text'
 import { MessageSendingIndicator } from './MessageSendingIndicator'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { messageForUser } from '@/lib/userFacingError'
+import { sessionInputFailureText, sessionInputWaitingReason } from '@/lib/pendingSessionInput'
 
 /**
  * The person's inputs not yet in the transcript, each drawn from its one custody owner (`sessionInputBubbles`):
@@ -32,22 +32,13 @@ export function SessionInputQueue({ sessionId, waitingForConnection, life = null
         </div>
         {bubble.state === 'sending' ? <MessageSendingIndicator label={t('message.sendStatus.sending')} /> : null}
       </div>
-      {bubble.state === 'waiting' ? <div className="text-xs text-foreground-muted" role="status" data-send-state="waiting">{translateSessionMessage('transcript.waitingToSend')}</div> : null}
+      {bubble.state === 'waiting' ? <div className="text-xs text-foreground-muted" role="status" data-send-state="waiting" title={sessionInputFailureText(bubble.failure)}>{translateSessionMessage('transcript.waitingToSend')} · {sessionInputWaitingReason(bubble.failure)}</div> : null}
       {bubble.state === 'stopped' ? <div className="text-xs text-foreground-muted" role="status" data-send-state="stopped">{t('message.sendStatus.stopped')}</div> : null}
       {bubble.state === 'failed' ? <div className="flex items-center gap-2 text-sm">
-        <span role="alert">{bubble.failure ? failureText(bubble.failure, t) : bubble.hostReason ? messageForUser(bubble.hostReason) : t('message.sendStatus.failed')}</span>
+        <span role="alert">{bubble.hostReason ? messageForUser(bubble.hostReason) : t('message.sendStatus.failed')}</span>
       </div> : null}
       {bubble.state === 'unknown' ? <div className="text-xs text-foreground-muted" role="status">{t('message.sendStatus.unknownNotResent')}</div> : null}
     </div>)}
   </div>
 }
 
-function failureText(failure: SessionInputFailure, t: TFunction<'messaging'>): string {
-  switch (failure.code) {
-    case 'host-offline': return t('message.sendStatus.failure.hostOffline')
-    case 'host-not-ready': return t('message.sendStatus.failure.hostNotReady')
-    case 'phone-unconfirmed': return t('message.sendStatus.failure.phoneUnconfirmed')
-    case 'no-acknowledgement': return t('message.sendStatus.failure.noAcknowledgement')
-    case 'send-failed': return messageForUser(failure.message)
-  }
-}

@@ -21,9 +21,9 @@ export function InputSendStatus(props: { item: ChatMessage; right: number; top: 
       </svg>
     </Show>
     <Show when={props.item.sendStatus?.state === 'waiting'}>
-      <div data-send-state="waiting" role="status"
+      <div data-send-state="waiting" role="status" title={props.item.sendStatus?.error}
         style={{ height: `${INPUT_SEND_FAILURE_HEIGHT}px`, display: 'flex', 'align-items': 'center', 'justify-content': 'flex-end', 'font-size': '12px', color: vars.fgMuted }}>
-        {t('transcript.waitingToSend')}
+        <span style={{ overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{t('transcript.waitingToSend')}{props.item.sendStatus?.reason ? ` · ${props.item.sendStatus?.reason}` : ''}</span>
       </div>
     </Show>
     <Show when={props.item.sendStatus?.state === 'failed' || props.item.sendStatus?.state === 'unknown'}>

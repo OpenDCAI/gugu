@@ -66,7 +66,7 @@ describe('ordinary input transcript custody', () => {
 
   it('keeps automatic recovery on the same input identity', () => {
     const failed = projectSessionPendingInput(null, [{ ...input(), failure: { code: 'send-failed', message: 'connection refused' } }], [], [old])!
-    expect(failed).toMatchObject({ id: 'send', delivery: { state: 'waiting', retryable: false } })
+    expect(failed).toMatchObject({ id: 'send', delivery: { state: 'waiting', retryable: false, error: expect.any(String), reason: expect.any(String) } })
     expect(projectSessionPendingInput(failed, [input()], [], [old])).toMatchObject({ id: 'send', delivery: { state: 'sending' } })
     expect(projectSessionPendingInput(failed, [], [host('failed')], [old])).toMatchObject({ id: 'send', delivery: { state: 'failed' } })
   })
@@ -76,7 +76,7 @@ describe('ordinary input transcript custody', () => {
     { code: 'no-acknowledgement' }, { code: 'send-failed', message: 'connection refused' },
   ])('waits for automatic recovery while the sender owns a $code input', failure => {
     const failed = projectSessionPendingInput(null, [{ ...input(), failure }], [], [old])!
-    expect(failed).toMatchObject({ id: 'send', delivery: { state: 'waiting', retryable: false } })
+    expect(failed).toMatchObject({ id: 'send', delivery: { state: 'waiting', retryable: false, error: expect.any(String), reason: expect.any(String) } })
   })
 
   it('leaves explicitly queued inputs in their existing queue', () => {

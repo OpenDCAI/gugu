@@ -74,6 +74,8 @@ it('uses the ordinary pending projection on the phone, keeping acceptance and au
     expect(harness.container.querySelector('[data-send-state="waiting"] button')).toBeNull();
     expect(harness.container.querySelector('[data-send-state="failed"]')).toBeNull();
   }
+  expect(harness.container.querySelector('[data-send-state="waiting"]')?.getAttribute('title')).toBe('connection refused');
+  expect(harness.container.textContent).toContain('Waiting to send · Send interrupted');
   expect(retry).not.toHaveBeenCalled();
   expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
 });
