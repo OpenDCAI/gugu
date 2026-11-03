@@ -10,7 +10,8 @@ import { setLocalePreference } from '@/i18n'
 
 const retry = vi.hoisted(() => vi.fn(async (_deviceId: string) => true))
 const restart = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string, _confirmedRpc: boolean): Promise<{ requested: boolean; at?: number }> => ({ requested: true })))
-vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retry, restartServerVersionNow: restart }))
+const busyAgents = vi.hoisted(() => vi.fn(async (_deviceId: string): Promise<number | undefined> => undefined))
+vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retry, restartServerVersionNow: restart, readServerVersionSwitchBusyAgents: busyAgents }))
 
 const current = '0.2.58-beta.1056.1'
 const target = '0.2.58-beta.1057.1'
@@ -34,6 +35,7 @@ async function click(id: string) {
 }
 beforeEach(() => {
   restart.mockReset().mockResolvedValue({ requested: true })
+  busyAgents.mockReset().mockResolvedValue(undefined)
   retry.mockReset().mockResolvedValue(true)
   toast.mockReset()
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container)
@@ -57,7 +59,8 @@ describe('confirmed server update feedback', () => {
   it.each(['zh-CN', 'en-US'] as const)('renders the counted confirmation in %s for zero and multiple running tasks', async locale => {
     setLocalePreference(locale)
     for (const count of [0, 2]) {
-      await render(server({ state: 'ready', version: target, busy_agents: count }))
+      busyAgents.mockResolvedValue(count)
+      await render(server({ state: 'ready', version: target, busy_agents: 99 }))
       await click('update-now')
       const text = node('update-now-confirm')!.textContent!
       expect(text).not.toContain('devices.update.updateNowConfirmCount')
@@ -66,6 +69,31 @@ describe('confirmed server update feedback', () => {
         : `${count} running tasks will be interrupted and will automatically continue after the update.`)
       await click('update-now-no')
     }
+    expect(busyAgents.mock.calls).toEqual([['remote'], ['remote']])
+  })
+
+  it('uses the uncounted confirmation when the current busy count cannot be read', async () => {
+    await render(server({ state: 'ready', version: target, busy_agents: 99 }))
+    await click('update-now')
+    const text = node('update-now-confirm')!.textContent!
+    expect(text).toContain('正在运行的任务会被中断。')
+    expect(text).not.toContain('99')
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it('does not apply a cancelled confirmation reading to a later confirmation', async () => {
+    let first!: (value: number) => void
+    let second!: (value: number) => void
+    busyAgents.mockImplementationOnce(() => new Promise(resolve => { first = resolve }))
+      .mockImplementationOnce(() => new Promise(resolve => { second = resolve }))
+    await render(server({ state: 'ready', version: target, busy_agents: 99 }))
+    await click('update-now')
+    await click('update-now-no')
+    await click('update-now')
+    await act(async () => { first(7) })
+    expect(node('update-now-confirm')!.textContent).not.toContain('7 个')
+    await act(async () => { second(0) })
+    expect(node('update-now-confirm')!.textContent).toContain('0 个正在运行的任务')
   })
 
   it('shows the actual download target and a known waiting count, leaving an unknown count unspecified', async () => {

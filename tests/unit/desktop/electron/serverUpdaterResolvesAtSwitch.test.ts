@@ -58,6 +58,25 @@ function updater(isBusy: () => boolean, verifyBoot: (binary: string) => Promise<
 }
 
 describe('server self-upgrade resolves its target at the moment it switches', () => {
+  it('reads the current version-switch activity without scheduling an update', async () => {
+    const isBusy = vi.fn(() => true)
+    const { control, shutdown, stop } = updater(isBusy)
+    let count = 2
+    const activity = vi.fn(() => ({ busy: count > 0, busyAgents: count }))
+    const runtime = { isBusy, shutdown, versionSwitchActivity: activity }
+    control.bindRuntime(runtime)
+    const handler = serverUpdateRpcHandlers()['server.versionMatch.activity']
+    expect(handler).toBeTypeOf('function')
+    expect(await handler({}, {} as never)).toEqual({ result: { busyAgents: 2 } })
+    count = 0
+    expect(await handler({}, {} as never)).toEqual({ result: { busyAgents: 0 } })
+    expect(activity).toHaveBeenCalledTimes(2)
+    expect(isBusy).not.toHaveBeenCalled()
+    expect(shutdown).not.toHaveBeenCalled()
+    expect(readPendingVerify(home)).toBeNull()
+    stop()
+  })
+
   it('refuses a confirmed bad target and does not republish it as restartable on the next check', async () => {
     published = '0.2.53-beta.62.1'; stage(published)
     const { control, shutdown, stop } = updater(() => true)
