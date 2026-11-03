@@ -628,6 +628,7 @@ async function installFromMarketForAgent(
   return withWindowNote(result.announced, {
     installed: true,
     outcome: 'confirmed',
+    asked: result.asked,
     id: result.id,
     name: result.name,
     version: result.version,
@@ -725,6 +726,7 @@ async function installFolder(
   return withWindowNote(done.announced, {
     installed: true,
     outcome: 'confirmed' as const,
+    asked: done.asked,
     id: installed.manifest.id,
     name: installed.manifest.name,
     version: installed.manifest.version,

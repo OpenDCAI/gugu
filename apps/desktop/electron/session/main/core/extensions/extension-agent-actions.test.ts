@@ -281,7 +281,7 @@ describe('app_* 的动作分派', () => {
     expect(notifyInstalledChanged).toHaveBeenCalled();
     // #6387 与设置页那条安装路径同一套善后:后台页要拉起来,否则它的工具一个也接不住。
     expect(afterInstall).toHaveBeenCalledWith({ manifest, rootDir: '/tmp/reader' });
-    expect(result).toEqual(expect.objectContaining({ installed: true, outcome: 'confirmed' }));
+    expect(result).toEqual(expect.objectContaining({ installed: true, outcome: 'confirmed', asked: true }));
   });
 
   it('carries the older interface version through the real consent prompt before installing', async () => {
@@ -388,7 +388,7 @@ describe('reinstalling its own folder extension (quiet upgrade)', () => {
     const dependencies = { requestInstallConsent, notifyInstalledChanged: vi.fn().mockResolvedValue(undefined), afterInstall: vi.fn() };
 
     await expect(runExtensionAgentAction({ action: 'install', source_dir: '/tmp/notes-v2' }, dependencies))
-      .resolves.toMatchObject({ installed: true, version: '2.0.0' });
+      .resolves.toMatchObject({ installed: true, version: '2.0.0', asked: false });
     expect(requestInstallConsent).not.toHaveBeenCalled();
     expect(installFromDirectory).toHaveBeenCalledWith('/tmp/notes-v2', 'digest-2', 'folder', INSTALLING_ACCOUNT, undefined);
     // The same aftercare as an asked install: running sessions get the new version on their next call.
@@ -1524,7 +1524,7 @@ describe('app_install { market }', () => {
     // A market App is gugu's: no folder publisher.
     expect(installFromDirectory).toHaveBeenCalledWith('/tmp/market-staged/reader', 'digest-m', 'market', undefined, undefined);
     expect(market.discard).toHaveBeenCalledWith(expect.objectContaining({ sourceDir: '/tmp/market-staged/reader' }));
-    expect(result).toMatchObject({ installed: true, id: 'reader', version: '1.2.0' });
+    expect(result).toMatchObject({ installed: true, id: 'reader', version: '1.2.0', asked: true });
   });
 
   // owner 10-19 (VS Code's `--install-extension id@version`): that version, not this machine's; an older one stays there.
@@ -1641,7 +1641,7 @@ describe('app_install { market }', () => {
     installFromDirectory.mockReturnValue({ manifest: reader, rootDir: '/installed/reader' });
     const requestInstallConsent = vi.fn().mockResolvedValue({ outcome: 'declined' });
     await expect(runExtensionAgentAction({ action: 'install', market: 'reader' }, { ...quietly, market: marketWith({ reader: offered(reader) }), requestInstallConsent }))
-      .resolves.toMatchObject({ installed: true, outcome: 'confirmed' });
+      .resolves.toMatchObject({ installed: true, outcome: 'confirmed', asked: false });
     expect(requestInstallConsent).not.toHaveBeenCalled();
     // E-05: a folder over the market's copy is the person's call however little it asks.
     await expect(runExtensionAgentAction({ action: 'install', source_dir: '/tmp/reader-folder' }, { ...quietly, requestInstallConsent }))
