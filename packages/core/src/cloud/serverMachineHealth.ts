@@ -150,8 +150,10 @@ export const VERSION_RETRY_RPC = 'server.versionMatch.retryWhenIdle'
 /** Older clients use this verb. New servers treat it as idle-only, never as confirmation. */
 export const LEGACY_VERSION_RETRY_RPC = 'server.versionMatch.retry'
 export const VERSION_RESTART_RPC = 'server.versionMatch.restartConfirmed'
+/** Read the current interruption count before presenting a restart confirmation. */
+export const VERSION_ACTIVITY_RPC = 'server.versionMatch.activity'
 
 /** Version-independent controls implemented by the server's existing update handlers. */
 export const SERVER_UPDATE_CONTROL_RPCS: ReadonlySet<string> = new Set([
-  VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC, VERSION_RESTART_RPC,
+  VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC, VERSION_RESTART_RPC, VERSION_ACTIVITY_RPC,
 ])

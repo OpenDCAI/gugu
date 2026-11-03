@@ -10,7 +10,7 @@ import { DevicesContext, type DevicesContextValue } from '@/store/devicesContext
 import type { Device } from '@gugu/core/shared/types/chat'
 const retryMatch = vi.hoisted(() => vi.fn(async (_deviceId: string) => true))
 const restartNow = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string, _confirmedRpc: boolean) => ({ requested: true })))
-vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retryMatch, restartServerVersionNow: restartNow }))
+vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retryMatch, restartServerVersionNow: restartNow, readServerVersionSwitchBusyAgents: async () => undefined }))
 function device(overrides: Partial<Device> = {}): Device {
   return {
     device_id: 'remote',

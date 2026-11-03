@@ -1,10 +1,24 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { restartServerVersionNow } from '@/lib/serverVersionRetry'
-import { LEGACY_VERSION_RETRY_RPC, VERSION_RESTART_RPC } from '@gugu/core/cloud/serverMachineHealth'
+import { readServerVersionSwitchBusyAgents, restartServerVersionNow } from '@/lib/serverVersionRetry'
+import { LEGACY_VERSION_RETRY_RPC, VERSION_ACTIVITY_RPC, VERSION_RESTART_RPC } from '@gugu/core/cloud/serverMachineHealth'
 
 const rpc = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/deviceRpc', () => ({ callDeviceRpc: rpc }))
 beforeEach(() => rpc.mockReset())
+
+it.each([0, 2])('reads a fresh interruption count, preserving zero (%s)', async busyAgents => {
+  rpc.mockResolvedValue({ result: { busyAgents } })
+  expect(await readServerVersionSwitchBusyAgents('remote')).toBe(busyAgents)
+  expect(rpc).toHaveBeenCalledExactlyOnceWith('remote', VERSION_ACTIVITY_RPC, {}, { timeoutMs: 15_000 })
+})
+it.each([{}, { result: { busyAgents: -1 } }, { result: { busyAgents: '2' } }, { error: { code: 'unknown_method' } }])('leaves the confirmation uncounted when activity is unavailable: %j', async reply => {
+  rpc.mockResolvedValue(reply)
+  expect(await readServerVersionSwitchBusyAgents('remote')).toBeUndefined()
+})
+it('leaves the confirmation uncounted on a transport failure', async () => {
+  rpc.mockRejectedValue(new Error('offline'))
+  expect(await readServerVersionSwitchBusyAgents('remote')).toBeUndefined()
+})
 
 it.each([0, 1234, undefined])('preserves the host restart receipt without inventing a timestamp (%s)', async at => {
   rpc.mockResolvedValue({ result: { requested: true, ...(at === undefined ? {} : { at }) } })

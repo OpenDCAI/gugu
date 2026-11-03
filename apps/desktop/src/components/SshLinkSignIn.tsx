@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { serverMachineNotices, serverSupportsConfirmedRestart } from '@gugu/core/cloud/serverMachineHealth'
 import { X } from '../lib/icons'
-import { restartServerVersionNow, retryServerVersionMatch } from '../lib/serverVersionRetry'
+import { readServerVersionSwitchBusyAgents, restartServerVersionNow, retryServerVersionMatch } from '../lib/serverVersionRetry'
 import type { SshLinkFailure } from '../lib/sshLink'
 import { pickSshLinkNotice, type SshLinkNotice } from '../lib/sshLinkNotice'
 import {
@@ -48,7 +48,7 @@ export function SshLinkSignIn() {
   const [signingIn, setSigningIn] = useState<string | null>(null)
   const [prompt, setPrompt] = useState<{ deviceId: string; prompt: SshPrompt } | null>(null)
   const [answered, setAnswered] = useState(false)
-  const [confirmRestart, setConfirmRestart] = useState<string | null>(null)
+  const [confirmRestart, setConfirmRestart] = useState<{ deviceId: string; busyAgents?: number } | null>(null)
 
   useEffect(() => subscribeSshLinkProblems(setProblems), [])
   useEffect(() => subscribeSshUpgradeEvents(event => {
@@ -73,6 +73,7 @@ export function SshLinkSignIn() {
       devices.find(
         (d) =>
           !isSshMachine(d.device_id) &&
+          d.is_online &&
           dismissed.get(d.device_id) !== 'waitingIdle' &&
           d.capabilities?.server_update?.state === 'ready' &&
           serverMachineNotices(d.capabilities).some((n) => n.kind === 'server-too-old'),
@@ -99,6 +100,13 @@ export function SshLinkSignIn() {
     })
   }
   const dismiss = () => setDismissed((prev) => new Map(prev).set(shown.deviceId, shown.reason))
+  const askRestart = () => {
+    const question = { deviceId: shown.deviceId }
+    setConfirmRestart(question)
+    void readServerVersionSwitchBusyAgents(shown.deviceId).then(busyAgents => {
+      setConfirmRestart(current => current === question ? { ...question, busyAgents } : current)
+    })
+  }
   // Keep the SSH upgrader; restartable cloud targets use the device row's explicit confirmation.
   const restartNow = () => {
     const deviceId = shown.deviceId
@@ -122,9 +130,9 @@ export function SshLinkSignIn() {
           // 版本对不上、那台机器在等 agent 空闲:与 SSH 提问同一副卡(机器名一行 + 一句 + 底行按钮),「现在」先当面确认一次。
           <SshPromptFrame
             context={{ name: shown.name }}
-            testId={confirmRestart === shown.deviceId ? 'ssh-link-update-confirm' : 'ssh-link-update-ask'}
+            testId={confirmRestart?.deviceId === shown.deviceId ? 'ssh-link-update-confirm' : 'ssh-link-update-ask'}
             actions={
-              confirmRestart === shown.deviceId ? (
+              confirmRestart?.deviceId === shown.deviceId ? (
                 <>
                   <Button size="sm" onClick={() => setConfirmRestart(null)} data-testid="ssh-link-update-cancel">{t('devices.cancel')}</Button>
                   <Button size="sm" variant="primary" autoFocus onClick={restartNow} data-testid="ssh-link-update-confirm-now">{t('devices.link.confirmRestart')}</Button>
@@ -132,14 +140,14 @@ export function SshLinkSignIn() {
               ) : (
                 <>
                   <Button size="sm" onClick={dismiss} data-testid="ssh-link-update-later">{t('devices.link.later')}</Button>
-                  <Button size="sm" variant="primary" autoFocus onClick={() => setConfirmRestart(shown.deviceId)} data-testid="ssh-link-update-now">{t('devices.link.updateNow')}</Button>
+                  <Button size="sm" variant="primary" autoFocus onClick={askRestart} data-testid="ssh-link-update-now">{t('devices.link.updateNow')}</Button>
                 </>
               )
             }
           >
             <p className="m-0 text-[length:var(--font-body)] leading-[1.5]">
-              {confirmRestart === shown.deviceId
-                ? t('devices.link.updateNowConfirm', { name: shown.name })
+              {confirmRestart?.deviceId === shown.deviceId
+                ? t(confirmRestart.busyAgents !== undefined ? 'devices.update.updateNowConfirmCount' : 'devices.update.updateNowConfirm', { name: shown.name, count: confirmRestart.busyAgents })
                 : confirmableUpdate
                   ? translate('remoteHost.notice.updateReady', { device: shown.name, version: confirmableUpdate.version })
                   : t('devices.link.waitingIdle', { name: shown.name })}

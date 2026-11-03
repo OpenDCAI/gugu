@@ -3387,9 +3387,11 @@ const exitOnSignal = (label: 'SIGINT' | 'SIGTERM' | 'SIGUSR2', code: number): vo
 process.on('SIGINT', () => exitOnSignal('SIGINT', 130)) // 128 + SIGINT(2)
 process.on('SIGTERM', () => exitOnSignal('SIGTERM', 143)) // 128 + SIGTERM(15)
 if (SERVER_MODE) process.on('SIGUSR2', () => exitOnSignal('SIGUSR2', EXIT_RESTART))
+const serverVersionSwitchActivity = () => loadEmdashBridge()?.sessionpageVersionSwitchActivity?.()
 if (isSingleServerRun()) singleServerUpdater()?.bindRuntime({
   // A5 includes work pending hydration and authorization; do not sample activity.json.
-  isBusy: () => loadEmdashBridge()?.sessionpageVersionSwitchActivity?.().busy ?? true,
+  isBusy: () => serverVersionSwitchActivity()?.busy ?? true,
+  versionSwitchActivity: serverVersionSwitchActivity,
   beforeSwitch: () => { stopServerActivity(); return () => startServerActivity() },
   shutdown: () => {
     noteExitReason(app.getPath('userData'), 'update')

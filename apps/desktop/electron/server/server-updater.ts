@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
-import { VERSION_RESTART_RPC, VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC } from '@gugu/core/cloud/serverMachineHealth'
+import { VERSION_ACTIVITY_RPC, VERSION_RESTART_RPC, VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC } from '@gugu/core/cloud/serverMachineHealth'
 import { compareServerVersions, isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
 import { createServerUpdateStateWriter, readUpdateRecord, type ServerUpdateRecord, type ServerUpdateStateWriter } from './server-update-state'
 export { createServerUpdateStateWriter } from './server-update-state'
@@ -171,7 +171,12 @@ export async function stageVersion(layout: Pick<Layout, 'versions'>, manifest: S
   }
 }
 
-export type ServerUpdaterRuntime = { isBusy: () => boolean; beforeSwitch?: () => (() => void) | void; shutdown: () => void }
+export type ServerUpdaterRuntime = {
+  isBusy: () => boolean
+  versionSwitchActivity?: () => { busy: boolean; busyAgents: number } | undefined
+  beforeSwitch?: () => (() => void) | void
+  shutdown: () => void
+}
 export type ServerUpdaterDeps = ServerUpdaterRuntime & {
   log: { info: (message: string, fields?: Record<string, unknown>) => void; warn: (message: string, fields?: Record<string, unknown>) => void }
   lifecycle?: ServerVersionLifecycle | null
@@ -182,12 +187,19 @@ export type ServerUpdater = {
   bindRuntime: (runtime: ServerUpdaterRuntime) => void
   retryWhenIdle: () => boolean
   restartConfirmed: (target: unknown, confirmed: unknown) => number | false
+  readBusyAgents: () => number | undefined
 }
 let activeUpdater: ServerUpdater | null = null
 /** The one run process owns this instance; both cloud and SSH handlers call it. */
 export const singleServerUpdater = (): ServerUpdater | null => activeUpdater
 /** Local attach calls and authenticated device RPCs share the same updater actions. */
 export function callServerUpdate(type: string, payload: unknown) {
+  if (type === VERSION_ACTIVITY_RPC) {
+    const busyAgents = activeUpdater?.readBusyAgents()
+    return typeof busyAgents === 'number' && Number.isSafeInteger(busyAgents) && busyAgents >= 0
+      ? { result: { busyAgents } }
+      : { error: { code: 'unavailable', message: 'Current server activity is unavailable' } }
+  }
   if (type === VERSION_RETRY_RPC || type === LEGACY_VERSION_RETRY_RPC) {
     return activeUpdater?.retryWhenIdle() ? { result: { requested: true } }
       : { error: { code: 'unavailable', message: 'Server updates are not managed by this process' } }
@@ -201,7 +213,7 @@ export function callServerUpdate(type: string, payload: unknown) {
   return { error: { code: 'unknown_method', message: 'Unsupported server update action' } }
 }
 export function serverUpdateRpcHandlers(): DeviceRpcHandlers {
-  return Object.fromEntries([VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC, VERSION_RESTART_RPC]
+  return Object.fromEntries([VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC, VERSION_RESTART_RPC, VERSION_ACTIVITY_RPC]
     .map(type => [type, (payload: unknown) => callServerUpdate(type, payload)]))
 }
 const FAILURE_COOLDOWN_MS = 6 * 60 * 60 * 1000
@@ -235,6 +247,7 @@ export function startServerUpdater(deps: ServerUpdaterDeps): ServerUpdater {
   }
   const control: ServerUpdater = {
     bindRuntime: value => { runtime = value },
+    readBusyAgents: () => runtime.versionSwitchActivity?.()?.busyAgents,
     retryWhenIdle() {
       if (!layout || stopped || controller) return false
       request = { at: nextRequest = Math.max(Date.now(), nextRequest + 1), confirmed: false }

@@ -19,7 +19,7 @@ import { useSshSignInStates } from '../../hooks/useSshSignInStates'
 import { useSshLinkProblems, useSshMachineIds, useSshUpgrades } from '../../hooks/useSshLinkProblems'
 import { sshLinkFacts } from '../../lib/sshLinkOnline'
 import { requestSshServerUpgrade, signInSshMachine } from '../../lib/sshLinkChannel'
-import { retryServerVersionMatch, restartServerVersionNow, type VersionRestartResult } from '../../lib/serverVersionRetry'
+import { readServerVersionSwitchBusyAgents, retryServerVersionMatch, restartServerVersionNow, type VersionRestartResult } from '../../lib/serverVersionRetry'
 import type { SshLinkFailure } from '../../lib/sshLink'
 import type { SshSignInState } from '../../lib/serverSshMachines'
 import { useDevicesStore } from '../../store/devicesContext'
@@ -476,8 +476,16 @@ function DeviceRow({
   const [retriedFor, setRetriedFor] = useState<string | null>(null)
   const retrying = failedUpdate !== null && retriedFor === failedUpdate
   // 「有新版本」在等空闲:人可以「现在重启更新」(先说清会中断正在跑的 agent,再点一次才发)。点过就收起,心跳报回新版本时这颗标签自己没了。
-  const [updateNow, setUpdateNow] = useState<'ask' | { version: string; deadline: number; before: NonNullable<DeviceRowModel['update']>; request?: number | 'pending' } | null>(null)
-  const restarting = updateNow !== null && typeof updateNow === 'object' ? updateNow : null
+  const [updateNow, setUpdateNow] = useState<{ ask: true; busyAgents?: number } | { version: string; deadline: number; before: NonNullable<DeviceRowModel['update']>; request?: number | 'pending' } | null>(null)
+  const asking = updateNow && 'ask' in updateNow ? updateNow : null
+  const restarting = updateNow && !('ask' in updateNow) ? updateNow : null
+  const askRestart = () => {
+    const question = { ask: true as const }
+    setUpdateNow(question)
+    void readServerVersionSwitchBusyAgents(device.device_id).then(busyAgents => {
+      setUpdateNow(current => current === question ? { ...question, busyAgents } : current)
+    })
+  }
   // Legacy and installation-wide hosts share the same explicit restart action.
   const canRestart = canRestartServerUpdate(model.update, device.capabilities)
   // 起不来的那一版只有确认重启能再试(普通「重试」解不开它的冷却):失败行给「现在重启更新」,❌ 给一颗按了没用的「重试」。
@@ -491,7 +499,7 @@ function DeviceRow({
     : restarting.request === undefined && (model.update?.scope !== restarting.before.scope
       || model.update?.state !== restarting.before.state || model.update?.version !== restarting.before.version
       || model.update?.reason !== restarting.before.reason))
-  if ((updateNow === 'ask' && !restartable)
+  if ((asking && !restartable)
     || (restarting && (model.version === restarting.version || answered))) setUpdateNow(null)
   useEffect(() => {
     if (!restarting || !device.is_online) return
@@ -550,7 +558,7 @@ function DeviceRow({
               </Chip>
             )}
             {device.is_online && model.update?.state === 'ready' && !hostWaiting && canRestart && onRestartVersionNow && updateNow === null && (
-              <Button size="sm" onClick={() => setUpdateNow('ask')} data-testid="settings-device-update-now">{t('devices.update.updateNow')}</Button>
+              <Button size="sm" onClick={askRestart} data-testid="settings-device-update-now">{t('devices.update.updateNow')}</Button>
             )}
             {model.notices
               // 远程 SSH 的机器太旧:状态那一行已说「正在更新 / 更新没成功」,❌ 再挂一颗说「空闲时会自动更新」的标签。
@@ -568,9 +576,9 @@ function DeviceRow({
         ))}
 
         {/* 「现在重启更新」的当面确认:单独一行,❌ 挤进名字那一行把机器名压成省略号。 */}
-        {restartable && onRestartVersionNow && updateNow === 'ask' && (
+        {restartable && onRestartVersionNow && asking && (
           <div className="mt-[6px] flex flex-wrap items-center gap-2" data-testid="settings-device-update-now-confirm">
-            <span className="min-w-0 flex-1 text-[length:var(--font-caption)] text-[var(--muted-fg)]">{t(typeof model.update?.busy_agents === 'number' ? 'devices.update.updateNowConfirmCount' : 'devices.update.updateNowConfirm', { name: device.label, count: model.update?.busy_agents })}</span>
+            <span className="min-w-0 flex-1 text-[length:var(--font-caption)] text-[var(--muted-fg)]">{t(asking.busyAgents !== undefined ? 'devices.update.updateNowConfirmCount' : 'devices.update.updateNowConfirm', { name: device.label, count: asking.busyAgents })}</span>
             <Button size="sm" onClick={() => setUpdateNow(null)} data-testid="settings-device-update-now-no">{t('devices.cancel')}</Button>
             <Button size="sm" variant="primary" onClick={() => {
               if (!model.update) return
@@ -620,7 +628,7 @@ function DeviceRow({
               <span className={retrying || restarting ? undefined : 'text-[var(--danger-fg)]'} data-testid="settings-device-match-failed">
                 {retrying || restarting ? t('devices.loginState.matchRetrying') : t('devices.loginState.matchFailed')}
                 {!retrying && !restarting && bootFailed && canRestart && onRestartVersionNow && updateNow === null && (
-                  <>{' '}<InlineAction onClick={() => setUpdateNow('ask')} testId="settings-device-match-restart-now">{t('devices.update.updateNow')}</InlineAction></>
+                  <>{' '}<InlineAction onClick={askRestart} testId="settings-device-match-restart-now">{t('devices.update.updateNow')}</InlineAction></>
                 )}
                 {!retrying && !bootFailed && onRetryVersionMatch && (
                   <>{' '}<InlineAction
