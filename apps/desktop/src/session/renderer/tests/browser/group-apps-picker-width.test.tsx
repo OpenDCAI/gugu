@@ -61,7 +61,7 @@ async function measure(name: string) {
 
 it('[immediate] hugs short App names and grows for long names in the same picker', async () => {
   const short = await measure('A');
-  const long = await measure('A very long installed application name '.repeat(8));
+  const long = await measure('W'.repeat(48));
   expect(short.width).toBeGreaterThan(0);
   expect(short.width, 'short picker content must grow with long names').toBeLessThan(long.width);
   expect(short.width).toBeGreaterThanOrEqual(40 * short.unit);
@@ -70,7 +70,7 @@ it('[immediate] hugs short App names and grows for long names in the same picker
 
 it('[immediate control] preserves the old maximum at a narrow viewport and truncates a long App name', async () => {
   await page.viewport(320, 700);
-  const { popup, width } = await measure('A very long installed application name '.repeat(8));
+  const { popup, width } = await measure('W'.repeat(48));
   expect(width).toBeCloseTo(Math.min(320, innerWidth - 16), 0);
   const label = popup.querySelector<HTMLElement>('.truncate')!;
   expect(label.scrollWidth).toBeGreaterThan(label.clientWidth);
