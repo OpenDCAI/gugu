@@ -6,6 +6,19 @@ export type TabViewSnapshot = {
   activeTabId: string | undefined;
 };
 
+/** A tab is one navigation context; pages in its history do not own tab order or layout. */
+export type TabOpenIntent = 'navigate' | 'newTab' | 'beside';
+export type TabPageSnapshot = {
+  kind: string;
+  state: unknown;
+  /** Opaque presentation state owned by the page, never authorization data. */
+  viewState?: Record<string, unknown>;
+};
+export type TabHistorySnapshot = {
+  pages: TabPageSnapshot[];
+  index: number;
+};
+
 export type BuiltInTabDescriptor =
   | { kind: 'session'; tabId: string; sessionId: string; isPreview: boolean }
   | { kind: 'acp-chat'; tabId: string; sessionId: string; isPreview: boolean }
@@ -48,6 +61,8 @@ export type TabReturnTo = { tabId: string; message?: string };
 
 export type TabDescriptor = (BuiltInTabDescriptor | ExtensionTabDescriptor) & {
   returnTo?: TabReturnTo;
+  history?: TabHistorySnapshot;
+  companionPaneId?: string;
 };
 
 const BUILT_IN_TAB_KINDS = {

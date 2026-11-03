@@ -578,6 +578,17 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       : (args as unknown);
     if (initialState === null) return; // aborted by onBeforeOpen
 
+    if (config?.intent === 'navigate' && typeof config.from === 'string') {
+      const source = this.groups.find((group) => group.pane.entries.has(config.from!));
+      if (!source) return;
+      source.pane.navigate(config.from, kind, initialState);
+      if (config.activate ?? true) {
+        this.setActiveGroup(source.paneId);
+        source.pane.setActiveTab(config.from);
+      }
+      return;
+    }
+
     // 开在对话旁边(spec session-page「并排」):对话那一格、那一枚。没有对话 = 照常开;
     // 用户拆开过这一类 = 不再自动并排,也照常开 —— agent 打开的不切走,人点开的切过去(和普通浏览器一样)。
     const foundAnchor = config?.beside ? (this.pairAnchor?.() ?? null) : null;

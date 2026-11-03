@@ -14,6 +14,8 @@ import {
   type BuiltInTabDescriptor,
   type TabDescriptor,
   type TabManagerSnapshot,
+  type TabHistorySnapshot,
+  type TabPageSnapshot,
   type TabReturnTo,
 } from '@shared/view-state';
 import type { TabHost } from './core/tab-host';
@@ -66,7 +68,11 @@ function roomForTwo(dimensions: { width: number; height: number } | null, vertic
 /** Serialize a live entry to the built-in or extension shape used in snapshots and history. */
 function descriptorOf(entry: TabEntry): TabDescriptor {
   const state = toJS(entry.state) as Record<string, unknown>;
-  const navigation = entry.returnTo ? { returnTo: toJS(entry.returnTo) } : {};
+  const navigation = {
+    ...(entry.returnTo ? { returnTo: toJS(entry.returnTo) } : {}),
+    ...(entry.history ? { history: toJS(entry.history) } : {}),
+    ...(entry.companionPaneId ? { companionPaneId: entry.companionPaneId } : {}),
+  };
   if (!isBuiltInTabKind(entry.kind)) {
     return {
       kind: 'extension',
@@ -93,6 +99,8 @@ function stateFromDescriptor(desc: TabDescriptor): {
   isPreview: boolean;
   state: unknown;
   returnTo?: TabReturnTo;
+  history?: TabHistorySnapshot;
+  companionPaneId?: string;
 } {
   if (desc.kind === 'extension') {
     return {
@@ -101,10 +109,12 @@ function stateFromDescriptor(desc: TabDescriptor): {
       isPreview: desc.isPreview,
       state: desc.state ?? {},
       returnTo: desc.returnTo,
+      history: desc.history,
+      companionPaneId: desc.companionPaneId,
     };
   }
-  const { kind, tabId, isPreview, returnTo, ...state } = desc;
-  return { kind, tabId, isPreview, state, returnTo };
+  const { kind, tabId, isPreview, returnTo, history, companionPaneId, ...state } = desc;
+  return { kind, tabId, isPreview, state, returnTo, history, companionPaneId };
 }
 
 class TabEntryImpl<S = unknown> implements TabEntry<S> {
@@ -112,6 +122,8 @@ class TabEntryImpl<S = unknown> implements TabEntry<S> {
   readonly tabId: string;
   isPreview: boolean;
   returnTo?: TabReturnTo;
+  history?: TabHistorySnapshot;
+  companionPaneId?: string;
   /** Reactive, serializable domain state. Mutated in-place; read by snapshot. */
   state: S;
 
@@ -125,6 +137,8 @@ class TabEntryImpl<S = unknown> implements TabEntry<S> {
       isPreview: observable,
       state: observable,
       returnTo: observable,
+      history: observable.ref,
+      companionPaneId: observable,
     });
   }
 }
@@ -264,6 +278,9 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       detachTab: action,
       adoptEntry: action,
       retargetEntry: action,
+      navigate: action,
+      go: action,
+      setPageViewState: action,
       renameRequest: observable,
       requestRename: action,
       clearRenameRequest: action,
@@ -848,6 +865,70 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     return this.entries.get(tabId)?.returnTo;
   }
 
+  /** Read the current page without manufacturing a second tab identity. */
+  navigationOf(tabId: string): TabHistorySnapshot | undefined {
+    const entry = this.entries.get(tabId);
+    return entry?.history ?? (entry ? { pages: [{ kind: entry.kind, state: toJS(entry.state) }], index: 0 } : undefined);
+  }
+
+  setPageViewState(tabId: string, viewState: Record<string, unknown>): void {
+    const entry = this.entries.get(tabId);
+    const history = this.navigationOf(tabId);
+    if (!entry || !history) return;
+    const pages = [...history.pages];
+    pages[history.index] = { kind: entry.kind, state: toJS(entry.state), viewState: toJS(viewState) };
+    entry.history = { pages, index: history.index };
+  }
+
+  navigate(tabId: string, kind: string, state: unknown): void {
+    const entry = this.entries.get(tabId);
+    const history = this.navigationOf(tabId);
+    if (!entry || !history || !this.registry.has(kind)) return;
+    this._beforeNavigate(entry, () => {
+      const pages = history.pages.slice(0, history.index + 1);
+      pages[history.index] = { ...pages[history.index], kind: entry.kind, state: toJS(entry.state) };
+      pages.push({ kind, state });
+      this._showPage(entry, { pages, index: pages.length - 1 });
+    });
+  }
+
+  go(tabId: string, delta: -1 | 1): void {
+    const entry = this.entries.get(tabId);
+    const history = this.navigationOf(tabId);
+    if (!entry || !history || !history.pages[history.index + delta]) return;
+    this._beforeNavigate(entry, () => {
+      const pages = [...history.pages];
+      pages[history.index] = { ...pages[history.index], kind: entry.kind, state: toJS(entry.state) };
+      this._showPage(entry, { pages, index: history.index + delta });
+    });
+  }
+
+  private _beforeNavigate(entry: TabEntryImpl, apply: () => void): void {
+    const resource = this._resources.get(entry.tabId);
+    const def = this.registry.has(entry.kind) ? this.registry.get(entry.kind) : undefined;
+    const allowed = resource && def?.onBeforeClose
+      ? def.onBeforeClose(entry as never, resource as never, this._ctx, { alone: false })
+      : true;
+    const finish = (proceed: boolean) => {
+      // A dialog may finish after another navigation or a close. It cannot act on that newer page.
+      if (proceed && this.entries.get(entry.tabId) === entry) runInAction(apply);
+    };
+    if (typeof allowed === 'boolean') finish(allowed);
+    else void allowed.then(finish);
+  }
+
+  private _showPage(oldEntry: TabEntryImpl, history: TabHistorySnapshot): void {
+    const page: TabPageSnapshot = history.pages[history.index];
+    this._disposeEntry(oldEntry.tabId);
+    const entry = new TabEntryImpl(page.kind, oldEntry.tabId, false, page.state);
+    entry.history = history;
+    entry.companionPaneId = oldEntry.companionPaneId;
+    this.entries.set(entry.tabId, entry);
+    this._resources.set(entry.tabId, this.registry.has(entry.kind)
+      ? this.registry.get(entry.kind).initialize(entry as never, this._buildHandle(entry), this._ctx)
+      : createUnavailableTabResource());
+  }
+
   closeActiveTab(): void {
     if (!this.activeTabId) return;
     this.requestCloseTab(this.activeTabId);
@@ -1058,8 +1139,10 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
 
       // Re-initialize from snapshot.
       for (const desc of snapshot.tabs) {
-        const { kind, tabId, isPreview, state, returnTo } = stateFromDescriptor(desc);
+        const { kind, tabId, isPreview, state, returnTo, history, companionPaneId } = stateFromDescriptor(desc);
         const entry = new TabEntryImpl(kind, tabId, isPreview, state, returnTo);
+        entry.history = history;
+        entry.companionPaneId = companionPaneId;
         if (this.registry.has(kind)) {
           this._attachEntryAndInitialize(entry, { activate: false });
         } else {
@@ -1165,9 +1248,11 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     const record = this._closedTabHistory.pop();
     if (!record) return;
     const { desc, index } = record;
-    const { kind, tabId, isPreview, state, returnTo } = stateFromDescriptor(desc);
+    const { kind, tabId, isPreview, state, returnTo, history, companionPaneId } = stateFromDescriptor(desc);
     if (!this.registry.has(kind)) return;
     const entry = new TabEntryImpl(kind, tabId, isPreview, state, returnTo);
+    entry.history = history;
+    entry.companionPaneId = companionPaneId;
     const def = this.registry.get(kind);
     const resource = def.initialize(entry as never, this._buildHandle(entry), this._ctx);
     this.entries.set(entry.tabId, entry);

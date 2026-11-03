@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { CommandId } from '@shared/commands';
-import type { TabReturnTo } from '@shared/view-state';
+import type { TabHistorySnapshot, TabReturnTo } from '@shared/view-state';
 import type { TabBarItemProps, TabContentProps } from './tab-host';
 import type { TabOpenOptions } from './tab-provider-registry';
 
@@ -16,6 +16,9 @@ export interface TabEntry<S = unknown> {
   isPreview: boolean;
   /** Engine navigation metadata, independent of the provider's state. */
   returnTo?: TabReturnTo;
+  history?: TabHistorySnapshot;
+  /** The conversation's explicit companion, cleared when that pane is closed. */
+  companionPaneId?: string;
   /**
    * Reactive, serializable domain state for this tab.
    * Mutated in-place; the snapshot serializer reads it directly (no per-kind hook).
