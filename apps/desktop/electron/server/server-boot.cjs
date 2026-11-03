@@ -30,7 +30,7 @@ function readCurrentAccount(home) {
   } catch (error) { if (error.code === 'ENOENT') return null; throw error }
   return accountIdentity(directory)
 }
-function realAccountDirectories(home) {
+function inspectAccountLayout(home) {
   const candidates = []
   const current = readCurrentAccount(home)
   if (current) candidates.push(current)
@@ -80,15 +80,26 @@ function syncAccountAlias(home, id) {
   } catch (error) { if (error.code !== 'ENOENT') throw error }
   fs.symlinkSync('../account', alias)
 }
-function migrateAccountLayout(home) {
-  const candidates = realAccountDirectories(home)
+function assertSingleAccount(home, candidates) {
   const signedIn = candidates.filter(account => account.signedIn)
   if (signedIn.length > 1) {
     const commands = signedIn.map(account => `${account.email ?? account.id}:\n  mkdir -p ${shellQuote(path.join(home, 'retired'))} && mv -n ${shellQuote(account.dir)} ${shellQuote(path.join(home, 'retired', account.id))}`)
     throw new Error(`More than one account is signed in. No account data was changed. Keep one account and move the others, then restart:\n${commands.join('\n')}`)
   }
+  return signedIn[0]
+}
+function assertAccountLayoutReady(home) {
+  const candidates = inspectAccountLayout(home)
+  assertSingleAccount(home, candidates)
+  if (candidates.some(account => account.dir !== path.join(home, 'account'))) {
+    throw new Error(`需要先执行 gugu-server start 迁移账号目录：${candidates.map(account => `${account.email ?? account.id} (${account.dir})`).join(', ')}`)
+  }
+}
+function migrateAccountLayout(home) {
+  const candidates = inspectAccountLayout(home)
+  const signedIn = assertSingleAccount(home, candidates)
   const current = path.join(home, 'account')
-  const selected = signedIn[0] ?? candidates.find(account => account.dir === current)
+  const selected = signedIn ?? candidates.find(account => account.dir === current)
   const retired = candidates.filter(account => account !== selected)
   // Detect collisions before the first rename; retained history is never overwritten.
   const destinations = new Set()
@@ -104,7 +115,7 @@ function migrateAccountLayout(home) {
 function prepareAccountLogin(home, id) {
   if (!accountId(id)) throw new Error('Invalid account identity')
   const current = path.join(home, 'account')
-  if (realAccountDirectories(home).some(account => account.dir !== current)) throw new Error('Legacy account data must be migrated by gugu-server start before login.')
+  assertAccountLayoutReady(home)
   const previous = readCurrentAccount(home)
   if (previous?.signedIn && previous.id !== id) throw new Error(`Gugu server is signed in as ${previous.email ?? previous.id}. Sign out first.`)
   if (previous?.id !== id) {
@@ -326,7 +337,7 @@ function checkPendingBoot(home) {
   return true
 }
 
-module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, homeLockHolder, readPendingVerify, writePendingVerify, markServerReady, writeJson, pointCurrent, readBadVersions, legacyGuardActive, migrateAccountLayout, prepareAccountLogin, readCurrentAccount }
+module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, homeLockHolder, readPendingVerify, writePendingVerify, markServerReady, writeJson, pointCurrent, readBadVersions, legacyGuardActive, migrateAccountLayout, prepareAccountLogin, readCurrentAccount, inspectAccountLayout, assertAccountLayoutReady }
 
 // Importing these same helpers from a bundle never counts another attempt.
 if (process.argv[2] === 'run' && process.execArgv.some((arg, i) => arg === '--require' && process.execArgv[i + 1] === __filename)) {

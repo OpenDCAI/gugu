@@ -4,7 +4,7 @@ import { Readable } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ServerAccount } from '../../../../apps/desktop/electron/server/server-layout'
 
-const layout = vi.hoisted(() => ({ writeServerConnectVia: vi.fn(), accounts: [] as ServerAccount[] }))
+const layout = vi.hoisted(() => ({ writeServerConnectVia: vi.fn(), accounts: [] as ServerAccount[], checkLayout: vi.fn() }))
 const devices = vi.hoisted(() => ({ adoptDeviceName: vi.fn(async () => true) }))
 
 vi.mock('electron', () => ({ app: { getVersion: () => '0.3.0' }, safeStorage: {} }))
@@ -19,7 +19,7 @@ vi.mock('../../../../apps/desktop/electron/server/server-layout', () => ({
   writeAccountMeta: vi.fn(),
   writeServerConnectVia: layout.writeServerConnectVia,
 }))
-vi.mock('../../../../apps/desktop/electron/server/server-boot.cjs', () => ({ prepareAccountLogin: vi.fn() }))
+vi.mock('../../../../apps/desktop/electron/server/server-boot.cjs', () => ({ prepareAccountLogin: vi.fn(), assertAccountLayoutReady: layout.checkLayout }))
 vi.mock('@gugu/core', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@gugu/core')>()),
   resolveLocalDeviceId: async () => 'dev-1',
@@ -32,6 +32,7 @@ const stdin = Object.getOwnPropertyDescriptor(process, 'stdin')!
 
 afterEach(() => {
   layout.accounts = []
+  layout.checkLayout.mockReset()
   process.env = { ...saved }
   Object.defineProperty(process, 'stdin', stdin)
   vi.unstubAllGlobals()
@@ -56,6 +57,13 @@ async function login(args: string[]) {
 }
 
 describe('#6264 gugu-server login --grant-stdin --name', () => {
+  it('refuses an unmigrated layout before consuming the grant or requesting tokens', async () => {
+    layout.checkLayout.mockImplementation(() => { throw new Error('Run gugu-server start to migrate one@example.test') })
+    expect(await login(['--grant-stdin'])).toBe(78)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(layout.writeServerConnectVia).not.toHaveBeenCalled()
+  })
+
   it('refuses an already signed-in installation before consuming the grant or requesting tokens', async () => {
     layout.accounts = [{ userId: 'existing', email: 'existing@example.test', signedIn: true, addedAt: null,
       dir: '', dataDir: '', homeDir: '', signedOut: null }]

@@ -22,7 +22,7 @@ export type StatusAccount = {
   signedOut: ServerAccount['signedOut']
 }
 
-export type StatusReport = { version: string | null; installedVersion?: string | null; supervisorVersion?: string | null; accounts: StatusAccount[] }
+export type StatusReport = { version: string | null; installedVersion?: string | null; supervisorVersion?: string | null; accounts: StatusAccount[]; migrationRequired?: boolean }
 
 /** 列哪些账号:登着的,和被迫登出的(自己 logout 的不列 —— 那是他自己的选择,不用解释)。 */
 export function statusAccounts(accounts: readonly ServerAccount[], running: (account: ServerAccount) => boolean, versionOf?: (account: ServerAccount) => string | null): StatusAccount[] {

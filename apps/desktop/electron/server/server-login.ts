@@ -32,7 +32,7 @@ import { adoptDeviceName, type DeviceLabelClient } from '@gugu/core/cloud/device
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase'
 import { getSupabaseAnonKey, getSupabaseUrl } from '@gugu/core/cloud/config'
 import { writeStoredServerSession } from './server-auth'
-import { prepareAccountLogin } from './server-boot.cjs'
+import { prepareAccountLogin, assertAccountLayoutReady } from './server-boot.cjs'
 import { assertAccountLogin } from './server-startup'
 import { EXIT_CONFIG } from './server-exit'
 import { accountDataDir, applyAccountEnv, clearSignedOutMark, emailFromAccessToken, readServerAccount, serverHome, writeAccountMeta, writeServerConnectVia } from './server-layout'
@@ -138,6 +138,8 @@ async function readFirstStdinLine(): Promise<string> {
 export const LOGIN_EXIT_TUNNEL_CLOSED = 3
 
 export async function runServerLogin(out: Out = defaultOut, args: readonly string[] = []): Promise<number> {
+  try { assertAccountLayoutReady(serverHome()) }
+  catch (error) { out(error instanceof Error ? error.message : String(error)); return EXIT_CONFIG }
   const existing = readServerAccount()
   if (existing?.signedIn) {
     out(`This server is already signed in as ${existing.email ?? existing.userId}. To sign in again or change accounts, run gugu-server logout first.`)

@@ -19,7 +19,7 @@ import type { ServerAccount } from './server-layout'
 /** Released CLI callers may name the current identity, but cannot select a directory. */
 export function accountRequestError(account: ServerAccount | null, requested: string | null): string | null {
   if (!account?.signedIn) return '这台机器上还没有登录咕咕账号。'
-  if (requested && requested !== account.userId) return `Current account is ${account.email ?? account.userId}; requested account ${requested} does not match.`
+  if (requested && requested !== account.userId) return `当前账号是 ${account.email ?? account.userId}，与请求的账号 ${requested} 不符。`
   return null
 }
 

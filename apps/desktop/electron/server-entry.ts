@@ -17,6 +17,7 @@ import { ensureCaBundleForChildren } from './server/server-ca-bundle'
 import {
   applyAccountEnv,
   readServerAccount,
+  readSignedOutMark,
   supervisorDataDir,
   writeSignedOutMark,
 } from './server/server-layout'
@@ -26,6 +27,7 @@ import { ensurePrivateDir, summarizeChanges, tightenServerTree } from './server/
 import { assertRuntimeBackend, ownPackageIdentity, packageBackend, packageIdentity, prepareInstallation } from './server/server-package-environment.mts'
 import { getSupabaseUrl } from '@gugu/core/cloud/config'
 import { resolveServerHome } from './server/server-installation'
+import { inspectAccountLayout } from './server/server-boot.cjs'
 import { homeLockHolder } from './server/server-startup'
 
 
@@ -264,17 +266,23 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       // 在跑的那个可能还是旧版本(等空闲才切):版本以它自己的为准,❌ 拿这条命令自己的版本冒充。
       out(`运行状态:${running ? `在运行(进程 ${running.pid}${running.version ? `,版本 ${running.version}` : ''})` : '没在运行'}`)
       out(`常驻服务:${describeService()}`)
-      const { formatAccountLines, formatStatusJson, statusAccounts } = await import('./server/server-status')
+      const { formatAccountLines, formatStatusJson } = await import('./server/server-status')
       const { readAccountRuntime, installedPackageVersion } = await import('./server/server-account-runtime')
-      const account = readServerAccount()
-      const runtime = account ? readAccountRuntime(account.dataDir) : null
-      const pidOf = () => runtime?.pid ?? null
-      // Keep the released status wire shape; runtime has at most one account.
-      const accounts = statusAccounts(account ? [account] : [], () => pidOf() !== null, () => runtime?.version ?? null)
+      // Diagnostic only: an interrupted migration must not look like an empty installation.
+      const inventory = inspectAccountLayout(serverHome)
+      const migrationRequired = inventory.some(account => account.dir !== path.join(serverHome, 'account'))
+      if (migrationRequired) out(`需要先执行 gugu-server start 迁移账号目录：${inventory.map(account => account.email ?? account.id).join(', ')}`)
+      const runtimes = new Map(inventory.map(account => [account.id, readAccountRuntime(path.join(account.dir, 'data'))]))
+      const pidOf = (userId: string) => runtimes.get(userId)?.pid ?? null
+      const accounts = inventory.map(account => ({ userId: account.id, email: account.email,
+        signedIn: account.signedIn, running: account.signedIn && pidOf(account.id) !== null,
+        version: account.signedIn ? runtimes.get(account.id)?.version ?? null : null,
+        signedOut: account.signedIn ? null : readSignedOutMark(path.join(account.dir, 'data')) }))
+        .filter(account => migrationRequired || account.signedIn || account.signedOut)
       for (const line of formatAccountLines(accounts, pidOf)) out(line)
       // 咕咕桌面经 SSH 读的那一份(机器显示离线时,问清是没开机还是登录没了)。
       if (args.includes('--json')) {
-        process.stdout.write(formatStatusJson({ version: process.env.GUGU_TASK_HOST_VERSION ?? null, installedVersion: installedPackageVersion(serverHome), supervisorVersion: running?.version ?? null, accounts }))
+        process.stdout.write(formatStatusJson({ version: process.env.GUGU_TASK_HOST_VERSION ?? null, installedVersion: installedPackageVersion(serverHome), supervisorVersion: running?.version ?? null, accounts, ...(migrationRequired ? { migrationRequired: true } : {}) }))
       }
       return process.exit(0)
     }
@@ -315,7 +323,7 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       const i = args.indexOf('--account')
       const requested = i >= 0 ? args[i + 1] : undefined
       if (!account || (requested !== undefined && requested !== account.userId)) {
-        stderr(account ? `Current account is ${account.email ?? account.userId}; requested account does not match.` : 'No account is configured.')
+        stderr(account ? `当前账号是 ${account.email ?? account.userId}，与请求的账号不符。` : '这台机器上还没有配置账号。')
         return process.exit(78)
       }
       const userId = account.userId

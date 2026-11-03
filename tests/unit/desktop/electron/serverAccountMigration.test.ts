@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { migrateAccountLayout, prepareAccountLogin } from '../../../../apps/desktop/electron/server/server-boot.cjs'
+import { assertAccountLayoutReady, migrateAccountLayout, prepareAccountLogin } from '../../../../apps/desktop/electron/server/server-boot.cjs'
 
 let home: string
 const account = (name: string, signedIn = true, directory = path.join(home, 'accounts', name)) => {
@@ -17,6 +17,14 @@ beforeEach(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-account-mi
 afterEach(() => { vi.restoreAllMocks(); fs.rmSync(home, { recursive: true, force: true }) })
 
 describe('single account directory migration', () => {
+  it('diagnoses old directories before login without moving them', () => {
+    const previous = account('one')
+    expect(() => assertAccountLayoutReady(home)).toThrow('gugu-server start')
+    expect(fs.lstatSync(previous).isDirectory()).toBe(true)
+    expect(fs.existsSync(path.join(home, 'account'))).toBe(false)
+    migrateAccountLayout(home)
+    expect(() => assertAccountLayoutReady(home)).not.toThrow()
+  })
   it('moves the whole account atomically, keeping installation state and rollback reads separate', () => {
     const source = account('one')
     const inode = fs.statSync(path.join(source, 'data/history')).ino
