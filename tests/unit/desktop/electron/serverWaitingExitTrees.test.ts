@@ -17,7 +17,8 @@ describe.runIf(process.platform !== 'win32')('waiting-for-login server owns stag
       const {spawn}=require('node:child_process');
       const a=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
       const b=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});
-      require('node:fs').writeFileSync(${JSON.stringify(record)},JSON.stringify({boot:process.pid,worker:a.pid,probe:b.pid}));
+      const fs=require('node:fs'),file=${JSON.stringify(record)};
+      fs.writeFileSync(file+'.tmp',JSON.stringify({boot:process.pid,worker:a.pid,probe:b.pid}));fs.renameSync(file+'.tmp',file);
       setInterval(()=>{},1000);
     `, { mode: 0o700 })
     const root = path.resolve('apps/desktop/electron/server')

@@ -20,31 +20,36 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
     const bootEntry = path.join(dir, 'boot-check.cjs')
     const miseEntry = path.join(dir, 'mise.cjs')
     hostEntry = path.join(dir, 'host.cjs')
+    const recordWriter = `const record=(file,value)=>{const fs=require('node:fs'),tmp=file+'.'+process.pid+'.tmp';fs.writeFileSync(tmp,JSON.stringify(value));fs.renameSync(tmp,file)};`
     fs.writeFileSync(bootEntry, `#!${process.execPath}
+      ${recordWriter}
       const {spawn}=require('node:child_process');
       const worker=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
       const probe=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});
-      require('node:fs').writeFileSync(process.env.BOOT_TREE_FILE,JSON.stringify({boot:process.pid,bootWorker:worker.pid,probe:probe.pid}));
+      record(process.env.BOOT_TREE_FILE,{boot:process.pid,bootWorker:worker.pid,probe:probe.pid});
       setInterval(()=>{},1000);
     `, { mode: 0o700 })
     fs.writeFileSync(adapterEntry, `
+      ${recordWriter}
       const {spawn}=require('node:child_process');
       const engine=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
-      require('node:fs').writeFileSync(process.env.TREE_FILE,JSON.stringify({worker:process.ppid,adapter:process.pid,engine:engine.pid}));
+      record(process.env.TREE_FILE,{worker:process.ppid,adapter:process.pid,engine:engine.pid});
       setInterval(()=>{},1000);
     `)
     fs.writeFileSync(miseEntry, `
+      ${recordWriter}
       const {spawn}=require('node:child_process');
       const worker=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
-      require('node:fs').writeFileSync(process.env.MISE_TREE_FILE,JSON.stringify({mise:process.pid,miseWorker:worker.pid}));
+      record(process.env.MISE_TREE_FILE,{mise:process.pid,miseWorker:worker.pid});
       setInterval(()=>{},1000);
     `)
     fs.writeFileSync(workerEntry, `
+      ${recordWriter}
       if(process.env.TMUX_SOCKET){
         const {execFileSync}=require('node:child_process'),socket=process.env.TMUX_SOCKET;
         execFileSync('tmux',['-S',socket,'new-session','-d','-s','fixture','exec /bin/sleep 3600'],{env:{...process.env,TMUX:''}});
         const [server,pane]=execFileSync('tmux',['-S',socket,'display-message','-p','-t','fixture','#{pid} #{pane_pid}'],{encoding:'utf8'}).trim().split(' ').map(Number);
-        require('node:fs').writeFileSync(process.env.TMUX_TREE_FILE,JSON.stringify({server,pane}));
+        record(process.env.TMUX_TREE_FILE,{server,pane});
       }
       require('node:child_process').spawn(process.execPath,[${JSON.stringify(adapterEntry)}],{detached:true,stdio:'ignore'});
       process.send({kind:'wire-runtime-signal',event:'ready'});

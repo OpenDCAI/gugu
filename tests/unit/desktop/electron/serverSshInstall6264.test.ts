@@ -304,7 +304,7 @@ describe('远端脚本', () => {
       fs.mkdirSync(path.join(home, '.gugu-server/current'), { recursive: true })
       fs.writeFileSync(path.join(home, '.gugu-server/current/version'), '0.2.99')
       const report = formatStatusJson({ version: '0.2.99', accounts: [{ userId: 'u-other', email: 'colleague@lab.edu', signedIn: true, running: false, signedOut: null }] })
-      fs.writeFileSync(path.join(home, '.local/bin/gugu-server'), `#!/bin/sh\nif [ \"$1\" = status ]; then printf '%s' ${shQuote(report)}; else echo 2; fi\n`, { mode: 0o755 })
+      fs.writeFileSync(path.join(home, '.local/bin/gugu-server'), `#!/bin/sh\nif [ "$1" = status ]; then printf '%s' ${shQuote(report)}; else echo 2; fi\n`, { mode: 0o755 })
       const out = runScript(probeScript(), { ...process.env, HOME: home, GUGU_SERVER_HOME: '' }).stdout
       const probe = parseProbeOutput(out)!
       expect(probe.os).toBe(os.platform() === 'darwin' ? 'Darwin' : 'Linux')

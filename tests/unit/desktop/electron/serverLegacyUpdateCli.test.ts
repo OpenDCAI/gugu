@@ -66,7 +66,7 @@ describe('released desktop compatibility uses installation facts and receipts', 
       createServerUpdateStateWriter(home).set('idle', '2.0.0', undefined, { lastOutcome: { kind: 'switched', target: '2.0.0', request: clock < 2000 ? RECEIPT - 1 : RECEIPT, at: clock } })
     }
     expect(await apply()).toBe(0)
-    expect(deps.call).toHaveBeenCalledExactlyOnceWith(deps.accounts!()[0], VERSION_RESTART_RPC, { version: '2.0.0', confirmed: true })
+    expect(deps.call).toHaveBeenCalledExactlyOnceWith(deps.account!(), VERSION_RESTART_RPC, { version: '2.0.0', confirmed: true })
     expect(clock).toBe(2000)
     expect(output.pop()).toBe('__GUGU_MATCH__ switched=2.0.0')
     expect(fs.readdirSync(accountData)).toEqual([])
