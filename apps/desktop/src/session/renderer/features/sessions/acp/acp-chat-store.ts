@@ -2123,6 +2123,7 @@ export class AcpChatStore {
         this.session = clientSession;
         this.chatState.transcript.history.seed(visibleTurns);
         this._subscribeLiveSession(clientSession);
+        this._resumeDraftSync(clientSession);
         this._applyDraftSnapshot(clientSession.draft.current());
         this.historyLoading = false;
         this.loadError = null;
@@ -2388,7 +2389,8 @@ export class AcpChatStore {
         runInAction(() => {
           this._applyDraftSnapshot(draft);
         })
-      )
+      ),
+      session.onDraftSyncReady(() => runInAction(() => this._resumeDraftSync(session)))
     );
   }
 
@@ -2398,12 +2400,13 @@ export class AcpChatStore {
       this._draftTimer = null;
       const draft = { rev, input: text.trim().length > 0 ? { text } : null };
       // Until the page attaches the draft is local to this store; there is no session to persist it through.
-      if (!this.session) return;
-      const session = this._requireSession('acpFailure.syncDraft');
-      if (!session) return;
+      const session = this.session;
+      if (!session?.canSyncDraft()) return;
+      const generation = session.draftConnectionGeneration;
       void session
         .setPromptDraft(draft)
         .then((result) => {
+          if (this._disposed || this.session !== session || generation !== session.draftConnectionGeneration) return;
           if (!result.success) this._toastError('acpFailure.syncDraft', result.error);
           if (result.success && draft.input === null && this._pendingDraftRev === rev) {
             runInAction(() => {
@@ -2411,12 +2414,23 @@ export class AcpChatStore {
             });
           }
         })
-        .catch((error: unknown) => this._toastError('acpFailure.syncDraft', error));
+        .catch((error: unknown) => {
+          if (!this._disposed && this.session === session && generation === session.draftConnectionGeneration) this._toastError('acpFailure.syncDraft', error);
+        });
     }, 300);
+  }
+
+  private _resumeDraftSync(session: AcpLiveSession): void {
+    if (this.session !== session || !session.canSyncDraft() || this._pendingDraftRev === null) return;
+    // The local edit (including an empty draft after sending) wins over the new runtime's snapshot.
+    this._draftRev = Math.max(this._draftRev, session.draft.current()?.rev ?? 0) + 1;
+    this._pendingDraftRev = this._draftRev;
+    this._scheduleDraftWrite(this.draftText, this._draftRev);
   }
 
   private _applyDraftSnapshot(draft: PromptDraft | null | undefined): void {
     if (draft === undefined) return;
+    if (this._pendingDraftRev !== null && this.session && !this.session.canSyncDraft()) return;
     if (draft === null) {
       if (this._pendingDraftRev === null) {
         this._draftRev += 1;
@@ -2824,10 +2838,13 @@ export class AcpChatStore {
   /** Keep the failure reason visible through the existing one-line sanitizer, and persist its full detail. */
   private _toastError(title: AcpFailureTitle, error: unknown): void {
     const cause = describeFailureCause(error);
-    log.error('ACP chat action failed', { sessionId: this.sessionId, title, error: cause });
+    const errorType = error && typeof error === 'object' && 'type' in error ? error.type : undefined;
+    log.error('ACP chat action failed', { sessionId: this.sessionId, title, errorType, error: cause });
     toast({
       title: translateSessionMessage(title),
-      description: failureText(cause ?? '', translateSessionMessage),
+      description: errorType === 'conversation_not_found'
+        ? translateSessionMessage('acpFailure.sessionUnavailable')
+        : failureText(cause ?? '', translateSessionMessage),
       variant: 'destructive',
     });
   }

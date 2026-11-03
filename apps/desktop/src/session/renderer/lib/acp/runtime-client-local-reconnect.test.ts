@@ -37,6 +37,7 @@ function runtimePorts() {
     usage: null, plan: null, draft: null, agents: [], terminals: [],
   };
   const command = vi.fn(() => new Promise<never>(() => {}));
+  const held = new Map<string, Promise<void>>();
   let opens = 0;
   bridge.request.mockImplementation(async () => {
     const { port1, port2 } = new MessageChannel();
@@ -45,7 +46,11 @@ function runtimePorts() {
     const stop = serve(domPortTransport(port2 as unknown as DomPortLike), {
       call: command,
       resolveLive: topic => ({
-        snapshot: () => ({ generation: opens, sequence: 0, timestamp: Date.now(), data: current[topic.split('|')[0].split('.').at(-1)!] }),
+        snapshot: async () => {
+          const name = topic.split('|')[0].split('.').at(-1)!;
+          await held.get(name);
+          return { generation: opens, sequence: 0, timestamp: Date.now(), data: current[name] };
+        },
         subscribe: () => () => {},
       }),
     });
@@ -54,6 +59,11 @@ function runtimePorts() {
   });
   return {
     command,
+    hold(name: string) {
+      let release!: () => void;
+      held.set(name, new Promise<void>(resolve => { release = resolve; }));
+      return release;
+    },
     get opens() { return opens; },
     finishWhileDisconnected() {
       current = { ...current, state: { ...current.state as object, lifecycle: 'ready', activeTurnId: null,
@@ -62,6 +72,24 @@ function runtimePorts() {
     },
   };
 }
+
+it.each(['state', 'draft'])('allows draft synchronization only after both reconnect snapshots arrive (%s last)', async last => {
+  const runtime = runtimePorts();
+  const session = await AcpLiveSession.create('draft-connection');
+  cleanup.push(() => session.dispose());
+  expect(session.canSyncDraft()).toBe(true);
+  const ready = vi.fn();
+  session.onDraftSyncReady(ready);
+  const release = runtime.hold(last);
+  runtime.finishWhileDisconnected();
+  await vi.waitFor(() => expect(session.draftConnectionGeneration).toBe(1));
+  await vi.waitFor(() => expect(runtime.opens).toBe(2));
+  expect(session.canSyncDraft()).toBe(false);
+  expect(ready).not.toHaveBeenCalled();
+  release();
+  await vi.waitFor(() => expect(session.canSyncDraft()).toBe(true));
+  expect(ready).toHaveBeenCalledTimes(1);
+});
 
 it('reopens the local state port and replaces both stale streaming messages with the authoritative completed turn', async () => {
   const runtime = runtimePorts();

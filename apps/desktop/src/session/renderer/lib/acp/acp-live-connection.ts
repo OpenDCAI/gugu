@@ -4,9 +4,12 @@ import { connect, WireError, type Connection, type WireTransport } from '@gugu/s
 /** Only live-state reads are replayable. Engine commands retain their original result. */
 export function connectAcpLiveState(transport: WireTransport): Connection {
   const connection = connect(transport, { capabilities: [TERMINAL_CHUNK_CAPABILITY] });
+  let connected = true;
+  transport.onDisconnect(() => { connected = false; });
   let generation = 0;
   const reconnected = new Set<() => void>();
   transport.onReconnect?.(() => {
+    connected = true;
     generation++;
     for (const done of [...reconnected]) done();
     reconnected.clear();
@@ -27,6 +30,11 @@ export function connectAcpLiveState(transport: WireTransport): Connection {
   };
   return {
     ...connection,
+    // Commands belong to the current runtime. In particular a debounced draft must never
+    // enter the transport's offline queue and run before its session is reattached.
+    call: (path, input, options) => connected
+      ? connection.call(path, input, options)
+      : Promise.reject(new WireError('DISCONNECTED', 'Wire transport disconnected')),
     snapshot: topic => read(() => connection.snapshot(topic)),
     attach: (topic, push, options) => read(() => connection.attach(topic, push, options)),
   };

@@ -28,7 +28,7 @@ vi.mock('@renderer/lib/acp/runtime-client', () => ({
 const custody = vi.fn(async () => {});
 vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNativeInput: () => false }));
 
-const toasts: Array<{ title: string }> = [];
+const toasts: Array<{ title: string; description?: string }> = [];
 vi.mock('@renderer/lib/hooks/use-toast', () => ({
   toast: (arg: { title: string }) => {
     toasts.push(arg);
@@ -105,12 +105,19 @@ function fakeSession() {
     success: false,
     error: { type: 'conversation_not_found', message: 'conv' },
   });
+  const draftReady = new Set<() => void>();
+  let connected = true;
   const session = {
     agents: replica([] as unknown[]),
     sessionState: replica<Record<string, unknown>>(readyState),
     activeTurn: replica(null),
     plan: replica(null),
-    draft: replica(null),
+    draft: replica<{ rev: number; text: string } | null>(null),
+    canSyncDraft: () => connected,
+    onDraftSyncReady: (listener: () => void) => { draftReady.add(listener); return () => draftReady.delete(listener); },
+    draftConnectionGeneration: 0,
+    disconnectDraft() { connected = false; session.draftConnectionGeneration++; },
+    reconnectDraft() { connected = true; for (const listener of draftReady) listener(); },
     terminals: replica([] as unknown[]),
     config: replica({}),
     sendPrompt,
@@ -150,6 +157,72 @@ beforeEach(() => {
 });
 
 describe('#7327 运行时进程重启过之后的聊天面', () => {
+  it.each(['the newest unsent draft', ''])('#1449 keeps %j locally while offline, then writes it once after reattachment', async latest => {
+    vi.useFakeTimers();
+    try {
+      const { store, session } = attachedStore();
+      session.setPromptDraft.mockResolvedValue({ success: true, data: undefined });
+      session.disconnectDraft();
+      store.setDraftText('obsolete queued text');
+      await vi.advanceTimersByTimeAsync(400);
+      store.setDraftText(latest);
+      await vi.advanceTimersByTimeAsync(400);
+      expect(session.setPromptDraft).not.toHaveBeenCalled();
+      expect(store.draftText).toBe(latest);
+      session.draft.push({ rev: 100, text: 'old remote snapshot' });
+      expect(store.draftText).toBe(latest);
+      session.reconnectDraft();
+      await vi.advanceTimersByTimeAsync(400);
+      expect(session.setPromptDraft).toHaveBeenCalledOnce();
+      expect(session.setPromptDraft).toHaveBeenCalledWith({ rev: 101, input: latest ? { text: latest } : null });
+      expect(toasts).toEqual([]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('#1449 does not apply a late result from the previous connection to the recovered draft', async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, session } = attachedStore();
+      let finish!: (result: unknown) => void;
+      session.setPromptDraft.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+      session.setPromptDraft.mockResolvedValue({ success: true, data: undefined });
+      store.setDraftText('previous connection');
+      await vi.advanceTimersByTimeAsync(400);
+      session.disconnectDraft();
+      store.setDraftText('newest edit');
+      session.reconnectDraft();
+      finish({ success: false, error: { type: 'conversation_not_found', message: 'old runtime id' } });
+      await vi.advanceTimersByTimeAsync(400);
+      expect(session.setPromptDraft).toHaveBeenCalledTimes(2);
+      expect(session.setPromptDraft).toHaveBeenLastCalledWith({ rev: expect.any(Number), input: { text: 'newest edit' } });
+      expect(toasts).toEqual([]);
+      expect(store.draftText).toBe('newest edit');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('#1449 shows a readable typed error for a real missing-session draft failure', async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, session } = attachedStore();
+      session.setPromptDraft.mockResolvedValue({ success: false, error: { type: 'conversation_not_found', message: '16dd43f4-2ba2-4887-a4ff-b509240a36e6' } });
+      store.setDraftText('keep my words');
+      await vi.advanceTimersByTimeAsync(400);
+      expect(store.draftText).toBe('keep my words');
+      expect(toasts).toEqual([{ title: translateSessionMessage('acpFailure.syncDraft'), description: translateSessionMessage('acpFailure.sessionUnavailable'), variant: 'destructive' }]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('#1449 preserves actionable non-lifecycle failures', async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, session } = attachedStore();
+      session.setPromptDraft.mockRejectedValue(new Error('Access to the session was revoked'));
+      store.setDraftText('keep my words');
+      await vi.advanceTimersByTimeAsync(400);
+      expect(toasts[0]?.description).toContain('Access to the session was revoked');
+      expect(store.draftText).toBe('keep my words');
+    } finally { vi.useRealTimers(); }
+  });
   it('状态副本说「没了」:session 置空、界面订阅摘掉,记录留着,不当场重起', () => {
     const { store, session, disposed, boot } = attachedStore();
     // 阳性对照:被测场景成立 —— 句柄在、订阅挂着。

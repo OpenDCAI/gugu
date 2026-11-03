@@ -61,6 +61,8 @@ function resumedEmptyEngine() {
   const replica = <T>(value: T) => ({ current: () => value, onChange: () => () => {}, onGone: () => () => {}, ready: Promise.resolve() });
   return {
     agents: replica([]), config: replica({}), plan: replica(null), terminals: replica([]), draft: replica(null),
+    canSyncDraft: () => true,
+    onDraftSyncReady: () => () => {},
     activeTurn: replica(null),
     sessionState: replica({ lifecycle: 'ready', isGenerating: false, queuedPrompts: [], pendingPermissions: [] }),
     dispose() {},

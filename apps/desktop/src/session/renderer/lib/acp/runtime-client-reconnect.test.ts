@@ -14,6 +14,30 @@ const pending = <T,>() => {
 const cleanup: Array<() => void> = [];
 afterEach(() => { for (const close of cleanup.splice(0)) close(); resetAcpRuntimeClient(); });
 
+it.each(['draft', 'cancel'] as const)('does not queue a %s command across a disconnected runtime', async command => {
+  const first = memoryTransportPair(), second = memoryTransportPair();
+  const resume = pending<WireTransport>();
+  let opens = 0;
+  runtime.transport = reconnectingTransport(async () => opens++ === 0 ? first.left : resume.promise);
+  const calls = vi.fn(async () => ({ success: true, data: undefined }));
+  const resolveLive = () => { throw new Error('Commands do not read live state'); };
+  const stopFirst = serve(first.right, { call: calls, resolveLive });
+  const stopSecond = serve(second.right, { call: calls, resolveLive });
+  cleanup.push(() => { runtime.transport.close?.(); stopFirst(); stopSecond(); second.disconnect(); });
+  const client = await getAcpRuntimeClient('test-device');
+  const invoke = (rev: number) => command === 'draft'
+    ? client.setPromptDraft({ sessionId: 'test-session', draft: { rev, input: { text: `draft-${rev}` } } })
+    : client.cancelTurn({ sessionId: 'test-session' });
+  await invoke(1);
+  expect(calls).toHaveBeenCalledTimes(1);
+  first.disconnect();
+  const offline = invoke(2);
+  await expect(offline).rejects.toMatchObject({ code: 'DISCONNECTED' });
+  resume.resolve(second.left);
+  await vi.waitFor(() => expect(opens).toBe(2));
+  expect(calls).toHaveBeenCalledTimes(1);
+});
+
 it.each(['snapshot', 'attach'] as const)('automatically recovers a state %s disconnected before its first result', async operation => {
   const first = memoryTransportPair(), second = memoryTransportPair();
   const started = pending<void>(), resume = pending<WireTransport>(), held = pending<void>();
