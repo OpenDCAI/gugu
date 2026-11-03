@@ -1,6 +1,6 @@
 import { useDroppable } from '@dnd-kit/core';
 import { observer } from 'mobx-react-lite';
-import { Suspense, useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
 import { createPaneDimensionSink, PaneDimensionProvider, type PaneDimensionSink } from './pane-dimension-provider';
 import { usePaneContext } from './pane-context';
 import { TabBar } from './tab-bar';
@@ -51,9 +51,11 @@ export const PaneContent = observer(function PaneContent({
       const kind = pane.activeEntry?.kind;
       const layer = kind ? container.querySelector<HTMLElement>(`[data-pane-layer="${CSS.escape(kind)}"]`) : null;
       for (const element of (layer ?? container).querySelectorAll<HTMLElement>(CONTENT_FOCUS_SELECTOR)) {
+        if (element.checkVisibility && !element.checkVisibility({ visibilityProperty: true })) continue;
         element.focus();
         if (document.activeElement === element) return;
       }
+      container.focus();
     });
     return () => pane.setContentFocuser(null);
   }, [pane]);
@@ -65,6 +67,11 @@ export const PaneContent = observer(function PaneContent({
     return sink;
   };
   const active = pane.resolvedTabs.find((tab) => tab.isActive);
+  useLayoutEffect(() => {
+    // Same-tab navigation changes the page, not its id. A retained guest must
+    // relinquish native input to the new page through the existing focuser.
+    if (isFocusedPane && shellRef.current?.contains(document.activeElement)) pane.focusActiveContent();
+  }, [pane, isFocusedPane, active?.resource]);
   const unavailable = active && (!pane.registry.has(active.kind) || isUnavailableTabResource(active.resource)) ? active : null;
   const kinds = [...new Set(pane.resolvedTabs.map((tab) => tab.kind))];
   const recent = useRetainedTabs(kinds, active ? [active.kind] : []);
@@ -80,7 +87,7 @@ export const PaneContent = observer(function PaneContent({
         void pane.go(id, event.button === 3 ? -1 : 1);
       }}>
       {pane.resolvedTabs.length > 0 && !hideTabBar && <TabBar leadingSlot={tabLeadingSlot} tabTrailingSlot={tabTrailingSlot} actionsSlot={actionsSlot} reserveShellRestoreLane={reserveShellRestoreLane} leadingReservePx={leadingReservePx} />}
-      <div ref={setContentRef} className="relative min-h-0 min-w-0 flex-1 bg-tab-face">
+      <div ref={setContentRef} tabIndex={-1} className="relative min-h-0 min-w-0 flex-1 bg-tab-face">
         <PaneDimensionProvider sink={pane}>
           {isOver && <div className="pointer-events-none absolute inset-0 z-20 bg-foreground/10" />}
           {pane.registry.all().filter((provider) => retained.has(provider.kind)).map((provider) => {

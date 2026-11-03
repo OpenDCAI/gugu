@@ -484,6 +484,18 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     if (typeof config.from === 'string' && !source) return;
     const from = source && config.from ? source.pane.entries.get(config.from) : undefined;
     const remembered = (config.intent ?? 'navigate') === 'navigate' ? this._placementMemory.read(this._resourceId(kind, state)) : undefined;
+    if (remembered === 'beside') {
+      const key = this._registry.get(kind).resourceKey(state as never);
+      for (const group of this.groups) for (const entry of group.pane.entries.values()) {
+        if (entry.kind !== kind || this._registry.get(kind).resourceKey(entry.state as never) !== key) continue;
+        if (config.activate ?? true) {
+          this.setActiveGroup(group.paneId);
+          group.pane.setActiveTab(entry.tabId);
+          group.pane.focusActiveContent();
+        }
+        return entry.tabId;
+      }
+    }
     const intent = remembered === 'separate' ? 'newTab' : remembered === 'beside' ? 'beside' : (config.intent ?? 'navigate');
     const conversation = from && this._registry.has(from.kind) && this._registry.get(from.kind).conversation === true;
     const targetId = typeof config.target === 'object' ? config.target.paneId : this.activePaneId;
