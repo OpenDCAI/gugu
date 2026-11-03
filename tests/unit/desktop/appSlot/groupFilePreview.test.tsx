@@ -157,7 +157,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
     ask(file.chatId, { itemId: file.itemId, opener: file as never, from: shownPanelTab('preview-group')!.tabId })
     await act(async () => document.querySelector<HTMLButtonElement>('[data-open-with="workspace.main"]')!.click())
     expect(shownItem(file.chatId)).toMatchObject({ kind: 'workspace.main', itemId: file.itemId })
-    act(() => closeChatTab(file.chatId, shownPanelTab(file.chatId)!.tabId))
+    await act(async () => chatPaneOf(file.chatId, folder!)!.go(folder!, -1))
     expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
   })
 
@@ -240,7 +240,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
     expect(harness.container.querySelector('[data-testid="group-app-slot"]')).not.toBeNull()
   })
 
-  it('the tabbed binary preview closes only its object, keeping the source tab and one host header', async () => {
+  it('closing the tabbed binary preview closes its context without leaving a stale source tab', async () => {
     const source = openPanelItem('preview-group', { kind: 'workspace.main', itemId: 'notes', title: 'notes.md' })
     const file = detail('exe')
     await slot(file, true, { tabbed: true, from: shownPanelTab('preview-group')!.tabId })
@@ -248,7 +248,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
     expect(harness.container.querySelector('header')).toBeNull()
     expect(harness.container.querySelector('button[aria-label="关闭"]')).toBeNull()
     await closeFromTab(file.chatId)
-    expect(shownPanelTab('preview-group')?.tabId).toBe(source)
+    expect(panelTabsOf('preview-group').some(tab => tab.tabId === source)).toBe(false)
     expect(panelTabsOf('preview-group').some((tab) => tab.item.itemId === file.itemId)).toBe(false)
   })
 
@@ -281,14 +281,14 @@ describe('unclaimed group files use the message preview from every entry', () =>
     await until('HTML is ready before expanding', () => boundary.previewContents.get(harness.container.querySelector('iframe')?.getAttribute('src') ?? '')?.includes('lane report') === true)
     const page = harness.container.querySelector('iframe')
     const tabId = shownPanelTab(file.chatId)!.tabId
-    const fill = () => chatLayoutOf(file.chatId).groups[0]!.pane.tabFill(tabId)!
+    const fill = () => chatPaneOf(file.chatId, tabId)!.tabFill(tabId)!
     await act(async () => fill().toggle())
     // 全屏只盖住工作区,❌ 动布局(panelFull = 拆开、对话不在,是另一件事)。
-    expect(tabFullscreen.isOn(chatLayoutOf(file.chatId).groups[0]!.pane, tabId)).toBe(true)
-    expect(panelFull(file.chatId, tabId)).toBe(false)
+    expect(tabFullscreen.isOn(chatPaneOf(file.chatId, tabId)!, tabId)).toBe(true)
+    expect(panelFull(file.chatId, tabId)).toBe(fill().full)
     await act(async () => fill().toggle())
-    expect(tabFullscreen.isOn(chatLayoutOf(file.chatId).groups[0]!.pane)).toBe(false)
-    expect(panelFull(file.chatId, tabId)).toBe(false)
+    expect(tabFullscreen.isOn(chatPaneOf(file.chatId, tabId)!)).toBe(false)
+    expect(panelFull(file.chatId, tabId)).toBe(fill().full)
     expect(harness.container.querySelector('iframe')).toBe(page)
     expect(harness.container.querySelectorAll('header')).toHaveLength(0)
     expect(shownItem(file.chatId)?.itemId).toBe(file.itemId)

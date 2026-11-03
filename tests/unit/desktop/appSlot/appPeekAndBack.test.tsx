@@ -92,16 +92,13 @@ describe('G2: back from a file opened by an App goes back to that App', () => {
     expect(chatAlone(chatId)).toBe(true)
   })
 
-  it('an App opened while another tab is shown: no Back, and closing it leaves the chat with that tab kept (as a task\'s side page)', async () => {
-    const chatId = 'app-from-object'
-    const previous = openPanelItem(chatId, { kind: 'pdf.viewer', itemId: 'source', title: 'source.pdf' })!
-    await harness.render(chatTabs({ chatId }))
-    ask(chatId, { app: 'kanban' })
-    expect(shownItem(chatId)?.kind).toBe('kanban.board')
-    expect(button('group-app-slot-back')).toBeNull()
-    act(() => button('group-app-slot-close')!.click())
-    expect(chatAlone(chatId)).toBe(true)
-    expect(panelTabsOf(chatId).map((tab) => tab.tabId)).toEqual([previous])
+  it('an App opened from the conversation navigates the same companion context', async () => {
+    const chatId = 'app-from-object'; const previous = openPanelItem(chatId, { kind: 'pdf.viewer', itemId: 'source', title: 'source.pdf' })!
+    await harness.render(chatTabs({ chatId })); ask(chatId, { app: 'kanban' })
+    expect(shownItem(chatId)?.kind).toBe('kanban.board'); expect(shownPanelTab(chatId)?.tabId).toBe(previous)
+    expect(button('group-app-slot-back')).not.toBeNull()
+    await act(async () => button('group-app-slot-back')!.click()); expect(shownItem(chatId)?.itemId).toBe('source')
+    act(() => button('group-app-slot-close')!.click()); expect(chatAlone(chatId)).toBe(true); expect(panelTabsOf(chatId)).toEqual([])
   })
 })
 

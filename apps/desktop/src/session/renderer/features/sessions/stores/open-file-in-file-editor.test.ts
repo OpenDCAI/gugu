@@ -370,7 +370,7 @@ describe('task file preview routing', () => {
       expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'sheets.grid',
         { filePath: '/repo/data/report.csv' },
-        { intent: 'navigate' }
+        { from: null, intent: 'navigate', activate: undefined }
       )
     );
     expect(mocks.activePaneOpen).not.toHaveBeenCalled();
@@ -676,7 +676,7 @@ describe('task file preview routing', () => {
     });
 
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true }));
-    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('notes.board', {}, { from: null, intent: 'newTab', activate: false });
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('notes.board', {}, { from: null, intent: 'navigate', activate: false });
     // `activePane.open` is typed to built-in kinds, so routing an extension through it
     // could not name this tab at all — that is why this one goes through the layout.
     expect(mocks.activePaneOpen).not.toHaveBeenCalled();
@@ -698,7 +698,7 @@ describe('task file preview routing', () => {
     const disposeFirst = open(first);
     await vi.waitFor(() => expect(first).toHaveBeenCalledWith({ success: true }));
     // Beside the conversation, and the tab the person is looking at stays in front.
-    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('computer-use.preview', {}, { from: null, intent: 'newTab', activate: false });
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('computer-use.preview', {}, { from: null, intent: 'navigate', activate: false });
 
     mocks.paneLayoutOpen.mockClear();
     mocks.openKinds.push('computer-use.preview');
@@ -728,7 +728,7 @@ describe('task file preview routing', () => {
 
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true }));
     expect(mocks.registerInstalledExtensionTabs).toHaveBeenCalledTimes(1);
-    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('fresh.panel', {}, { from: null, intent: 'newTab', activate: false });
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('fresh.panel', {}, { from: null, intent: 'navigate', activate: false });
     dispose();
   });
 
@@ -829,7 +829,7 @@ describe('task file preview routing', () => {
       await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('tables.main', { filePath: '/repo/data/report.csv' }, { from: null, intent: 'navigate', activate: undefined }));
       mocks.openWithDefaults = { 'session:.csv': 'builtin' };
       await openFileInSessionEditor('project-1', 'session-1', 'data/other.csv');
-      await vi.waitFor(() => expect(mocks.activePaneOpen).toHaveBeenCalled());
+      await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('file', { path: '/repo/data/other.csv' }, { from: null, intent: 'navigate', activate: undefined }));
       expect(mocks.showModal).not.toHaveBeenCalled();
     });
   });

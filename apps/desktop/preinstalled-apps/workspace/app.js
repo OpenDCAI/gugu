@@ -539,7 +539,7 @@ function markdownSupport(cm) {
 async function applyContext(ctx) {
   const previous = state.ctx
   state.ctx = ctx
-  const restored = ctx.viewState && (!previous || previous.file?.id !== ctx.file?.id || previous.tabId !== ctx.tabId)
+  const restored = !previous || previous.file?.id !== ctx.file?.id || previous.tabId !== ctx.tabId ? ctx.viewState : undefined
   if (restored) {
     if (['chat', 'workspace'].includes(restored.root)) state.root = restored.root
     state.folder = typeof restored.folder === 'string' ? restored.folder : null

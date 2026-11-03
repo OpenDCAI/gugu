@@ -16,7 +16,7 @@ const gugu = {
     viewPreferences: async () => ({ showAppData: false }),
     list: async () => [{ ...file }],
     onChanged: () => () => {},
-    openWith: vi.fn(async () => {}),
+    openWith: vi.fn(async (_file: unknown, _options: unknown) => {}),
   },
 }
 
@@ -31,9 +31,17 @@ beforeAll(async () => {
   expect(document.getElementById('doc-message')?.textContent).toBe('')
 })
 
-it('folder redesign single click previews and the double-click request pins the file', async () => {
+it('single and double clicks navigate without creating a pinned or preview state', async () => {
   const button = document.querySelector('.file-open') as HTMLButtonElement
   button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
   button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }))
-  expect(gugu.files.openWith.mock.calls).toEqual([[file, { intent: 'preview' }], [file, { intent: 'pinned' }]])
+  expect(gugu.files.openWith.mock.calls).toEqual([[file, expect.objectContaining({ intent: 'navigate', viewState: expect.objectContaining({ root: 'chat' }) })], [file, expect.objectContaining({ intent: 'navigate' })]])
+})
+it('explicit gestures override ordinary navigation through the same openWith call', () => {
+  gugu.files.openWith.mockClear()
+  const button = document.querySelector('.file-open') as HTMLButtonElement
+  button.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true }))
+  button.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }))
+  button.dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true }))
+  expect(gugu.files.openWith.mock.calls.map((args: unknown[]) => (args[1] as { intent: string }).intent)).toEqual(['newTab', 'newTab', 'beside'])
 })

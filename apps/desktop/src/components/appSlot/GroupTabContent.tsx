@@ -115,7 +115,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
   const { user } = useAuth()
   const pane = chatPaneOf(chatId, tabId)
   const backIsPanel = pane?.canGo(tabId, -1) ?? false
-  const back = () => backIsPanel ? pane?.go(tabId, -1) : showChatOnly(chatId)
+  const back = () => (pane?.navigationOf(tabId)?.index ?? 0) > 0 ? pane?.go(tabId, -1) : closeChatTab(chatId, tabId)
   const close = () => closeChatTab(chatId, tabId)
   const [offer, setOffer] = useState<Offer | null>(null)
   const [installingOffer, setInstallingOffer] = useState(false)

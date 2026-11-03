@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { folderItem, isFolderItem, WORKSPACE_APP_KIND } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
-import { askChat, chatLayoutOf, infoTabOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, shownPanelTab, takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { askChat, chatLayoutOf, chatPaneOf, infoTabOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, shownPanelTab, takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { tabFullscreen } from '../../../../apps/desktop/src/session/renderer/features/tabs/tab-fullscreen'
 import { extensionSurfaceStore } from '../../../../apps/desktop/src/session/renderer/features/extensions/extension-surface-store'
 import { extensionViewStore, residentPageKey, residentPlace } from '../../../../apps/desktop/src/session/renderer/features/extensions/extension-view-store'
@@ -58,14 +58,14 @@ describe('the slot header', () => {
     await harness.render(slot({ chatId: 'full-switch', tabbed: true }))
     expect(fullSwitch()).toBeNull()
     expect(harness.container.querySelector('[data-testid="group-app-slot-bar"]')).toBeNull()
-    const fill = () => chatLayoutOf('full-switch').groups[0]!.pane.tabFill(tab)!
+    const fill = () => chatPaneOf('full-switch', tab)!.tabFill(tab)!
     act(() => fill().toggle())
     // 全屏只盖住工作区,❌ 动布局(panelFull = 拆开、对话不在,是另一件事)。
-    expect(tabFullscreen.isOn(chatLayoutOf('full-switch').groups[0]!.pane, tab)).toBe(true)
-    expect(panelFull('full-switch', tab)).toBe(false)
+    expect(tabFullscreen.isOn(chatPaneOf('full-switch', tab)!, tab)).toBe(true)
+    expect(panelFull('full-switch', tab)).toBe(fill().full)
     act(() => fill().toggle())
-    expect(tabFullscreen.isOn(chatLayoutOf('full-switch').groups[0]!.pane)).toBe(false)
-    expect(panelFull('full-switch', tab)).toBe(false)
+    expect(tabFullscreen.isOn(chatPaneOf('full-switch', tab)!)).toBe(false)
+    expect(panelFull('full-switch', tab)).toBe(fill().full)
 
     await harness.render(slot({ chatId: 'full-switch' }))
     expect(fullSwitch()).toBeNull()
@@ -84,7 +84,7 @@ describe('the slot header', () => {
           (claim) => claim.chatId === chatId && claim.itemId === itemId,
         )!
       act(() => extensionSurfaceStore.say(null, claimOf('group-2').tabId, { title: 'Board', badge: 3, error: 'boom' }))
-      const page = residentPageKey(WORKSPACE_APP_KIND, residentPlace({ chatId: 'group-2' }))
+      const page = residentPageKey(WORKSPACE_APP_KIND, residentPlace({ chatId: 'group-2', tabId: claimOf('group-2').tabId }))
       expect(extensionSurfaceStore.sharedState(page)).toEqual({ title: 'Board', badge: 3, error: 'boom' })
       expect(harness.container.textContent).toContain('Board')
       expect(harness.container.querySelector('[data-testid="group-app-slot-badge"]')?.textContent).toBe('3')
@@ -186,9 +186,9 @@ describe('an App opened in the group (「在本群打开」)', () => {
     expect(harness.container.querySelector('[data-app-kind]')?.getAttribute('data-app-kind')).toBe('day-calendar.main')
     ask(chatId, { app: 'workspace' })
     expect(harness.container.querySelector('[data-app-kind]')?.getAttribute('data-app-kind')).toBe(WORKSPACE_APP_KIND)
-    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
+    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).not.toBeNull()
     expect(isFolderItem(shownItem(chatId))).toBe(true)
-    expect(panelTabsOf(chatId).map((tab) => tab.tabId), 'the folder follows the calendar without reordering it').toEqual([calendar, shownPanelTab(chatId)?.tabId])
+    expect(panelTabsOf(chatId).map((tab) => tab.tabId), 'the companion keeps its identity').toEqual([calendar])
   })
 
   it('opens its own page here, with no file', async () => {
@@ -255,7 +255,7 @@ describe('an App opened in the group (「在本群打开」)', () => {
     const folder = openPanelItem(chatId, folderItem())
     ask(chatId, { itemId: 'B', opener: detail as never, from: shownPanelTab(chatId)!.tabId })
     await act(async () => {})
-    expect(panelTabsOf(chatId).map((tab) => tab.item.itemId ?? 'folder')).toEqual(['B', 'folder'])
+    expect(panelTabsOf(chatId).map((tab) => tab.item.itemId ?? 'folder')).toEqual(['B'])
     expect(shownPanelTab(chatId)?.tabId, 'the tab already there').toBe(board!.tabId)
     act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
     expect(shownPanelTab(chatId)?.tabId).toBe(folder)
