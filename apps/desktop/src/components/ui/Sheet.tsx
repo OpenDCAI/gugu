@@ -1,6 +1,7 @@
 import { type CSSProperties, type ReactNode } from 'react'
 import type { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { useTranslation } from 'react-i18next'
+import { UiPortalContainerProvider } from '@gugu/session-ui/react/primitives'
 import { cn } from '@/lib/cn'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { Dialog } from './Dialog'
@@ -175,7 +176,7 @@ export function Sheet({
             {!titleId && (
               <Dialog.Title className={visuallyHidden}>{ariaLabel ?? t('dialog.label')}</Dialog.Title>
             )}
-            {children}
+            <UiPortalContainerProvider zIndex={zIndex}>{children}</UiPortalContainerProvider>
             <Dialog.Close
               className={visuallyHidden}
               aria-label={t('dialog.close')}

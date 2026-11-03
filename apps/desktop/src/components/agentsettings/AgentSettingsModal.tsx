@@ -83,7 +83,7 @@ export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = '
       onClose={requestClose}
       // 返回键 / Esc 与左上箭头同一件事:详情层先回 nav 层,❌ 整个设置一起关掉。
       onEscape={() => {
-        if (mobilePane !== 'detail') return false
+        if (!mobileShell || mobilePane !== 'detail') return false
         setMobilePane('nav')
         return true
       }}
