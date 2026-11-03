@@ -137,7 +137,7 @@ export function SessionTimelineRail({
               <span
                 data-slot="tick"
                 className={cn(
-                  'pointer-events-none rounded-full transition-[width,background-color] duration-[var(--dur-med)] ease-out motion-reduce:transition-none',
+                  'pointer-events-none shrink-0 rounded-full transition-[width,background-color] duration-[var(--dur-med)] ease-out motion-reduce:transition-none',
                   tone
                 )}
                 style={{ width: markerWidth(index, hoveredIndex, tick.mine ? OWN_PILL_LENGTH : OTHER_PILL_LENGTH), height: PILL_WIDTH }}
