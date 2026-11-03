@@ -54,6 +54,7 @@ import { useSessionSchedules } from '@renderer/features/automations/use-session-
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract';
 import { sessionScheduleDigest } from '@shared/core/automations/session-schedule';
 import { agentForksOn } from '@shared/core/agents/agent-payload';
+import { useConversationSessionSummary } from '@/hooks/useConversationSessionSummary';
 
 // @@@sessionpage otty-state — sidebar CONVERSATION row, hanging directly under its project (spec
 // session-page: conversations ARE the sessions; tasks are an invisible workspace container). A
@@ -118,6 +119,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const session = sessionRegistry.get(sessionId)?.sessions.get(sessionId);
   const listed = sidebarStore.remoteSession(projectId, sessionId);
   const machine = machineRegistry.machineOf(projectId);
+  const notificationCount = useConversationSessionSummary(sessionId, machine)?.nativeOwnerNotificationUnreadCount ?? 0;
   // 它给自己排的定时,一台机器一个来源:本机的问本机(automation:* 事件驱动);别的机器上的(挂没挂着都一样)读那台机器
   // 推来的会话目录里那一格 —— 与置顶、未读同一条腿,❌ 再为挂着的那几条各开一条跨网问答。
   const localSchedules = useSessionSchedules(null, sessionId, machine === null);
@@ -366,6 +368,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       lastInteractedAt={row.lastInteractedAt}
       schedule={row.schedule ?? null}
       doneUnread={doneUnread}
+      notificationCount={notificationCount}
       isActive={isActive}
       isCursor={isCursor}
       isPendingArchive={isPendingArchive}

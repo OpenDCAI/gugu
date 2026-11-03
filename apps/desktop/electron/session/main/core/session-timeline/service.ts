@@ -4,7 +4,9 @@ import { ask, withdrawAll } from '../asks';
 import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondAskQuestion } from '../asks/ask';
 import { askSourceSpec } from '../asks/sources';
 import { readAgentQuestionRecords, rememberAgentQuestion } from '../sessions/agent-question-store';
-import { nativeConversationAliases, nativeConversationUnread } from '../sessions/session-conversation-read';
+import { nativeConversationAliases, nativeConversationUnread, nativeOwnerNotificationUnread } from '../sessions/session-conversation-read';
+import { ownerNotificationHead, ownerNotificationFile } from '../sessions/owner-notifications';
+import { ownerNotificationEpoch } from '../sessions/owner-notification-state';
 import { nativeConversationActivity } from '../sessions/session-conversation-activity';
 import { deliverAgentQuestionAnswer, restoredAgentQuestion } from '../sessions/agent-question-delivery';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -753,6 +755,9 @@ function summaryOf(
     ...(session.runtime === 'acp' ? { nativeInputIdentity: true as const } : {}),
     nativeLastMessage: nativeConversationActivity(session.id),
     nativeUnreadKeys: nativeConversationUnread(session.id),
+    nativeOwnerNotificationUnreadCount: nativeOwnerNotificationUnread(session.id).length,
+    nativeOwnerNotificationSeq: ownerNotificationHead(session.id) ?? -1,
+    nativeOwnerNotificationEpoch: ownerNotificationEpoch(session.id),
     nativeUnreadAliases: nativeConversationAliases(session.id),
     ...(location.supported ? {} : { unsupportedReason: location.reason, ...notStartedFacts(session) }),
     // 这三项库里早就有,先前没往手机端传 —— 手机上于是既没有置顶区、也认不出未读、
@@ -1138,7 +1143,7 @@ export async function readOpenedFile(
   input: SessionpageOpenedFileReadRequest
 ): Promise<SessionTimelineResult<SessionpageOpenedFileChunk>> {
   try {
-    if (!(await sessionOpenedFile(input.conversationId, input.path))) {
+    if (!(await sessionOpenedFile(input.conversationId, input.path)) && !ownerNotificationFile(input.conversationId, input.path)) {
       return fail('not_opened', `这条会话没有打开过 ${input.path}`);
     }
     return { ok: true, value: await readOpenedFileChunk(input.path, input.offset, input.length) };
@@ -1272,7 +1277,7 @@ const sessionsSubscriptions = new Map<string, { stop: () => void }>();
 const SESSIONS_PUSH_DEBOUNCE_MS = 200;
 
 /** 列表上看得见、又不经状态写入者的变化:会话增删、这几格元信息,以及会话给自己排的定时。 */
-const LISTED_FIELDS = ['title', 'isPinned', 'archivedAt', 'parentSessionId', 'nativeUnreadKeys', 'nativeLastMessage'];
+const LISTED_FIELDS = ['title', 'isPinned', 'archivedAt', 'parentSessionId', 'nativeUnreadKeys', 'nativeLastMessage', 'nativeOwnerNotificationSeq', 'nativeOwnerNotificationEpoch'];
 function changesSessionList(channel: string, data: unknown): boolean {
   if (channel === sessionCreatedChannel.name) {
     return true;

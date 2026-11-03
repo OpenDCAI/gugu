@@ -51,7 +51,7 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
     return () => clearInterval(timer)
   }, [place, shown, sessionId])
   useEffect(() => {
-    if (!shown || !sessionId || summary?.nativeInputVersion !== 1) return
+    if (!shown || !sessionId || (summary?.nativeInputVersion !== 1 && summary?.nativeInputVersion !== 2)) return
     let active = true
     let busy = false
     const flush = async () => {

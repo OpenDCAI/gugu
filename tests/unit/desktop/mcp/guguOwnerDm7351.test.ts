@@ -5,13 +5,13 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 // @ts-expect-error — MCP implementation is an untyped ESM module.
 import { callTool } from '../../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
 
-// #7351: a session agent has no DM with its owner until one is opened; chat_id = the owner's address opens it.
+// The personal assistant retains its real IM conversation; ordinary agents use native owner notifications.
 const owner = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const stranger = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const agent = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const dm = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 const token = `x.${Buffer.from(JSON.stringify({ sub: owner })).toString('base64url')}.x`
-const context = { agentId: agent, threadRootId: null, getAccessToken: async () => token }
+const context = { agentId: agent, threadRootId: null, personalAssistant: true, getAccessToken: async () => token }
 
 /** The attachments function as core's client reaches it: upload → a form → OSS; commit → the message (kept in `commits`). */
 function attachmentsFake(uploads: string[], commits: Array<Record<string, unknown>>) {
