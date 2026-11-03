@@ -663,7 +663,7 @@ export default {
     }
   },
   "header": {
-    "groupApps": "Group apps",
+    "groupApps": "Apps",
     "members_one": "{{count}} member",
     "members_other": "{{count}} members",
     "invite": "Invite",

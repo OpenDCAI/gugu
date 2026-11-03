@@ -662,7 +662,7 @@ export default {
     }
   },
   "header": {
-    "groupApps": "群应用",
+    "groupApps": "应用",
     "members": "{{count}} 位成员",
     "invite": "邀请",
     "mute": "消息免打扰",

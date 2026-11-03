@@ -60,7 +60,7 @@ export const GroupAppsPicker = observer(function GroupAppsPicker({ chatId, mobil
   )
   return mobile ? <Sheet onClose={onClose} finalFocus={anchor} mobileFitContent ariaLabel={t('header.groupApps')}>{body}</Sheet> : (
     <Popover.Portal><Popover.Positioner anchor={anchor} side="bottom" align="end" sideOffset={4} collisionPadding={8}>
-      <Popover.Popup aria-label={t('header.groupApps')} finalFocus={anchor} className={`${menuSurfaceClassName} max-h-[70vh] w-[min(320px,calc(100vw-16px))] overflow-y-auto`}>{body}</Popover.Popup>
+      <Popover.Popup aria-label={t('header.groupApps')} finalFocus={anchor} className={`${menuSurfaceClassName} max-h-[70vh] w-max min-w-40 max-w-[min(calc(var(--spacing)*80),calc(100vw-var(--spacing)*4))] overflow-y-auto`}>{body}</Popover.Popup>
     </Popover.Positioner></Popover.Portal>
   )
 })
