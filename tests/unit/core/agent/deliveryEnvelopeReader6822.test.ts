@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { hermesPromptMeta, indexHermesPrompts, originalHermesPrompt } from '../../../../packages/session-core/src/acp/hermes-prompt'
 import {
+  buildAgentDeliveryEnvelope,
   buildExtensionEnvelope,
   buildScheduledEnvelope,
   buildSessionDirectEnvelope,
@@ -279,3 +280,25 @@ describe('human DM queue provenance', () => {
     expect(isHumanDmDelivery(mergeDeliveryEnvelopes([human, renderDeliveryEnvelope({ ...DM, fromType: 'agent' })]))).toBe(false)
   })
 })
+
+describe('reply preview truncation', () => {
+  it('cuts the preview at a code point so the envelope stays well-formed XML', () => {
+    const content = 'a'.repeat(139) + '🎉🎉'
+    const env = buildAgentDeliveryEnvelope(
+      {
+        guguUserId: 'agent-1',
+        chatId: '11111111-2222-4333-8444-555555555555',
+        messageId: '22222222-3333-4444-8555-666666666666',
+        senderUserId: 'user-bob',
+        content: 'hi',
+        replyTo: { messageId: '33333333-4444-4555-8666-777777777777', senderUserId: 'user-bob', content },
+        threadRootId: null,
+      },
+      new Map(),
+      { publicId: 7, name: null, kind: 'dm' },
+      '2026-11-03 10:00 北京时间',
+    )
+    expect(env).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/)
+    expect(readDeliveryEnvelope(env)?.segments[0]?.facts?.replyTo?.preview).toBe('a'.repeat(139) + '🎉' + '…')
+  });
+});
