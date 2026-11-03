@@ -8,7 +8,7 @@ const parked = presentAgentStatus({ reading: { status: 'working', detail: 'parke
 const waiting = presentAgentStatus({ reading: { status: 'needs_user', detail: 'question' } });
 
 describe('project session branch projection', () => {
-  it('counts hidden descendants and combines running and parked work, excluding the parent', () => {
+  it('counts hidden descendants and running work, excluding the parent and parked work', () => {
     const roots = buildSessionTree([
       { id: 'root', presentation: working },
       { id: 'live', parentSessionId: 'root', presentation: working },
@@ -20,16 +20,31 @@ describe('project session branch projection', () => {
     expect(summaries.get('root')).toMatchObject({
       total: 4,
       remainingDepth: 3,
-      active: [{ count: 2, presentation: { tone: 'running', animate: true } }],
+      active: [{ count: 1, presentation: { tone: 'running', animate: true } }],
     });
     expect(summaries.get('live')).toMatchObject({ total: 0, active: [] });
     expect(summaries.get('background')).toMatchObject({ total: 2, active: [] });
   });
 
-  it('keeps the indicator still when all remaining work runs in the background', () => {
+  it('does not call parked background or scheduled work running', () => {
     const roots = buildSessionTree([{ id: 'root' }, { id: 'parked', parentSessionId: 'root', presentation: parked }]);
     expect(summarizeSessionBranches(roots).get('root')?.active)
-      .toEqual([{ count: 1, presentation: parked }]);
+      .toEqual([]);
+  });
+
+  it('still counts a running descendant underneath a parked parent', () => {
+    const roots = buildSessionTree([
+      { id: 'root' },
+      { id: 'parked', parentSessionId: 'root', presentation: parked },
+      { id: 'live', parentSessionId: 'parked', presentation: working },
+    ]);
+    expect(summarizeSessionBranches(roots).get('root')?.active)
+      .toEqual([{ count: 1, presentation: working }]);
+  });
+
+  it('fails loudly if a projected row does not come from the indexed forest', () => {
+    expect(() => projectSessionTreeRows([{ sessionId: 'missing', depth: 0 }], new Map()))
+      .toThrow('Session branch summary missing for missing');
   });
 
   it('limits project rows to three levels while preserving a gateway to deeper sessions', () => {

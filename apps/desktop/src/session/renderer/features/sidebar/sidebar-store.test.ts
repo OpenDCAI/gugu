@@ -1270,6 +1270,51 @@ describe('拼在一屏的几条:左边合成一个框(spec session-page「拼在
     store.sidebarRows.flatMap((row) => (row.kind === 'conversation' ? [row.sessionId] : []));
   const tasks = (store: SidebarStore) => store.standaloneSessionEntries.map((e) => `${e.sessionId}${e.join ? `:${e.join.pos}` : ''}`);
 
+  it('indexes joined cross-project and unmounted remote families before pruning pinned subtrees', () => {
+    const a = 'joined-a', b = 'joined-b', remote = 'joined-remote';
+    const localA = [conv(a, 'project-a', 50),
+      { ...conv('a-child', 'project-a', 49), parentSessionId: a },
+      { ...conv('pinned', 'project-a', 48), parentSessionId: a, isPinned: true },
+      { ...conv('pinned-child', 'project-a', 47), parentSessionId: 'pinned' }];
+    const localB = [conv(b, 'project-b', 40), { ...conv('b-child', 'project-b', 39), parentSessionId: b }];
+    sessionRegistry.acquire('joined-page-a', 'project-a', localA as never);
+    sessionRegistry.acquire('joined-page-b', 'project-b', localB as never);
+    const manager = projectManagerWithSessions([
+      { id: 'project-a', createdAt: '2026-01-01T00:00:00.000Z', sessionIds: ['joined-page-a'] },
+      { id: 'project-b', createdAt: '2026-01-02T00:00:00.000Z', sessionIds: ['joined-page-b'] },
+    ]);
+    const remoteProject = projectManager([{ id: 'remote-project', createdAt: '2026-01-03T00:00:00.000Z' }]).projects.get('remote-project')!;
+    manager.projects.set('remote-project', remoteProject);
+    const listed: SessionpageSessionSummary[] = [remote, 'remote-child'].map((id, index) => ({
+      conversationId: id, projectId: 'remote-project', title: id, harness: 'codex', runtime: 'acp',
+      agentStatus: null, lastInteractedAt: '2026-01-01T00:00:30.000Z', supported: true,
+      parentConversationId: index ? remote : null,
+    }));
+    const store = new SidebarStore(manager);
+    store.machines = {
+      machineOf: (id) => id === 'remote-project' ? 'other-machine' : null,
+      label: () => 'Other machine', homeDir: () => null,
+      sessionsOf: () => ({ sessions: listed, live: true }),
+    };
+    store.projectOrder = ['project-a', 'project-b', 'remote-project'];
+    store.expandAllProjects();
+    for (const id of [a, b, remote, 'pinned']) store.toggleSessionExpanded(id);
+    store.setJoinedGroups([group([b, 'stale-member', remote, a], true)]);
+    try {
+      expect(remoteProject.mountedProject).toBeNull();
+      const rows = store.sidebarRows.flatMap((row) => row.kind === 'conversation' ? [row] : []);
+      expect(rows.map((row) => row.sessionId)).toEqual([b, 'b-child', remote, 'remote-child', a, 'a-child']);
+      expect(rows.map((row) => row.tree?.summary.total)).toEqual([1, 0, 1, 0, 3, 0]);
+      expect(rows.every((row) => store.placement.nodeById.has(row.sessionId))).toBe(true);
+      expect(rows.every((row) => store.sessionBranchSummaries.has(row.sessionId))).toBe(true);
+      expect(store.pinnedSessionEntries.map((row) => row.sessionId)).toEqual(['pinned', 'pinned-child']);
+      expect(store.sessionBranchSummaries.get('pinned')?.total).toBe(1);
+    } finally {
+      sessionRegistry.release('joined-page-a');
+      sessionRegistry.release('joined-page-b');
+    }
+  });
+
   it('组员从原位置挪进最靠前那一条那里(别的项目的也挪过来),按屏上次序叠着;每行记着自己是框的哪一段', () => {
     const { store, release } = setup();
     expect(tasks(store)).toEqual(['t1', 't2', 't3', 't4']);

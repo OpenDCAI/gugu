@@ -6,6 +6,7 @@ export const PROJECT_SESSION_VISIBLE_LEVELS = 3;
 export type SessionBranchSummary = {
   total: number;
   remainingDepth: number;
+  /** Foreground running only; parked background/scheduled work is not running. */
   active: { count: number; presentation: AgentStatusPresentation }[];
 };
 
@@ -14,8 +15,6 @@ export type ProjectSessionTreeRow = {
   continuingGuides: number[];
   lastChild: boolean;
 };
-
-const activeTones = ['running', 'parked'] as const;
 
 /** Count the parent edge, not spawn history; a hidden descendant is still counted. */
 export function summarizeSessionBranches<T extends {
@@ -26,13 +25,9 @@ export function summarizeSessionBranches<T extends {
   const visit = (node: SessionTreeNode<T>): SessionBranchSummary => {
     const cached = summaries.get(node.item.id);
     if (cached) return cached;
-    const active = new Map<string, SessionBranchSummary['active'][number]>();
-    const add = (presentation: AgentStatusPresentation, count: number) => {
-      const previous = active.get('running');
-      active.set('running', {
-        presentation: previous?.presentation.tone === 'running' ? previous.presentation : presentation,
-        count: (active.get('running')?.count ?? 0) + count,
-      });
+    let running: SessionBranchSummary['active'][number] | undefined;
+    const addRunning = (presentation: AgentStatusPresentation, count: number) => {
+      running = { presentation, count: (running?.count ?? 0) + count };
     };
     let total = 0;
     let remainingDepth = 0;
@@ -41,13 +36,13 @@ export function summarizeSessionBranches<T extends {
       total += summary.total + 1;
       remainingDepth = Math.max(remainingDepth, summary.remainingDepth + 1);
       const presentation = child.item.presentation;
-      if (presentation && activeTones.some((tone) => tone === presentation.tone)) add(presentation, 1);
-      for (const state of summary.active) add(state.presentation, state.count);
+      if (presentation?.tone === 'running') addRunning(presentation, 1);
+      for (const state of summary.active) addRunning(state.presentation, state.count);
     }
     const summary = {
       total,
       remainingDepth,
-      active: [...active.values()],
+      active: running ? [running] : [],
     };
     summaries.set(node.item.id, summary);
     return summary;

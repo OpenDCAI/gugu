@@ -348,6 +348,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     return rows;
   }
 
+  /** The unpruned placement index also supplies projectEntries and every spliceJoined family. */
   get sessionBranchSummaries() {
     return summarizeSessionBranches(this.placement.nodeById.values());
   }
