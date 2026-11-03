@@ -99,7 +99,7 @@ export const TabBar = observer(function TabBar({
           />
         ) : null
       }
-      actionsSlot={returnConversation ? <>{returnConversation}{actionsSlot}</> : actionsSlot}
+      actionsSlot={returnConversation ? <div data-tabbar-actions="" className="flex h-full shrink-0 items-center">{returnConversation}{actionsSlot}</div> : actionsSlot}
       reserveShellRestoreLane={reserveShellRestoreLane}
       leadingReservePx={leadingReservePx}
       leadingSlot={leadingSlot}
