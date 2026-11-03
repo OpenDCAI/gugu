@@ -281,6 +281,7 @@ body[data-mode='preview'] .doc-info { width: 100%; max-width: calc(720px + 112px
 body[data-mode='edit'] .editor .cm-gutters { display: none; }
 body[data-mode='edit'] .editor .cm-content { max-width: 720px; margin-inline: auto; padding: 32px 40px 96px; box-sizing: border-box; }
 @media (max-width: 640px) { body[data-mode='edit'] .editor .cm-content { padding: 16px 18px 80px; } }
+@media (hover: hover) { body[data-mode='edit'] .editor .cm-content { padding-left: 40px; } }
 /* An empty document: where its reading would be, what can be done (write, or ask an agent for a draft). */
 .doc-empty { min-height: 0; overflow: auto; }
 .doc-empty .row { justify-content: center; margin-top: var(--em-spacing-sm); }

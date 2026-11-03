@@ -2218,6 +2218,7 @@ let handleFrame = null
 let handleTarget = null
 let handleHideTimer = null
 let blockPointerMenu = false
+let blockControlsListening = false
 
 function cancelBlockHandleHide() {
   clearTimeout(handleHideTimer)
@@ -2250,23 +2251,24 @@ function blockControlsEnabled() {
     && !current.previewPending && !touchPane?.matches && document.body.dataset.mode !== 'preview'
 }
 
-function syncBlockControls() {
+function syncBlockControls(reposition = false) {
   const enabled = blockControlsEnabled()
-  for (const id of ['preview', 'editor']) {
-    const root = $(id)
-    root.removeEventListener('pointermove', showBlockHandle)
-    root.removeEventListener('pointerenter', cancelBlockHandleHide)
-    root.removeEventListener('pointerleave', scheduleBlockHandleHide)
-    root.removeEventListener('scroll', hideBlockHandleOnScroll)
-    if (enabled) {
-      root.addEventListener('pointermove', showBlockHandle)
-      root.addEventListener('pointerenter', cancelBlockHandleHide)
-      root.addEventListener('pointerleave', scheduleBlockHandleHide)
-      root.addEventListener('scroll', hideBlockHandleOnScroll)
+  const changed = enabled !== blockControlsListening
+  if (changed) {
+    blockControlsListening = enabled
+    for (const id of ['preview', 'editor']) {
+      const root = $(id)
+      const bind = enabled ? root.addEventListener.bind(root) : root.removeEventListener.bind(root)
+      bind('pointermove', showBlockHandle)
+      bind('pointerenter', cancelBlockHandleHide)
+      bind('pointerleave', scheduleBlockHandleHide)
+      bind('scroll', hideBlockHandleOnScroll)
     }
   }
-  hideBlockHandle(true)
-  if (enabled && state.current.view.hasFocus) showBlockHandle({ editorView: state.current.view })
+  if (!enabled || changed || reposition) {
+    hideBlockHandle(true)
+    if (enabled && state.current.view.hasFocus) showBlockHandle({ editorView: state.current.view })
+  }
 }
 
 function hideBlockHandleOnScroll() {
@@ -2745,7 +2747,7 @@ function applyMode() {
   const mode = narrowPane?.matches && state.mode === 'split' ? 'preview' : state.mode
   document.body.dataset.mode = mode
   for (const m of ['edit', 'split', 'preview']) $(`mode-${m}`).setAttribute('aria-selected', String(m === mode))
-  syncBlockControls()
+  syncBlockControls(true)
 }
 
 // The page's one menu (#menu): file context menus and the open file's actions. At the pointer or control, above when there
