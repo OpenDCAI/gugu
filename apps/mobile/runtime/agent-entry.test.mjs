@@ -192,14 +192,14 @@ test('lost-parent shutdown has a deadline even when real host startup never sett
   assert.equal(cleared, 1)
 })
 
-function boundFixture(overrides = {}) {
+function boundFixture(overrides = {}, binding = {}) {
   const f = fixture(overrides), input = new EventEmitter(), output = new EventEmitter()
   const errors = [], timeouts = []
   let exits = 0
   input.close = () => input.emit('close')
   const bound = bindAgentEntry(f.entry, {
     input, output, onError: error => errors.push(error), onTimeout: error => timeouts.push(error),
-    onClosed: () => { exits++ },
+    onClosed: () => { exits++ }, ...binding,
   })
   return { f, input, bound, errors, timeouts, get exits() { return exits } }
 }
@@ -251,4 +251,41 @@ test('ordinary host commands and sign_out keep their existing handling without t
     assert.equal(b.exits, 0)
     assert.equal(b.f.bridgeCloses, 0)
   } finally { await b.bound.close() }
+})
+
+test('explicit stop preserves the native cleanup budget; a later lost parent still arms the existing deadline', async () => {
+  const cleanup = deferred(), scheduled = [], cleared = []
+  const b = boundFixture({ startPhoneAgentHost: async () => ({ close: () => cleanup.promise, handle: () => cleanup.promise }) }, {
+    timers: { setTimeout: (_callback, ms) => { scheduled.push(ms); return 0 }, clearTimeout: id => cleared.push(id) },
+  })
+  try {
+    b.input.emit('line', JSON.stringify({ type: 'host_start', ownerId: 'owner' }))
+    await tick()
+    b.input.emit('line', JSON.stringify({ type: 'host_stop', ownerId: 'owner' }))
+    await tick()
+    assert.deepEqual(scheduled, [], 'the live native parent retains its own cleanup deadline')
+    b.input.emit('close')
+    assert.deepEqual(scheduled, [5_000], 'actual EOF still bounds the same pending cleanup')
+    assert.equal(b.exits, 0)
+    cleanup.resolve()
+    await b.bound.close()
+    assert.equal(b.exits, 1)
+    assert.deepEqual(cleared, [0])
+  } finally { cleanup.resolve(); await b.bound.close() }
+})
+
+test('failed explicit stop reports the cleanup error before exiting without a second timeout', async () => {
+  const error = new Error('fixture host cleanup failed'), scheduled = []
+  const b = boundFixture({ startPhoneAgentHost: async () => ({ close: async () => {}, handle: async () => { throw error } }) }, {
+    timers: { setTimeout: (_callback, ms) => { scheduled.push(ms); return 1 }, clearTimeout: () => {} },
+  })
+  try {
+    b.input.emit('line', JSON.stringify({ type: 'host_start', ownerId: 'owner' }))
+    await tick()
+    b.input.emit('line', JSON.stringify({ type: 'host_stop', ownerId: 'owner' }))
+    await tick()
+    assert.deepEqual(b.errors, [error])
+    assert.equal(b.exits, 1)
+    assert.deepEqual(scheduled, [])
+  } finally { await b.bound.close().catch(() => undefined) }
 })
