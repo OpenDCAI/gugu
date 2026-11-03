@@ -16,7 +16,7 @@ const GROUP_TOOLS = [
 ]
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => { for (const close of cleanup.splice(0)) await close() })
-const text = (result: { content?: unknown }) => (result.content as Array<{ text?: string }>).map(item => item.text ?? '').join('\n')
+const text = (result: Record<string, unknown>) => (result.content as Array<{ text?: string }>).map(item => item.text ?? '').join('\n')
 
 /** This tests the SDK/schema/actor/receipt path; database ACLs have separate real-DB controls. */
 async function connect(options: { rejection?: string; kind?: string; forkOf?: string; receipt?: unknown } = {}) {

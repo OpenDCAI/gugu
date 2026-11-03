@@ -370,7 +370,7 @@ describe('listen_mode through the existing group tool and persisted authorizatio
     const room = await group(w.owner, 'Registered SQL listen', [[w.self, 'member'], [w.sibling, 'member']])
     const before = await mode(room, w.self)
     const h = await tools(w).connect()
-    const text = (response: { content?: unknown }) => (response.content as Array<{ text?: string }>).map(item => item.text ?? '').join('\n')
+    const text = (response: Record<string, unknown>) => (response.content as Array<{ text?: string }>).map(item => item.text ?? '').join('\n')
     try {
       const result = await h.client.callTool({ name: 'group_set_role', arguments: { chat_id: room, listen_mode: 'passive' } })
       expect(result.isError, text(result)).not.toBe(true)
