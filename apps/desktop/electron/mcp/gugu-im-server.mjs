@@ -19,6 +19,7 @@ import { saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
 import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '../../../../packages/core/src/shared/typedId.mjs'
 import { workspaceUploadKind } from '../../../../packages/core/src/shared/workspaceUpload.mjs'
 import { parseAttachmentContent } from '../../../../packages/core/src/shared/ui/attachmentModels'
+import { parseWidgetMessage } from '../../../../packages/core/src/shared/ui/widgetModels'
 import { attachmentFolderLine } from '../../../../packages/core/src/shared/attachmentFolderLine'
 import { AttachmentsError, commitAttachment, sendFileAsOwner, shareAttachment, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
 import { createGroupWithInvitations } from '../../../../packages/core/src/cloud/groupChat'
@@ -840,6 +841,27 @@ export async function extensionAttachmentOf(context, messageId, injected = {}) {
   // The message itself (#7290), old cards and new: the install reads it as the owner — its publisher is its sender (owner
   // 10-17), its bytes from attachments/urls — never from here, never a URL.
   return { message_id: String(message.id) }
+}
+
+/** A widget is one readable message in a chat this agent belongs to, just like an App attachment. */
+export async function widgetCheckScopeOf(context, messageId, injected = {}) {
+  const deps = createDeps(context, injected)
+  const unreadable = () => new Error(`app_check: there is no widget message ${messageId} you can read`)
+  if (typeof messageId !== 'string' || !UUID_RE.test(messageId)) throw unreadable()
+  const [message] = await deps.restGet(`messages?id=eq.${enc(messageId)}&select=id,chat_id,content,content_type,sender_user_id`)
+  if (!message || !(await agentCanSee(deps, message))) throw unreadable()
+  const members = await memberRowsOfMyChat(message.chat_id, deps)
+  if (!members.some((row) => String(row.user_id) === context.agentId)) throw unreadable()
+  const references = (message.content ?? '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+  if (references.length > 0 && references.length <= 4 && references.every(line => /^gugu-widget:\/\/\S+$/.test(line))) throw new Error('app_check: this message is a widget reference; pass its widget_id')
+  const widget = message.content_type === 'widget' ? parseWidgetMessage(message.content) : null
+  if (!widget) throw unreadable()
+  const { wid } = JSON.parse(message.content)
+  if (wid !== undefined && (typeof wid !== 'string' || !wid.length)) throw unreadable()
+  return {
+    tabKind: `${widget.app}.${widget.view}`, chatId: String(message.chat_id),
+    widget: { id: wid ?? String(message.id), messageId: String(message.id), senderId: String(message.sender_user_id), text: widget.text, data: widget.data ?? {}, ...(widget.height === undefined ? {} : { height: widget.height }) },
+  }
 }
 async function assertRecipientsAreMembers(chatId, toUserIds, deps) {
   if (!toUserIds || !toUserIds.length) return

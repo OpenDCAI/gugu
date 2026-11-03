@@ -26,6 +26,7 @@ import {
   reportBlockedNavigation,
   showAgentPageInTheme,
   shownTabWidth,
+  extensionPresentation,
   watchExtensionSurfaceErrors,
 } from './extension-bridge';
 import { ariaSnapshot, byDeadline, readTree, runSteps, type StepHost } from './extension-check-steps';
@@ -36,6 +37,9 @@ import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { isAllowedExtensionNavigation } from './extension-webview-security';
 import { readExtensionSkills } from '../../../../extension-session-mcp';
 import { extensionsService } from './extensions-root';
+import { phoneWidgetWidth } from '@gugu/core/shared/ui/messageBubbleLayout';
+import enMessaging from '../../../../../src/i18n/locales/en-US/messaging';
+import zhMessaging from '../../../../../src/i18n/locales/zh-CN/messaging';
 
 /** After it loaded and its file opened: done once nothing on the page changed for this long. */
 const QUIET_MS = 500;
@@ -94,12 +98,33 @@ export async function checkExtensionSurface(request: ExtensionCheckRequest): Pro
   /** Whether `error` is the page not answering (and from now on it is not asked again). */
   const heard = (error: unknown) => (silent ||= error instanceof Error && error.message === SILENT);
   const service = extensionsService();
-  const installed = service.get(request.extensionId);
-  const tab = installed.manifest.contributes.tabs.find((candidate) => candidate.name === request.tabName);
+  const kept = request.page === undefined ? null : keptPage(request.page, request);
+  const widget = kept?.widget ?? request.widget;
+  const installed = widget ? service.list().extensions.find((entry) => entry.manifest.id === request.extensionId) : service.get(request.extensionId);
+  const tab = installed?.manifest.contributes.tabs.find((candidate) => candidate.name === request.tabName);
+  if (widget) {
+    const { locale, themeMode } = extensionPresentation();
+    const platform = (kept?.size.touch ?? request.phone) ? 'phone' : 'desktop';
+    const reason = installed?.manifest.platforms && !installed.manifest.platforms.includes(platform) ? 'platform'
+      : !installed ? 'missing' : !service.isEnabled(request.extensionId) ? 'disabled' : !tab?.widget ? 'view' : null;
+    report.widget = { id: widget.id, message_id: widget.messageId, chat_id: kept?.chatId ?? request.chatId!, ...(installed ? { app_version: installed.manifest.version } : {}) };
+    report.locale = locale;
+    report.themeMode = themeMode;
+    report.note = 'Other machines may have a different App version or no copy installed.';
+    report.text = widget.text;
+    report.rendered = reason === null;
+    if (reason) {
+      report.reason = reason;
+      report.text += `\n${(locale.startsWith('zh') ? zhMessaging : enMessaging).message.widgetUnavailable[reason]}`;
+      report.elapsedMs = Date.now() - started;
+      return report;
+    }
+  }
+  if (!installed) throw new Error(`App "${request.extensionId}" is not installed`);
   if (!tab) throw new Error(`"${request.tabName}" is not a tab of App "${request.extensionId}"`);
   if (tab.hostPage) throw new Error('This App uses the host settings page; open it to review configuration and program status.');
-  const kept = request.page === undefined ? null : keptPage(request.page, request);
   const page = kept ?? openPage(request);
+  if (report.widget) report.widget.size = { w: page.size.width, h: page.size.height! };
   // What it said while no check ran (between this one and the last) is this one's.
   report.errors.push(...page.report.errors);
   report.console.push(...page.report.console);
@@ -129,6 +154,7 @@ export async function checkExtensionSurface(request: ExtensionCheckRequest): Pro
         workspace: request.sessionId ? sessionWorkspace(request.sessionId) : null,
         ...(request.filePath ? { filePath: request.filePath } : {}),
         operator: request.operator,
+        ...(widget ? { widget: { messageId: widget.messageId, data: widget.data, senderId: widget.senderId } } : {}),
       });
       const entry = tab.entry ?? installed.manifest.entry;
       if (!entry) throw new Error('This App tab has no HTML entry');
@@ -151,6 +177,7 @@ export async function checkExtensionSurface(request: ExtensionCheckRequest): Pro
       // Frames from here on, as on screen (#7126): what it draws by frames settles before it is read and pictured.
       try {
         await byDeadline(keepPainting(contents), Date.now() + EXTENSION_STEP_WAIT_MS, SILENT);
+        if (widget) await byDeadline(showAtSize(contents, page.size), Date.now() + EXTENSION_STEP_WAIT_MS, SILENT);
       } catch (error) {
         if (!heard(error)) {
           const message = `gugu could not keep the hidden page drawing, so what moves by frames may be pictured at its start: ${error instanceof Error ? error.message : String(error)}`;
@@ -244,7 +271,9 @@ export async function checkExtensionSurface(request: ExtensionCheckRequest): Pro
         }
         // What it looks like, for the agent to look at before it says the App is done: where the steps left it, or where
         // a page gone on with is now; a new page where it opens, light and dark — and on a phone too, if it goes there.
-        if (ran || kept) {
+        if (request.look === false) {
+          report.pictures = ran?.pictures;
+        } else if (ran || kept || widget) {
           const end = await pictureAtSize(ran ? 'the end, after the steps' : 'as it is now');
           report.pictures = [...(ran?.pictures ?? []), ...(end ? [end] : [])];
         } else if (!silent) {
@@ -346,6 +375,8 @@ interface CheckPage {
   closed: string | null;
   readonly extensionId: string;
   readonly tabName: string;
+  readonly widget?: ExtensionCheckRequest['widget'];
+  readonly chatId?: string;
   readonly win: BrowserWindow;
   /** Where it is shown, fixed when it opened: its steps and pictures are at this width and touch. */
   readonly size: PictureSize;
@@ -416,6 +447,7 @@ function keptPage(id: string, request: ExtensionCheckRequest): CheckPage {
   }
   const kind = `${page.extensionId}.${page.tabName}`;
   if (kind !== `${request.extensionId}.${request.tabName}`) throw new Error(`app_check: page "${id}" is a page of ${kind}`);
+  if (request.widget && request.widget.messageId !== page.widget?.messageId) throw new Error(`app_check: page "${id}" belongs to a different widget message`);
   if (page.busy) throw new Error(`app_check: page "${id}" is in a check now — go on once its answer is back`);
   return page;
 }
@@ -435,7 +467,10 @@ function openPage(request: ExtensionCheckRequest): CheckPage {
     networkHosts: service.grantedHosts(installed.manifest.id),
   });
   // Where it opens (owner 10-13): a group's panel, a phone, or a tab of the session as wide as it is shown there now.
-  const size = request.phone
+  const widgetHeight = installed.manifest.contributes.tabs.find((tab) => tab.name === request.tabName)?.widget?.height;
+  const size: PictureSize = request.widget
+    ? { width: request.phone ? phoneWidgetWidth() : 420, height: request.widget.height ?? widgetHeight!, touch: request.phone === true, says: 'the widget slot, in the current theme' }
+    : request.phone
     ? PHONE
     : request.chatId
       ? GROUP_PANEL
@@ -446,7 +481,7 @@ function openPage(request: ExtensionCheckRequest): CheckPage {
     // As big as where it opens: its pictures fit, and between checks — the emulated size goes with the debugger — it
     // stays laid out as it was.
     width: size.width,
-    height: PICTURE_MAX_HEIGHT,
+    height: size.height ?? PICTURE_MAX_HEIGHT,
     useContentSize: true,
     webPreferences: {
       partition: extensionPartition(installed.manifest.id),
@@ -472,6 +507,7 @@ function openPage(request: ExtensionCheckRequest): CheckPage {
     closed: null,
     extensionId: installed.manifest.id,
     tabName: request.tabName,
+    ...(request.widget ? { widget: request.widget, chatId: request.chatId } : {}),
     win,
     size,
     report: emptyReport(),

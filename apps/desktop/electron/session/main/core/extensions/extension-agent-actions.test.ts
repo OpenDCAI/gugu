@@ -931,6 +931,25 @@ describe('app_check', () => {
   const worker = { callerSessionId: 'session-1', callerAgent: async () => 'user:agent-1' };
   const asked = { caller: 'session-1', operator: { kind: 'agent', id: 'user:agent-1' } };
 
+  it('passes the checked widget binding and returns native unavailable metadata instead of throwing installation advice', async () => {
+    list.mockReturnValue({ extensions: [], invalid: [] });
+    const widget = { id: 'm1', messageId: 'm1', senderId: 'sender-1', text: 'Dinner', data: { poll: 'p1' } };
+    const metadata = { id: 'm1', message_id: 'm1', chat_id: 'chat-1' };
+    const checkSurface = vi.fn(async () => ({ ...clean, rendered: false, reason: 'missing' as const, text: 'Dinner\nApp is not installed.', widget: metadata }));
+    const result = await runExtensionAgentAction({ action: 'check', tab_kind: 'dinner-vote.main', chat_id: 'chat-1', widget, phone: true, look: false }, { checkSurface, ...worker });
+    expect(checkSurface).toHaveBeenCalledWith({ extensionId: 'dinner-vote', tabName: 'main', chatId: 'chat-1', widget, phone: true, look: false, timeoutMs: 15_000, ...asked });
+    expect(result).toMatchObject({ rendered: false, reason: 'missing', widget: metadata, text: 'Dinner\nApp is not installed.' });
+    expect(result).not.toHaveProperty('page');
+  });
+
+  it('h1 preserves message height when parsing and forwarding a widget check', async () => {
+    list.mockReturnValue({ extensions: [], invalid: [] });
+    const widget = { id: 'm1', messageId: 'm1', senderId: 'sender-1', text: 'Dinner', data: { poll: 'p1' }, height: 360 };
+    const checkSurface = vi.fn(async () => ({ ...clean, rendered: false, reason: 'missing' as const, text: 'Dinner\nApp is not installed.', widget: { id: 'm1', message_id: 'm1', chat_id: 'chat-1' } }));
+    await runExtensionAgentAction({ action: 'check', tab_kind: 'dinner-vote.main', chat_id: 'chat-1', widget }, { checkSurface, ...worker });
+    expect(checkSurface).toHaveBeenCalledWith(expect.objectContaining({ widget: expect.objectContaining({ height: 360 }) }));
+  });
+
   it('hands the host the tab and the context as asked, and says a clean run is ok', async () => {
     list.mockReturnValue({ extensions: [installed], invalid: [] });
     const checkSurface = vi.fn(async () => clean);
