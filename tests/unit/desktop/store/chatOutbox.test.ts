@@ -53,7 +53,7 @@ function deferred<T = void>() {
 }
 describe('chatOutbox 状态机', () => {
   it('retains an opted-in dependency waiter across retryable failure while ordinary callers still reject', async () => {
-    const deliver = vi.fn(async () => { throw new Error('offline') })
+    const deliver = vi.fn(async (): Promise<void> => { throw new Error('offline') })
     const h = harness(deliver)
     await h.outbox.enqueue(makeRecord('source'))
     const ordinary = h.outbox.delivered('source').catch(error => error)
