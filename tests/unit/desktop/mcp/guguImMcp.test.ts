@@ -2075,6 +2075,22 @@ describe('restRpc void/空 body 容忍 (#1216)', () => {
 })
 type DirectoryRow = { user_id: string; display_name: string; type: string | null; gugu_number: number | null; is_self: boolean }
 describe('message_members = 可寻址名录(spec ⑨)', () => {
+  test('disambiguates the full chat before filtering or pagination and matches exact serials', async () => {
+    const h = harness(['agent-1', 'codex-8-id', 'owner-1'])
+    h.deps.restGet = async () => [
+      { id: 'agent-1', display_name: 'Fix login', type: 'agent', name_serial: 9 },
+      { id: 'codex-8-id', display_name: 'Fix login', type: 'agent', name_serial: 93 },
+      { id: 'owner-1', display_name: 'Fix login', type: 'human', name_serial: null },
+      { id: 'outside', display_name: 'Fix login', type: 'agent', name_serial: 100 },
+    ]
+    const read = async (args: Record<string, unknown> = {}) => JSON.parse(await callTool('message_members', { chat_id: '00000000-0000-4000-8000-000000000001', ...args }, h.deps))
+    const all = await read({ name: 'Fix login' })
+    expect(all.items.map((row: DirectoryRow) => row.display_name)).toEqual(['Fix login', 'Fix login #9', 'Fix login #93'])
+    expect((await read({ name: 'Fix login #9' })).items.map((row: DirectoryRow) => row.user_id)).toEqual(['user:agent-1'])
+    expect((await read({ name: '#93', rows: '1' })).items.map((row: DirectoryRow) => row.user_id)).toEqual(['user:codex-8-id'])
+    expect((await read({ type: 'human' })).items[0].display_name).toBe('Fix login')
+  })
+
   function directoryHarness() {
     const h = harness(['agent-1', 'codex-8-id', 'owner-1'])
     const orig = h.deps.restGet

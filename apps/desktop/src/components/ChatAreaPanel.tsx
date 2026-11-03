@@ -24,6 +24,8 @@ import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { drainTopicSplitRequest, requestTopicSplit } from '../lib/topicSplitRequest'
 import { buildGroupRosterCandidates } from '../lib/mention'
+import { groupClashNames, topicClashNames, NO_CLASH_NAMES } from '../lib/chatClashNames'
+import { ChatClashNames } from './chat/ChatClashNames'
 import { topicMentionCandidates } from './chat/topicMentionModels'
 import { resolveGroupRunningIndicator } from '../lib/agentRunningStatusModels'
 import { groupRunningTokens, latestSpokeAt } from '../lib/groupRunningTokenModels'
@@ -406,30 +408,28 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     void toggleReaction(messageId, emoji).catch((error) => toast(t('message.actions.react'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))
   }, [toggleReaction, toast, t])
 
-  // Stable rowProps — only changes when underlying data does, so visible rows are
-  // not remounted on unrelated ChatAreaPanel re-renders.
   const groupAgentIds = useMemo(() => groupCollabSnapshot.agents.map((agent) => agent.id), [groupCollabSnapshot.agents])
+  const chatNameScope = useMemo(() => ({ chatId: activeChatId, names: mobile ? NO_CLASH_NAMES : groupClashNames(groupCollabSnapshot, identitiesById) }), [activeChatId, mobile, groupCollabSnapshot, identitiesById])
   // 主输入框能点名谁 = 这条线自己的名册。❌ 不许把来源线成员并进来 ——
   // 分栏开着时 activeChat **就是**来源线,并进去等于把 member_user_ids 原样灌进主线候选,
   // 而 buildGroupRosterCandidates 会滤掉 account_status==='removed' 的 agent、member_user_ids 不会 ⇒
   // 一开分栏,主线的 @ 候选里就多出已经被移除的 agent(找茬第十轮)。
   const composerGroupMembers = useMemo(
-    () => buildGroupRosterCandidates(groupCollabSnapshot, identitiesById),
-    [groupCollabSnapshot, identitiesById],
+    () => buildGroupRosterCandidates(groupCollabSnapshot, identitiesById, chatNameScope.names),
+    [groupCollabSnapshot, identitiesById, chatNameScope],
   )
-  // 分栏那一份要宽一档:话题里能点名的人 = 话题现有成员 ∪ **来源线**的成员(spec:被 @ 就是被拉进来)。
-  // 私聊线投影里没有 member_user_ids,退到对端。话题自己的成员也并进来(3a,见 topicMentionCandidates)。
+  // Topic addressing includes its source chat; display clashes use only actual topic members.
   const splitTopicMemberIds = useMemo(
     () => (splitTopicChatId ? chats.find((chat) => chat.id === splitTopicChatId)?.member_user_ids : undefined),
     [chats, splitTopicChatId],
   )
   const splitMentionMembers = useMemo(() => {
     if (!topicSplitOpen || !activeChat) return composerGroupMembers
-    return topicMentionCandidates(composerGroupMembers,
-      activeChat.member_user_ids ?? (activeChat.peer_user_id ? [activeChat.peer_user_id] : []), splitTopicMemberIds, identitiesById)
-  }, [composerGroupMembers, identitiesById, activeChat, topicSplitOpen, splitTopicMemberIds])
-  // @@@group-presence-batched - One refcounted store subscription per agent in the panel; the dot in chat header,
-  // group collab panel and member profile cards reads the same fused status at the same moment.
+    const candidates = topicMentionCandidates(composerGroupMembers.map(member => ({ ...member, name: identitiesById[member.id]?.display_name ?? member.name })), activeChat.member_user_ids ?? (activeChat.peer_user_id ? [activeChat.peer_user_id] : []), splitTopicMemberIds, identitiesById)
+    const names = mobile || !splitTopicMemberIds ? NO_CLASH_NAMES : topicClashNames(splitTopicMemberIds, identitiesById)
+    return candidates.map(member => ({ ...member, name: names.get(member.id) ?? member.name, rawName: names.has(member.id) ? identitiesById[member.id]?.display_name : undefined }))
+  }, [composerGroupMembers, identitiesById, activeChat, topicSplitOpen, splitTopicMemberIds, mobile])
+  // One presence subscription per agent drives headers, roster and profile cards.
   const groupAgentStatuses = useAgentDisplayStatuses(groupAgentIds)
   const shownAgent = useShownAgentStatus() // #7199 画头像 / 状态字用的那一份;在跑、提醒照旧读原读数
   const groupAgentRecentActivity = useAgentRecentActivity(groupAgentIds)
@@ -655,7 +655,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   )
 
   return (
-    <div ref={surfaceElement} data-chat-surface={activeChatId}
+    <ChatClashNames.Provider value={chatNameScope}><div ref={surfaceElement} data-chat-surface={activeChatId}
       style={{
         flex: 1,
         // #1312 兜底: minWidth:0 让 ChatAreaPanel 能收缩到 flex basis 以下，避免内部右侧面板(工作区/历史,
@@ -978,6 +978,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
           onClose={() => setForwardMessages([])}
         />
       ) : null}
-    </div>
+    </div></ChatClashNames.Provider>
   )
 }

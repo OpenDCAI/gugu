@@ -137,4 +137,27 @@ describe('participant mention presentation', () => {
     expect(pill.textContent).toBe('@codeX1')
     expect(pill.querySelector('button'), 'participant mentions must not expose a file remove button').toBeNull()
   })
+
+  it('renders a live clash annotation without serializing it into an id mention', async () => {
+    let serialized = ''
+    const render = (suffix?: string) => root!.render(<MessageProvider locale="en-US" translate={translateSessionMessage}>
+      <ChatComposer editorOptions={{ inputTestId: 'clash-mention-editor' }} onSubmit={() => {}}
+        onInputChange={value => { serialized = value }} mentionProvider={{
+          search: async () => [{ id: 'peer', label: 'aid:peer', name: 'Same', kind: 'custom', role: 'agent', annotation: suffix, optionLabel: <span>Same {suffix}</span> }],
+          resolve: () => ({ id: 'peer', label: 'aid:peer', name: 'Same', kind: 'custom', role: 'agent', annotation: suffix }),
+        }} />
+    </MessageProvider>)
+    render('#93')
+    const input = page.getByTestId('clash-mention-editor')
+    await input.click()
+    await userEvent.keyboard('@Same')
+    const option = page.getByRole('option', { name: /Same #93/ })
+    await until('suffixed peer is available', () => option.elements().length === 1)
+    await option.click()
+    await until('clash annotation is shown', () => input.element().querySelector('[data-mention-id="peer"]')?.textContent === '@Same#93')
+    expect(serialized).toBe('@[Same](aid:peer) ')
+    render()
+    await until('resolved clash annotation disappears', () => input.element().querySelector('[data-mention-id="peer"]')?.textContent === '@Same')
+    expect(serialized).toBe('@[Same](aid:peer) ')
+  })
 })
