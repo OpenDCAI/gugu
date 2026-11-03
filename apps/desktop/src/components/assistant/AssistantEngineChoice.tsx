@@ -5,10 +5,11 @@ import { AgentAvatar } from '../agentAvatar/AgentAvatar'
 import { Button } from '../ui/Button'
 import { AgentDetailModal } from '@/session/renderer/features/settings/agents-page/AgentDetailModal'
 
-export function AssistantEngineChoice({ name, draftAvatar, engine, onChange, onContinue, onBack }: {
+export function AssistantEngineChoice({ name, draftAvatar, engine, error, onChange, onContinue, onBack }: {
   name: string
   draftAvatar: string
   engine: AssistantEngine
+  error: string | null
   onChange: (engine: AssistantEngine) => void
   onContinue: () => void
   onBack: () => void
@@ -28,6 +29,7 @@ export function AssistantEngineChoice({ name, draftAvatar, engine, onChange, onC
     <Button variant="ghost" onClick={() => setConfiguring(true)} data-testid="assistant-setup-engine-settings">
       {t('setup.engineSettings', { engine: engine === 'claude' ? 'Claude' : 'Codex' })}
     </Button>
+    {error ? <p className="ta-onb-error" role="alert" data-testid="assistant-setup-error">{t('setup.failed')}</p> : null}
     <div className="ta-onb-actions">
       <Button variant="secondary" size="lg" className="rounded-full" onClick={onBack}>{t('setup.back')}</Button>
       <Button variant="primary" size="lg" className="rounded-full" onClick={onContinue} data-testid="assistant-setup-engine-continue">{t('setup.homeComputerAction')}</Button>

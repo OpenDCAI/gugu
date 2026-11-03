@@ -2,11 +2,13 @@
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { ProvisionResumeRecord } from '@/lib/agentProvision'
+import type { AssistantEngine } from '@/lib/assistantHomeIpc'
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 const f = vi.hoisted(() => ({
-  setup: vi.fn<(draft: unknown, device: string, options: { signal?: AbortSignal; onInstalling?: () => void }) => Promise<unknown>>(),
+  setup: vi.fn<(draft: unknown, device: string, options: { engine?: AssistantEngine; signal?: AbortSignal; onInstalling?: () => void }) => Promise<unknown>>(),
   pending: vi.fn(), resume: vi.fn(), writeStep: vi.fn(),
   SetupError: class extends Error {
     constructor(readonly kind: string, message: string) { super(message) }
@@ -17,6 +19,7 @@ vi.mock('@/components/agentAvatar/AgentAvatar', () => ({ AgentAvatar: () => null
 vi.mock('@/components/assistant/AssistantSetupIdentity', () => ({ AssistantSetupIdentity: ({ onContinue }: { onContinue: () => void }) => createElement('button', { onClick: onContinue }, 'continue') }))
 vi.mock('@/components/assistant/AssistantIntro', () => ({ AssistantIntro: () => null }))
 vi.mock('@/components/assistant/AssistantServerSetup', () => ({ AssistantServerSetup: () => null }))
+vi.mock('@/session/renderer/features/settings/agents-page/AgentDetailModal', () => ({ AgentDetailModal: () => null }))
 vi.mock('@/lib/assistantServerSetup', () => ({ pendingServerAssistant: () => null }))
 vi.mock('@/components/settings/CloudComputerSection', () => ({ CloudComputerProvisionPanel: () => null, CloudComputerRefusal: () => null }))
 vi.mock('@/lib/assistantSetup', () => ({ setUpAssistantOnThisComputer: f.setup, pendingLocalAssistant: f.pending, resumeLocalAssistant: f.resume,
@@ -46,6 +49,24 @@ async function render() {
     ownerUserId: 'owner', ownerName: 'Owner', snapshot: null, device: null, cloudAvailable: false, localDeviceId: 'local',
   }))))
 }
+function pendingRecord(operationId: string, agentType = 'claude-code'): ProvisionResumeRecord {
+  const provisionId = `provision-${operationId}`
+  return {
+    version: 2, ownerUserId: 'owner', operationId, deviceId: 'local',
+    blueprint: { kind: 'single', concurrency_limit: 1, locale: 'zh-CN', members: [{
+      provision_id: provisionId, member_key: 'assistant', display_name: '咕咕', agent_type: agentType,
+      inherit_memory: false, history_import_required: false,
+    }] },
+    members: [{ provisionId, memberKey: 'assistant' }],
+  }
+}
+async function startLocalSetup(engine: AssistantEngine = 'claude') {
+  await click(container.querySelector('button'))
+  await click(container.querySelector('[data-testid="assistant-setup-install-here"]'))
+  await click(container.querySelector(`[data-testid="assistant-setup-engine-${engine}"]`))
+  expect(f.setup).not.toHaveBeenCalled()
+  await click(container.querySelector('[data-testid="assistant-setup-engine-continue"]'))
+}
 
 it('restores Back for a fresh preparation after a previous installation failed', async () => {
   f.setup.mockImplementationOnce(async (_draft, _device, options) => { options.onInstalling?.(); throw new Error('Write failed') })
@@ -53,16 +74,17 @@ it('restores Back for a fresh preparation after a previous installation failed',
     options.signal!.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')), { once: true })
   }))
   await render()
-  await click(container.querySelector('button'))
-  await click(container.querySelector('[data-testid="assistant-setup-install-here"]'))
+  await startLocalSetup('codex')
+  expect(f.setup).toHaveBeenCalledWith(expect.anything(), 'local', expect.objectContaining({ engine: 'codex' }))
   expect(container.querySelector('[data-testid="assistant-setup-return"]')).toBeNull()
   await click([...container.querySelectorAll('button')].find(button => button.textContent === 'setup.retry') ?? null)
   await click(container.querySelector('[data-testid="assistant-setup-return"]'))
-  expect(container.querySelector('[data-testid="assistant-setup-install-here"]')).not.toBeNull()
+  expect(container.querySelector('[data-testid="assistant-setup-engine-continue"]')).not.toBeNull()
+  expect(container.querySelector('[data-testid="assistant-setup-engine-codex"]')?.getAttribute('aria-pressed')).toBe('true')
 })
 
 it('keeps Back unavailable while resuming an already committed installation', async () => {
-  f.pending.mockReturnValue({ operationId: 'existing' })
+  f.pending.mockReturnValue(pendingRecord('existing'))
   f.resume.mockImplementationOnce(() => new Promise(() => {}))
   await render()
   expect(f.resume).toHaveBeenCalledOnce()
@@ -70,7 +92,7 @@ it('keeps Back unavailable while resuming an already committed installation', as
 })
 
 it('offers a new setup only after recovery confirms the old operation ended', async () => {
-  f.pending.mockReturnValue({ operationId: 'old' })
+  f.pending.mockReturnValue(pendingRecord('old', 'codex'))
   f.resume.mockImplementationOnce(async () => {
     f.pending.mockReturnValue(null)
     throw new f.SetupError('cancelled', 'old operation is terminal')
@@ -81,11 +103,12 @@ it('offers a new setup only after recovery confirms the old operation ended', as
   expect(container.querySelector('[role="alert"]')?.textContent).toBe('setup.ended')
   await click([...container.querySelectorAll('button')].find(button => button.textContent === 'setup.startNew') ?? null)
   expect(f.setup).toHaveBeenCalledOnce()
+  expect(f.setup).toHaveBeenCalledWith(expect.anything(), 'local', expect.objectContaining({ engine: 'codex' }))
   expect(f.resume).toHaveBeenCalledOnce()
 })
 
 it('keeps retrying the same recovery when cancellation has not reached its terminal', async () => {
-  const pending = { operationId: 'old' }
+  const pending = pendingRecord('old')
   f.pending.mockReturnValue(pending)
   f.resume.mockRejectedValue(new Error('cleanup still in progress'))
   await render()
@@ -99,24 +122,23 @@ it('keeps a committed startup failure on its setup page and advances only after 
   f.setup.mockImplementationOnce(async (_draft, _device, options) => {
     options.onInstalling?.()
     expect(f.writeStep).toHaveBeenLastCalledWith('owner', 'shell')
-    f.pending.mockReturnValue({ operationId: 'same-operation' })
+    f.pending.mockReturnValue(pendingRecord('same-operation'))
     throw new Error('CLI startup refused')
   })
   f.resume.mockResolvedValueOnce({ agentUserId: 'same-agent' })
   await render()
-  await click(container.querySelector('button'))
-  await click(container.querySelector('[data-testid="assistant-setup-install-here"]'))
+  await startLocalSetup()
   expect(container.querySelector('[role="alert"]')?.textContent).toBe('setup.failed')
   expect(f.writeStep).toHaveBeenLastCalledWith('owner', 'shell')
   expect(f.writeStep.mock.calls).not.toContainEqual(['owner', 'connect'])
   await click([...container.querySelectorAll('button')].find(button => button.textContent === 'setup.retry') ?? null)
-  expect(f.resume).toHaveBeenCalledWith({ operationId: 'same-operation' })
+  expect(f.resume).toHaveBeenCalledWith(pendingRecord('same-operation'))
   expect(f.setup).toHaveBeenCalledOnce()
   expect(f.writeStep).toHaveBeenLastCalledWith('owner', 'connect')
 })
 
 it('keeps interrupted setup in shell until its resumed startup actually completes', async () => {
-  f.pending.mockReturnValue({ operationId: 'interrupted' })
+  f.pending.mockReturnValue(pendingRecord('interrupted'))
   let finish!: () => void
   f.resume.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
   await render()
@@ -131,12 +153,11 @@ it.each([false, true])('shows a localized retry message for launcher errors (ins
     throw new Error("EEXIST: file already exists, link 'C:\\private\\prepared\\claude.cmd' -> 'C:\\private\\bin\\claude.cmd'")
   })
   await render()
-  await click(container.querySelector('button'))
-  await click(container.querySelector('[data-testid="assistant-setup-install-here"]'))
+  await startLocalSetup()
   expect(container.querySelector('[role="alert"]')?.textContent).toBe('setup.failed')
   expect(container.textContent).not.toContain('EEXIST')
   expect(container.textContent).not.toContain('private')
   expect(started
     ? [...container.querySelectorAll('button')].some(button => button.textContent === 'setup.retry')
-    : container.querySelector('[data-testid="assistant-setup-install-here"]') !== null).toBe(true)
+    : container.querySelector('[data-testid="assistant-setup-engine-continue"]') !== null).toBe(true)
 })

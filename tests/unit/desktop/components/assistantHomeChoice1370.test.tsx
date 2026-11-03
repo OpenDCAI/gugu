@@ -88,7 +88,7 @@ it('does not present a disabled cloud service as a membership restriction', asyn
 
 it('selects a local engine without starting setup until confirmed', async () => {
   const onChange = vi.fn(), onContinue = vi.fn(), onBack = vi.fn()
-  const props = { name: '咕咕', draftAvatar: '', engine: 'claude' as const, onChange, onContinue, onBack }
+  const props = { name: '咕咕', draftAvatar: '', engine: 'claude' as const, error: null, onChange, onContinue, onBack }
   await harness.render(createElement(AssistantEngineChoice, props))
   expect(query('assistant-setup-engine-claude')?.getAttribute('aria-pressed')).toBe('true')
   await click('assistant-setup-engine-codex')

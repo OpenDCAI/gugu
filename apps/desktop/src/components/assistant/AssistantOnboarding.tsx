@@ -279,7 +279,7 @@ export function AssistantOnboarding({
           <AssistantServerSetup key={ownerUserId} ownerUserId={ownerUserId} name={displayName} createDraft={setupDraft} onBack={() => setStep('home')}
             onAddServer={() => saveAssistantOnboardingNavigation(ownerUserId, draft)} />
         ) : step === 'engine' ? (
-          <AssistantEngineChoice name={displayName} draftAvatar={draftAvatarUrl(draft)} engine={engine} onChange={setEngine}
+          <AssistantEngineChoice name={displayName} draftAvatar={draftAvatarUrl(draft)} engine={engine} error={error} onChange={setEngine}
             onContinue={() => void installHere()} onBack={() => setStep('home')} />
         ) : memberError ? (
           <>
