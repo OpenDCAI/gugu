@@ -26,6 +26,7 @@ import { InlineAction } from './settings/addServer/InlineAction'
 import { CommandBlock } from './settings/addServer/CommandBlock'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { useToast } from './toastContext'
+import { messageForUser } from '@/lib/userFacingError'
 
 // #6264 远程 SSH 的机器:这台电脑与它之间只走 SSH(product spec「两种连法，处处能用」)。
 // 连不上时 ❌ 退回咕咕云,各个模块照常报「问不到」;「怎么修」只在这一处说 —— 一张浮在窗口顶部中间的卡片
@@ -109,13 +110,18 @@ export function SshLinkSignIn() {
     })
   }
   // Keep the SSH upgrader; restartable cloud targets use the device row's explicit confirmation.
-  const restartNow = () => {
+  const restartNow = async () => {
     const deviceId = shown.deviceId
-    if (isSshMachine(deviceId)) void requestSshServerUpgrade(deviceId, { force: true, now: true })
-    else if (confirmableUpdate && tunnelWaiting) void restartServerVersionNow(deviceId, confirmableUpdate.version, serverSupportsConfirmedRestart(tunnelWaiting.capabilities))
-    else void retryServerVersionMatch(deviceId)
     setConfirmRestart(null)
-    setDismissed((prev) => new Map(prev).set(deviceId, 'waitingIdle'))
+    const failed = (error?: unknown) => toast(t('devices.update.restartFailed', { name: shown.name }), 'error', error ? messageForUser(error) : undefined)
+    try {
+      let requested = true
+      if (isSshMachine(deviceId)) await requestSshServerUpgrade(deviceId, { force: true, now: true })
+      else if (confirmableUpdate && tunnelWaiting) requested = (await restartServerVersionNow(deviceId, confirmableUpdate.version, serverSupportsConfirmedRestart(tunnelWaiting.capabilities))).requested
+      else requested = await retryServerVersionMatch(deviceId)
+      if (!requested) { failed(); return }
+      setDismissed((prev) => new Map(prev).set(deviceId, 'waitingIdle'))
+    } catch (error) { failed(error) }
   }
   const activePrompt = prompt && prompt.deviceId === shown.deviceId ? prompt.prompt : null
   const canSignIn = shown.reason === 'signInRequired' || shown.reason === 'hostKeyChanged'

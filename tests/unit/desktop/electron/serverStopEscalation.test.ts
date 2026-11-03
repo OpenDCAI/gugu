@@ -14,6 +14,12 @@ vi.mock('../../../../apps/desktop/electron/server/process-alive', async original
   isProcessAlive: () => state.alive,
 }))
 vi.mock('../../../../apps/desktop/electron/server/server-electron-shim', () => ({ default: {} }))
+// Package identity is unrelated to CLI exit ordering; retain the real logout and lock handling.
+vi.mock('../../../../apps/desktop/electron/server/server-package-environment.mts', async original => ({
+  ...await original<typeof import('../../../../apps/desktop/electron/server/server-package-environment.mts')>(),
+  ownPackageIdentity: () => ({ schema: 1, backendUrl: 'https://fixture.invalid', channel: 'beta' }),
+  assertRuntimeBackend: vi.fn(), prepareInstallation: vi.fn(),
+}))
 vi.mock('../../../../apps/desktop/electron/server/server-service', async original => ({
   ...await original<typeof import('../../../../apps/desktop/electron/server/server-service')>(),
   readRunningServer: () => state.managed ? { pid: 123456, version: '1.0.0', supervisedBy: 'systemd' } : null,

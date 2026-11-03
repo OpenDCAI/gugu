@@ -429,7 +429,7 @@ describe('桌面那一头:SshTarget、设备连接参数', () => {
 
   it('经远程隧道的设备连接 ❌ 带 --adopt-ssh(那会把它记成远程 SSH)', () => {
     const target = { destination: 'gugu@127.0.0.1', port: 5022, display: 'L' }
-    expect(sshLinkArgs(target, { controlPath: null, accountUserId: 'u1', adoptSsh: false }).at(-1)).toBe('exec ~/.local/bin/gugu-server link')
+    expect(sshLinkArgs(target, { controlPath: null, accountUserId: 'u1', adoptSsh: false }).at(-1)).toBe('exec ~/.local/bin/gugu-server link --account u1')
     expect(sshLinkArgs(target, { controlPath: null, accountUserId: 'u1' }).at(-1)).toBe('exec ~/.local/bin/gugu-server link --account u1 --adopt-ssh')
   })
 

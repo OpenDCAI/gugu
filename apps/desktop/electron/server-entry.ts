@@ -118,6 +118,12 @@ function lockHolder(dataDir: string): number | null {
 }
 
 async function stopServerProcess(pid: number, graceMs: number): Promise<void> {
+  const { readRunningServer, stopSystemdService } = await import('./server/server-service')
+  if (readRunningServer()?.supervisedBy === 'systemd') {
+    stopSystemdService()
+    if (!(await waitForPidExit(pid, graceMs))) throw new Error(`systemd 未能停止 server 进程 ${pid}`)
+    return
+  }
   const { signalProcessDescendantsSync } = await import('@gugu/session-core/acp/node')
   try { process.kill(pid, 'SIGTERM') }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') return; throw error }
@@ -254,8 +260,12 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       fs.rmSync(path.join(target.dataDir, 'server-session.enc'), { force: true })
       writeSignedOutMark(target.dataDir, 'logout')
       const pid = lockHolder(target.dataDir)
-      if (pid) try { process.kill(pid, 'SIGTERM') } catch { /* Already stopped. */ }
-      out(`已退出 ${target.email ?? target.userId}。server 已请求停止;账号数据保留。`)
+      if (pid) {
+        try { process.kill(pid, 'SIGTERM') }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error }
+        if (!(await waitForPidExit(pid, 45_000))) throw new Error(`server 进程 ${pid} 尚未退出，退出登录未完成。`)
+      }
+      out(`已退出 ${target.email ?? target.userId}。server 已停止;账号数据保留。`)
       return process.exit(0)
     }
     case 'status': {

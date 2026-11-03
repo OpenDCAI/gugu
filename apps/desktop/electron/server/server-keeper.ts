@@ -18,7 +18,7 @@
  * 开销:守护进程活着时看门人阻塞在 wait 上,零轮询;只有「接手一个已在跑的守护进程」那一段每 10 秒读一次
  * /proc/<pid>/stat(一次 sed,微秒级)。
  */
-import { spawn } from '@gugu/core/local/childProcess'
+import { execFileSync } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -88,14 +88,20 @@ export function startKeeper(input: {
   fs.rmSync(stopFlagFile(input.home), { force: true })
   const fd = fs.openSync(input.logFile, 'a')
   try {
-    const child = spawn('/bin/sh', ['-c', keeperScript(input.home, input)], {
-      detached: true,
-      stdio: ['ignore', fd, fd],
+    // The short-lived parent exits before returning the actual keeper PID. Its detached
+    // child is then outside the server's descendant tree, including during crash cleanup.
+    const pid = Number(execFileSync(process.execPath, ['-e', `
+      const child = require('node:child_process').spawn('/bin/sh', ['-c', process.argv[1]], {
+        detached: true, stdio: ['ignore', 2, 2],
+      });
+      child.on('error', error => { process.stderr.write(error.message); process.exitCode = 1; });
+      child.unref();
+      process.stdout.write(String(child.pid ?? ''));
+    `, keeperScript(input.home, input)], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', fd],
       env: { ...(input.env ?? process.env), GUGU_SERVER_SUPERVISED: '' },
-    })
-    child.on('error', () => undefined)
-    child.unref()
-    return child.pid
+    }).trim())
+    return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined
   } finally {
     fs.closeSync(fd)
   }

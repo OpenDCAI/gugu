@@ -213,6 +213,13 @@ export function restartServerAfterLogin(out: Out): void {
   else out('Server start requested. Run gugu-server status to check its PID and version.')
 }
 
+/** A manager-owned stop must inhibit its restart policy, including TERM escalation. */
+export function stopSystemdService(): void {
+  if (!reachSystemdUserSession()) throw new Error('无法连接 systemd 用户会话，server 尚未停止。')
+  const result = tryRun('systemctl', ['--user', 'stop', names().systemdUnit])
+  if (!result.ok) throw new Error(`systemd 停止 server 失败:${result.out}`)
+}
+
 function lingerEnabled(user: string): boolean {
   const r = tryRun('loginctl', ['show-user', user, '-p', 'Linger', '--value'])
   return r.ok && r.out === 'yes'
@@ -444,6 +451,8 @@ export type InstallServiceDeps = {
   requireIdle?: boolean
   /** 让在跑的那个正常退出(SIGTERM:收子进程、放锁)。 */
   stop: (pid: number) => void
+  /** Ask the existing manager to restart through the server's exit-75 path. */
+  restart: (pid: number) => void
   /** 马上要把在跑的旧版本换下来(重新执行安装命令 = 现在就升级):请升级看门狗盯着,新版本站不稳就退回去。 */
   beforeReplace?: (before: RunningServer) => void
   registerSystemd: (out: Out) => void
@@ -470,6 +479,7 @@ const expectedSupervisor = (mode: ServiceMode): RunningServer['supervisedBy'] =>
  */
 export async function installServiceWith(out: Out, deps: InstallServiceDeps): Promise<boolean> {
   const { mode, targetVersion } = deps
+  const deadline = deps.now() + CONFIRM_TIMEOUT_MS
   const before = deps.running()
   const label = (version: string | null) => (version ? `咕咕 server ${version}` : '咕咕 server')
   const accountsReady = (running: RunningServer): boolean => !running.managedCloud || !targetVersion || deps.accountsMatchPackage?.(targetVersion) === true
@@ -493,6 +503,18 @@ export async function installServiceWith(out: Out, deps: InstallServiceDeps): Pr
 
     if (before && targetVersion && before.version && before.version !== targetVersion && mode !== 'systemdUnreachable') {
       deps.beforeReplace?.(before)
+    }
+    // A same-owner restart already waits for its old process. A takeover has no such
+    // ordering: release the old lock before the manager makes its first start attempt.
+    if (before && (mode === 'systemd' || mode === 'launchd') && before.supervisedBy !== expectedSupervisor(mode)) {
+      deps.stop(before.pid)
+      while (deps.isAlive(before.pid) || deps.running() !== null) {
+        if (deps.now() >= deadline) {
+          out(`⚠ 旧的 ${label(before.version)}(进程 ${before.pid})没有退出或释放锁。请执行 gugu-server stop,再执行 gugu-server service install。`)
+          return false
+        }
+        await deps.sleep(CONFIRM_POLL_MS)
+      }
     }
     switch (mode) {
       case 'systemd':
@@ -520,15 +542,11 @@ export async function installServiceWith(out: Out, deps: InstallServiceDeps): Pr
         out('当前 shell 连不上 systemd 用户会话,改由 systemd 以新版本重启。')
         // 旧的那个不归 systemd 管(以前兜底起的):照兜底的办法自己接上。
         if (before.supervisedBy === 'none') deps.startDetached(before.pid)
-        deps.stop(before.pid)
+        deps.restart(before.pid)
         break
       }
     }
-    // 管理器重启完旧进程还在 = 它不归这个管理器管(以前兜底起的、手动起的):停掉它,管理器那一份会接上。
-    if (before && (mode === 'systemd' || mode === 'launchd') && deps.isAlive(before.pid)) deps.stop(before.pid)
-
   }
-  const deadline = deps.now() + CONFIRM_TIMEOUT_MS
   let now: RunningServer | null = null
   for (;;) {
     now = deps.running()
@@ -576,6 +594,10 @@ export async function installService(out: Out): Promise<boolean> {
       } catch {
         // 已经退出了
       }
+    },
+    restart: (pid) => {
+      try { process.kill(pid, 'SIGUSR2') }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error }
     },
     beforeReplace: (before) => guardReplacement(home, before, process.env.GUGU_TASK_HOST_VERSION ?? null),
     registerSystemd: (o) => registerSystemd(o, executable, home),

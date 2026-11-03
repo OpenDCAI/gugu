@@ -6563,6 +6563,7 @@ app.whenReady().then(async () => {
       if (activityStopped || signalStopping) return
       if (isSingleServerRun() && ownsHomeLock(process.env.GUGU_SERVER_HOME!) === false) {
         createLogger('server').error('Installation lock ownership was lost; stopping this server.')
+        killEnginesOnCrash('lock-lost')
         process.exit(EXIT_CONFIG)
       }
       const activity = loadEmdashBridge()?.sessionpageVersionSwitchActivity?.()

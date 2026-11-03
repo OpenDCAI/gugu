@@ -166,6 +166,7 @@ function fakeMachine(options: {
     isAlive: (pid) => procs.some((p) => p.pid === pid && p.alive),
     isBusy: () => options.busy ?? false,
     stop,
+    restart: (pid) => { calls.push(`restart ${pid}`); stopping.set(pid, options.stopTicks ?? 2) },
     registerSystemd: (out) => {
       calls.push('systemd restart')
       managerWants = true
@@ -268,7 +269,7 @@ describe('service install:结束时在跑的就是这一版', () => {
   it('systemd 可用了,但在跑的是以前兜底起的那个:停掉它,systemd 那一份接上(❌ 两份抢锁)', async () => {
     const m = fakeMachine({ mode: 'systemd', old: { version: '0.2.111', supervisedBy: 'none' }, current: '0.2.112' })
     expect(await installServiceWith(m.out, m.deps)).toBe(true)
-    expect(m.calls).toEqual(['systemd restart', 'stop 100'])
+    expect(m.calls).toEqual(['stop 100', 'systemd restart'])
     expect(m.running()).toMatchObject({ version: '0.2.112', supervisedBy: 'systemd' })
   })
 
@@ -276,14 +277,14 @@ describe('service install:结束时在跑的就是这一版', () => {
     const m = fakeMachine({ mode: 'launchd', old: { version: '0.2.111', supervisedBy: 'unknown' }, current: '0.2.112' })
     // macOS 读不到别的进程的环境:托管方 unknown,旧的不归 launchd 管时同样被停掉、由 KeepAlive 接上
     expect(await installServiceWith(m.out, m.deps)).toBe(true)
-    expect(m.calls[0]).toBe('launchd bootstrap')
+    expect(m.calls[0]).toBe('stop 100')
     expect(m.running()?.version).toBe('0.2.112')
   })
 
   it('注册过 systemd 用户服务、当前 shell 连不上(su / docker exec):停掉旧的让 systemd 按新版本拉起,❌ 另起一份、❌ 写 crontab', async () => {
     const m = fakeMachine({ mode: 'systemdUnreachable', old: { version: '0.2.111', supervisedBy: 'systemd' }, current: '0.2.112' })
     expect(await installServiceWith(m.out, m.deps)).toBe(true)
-    expect(m.calls).toEqual(['stop 100'])
+    expect(m.calls).toEqual(['restart 100'])
     expect(m.running()).toMatchObject({ version: '0.2.112', supervisedBy: 'systemd' })
     expect(m.lines.join('\n')).toContain('改由 systemd 以新版本重启')
   })

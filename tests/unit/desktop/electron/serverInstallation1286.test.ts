@@ -161,7 +161,7 @@ describe('installation backend and package ownership', () => {
     expect(readPendingVerify(home)?.from).toBe('1.0.0')
     let clock = 0
     const started = await installServiceWith(() => {}, { mode: 'systemd', targetVersion: '3.0.0', running: () => null,
-      isAlive: () => false, isBusy: () => false, requireIdle: true, stop: vi.fn(),
+      isAlive: () => false, isBusy: () => false, requireIdle: true, stop: vi.fn(), restart: vi.fn(),
       registerSystemd: vi.fn(), registerLaunchd: vi.fn(), registerCron: () => true, startDetached: vi.fn(),
       logHint: 'isolated test', user: 'test', sleep: async ms => { clock += ms }, now: () => clock })
     expect(started).toBe(false)

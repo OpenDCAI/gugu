@@ -350,7 +350,7 @@ export function startServerUpdater(deps: ServerUpdaterDeps): ServerUpdater {
       runtime.shutdown()
     } catch (error) {
       if (stopped || request !== received) return
-      if (!resolved && idlePoll && record?.state === 'ready') {
+      if (!resolved && record?.state === 'ready') {
         deps.log.warn('Could not refresh the release feed; continuing to wait', { error: String(error) })
         return schedule(IDLE_POLL_MS)
       }
