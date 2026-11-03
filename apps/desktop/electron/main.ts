@@ -3000,12 +3000,7 @@ async function checkForUpdates(): Promise<VersionedUpdateState<UpdateCheckResult
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.warn('[updater] check failed:', message)
-    return emitUpdateStatus({
-      success: false,
-      status: 'error',
-      updateInfo: null,
-      message
-    })
+    throw err
   }
 }
 
