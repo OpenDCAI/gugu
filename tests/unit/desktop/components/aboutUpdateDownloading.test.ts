@@ -48,7 +48,7 @@ describe('关于页说得出「下载新版本中… N%」', () => {
     await harness.render(createElement(AboutSection))
     const check = [...harness.container.querySelectorAll('button')].find((b) => b.textContent === '检查更新')!
     await act(async () => { check.click() })
-    expect(text()).toContain('更新失败')
+    expect(text()).toContain('更新过程中出错，请重试。')
     expect(text()).not.toContain('internal IPC failure')
     expect(text()).not.toContain('/private/example')
   })
