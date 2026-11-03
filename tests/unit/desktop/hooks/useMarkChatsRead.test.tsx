@@ -4,12 +4,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createReactHarness, chat } from '../../../support/testHarness'
 import { useMarkChatsRead } from '../../../../apps/desktop/src/hooks/useMarkChatsRead'
 import { publishDirectoryDevices, removeDeviceSessions, updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
+import { SESSION_HOST_BRIDGE_KEY } from '../../../../apps/desktop/src/session/renderer/lib/electron-api'
 
 const scope = vi.hoisted(() => ({
   chats: [] as ReturnType<typeof chat>[],
   refresh: vi.fn(async () => {}), toast: vi.fn(), rpc: vi.fn(),
   visible: vi.fn(async (_input: { conversationId: string; itemIds: string[] }) => ({ unreadKeys: [] })),
-  host: vi.fn(),
+  host: vi.fn(), local: vi.fn(async (_channel: string, _input: unknown) => ({ unreadKeys: [] })),
 }))
 vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({ useChatStore: () => ({ chats: scope.chats, refreshChats: scope.refresh }) }))
 vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({ useToast: () => ({ toast: scope.toast }) }))
@@ -40,7 +41,10 @@ beforeEach(async () => {
     { conversationId: 'native-only', nativeUnreadKeys: ['three'] },
   ] as never })
 })
-afterEach(() => { harness.cleanup(); removeDeviceSessions('host'); publishDirectoryDevices([]) })
+afterEach(() => {
+  harness.cleanup(); removeDeviceSessions('host'); removeDeviceSessions('remote-host'); publishDirectoryDevices([])
+  delete (window as unknown as Record<string, unknown>)[SESSION_HOST_BRIDGE_KEY]
+})
 
 it('connects the explicit global action to the account directory even without cloud locators', async () => {
   await harness.render(<Reader />)
@@ -66,6 +70,19 @@ it('does not read a stale directory entry from devices outside the current accou
   await harness.render(<Reader />)
   await act(async () => { markRead() })
   expect(scope.visible).not.toHaveBeenCalled()
+})
+
+it('writes the current desktop journal over IPC while preserving the exact remote device route', async () => {
+  const hostWindow = window as unknown as Record<string, unknown>
+  hostWindow[SESSION_HOST_BRIDGE_KEY] = { invoke: scope.local }
+  publishDirectoryDevices([{ device_id: 'host', is_online: true, is_current_device: true }, { device_id: 'remote-host', is_online: true }] as never)
+  updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 'local', nativeUnreadKeys: ['local-reply'] } as never] })
+  updateDeviceSessions('remote-host', { cached: false, sessions: [{ conversationId: 'remote', nativeUnreadKeys: ['remote-reply'] } as never] })
+  await harness.render(<Reader />)
+  await act(async () => { markRead() })
+  expect(scope.local).toHaveBeenCalledExactlyOnceWith('sessionTimeline.sessionVisible', { conversationId: 'local', itemIds: ['local-reply'] })
+  expect(scope.host.mock.calls).toEqual([['remote-host']])
+  expect(scope.visible).toHaveBeenCalledExactlyOnceWith({ conversationId: 'remote', itemIds: ['remote-reply'] })
 })
 
 it('uses the existing failure toast when the host rejects the native acknowledgement', async () => {

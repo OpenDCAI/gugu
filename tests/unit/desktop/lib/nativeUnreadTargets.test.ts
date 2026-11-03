@@ -31,3 +31,9 @@ it('copies the captured keys instead of retaining a mutable summary array', () =
   source.session.nativeUnreadKeys!.push('later')
   expect(captured[0].itemIds).toEqual(['reply'])
 })
+
+it('uses the existing local IPC address only when the caller identifies that account device as this desktop', () => {
+  const rows = [row('desktop', 'local'), row('remote', 'other')]
+  expect(nativeUnreadTargets(rows, [], true, 'desktop').map(target => target.deviceId)).toEqual([null, 'remote'])
+  expect(nativeUnreadTargets(rows, [], true).map(target => target.deviceId)).toEqual(['desktop', 'remote'])
+})

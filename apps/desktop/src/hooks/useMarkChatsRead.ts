@@ -8,6 +8,7 @@ import { messageForUser } from '../lib/userFacingError'
 import { rendererLogger } from '../lib/log'
 import { nativeUnreadTargets } from '../lib/nativeUnreadTargets'
 import { directoryDevices, directoryRows, liveDeviceSessions } from '../session/shared/remote-sessions/session-directory'
+import { platform } from '../platform'
 
 const log = rendererLogger('chat/mark-read')
 
@@ -20,7 +21,10 @@ export function useMarkChatsRead() {
     const scope = rootId === undefined ? chats : chatsInReadScope(chats, rootId)
     const read = async () => {
       if (rootId !== undefined && !scope.some((chat) => chat.id === rootId)) throw new Error('Conversation is not loaded')
-      const nativeReads = nativeUnreadTargets(directoryRows(directoryDevices(), liveDeviceSessions()), scope, rootId === undefined)
+      const devices = directoryDevices()
+      // The local directory is keyed by the account device ID; its writer uses IPC, not a remote pipe to itself.
+      const localDeviceId = platform.kind === 'electron' ? devices.find(device => device.is_current_device)?.device_id : undefined
+      const nativeReads = nativeUnreadTargets(directoryRows(devices, liveDeviceSessions()), scope, rootId === undefined, localDeviceId)
       return markChatsReadAndRefresh({ chats: scope, nativeReads, refresh: refreshChats })
     }
     void read().then(({ failedChats, error }) => {
