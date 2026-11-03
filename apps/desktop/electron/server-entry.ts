@@ -27,7 +27,7 @@ import { ensurePrivateDir, summarizeChanges, tightenServerTree } from './server/
 import { assertRuntimeBackend, ownPackageIdentity, packageBackend, packageIdentity, prepareInstallation } from './server/server-package-environment.mts'
 import { getSupabaseUrl } from '@gugu/core/cloud/config'
 import { resolveServerHome } from './server/server-installation'
-import { inspectAccountLayout } from './server/server-boot.cjs'
+import { inspectAccountLayout } from './server/server-startup'
 import { homeLockHolder } from './server/server-startup'
 
 

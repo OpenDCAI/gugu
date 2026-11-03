@@ -32,8 +32,7 @@ import { adoptDeviceName, type DeviceLabelClient } from '@gugu/core/cloud/device
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase'
 import { getSupabaseAnonKey, getSupabaseUrl } from '@gugu/core/cloud/config'
 import { writeStoredServerSession } from './server-auth'
-import { prepareAccountLogin, assertAccountLayoutReady } from './server-boot.cjs'
-import { assertAccountLogin } from './server-startup'
+import { prepareAccountLogin, assertAccountLayoutReady, assertAccountLogin } from './server-startup'
 import { EXIT_CONFIG } from './server-exit'
 import { accountDataDir, applyAccountEnv, clearSignedOutMark, emailFromAccessToken, readServerAccount, serverHome, writeAccountMeta, writeServerConnectVia } from './server-layout'
 

@@ -12,7 +12,7 @@ import { promisify } from 'node:util'
 import { parseServerConnectVia, SERVER_CONNECT_VIA_FILE } from '@gugu/core/cloud/serverConnectVia'
 import { SERVER_ACTIVITY_STALE_MS } from '@gugu/core/cloud/serverMachineHealth'
 import type { DeviceConnectVia } from '@gugu/core/shared/types/deviceHost'
-import { readCurrentAccount } from './server-boot.cjs'
+import { readCurrentAccount } from './server-startup'
 
 export type ServerAccount = {
   userId: string
