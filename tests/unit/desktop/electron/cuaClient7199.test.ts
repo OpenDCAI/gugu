@@ -202,10 +202,16 @@ describe('起、调、停', () => {
       await cua.callTool('list_windows', {}, { lane: 'a' })
       await cua.callTool('list_windows', {}, { lane: 'b' })
       const stop = new AbortController()
-      const clicked = cua.callTool('click', { pid: 1, window_id: 2 }, { lane: 'a', timeoutMs: mode === 'timeout' ? 40 : 1000, signal: stop.signal })
+      const timeoutMs = 1000
+      if (mode === 'timeout') vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+      const clicked = cua.callTool('click', { pid: 1, window_id: 2 }, { lane: 'a', timeoutMs, signal: stop.signal })
       const rejected = expect(clicked).rejects.toMatchObject({ code: mode === 'abort' ? 'execution_failed' : 'timeout' })
       await expect.poll(() => calls.some(call => call.name === 'click')).toBe(true)
       if (mode === 'abort') stop.abort()
+      if (mode === 'timeout') {
+        await vi.advanceTimersByTimeAsync(timeoutMs)
+        vi.useRealTimers()
+      }
       await rejected
       expect(generations[0]!.closed).toHaveBeenCalled()
       expect(generations[1]!.closed).not.toHaveBeenCalled()
@@ -220,7 +226,7 @@ describe('起、调、停', () => {
       expect(generations).toHaveLength(3)
       expect(calls.filter(call => call.name === 'click')).toHaveLength(1)
       expect(driver.spawned).toHaveLength(1)
-    } finally { cua.dispose() }
+    } finally { cua.dispose(); vi.useRealTimers() }
   })
 
   it('logs only fixed native timing/warning events across stderr chunks and ANSI, preserving the tail', async () => {
