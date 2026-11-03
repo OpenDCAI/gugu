@@ -48,7 +48,7 @@ export function SshLinkSignIn() {
   const [signingIn, setSigningIn] = useState<string | null>(null)
   const [prompt, setPrompt] = useState<{ deviceId: string; prompt: SshPrompt } | null>(null)
   const [answered, setAnswered] = useState(false)
-  const [confirmRestart, setConfirmRestart] = useState<{ deviceId: string; busyAgents?: number } | null>(null)
+  const [confirmRestart, setConfirmRestart] = useState<{ deviceId: string; busyAgents?: number | null } | null>(null)
 
   useEffect(() => subscribeSshLinkProblems(setProblems), [])
   useEffect(() => subscribeSshUpgradeEvents(event => {
@@ -101,7 +101,7 @@ export function SshLinkSignIn() {
   }
   const dismiss = () => setDismissed((prev) => new Map(prev).set(shown.deviceId, shown.reason))
   const askRestart = () => {
-    const question = { deviceId: shown.deviceId }
+    const question = { deviceId: shown.deviceId, busyAgents: null }
     setConfirmRestart(question)
     void readServerVersionSwitchBusyAgents(shown.deviceId).then(busyAgents => {
       setConfirmRestart(current => current === question ? { ...question, busyAgents } : current)
@@ -135,7 +135,7 @@ export function SshLinkSignIn() {
               confirmRestart?.deviceId === shown.deviceId ? (
                 <>
                   <Button size="sm" onClick={() => setConfirmRestart(null)} data-testid="ssh-link-update-cancel">{t('devices.cancel')}</Button>
-                  <Button size="sm" variant="primary" autoFocus onClick={restartNow} data-testid="ssh-link-update-confirm-now">{t('devices.link.confirmRestart')}</Button>
+                  <Button size="sm" variant="primary" autoFocus disabled={confirmRestart.busyAgents === null} onClick={restartNow} data-testid="ssh-link-update-confirm-now">{t('devices.link.confirmRestart')}</Button>
                 </>
               ) : (
                 <>
@@ -147,7 +147,7 @@ export function SshLinkSignIn() {
           >
             <p className="m-0 text-[length:var(--font-body)] leading-[1.5]">
               {confirmRestart?.deviceId === shown.deviceId
-                ? t(confirmRestart.busyAgents !== undefined ? 'devices.update.updateNowConfirmCount' : 'devices.update.updateNowConfirm', { name: shown.name, count: confirmRestart.busyAgents })
+                ? t(typeof confirmRestart.busyAgents === 'number' ? 'devices.update.updateNowConfirmCount' : 'devices.update.updateNowConfirm', { name: shown.name, count: confirmRestart.busyAgents ?? undefined })
                 : confirmableUpdate
                   ? translate('remoteHost.notice.updateReady', { device: shown.name, version: confirmableUpdate.version })
                   : t('devices.link.waitingIdle', { name: shown.name })}

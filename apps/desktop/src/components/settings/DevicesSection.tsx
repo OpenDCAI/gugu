@@ -476,11 +476,11 @@ function DeviceRow({
   const [retriedFor, setRetriedFor] = useState<string | null>(null)
   const retrying = failedUpdate !== null && retriedFor === failedUpdate
   // 「有新版本」在等空闲:人可以「现在重启更新」(先说清会中断正在跑的 agent,再点一次才发)。点过就收起,心跳报回新版本时这颗标签自己没了。
-  const [updateNow, setUpdateNow] = useState<{ ask: true; busyAgents?: number } | { version: string; deadline: number; before: NonNullable<DeviceRowModel['update']>; request?: number | 'pending' } | null>(null)
+  const [updateNow, setUpdateNow] = useState<{ ask: true; busyAgents?: number | null } | { version: string; deadline: number; before: NonNullable<DeviceRowModel['update']>; request?: number | 'pending' } | null>(null)
   const asking = updateNow && 'ask' in updateNow ? updateNow : null
   const restarting = updateNow && !('ask' in updateNow) ? updateNow : null
   const askRestart = () => {
-    const question = { ask: true as const }
+    const question = { ask: true as const, busyAgents: null }
     setUpdateNow(question)
     void readServerVersionSwitchBusyAgents(device.device_id).then(busyAgents => {
       setUpdateNow(current => current === question ? { ...question, busyAgents } : current)
@@ -578,9 +578,9 @@ function DeviceRow({
         {/* 「现在重启更新」的当面确认:单独一行,❌ 挤进名字那一行把机器名压成省略号。 */}
         {restartable && onRestartVersionNow && asking && (
           <div className="mt-[6px] flex flex-wrap items-center gap-2" data-testid="settings-device-update-now-confirm">
-            <span className="min-w-0 flex-1 text-[length:var(--font-caption)] text-[var(--muted-fg)]">{t(asking.busyAgents !== undefined ? 'devices.update.updateNowConfirmCount' : 'devices.update.updateNowConfirm', { name: device.label, count: asking.busyAgents })}</span>
+            <span className="min-w-0 flex-1 text-[length:var(--font-caption)] text-[var(--muted-fg)]">{t(typeof asking.busyAgents === 'number' ? 'devices.update.updateNowConfirmCount' : 'devices.update.updateNowConfirm', { name: device.label, count: asking.busyAgents ?? undefined })}</span>
             <Button size="sm" onClick={() => setUpdateNow(null)} data-testid="settings-device-update-now-no">{t('devices.cancel')}</Button>
-            <Button size="sm" variant="primary" onClick={() => {
+            <Button size="sm" variant="primary" disabled={asking.busyAgents === null} onClick={() => {
               if (!model.update) return
               const pending = { version: model.update.version, deadline: Date.now() + 120_000, before: { ...model.update }, request: 'pending' as const }
               setUpdateNow(pending)

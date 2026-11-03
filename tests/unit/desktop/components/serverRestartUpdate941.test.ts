@@ -75,6 +75,7 @@ describe('confirmed server update feedback', () => {
   it('uses the uncounted confirmation when the current busy count cannot be read', async () => {
     await render(server({ state: 'ready', version: target, busy_agents: 99 }))
     await click('update-now')
+    expect((node('update-now-yes') as HTMLButtonElement).disabled).toBe(false)
     const text = node('update-now-confirm')!.textContent!
     expect(text).toContain('正在运行的任务会被中断。')
     expect(text).not.toContain('99')
@@ -88,12 +89,15 @@ describe('confirmed server update feedback', () => {
       .mockImplementationOnce(() => new Promise(resolve => { second = resolve }))
     await render(server({ state: 'ready', version: target, busy_agents: 99 }))
     await click('update-now')
+    expect((node('update-now-yes') as HTMLButtonElement).disabled).toBe(true)
     await click('update-now-no')
     await click('update-now')
+    expect(first).toBeTypeOf('function')
     await act(async () => { first(7) })
     expect(node('update-now-confirm')!.textContent).not.toContain('7 个')
     await act(async () => { second(0) })
     expect(node('update-now-confirm')!.textContent).toContain('0 个正在运行的任务')
+    expect((node('update-now-yes') as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('shows the actual download target and a known waiting count, leaving an unknown count unspecified', async () => {
