@@ -512,7 +512,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     if (replace) {
       target.pane.navigate(replace, kind, state);
     } else {
-      const tabId = target.pane.openWithState(kind, state, { activate: false, after: from?.tabId, openerTabId: from?.tabId });
+      const tabId = target.pane.openWithState(kind, state, { activate: false, after: from?.tabId, openerTabId: source?.pane === target.pane ? from?.tabId : undefined });
       if (!tabId) return;
       if (source?.pane === target.pane && from) {
         const next = target.pane.tabOrder.filter((id) => id !== tabId);

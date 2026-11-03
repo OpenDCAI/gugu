@@ -20,8 +20,8 @@ function setup() {
     TabContent: () => null,
   });
   const layout = new PaneLayoutStore(createTabRegistry([provider('file'), provider('session'), provider('acp-chat'), provider('side-chat')]), { viewId: 'task-1' });
-  const add = (kind: string, path: string, preview = false) => {
-    layout.open(kind, { path }, { intent: 'newTab', from: null, preview });
+  const add = (kind: string, path: string, _preview = false) => {
+    layout.open(kind, { path }, { intent: 'newTab', from: null });
     return sessionPaneTabs(layout).find((tab) => tab.title === path)!.tab_id;
   };
   return { layout, add, confirm, dispose };

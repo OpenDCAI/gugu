@@ -333,7 +333,7 @@ describe('PaneLayoutStore: runtime-only persistence projection', () => {
     const baseline = structuredClone(layout.snapshot);
     onActiveTabChange.mockClear();
 
-    layout.open('runtime-test', { id: 'side-chat:view-1' }, { intent: 'newTab', from: null, target: 'right' });
+    layout.open('runtime-test', { id: 'side-chat:view-1' }, { from: layout.focusedPane.resolvedActiveTabId!, intent: 'beside' });
 
     expect(layout.groups).toHaveLength(2);
     expect(layout.activePaneId).not.toBe(sourcePaneId);
@@ -598,7 +598,7 @@ describe('PaneLayoutStore: 一枚页签单独成窗 (#7052)', () => {
     layout.dispose();
   });
 
-  it('只开一份的那种正在窗里:再打开它 = 把那扇窗提到前面,❌ 这边再开一份', () => {
+  it('explicit new tabs do not steal a resource from its existing window', () => {
     const { layout } = windowLayout();
     const revealer = vi.fn();
     layout.setWindowRevealer(revealer);
@@ -608,8 +608,9 @@ describe('PaneLayoutStore: 一枚页签单独成窗 (#7052)', () => {
 
     layout.open('single-test', { id: 'b' }, { from: null, intent: 'newTab' });
 
-    expect(revealer).toHaveBeenCalledWith(windowPaneId);
-    expect(idsIn(layout.focusedPane)).toEqual([tabOf(layout, 'a')]);
+    expect(revealer).not.toHaveBeenCalled();
+    expect(layout.windowPanes.get(windowPaneId)?.pane.resolvedTabs).toHaveLength(1);
+    expect(layout.focusedPane.resolvedTabs).toHaveLength(2);
     layout.dispose();
   });
 

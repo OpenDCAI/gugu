@@ -39,7 +39,7 @@ vi.mock('@/components/extensionBundle/sharedPackages', () => ({ sharedPackagesOf
 const { AppPeek } = await import('@/components/appSlot/AppPeek')
 const { ask, chatTabs, shownItem } = await import('./chatTabsHarness')
 const { folderItem, isFolderItem } = await import('@/session/renderer/features/chats/chat-tabs/chat-panel-item')
-const { chatAlone, chatLayoutOf, closeChatTab, openPanelItem, panelFull, panelTabsOf, shownPanelTab } = await import('@/session/renderer/features/chats/chat-tabs/chat-layouts')
+const { chatAlone, chatLayoutOf, chatPaneOf, closeChatTab, openPanelItem, panelFull, panelTabsOf, shownPanelTab } = await import('@/session/renderer/features/chats/chat-tabs/chat-layouts')
 import { tabFullscreen } from '@/session/renderer/features/tabs/tab-fullscreen'
 const { installedExtensionsStore } = await import('@/session/renderer/features/extensions/installed-extensions-store')
 const { appsHere } = await import('@/components/appSlot/appsHere')
@@ -49,9 +49,9 @@ let harness: ReturnType<typeof createReactHarness>
 const checkVisibility = HTMLElement.prototype.checkVisibility
 const detail = (suffix: string) => ({ chatId: 'preview-group', itemId: `file-${suffix}`, name: `report.${suffix}`, typedName: `report.${suffix}`, file: { document: false, contentType: suffix === 'html' ? 'text/html' : suffix === 'mp4' ? 'video/mp4' : 'application/octet-stream', version: 3, size: 1024 }, choice: { kind: 'none' as const } })
 /** The chat's tabs drawn, then the file asked of it — a link's (no answer in hand: `supplied` false), or with its host's answer. */
-const slot = async (opener: ReturnType<typeof detail>, supplied = true, extra: { visible?: boolean; message?: MessageItem; tabbed?: boolean; restore?: () => void; fromPage?: boolean } = {}) => {
+const slot = async (opener: ReturnType<typeof detail>, supplied = true, extra: { visible?: boolean; message?: MessageItem; tabbed?: boolean; restore?: () => void; from?: string } = {}) => {
   await harness.render(chatTabs({ chatId: opener.chatId, visible: extra.visible ?? true, tabbed: extra.tabbed, mobile: boundary.mobile, onForward: boundary.forward }, 'viewer'))
-  ask(opener.chatId, { itemId: opener.itemId, ...(extra.restore ? { restore: extra.restore } : {}), ...(extra.message ? { message: extra.message } : {}), ...(supplied ? { opener: opener as never } : {}), ...(extra.fromPage ? { from: shownPanelTab(chatId)!.tabId as const } : {}) })
+  ask(opener.chatId, { itemId: opener.itemId, ...(extra.restore ? { restore: extra.restore } : {}), ...(extra.message ? { message: extra.message } : {}), ...(supplied ? { opener: opener as never } : {}), ...(extra.from ? { from: extra.from } : {}) })
 }
 const redraw = (chatId: string, extra: { visible?: boolean } = {}) =>
   harness.render(chatTabs({ chatId, visible: extra.visible ?? true, mobile: boundary.mobile, onForward: boundary.forward }, 'viewer'))
@@ -85,7 +85,7 @@ afterEach(() => {
 /** What the tab's × does in the strip: the engine asks the tab, and its close hands back what opened it. */
 async function closeFromTab(chatId: string) {
   const tab = shownPanelTab(chatId)!
-  await act(async () => { chatLayoutOf(chatId).groups[0]!.pane.requestCloseTab(tab.tabId) })
+  await act(async () => { chatPaneOf(chatId, tab.tabId)!.requestCloseTab(tab.tabId) })
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
 }
 
@@ -94,12 +94,12 @@ describe('unclaimed group files use the message preview from every entry', () =>
     boundary.mobile = mobile
     const folder = openPanelItem('preview-group', folderItem())
     const file = detail('png')
-    await slot(file, true, { from: shownPanelTab(chatId)!.tabId })
-    expect(boundary.image).toHaveBeenCalledWith({ kind: 'item', itemId: file.itemId, version: 3 }, file.name, { chatId: file.chatId })
+    await slot(file, true, { from: shownPanelTab('preview-group')!.tabId })
+    expect(boundary.image).not.toHaveBeenCalled()
     expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
     expect(panelTabsOf(file.chatId)).toHaveLength(1)
-    expect(harness.container.querySelector('[data-testid="message-file-preview-panel"]')).toBeNull()
-    expect(boundary.read).not.toHaveBeenCalled()
+    expect(shownItem(file.chatId)?.itemId).toBe(file.itemId)
+    expect(harness.container.querySelector('[data-testid="message-file-preview-panel"]')).not.toBeNull()
   })
   it.each(['preview-group', 'another-chat'])('an image link retains its originating message in %s', async (chatId) => {
     const file = detail('png')
@@ -147,14 +147,14 @@ describe('unclaimed group files use the message preview from every entry', () =>
     boundary.mobile = true
     const folder = openPanelItem('preview-group', folderItem())
     const file = { ...detail('md'), choice: { kind: 'choose' as const, suffix: '.md', candidates: [candidate] } }
-    await slot(file as never, true, { from: shownPanelTab(chatId)!.tabId })
+    await slot(file as never, true, { from: shownPanelTab('preview-group')!.tabId })
     const chooser = () => document.querySelector('[role="dialog"] [data-testid="group-app-open-with"]')
     expect(chooser()).not.toBeNull()
     expect(harness.container.contains(chooser()), 'the chooser is portalled above the full-screen page').toBe(false)
     await act(async () => window.dispatchEvent(new Event('gugu:native-back')))
     expect(chooser()).toBeNull()
     expect(shownPanelTab('preview-group')?.tabId).toBe(folder)
-    ask(file.chatId, { itemId: file.itemId, opener: file as never, from: shownPanelTab(chatId)!.tabId })
+    ask(file.chatId, { itemId: file.itemId, opener: file as never, from: shownPanelTab('preview-group')!.tabId })
     await act(async () => document.querySelector<HTMLButtonElement>('[data-open-with="workspace.main"]')!.click())
     expect(shownItem(file.chatId)).toMatchObject({ kind: 'workspace.main', itemId: file.itemId })
     act(() => closeChatTab(file.chatId, shownPanelTab(file.chatId)!.tabId))
@@ -218,7 +218,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
   it.each([false, true])('back restores the App a preview was opened from without closing the panel (mobile=%s)', async (mobile) => {
     boundary.mobile = mobile
     openPanelItem('preview-group', { kind: 'workspace.main', itemId: 'notes', title: 'notes.md', typedName: 'notes.md' })
-    await slot(detail('exe'), true, { from: shownPanelTab(chatId)!.tabId })
+    await slot(detail('exe'), true, { from: shownPanelTab('preview-group')!.tabId })
     expect(shownItem('preview-group')?.kind).toBeNull()
     const back = harness.container.querySelector<HTMLButtonElement>('button[aria-label="返回"]')
     expect(back).not.toBeNull()
@@ -230,7 +230,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
   it.each([false, true])('back from the folder preview restores the list and keeps the panel open (mobile=%s)', async (mobile) => {
     boundary.mobile = mobile
     const folder = openPanelItem('preview-group', folderItem())
-    await slot(detail('exe'), true, { from: shownPanelTab(chatId)!.tabId })
+    await slot(detail('exe'), true, { from: shownPanelTab('preview-group')!.tabId })
     const back = harness.container.querySelector<HTMLButtonElement>('button[aria-label="返回"]')
     expect(back).not.toBeNull()
     await act(async () => back!.click())
@@ -243,7 +243,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
   it('the tabbed binary preview closes only its object, keeping the source tab and one host header', async () => {
     const source = openPanelItem('preview-group', { kind: 'workspace.main', itemId: 'notes', title: 'notes.md' })
     const file = detail('exe')
-    await slot(file, true, { tabbed: true, from: shownPanelTab(chatId)!.tabId })
+    await slot(file, true, { tabbed: true, from: shownPanelTab('preview-group')!.tabId })
     // In a block the tab is the file's name, its × and its maximize: no header, no row of its own.
     expect(harness.container.querySelector('header')).toBeNull()
     expect(harness.container.querySelector('button[aria-label="关闭"]')).toBeNull()

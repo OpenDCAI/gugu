@@ -223,7 +223,7 @@ function TopicTabContent(props: TabContentProps) {
 export const chatTopicTabProvider = createTabProvider<typeof CHAT_TOPIC_TAB_KIND, ChatTopicState, TabResource>({
   kind: CHAT_TOPIC_TAB_KIND,
 
-  resourceKey: () => 'topic',
+  resourceKey: (state) => state.topicChatId,
   // As before: the topic beside a group is this window's; a restart opens the group alone.
   isPersistent: () => false,
   initialize: stateResource,
@@ -254,7 +254,7 @@ function InfoTabContent(props: TabContentProps) {
 export const chatInfoTabProvider = createTabProvider<typeof CHAT_INFO_TAB_KIND, ChatInfoState, TabResource>({
   kind: CHAT_INFO_TAB_KIND,
 
-  resourceKey: () => 'info',
+  resourceKey: (state) => `${state.page}:${state.at ?? ''}`,
   sideWidth: () => CHAT_INFO_SIDE_WIDTH,
   initialize: stateResource,
   dispose: () => {},

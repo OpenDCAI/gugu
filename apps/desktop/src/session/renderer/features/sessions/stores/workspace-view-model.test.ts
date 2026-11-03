@@ -606,9 +606,8 @@ describe('WorkspaceViewModel conversation hydration', () => {
     viewModel.paneLayout.open('session', { sessionId: 'conversation-1' }, { intent: 'newTab', from: null });
     await Promise.resolve();
 
-    // Open conv-2 as preview; this retargets the preview slot, disposing conv-1 (dehydrate)
-    // and initializing conv-2 (hydrate).
-    viewModel.paneLayout.open('session', { sessionId: 'conversation-2' }, { intent: 'newTab', from: null });
+    // Navigate the existing context: the previous resource is disposed after confirmation.
+    viewModel.activePane.navigate(viewModel.activePane.resolvedActiveTabId!, 'session', { sessionId: 'conversation-2' });
     await Promise.resolve();
 
     expect(dehydrateSession).toHaveBeenCalledTimes(1);
@@ -680,7 +679,7 @@ describe('WorkspaceViewModel conversation hydration', () => {
     expect(dehydrateSession).not.toHaveBeenCalled();
 
     // Closing the last tab triggers dehydration.
-    group.pane.closeTab('tab-2');
+    viewModel.paneLayout.groups.find(({ pane }) => pane.entries.has('tab-2'))!.pane.closeTab('tab-2');
     expect(dehydrateSession).toHaveBeenCalledTimes(1);
     expect(dehydrateSession).toHaveBeenCalledWith('conversation-1');
 
@@ -911,7 +910,7 @@ describe('WorkspaceViewModel source-aware page opens', () => {
     view.showPage('https://example.com/', { reload: true }); expect(reload).toHaveBeenCalledOnce();
   });
   it('passes files from Outputs through the existing file opener', () => {
-    const { view } = fake(); view.reopenOutput({ kind: 'file', path: 'notes.md' });
+    const { view } = fake(); WorkspaceViewModel.prototype.reopenOutput.call(view, { kind: 'file', path: 'notes.md' });
     expect(view.openFile).toHaveBeenCalledWith('notes.md', { beside: true });
   });
 });

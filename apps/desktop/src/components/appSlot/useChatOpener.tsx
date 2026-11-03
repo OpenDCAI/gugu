@@ -12,7 +12,7 @@ import { installedExtensionsStore, WORKSPACE_APP_ID } from '../../session/render
 import { APP_OPEN_WITH_EVENT, type AppOpenWithDetail } from '../../session/shared/extensions/app-runtime-protocol'
 import { displayNameOf } from '../../session/shared/extensions/file-openers'
 import { folderItem, type PanelItem } from '../../session/renderer/features/chats/chat-tabs/chat-panel-item'
-import { openPanelItem, chatPaneOf, takeChatAsk } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { openPanelItem, chatPaneOf, chatLayoutOf, takeChatAsk } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import { appsHere } from './appsHere'
@@ -63,10 +63,11 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
     const shown = { ...item, ...(from.message ? { message: from.message } : {}) }
     // A pending message is not tab state: neither JSON nor structured-clone snapshots carry it.
     if (item.takeOpening) Object.defineProperty(shown, 'takeOpening', { get: () => item.takeOpening, enumerable: false })
+    if (mobile) chatLayoutOf(target).setNarrow(true)
     const tabId = openPanelItem(target, shown, { intent: from.intent ?? 'navigate', ...(from.from ? { from: from.from } : {}), ...(from.restore ? { restore: from.restore } : {}) })
     if (tabId) onShow?.(target, tabId)
     if (item.itemId) noteOpened(item.itemId)
-  }, [onShow])
+  }, [onShow, mobile])
 
   // The file asked last is the one opened: a pill clicked, then another (or a file in an App's list), before the first's
   // answer is back — whichever answer comes last, the chat ends on the later ask (#7257). Each ask takes the next number.
@@ -76,7 +77,7 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
       from = { ...from, from: detail.from ?? from.from, intent: detail.intent ?? from.intent }
       if (from.from && detail.viewState) chatPaneOf(detail.chatId, from.from)?.setPageViewState(from.from, detail.viewState)
       if (detail.choice.kind === 'none') {
-        if (isRenderableImage(detail.name, detail.file.contentType)) {
+        if (!from.from && isRenderableImage(detail.name, detail.file.contentType)) {
           openAttachmentImage({ kind: 'item', itemId: detail.itemId, version: detail.file.version }, detail.name, from.message ? { chatId: from.message.chat_id, messageId: from.message.id } : { chatId: detail.chatId })
           noteOpened(detail.itemId)
           return

@@ -433,7 +433,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
           offerUnknown || offerFolds ? (
             <div className="min-h-0 flex-1" data-testid="group-app-slot-raw-folded" />
           ) : windowApp ? (
-            <div className="min-h-0 flex-1"><ExtensionTabPane extensionId={windowApp} tabKind={kind} sessionId={null} tabId={slot} chatId={chatId} resourceChat={resourceChat} {...(item.itemId ? { itemId: item.itemId } : {})} /></div>
+            <div className="min-h-0 flex-1"><ExtensionTabPane extensionId={windowApp} tabKind={kind} sessionId={null} tabId={slot} chatId={chatId} resourceChat={resourceChat} navigation={navigation} viewState={history?.pages[history.index]?.viewState} {...(item.itemId ? { itemId: item.itemId } : {})} /></div>
           ) : (
             <ClaimedPage slotId={slot} chatId={chatId} resourceChat={resourceChat} kind={kind} itemId={item.itemId} takeOpening={item.takeOpening} viewState={history?.pages[history.index]?.viewState} navigation={navigation} />
           )

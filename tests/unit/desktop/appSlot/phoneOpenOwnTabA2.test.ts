@@ -99,20 +99,20 @@ const choices = () => opened.mock.calls.map(([detail]) => (detail as { choice: u
 const lensExplore = { kind: 'one', candidate: expect.objectContaining({ extensionId: 'data-lens', tabKind: 'data-lens.explore' }) }
 
 describe('the phone: openWith(file, { tab }) opens its own tab (A2 T9)', () => {
-  it.each(['preview', 'pinned'] as const)('folder redesign carries %s through the real phone host', async (intent) => {
+  it.each(['navigate', 'newTab', 'beside'] as const)('folder redesign carries %s through the real phone host', async (intent) => {
     expect(await call('filesOpenWith', { ref, tab: 'explore', intent })).toMatchObject({ ok: true })
     expect(opened).toHaveBeenCalledWith(expect.objectContaining({ intent, choice: lensExplore }))
   })
 
-  it.each(['preview', 'pinned'] as const)('keeps %s when opening beside the phone page', async (intent) => {
+  it.each(['navigate', 'newTab', 'beside'] as const)('keeps %s when opening beside the phone page', async (intent) => {
     expect(await call('filesOpenWith', { ref, tab: 'explore', intent, peek: true })).toMatchObject({ ok: true })
     expect(peeked).toHaveBeenCalledWith({ kind: 'chat', detail: expect.objectContaining({ intent, choice: lensExplore }) })
     expect(opened).not.toHaveBeenCalled()
   })
 
-  it('folder redesign defaults to preview and refuses an invalid intent before opening', async () => {
+  it('folder redesign defaults to navigation and refuses an invalid intent before opening', async () => {
     expect(await call('filesOpenWith', { ref, tab: 'explore' })).toMatchObject({ ok: true })
-    expect(opened).toHaveBeenCalledWith(expect.objectContaining({ intent: 'preview' }))
+    expect(opened).toHaveBeenCalledWith(expect.objectContaining({ intent: 'navigate' }))
     opened.mockClear()
     expect(await call('filesOpenWith', { ref, intent: 'permanent' })).toMatchObject({ ok: false, code: 'invalid' })
     expect(opened).not.toHaveBeenCalled()

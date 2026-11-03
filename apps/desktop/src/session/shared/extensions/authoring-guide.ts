@@ -202,6 +202,7 @@ The host handles Escape, Tab traversal, Back and focus restoration.
 Free:
 
 - \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, modal?, operator, locale, themeMode, capabilities, layout? }\`.
+- \`navigation.go(-1 | 1)\` → boolean: move only this App tab's page history (false at either end); \`getContext().navigation\` carries \`canBack/canForward\` and updates through \`onContextChanged\`. No target tab, URL or permission is accepted.
   \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members? }\`; \`groupId\` is null in DMs. Topics use their source chat.
   API ≤26 includes \`members\`; API ≥27 omits it: call \`gugu.chats.members({ chat: ctx.chat.id })\` (\`chat:read\`).
   Members: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`; \`avatar\` is a \`data:\` image. Pick from these; never copy them into files.

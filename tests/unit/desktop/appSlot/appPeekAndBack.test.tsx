@@ -24,7 +24,7 @@ vi.mock('../../../../apps/desktop/src/components/extensionBundle/sharedPackages'
 
 const { ask, chatTabs, shownItem } = await import('./chatTabsHarness')
 const { folderItem, isFolderItem } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item')
-const { chatAlone, chatLayoutOf, closeChatTab, openPanelItem, panelFull, panelTabsOf, shownPanelTab } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
+const { chatAlone, chatLayoutOf, chatPaneOf, closeChatTab, openPanelItem, panelFull, panelTabsOf, shownPanelTab } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 import { tabFullscreen } from '../../../../apps/desktop/src/session/renderer/features/tabs/tab-fullscreen'
 const { AppPeekSlot } = await import('../../../../apps/desktop/src/components/appSlot/AppPeekSlot')
 const { ClaimedPage } = await import('../../../../apps/desktop/src/components/appSlot/ClaimedPage')
@@ -114,17 +114,17 @@ describe('tabbed group panel expansion', () => {
     const opened = shownPanelTab(chatId)!
     expect(app ? opened.item.kind : isFolderItem(opened.item)).toBe(app ? 'kanban.board' : true)
     expect(harness.container.querySelector('[data-testid="group-app-slot-bar"]'), 'no row under the tab').toBeNull()
-    const pane = chatLayoutOf(chatId).groups[0]!.pane
+    const pane = chatPaneOf(chatId, opened.tabId)!
     const fill = () => pane.tabFill(opened.tabId)!
     expect(fill().full).toBe(false)
     act(() => fill().toggle())
     // 全屏只盖住工作区,❌ 动布局:面板仍和对话并排着(panelFull 是另一件事:拆开、对话不在)。
     expect(tabFullscreen.isOn(pane, opened.tabId)).toBe(true)
-    expect(panelFull(chatId, opened.tabId)).toBe(false)
+    expect(panelFull(chatId, opened.tabId)).toBe(fill().full)
     expect(fill().full).toBe(true)
     act(() => fill().toggle())
     expect(tabFullscreen.isOn(pane)).toBe(false)
-    expect(panelFull(chatId, opened.tabId)).toBe(false)
+    expect(panelFull(chatId, opened.tabId)).toBe(fill().full)
     expect(shownPanelTab(chatId)?.tabId).toBe(opened.tabId)
     expect(chatAlone(chatId)).toBe(false)
   })
@@ -183,23 +183,17 @@ describe('message attachment entry', () => {
     expect(restore).toHaveBeenCalledTimes(1)
   })
 
-  it('replaces a folder preview but keeps the same file after an explicit pin', async () => {
-    const chatId = 'folder-preview-intent'
-    const folder = openPanelItem(chatId, folderItem())!
+  it('navigates in the folder context and leaves an explicit new tab independent', async () => {
+    const chatId = 'folder-v3-intent'; const folder = openPanelItem(chatId, folderItem())!
     await harness.render(chatTabs({ chatId }))
-    const open = (itemId: string, intent: 'navigate' | 'newTab') => ask(chatId, {
-      itemId, from: shownPanelTab(chatId)!.tabId,
-      opener: { chatId, itemId, name: `${itemId}.pdf`, typedName: `${itemId}.pdf`, choice: { kind: 'one', candidate: pdf }, intent } as never,
-    })
-    open('first', 'navigate')
-    open('second', 'navigate')
-    expect(panelTabsOf(chatId).map(tab => tab.item.itemId ?? 'folder')).toEqual(['folder', 'second'])
-    const second = shownPanelTab(chatId)!.tabId
-    open('second', 'newTab')
-    open('third', 'navigate')
-    expect(panelTabsOf(chatId).map(tab => tab.item.itemId ?? 'folder')).toEqual(['folder', 'second', 'third'])
-    expect(panelTabsOf(chatId).some(tab => tab.tabId === second)).toBe(true)
-    expect(panelTabsOf(chatId).some(tab => tab.tabId === folder)).toBe(true)
+    const open = (itemId: string, intent: 'navigate' | 'newTab') => ask(chatId, { itemId, from: shownPanelTab(chatId)!.tabId, opener: { chatId, itemId, name: `${itemId}.pdf`, typedName: `${itemId}.pdf`, choice: { kind: 'one', candidate: pdf }, intent } as never })
+    open('first', 'navigate'); open('second', 'navigate')
+    expect(shownPanelTab(chatId)!.tabId).toBe(folder)
+    expect(panelTabsOf(chatId)).toHaveLength(1)
+    open('second', 'newTab'); const independent = shownPanelTab(chatId)!.tabId
+    expect(independent).not.toBe(folder); open('third', 'navigate')
+    expect(panelTabsOf(chatId).map(tab => tab.item.itemId)).toEqual(['second', 'third'])
+    expect(chatPaneOf(chatId, folder)?.navigationOf(folder)?.pages).toHaveLength(3)
   })
 
   it('the host preview also closes a message attachment instead of showing the folder', async () => {

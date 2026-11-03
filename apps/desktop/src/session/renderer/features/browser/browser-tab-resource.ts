@@ -69,7 +69,7 @@ export class BrowserTabResource implements TabResource {
       browserOpenInNewTabChannel,
       ({ sourceBrowserId, url }: { sourceBrowserId: string; url: string }) => {
         if (sourceBrowserId !== this.browserId) return;
-        handle.open('browser', { initialUrl: url });
+        handle.open('browser', { initialUrl: url }, { intent: 'newTab' });
       }
     );
 

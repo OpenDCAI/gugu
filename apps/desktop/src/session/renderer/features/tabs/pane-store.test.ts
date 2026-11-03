@@ -723,7 +723,7 @@ describe('PaneStore closing a row of tabs', () => {
     });
     registry.register(provider);
     const store = new PaneStore(registry, testCtx);
-    for (const id of ['a', 'b', 'c', 'd']) store.openKind(provider.kind, { id });
+    for (const id of ['a', 'b', 'c', 'd']) store.openKind(provider.kind, { id }, { from: null, intent: 'newTab' });
     const ids = () => store.resolvedTabs.map((t) => (store.entries.get(t.tabId)?.state as { id: string }).id);
     const tabOf = (id: string) => store.resolvedTabs.find((t) => (store.entries.get(t.tabId)?.state as { id: string }).id === id)!.tabId;
     return { store, ids, tabOf };
@@ -783,7 +783,7 @@ describe('PaneStore tells a lone close from a row', () => {
     });
     registry.register(provider);
     const store = new PaneStore(registry, testCtx);
-    for (const id of ['a', 'b', 'c']) store.openKind(provider.kind, { id });
+    for (const id of ['a', 'b', 'c']) store.openKind(provider.kind, { id }, { from: null, intent: 'newTab' });
     const tabOf = (id: string) => store.resolvedTabs.find((t) => (store.entries.get(t.tabId)?.state as { id: string }).id === id)!.tabId;
     return { store, tabOf };
   }

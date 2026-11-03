@@ -96,7 +96,7 @@ export function applyExtensionHostAction(command: ExtensionHostActionCommand): E
   const { origin, action } = command;
   // A link's or a banner's click has no page behind it: only what names its own target is done for it.
   if (!origin) return runInAction(() => openForClick(action));
-  return runInAction(() => perform(origin.sessionId, origin.tabId, action));
+  return runInAction(() => perform(origin.sessionId, origin.tabId, action, origin.extensionId));
 }
 
 function openForClick(action: ExtensionHostAction, fromTab?: string): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
@@ -134,7 +134,7 @@ function openForClick(action: ExtensionHostAction, fromTab?: string): ExtensionH
   }
 }
 
-function perform(sessionId: string | null, tabId: string, action: ExtensionHostAction): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
+function perform(sessionId: string | null, tabId: string, action: ExtensionHostAction, extensionId: string): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
   // What a page says about itself: a task's tab or a group's slot (sessionId null), kept by page (extensionSurfaceStore.say).
   switch (action.kind) {
     case 'navigateTab':
@@ -147,6 +147,9 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
           const source = chatPageOrigin(tabId);
           if (source) { sourceId = source.tabId; pane = source.pane; }
         }
+        const entry = pane?.entries.get(sourceId);
+        const kind = entry?.kind === 'chat-panel' ? (entry.state as { kind?: string })?.kind : entry?.kind;
+        if (!kind?.startsWith(`${extensionId}.`)) return { navigated: false };
         const history = pane?.navigationOf(sourceId);
         if (!history?.pages[history.index + action.delta]) return { navigated: false };
         return { navigated: await pane!.go(sourceId, action.delta) };

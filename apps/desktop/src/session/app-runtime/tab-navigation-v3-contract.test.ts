@@ -14,12 +14,12 @@ const panes: PaneStore[] = [];
 afterEach(() => { panes.splice(0).forEach((pane) => pane.dispose()); state.projects.clear(); });
 
 function setup() {
-  const def = createTabProvider({ kind: 'page', resourceKey: (s: { path: string }) => s.path, initialize: () => ({ dispose() {} }), dispose() {}, TabBarItem: () => null, TabBarItemDragPreview: () => null, TabContent: () => null });
+  const def = createTabProvider({ kind: 'workspace.main', resourceKey: (s: { path: string }) => s.path, initialize: () => ({ dispose() {} }), dispose() {}, TabBarItem: () => null, TabBarItemDragPreview: () => null, TabContent: () => null });
   const pane = new PaneStore(createTabRegistry([def]), { viewId: 'navigation-contract' });
   panes.push(pane);
-  pane.open('page', { path: '/' }, { intent: 'newTab' });
+  pane.open('workspace.main', { path: '/' }, { intent: 'newTab' });
   const a = pane.resolvedActiveTabId!;
-  pane.open('page', { path: '/other' }, { intent: 'newTab' });
+  pane.open('workspace.main', { path: '/other' }, { intent: 'newTab' });
   const b = pane.resolvedActiveTabId!;
   state.projects.set('project', { mountedProject: { sessionManager: { sessions: new Map([['session', { viewModel: { paneLayout: { groups: [{ paneId: 'p', pane }], windowPanes: new Map() } } }]]) } } });
   const api = (tabId: string) => createGugu({
@@ -32,7 +32,7 @@ function setup() {
 describe('the App can navigate only its own tab history', () => {
   it('returns true only after its own page actually changes', async () => {
     const { pane, api, a, b } = setup();
-    pane.navigate(a, 'page', { path: '/README' });
+    pane.navigate(a, 'workspace.main', { path: '/README' });
     await expect(api(a).navigation!.go(-1)).resolves.toBe(true);
     expect(pane.entries.get(a)?.state).toEqual({ path: '/' });
     expect(pane.entries.get(b)?.state).toEqual({ path: '/other' });
@@ -50,7 +50,7 @@ describe('the App can navigate only its own tab history', () => {
     for (const delta of [0, 2, 'back', null, { tabId: a }]) await expect(app.navigation!.go(delta)).rejects.toMatchObject({ code: 'invalid' });
   });
   it('another tab context cannot navigate the first tab', async () => {
-    const { pane, api, a, b } = setup(); pane.navigate(a, 'page', { path: '/README' });
+    const { pane, api, a, b } = setup(); pane.navigate(a, 'workspace.main', { path: '/README' });
     const app = api(b); expect(typeof app.navigation?.go).toBe('function');
     await expect(app.navigation!.go(-1, { tabId: a })).resolves.toBe(false);
     expect(pane.entries.get(a)?.state).toEqual({ path: '/README' });
