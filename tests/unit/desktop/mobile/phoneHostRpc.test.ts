@@ -5,10 +5,33 @@ vi.mock('../../../../apps/desktop/src/lib/deviceRpc', () => ({ callDeviceRpc: mo
 vi.mock('../../../../apps/desktop/src/mobile/phone-device/phoneDeviceSettings', () => ({ thisPhoneDeviceId: (ownerId: string) => `phone-${ownerId}` }))
 vi.mock('../../../../apps/desktop/src/mobile/local-agent/nativeAgent', () => ({ phoneAgentAvailable: () => mocked.native, nativeAgent: { hostCall: mocked.hostCall } }))
 import { invokePhoneHost } from '../../../../apps/desktop/src/mobile/local-agent/phoneHostRpc'
+import { createDeviceRpcRequester } from '../../../../packages/core/src/cloud/deviceRpcRequester'
 
 beforeEach(() => { mocked.native = true; mocked.ownerId = 'owner'; mocked.hostCall.mockReset(); mocked.remote.mockReset() })
 afterEach(() => { vi.useRealTimers() })
 describe('phone host uses the existing method contract without a workspace pipe', () => {
+  it.each(['phone-owner', 'another-phone'].flatMap(device => ['accepted', 'rejected'].map(admission => ({ device, admission }))))('retains a late $admission from $device after the outbox display deadline', async ({ device, admission }) => {
+    vi.useFakeTimers()
+    let reply!: (value: unknown) => void
+    mocked.hostCall.mockImplementation(() => new Promise(resolve => { reply = resolve }))
+    const requester = createDeviceRpcRequester({ userId: async () => 'owner', newRequestId: () => 'transport-id', openPipe: async (_device, handlers) => {
+      reply = value => handlers.onMessage({ payload: { type: 'taskhost.call:reply', request_id: 'transport-id', ...value as object } })
+      return { send: async () => {}, close: () => {} }
+    } })
+    mocked.remote.mockImplementation((target, type, payload, options) => requester.call(target, type, payload, options))
+    let state: unknown = 'pending'
+    const pending = invokePhoneHost(device, 'sessionTimeline.sessionSend', [{ clientRequestId: 'original-input' }])
+      .then(value => { state = value }, error => { state = error })
+    await vi.advanceTimersByTimeAsync(31_000)
+    expect(state).toBe('pending')
+    const error = { code: 'same-code', message: 'late decision', admission }
+    const result = { accepted: true }
+    reply(admission === 'rejected' ? { error } : { result: device === 'phone-owner' ? result : { value: result } })
+    await pending
+    expect(state).toMatchObject(admission === 'rejected' ? error : result)
+    expect(vi.getTimerCount()).toBe(0)
+    requester.closeAll()
+  })
   it.each(['rejected', 'uncertain', undefined])('preserves the admission decision %s over both phone transports', async admission => {
     const error = { code: 'same-code', message: 'same reason', ...(admission ? { admission } : {}) }
     mocked.hostCall.mockResolvedValue({ error })
