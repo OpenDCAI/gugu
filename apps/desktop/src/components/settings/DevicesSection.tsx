@@ -482,7 +482,7 @@ function DeviceRow({
   const canRestart = canRestartServerUpdate(model.update, device.capabilities)
   // 起不来的那一版只有确认重启能再试(普通「重试」解不开它的冷却):失败行给「现在重启更新」,❌ 给一颗按了没用的「重试」。
   const bootFailed = model.update?.state === 'failed' && model.update.reason === 'boot-failed'
-  const restartable = canRestart && (model.update?.state === 'ready' || bootFailed)
+  const restartable = device.is_online && canRestart && (model.update?.state === 'ready' || bootFailed)
   const outcome = device.capabilities.server_update_outcome ?? model.update?.lastOutcome
   const hostWaiting = outcome?.kind === 'waiting'
   // New hosts answer this exact request. Old ACKs have no identity: yield to a changed host fact.
@@ -494,13 +494,13 @@ function DeviceRow({
   if ((updateNow === 'ask' && !restartable)
     || (restarting && (model.version === restarting.version || answered))) setUpdateNow(null)
   useEffect(() => {
-    if (!restarting) return
+    if (!restarting || !device.is_online) return
     const timer = setTimeout(() => {
       setUpdateNow(null)
       toast(t('devices.update.restartTimeout', { name: device.label, version: restarting.version }), 'error')
     }, Math.max(0, restarting.deadline - Date.now()))
     return () => clearTimeout(timer)
-  }, [restarting, toast, t, device.label])
+  }, [restarting, toast, t, device.label, device.is_online])
   const signedOutText = sshLink === 'notSignedIn'
     ? t('devices.loginState.signedOut')
     : device.is_online || !signIn
@@ -549,7 +549,7 @@ function DeviceRow({
                   : t('devices.update.downloading', { version: model.update.version })}
               </Chip>
             )}
-            {model.update?.state === 'ready' && !hostWaiting && canRestart && onRestartVersionNow && updateNow === null && (
+            {device.is_online && model.update?.state === 'ready' && !hostWaiting && canRestart && onRestartVersionNow && updateNow === null && (
               <Button size="sm" onClick={() => setUpdateNow('ask')} data-testid="settings-device-update-now">{t('devices.update.updateNow')}</Button>
             )}
             {model.notices

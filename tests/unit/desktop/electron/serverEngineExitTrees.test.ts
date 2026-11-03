@@ -18,6 +18,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
     const workerEntry = path.join(dir, 'worker.cjs')
     const adapterEntry = path.join(dir, 'adapter.cjs')
     const bootEntry = path.join(dir, 'boot-check.cjs')
+    const miseEntry = path.join(dir, 'mise.cjs')
     hostEntry = path.join(dir, 'host.cjs')
     fs.writeFileSync(bootEntry, `#!${process.execPath}
       const {spawn}=require('node:child_process');
@@ -30,6 +31,12 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
       const {spawn}=require('node:child_process');
       const engine=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
       require('node:fs').writeFileSync(process.env.TREE_FILE,JSON.stringify({worker:process.ppid,adapter:process.pid,engine:engine.pid}));
+      setInterval(()=>{},1000);
+    `)
+    fs.writeFileSync(miseEntry, `
+      const {spawn}=require('node:child_process');
+      const worker=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
+      require('node:fs').writeFileSync(process.env.MISE_TREE_FILE,JSON.stringify({mise:process.pid,miseWorker:worker.pid}));
       setInterval(()=>{},1000);
     `)
     fs.writeFileSync(workerEntry, `
@@ -55,8 +62,8 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
       import {createScope} from ${JSON.stringify(path.resolve('packages/session-wire/src/util/scope.ts'))};
       import {createStubLogger} from ${JSON.stringify(path.resolve('packages/session-wire/src/testing/index.ts'))};
       import {signalProcessDescendantsSync} from ${JSON.stringify(path.resolve('packages/session-core/src/acp/engine-tree.ts'))};
-      import * as bootChecks from ${JSON.stringify(path.resolve('apps/desktop/electron/server/server-selftest.ts'))};
-      const {checkAccountBoot,killAccountBootsSync}=bootChecks;
+      import {checkAccountBoot} from ${JSON.stringify(path.resolve('apps/desktop/electron/server/server-selftest.ts'))};
+      import {runMiseProcess} from ${JSON.stringify(path.resolve('apps/desktop/electron/session/main/core/dependencies/mise-process.ts'))};
       const logDir=${JSON.stringify(dir)},shutdownLogger={info(){},error(){},warn(){}};
       const createLogger=()=>shutdownLogger,classifyFatal=()=>'defect',recordFatalSync=()=>{};
       const killAllCodexAppServerProcessGroupsSync=()=>{},opencodeServeAttachSessionDelivery={disposeSync(){}},droidDaemonSessionDelivery={disposeSync(){}};
@@ -70,8 +77,10 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
         const {logger}=createStubLogger();
         await spawnWorker({name:'fixture',entry:${JSON.stringify(workerEntry)},contract:defineContract({}),scope:createScope({logger}),supervision:{restart:'never'}});
         void checkAccountBoot(${JSON.stringify(bootEntry)}).catch(()=>{});
+        void runMiseProcess(process.execPath,[${JSON.stringify(miseEntry)}],{cwd:logDir,env:process.env}).catch(()=>{});
         while(!existsSync(process.env.TREE_FILE)) await new Promise(resolve=>setTimeout(resolve,5));
         while(!existsSync(process.env.BOOT_TREE_FILE)) await new Promise(resolve=>setTimeout(resolve,5));
+        while(!existsSync(process.env.MISE_TREE_FILE)) await new Promise(resolve=>setTimeout(resolve,5));
         process.on('message',kind=>{
           if(kind==='crash') setImmediate(()=>{throw new Error('download parser failure fixture')});
           else exitOnSignal('SIGTERM',kind==='stop'?143:75);
@@ -87,33 +96,37 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
   async function exitHost(kind: string, code: number, withTmux = false) {
     const record = path.join(dir, `${kind}.json`)
     const bootRecord = path.join(dir, `${kind}-boot.json`)
+    const miseRecord = path.join(dir, `${kind}-mise.json`)
     const tmuxRecord = path.join(dir, `${kind}-tmux.json`)
     const tmuxSocket = path.join(dir, `${kind}.sock`)
-    for (const file of [record, bootRecord, tmuxRecord]) fs.rmSync(file, { force: true })
+    for (const file of [record, bootRecord, miseRecord, tmuxRecord]) fs.rmSync(file, { force: true })
     const unrelated = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { detached: true, stdio: 'ignore' })
-    const host = fork(hostEntry, [], { silent: true, env: { ...process.env, TREE_FILE: record, BOOT_TREE_FILE: bootRecord,
+    const host = fork(hostEntry, [], { silent: true, env: { ...process.env, TREE_FILE: record, BOOT_TREE_FILE: bootRecord, MISE_TREE_FILE: miseRecord,
       TMUX_TREE_FILE: tmuxRecord, TMUX_SOCKET: withTmux ? tmuxSocket : '' } })
     let tree: { worker: number; adapter: number; engine: number } | undefined
     let boot: { boot: number; bootWorker: number; probe: number } | undefined
+    let mise: { mise: number; miseWorker: number } | undefined
     let tmux: { server: number; pane: number } | undefined
     try {
       await once(host, 'message', { signal: AbortSignal.timeout(10_000) })
       tree = JSON.parse(fs.readFileSync(record, 'utf8')) as typeof tree
       boot = JSON.parse(fs.readFileSync(bootRecord, 'utf8')) as typeof boot
+      mise = JSON.parse(fs.readFileSync(miseRecord, 'utf8')) as typeof mise
       if (withTmux) tmux = JSON.parse(fs.readFileSync(tmuxRecord, 'utf8')) as typeof tmux
-      console.info('Host exit fixture recorded processes:', { ...tree, ...boot, tmux })
+      console.info('Host exit fixture recorded processes:', { ...tree, ...boot, ...mise, tmux })
       const before = defaultEngineTreeOps().snapshotSync()
       expect(before.find(row => row.pid === tree!.adapter)?.pgid).toBe(tree!.adapter)
       expect(before.find(row => row.pid === tree!.engine)?.pgid).toBe(tree!.adapter)
       expect(before.find(row => row.pid === boot!.boot)?.pgid).toBe(boot!.boot)
       expect(before.find(row => row.pid === boot!.probe)?.pgid).toBe(boot!.probe)
+      expect(before.find(row => row.pid === mise!.mise)?.pgid).toBe(mise!.mise)
       if (tmux) expect(before.find(row => row.pid === tmux!.server)?.ppid).toBe(1)
       const closed = once(host, 'close')
       host.send(kind)
       expect(await closed).toEqual([code, null])
       await vi.waitFor(() => {
         const live = defaultEngineTreeOps().snapshotSync()
-        for (const pid of Object.values({ ...tree, ...boot })) expect(live.some(row => row.pid === pid)).toBe(false)
+        for (const pid of Object.values({ ...tree, ...boot, ...mise })) expect(live.some(row => row.pid === pid)).toBe(false)
       })
       expect(defaultEngineTreeOps().snapshotSync().some(row => row.pid === unrelated.pid)).toBe(true)
       if (tmux) {
@@ -126,7 +139,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
           const exited = once(child, 'close'); child.kill('SIGKILL'); await exited
         }
       }
-      for (const pid of Object.values({ ...tree, ...boot, ...tmux })) {
+      for (const pid of Object.values({ ...tree, ...boot, ...mise, ...tmux })) {
         try { process.kill(pid, 'SIGKILL') } catch { /* already reaped */ }
       }
     }

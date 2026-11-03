@@ -138,7 +138,7 @@ export function launchdPlist(executable: string, home: string, log: string): str
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const launcher = [
     '[ -f "$GUGU_SERVER_HOME/data/stopped" ] && exit 0',
-    `stop_child() { trap '' TERM INT; kill -TERM "$child" 2>/dev/null; set -m; ( sleep ${LAUNCHD_EXIT_TIMEOUT_S - 5}; printf '[server] Server did not exit in ${LAUNCHD_EXIT_TIMEOUT_S - 5} seconds; KILL pid %s\\n' "$child" >&2; kill -KILL "-$child" 2>/dev/null; kill -KILL "$child" 2>/dev/null ) & timer=$!; set +m; wait "$child" 2>/dev/null; code=$?; kill -TERM "-$timer" 2>/dev/null; wait "$timer" 2>/dev/null; case "$code" in 0|143|${EXIT_CONFIG}|${EXIT_SIGNED_OUT}) exit 0;; *) exit "$code";; esac; }`,
+    `stop_child() { trap '' TERM INT; kill -TERM "$child" 2>/dev/null; set -m; ( sleep ${LAUNCHD_EXIT_TIMEOUT_S - 5}; if kill -0 "$child" 2>/dev/null; then printf '[server] Server did not exit in ${LAUNCHD_EXIT_TIMEOUT_S - 5} seconds; KILL pid %s\\n' "$child" >&2; kill -KILL "-$child" 2>/dev/null; kill -KILL "$child" 2>/dev/null; fi ) & timer=$!; set +m; wait "$child" 2>/dev/null; code=$?; kill -KILL "-$timer" 2>/dev/null; wait "$timer" 2>/dev/null; case "$code" in 0|143|${EXIT_CONFIG}|${EXIT_SIGNED_OUT}) exit 0;; *) exit "$code";; esac; }`,
     'trap stop_child TERM INT',
     'set -m',
     '"$1" run & child=$!',

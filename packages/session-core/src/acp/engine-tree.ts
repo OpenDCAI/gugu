@@ -64,7 +64,7 @@ export function defaultEngineTreeOps(): EngineTreeOps {
   };
 }
 
-/** Host exit: snapshot while workers still live, before killing their detached adapters. */
+/** Host exit: snapshot the owned roots before any parent chain is severed. */
 export function signalProcessDescendantsSync(roots: readonly number[], signal: NodeJS.Signals, ops = defaultEngineTreeOps()): void {
   if (ops.isWindows || roots.length === 0) return;
   const table = ops.snapshotSync();

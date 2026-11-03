@@ -1,4 +1,5 @@
 import { sessionBootTasks } from './core/boot-tasks'
+import { hasAgentInstallsInProgress } from './core/agents/install-progress-ledger'
 // @@@sessionpage — the session backend's EMBEDDED-MODULE entry. The session backend is a cohesive
 // submodule (owner #43), NOT a set of gugu subsystems: it exposes exactly ONE boot entry here, and gugu
 // (the host) invokes it + bridges IPC — the host never reaches into the session backend's DB / pty /
@@ -2504,7 +2505,7 @@ export function sessionpageVersionSwitchActivity(): { busy: boolean; busyAgents:
     return pending.dispatching.length > 0 || (pending.queued.length > 0
       && shouldStartOnHydrate(hydrateLife(lifeStore.read(sessionId)), pending))
   }).length
-  return { busy: integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
+  return { busy: hasAgentInstallsInProgress() || integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
 }
 
 /** Refresh the account heartbeat at authorization boundaries, without waiting
