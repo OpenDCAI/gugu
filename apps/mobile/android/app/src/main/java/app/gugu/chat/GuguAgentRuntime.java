@@ -14,7 +14,9 @@ final class GuguAgentRuntime {
         return start(context, owner, false);
     }
     static synchronized Process start(Context context, String owner, boolean persistentHost) throws Exception {
-        File runtime = new File(context.getFilesDir(), "embedded-node/" + BuildConfig.VERSION_NAME);
+        File root = new File(context.getFilesDir(), "embedded-node");
+        long installed = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).lastUpdateTime;
+        File runtime = new File(root, PhoneAgentRuntimeFiles.directoryName(BuildConfig.VERSION_NAME, installed));
         if (!new File(runtime, "complete").exists()) {
             copyAssets(context, "agent-runtime", runtime);
             JSONArray aliases = new JSONArray(new String(Files.readAllBytes(new File(runtime, "library-aliases.json").toPath()), StandardCharsets.UTF_8));
@@ -25,6 +27,10 @@ final class GuguAgentRuntime {
                 Files.createSymbolicLink(link.toPath(), java.nio.file.Paths.get(alias.getString("target")));
             }
             new File(runtime, "complete").createNewFile();
+            for (File old : PhoneAgentRuntimeFiles.obsoleteDirectories(BuildConfig.VERSION_NAME, installed, root.listFiles(File::isDirectory))) {
+                java.io.IOException error = PhoneAgentRuntimeFiles.remove(old);
+                if (error != null) android.util.Log.w("GuguAgentRuntime", "Unable to remove previous runtime " + old.getName(), error);
+            }
         }
         File home = persistentHost
             ? new File(context.getNoBackupFilesDir(), "phone-agent-runtime/" + GuguAgentHostPolicy.owner(owner))
