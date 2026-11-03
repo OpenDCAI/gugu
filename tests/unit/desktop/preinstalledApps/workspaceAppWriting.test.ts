@@ -164,7 +164,7 @@ describe('markdown redesign: the real document page', () => {
   test('M2 the insertion button is absent, with one standard vertical-more control', () => {
     expect(document.getElementById('block-insert')).toBeNull()
     expect($('block-controls').querySelectorAll('button')).toHaveLength(1)
-    expect($('block-handle').querySelector('gugu-icon')?.getAttribute('name')).toBe('more-vertical')
+    expect($('block-handle').querySelector('gugu-icon')?.getAttribute('name')).toBe('more-horizontal')
   })
 
   test('M3 editing starts its block menu with insertion and constructs its nine items on expansion', async () => {

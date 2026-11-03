@@ -287,10 +287,10 @@ body[data-mode='edit'] .editor .cm-content { max-width: 720px; margin-inline: au
 .doc-empty .row { justify-content: center; margin-top: var(--em-spacing-sm); }
 body.empty-doc .preview, body[data-mode='edit'] .doc-empty, body[data-kind='json'] .doc-empty { display: none; }
 /* The editing block: one control in its left margin. No read-mode paragraph listeners. */
-.block-controls { position: fixed; z-index: 9; display: flex; transform: translateX(calc(-100% - 6px)); }
+.block-controls { position: fixed; z-index: 9; display: flex; transform: translateX(calc(-100% - 8px)); }
 .block-handle { width: 22px; min-width: 0; height: 22px; min-height: 0; padding: 0; justify-content: center; border: 0; border-radius: var(--em-radius-document); background: transparent; color: var(--em-foreground-passive); }
 .block-handle:hover, .block-handle[aria-expanded='true'] { background: var(--em-hover); color: var(--em-foreground); }
-.block-handle gugu-icon { width: var(--em-icon-sm); height: var(--em-icon-sm); }
+.block-handle gugu-icon { width: var(--em-icon-sm); height: var(--em-icon-sm); transform: rotate(90deg); }
 body:not([data-state='doc']) .block-controls, body[data-mode='preview'] .block-controls { display: none; }
 body[data-mode='edit'] .panes, body[data-mode='preview'] .panes, body[data-kind='json'] .panes { grid-template-columns: 1fr; }
 body[data-mode='edit'] .preview, body[data-mode='preview'] .editor { display: none; }

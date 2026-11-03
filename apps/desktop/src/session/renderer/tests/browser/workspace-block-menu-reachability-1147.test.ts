@@ -148,7 +148,8 @@ async function openHandle(insertion = true) {
   expect(handle().contains(document.elementFromPoint(x, y)), 'the visible handle is the actual pointer target').toBe(true);
   expect(document.getElementById('block-insert')).toBeNull();
   expect(controls().querySelectorAll('button')).toHaveLength(1);
-  expect(handle().querySelector('gugu-icon')?.getAttribute('name')).toBe('more-vertical');
+  expect(handle().querySelector('gugu-icon')?.getAttribute('name')).toBe('more-horizontal');
+  expect(handle().querySelector('gugu-icon')?.shadowRoot?.querySelector('svg'), 'the built-in icon really renders').not.toBeNull();
   await pointer(x, y);
   await pointer(x, y, 'mousePressed');
   await pointer(x, y, 'mouseReleased');
