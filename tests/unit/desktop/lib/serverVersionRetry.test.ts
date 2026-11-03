@@ -4,7 +4,7 @@ import { LEGACY_VERSION_RETRY_RPC, VERSION_ACTIVITY_RPC, VERSION_RESTART_RPC } f
 
 const rpc = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/deviceRpc', () => ({ callDeviceRpc: rpc }))
-beforeEach(() => rpc.mockReset())
+beforeEach(() => { rpc.mockReset() })
 
 it.each([0, 2])('reads a fresh interruption count, preserving zero (%s)', async busyAgents => {
   rpc.mockResolvedValue({ result: { busyAgents } })
