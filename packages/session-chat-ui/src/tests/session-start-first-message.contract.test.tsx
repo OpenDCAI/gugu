@@ -81,6 +81,21 @@ describe('ordinary sending stays in the transcript', () => {
     expect(Math.abs(host.querySelector('[data-user-card]')!.getBoundingClientRect().top - top)).toBeLessThanOrEqual(1)
   })
 
+  it('keeps sender-owned input waiting without a retry action or a running agent', async () => {
+    const { state, host, view } = mount('double', { agentConversation: true })
+    const retry = vi.fn()
+    view.setCommands({ onRetrySend: retry })
+    state.session.setPendingPrompt({ id: 'owned', text: FIRST, held: true,
+      delivery: { state: 'waiting', reason: 'Send interrupted', error: 'SSH transport closed', retryable: false } })
+    await until('automatic custody status is visible', () => !!host.querySelector('[data-send-state="waiting"]'))
+    expect(host.textContent).toContain('Waiting to send · Send interrupted')
+    expect(host.querySelector('[data-send-state="waiting"]')?.getAttribute('title')).toBe('SSH transport closed')
+    expect(host.querySelector('[data-send-state="waiting"] button')).toBeNull()
+    expect(host.querySelector('[data-live="true"]')).toBeNull()
+    expect(host.querySelectorAll('[data-user-card]')).toHaveLength(1)
+    expect(retry).not.toHaveBeenCalled()
+  })
+
   it('keeps the failed input and a working retry action in place', async () => {
     const { state, host, view } = mount('double', { agentConversation: true })
     const retry = vi.fn()

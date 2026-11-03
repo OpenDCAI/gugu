@@ -22,7 +22,7 @@ export type PendingPrompt = {
   /** Its session is still starting (the lifecycle's own state): the live line says so instead of the working label. */
   starting?: TurnProcessItem['starting'];
   /** Ordinary sender custody, kept here until this exact input is visible in the transcript. */
-  delivery?: { state: 'sending' | 'accepted' | 'failed' | 'unknown'; error?: string; retryable?: boolean };
+  delivery?: { state: 'sending' | 'waiting' | 'accepted' | 'failed' | 'unknown'; error?: string; reason?: string; retryable?: boolean };
   /** Existing user identities cannot acknowledge this input when older history is loaded. */
   baselineMessageIds?: readonly string[];
   afterTurnId?: string;
