@@ -4,13 +4,18 @@
 
 - `apps/desktop/electron/session/main/db/schema.ts`
 - `apps/desktop/electron/session/main/db/initialize.ts`
-- `drizzle/`
+- `apps/desktop/electron/session/drizzle/`
 
 ## Rules
 
-- never hand-edit numbered migrations
-- never hand-edit `drizzle/meta/`
-- use `pnpm exec drizzle-kit generate` for new migrations
+- never rewrite an already committed numbered migration or journal entry
+- keep the latest generation snapshot in `drizzle/meta/` aligned with both the
+  latest journal index and `schema.ts`; older snapshots remain historical
+- for generated migrations, run `pnpm exec drizzle-kit generate` from
+  `apps/desktop/electron/session/`
+- for hand-written migrations, add the SQL and journal entry, then run
+  `pnpm session:db:snapshot` from the repository root; this only refreshes the
+  latest schema snapshot and never writes migration SQL or changes the journal
 - treat schema invariants and data migrations as high risk
 
 ## Current Behavior
@@ -76,10 +81,16 @@ installed under `apps/desktop/session-tooling/node-deps/` (compiled for system N
    ```
    Commit this snapshot. It is the starting state your migration test will run against.
 
-3. **Write the migration**: edit `apps/desktop/electron/session/main/db/schema.ts`, then generate the SQL:
+3. **Write the migration**: edit `apps/desktop/electron/session/main/db/schema.ts`, then generate the SQL
+   from `apps/desktop/electron/session/`:
    ```bash
-   pnpm run db:generate
+   pnpm exec drizzle-kit generate
    ```
+   Alternatively, append a hand-written SQL migration and `_journal.json` entry,
+   then run `pnpm session:db:snapshot` at the repository root. Do not run
+   snapshot refresh before writing the matching migration: it establishes the
+   generator's next baseline, not a database upgrade. Data migrations and
+   triggers still require hand-written SQL; schema snapshots do not encode them.
 
 4. **Write a migration test** in `apps/desktop/electron/session/main/db/tests/migrations/` using `openFixture('pre-XXXX')`.
    See `example.test.ts` in that directory for the pattern.
@@ -91,8 +102,12 @@ installed under `apps/desktop/session-tooling/node-deps/` (compiled for system N
 
 6. **Run migration tests**:
    ```bash
-   pnpm run test:migrations
+   pnpm session:test:migrations
+   pnpm exec vitest run --project session-main apps/desktop/electron/session/main/db/schema-snapshot.test.ts
    ```
+   The snapshot regression runs in the existing CI unit suite. It rejects a
+   missing latest snapshot or schema drift and checks that unchanged schema
+   generates no SQL.
 
 7. **Commit everything together**: migration SQL (`drizzle/`), `drizzle/meta/`,
    `pre-XXXX.db`, updated `tooling/fixtures/*.db`, the migration test.
