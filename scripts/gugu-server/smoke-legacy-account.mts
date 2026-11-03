@@ -9,8 +9,13 @@ import path from 'node:path'
 
 const binary = process.argv[2]
 if (!binary || !path.isAbsolute(binary)) throw new Error('An absolute packaged server binary is required')
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-legacy-boot-'))
-if (!home.startsWith(path.join(os.tmpdir(), 'gugu-legacy-boot-'))) throw new Error('Unexpected fixture path')
+const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-legacy-boot-'))
+if (!fixture.startsWith(path.join(os.tmpdir(), 'gugu-legacy-boot-'))) throw new Error('Unexpected fixture path')
+// Runtime caches (including Rosetta before Node starts) belong to the OS user's home,
+// not the never-used server installation whose empty-account contract this probes.
+const home = path.join(fixture, 'server')
+const userHome = path.join(fixture, 'user')
+fs.mkdirSync(userHome, { mode: 0o700 })
 const userId = randomUUID()
 const account = path.join(home, 'accounts', userId)
 const data = path.join(account, 'data')
@@ -29,7 +34,7 @@ const child = spawn(binary, ['run-account', userId], {
   stdio: ['ignore', 'pipe', 'pipe'],
   env: { ...process.env, GUGU_SERVER_HOME: home, GUGU_HOME: path.join(account, 'home'),
     GUGU_TASK_HOST_USER_DATA: data, GUGU_USER_DATA_DIR: data,
-    GUGU_SERVER_ACCOUNT: userId, GUGU_SERVER_WAIT_PID: '', HOME: home, USERPROFILE: home },
+    GUGU_SERVER_ACCOUNT: userId, GUGU_SERVER_WAIT_PID: '', HOME: userHome, USERPROFILE: userHome },
 })
 console.log(`legacy boot probe launched: pid=${child.pid}`)
 let output = Buffer.alloc(0)
@@ -54,8 +59,8 @@ try {
   const kill = setTimeout(() => child.kill('SIGKILL'), 10_000)
   await exited
   clearTimeout(kill)
-  console.log(`remove legacy boot fixture: ${home}`)
-  fs.rmSync(home, { recursive: true, force: true })
+  console.log(`remove legacy boot fixture: ${fixture}`)
+  fs.rmSync(fixture, { recursive: true, force: true })
 }
 if (child.exitCode !== 0 && child.exitCode !== 143 && child.signalCode !== 'SIGTERM') {
   throw new Error(`Legacy account boot exited with ${child.exitCode}, signal ${child.signalCode}\n${output.toString()}`)
