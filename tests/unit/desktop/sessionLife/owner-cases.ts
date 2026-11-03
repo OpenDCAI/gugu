@@ -110,6 +110,22 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; uncertainAdmi
 }
 
 export const ownerCases: readonly { name: string; run: () => Promise<void> }[] = [
+  ...([1, 2] as const).map(losses => ({
+    name: `#552: uncertain admission preserves the ${losses === 1 ? 'first missing recovery' : 'second missing rejection'}`,
+    async run() {
+      const r = rig({ uncertainAdmission: true, channelLostTimes: losses }); r.session(); await r.owner.signIn('A');
+      const { seq: original } = r.send('s', 'original-input'); await r.owner.quiescent('s');
+      assert.deepEqual(r.dispatched, [original, original]);
+      assert.equal(r.rows.size, 1);
+      assert.equal(r.rows.get(original)?.state, losses === 1 ? 'accepted' : 'failed');
+      assert.equal(r.trace.filter(line => line.endsWith(':identity')).length, 2);
+      assert.equal(r.views.filter(view => view.pending.items.some(row => row.state === 'unknown' && row.awaitingReceipt)).length, 2);
+      assert.deepEqual(r.marked, losses === 1 ? [original] : []);
+      assert.deepEqual(r.reported.map(row => row.seq), losses === 1 ? [] : [original]);
+      assert.deepEqual(r.failures, []);
+      await r.owner.signOut();
+    },
+  })),
   { name: 'a real provider exit reports the uncertain inbox batch exactly once and can tear it down', async run() {
     const r = rig({ delayReceipt: true, uncertainAdmission: true }); r.session(); await r.owner.signIn('A');
     const original = r.owner.enqueue({ sessionId: 's', text: 'inbox body', kind: 'inbox-batch', sources: [] }).seq;

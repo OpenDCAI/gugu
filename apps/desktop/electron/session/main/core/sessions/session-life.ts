@@ -419,9 +419,13 @@ export class SessionLife {
   }
 
   private async dispatch(sessionId: string, run: Run, seq: Seq, have: Parameters<LegAdapter['dispatch']>[0]): Promise<void> {
+    const row = this.ports.store(sessionId).row(sessionId, seq);
+    // At dispatch, a retained failure is a proven earlier channel loss (#552). A later uncertain
+    // status can replace that diagnostic, so keep this recovery fact separate for this native attempt.
+    const channelLostBeforeDispatch = row.failure !== null;
     let result: Awaited<ReturnType<LegAdapter['dispatch']>>;
     try {
-      result = await run.adapter.dispatch(have, this.ports.store(sessionId).row(sessionId, seq), {
+      result = await run.adapter.dispatch(have, row, {
         gen: run.gen, signal: run.abort.signal,
         onUncertain: cause => this.send(sessionId, { k: 'admission-uncertain', gen: run.gen, seq, cause }),
       });
@@ -442,9 +446,8 @@ export class SessionLife {
         return;
       case 'channel-lost': {
         // #552: one redelivery per row. A row that already lost a channel once fails on the second loss.
-        const lostBefore = this.ports.store(sessionId).row(sessionId, seq).failure !== null;
         this.send(sessionId, { k: 'receipt', gen: run.gen, seq, nativeReceiptId: null,
-          result: lostBefore ? 'rejected-before-admission' : 'channel-lost', cause: result.cause });
+          result: channelLostBeforeDispatch ? 'rejected-before-admission' : 'channel-lost', cause: result.cause });
         return;
       }
     }
