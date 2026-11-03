@@ -89,6 +89,16 @@ function projectManagerWithSessions(
 }
 
 describe('SidebarStore project ordering', () => {
+  it('keeps the raw title and creation time for component display without rewriting addressing data', () => {
+    const createdAt = '2026-11-02T08:00:00.000Z';
+    const page = { ...sessionFixture('fresh', createdAt), data: { ...sessionFixture('fresh', createdAt).data, title: 'Codex 5', providerId: 'codex', runtime: 'acp', lastInteractedAt: createdAt } };
+    const manager = { projects: new Map([['project', { id: 'project', createdAt, mountedProject: { sessionManager: { sessions: new Map([['fresh', page]]) } } }]]) } as unknown as SidebarProjectManager;
+    sessionRegistry.acquire('fresh', 'project', [{ ...page.data, projectId: 'project', runtime: 'acp', agentStatus: null }]);
+    try {
+      const store = new SidebarStore(manager);
+      expect(store.placement.entries.get('project')).toEqual([expect.objectContaining({ title: 'Codex 5', createdAt })]);
+    } finally { sessionRegistry.release('fresh'); }
+  });
   it('counts a projectless child once when its workspace is also folded into a project group (#574)', () => {
     const home = IMPLICIT_SESSION_HOME_PROJECT_ID;
     const row = 'hydration-project';

@@ -21,7 +21,7 @@ import type { DisplayIdentity } from '../../../apps/desktop/src/lib/displayIdent
 import type { ContactUser } from '../../../packages/core/src/shared/types/contacts'
 import type { AccountRevisionListener } from '../../../apps/desktop/src/lib/accountRevisionCoordinator'
 import type { ChatContextValue } from '../../../apps/desktop/src/store/chatContext'
-import { createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../support/testHarness'
+import { createNode, createReactHarness, displayIdentity, renderWithAppProviders, typeInto } from '../../support/testHarness'
 import { setAgentDisplayStatusOverride, clearAgentDisplayStatusOverrides } from '../../support/agentDisplayStatusTestDouble'
 
 vi.mock('../../../apps/desktop/src/lib/chat', () => ({
@@ -106,7 +106,7 @@ beforeEach(() => {
   // Member controls project the authoritative management capabilities.
   getSettings.mockResolvedValue(settingsRow(null, 5))
 })
-afterEach(() => { harness.cleanup(); vi.clearAllMocks() })
+afterEach(() => { harness.cleanup(); vi.clearAllMocks(); vi.useRealTimers() })
 
 // 页头归宿主画;测试宿主把标题与动作原样摆出来(话题改名框、邀请按钮都在这两块里)。
 const head = (title: ReactNode, actions: ReactNode) => createNode(Fragment, null, title, actions)
@@ -142,6 +142,19 @@ describe('@@@5856 名册读不到', () => {
 })
 
 describe('MemberListPanel archived members', () => {
+  it('filters a naming placeholder by the real identity name', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime('2026-11-02T08:00:00.000Z')
+    getGroupCollab.mockResolvedValue({ snapshot: collab([agentItem('fresh')]), identities: [displayIdentity('fresh', {
+      type: 'agent', display_name: 'Codex 5', created_at: '2026-11-02T08:00:00.000Z',
+    })] })
+    await renderWithAppProviders(harness, createNode(MemberListPanel, { chatId: 'chat-1', chatKind: 'group', head }), { contacts: {} })
+    const search = harness.container.querySelector<HTMLInputElement>('[data-testid="member-list-search"]')!
+    await typeInto(search, 'Codex 5')
+    expect(harness.container.querySelector('[data-member-name="fresh"]')?.textContent).toBe('正在起名…')
+    await typeInto(search, '正在起名')
+    expect(harness.container.querySelector('[data-member-row="fresh"]')).toBeNull()
+  })
   it('keeps the member and displays an actual muted archived label, not only an avatar tooltip', async () => {
     setAgentDisplayStatusOverride('archived', 'archived')
     await renderPanel(collab([agentItem('archived')], [humanItem('owner-1')]))

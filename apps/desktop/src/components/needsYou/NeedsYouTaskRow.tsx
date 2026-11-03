@@ -1,4 +1,5 @@
 import { Zap } from '@/lib/icons'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { formatCalendarDay } from '@/i18n/format'
 import { useChatStore } from '@/store/chatContext'
 import { sessionPresentation } from '@/mobile/agent-watch/watch-status'
@@ -22,7 +23,10 @@ export const NeedsYouTaskRow = observer(function NeedsYouTaskRow({ task, onClick
   const presentation = sessionPresentation(session, true)
   const agentId = session.agent?.userId
   const agent = agentId ? identitiesById[agentId] : undefined
-  const name = agent?.display_name || session.title
+  const [name, title] = useShownAgentName([
+    { name: agent?.display_name || session.title, createdAt: agent?.created_at ?? undefined },
+    { name: session.title, createdAt: agent?.created_at ?? undefined },
+  ])
   const time = Date.parse(session.lastInteractedAt ?? '')
   return <ListRow
     data-session-line={session.conversationId}
@@ -33,11 +37,11 @@ export const NeedsYouTaskRow = observer(function NeedsYouTaskRow({ task, onClick
     onClick={onClick}
     onKeyDown={onKeyDown}
     leading={<PhoneMessageAvatar badge={presentation && <span className="inline-flex" role="img" aria-label={agentStatusText(presentation.label)}><AgentContactStatusMark tone={displayStatusOf(presentation.tone)} /></span>}>
-      <Avatar name={name} avatarUrl={agent?.avatar ?? null} seed={agentId} size={48} isAgent harnessBadge={false} />
+      <Avatar name={name!} avatarUrl={agent?.avatar ?? null} seed={agentId} size={48} isAgent harnessBadge={false} />
     </PhoneMessageAvatar>}
     title={name}
     accessory={<Zap size={11} className="shrink-0 text-[var(--agent-bolt)]" />}
     meta={Number.isFinite(time) ? formatCalendarDay(new Date(time).toISOString()) : undefined}
-    subtitle={session.title}
+    subtitle={title}
   />
 })

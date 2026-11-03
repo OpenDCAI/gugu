@@ -1,3 +1,4 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { useAgentDisplayStatus } from '@/hooks/useAgentDisplayStatus'
 import { useRowContextMenu } from '@/hooks/useRowContextMenu'
@@ -39,6 +40,7 @@ export function AgentContactRow({
   const { tone, label: statusLabel } = useShownAgentContactStatus(contact.id, status, presence.presentation) // #7199 收回着 ≠ 不在线
   const { allowsLiveActions } = agentContactPresentation(status)
   const { menuPos, onContextMenu, closeMenu } = useRowContextMenu()
+  const shownName = useShownAgentName({ name: displayName(contact), agentType: contact.agent_type, createdAt: selectionMode ? undefined : contact.created_at ?? undefined })
   const rowActions = allowsLiveActions ? menu : undefined
   return (
     <>
@@ -59,11 +61,11 @@ export function AgentContactRow({
           <>
             {selectionMode ? <SelectionCheckbox checked={multiSelected} /> : null}
             <div className={agentAvatarClass(tone)} style={mobile ? { width: 'var(--avatar-md)', height: 'var(--avatar-md)' } : undefined}>
-              <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size={mobile ? 'md' : 'sm'} isAgent agentStatus={status === 'needs_user' ? status : undefined} />
+              <Avatar name={shownName} avatarUrl={contact.avatar} seed={contact.id} size={mobile ? 'md' : 'sm'} isAgent agentStatus={status === 'needs_user' ? status : undefined} />
             </div>
           </>
         }
-        title={displayName(contact)}
+        title={shownName}
         accessory={
           <>
             <span className={boltClass}><Zap size={11} /></span>

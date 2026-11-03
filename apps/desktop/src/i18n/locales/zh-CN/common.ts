@@ -1,4 +1,7 @@
 export default {
+  "agentName": {
+    "naming": "正在起名…"
+  },
   "needsYou": {
     "title": "需要你处理",
     "waitingTasks": "等待你处理的任务",

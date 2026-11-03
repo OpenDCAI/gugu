@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { useTranslation } from 'react-i18next'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { Avatar } from '../Avatar'
@@ -27,16 +29,18 @@ export function AssistantTaskChatWindow({ agent, task, onClose, status, notice, 
   const { t } = useTranslation('assistant')
   const mobile = useMobileShell()
   const { devices } = useDevicesStore()
+  const identity = useAvatarIdentity(agent.id)
+  const name = useShownAgentName({ name: agent.display_name, createdAt: identity?.created_at ?? undefined })
   // The same test as the assistant's progress footnote (AssistantConversationProgress): this computer reads over IPC.
   const local = devices.some(device => device.device_id === task.deviceId && device.is_current_device)
   return (
-    <section className="assistant-task-chat-window ta-skin" aria-label={agent.display_name} data-testid="assistant-task-chat-window">
+    <section className="assistant-task-chat-window ta-skin" aria-label={name} data-testid="assistant-task-chat-window">
       <TaskChatFilePreviewHost mobile={mobile}>
         <PeekSessionTimeline sessionId={task.sessionId} local={local} onBack={onClose} fallback={<>
-          <PaneHeader title={agent.display_name} subtitle={status} mobile={mobile} divider
-            leading={<><IconButton aria-label={t('panel.back')} onClick={onClose} data-testid="assistant-task-chat-close"><ChevronLeft /></IconButton><Avatar name={agent.display_name} seed={agent.id} avatarUrl={agent.avatar} size="sm" isAgent still harnessBadge={false} /></>} />
+          <PaneHeader title={name} subtitle={status} mobile={mobile} divider
+            leading={<><IconButton aria-label={t('panel.back')} onClick={onClose} data-testid="assistant-task-chat-close"><ChevronLeft /></IconButton><Avatar name={name} seed={agent.id} avatarUrl={agent.avatar} size="sm" isAgent still harnessBadge={false} /></>} />
           {notice}
-          {pendingContent ?? <div className="assistant-task-chat-window__pending"><LoadingIndicator size="panel" ariaLabel={t('chat.opening', { name: agent.display_name })} /></div>}
+          {pendingContent ?? <div className="assistant-task-chat-window__pending"><LoadingIndicator size="panel" ariaLabel={t('chat.opening', { name })} /></div>}
         </>} />
       </TaskChatFilePreviewHost>
     </section>

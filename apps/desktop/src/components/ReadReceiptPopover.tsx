@@ -1,9 +1,11 @@
 import { Avatar } from './Avatar'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { Popover } from './ui/Popover'
 import { useTranslation } from 'react-i18next'
 
 // @@@1345 已读回执弹层：点击消息气泡的进度圆环 → 弹「X 已读 | Y 未读」+ 左右两列头像名单。
-// 数据由 ChatAreaPanel 用 deriveReadReceipt 的 readerIds/recipientIds 映射成员档案后传入（弹层不取数）。
+// 名册由 ChatAreaPanel 映射传入；显示名沿用已有身份桥的创建时间。
 export interface ReadReceiptMember {
   id: string
   displayName: string
@@ -12,9 +14,11 @@ export interface ReadReceiptMember {
 }
 
 function MemberRow({ member }: { member: ReadReceiptMember }) {
+  const identity = useAvatarIdentity(member.isAgent ? member.id : '')
+  const name = useShownAgentName({ name: member.displayName, createdAt: member.isAgent ? identity?.created_at ?? undefined : undefined })
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px', minWidth: 0 }}>
-      <Avatar name={member.displayName} avatarUrl={member.avatar} seed={member.id} isAgent={member.isAgent} size="sm" />
+      <Avatar name={name} avatarUrl={member.avatar} seed={member.id} isAgent={member.isAgent} size="sm" />
       <span
         style={{
           fontSize: 'var(--font-body)',
@@ -24,7 +28,7 @@ function MemberRow({ member }: { member: ReadReceiptMember }) {
           textOverflow: 'ellipsis',
         }}
       >
-        {member.displayName}
+        {name}
       </span>
     </div>
   )
