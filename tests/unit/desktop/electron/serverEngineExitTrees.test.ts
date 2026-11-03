@@ -1,4 +1,4 @@
-import { fork, spawn, type ChildProcess } from 'node:child_process'
+import { fork, spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -8,6 +8,8 @@ import ts from 'typescript'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { defaultEngineTreeOps } from '../../../../packages/session-core/src/acp/engine-tree'
 
+const tmuxAvailable = spawnSync('tmux', ['-V'], { stdio: 'ignore' }).status === 0
+
 describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP adapter', () => {
   let dir: string
   let hostEntry: string
@@ -15,7 +17,15 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-host-exit-tree-'))
     const workerEntry = path.join(dir, 'worker.cjs')
     const adapterEntry = path.join(dir, 'adapter.cjs')
+    const bootEntry = path.join(dir, 'boot-check.cjs')
     hostEntry = path.join(dir, 'host.cjs')
+    fs.writeFileSync(bootEntry, `#!${process.execPath}
+      const {spawn}=require('node:child_process');
+      const worker=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
+      const probe=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});
+      require('node:fs').writeFileSync(process.env.BOOT_TREE_FILE,JSON.stringify({boot:process.pid,bootWorker:worker.pid,probe:probe.pid}));
+      setInterval(()=>{},1000);
+    `, { mode: 0o700 })
     fs.writeFileSync(adapterEntry, `
       const {spawn}=require('node:child_process');
       const engine=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
@@ -23,6 +33,12 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
       setInterval(()=>{},1000);
     `)
     fs.writeFileSync(workerEntry, `
+      if(process.env.TMUX_SOCKET){
+        const {execFileSync}=require('node:child_process'),socket=process.env.TMUX_SOCKET;
+        execFileSync('tmux',['-S',socket,'new-session','-d','-s','fixture','exec /bin/sleep 3600'],{env:{...process.env,TMUX:''}});
+        const [server,pane]=execFileSync('tmux',['-S',socket,'display-message','-p','-t','fixture','#{pid} #{pane_pid}'],{encoding:'utf8'}).trim().split(' ').map(Number);
+        require('node:fs').writeFileSync(process.env.TMUX_TREE_FILE,JSON.stringify({server,pane}));
+      }
       require('node:child_process').spawn(process.execPath,[${JSON.stringify(adapterEntry)}],{detached:true,stdio:'ignore'});
       process.send({kind:'wire-runtime-signal',event:'ready'});
       setInterval(()=>{},1000);
@@ -39,6 +55,8 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
       import {createScope} from ${JSON.stringify(path.resolve('packages/session-wire/src/util/scope.ts'))};
       import {createStubLogger} from ${JSON.stringify(path.resolve('packages/session-wire/src/testing/index.ts'))};
       import {signalProcessDescendantsSync} from ${JSON.stringify(path.resolve('packages/session-core/src/acp/engine-tree.ts'))};
+      import * as bootChecks from ${JSON.stringify(path.resolve('apps/desktop/electron/server/server-selftest.ts'))};
+      const {checkAccountBoot,killAccountBootsSync}=bootChecks;
       const logDir=${JSON.stringify(dir)},shutdownLogger={info(){},error(){},warn(){}};
       const createLogger=()=>shutdownLogger,classifyFatal=()=>'defect',recordFatalSync=()=>{};
       const killAllCodexAppServerProcessGroupsSync=()=>{},opencodeServeAttachSessionDelivery={disposeSync(){}},droidDaemonSessionDelivery={disposeSync(){}};
@@ -51,7 +69,9 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
       void(async()=>{
         const {logger}=createStubLogger();
         await spawnWorker({name:'fixture',entry:${JSON.stringify(workerEntry)},contract:defineContract({}),scope:createScope({logger}),supervision:{restart:'never'}});
+        void checkAccountBoot(${JSON.stringify(bootEntry)}).catch(()=>{});
         while(!existsSync(process.env.TREE_FILE)) await new Promise(resolve=>setTimeout(resolve,5));
+        while(!existsSync(process.env.BOOT_TREE_FILE)) await new Promise(resolve=>setTimeout(resolve,5));
         process.on('message',kind=>{
           if(kind==='crash') setImmediate(()=>{throw new Error('download parser failure fixture')});
           else exitOnSignal('SIGTERM',kind==='stop'?143:75);
@@ -64,34 +84,52 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
     if (!dir.startsWith(path.join(os.tmpdir(), 'gugu-host-exit-tree-'))) throw new Error('Unexpected fixture directory')
     fs.rmSync(dir, { recursive: true, force: true })
   })
-  it.each([['crash', 1], ['update', 75], ['stop', 143]] as const)('reaps adapter and engine before the actual %s exit', async (kind, code) => {
+  async function exitHost(kind: string, code: number, withTmux = false) {
     const record = path.join(dir, `${kind}.json`)
+    const bootRecord = path.join(dir, `${kind}-boot.json`)
+    const tmuxRecord = path.join(dir, `${kind}-tmux.json`)
+    const tmuxSocket = path.join(dir, `${kind}.sock`)
     const unrelated = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { detached: true, stdio: 'ignore' })
-    const host = fork(hostEntry, [], { silent: true, env: { ...process.env, TREE_FILE: record } })
+    const host = fork(hostEntry, [], { silent: true, env: { ...process.env, TREE_FILE: record, BOOT_TREE_FILE: bootRecord,
+      TMUX_TREE_FILE: tmuxRecord, TMUX_SOCKET: withTmux ? tmuxSocket : '' } })
     let tree: { worker: number; adapter: number; engine: number } | undefined
+    let boot: { boot: number; bootWorker: number; probe: number } | undefined
+    let tmux: { server: number; pane: number } | undefined
     try {
       await once(host, 'message')
       tree = JSON.parse(fs.readFileSync(record, 'utf8')) as typeof tree
+      boot = JSON.parse(fs.readFileSync(bootRecord, 'utf8')) as typeof boot
+      if (withTmux) tmux = JSON.parse(fs.readFileSync(tmuxRecord, 'utf8')) as typeof tmux
+      console.info('Host exit fixture recorded processes:', { ...tree, ...boot, tmux })
       const before = defaultEngineTreeOps().snapshotSync()
       expect(before.find(row => row.pid === tree!.adapter)?.pgid).toBe(tree!.adapter)
       expect(before.find(row => row.pid === tree!.engine)?.pgid).toBe(tree!.adapter)
+      expect(before.find(row => row.pid === boot!.boot)?.pgid).toBe(boot!.boot)
+      expect(before.find(row => row.pid === boot!.probe)?.pgid).toBe(boot!.probe)
+      if (tmux) expect(before.find(row => row.pid === tmux!.server)?.ppid).toBe(1)
       const closed = once(host, 'close')
       host.send(kind)
       expect(await closed).toEqual([code, null])
       await vi.waitFor(() => {
         const live = defaultEngineTreeOps().snapshotSync()
-        for (const pid of Object.values(tree!)) expect(live.some(row => row.pid === pid)).toBe(false)
+        for (const pid of Object.values({ ...tree, ...boot })) expect(live.some(row => row.pid === pid)).toBe(false)
       })
       expect(defaultEngineTreeOps().snapshotSync().some(row => row.pid === unrelated.pid)).toBe(true)
+      if (tmux) {
+        const live = defaultEngineTreeOps().snapshotSync()
+        for (const pid of Object.values(tmux)) expect(live.some(row => row.pid === pid)).toBe(true)
+      }
     } finally {
       for (const child of [host, unrelated] as ChildProcess[]) {
         if (child.exitCode === null && child.signalCode === null) {
           const exited = once(child, 'close'); child.kill('SIGKILL'); await exited
         }
       }
-      for (const pid of Object.values(tree ?? {})) {
+      for (const pid of Object.values({ ...tree, ...boot, ...tmux })) {
         try { process.kill(pid, 'SIGKILL') } catch { /* already reaped */ }
       }
     }
-  })
+  }
+  it.each([['crash', 1], ['update', 75], ['stop', 143]] as const)('reaps the adapter and an in-progress boot check before the actual %s exit', exitHost)
+  it.runIf(tmuxAvailable).each([['crash', 1], ['update', 75]] as const)('preserves an actual double-forked tmux and its command across %s', async (kind, code) => exitHost(kind, code, true))
 })

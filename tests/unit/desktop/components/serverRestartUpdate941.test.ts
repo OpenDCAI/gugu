@@ -280,6 +280,34 @@ describe('confirmed server update feedback', () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining(target), 'error')
     expect(restart).toHaveBeenCalledTimes(1)
   })
+  it.each(['version', 'outcome', 'no result'] as const)('waits silently beyond the deadline while offline, then handles %s online', async completion => {
+    restart.mockResolvedValue({ requested: true, at: 42 })
+    await render()
+    vi.useFakeTimers()
+    await click('update-now'); await click('update-now-yes')
+    const offline = server()
+    offline.is_online = false; offline.status = 'offline'
+    await render(offline)
+    await act(async () => { await vi.advanceTimersByTimeAsync(180_000) })
+    expect(node('restarting')).not.toBeNull()
+    expect(node('update-now')).toBeNull()
+    expect(node('match-restart-now')).toBeNull()
+    expect(toast).not.toHaveBeenCalled()
+    const online = server(undefined, completion === 'version' ? target : current)
+    if (completion === 'outcome') online.capabilities.server_update_outcome = { request: 42, kind: 'switched' }
+    await render(online)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(node('restarting')).toBeNull()
+    if (completion === 'no result') expect(toast).toHaveBeenCalledWith(expect.stringContaining(target), 'error')
+    else expect(toast).not.toHaveBeenCalled()
+  })
+  it.each(['ready', 'failed'] as const)('never offers a confirmed restart for an offline %s host', async state => {
+    const offline = server({ state, version: target, ...(state === 'failed' ? { reason: 'boot-failed' as const } : {}) })
+    offline.is_online = false; offline.status = 'offline'
+    await render(offline)
+    expect(node('update-now')).toBeNull()
+    expect(node('match-restart-now')).toBeNull()
+  })
   it('shows a task boot failure while keeping the online device usable', async () => {
     const device = server()
     device.capabilities.server_boot_failures = [{ operation: 'outbox-drain', taskId: 'task-bad', message: 'router refused' }]

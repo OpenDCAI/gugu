@@ -10,6 +10,7 @@ import { resolveDeviceHostInfo } from '../../../../packages/core/src/cloud/devic
 import { hydrateLife, shouldStartOnHydrate } from '../../../../packages/core/src/local/session-life/step'
 import { busyForVersionSwitch, parseAgentStatusView } from '../../../../packages/core/src/shared/agentStatus'
 import type { Hold } from '../../../../packages/core/src/local/session-life/types'
+import * as installs from '../../../../apps/desktop/electron/session/main/core/agents/install-progress-ledger'
 
 vi.mock('../../../../packages/core/src/cloud/remoteTunnel', () => ({ tunnelRelayUp: () => false, tunnelActiveAt: () => null }))
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }))
@@ -39,6 +40,7 @@ async function boot(fail: string, fatal = false) {
   const stub = noop as Record<string, unknown>
   const fault = (operation: string) => () => { if (fail === operation) throw new Error(`refused ${operation}`) }
   const overrides: Record<string, Record<string, unknown>> = {
+    './core/agents/install-progress-ledger': installs,
     './core/boot-tasks': { sessionBootTasks: tasks },
     '@main/core/session-timeline/service': { listSessionStates: () => ({ projects: [], sessions: states }) },
     '@gugu/core/shared/agentStatus': { busyForVersionSwitch, parseAgentStatusView },
@@ -91,6 +93,21 @@ async function boot(fail: string, fatal = false) {
 }
 
 describe('real session host boot entry', () => {
+  it('keeps a new host busy during runtime installation before any session exists', async () => {
+    const result = await boot('')
+    expect(result.activity()).toEqual({ busy: false, busyAgents: 0 })
+    installs.markInstallStarted('claude')
+    try {
+      expect(result.activity()).toEqual({ busy: true, busyAgents: 0 })
+      installs.markInstallStarted('codex')
+      installs.markInstallEnded('claude')
+      expect(result.activity()).toEqual({ busy: true, busyAgents: 0 })
+    } finally {
+      installs.markInstallEnded('claude')
+      installs.markInstallEnded('codex')
+    }
+    expect(result.activity()).toEqual({ busy: false, busyAgents: 0 })
+  })
   it('counts each interrupted session once across live status and admitted delivery', async () => {
     const result = await boot('')
     result.states.push({ conversationId: 'working', runtime: 'acp', status: { status: 'working', detail: 'running' } })
