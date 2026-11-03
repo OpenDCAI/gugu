@@ -16,10 +16,16 @@ function fixture(): string {
   cleanup.push(() => rmSync(root, { recursive: true, force: true }))
   const files = {
     'package.json': JSON.stringify({ name: 'fixture' }),
-    'entry.ts': 'import { sep } from "node:path"; import { legacy } from "legacy-dep"; import { value } from "runtime-dep/sub"; import { scoped } from "@fixture/runtime"; import { linked, nested, nestedScoped } from "linked-dep"; import { other } from "runtime-dependency"; import { own } from "./own"; export const answer = [value, scoped, linked, other, own, legacy, nested, nestedScoped]; export const separator = sep',
+    'entry.ts': 'import { bundled } from "bundler-only"; import { dual } from "dual-entry"; import { sep } from "node:path"; import { legacy, legacyDual } from "legacy-dep"; import { value } from "runtime-dep/sub"; import { scoped } from "@fixture/runtime"; import { linked, nested, nestedScoped } from "linked-dep"; import { other } from "runtime-dependency"; import { own } from "./own"; export const answer = [value, scoped, linked, other, own, legacy, nested, nestedScoped, dual, legacyDual, bundled]; export const separator = sep',
     'node_modules/legacy-dep/package.json': JSON.stringify({ name: 'legacy-dep', main: 'index.js' }),
-    'node_modules/legacy-dep/index.js': 'exports.legacy = require("runtime-dep/sub").value',
+    'node_modules/legacy-dep/index.js': 'exports.legacy = require("runtime-dep/sub").value; exports.legacyDual = require("dual-entry").dual',
     'own.ts': 'export const own = 91003',
+    'node_modules/bundler-only/package.json': JSON.stringify({ name: 'bundler-only', type: 'module', exports: { import: './index.js' } }),
+    'node_modules/bundler-only/index.js': 'export const bundled = 74001',
+    'node_modules/dual-entry/package.json': JSON.stringify({ name: 'dual-entry', main: 'cjs/index.cjs', module: 'esm/index.js', type: 'module' }),
+    'node_modules/dual-entry/cjs/index.cjs': 'exports.dual = 73001',
+    'node_modules/dual-entry/esm/index.js': 'export { dual } from "./value"',
+    'node_modules/dual-entry/esm/value.js': 'export const dual = 73001',
     'node_modules/runtime-dep/package.json': JSON.stringify({ name: 'runtime-dep', main: 'sub.js' }),
     'node_modules/runtime-dep/sub.js': 'exports.value = 71001',
     'node_modules/@fixture/runtime/package.json': JSON.stringify({ name: '@fixture/runtime', type: 'module', main: 'index.js' }),
@@ -47,13 +53,13 @@ function configuration(root: string, watch: boolean, loaded: string[] = []): Inl
     publicDir: false,
     logLevel: 'silent',
     plugins: [devNodeExternals({
-      dependencies: { 'runtime-dep': '^1.0.0', 'linked-dep': 'workspace:*' },
+      dependencies: { 'runtime-dep': '^1.0.0', 'linked-dep': 'workspace:*', 'dual-entry': '^1.0.0', 'bundler-only': '^1.0.0' },
       devDependencies: { '@fixture/runtime': '^1.0.0' },
     }), {
       name: 'observe-externalized-package-loads',
       load(id) {
         // CommonJS creates tiny virtual external bridges; the dependency source must never load.
-        if (!id.startsWith('\0') && /\/node_modules\/(?:runtime-dep|@fixture\/runtime)\//.test(id)) loaded.push(id)
+        if (!id.startsWith('\0') && /\/node_modules\/(?:runtime-dep|dual-entry|@fixture\/runtime)\//.test(id)) loaded.push(id)
       },
     }],
     build: {
@@ -83,7 +89,7 @@ describe('Electron development dependency externalization', () => {
     cleanup.push(() => watcher.close())
     const completed = () => new Promise<void>((resolve, reject) => {
       watcher.on('event', (event) => {
-        if (event.code === 'BUNDLE_END') resolve()
+        if (event.code === 'END') resolve()
         if (event.code === 'ERROR') reject(event.error)
       })
     })
@@ -96,16 +102,19 @@ describe('Electron development dependency externalization', () => {
     expect(output()).not.toContain('71002')
     expect(output()).not.toContain('72001')
     expect(output()).not.toContain('72002')
+    expect(output()).not.toContain('73001')
+    expect(output()).toContain('dual-entry/cjs/index.cjs')
+    expect(output()).toContain('74001')
     expect(output()).toContain('81002')
     expect(output()).toContain('81003')
     expect(output()).toContain('91003')
-    expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91003, 71001, 72001, 72002])
+    expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91003, 71001, 72001, 72002, 73001, 73001, 74001])
     const rebuilt = completed()
     writeFileSync(join(root, 'own.ts'), 'export const own = 91004')
     await rebuilt
     expect(output()).toContain('91004')
     expect(output()).not.toContain('91003')
-    expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91004, 71001, 72001, 72002])
+    expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91004, 71001, 72001, 72002, 73001, 73001, 74001])
     expect(loaded).toEqual([])
   }, 60_000)
 
@@ -118,6 +127,6 @@ describe('Electron development dependency externalization', () => {
     expect(output).not.toMatch(/require\(['"](?:runtime-dep\/sub|@fixture\/runtime)['"]\)/)
     // The production artifact must run on its own, including CJS/ESM interop, without its source packages.
     rmSync(join(root, 'node_modules'), { recursive: true })
-    expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91003, 71001, 72001, 72002])
+    expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91003, 71001, 72001, 72002, 73001, 73001, 74001])
   }, 60_000)
 })
