@@ -569,6 +569,31 @@ describe('session timeline service', () => {
     expect(state.storedHistory).toHaveBeenCalledTimes(4);
   });
 
+  it('#1477 previews the latest committed cancellation even when the provider record ends at an older failure', async () => {
+    const { readSessionPreview } = await import('./preview-rpc');
+    const recorded = { id: 'old', seq: 0, initiator: 'user' as const,
+      items: [{ kind: 'message' as const, id: 'old:input', seq: 0, role: 'user' as const, text: '<gugu_delivery route="chat" msg="msg:old"><![CDATA[old]]></gugu_delivery>' }],
+      outcome: { kind: 'error' as const, reason: 'prompt_failed' } };
+    const cancelled = { ...recorded, id: 'conv-1:turn:s9', seq: 9,
+      items: [{ ...recorded.items[0]!, id: 'conv-1:turn:s9:input', text: '<gugu_delivery route="chat" msg="msg:new"><![CDATA[new]]></gugu_delivery>' }],
+      outcome: { kind: 'cancelled' as const, reason: 'cancelled' } };
+    const fake = makeTimeline();
+    const snapshot = fake.timeline.getSnapshot();
+    fake.timeline.getSnapshot = () => ({ ...snapshot, turns: [recorded] });
+    service.setSessionTimelineFactory(async () => fake.timeline);
+    state.storedHistory.mockResolvedValue({ turns: [cancelled], originTurnIds: ['live:cancelled'], nextCursor: null });
+    state.nativeUnread = ['conv-1:turn:s0:message:auto:assistant:0'];
+    state.pendingWatchAvailable = false;
+
+    for (let read = 0; read < 2; read++) {
+      expect(await readSessionPreview('conv-1')).toMatchObject({ ok: true, value: {
+        running: false, ended: cancelled.outcome, entries: [{ kind: 'prompt', messageId: 'msg:new' }],
+      } });
+    }
+    expect(state.storedHistory).toHaveBeenCalledWith({ sessionId: 'conv-1', before: undefined, limit: 4 });
+    expect(state.wake).not.toHaveBeenCalled();
+  });
+
   it('listSessions 按 projects 分组，supported 如实', async () => {
     state.rows = [
       row(),
