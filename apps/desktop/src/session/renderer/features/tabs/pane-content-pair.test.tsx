@@ -40,6 +40,8 @@ describe('each actual pane owns its content', () => {
       TabContent: () => <div tabIndex={-1} data-browser-page="" /> });
     const layout = new PaneLayoutStore(createTabRegistry([folder, file]), { viewId: 'guest-focus-history' });
     const tabId = layout.open('folder', { id: 'folder' }, { from: null, intent: 'newTab' })!;
+    layout.open('folder', { id: 'retained-folder' }, { from: tabId, intent: 'newTab' });
+    layout.focusedPane.setActiveTab(tabId);
     const group = layout.groups[0];
     act(() => root.render(<PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>));
     const guest = dom.window.document.querySelector<HTMLElement>('[data-folder-guest]')!;
