@@ -59,7 +59,7 @@ export function parseHermesModelBlock(yaml: string): { provider?: string; baseUr
   if (start < 0) return {};
   const out: { provider?: string; baseUrl?: string } = {};
   for (const line of lines.slice(start + 1)) {
-    if (/^\S/.test(line)) break; // 下一个顶层键
+    if (/^\S/.test(line) && !line.startsWith('#')) break; // 下一个顶层键(列 0 的注释不是键)
     const match = line.match(/^\s+(provider|base_url):\s*(.*)$/);
     if (!match) continue;
     const value = match[2]!.replace(/\s+#.*$/, '').trim().replace(/^['"]|['"]$/g, '');
