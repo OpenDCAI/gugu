@@ -15,7 +15,7 @@ const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 let restoreLog: () => void
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-03T00:00:00Z')); restoreLog = setCoreLoggerFactory(() => logger) })
 afterEach(() => { restoreLog(); vi.useRealTimers(); vi.clearAllMocks() })
-function fixture(options: { origin?: boolean; expired?: boolean } = {}) {
+function fixture(options: { origin?: boolean; expired?: boolean; signerFails?: boolean } = {}) {
   const cache = new Map<number, Uint8Array>(), committed = vi.fn(), requests: Record<string, unknown>[] = []
   const object = vi.fn<typeof fetch>(async (_url, init) => {
     const offset = Number(new Headers(init?.headers).get('Range')?.match(/bytes=(\d+)-/)?.[1] ?? 0)
@@ -25,10 +25,11 @@ function fixture(options: { origin?: boolean; expired?: boolean } = {}) {
   const api = vi.fn<typeof fetch>(async (url, init) => {
     if (String(url).endsWith('/file-resolve')) return Response.json({ ...revision, status: 'ready' })
     const body = JSON.parse(String(init?.body)); requests.push(body); signed++
-    return Response.json({ status: 'ready', url: `https://cdn.invalid/file?auth_key=secret-${signed}`,
-      ...(options.origin ? { origin_url: `https://oss.invalid/file?x-oss-signature=secret-${signed}` } : {}),
+    if (body.origin && options.signerFails) return Response.json({ error: 'signing_failed', message: 'Origin signing failed' }, { status: 503 })
+    return Response.json({ status: 'ready', url: body.origin ? `https://oss.invalid/file?x-oss-signature=secret-${signed}` : `https://cdn.invalid/file?auth_key=secret-${signed}`,
+      ...(options.origin && !body.origin ? { origin_available: true } : {}),
       expires_at: new Date(Date.now() + (options.expired && signed === 1 ? -1 : 60_000)).toISOString(),
-      size_bytes: bytes.length, sha256: revision.sha256, download_id: `download-${signed}` })
+      size_bytes: bytes.length, sha256: revision.sha256, download_id: body.request_id })
   })
   const endpoint = { supabaseUrl: 'https://signer.invalid', anonKey: 'fixture', token: 'fixture', fetch: api }
   const sink = async (): Promise<FileSink> => {
@@ -63,6 +64,39 @@ it('switches to the separately signed OSS URL on a CDN connection failure and pr
   expect(f.object.mock.calls.map(([url]) => new URL(String(url)).host)).toEqual(['cdn.invalid', 'oss.invalid'])
   expect(f.committed).toHaveBeenCalledTimes(1); expect(file.size).toBe(bytes.length)
   expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('secret-')
+})
+it('keeps a healthy CDN download independent of a failing optional origin signer', async () => {
+  const f = fixture({ origin: true, signerFails: true })
+  value(await finish(f.cloud.managed(revision, context)))
+  expect(f.requests).toHaveLength(1); expect(f.requests[0]).not.toHaveProperty('origin')
+  expect(f.object.mock.calls.map(([url]) => new URL(String(url)).host)).toEqual(['cdn.invalid'])
+  expect(f.committed).toHaveBeenCalledTimes(1)
+})
+it('requests an origin signature only after the CDN fails, using the existing reservation', async () => {
+  const f = fixture({ origin: true }); let cdnFailed = false
+  f.object.mockImplementationOnce(async () => { cdnFailed = true; throw network('ETIMEDOUT') })
+  f.api.mockImplementationOnce(async () => {
+    expect(cdnFailed).toBe(false)
+    return Response.json({ status: 'ready', url: 'https://cdn.invalid/file', origin_available: true, download_id: 'reservation', size_bytes: bytes.length, sha256: revision.sha256 })
+  })
+  value(await finish(f.cloud.managed(revision, context)))
+  expect(cdnFailed).toBe(true)
+  expect(f.requests).toEqual([expect.objectContaining({ origin: true, request_id: 'reservation' })])
+  expect(f.object.mock.calls.map(([url]) => new URL(String(url)).host)).toEqual(['cdn.invalid', 'oss.invalid'])
+})
+it('fails explicitly when the needed origin signature is refused after a real CDN failure', async () => {
+  const f = fixture({ origin: true, signerFails: true }); f.object.mockRejectedValueOnce(network())
+  const result = await finish(f.cloud.managed(revision, context))
+  expect(result).toHaveProperty('error', expect.objectContaining({ status: 503, code: 'signing_failed' }))
+  expect(f.requests).toHaveLength(2)
+  expect(f.requests[1]).toMatchObject({ origin: true, request_id: f.requests[0]!.request_id })
+  expect(f.object).toHaveBeenCalledTimes(1); expect(f.committed).not.toHaveBeenCalled()
+})
+it('does not ask for origin access to bypass an unexpired CDN refusal', async () => {
+  const f = fixture({ origin: true }); f.object.mockResolvedValueOnce(new Response(null, { status: 403 }))
+  expect(await finish(f.cloud.managed(revision, context))).toHaveProperty('error', expect.any(Error))
+  expect(f.requests).toHaveLength(1); expect(f.object).toHaveBeenCalledTimes(1)
+  expect(f.committed).not.toHaveBeenCalled()
 })
 it('restarts only the interrupted chunk at its existing offset after a response body connection failure', async () => {
   const f = fixture({ origin: true }); let reads = 0
@@ -133,6 +167,16 @@ it('does not multiply exhausted signing retries inside the byte retry budget', a
   })
   expect(await finish(f.cloud.managed(revision, context))).toHaveProperty('error', expect.objectContaining({ stage: 'signature' }))
   expect(f.api).toHaveBeenCalledTimes(4); expect(f.object).toHaveBeenCalledTimes(1)
+})
+it('bounds an exhausted lazy origin-signing request without retrying the byte operation again', async () => {
+  const f = fixture({ origin: true }); f.object.mockImplementationOnce(async () => {
+    f.api.mockRejectedValue(network()); throw network('ETIMEDOUT')
+  })
+  expect(await finish(f.cloud.managed(revision, context))).toHaveProperty('error', expect.objectContaining({ stage: 'signature' }))
+  expect(f.api).toHaveBeenCalledTimes(4); expect(f.object).toHaveBeenCalledTimes(1)
+  const origin = f.api.mock.calls.slice(1).map(([, init]) => JSON.parse(String(init?.body)))
+  expect(origin).toHaveLength(3)
+  expect(origin.every(body => body.origin === true && body.request_id === f.requests[0]!.request_id)).toBe(true)
 })
 it('aborts a retry backoff immediately without another network attempt', async () => {
   const f = fixture({ origin: true }), abort = new AbortController(); f.object.mockRejectedValue(network())
