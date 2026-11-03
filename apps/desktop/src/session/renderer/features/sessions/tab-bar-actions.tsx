@@ -32,7 +32,7 @@ import { canStartSideSession, startSideSession } from './start-side-session';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useAgents } from '@renderer/lib/stores/use-agents';
 import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled';
-import { folderItem } from '@renderer/features/chats/chat-tabs/chat-panel-item';
+import { folderItem, WORKSPACE_APP_KIND } from '@renderer/features/chats/chat-tabs/chat-panel-item';
 import { openPanelItem } from '@renderer/features/chats/chat-tabs/chat-layouts';
 import { useChatFolderName } from '@/components/chat/chatFolderName';
 import { openApp } from '@/components/appSlot/useOpenApp';
@@ -80,9 +80,10 @@ const TaskAddItems = observer(function TaskAddItems() {
   const canSideSession = canStartSideSession(projectId, sessionId, agents);
   const terminalEnabled = useTerminalEnabled();
   const openTab = (kind: string) => sessionView.paneLayout.open(kind, {}, { preview: false, target: { paneId } });
+  const folder = installedExtensionsStore.enabledTabContributions.find((entry) => entry.kind === WORKSPACE_APP_KIND);
   return (
     <>
-      {getSessionWorkspaceActionOrder(projectId, terminalEnabled).map((actionId) =>
+      {getSessionWorkspaceActionOrder(projectId, terminalEnabled).flatMap((actionId) => [
         renderWorkspaceActionMenuItem(actionId, translate, {
           blocked: sessionWorkspaceActionBlocked(projectId, actionId) !== null,
           blockedTitle: workspaceBlockedTitle(sessionWorkspaceActionBlocked(projectId, actionId), translate, projectId),
@@ -92,15 +93,18 @@ const TaskAddItems = observer(function TaskAddItems() {
           openPorts: () => sessionView.paneLayout.open('remote-ports', {}, { preview: false }),
           startSideSession: () => startSideSession(projectId, sessionId),
           canStartSideSession: canSideSession
-        })
-      )}
+        }),
+        ...(actionId === 'review' && folder
+          ? [<FolderMenuItem key={folder.kind} label={installedExtensionsStore.tabTitle(folder.kind) ?? folder.title} onOpen={() => openTab(folder.kind)} />]
+          : []),
+      ])}
       {/* Installed Apps extend the menu without joining the built-in union: their kinds exist only at runtime, and
           widening that union would cost the exhaustiveness the built-ins get from it. Refs #2374.
           behavior tab-extensions「+」菜单分两段:上面那几项是给这条会话加的;这一段列已装的 App,点一个 = 把它放到
           这一格(它原来在哪就从哪拿走,一个 App 只有一份,#7052)。只列启用的:停用的不出现(owner 10-20「灰掉也占位置」),
           启用在「App」页 —— 最后一行就去那里。 */}
       <AppsSection
-        apps={installedExtensionsStore.enabledTabContributions.map((contribution) => ({
+        apps={installedExtensionsStore.enabledTabContributions.filter((entry) => entry.kind !== WORKSPACE_APP_KIND).map((contribution) => ({
           key: contribution.kind,
           title: contribution.title,
           iconDataUrl: contribution.iconDataUrl,
@@ -126,9 +130,7 @@ const ChatAddItems = observer(function ChatAddItems({ chatId }: { chatId: string
   const folderName = useChatFolderName(chatId);
   return (
     <>
-      <DropdownMenuItem onClick={() => openPanelItem(chatId, folderItem())}>
-        <Folder className="size-3.5" /> {folderName}
-      </DropdownMenuItem>
+      <FolderMenuItem label={folderName} onOpen={() => openPanelItem(chatId, folderItem())} />
       <AppsSection
         apps={installedExtensionsStore.openableApps.map((app) => ({
           key: app.extensionId,
@@ -140,6 +142,11 @@ const ChatAddItems = observer(function ChatAddItems({ chatId }: { chatId: string
     </>
   );
 });
+
+/** One built-in folder entry; its context supplies the name and the page to open. */
+function FolderMenuItem({ label, onOpen }: { label: string; onOpen: () => void }) {
+  return <DropdownMenuItem onClick={onOpen}><Folder className="size-3.5" /> {label}</DropdownMenuItem>;
+}
 
 /**
  * 「App」那一段,两处同一份:列能在这里打开的 App,最后一行去「App」页装更多。

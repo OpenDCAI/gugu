@@ -28,6 +28,8 @@ import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { openFileInBuiltInEditor } from '@renderer/features/sessions/stores/open-file-in-file-editor';
 import { fileTabLabels } from '@renderer/features/sessions/editor/file-tab-label';
 import { fileBaseName, filePathKey } from '@renderer/features/sessions/stores/workspace-path';
+import { Folder } from '@/lib/icons';
+import { WORKSPACE_APP_KIND } from '@renderer/features/chats/chat-tabs/chat-panel-item';
 
 /**
  * What the host knows about one open extension tab, stored per tab entry.
@@ -116,6 +118,7 @@ function createExtensionTabContent(extensionId: string, kind: string) {
 
 /** The extension's own mark on its tab, read live so an upgrade swaps it in place. */
 const ExtensionTabIcon = observer(function ExtensionTabIcon({ kind }: { kind: string }) {
+  if (kind === WORKSPACE_APP_KIND) return <Folder className="size-3 text-foreground-muted" />;
   const iconDataUrl = installedExtensionsStore.allTabContributions.find(
     (entry) => entry.kind === kind
   )?.iconDataUrl;
