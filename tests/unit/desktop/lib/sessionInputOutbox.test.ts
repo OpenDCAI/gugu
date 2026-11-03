@@ -9,7 +9,7 @@ describe('native session input persistence', () => {
     const row: HostPendingRow = { seq: 1, messageId: 'original', text: 'hello', preview: 'hello',
       kind: 'ordinary', sentAt: 1, state: 'unknown', awaitingReceipt: true, failure: 'No native activity' };
     expect(sessionInputBubbles([], [row], null)).toEqual([
-      { id: 'original', text: 'hello', state: 'waiting', failure: { code: 'no-acknowledgement' } },
+      { id: 'original', text: 'hello', state: 'waiting', failure: { code: 'no-acknowledgement' }, awaitingReceipt: true },
     ]);
     expect(sessionInputBubbles([], [{ ...row, state: 'accepted', awaitingReceipt: undefined }], null)).toEqual([]);
   });
