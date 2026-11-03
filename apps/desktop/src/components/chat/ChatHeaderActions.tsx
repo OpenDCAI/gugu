@@ -79,7 +79,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
     {groupId && <>
       <DropdownMenu.Root key={groupId} modal={false} onOpenChange={(open) => { if (open) { onCloseHeaderMenu(); closePopup() } }}>
         <DropdownMenu.Trigger data-testid={AUTOMATION_TEST_IDS.groupMenuTopics} aria-label={t('history.tabs.topics')}
-          render={narrow ? <IconButton title={t('history.tabs.topics')}><MessageSquare /></IconButton> : <Button variant="ghost" size="md"><MessageSquare />{t('history.tabs.topics')}<TopicUnreadChip count={topicUnreadTotal(topics.topics)} /></Button>} />
+          render={narrow ? <IconButton title={t('history.tabs.topics')} aria-label={t('history.tabs.topics')}><MessageSquare /></IconButton> : <Button variant="ghost" size="md"><MessageSquare />{t('history.tabs.topics')}<TopicUnreadChip count={topicUnreadTotal(topics.topics)} /></Button>} />
         <DropdownMenu.Content data-testid={AUTOMATION_TEST_IDS.groupTopicsPopup} style={{ width: 320, maxWidth: 'min(320px, var(--available-width))', maxHeight: 'min(360px, var(--available-height))', overflowY: 'auto', overscrollBehavior: 'contain' }} align="end">
           <GroupTopicsRows chatId={groupId} />
         </DropdownMenu.Content>
