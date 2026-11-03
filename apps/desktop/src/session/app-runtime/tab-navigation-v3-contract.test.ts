@@ -49,7 +49,7 @@ describe('the App can navigate only its own tab history', () => {
     pane.closeTab(b);
     await expect(api(a).navigation!.go(-1)).resolves.toBe(false);
   });
-  it('returns false when its tab has no history' , async () => {
+  it('returns false when its tab has no history', async () => {
     const { api, a } = setup(); const app = api(a);
     expect(typeof app.navigation?.go).toBe('function');
     await expect(app.navigation!.go(-1)).resolves.toBe(false);

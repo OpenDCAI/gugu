@@ -26,9 +26,9 @@ describe('chat navigation uses the same page history and real panes as tasks', (
     pane.go(folder, 1);
     expect(panelTabsOf(id).find((tab) => tab.tabId === folder)?.item.itemId).toBe('README');
   });
-  it('repeated ordinary private file cards focus one existing tab even with separate placement', () => {
+  it('repeated ordinary private file cards focus one existing tab in a narrow pane', () => {
     const id = 'private-repeat-card'; const layout = chatLayoutOf(id);
-    layout.focusedPane.setDimensions(483, 620);
+    layout.focusedPane.setDimensions(390, 620);
     const conversation = layout.focusedPane.resolvedActiveTabId!;
     const first = openPanelItem(id, file('same-file'))!;
     const order = [...layout.focusedPane.tabOrder];
@@ -40,7 +40,7 @@ describe('chat navigation uses the same page history and real panes as tasks', (
     expect(openPanelItem(id, file('same-file'), { intent: 'newTab', from: conversation })).not.toBe(first);
     expect(openPanelItem('another-private-repeat-card', file('same-file'))).not.toBe(first);
   });
-  it('opens from the conversation into one reusable actual companion' , () => {
+  it('opens from the conversation into one reusable actual companion', () => {
     const id = 'companion-chat'; const layout = chatLayoutOf(id);
     const chat = layout.focusedPane.resolvedActiveTabId!;
     const first = openPanelItem(id, file('A'))!;
