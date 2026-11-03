@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { build, type InlineConfig } from 'vite'
 import { devNodeExternals } from '../../../scripts/build/dev-node-externals.mjs'
@@ -59,7 +60,7 @@ function configuration(root: string, watch: boolean, loaded: string[] = []): Inl
       name: 'observe-externalized-package-loads',
       load(id) {
         // CommonJS creates tiny virtual external bridges; the dependency source must never load.
-        if (!id.startsWith('\0') && /\/node_modules\/(?:runtime-dep|dual-entry|@fixture\/runtime)\//.test(id)) loaded.push(id)
+        if (!id.startsWith('\0') && /\/node_modules\/(?:runtime-dep|dual-entry)\//.test(id)) loaded.push(id)
       },
     }],
     build: {
@@ -81,7 +82,7 @@ function runArtifact(root: string): unknown {
 }
 
 describe('Electron development dependency externalization', () => {
-  it('leaves installed packages to Node, keeps local source bundled, and rebuilds source changes', async () => {
+  it('externalizes installed CommonJS packages, bundles ESM and local source, and rebuilds changes', async () => {
     const root = fixture()
     const loaded: string[] = []
     const watcher = await build(configuration(root, true, loaded))
@@ -97,11 +98,10 @@ describe('Electron development dependency externalization', () => {
     expect(loaded).toEqual([])
     const output = () => readFileSync(join(root, 'out/bundle.cjs'), 'utf8')
     expect(output()).toContain('node_modules/runtime-dep/sub.js')
-    expect(output()).toContain('node_modules/@fixture/runtime/index.js')
     expect(output()).not.toContain('71001')
-    expect(output()).not.toContain('71002')
+    expect(output()).toContain('71002')
     expect(output()).not.toContain('72001')
-    expect(output()).not.toContain('72002')
+    expect(output()).toContain('72002')
     expect(output()).not.toContain('73001')
     expect(output()).toContain('dual-entry/cjs/index.cjs')
     expect(output()).toContain('74001')
@@ -116,6 +116,43 @@ describe('Electron development dependency externalization', () => {
     expect(output()).not.toContain('91003')
     expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91004, 71001, 72001, 72002, 73001, 73001, 74001])
     expect(loaded).toEqual([])
+  }, 60_000)
+
+  it('shares the same Yjs constructors with bundled ESM file-content helpers', async () => {
+    const root = fixture()
+    mkdirSync(join(root, 'node_modules/@gugu'), { recursive: true })
+    for (const name of ['yjs', '@gugu/files-core']) {
+      const installed = fileURLToPath(new URL('../../../node_modules/' + name, import.meta.url))
+      symlinkSync(installed, join(root, 'node_modules', name), 'junction')
+    }
+    writeFileSync(join(root, 'entry.ts'), `
+      import * as Y from 'yjs'
+      import { applyJson } from '@gugu/files-core/content'
+      const doc = new Y.Doc()
+      const root = doc.getMap('root')
+      applyJson(root, { child: { value: 1 }, items: [{ value: 2 }] })
+      applyJson(root, { child: { value: 3 }, items: [{ value: 4 }, { value: 5 }] })
+      export const answer = {
+        json: root.toJSON(), childIsMap: root.get('child') instanceof Y.Map,
+        itemsIsArray: root.get('items') instanceof Y.Array,
+      }
+      doc.destroy()
+    `)
+    const config = configuration(root, true)
+    config.plugins = [devNodeExternals({ dependencies: { yjs: '13.6.33', '@gugu/files-core': '0.1.0' } })]
+    const watcher = await build(config)
+    if (!('on' in watcher)) throw new Error('Expected a Rollup watcher')
+    cleanup.push(() => watcher.close())
+    await new Promise<void>((resolve, reject) => {
+      watcher.on('event', event => {
+        if (event.code === 'END') resolve()
+        if (event.code === 'ERROR') reject(event.error)
+      })
+    })
+    expect(runArtifact(root)).toEqual({
+      json: { child: { value: 3 }, items: [{ value: 4 }, { value: 5 }] },
+      childIsMap: true, itemsIsArray: true,
+    })
   }, 60_000)
 
   it('keeps installed dependencies bundled in ordinary production builds', async () => {

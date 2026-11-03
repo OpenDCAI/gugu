@@ -45,7 +45,8 @@ env -u ELECTRON_RUN_AS_NODE -u VITE_DEV_SERVER_URL \
 启动后页面从 `gugu-app://app/index.html` 加载，不需要 Vite。修改源码后需重新构建；
 依赖更新后也须重建与当前 Electron 版本匹配的原生模块。
 
-开发时，Electron 主进程和 dev:web 的会话宿主由 Node 直接加载已安装的第三方依赖，
-保留各个引用方实际解析的依赖版本；生产构建仍会打包这些依赖。
+开发时，Electron 主进程和 dev:web 的会话宿主由 Node 直接加载已安装的 CommonJS 依赖，
+保留各个引用方实际解析的依赖版本；ESM 依赖继续打包，以统一共享对象的实例。
+生产构建仍会打包这些依赖。
 依赖是否完整入包、动态 `require`、ESM/CJS 互操作及资源路径，需要用生产构建产物验证；
 开发版运行成功不能替代这一步。原生模块在两种模式下都必须通过 Electron ABI 加载检查。
