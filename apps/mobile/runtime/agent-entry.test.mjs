@@ -191,3 +191,64 @@ test('lost-parent shutdown has a deadline even when real host startup never sett
   await bound.close()
   assert.equal(cleared, 1)
 })
+
+function boundFixture(overrides = {}) {
+  const f = fixture(overrides), input = new EventEmitter(), output = new EventEmitter()
+  const errors = [], timeouts = []
+  let exits = 0
+  input.close = () => input.emit('close')
+  const bound = bindAgentEntry(f.entry, {
+    input, output, onError: error => errors.push(error), onTimeout: error => timeouts.push(error),
+    onClosed: () => { exits++ },
+  })
+  return { f, input, bound, errors, timeouts, get exits() { return exits } }
+}
+
+for (const phase of ['ready', 'starting']) {
+  test(`host_stop exits through the real binding after ${phase} host cleanup completes`, async () => {
+    const starting = deferred(), cleanup = deferred()
+    const host = { close: () => cleanup.promise, handle: command => command.type === 'host_stop' ? cleanup.promise : Promise.resolve() }
+    const b = boundFixture({ startPhoneAgentHost: () => starting.promise })
+    try {
+      b.input.emit('line', JSON.stringify({ type: 'host_start', ownerId: 'owner' }))
+      await tick()
+      if (phase === 'ready') { starting.resolve(host); await tick() }
+      b.input.emit('line', JSON.stringify({ type: 'host_stop', ownerId: 'owner' }))
+      if (phase === 'starting') starting.resolve(host)
+      await tick()
+      assert.equal(b.exits, 0, 'cleanup is still pending; no early successful exit')
+      cleanup.resolve()
+      await tick()
+      assert.equal(b.exits, 1, 'host_stop must not wait for parent stdin EOF')
+      assert.deepEqual(b.errors, [])
+      assert.deepEqual(b.timeouts, [])
+    } finally {
+      starting.resolve(host); cleanup.resolve(); await b.bound.close()
+    }
+  })
+}
+
+test('host_stop before any startup still terminates the idle entry', async () => {
+  const b = boundFixture()
+  try {
+    b.input.emit('line', JSON.stringify({ type: 'host_stop', ownerId: 'owner' }))
+    await tick()
+    assert.equal(b.exits, 1)
+    assert.equal(b.f.bridgeCloses, 1)
+  } finally { await b.bound.close() }
+})
+
+test('ordinary host commands and sign_out keep their existing handling without terminating the binding', async () => {
+  const handled = []
+  const b = boundFixture({ startPhoneAgentHost: async () => ({ close: async () => {}, handle: async command => { handled.push(command) } }) })
+  try {
+    b.input.emit('line', JSON.stringify({ type: 'host_start', ownerId: 'owner' }))
+    await tick()
+    const commands = [{ type: 'host_call', ownerId: 'owner', id: 'read' }, { type: 'auth_request', ownerId: 'owner', action: 'sign_out' }]
+    for (const command of commands) b.input.emit('line', JSON.stringify(command))
+    await tick()
+    assert.deepEqual(handled, commands)
+    assert.equal(b.exits, 0)
+    assert.equal(b.f.bridgeCloses, 0)
+  } finally { await b.bound.close() }
+})
