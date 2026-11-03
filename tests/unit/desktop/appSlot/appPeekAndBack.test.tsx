@@ -82,7 +82,7 @@ describe('G2: back from a file opened by an App goes back to that App', () => {
     expect(app?.item.kind).toBe('kanban.board')
     expect(panelTabsOf(chatId).map((tab) => tab.tabId), '对照:父提交在它前面多一枚文件夹(null)').toEqual([app!.tabId])
     const opener = { chatId, itemId: 'deck', name: 'deck.pdf', typedName: 'deck.pdf', choice: { kind: 'one', candidate: pdf } }
-    ask(chatId, { itemId: 'deck', opener: opener as never, fromPage: true })
+    ask(chatId, { itemId: 'deck', opener: opener as never, from: shownPanelTab(chatId)!.tabId })
     expect(shownItem(chatId)).toMatchObject({ kind: 'pdf.viewer', itemId: 'deck' })
     act(() => button('group-app-slot-back')!.click())
     expect(shownPanelTab(chatId)?.tabId).toBe(app!.tabId)
@@ -163,7 +163,7 @@ describe('message attachment entry', () => {
     const chatId = 'folder-entry'
     const folder = openPanelItem(chatId, folderItem())!
     await harness.render(chatTabs({ chatId }))
-    ask(chatId, { itemId: 'message-file', opener: file(chatId, 'message-file'), fromPage: true })
+    ask(chatId, { itemId: 'message-file', opener: file(chatId, 'message-file'), from: shownPanelTab(chatId)!.tabId })
     act(() => button('group-app-slot-back')!.click())
     expect(shownPanelTab(chatId)?.tabId).toBe(folder)
     expect(chatAlone(chatId)).toBe(false)
@@ -174,7 +174,7 @@ describe('message attachment entry', () => {
     const restore = vi.fn()
     await harness.render(chatTabs({ chatId }))
     ask(chatId, { itemId: 'first', restore, opener: file(chatId, 'first') })
-    ask(chatId, { itemId: 'second', opener: file(chatId, 'second'), fromPage: true })
+    ask(chatId, { itemId: 'second', opener: file(chatId, 'second'), from: shownPanelTab(chatId)!.tabId })
     act(() => button('group-app-slot-back')!.click())
     expect(shownItem(chatId)?.itemId).toBe('first')
     expect(restore).not.toHaveBeenCalled()
@@ -187,18 +187,18 @@ describe('message attachment entry', () => {
     const chatId = 'folder-preview-intent'
     const folder = openPanelItem(chatId, folderItem())!
     await harness.render(chatTabs({ chatId }))
-    const open = (itemId: string, intent: 'navigate' | 'pinned') => ask(chatId, {
-      itemId, fromPage: true,
+    const open = (itemId: string, intent: 'navigate' | 'newTab') => ask(chatId, {
+      itemId, from: shownPanelTab(chatId)!.tabId,
       opener: { chatId, itemId, name: `${itemId}.pdf`, typedName: `${itemId}.pdf`, choice: { kind: 'one', candidate: pdf }, intent } as never,
     })
-    open('first', 'preview')
-    open('second', 'preview')
+    open('first', 'navigate')
+    open('second', 'navigate')
     expect(panelTabsOf(chatId).map(tab => tab.item.itemId ?? 'folder')).toEqual(['folder', 'second'])
     const second = shownPanelTab(chatId)!.tabId
-    open('second', 'pinned')
-    open('third', 'preview')
+    open('second', 'newTab')
+    open('third', 'navigate')
     expect(panelTabsOf(chatId).map(tab => tab.item.itemId ?? 'folder')).toEqual(['folder', 'second', 'third'])
-    expect(chatLayoutOf(chatId).groups[0]!.pane.entries.get(second)?.isPreview).toBe(false)
+    expect(panelTabsOf(chatId).some(tab => tab.tabId === second)).toBe(true)
     expect(panelTabsOf(chatId).some(tab => tab.tabId === folder)).toBe(true)
   })
 

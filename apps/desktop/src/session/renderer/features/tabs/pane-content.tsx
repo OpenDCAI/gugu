@@ -60,7 +60,21 @@ export const PaneContent = observer(function PaneContent({
   const retained = new Set([...recent, ...pane.registry.all().filter((provider) => provider.keepMounted && kinds.includes(provider.kind)).map((provider) => provider.kind)]);
   const fullscreen = tabFullscreen.isOn(pane);
   return (
-    <div className={fullscreen ? 'flex min-w-0 flex-col overflow-hidden bg-background' : 'flex h-full min-w-0 flex-col overflow-hidden'} style={fullscreen ? FULLSCREEN_STYLE : undefined} data-tab-fullscreen={fullscreen ? '' : undefined}>
+    <div className={fullscreen ? 'flex min-w-0 flex-col overflow-hidden bg-background' : 'flex h-full min-w-0 flex-col overflow-hidden'} style={fullscreen ? FULLSCREEN_STYLE : undefined} data-tab-fullscreen={fullscreen ? '' : undefined}
+      onKeyDown={(event) => {
+        if (event.defaultPrevented || event.nativeEvent.isComposing || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || !['[', ']'].includes(event.key)) return;
+        const id = pane.resolvedActiveTabId;
+        if (!id) return;
+        event.preventDefault();
+        void pane.go(id, event.key === '[' ? -1 : 1);
+      }}
+      onMouseUp={(event) => {
+        if (event.defaultPrevented || (event.button !== 3 && event.button !== 4)) return;
+        const id = pane.resolvedActiveTabId;
+        if (!id) return;
+        event.preventDefault();
+        void pane.go(id, event.button === 3 ? -1 : 1);
+      }}>
       {pane.resolvedTabs.length > 0 && !hideTabBar && <TabBar leadingSlot={tabLeadingSlot} tabTrailingSlot={tabTrailingSlot} actionsSlot={actionsSlot} reserveShellRestoreLane={reserveShellRestoreLane} leadingReservePx={leadingReservePx} />}
       <div ref={setContentRef} className="relative min-h-0 min-w-0 flex-1 bg-tab-face">
         <PaneDimensionProvider sink={pane}>

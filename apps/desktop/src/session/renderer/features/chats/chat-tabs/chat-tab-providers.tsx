@@ -195,7 +195,8 @@ export const chatPanelTabProvider = createTabProvider<typeof CHAT_PANEL_TAB_KIND
   initialize: stateResource,
   // Closing hands back what it was opened from (a link's message, a topic's attachment: the topic again) — once the tab is
   // gone (the engine removes it after this answer), as closeChatTab does.
-  onBeforeClose: (entry, _resource, ctx) => {
+  onBeforeClose: (entry, _resource, ctx, request) => {
+    if (request.navigation) return true;
     const restore = takeRestore(chatIdOfView(ctx), entry.state);
     if (restore) setTimeout(restore, 0);
     return true;

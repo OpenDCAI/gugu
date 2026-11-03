@@ -108,7 +108,8 @@ function openForClick(action: ExtensionHostAction, fromTab?: string): ExtensionH
       if (action.onlyIfOpen) return import('@renderer/features/chats/chat-tabs/chat-layouts').then(({ panelTabsOf, showChatTab }) => {
         const tabs = panelTabsOf(action.chatId);
         if (!tabs.some((entry) => entry.shown && !entry.inWindow && groupPageSlot(action.chatId, entry.tabId) === fromTab)) return;
-        const tab = tabs.find((entry) => !entry.inWindow && entry.item.itemId === action.itemId && entry.item.kind === action.onlyIfOpen);
+        if (action.intent && action.intent !== 'navigate') return;
+        const tab = tabs.find((entry) => !entry.inWindow && groupPageSlot(action.chatId, entry.tabId) === fromTab && entry.item.itemId === action.itemId && entry.item.kind === action.onlyIfOpen);
         if (!tab) return;
         showChatTab(action.chatId, tab.tabId);
         // The body is already there. The original metadata validation starts after presenting it.

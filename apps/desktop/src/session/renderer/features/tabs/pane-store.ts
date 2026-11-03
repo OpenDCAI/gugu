@@ -401,10 +401,19 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   get snapshot(): TabManagerSnapshot {
     const tabs = this.tabOrder.flatMap((id) => {
       const entry = this.entries.get(id);
-      if (!entry || (this.registry.has(entry.kind) && this.registry.get(entry.kind).isPersistent?.(entry.state as never) === false)) return [];
-      return [descriptorOf(entry)];
+      const descriptor = entry && this._persistentDescriptor(entry);
+      return descriptor ? [descriptor] : [];
     });
     return { tabs, activeTabId: tabs.some((tab) => tab.tabId === this.activeTabId) ? this.activeTabId : tabs[0]?.tabId };
+  }
+
+  private _persistentDescriptor(entry: TabEntry): TabDescriptor | undefined {
+    const history = this.navigationOf(entry.tabId)!;
+    const retained = history.pages.map((page, index) => ({ page, index })).filter(({ page }) => !this.registry.has(page.kind) || this.registry.get(page.kind).isPersistent?.(page.state as never) !== false);
+    if (!retained.length) return undefined;
+    const index = Math.max(0, retained.findLastIndex((page) => page.index <= history.index));
+    const page = retained[index].page;
+    return descriptorOf({ ...entry, kind: page.kind, state: page.state, history: entry.history ? { pages: retained.map(({ page }) => page), index } : undefined });
   }
 
   /**
@@ -527,7 +536,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     const resource = this._resources.get(entry.tabId);
     const def = this.registry.has(entry.kind) ? this.registry.get(entry.kind) : undefined;
     const allowed = resource && def?.onBeforeClose
-      ? def.onBeforeClose(entry as never, resource as never, this._ctx, { alone: false })
+      ? def.onBeforeClose(entry as never, resource as never, this._ctx, { alone: false, navigation: true })
       : true;
     const finish = (proceed: boolean): boolean => {
       if (!proceed || entry.navigationRequest !== request || this.entries.get(entry.tabId) !== entry) return false;
@@ -854,10 +863,8 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
 
     // Record for reopen history before removing.
     const index = this.tabOrder.indexOf(id);
-    const persistent =
-      !this.registry.has(entry.kind) ||
-      this.registry.get(entry.kind).isPersistent?.(entry.state as never) !== false;
-    if (persistent) this._closedTabHistory.push({ desc: descriptorOf(entry), index });
+    const descriptor = this._persistentDescriptor(entry);
+    if (descriptor) this._closedTabHistory.push({ desc: descriptor, index });
     if (this._closedTabHistory.length > PaneStore._MAX_CLOSED_HISTORY) {
       this._closedTabHistory.shift();
     }

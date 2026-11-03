@@ -102,7 +102,7 @@ export interface CommandEntry<T> {
  * features/sessions and are accessed via a cast at the provider boundary.
  */
 /** How a close came about: the user closing just this tab, or anything else (a row of tabs, the tab itself). */
-export type TabCloseRequest = { alone: boolean };
+export type TabCloseRequest = { alone: boolean; navigation?: boolean };
 
 export interface TabViewContext {
   /** Stable identifier for the view that owns this pane (e.g. conversationId). */

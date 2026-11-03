@@ -177,7 +177,7 @@ export function ExtensionTabPane({
     bind: (webContentsId, target) => rpc.extensions.bindSurface({ webContentsId, extensionId, tabKind, ...target }),
     retarget: (webContentsId, target) => rpc.extensions.retargetSurface({ webContentsId, ...target }),
   }), [extensionId, tabKind]);
-  const targetRef = useRef<ExtensionGuestTarget>({ tabId });
+  const targetRef = useRef<ExtensionGuestTarget>({ tabId, workspace, conversation: conversationRef.current });
   targetRef.current = { workspace, conversation: conversationRef.current, resourceChat: resourceChatRef.current, tabId, itemId, filePath, viewState, navigation };
   const aim = useCallback(async () => {
     const result = await guestBinding.aim(targetRef.current);

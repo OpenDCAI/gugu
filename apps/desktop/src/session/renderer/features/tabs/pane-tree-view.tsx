@@ -6,6 +6,8 @@ import { createPaneDimensionSink, PaneDimensionProvider } from './pane-dimension
 import { RetainedTabContent } from './retained-tab-content';
 import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX, type PaneLayoutStore } from './pane-layout-store';
 import { cornerPane, minExtent, paneOrder, type PaneLayoutNode } from './pane-layout-tree';
+import { setDragShield } from '@renderer/lib/drag-shield';
+import { useRef } from 'react';
 
 type RenderPane = (paneId: string, first: boolean, last: boolean) => ReactNode;
 const childId = (node: PaneLayoutNode) => node.type === 'pane' ? `pane-${node.paneId}` : `cut-${node.id}`;
@@ -33,6 +35,14 @@ const Cut = observer(function Cut({ node, layout, narrow, renderPane, first, las
   node: Extract<PaneLayoutNode, { type: 'split' }>; layout: PaneLayoutStore; narrow: boolean; renderPane: RenderPane; first: string; last: string;
 }) {
   const groupRef = useGroupRef();
+  const dragging = useRef(false);
+  const endDrag = () => { if (dragging.current) { dragging.current = false; setDragShield(false); } };
+  useEffect(() => {
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+    window.addEventListener('blur', endDrag);
+    return () => { window.removeEventListener('pointerup', endDrag); window.removeEventListener('pointercancel', endDrag); window.removeEventListener('blur', endDrag); endDrag(); };
+  }, []);
   const ids = node.children.map(childId);
   const idsKey = ids.join(',');
   const sizesKey = node.sizes.join(',');
@@ -51,7 +61,7 @@ const Cut = observer(function Cut({ node, layout, narrow, renderPane, first, las
     {node.children.map((child, index) => {
       const shown = !narrow || paneOrder(child).includes(layout.activePaneId);
       return <Fragment key={childId(child)}>
-        {index > 0 && <ResizableHandle disabled={narrow} style={narrow ? { display: 'none' } : undefined} onDoubleClick={() => layout.equalizeSplit(node.id)} />}
+        {index > 0 && <ResizableHandle disabled={narrow} style={narrow ? { display: 'none' } : undefined} onPointerDown={(event) => { if (narrow || event.button !== 0) return; dragging.current = true; setDragShield(true); }} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag} onDoubleClick={() => layout.equalizeSplit(node.id)} />}
         <ResizablePanel id={childId(child)} defaultSize={`${node.sizes[index] ?? 0}%`} minSize={narrow ? 0 : `${node.orientation === 'horizontal' ? minExtent(child, 'width', MIN_PANE_WIDTH_PX) : minExtent(child, 'height', MIN_PANE_HEIGHT_PX)}px`} style={narrow ? { position: 'absolute', inset: 0, width: '100%', height: '100%', minWidth: 0, minHeight: 0, visibility: shown ? 'visible' : 'hidden', pointerEvents: shown ? undefined : 'none' } : undefined} inert={!shown} aria-hidden={!shown || undefined}>
           <Tree node={child} layout={layout} narrow={narrow} renderPane={renderPane} first={first} last={last} />
         </ResizablePanel>

@@ -51,7 +51,7 @@ const detail = (suffix: string) => ({ chatId: 'preview-group', itemId: `file-${s
 /** The chat's tabs drawn, then the file asked of it — a link's (no answer in hand: `supplied` false), or with its host's answer. */
 const slot = async (opener: ReturnType<typeof detail>, supplied = true, extra: { visible?: boolean; message?: MessageItem; tabbed?: boolean; restore?: () => void; fromPage?: boolean } = {}) => {
   await harness.render(chatTabs({ chatId: opener.chatId, visible: extra.visible ?? true, tabbed: extra.tabbed, mobile: boundary.mobile, onForward: boundary.forward }, 'viewer'))
-  ask(opener.chatId, { itemId: opener.itemId, ...(extra.restore ? { restore: extra.restore } : {}), ...(extra.message ? { message: extra.message } : {}), ...(supplied ? { opener: opener as never } : {}), ...(extra.fromPage ? { fromPage: true as const } : {}) })
+  ask(opener.chatId, { itemId: opener.itemId, ...(extra.restore ? { restore: extra.restore } : {}), ...(extra.message ? { message: extra.message } : {}), ...(supplied ? { opener: opener as never } : {}), ...(extra.fromPage ? { from: shownPanelTab(chatId)!.tabId as const } : {}) })
 }
 const redraw = (chatId: string, extra: { visible?: boolean } = {}) =>
   harness.render(chatTabs({ chatId, visible: extra.visible ?? true, mobile: boundary.mobile, onForward: boundary.forward }, 'viewer'))
@@ -94,7 +94,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
     boundary.mobile = mobile
     const folder = openPanelItem('preview-group', folderItem())
     const file = detail('png')
-    await slot(file, true, { fromPage: true })
+    await slot(file, true, { from: shownPanelTab(chatId)!.tabId })
     expect(boundary.image).toHaveBeenCalledWith({ kind: 'item', itemId: file.itemId, version: 3 }, file.name, { chatId: file.chatId })
     expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
     expect(panelTabsOf(file.chatId)).toHaveLength(1)
@@ -147,14 +147,14 @@ describe('unclaimed group files use the message preview from every entry', () =>
     boundary.mobile = true
     const folder = openPanelItem('preview-group', folderItem())
     const file = { ...detail('md'), choice: { kind: 'choose' as const, suffix: '.md', candidates: [candidate] } }
-    await slot(file as never, true, { fromPage: true })
+    await slot(file as never, true, { from: shownPanelTab(chatId)!.tabId })
     const chooser = () => document.querySelector('[role="dialog"] [data-testid="group-app-open-with"]')
     expect(chooser()).not.toBeNull()
     expect(harness.container.contains(chooser()), 'the chooser is portalled above the full-screen page').toBe(false)
     await act(async () => window.dispatchEvent(new Event('gugu:native-back')))
     expect(chooser()).toBeNull()
     expect(shownPanelTab('preview-group')?.tabId).toBe(folder)
-    ask(file.chatId, { itemId: file.itemId, opener: file as never, fromPage: true })
+    ask(file.chatId, { itemId: file.itemId, opener: file as never, from: shownPanelTab(chatId)!.tabId })
     await act(async () => document.querySelector<HTMLButtonElement>('[data-open-with="workspace.main"]')!.click())
     expect(shownItem(file.chatId)).toMatchObject({ kind: 'workspace.main', itemId: file.itemId })
     act(() => closeChatTab(file.chatId, shownPanelTab(file.chatId)!.tabId))
@@ -218,7 +218,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
   it.each([false, true])('back restores the App a preview was opened from without closing the panel (mobile=%s)', async (mobile) => {
     boundary.mobile = mobile
     openPanelItem('preview-group', { kind: 'workspace.main', itemId: 'notes', title: 'notes.md', typedName: 'notes.md' })
-    await slot(detail('exe'), true, { fromPage: true })
+    await slot(detail('exe'), true, { from: shownPanelTab(chatId)!.tabId })
     expect(shownItem('preview-group')?.kind).toBeNull()
     const back = harness.container.querySelector<HTMLButtonElement>('button[aria-label="返回"]')
     expect(back).not.toBeNull()
@@ -230,7 +230,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
   it.each([false, true])('back from the folder preview restores the list and keeps the panel open (mobile=%s)', async (mobile) => {
     boundary.mobile = mobile
     const folder = openPanelItem('preview-group', folderItem())
-    await slot(detail('exe'), true, { fromPage: true })
+    await slot(detail('exe'), true, { from: shownPanelTab(chatId)!.tabId })
     const back = harness.container.querySelector<HTMLButtonElement>('button[aria-label="返回"]')
     expect(back).not.toBeNull()
     await act(async () => back!.click())
@@ -243,7 +243,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
   it('the tabbed binary preview closes only its object, keeping the source tab and one host header', async () => {
     const source = openPanelItem('preview-group', { kind: 'workspace.main', itemId: 'notes', title: 'notes.md' })
     const file = detail('exe')
-    await slot(file, true, { tabbed: true, fromPage: true })
+    await slot(file, true, { tabbed: true, from: shownPanelTab(chatId)!.tabId })
     // In a block the tab is the file's name, its × and its maximize: no header, no row of its own.
     expect(harness.container.querySelector('header')).toBeNull()
     expect(harness.container.querySelector('button[aria-label="关闭"]')).toBeNull()

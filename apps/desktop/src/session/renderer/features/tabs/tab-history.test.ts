@@ -99,6 +99,17 @@ describe('a tab owns its page history', () => {
     expect(pane.entries.get(id)?.state).toEqual({ path: 'config.json' });
   });
 
+  it('keeps persistent history when the current page is runtime-only', () => {
+    const persistent = createTabProvider({ kind: 'persistent', resourceKey: (s: { path: string }) => s.path, initialize: () => ({ dispose() {} }), dispose() {}, TabBarItem: () => null, TabBarItemDragPreview: () => null, TabContent: () => null });
+    const temporary = createTabProvider({ ...persistent, kind: 'temporary', isPersistent: () => false });
+    const layout = new PaneLayoutStore(createTabRegistry([persistent, temporary]), { viewId: 'history-persistence' }); layouts.push(layout);
+    layout.open('persistent', { path: 'folder' }, { from: null, intent: 'newTab' });
+    const pane = layout.focusedPane; const id = pane.resolvedActiveTabId!;
+    pane.navigate(id, 'temporary', { path: 'message' });
+    expect(pane.snapshot.tabs).toHaveLength(1);
+    expect(pane.snapshot.tabs[0]).toMatchObject({ extensionKind: 'persistent', state: { path: 'folder' }, history: { index: 0, pages: [{ kind: 'persistent', state: { path: 'folder' } }] } });
+  });
+
   it('does not add duplicate history entries for the current resource', () => {
     const { pane, id, open } = setup();
     open('README.md');

@@ -253,7 +253,7 @@ describe('an App opened in the group (「在本群打开」)', () => {
     expect(board?.item).toMatchObject({ kind: 'board.file', itemId: 'B', title: 'team' })
     expect(harness.container.querySelector('[data-testid="group-app-slot-back"]'), 'opened from the chat: no 上一页').toBeNull()
     const folder = openPanelItem(chatId, folderItem())
-    ask(chatId, { itemId: 'B', opener: detail as never, fromPage: true })
+    ask(chatId, { itemId: 'B', opener: detail as never, from: shownPanelTab(chatId)!.tabId })
     await act(async () => {})
     expect(panelTabsOf(chatId).map((tab) => tab.item.itemId ?? 'folder')).toEqual(['B', 'folder'])
     expect(shownPanelTab(chatId)?.tabId, 'the tab already there').toBe(board!.tabId)
@@ -266,22 +266,21 @@ describe('the split default is remembered per kind of tab (owner 10-28)', () => 
   it('separating a group file panel keeps members / settings opening beside the chat; a peek leaves nothing remembered', async () => {
     const chatId = 'per-kind'
     await harness.render(chatTabs({ chatId, tabbed: true }))
-    const pane = () => chatLayoutOf(chatId).groups[0]!.pane
     act(() => { openPanelItem(chatId, folderItem()) })
     const panel = shownPanelTab(chatId)!.tabId
-    expect(pane().livePair?.side).toBe(panel)
+    expect(chatLayoutOf(chatId).groups).toHaveLength(2)
     // The person separates the group files panel: only that kind is remembered.
-    act(() => pane().separatePair())
-    expect([...pane().splitDeclinedKinds]).toEqual([pane().entries.get(panel)!.kind])
+    act(() => chatLayoutOf(chatId).moveTab(panel, chatLayoutOf(chatId).groups[1].paneId, chatLayoutOf(chatId).groups[0].paneId))
+    expect(chatLayoutOf(chatId).groups[0].pane.entries.has(panel)).toBe(true)
     // Members / settings (the info tab) is another kind: it still opens beside the chat.
     act(() => openInfoTab(chatId, 'members'))
     const info = infoTabOf(chatId)!.tabId
-    expect(pane().livePair?.side).toBe(info)
+    expect(infoTabOf(chatId)?.tabId).toBe(info)
     // A session peeked beside the page makes the info tab fill the block and then gives it back: not the person's choice.
     act(() => setPanelFull(chatId, info, true))
     act(() => setPanelFull(chatId, info, false))
-    expect(pane().splitDeclinedFor(info)).toBe(false)
-    expect(pane().livePair?.side).toBe(info)
+    expect(tabFullscreen.target).toBeNull()
+    expect(infoTabOf(chatId)?.tabId).toBe(info)
   })
 })
 

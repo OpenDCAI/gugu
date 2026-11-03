@@ -538,8 +538,7 @@ describe('WorkspaceViewModel default conversation tab', () => {
     const panes = viewModel.paneLayout.groups.map(({ pane }) =>
       pane.resolvedTabs.map((tab) => `${tab.isActive ? '*' : ''}${tab.kind}`)
     );
-    expect(panes).toEqual([['*session', 'review', '*terminal']]);
-    expect(viewModel.paneLayout.groups[0].pane.livePair).toMatchObject({ anchor: 'tab-chat', side: 'tab-files', sideAt: 'right' });
+    expect(panes).toEqual([['*session'], ['review', '*terminal']]);
 
     viewModel.dispose();
   });
@@ -821,7 +820,6 @@ describe('WorkspaceViewModel tab persistence adapter', () => {
       kind: 'extension' as const,
       extensionKind: legacyUnavailableTab.kind,
       tabId: legacyUnavailableTab.tabId,
-      isPreview: legacyUnavailableTab.isPreview,
       state: { extensionState: legacyUnavailableTab.extensionState },
     };
     const viewModel = makePersistorViewModel();
@@ -888,118 +886,33 @@ describe('WorkspaceViewModel tab persistence adapter', () => {
 
 });
 
-// owner 10-06: agents opening the same page again stacked a row of identical tabs.
-describe('WorkspaceViewModel showPage', () => {
-  function browserTab(tabId: string, currentUrl: string) {
-    return { tabId, kind: 'browser', isActive: false, resource: { browserId: `b-${tabId}`, session: { currentUrl } } };
-  }
-  function fakeView(
-    groups: Array<{ paneId: string; tabs: ReturnType<typeof browserTab>[] }>,
-    opts?: { besideConversation?: boolean }
-  ) {
+describe('WorkspaceViewModel source-aware page opens', () => {
+  function fake() {
     const open = vi.fn();
-    const setActiveGroup = vi.fn();
-    // 有没有对话可并排(spec session-page「并排」):showBeside 认出那一枚 = true。
-    const showBeside = vi.fn(() => opts?.besideConversation ?? false);
-    const layoutOpen = vi.fn();
-    const panes = groups.map((g) => ({ paneId: g.paneId, pane: { resolvedTabs: g.tabs, setActiveTab: vi.fn() } }));
+    const browser = { browserId: 'current-browser' };
+    const activeResourceOfKind = vi.fn(() => browser);
     const view = {
-      paneLayout: { groups: panes, setActiveGroup, showBeside, open: layoutOpen },
-      activePane: { open },
-      setWorkspacePanelCollapsed: vi.fn(),
-      showPage: WorkspaceViewModel.prototype.showPage,
-      openFile: vi.fn(),
+      sessionId: 'session', paneLayout: { open, groups: [], windowPanes: new Map() },
+      activePane: { resolvedActiveTabId: 'source', activeResourceOfKind },
+      showPage: WorkspaceViewModel.prototype.showPage, openFile: vi.fn(),
     } as unknown as WorkspaceViewModel;
-    return { view, open, setActiveGroup, panes, showBeside, layoutOpen };
-  }
-  function watchReload(browserId: string) {
-    const reload = vi.fn();
-    browserControlsRegistry.register(browserId, { adapter: { reload } as never, focusUrl: () => {} });
-    return reload;
+    return { view, open, activeResourceOfKind };
   }
   afterEach(() => browserControlsRegistry.clear());
-
-  it('an agent re-opening an address switches to the tab already showing it and reloads it, instead of stacking a new tab', () => {
-    const { view, open, setActiveGroup, panes } = fakeView([{ paneId: 'left', tabs: [browserTab('t1', 'http://localhost:5173/app/')] }]);
-    const reload = watchReload('b-t1');
-
-    // Scheme / host casing and the trailing slash are the same address.
-    WorkspaceViewModel.prototype.showPage.call(view, 'HTTP://LocalHost:5173/app', { preview: false, reload: true });
-
-    expect(open).not.toHaveBeenCalled();
-    expect(setActiveGroup).toHaveBeenCalledWith('left');
-    expect(panes[0].pane.setActiveTab).toHaveBeenCalledWith('t1');
-    expect(panes[0].pane.pin).toHaveBeenCalledWith('t1');
-    expect(reload).toHaveBeenCalledTimes(1);
+  it('opens through the current context without looking for or moving another tab', () => {
+    const { view, open } = fake();
+    view.showPage('https://example.com/', { reload: false });
+    expect(open).toHaveBeenCalledWith('browser', { initialUrl: 'https://example.com/' }, { from: 'source', intent: 'navigate', activate: true });
   });
-
-  it('a person or an App opening it again only switches to it — nothing on the page is thrown away', () => {
-    const { view, open, panes } = fakeView([{ paneId: 'left', tabs: [browserTab('t1', 'http://localhost:5173/app/')] }]);
-    const reload = watchReload('b-t1');
-    WorkspaceViewModel.prototype.showPage.call(view, 'http://localhost:5173/app/', { preview: false, reload: false });
-
-    expect(open).not.toHaveBeenCalled();
-    expect(panes[0].pane.setActiveTab).toHaveBeenCalledWith('t1');
-    expect(reload).not.toHaveBeenCalled();
+  it('keeps reload explicit on the active browser', () => {
+    const { view } = fake(); const reload = vi.fn();
+    browserControlsRegistry.register('current-browser', { adapter: { reload } as never, focusUrl() {} });
+    view.showPage('https://example.com/', { reload: false }); expect(reload).not.toHaveBeenCalled();
+    view.showPage('https://example.com/', { reload: true }); expect(reload).toHaveBeenCalledOnce();
   });
-
-  it('finds the tab in whichever pane holds it, and leaves a preview a preview', () => {
-    const { view, open, setActiveGroup, panes } = fakeView([
-      { paneId: 'left', tabs: [browserTab('t1', 'https://example.com/a')] },
-      { paneId: 'right', tabs: [browserTab('t2', 'file:///C:/r/index.html')] },
-    ]);
-    WorkspaceViewModel.prototype.showPage.call(view, 'file:///C:/r/index.html', { preview: true, reload: true });
-
-    expect(open).not.toHaveBeenCalled();
-    expect(setActiveGroup).toHaveBeenCalledWith('right');
-    expect(panes[1].pane.setActiveTab).toHaveBeenCalledWith('t2');
-    expect(panes[1].pane.pin).not.toHaveBeenCalled();
-  });
-
-  it('opens a new tab when only the query or the hash differs — those are part of the page', () => {
-    for (const [shown, url] of [
-      ['https://example.com/a?v=1', 'https://example.com/a?v=2'],
-      ['https://example.com/a', 'https://example.com/a#section'],
-    ]) {
-      const { view, open } = fakeView([{ paneId: 'left', tabs: [browserTab('t1', shown)] }]);
-      WorkspaceViewModel.prototype.showPage.call(view, url, { preview: false, reload: true });
-      expect(open).toHaveBeenCalledWith('browser', { initialUrl: url }, { preview: false });
-    }
-  });
-
-  it('re-opening a page from Outputs brings the tab showing it beside the conversation, without reloading it', () => {
-    const { view, open, panes, showBeside } = fakeView(
-      [{ paneId: 'left', tabs: [browserTab('t1', 'http://localhost:5173/')] }],
-      { besideConversation: true }
-    );
-    const reload = watchReload('b-t1');
-    WorkspaceViewModel.prototype.reopenOutput.call(view, { kind: 'page', url: 'http://localhost:5173/' });
-
-    expect(open).not.toHaveBeenCalled();
-    // 同一页已经开着 = 请到对话右边,❌ 新开一枚(spec session-page「并排」)。
-    // 人点「输出」= 要看它:并排亮到屏上(reveal)。
-    expect(showBeside).toHaveBeenCalledWith('t1', { reveal: true });
-    expect(panes[0].pane.setActiveTab).not.toHaveBeenCalled();
-    expect(reload).not.toHaveBeenCalled();
-  });
-
-  it('with no conversation to sit beside, re-opening from Outputs switches to the tab as before', () => {
-    const { view, panes } = fakeView([{ paneId: 'left', tabs: [browserTab('t1', 'http://localhost:5173/')] }]);
-    WorkspaceViewModel.prototype.reopenOutput.call(view, { kind: 'page', url: 'http://localhost:5173/' });
-    expect(panes[0].pane.setActiveTab).toHaveBeenCalledWith('t1');
-  });
-
-  it('re-opening a page from Outputs that is no longer open opens it beside the conversation', () => {
-    const { view, open, layoutOpen } = fakeView([{ paneId: 'left', tabs: [] }], { besideConversation: true });
-    WorkspaceViewModel.prototype.reopenOutput.call(view, { kind: 'page', url: 'https://example.com/' });
-    expect(open).not.toHaveBeenCalled();
-    expect(layoutOpen).toHaveBeenCalledWith('browser', { initialUrl: 'https://example.com/' }, { preview: false, beside: true, activate: true });
-  });
-
-  it('opens a new tab when nothing shows that address', () => {
-    const { view, open } = fakeView([{ paneId: 'left', tabs: [] }]);
-    WorkspaceViewModel.prototype.showPage.call(view, 'https://example.com/', { preview: true, reload: true });
-    expect(open).toHaveBeenCalledWith('browser', { initialUrl: 'https://example.com/' }, { preview: true });
+  it('passes files from Outputs through the existing file opener', () => {
+    const { view } = fake(); view.reopenOutput({ kind: 'file', path: 'notes.md' });
+    expect(view.openFile).toHaveBeenCalledWith('notes.md', { beside: true });
   });
 });
 

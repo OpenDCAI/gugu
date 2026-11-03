@@ -30,6 +30,15 @@ function setup() {
 }
 
 describe('the App can navigate only its own tab history', () => {
+  it('returns true only after its own page actually changes', async () => {
+    const { pane, api, a, b } = setup();
+    pane.navigate(a, 'page', { path: '/README' });
+    await expect(api(a).navigation!.go(-1)).resolves.toBe(true);
+    expect(pane.entries.get(a)?.state).toEqual({ path: '/' });
+    expect(pane.entries.get(b)?.state).toEqual({ path: '/other' });
+    await expect(api(a).navigation!.go(1)).resolves.toBe(true);
+    expect(pane.entries.get(a)?.state).toEqual({ path: '/README' });
+  });
   it('returns false when its tab has no history', async () => {
     const { api, a } = setup(); const app = api(a);
     expect(typeof app.navigation?.go).toBe('function');

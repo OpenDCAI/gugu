@@ -4,9 +4,9 @@ import { UI_EVENTS } from '@/lib/uiEvents';
 import { APP_OPEN_WITH_EVENT } from '@shared/extensions/app-runtime-protocol';
 import { groupPageSlot, type PanelItem } from '@renderer/features/chats/chat-tabs/chat-panel-item';
 
-const { tabs, showChatTab, updateFileNames, pin } = vi.hoisted(() => ({
+const { tabs, showChatTab, updateFileNames } = vi.hoisted(() => ({
   tabs: [] as { tabId: string; inWindow: boolean; shown?: boolean; item: PanelItem }[], showChatTab: vi.fn(), updateFileNames: vi.fn(), }));
-vi.mock('@renderer/features/chats/chat-tabs/chat-layouts', () => ({ panelTabsOf: () => tabs, showChatTab, updateFileNames, chatLayoutOf: () => ({ groups: [{ pane: { entries: new Map(tabs.map((tab) => [tab.tabId, tab])), pin } }] }) }));
+vi.mock('@renderer/features/chats/chat-tabs/chat-layouts', () => ({ panelTabsOf: () => tabs, showChatTab, updateFileNames, chatLayoutOf: () => ({ groups: [{ pane: { entries: new Map(tabs.map((tab) => [tab.tabId, tab])) } }] }) }));
 
 const navigate = vi.fn();
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { navigation: { navigate } } }));
@@ -46,12 +46,12 @@ describe('showing an already-open file while its metadata is checked', () => {
   const origin = { extensionId: 'workspace', sessionId: null, tabId: groupPageSlot('chat', 'folder') };
   beforeEach(() => { tabs.push({ tabId: 'folder', inWindow: false, shown: true, item: { kind: 'workspace.main', title: 'Group folder' } }); });
   it('activates the existing file in a background window without resolving its link again', async () => {
-    tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'old' } });
+    tabs[0]!.item = { kind: 'workspace.main', itemId: 'file', title: 'old' };
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
     vi.spyOn(document, 'hasFocus').mockReturnValue(false);
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { queueMicrotask(() => callback(0)); return 1; });
     expect(await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main' } })).toEqual({ chat: 'chat' });
-    expect(showChatTab).toHaveBeenCalledWith('chat', 'held');
+    expect(showChatTab).toHaveBeenCalledWith('chat', 'folder');
     expect(navigate).not.toHaveBeenCalled();
   });
 
@@ -61,13 +61,12 @@ describe('showing an already-open file while its metadata is checked', () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
-  it('folder redesign pins the live preview on double-click through the same activation action', async () => {
+  it('does not reuse another context or an explicit new tab during the metadata check', async () => {
     tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'file.md' } });
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { queueMicrotask(() => callback(0)); return 1; });
-    await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main', intent: 'navigate' } });
-    expect(pin).not.toHaveBeenCalled();
-    await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main', intent: 'newTab' } });
-    expect(pin).toHaveBeenCalledExactlyOnceWith('held');
+    for (const intent of ['navigate', 'newTab', 'beside'] as const) {
+      await expect(applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main', intent } })).resolves.toBeUndefined();
+    }
+    expect(showChatTab).not.toHaveBeenCalled();
   });
 
   it('leaves a file in another chat to the ordinary opener that brings its chat up', async () => {
