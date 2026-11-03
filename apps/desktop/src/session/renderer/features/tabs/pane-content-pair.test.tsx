@@ -1,3 +1,4 @@
+import { DndContext } from '@dnd-kit/core';
 import { JSDOM } from 'jsdom';
 import { observer } from 'mobx-react-lite';
 import React, { act, useEffect } from 'react';
@@ -55,7 +56,7 @@ describe('each actual pane owns its content', () => {
     expect(layout.groups).toHaveLength(1);
     expect(layout.focusedPane.tabOrder).toEqual([source, file]);
     const group = layout.groups[0];
-    act(() => root.render(<PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent /></PaneContext.Provider>));
+    act(() => root.render(<DndContext><PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent /></PaneContext.Provider></DndContext>));
     const back = dom.window.document.querySelector<HTMLButtonElement>('[data-testid="tab-return-conversation"]');
     expect(back).not.toBeNull();
     await act(async () => { back!.click(); });
