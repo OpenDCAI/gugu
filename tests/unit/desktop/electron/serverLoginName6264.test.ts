@@ -2,21 +2,24 @@
 // 记进这个账号的 connect-via(账号进程第一次心跳据此报名字),已有的设备行还叫 `Linux 2` 的换成它。
 import { Readable } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ServerAccount } from '../../../../apps/desktop/electron/server/server-layout'
 
-const layout = vi.hoisted(() => ({ writeServerConnectVia: vi.fn() }))
+const layout = vi.hoisted(() => ({ writeServerConnectVia: vi.fn(), accounts: [] as ServerAccount[], checkLayout: vi.fn() }))
 const devices = vi.hoisted(() => ({ adoptDeviceName: vi.fn(async () => true) }))
 
 vi.mock('electron', () => ({ app: { getVersion: () => '0.3.0' }, safeStorage: {} }))
 vi.mock('../../../../apps/desktop/electron/server/server-auth', () => ({ writeStoredServerSession: vi.fn() }))
 vi.mock('../../../../apps/desktop/electron/server/server-layout', () => ({
   applyAccountEnv: vi.fn(),
-  accountDataDir: (userId: string) => `/data/${userId}`,
+  accountDataDir: () => '/data/u1',
+  serverHome: () => '/installation',
   clearSignedOutMark: vi.fn(),
   emailFromAccessToken: () => 'me@x.y',
-  listAccounts: () => [],
+  readServerAccount: () => layout.accounts[0] ?? null,
   writeAccountMeta: vi.fn(),
   writeServerConnectVia: layout.writeServerConnectVia,
 }))
+vi.mock('../../../../apps/desktop/electron/server/server-boot.cjs', () => ({ prepareAccountLogin: vi.fn(), assertAccountLayoutReady: layout.checkLayout }))
 vi.mock('@gugu/core', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@gugu/core')>()),
   resolveLocalDeviceId: async () => 'dev-1',
@@ -28,6 +31,8 @@ const saved = { ...process.env }
 const stdin = Object.getOwnPropertyDescriptor(process, 'stdin')!
 
 afterEach(() => {
+  layout.accounts = []
+  layout.checkLayout.mockReset()
   process.env = { ...saved }
   Object.defineProperty(process, 'stdin', stdin)
   vi.unstubAllGlobals()
@@ -52,6 +57,27 @@ async function login(args: string[]) {
 }
 
 describe('#6264 gugu-server login --grant-stdin --name', () => {
+  it('refuses an unmigrated layout before consuming the grant or requesting tokens', async () => {
+    layout.checkLayout.mockImplementation(() => { throw new Error('Run gugu-server start to migrate one@example.test') })
+    expect(await login(['--grant-stdin'])).toBe(78)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(layout.writeServerConnectVia).not.toHaveBeenCalled()
+  })
+
+  it('refuses an already signed-in installation before consuming the grant or requesting tokens', async () => {
+    layout.accounts = [{ userId: 'existing', email: 'existing@example.test', signedIn: true, addedAt: null,
+      dir: '', dataDir: '', homeDir: '', signedOut: null }]
+    expect(await login(['--grant-stdin'])).toBe(1)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(layout.writeServerConnectVia).not.toHaveBeenCalled()
+  })
+
+  it('allows a signed-out account to authenticate again', async () => {
+    layout.accounts = [{ userId: 'u1', email: 'me@x.y', signedIn: false, addedAt: null,
+      dir: '', dataDir: '', homeDir: '', signedOut: null }]
+    expect(await login(['--grant-stdin'])).toBe(0)
+    expect(fetch).toHaveBeenCalled()
+  })
   it('名字记进 connect-via,已有的设备行交给 adoptDeviceName', async () => {
     expect(await login(['--grant-stdin', '--name', 'd22'])).toBe(0)
     expect(layout.writeServerConnectVia).toHaveBeenCalledWith('/data/u1', 'ssh', { name: 'd22' })

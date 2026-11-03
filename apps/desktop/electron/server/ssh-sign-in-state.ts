@@ -15,6 +15,7 @@ export function signInStateFrom(report: StatusReport | null, userId: string): Ss
   const account = report.accounts.find((a) => a.userId === userId)
   if (!account) return { state: 'signedOut' }
   if (account.signedIn) return { state: 'signedIn' }
+  if (account.signedOut?.reason === 'logout') return { state: 'signedOut' }
   if (account.signedOut) return { state: account.signedOut.reason, at: account.signedOut.at }
   return { state: 'signedOut' }
 }

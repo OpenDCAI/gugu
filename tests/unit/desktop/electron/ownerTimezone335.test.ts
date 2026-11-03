@@ -60,7 +60,7 @@ describe('hosted account owner time zone', () => {
     } })
     try {
       const account = { userId: 'owner', signedIn: true, dataDir: dir, email: null } as ServerAccount
-      const deps = { accounts: () => [account], call: callAccountProcess }
+      const deps = { account: () => (account), call: callAccountProcess }
       expect(await runResume(['--account', 'owner'], { stdout: new PassThrough(), stderr: new PassThrough() }, deps)).toBe(0)
       expect(observed).toEqual(['Pacific/Auckland'])
       vi.stubEnv('GUGU_OWNER_TIME_ZONE_CONTEXT', '{bad')

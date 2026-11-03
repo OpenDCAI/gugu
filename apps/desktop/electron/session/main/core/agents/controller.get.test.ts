@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  manager: { platform: 'macos', probe: vi.fn(), isPathResolutionConsistent: vi.fn() },
+  manager: { platform: 'macos', probe: vi.fn(), isPathResolutionConsistent: vi.fn(), getHostDependency: vi.fn(), install: vi.fn() },
   ensureProbed: vi.fn(),
   buildPayload: vi.fn(),
 }));
@@ -22,13 +22,14 @@ vi.mock('./agent-payload-builder', () => ({
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 vi.mock('@main/core/sessions/impl/resolve-agent-executable', () => ({ clearResolvedPathCache: vi.fn() }));
 vi.mock('./session-runtime-compatibility', () => ({ clearRuntimeVersionProbeCache: vi.fn() }));
-vi.mock('../dependencies/agent-update-service', () => ({ agentUpdateService: {} }));
-vi.mock('../dependencies/host-dependency-store', () => ({ hostDependencyStore: {} }));
+vi.mock('../dependencies/agent-update-service', () => ({ agentUpdateService: { installSourceOrder: () => [] } }));
+vi.mock('../dependencies/host-dependency-store', () => ({ hostDependencyStore: { setSelection: vi.fn() } }));
 vi.mock('../settings/provider-settings-service', () => ({ providerOverrideSettings: {} }));
 vi.mock('./harness-model-catalog', () => ({ lookupHarnessModelCatalog: vi.fn() }));
 vi.mock('./harness-model-catalog-wiring', () => ({ wireHarnessModelCatalog: vi.fn() }));
 
 import { agentsController } from './controller';
+import { hasAgentInstallsInProgress } from './install-progress-ledger';
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -36,6 +37,21 @@ beforeEach(() => {
 });
 
 describe('single registered harness queries', () => {
+  it.each(['success', 'failure', 'throw', 'cancel'] as const)('releases installation activity on %s', async outcome => {
+    const pending = Promise.withResolvers<{ success: boolean; error?: { type: 'cancelled' } }>();
+    mocks.manager.install.mockReturnValue(pending.promise);
+    const installing = agentsController.install('claude');
+    const settled = installing.catch(error => error);
+    await vi.waitFor(() => expect(mocks.manager.install).toHaveBeenCalled());
+    expect(hasAgentInstallsInProgress()).toBe(true);
+    if (outcome === 'throw') pending.reject(new Error('download failed'));
+    else {
+      if (outcome === 'cancel') await agentsController.cancelInstall('claude');
+      pending.resolve(outcome === 'success' ? { success: true } : { success: false, error: { type: 'cancelled' } });
+    }
+    await settled;
+    expect(hasAgentInstallsInProgress()).toBe(false);
+  });
   it('waits for a withheld harness probe before building its installation payload', async () => {
     const probe = Promise.withResolvers<void>();
     mocks.manager.probe.mockReturnValue(probe.promise);

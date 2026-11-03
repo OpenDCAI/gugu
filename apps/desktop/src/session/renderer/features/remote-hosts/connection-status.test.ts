@@ -31,10 +31,10 @@ describe('connection-status(#6264 侧栏的点 / 聊天末尾那一行)', () => 
     expect(hostConnectionState({ ...base, sshLink: 'updating' })).toBe('updating');
     expect(hostConnectionState({ ...base, sshLink: 'outdated' })).toBe('update-failed');
     expect(hostConnectionState({ ...base, sshLink: 'unreachable' })).toBe('reconnecting');
-    expect(hostStatusLabel('updating', 'd22', null, NOW, zh)).toBe('d22 上的咕咕 server 版本太旧，正在更新…');
-    expect(hostStatusLabel('update-failed', 'd22', null, NOW, zh)).toBe('d22 上的咕咕 server 版本太旧，更新没成功');
+    expect(hostStatusLabel('updating', 'd22', null, NOW, zh)).toBe('d22 上的咕咕正在更新，稍后会自动重新连接。');
+    expect(hostStatusLabel('update-failed', 'd22', null, NOW, zh)).toBe('d22 上的咕咕更新未完成，请在 设置 → 设备 中查看详情。');
     // 远程隧道的机器可能是桌面或 server，统一指向那台机器上的咕咕。
-    expect(hostStatusLabel('outdated', 'd22', null, NOW, zh)).toBe('d22 上的咕咕版本太旧，请更新那台机器上的咕咕');
+    expect(hostStatusLabel('outdated', 'd22', null, NOW, zh)).toBe('d22 上的咕咕需要更新，请在 设置 → 设备 中更新。');
   });
 
   it('#6264 新建框选着一台太旧的机器:说「版本太旧，正在更新」,❌「d22 离线」', () => {
@@ -43,9 +43,9 @@ describe('connection-status(#6264 侧栏的点 / 聊天末尾那一行)', () => 
       if (!template) throw new Error(`missing ${key}`);
       return template.replace(/\{(\w+)\}/g, (_, name: string) => String(values[name]));
     };
-    expect(machineUnavailableReason('updating', 'd22', session)).toBe('d22 上的咕咕 server 版本太旧，正在更新。草稿已保留。');
-    expect(machineUnavailableReason('update-failed', 'd22', session)).toBe('d22 上的咕咕 server 版本太旧，更新没成功。草稿已保留。');
-    expect(machineUnavailableReason('outdated', 'd22', session)).toBe('d22 上的咕咕版本太旧，请更新那台机器上的咕咕（咕咕 server 会在空闲时自动更新）。草稿已保留。');
+    expect(machineUnavailableReason('updating', 'd22', session)).toBe('d22 上的咕咕正在更新，稍后会自动重新连接。草稿已保留。');
+    expect(machineUnavailableReason('update-failed', 'd22', session)).toBe('d22 上的咕咕更新未完成，请在 设置 → 设备 中查看详情。草稿已保留。');
+    expect(machineUnavailableReason('outdated', 'd22', session)).toBe('d22 上的咕咕需要更新，请在 设置 → 设备 中更新。草稿已保留。');
     expect(machineUnavailableReason('sign-in', 'd22', session)).toBe('要先经 SSH 登录 d22。草稿已保留。');
     expect(machineUnavailableReason('offline', 'd22', session)).toBe('d22 离线。草稿已保留，上线后可发送，或换一台机器。');
   });
@@ -92,8 +92,12 @@ describe('connection-status(#6264 侧栏的点 / 聊天末尾那一行)', () => 
     expect(tooOld?.action).toEqual({ label: '重新连接', kind: 'reconnect' });
     expect(chatLinkRow({ ...base, errorCode: null })?.label).toBe('连不上 Linux 1，已停止重连');
     expect(isRetryableRemoteError('unknown_method')).toBe(false);
+    expect(isRetryableRemoteError('client_outdated')).toBe(false);
     expect(isRetryableRemoteError(null)).toBe(true);
     expect(isRetryableRemoteError('timeline_failed')).toBe(true);
+    expect(chatLinkRow({ ...base, errorCode: 'client_outdated' })).toEqual({
+      label: 'Linux 1 的咕咕较新，请更新这台电脑上的咕咕', action: null,
+    });
   });
 
   it('#6264 离线的原因是登录没了:侧栏与聊天末尾都说清、指去重新登录;问不到时照旧只说离线', () => {
@@ -109,6 +113,9 @@ describe('connection-status(#6264 侧栏的点 / 聊天末尾那一行)', () => 
 });
 
 describe('machineNoticeLabel(#6264 那台机器连得上,但有件事会让操作失败)', () => {
+  it.each(['idle', 'switching'] as const)('does not label %s as an update failure', state => {
+    expect(machineNoticeLabel([], 'Server', zh, { serverUpdate: { state, version: '2.0.0' } })).toBeNull()
+  })
   it('按要紧程度只说第一件;磁盘余量写成人读得懂的大小', () => {
     expect(machineNoticeLabel([{ kind: 'disk-low', freeBytes: 312 * 1024 * 1024 }], 'Linux 1', zh)).toBe(
       'Linux 1 磁盘只剩 312 MB，保存和更新可能失败'

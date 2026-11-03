@@ -15,18 +15,20 @@ import path from 'node:path'
 import { isOwnProcessAlive, isProcessAlive, SERVER_PROCESS_MARK } from './server/process-alive'
 import { ensureCaBundleForChildren } from './server/server-ca-bundle'
 import {
-  accountDataDir,
   applyAccountEnv,
-  listAccounts,
+  readServerAccount,
+  readSignedOutMark,
   supervisorDataDir,
+  writeSignedOutMark,
 } from './server/server-layout'
 import * as serverShim from './server/server-electron-shim'
-import { runWithRunningVersion } from './server/server-version-match'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { ensurePrivateDir, summarizeChanges, tightenServerTree } from './server/server-permissions'
 import { assertRuntimeBackend, ownPackageIdentity, packageBackend, packageIdentity, prepareInstallation } from './server/server-package-environment.mts'
 import { getSupabaseUrl } from '@gugu/core/cloud/config'
 import { resolveServerHome } from './server/server-installation'
+import { inspectAccountLayout } from './server/server-startup'
+import { homeLockHolder } from './server/server-startup'
 
 
 const stderr = (line: string): void => void process.stderr.write(`${line}\n`)
@@ -55,12 +57,9 @@ moduleInternals._load = function patchedLoad(this: unknown, request: string, ...
 process.env.GUGU_SERVER_MODE = '1'
 // 设备 id 按 tier 派生(deviceRuntime.resolveTier)。main.ts 顶层也设同一个值;这里提前设,是因为
 // `login` 不加载 main.ts,却要报出账号进程上线后的设备 id(#6264 SSH 直连终端认机器靠它)。
-// 守护进程(`run` / 不带命令)不设:tier 是构建的属性,它拉起的账号进程可能是另一版构建(#6264 账号跟着桌面换版),
-// 环境里有了守护进程这一版的 tier,账号进程就不用自己的 —— 同一台机器按另一个 tier 认成新设备(10-28 Linux 3)。
 // 人显式设的 GUGU_TIER(开发覆盖)照旧原样传下去。
 declare const __GUGU_TIER__: string
-const supervisorCommand = process.argv[2] === undefined || process.argv[2] === 'run'
-if (!process.env.GUGU_TIER && !supervisorCommand) process.env.GUGU_TIER = __GUGU_TIER__
+if (!process.env.GUGU_TIER) process.env.GUGU_TIER = __GUGU_TIER__
 const serverHome = resolveServerHome()
 process.env.GUGU_SERVER_HOME = serverHome
 // 数据目录的根只归本人(0700):里面的登录态、密钥、会话记录,以及运行期后来再建的一切,别人都够不着。
@@ -72,32 +71,33 @@ try {
   process.exit(1)
 }
 // ⚠️ 这里**不**设 GUGU_TASK_HOST_USER_DATA:替身的 userData 第一次被读到就缓存住,而每个命令要指的目录不同
-// (守护进程用 data/,账号进程用 accounts/<id>/data/,login 要等换到令牌、知道是谁之后才定)。见 server-layout.ts。
+// (守护进程用 data/,账号数据用 account/data/,login 要等换到令牌、知道是谁之后才定)。见 server-layout.ts。
 
 const USAGE = `用法:
   gugu-server                    运行咕咕 server(常驻;一般由系统服务拉起)
   gugu-server login              ${REMOTE_TUNNEL_OPEN ? '在这台服务器上登录一个咕咕账号(链接 + 短码,不需要浏览器)' : '远程隧道暂未开放:在咕咕桌面用远程 SSH 添加这台机器'}
-                                 一台服务器可以登录好几个人,互不影响
+                                 一个系统用户只能登录一个咕咕账号;另一个账号请使用另一个系统用户
   gugu-server login --grant-stdin 用咕咕桌面经 SSH 递来的一次性凭证登录(桌面自动调用,不用手敲)
   gugu-server login [--name 名字] 这台机器在设备列表里的默认名(两种登法都认;桌面带上人填的 SSH 别名)
   gugu-server logout [邮箱]      退出登录(登录了好几个人时写上是谁)
   gugu-server status [--json]    看看版本、登录了谁、在不在跑、数据放在哪;登录失效 / 被移除的账号也列出来
   gugu-server --version          只打出这份咕咕 server 的版本号
   gugu-server service install    注册常驻服务:SSH 断开不停、重启自己起来(不要 root)
+  gugu-server start              启动已安装的 server 或重新登录后恢复运行
   gugu-server service uninstall  移除常驻服务
   gugu-server stop               停掉正在运行的 server(连同各账号的进程)
   gugu-server selftest           检查这份咕咕 server 在这台机器上能不能跑(原生模块、自带的 tmux)
   gugu-server prepare-install    安装器核对包与既有安装的环境(不读取账号凭据)
-  gugu-server unregister --account <账号 id>
+  gugu-server unregister
                                  把这台机器从这个账号里移除并注销登录(卸载时自动调用)
-  gugu-server link [--account <账号 id>] [--adopt-ssh]
+  gugu-server link [--adopt-ssh]
                                  把标准输入输出接到这个账号的咕咕 server 上(远程 SSH:桌面经 SSH 自动调用)
   gugu-server open-url <网址或文件>
                                  在正看着这台机器的咕咕桌面上打开网页(这台机器上的 $BROWSER 就是它)
-  gugu-server resume --account <账号 id>
+  gugu-server resume
                                  通知保留的账号进程恢复连接并立即补收消息
-  gugu-server match-version --account <账号 id> (--desktop <桌面 id> --version <版本> | --apply <版本>)
-                                 让这个账号跑和桌面匹配的那一版(桌面经 SSH 自动调用)`
+  gugu-server match-version (--desktop <桌面 id> --version <版本> | --apply <版本>)
+                                 旧桌面兼容入口:查看 current/已准备目标，或确认重启到已准备目标`
 
 function fail(error: unknown): never {
   stderr(`[server] ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`)
@@ -109,6 +109,7 @@ const out = (line: string): void => void process.stdout.write(`${line}\n`)
 /** 读某个目录下单实例锁里的进程号(锁在但进程已死、或进程号已被别的程序复用 = 没在跑)。 */
 function lockHolder(dataDir: string): number | null {
   try {
+    if (dataDir === supervisorDataDir()) return homeLockHolder(serverHome)
     const pid = Number(fs.readFileSync(path.join(dataDir, 'server.lock'), 'utf8').trim())
     return isOwnProcessAlive(pid, SERVER_PROCESS_MARK) ? pid : null
   } catch {
@@ -116,34 +117,26 @@ function lockHolder(dataDir: string): number | null {
   }
 }
 
-/**
- * #6264 守护进程之外还在跑的账号进程(守护进程被 kill -9 / OOM 后留下的孤儿,或刚才没来得及收的):
- * 按各账号锁里的进程号收掉。先 SIGTERM 等它正常退出(收会话、放锁),30 秒不走再 SIGKILL。
- */
-async function stopAccountProcesses(): Promise<number[]> {
-  const pids = listAccounts()
-    .map((account) => lockHolder(account.dataDir))
-    .filter((pid): pid is number => pid !== null && pid !== process.pid)
-  for (const pid of pids) {
-    try {
-      process.kill(pid, 'SIGTERM')
-    } catch {
-      // 已经退出了
-    }
+async function stopServerProcess(pid: number, graceMs: number): Promise<void> {
+  const { readRunningServer, stopSystemdService } = await import('./server/server-service')
+  if (readRunningServer()?.supervisedBy === 'systemd') {
+    stopSystemdService()
+    if (!(await waitForPidExit(pid, graceMs))) throw new Error(`systemd 未能停止 server 进程 ${pid}`)
+    return
   }
-  const deadline = Date.now() + 30_000
-  while (Date.now() < deadline && pids.some((pid) => isProcessAlive(pid))) {
-    await new Promise((resolve) => setTimeout(resolve, 200))
-  }
-  for (const pid of pids) {
-    if (!isProcessAlive(pid)) continue
-    try {
-      process.kill(pid, 'SIGKILL')
-    } catch {
-      // 已经退出了
-    }
-  }
-  return pids
+  const { signalProcessDescendantsSync } = await import('@gugu/session-core/acp/node')
+  try { process.kill(pid, 'SIGTERM') }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') return; throw error }
+  if (await waitForPidExit(pid, graceMs)) return
+  // Snapshot the owned live root before severing its detached descendants' parent chain.
+  let cleanupError: unknown
+  try { signalProcessDescendantsSync([pid], 'SIGKILL') }
+  catch (error) { cleanupError = error }
+  try { process.kill(pid, 'SIGKILL') }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error }
+  out(`Server did not exit after TERM; used KILL for pid ${pid}.`)
+  if (!(await waitForPidExit(pid, 5_000))) throw new Error(`Process ${pid} did not exit after KILL`)
+  if (cleanupError) throw cleanupError
 }
 
 /** 升级换版时新进程由旧进程拉起:等旧的完全退出(单实例锁放掉)再启动,最多等 60 秒。 */
@@ -162,31 +155,31 @@ function tightenOwnTree(): void {
     if (changes.length === 0) return
     const line = `${new Date().toISOString()} INFO  收紧数据目录权限 ${JSON.stringify(summarizeChanges(changes))}`
     stderr(line)
-    fs.mkdirSync(path.join(supervisorDataDir(), 'logs'), { recursive: true })
-    fs.appendFileSync(path.join(supervisorDataDir(), 'logs', 'supervisor.log'), `${line}\n`)
   } catch (error) {
     stderr(`[server] 收紧数据目录权限失败:${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
-/**
- * #6264 桌面经 SSH 调的命令用「正在跑的那个账号进程」那一版来跑(server-version-match.ts):
- * 换版窗口里 current 已经是新版、账号进程还是旧版时,❌ 让新旧两版对话被协议版本拒掉。
- * 返回那一版的退出码;不需要换(版本一致 / 读不到 / 盘上没有那一版)返回 null,由本进程照常跑。
- */
-function runningVersionFirst(command: string, args: string[], account: { dataDir: string } | { error: string }): number | null {
-  if ('error' in account) return null
-  return runWithRunningVersion({ home: serverHome, accountPid: lockHolder(account.dataDir), command, args })
+function prepareRuntimeInstallation(): void {
+  const identity = ownPackageIdentity()
+  assertRuntimeBackend(identity, getSupabaseUrl())
+  prepareInstallation(serverHome, identity, {
+    updateOwner: process.env.GUGU_CLOUD_COMPUTER === '1' ? 'controller' : undefined,
+  })
+}
+
+/** Both run and the deployed supervisor's boot probe enter this exact account body. */
+async function runAccount(userId: string, directory: string): Promise<void> {
+  if (!fs.statSync(directory).isDirectory()) throw new Error(`Account directory is unavailable: ${directory}`)
+  applyAccountEnv(userId, process.env, directory)
+  ensureCaBundleForChildren(path.join(directory, 'data'))
+  await import('./main')
 }
 
 async function runCommand(command: string | undefined, args: string[]): Promise<void> {
-  if (command === undefined || ['run', 'run-account', 'login', 'logout', 'unregister', 'resume', 'match-version'].includes(command)
+  if (['start', 'run-account', 'login', 'logout', 'unregister', 'resume', 'match-version'].includes(command ?? '')
     || (command === 'service' && args[0] === 'install')) {
-    const identity = ownPackageIdentity()
-    assertRuntimeBackend(identity, getSupabaseUrl())
-    prepareInstallation(serverHome, identity, {
-      updateOwner: process.env.GUGU_CLOUD_COMPUTER === '1' ? 'controller' : undefined,
-    })
+    prepareRuntimeInstallation()
   }
   switch (command) {
     case 'prepare-install': {
@@ -213,10 +206,8 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       if (owner === 'controller' && directory) {
         if (args.includes('--activate')) {
           const { activateServerPackage, ServerPackageDeferredError } = await import('./server/server-version-lifecycle')
-          const { spawnUpgradeGuard } = await import('./server/server-upgrade-guard')
           try {
-            await activateServerPackage(serverHome, directory, { migrateFrom: argument('--migrate-from'),
-              beforeSwitch: () => { if (!spawnUpgradeGuard(serverHome)) throw new Error('Cannot start the upgrade rollback watchdog') } })
+            await activateServerPackage(serverHome, directory, { migrateFrom: argument('--migrate-from') })
           } catch (error) {
             if (error instanceof ServerPackageDeferredError) { stderr(error.message); return process.exit(75) }
             throw error
@@ -231,65 +222,50 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
     }
     case undefined:
     case 'run': {
-      const waitPid = Number(process.env.GUGU_SERVER_WAIT_PID)
-      delete process.env.GUGU_SERVER_WAIT_PID
-      if (Number.isInteger(waitPid) && waitPid > 0) await waitForPidExit(waitPid)
-      process.env.GUGU_TASK_HOST_USER_DATA = supervisorDataDir()
       // 旧版本按宽松 umask 建过的目录与文件:每次启动收一遍(升级换版后的第一次启动就把老机器修好)。
-      tightenOwnTree()
-      // 系统没有 CA 证书时给子进程(mise、agent)一份 Node 自带的,见 server-ca-bundle.ts;账号进程继承这个环境。
-      ensureCaBundleForChildren(supervisorDataDir())
-      const { runSupervisor } = await import('./server/server-supervisor')
-      await runSupervisor()
+      const { runSingleServer } = await import('./server/server-run')
+      await runSingleServer(() => {
+        tightenOwnTree()
+        prepareRuntimeInstallation()
+      }, runAccount)
       return
     }
     case 'run-account': {
-      // 守护进程拉起的某个账号的进程:桌面同一份主进程,数据全在这个账号自己的目录里。
+      // Compatibility for already deployed supervisors: no home lock, the same main and account lock.
       const userId = args[0]
-      if (!userId || !listAccounts().some((account) => account.userId === userId)) {
+      if (!userId || !/^[a-zA-Z0-9_-]{1,128}$/.test(userId) || !fs.existsSync(path.join(serverHome, 'accounts', userId))) {
         stderr(`没有这个账号:${userId ?? '(未指定)'}`)
         process.exit(2)
       }
-      applyAccountEnv(userId)
-      ensureCaBundleForChildren(accountDataDir(userId))
-      // #6264 守护进程没了(被 kill -9 / OOM)就跟着正常退出:❌ 留下攥着账号锁、跑着旧版本、谁也停不掉的孤儿。
-      const { watchParent } = await import('./server/server-parent-watch')
-      watchParent({
-        expectedParent: process.ppid,
-        currentParent: () => process.ppid,
-        onOrphaned: ({ expected, now }) => {
-          stderr(`[server] 守护进程(${expected})已经不在了(现在的父进程是 ${now}),这个账号进程随之退出`)
-          process.kill(process.pid, 'SIGTERM')
-          // 正常收尾卡住时的兜底:30 秒后强制退出。
-          setTimeout(() => process.exit(0), 30_000).unref()
-        },
-      })
-      await import('./main')
+      await runAccount(userId, path.join(serverHome, 'accounts', userId))
       return
+    }
+    case 'start': {
+      const { restartServerAfterLogin } = await import('./server/server-service')
+      restartServerAfterLogin(out)
+      return process.exit(0)
     }
     case 'login': {
       const { runServerLogin } = await import('./server/server-login')
       return process.exit(await runServerLogin(undefined, args))
     }
     case 'logout': {
-      const signedIn = listAccounts().filter((account) => account.signedIn)
+      const target = readServerAccount()
       const who = args[0]
-      const target = who
-        ? signedIn.find((account) => account.email === who || account.userId === who)
-        : signedIn.length === 1
-          ? signedIn[0]
-          : undefined
-      if (!target) {
-        if (signedIn.length === 0) out('这台机器上没有登录的账号。')
-        else if (who) out(`这台机器上没有登录 ${who}。`)
-        else out(`这台机器上登录了好几个人,请写上退出哪一个:\n${signedIn.map((a) => `  gugu-server logout ${a.email ?? a.userId}`).join('\n')}`)
-        process.exit(who || signedIn.length === 0 ? 1 : 2)
+      if (!target?.signedIn || (who && target.email !== who && target.userId !== who)) {
+        out(target?.signedIn ? `This server is signed in as ${target.email ?? target.userId}.` : '这台机器上没有登录的账号。')
+        return process.exit(1)
       }
       // 只删登录态,这个账号的会话记录、任务库留着:同一个人再登录,东西都还在。
       fs.rmSync(path.join(target.dataDir, 'server-session.enc'), { force: true })
-      // 自己退出的:不留「登录失效 / 被移除」那句解释。
-      fs.rmSync(path.join(target.dataDir, 'signed-out.json'), { force: true })
-      out(`已退出 ${target.email ?? target.userId}。正在运行的 server 会在几秒内停掉这个账号的进程。`)
+      writeSignedOutMark(target.dataDir, 'logout')
+      const pid = lockHolder(target.dataDir)
+      if (pid) {
+        try { process.kill(pid, 'SIGTERM') }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error }
+        if (!(await waitForPidExit(pid, 45_000))) throw new Error(`server 进程 ${pid} 尚未退出，退出登录未完成。`)
+      }
+      out(`已退出 ${target.email ?? target.userId}。server 已停止;账号数据保留。`)
       return process.exit(0)
     }
     case 'status': {
@@ -300,18 +276,23 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       // 在跑的那个可能还是旧版本(等空闲才切):版本以它自己的为准,❌ 拿这条命令自己的版本冒充。
       out(`运行状态:${running ? `在运行(进程 ${running.pid}${running.version ? `,版本 ${running.version}` : ''})` : '没在运行'}`)
       out(`常驻服务:${describeService()}`)
-      const { formatAccountLines, formatStatusJson, statusAccounts } = await import('./server/server-status')
+      const { formatAccountLines, formatStatusJson } = await import('./server/server-status')
       const { readAccountRuntime, installedPackageVersion } = await import('./server/server-account-runtime')
-      const all = listAccounts()
-      const runtimes = new Map(all.map((account) => [account.userId, readAccountRuntime(account.dataDir)]))
-      const pidOf = (userId: string) => {
-        return runtimes.get(userId)?.pid ?? null
-      }
-      const accounts = statusAccounts(all, (account) => pidOf(account.userId) !== null, (account) => runtimes.get(account.userId)?.version ?? null)
+      // Diagnostic only: an interrupted migration must not look like an empty installation.
+      const inventory = inspectAccountLayout(serverHome)
+      const migrationRequired = inventory.some(account => account.dir !== path.join(serverHome, 'account'))
+      if (migrationRequired) out(`需要先执行 gugu-server start 迁移账号目录：${inventory.map(account => account.email ?? account.id).join(', ')}`)
+      const runtimes = new Map(inventory.map(account => [account.id, readAccountRuntime(path.join(account.dir, 'data'))]))
+      const pidOf = (userId: string) => runtimes.get(userId)?.pid ?? null
+      const accounts = inventory.map(account => ({ userId: account.id, email: account.email,
+        signedIn: account.signedIn, running: account.signedIn && pidOf(account.id) !== null,
+        version: account.signedIn ? runtimes.get(account.id)?.version ?? null : null,
+        signedOut: account.signedIn ? null : readSignedOutMark(path.join(account.dir, 'data')) }))
+        .filter(account => migrationRequired || account.signedIn || account.signedOut)
       for (const line of formatAccountLines(accounts, pidOf)) out(line)
       // 咕咕桌面经 SSH 读的那一份(机器显示离线时,问清是没开机还是登录没了)。
       if (args.includes('--json')) {
-        process.stdout.write(formatStatusJson({ version: process.env.GUGU_TASK_HOST_VERSION ?? null, installedVersion: installedPackageVersion(serverHome), supervisorVersion: running?.version ?? null, accounts }))
+        process.stdout.write(formatStatusJson({ version: process.env.GUGU_TASK_HOST_VERSION ?? null, installedVersion: installedPackageVersion(serverHome), supervisorVersion: running?.version ?? null, accounts, ...(migrationRequired ? { migrationRequired: true } : {}) }))
       }
       return process.exit(0)
     }
@@ -341,44 +322,28 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
         }
       }
       const pid = lockHolder(supervisorDataDir())
-      if (pid) {
-        process.kill(pid, 'SIGTERM')
-        if (!(await waitForPidExit(pid, 45_000))) {
-          stderr(`进程 ${pid} 45 秒内没有退出。`)
-          process.exit(1)
-        }
-      }
-      const strays = await stopAccountProcesses()
-      if (!pid && strays.length === 0) {
-        out('server 没在运行。')
-        process.exit(0)
-      }
-      out(strays.length > 0 ? `已停止(另收掉了 ${strays.length} 个没随守护进程退出的账号进程)。` : '已停止。')
-      const { describeService } = await import('./server/server-service')
-      if (!describeService().startsWith('未注册')) {
-        out('注意:常驻服务会把 server 重新拉起来;要彻底停用请执行 gugu-server service uninstall。')
-      }
+      if (pid) await stopServerProcess(pid, 45_000)
+      if (!pid) { out('server 没在运行。'); return process.exit(0) }
+      out('已停止。')
+      out('再次启动请执行 gugu-server start;移除开机自启请执行 gugu-server service uninstall。')
       return process.exit(0)
     }
     case 'unregister': {
-      // 卸载前逐个账号调:从账号里移除这台机器、注销它的续期令牌、删本地登录态(见 server-unregister.ts)。
+      const account = readServerAccount()
       const i = args.indexOf('--account')
-      const userId = i >= 0 ? args[i + 1] : undefined
-      if (!userId || !listAccounts().some((account) => account.userId === userId)) {
-        stderr(`没有这个账号:${userId ?? '(未指定)'}`)
-        return process.exit(2)
+      const requested = i >= 0 ? args[i + 1] : undefined
+      if (!account || (i >= 0 && requested !== account.userId)) {
+        stderr(account ? `当前账号是 ${account.email ?? account.userId}，与请求的账号不符。` : '这台机器上还没有配置账号。')
+        return process.exit(78)
       }
+      const userId = account.userId
       applyAccountEnv(userId)
       const { unregisterAccountNow } = await import('./server/server-unregister-wiring')
       await unregisterAccountNow(userId, out)
       return process.exit(0)
     }
     case 'link': {
-      const { parseLinkArgs, runLink } = await import('./server/link-cli')
-      const { pickAttachAccount } = await import('./server/account-call')
-      const parsed = parseLinkArgs(args)
-      const matched = 'error' in parsed ? null : runningVersionFirst(command, args, pickAttachAccount(listAccounts(), parsed.account))
-      if (matched !== null) return process.exit(matched)
+      const { runLink } = await import('./server/link-cli')
       return process.exit(await runLink(args))
     }
     case 'selftest': {
@@ -393,10 +358,6 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       startKeeper({ home: serverHome, logFile: path.join(supervisorDataDir(), 'logs', 'service.log') })
       return process.exit(0)
     }
-    case 'upgrade-guard': {
-      const { runUpgradeGuard } = await import('./server/server-upgrade-guard')
-      return process.exit(await runUpgradeGuard(serverHome, out))
-    }
     case 'open-url': {
       const { runOpenUrl } = await import('./server/open-url-cli')
       return process.exit(await runOpenUrl(args))
@@ -407,7 +368,7 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
     }
     case 'match-version': {
       const { runMatchVersion } = await import('./server/match-version-cli')
-      const { runningVersionOf } = await import('./server/server-version-match')
+      const { runningVersionOf } = await import('./server/server-account-runtime')
       const read = (file: string): string | null => {
         try {
           return fs.readFileSync(file, 'utf8')
@@ -431,11 +392,7 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
           return runningVersionOf(pid, read) ?? (activity.pid === pid && typeof activity.version === 'string' ? activity.version : null)
         },
         supervisorRunning: () => lockHolder(supervisorDataDir()) !== null,
-        managedSupervisorVersion: async () => {
-          const { readRunningServer } = await import('./server/server-service')
-          const supervisor = readRunningServer()
-          return supervisor?.managedCloud ? supervisor.version : null
-        },
+
       }))
     }
     case 'help':

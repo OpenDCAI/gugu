@@ -349,9 +349,11 @@ export function ensureMachineWorkspaceBackend(): void {
     const deviceId = machineOfProject(projectId);
     if (!deviceId) return null;
     const device = remoteHostsStore.device(deviceId);
-    const versionNotice = machineNoticeLabel(device?.notices, deviceLabel(deviceId), translateSessionMessage, { protocolOnly: true });
-    if (versionNotice) return versionNotice;
     const state = remoteHostsStore.connectionState(deviceId);
+    const versionNotice = machineNoticeLabel(device?.notices, deviceLabel(deviceId), translateSessionMessage, {
+      protocolOnly: true, serverUpdate: state === 'connected' ? undefined : device?.serverUpdate,
+    });
+    if (versionNotice) return versionNotice;
     if (state === 'connected' || state === 'connecting') return null;
     // Older desktops report their protocol when opening the link, without heartbeat notices.
     if (state === 'outdated') return hostStatusLabel(state, deviceLabel(deviceId), device?.lastSeenAt, Date.now(), translateSessionMessage);

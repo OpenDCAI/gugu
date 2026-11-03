@@ -1,5 +1,6 @@
 import { permanentlyRemove } from './agentIdentityRemoval'
 import { parseSessionBootFailures } from '../shared/sessionBootTasks'
+import { parseVersionRequestOutcome } from '../shared/serverVersionOutcome'
 import { isImplicitSessionHomeProjectId } from '../shared/sessionProject'
 import { normalizeDeviceActionsSummary, type DeviceActionsSummary } from '../shared/deviceActions'
 import { parseMachineLimitRefusal, type MachineLimitRefusal } from './machineLimit'
@@ -253,6 +254,7 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     return { terminals: [], runtimes: [], host_runtime_capability: 0 }
   }
   const row = value as Record<string, unknown>
+  const updateOutcome = parseVersionRequestOutcome(row.server_update_outcome)
   return {
     terminals: Array.isArray(row.terminals)
       ? row.terminals.filter((terminal): terminal is string => typeof terminal === 'string' && terminal.length > 0)
@@ -281,6 +283,7 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     ...(row.server_confirmed_restart === true ? { server_confirmed_restart: true as const } : {}),
     ...(parseSessionBootFailures(row.server_boot_failures).length ? { server_boot_failures: parseSessionBootFailures(row.server_boot_failures) } : {}),
     ...normalizeServerUpdate(row.server_update),
+    ...(updateOutcome ? { server_update_outcome: updateOutcome } : {}),
     ...normalizeServerDisk(row.server_disk),
     ...normalizeServerRollback(row.server_rollback),
     ...(isPositiveInt(row.remote_protocol) ? { remote_protocol: row.remote_protocol } : {}),
@@ -322,10 +325,12 @@ function normalizeServerRollback(value: unknown): { server_rollback?: DeviceServ
 function normalizeServerUpdate(value: unknown): { server_update?: DeviceServerUpdate } {
   if (!value || typeof value !== 'object') return {}
   const row = value as Record<string, unknown>
-  if (row.state !== 'downloading' && row.state !== 'ready' && row.state !== 'failed') return {}
+  if (row.state !== 'idle' && row.state !== 'downloading' && row.state !== 'ready' && row.state !== 'switching' && row.state !== 'failed') return {}
   if (typeof row.version !== 'string' || !row.version) return {}
   const count = row.busy_agents
+  const outcome = parseVersionRequestOutcome(row.lastOutcome)
   return { server_update: { state: row.state, version: row.version.slice(0, 64),
+    ...(outcome ? { lastOutcome: outcome } : {}),
     ...(row.scope === 'account' || row.scope === 'supervisor' ? { scope: row.scope } : {}),
     ...(row.reason === 'boot-failed' ? { reason: row.reason } : {}),
     ...(typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? { busy_agents: count } : {}) } }

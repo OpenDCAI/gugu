@@ -150,12 +150,10 @@ export const VERSION_RETRY_RPC = 'server.versionMatch.retryWhenIdle'
 /** Older clients use this verb. New servers treat it as idle-only, never as confirmation. */
 export const LEGACY_VERSION_RETRY_RPC = 'server.versionMatch.retry'
 export const VERSION_RESTART_RPC = 'server.versionMatch.restartConfirmed'
+/** Read the current interruption count before presenting a restart confirmation. */
+export const VERSION_ACTIVITY_RPC = 'server.versionMatch.activity'
 
-/**
- * #6264 报给那台机器的「这是哪一台桌面」:设备编号 + 版本。设备编号跟着硬件走,同一台电脑上的正式版、Beta、
- * 开发实例是同一个编号 —— 只按编号记,两个版本会互相覆盖,账号在两版之间来回切(实测 d22 每十几秒切一次)。
- * 带上版本各记一条,那台机器照旧取最新的那一版(同一账号按新的一边跑)。
- */
-export function desktopReportId(deviceId: string, version: string): string {
-  return `${deviceId}:${version.replace(/[^A-Za-z0-9_-]/g, '_')}`.slice(0, 128)
-}
+/** Version-independent controls implemented by the server's existing update handlers. */
+export const SERVER_UPDATE_CONTROL_RPCS: ReadonlySet<string> = new Set([
+  VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC, VERSION_RESTART_RPC, VERSION_ACTIVITY_RPC,
+])
