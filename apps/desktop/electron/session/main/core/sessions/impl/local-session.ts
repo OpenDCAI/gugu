@@ -957,6 +957,9 @@ export class LocalSessionProvider implements SessionProvider {
         },
       });
       stopPresence = startPresenceInterrupt({
+        start,
+        reading: agentStatusWriter.currentReading(session.id)
+          ?? (session.agentStatus ? { status: session.agentStatus, detail: session.agentStatusDetail ?? null } : null),
         plugin,
         harnessVersion: compatibleRuntime.harnessVersion,
         spawnEnv,

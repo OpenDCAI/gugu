@@ -115,6 +115,7 @@ import { tmuxBackendStartupSweepSettled } from '../../sessionpage/tmux-backend'
 import { sessions, projects as projectsTable, workspaces as workspacesTable } from '@main/db/schema'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer'
+import { reconcileSurvivorsWithPresence } from '@main/core/agent-hooks/presence-interrupt'
 import {
   closeInterruptedRunIntervals,
   installRunIntervalRecorder,
@@ -628,6 +629,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     // 上一次是怎么退出的(更新 / 重启 / 没正常退出):被打断的那几条会话据此说清原因。读一次就删。
     lastExit = takeLastExit(dataDir)
     updateInterrupted = await sessionBootTasks.run('status-sweep', '', () => agentStatusWriter.settleAfterRestart(tmuxSessionNames, lastExit.reason)) ?? []
+    await reconcileSurvivorsWithPresence(tmuxSessionNames)
     // 上一个进程投到一半就没了的消息：现在认领为「结果未知」终态（不能重投，只能如实说）。
     // 必须在任何人看见会话之前做完 —— 正常在途不经过这里，所以新建会话不会闪这条提示。
     sessionBootTasks.runSync('dispatch-sweep', '', claimInterruptedDispatches)

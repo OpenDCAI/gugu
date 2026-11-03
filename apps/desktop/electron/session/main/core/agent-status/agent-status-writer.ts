@@ -33,6 +33,7 @@ import {
   type ProviderReviewGate,
 } from '@shared/core/sessions/sessionEvents';
 import type { InterruptedBy, Session } from '@shared/core/sessions/sessions';
+import type { HarnessPresenceStatus } from '@gugu/session-core/agents/plugins';
 import { hasStatusSource } from '@shared/core/sessions/initial-agent-status';
 import {
   emptyStatusLogState,
@@ -126,6 +127,11 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     if (!entry) return false;
     const { status } = readStatusLog(entry.state);
     return status === 'working' || status === 'needs_user';
+  }
+
+  currentReading(sessionId: string): AgentStatusReading | null {
+    const entry = this.logs.get(sessionId);
+    return entry ? readStatusLog(entry.state) : null;
   }
 
   /**
@@ -318,6 +324,23 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       });
     }
     return settled;
+  }
+
+  /** A surviving harness's boot snapshot uses the normal writer path, never interruption recovery. */
+  reconcilePresence(params: StatusWriteParams & { status: HarnessPresenceStatus }): Promise<void> {
+    const sessionId = params.sessionId;
+    return this.inOrder(sessionId, () => this.apply(sessionId, ctx => {
+      const events: AgentStatusEvent[] = [{ kind: 'Started', sessionId }];
+      if (params.status === 'idle' || params.status === 'shell') {
+        events.push({ kind: 'Stopped', sessionId, outcome: 'done',
+          backgroundTasks: params.status === 'shell' ? 1 : 0, scheduledTasks: 0 });
+      } else {
+        events.push({ kind: 'TasksObserved', sessionId, backgroundTasks: 0, scheduledTasks: 0 });
+        if (params.status === 'busy') events.push({ kind: 'WaitEnded', sessionId, id: '*' });
+        else if (!ctx.waiting) events.push({ kind: 'WaitStarted', sessionId, id: 'presence', waitKind: 'approval' });
+      }
+      return events;
+    }, this.now()));
   }
 
   /** 宿主停下了在飞的一切(停止键、ACP 取消 / 关闭):被打断,不是做完也不是失败。 */
