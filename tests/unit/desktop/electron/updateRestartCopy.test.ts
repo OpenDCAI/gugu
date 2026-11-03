@@ -7,6 +7,8 @@ describe('desktop restart confirmation copy', () => {
     ['en-US', 5, '5 running tasks will be interrupted.'],
     ['zh-CN', 1, '1 个正在运行的任务会被中断。'],
     ['zh-CN', 5, '5 个正在运行的任务会被中断。'],
+    ['en-US', null, 'Running tasks will be interrupted.'],
+    ['zh-CN', null, '正在运行的任务会被中断。'],
   ] as const)('%s count %i', (locale, count, expected) => {
     const copy = updateRestartCopy(hostCatalog(locale), count)
     expect(copy.detail).toBe(expected)

@@ -99,6 +99,7 @@ const HOST_CATALOG = {
       title: '重启更新？',
       one: '{count} 个正在运行的任务会被中断。',
       other: '{count} 个正在运行的任务会被中断。',
+      unknown: '正在运行的任务会被中断。',
       restart: '现在重启',
       later: '稍后',
     },
@@ -189,6 +190,7 @@ const HOST_CATALOG = {
       title: 'Restart to update?',
       one: '{count} running task will be interrupted.',
       other: '{count} running tasks will be interrupted.',
+      unknown: 'Running tasks will be interrupted.',
       restart: 'Restart now',
       later: 'Later',
     },
@@ -214,7 +216,7 @@ export function hostCatalog(locale: SupportedLocale): HostCatalog {
   return HOST_CATALOG[locale]
 }
 
-export function updateRestartCopy(catalog: HostCatalog, count: number) {
+export function updateRestartCopy(catalog: HostCatalog, count: number | null) {
   const copy = catalog.updateRestart
-  return { ...copy, detail: (count === 1 ? copy.one : copy.other).replace('{count}', String(count)) }
+  return { ...copy, detail: count === null ? copy.unknown : (count === 1 ? copy.one : copy.other).replace('{count}', String(count)) }
 }

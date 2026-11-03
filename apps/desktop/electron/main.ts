@@ -3141,11 +3141,7 @@ const updateFlow = createUpdateFlow({
     start: startMacDmgDownload,
   },
   updateQuit,
-  busyAgents: () => {
-    const bridge = loadEmdashBridge()
-    if (!bridge) throw new Error('Session backend unavailable for restart confirmation')
-    return bridge.sessionpageVersionSwitchActivity().busyAgents
-  },
+  busyAgents: () => loadEmdashBridge()?.sessionpageVersionSwitchActivity().busyAgents ?? null,
   confirmInterrupt: async (count) => {
     focusMainWindow()
     const copy = updateRestartCopy(currentHostCatalog(), count)
