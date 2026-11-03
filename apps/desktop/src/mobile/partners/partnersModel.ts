@@ -1,6 +1,8 @@
 import type { Device } from '@gugu/core/shared/types/chat'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
+import { parseAgentStatusView } from '@gugu/core/shared/agentStatus'
+import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation'
 import { displayName, groupContacts } from '@/lib/contactsListSort'
 import { contactAgents, peopleContacts } from '@/components/contacts/contactSelectors'
 import { safePathSegment } from '@/session/shared/path-name'
@@ -67,9 +69,13 @@ export function matchesQuery(text: string, query: string): boolean {
 export function projectSessions(
   project: Pick<PartnerProject, 'members'>,
   sessionsOf: (deviceId: string) => readonly SessionpageSessionSummary[],
-): { deviceId: string; session: SessionpageSessionSummary }[] {
-  return project.members.flatMap((member) =>
-    sessionsOf(member.deviceId).filter((session) => session.projectId === member.localProjectId).map((session) => ({ deviceId: member.deviceId, session })))
+  hostOnlineOf: (deviceId: string) => boolean | undefined = () => true,
+): { deviceId: string; session: SessionpageSessionSummary; hostOnline: boolean }[] {
+  return project.members.flatMap((member) => {
+    const hostOnline = hostOnlineOf(member.deviceId) !== false
+    return sessionsOf(member.deviceId).filter((session) => session.projectId === member.localProjectId)
+      .map((session) => ({ deviceId: member.deviceId, session, hostOnline }))
+  })
 }
 
 export type ProjectAgent = {
@@ -127,8 +133,11 @@ export function agentName(agent: ProjectAgent): string {
 }
 
 /** 封面的鲜灰:这个项目此刻有几个 agent 在干活。 */
-export function runningCount(sessions: readonly { session: SessionpageSessionSummary }[]): number {
-  return sessions.filter(({ session }) => session.status?.status === 'working').length
+export function runningCount(sessions: readonly { session: SessionpageSessionSummary; hostOnline?: boolean }[]): number {
+  return sessions.filter(({ session, hostOnline }) => {
+    const status = presentAgentStatus({ reading: parseAgentStatusView(session.status ?? null), hostOnline: hostOnline !== false })
+    return status?.tone === 'running' || status?.tone === 'parked'
+  }).length
 }
 
 /** 新项目的文件夹:默认是那台机器默认项目目录下、跟项目同名的一个新的空文件夹。 */
