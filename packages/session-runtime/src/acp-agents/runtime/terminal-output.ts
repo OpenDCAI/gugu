@@ -8,6 +8,7 @@ export class TerminalOutput {
   private retained = 0;
   private readonly chunks = new Map<string, { text: string; bytes: number }>();
   private cached: Record<string, string> | undefined;
+  private textCache: { limit: number; text: string } | undefined;
   bytes = 0;
   truncated = false;
   streamed = false;
@@ -34,6 +35,7 @@ export class TerminalOutput {
     this.bytes = 0;
     this.truncated = false;
     this.cached = undefined;
+    this.textCache = undefined;
     // Do not reuse chunk ids: a replacement must invalidate the previous replica's chunks.
     this.append(data);
     this.streamed = false;
@@ -46,6 +48,7 @@ export class TerminalOutput {
     this.retained += bytes;
     this.trimTo(this.limit);
     this.cached = undefined;
+    this.textCache = undefined;
   }
 
   trimTo(limit: number): void {
@@ -55,6 +58,7 @@ export class TerminalOutput {
       this.chunks.delete(key);
       this.truncated = true;
       this.cached = undefined;
+      this.textCache = undefined;
     }
   }
 
@@ -69,6 +73,7 @@ export class TerminalOutput {
   }
 
   text(limit = this.limit): string {
+    if (this.textCache?.limit === limit) return this.textCache.text;
     const selected: string[] = [];
     let bytes = 0;
     for (const chunk of [...this.chunks.values()].reverse()) {
@@ -76,6 +81,6 @@ export class TerminalOutput {
       bytes += chunk.bytes;
       selected.push(chunk.text);
     }
-    return selected.reverse().join('');
+    return (this.textCache = { limit, text: selected.reverse().join('') }).text;
   }
 }
