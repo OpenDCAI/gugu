@@ -270,6 +270,7 @@ export class AcpChatStore {
   private _storedBaseSeq: number | null = null;
   /** 开场读库那一刻库里最后一行的 seq。比它新的行,就是本次面板期间才落库的回合。 */
   private _storedBootstrapMaxSeq = -1;
+  private _storedHistoryEpoch = 0;
   private _ownerNotificationTurns: TranscriptTurn[] = [];
   private _ownerNotificationReadSeq = -1;
   private _ownerNotificationReadEpoch: number | null = null;
@@ -720,6 +721,7 @@ export class AcpChatStore {
       this._storedOrigins = stored.originTurnIds;
       this._storedBaseSeq = stored.turns[0]?.seq ?? null;
       this._storedBootstrapMaxSeq = stored.turns.at(-1)?.seq ?? -1;
+      this._storedHistoryEpoch = stored.nativeOwnerNotificationEpoch ?? 0;
       this._persistedRuntimeTurnIds = new Set(stored.originTurnIds);
       this._olderHistoryTurns = [];
       this._olderCursor = stored.turns.length ? stored.nextCursor : runtime?.nextCursor;
@@ -1667,6 +1669,7 @@ export class AcpChatStore {
     this._storedOrigins = [];
     this._storedBaseSeq = null;
     this._storedBootstrapMaxSeq = -1;
+    this._storedHistoryEpoch = 0;
     this._persistedRuntimeTurnIds = new Set<string>();
     this._resetRuntimeHistoryState();
     this._olderHistoryTurns = [];
@@ -1966,6 +1969,7 @@ export class AcpChatStore {
         this._storedOrigins = page.originTurnIds;
         this._storedBaseSeq = page.turns[0]?.seq ?? null;
         this._storedBootstrapMaxSeq = page.turns.at(-1)?.seq ?? -1;
+        this._storedHistoryEpoch = page.nativeOwnerNotificationEpoch ?? 0;
         this._persistedRuntimeTurnIds = new Set(page.originTurnIds);
         this._olderHistoryTurns = [];
         this._olderSource = 'stored';
@@ -2480,6 +2484,7 @@ export class AcpChatStore {
           this._storedOrigins = stored.originTurnIds;
           this._storedBaseSeq = stored.turns[0]!.seq;
           this._storedBootstrapMaxSeq = stored.turns.at(-1)!.seq;
+          this._storedHistoryEpoch = stored.nativeOwnerNotificationEpoch ?? 0;
           // 往上翻从这里接着翻:库里那份是完整的,一直翻它。
           this._olderSource = 'stored';
           this._olderCursor = older.cursor;
@@ -2550,7 +2555,7 @@ export class AcpChatStore {
 
   /** The host reports a committed record sequence. This never starts or prompts the provider. */
   syncOwnerNotifications(head: number, epoch = 0): Promise<void> {
-    const rewound = this._ownerNotificationReadEpoch !== null && epoch !== this._ownerNotificationReadEpoch;
+    const rewound = epoch !== (this._ownerNotificationReadEpoch ?? this._storedHistoryEpoch);
     if (epoch !== this._ownerNotificationReadEpoch) {
       this._resetOwnerNotificationRead();
       this._ownerNotificationReadEpoch = epoch;

@@ -14,7 +14,7 @@ vi.mock('./session-activity-source', () => ({ readCurrentTurnIdentity: async () 
 const { commitOwnerNotification, ownerNotificationFile } = await import('./owner-notifications');
 const { nativeConversationUnread, nativeOwnerNotificationUnread, markNativeConversationVisible } = await import('./session-conversation-read');
 const { ownerNotificationHead, ownerNotificationEpoch } = await import('./owner-notification-state');
-const { persistCommittedTurn, truncateStoredHistory } = await import('./session-turn-store');
+const { getStoredHistory, persistCommittedTurn, truncateStoredHistory } = await import('./session-turn-store');
 let fixture: Awaited<ReturnType<typeof openFixture>>;
 const context = { sessionId: 's', projectId: 'p', workspaceId: 'w' };
 const input = { request_id: '11111111-1111-4111-8111-111111111111', agent_user_id: 'agent', text: 'The result needs your review' };
@@ -94,11 +94,13 @@ it('reverts notifications with their source turn and atomically resets unread, h
   expect(records()[0]!.items[0]).toMatchObject({ ownerNotification: { requestId: input.request_id } });
   expect(ownerNotificationHead('s')).toBe(0);
   expect(ownerNotificationEpoch('s')).toBe(1);
+  expect((await getStoredHistory({ sessionId: 's' })).nativeOwnerNotificationEpoch).toBe(1);
   expect(nativeOwnerNotificationUnread('s')).toHaveLength(1);
   await truncateStoredHistory('s', 1);
   expect(records()).toEqual([]);
   expect(ownerNotificationHead('s')).toBeUndefined();
   expect(ownerNotificationEpoch('s')).toBe(2);
+  expect(await getStoredHistory({ sessionId: 's' })).toMatchObject({ turns: [], nativeOwnerNotificationEpoch: 2 });
   expect(nativeConversationUnread('s')).toEqual([]);
   mocks.sourceTurn = 'source-c';
   const receipt = await commitOwnerNotification(context, { ...input, request_id: '33333333-3333-4333-8333-333333333333' }, async () => {});

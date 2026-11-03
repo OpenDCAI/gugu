@@ -19,6 +19,7 @@ const notice: TranscriptTurn = { id: 's:turn:s0', seq: 0, initiator: 'agent', st
 type Internals = { session: { activeTurn: { current(): TranscriptTurn } } | null; _historyGeneration: number;
   _storedHistoryTurns: TranscriptTurn[]; _storedOrigins: string[]; _ownerNotificationListeners: Set<() => void>;
   _storedBootstrapMaxSeq: number; _storedBaseSeq: number | null; _ownerNotificationReadSeq: number; _ownerNotificationGeneration: number;
+  _storedHistoryEpoch: number; _loadStoredFirstPage(generation: number): Promise<void>;
   _ownerNotificationTurns: TranscriptTurn[]; _resetHistoryState(): void;
   _ownerNotificationView(): { turns: TranscriptTurn[]; activeTurn: TranscriptTurn | null } };
 const stores: InstanceType<typeof AcpChatStore>[] = [];
@@ -97,4 +98,32 @@ it.each([0, 2])('drops an in-flight old epoch and reads a reused head %i after a
   expect(internal._ownerNotificationReadSeq).toBe(-1);
   expect(internal._ownerNotificationTurns).toEqual([]);
   expect(internal._ownerNotificationGeneration).toBeGreaterThan(generation);
+});
+
+it('invalidates a bootstrap page reverted before the first notification subscription, including an empty replacement', async () => {
+  const store = new AcpChatStore('s', 'p'); stores.push(store);
+  const internal = store as unknown as Internals;
+  const deleted = { ...runtime, id: 's:turn:s5', seq: 5 };
+  read.mockResolvedValueOnce({ turns: [deleted], originTurnIds: ['deleted'], nextCursor: null, nativeOwnerNotificationEpoch: 0 });
+  await internal._loadStoredFirstPage(internal._historyGeneration);
+  expect(internal._storedBootstrapMaxSeq).toBe(5);
+  read.mockResolvedValueOnce({ turns: [], originTurnIds: [], nextCursor: null, nativeOwnerNotificationEpoch: 1 });
+  await store.syncOwnerNotifications(-1, 1);
+  expect(internal._ownerNotificationView().turns).toEqual([]);
+  expect(internal._storedBootstrapMaxSeq).toBe(-1);
+  expect(internal._storedHistoryEpoch).toBe(1);
+  read.mockResolvedValueOnce({ turns: [notice], nativeOwnerNotificationEpoch: 1 });
+  await store.syncOwnerNotifications(0, 1);
+  expect(read).toHaveBeenLastCalledWith({ sessionId: 's', fromSeq: 0, ownerNotificationsOnly: true });
+  expect(internal._ownerNotificationView().turns).toEqual([notice]);
+});
+
+it('keeps a bootstrap window already read in the first subscribed epoch', async () => {
+  const store = new AcpChatStore('s', 'p'); stores.push(store);
+  const internal = store as unknown as Internals;
+  read.mockResolvedValueOnce({ turns: [notice], originTurnIds: ['owner-notify:request'], nextCursor: null, nativeOwnerNotificationEpoch: 1 });
+  await internal._loadStoredFirstPage(internal._historyGeneration);
+  await store.syncOwnerNotifications(0, 1);
+  expect(read).toHaveBeenCalledOnce();
+  expect(internal._ownerNotificationView().turns).toEqual([notice]);
 });

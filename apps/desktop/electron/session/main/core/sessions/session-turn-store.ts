@@ -9,7 +9,7 @@ import { noteNativeConversationReplies, truncateNativeConversationRead } from '.
 import { nativeConversationActivity } from './session-conversation-activity';
 import { publishNativeConversationInbox, queueNativeConversationInbox } from './native-conversation-inbox';
 import { mayFillReplay, didFillReplay, stopFillingReplay, readableStoredRows } from './session-turn-replay';
-import { rewindOwnerNotificationState, publishOwnerNotificationState } from './owner-notification-state';
+import { ownerNotificationEpoch, rewindOwnerNotificationState, publishOwnerNotificationState } from './owner-notification-state';
 
 /**
  * 会话历史的落盘（#5381）。
@@ -276,15 +276,21 @@ export async function getStoredHistory(params: {
   fromSeq?: number;
   ownerNotificationsOnly?: boolean;
 }): Promise<StoredTurnPage> {
-  const page = await readStoredTurns(params.sessionId, {
-    before: params.before,
-    limit: params.limit,
-    fromSeq: params.fromSeq,
-    ownerNotificationsOnly: params.ownerNotificationsOnly,
-  });
-  return params.fromSeq === undefined
-    ? trimCursorPageForTransport(page)
-    : { ...page, turns: trimTurnsForTransport(page.turns) };
+  for (;;) {
+    const epoch = ownerNotificationEpoch(params.sessionId);
+    const page = await readStoredTurns(params.sessionId, {
+      before: params.before,
+      limit: params.limit,
+      fromSeq: params.fromSeq,
+      ownerNotificationsOnly: params.ownerNotificationsOnly,
+    });
+    // A revert can reuse every sequence in the page. Its rows and generation must describe the same snapshot.
+    if (epoch !== ownerNotificationEpoch(params.sessionId)) continue;
+    const snapshot = { ...page, nativeOwnerNotificationEpoch: epoch };
+    return params.fromSeq === undefined
+      ? trimCursorPageForTransport(snapshot)
+      : { ...snapshot, turns: trimTurnsForTransport(page.turns) };
+  }
 }
 
 export async function getStoredToolImage(params: {
@@ -304,6 +310,8 @@ export async function getStoredToolImage(params: {
 
 export interface StoredTurnPage {
   turns: TranscriptTurn[];
+  /** The generation in which these rows were read; older hosts omit it (generation zero). */
+  nativeOwnerNotificationEpoch?: number;
   /** 与 `turns` 一一对应:每一行来自引擎的哪一轮(运行时原始 turn id)。旧版本写的行这里是库内 id。 */
   originTurnIds: string[];
   /** 还有更早的一页时给出游标（本页最早那一条的 `seq`）；到头了、或是 `fromSeq` 读法时为 null。 */
