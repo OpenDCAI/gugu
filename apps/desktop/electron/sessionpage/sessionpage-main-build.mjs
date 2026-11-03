@@ -11,6 +11,11 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
+// Rollup passes native external IDs here; Windows IDs still contain backslashes.
+export function serverBootOutputPath(id) {
+  return id.replace(/\\/g, '/').endsWith('/server-boot.cjs') ? './server-boot.cjs' : id
+}
+
 // Native addons + electron are provided at runtime, never inlined into the bundle:
 //  - electron/better-sqlite3/node-pty — the established pattern.
 //  - @parcel/watcher — native addon the session backend's fs-watch WORKER loads (fs-watch/impl/native-watch.ts).
