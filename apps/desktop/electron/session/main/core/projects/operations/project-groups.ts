@@ -47,6 +47,13 @@ export async function listProjectGroupBindings(): Promise<Result<ProjectGroupBin
   return projectGroupHost().listBindings(projectIds);
 }
 
+/** 项目的跨设备身份是项目群;读取失败不能当成「本机没有关联」。 */
+export async function localProjectOfGroup(chatId: string): Promise<Result<string | undefined, ProjectGroupError>> {
+  const bindings = await listProjectGroupBindings();
+  if (!bindings.success) return bindings;
+  return ok(bindings.data.find((binding) => binding.chatId === chatId)?.projectId);
+}
+
 /**
  * 这个项目的群:绑过就是它;还没有(从没开过会话)就预留一个,与第一个会话的做法一样 —— 云端的群由第一个进来的 agent
  * 建出来(云端不许建只有群主一个人的群)。幂等:再问一次还是同一个。

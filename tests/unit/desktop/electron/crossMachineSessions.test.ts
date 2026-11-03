@@ -45,6 +45,7 @@ const CALLER: RemoteSessionCaller = {
   agentUserId: 'agent-a',
   name: 'Claude 1',
   harness: 'claude',
+  childHarness: null,
   transport: 'acp',
   model: null,
   platformModel: null,
@@ -455,6 +456,22 @@ describe('agentSession.<action> arguments', () => {
   it('keeps only the caller facts it knows', () => {
     expect(parseAgentSessionRequest('get', { ...CALLER, extra: 'ignored' }, { action: 'get', session_id: 's' }))
       .toEqual({ caller: CALLER, action: { action: 'get', session_id: 's' } })
+  })
+
+  it('round-trips every caller field, including both cross-machine defaults', () => {
+    const caller = {
+      ...CALLER, childHarness: 'opencode', groupChatId: 'project-group',
+    } satisfies Required<RemoteSessionCaller>
+    expect(parseAgentSessionRequest('spawn', caller, { action: 'spawn', prompt: 'work' }))
+      .toEqual({ caller, action: { action: 'spawn', prompt: 'work' } })
+  })
+
+  it('accepts older callers and validates optional caller facts as text', () => {
+    const { childHarness: _childHarness, ...older } = CALLER
+    expect(parseAgentSessionRequest('list_harnesses', older, { action: 'list_harnesses' }))
+      .toEqual({ caller: CALLER, action: { action: 'list_harnesses' } })
+    expect(parseAgentSessionRequest('spawn', { ...CALLER, childHarness: 7, groupChatId: {} }, { action: 'spawn', prompt: 'work' }))
+      .toEqual({ caller: CALLER, action: { action: 'spawn', prompt: 'work' } })
   })
 
   it.each([
