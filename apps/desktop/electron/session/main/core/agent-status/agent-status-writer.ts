@@ -81,6 +81,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
   /** 声明了的状态来源读不出(会话在场文件没出现 / 格式变了):一句原因。 */
   private readonly statusSourceFaults = new Map<string, string>();
   private readonly writes = new Map<string, Promise<void>>();
+  private readonly writeVersions = new Map<string, symbol>();
   private readonly disposers: Array<() => void> = [];
   private readonly _hooks = new HookCore<AgentStatusWriterHooks>((name, e) =>
     log.error(`AgentStatusWriter: ${String(name)} hook error`, e)
@@ -94,7 +95,8 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
    * 同一会话的写入按到达顺序一条一条做完:每条都先 await 库再发布;两条挨得很近的写入(回合起 → 马上被取消)
    * 并发跑时,后到的可能先发布完,读者最终停在前一条上。
    */
-  private inOrder(sessionId: string, write: () => Promise<void>): Promise<void> {
+  private inOrder(sessionId: string, write: () => Promise<void>, version = Symbol()): Promise<void> {
+    this.writeVersions.set(sessionId, version);
     const next = (this.writes.get(sessionId) ?? Promise.resolve()).then(write);
     const settled = next.then(
       () => undefined,
@@ -326,12 +328,24 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     return settled;
   }
 
+  /** Sample after prior writes, and remember this position even after the queue becomes idle. */
+  async presenceWriteVersion(sessionId: string): Promise<symbol> {
+    const version = this.writeVersions.get(sessionId) ?? Symbol();
+    const ready = this.inOrder(sessionId, async () => {}, version);
+    await ready;
+    return version;
+  }
+
   /** A surviving harness's boot snapshot uses the normal writer path, never interruption recovery. */
-  reconcilePresence(params: StatusWriteParams & { status: HarnessPresenceStatus; signal?: AbortSignal }): Promise<void> {
+  reconcilePresence(params: StatusWriteParams & { status: HarnessPresenceStatus; signal?: AbortSignal; writeVersion: symbol }): Promise<void> {
     const sessionId = params.sessionId;
+    if (params.writeVersion !== this.writeVersions.get(sessionId)) return Promise.resolve();
+    const writingVersion = Symbol();
     return this.inOrder(sessionId, () => this.apply(sessionId, ctx => {
       // The boot deadline can expire while this write is queued or logFor reads the stored row.
       if (params.signal?.aborted) return [];
+      // A newer queued live fact supersedes the sample, even while logFor is waiting.
+      if (writingVersion !== this.writeVersions.get(sessionId)) return [];
       const current = this.currentReading(sessionId);
       const target: Pick<AgentStatusReading, 'status' | 'detail'> = params.status === 'busy'
         ? { status: 'working', detail: 'running' }
@@ -350,7 +364,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
         else if (!ctx.waiting) events.push({ kind: 'WaitStarted', sessionId, id: 'presence', waitKind: 'approval' });
       }
       return events;
-    }, this.now()));
+    }, this.now()), writingVersion);
   }
 
   /** 宿主停下了在飞的一切(停止键、ACP 取消 / 关闭):被打断,不是做完也不是失败。 */
@@ -382,7 +396,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       }
       if (!entry.written.unseen) return;
       await this.publish(sessionId, entry, readStatusLog(entry.state), false, this.now(), { persist: true });
-    });
+    }, this.writeVersions.get(sessionId));
   }
 
   /**
@@ -451,7 +465,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       const entry = await this.logFor(params.sessionId);
       if (!entry?.written) return;
       await this.publish(params.sessionId, entry, readStatusLog(entry.state), entry.written.unseen, this.now(), { persist: false });
-    }).catch((error) =>
+    }, this.writeVersions.get(params.sessionId)).catch((error) =>
       log.error('AgentStatusWriter: failed to publish the status source fault', { sessionId: params.sessionId, error: String(error) }),
     );
   }
@@ -505,6 +519,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       this.providerReviewGates.delete(sessionId);
       this.providerBlockers.delete(sessionId);
       this.statusSourceFaults.delete(sessionId);
+      this.writeVersions.delete(sessionId);
     }
   }
 
@@ -560,6 +575,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     this.providerReviewGates.clear();
     this.providerBlockers.clear();
     this.statusSourceFaults.clear();
+    this.writeVersions.clear();
   }
 }
 

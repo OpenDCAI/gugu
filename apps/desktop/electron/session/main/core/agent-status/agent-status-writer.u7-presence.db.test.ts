@@ -239,6 +239,77 @@ describe('U7 boot presence reconciliation through the real SQLite writer and def
     expect(status('survivor')).toEqual({ status: 'working', detail: 'parked', seen: 1 });
     expect(changes).toEqual([]);
   });
+  it.each([
+    ['idle', 'idle', 'start', 'working', 'running', 1],
+    ['working', 'idle', 'start', 'working', 'running', 1],
+    ['working', 'busy', 'stop', 'idle', 'done', 0],
+  ] as const)('keeps a newer live %s/%s → %s while a later survivor read is pending', async (stored, sampled, eventType, expectedStatus, expectedDetail, seen) => {
+    seed('first', stored, stored === 'idle' ? 'done' : 'running');
+    seed('second', 'working', 'parked');
+    presence('first', sampled, 41); presence('second', 'shell', 42);
+    const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+    let reads = 0;
+    const changes: unknown[] = [], stop = agentStatusWriter.on('agent:status', change => { changes.push(change); });
+    const pending = boot(['first', 'second'], undefined, {
+      spawnEnv: async () => {
+        if (++reads === 2) { entered.resolve(); await release.promise; }
+        return { HOME: '/fixture', CLAUDE_CONFIG_DIR: '/fixture/.claude' };
+      },
+    });
+    try {
+      await entered.promise;
+      if (eventType === 'start') {
+        agentHookService.emitAgentEvent({ type: 'start', providerId: 'claude', projectId: 'p1', sessionId: 'first', timestamp: 1000, payload: {} });
+      } else {
+        agentHookService.emitAgentEvent({ type: 'stop', providerId: 'claude', projectId: 'p1', sessionId: 'first', timestamp: 1000, payload: {} });
+      }
+      await statusWritesSettled(agentStatusWriter, 'first');
+      const row = status('first'), reading = agentStatusWriter.currentReading('first'), published = [...changes];
+      expect(row).toEqual({ status: expectedStatus, detail: expectedDetail, seen });
+      release.resolve(); await pending;
+      expect(status('first')).toEqual(row);
+      expect(agentStatusWriter.currentReading('first')).toEqual(reading);
+      expect(changes).toEqual(published);
+      expect(interruptedTurnKeys()).toEqual([]);
+    } finally { release.resolve(); await pending; stop(); }
+  });
+  it('does not publish a stale snapshot when a live hook queues during its writer read', async () => {
+    seed('survivor', 'working', 'running'); presence('survivor', 'idle');
+    const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+    const writer = agentStatusWriter as unknown as { logFor(id: string): Promise<unknown> };
+    const original = writer.logFor.bind(writer);
+    const stalled = vi.spyOn(writer, 'logFor').mockImplementationOnce(async id => {
+      entered.resolve(); await release.promise; return original(id);
+    });
+    const changes: unknown[] = [], stop = agentStatusWriter.on('agent:status', change => { changes.push(change); });
+    const pending = boot(['survivor']);
+    try {
+      await entered.promise;
+      agentHookService.emitAgentEvent({ type: 'start', providerId: 'claude', projectId: 'p1', sessionId: 'survivor', timestamp: 1000, payload: {} });
+      release.resolve(); await pending;
+      await statusWritesSettled(agentStatusWriter, 'survivor');
+      expect(status('survivor')).toEqual({ status: 'working', detail: 'running', seen: 1 });
+      expect(changes).toEqual([]);
+    } finally { release.resolve(); await pending; stalled.mockRestore(); stop(); }
+  });
+  it('still corrects a sampled survivor when only its seen flag changes during the scan', async () => {
+    seed('first', 'working', 'parked'); seed('second', 'working', 'parked');
+    presence('first', 'idle', 41); presence('second', 'shell', 42);
+    const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+    let reads = 0;
+    const pending = boot(['first', 'second'], undefined, {
+      spawnEnv: async () => {
+        if (++reads === 2) { entered.resolve(); await release.promise; }
+        return { HOME: '/fixture', CLAUDE_CONFIG_DIR: '/fixture/.claude' };
+      },
+    });
+    try {
+      await entered.promise;
+      await agentStatusWriter.markSeen('first');
+      release.resolve(); await pending;
+      expect(status('first')).toEqual({ status: 'idle', detail: 'done', seen: 0 });
+    } finally { release.resolve(); await pending; }
+  });
   it.each(['waiting', 'busy', 'shell'])('R2: leaves the complete current reading and publication untouched for matching %s presence', async value => {
     seed('survivor', value === 'waiting' ? 'idle' : 'working', value === 'waiting' ? 'plain' : value === 'shell' ? 'parked' : 'running');
     if (value === 'waiting') {

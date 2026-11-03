@@ -267,7 +267,7 @@ export async function reconcileSurvivorsWithPresence(tmuxSessionNames: ReadonlyS
       const fs = options.fs ?? nodeFs, isAlive = options.isAlive ?? isProcessAlive;
       const spawnEnv = options.spawnEnv ?? (async (providerId: string) =>
         (await import('@main/core/agents/agent-run-context')).resolveLocalAgentSpawnEnv(providerId));
-      const readings: Array<{ sessionId: string; status: HarnessPresenceStatus }> = [];
+      const readings: Array<{ sessionId: string; status: HarnessPresenceStatus; writeVersion: symbol }> = [];
       for (const row of rows) {
         if (controller.signal.aborted) return;
         if (row.runtime !== 'pty' || !alive.has(row.id)) continue;
@@ -277,6 +277,8 @@ export async function reconcileSurvivorsWithPresence(tmuxSessionNames: ReadonlyS
           const presence = plugin.behavior.hooks?.presence;
           if (hooks.kind !== 'config' || !('presence' in hooks) || !hooks.presence || !presence)
             throw new Error('harness does not provide a declared presence reader');
+          const writeVersion = await agentStatusWriter.presenceWriteVersion(row.id);
+          if (controller.signal.aborted) return;
           const sessionId = row.providerSessionId || row.id;
           const roots = presenceConfigRoots(presence, row.id, await spawnEnv(row.provider));
           if (controller.signal.aborted) return;
@@ -287,7 +289,7 @@ export async function reconcileSurvivorsWithPresence(tmuxSessionNames: ReadonlyS
           if (controller.signal.aborted) return;
           if (record.pid !== found.pid || record.sessionId !== sessionId || !isAlive(record.pid))
             throw new Error('presence no longer belongs to this live harness process');
-          readings.push({ sessionId: row.id, status: record.status });
+          readings.push({ sessionId: row.id, status: record.status, writeVersion });
         } catch (error) {
           if (controller.signal.aborted) return;
           log.warn('PresenceInterrupt: keeping the stored survivor status because boot presence cannot be read', {
