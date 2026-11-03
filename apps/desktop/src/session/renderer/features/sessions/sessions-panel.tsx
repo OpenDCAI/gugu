@@ -19,6 +19,7 @@ import {
   useWorkspaceViewModel,
 } from '@renderer/features/sessions/session-view-context';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import { formatClock } from '@/i18n/format';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
 import { PaneSizingContextProvider } from '@renderer/lib/pty/pane-sizing-context';
 import { PtyPane } from '@renderer/lib/pty/pty-pane';
@@ -92,7 +93,7 @@ export const SessionsPanel = observer(function SessionsPanel() {
   const startStageLabel = startStage?.stage === 'checking-executable'
     ? translate('chat.startingSessionChecking', {
         engine: startStage.executable.split(/[\\/]/).pop() || startStage.executable,
-        since: new Date(startStage.since).toLocaleTimeString(),
+        since: formatClock(startStage.since),
       })
     : null;
 
