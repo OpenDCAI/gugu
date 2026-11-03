@@ -78,6 +78,18 @@ async function call(method: string, args: Record<string, unknown>): Promise<Reco
 }
 
 describe('an App page on the phone, in a session on another computer', () => {
+  it('decodes a workspace range once before posting binary bytes to the App', async () => {
+    start({ chatId: null, session: SESSION })
+    sent.answer = { size: 3, offset: 0, data: 'AP+A' }
+    const reply = await call('filesRead', { ref: { workspace: 'session:s-there', id: 'data.bin' }, offset: 0, length: 3 })
+    expect(reply).toMatchObject({ ok: true, value: { size: 3, offset: 0 } })
+    const value = structuredClone(reply.value) as { data: Uint8Array }
+    expect(value.data).toBeInstanceOf(structuredClone(new Uint8Array()).constructor)
+    expect([...value.data]).toEqual([0, 255, 128])
+    expect(value.data.buffer.byteLength).toBe(3)
+    expect(sent.answer).toMatchObject({ data: 'AP+A' })
+  })
+
   it('opens a working-copy file in the phone preview through the same machine route as listing', async () => {
     start({ chatId: null, session: SESSION })
     sent.answer = { size: 18, offset: 0, etag: 'v1', data: 'YQ==' }

@@ -130,7 +130,7 @@ describe('a stored file — an image, a clip, a sound — opens read-only, as it
     expect(opened.chunked).toBe(true); expect(opened).not.toHaveProperty('bytes');
     expect(openedOriginals).toEqual([]);
     const range = await files.read(page, { ref: { id: IMAGE, version: opened.entry.version! }, offset: 0, length: PNG.length });
-    expect([...Buffer.from(range.data, 'base64')]).toEqual([...PNG]);
+    expect([...range.data]).toEqual([...PNG]);
     expect(openedOriginals).toEqual([IMAGE]);
     expect(grants).toEqual([]);
   });

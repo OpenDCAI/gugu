@@ -16,6 +16,7 @@ import { extensionFromMimeType, mimeTypeFromName, normalizeMimeType } from '@gug
 
 import runtimeVersion from './app-runtime-version.json';
 import type { ErrorDetail, ExtensionHostEvent } from './bridge-protocol';
+import { fromBase64 } from 'lib0/buffer';
 
 /** Every App origin serves the platform runtime under this prefix, from gugu's own files. */
 export const APP_RUNTIME_PREFIX = '/_gugu/';
@@ -626,6 +627,14 @@ export interface AppForwardFilesDetail {
 /** `gugu.showSession` on the phone: the task tab opens the session's row — the machine it is on, and the row as listed. */
 export const APP_SHOW_SESSION_EVENT = 'gugu:app-show-session';
 export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string; draft?: { text: string } } | { projectId: string };
+
+/** An App's bounded range reply, carried by the existing structured-clone bridge. */
+export type AppFileChunk = { size: number; offset: number; data: Uint8Array<ArrayBuffer> };
+
+/** The existing cross-machine workspace wire stays JSON/base64; decode only as it reaches the App bridge. */
+export function workspaceAppFileChunk(chunk: { size: number; offset: number; data: string }): AppFileChunk {
+  return { size: chunk.size, offset: chunk.offset, data: new Uint8Array(fromBase64(chunk.data)) };
+}
 
 /** What `files.open` / `files.reopen` answer. */
 export interface AppFileOpened {

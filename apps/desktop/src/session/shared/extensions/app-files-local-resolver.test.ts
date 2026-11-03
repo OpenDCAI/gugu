@@ -52,7 +52,7 @@ describe('App stored files enter the canonical local resolver before all cloud m
     f.platform.account = async () => ({ token: "synthetic", userId: owner });
     const ref = { id: revision.item_id!, version: 1 };
     const range = await f.files.read(surface, { ref, offset: 0, length: bytes.length });
-    expect(Buffer.from(range.data, "base64")).toEqual(Buffer.from(bytes));
+    expect(range.data).toEqual(bytes);
     expect(f.open).toHaveBeenCalledTimes(1);
     await f.files.close(surface, { ref });
     expect(f.dispose).toHaveBeenCalledTimes(1);

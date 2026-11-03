@@ -152,7 +152,7 @@ describe('files.upload: a text file goes in as a live document (F19)', () => {
     expect(photo).toMatchObject({ docName: '', access: 'ro', entry: { name: 'photo.png', type: 'binary' } });
     expect(photo.chunked).toBe(true); expect(photo).not.toHaveProperty('bytes');
     const range = await files.read(surface, { ref: { id: photo.entry.id, version: photo.entry.version! }, offset: 0, length: 4 });
-    expect([...Buffer.from(range.data, 'base64')]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect([...range.data]).toEqual([0x89, 0x50, 0x4e, 0x47]);
   });
 });
 

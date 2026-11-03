@@ -3,7 +3,6 @@ import { guguError, refOf, type GuguHost } from './host';
 import { askingMain, fileKey, openFiles, OpenFile, storedTextFile } from './open-file';
 import { syncLink } from './sync-link';
 import { workspaceStoredText } from '@gugu/core/shared/workspaceUpload.mjs';
-import { fromBase64 } from 'lib0/buffer';
 
 export { bindText } from './text-binding';
 
@@ -114,20 +113,21 @@ function chunkedFile(host: GuguHost, entry: AppFileEntry): object {
   const read = async (offset = 0, length = CHUNK_BYTES): Promise<Uint8Array<ArrayBuffer>> => {
     if (closed) throw guguError('failed', 'This file handle is closed.');
     if (!Number.isSafeInteger(offset) || offset < 0 || length !== Infinity && (!Number.isSafeInteger(length) || length < 0)) throw guguError('invalid', 'A file range needs a non-negative integer offset and length.');
-    const out: Uint8Array[] = [];
+    const out: Uint8Array<ArrayBuffer>[] = [];
     let at = Math.max(0, Math.floor(offset));
     let left = Math.max(0, length === Infinity ? Infinity : Math.floor(length));
     while (left > 0) {
       const chunk = await host.appFiles.read({ ref, offset: at, length: Math.min(left, CHUNK_BYTES) });
       if (closed) throw guguError('failed', 'This file handle is closed.');
       size = chunk.size;
-      const bytes = fromBase64(chunk.data);
+      const bytes = chunk.data;
       if (bytes.byteLength === 0) break;
       out.push(bytes);
       at += bytes.byteLength;
       left -= bytes.byteLength;
       if (at >= chunk.size) break;
     }
+    if (out.length === 1) return out[0]!;
     const all: Uint8Array<ArrayBuffer> = new Uint8Array(out.reduce((n, b) => n + b.byteLength, 0));
     let n = 0;
     for (const bytes of out) {

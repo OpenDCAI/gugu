@@ -1,13 +1,13 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 
-const f = vi.hoisted(() => ({ capabilities: new Set<string>(), read: vi.fn(async () => ({ size: 4, offset: 0, data: 'AA==' })), localRead: vi.fn(async () => ({ size: 4, offset: 0, data: 'AA==' })), machine: vi.fn(async () => null as { deviceId: string; projectId: string | null } | null) }));
+const f = vi.hoisted(() => ({ capabilities: new Set<string>(), read: vi.fn(async () => ({ size: 4, offset: 0, data: new Uint8Array([0]) })), localRead: vi.fn(async () => ({ size: 4, offset: 0, data: 'AA==' })), machine: vi.fn(async () => null as { deviceId: string; projectId: string | null } | null), remoteRead: vi.fn(async () => ({ there: true as const, value: { size: 4, offset: 0, data: 'AP+A' } })) }));
 vi.mock('electron', () => ({ BrowserWindow: {}, dialog: {} }));
-vi.mock('@main/core/extensions/extensions-root', () => ({ extensionsService: () => ({ hasCapability: (_app: string, cap: string) => f.capabilities.has(cap) }) }));
+vi.mock('@main/core/extensions/extensions-root', () => ({ extensionsService: () => ({ hasCapability: (_app: string, cap: string) => f.capabilities.has(cap), get: () => ({ manifest: { id: 'reader' } }) }) }));
 vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: vi.fn(), resolveAccountFile: vi.fn(), publishAccountFile: vi.fn() }));
 vi.mock('@main/core/extensions/file-sync', () => ({ fileSync: {}, localFileService: {}, fileServiceUrl: vi.fn() }));
 vi.mock('@main/core/extensions/local-files', () => ({ createLocalAppFiles: () => ({}) }));
 vi.mock('@main/core/extensions/extension-icon', () => ({ renderExtensionIcon: vi.fn() }));
-vi.mock('@main/core/extensions/app-programs-elsewhere', () => ({ sessionMachine: f.machine }));
+vi.mock('@main/core/extensions/app-programs-elsewhere', () => ({ sessionMachine: f.machine, callOnSessionMachine: f.remoteRead }));
 vi.mock('@main/core/extensions/working-copy-files', () => ({ readWorkingCopy: f.localRead }));
 vi.mock('@shared/extensions/app-files-core', async original => ({ ...await original<object>(), createAppFiles: () => ({ read: f.read }) }));
 const { readAppFile } = await import('./app-files');
@@ -25,9 +25,19 @@ it('a handed working copy still cannot read ranges without files:read', async ()
 });
 it('files:read admits a local working copy and preserves the remote all-machines gate', async () => {
   f.capabilities.add('files:read');
-  await expect(readAppFile(page, { ref: workspace, offset: 0, length: 1 })).resolves.toMatchObject({ size: 4 });
+  await expect(readAppFile(page, { ref: workspace, offset: 0, length: 1 })).resolves.toMatchObject({ size: 4, data: new Uint8Array([0]) });
   expect(f.localRead).toHaveBeenCalledTimes(1);
   f.machine.mockResolvedValue({ deviceId: 'remote', projectId: null });
   await expect(readAppFile(page, { ref: workspace, offset: 0, length: 1 })).rejects.toMatchObject({ code: 'denied', message: expect.stringContaining('files:read:all-machines') });
   expect(f.localRead).toHaveBeenCalledTimes(1);
+});
+it('decodes the existing remote workspace wire only at the App reply boundary', async () => {
+  f.capabilities.add('files:read'); f.capabilities.add('files:read:all-machines');
+  f.machine.mockResolvedValue({ deviceId: 'remote', projectId: null });
+  const answer = await readAppFile(page, { ref: workspace, offset: 0, length: 3 });
+  expect(answer.data).toBeInstanceOf(Uint8Array);
+  expect([...answer.data]).toEqual([0, 255, 128]);
+  expect(answer.data.buffer.byteLength).toBe(3);
+  expect(f.remoteRead).toHaveBeenCalledWith(expect.anything(), '11111111-1111-4111-8111-111111111111', 'filesRead', { ref: workspace, offset: 0, length: 3 }, false);
+  expect(f.localRead).not.toHaveBeenCalled();
 });

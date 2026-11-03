@@ -40,12 +40,15 @@ describe('every files.open handle has a byte view of the same content', () => {
     vi.resetModules();
     const { openFile } = await import('./files-entry');
     const bytes = Uint8Array.from({ length: 524300 }, (_, i) => i % 251);
-    const read = vi.fn(async ({ offset, length }: { offset: number; length: number; ref: { version?: number } }) => ({ size: bytes.length, offset, data: Buffer.from(bytes.slice(offset, offset + length)).toString('base64') }));
+    const read = vi.fn(async ({ offset, length }: { offset: number; length: number; ref: { version?: number } }) => ({ size: bytes.length, offset, data: bytes.slice(offset, offset + length) }));
     const close = vi.fn(async () => undefined);
     const entry = { id: 'chunks', name: 'data.bin', contentType: 'application/octet-stream', version: 3, size: workspace ? null : bytes.length, ...(workspace ? { workspace: 'session:test' } : {}) };
     const file = await openFile({ appFiles: { read, close } } as unknown as GuguHost, Promise.resolve({ entry, chunked: true } as AppFileOpened)) as Handle;
     expect(file.size).toBe(workspace ? null : bytes.length); expect('text' in file).toBe(false);
     expect(await file.read(12, 8)).toEqual(bytes.slice(12, 20)); expect(file.size).toBe(bytes.length);
+    expect(await file.read(bytes.length - 3, 512)).toEqual(bytes.slice(-3));
+    expect(await file.read(bytes.length, 4)).toEqual(new Uint8Array());
+    expect(await file.read(0, 0)).toEqual(new Uint8Array());
     expect(await file.bytes()).toEqual(bytes);
     expect(new Uint8Array(await (await file.blob()).arrayBuffer())).toEqual(bytes);
     for (const [request] of read.mock.calls) {

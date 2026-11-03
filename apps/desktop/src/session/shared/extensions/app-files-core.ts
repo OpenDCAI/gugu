@@ -17,6 +17,7 @@ import {
   savedFileName,
   typedFileName,
   type AppFileClaimant,
+  type AppFileChunk,
   type AppFileEntry,
   type AppFileRef,
   type AppFileSearch,
@@ -34,7 +35,6 @@ import {
   type PreparedChatFile,
 } from './app-runtime-protocol';
 import { fileOpenersFor } from './file-openers';
-import { toBase64 } from 'lib0/buffer';
 import type { ExtensionManifest } from './manifest';
 import { displayNameOf } from './file-openers';
 import { readUserSettingsConfig, updateUserSettingsConfig, type VersionedSettingsTableClient } from '@gugu/core/cloud/userSettings';
@@ -739,7 +739,7 @@ export function createAppFiles(platform: FilesPlatform) {
     return { entry, docName: '', access, self, chunked: true };
   };
 
-  async function read(surface: FileSurface, args: { ref: ChatFileRef & { version?: number }; offset: number; length: number }): Promise<{ size: number; offset: number; data: string }> {
+  async function read(surface: FileSurface, args: { ref: ChatFileRef & { version?: number }; offset: number; length: number }): Promise<AppFileChunk> {
     const { ref, offset, length } = args;
     if (!('id' in ref) || !Number.isSafeInteger(ref.version) || ref.version! < 1 || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 0 || length > FILE_CHUNK_BYTES) {
       throw new AppFileError('invalid', 'A file range needs its opened version, a non-negative offset, and at most 512 KiB.');
@@ -768,8 +768,8 @@ export function createAppFiles(platform: FilesPlatform) {
       const at = Math.min(offset, size);
       const bytes = await file.read(at, Math.min(length, size - at));
       if (held.file !== pending) throw new AppFileError('failed', 'This file read was closed.');
-      // Browser and main share the same range packet, including its existing base64 representation.
-      return { size, offset: at, data: toBase64(bytes) };
+      // Own only this range: a resolver may return a view into a larger or pooled backing buffer.
+      return { size, offset: at, data: new Uint8Array(bytes) };
     } catch (error) {
       if (held.file === pending) disposeSnapshot(key, held);
       if (error instanceof MissingFileObjectError || error instanceof AppFileError && error.code === 'not-found') throw staleVersion();

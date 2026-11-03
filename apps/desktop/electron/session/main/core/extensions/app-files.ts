@@ -17,6 +17,8 @@ import {
 } from '@shared/extensions/app-files-core';
 import {
   APP_FILE_MAX_BYTES,
+  workspaceAppFileChunk,
+  type AppFileChunk,
   fileRefOf,
   fileSearchOf,
   folderOf,
@@ -310,7 +312,7 @@ export async function listAppFiles(page: DesktopFilePage, args: { place?: unknow
 }
 
 /** `f.read(offset, length)`: a pinned chat snapshot or a working copy, through the same range packet. */
-export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; offset?: unknown; length?: unknown }): Promise<{ size: number; offset: number; data: string }> {
+export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; offset?: unknown; length?: unknown }): Promise<AppFileChunk> {
   const ref = fileRefOf(args.ref);
   const offset = Number(args.offset ?? 0);
   const length = Number(args.length ?? 0);
@@ -319,9 +321,9 @@ export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; 
     throw new AppFileError('denied', 'Not permitted: reading a working copy needs "files:read"');
   }
   const there = await onItsMachine(page, ref, 'filesRead', { ref, offset, length });
-  if (there.there) return there.value as { size: number; offset: number; data: string };
+  if (there.there) return workspaceAppFileChunk(there.value as { size: number; offset: number; data: string });
   const { readWorkingCopy } = await import('./working-copy-files');
-  return readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, offset, length);
+  return workspaceAppFileChunk(await readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, offset, length));
 }
 
 /**
@@ -602,7 +604,7 @@ async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<
     const pieces: Buffer[] = [];
     for (let offset = 0, size = Infinity; offset < size;) {
       const chunk = await readAppFile(page, { ref, offset, length: REMOTE_WORKSPACE_CHUNK_BYTES });
-      const bytes = Buffer.from(chunk.data, 'base64');
+      const bytes = Buffer.from(chunk.data);
       size = chunk.size;
       if (bytes.byteLength === 0) break;
       pieces.push(bytes);

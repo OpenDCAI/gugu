@@ -140,7 +140,7 @@ describe('gugu.files on a file whose bytes are in OSS (#7290)', () => {
       const opened = await cached.open(surface(extra), { ref: { id: row.id as string } });
       expect(opened.chunked).toBe(true); expect(opened).not.toHaveProperty('bytes');
       const range = await cached.read(surface(extra), { ref: { id: row.id as string, version: opened.entry.version! }, offset: 0, length: 3 });
-      return new Uint8Array(Buffer.from(range.data, 'base64'));
+      return range.data;
     };
     expect(await open()).toEqual(new Uint8Array([1, 2, 3]));
     await open();
@@ -161,7 +161,7 @@ describe('gugu.files on a file whose bytes are in OSS (#7290)', () => {
     const opened = await own.open(surface(), { ref: { id: row.id as string } });
     expect(fetched).toEqual([]);
     const range = await own.read(surface(), { ref: { id: row.id as string, version: opened.entry.version! }, offset: 0, length: 2 });
-    expect([...Buffer.from(range.data, 'base64')]).toEqual([4, 5]);
+    expect([...range.data]).toEqual([4, 5]);
     expect(fetched).toEqual([CDN]);
   });
 

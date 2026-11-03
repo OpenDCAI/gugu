@@ -54,7 +54,8 @@ describe('chat stored files reuse verified, pinned range reads', () => {
     for (const offset of [0, 12, 28]) {
       const answer = await f.files.read(surface, { ref, offset, length: 4 });
       expect(answer).toMatchObject({ size: 32, offset });
-      expect(Buffer.from(answer.data, 'base64')).toEqual(Buffer.from([offset, offset + 1, offset + 2, offset + 3]));
+      expect(answer.data).toBeInstanceOf(Uint8Array);
+      expect([...answer.data]).toEqual([offset, offset + 1, offset + 2, offset + 3]);
     }
     expect(f.resolveFile).toHaveBeenCalledTimes(1);
     expect(f.resolveFile).toHaveBeenCalledWith(expect.anything(), null, expect.objectContaining({ version: 1 }));
@@ -75,7 +76,12 @@ describe('chat stored files reuse verified, pinned range reads', () => {
     for (let i = 0; i < bytes.length; i++) bytes[i] = i % 251;
     f.read.mockResolvedValueOnce(bytes);
     const result = await f.files.read(surface, { ref, offset: 0, length });
-    expect(Buffer.from(result.data, 'base64')).toEqual(Buffer.from(bytes));
+    const delivered = structuredClone(result).data;
+    expect(delivered).toBeInstanceOf(Uint8Array);
+    expect(delivered).toEqual(bytes);
+    expect(delivered.byteOffset).toBe(0);
+    expect(delivered.buffer.byteLength).toBe(length);
+    expect(new Uint8Array(delivered.buffer)).toEqual(bytes);
     await f.files.close(surface, { ref });
   });
   it('does not grant an unbound page or another file through the capability-free bridge verb', async () => {
