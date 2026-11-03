@@ -63,7 +63,7 @@ const life = vi.hoisted(() => ({
   end: vi.fn(async (_forkId: string) => {}),
   settle: (_sessionId: string, _kind: 'ready' | 'failed', _failure?: Failure) => {},
   /** The host's view while it starts the session, with its custody rows. */
-  pend: (_sessionId: string, _kind: 'starting' | 'ready' | 'failed' | 'dormant' | 'stopping', _items: PendingRow[], _hold?: string | null) => {},
+  pend: (_sessionId: string, _kind: 'starting' | 'ready' | 'failed' | 'dormant' | 'stopping', _items: PendingRow[], _hold?: string | null, _failure?: Failure) => {},
   /** Sessions whose view the page asked for (the real mirror reads the host on the first ask). */
   viewed: new Set<string>(),
 }));
@@ -75,8 +75,8 @@ vi.mock('../stores/session-life-views', async () => {
   const views = observable.map<string, View>();
   life.settle = (sessionId, kind, failure) => runInAction(() =>
     views.set(sessionId, { kind, hold: null, version: (views.get(sessionId)?.version ?? 0) + 1, failure: failure ?? null, pending: { items: [], count: 0 } } as View));
-  life.pend = (sessionId, kind, items, hold = null) => runInAction(() =>
-    views.set(sessionId, { kind, hold, version: (views.get(sessionId)?.version ?? 0) + 1, failure: null, pending: { items, count: items.filter(row => row.state === 'queued' || row.state === 'dispatching').length } } as View));
+  life.pend = (sessionId, kind, items, hold = null, failure) => runInAction(() =>
+    views.set(sessionId, { kind, hold, version: (views.get(sessionId)?.version ?? 0) + 1, failure: failure ?? null, pending: { items, count: items.filter(row => row.state === 'queued' || row.state === 'dispatching').length } } as View));
   return {
     sessionLifeView: (sessionId: string) => { life.viewed.add(sessionId); return views.get(sessionId) ?? null; },
     readSessionLife: async (sessionId: string) => {
@@ -293,6 +293,50 @@ describe('sender custody uses the ordinary transcript row', () => {
     expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'failed-input', delivery: { state: 'waiting', retryable: false, error: 'connection refused' } });
     expect(store.affordances.isWorking).toBe(false);
     store.dispose();
+  });
+
+  it.each([
+    { senderRetained: true, machine: null }, { senderRetained: false, machine: null },
+    { senderRetained: true, machine: 'startup-remote' }, { senderRetained: false, machine: 'startup-remote' },
+  ])('startup recovery owns the action without overriding sender custody ($senderRetained, $machine)', async ({ senderRetained, machine }) => {
+    const { store } = storeFor();
+    if (machine) machineRegistry.register(machine, [store.runtimeSessionId]);
+    store.bootstrap();
+    await parked(store);
+    const input = { id: 'startup-input', sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: machine,
+      text: 'recover this input once', createdAt: 5000, queued: false as const,
+      failure: { code: 'send-failed' as const, message: 'connection refused' } };
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [input] });
+    inputsChanged();
+    if (!senderRetained) { inputState().rows = []; inputsChanged(); }
+    const pending: PendingRow = { seq: 1, messageId: input.id, preview: input.text, text: input.text,
+      kind: 'ordinary', state: 'queued', failure: null, sentAt: 5000 };
+    const failure: Failure = { at: 'process', message: 'Provider unavailable', cause: { name: 'Error', message: 'Provider unavailable' } };
+    life.pend(store.sessionId, 'failed', [pending], 'start-failed', failure);
+    expect(store.loadError?.message).toBe(failure.message);
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: input.id, text: input.text,
+      delivery: senderRetained ? { state: 'waiting', retryable: false, error: 'connection refused' }
+        : { state: 'failed', retryable: false, error: failure.message } });
+    expect(store.affordances.isWorking).toBe(false);
+
+    // The task action starts the existing host row; it never resends the message.
+    life.start.mockImplementationOnce(async () => { life.pend(store.sessionId, 'ready', [pending]); });
+    create.mockImplementation(async () => liveSession());
+    runInAction(() => store.retry());
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+    expect(life.start).toHaveBeenCalledExactlyOnceWith(store.runtimeSessionId);
+    expect(custody).not.toHaveBeenCalled();
+    inputState().rows = [];
+    inputsChanged();
+    const echo: TranscriptTurn = { id: 'recovered-turn', seq: 0, initiator: 'user', startedAt: 5000,
+      items: [{ kind: 'message', id: input.id, seq: 0, role: 'user', text: input.text }] };
+    runInAction(() => { store.chatState.transcript.history.seed([echo]); store.transcriptRevision++; });
+    life.pend(store.sessionId, 'ready', [{ ...pending, state: 'accepted' }]);
+    expect(store.loadError).toBeNull();
+    expect(store.chatState.session.state.pendingPrompt).toBeNull();
+    expect(store.chatState.transcript.state.committedTurns.flatMap(turn => turn.items).filter(item => item.id === input.id)).toHaveLength(1);
+    store.dispose();
+    if (machine) machineRegistry.forgetMachine(machine);
   });
 
   it('queues a follow-up while an attached idle host has not yet echoed the first input', async () => {
