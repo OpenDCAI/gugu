@@ -58,8 +58,17 @@ function controlOwned(pid, kind) {
 }
 function controls() {
   return [['keeper', path.join(home, 'data/keeper.pid')], ['supervisor', path.join(home, 'data/server.lock')]].flatMap(([kind, file]) => {
-    const saved = probe.snapshot(file);
-    return saved && Number.isInteger(saved.pid) && saved.pid > 0 ? [{ kind, file, pid: saved.pid }] : [];
+    let text;
+    try { text = fs.readFileSync(file, 'utf8').trim(); }
+    catch (error) {
+      if (error.code === 'ENOENT') return [];
+      throw new Error('Cannot verify ' + kind + ' PID file ' + file, { cause: error });
+    }
+    const pid = Number(text);
+    if (!/^[1-9][0-9]*$/.test(text) || !Number.isSafeInteger(pid) || pid > 2147483647) {
+      throw new Error('Cannot verify ' + kind + ' PID: empty or invalid PID file ' + file);
+    }
+    return [{ kind, file, pid }];
   });
 }
 function accountDirs() {

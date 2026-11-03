@@ -59,6 +59,23 @@ const runSh = (home: string, script: string): string => {
 }
 
 describe('#6264 从这台机器上卸载咕咕 server:远端脚本', () => {
+  it.each(['keeper', 'supervisor'].flatMap(kind => ['', '\n \t', 'broken', '0', '1e3', '2147483648'].map(text => [kind, text] as const)))('无效的控制进程 PID 会中止卸载并保留目录: %s %j', (kind, text) => {
+    const home = tmp()
+    try {
+      const serverHome = fakeInstall(home)
+      const nodeDir = path.join(serverHome, 'current/node/bin')
+      fs.mkdirSync(nodeDir, { recursive: true })
+      fs.symlinkSync(process.execPath, path.join(nodeDir, 'node'))
+      fs.mkdirSync(path.join(serverHome, 'data'))
+      const file = path.join(serverHome, 'data', kind === 'keeper' ? 'keeper.pid' : 'server.lock')
+      fs.writeFileSync(file, text)
+      expect(() => runSh(home, uninstallScript())).toThrow(`Cannot verify ${kind} PID: empty or invalid PID file ${file}`)
+      expect(fs.existsSync(serverHome)).toBe(true)
+      expect(fs.readFileSync(file, 'utf8')).toBe(text)
+      expect(fs.existsSync(path.join(serverHome, 'data/stopped'))).toBe(false)
+    } finally { fs.rmSync(home, { recursive: true, force: true }) }
+  })
+
   it('回收的 PID 属于另一份安装时保留那个进程及其锁,不委托旧版 stop', async () => {
     const home = tmp(), other = tmp()
     const foreign = spawn(process.execPath, ['-e', `
@@ -75,7 +92,7 @@ describe('#6264 从这台机器上卸载咕咕 server:远端脚本', () => {
       fs.symlinkSync(process.execPath, path.join(nodeDir, 'node'))
       fs.writeFileSync(path.join(serverHome, 'accounts', ME, 'data/server.lock'), String(foreign.pid))
       fs.mkdirSync(path.join(serverHome, 'data'))
-      fs.writeFileSync(path.join(serverHome, 'data/server.lock'), String(foreign.pid))
+      fs.writeFileSync(path.join(serverHome, 'data/server.lock'), `${foreign.pid}\n`)
       fs.writeFileSync(path.join(serverHome, 'data/keeper.pid'), String(foreign.pid))
       const log = path.join(home, 'calls.log')
       fs.writeFileSync(path.join(serverHome, 'current/bin/gugu-server'), `#!/bin/sh\necho "$*" >> '${log}'\n`, { mode: 0o755 })
