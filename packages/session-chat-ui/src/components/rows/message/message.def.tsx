@@ -107,7 +107,7 @@ export function normalizeMessage(item: ChatMessage, deliveredMessage?: (id: stri
 export function messageFromItem(item: ChatMessage, ctx: SegmentCtx): ChatMessage {
   return {
     ...normalizeMessage(item, ctx.deliveredMessage),
-    streaming: ctx.active && item.role === 'assistant',
+    streaming: ctx.active && item.role === 'assistant' && !item.ownerNotification,
   };
 }
 
