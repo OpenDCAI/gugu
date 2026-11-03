@@ -28,10 +28,30 @@ export function initProcessLogging(options: InitProcessLoggingOptions): Logger {
       pid: process.pid,
       ...options.bindings,
     },
-    destination: options.destination ?? pinoLib.destination(2),
+    destination: options.destination ?? parentStderrDestination(),
   });
 
   installAsyncLogContext();
   setRootLogger(logger);
   return logger;
+}
+
+function parentStderrDestination(): pinoLib.DestinationStream {
+  const destination = pinoLib.destination(2);
+  let disconnected = false;
+  const disconnect = (): void => {
+    disconnected = true;
+    // The parent owns this pipe's reader. SonicBoom's exit-time flush can retry
+    // a permanent EPIPE forever, preventing process.exit from terminating the worker.
+    destination.destroy();
+  };
+  process.once('disconnect', disconnect);
+  // A fork can lose its parent while its modules are still being loaded.
+  if (process.connected === false) disconnect();
+
+  return {
+    write(message: string): void {
+      if (!disconnected) destination.write(message);
+    },
+  };
 }
