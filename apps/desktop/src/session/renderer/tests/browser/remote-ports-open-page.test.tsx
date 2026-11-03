@@ -78,8 +78,8 @@ describe('the ports list (a session on an SSH machine)', () => {
     await act(async () => openButton()!.click());
 
     expect(mocks.showPage.mock.calls).toEqual([
-      ['http://localhost:5173/', { preview: false, reload: false }],
-      ['http://localhost:5173/', { preview: false, reload: false }],
+      ['http://localhost:5173/', { reload: false }],
+      ['http://localhost:5173/', { reload: false }],
     ]);
     expect(mocks.open).not.toHaveBeenCalled();
   });

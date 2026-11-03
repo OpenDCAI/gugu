@@ -39,7 +39,7 @@ vi.mock('@/components/extensionBundle/sharedPackages', () => ({ sharedPackagesOf
 const { AppPeek } = await import('@/components/appSlot/AppPeek')
 const { ask, chatTabs, shownItem } = await import('./chatTabsHarness')
 const { folderItem, isFolderItem } = await import('@/session/renderer/features/chats/chat-tabs/chat-panel-item')
-const { chatAlone, chatLayoutOf, chatPaneOf, closeChatTab, openPanelItem, panelFull, panelTabsOf, shownPanelTab } = await import('@/session/renderer/features/chats/chat-tabs/chat-layouts')
+const { chatAlone, chatPaneOf, closeChatTab, openPanelItem, panelFull, panelTabsOf, shownPanelTab } = await import('@/session/renderer/features/chats/chat-tabs/chat-layouts')
 import { tabFullscreen } from '@/session/renderer/features/tabs/tab-fullscreen'
 const { installedExtensionsStore } = await import('@/session/renderer/features/extensions/installed-extensions-store')
 const { appsHere } = await import('@/components/appSlot/appsHere')

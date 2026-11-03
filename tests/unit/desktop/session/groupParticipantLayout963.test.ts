@@ -5,6 +5,7 @@ import { groupParticipantPanes } from '@renderer/features/chats/group-participan
 import { chatLayoutOf, openPanelItem, openTopicTab, panelTabsOf, showChatTab, topicTabOf, yieldChatAuxiliary } from '@renderer/features/chats/chat-tabs/chat-layouts';
 const board = { kind: 'kanban.board', title: 'Board' };
 const pane = (chatId: string) => chatLayoutOf(chatId).groups[0]!.pane;
+const shown = (chatId: string) => chatLayoutOf(chatId).groups.flatMap(({ pane }) => pane.shownTabIds);
 
 describe('participant and topic share the one auxiliary place', () => {
   it('retains the topic tab and restores it beside the group, with no third column', () => {
@@ -14,12 +15,12 @@ describe('participant and topic share the one auxiliary place', () => {
     const topicId = topicTabOf(chatId)!.tabId;
     showGroupParticipant(chatId, { kind: 'session', projectId: 'p', sessionId: 'participant-a' });
     expect(screenLayout.order).toHaveLength(2);
-    expect(pane(chatId).shownTabIds).toEqual([pane(chatId).tabOrder[0]]);
+    expect(shown(chatId)).toContain(pane(chatId).tabOrder[0]);
     expect(topicTabOf(chatId)).toMatchObject({ tabId: topicId, shown: false });
     showChatTab(chatId, topicId);
     expect(screenLayout.order).toHaveLength(1);
     expect(topicTabOf(chatId)).toMatchObject({ tabId: topicId, shown: true });
-    expect(pane(chatId).shownTabIds).toHaveLength(2);
+    expect(shown(chatId)).toHaveLength(2);
     expect(groupParticipantPanes.placements.has(chatId)).toBe(false);
   });
 
@@ -33,7 +34,7 @@ describe('participant and topic share the one auxiliary place', () => {
     showChatTab(chatId, tab);
     expect(screenLayout.order).toHaveLength(1);
     expect(panelTabsOf(chatId)).toMatchObject([{ tabId: tab, shown: true }]);
-    expect(pane(chatId).shownTabIds).toHaveLength(2);
+    expect(shown(chatId)).toHaveLength(2);
   });
 });
 

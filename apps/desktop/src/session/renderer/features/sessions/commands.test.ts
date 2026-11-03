@@ -270,7 +270,7 @@ describe('createSessionCommandProvider', () => {
   // #6780 旧侧栏两个页签的接班人:走空态 /「+」菜单同一个开页签入口,开在这个会话自己的页签条里。
   it.each([
     ['session.sidebarChanges', 'sidebarChanges', ['review', {}]],
-    ['session.sidebarFiles', 'sidebarFiles', ['workspace.main', {}, { preview: false }]],
+    ['session.sidebarFiles', 'sidebarFiles', ['workspace.main', {}, { from: null, intent: 'newTab' }]],
   ] as const)('%s 打开对应页签', (id, _shortcutKey, openArgs) => {
     const view = {
       ...mocks.getSessionView(),
@@ -308,7 +308,7 @@ describe('createSessionCommandProvider', () => {
 
     command?.execute();
 
-    expect(sessionView.paneLayout.open).toHaveBeenCalledWith('browser', {});
+    expect(sessionView.paneLayout.open).toHaveBeenCalledWith('browser', {}, { from: null, intent: 'newTab' });
     expect(sessionView.setFocusedRegion).toHaveBeenCalledWith('main');
   });
 

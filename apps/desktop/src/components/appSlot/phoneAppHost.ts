@@ -581,6 +581,7 @@ export function hostAppFrame(
         return phoneAppState(hosted.binding.capabilities)
       case 'navigationGo':
         if (args.delta !== -1 && args.delta !== 1) return refused('invalid', 'Navigation delta must be -1 or 1')
+        if (!hosted.binding.navigation?.[args.delta === -1 ? 'canBack' : 'canForward']) return false
         return hooks.navigate?.(args.delta) ?? false
       case 'getContext':
         // A pill's place waiting for this page goes first, whatever the answer: the frame holds it until `onLink`.

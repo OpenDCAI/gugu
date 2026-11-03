@@ -81,7 +81,9 @@ export function ExtensionTabPane({
   const [failure, setFailure] = useState<SurfaceFailure | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Not looked at while its retained session page is hidden (@@@retained-session-pages).
-  const shown = useContext(PageShownContext) && useContext(TabLayerShownContext);
+  const pageShown = useContext(PageShownContext);
+  const layerShown = useContext(TabLayerShownContext);
+  const shown = pageShown && layerShown;
   const shownRef = useRef(shown);
   shownRef.current = shown;
   const reportLayoutRef = useRef<(() => void) | null>(null);

@@ -71,7 +71,7 @@ describe('给屏上一块空着的会话补上对话(onlyIfNoTabs)', () => {
     opened.calls = [];
     opened.views = [];
     openSessionInSessionWhenReady({ projectId: 'other-project', sessionId: 'agent-2', host: { projectId: 'p', sessionId: 'agent-1' } });
-    expect(opened.calls).toEqual([['session', { sessionId: 'agent-2', projectId: 'other-project', ownerSessionId: 'agent-2' }, { preview: false }]]);
+    expect(opened.calls).toEqual([['session', { sessionId: 'agent-2', projectId: 'other-project', ownerSessionId: 'agent-2' }, { from: null, intent: 'newTab' }]]);
     expect(opened.views).toEqual(['p/agent-1', 'p/agent-1']);
   });
 });

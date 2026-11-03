@@ -377,6 +377,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       insertBeforeTabId,
       activate,
     });
+    if (detached.entry.companionPaneId === toPaneId) detached.entry.companionPaneId = undefined;
     this._rememberPlacement(detached.entry, this.groups.filter((group) => group.pane.tabOrder.length > 0).length > 1 ? 'beside' : 'separate');
     // A human moved a page into a pane next to a conversation: that pane is now its companion.
     for (const group of this.groups) {
@@ -493,7 +494,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       replace = from.tabId;
     } else if ((intent === 'beside' || (intent === 'navigate' && conversation)) && this.groups.some((group) => group.paneId === target.paneId)) {
       const companion = conversation && from.companionPaneId
-        ? this.groups.find((group) => group.paneId === from.companionPaneId)
+        ? this.groups.find((group) => group.paneId === from.companionPaneId && group.paneId !== source?.paneId)
         : undefined;
       if (companion && intent === 'navigate') {
         target = companion;

@@ -57,7 +57,7 @@ const STRINGS = {
     openWith: '用别的 App 打开',
     openNewTab: '在新页签打开',
     back: '文件夹',
-    forward: '前进',
+    historyForward: '前进',
     openBeside: '在旁边打开',
     more: '更多',
     downloadOnly: '这个文件在这里只能下载，不能在这里看和改。',
@@ -115,7 +115,6 @@ const STRINGS = {
     lines: '第 {first}–{last} 行',
     placeMoved: '引用的那几行挪到了{lines}',
     placeGone: '引用的那几行之后改过了：这里是它们原来的位置',
-    back: '文件',
     failed: '出错了：{e}',
     you: '你',
     justNow: '刚刚',
@@ -248,7 +247,7 @@ const STRINGS = {
     openWith: 'Open with another App',
     openNewTab: 'Open in new tab',
     back: 'Folder',
-    forward: 'Forward',
+    historyForward: 'Forward',
     openBeside: 'Open beside',
     more: 'More',
     downloadOnly: 'This file can only be downloaded here; it cannot be shown or changed here.',
@@ -306,7 +305,6 @@ const STRINGS = {
     lines: 'Lines {first}–{last}',
     placeMoved: 'The cited lines moved: {lines}',
     placeGone: 'The cited lines changed since: this is where they were',
-    back: 'Files',
     failed: 'Something went wrong: {e}',
     you: 'You',
     justNow: 'just now',
@@ -615,8 +613,8 @@ function renderChrome() {
   $('page-back-label').textContent = t.back
   $('page-back').disabled = !state.ctx?.navigation?.canBack
   $('page-forward').disabled = !state.ctx?.navigation?.canForward
-  $('page-forward').title = t.forward
-  $('page-forward').setAttribute('aria-label', t.forward)
+  $('page-forward').title = t.historyForward
+  $('page-forward').setAttribute('aria-label', t.historyForward)
   $('select-files').textContent = state.selecting || state.picked.size ? t.pickDone : t.pick
   renderTools()
   $('new-label').textContent = t.new

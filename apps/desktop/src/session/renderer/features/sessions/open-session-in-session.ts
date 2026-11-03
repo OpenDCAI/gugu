@@ -41,7 +41,6 @@ export function openSessionInSessionWhenReady({
   projectId,
   sessionId,
   timeout = 10_000,
-  preview = false,
   onlyIfNoTabs = false,
   host,
   onReady,

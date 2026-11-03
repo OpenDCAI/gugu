@@ -178,10 +178,10 @@ describe('task file preview routing', () => {
     await openFileInSessionEditor('project-1', 'session-1', '/Volumes/SSD/report.pdf');
 
     await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'file',
         { path: '/Volumes/SSD/report.pdf', external: true },
-        { intent: 'navigate' }
+        { from: null, intent: 'navigate' }
       )
     );
   });
@@ -264,10 +264,10 @@ describe('task file preview routing', () => {
     await openFileInSessionEditor('project-1', 'session-1', '~/gugu-linktest/b.md');
 
     await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'file',
         { path: '/Users/tester/gugu-linktest/b.md', external: true },
-        { intent: 'navigate' }
+        { from: null, intent: 'navigate' }
       )
     );
     // 展开发生在拼工作区之前:fileExists 永远不该收到带 ~ 的路径。
@@ -280,10 +280,10 @@ describe('task file preview routing', () => {
 
     // 不展开的话会拿字面 `~/…` 开外部页签,而 readExternalFile 只收绝对路径,必出坏页签。
     await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'file',
         { path: '/Users/tester/gugu-linktest/b.md', external: true },
-        { intent: 'navigate' }
+        { from: null, intent: 'navigate' }
       )
     );
   });
@@ -305,10 +305,10 @@ describe('task file preview routing', () => {
     await openFresh('project-1', 'session-1', '~/gugu-linktest/b.md');
     // 第二次必须已经展开 —— rejected promise 被 cache 住的话这一步还是 toast。
     await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'file',
         { path: '/Users/tester/gugu-linktest/b.md', external: true },
-        { intent: 'navigate' }
+        { from: null, intent: 'navigate' }
       )
     );
   });
@@ -319,10 +319,10 @@ describe('task file preview routing', () => {
     await openFileInSessionEditor('project-1', 'session-1', '/Volumes/SSD/report.pdf');
 
     await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'file',
         { path: '/Volumes/SSD/report.pdf', external: true },
-        { intent: 'navigate' }
+        { from: null, intent: 'navigate' }
       )
     );
   });
@@ -347,10 +347,10 @@ describe('task file preview routing', () => {
     await openExternalFilePath('project-1', 'session-1', '/u/task-attachments/session-1/a1-notes.md');
 
     await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'file',
         { path: '/u/task-attachments/session-1/a1-notes.md', external: true },
-        { intent: 'navigate' }
+        { from: null, intent: 'navigate' }
       )
     );
     expect(mocks.openPath).not.toHaveBeenCalled();
@@ -473,12 +473,12 @@ describe('task file preview routing', () => {
     // 工作区外那支是 fire-and-forget(openSessionFile 里 `void openExternalFilePath`),外部 stat
     // 又多了一跳 —— 同步断言会跟第一次 open 赛跑,必须等它落地。
     // 同一条外部预览回退;从对话里点开的那次开在对话旁边(spec session-page「并排」)。
-    await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledTimes(1));
-    expect(mocks.activePaneOpen).toHaveBeenCalledTimes(1);
-    expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+    await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledTimes(2));
+    expect(mocks.activePaneOpen).not.toHaveBeenCalled();
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
       'file',
       { path: '/tmp/Application Support/note.md', external: true },
-      { intent: 'navigate' }
+      { from: null, intent: 'navigate' }
     );
     expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
       'file',
@@ -523,7 +523,7 @@ describe('task file preview routing', () => {
 
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true }));
     // showPage: the page opens in the browser cell, or the tab already showing it is brought back (workspace-view-model).
-    expect(mocks.showPage).toHaveBeenCalledWith('https://www.baidu.com/', { reload: true, beside: true, activate: false });
+    expect(mocks.showPage).toHaveBeenCalledWith('https://www.baidu.com/', { intent: 'navigate', reload: true, beside: true, activate: false });
     // The counter-example that lets the assertion above mean something: routing a page
     // through the file branch would still have opened a tab and still reported success.
     expect(mocks.activePaneOpen).not.toHaveBeenCalledWith(
@@ -672,7 +672,7 @@ describe('task file preview routing', () => {
     expect(onResult).toHaveBeenCalledWith({ success: true });
     expect(mocks.mountProject).toHaveBeenCalledWith('project-1');
     expect(mocks.provisionSession).toHaveBeenCalledWith('session-2');
-    expect(mocks.showPage).toHaveBeenCalledWith('https://example.com/', { reload: true, beside: true, activate: false });
+    expect(mocks.showPage).toHaveBeenCalledWith('https://example.com/', { intent: 'navigate', reload: true, beside: true, activate: false });
     dispose();
   });
 

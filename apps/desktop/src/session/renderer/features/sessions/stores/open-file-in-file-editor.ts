@@ -159,10 +159,13 @@ async function openSessionFile(
   if (!provisioned) throw new Error('This session has no prepared workspace');
   const workspace = workspaceRegistry.get(projectId, provisioned.workspaceId);
   if (!workspace) throw new Error('This session has no workspace');
+  const viewModel = provisioned.viewModel;
+  const from = options?.from ?? (target === 'beside' && viewModel ? sessionConversationTabId(viewModel.paneLayout, sessionId) : viewModel?.activePane.resolvedActiveTabId ?? null);
+  const intent = options?.intent ?? 'navigate';
   const filePath = await expandHomeTildePath(rawFilePath);
   const resolvedPath = resolveEditorFilePath(workspace.path, filePath);
   if (resolvedPath === null) {
-    await openExternalFilePath(projectId, sessionId, filePath, { beside: target === 'beside' });
+    await openExternalFilePath(projectId, sessionId, filePath, { from, intent });
     return null;
   }
 
@@ -183,12 +186,10 @@ async function openSessionFile(
     return null;
   }
 
-  const viewModel = provisioned.viewModel;
   if (!viewModel) throw new Error('This session has no prepared pane');
 
   return openResolvedFileInPane(viewModel, resolvedPath, {
-    from: options?.from ?? (target === 'beside' ? sessionConversationTabId(viewModel.paneLayout, sessionId) : viewModel.activePane.resolvedActiveTabId ?? null),
-    intent: options?.intent ?? 'navigate',
+    from, intent,
     ...(at ? { place: { sessionId, at } } : {}),
     ...(ask ? { ask } : {}),
   });
@@ -238,12 +239,15 @@ export async function openExternalFilePath(
   projectId: string,
   sessionId: string,
   rawFilePath: string,
-  opts?: { beside?: boolean }
+  opts?: { beside?: boolean; from?: string | null; intent?: TabOpenIntent }
 ): Promise<void> {
   // `~/` 展开在这条路同样要做:终端链接检测把 `~/` 前缀标成 external 走到这儿,
   // 不展开的话会拿字面 `~` 开外部页签,而 readExternalFile 只收绝对路径 —— 必然坏页签。
-  const filePath = await expandHomeTildePath(rawFilePath);
   const provisioned = asProvisioned(getSessionPageStore(projectId, sessionId));
+  const viewModel = provisioned?.viewModel ?? getSessionView(projectId, sessionId);
+  const from = opts?.from !== undefined ? opts.from : opts?.beside && viewModel ? sessionConversationTabId(viewModel.paneLayout, sessionId) : viewModel?.activePane.resolvedActiveTabId ?? null;
+  const intent = opts?.intent ?? 'navigate';
+  const filePath = await expandHomeTildePath(rawFilePath);
   // 工作区外的绝对路径先问一句「它是什么」:缺失 → 明确 toast(❌ 不是开出永远 Loading 的
   // 外部 tab);目录 → 系统文件管理器开它本身。stat 不可用(工作区已不在等)按原路由走,
   // ❌ 不因此静默吞掉点开动作。
@@ -266,12 +270,10 @@ export async function openExternalFilePath(
   // 画不出来的那几种才交给系统(见 `attachmentOpenTarget`)。
   const target = attachmentOpenTarget(filePath);
   if (target !== 'system') {
-    const viewModel = provisioned?.viewModel ?? getSessionView(projectId, sessionId);
     // 没有可用的面板就退到系统默认程序 —— ❌ 不许在这里静默 return。
     // 「未选择项目」建出来的任务没有工作区面板,而它照样附得了文件(#5269)。
     if (viewModel) {
-      if (opts?.beside) viewModel.paneLayout.open('file', { path: filePath, external: true }, { from: sessionConversationTabId(viewModel.paneLayout, sessionId), intent: 'navigate' });
-      else viewModel.activePane.open('file', { path: filePath, external: true }, { intent: 'navigate' });
+      viewModel.paneLayout.open('file', { path: filePath, external: true }, { from, intent });
       return;
     }
   }
@@ -502,7 +504,7 @@ export function openHostRequestedExtensionInSessionWhenReady({
             tabKind,
             {},
             // `reveal` = 人点的(横幅、gugu://ext 链接):要看它,亮出来;agent 请上屏的不切走用户正看着的。
-            { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent: 'navigate', activate: reveal },
+            { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent, activate: reveal },
           );
           onResult({ success: true });
         } catch (error) {
@@ -562,7 +564,7 @@ export function openHostRequestedBrowserInSessionWhenReady({
           );
           return;
         }
-        session.viewModel.showPage(url, {  reload: true, beside: true, activate: false });
+        session.viewModel.showPage(url, { intent, reload: true, beside: true, activate: false });
         onResult({ success: true });
       } catch (error) {
         onResult({

@@ -123,7 +123,7 @@ describe('左栏「退出」(#7050)', () => {
     expect(appState.navigation.currentViewId).not.toBe('app');
     expect(rpc.extensions.quit).toHaveBeenCalledWith({ extensionId: 'timer' });
     expect(installedExtensionsStore.quit).toEqual(['timer']);
-    expect([...extensionViewStore.residentPages.values()].map((page) => page.place)).toEqual(['chat:c1']);
+    expect([...extensionViewStore.residentPages.values()].map((page) => page.place)).toEqual(['chat:c1:tab:b']);
     // Still drawn somewhere, so still open: the dot stays until that place goes too.
     expect(appIsRunning('timer')).toBe(true);
     extensionViewStore.release('timer.main', onScreen);

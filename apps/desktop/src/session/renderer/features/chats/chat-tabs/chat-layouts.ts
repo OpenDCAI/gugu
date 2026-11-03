@@ -1,4 +1,4 @@
-import { action, reaction, runInAction } from 'mobx';
+import { action, observable, reaction, runInAction } from 'mobx';
 import type { MessageItem } from '@gugu/core/shared/types/chat';
 import type { AppOpenWithDetail } from '@shared/extensions/app-runtime-protocol';
 import { displayNameOf, fileOpenersFor } from '@shared/extensions/file-openers';
@@ -42,7 +42,8 @@ export const chatTabView = createTabView([chatTabProvider, chatPanelTabProvider,
 export type ChatLayout = PaneLayoutStore<typeof chatTabView.registry>;
 
 const layouts = new Map<string, ChatLayout>();
-const yieldedAuxiliary = new Set<string>();
+const yieldedAuxiliary = observable.set<string>();
+export const chatAuxiliaryYielded = (chatId: string): boolean => yieldedAuxiliary.has(chatId);
 
 /**
  * The chat's strip, made the first time anything asks for it (a block draws it, the shell opens something in it) and
@@ -74,7 +75,6 @@ export function chatLayoutOf(chatId: string): ChatLayout {
 
 /** A participant borrows the auxiliary place; no group tab or its state is closed. */
 export const yieldChatAuxiliary = action(function yieldChatAuxiliary(chatId: string): void {
-  const layout = chatLayoutOf(chatId);
   yieldedAuxiliary.add(chatId);
   showChatOnly(chatId);
 });
@@ -105,7 +105,7 @@ function tabsOf(layout: ChatLayout) {
 export function panelTabsOf(chatId: string): ChatPanelTab[] {
   return tabsOf(chatLayoutOf(chatId))
     .filter(({ tab }) => tab.kind === CHAT_PANEL_TAB_KIND)
-    .map(({ tab, pane, inWindow }) => ({ tabId: tab.tabId, item: pane.entries.get(tab.tabId)!.state as PanelItem, shown: tab.isActive, focused: tab.isFocused ?? tab.isActive, inWindow }));
+    .map(({ tab, pane, inWindow }) => ({ tabId: tab.tabId, item: pane.entries.get(tab.tabId)!.state as PanelItem, shown: tab.isActive && !yieldedAuxiliary.has(chatId), focused: tab.isFocused ?? tab.isActive, inWindow }));
 }
 
 /** Resolve a guest's host-stamped slot by exact identity among already-open contexts. */
@@ -133,7 +133,6 @@ export function shownPanelTab(chatId: string): ChatPanelTab | null {
 
 /** Whether only the chat is on screen: nothing beside it. */
 export function chatAlone(chatId: string): boolean {
-  const layout = chatLayoutOf(chatId);
   return !panelTabsOf(chatId).some((tab) => tab.shown);
 }
 
@@ -217,7 +216,7 @@ export function panelFull(chatId: string, tabId: string): boolean {
 /** The topic open beside this group, and whether it is on screen. */
 export function topicTabOf(chatId: string): { tabId: string; topic: ChatTopicState; shown: boolean } | null {
   const found = tabsOf(chatLayoutOf(chatId)).find(({ tab }) => tab.kind === CHAT_TOPIC_TAB_KIND);
-  return found ? { tabId: found.tab.tabId, topic: found.pane.entries.get(found.tab.tabId)!.state as ChatTopicState, shown: found.tab.isActive } : null;
+  return found ? { tabId: found.tab.tabId, topic: found.pane.entries.get(found.tab.tabId)!.state as ChatTopicState, shown: found.tab.isActive && !yieldedAuxiliary.has(chatId) } : null;
 }
 
 /** Open a topic beside its group (topics.md: beside the source line); another topic open takes its place. */
@@ -243,7 +242,7 @@ export const hideTopicTab = action(function hideTopicTab(chatId: string): void {
 /** The chat's info tab (members, announcement, settings), and whether it is on screen. */
 export function infoTabOf(chatId: string): { tabId: string; info: ChatInfoState; shown: boolean } | null {
   const found = tabsOf(chatLayoutOf(chatId)).find(({ tab }) => tab.kind === CHAT_INFO_TAB_KIND);
-  return found ? { tabId: found.tab.tabId, info: found.pane.entries.get(found.tab.tabId)!.state as ChatInfoState, shown: found.tab.isActive } : null;
+  return found ? { tabId: found.tab.tabId, info: found.pane.entries.get(found.tab.tabId)!.state as ChatInfoState, shown: found.tab.isActive && !yieldedAuxiliary.has(chatId) } : null;
 }
 
 /**

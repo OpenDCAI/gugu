@@ -46,7 +46,9 @@ export function PaneProvider({
   // The tab shortcuts listen on the document, so a retained page that is not on screen must not count
   // as focused — ⌘W would otherwise close the active tab of every retained page at once. With several
   // blocks on the screen (#7052) only the block looked at answers them.
-  const shown = useContext(PageShownContext) && useContext(TabLayerShownContext);
+  const pageShown = useContext(PageShownContext);
+  const layerShown = useContext(TabLayerShownContext);
+  const shown = pageShown && layerShown;
   const { focused: blockFocused } = useScreenBlock();
   const focused = isFocusedPane && shown && blockFocused;
   useTabShortcuts(group.pane, { focused });

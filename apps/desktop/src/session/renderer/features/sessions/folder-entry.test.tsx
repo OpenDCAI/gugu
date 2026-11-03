@@ -106,7 +106,7 @@ describe('folder entry E1-E3', () => {
     const items = await menu(undefined, true);
     expect(items.filter((item) => !item.closest('[data-apps]')).map(text)).toEqual(['Side chat', 'Review', 'Folder', 'Terminal', 'Browser', 'Ports']);
     await act(async () => items.find((item) => text(item) === 'Folder')!.click());
-    expect(h.open).toHaveBeenCalledWith('workspace.main', {}, { preview: false, target: { paneId: 'pane' } });
+    expect(h.open).toHaveBeenCalledWith('workspace.main', {}, { from: null, intent: 'newTab', target: { paneId: 'pane' } });
   });
   it('E1: the task Apps section omits only the folder and keeps other Apps', async () => {
     await menu();
@@ -141,6 +141,6 @@ describe('folder entry E1-E3', () => {
   it('control: other task Apps keep their original opening route', async () => {
     const items = await menu();
     await act(async () => items.find((item) => text(item) === 'Notes')!.click());
-    expect(h.open).toHaveBeenCalledWith('notes.main', {}, { preview: false, target: { paneId: 'pane' } });
+    expect(h.open).toHaveBeenCalledWith('notes.main', {}, { from: null, intent: 'newTab', target: { paneId: 'pane' } });
   });
 });

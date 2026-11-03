@@ -28,15 +28,15 @@ function setup() {
 }
 
 describe('the calling task live tabs', () => {
-  it('counts reused previews once and includes detached-window tabs', () => {
+  it('lists independent contexts and includes detached-window tabs', () => {
     const { layout, add } = setup();
     add('session', 'Conversation');
     add('file', 'draft.html', true);
     const final = add('file', 'final.html', true);
-    expect(sessionPaneTabs(layout).map((tab) => tab.title)).toEqual(['Conversation', 'final.html']);
+    expect(sessionPaneTabs(layout).map((tab) => tab.title)).toEqual(['Conversation', 'draft.html', 'final.html']);
     expect(layout.detachToWindow(final)).not.toBeNull();
     expect(sessionPaneTabs(layout)).toContainEqual({ tab_id: final, title: 'final.html', kind: 'file', closable: true });
-    expect(sessionPaneTabs(layout)).toHaveLength(2);
+    expect(sessionPaneTabs(layout)).toHaveLength(3);
     layout.dispose();
   });
 

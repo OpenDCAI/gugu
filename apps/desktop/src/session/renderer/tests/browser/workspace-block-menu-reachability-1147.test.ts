@@ -20,6 +20,10 @@ import { until } from '../../../../../../../tests/support/awaitCondition';
 
 // The shipped App, its actual Markdown renderer/CodeMirror and its shipped styles. Only the host's file/context API
 // is supplied here; pointer input goes through Chromium, not dispatchEvent or direct show/hide calls.
+async function splitMode() {
+  await userEvent.click(document.getElementById('more')!);
+  await userEvent.click([...document.getElementById('menu')!.querySelectorAll('button')].find((button) => button.textContent === 'Side by side')!);
+}
 const entry = { id: 'reachability', chat: 'group', name: 'reachability.md', path: 'notes/reachability.md', parentId: 'notes', type: 'text', contentType: 'text/markdown', sourceMessageIds: [] };
 const text = '# Reading\n\nFirst paragraph keeps its own actions.\n\nSecond paragraph has different source lines.\n\n' + 'More reading below.\n\n'.repeat(40);
 const ydoc = new Y.Doc();
@@ -400,7 +404,7 @@ it('slash divider after a paragraph remains a divider and whitespace ends slash 
   await until('the slash menu filters to Divider', () => document.querySelectorAll('.cm-tooltip-autocomplete [role="option"]').length === 1 && document.querySelector('.cm-tooltip-autocomplete')?.textContent?.includes('Divider') === true);
   await userEvent.click(document.querySelector('.cm-tooltip-autocomplete [role="option"]')!);
   expect(file.text).toBe('Paragraph.\n***\n');
-  await userEvent.click(byId('mode-split'));
+  await splitMode();
   await until('the paragraph is not converted into a setext heading', () => !!byId('preview').querySelector('hr') && byId('preview').querySelector('p')?.textContent === 'Paragraph.');
   await showSource('\n');
   await userEvent.click(byId('mode-edit'));
@@ -544,7 +548,7 @@ it('filters / on an empty source line and inserts the same Quote template', asyn
   expect(file.text).toBe(`${text}> \n`);
   expect(editor().state.selection.main.head).toBe(at + 2);
   await userEvent.keyboard('From slash');
-  await userEvent.click(byId('mode-split'));
+  await splitMode();
   await until('slash content is rendered from Y.Text', () => byId('preview').querySelector('blockquote')?.textContent?.includes('From slash') === true);
 });
 
@@ -578,7 +582,7 @@ it('keeps both mouse handles outside the text in a narrow reading pane and side-
   try {
     for (const [mode, width] of [['preview', 480], ['split', 1100]] as const) {
       await page.viewport(width, 760);
-      await userEvent.click(byId(`mode-${mode}`));
+      if (mode === 'split') await splitMode(); else await userEvent.click(byId('mode-preview'));
       const paragraph = byId('preview').querySelector<HTMLElement>('p[data-line="3-3"]')!.getBoundingClientRect();
       await pointer(paragraph.left + 40, paragraph.top + paragraph.height / 2);
       await until('both block controls appear beside the paragraph', () => !controls().hidden);

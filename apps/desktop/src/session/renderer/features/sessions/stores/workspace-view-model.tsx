@@ -33,7 +33,6 @@ import { sessionRegistry } from '@renderer/features/sessions/stores/session-regi
 import { closeTabsOfSession, findChatPaneId, sessionConversationTabId } from '../view/session-pane-policy';
 import type { OpenedOutput } from '@gugu/session-chat-ui/opened-outputs';
 import type { TerminalShellId } from '@shared/core/terminals/terminal-settings';
-import { browserAddressKey } from '@shared/browser';
 import type {
   DiffViewSnapshot,
   SessionViewSnapshot,

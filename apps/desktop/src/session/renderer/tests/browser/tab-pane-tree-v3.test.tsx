@@ -10,7 +10,7 @@ import '@renderer/index.css';
 
 let harness: ReturnType<typeof createReactHarness>;
 let layout: PaneLayoutStore;
-afterEach(() => { harness?.unmount(); layout?.dispose(); });
+afterEach(() => { harness?.cleanup(); layout?.dispose(); });
 
 async function mount() {
   harness = createReactHarness();
@@ -19,7 +19,8 @@ async function mount() {
   layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'tree-v3' });
   layout.open('page', { id: 'conversation' }, { from: null, intent: 'newTab' });
   const other = layout.open('page', { id: 'folder' }, { from: null, intent: 'newTab' })!;
-  layout.splitPane(layout.activePaneId, 'right', other);
+  layout.focusedPane.setDimensions(harness.container.clientWidth, harness.container.clientHeight);
+  expect(layout.splitPane(layout.activePaneId, 'right', other)).toBe(true);
   await act(() => harness.render(<PaneTreeView layout={layout} renderPane={(id) => <iframe title={id} style={{ width: '100%', height: '100%' }} />} />));
   await until('the actual split has a measurable divider', () => harness.container.querySelector<HTMLElement>('[data-slot="resizable-handle"]')?.getBoundingClientRect().height ?? 0, (height) => height > 100);
 }

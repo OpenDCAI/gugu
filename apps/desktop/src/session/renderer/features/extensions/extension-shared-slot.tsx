@@ -40,7 +40,9 @@ export function ExtensionSharedSlot({
   // A retained session page that is hidden keeps this slot mounted, but must not hold the App page: the
   // root layer only re-places it on a claim change, so a hidden claim would leave it drawn over the
   // session now shown. Claim while shown, release when hidden — the page itself stays in the root layer.
-  const shown = useContext(PageShownContext) && useContext(TabLayerShownContext);
+  const pageShown = useContext(PageShownContext);
+  const layerShown = useContext(TabLayerShownContext);
+  const shown = pageShown && layerShown;
   // A session's slot is in the person's private chat with its agent (`AppWhere`); a chat's slot is in its chat.
   const conversation = useTaskConversation(chatId ? null : sessionId) ?? undefined;
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { act, createElement, Fragment, useState } from 'react'
+import { act, useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { createReactHarness } from '../../../support/testHarness'
 import { installShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'

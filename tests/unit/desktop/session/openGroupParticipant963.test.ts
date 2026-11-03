@@ -57,7 +57,7 @@ describe('authorized focus notification to participant workspace', () => {
     const request = groupParticipantRequests.prepare(source.chatId, target);
     disposers.push(openRequestedGroupParticipant(target, request.requestId)!);
     runInAction(() => ready.set(true));
-    expect(state.open).toHaveBeenCalledExactlyOnceWith('acp-chat', { sessionId: 'a' }, { preview: false });
+    expect(state.open).toHaveBeenCalledExactlyOnceWith('acp-chat', { sessionId: 'a' }, { from: null, intent: 'newTab' });
     expect(screenLayout.sessions.map(one => one.sessionId)).toEqual(['a']);
   });
 

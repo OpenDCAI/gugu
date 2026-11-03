@@ -56,7 +56,7 @@ function projectConsumerKeys(): string[] {
  * 个域最容易复发的那种改动。
  */
 function tabsConsumerKeys(): string[] {
-  const tabsRoot = fileURLToPath(new URL('../features/tabs/', import.meta.url));
+  const tabsRoot = fileURLToPath(new URL('../features/', import.meta.url));
   const keys = new Set<string>();
 
   for (const path of projectSourceFiles(tabsRoot)) {

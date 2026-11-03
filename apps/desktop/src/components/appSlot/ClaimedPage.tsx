@@ -61,7 +61,7 @@ export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, resou
       restyled.disconnect()
       if (token !== null) extensionViewStore.release(kind, token)
     }
-  }, [chatId, resourceChat, kind, itemId, slotId, viewState, navigation?.canBack, navigation?.canForward])
+  }, [chatId, resourceChat, kind, itemId, slotId, viewState, navigation])
   return (
     <div ref={boxRef} className="min-h-0 flex-1">
       {noPage ? (

@@ -22,7 +22,7 @@ const isResident = (state: unknown): boolean => !(state as { filePath?: string }
  *
  * 收用的是强关:这不是人在关它(人关它 = 从这里拿走,见 extension-tab-provider 的 onBeforeClose),不该再改那张表。
  */
-export function startAppPlacementSync(paneLayout: SessionPaneLayout, sessionId: string): () => void {
+export function startAppPlacementSync(paneLayout: SessionPaneLayout, _sessionId: string): () => void {
   return autorun(() => {
     for (const { pane } of paneLayout.groups) {
       const doomed: string[] = [];
