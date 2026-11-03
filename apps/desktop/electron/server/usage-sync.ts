@@ -8,12 +8,13 @@ export function usageSyncStateStore(userData: string): Pick<UsageSyncDependencie
   const file = join(userData, 'usage-sync.json')
   return {
     readState(key) {
+      // 这一格只是本地的同步水位。读不出来(损坏、半截、根本不是对象)就从空水位重来 ——
+      // 抛出去等于让这个账号的用量同步**永久**停摆,而它每一轮只会再失败一次。
       try {
         const saved = JSON.parse(readFileSync(file, 'utf8')) as { key: string; state: UsageSyncState }
         return saved.key === key ? saved.state : {}
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
-        throw error
+      } catch {
+        return {}
       }
     },
     writeState(key, state) {
