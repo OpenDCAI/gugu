@@ -1,6 +1,7 @@
 import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
 import { startServerUsageSync } from './server/usage-sync'
+import { readStateFile, writeStateFile } from './app-state'
 import { noteExitReason } from './lib/exit-reason'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
@@ -1349,15 +1350,10 @@ function appStatePath(): string {
   return join(app.getPath('userData'), 'app-state.json')
 }
 
-function readAppState(): Record<string, unknown> {
-  const path = appStatePath()
-  if (!existsSync(path)) return {}
-  return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
-}
-
-function writeAppState(state: Record<string, unknown>): void {
-  writeFileSync(appStatePath(), JSON.stringify(state), 'utf8')
-}
+// 读写都在 `./app-state`:坏文件按「没写过」读、写是临时文件 + 改名 —— 从前这里是裸 JSON.parse + 裸 writeFileSync,
+// 一次中断留下的半截文件会让启动链每次都在 `readWindowTone()` 上抛死。
+const readAppState = (): Record<string, unknown> => readStateFile(appStatePath())
+const writeAppState = (state: Record<string, unknown>): void => writeStateFile(appStatePath(), state)
 
 /**
  * @@@window-tone — 无边框窗口(Windows/Linux)在网页内容画出来之前露出来的那块底色。
