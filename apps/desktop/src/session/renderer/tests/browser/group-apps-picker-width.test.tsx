@@ -1,8 +1,10 @@
 import { useRef } from 'react';
 import { runInAction } from 'mobx';
 import { afterEach, beforeEach, expect, it } from 'vitest';
+import { page } from 'vitest/browser';
+import { i18n } from '@/i18n';
 import { createReactHarness, renderWithAppProviders } from '../../../../../../../tests/support/testHarness';
-import { until } from '../../../../../../../tests/support/awaitCondition';
+import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import { GroupAppsPicker } from '@/components/chat/GroupAppsPicker';
 import { Popover } from '@/components/ui/Popover';
 import { installedExtensionsStore } from '../../features/extensions/installed-extensions-store';
@@ -11,10 +13,20 @@ import '@/i18n/registerMessagingCatalog';
 import '@/styles/tokens.css';
 
 let harness: ReturnType<typeof createReactHarness>;
-beforeEach(() => { harness = createReactHarness(); });
-afterEach(() => {
+let viewport: { width: number; height: number };
+let language: string;
+let manifests: typeof installedExtensionsStore.manifests;
+let disabled: typeof installedExtensionsStore.disabled;
+beforeEach(async () => {
+  viewport = { width: innerWidth, height: innerHeight }; language = i18n.language;
+  manifests = installedExtensionsStore.manifests; disabled = installedExtensionsStore.disabled;
+  await page.viewport(1000, 700); await i18n.changeLanguage('en-US');
+  harness = createReactHarness();
+});
+afterEach(async () => {
   harness.cleanup();
-  runInAction(() => { installedExtensionsStore.manifests = []; installedExtensionsStore.disabled = []; });
+  runInAction(() => { installedExtensionsStore.manifests = manifests; installedExtensionsStore.disabled = disabled; });
+  await i18n.changeLanguage(language); await page.viewport(viewport.width, viewport.height);
 });
 
 function Picker() {
@@ -32,26 +44,33 @@ async function measure(name: string) {
   });
   await renderWithAppProviders(harness, <Picker />);
   await until('the actual Apps picker and row are laid out', () => (document.querySelector('[data-app-id="width-app"]')?.getBoundingClientRect().width ?? 0) > 0);
+  expect(document.querySelectorAll('[data-slot="popover-popup"]')).toHaveLength(1);
   const popup = document.querySelector<HTMLElement>('[data-slot="popover-popup"]')!;
+  expect(popup.querySelector('.truncate')?.textContent).toBe(name);
+  await document.fonts.ready;
   await until('the picker entry transition has settled before measuring layout width', () => !popup.hasAttribute('data-starting-style') && Math.abs(popup.getBoundingClientRect().width - parseFloat(getComputedStyle(popup).width)) < 0.1);
+  await untilStable('the real picker layout width is stable', () => popup.getBoundingClientRect().width);
   const width = popup.getBoundingClientRect().width;
   const spacing = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--spacing'));
   // The theme spacing token is rem-based; resolve it through the root font size.
   const unit = spacing * parseFloat(getComputedStyle(document.documentElement).fontSize);
-  console.info('GROUP_APPS_PICKER_WIDTH', JSON.stringify({ name, width, minimum: 40 * unit, maximum: Math.min(80 * unit, innerWidth - 4 * unit) }));
+  console.info('GROUP_APPS_PICKER_WIDTH', JSON.stringify({ name, viewport: innerWidth, width, minWidth: getComputedStyle(popup).minWidth, maxWidth: getComputedStyle(popup).maxWidth, minimum: 40 * unit, maximum: Math.min(80 * unit, innerWidth - 4 * unit) }));
   return { popup, width, unit };
 }
 
-it('[immediate] hugs short App names instead of stretching the picker to its maximum', async () => {
-  const { width, unit } = await measure('Go');
-  expect(width, 'the existing theme spacing token resolves').toBeGreaterThan(0);
-  expect(width).toBeGreaterThanOrEqual(40 * unit);
-  expect(width, 'short picker content must not occupy the full maximum').toBeLessThan(80 * unit);
+it('[immediate] hugs short App names and grows for long names in the same picker', async () => {
+  const short = await measure('A');
+  const long = await measure('A very long installed application name '.repeat(8));
+  expect(short.width).toBeGreaterThan(0);
+  expect(short.width, 'short picker content must grow with long names').toBeLessThan(long.width);
+  expect(short.width).toBeGreaterThanOrEqual(40 * short.unit);
+  expect(long.width).toBeLessThanOrEqual(Math.min(320, innerWidth - 16));
 });
 
-it('[immediate control] preserves the maximum and truncates a long App name inside the picker', async () => {
-  const { popup, width, unit } = await measure('A very long installed application name '.repeat(8));
-  expect(width).toBeCloseTo(Math.min(80 * unit, innerWidth - 4 * unit), 0);
+it('[immediate control] preserves the old maximum at a narrow viewport and truncates a long App name', async () => {
+  await page.viewport(320, 700);
+  const { popup, width } = await measure('A very long installed application name '.repeat(8));
+  expect(width).toBeCloseTo(Math.min(320, innerWidth - 16), 0);
   const label = popup.querySelector<HTMLElement>('.truncate')!;
   expect(label.scrollWidth).toBeGreaterThan(label.clientWidth);
   expect(popup.scrollWidth).toBeLessThanOrEqual(popup.clientWidth);

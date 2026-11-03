@@ -41,12 +41,12 @@ beforeEach(() => {
 })
 afterEach(() => { runInAction(() => { installedExtensionsStore.manifests = []; installedExtensionsStore.disabled = [] }); harness.cleanup(); resizeCallbacks.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-async function header(kind: 'group' | 'topic' | 'dm', options: { mobile?: boolean; menu?: boolean; infoShown?: boolean; stripNarrow?: boolean; pinned?: boolean; muted?: boolean; topics?: ChatItem[] } = {}) {
+async function header(kind: 'group' | 'topic' | 'dm', options: { mobile?: boolean; menu?: boolean; infoShown?: boolean; stripNarrow?: boolean; pinned?: boolean; muted?: boolean; topics?: ChatItem[]; status?: 'working' | 'needs_user' } = {}) {
   if (options.stripNarrow) { harness.container.className = 'session-tab-bar'; harness.container.setAttribute('data-strip-narrow', '') }
   const room = {
     snapshot: { humans: [{ id: 'human' }], agents: [{ id: 'agent-1' }, { id: 'agent-2' }] } as GroupCollabSnapshot,
     settings: { my_role: 'member', can_manage: false, allow_member_invite: false } as GroupChatSettings,
-    statusIndicatorProps: { role: 'img' as const, 'data-agent-display-status': 'working', 'aria-label': 'Working' } as ReturnType<typeof groupAgentStatusIndicatorProps>,
+    statusIndicatorProps: { role: 'img' as const, 'data-agent-display-status': options.status ?? 'working', 'aria-label': 'Working' } as ReturnType<typeof groupAgentStatusIndicatorProps>,
     onReload: vi.fn(async () => {}),
   }
   const chat = { id: 'chat', kind, is_pinned: options.pinned ?? false, notification_level: options.muted ? 'none' : 'all' }
@@ -91,6 +91,11 @@ describe('final group toolbar v4', () => {
     expect(members.title).toBe('成员列表')
   })
 
+  it.each(['working', 'needs_user'] as const)('[immediate] member pill omits the %s status glyph', async (status) => {
+    await header('group', { status })
+    expect(button('成员列表')?.querySelector('[data-agent-display-status]')).toBeNull()
+  })
+
   it.each([['en-US', enMessaging, 'Apps'], ['zh-CN', zhMessaging, '应用']] as const)('[immediate] %s uses the short Apps label', (_locale, catalog, label) => {
     expect(catalog.header.groupApps).toBe(label)
   })
@@ -105,7 +110,7 @@ describe('final group toolbar v4', () => {
     expect(button('群文件夹')).toBeUndefined()
     expect(menuItem('搜索聊天记录')).toBeDefined()
     expect(menuItem('群文件夹')).toBeDefined()
-    expect(harness.container.querySelector('[data-agent-display-status="working"]')).not.toBeNull()
+    expect(harness.container.querySelector('[data-agent-display-status="working"]')).toBeNull()
   })
 
   it.each(['mobile', 'strip', 'width'] as const)('%s: keeps topics but moves invitation and Apps into More', async (reason) => {

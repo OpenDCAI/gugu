@@ -12,7 +12,6 @@ import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
 import { Popover } from '../ui/Popover'
 import { DropdownMenu, MenuItem, MenuSeparator } from '../ui/Menu'
-import { AgentNeedsUserGlyph } from '../AgentNeedsUserGlyph'
 import { OpenAppMenuItems } from './OpenAppMenuItems'
 import { GroupAppsPicker } from './GroupAppsPicker'
 import { AddGroupMembers } from './AddGroupMembers'
@@ -64,13 +63,11 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   const openPopup = (kind: 'apps' | 'invite') => { onCloseHeaderMenu(); setPopup({ chatId: activeChatId, kind }) }
   const closePopup = () => setPopup({ chatId: activeChatId, kind: null })
   const memberCount = room ? room.snapshot.humans.length + room.snapshot.agents.length : 0
-  const status = room?.statusIndicatorProps
   const wideGroup = isGroupChat && !narrow
   return <Popover.Root open={popup.kind === 'apps' && !mobile} modal={false} onOpenChange={(open) => open ? openPopup('apps') : closePopup()}>
     {isRoomChat ? <>
       <Button variant="ghost" size="md" className={mobile ? 'min-h-[var(--control-h-touch)]' : undefined} data-testid={AUTOMATION_TEST_IDS.chatHeaderMembersButton} aria-label={t('header.memberList')} title={t('header.memberList')} aria-pressed={infoShown}
         onClick={() => infoShown ? onCloseInfo() : onOpenInfo('members')}>
-        {status && <span {...status}>{status['data-agent-display-status'] === 'needs_user' ? <AgentNeedsUserGlyph size={8} /> : null}</span>}
         <Users className="text-[var(--faint-fg)]" />{memberCount}
       </Button>
       {wideGroup && <span aria-hidden className="mx-1 h-4 border-s border-[var(--border)]" />}
