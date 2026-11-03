@@ -227,7 +227,7 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
       return;
     case 'openBrowserTab': {
       const view = requireSessionView(sessionId);
-      view.showPage(action.url, { reload: false });
+      view.showPage(action.url, { reload: false, from: tabId });
       view.setFocusedRegion('main');
       return;
     }

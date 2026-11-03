@@ -289,6 +289,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       intent = 'navigate',
       beside = false,
       activate = true,
+      from = beside ? sessionConversationTabId(this.paneLayout, this.sessionId) : this.activePane.resolvedActiveTabId ?? null,
     }: {
       reload: boolean;
       intent?: TabOpenIntent;
@@ -296,9 +297,9 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       beside?: boolean;
       /** 和 beside 一起:agent 打开的传 false —— 用户正看着别的就不切走,一对只在页签条上连好。 */
       activate?: boolean;
+      from?: string | null;
     }
   ): void {
-    const from = beside ? sessionConversationTabId(this.paneLayout, this.sessionId) : this.activePane.resolvedActiveTabId ?? null;
     this.paneLayout.open('browser', { initialUrl: url }, { from, intent, activate });
     if (reload) {
       const resource = this.activePane.activeResourceOfKind<BrowserTabResource>('browser');
