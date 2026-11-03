@@ -15,7 +15,7 @@ function deferred<T>() {
 const seq = (value: number) => value as Seq;
 const EXIT: ExitFact = { cause: { name: 'Lost', message: 'adapter exited' }, code: 1, signal: null };
 
-function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrowsOnce?: boolean; markReadFailsOnce?: boolean;
+function rig(options: { block?: StageName; delayReceipt?: boolean; uncertainAdmission?: boolean; dispatchThrowsOnce?: boolean; markReadFailsOnce?: boolean;
   failAt?: StageName; failAwaitsPerson?: boolean; exitBeforeFail?: boolean; holdTeardownOf?: { id: string; until: Promise<void> }; channelLostTimes?: number; failOnceAt?: StageName; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
   const records = new Map<string, { owner: string | null; hold: Hold | null; archived: boolean }>();
   const rows = new Map<Seq, PendingRow>();
@@ -59,7 +59,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
       for (const e of effects) {
       if (e.e === 'write-hold') records.get(id)!.hold = e.hold;
       if (e.e === 'write-receipt') { const row = rows.get(e.seq); assert.ok(row); const r = e.receipt;
-        rows.set(e.seq, { ...row, state: r.state, failure: r.state === 'dispatching' ? row.failure : r.state === 'failed' ? r.cause : r.state === 'queued' ? r.channelLost ?? null : null }); }
+        rows.set(e.seq, { ...row, state: r.state, failure: r.state === 'dispatching' ? row.failure : r.state === 'failed' || r.state === 'unknown' ? r.cause ?? null : r.state === 'queued' ? r.channelLost ?? null : null }); }
     } },
     claim(id) { const claimed: Seq[] = []; for (const row of rows.values()) if (row.sessionId === id && row.state === 'dispatching') { rows.set(row.seq, { ...row, state: 'unknown' }); claimed.push(row.seq); } return claimed; },
     acceptedUnsettled(id) { return [...rows.values()].filter(row => row.sessionId === id && row.state === 'accepted' && !settled.has(row.seq)).map(row => row.seq); },
@@ -88,7 +88,8 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
           if (at !== 'identity' && at !== 'channel') active.add(lease);
           return (at === 'identity' ? { kind: 'bound', agentUserId: 'agent' } : lease) as StageOut[K];
         },
-        async dispatch(_have, row) { dispatched.push(row.seq); dispatchStarted.resolve();
+        async dispatch(_have, row, ctx) { dispatched.push(row.seq); dispatchStarted.resolve();
+          if (options.uncertainAdmission) ctx.onUncertain?.({ name: 'AdmissionUncertain', message: 'No provider response yet' });
           if (throwOnce) { throwOnce = false; throw new Error('worker RPC failed'); }
           if (lostTimes > 0) { lostTimes -= 1; return { result: 'channel-lost', cause: { name: 'AcpSessionMissing', message: 'gone' } }; }
           return options.delayReceipt ? receipt.promise : { result: 'accepted', nativeReceiptId: row.message.id }; },
@@ -108,6 +109,25 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
 }
 
 export const ownerCases: readonly { name: string; run: () => Promise<void> }[] = [
+  { name: 'uncertain admission retains host custody and the native attempt, then settles its original late receipt', async run() {
+    const r = rig({ delayReceipt: true, uncertainAdmission: true }); r.session(); await r.owner.signIn('A');
+    const { seq: original } = r.send('s', 'original-input');
+    await r.dispatchStarted.promise;
+    assert.equal(r.rows.get(original)?.state, 'unknown');
+    assert.equal(r.rows.get(original)?.failure?.name, 'AdmissionUncertain');
+    assert.equal(r.owner.read('s').pending.items[0]?.awaitingReceipt, true);
+    assert.equal(r.owner.read('s').pending.items[0]?.failure, 'No provider response yet');
+    assert.equal(r.send('s', 'original-input').seq, original);
+    assert.deepEqual(r.dispatched, [original]);
+    assert.equal(r.trace.includes('teardown'), false);
+    r.receipt.resolve({ result: 'accepted', nativeReceiptId: 'native-receipt' });
+    await r.owner.quiescent('s');
+    assert.equal(r.rows.get(original)?.state, 'accepted');
+    assert.equal(r.rows.get(original)?.failure, null);
+    assert.deepEqual(r.dispatched, [original]);
+    assert.deepEqual(r.marked, [original]);
+    assert.equal(r.trace.includes('teardown'), false);
+  } },
   { name: 'only a person\'s own prompt can be discarded: a delivery has a sender, and a chat-page first turn is what the run needs', async run() {
     const r = rig({ block: 'identity' }); r.session(); const own = r.enqueue();
     await r.owner.signIn('A'); await r.blocked.promise;

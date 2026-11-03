@@ -213,10 +213,11 @@ export interface AcpAgentApi {
     requestId: string;
     message: Extract<NormalizedEvent, { kind: 'message' }>;
     /**
-     * A native receipt that has not arrived by then is cancelled and rejected as `prompt_admission_timeout`.
+     * Native inactivity budget. Expiry reports uncertain admission; the request remains owned until its real receipt.
      * Transports without a native receipt ignore it: their admission is the provider's first event or the RPC.
      */
     admissionTimeoutMs?: number;
+    onAdmissionUncertain?: () => void;
   }): Promise<SessionPromptReceipt>;
   /** Admission through the negotiated steering extension; completion remains on the event stream. */
   steer?(params: PromptRequest, dispatch?: Parameters<AcpAgentApi['prompt']>[1]): Promise<'injected' | 'promptRequired'>;

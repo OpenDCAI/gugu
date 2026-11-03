@@ -393,7 +393,10 @@ export class SessionLife {
         }
         let result: Awaited<ReturnType<LegAdapter['dispatch']>>;
         try {
-          result = await run.adapter.dispatch(entry.life.have, this.ports.store(sessionId).row(sessionId, effect.seq), { gen: run.gen, signal: run.abort.signal });
+          result = await run.adapter.dispatch(entry.life.have, this.ports.store(sessionId).row(sessionId, effect.seq), {
+            gen: run.gen, signal: run.abort.signal,
+            onUncertain: cause => this.send(sessionId, { k: 'admission-uncertain', gen: run.gen, seq: effect.seq, cause }),
+          });
         } catch (error) {
           // @@@dispatch-throw - bytes may have left: the channel is no longer a proven admission path.
           // Exit records this row as unknown (never replayed) and restarts only for the rows behind it.
@@ -450,9 +453,11 @@ export class SessionLife {
     const hold = life.kind === 'dormant' || life.kind === 'failed' ? life.hold : life.kind === 'stopping' && life.destination.kind === 'held' ? life.destination.hold : null;
     return { sessionId, version: entry.version, kind: life.kind,
       stage: stageOf(entry),
-      pending: { count: rows.filter(row => row.state === 'queued' || row.state === 'dispatching').length,
+      pending: { count: rows.filter(row => row.state === 'queued' || row.state === 'dispatching' ||
+        (row.state === 'unknown' && life.kind === 'ready' && life.admission.kind === 'awaiting' && life.admission.seq === row.seq)).length,
         items: rows.map(row => ({ seq: row.seq, messageId: row.message.id, preview: row.message.text.slice(0, 160), text: row.message.text, kind: row.kind, sentAt: row.sentAt, discardable: discardable(row),
-          state: row.state, failure: row.state === 'failed' ? row.failure?.message ?? null : null })) },
+          state: row.state, failure: row.state === 'failed' || row.state === 'unknown' ? row.failure?.message ?? null : null,
+          ...(row.state === 'unknown' && life.kind === 'ready' && life.admission.kind === 'awaiting' && life.admission.seq === row.seq ? { awaitingReceipt: true } : {}) })) },
       hold: hold?.reason ?? null,
       failure: life.kind === 'failed' ? { at: life.hold.reason === 'start-failed' ? life.hold.stage : null, message: life.hold.cause.message, cause: life.hold.cause } : null,
       lastExit: life.kind === 'dormant' ? life.lastExit?.cause.message ?? null : null,

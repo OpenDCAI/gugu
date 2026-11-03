@@ -210,19 +210,103 @@ describe('connectStdioAcpV2', () => {
     await expect(pair.api.prompt({ sessionId: 's1', prompt: [] })).rejects.toMatchObject({ code: -32800 });
   });
 
-  it('cancels and rejects a native receipt that misses its admission deadline (prompt_admission_timeout)', async () => {
-    const pair = agentPair({ prompt: () => new Promise(() => {}) });
+  it('reports silent admission once, keeps the provider alive and accepts the original late receipt', async () => {
+    const native = Promise.withResolvers<v2.PromptResponse>();
+    const pair = agentPair({ prompt: () => native.promise });
     await initialize(pair.api);
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
+      const uncertain = vi.fn();
       const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
         requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
+        onAdmissionUncertain: uncertain,
       });
-      const rejected = expect(receipt).rejects.toMatchObject({ code: 'prompt_admission_timeout' });
       await vi.advanceTimersByTimeAsync(60_000);
-      await rejected;
+      expect(uncertain).toHaveBeenCalledTimes(1);
+      expect(pair.cancels).toEqual([]);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(uncertain).toHaveBeenCalledTimes(1);
+      native.resolve({ messageId: 'native' });
+      await expect(receipt).resolves.toMatchObject({ status: 'accepted', messageId: 'native' });
     } finally { vi.useRealTimers(); }
-    await vi.waitFor(() => expect(pair.cancels).toEqual([{ sessionId: 's1' }]));
+  });
+
+  it('refreshes inactivity on session progress and pauses for the entire native compaction operation', async () => {
+    const native = Promise.withResolvers<v2.PromptResponse>();
+    const pair = agentPair({ prompt: () => native.promise });
+    await initialize(pair.api);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const uncertain = vi.fn();
+      const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' },
+        admissionTimeoutMs: 60_000, onAdmissionUncertain: uncertain,
+      });
+      void receipt.catch(() => undefined); // Keep the baseline rejection observed before checking it below.
+      await vi.advanceTimersByTimeAsync(59_000);
+      await pair.send({ sessionUpdate: 'state_update', state: 'running' });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(59_000);
+      expect(uncertain).not.toHaveBeenCalled();
+      await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(uncertain).not.toHaveBeenCalled();
+      await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'completed' });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(uncertain).not.toHaveBeenCalled();
+      native.resolve({ messageId: 'native' });
+      await expect(receipt).resolves.toMatchObject({ messageId: 'native' });
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(uncertain).not.toHaveBeenCalled();
+      expect(pair.cancels).toEqual([]);
+    } finally { native.resolve({ messageId: 'native' }); vi.useRealTimers(); }
+  });
+
+  it('honors compaction already in progress when a prompt starts, then reports complete silence', async () => {
+    const native = Promise.withResolvers<v2.PromptResponse>();
+    const pair = agentPair({ prompt: () => native.promise });
+    await initialize(pair.api);
+    await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' });
+    await vi.waitFor(() => expect(pair.updates).toHaveLength(1));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const uncertain = vi.fn();
+      const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' },
+        admissionTimeoutMs: 60_000, onAdmissionUncertain: uncertain,
+      });
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(uncertain).not.toHaveBeenCalled();
+      await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'failed' });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(uncertain).toHaveBeenCalledTimes(1);
+      native.resolve({ messageId: 'native' });
+      await expect(receipt).resolves.toMatchObject({ messageId: 'native' });
+      expect(pair.cancels).toEqual([]);
+    } finally { native.resolve({ messageId: 'native' }); vi.useRealTimers(); }
+  });
+
+  it('does not count a different session as life for the outstanding admission', async () => {
+    const native = Promise.withResolvers<v2.PromptResponse>();
+    const pair = agentPair({ prompt: () => native.promise });
+    await initialize(pair.api);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const uncertain = vi.fn();
+      const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' },
+        admissionTimeoutMs: 60_000, onAdmissionUncertain: uncertain,
+      });
+      await vi.advanceTimersByTimeAsync(59_000);
+      await pair.agent().notify(v2.methods.client.session.update, { sessionId: 'other', update: { sessionUpdate: 'state_update', state: 'running' } });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(uncertain).toHaveBeenCalledTimes(1);
+      native.resolve({ messageId: 'native' });
+      await receipt;
+    } finally { native.resolve({ messageId: 'native' }); vi.useRealTimers(); }
   });
 
   it('preserves terminal bytes and references without projecting tool text', async () => {

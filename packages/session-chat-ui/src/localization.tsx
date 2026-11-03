@@ -121,6 +121,7 @@ const fallbackMessages = {
   'transcript.waitingHostNotReady': 'Machine not ready',
   'transcript.waitingSendInterrupted': 'Send interrupted',
   'transcript.waitingAcknowledgement': 'Awaiting acknowledgement',
+  'transcript.waitingNativeReceipt': 'Unconfirmed · No response yet',
   'transcript.sendFailed': 'Send failed',
   'transcript.sendUnknown': 'Delivery unknown; not resent',
   'transcript.retrySend': 'Retry',

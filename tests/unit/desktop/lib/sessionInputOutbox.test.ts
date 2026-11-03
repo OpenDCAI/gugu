@@ -5,6 +5,15 @@ import { buildSessionDirectEnvelope } from '@gugu/core/local/agent/deliveryEnvel
 import { openSessionInputStorage, SessionInputOutbox, sessionInputBubbles, withSessionInputDeadline, type HostPendingRow, type SessionInput, type SessionInputFailure } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 
 describe('native session input persistence', () => {
+  it('projects an outstanding host-owned receipt as waiting and clears it after acceptance', () => {
+    const row: HostPendingRow = { seq: 1, messageId: 'original', text: 'hello', preview: 'hello',
+      kind: 'ordinary', sentAt: 1, state: 'unknown', awaitingReceipt: true, failure: 'No native activity' };
+    expect(sessionInputBubbles([], [row], null)).toEqual([
+      { id: 'original', text: 'hello', state: 'waiting', failure: { code: 'no-acknowledgement' } },
+    ]);
+    expect(sessionInputBubbles([], [{ ...row, state: 'accepted', awaitingReceipt: undefined }], null)).toEqual([]);
+  });
+
   it('keeps a failure visible through automatic retry and clears it when a manual retry actually begins', async () => {
     const storage = await openSessionInputStorage(new IDBFactory())
     let finish: (() => void) | undefined

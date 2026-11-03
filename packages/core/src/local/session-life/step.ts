@@ -21,7 +21,7 @@ function assertNever(value: never): never {
 // Only this module seals lifecycle values. Hydration can only construct non-running states.
 function seal(value: LifeShape): Life { return value as Life }
 function unchanged(state: Life): Transition { return [state, []] }
-type RowlessEvent = Exclude<Event, { k: 'discard-row' }>
+type RowlessEvent = Exclude<Event, { k: 'discard-row' | 'admission-uncertain' }>
 
 function protocol(state: Life, event: Event): never { throw new LifeProtocolError(state.kind, event.k) }
 
@@ -306,7 +306,7 @@ function stepReady(state: Extract<Life, { kind: 'ready' }>, event: RowlessEvent,
       if (state.have.channel.timing !== 'idle-only') return protocol(state, event)
       return state.admission.kind === 'busy' ? pump(state, q) : unchanged(state)
     case 'exit': {
-      const effects: Effect[] = state.admission.kind === 'awaiting' ? unknownRows([state.admission.seq]) : []
+      const effects: Effect[] = state.admission.kind === 'awaiting' && q.dispatching.includes(state.admission.seq) ? unknownRows([state.admission.seq]) : []
       effects.push({ e: 'teardown', gen: state.gen, have: state.have })
       if (head(q) === null) return [seal({ kind: 'dormant', hold: null, lastExit: event.exit }), effects]
       const [next, run] = start(ctx, false)
@@ -398,6 +398,13 @@ export function step(state: Life, event: Event, q: PendingView, ctx: StepContext
   }
   if ('gen' in event) {
     if (state.kind === 'dormant' || state.kind === 'failed' || state.kind === 'archived' || !sameGen(state.gen, event.gen)) return unchanged(state)
+  }
+  if (event.k === 'admission-uncertain') {
+    // This is a status report, not a receipt or an exit. Keep the same dispatch lease for its late receipt.
+    if (state.kind !== 'ready' || state.admission.kind !== 'awaiting' || state.admission.seq !== event.seq) return unchanged(state)
+    return [state, [
+      { e: 'write-receipt', seq: event.seq, receipt: { state: 'unknown', cause: event.cause } },
+    ]]
   }
   switch (state.kind) {
     case 'dormant': return stepDormant(state, event, q, ctx)

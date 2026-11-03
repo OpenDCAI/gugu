@@ -11,6 +11,19 @@ const view = (items: LifeView['pending']['items']): LifeView => ({ sessionId: 's
 const turn = (id: string, text: string): TranscriptTurn => ({ id, seq: 1, initiator: 'agent', startedAt: 5000, items: [{ kind: 'message', id: `${id}:native-user`, seq: 0, role: 'user', text }] })
 
 describe('incoming delivery custody', () => {
+  it('shows an owned uncertain admission on its existing bubble and clears it after the late receipt', () => {
+    const pending = { ...row('original', 1, 'unknown'), awaitingReceipt: true, failure: 'No provider response yet' }
+    const history = [turn('native', pending.text)]
+    const waiting = projectSessionPendingDeliveries([], view([pending]), history)
+    expect(waiting).toHaveLength(1)
+    expect(waiting[0]).toMatchObject({ id: 'original', delivery: { state: 'waiting', retryable: false, error: pending.failure } })
+    expect(waiting[0]?.delivery?.reason).toBeTruthy()
+    const projection = projectPendingMessages(history, null, waiting)
+    expect(projection.committed[0]?.items).toHaveLength(1)
+    expect(projection.committed[0]?.items[0]).toMatchObject({ sendStatus: { state: 'waiting', reason: waiting[0]?.delivery?.reason } })
+    expect(projectSessionPendingDeliveries(waiting, view([]), history)).toEqual([])
+    expect(history[0]?.items[0]).not.toHaveProperty('sendStatus')
+  })
   it('orders host messages by queue sequence, preserves the envelope, and leaves manual queue inputs alone', () => {
     const a = row('a', 1), b = row('b', 2)
     const result = projectSessionPendingDeliveries([], view([b, { ...row('manual', 0), kind: 'ordinary' }, a]), [])

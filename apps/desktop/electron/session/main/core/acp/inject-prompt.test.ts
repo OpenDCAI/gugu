@@ -27,6 +27,23 @@ async function busySession() {
 }
 
 describe('shared ACP prompt admission', () => {
+  it('publishes uncertainty and joins the original late admission instead of submitting another input', async () => {
+    const late = Promise.withResolvers<{ queued: boolean }>();
+    const uncertain = { name: 'AdmissionUncertain', message: 'No native activity', code: 'prompt_admission_timeout' };
+    const promptDetached = vi.fn(async () => ({ requestId: 'original', queued: false, declined: false, uncertain }));
+    const waitPromptDetached = vi.fn((input: { admissionOnly?: boolean }) => input.admissionOnly ? late.promise : Promise.resolve({ queued: false }));
+    state.client = { promptDetached, waitPromptDetached };
+    const onUncertain = vi.fn();
+    const pending = injectEmdashPromptDetached('conv-1', 'original input', { origin: 'communication', onUncertain });
+    await vi.waitFor(() => expect(onUncertain).toHaveBeenCalledExactlyOnceWith(uncertain));
+    expect(waitPromptDetached).toHaveBeenCalledExactlyOnceWith({ requestId: 'original', admissionOnly: true });
+    late.resolve({ queued: false });
+    const result = await pending;
+    await result.completion;
+    expect(result).toMatchObject({ outcome: 'started', turnId: 'original' });
+    expect(promptDetached).toHaveBeenCalledTimes(1);
+    expect(waitPromptDetached.mock.calls).toEqual([[{ requestId: 'original', admissionOnly: true }], [{ requestId: 'original' }]]);
+  });
   it('keeps image references on the same native prompt instead of making a second input', async () => {
     const promptDetached = vi.fn(async () => ({ requestId: 'native-1', queued: true }));
     state.client = { promptDetached, waitPromptDetached: async () => ({}) };

@@ -13,6 +13,16 @@ const host = (state: HostPendingRow['state']): HostPendingRow => ({ seq: 1, mess
   preview: 'hello', sentAt: 20, state, failure: state === 'failed' ? 'delivery failed' : null })
 
 describe('ordinary input transcript custody', () => {
+  it('shows the same host-owned input as unconfirmed until its late native receipt', () => {
+    const pending = projectSessionPendingInput(null, [input()], [], [old])!;
+    const row = { ...host('unknown'), awaitingReceipt: true, failure: 'No native activity for 60 seconds' };
+    const echo = turn('native', 'hello', 25);
+    expect(projectSessionPendingInput(pending, [], [row], [old, echo])).toMatchObject({
+      id: 'send', delivery: { state: 'waiting', retryable: false, reason: expect.any(String) },
+    });
+    expect(projectSessionPendingInput(pending, [], [host('accepted')], [old, echo])).toBeNull();
+  });
+
   it('keeps the same input through sender acknowledgement before its native echo', () => {
     const sending = projectSessionPendingInput(null, [input()], [], [old])!
     expect(sending).toMatchObject({ id: 'send', delivery: { state: 'sending' } })
