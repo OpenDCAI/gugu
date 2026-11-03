@@ -1,5 +1,6 @@
+import { IdentityPlaceholder } from '@/components/IdentityPlaceholder'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
-import { FileText, Info, Search, X } from '@/lib/icons'
+import { FileText, Search, X } from '@/lib/icons'
 import { useChatSummaries } from '@/lib/chatSummariesBridge'
 import { followLink } from '@/lib/guguLinks'
 import { UI_EVENTS } from '@/lib/uiEvents'
@@ -175,9 +176,9 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
                   onMouseMove={() => { if (!isSelected) updateSearchSession({ selectedId: hit.id }) }}
                   onClick={() => open(hit)}
                   className={cn('flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left outline-none', isSelected && 'bg-foreground/[0.06]')}>
-                  <span className="mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-foreground/[0.07] text-[length:var(--font-caption)] font-medium text-foreground/55">
-                    {system ? <Info size={11} /> : hit.kind === 'message' && hit.file ? <FileText size={11} /> : Array.from(sender)[0]}
-                  </span>
+                  {system ? <IdentityPlaceholder className="mt-1" /> : <span className="mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-foreground/[0.07] text-[length:var(--font-caption)] font-medium text-foreground/55">
+                    {hit.kind === 'message' && hit.file ? <FileText size={11} /> : Array.from(sender)[0]}
+                  </span>}
                   <span className="min-w-0 flex-1">
                     <span className="line-clamp-2 text-sm leading-5 text-foreground/85"><Highlighted text={hit.text} query={view.query} /></span>
                     <span className="mt-1 flex items-center gap-2 text-xs text-foreground/40">
