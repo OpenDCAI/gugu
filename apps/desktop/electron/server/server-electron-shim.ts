@@ -9,10 +9,8 @@
  *  - `Tray`:没有托盘。
  */
 import { EventEmitter } from 'node:events'
-import fs from 'node:fs'
-import path from 'node:path'
 import * as headless from '../session/headless/electron-shim'
-import { accountLockHolder } from './server-account-lock'
+import { AccountInstanceLock } from './server-account-instance-lock'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -56,53 +54,26 @@ export const ipcMain = new ServerIpcMain()
 
 const headlessApp = headless.app as unknown as Record<string, unknown> & NodeJS.EventEmitter
 
-let lockFd: number | null = null
+const instanceLock = new AccountInstanceLock()
 
 /**
- * 同一个数据目录只允许一个 server。锁文件里写 pid,进程已死的旧锁直接接管 ——
+ * 同一个数据目录只允许一个 server。内核互斥覆盖归属核验、旧锁回收和持有期;
+ * 数字 PID 文件保留给状态查询和旧版本,退出或崩溃后内核自动释放互斥。
  * 被 kill -9 之后不能让下一次启动永远起不来(见 CLAUDE.md 里那次 mkdir 目录锁的事故)。
  */
 function requestSingleInstanceLock(): boolean {
-  const lockPath = path.join(headless.app.getPath('userData'), 'server.lock')
-  const tryAcquire = (): boolean => {
-    try {
-      lockFd = fs.openSync(lockPath, 'wx', 0o600)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      return false
-    }
-    try {
-      fs.writeSync(lockFd, String(process.pid))
-    } catch {
-      // #6264 磁盘满:锁文件已建成,进程号写不进。锁照样算拿到,❌ 抛出去让账号进程秒退、无限重启。
-    }
-    return true
-  }
-  if (tryAcquire()) return true
-  if (accountLockHolder(headless.app.getPath('userData')) !== null) return false
-  fs.rmSync(lockPath, { force: true })
-  return tryAcquire()
+  return instanceLock.acquire(headless.app.getPath('userData'))
 }
 
 function releaseSingleInstanceLock(): void {
-  if (lockFd === null) return
-  const held = fs.fstatSync(lockFd, { bigint: true })
-  fs.closeSync(lockFd)
-  lockFd = null
-  const file = path.join(headless.app.getPath('userData'), 'server.lock')
-  try {
-    const current = fs.statSync(file, { bigint: true })
-    if (current.dev === held.dev && current.ino === held.ino) fs.rmSync(file, { force: true })
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  }
+  instanceLock.release()
 }
 process.on('exit', releaseSingleInstanceLock)
 
 const serverAppExtras = {
   requestSingleInstanceLock,
   releaseSingleInstanceLock,
-  hasSingleInstanceLock: (): boolean => lockFd !== null,
+  hasSingleInstanceLock: (): boolean => instanceLock.acquired,
   setPath: (_name: string, _value: string): void => {},
   setName: (_name: string): void => {},
   setAppLogsPath: (target?: string): void => (headlessApp.setAppLogsPath as (t?: string) => void)(target),

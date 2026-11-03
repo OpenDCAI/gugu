@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { describe, expect, it } from 'vitest'
 import {
   INSPECT_BEGIN,
@@ -58,6 +59,50 @@ const runSh = (home: string, script: string): string => {
 }
 
 describe('#6264 从这台机器上卸载咕咕 server:远端脚本', () => {
+  it('回收的 PID 属于另一份安装时保留那个进程及其锁,不委托旧版 stop', async () => {
+    const home = tmp(), other = tmp()
+    const foreign = spawn(process.execPath, ['-e', `
+      const fs = require('node:fs');
+      const fd = fs.openSync(process.argv[1], 'wx'); fs.writeSync(fd, String(process.pid));
+      process.stdout.write('ready'); process.stdin.resume(); process.stdin.on('end', () => process.exit(0));
+    `, path.join(other, 'server.lock')], { stdio: ['pipe', 'pipe', 'pipe'] })
+    const exited = once(foreign, 'exit')
+    try {
+      await once(foreign.stdout, 'data')
+      const serverHome = fakeInstall(home)
+      const nodeDir = path.join(serverHome, 'current/node/bin')
+      fs.mkdirSync(nodeDir, { recursive: true })
+      fs.symlinkSync(process.execPath, path.join(nodeDir, 'node'))
+      fs.writeFileSync(path.join(serverHome, 'accounts', ME, 'data/server.lock'), String(foreign.pid))
+      fs.mkdirSync(path.join(serverHome, 'data'))
+      fs.writeFileSync(path.join(serverHome, 'data/server.lock'), String(foreign.pid))
+      fs.writeFileSync(path.join(serverHome, 'data/keeper.pid'), String(foreign.pid))
+      const log = path.join(home, 'calls.log')
+      fs.writeFileSync(path.join(serverHome, 'current/bin/gugu-server'), `#!/bin/sh\necho "$*" >> '${log}'\n`, { mode: 0o755 })
+      expect(runSh(home, uninstallScript())).toContain(UNINSTALLED_MARK)
+      expect(foreign.exitCode).toBe(null)
+      expect(fs.readFileSync(path.join(other, 'server.lock'), 'utf8')).toBe(String(foreign.pid))
+      expect(fs.readFileSync(log, 'utf8').split('\n')).not.toContain('stop')
+      expect(fs.existsSync(serverHome)).toBe(false)
+    } finally {
+      foreign.stdin.end()
+      await exited
+      fs.rmSync(home, { recursive: true, force: true })
+      fs.rmSync(other, { recursive: true, force: true })
+    }
+  })
+
+  it('无法运行安装内的核验程序时拒绝删除安装和锁', () => {
+    const home = tmp()
+    try {
+      const serverHome = fakeInstall(home)
+      const file = path.join(serverHome, 'accounts', ME, 'data/server.lock')
+      fs.writeFileSync(file, String(process.pid))
+      expect(() => runSh(home, uninstallScript())).toThrow()
+      expect(fs.readFileSync(file, 'utf8')).toBe(String(process.pid))
+    } finally { fs.rmSync(home, { recursive: true, force: true }) }
+  })
+
   it('看一眼:报出版本与每个账号(有没有登录态、邮箱)', () => {
     const home = tmp()
     try {
