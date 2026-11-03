@@ -45,6 +45,16 @@ describe('关掉会话自己那枚页签:它还开着别的页签就问「会话
     view.layout = null;
   });
 
+  it('defaults confirmation to closing only this session and preserves its folder tabs', async () => {
+    const l = layout();
+    view.layout = l;
+    const answer = confirmCloseSessionTab('s1', ctx, { alone: true });
+    expect(modal.last).toMatchObject({ confirmLabel: 'task.closeSessionOnly', cancelLabel: 'task.closeSessionAndTabs' });
+    modal.last!.onSuccess({});
+    expect(await answer).toBe(true);
+    expect(l.closed).toEqual([]);
+  });
+
   it('会话和页签都关:先把别的页签一枚枚关掉,再关它自己', async () => {
     const l = layout();
     view.layout = l;
