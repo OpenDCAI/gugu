@@ -1,6 +1,9 @@
 import { installAssistantWorkLedgerHost } from '../../../../sessionpage/assistant-work-ledger';
 import { formatDeliveryTimestamp } from '@gugu/core/local/agent/deliveryEnvelope';
 import { openFixture } from '@tooling/utils/db';
+import { err, ok } from '@gugu/session-shared';
+import { setProjectGroupHost } from '../projects/project-group-host';
+import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@shared/core/projects/session-home-project';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
 import type { AppDb } from '@main/db/client';
@@ -183,6 +186,7 @@ import {
   messageSessionFrom,
   runRemoteSessionAction,
   runSessionAction,
+  sessionCallerFacts,
   spawnSessionForApp,
   setRemotePaneOpener,
   stopExactSessionpageSession,
@@ -318,6 +322,7 @@ describe('session orchestration', () => {
   });
 
   afterEach(() => {
+    setProjectGroupHost(null);
     setOtherMachines(null);
     setSessionIdentityHost(null);
     fixture.close();
@@ -701,6 +706,79 @@ describe('session orchestration', () => {
       model: null,
       platformModel: null,
     };
+
+    function bindings(projectId?: string): void {
+      setProjectGroupHost({
+        listBindings: async () => ok(projectId ? [{ projectId, chatId: 'shared-project-group' }] : []),
+        ensureGroup: vi.fn(), bindToGroup: vi.fn(), unbind: vi.fn(),
+      });
+    }
+
+    function taskWorkspace(): void {
+      fixture.sqlite.prepare(`INSERT INTO projects (id, name, path, kind) VALUES (?, 'Task workspace', '/tasks', 'workspace')`).run(IMPLICIT_SESSION_HOME_PROJECT_ID);
+      fixture.sqlite.exec(`INSERT INTO workspaces (id, type, path) VALUES ('workspace-home', 'local', '/tasks')`);
+      mocks.workspaces.set('workspace-home', { path: '/tasks', fileSystem: { stat: mocks.stat } });
+      mocks.resolveProjectWorkspace.mockResolvedValue({ ok: true, value: { projectId: IMPLICIT_SESSION_HOME_PROJECT_ID, repositoryWorkspaceId: 'workspace-home' } });
+    }
+
+    it('carries the caller’s project group from the existing roster facts', async () => {
+      mocks.sessionpageProjectGroup = { kind: 'group', projectId: context.projectId, groupChatId: 'shared-project-group' };
+      expect(await sessionCallerFacts(context)).toMatchObject({ sessionId: 'caller', groupChatId: 'shared-project-group' });
+      expect(mocks.sessionpageProjectGroupForSession).toHaveBeenCalledWith('caller', process.env);
+      mocks.sessionpageProjectGroup = { kind: 'none', reason: 'no-project' };
+      expect(await sessionCallerFacts(context)).not.toHaveProperty('groupChatId');
+    });
+
+    it('defaults to this device’s copy of the caller project, at its root workspace', async () => {
+      project2Root();
+      bindings('project-2');
+      const result = await runRemoteSessionAction({ ...remoteCaller, groupChatId: 'shared-project-group' }, { action: 'spawn', prompt: 'inspect' }) as { session_id: string; project_id: string; project_note: string };
+      expect(mocks.resolveProjectWorkspace).toHaveBeenCalledWith({ projectId: 'project-2', projectPath: '' });
+      expect(result).toMatchObject({ project_id: 'project-2', project_note: expect.stringContaining('Project 2') });
+      expect(result.project_note).toContain('matched');
+      expect(workspaceOf(result.session_id)).toBe('workspace-p2');
+    });
+
+    it('makes a missing association explicit when falling back to the task workspace', async () => {
+      taskWorkspace();
+      bindings();
+      const result = await runRemoteSessionAction({ ...remoteCaller, groupChatId: 'shared-project-group' }, { action: 'spawn', prompt: 'inspect' }) as { session_id: string; project_note: string };
+      expect(result).toMatchObject({ project_id: IMPLICIT_SESSION_HOME_PROJECT_ID });
+      expect(result.project_note).toContain('Task workspace');
+      expect(result.project_note).toContain('no local project associated');
+      expect(result.project_note).toContain('project_add_device');
+      expect(workspaceOf(result.session_id)).toBe('workspace-home');
+      expect(mocks.resolveProjectWorkspace).toHaveBeenCalledWith({ projectId: undefined, projectPath: '' });
+    });
+
+    it('keeps task-workspace placement for older callers or callers outside projects', async () => {
+      taskWorkspace();
+      const result = await runRemoteSessionAction(remoteCaller, { action: 'spawn', prompt: 'inspect' }) as { session_id: string };
+      expect(result).toMatchObject({ project_id: IMPLICIT_SESSION_HOME_PROJECT_ID, project_note: expect.stringContaining('no caller project group supplied') });
+      expect(workspaceOf(result.session_id)).toBe('workspace-home');
+    });
+
+    it.each([{ project_id: 'project-2' }, { project_path: '/other' }])('keeps explicit project placement ahead of the caller group: %j', async (named) => {
+      project2Root();
+      // No group host: querying the implicit default would fail this explicit request.
+      const result = await runRemoteSessionAction({ ...remoteCaller, groupChatId: 'shared-project-group' }, { action: 'spawn', prompt: 'inspect', ...named }) as { session_id: string };
+      expect(mocks.resolveProjectWorkspace).toHaveBeenCalledWith({ projectId: named.project_id, projectPath: named.project_path ?? '' });
+      expect(result).toMatchObject({ project_id: 'project-2' });
+      expect(result).not.toHaveProperty('project_note');
+      expect(workspaceOf(result.session_id)).toBe('workspace-p2');
+    });
+
+    it('does not silently fall back when reading project associations fails', async () => {
+      taskWorkspace();
+      setProjectGroupHost({
+        listBindings: async () => err({ type: 'not-signed-in', message: 'Sign in first' }),
+        ensureGroup: vi.fn(), bindToGroup: vi.fn(), unbind: vi.fn(),
+      });
+      await expect(runRemoteSessionAction({ ...remoteCaller, groupChatId: 'shared-project-group' }, { action: 'spawn', prompt: 'inspect' })).rejects.toThrow('Sign in first');
+      expect(mocks.resolveProjectWorkspace).not.toHaveBeenCalled();
+      expect(childRows()).toEqual([]);
+      expectNothingStarted();
+    });
 
     function configOf(sessionId: string): Record<string, unknown> {
       const row = fixture.sqlite.prepare('SELECT config FROM sessions WHERE id = ?').get(sessionId) as { config: string | null };

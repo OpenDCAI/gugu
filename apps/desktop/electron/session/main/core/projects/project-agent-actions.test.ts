@@ -14,6 +14,7 @@ function ops(overrides: Partial<ProjectAgentOps> = {}): ProjectAgentOps {
     folders: vi.fn(async () => ok([folder('/work/app', 'root'), folder()])),
     attach: vi.fn(async () => ok(folder())), detach: vi.fn(async () => ok(undefined)),
     bindings: vi.fn(async () => ok([{ projectId: 'p1', chatId: 'chat1' }])),
+    localProjectOfGroup: vi.fn(async () => ok('p1')),
     ensureGroup: vi.fn(async () => ok({ chatId: 'chat1' })), bind: vi.fn(async () => ok({})),
     unbind: vi.fn(async () => ok({ expectedChatId: null })), inspect: vi.fn(async () => ({ isDirectory: true })),
     sessionCount: vi.fn(async () => 0), delete: vi.fn(async () => {}), ...overrides,
@@ -140,14 +141,14 @@ describe('agent project operations', () => {
   });
 
   it('does not change a populated project before the owner confirms merging', async () => {
-    const api = ops({ bindings: async () => ok([]), inspect: async () => ({ isDirectory: true, existingProject: project('existing') }), sessionCount: async () => 2 });
+    const api = ops({ localProjectOfGroup: async () => ok(undefined), inspect: async () => ({ isDirectory: true, existingProject: project('existing') }), sessionCount: async () => 2 });
     expect(await runProjectAgentAction({}, { action: 'project_bind_folder', chat_id: 'chat1', name: 'App', path: '/work/app' }, api)).toMatchObject({ needs_confirmation: true, sessions: 2 });
     expect(api.bind).not.toHaveBeenCalled();
     expect(api.create).not.toHaveBeenCalled();
   });
 
   it('refuses a folder attached to a different project rather than merging its owner', async () => {
-    const api = ops({ bindings: async () => ok([]), inspect: async () => ({ isDirectory: true, existingProject: project('other', '/work/other') }) });
+    const api = ops({ localProjectOfGroup: async () => ok(undefined), inspect: async () => ({ isDirectory: true, existingProject: project('other', '/work/other') }) });
     await expect(runProjectAgentAction({}, { action: 'project_bind_folder', chat_id: 'chat1', name: 'App', path: '/work/docs' }, api)).rejects.toThrow('already belongs');
     expect(api.bind).not.toHaveBeenCalled();
   });
@@ -155,24 +156,25 @@ describe('agent project operations', () => {
   it('linking the same root again is idempotent', async () => {
     const api = ops();
     expect(await runProjectAgentAction({}, { action: 'project_bind_folder', chat_id: 'chat1', name: 'App', path: '/work/app/' }, api)).toMatchObject({ already_attached: true });
+    expect(api.localProjectOfGroup).toHaveBeenCalledWith('chat1');
     expect(api.attach).not.toHaveBeenCalled();
     expect(api.bind).not.toHaveBeenCalled();
   });
 
   it('a failed link removes only the empty project created by this attempt', async () => {
-    const api = ops({ bindings: async () => ok([]), bind: async () => ({ success: false, error: { message: 'device lost' } }) });
+    const api = ops({ localProjectOfGroup: async () => ok(undefined), bind: async () => ({ success: false, error: { message: 'device lost' } }) });
     await expect(runProjectAgentAction({}, { action: 'project_bind_folder', chat_id: 'chat1', name: 'App', path: '/work/new' }, api)).rejects.toMatchObject({ message: 'device lost' });
     expect(api.delete).toHaveBeenCalledOnce();
   });
 
   it('a failed link preserves a concurrently reused project', async () => {
-    const api = ops({ bindings: async () => ok([]), create: async () => ok(project('already-there')), bind: async () => ({ success: false, error: { message: 'device lost' } }) });
+    const api = ops({ localProjectOfGroup: async () => ok(undefined), create: async () => ok(project('already-there')), bind: async () => ({ success: false, error: { message: 'device lost' } }) });
     await expect(runProjectAgentAction({}, { action: 'project_bind_folder', chat_id: 'chat1', name: 'App', path: '/work/new' }, api)).rejects.toBeDefined();
     expect(api.delete).not.toHaveBeenCalled();
   });
 
   it('rechecks sessions before rollback and preserves a newly populated project', async () => {
-    const api = ops({ bindings: async () => ok([]), sessionCount: async () => 1, bind: async () => ({ success: false, error: { message: 'device lost' } }) });
+    const api = ops({ localProjectOfGroup: async () => ok(undefined), sessionCount: async () => 1, bind: async () => ({ success: false, error: { message: 'device lost' } }) });
     await expect(runProjectAgentAction({}, { action: 'project_bind_folder', chat_id: 'chat1', name: 'App', path: '/work/new' }, api)).rejects.toBeDefined();
     expect(api.delete).not.toHaveBeenCalled();
   });
