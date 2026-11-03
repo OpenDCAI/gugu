@@ -39,13 +39,12 @@ describe('one protocol notch down still connects; the newer side degrades', () =
 })
 
 it('keeps task input admission additive in both directions within the protocol window', () => {
-  // New desktop -> previous server: hello speaks 17 and legacy negative replies remain automatic.
-  expect(helloProtocol(17)).toBe(17)
+  const previous = REMOTE_PROTOCOL_VERSION - 1
+  // New desktop -> previous server: hello speaks the previous version; absent decisions remain automatic.
+  expect(helloProtocol(previous)).toBe(previous)
   expect(sessionInputAdmission({ code: 'session_not_found', message: 'missing' })).toBe('uncertain')
-  // Previous desktop -> new server: 17 remains inside the window; its old code reads only code/message.
-  expect(desktopProtocolOutsideWindow(17)).toBe(false)
+  // Previous desktop -> new server: its hello remains inside the new server's accepted window.
+  expect(desktopProtocolOutsideWindow(previous)).toBe(false)
   const error = { code: 'session_not_found', message: 'missing', admission: 'rejected' }
-  const legacyRead = ({ code, message }: { code: string; message: string }) => ({ code, message })
-  expect(legacyRead(error)).toEqual({ code: 'session_not_found', message: 'missing' })
   expect(sessionInputAdmission(error)).toBe('rejected')
 })

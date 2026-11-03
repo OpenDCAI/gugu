@@ -37,6 +37,24 @@ beforeEach(() => { toast.mockClear(); harness = createReactHarness() })
 afterEach(() => { harness.cleanup(); scope.owner = 'account-a'; scope.platform = 'electron'; scope.phones = []; scope.devices = [{ device_id: 'host-a', is_online: false, capabilities: {} }]; scope.received.clear(); scope.send.mockReset(); scope.machines = [] })
 
 describe('native input shell lifecycle', () => {
+  it.each(['electron', 'web'])('keeps a previous host without an admission decision in automatic recovery (%s)', async platform => {
+    scope.platform = platform
+    scope.owner = `legacy-refusal-${platform}`
+    scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: { remote_protocol: REMOTE_PROTOCOL_VERSION - 1 } }]
+    updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'legacy-task', nativeInputVersion: 2 } as never] })
+    scope.send.mockResolvedValue({ ok: false, error: { code: 'session_not_found', message: 'same negative reply, no admission conclusion' } })
+    await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+    let id: string | undefined
+    await act(async () => {
+      id = (await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'legacy-task', text: 'keep recovering' })).id
+      await vi.waitFor(async () => expect((await (await state().queue)!.list())[0]?.failure).toBeDefined())
+    })
+    await act(async () => { await (await state().queue)!.flush() })
+    expect(scope.send).toHaveBeenCalledTimes(2)
+    expect(scope.send.mock.calls.map(([request]) => request.clientMessageId)).toEqual([id, id])
+    expect(await (await state().queue)!.list()).toMatchObject([{ id, admission: 'uncertain', text: 'keep recovering' }])
+  })
+
   it.each([null, 'host-a'])('does not automatically resend a definitive host refusal (%s)', async deviceId => {
     scope.owner = `rejected-input-${deviceId ?? 'local'}`
     scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
