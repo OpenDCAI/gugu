@@ -93,8 +93,8 @@ describe('folder redesign keeps tab order independent of paired pages', () => {
     expect(shown()).toEqual(['chat:conv', 'page:folder']);
   });
 
-  it('keeps a pinned file while replacing a later preview and reuses the existing file', () => {
-    const { layout, pane, idOf } = setup();
+  it.each(['reopen', 'tab', 'folder'].flatMap(route => [900, 300].map(width => [route, width] as const)))('T5 retains every existing tab on %s at width %i', async (route, width) => {
+    const { layout, pane, idOf, shown } = setup();
     layout.open('page', { id: 'folder' }, { beside: true });
     const folder = idOf('page', 'folder')!;
     layout.open('file', { id: 'README.md' }, { beside: true, preview: true, returnTo: { tabId: folder } });
@@ -102,11 +102,27 @@ describe('folder redesign keeps tab order independent of paired pages', () => {
     pane.pin(readme);
     layout.open('file', { id: 'config.json' }, { beside: true, preview: true, returnTo: { tabId: folder } });
     const preview = idOf('file', 'config.json')!;
+    pane.setDimensions(width, 600);
     const before = [...pane.tabOrder];
-    layout.open('file', { id: 'README.md' }, { beside: true, preview: true, returnTo: { tabId: folder } });
+    const entryIds = [...pane.entries.keys()];
+    if (route === 'reopen') layout.open('file', { id: 'README.md' }, { beside: true, preview: true, returnTo: { tabId: folder } });
+    else pane.setActiveTab(route === 'folder' ? folder : readme);
+    await Promise.resolve(); // Observe any already-requested asynchronous onBeforeClose completion.
+    expect(pane.tabOrder).toHaveLength(4);
+    expect([...pane.entries.keys()]).toEqual(entryIds);
+    expect(pane.tabOrder).toEqual(before);
     expect(idOf('file', 'README.md')).toBe(readme);
     expect(pane.entries.get(readme)?.isPreview).toBe(false);
-    expect(pane.tabOrder).toEqual(before.filter((id) => id !== preview));
+    expect(idOf('file', 'config.json')).toBe(preview);
+    expect(pane.entries.get(preview)?.isPreview).toBe(true);
+    layout.open('file', { id: 'notes.txt' }, { beside: true, preview: true, returnTo: { tabId: folder } });
+    expect(idOf('file', 'notes.txt')).toBe(preview);
+    expect(idOf('file', 'config.json')).toBeUndefined();
+    expect(pane.tabOrder).toEqual(before);
+    pane.closeTab(preview);
+    pane.setDimensions(900, 600);
+    expect(shown()).toEqual(['chat:conv', 'page:folder']);
+    expect(pane.entries.has(readme)).toBe(true);
   });
 
   it('returns a narrow preview to the folder and keeps that right page on widening', () => {

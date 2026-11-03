@@ -54,6 +54,33 @@ describe('a chat has its own tab first, and nothing else until something is open
 });
 
 describe('opening beside the chat', () => {
+  it.each(['dm', 'group'].flatMap(context => ['reopen', 'tab', 'folder'].flatMap(route => [900, 300].map(width => [context, route, width] as const))))('T5 retains every existing tab in %s on %s at width %i', async (context, route, width) => {
+    const chatId = `t5-${context}-${route}-${width}`;
+    const folder = openPanelItem(chatId, folderItem())!;
+    const readme = openPanelItem(chatId, file('README'), { returnTo: folder, preview: false })!;
+    const preview = openPanelItem(chatId, file('config'), { returnTo: folder, preview: true })!;
+    const tabs = pane(chatId);
+    tabs.setDimensions(width, 600);
+    const before = [...tabs.tabOrder];
+    const entryIds = [...tabs.entries.keys()];
+    if (route === 'reopen') openPanelItem(chatId, file('README'), { returnTo: folder, preview: true });
+    else showChatTab(chatId, route === 'folder' ? folder : readme);
+    await Promise.resolve(); // Chat tabs complete their existing close hook on the microtask queue.
+    expect(tabs.tabOrder).toHaveLength(4);
+    expect([...tabs.entries.keys()]).toEqual(entryIds);
+    expect(tabs.tabOrder).toEqual(before);
+    expect(tabs.entries.get(readme)?.isPreview).toBe(false);
+    expect(tabs.entries.get(preview)?.isPreview).toBe(true);
+    const next = openPanelItem(chatId, file('notes'), { returnTo: folder, preview: true })!;
+    expect(next).toBe(preview);
+    expect(kinds(chatId)).toEqual(['workspace.main', 'notes', 'README']);
+    expect(tabs.tabOrder).toEqual(before);
+    closeChatTab(chatId, next);
+    tabs.setDimensions(900, 600);
+    expect(shownPanelTab(chatId)?.tabId).toBe(folder);
+    expect(tabs.entries.has(readme)).toBe(true);
+  });
+
   it.each(['dm-folder-preview', 'group-folder-preview'])('folder redesign replaces only a preview and retains a double-click pinned file (%s)', (chatId) => {
     const folder = openPanelItem(chatId, folderItem())!;
     const first = openPanelItem(chatId, file('first'), { returnTo: folder, preview: true })!;

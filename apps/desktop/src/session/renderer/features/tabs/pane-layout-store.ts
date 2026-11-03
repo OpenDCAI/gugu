@@ -650,7 +650,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
         returnTo: config?.returnTo,
       });
       if (!tabId) return;
-      anchorGroup.pane.pairWith(anchor.tabId, tabId);
+      anchorGroup.pane.pairWith(anchor.tabId, tabId, true);
       // 人点开的:并排亮到屏上、焦点在那一页;agent 打开的(activate: false)到此为止,不切走。
       if (config?.activate ?? true) {
         this.setActiveGroup(anchor.paneId);

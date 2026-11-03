@@ -429,7 +429,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * 唯一例外是用户正点着被顶下来的那页 —— 那个位置换了一页,焦点跟着位置走。
    * 用户拆开过这一类(splitDeclinedKinds)、或摆不到一起(认不出来)= 什么都不做,它照常是一枚页签。
    */
-  pairWith(anchorId: string, tabId: string): void {
+  pairWith(anchorId: string, tabId: string, closePreview = false): void {
     if (this.splitDeclinedFor(tabId) || !this._canPair(anchorId, tabId)) return;
     const current = this.livePair;
     if (current && (current.anchor === anchorId || current.side === anchorId)) {
@@ -438,7 +438,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       if (other === tabId) return;
       const otherFocused = this.activeTabId === other;
       const sideAt = current.anchor === anchorId ? current.sideAt : OPPOSITE_EDGE[current.sideAt];
-      this._replaceSide({ anchor: anchorId, side: other, sideAt, ratio: current.ratio }, tabId);
+      this._replaceSide({ anchor: anchorId, side: other, sideAt, ratio: current.ratio }, tabId, closePreview);
       if (otherFocused) this.activeTabId = tabId;
       return;
     }
@@ -789,7 +789,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       if (previewEntry) {
         this.retargetEntry(previewEntry.tabId, { state: initialState, isPreview: true, returnTo: opts?.returnTo?.tabId === previewEntry.tabId ? previewEntry.returnTo : opts?.returnTo });
         // 不抢的打开(开在对话旁边)也走到这里:原地换了内容,但不切过去(spec session-page「并排」)。
-        if (activate) this.setActiveTab(previewEntry.tabId);
+        if (activate) this.setActiveTab(previewEntry.tabId, true);
         return previewEntry.tabId;
       }
     }
@@ -805,7 +805,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       order.splice(at + 1, 0, tabId);
       this.tabOrder = order;
     }
-    if (activate && this.entries.has(tabId)) this.setActiveTab(tabId);
+    if (activate && this.entries.has(tabId)) this.setActiveTab(tabId, true);
     return this.entries.has(tabId) ? tabId : undefined;
   }
 
@@ -858,12 +858,12 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * 屏上正并排时,钉住的那页不动 —— 亮起一枚不在这对里的,它顶替另一页、原来那页退下;屏上只有一页时照旧换成它。
    * 亮起这一对里的任一枚 = 那一边拿到焦点,并排照旧。用户拆开过的那一类不顶替,自己占满这一格(这一对留着)。
    */
-  setActiveTab(id: string): void {
+  setActiveTab(id: string, closePreview = false): void {
     const pair = this.livePair;
     const active = this.resolvedActiveTabId;
     const conversationSelected = pair && pair.anchor === this._layoutSplitter?.pairAnchorTab?.() && (active === pair.anchor || active === pair.side);
     if (pair && id !== pair.anchor && id !== pair.side && (this.pairShown || conversationSelected) && !this.splitDeclinedFor(id) && this._canPair(pair.anchor, id)) {
-      this._replaceSide(pair, id);
+      this._replaceSide(pair, id, closePreview);
     }
     this._focus(id);
   }
