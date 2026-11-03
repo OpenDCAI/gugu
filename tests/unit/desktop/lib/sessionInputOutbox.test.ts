@@ -231,6 +231,26 @@ describe('admission results arriving after the sender deadline', () => {
     } finally { vi.useRealTimers() }
   })
 
+  it.each([true, false])('hands over confirmed custody after an earlier refusal of the same automatic generation (original refused: %s)', async originalRefused => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const original = delayed(), replay = delayed()
+      const send = vi.fn().mockImplementationOnce(() => original.promise).mockImplementation(() => replay.promise)
+      const queue = setup(send)
+      await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'one unchanged original input' })
+      await deadline(queue)
+      const flushing = queue.flush(); await vi.advanceTimersByTimeAsync(0)
+      const refused = originalRefused ? original : replay
+      const accepted = originalRefused ? replay : original
+      refused.reject(new SessionInputAdmissionError('refused before another attempt took custody', 'rejected'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect((await queue.list())[0].admission).toBe('rejected')
+      accepted.resolve(); await vi.advanceTimersByTimeAsync(0); await flushing
+      expect(await queue.list()).toEqual([])
+      await queue.flush(); expect(send).toHaveBeenCalledTimes(2)
+    } finally { vi.useRealTimers() }
+  })
+
   it.each(['accepted', 'rejected'] as const)('does not replay a stale drain snapshot after another input receives late %s', async admission => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {

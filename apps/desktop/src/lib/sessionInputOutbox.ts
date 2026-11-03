@@ -203,16 +203,19 @@ export class SessionInputOutbox {
     const written = this.writing.catch(() => undefined).then(async () => {
       if (!this.current() || this.generations.get(id) !== attempt) return
       const input = (await this.list()).find(row => row.id === id)
-      if (!input || input.admission === 'rejected') return
+      if (!input) return
       const error = outcome.ok ? undefined : outcome.error
       const admission = outcome.ok ? 'accepted' : sessionInputAdmission(error)
+      // Another automatic attempt may already have taken custody before this refusal arrived.
+      // Only that affirmative receipt can settle a refusal; manual actions invalidate the generation.
+      if (input.admission === 'rejected' && admission !== 'accepted') return
       if (admission === 'accepted') await this.storage.remove(this.accountId, id)
       else {
         rendererLogger('session/input-outbox').warn({ deviceId: input.deviceId, sessionId: input.sessionId, error: String(error), admission }, 'Native input not delivered; it stays queued')
         await this.storage.put({ ...input, admission, failure: error instanceof SessionInputFailureError ? error.failure
           : { code: 'send-failed', message: error instanceof Error ? error.message : String(error) } })
       }
-      if (admission !== 'uncertain') this.generations.delete(id)
+      if (admission === 'accepted') this.generations.delete(id)
       this.changed()
     })
     this.writing = written
