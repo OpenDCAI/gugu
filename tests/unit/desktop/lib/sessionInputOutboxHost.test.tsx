@@ -36,6 +36,25 @@ beforeEach(() => { toast.mockClear(); harness = createReactHarness() })
 afterEach(() => { harness.cleanup(); scope.owner = 'account-a'; scope.platform = 'electron'; scope.phones = []; scope.devices = [{ device_id: 'host-a', is_online: false, capabilities: {} }]; scope.received.clear(); scope.send.mockReset(); scope.machines = [] })
 
 describe('native input shell lifecycle', () => {
+  it.each([null, 'host-a'])('does not automatically resend a definitive host refusal (%s)', async deviceId => {
+    scope.owner = `rejected-input-${deviceId ?? 'local'}`
+    scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
+    updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'deleted-task', nativeInputVersion: 2 } as never] })
+    // This is the current host's real response when the advertised task was deleted before the send.
+    scope.send.mockResolvedValue({ ok: false, error: { code: 'session_not_found', message: '这台机器上没有会话 deleted-task' } })
+    await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+    let inputId: string | undefined
+    await act(async () => {
+      const input = await enqueueSessionInput({ deviceId, sessionId: 'deleted-task', text: 'keep this text for me' })
+      inputId = input.id
+      await vi.waitFor(async () => expect((await (await state().queue)!.list())[0]?.failure).toBeDefined())
+    })
+    expect(scope.send).toHaveBeenCalledTimes(1)
+    await act(async () => { await (await state().queue)!.flush() })
+    expect(scope.send).toHaveBeenCalledTimes(1)
+    expect(await (await state().queue)!.list()).toMatchObject([{ id: inputId, text: 'keep this text for me' }])
+  })
+
   it('leaves every transcript-owned failed input out of the tray while preserving ordinary host failures', async () => {
     const item = (seq: number, messageId: string, state: 'queued' | 'failed'): LifeView['pending']['items'][number] =>
       ({ seq, messageId, state, preview: messageId, text: messageId, kind: 'ordinary', failure: state === 'failed' ? 'host refusal' : null });
