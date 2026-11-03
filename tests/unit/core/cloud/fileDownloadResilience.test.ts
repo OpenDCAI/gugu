@@ -97,6 +97,13 @@ it('retains complete chunks after exhausting retries and resumes them on a later
   expect(f.object.mock.calls.slice(1).map(([, init]) => new Headers(init?.headers).get('Range'))).toEqual(Array(3).fill('bytes=524288-'))
   expect(sha(Buffer.concat([await resumed.read(0, 524288), await resumed.read(524288, bytes.length - 524288)]))).toBe(revision.sha256)
 })
+it('redacts signed URLs from a non-connection failure without retrying it', async () => {
+  const f = fixture(); f.object.mockRejectedValue(new TypeError('Invalid URL https://cdn.invalid/file?auth_key=do-not-log'))
+  const result = await finish(f.cloud.managed(revision, context))
+  expect(result).toHaveProperty('error', expect.objectContaining({ stage: 'cdn', code: 'DOWNLOAD_ERROR' }))
+  expect(String('error' in result && result.error)).not.toContain('do-not-log')
+  expect(f.object).toHaveBeenCalledTimes(1); expect(f.committed).not.toHaveBeenCalled()
+})
 it('never retries authentication refusals or mutating attachment operations', async () => {
   const f = fixture(); f.api.mockResolvedValue(Response.json({ error: 'denied', message: 'Access denied' }, { status: 403 }))
   const result = await finish(f.cloud.managed(revision, context)); expect(result).toHaveProperty('error', expect.objectContaining({ status: 403, code: 'denied' }))

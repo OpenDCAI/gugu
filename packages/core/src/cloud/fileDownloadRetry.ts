@@ -47,10 +47,10 @@ export async function retryFileDownload<T>(hop: () => Hop, action: () => Promise
       signal?.throwIfAborted()
       if ((error as { name?: unknown } | null)?.name === 'AbortError' || error instanceof FileDownloadFailure) throw error
       // Keep typed authorization/validation refusals intact for existing callers.
-      if (!isDownloadConnectionError(error)) throw error
+      if (!isDownloadConnectionError(error) && typeof (error as { status?: unknown } | null)?.status === 'number') throw error
       failure = new FileDownloadFailure(target.stage, target.url, Date.now() - started, error)
       log.warn({ stage: failure.stage, host: failure.host, elapsedMs: failure.elapsedMs, code: failure.code, attempt: attempt + 1 }, 'attachment request failed')
-      if (attempt === delays.length - 1) throw failure
+      if (!isDownloadConnectionError(error) || attempt === delays.length - 1) throw failure
       await prepareRetry?.()
     }
   }
