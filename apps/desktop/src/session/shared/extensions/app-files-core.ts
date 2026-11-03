@@ -34,6 +34,7 @@ import {
   type PreparedChatFile,
 } from './app-runtime-protocol';
 import { fileOpenersFor } from './file-openers';
+import { toBase64 } from 'lib0/buffer';
 import type { ExtensionManifest } from './manifest';
 import { displayNameOf } from './file-openers';
 import { readUserSettingsConfig, updateUserSettingsConfig, type VersionedSettingsTableClient } from '@gugu/core/cloud/userSettings';
@@ -768,10 +769,7 @@ export function createAppFiles(platform: FilesPlatform) {
       const bytes = await file.read(at, Math.min(length, size - at));
       if (held.file !== pending) throw new AppFileError('failed', 'This file read was closed.');
       // Browser and main share the same range packet, including its existing base64 representation.
-      let binary = '';
-      for (let i = 0; i < bytes.byteLength; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-      const data = btoa(binary);
-      return { size, offset: at, data };
+      return { size, offset: at, data: toBase64(bytes) };
     } catch (error) {
       if (held.file === pending) disposeSnapshot(key, held);
       if (error instanceof MissingFileObjectError || error instanceof AppFileError && error.code === 'not-found') throw staleVersion();

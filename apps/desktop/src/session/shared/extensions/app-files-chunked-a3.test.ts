@@ -68,6 +68,16 @@ describe('chat stored files reuse verified, pinned range reads', () => {
     await expect(f.files.read(surface, { ref: { id: item } as never, offset: 0, length: 2 })).rejects.toMatchObject({ code: 'invalid' });
     expect(f.read).not.toHaveBeenCalled();
   });
+  it.each([0, 1, 2, 3, 8191, 8192, 8193, 524288])('serializes only the returned binary view for a %i-byte range', async length => {
+    const f = fixture('application/octet-stream', length);
+    const backing = new Uint8Array(length + 16).fill(255);
+    const bytes = backing.subarray(7, 7 + length);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = i % 251;
+    f.read.mockResolvedValueOnce(bytes);
+    const result = await f.files.read(surface, { ref, offset: 0, length });
+    expect(Buffer.from(result.data, 'base64')).toEqual(Buffer.from(bytes));
+    await f.files.close(surface, { ref });
+  });
   it('does not grant an unbound page or another file through the capability-free bridge verb', async () => {
     const f = fixture();
     expect(BRIDGE_VERBS.filesRead.needs).toBe(null);

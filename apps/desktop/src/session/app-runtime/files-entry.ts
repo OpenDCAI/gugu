@@ -3,6 +3,7 @@ import { guguError, refOf, type GuguHost } from './host';
 import { askingMain, fileKey, openFiles, OpenFile, storedTextFile } from './open-file';
 import { syncLink } from './sync-link';
 import { workspaceStoredText } from '@gugu/core/shared/workspaceUpload.mjs';
+import { fromBase64 } from 'lib0/buffer';
 
 export { bindText } from './text-binding';
 
@@ -120,7 +121,7 @@ function chunkedFile(host: GuguHost, entry: AppFileEntry): object {
       const chunk = await host.appFiles.read({ ref, offset: at, length: Math.min(left, CHUNK_BYTES) });
       if (closed) throw guguError('failed', 'This file handle is closed.');
       size = chunk.size;
-      const bytes = Uint8Array.from(atob(chunk.data), (c) => c.charCodeAt(0));
+      const bytes = fromBase64(chunk.data);
       if (bytes.byteLength === 0) break;
       out.push(bytes);
       at += bytes.byteLength;
