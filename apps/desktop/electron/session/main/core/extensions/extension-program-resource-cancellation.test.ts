@@ -7,7 +7,6 @@ import type { FilesPlatform } from '@shared/extensions/app-files-core';
 const ITEM = '44444444-4444-4444-8444-444444444444';
 const CHAT = '33333333-3333-4333-8333-333333333333';
 let resolveFile: NonNullable<FilesPlatform['resolveFile']>;
-let readError: unknown;
 let heldFiles: ReturnType<typeof import('@shared/extensions/app-files-core').createAppFiles>;
 const byteRead = vi.fn(async () => new Uint8Array([3, 4]));
 const rpc = vi.hoisted(() => vi.fn());
@@ -40,11 +39,7 @@ vi.mock('@shared/extensions/app-files-core', async original => {
   return { ...actual, createAppFiles: (platform: FilesPlatform) => {
     const files = actual.createAppFiles({ ...platform, account: async () => ({ token: 'fixture', userId: 'owner' }), resolveFile: (...args) => resolveFile(...args) });
     heldFiles = files;
-    return { ...files, open: async (...args: Parameters<typeof files.open>) => {
-      try { return await files.open(...args); } catch (error) { readError = error; throw error; }
-    }, read: async (...args: Parameters<typeof files.read>) => {
-      try { return await files.read(...args); } catch (error) { readError = error; throw error; }
-    } };
+    return files;
   } };
 });
 
@@ -56,10 +51,72 @@ vi.mock('@gugu/core/cloud/supabase', async original => ({ ...await original<obje
 const { attachProgramSurface } = await import('./extension-program-surface');
 const { APP_FRAME_MARKER } = await import('@shared/extensions/app-runtime-protocol');
 
-beforeEach(() => { vi.clearAllMocks(); readError = undefined; });
+beforeEach(() => { vi.clearAllMocks(); });
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('resource lookup preserves a dispatched program call', () => {
+  it.each([
+    ['filesRename', 'ended'], ['filesRename', 'active'], ['filesRename', 'unscoped'],
+    ['filesMove', 'ended'], ['filesMove', 'active'], ['filesMove', 'unscoped'],
+  ] as const)('a delayed %s stays %s', async (method, state) => {
+    const agent = '55555555-5555-4555-8555-555555555555';
+    const child = Object.assign(new EventEmitter(), { connected: true, send: vi.fn() });
+    const surface = attachProgramSurface('reader', child as unknown as ChildProcess);
+    const handed = [{ chatId: CHAT, itemId: ITEM, agentUserId: agent }];
+    const releaseA = surface.hand('agent-a', agent, handed);
+    const releaseB = surface.hand('agent-b', agent, handed);
+    const lookup = Promise.withResolvers<{ data: { id: string; kind: string; source_chat_id: null }[]; error: null }>();
+    const chat = { data: [{ id: CHAT, kind: 'group', source_chat_id: null }], error: null };
+    const row = { id: ITEM, chat_id: CHAT, kind: 'file', filename: 'before.bin', content_type: 'application/octet-stream',
+      size_bytes: 2, created_at: null, updated_at: null, created_by: null, updated_by: null, source_message_ids: [],
+      pointer: null, version: 1, epoch: 1, parent_id: null, system_role: null, path: 'before.bin' };
+    let firstLookup = true;
+    rpc.mockImplementation((name: string, args: Record<string, unknown>) => {
+      if (name === 'chat_facts') {
+        if (firstLookup) { firstLookup = false; return lookup.promise; }
+        return Promise.resolve(chat);
+      }
+      if (name === 'workspace_get_as') return { select: async () => ({ data: [row], error: null }) };
+      if (name === 'workspace_move_as') return Promise.resolve({ data: [{ ...row, filename: args.p_name, path: args.p_name }], error: null });
+      throw new Error(`Unexpected fixture RPC ${name}`);
+    });
+    const emit = (id: number, call?: string) => child.emit('message', {
+      m: APP_FRAME_MARKER, t: 'call', id, ...(call ? { call } : {}), method,
+      args: { ref: { id: ITEM, chat: CHAT }, name: 'after.bin' },
+    });
+    const answer = async (id: number) => {
+      await vi.waitFor(() => expect(child.send).toHaveBeenCalledWith(expect.objectContaining({ t: 'result', id })));
+      return child.send.mock.calls.map(([frame]) => frame).find(frame => frame.id === id);
+    };
+    const mutations = () => rpc.mock.calls.filter(([name]) => name === 'workspace_move_as');
+    try {
+      emit(61, state === 'unscoped' ? undefined : 'agent-a');
+      await vi.waitFor(() => expect(rpc).toHaveBeenCalledWith('chat_facts', { p_chat_id: CHAT, p_as_user_id: state === 'unscoped' ? 'owner' : agent }));
+      expect(mutations()).toEqual([]);
+      if (state !== 'active') await releaseA();
+      lookup.resolve(chat);
+      if (state !== 'ended') {
+        expect(await answer(61)).toMatchObject({ ok: true, value: { id: ITEM, name: 'after.bin' } });
+        expect(mutations()).toHaveLength(1);
+        expect(mutations()[0]?.[1]).toMatchObject({ p_item_id: ITEM, p_as_user_id: state === 'active' ? agent : 'owner', p_name: 'after.bin' });
+        return;
+      }
+      expect(await answer(61)).toMatchObject({ ok: false });
+      expect(mutations()).toEqual([]);
+      expect(byteRead).not.toHaveBeenCalled();
+      // B has the same actor and handed file, but remains an independent, live call.
+      emit(62, 'agent-b');
+      expect(await answer(62)).toMatchObject({ ok: true, value: { id: ITEM, name: 'after.bin' } });
+      expect(mutations()).toHaveLength(1);
+      expect(mutations()[0]?.[1]).toMatchObject({ p_item_id: ITEM, p_as_user_id: agent, p_name: 'after.bin' });
+      // Ending A must not turn an ordinary, unscoped operation into an ended call.
+      emit(63);
+      expect(await answer(63)).toMatchObject({ ok: true, value: { id: ITEM, name: 'after.bin' } });
+      expect(mutations()).toHaveLength(2);
+      expect(mutations()[1]?.[1]).toMatchObject({ p_as_user_id: 'owner' });
+    } finally { lookup.resolve(chat); await releaseA(); await releaseB(); await surface.close(); }
+  });
+
   it.each(['ended', 'active', 'unscoped'] as const)('a person read delayed in actual chat resolution stays %s', async state => {
     const child = Object.assign(new EventEmitter(), { connected: true, send: vi.fn() });
     const surface = attachProgramSurface('reader', child as unknown as ChildProcess);
@@ -91,8 +148,7 @@ describe('resource lookup preserves a dispatched program call', () => {
       if (state !== 'active') await releaseA();
       lookup.resolve(result);
       if (state === 'ended') {
-        expect(await answer(51)).toMatchObject({ ok: false });
-        expect(readError).toMatchObject({ name: 'AbortError' });
+        expect(await answer(51)).toMatchObject({ ok: false, code: 'failed', message: 'This operation was aborted' });
         expect(resolve).not.toHaveBeenCalled(); expect(byteRead).not.toHaveBeenCalled();
         expect(heldFiles.readHandleCount()).toBe(0);
         // The other call stays active after A's delayed lookup is refused.

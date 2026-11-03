@@ -99,6 +99,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
       pageId,
       filePage: (args, resource = false) => filePage(args, callId, resource),
       async resourcePage(args) {
+        call?.controller.signal.throwIfAborted();
         const ref = args.ref === undefined ? null : fileRefOf(args.ref);
         const place = args.place === undefined ? null : placeOf(args.place);
         const named = ref ?? place;
@@ -106,6 +107,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
         const actor = call?.agent ?? filePage(args, callId, true, call).asAgent ?? null;
         const { resourceChatOf } = await import('./app-files');
         const chat = await resourceChatOf(named.chat, { asAgent: actor });
+        call?.controller.signal.throwIfAborted();
         return filePage(ref ? { ...args, ref: { ...ref, chat } } : { ...args, place: { chat } }, callId, true, call);
       },
       hear: (event) => post({ m: APP_FRAME_MARKER, t: 'event', event }),
