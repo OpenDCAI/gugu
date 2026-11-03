@@ -5,8 +5,7 @@ import { APP_OPEN_WITH_EVENT } from '@shared/extensions/app-runtime-protocol';
 import { groupPageSlot, type PanelItem } from '@renderer/features/chats/chat-tabs/chat-panel-item';
 
 const { tabs, showChatTab, updateFileNames, pin } = vi.hoisted(() => ({
-  tabs: [] as { tabId: string; inWindow: boolean; shown?: boolean; item: PanelItem }[], showChatTab: vi.fn(), updateFileNames: vi.fn(), pin: vi.fn(),
-}));
+  tabs: [] as { tabId: string; inWindow: boolean; shown?: boolean; item: PanelItem }[], showChatTab: vi.fn(), updateFileNames: vi.fn(), }));
 vi.mock('@renderer/features/chats/chat-tabs/chat-layouts', () => ({ panelTabsOf: () => tabs, showChatTab, updateFileNames, chatLayoutOf: () => ({ groups: [{ pane: { entries: new Map(tabs.map((tab) => [tab.tabId, tab])), pin } }] }) }));
 
 const navigate = vi.fn();
@@ -65,9 +64,9 @@ describe('showing an already-open file while its metadata is checked', () => {
   it('folder redesign pins the live preview on double-click through the same activation action', async () => {
     tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'file.md' } });
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { queueMicrotask(() => callback(0)); return 1; });
-    await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main', intent: 'preview' } });
+    await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main', intent: 'navigate' } });
     expect(pin).not.toHaveBeenCalled();
-    await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main', intent: 'pinned' } });
+    await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main', intent: 'newTab' } });
     expect(pin).toHaveBeenCalledExactlyOnceWith('held');
   });
 

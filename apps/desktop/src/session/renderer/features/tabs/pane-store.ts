@@ -122,7 +122,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * Handles target routing and single-mount cardinality checks.
    */
   private readonly _layoutOpener:
-    | ((kind: string, args: Record<string, unknown>, config?: TabOpenOptions) => void)
+    | ((kind: string, args: Record<string, unknown>, config: TabOpenOptions) => void)
     | null;
   private readonly _closedTabHistory: Array<{
     desc: TabDescriptor;
@@ -145,7 +145,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     registry: R,
     ctx: TabViewContext,
     opts?: {
-      layoutOpener?: (kind: string, args: Record<string, unknown>, config?: TabOpenOptions) => void;
+      layoutOpener?: (kind: string, args: Record<string, unknown>, config: TabOpenOptions) => void;
       isViewActive?: () => boolean;
       /** Splitting a tab out beside this pane — only a pane inside a layout can (#7052). */
       layoutSplitter?: PaneSplitter;
@@ -437,8 +437,8 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * Delegates to the layout opener if available (handles cardinality + routing),
    * falling back to computing state and opening directly in this pane.
    */
-  openKind(kind: string, args: Record<string, unknown>, config?: Omit<TabOpenOptions, 'from'>): void {
-    const from = this.resolvedActiveTabId ?? null;
+  openKind(kind: string, args: Record<string, unknown>, config?: Partial<TabOpenOptions>): void {
+    const from = config?.from === undefined ? this.resolvedActiveTabId ?? null : config.from;
     if (this._layoutOpener) {
       this._layoutOpener(kind, args, { ...config, from, intent: config?.intent ?? 'navigate' });
       return;
@@ -454,7 +454,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   /**
    * Typed open for direct PaneStore consumers (e.g. PaneLayoutStore routing into a pane).
    */
-  open<K extends KindOf<R>>(kind: K, args: OpenArgsOf<R, K>, config?: Omit<TabOpenOptions, 'from'>): void {
+  open<K extends KindOf<R>>(kind: K, args: OpenArgsOf<R, K>, config?: Partial<TabOpenOptions>): void {
     this.openKind(kind as string, args, config);
   }
 
@@ -491,25 +491,25 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     });
   }
 
-  go(tabId: string, delta: -1 | 1): void {
+  go(tabId: string, delta: -1 | 1): Promise<boolean> {
     const entry = this.entries.get(tabId);
     const history = this.navigationOf(tabId);
-    if (!entry || !history) return;
+    if (!entry || !history) return Promise.resolve(false);
     if (!history.pages[history.index + delta]) {
       if (delta === -1 && entry.openerTabId) {
         if (this.entries.has(entry.openerTabId)) this.setActiveTab(entry.openerTabId);
         else this._layoutSplitter?.revealTab?.(entry.openerTabId);
       }
-      return;
+      return Promise.resolve(false);
     }
-    this.goTo(tabId, history.index + delta);
+    return this.goTo(tabId, history.index + delta);
   }
 
-  goTo(tabId: string, index: number): void {
+  goTo(tabId: string, index: number): Promise<boolean> {
     const entry = this.entries.get(tabId);
     const history = this.navigationOf(tabId);
-    if (!entry || !history?.pages[index] || index === history.index) return;
-    this._beforeNavigate(entry, () => {
+    if (!entry || !history?.pages[index] || index === history.index) return Promise.resolve(false);
+    return this._beforeNavigate(entry, () => {
       const pages = [...history.pages];
       pages[history.index] = { ...pages[history.index], kind: entry.kind, state: toJS(entry.state) };
       this._showPage(entry, { pages, index });
@@ -522,19 +522,19 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     return Boolean(history?.pages[history.index + delta] || (delta === -1 && entry?.openerTabId));
   }
 
-  private _beforeNavigate(entry: TabEntryImpl, apply: () => void): void {
+  private _beforeNavigate(entry: TabEntryImpl, apply: () => void): Promise<boolean> {
     const request = ++entry.navigationRequest;
     const resource = this._resources.get(entry.tabId);
     const def = this.registry.has(entry.kind) ? this.registry.get(entry.kind) : undefined;
     const allowed = resource && def?.onBeforeClose
       ? def.onBeforeClose(entry as never, resource as never, this._ctx, { alone: false })
       : true;
-    const finish = (proceed: boolean) => {
-      // A dialog may finish after another navigation or a close. It cannot act on that newer page.
-      if (proceed && entry.navigationRequest === request && this.entries.get(entry.tabId) === entry) runInAction(apply);
+    const finish = (proceed: boolean): boolean => {
+      if (!proceed || entry.navigationRequest !== request || this.entries.get(entry.tabId) !== entry) return false;
+      runInAction(apply);
+      return true;
     };
-    if (typeof allowed === 'boolean') finish(allowed);
-    else void allowed.then(finish);
+    return typeof allowed === 'boolean' ? Promise.resolve(finish(allowed)) : allowed.then(finish);
   }
 
   private _showPage(oldEntry: TabEntryImpl, history: TabHistorySnapshot): void {
@@ -910,7 +910,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       open: (
         kind: string,
         args: Record<string, unknown>,
-        config?: Omit<TabOpenOptions, 'from'>
+        config?: Partial<TabOpenOptions>
       ) => {
         if (this.entries.get(entry.tabId) !== entry) return;
         if (this._layoutOpener) this._layoutOpener(kind, args, { ...config, from: entry.tabId, intent: config?.intent ?? 'navigate' });

@@ -28,7 +28,7 @@ let dropContext: ReturnType<typeof useDndContext>;
 const records: { node: Element; animation: Animation }[] = [];
 let orderAtDrop: string[] = [];
 const provider = createTabProvider({
-  kind: 'motion-fixture', mount: 'single', resourceKey: (state: { id: string }) => state.id,
+  kind: 'motion-fixture', resourceKey: (state: { id: string }) => state.id,
   initialize: (entry) => ({ label: entry.state.id, dispose() {} }), dispose() {}, TabContent: () => null,
   TabBarItem: ({ tab, host }) => <div className="contents"><DraggableTab id={tab.tabId} pairRole={tab.pairRole}>
     <TabChip data-tabid={tab.tabId} label={tab.resource.label} isActive={tab.isActive}
@@ -52,7 +52,7 @@ function Strip() {
     <DropContext />
     <PaneContext.Provider value={{ paneId: layout.groups[0].paneId, pane: pane(), isFocusedPane: true }}>
       <div style={{ width: 800, display: 'flex', flexDirection: 'column' }}><TabBar /></div>
-      <button onClick={() => layout.open('motion-fixture', { id: 'New' }, { beside: true, activate: false })}>open beside</button>
+      <button onClick={() => layout.open('motion-fixture', { id: 'New' }, { intent: 'newTab', from: null, beside: true, activate: false })}>open beside</button>
       <button onClick={() => pane().closeTab(id('Middle'))}>close middle</button>
     </PaneContext.Provider><TabDragOverlay />
   </DndContext></PaneLayoutProvider>;
@@ -62,8 +62,8 @@ async function mount(extraTabs = 0) {
   harness = createReactHarness();
   harness.container.className = 'gugu-skin emlight';
   harness.container.style.cssText = 'position:fixed;left:20px;top:20px';
-  layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'motion', place: { kind: 'session', sessionId: 'motion', projectId: 'motion' } }, undefined, { singleStrip: true });
-  for (const name of ['Anchor', 'Old', 'Middle', 'Incoming', 'Last', ...Array.from({ length: extraTabs }, (_, i) => `Extra ${i}`), ...(extraTabs ? ['Far'] : [])]) layout.open('motion-fixture', { id: name });
+  layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'motion', place: { kind: 'session', sessionId: 'motion', projectId: 'motion' } }, undefined, {});
+  for (const name of ['Anchor', 'Old', 'Middle', 'Incoming', 'Last', ...Array.from({ length: extraTabs }, (_, i) => `Extra ${i}`), ...(extraTabs ? ['Far'] : [])]) layout.open('motion-fixture', { id: name }, { from: null, intent: 'newTab' });
   layout.setPairAnchor(() => ({ paneId: layout.groups[0].paneId, tabId: id('Anchor') }));
   await act(() => pane().setActiveTab(id('Anchor')));
   const original = Element.prototype.animate;

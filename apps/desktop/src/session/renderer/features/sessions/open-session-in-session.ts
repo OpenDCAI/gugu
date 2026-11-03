@@ -70,7 +70,7 @@ export function openSessionInSessionWhenReady({
         paneLayout?.open(
           sessionTabKind(session.data.runtime),
           { sessionId, ...(host ? { projectId, ownerSessionId: sessionId } : {}) },
-          { preview }
+          { from: null, intent: 'newTab' }
         );
       }
       onReady?.();

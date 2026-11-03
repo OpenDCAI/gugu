@@ -186,13 +186,13 @@ describe('runtime-only side chat entry', () => {
         TabBarItemDragPreview: () => null,
         TabContent: () => null,
       })));
-      const layout = mocks.layout = new PaneLayoutStore(registry, { viewId: 'task-1' }, undefined, { singleStrip: true });
-      layout.open('acp-chat', { sessionId: mocks.source.id });
+      const layout = mocks.layout = new PaneLayoutStore(registry, { viewId: 'task-1' }, undefined, {});
+      layout.open('acp-chat', { sessionId: mocks.source.id }, { from: null, intent: 'newTab' });
       const { paneId, pane } = layout.groups[0];
       const sourceTabId = pane.tabOrder[0];
       layout.setPairAnchor(() => ({ paneId, tabId: sourceTabId }));
       if (state !== 'fresh') {
-        layout.open(state === 'closed side' ? 'side-chat' : 'file', { sessionId: 'file-1' }, { beside: true });
+        layout.open(state === 'closed side' ? 'side-chat' : 'file', { sessionId: 'file-1' }, { intent: 'newTab', from: null, beside: true });
         if (state === 'moved split') pane.splitBeside(pane.livePair!.side, 'bottom');
         if (state === 'closed side') pane.closeTab(pane.livePair!.side);
         if (state === 'separate views') pane.separatePair();

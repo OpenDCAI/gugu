@@ -136,6 +136,20 @@ function openForClick(action: ExtensionHostAction, fromTab?: string): ExtensionH
 function perform(sessionId: string | null, tabId: string, action: ExtensionHostAction): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
   // What a page says about itself: a task's tab or a group's slot (sessionId null), kept by page (extensionSurfaceStore.say).
   switch (action.kind) {
+    case 'navigateTab':
+      if (action.delta !== -1 && action.delta !== 1) throw Object.assign(new Error('Navigation delta must be -1 or 1'), { code: 'invalid' });
+      return (async () => {
+        let sourceId = tabId;
+        let pane = sessionId ? [...(findSessionView(sessionId)?.paneLayout.groups ?? []), ...(findSessionView(sessionId)?.paneLayout.windowPanes.values() ?? [])].find(({ pane }) => pane.entries.has(sourceId))?.pane : undefined;
+        if (!sessionId) {
+          const { chatPageOrigin } = await import('@renderer/features/chats/chat-tabs/chat-layouts');
+          const source = chatPageOrigin(tabId);
+          if (source) { sourceId = source.tabId; pane = source.pane; }
+        }
+        const history = pane?.navigationOf(sourceId);
+        if (!history?.pages[history.index + action.delta]) return { navigated: false };
+        return { navigated: await pane!.go(sourceId, action.delta) };
+      })();
     case 'openAppModal': {
       let guest: BrowserWebviewElement | null = null;
       let previous = document.activeElement;

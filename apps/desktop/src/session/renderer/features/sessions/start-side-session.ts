@@ -1,3 +1,4 @@
+import { sessionConversationTabId } from './view/session-pane-policy';
 import { messageForUser } from '@/lib/userFacingError';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { getSessionView } from '@renderer/features/sessions/stores/session-selectors';
@@ -70,7 +71,7 @@ export function startSideSession(projectId: string, sessionId: string): void {
             forkedFromSessionId: source.id,
           },
         },
-        { from: null, intent: 'beside' }
+        { from: sessionConversationTabId(sessionView.paneLayout, source.id), intent: 'navigate' }
       );
       sessionView.setFocusedRegion('main');
     })

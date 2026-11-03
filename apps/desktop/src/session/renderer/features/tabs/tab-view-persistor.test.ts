@@ -13,7 +13,7 @@ const sessionCtx = {
 };
 const snapshot: TabGroupsSnapshot = {
   groups: [{ groupId: 'g', tabManager: {
-    tabs: [{ kind: 'file', tabId: 'f', path: 'notes.md', isPreview: false, returnTo: { tabId: 'home', message: 'm1' } }],
+    tabs: [{ kind: 'file', tabId: 'f', path: 'notes.md', returnTo: { tabId: 'home', message: 'm1' } }],
     activeTabId: 'f',
   } }],
   activeGroupId: 'g', paneSizes: [100],
@@ -46,8 +46,7 @@ describe('view-scoped tab persistence', () => {
     viewStateCache.set('session:persist-test:tabs', snapshot);
     const loaded = createSessionTabPersistor(sessionCtx).load();
     expect(loaded?.groups[0].tabManager.tabs[0]).toEqual({
-      kind: 'file', tabId: 'f', path: '/workspace/notes.md', isPreview: false,
-      returnTo: { tabId: 'home', message: 'm1' },
+      kind: 'file', tabId: 'f', path: '/workspace/notes.md', returnTo: { tabId: 'home', message: 'm1' },
     });
     expect(rpc.viewState.save).not.toHaveBeenCalled();
   });

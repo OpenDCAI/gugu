@@ -56,6 +56,8 @@ const STRINGS = {
     denied: '这个 App 没有读取{folder}的权限。',
     openWith: '用别的 App 打开',
     openNewTab: '在新页签打开',
+    back: '文件夹',
+    forward: '前进',
     openBeside: '在旁边打开',
     more: '更多',
     downloadOnly: '这个文件在这里只能下载，不能在这里看和改。',
@@ -245,6 +247,8 @@ const STRINGS = {
     denied: 'This App may not read this folder.',
     openWith: 'Open with another App',
     openNewTab: 'Open in new tab',
+    back: 'Folder',
+    forward: 'Forward',
     openBeside: 'Open beside',
     more: 'More',
     downloadOnly: 'This file can only be downloaded here; it cannot be shown or changed here.',
@@ -535,7 +539,7 @@ function markdownSupport(cm) {
 async function applyContext(ctx) {
   const previous = state.ctx
   state.ctx = ctx
-  const restored = !previous && ctx.viewState
+  const restored = ctx.viewState && (!previous || previous.file?.id !== ctx.file?.id || previous.tabId !== ctx.tabId)
   if (restored) {
     if (['chat', 'workspace'].includes(restored.root)) state.root = restored.root
     state.folder = typeof restored.folder === 'string' ? restored.folder : null
@@ -606,6 +610,13 @@ function renderChrome() {
     Promise.resolve(gugu.setTabTitle(title)).catch(() => {})
   }
   $('filter').placeholder = t.filter
+  $('search-toggle').title = t.filter
+  $('search-toggle').setAttribute('aria-label', t.filter)
+  $('page-back-label').textContent = t.back
+  $('page-back').disabled = !state.ctx?.navigation?.canBack
+  $('page-forward').disabled = !state.ctx?.navigation?.canForward
+  $('page-forward').title = t.forward
+  $('page-forward').setAttribute('aria-label', t.forward)
   $('select-files').textContent = state.selecting || state.picked.size ? t.pickDone : t.pick
   renderTools()
   $('new-label').textContent = t.new
@@ -1354,6 +1365,22 @@ const offline = (entry) => entry.storedOn?.online === false && !entry.keep
 
 // A press on a file: the host picks the App that opens it and says why if it cannot now. Whether the machine that keeps
 // it is on is read afresh then, never from the list as it was loaded: the list is read again to show it.
+async function navigate(delta) {
+  try { return await gugu.navigation.go(delta) }
+  catch (error) { showBanner(fmt(state.t.failed, { e: error.message }), 'error'); return false }
+}
+window.addEventListener('keydown', (event) => {
+  if (event.defaultPrevented || event.isComposing || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+  if (event.key !== '[' && event.key !== ']') return
+  event.preventDefault()
+  void navigate(event.key === '[' ? -1 : 1)
+})
+window.addEventListener('mouseup', (event) => {
+  if (event.button !== 3 && event.button !== 4) return
+  event.preventDefault()
+  void navigate(event.button === 3 ? -1 : 1)
+})
+
 function openFile(entry, intent = 'navigate') {
   if (entry.storedOn) void refreshList()
   return openInHost(entry, false, intent)
@@ -3072,6 +3099,9 @@ function start() {
       renderList()
     }
   }
+  $('search-toggle').onclick = () => { const input = $('filter'); input.hidden = !input.hidden; $('search-toggle').setAttribute('aria-expanded', String(!input.hidden)); if (!input.hidden) input.focus() }
+  $('page-back').onclick = () => navigate(-1)
+  $('page-forward').onclick = () => navigate(1)
   $('new-doc').onclick = () => toggleMenu($('new-doc'), [[state.t.newDoc, createDoc], [state.t.newFolder, createFolder]])
   $('upload').onclick = $('empty-upload').onclick = () => uploadFiles()
   $('move-cancel').onclick = closeMoveDialog
@@ -3085,7 +3115,7 @@ function start() {
   }
   // The same menu at every width; the wide pane also keeps its Download and Open with shortcuts.
   $('more').onclick = () => {
-    const items = [[state.t.download, downloadShown], [state.t.openWith, () => openInHost(state.shown, true)]]
+    const items = [[state.t.split, () => setMode('split')], [state.t.download, downloadShown], [state.t.openWith, () => openInHost(state.shown, true)]]
     if (canWrite() && state.shown && !state.shown.systemRole && !state.current?.file.readOnly) items.push([state.t.rename, () => startRename($('doc-title'), state.shown)])
     toggleMenu($('more'), items)
   }

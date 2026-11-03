@@ -104,6 +104,7 @@ export interface PhoneAppBinding {
   /** The slot drawing it. */
   tabId: string
   viewState?: Record<string, unknown>
+  navigation?: { canBack: boolean; canForward: boolean }
   tabName: string
   /** The conversation it is in (`AppWhere`): the chat it is drawn for; in a session's tab, the person's private chat with its agent. */
   chatId: string | null
@@ -368,6 +369,7 @@ export function hostAppFrame(
     showSession(sessionId: string, peek: boolean): { shown: true } | { unread: string[] }
     /** 「用 X 打开」 resolved: the slot opens that App on the file, or asks when several claim it. */
     openWith(detail: AppOpenWithDetail): void
+    navigate?(delta: -1 | 1): Promise<boolean>
     openWorkingCopy?(path: string, read: ReadWorkingCopyChunk): void
     /** G1 Beside the page, over its frame: the frame stays as it was, for the way back. A host without it refuses a peek. */
     peek?(target: PeekTarget): void
@@ -475,6 +477,7 @@ export function hostAppFrame(
   const unread = (error: unknown) => log.warn({ error: error instanceof Error ? error.message : String(error) }, 'the chat could not be read')
   const contextOf = (): ExtensionHostContext => ({
     apiVersion: EXTENSION_API_VERSION,
+    ...(hosted.binding.navigation ? { navigation: hosted.binding.navigation } : {}),
     ...(hosted.binding.viewState ? { viewState: hosted.binding.viewState } : {}),
     tabId: hosted.binding.tabId,
     ...(hosted.binding.modal ? { modal: { data: hosted.binding.modal.data } } : {}),
@@ -576,6 +579,9 @@ export function hostAppFrame(
       }
       case 'getAppState':
         return phoneAppState(hosted.binding.capabilities)
+      case 'navigationGo':
+        if (args.delta !== -1 && args.delta !== 1) return refused('invalid', 'Navigation delta must be -1 or 1')
+        return hooks.navigate?.(args.delta) ?? false
       case 'getContext':
         // A pill's place waiting for this page goes first, whatever the answer: the frame holds it until `onLink`.
         for (const link of takeOpeningLinks(hosted.binding)) event(link)

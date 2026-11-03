@@ -361,6 +361,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
     </>
   )
   const history = pane?.navigationOf(tabId)
+  const navigation = { canBack: (history?.index ?? 0) > 0, canForward: !!history && history.index < history.pages.length - 1 }
   const frames = (history?.pages ?? [{ kind: 'chat-panel', state: item }]).flatMap((page, index) => {
     const current = index === (history?.index ?? 0)
     const value = current ? item : page.state as PanelItem
@@ -434,7 +435,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
           ) : windowApp ? (
             <div className="min-h-0 flex-1"><ExtensionTabPane extensionId={windowApp} tabKind={kind} sessionId={null} tabId={slot} chatId={chatId} resourceChat={resourceChat} {...(item.itemId ? { itemId: item.itemId } : {})} /></div>
           ) : (
-            <ClaimedPage slotId={slot} chatId={chatId} resourceChat={resourceChat} kind={kind} itemId={item.itemId} takeOpening={item.takeOpening} viewState={history?.pages[history.index]?.viewState} />
+            <ClaimedPage slotId={slot} chatId={chatId} resourceChat={resourceChat} kind={kind} itemId={item.itemId} takeOpening={item.takeOpening} viewState={history?.pages[history.index]?.viewState} navigation={navigation} />
           )
         ) : (
           <>
@@ -449,6 +450,8 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
                 itemId={entry.item.itemId}
                 hidden={!entry.current}
                 viewState={history?.pages[Number(entry.pageKey.split(':').at(-1))]?.viewState}
+                navigation={entry.current ? navigation : { canBack: false, canForward: false }}
+                onNavigate={(delta) => entry.current && pane ? pane.go(tabId, delta) : Promise.resolve(false)}
                 onOpenWith={(detail) => onOpenWith(detail, tabId)}
                 tabId={groupPageSlot(chatId, entry.pageKey)}
                 commandRef={entry.current ? frameCommand : undefined}

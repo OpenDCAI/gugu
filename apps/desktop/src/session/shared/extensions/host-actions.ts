@@ -36,6 +36,7 @@ export interface ExtensionHostActionOrigin {
 }
 
 export type ExtensionHostAction =
+  | { kind: 'navigateTab'; delta: -1 | 1 }
   | { kind: 'openAppModal'; page: AppModalPage }
   | { kind: 'closeAppModal'; id: string }
   | { kind: 'focusAppModalClose'; id: string }
@@ -266,4 +267,4 @@ export interface ExtensionConsentAnswerDetail {
   alsoOn?: string[];
 }
 
-export type ExtensionHostActionResult = LinkPlace | 'own' | void;
+export type ExtensionHostActionResult = LinkPlace | 'own' | { navigated: boolean } | void;

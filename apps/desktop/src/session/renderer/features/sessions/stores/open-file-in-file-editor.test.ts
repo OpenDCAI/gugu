@@ -482,7 +482,7 @@ describe('task file preview routing', () => {
       sessionId: 'session-1',
       path: '/tmp/Application Support/note.md',
       external: true,
-      intent: 'preview',
+      intent: 'navigate',
       onResult,
     });
 
@@ -505,7 +505,7 @@ describe('task file preview routing', () => {
       projectId: 'project-1',
       sessionId: 'session-1',
       url: 'https://www.baidu.com/',
-      intent: 'preview',
+      intent: 'navigate',
       onResult,
     });
 
@@ -534,7 +534,7 @@ describe('task file preview routing', () => {
     mocks.ensurePage.mockResolvedValue({ success: true });
     const onResult = vi.fn();
     const dispose = openHostRequestedBrowserInSessionWhenReady({
-      projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'pinned',
+      projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'newTab',
       acquire: { browserId: 'original', createIfMissing: false, deadline: Date.now() + 9_000 }, onResult,
     });
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true, browserId: 'original', created: false }));
@@ -547,7 +547,7 @@ describe('task file preview routing', () => {
     mocks.getSessionPageStore().viewModel.paneLayout.groups = [];
     const onResult = vi.fn();
     const dispose = openHostRequestedBrowserInSessionWhenReady({
-      projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'pinned',
+      projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'newTab',
       acquire: { createIfMissing: false, deadline: Date.now() + 9_000 }, onResult,
     });
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: false, error: expect.stringContaining('browser_navigate') }));
@@ -564,7 +564,7 @@ describe('task file preview routing', () => {
     mocks.registerBrowser.mockResolvedValue({ success: true });
     mocks.ensurePage.mockResolvedValue({ success: true });
     const onResult = vi.fn();
-    const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'pinned',
+    const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'newTab',
       acquire: { createIfMissing: false, deadline: Date.now() + 9_000 }, onResult });
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true, browserId: 'focused', created: false }));
     expect(mocks.showPage).not.toHaveBeenCalled();
@@ -574,7 +574,7 @@ describe('task file preview routing', () => {
   it('#7323 expired acquisition never creates a page, and a failed first navigation rolls back only its new tab', async () => {
     const view = mocks.getSessionPageStore().viewModel;
     const onResult = vi.fn();
-    openHostRequestedBrowserInSessionWhenReady({ projectId: 'p', sessionId: 's', url: 'https://a.test/', intent: 'pinned',
+    openHostRequestedBrowserInSessionWhenReady({ projectId: 'p', sessionId: 's', url: 'https://a.test/', intent: 'newTab',
       acquire: { createIfMissing: true, deadline: Date.now() - 1 }, onResult });
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: false, error: expect.stringContaining('timed out') }));
     expect(mocks.showPage).not.toHaveBeenCalled();
@@ -587,7 +587,7 @@ describe('task file preview routing', () => {
     });
     mocks.registerBrowser.mockResolvedValue({ success: true });
     mocks.ensurePage.mockResolvedValue({ success: false, error: 'page unavailable' });
-    openHostRequestedBrowserInSessionWhenReady({ projectId: 'p', sessionId: 's', url: 'https://a.test/', intent: 'pinned',
+    openHostRequestedBrowserInSessionWhenReady({ projectId: 'p', sessionId: 's', url: 'https://a.test/', intent: 'newTab',
       acquire: { createIfMissing: true, deadline: Date.now() + 9_000 }, onResult });
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: false, error: expect.stringContaining('page unavailable') }));
     expect(closeTab).toHaveBeenCalledExactlyOnceWith('new-tab');
@@ -605,7 +605,7 @@ describe('task file preview routing', () => {
     // 只有第一次是新开的(宿主据此只把它记一次产出)。
     for (const created of [true, false]) {
       const onResult = vi.fn();
-      const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'https://a.test/', intent: 'pinned',
+      const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'https://a.test/', intent: 'newTab',
         acquire: { createIfMissing: true, deadline: Date.now() + 9_000 }, onResult });
       await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true, browserId: 'new', created }));
       dispose();
@@ -624,7 +624,7 @@ describe('task file preview routing', () => {
     let registered!: (result: { success: boolean }) => void;
     mocks.registerBrowser.mockImplementationOnce(() => new Promise((resolve) => { registered = resolve; }));
     const onResult = vi.fn();
-    const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'https://a.test/', intent: 'pinned',
+    const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'https://a.test/', intent: 'newTab',
       acquire: { createIfMissing: true, deadline: Date.now() + 9_000 }, onResult });
     await vi.waitFor(() => expect(registered).toBeDefined());
     dispose();
@@ -651,7 +651,7 @@ describe('task file preview routing', () => {
       projectId: 'project-1',
       sessionId: 'session-2',
       url: 'https://example.com/',
-      intent: 'preview',
+      intent: 'navigate',
       onResult,
       timeout: 1_000,
     });
@@ -671,7 +671,7 @@ describe('task file preview routing', () => {
       projectId: 'project-1',
       sessionId: 'session-1',
       tabKind: 'notes.board',
-      intent: 'pinned',
+      intent: 'newTab',
       onResult,
     });
 
@@ -690,7 +690,7 @@ describe('task file preview routing', () => {
         projectId: 'project-1',
         sessionId: 'session-1',
         tabKind: 'computer-use.preview',
-        intent: 'pinned',
+        intent: 'newTab',
         ifAbsent: true,
         onResult,
       });
@@ -722,7 +722,7 @@ describe('task file preview routing', () => {
       projectId: 'project-1',
       sessionId: 'session-1',
       tabKind: 'fresh.panel',
-      intent: 'pinned',
+      intent: 'newTab',
       onResult,
     });
 
@@ -740,7 +740,7 @@ describe('task file preview routing', () => {
       projectId: 'project-1',
       sessionId: 'session-1',
       tabKind: 'never-installed.panel',
-      intent: 'pinned',
+      intent: 'newTab',
       onResult,
     });
 
@@ -765,7 +765,7 @@ describe('task file preview routing', () => {
       sessionId: 'session-1',
       path: '/repo/session-1/data/report.csv',
       external: false,
-      intent: 'preview',
+      intent: 'navigate',
       onResult,
     });
 
@@ -812,7 +812,7 @@ describe('task file preview routing', () => {
       twoClaims();
       const onResult = vi.fn();
       const dispose = openHostRequestedFileInSessionWhenReady({
-        projectId: 'project-1', sessionId: 'session-1', path: '/repo/session-1/data/report.csv', external: false, intent: 'preview', onResult,
+        projectId: 'project-1', sessionId: 'session-1', path: '/repo/session-1/data/report.csv', external: false, intent: 'navigate', onResult,
       });
       await vi.waitFor(() => expect(mocks.showModal).toHaveBeenCalledTimes(1));
       mocks.showModal.mock.calls[0]![1].onClose();
@@ -841,7 +841,7 @@ describe('task file preview routing', () => {
       sessionId: 'session-1',
       path: '/repo/session-1/src/index.ts',
       external: false,
-      intent: 'preview',
+      intent: 'navigate',
       onResult,
     });
 

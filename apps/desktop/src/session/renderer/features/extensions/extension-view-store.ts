@@ -44,6 +44,7 @@ export interface ExtensionViewClaim {
    */
   itemId?: string;
   viewState?: Record<string, unknown>;
+  navigation?: { canBack: boolean; canForward: boolean };
   /** 那一格的内容区。根层量它的框来摆页、报尺寸。 */
   element: HTMLElement;
 }

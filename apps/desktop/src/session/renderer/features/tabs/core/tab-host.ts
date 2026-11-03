@@ -12,9 +12,9 @@ export interface TabHost {
   /** The ambient context for this pane (viewId + any domain-specific fields). */
   readonly ctx: TabViewContext;
   navigationOf(tabId: string): TabHistorySnapshot | undefined;
-  goTo(tabId: string, index: number): void;
+  goTo(tabId: string, index: number): Promise<boolean>;
   canGo(tabId: string, delta: -1 | 1): boolean;
-  go(tabId: string, delta: -1 | 1): void;
+  go(tabId: string, delta: -1 | 1): Promise<boolean>;
   setPageViewState(tabId: string, state: Record<string, unknown>): void;
 
   /** Opens a tab of any registered kind. Untyped for use from resources/handles. */

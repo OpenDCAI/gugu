@@ -67,7 +67,7 @@ export function openApp(extensionId: string, tab?: string): LinkPlace | 'own' {
     openHostRequestedExtensionInSessionWhenReady({
       ...placed,
       tabKind: main.kind,
-      intent: 'pinned',
+      intent: 'navigate',
       reveal: true,
       onResult: (result) => {
         if (!result.success) log.warn('Could not bring an App forward where it is placed:', result.error);

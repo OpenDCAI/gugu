@@ -182,6 +182,7 @@ export interface ExtensionHostContext {
   tabId?: string;
   /** Opaque state of this navigation page; never grants or selects a resource. */
   viewState?: Record<string, unknown>;
+  navigation?: { canBack: boolean; canForward: boolean };
   /** A host modal's initial data, under the opener's context and existing grants. */
   modal?: { data?: unknown };
   /**
@@ -690,6 +691,7 @@ export const BRIDGE_VERBS = {
   modalKey: { needs: null, only: 'page' },
   /** Facts about where this surface sits. */
   getContext: { needs: null },
+  navigationGo: { needs: null, only: 'page' },
   showContextMenu: { needs: null, only: 'page' },
   /**
    * What the app is showing right now.

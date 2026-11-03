@@ -15,7 +15,7 @@ import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
 import { readChatSummary } from '@/lib/chatSummariesBridge';
 import { groupParticipantPanes } from '../group-participant-panes';
 import { returnToScreen } from '@renderer/app/screen-layout-actions';
-import { type PanelItem } from './chat-panel-item';
+import { groupPageSlot, type PanelItem } from './chat-panel-item';
 import { keepRestore, takeRestore } from './chat-tab-restores';
 import {
   CHAT_INFO_TAB_KIND,
@@ -106,6 +106,16 @@ export function panelTabsOf(chatId: string): ChatPanelTab[] {
   return tabsOf(chatLayoutOf(chatId))
     .filter(({ tab }) => tab.kind === CHAT_PANEL_TAB_KIND)
     .map(({ tab, pane, inWindow }) => ({ tabId: tab.tabId, item: pane.entries.get(tab.tabId)!.state as PanelItem, shown: tab.isActive, focused: tab.isFocused ?? tab.isActive, inWindow }));
+}
+
+/** Resolve a guest's host-stamped slot by exact identity among already-open contexts. */
+export function chatPageOrigin(slot: string): { chatId: string; tabId: string; pane: PaneStore } | null {
+  for (const [chatId, layout] of layouts) {
+    for (const { tab, pane } of tabsOf(layout)) {
+      if (tab.kind === CHAT_PANEL_TAB_KIND && groupPageSlot(chatId, tab.tabId) === slot) return { chatId, tabId: tab.tabId, pane };
+    }
+  }
+  return null;
 }
 
 export const panelTabOf = (chatId: string, tabId: string): ChatPanelTab | null => panelTabsOf(chatId).find((tab) => tab.tabId === tabId) ?? null;

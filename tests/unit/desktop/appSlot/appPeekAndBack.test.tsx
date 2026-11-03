@@ -187,7 +187,7 @@ describe('message attachment entry', () => {
     const chatId = 'folder-preview-intent'
     const folder = openPanelItem(chatId, folderItem())!
     await harness.render(chatTabs({ chatId }))
-    const open = (itemId: string, intent: 'preview' | 'pinned') => ask(chatId, {
+    const open = (itemId: string, intent: 'navigate' | 'pinned') => ask(chatId, {
       itemId, fromPage: true,
       opener: { chatId, itemId, name: `${itemId}.pdf`, typedName: `${itemId}.pdf`, choice: { kind: 'one', candidate: pdf }, intent } as never,
     })

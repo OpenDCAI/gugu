@@ -60,7 +60,7 @@ export const MarkdownEditorRenderer = observer(function MarkdownEditorRenderer({
         resourcePath: href,
       });
       if (!target) return false;
-      pane.open('file', { path: target }, { preview: false });
+      pane.open('file', { path: target }, { intent: 'navigate' });
       // `./other.md#section` (#6950): the path opens the file, the fragment is where its preview lands.
       const fragment = href.includes('#') ? href.slice(href.indexOf('#') + 1) : '';
       if (fragment) {

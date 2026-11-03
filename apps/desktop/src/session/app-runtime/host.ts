@@ -1,3 +1,4 @@
+import type { TabOpenIntent } from '@shared/view-state';
 import { fileRefOf, type AppFileEntry, type AppFileOpened, type AppFileSearch, type AppFileRef, type AppFileUpload, type AppFileVersion, type AppFileVersionContent, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts } from '@shared/extensions/bridge-protocol';
 import type { AppSessionIndexOptions, AppSessionIndex, AppSessionReadOptions, AppSessionRead } from '@shared/extensions/app-sessions';
@@ -20,6 +21,7 @@ export interface GuguHost extends ProjectionHost {
     key(key: string): Promise<void>;
   };
   onModalFocus?(handler: (edge: 'first' | 'last') => void): () => void;
+  navigationGo?(args: { delta: -1 | 1 }): Promise<boolean>;
   readonly apiVersion: number;
   /** An iframe of the outer gugu page (the phone), not a desktop webview: `framed-host.ts`. */
   readonly framed?: boolean;
@@ -67,7 +69,7 @@ export interface GuguHost extends ProjectionHost {
     /** Bytes the caller has, or (no `files`) the person's picker — which only a page has, inside a gesture. */
     upload(args: { place: AppPlace; files?: AppFileUpload[]; sourceMessageIds?: string[]; folder?: string; keep?: string }): Promise<AppFileEntry[]>;
     /** The gesture halves: a page's only (`VerbFacts.only`) — a background page and a program have none. */
-    openWith?(args: { ref: AppFileRef; ask?: boolean; at?: Record<string, string>; peek?: boolean; tab?: string; intent?: 'preview' | 'pinned' }): Promise<void>;
+    openWith?(args: { ref: AppFileRef; ask?: boolean; at?: Record<string, string>; peek?: boolean; tab?: string; intent?: TabOpenIntent; viewState?: Record<string, unknown> }): Promise<void>;
     /** One file (`true` saved), or several (API 20: how many were saved; `0` when the person cancelled). */
     download?(args: { ref: AppFileRef } | { refs: AppFileRef[] }): Promise<boolean | number>;
     forward?(args: { refs: AppFileRef[] }): Promise<void>;

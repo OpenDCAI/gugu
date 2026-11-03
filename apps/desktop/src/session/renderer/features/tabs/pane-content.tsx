@@ -68,7 +68,7 @@ export const PaneContent = observer(function PaneContent({
           {pane.registry.all().filter((provider) => retained.has(provider.kind)).map((provider) => {
             const Content = provider.TabContent;
             return (
-              <RetainedTabContent key={provider.kind} visible={!unavailable && active?.kind === provider.kind} className="absolute inset-0" data-pane-layer={provider.kind} data-pane-layer-key={provider.kind} data-pane-tab={active?.kind === provider.kind ? active.tabId : undefined}>
+              <RetainedTabContent key={provider.kind} visible={!unavailable && active?.kind === provider.kind} className="absolute inset-0" data-pane-layer={provider.kind} data-pane-layer-key={provider.kind} data-pane-tab={active?.kind === provider.kind ? active?.tabId : undefined}>
                 <PaneDimensionProvider sink={sinkFor(provider.kind)}>
                   <Suspense fallback={null}><Content host={pane} ctx={pane.ctx} /></Suspense>
                 </PaneDimensionProvider>

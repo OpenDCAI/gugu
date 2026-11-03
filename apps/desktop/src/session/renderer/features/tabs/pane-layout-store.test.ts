@@ -171,7 +171,7 @@ describe('PaneLayoutStore: isViewActive and onActivate', () => {
 
   it('fires onActivate on the active tab when the view becomes active', () => {
     const layout = createLayout();
-    layout.open('browser', {});
+    layout.open('browser', {}, { from: null, intent: 'newTab' });
     const resource = layout.focusedPane.resolvedTabs[0]?.resource;
     const onActivate = vi.fn();
     // Inject a spy onto the resource.
@@ -185,8 +185,8 @@ describe('PaneLayoutStore: isViewActive and onActivate', () => {
 
   it('fires onActivate on the newly active tab when the active tab changes while view is active', () => {
     const layout = createLayout();
-    layout.open('browser', {});
-    layout.open('browser', {});
+    layout.open('browser', {}, { from: null, intent: 'newTab' });
+    layout.open('browser', {}, { from: null, intent: 'newTab' });
 
     const tabs = layout.focusedPane.resolvedTabs;
     const firstResource = tabs[0]?.resource;
@@ -209,7 +209,7 @@ describe('PaneLayoutStore: isViewActive and onActivate', () => {
 
   it('does not fire onActivate when the view is inactive', () => {
     const layout = createLayout();
-    layout.open('browser', {});
+    layout.open('browser', {}, { from: null, intent: 'newTab' });
     const resource = layout.focusedPane.resolvedTabs[0]?.resource;
     const onActivate = vi.fn();
     (resource as { onActivate?: () => void }).onActivate = onActivate;
@@ -222,8 +222,8 @@ describe('PaneLayoutStore: isViewActive and onActivate', () => {
   it('fires onActivate for each pane on setViewActive when split panes exist', () => {
     const layout = createLayout();
     // Open two browser tabs so splitRight() has something to split.
-    layout.open('browser', {});
-    layout.open('browser', {});
+    layout.open('browser', {}, { from: null, intent: 'newTab' });
+    layout.open('browser', {}, { from: null, intent: 'newTab' });
     layout.splitRight();
 
     expect(layout.groups).toHaveLength(2);
@@ -242,12 +242,12 @@ describe('PaneLayoutStore: isViewActive and onActivate', () => {
     layout.dispose();
   });
 
-  it('fires onActivate on the new resource when a preview tab is retargeted while the pane is visible', () => {
+  it('fires onActivate on the new resource when the same context navigates', () => {
     const layout = createLayout();
     runInAction(() => layout.setViewActive(true));
 
     // Open the first preview tab — resource A created and activated.
-    layout.open('browser', {}, { preview: true });
+    layout.open('browser', {}, { intent: 'newTab', from: null });
     const tabId = layout.focusedPane.resolvedActiveTabId;
 
     // Set up an intercept so the next resource written into _resources gets a
@@ -262,7 +262,7 @@ describe('PaneLayoutStore: isViewActive and onActivate', () => {
     });
 
     // Open a second preview tab — retargets the same slot (same tabId, new resource B).
-    layout.open('browser', {}, { preview: true });
+    layout.open('browser', { initialUrl: 'https://next.example' }, { intent: 'navigate', from: tabId! });
     disposer();
 
     // Confirm this actually took the retarget path (tabId must not have changed).
@@ -295,16 +295,16 @@ describe('PaneLayoutStore: single-mount explicit target opens', () => {
     terminalRegistryEntries().delete('task-1');
   });
 
-  it('moves an existing single-mount tab to an explicit target pane', () => {
+  it('opens an independent context in an explicit target without moving the existing one', () => {
     const layout = createLayout();
 
-    layout.open('terminal', { terminalId: 'terminal-1' });
+    layout.open('terminal', { terminalId: 'terminal-1' }, { from: null, intent: 'newTab' });
     const sourcePaneId = layout.activePaneId;
     const sourcePane = layout.focusedPane;
     const terminalTab = sourcePane.resolvedTabs[0]!;
     const terminalResource = terminalTab.resource;
 
-    layout.open('browser', {});
+    layout.open('browser', {}, { from: null, intent: 'newTab' });
     layout.splitRight();
     const targetPaneId = layout.activePaneId;
     const targetPane = layout.focusedPane;
@@ -313,13 +313,13 @@ describe('PaneLayoutStore: single-mount explicit target opens', () => {
     expect(sourcePane.resolvedTabs.some((tab) => tab.kind === 'terminal')).toBe(true);
     expect(targetPane.resolvedTabs.some((tab) => tab.kind === 'terminal')).toBe(false);
 
-    layout.open('terminal', { terminalId: 'terminal-1' }, { target: { paneId: targetPaneId } });
+    layout.open('terminal', { terminalId: 'terminal-1' }, { intent: 'newTab', from: null, target: { paneId: targetPaneId } });
 
-    expect(sourcePane.resolvedTabs.some((tab) => tab.kind === 'terminal')).toBe(false);
+    expect(sourcePane.resolvedTabs.some((tab) => tab.kind === 'terminal')).toBe(true);
     const movedTerminalTab = targetPane.resolvedTabs.find((tab) => tab.kind === 'terminal');
-    expect(movedTerminalTab?.tabId).toBe(terminalTab.tabId);
-    expect(movedTerminalTab?.resource).toBe(terminalResource);
-    expect(targetPane.resolvedActiveTabId).toBe(terminalTab.tabId);
+    expect(movedTerminalTab?.tabId).not.toBe(terminalTab.tabId);
+    expect(movedTerminalTab?.resource).not.toBe(terminalResource);
+    expect(targetPane.resolvedActiveTabId).toBe(movedTerminalTab?.tabId);
 
     layout.dispose();
   });
@@ -328,12 +328,12 @@ describe('PaneLayoutStore: single-mount explicit target opens', () => {
 describe('PaneLayoutStore: runtime-only persistence projection', () => {
   it('omits a pure runtime pane without changing snapshot, sizes, or active history', () => {
     const { layout, onActiveTabChange, runtimeDispose } = createRuntimeProjectionLayout();
-    layout.open('persistent-test', { id: 'source' });
+    layout.open('persistent-test', { id: 'source' }, { from: null, intent: 'newTab' });
     const sourcePaneId = layout.activePaneId;
     const baseline = structuredClone(layout.snapshot);
     onActiveTabChange.mockClear();
 
-    layout.open('runtime-test', { id: 'side-chat:view-1' }, { target: 'right' });
+    layout.open('runtime-test', { id: 'side-chat:view-1' }, { intent: 'newTab', from: null, target: 'right' });
 
     expect(layout.groups).toHaveLength(2);
     expect(layout.activePaneId).not.toBe(sourcePaneId);
@@ -353,19 +353,15 @@ describe('PaneLayoutStore: runtime-only persistence projection', () => {
 
   it('keeps the persisted active group when runtime focus enters a mixed workspace pane', () => {
     const { layout, onActiveTabChange } = createRuntimeProjectionLayout();
-    layout.open('persistent-test', { id: 'source' });
+    layout.open('persistent-test', { id: 'source' }, { from: null, intent: 'newTab' });
     const sourcePaneId = layout.activePaneId;
-    layout.open('persistent-test', { id: 'tool' }, { target: 'right' });
+    layout.open('persistent-test', { id: 'tool' }, { intent: 'newTab', from: null, target: 'right' });
     const workspacePaneId = layout.activePaneId;
     layout.setActiveGroup(sourcePaneId);
     const baseline = structuredClone(layout.snapshot);
     onActiveTabChange.mockClear();
 
-    layout.open(
-      'runtime-test',
-      { id: 'side-chat:view-2' },
-      { target: { paneId: workspacePaneId } }
-    );
+    layout.open('runtime-test', { id: 'side-chat:view-2' }, { intent: 'newTab', from: null, target: { paneId: workspacePaneId } });
     layout.setActiveGroup(workspacePaneId);
 
     expect(layout.activePaneId).toBe(workspacePaneId);
@@ -387,7 +383,7 @@ describe('PaneLayoutStore: onActiveTabChange callback', () => {
     const onChange = vi.fn();
     const layout = createLayout({ onActiveTabChange: onChange });
 
-    layout.open('browser', {});
+    layout.open('browser', {}, { from: null, intent: 'newTab' });
     const tabId = layout.focusedPane.resolvedActiveTabId;
 
     expect(onChange).toHaveBeenCalledWith(tabId);
@@ -398,8 +394,8 @@ describe('PaneLayoutStore: onActiveTabChange callback', () => {
     const onChange = vi.fn();
     const layout = createLayout({ onActiveTabChange: onChange });
 
-    layout.open('browser', {});
-    layout.open('browser', {});
+    layout.open('browser', {}, { from: null, intent: 'newTab' });
+    layout.open('browser', {}, { from: null, intent: 'newTab' });
     const tabs = layout.focusedPane.resolvedTabs;
 
     onChange.mockClear();
@@ -412,7 +408,7 @@ describe('PaneLayoutStore: onActiveTabChange callback', () => {
   it('does not call onActiveTabChange after dispose', () => {
     const onChange = vi.fn();
     const layout = createLayout({ onActiveTabChange: onChange });
-    layout.open('browser', {});
+    layout.open('browser', {}, { from: null, intent: 'newTab' });
     onChange.mockClear();
 
     layout.dispose();
@@ -432,8 +428,8 @@ describe('PaneLayoutStore: cells cut on an edge (#7052)', () => {
 
   it('拖到一格的下边 = 上下叠两格,拖过去的那枚在下面那格', () => {
     const { layout } = createRuntimeProjectionLayout();
-    layout.open('persistent-test', { id: 'a' });
-    layout.open('persistent-test', { id: 'b' });
+    layout.open('persistent-test', { id: 'a' }, { from: null, intent: 'newTab' });
+    layout.open('persistent-test', { id: 'b' }, { from: null, intent: 'newTab' });
     const paneId = layout.activePaneId;
     const b = tabIdOf(layout, 'b');
 
@@ -449,7 +445,7 @@ describe('PaneLayoutStore: cells cut on an edge (#7052)', () => {
 
   it('一格只剩一枚页签时拖到自己的边上:没有可分的,什么都不变', () => {
     const { layout } = createRuntimeProjectionLayout();
-    layout.open('persistent-test', { id: 'a' });
+    layout.open('persistent-test', { id: 'a' }, { from: null, intent: 'newTab' });
     const paneId = layout.activePaneId;
     const a = tabIdOf(layout, 'a');
 
@@ -463,9 +459,9 @@ describe('PaneLayoutStore: cells cut on an edge (#7052)', () => {
 
   it('页签右键「移到另一栏」:挪到后一格(没有就前一格);只有一格时没有这一项', () => {
     const { layout } = createRuntimeProjectionLayout();
-    layout.open('persistent-test', { id: 'a' });
-    layout.open('persistent-test', { id: 'b' });
-    layout.open('persistent-test', { id: 'c' });
+    layout.open('persistent-test', { id: 'a' }, { from: null, intent: 'newTab' });
+    layout.open('persistent-test', { id: 'b' }, { from: null, intent: 'newTab' });
+    layout.open('persistent-test', { id: 'c' }, { from: null, intent: 'newTab' });
     const first = layout.activePaneId;
     const [a, b, c] = ['a', 'b', 'c'].map((id) => tabIdOf(layout, id));
     const paneOf = (paneId: string) => layout.groups.find((g) => g.paneId === paneId)!.pane;
@@ -486,8 +482,8 @@ describe('PaneLayoutStore: cells cut on an edge (#7052)', () => {
 
   it('一格太窄(装不下两格 220px)就不往左右分,说「太窄」;高度够照样能上下分 (#7052 窄格子)', () => {
     const { layout } = createRuntimeProjectionLayout();
-    layout.open('persistent-test', { id: 'a' });
-    layout.open('persistent-test', { id: 'b' });
+    layout.open('persistent-test', { id: 'a' }, { from: null, intent: 'newTab' });
+    layout.open('persistent-test', { id: 'b' }, { from: null, intent: 'newTab' });
     const paneId = layout.activePaneId;
     const b = tabIdOf(layout, 'b');
     layout.setPaneSizer(() => ({ width: 400, height: 600 }));
@@ -503,9 +499,9 @@ describe('PaneLayoutStore: cells cut on an edge (#7052)', () => {
 
   it('套着分的形状与份额存下来、读回来不变', () => {
     const { layout } = createRuntimeProjectionLayout();
-    layout.open('persistent-test', { id: 'a' });
-    layout.open('persistent-test', { id: 'b' });
-    layout.open('persistent-test', { id: 'c' });
+    layout.open('persistent-test', { id: 'a' }, { from: null, intent: 'newTab' });
+    layout.open('persistent-test', { id: 'b' }, { from: null, intent: 'newTab' });
+    layout.open('persistent-test', { id: 'c' }, { from: null, intent: 'newTab' });
     const first = layout.activePaneId;
     layout.handleDragEnd(tabIdOf(layout, 'c'), paneEdgeDropId('right', first));
     const right = layout.groups[1].paneId;
@@ -535,7 +531,6 @@ describe('PaneLayoutStore: 一枚页签单独成窗 (#7052)', () => {
     const dispose = vi.fn();
     const provider = createTabProvider({
       kind: 'single-test',
-      mount: 'single',
       resourceKey: (state: { id: string }) => state.id,
       initialize: () => ({ dispose }),
       dispose: () => {},
@@ -556,8 +551,8 @@ describe('PaneLayoutStore: 一枚页签单独成窗 (#7052)', () => {
 
   it('拿出来:这条会话的格子不变形,页签进窗那一格,资源原样(不重建、不销毁)', () => {
     const { layout, dispose } = windowLayout();
-    layout.open('single-test', { id: 'a' });
-    layout.open('single-test', { id: 'b' });
+    layout.open('single-test', { id: 'a' }, { from: null, intent: 'newTab' });
+    layout.open('single-test', { id: 'b' }, { from: null, intent: 'newTab' });
     const home = layout.activePaneId;
     const b = tabOf(layout, 'b');
     const resource = layout.focusedPane.resolvedTabs.find((tab) => tab.tabId === b)!.resource;
@@ -576,8 +571,8 @@ describe('PaneLayoutStore: 一枚页签单独成窗 (#7052)', () => {
 
   it('放回:回到原来那一格;那一格没了就回焦点那一格', () => {
     const { layout, dispose } = windowLayout();
-    layout.open('single-test', { id: 'a' });
-    layout.open('single-test', { id: 'b' });
+    layout.open('single-test', { id: 'a' }, { from: null, intent: 'newTab' });
+    layout.open('single-test', { id: 'b' }, { from: null, intent: 'newTab' });
     const home = layout.activePaneId;
     const windowPaneId = layout.detachToWindow(tabOf(layout, 'b'))!;
 
@@ -592,8 +587,8 @@ describe('PaneLayoutStore: 一枚页签单独成窗 (#7052)', () => {
 
   it('存档时窗里那枚记回原来那一格(窗随主窗重载而关,读回来它在原处)', () => {
     const { layout } = windowLayout();
-    layout.open('single-test', { id: 'a' });
-    layout.open('single-test', { id: 'b' });
+    layout.open('single-test', { id: 'a' }, { from: null, intent: 'newTab' });
+    layout.open('single-test', { id: 'b' }, { from: null, intent: 'newTab' });
     layout.detachToWindow(tabOf(layout, 'b'));
 
     const saved = layout.snapshot;
@@ -607,11 +602,11 @@ describe('PaneLayoutStore: 一枚页签单独成窗 (#7052)', () => {
     const { layout } = windowLayout();
     const revealer = vi.fn();
     layout.setWindowRevealer(revealer);
-    layout.open('single-test', { id: 'a' });
-    layout.open('single-test', { id: 'b' });
+    layout.open('single-test', { id: 'a' }, { from: null, intent: 'newTab' });
+    layout.open('single-test', { id: 'b' }, { from: null, intent: 'newTab' });
     const windowPaneId = layout.detachToWindow(tabOf(layout, 'b'))!;
 
-    layout.open('single-test', { id: 'b' });
+    layout.open('single-test', { id: 'b' }, { from: null, intent: 'newTab' });
 
     expect(revealer).toHaveBeenCalledWith(windowPaneId);
     expect(idsIn(layout.focusedPane)).toEqual([tabOf(layout, 'a')]);
@@ -620,8 +615,8 @@ describe('PaneLayoutStore: 一枚页签单独成窗 (#7052)', () => {
 
   it('窗里那枚被关掉:那一格跟着收掉', () => {
     const { layout, dispose } = windowLayout();
-    layout.open('single-test', { id: 'a' });
-    layout.open('single-test', { id: 'b' });
+    layout.open('single-test', { id: 'a' }, { from: null, intent: 'newTab' });
+    layout.open('single-test', { id: 'b' }, { from: null, intent: 'newTab' });
     const windowPaneId = layout.detachToWindow(tabOf(layout, 'b'))!;
 
     layout.windowPanes.get(windowPaneId)!.pane.closeTab(tabOf(layout, 'b'));

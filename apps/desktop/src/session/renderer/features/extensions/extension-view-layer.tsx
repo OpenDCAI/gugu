@@ -244,6 +244,7 @@ export const ExtensionPage = observer(function ExtensionPage({
         ...(claim?.resourceChat ? { resourceChat: claim.resourceChat } : {}),
         tabId: claim?.tabId ?? '',
         viewState: claim?.viewState,
+        navigation: claim?.navigation,
         ...(claim?.itemId ? { itemId: claim.itemId } : {}),
         ...(claim?.takeOpening ? { opening: claim.takeOpening() } : {}),
       };

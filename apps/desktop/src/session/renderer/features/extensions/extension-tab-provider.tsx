@@ -98,10 +98,12 @@ function createExtensionTabContent(extensionId: string, kind: string) {
     ) {
       return null;
     }
+    const history = host.navigationOf(activeTab.tabId);
+    const navigation = { canBack: (history?.index ?? 0) > 0, canForward: !!history && history.index < history.pages.length - 1 };
     const place = ctx.place;
     const sessionId = place?.kind === 'session' ? place.sessionId : undefined;
     if (!resource.filePath) {
-      return <ExtensionSharedSlot tabKind={kind} sessionId={sessionId} chatId={place?.kind === 'chat' ? place.chatId : undefined} tabId={activeTab.tabId} viewState={host.navigationOf(activeTab.tabId)?.pages[host.navigationOf(activeTab.tabId)!.index]?.viewState} perSession={isPerSession(kind)} />;
+      return <ExtensionSharedSlot tabKind={kind} sessionId={sessionId} chatId={place?.kind === 'chat' ? place.chatId : undefined} tabId={activeTab.tabId} navigation={navigation} viewState={host.navigationOf(activeTab.tabId)?.pages[host.navigationOf(activeTab.tabId)!.index]?.viewState} perSession={isPerSession(kind)} />;
     }
     return (
       <ExtensionTabPane
@@ -109,6 +111,8 @@ function createExtensionTabContent(extensionId: string, kind: string) {
         tabKind={kind}
         sessionId={sessionId ?? null}
         tabId={activeTab.tabId}
+        navigation={navigation}
+        viewState={history?.pages[history.index]?.viewState}
         filePath={resource.filePath}
       />
     );

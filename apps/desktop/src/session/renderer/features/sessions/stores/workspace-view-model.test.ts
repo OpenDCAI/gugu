@@ -448,11 +448,7 @@ describe('WorkspaceViewModel default conversation tab', () => {
 
     runInAction(() => {
       addSession(sessions, { id: 'conversation-1' });
-      viewModel.activePane.open(
-        'session',
-        { sessionId: 'conversation-1' },
-        { preview: false }
-      );
+      viewModel.activePane.open('session', { sessionId: 'conversation-1' }, { intent: 'newTab', from: null });
     });
     await Promise.resolve();
 
@@ -516,7 +512,7 @@ describe('WorkspaceViewModel default conversation tab', () => {
         {
           groupId: 'chat',
           tabManager: {
-            tabs: [{ kind: 'session', tabId: 'tab-chat', sessionId: 'conversation-1', isPreview: false }],
+            tabs: [{ kind: 'session', tabId: 'tab-chat', sessionId: 'conversation-1', }],
             activeTabId: 'tab-chat',
           },
         },
@@ -524,8 +520,8 @@ describe('WorkspaceViewModel default conversation tab', () => {
           groupId: 'tools',
           tabManager: {
             tabs: [
-              { kind: 'review', tabId: 'tab-review', sessionId: 'conversation-1', isPreview: false },
-              { kind: 'terminal', tabId: 'tab-files', terminalId: 'term-1', isPreview: false },
+              { kind: 'review', tabId: 'tab-review', sessionId: 'conversation-1', },
+              { kind: 'terminal', tabId: 'tab-files', terminalId: 'term-1', },
             ],
             activeTabId: 'tab-files',
           },
@@ -559,11 +555,7 @@ describe('WorkspaceViewModel default conversation tab', () => {
 
     runInAction(() => {
       addSession(sessions, { id: 'conversation-1' });
-      viewModel.activePane.open(
-        'session',
-        { sessionId: 'conversation-1' },
-        { preview: false }
-      );
+      viewModel.activePane.open('session', { sessionId: 'conversation-1' }, { intent: 'newTab', from: null });
     });
     await Promise.resolve();
 
@@ -586,22 +578,14 @@ describe('WorkspaceViewModel conversation hydration', () => {
     vi.spyOn(sessions, 'dehydrateSession').mockResolvedValue();
 
     // Hydration happens automatically when the tab is opened (via initialize → acquire).
-    viewModel.activePane.open(
-      'session',
-      { sessionId: 'conversation-1' },
-      { preview: false }
-    );
+    viewModel.activePane.open('session', { sessionId: 'conversation-1' }, { intent: 'newTab', from: null });
 
     expect(hydrateSession).toHaveBeenCalledTimes(1);
     expect(hydrateSession).toHaveBeenCalledWith('conversation-1');
 
     // Opening the same tab again (no-op due to single-mount dedup in the pane) should not
     // hydrate a second time.
-    viewModel.activePane.open(
-      'session',
-      { sessionId: 'conversation-1' },
-      { preview: false }
-    );
+    viewModel.activePane.open('session', { sessionId: 'conversation-1' }, { intent: 'newTab', from: null });
     expect(hydrateSession).toHaveBeenCalledTimes(1);
 
     await Promise.resolve();
@@ -620,20 +604,12 @@ describe('WorkspaceViewModel conversation hydration', () => {
       .mockResolvedValue();
 
     // Open conv-1 as preview; initialize() hydrates it.
-    viewModel.paneLayout.open(
-      'session',
-      { sessionId: 'conversation-1' },
-      { preview: true }
-    );
+    viewModel.paneLayout.open('session', { sessionId: 'conversation-1' }, { intent: 'newTab', from: null });
     await Promise.resolve();
 
     // Open conv-2 as preview; this retargets the preview slot, disposing conv-1 (dehydrate)
     // and initializing conv-2 (hydrate).
-    viewModel.paneLayout.open(
-      'session',
-      { sessionId: 'conversation-2' },
-      { preview: true }
-    );
+    viewModel.paneLayout.open('session', { sessionId: 'conversation-2' }, { intent: 'newTab', from: null });
     await Promise.resolve();
 
     expect(dehydrateSession).toHaveBeenCalledTimes(1);
@@ -673,8 +649,7 @@ describe('WorkspaceViewModel conversation hydration', () => {
                   kind: 'session',
                   tabId: 'tab-1',
                   sessionId: 'conversation-1',
-                  isPreview: false,
-                },
+                  },
               ],
             },
           },
@@ -687,8 +662,7 @@ describe('WorkspaceViewModel conversation hydration', () => {
                   kind: 'session',
                   tabId: 'tab-2',
                   sessionId: 'conversation-1',
-                  isPreview: false,
-                },
+                  },
               ],
             },
           },
@@ -726,16 +700,8 @@ describe('WorkspaceViewModel conversation hydration', () => {
       .mockResolvedValue();
 
     // Open two conversations; each initialize() acquires the session.
-    viewModel.activePane.open(
-      'session',
-      { sessionId: 'conversation-1' },
-      { preview: false }
-    );
-    viewModel.activePane.open(
-      'session',
-      { sessionId: 'conversation-2' },
-      { preview: false }
-    );
+    viewModel.activePane.open('session', { sessionId: 'conversation-1' }, { intent: 'newTab', from: null });
+    viewModel.activePane.open('session', { sessionId: 'conversation-2' }, { intent: 'newTab', from: null });
     // Both hydrate() continuations are scheduled as microtasks (mock resolves immediately).
     // Two awaits drain both, bringing each to 'running' state before dispose().
     await Promise.resolve();
@@ -761,11 +727,7 @@ describe('WorkspaceViewModel conversation hydration', () => {
       .mockResolvedValue();
 
     // Open tab; hydrateSession starts but is still pending.
-    viewModel.activePane.open(
-      'session',
-      { sessionId: 'conversation-1' },
-      { preview: false }
-    );
+    viewModel.activePane.open('session', { sessionId: 'conversation-1' }, { intent: 'newTab', from: null });
 
     // Close tab while hydration is still in-flight; release() removes from desired set.
     viewModel.activePane.closeTab(viewModel.activePane.resolvedActiveTabId!);
@@ -799,20 +761,12 @@ describe('WorkspaceViewModel conversation hydration', () => {
       .mockResolvedValue();
 
     // First open: hydration fails.
-    viewModel.activePane.open(
-      'session',
-      { sessionId: 'conversation-1' },
-      { preview: false }
-    );
+    viewModel.activePane.open('session', { sessionId: 'conversation-1' }, { intent: 'newTab', from: null });
     await Promise.resolve();
 
     // Closing and reopening triggers a second initialize() → acquire() → retry.
     viewModel.activePane.closeTab(viewModel.activePane.resolvedActiveTabId!);
-    viewModel.activePane.open(
-      'session',
-      { sessionId: 'conversation-1' },
-      { preview: false }
-    );
+    viewModel.activePane.open('session', { sessionId: 'conversation-1' }, { intent: 'newTab', from: null });
     await Promise.resolve();
 
     expect(hydrateSession).toHaveBeenCalledTimes(2);
@@ -861,7 +815,6 @@ describe('WorkspaceViewModel tab persistence adapter', () => {
     const legacyUnavailableTab = {
       kind: 'runtime-demo',
       tabId: 'runtime-demo-tab',
-      isPreview: false,
       extensionState: { selectedRow: 7 },
     };
     const unavailableTab = {
@@ -938,7 +891,7 @@ describe('WorkspaceViewModel tab persistence adapter', () => {
 // owner 10-06: agents opening the same page again stacked a row of identical tabs.
 describe('WorkspaceViewModel showPage', () => {
   function browserTab(tabId: string, currentUrl: string) {
-    return { tabId, kind: 'browser', isPreview: true, isActive: false, resource: { browserId: `b-${tabId}`, session: { currentUrl } } };
+    return { tabId, kind: 'browser', isActive: false, resource: { browserId: `b-${tabId}`, session: { currentUrl } } };
   }
   function fakeView(
     groups: Array<{ paneId: string; tabs: ReturnType<typeof browserTab>[] }>,
@@ -949,7 +902,7 @@ describe('WorkspaceViewModel showPage', () => {
     // 有没有对话可并排(spec session-page「并排」):showBeside 认出那一枚 = true。
     const showBeside = vi.fn(() => opts?.besideConversation ?? false);
     const layoutOpen = vi.fn();
-    const panes = groups.map((g) => ({ paneId: g.paneId, pane: { resolvedTabs: g.tabs, pin: vi.fn(), setActiveTab: vi.fn() } }));
+    const panes = groups.map((g) => ({ paneId: g.paneId, pane: { resolvedTabs: g.tabs, setActiveTab: vi.fn() } }));
     const view = {
       paneLayout: { groups: panes, setActiveGroup, showBeside, open: layoutOpen },
       activePane: { open },

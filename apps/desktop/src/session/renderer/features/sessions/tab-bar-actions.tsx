@@ -267,7 +267,7 @@ export const SplitPaneHotkey = observer(function SplitPaneHotkey() {
         const tabId = pane.resolvedActiveTabId;
         if (tabId) pane.tabFill(tabId, multiBlock)?.toggle();
       } };
-      return pane.inSplitLayout ? [{ id: 'session.splitPane' as const, execute: () => pane.toggleSplit() }, fullscreen] : [fullscreen];
+      return pane.inSplitLayout ? [{ id: 'session.splitPane' as const, execute: () => { const tabId = pane.resolvedActiveTabId; if (tabId) pane.splitTab(tabId, 'right'); } }, fullscreen] : [fullscreen];
     },
   });
   return null;

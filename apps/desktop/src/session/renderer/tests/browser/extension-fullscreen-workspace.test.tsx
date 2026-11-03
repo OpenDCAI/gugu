@@ -73,8 +73,8 @@ afterEach(() => {
 async function split() {
   const layouts = ['group', 'direct'].map((name) => {
     const chatId = `${name}-${++serial}`;
-    const layout = new PaneLayoutStore(registry, { viewId: chatId }, undefined, { singleStrip: true });
-    layout.open('document', { id: 'report.md' }, { preview: false });
+    const layout = new PaneLayoutStore(registry, { viewId: chatId }, undefined, {});
+    layout.open('document', { id: 'report.md' }, { intent: 'newTab', from: null });
     return { layout, chatId };
   });
   await harness.render(<div className="gugu-skin" style={{ position: 'fixed', left: 100, top: 40, width: 1000, height: 600 }}>
@@ -145,7 +145,7 @@ for (const side of [0, 1]) {
 it('keeps a host PDF canvas above both split backgrounds when fullscreen', async () => {
   const layouts = await split();
   const { layout } = layouts[1]!;
-  act(() => { layout.open('pdf', {}, { preview: false }); });
+  act(() => { layout.open('pdf', {}, { intent: 'newTab', from: null }); });
   const pane = layout.groups[0]!.pane;
   await until('host PDF content is shown', () => harness.container.querySelector('canvas') !== null);
   act(() => tabFullscreen.toggle(pane, pane.resolvedActiveTabId!));
@@ -162,8 +162,8 @@ it('keeps a host PDF canvas above both split backgrounds when fullscreen', async
 async function screenSplit() {
   const layouts = ['group', 'direct'].map((name) => {
     const chatId = `${name}-${++serial}`;
-    const layout = new PaneLayoutStore(registry, { viewId: chatId }, undefined, { singleStrip: true });
-    layout.open('document', { id: 'report.md' }, { preview: false });
+    const layout = new PaneLayoutStore(registry, { viewId: chatId }, undefined, {});
+    layout.open('document', { id: 'report.md' }, { intent: 'newTab', from: null });
     return { layout, chatId };
   });
   act(() => {
@@ -231,7 +231,7 @@ for (const contentKind of ['document', 'pdf'] as const) for (const side of [0, 1
     const initial = handle.getBoundingClientRect().x;
     await resizeScreen(handle, input);
     await until('the normal divider resizes the screen', () => handle.getBoundingClientRect().x < initial - 1);
-    if (contentKind === 'pdf') act(() => { layout.open('pdf', {}, { preview: false }); });
+    if (contentKind === 'pdf') act(() => { layout.open('pdf', {}, { intent: 'newTab', from: null }); });
     const before = handle.getBoundingClientRect().toJSON();
     const storedLayout = JSON.stringify(screenLayout.layout);
     act(() => tabFullscreen.toggle(pane, pane.resolvedActiveTabId!));
@@ -258,7 +258,7 @@ for (const contentKind of ['document', 'pdf'] as const) for (const side of [0, 1
     expect(document.elementFromPoint(centreX, original.y + original.height / 2)?.closest('[data-slot="resizable-handle"]')).toBe(handle);
     let surface: Element;
     if (contentKind === 'pdf') {
-      act(() => { layout.open('pdf', {}, { preview: false }); });
+      act(() => { layout.open('pdf', {}, { intent: 'newTab', from: null }); });
       await until('the real split contains the PDF canvas', () => harness.container.querySelector('canvas') !== null);
       surface = harness.container.querySelector('canvas')!;
     } else surface = resident(chatId).guest;

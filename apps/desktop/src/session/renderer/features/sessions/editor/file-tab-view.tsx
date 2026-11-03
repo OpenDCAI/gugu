@@ -70,6 +70,8 @@ const FileContent = observer(function FileContent({ host, ctx }: TabContentProps
     <div className="flex h-full w-full flex-col overflow-hidden">
       <FileContentToolbar
         tab={file}
+        host={host}
+        tabId={fileTabs.find((entry) => entry.resource === file)!.tabId}
         canToggle={canToggle}
         treeVisible={treeVisible}
         onTreeVisibleChange={setTreeVisible}

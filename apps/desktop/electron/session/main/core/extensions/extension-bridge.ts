@@ -89,6 +89,7 @@ interface SurfaceBinding {
   widget?: AppWhere['widget'];
   tabId: string;
   viewState?: Record<string, unknown>;
+  navigation?: { canBack: boolean; canForward: boolean };
   /**
    * #6387 Which of the extension's declared tabs this surface draws. A banner a tab
    * posts opens this tab on click — `tabId` alone is a runtime handle and says nothing
@@ -321,6 +322,7 @@ export interface ExtensionErrorRecord {
     sessionId: string | null;
     tabId: string;
   viewState?: Record<string, unknown>;
+  navigation?: { canBack: boolean; canForward: boolean };
   };
 }
 const ERROR_RECORD_MAX = 50;
@@ -570,6 +572,7 @@ export async function bindExtensionSurface(input: {
   extensionId: string;
   tabId: string;
   viewState?: Record<string, unknown>;
+  navigation?: { canBack: boolean; canForward: boolean };
   tabKind: string;
   /** Set only when the tab was opened for a file of its workspace this extension claimed. */
   filePath?: string;
@@ -626,6 +629,7 @@ export async function bindExtensionSurface(input: {
     ...(input.widget ? { widget: structuredClone(input.widget) } : {}),
     tabId: input.tabId,
     viewState: input.viewState,
+    navigation: input.navigation,
     tabName,
     filePath,
     itemId: input.itemId ?? null,
@@ -809,6 +813,7 @@ export async function retargetExtensionSurface(input: {
   webContentsId: number;
   tabId: string;
   viewState?: Record<string, unknown>;
+  navigation?: { canBack: boolean; canForward: boolean };
   filePath?: string;
   itemId?: string;
 } & Partial<AppWhere>): Promise<void> {
@@ -841,6 +846,7 @@ export async function retargetExtensionSurface(input: {
   binding.conversation = conversation;
   binding.tabId = input.tabId;
   binding.viewState = input.viewState;
+  binding.navigation = input.navigation;
   binding.filePath = filePath;
   binding.itemId = input.itemId ?? null;
   binding.opening = input.opening;
@@ -1253,6 +1259,7 @@ function contextFor(binding: SurfaceBinding, workspace: ExtensionWorkspace | und
   const file = handedFileOf(binding);
   return {
     apiVersion: EXTENSION_API_VERSION,
+    ...(binding.navigation ? { navigation: binding.navigation } : {}),
     ...(binding.viewState ? { viewState: structuredClone(binding.viewState) } : {}),
     tabId: binding.tabId,
     ...(binding.modal ? { modal: { data: binding.modal.data } } : {}),
@@ -1639,6 +1646,11 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       if (args.key !== 'tab') throw Object.assign(new Error('Unknown modal keyboard action'), { code: 'invalid' });
       await deliver(modal.binding, { kind: 'focusAppModalClose', id: modal.id });
       return undefined;
+    }
+    case 'navigationGo': {
+      if (args.delta !== -1 && args.delta !== 1) throw Object.assign(new Error('Navigation delta must be -1 or 1'), { code: 'invalid' });
+      const result = await deliver(thePage(caller), { kind: 'navigateTab', delta: args.delta });
+      return !!result && typeof result === 'object' && 'navigated' in result && result.navigated;
     }
     case 'getContext':
       if (!binding) return contextOutside(extensionId);

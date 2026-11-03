@@ -272,7 +272,7 @@ const FileTreeRow = observer(function FileTreeRow({
 
   const open = (preview: boolean) => {
     if (onOpenFile) onOpenFile(node.path, preview);
-    else openFile({ path: node.path }, { preview });
+    else openFile({ path: node.path }, { from: surface.paneLayout.focusedPane.resolvedActiveTabId ?? null, intent: preview ? 'navigate' : 'newTab' });
   };
 
   const handleClick = (e: React.MouseEvent) => {

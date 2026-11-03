@@ -163,7 +163,7 @@ describe('PaneStore browser tabs', () => {
   it('opens browser tabs backed by the default browser profile session', () => {
     const manager = createTabManager();
 
-    manager.open('browser', { initialUrl: 'localhost:5173' });
+    manager.open('browser', { initialUrl: 'localhost:5173' }, { from: null, intent: 'newTab' });
 
     const tab = manager.resolvedTabs[0];
     expect(tab).toMatchObject({
@@ -176,7 +176,7 @@ describe('PaneStore browser tabs', () => {
 
   it('snapshots and restores browser tabs through tab manager state', () => {
     const source = createTabManager();
-    source.open('browser', { initialUrl: 'example.com' });
+    source.open('browser', { initialUrl: 'example.com' }, { from: null, intent: 'newTab' });
 
     const snapshot = source.snapshot;
     expect(structuredClone(snapshot)).toEqual(snapshot);
@@ -282,7 +282,6 @@ describe('PaneStore browser tabs', () => {
       kind: 'extension',
       extensionKind: 'runtime-demo',
       tabId: 'unavailable-tab-1',
-      isPreview: false,
       state: { extensionState: { selection: 3 } },
     };
 
@@ -335,8 +334,8 @@ describe('PaneStore browser tabs', () => {
     const store = new PaneStore(registry, testCtx);
     store.restoreSnapshot({
       tabs: [
-        { kind: 'extension', extensionKind: 'closing-demo', tabId: 'c-1', isPreview: false, state: { selection: 1 } },
-        { kind: 'extension', extensionKind: 'closing-demo', tabId: 'c-2', isPreview: false, state: { selection: 2 } },
+        { kind: 'extension', extensionKind: 'closing-demo', tabId: 'c-1', state: { selection: 1 } },
+        { kind: 'extension', extensionKind: 'closing-demo', tabId: 'c-2', state: { selection: 2 } },
       ],
       activeTabId: 'c-1',
     });
@@ -369,8 +368,8 @@ describe('PaneStore browser tabs', () => {
     const store = new PaneStore(registry, testCtx);
     store.restoreSnapshot({
       tabs: [
-        { kind: 'extension', extensionKind: 'some-demo', tabId: 's-1', isPreview: false, state: {} },
-        { kind: 'extension', extensionKind: 'some-demo', tabId: 's-2', isPreview: false, state: { filePath: 'TODO.md' } },
+        { kind: 'extension', extensionKind: 'some-demo', tabId: 's-1', state: {} },
+        { kind: 'extension', extensionKind: 'some-demo', tabId: 's-2', state: { filePath: 'TODO.md' } },
       ],
       activeTabId: 's-1',
     });
@@ -409,7 +408,6 @@ describe('PaneStore browser tabs', () => {
           kind: 'extension',
           extensionKind: 'withdrawn-demo',
           tabId: 'withdrawn-tab-1',
-          isPreview: false,
           state: { selection: 5 },
         },
       ],
@@ -442,7 +440,6 @@ describe('PaneStore browser tabs', () => {
           kind: 'extension',
           extensionKind: 'late-demo',
           tabId: 'late-tab-1',
-          isPreview: false,
           state: { selection: 7 },
         },
       ],
@@ -488,7 +485,6 @@ describe('PaneStore browser tabs', () => {
           kind: 'extension',
           extensionKind: 'after-dispose',
           tabId: 'gone-tab',
-          isPreview: false,
           state: {},
         },
       ],
@@ -513,14 +509,14 @@ describe('PaneStore browser tabs', () => {
 
   it('requires the state fields of a built-in descriptor', () => {
     // @ts-expect-error conversation descriptors must retain their conversation identity.
-    const bad: TabDescriptor = { kind: 'session', tabId: 't', isPreview: false };
+    const bad: TabDescriptor = { kind: 'session', tabId: 't', };
 
     expect(bad.kind).toBe('session');
   });
 
   it('cleans up browser session state on close', () => {
     const manager = createTabManager();
-    manager.open('browser', {});
+    manager.open('browser', {}, { from: null, intent: 'newTab' });
     const tab = manager.resolvedTabs[0];
     const browserId = browserResource(tab)?.browserId ?? '';
     browserDiagnosticsStore.append({
@@ -539,7 +535,7 @@ describe('PaneStore browser tabs', () => {
 
   it('cleans up replaced browser sessions on snapshot restore', () => {
     const manager = createTabManager();
-    manager.open('browser', {});
+    manager.open('browser', {}, { from: null, intent: 'newTab' });
     const oldTab = manager.resolvedTabs[0];
     const oldBrowserId = browserResource(oldTab)?.browserId ?? '';
 
@@ -551,7 +547,7 @@ describe('PaneStore browser tabs', () => {
 
   it('cleans up browser sessions on dispose', () => {
     const manager = createTabManager();
-    manager.open('browser', {});
+    manager.open('browser', {}, { from: null, intent: 'newTab' });
     const tab = manager.resolvedTabs[0];
     const browserId = browserResource(tab)?.browserId ?? '';
 
@@ -562,7 +558,7 @@ describe('PaneStore browser tabs', () => {
 
   it('detaches browser tabs for pane moves without removing session state', () => {
     const manager = createTabManager();
-    manager.open('browser', {});
+    manager.open('browser', {}, { from: null, intent: 'newTab' });
     const tab = manager.resolvedTabs[0];
     const browserId = browserResource(tab)?.browserId ?? '';
 
@@ -582,7 +578,7 @@ describe('PaneStore browser tabs', () => {
       return () => {};
     });
     const manager = createTabManager();
-    manager.open('browser', { initialUrl: 'https://source.example/' });
+    manager.open('browser', { initialUrl: 'https://source.example/' }, { from: null, intent: 'newTab' });
     const source = manager.resolvedTabs[0];
     const sourceBrowserId = browserResource(source)?.browserId ?? '';
 
@@ -622,7 +618,7 @@ describe('PaneStore terminal tabs', () => {
   it('opens and snapshots an existing terminal as a task tab', () => {
     const manager = createTabManager();
 
-    manager.open('terminal', { terminalId: 'terminal-1' });
+    manager.open('terminal', { terminalId: 'terminal-1' }, { from: null, intent: 'newTab' });
 
     expect(manager.resolvedTabs[0]).toMatchObject({
       kind: 'terminal',
@@ -631,8 +627,7 @@ describe('PaneStore terminal tabs', () => {
     expect(manager.snapshot.tabs[0]).toMatchObject({
       kind: 'terminal',
       terminalId: 'terminal-1',
-      isPreview: false,
-    });
+      });
   });
 
   it('restores terminal tab descriptors without creating a new terminal runtime', () => {
@@ -645,8 +640,7 @@ describe('PaneStore terminal tabs', () => {
           kind: 'terminal',
           tabId: 'tab-terminal-1',
           terminalId: 'terminal-1',
-          isPreview: false,
-        },
+          },
       ],
     });
 
@@ -660,7 +654,7 @@ describe('PaneStore terminal tabs', () => {
 
   it('closing a terminal task tab only closes the tab view', () => {
     const manager = createTabManager();
-    manager.open('terminal', { terminalId: 'terminal-1' });
+    manager.open('terminal', { terminalId: 'terminal-1' }, { from: null, intent: 'newTab' });
 
     manager.closeTab(manager.resolvedTabs[0]?.tabId ?? '');
 
@@ -670,7 +664,7 @@ describe('PaneStore terminal tabs', () => {
 
   it('stale-closes terminal tabs when the drawer-owned terminal is removed', async () => {
     const manager = createTabManager();
-    manager.open('terminal', { terminalId: 'terminal-1' });
+    manager.open('terminal', { terminalId: 'terminal-1' }, { from: null, intent: 'newTab' });
 
     runInAction(() => {
       terminalRegistry.get('task-1')?.terminals.delete('terminal-1');
@@ -695,8 +689,7 @@ describe('PaneStore terminal tabs', () => {
           kind: 'terminal',
           tabId: 'tab-terminal-1',
           terminalId: 'terminal-1',
-          isPreview: false,
-        },
+          },
       ],
     });
 

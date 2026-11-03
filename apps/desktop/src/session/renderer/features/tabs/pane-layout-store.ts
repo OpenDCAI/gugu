@@ -455,6 +455,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
   open(kind: string, args: Record<string, unknown>, config: TabOpenOptions): string | undefined;
   open(kind: string, args: Record<string, unknown>, config: TabOpenOptions): string | undefined {
     if (!this._registry.has(kind)) return;
+    if (config.from !== null && ![...this.groups, ...this.windowPanes.values()].some(({ pane }) => pane.entries.has(config.from!))) return;
     const def = this._registry.get(kind) as AnyTabProvider;
     const state = def.onBeforeOpen ? def.onBeforeOpen(args as never, this._ctx) : args;
     if (state !== null) return this._openFrom(kind, state, config);
@@ -490,7 +491,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
 
     if (intent === 'navigate' && from && !conversation) {
       replace = from.tabId;
-    } else if ((intent === 'beside' || (intent === 'navigate' && conversation)) && this.groups.includes(target)) {
+    } else if ((intent === 'beside' || (intent === 'navigate' && conversation)) && this.groups.some((group) => group.paneId === target.paneId)) {
       const companion = conversation && from.companionPaneId
         ? this.groups.find((group) => group.paneId === from.companionPaneId)
         : undefined;
@@ -611,6 +612,11 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       snapshot.paneSizes
     );
     this._syncGroupOrder();
+    for (const { pane } of this.groups) {
+      for (const entry of pane.entries.values()) {
+        if (entry.companionPaneId && !this.groups.some((group) => group.paneId === entry.companionPaneId)) entry.companionPaneId = undefined;
+      }
+    }
   }
 
   hydrate(fallback?: unknown): boolean {

@@ -481,6 +481,11 @@ const enUSCoreMessages = {
   // so the wording names the kind rather than assuming an extension.
   'tabs.unavailableLabel': '{kind} unavailable',
   'tabs.allTabs': 'All tabs',
+  'tabs.back': 'Back to folder',
+  'tabs.forward': 'Forward',
+  'tabs.read': 'Read',
+  'tabs.edit': 'Edit',
+  'tabs.more': 'More',
   // 页签右键(spec session-page「一屏几块」):关一枚 / 关一排,照 VS Code、Chrome;分隔线下面是分格。
   'tabs.keepOpen': 'Keep open',
   'tabs.close': 'Close tab',
@@ -1514,6 +1519,11 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
 
   'tabs.unavailableLabel': '{kind}（未加载）',
   'tabs.allTabs': '全部页签',
+  'tabs.back': '返回文件夹',
+  'tabs.forward': '前进',
+  'tabs.read': '阅读',
+  'tabs.edit': '编辑',
+  'tabs.more': '更多',
   'tabs.keepOpen': '保持打开',
   'tabs.close': '关闭页签',
   'tabs.closeOthers': '关闭其他页签',
