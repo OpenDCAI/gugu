@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { publicAssetPath } from '@gugu/core/shared/ui/publicAssets'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { ChevronRight } from '@/lib/icons'
@@ -7,6 +7,7 @@ import { Button } from '../ui/Button'
 import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow } from './SettingsPrimitives'
 import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
+import { createUpdateStateReceiver } from '../../../shared/update-state'
 
 const APP_ICON_URL = publicAssetPath('/assets/app/gugu-icon-512.png')
 
@@ -16,11 +17,12 @@ const APP_ICON_URL = publicAssetPath('/assets/app/gugu-icon-512.png')
 declare const __APP_VERSION__: string
 
 /** 主进程那个状态值的形状(main.ts UpdateCheckResult),推来的与问来的是同一个东西。 */
-type UpdateStatusDetail = { status?: unknown; messageKey?: unknown; message?: unknown; percent?: unknown }
+type UpdateStatusDetail = { revision?: unknown; status?: unknown; messageKey?: unknown; message?: unknown; percent?: unknown }
 
 // 主进程给的是词表 key(它不知道界面是哪种语言);只有 updater 自己吐的原始报错走 message。
 // 'downloading' 不带 key:用横幅那一句「下载新版本中…」,百分比跟着状态值一起来(main.ts markDownloading)。
 function updateStatusMessage(t: TFunction<'settings'>, detail: UpdateStatusDetail | null | undefined): string | null {
+  if (detail?.status === 'installing') return t('shell.update.restarting', { ns: 'main' })
   if (detail?.status === 'downloading') {
     const title = t('shell.update.downloadingTitle', { ns: 'main' })
     return typeof detail.percent === 'number' ? `${title} ${Math.round(detail.percent)}%` : title
@@ -31,39 +33,34 @@ function updateStatusMessage(t: TFunction<'settings'>, detail: UpdateStatusDetai
 
 export function AboutSection() {
   const { t } = useTranslation('settings')
-  const [updateReady, setUpdateReady] = useState(false)
-  const [updateMessage, setUpdateMessage] = useState('')
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatusDetail | null>(null)
+  const [queryError, setQueryError] = useState('')
   const [checking, setChecking] = useState(false)
   // Seed from the build-time version so it renders immediately on all platforms; Electron's IPC
   // path below refines it to the live app.getVersion() (identical value in practice).
   const [version, setVersion] = useState(__APP_VERSION__)
   const showAppCard = platform.capabilities.appVersion || platform.capabilities.appUpdates
+  const updateReady = updateStatus?.status === 'downloaded'
+  const updateMessage = queryError || updateStatusMessage(t, updateStatus) || ''
+  const receiveStatus = useRef(createUpdateStateReceiver())
+  const applyStatus = useCallback((detail: UpdateStatusDetail | null | undefined) => {
+    if (!receiveStatus.current(detail)) return
+    setUpdateStatus(detail ?? null)
+    setQueryError('')
+  }, [])
 
   useEffect(() => {
-    const readyHandler = () => {
-      setUpdateReady(true)
-      setUpdateMessage(t('about.updateDownloaded'))
-    }
-    // @@@5837 推来的状态和**问来的**状态走同一段逻辑,❌ 不各写一份。
-    const applyStatus = (detail: UpdateStatusDetail | null | undefined) => {
-      // 「重启以安装」只在宿主说「下好了」时出现:按下后宿主可能先去下 feed 上更新的一版,那时是 downloading。
-      setUpdateReady(detail?.status === 'downloaded')
-      const message = updateStatusMessage(t, detail)
-      if (message !== null) setUpdateMessage(message)
-    }
     const statusHandler = (event: Event) => applyStatus((event as CustomEvent<UpdateStatusDetail>).detail)
+    window.addEventListener(UI_EVENTS.updateStatus, statusHandler)
     // @@@5837 进设置页就**问一次**:包可能早在几小时前就下好了,而那条推送只发过一次。
     // 这一行是「重启以安装」那个按钮的保底来源 —— 横幅可以被关掉,这里不能没有。
     void Promise.resolve(platform.updateState?.())
       .then((state) => applyStatus(state as UpdateStatusDetail | null))
       .catch(() => {})
-    window.addEventListener(UI_EVENTS.updateReady, readyHandler)
-    window.addEventListener(UI_EVENTS.updateStatus, statusHandler)
     return () => {
-      window.removeEventListener(UI_EVENTS.updateReady, readyHandler)
       window.removeEventListener(UI_EVENTS.updateStatus, statusHandler)
     }
-  }, [t])
+  }, [applyStatus])
 
   useEffect(() => {
     if (!platform.capabilities.appVersion) return
@@ -72,14 +69,12 @@ export function AboutSection() {
 
   async function handleCheckForUpdates() {
     setChecking(true)
-    setUpdateMessage('')
+    setQueryError('')
     try {
       const result = await platform.checkForUpdates() as UpdateStatusDetail
-      setUpdateReady(result.status === 'downloaded')
-      const message = updateStatusMessage(t, result)
-      if (message !== null) setUpdateMessage(message)
+      applyStatus(result)
     } catch (err) {
-      setUpdateMessage(err instanceof Error ? err.message : String(err))
+      setQueryError(err instanceof Error ? err.message : String(err))
     } finally {
       setChecking(false)
     }

@@ -21,13 +21,14 @@ import { classifyUpdateError, type UpdateErrorReason } from '../lib/updateError'
 import { rendererLogger } from '../lib/log'
 import { useMobileShell } from '../hooks/useMobileShell'
 import { UpdateRailButton } from './UpdateRailButton'
+import { createUpdateStateReceiver } from '../../shared/update-state'
 
 // manual-install(#663): mac 无签名走 dmg 半自动——安装包已下载并自动打开,提示用户拖装,无重启按钮。
 // failed(#2126): 下载/更新失败 → 显式失败态(人话原因 + 重试),❌ 静默 revert 成「可更新」诱导反复点。
 type UpdatePhase = 'idle' | 'available' | 'downloading' | 'ready' | 'manual-install' | 'failed'
 
 /** 主进程那个状态值的形状(main.ts UpdateCheckResult),推来的与问来的是同一个东西。 */
-type UpdateStatusDetail = { status?: unknown; updateInfo?: { version?: unknown } | null; message?: unknown; percent?: unknown }
+type UpdateStatusDetail = { revision?: unknown; status?: unknown; updateInfo?: { version?: unknown } | null; message?: unknown; percent?: unknown }
 
 const updateLog = rendererLogger('update-banner')
 
@@ -41,6 +42,7 @@ export function UpdateBanner({ placement = 'floating' }: { placement?: 'floating
   // (横幅跟着变成下载中),要么开始安装(restarting)。❌ 一按就写「正在重启」—— 查 feed 可能要几十秒。
   const [installing, setInstalling] = useState<false | 'checking' | 'restarting'>(false)
   const installInFlight = useRef(false)
+  const receiveStatus = useRef(createUpdateStateReceiver())
   // @@@1961 下载进度百分比(0–100),取自宿主的 'downloading' 状态值;null = 还没有第一条进度(准备中)。
   const [percent, setPercent] = useState<number | null>(null)
   // @@@2126 失败原因(人话);仅 failed 态显示。
@@ -51,19 +53,26 @@ export function UpdateBanner({ placement = 'floating' }: { placement?: 'floating
   phaseRef.current = phase
 
   useEffect(() => {
-    // 下载就绪：可一键重启更新。即便之前 dismiss 过，这是新的 actionable 状态 → 重新弹。
-    const onReady = () => { setPhase('ready'); setDismissed(false) }
     // @@@5837 推来的状态和**问来的**状态走同一段逻辑 —— 两条路各写一份迟早分叉,而分叉的
     // 表现正是这次出的事:某一条路上「包已下好」根本到不了界面。
     const applyStatus = (detail: UpdateStatusDetail | null | undefined) => {
-      if (detail?.status === 'downloaded') { setPhase('ready'); setDismissed(false) }
+      if (!receiveStatus.current(detail)) return
+      if (detail?.status === 'downloaded' || detail?.status === 'installing') {
+        phaseRef.current = 'ready'
+        setPhase('ready')
+        setDismissed(false)
+        installInFlight.current = detail.status === 'installing'
+        setInstalling(detail.status === 'installing' ? 'restarting' : false)
+      }
       else if (detail?.status === 'downloading') {
         // 「下载中」只有宿主这一个来源。横幅已经在眼前时才跟进:点过「更新」/「重试」(available/failed),
         // 或者按了「立即重启更新」而宿主发现 feed 上还有更新的一版、先去下它(ready)。
         // idle 时的静默下载不弹手机浮层；桌面只在栏底显示进度。
         const prev = phaseRef.current
         if (placement === 'rail' || prev === 'available' || prev === 'failed' || prev === 'downloading' || prev === 'ready') {
+          phaseRef.current = 'downloading'
           setPhase('downloading')
+          setInstalling(false)
           setFailReason(null)
           setPercent(typeof detail.percent === 'number' && Number.isFinite(detail.percent) ? detail.percent : null)
         }
@@ -86,9 +95,10 @@ export function UpdateBanner({ placement = 'floating' }: { placement?: 'floating
         // 「可更新」(旧行为=用户看不到原因、一失败就诱导反复点 → 玄学循环)。error 已带 message
         // (main.ts autoUpdater.on('error') / mac dmg .catch)。非下载中(idle 的自动 check 失败)
         // 不弹不打扰——只在用户主动发起的下载失败时报错。
-        if (phaseRef.current === 'downloading') {
+        if (phaseRef.current === 'downloading' || installInFlight.current) {
           const msg = typeof detail.message === 'string' ? detail.message : ''
           setFailReason(classifyUpdateError(msg))
+          phaseRef.current = 'failed'
           setPhase('failed')
           // 按过「重启更新」后的那次下载失败:宿主已把「下好就装」作废,按钮放回来。
           setInstalling(false)
@@ -99,15 +109,13 @@ export function UpdateBanner({ placement = 'floating' }: { placement?: 'floating
       // not-available：自动 check 不打扰，不改 phase(About 页负责手动反馈)。
     }
     const onStatus = (event: Event) => applyStatus((event as CustomEvent<UpdateStatusDetail>).detail)
+    window.addEventListener(UI_EVENTS.updateStatus, onStatus)
     // @@@5837 挂载时**问一次**宿主:更新状态是主进程的事实,不是几条事件攒出来的。
     // 整窗重载会把这里的 state 清空,而那时包可能早就下好在等人按 —— 唯一的安装入口不能就这么没了。
     void Promise.resolve(platform.updateState?.())
       .then((state) => applyStatus(state as UpdateStatusDetail | null))
       .catch(() => {})
-    window.addEventListener(UI_EVENTS.updateReady, onReady)
-    window.addEventListener(UI_EVENTS.updateStatus, onStatus)
     return () => {
-      window.removeEventListener(UI_EVENTS.updateReady, onReady)
       window.removeEventListener(UI_EVENTS.updateStatus, onStatus)
     }
   }, [placement])
@@ -127,7 +135,6 @@ export function UpdateBanner({ placement = 'floating' }: { placement?: 'floating
     installInFlight.current = true
     setInstalling('checking')
     void Promise.resolve(platform.installUpdate())
-      .then(() => setInstalling('restarting'))
       .catch(() => { installInFlight.current = false; setInstalling(false) })
   }
 
