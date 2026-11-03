@@ -33,6 +33,7 @@ async function measure(name: string) {
   await renderWithAppProviders(harness, <Picker />);
   await until('the actual Apps picker and row are laid out', () => (document.querySelector('[data-app-id="width-app"]')?.getBoundingClientRect().width ?? 0) > 0);
   const popup = document.querySelector<HTMLElement>('[data-slot="popover-popup"]')!;
+  await until('the picker entry transition has settled before measuring layout width', () => !popup.hasAttribute('data-starting-style') && Math.abs(popup.getBoundingClientRect().width - parseFloat(getComputedStyle(popup).width)) < 0.1);
   const width = popup.getBoundingClientRect().width;
   const spacing = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--spacing'));
   // The theme spacing token is rem-based; resolve it through the root font size.
