@@ -7,6 +7,7 @@ const data = vi.hoisted(() => ({
 }))
 vi.mock('@main/lib/events',()=>({tapMainEvents:(tap:typeof data.tap)=>{data.tap=tap;return data.stop}}))
 vi.mock('@main/db/client',() => ({ db: {} }))
+vi.mock('../../apps/desktop/electron/session/main/core/projects/operations/assistant-project-cleanup',() => ({ noteAssistantProjectCandidate: vi.fn() }))
 vi.mock('@main/core/sessions/getSessions',() => ({ getSessions: vi.fn() }))
 vi.mock('@main/core/session-timeline/service',() => ({ listSessionStates: vi.fn() }))
 vi.mock('@main/core/automations/repo',() => ({ listSessionSchedules: () => data.schedules }))

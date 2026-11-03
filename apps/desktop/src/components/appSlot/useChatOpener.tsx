@@ -41,10 +41,12 @@ function noteOpened(itemId: string): void {
  * claims the file, the one kept for its kind (「始终用它」), or the person picks — and it opens as a tab beside the chat
  * (`openPanelItem`). The pick, an App's several files and a file that cannot open are said over the chat (`overlay`).
  */
-export function useChatOpener(chatId: string | null): { overlay: ReactNode; openWith: (detail: AppOpenWithDetail, returnTo?: string) => void } {
+export function useChatOpener(chatId: string | null, onShow?: (chatId: string, tabId: string) => void, canTake?: () => boolean): { overlay: ReactNode; openWith: (detail: AppOpenWithDetail, returnTo?: string) => void } {
   const { t } = useTranslation('messaging')
   const mobile = useMobileShell()
   const asking = useRef(0)
+  const canTakeRef = useRef(canTake)
+  canTakeRef.current = canTake
   const [prompt, setPrompt] = useState<(AppOpenWithDetail & OpenFrom) | null>(null)
   /** 摩擦单 F51: the files of the App whose card was opened, when there are several. */
   const [appFiles, setAppFiles] = useState<{ chatId: string; appName: string; files: { itemId: string; displayName: string }[] } | null>(null)
@@ -60,9 +62,10 @@ export function useChatOpener(chatId: string | null): { overlay: ReactNode; open
     const shown = { ...item, ...(from.message ? { message: from.message } : {}) }
     // A pending message is not tab state: neither JSON nor structured-clone snapshots carry it.
     if (item.takeOpening) Object.defineProperty(shown, 'takeOpening', { get: () => item.takeOpening, enumerable: false })
-    openPanelItem(target, shown, { ...(from.returnTo ? { returnTo: from.returnTo } : {}), ...(from.restore ? { restore: from.restore } : {}) })
+    const tabId = openPanelItem(target, shown, { ...(from.returnTo ? { returnTo: from.returnTo } : {}), ...(from.restore ? { restore: from.restore } : {}) })
+    if (tabId) onShow?.(target, tabId)
     if (item.itemId) noteOpened(item.itemId)
-  }, [])
+  }, [onShow])
 
   // The file asked last is the one opened: a pill clicked, then another (or a file in an App's list), before the first's
   // answer is back — whichever answer comes last, the chat ends on the later ask (#7257). Each ask takes the next number.
@@ -128,6 +131,7 @@ export function useChatOpener(chatId: string | null): { overlay: ReactNode; open
     if (!chatId || !appsHere) return undefined
     let live = true
     const take = () => {
+      if (canTakeRef.current && !canTakeRef.current()) return
       const ask = takeChatAsk(chatId)
       if (!ask) return
       // A page beside the chat asked: the tab on screen is the 上一页 of what it opens (owner 10-24).

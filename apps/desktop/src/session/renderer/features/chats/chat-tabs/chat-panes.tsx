@@ -1,6 +1,7 @@
+import { OwnedAgentChatBoundary } from '../owned-agent-chat-boundary';
 import { DndContext } from '@dnd-kit/core';
 import { observer } from 'mobx-react-lite';
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, type ReactNode, type ComponentProps } from 'react';
 import { screenLayout } from '@renderer/app/screen-layout';
 import { openChatTabInWindow, placeOnScreen, revealTabWindow } from '@renderer/app/screen-layout-actions';
 import { ChatPartSlot } from '@renderer/lib/chat-slot';
@@ -27,7 +28,7 @@ import { groupParticipantPanes } from '../group-participant-panes';
  * pairs with it, left or right, above or below (spec session-page「并排」): drag a tab to an edge, its menu's 「向右分 /
  * 向下分」, ⌘\; 「拆开」 and either fills the block. The shell draws each tab's content into the slot left for it.
  */
-export const ChatPanes = observer(function ChatPanes({
+const LegacyChatPanes = observer(function LegacyChatPanes({
   chatId,
   blockId,
   chip,
@@ -140,3 +141,8 @@ export const ChatTabChip = observer(function ChatTabChip({
     </TabSlot>
   );
 });
+
+/** No legacy pane or resource slots are created for an owned-agent conversation. */
+export function ChatPanes(props: ComponentProps<typeof LegacyChatPanes>) {
+  return <OwnedAgentChatBoundary chatId={props.chatId}><LegacyChatPanes {...props} /></OwnedAgentChatBoundary>;
+}

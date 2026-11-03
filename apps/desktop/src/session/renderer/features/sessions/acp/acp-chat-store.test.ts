@@ -29,6 +29,15 @@ const snapshot = (output: string, exitStatus: TerminalState['exitStatus'] = null
 });
 
 describe('bindSessionTerminalOutputs', () => {
+  it('hydrates and replaces the bounded chunk window without duplicating its wire chunks in UI state', () => {
+    const terminals = new FakeLiveList<TerminalState[]>([{ ...snapshot(''), outputChunks: { '7': 'hello ', '8': 'world' } }]);
+    const set = vi.fn();
+    const dispose = bindSessionTerminalOutputs({ terminals }, set);
+    expect(set).toHaveBeenLastCalledWith([snapshot('hello world')]);
+    terminals.set([{ ...snapshot(''), truncated: true, outputChunks: { '8': 'world', '9': '!' } }]);
+    expect(set).toHaveBeenLastCalledWith([{ ...snapshot('world!'), truncated: true }]);
+    dispose();
+  });
   it('hydrates a late subscriber, replaces output and clears nullable exit from one snapshot', () => {
     const terminals = new FakeLiveList([snapshot('old', { exitCode: 0, signal: null })]);
     const set = vi.fn();

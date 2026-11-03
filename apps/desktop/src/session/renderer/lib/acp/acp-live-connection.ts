@@ -1,8 +1,9 @@
+import { TERMINAL_CHUNK_CAPABILITY } from '@gugu/session-core/acp/client';
 import { connect, WireError, type Connection, type WireTransport } from '@gugu/session-wire';
 
 /** Only live-state reads are replayable. Engine commands retain their original result. */
 export function connectAcpLiveState(transport: WireTransport): Connection {
-  const connection = connect(transport);
+  const connection = connect(transport, { capabilities: [TERMINAL_CHUNK_CAPABILITY] });
   let generation = 0;
   const reconnected = new Set<() => void>();
   transport.onReconnect?.(() => {

@@ -86,6 +86,7 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
     navigation: {
       currentViewId: 'home',
       revalidate: vi.fn(),
+      updateViewParams: vi.fn(),
       viewParamsStore: {},
     },
   },
@@ -879,6 +880,35 @@ describe('remote project classification on reconnect', () => {
     } finally {
       store.dispose();
       machineRegistry.forgetMachine(deviceId);
+    }
+  });
+
+  it('aligns a moved task after registering its new project and before removing the old one or checking the route', async () => {
+    const { machineRegistry } = await import('@renderer/lib/machine-routing');
+    const deviceId = 'migrated-assistant-device';
+    const old = localProject({ id: 'legacy-assistant-project' });
+    const tasks = localProject({ id: 'machine-task-workspace', kind: 'workspace' });
+    const store = new ProjectManagerStore();
+    store.syncMachineProjects(deviceId, [old]);
+    const saved = appState.navigation.viewParamsStore;
+    appState.navigation.viewParamsStore = { session: { projectId: old.id, sessionId: 'moved-assistant' } };
+    const order: string[] = [];
+    vi.mocked(appState.navigation.updateViewParams).mockImplementation(() => {
+      expect(store.projects.has(old.id)).toBe(true);
+      expect(store.projects.has(tasks.id)).toBe(true);
+      order.push('align');
+    });
+    vi.mocked(appState.navigation.revalidate).mockImplementation(() => order.push('revalidate'));
+    try {
+      store.syncMachineProjects(deviceId, [tasks], [{ conversationId: 'moved-assistant', projectId: tasks.id }]);
+      expect(appState.navigation.updateViewParams).toHaveBeenCalledWith('session', { projectId: tasks.id, sessionId: 'moved-assistant' });
+      expect(order).toEqual(['align', 'revalidate']);
+      expect(store.projects.has(old.id)).toBe(false);
+    } finally {
+      appState.navigation.viewParamsStore = saved;
+      vi.mocked(appState.navigation.updateViewParams).mockReset();
+      vi.mocked(appState.navigation.revalidate).mockReset();
+      store.dispose(); machineRegistry.forgetMachine(deviceId);
     }
   });
 });

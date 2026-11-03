@@ -18,6 +18,7 @@ import { assistantResourceChanges } from './assistant-resource-changes'
 import { invalidateAssistantIndex, stopAssistantIndexRefresh } from './assistant-index-cache'
 import { collectAssistantPanelFiles, publishAssistantPanelCollection, type PanelObservation } from './assistant-panel-publisher'
 import { createAssistantPanelBodyFailures } from './assistant-panel-body-failures'
+import { isPersonalAssistantAgent } from './assistant-agent-role'
 
 type Auth = { accessToken: string; userId: string }
 type Binding = AssistantPanelHome & { sessionId: string }
@@ -44,16 +45,12 @@ export function createAssistantPanelRuntime(deps: {
     const key = `${auth.userId}:${agent.gugu_user_id}`
     let assistant = roles.get(key)
     if (assistant === undefined) {
-      const client = createGuguSupabaseClient({ schema: 'identity',headers: { Authorization: `Bearer ${auth.accessToken}` } })
-      const { data,error } = await client.from('agent_provisions').select('agent_user_id').eq('owner_user_id',auth.userId)
-        .eq('agent_user_id',agent.gugu_user_id).eq('member_key','assistant').limit(1).abortSignal(AbortSignal.timeout(2000))
-      if (error) throw new Error('PANEL_ROLE_UNAVAILABLE')
+      assistant = await isPersonalAssistantAgent(auth, agent.gugu_user_id)
       if ((await hostAuth())?.userId !== auth.userId) throw new Error('PANEL_ACCOUNT_CHANGED')
-      assistant = Boolean(data?.length)
       roles.set(key,assistant)
     }
     if (!assistant) return null
-    const home = await deps.local.home(sessionId)
+    const home = await deps.local.home(sessionId, { assistantId: agent.gugu_user_id, deviceId: await deps.deviceId(), ownerId: auth.userId })
     const binding = { assistantId: agent.gugu_user_id,ownerId: auth.userId,sessionId,cwd: home.cwd,home: homedir(),kind: deps.kind }
     bindings.set(sessionId,binding)
     return binding
