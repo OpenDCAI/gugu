@@ -115,14 +115,12 @@ describe('0032 task → session', () => {
     expect(handle.sqlite.pragma('foreign_key_check')).toEqual([]);
   });
 
-  it('终端和附件归给代表会话(首条会话优先于最近交互);没有会话的 task 的随它消失', async () => {
+  it('终端归给代表会话;附件表在全量迁移后删除', async () => {
     handle = openAt0031();
     handle.sqlite.exec(SEED);
     await initializeDatabase(handle.sqlite);
     expect(rows(handle.sqlite, 'SELECT id, session_id FROM terminals')).toEqual([{ id: 'X-multi', session_id: 'C-first' }]);
-    expect(rows(handle.sqlite, 'SELECT id, session_id, stored_path FROM session_attachments')).toEqual([
-      { id: 'F-multi', session_id: 'C-first', stored_path: '/ud/task-attachments/T-multi/a.txt' },
-    ]);
+    expect(rows(handle.sqlite, "SELECT name FROM sqlite_master WHERE name = 'session_attachments'")).toEqual([]);
   });
 
   it('视图状态:按 task 的键归给代表会话,上次停的视图与侧栏手排顺序换成会话 id', async () => {
