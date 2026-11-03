@@ -52,7 +52,7 @@ export function createDesktopFileAccess(deps: {
     return row?.status === 'ready' ? row : null
   }
   const read = createProjectFileReader({ identity, root, env: deps.env, later })
-  const metadata = createFileMetadataLoader(async (context, refs) => attachmentRequest(await endpoint(context), 'file-resolve', { refs, as: context.actor.actorId }))
+  const metadata = createFileMetadataLoader(async (context, refs) => attachmentRequest(await endpoint(context), 'file-resolve', { refs, as: context.actor.actorId }, context.signal))
   const providers = { ...cloudFileProviders({ endpoint, metadata, cache: createFileChunkCache(deps.tempRoot), sink: size => createFileSink(deps.tempRoot, size) }),
     local: localProjectFileProvider({ identity, read, tempRoot: deps.tempRoot, env: deps.env, later }),
     ssh: async (...args: Parameters<ReturnType<typeof ownSshFileProvider>>) => {
