@@ -207,6 +207,7 @@ vi.mock('@main/core/agents/session-discovery', () => ({
 // 真实现要把平台模型目录、agent 控制器一起拉进来;这一组只问「附没附上菜单」。
 vi.mock('./session-model-menu', () => ({
   readSessionModelMenu: async (sessionId: string) => ({ agentName: `menu-of-${sessionId}`, platformModels: [], ownCatalog: null, ownAuth: null }),
+  readSessionPermissionAgentName: async (providerId: string) => `host-name-of-${providerId}`,
 }));
 
 // 本机名录:只有 conv-1 有 agent 身份。
@@ -686,20 +687,20 @@ describe('session timeline service', () => {
   });
 
   // #6693:手机的权限档胶囊照桌面那一份排 —— 宿主随选项给出这家声明的档位表;没声明的家不给,手机照它报的名字显示。
-  it('读选项时附上这家声明的权限档表,没声明的家不附', async () => {
+  it('读权限选项时附上宿主引擎名,没有模型菜单也给;权限档表只给声明过的家', async () => {
     const mode = { selected: 'default', available: [{ id: 'default', name: 'default' }, { id: 'yolo', name: 'yolo' }] };
     state.rows = [row({ provider: 'hermes', runtime: 'pty' })];
     state.readOptions.mockResolvedValueOnce({ mode, model: null, effort: null });
     expect(await service.sessionOptions({ conversationId: 'conv-1' })).toEqual({
       ok: true,
-      value: { mode, model: null, effort: null, modeMap: { edit: { id: 'default' }, 'full-access': { id: 'yolo' } } },
+      value: { mode, model: null, effort: null, permissionAgentName: 'host-name-of-hermes', modeMap: { edit: { id: 'default' }, 'full-access': { id: 'yolo' } } },
     });
 
     state.rows = [row({ provider: 'gemini', runtime: 'pty' })];
     state.readOptions.mockResolvedValueOnce({ mode, model: null, effort: null });
     expect(await service.sessionOptions({ conversationId: 'conv-1' })).toEqual({
       ok: true,
-      value: { mode, model: null, effort: null },
+      value: { mode, model: null, effort: null, permissionAgentName: 'host-name-of-gemini' },
     });
   });
 
