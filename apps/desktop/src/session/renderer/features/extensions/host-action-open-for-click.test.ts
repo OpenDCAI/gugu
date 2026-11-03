@@ -3,15 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { APP_OPEN_WITH_EVENT } from '@shared/extensions/app-runtime-protocol';
 import { groupPageSlot, type PanelItem } from '@renderer/features/chats/chat-tabs/chat-panel-item';
+import { WorkspaceViewModel } from '@renderer/features/sessions/stores/workspace-view-model';
+import { PaneLayoutStore } from '@renderer/features/tabs/pane-layout-store';
+import { createTabProvider, createTabRegistry } from '@renderer/features/tabs/core/tab-provider-registry';
 
-const { tabs, showChatTab, updateFileNames } = vi.hoisted(() => ({
+const { tabs, showChatTab, updateFileNames, projects } = vi.hoisted(() => ({
+  projects: new Map(),
   tabs: [] as { tabId: string; inWindow: boolean; shown?: boolean; item: PanelItem }[], showChatTab: vi.fn(), updateFileNames: vi.fn(), }));
 vi.mock('@renderer/features/chats/chat-tabs/chat-layouts', () => ({ panelTabsOf: () => tabs, showChatTab, updateFileNames, chatLayoutOf: () => ({ groups: [{ pane: { entries: new Map(tabs.map((tab) => [tab.tabId, tab])) } }] }) }));
 
 const navigate = vi.fn();
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { navigation: { navigate } } }));
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
-  getProjectManagerStore: () => ({ projects: new Map() }),
+  getProjectManagerStore: () => ({ projects }),
 }));
 vi.mock('@renderer/features/sessions/acp/acp-chat-tab-resource', () => ({
   AcpChatTabResource: class {},
@@ -21,8 +25,43 @@ vi.mock('./extension-surface-store', () => ({
 }));
 
 const { applyExtensionHostAction } = await import('./host-action-handlers');
-beforeEach(() => { vi.clearAllMocks(); tabs.length = 0; });
+beforeEach(() => { vi.clearAllMocks(); tabs.length = 0; projects.clear(); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+describe('an App browser open keeps the host-stamped source', () => {
+  it('navigates the originating context after focus moves to another pane', async () => {
+    const provider = (kind: string) => createTabProvider({
+      kind, resourceKey: (state: { initialUrl: string }) => state.initialUrl,
+      initialize: () => ({ dispose() {} }), dispose() {},
+      TabBarItem: () => null, TabBarItemDragPreview: () => null, TabContent: () => null,
+    });
+    const layout = new PaneLayoutStore(createTabRegistry([provider('app'), provider('browser')]), { viewId: 'app-origin' });
+    try {
+      layout.open('app', { initialUrl: 'app-a' }, { from: null, intent: 'newTab' });
+      const source = layout.focusedPane;
+      const tabId = source.resolvedActiveTabId!;
+      layout.open('app', { initialUrl: 'app-b' }, { from: tabId, intent: 'beside' });
+      const other = layout.focusedPane;
+      const otherBefore = JSON.parse(JSON.stringify(other.snapshot));
+      expect(other).not.toBe(source);
+      const view = {
+        paneLayout: layout, get activePane() { return layout.focusedPane; },
+        showPage: WorkspaceViewModel.prototype.showPage, setFocusedRegion: vi.fn(),
+      };
+      projects.set('project', { mountedProject: { sessionManager: { sessions: new Map([['task', { viewModel: view }]]) } } });
+      // The bridge delivers the original page identity after the person has focused B.
+      await Promise.resolve();
+      await applyExtensionHostAction({ origin: { extensionId: 'app', sessionId: 'task', tabId }, action: { kind: 'openBrowserTab', url: 'https://example.com/from-a' } });
+      expect(source.entries.get(tabId)).toMatchObject({ kind: 'browser', state: { initialUrl: 'https://example.com/from-a' } });
+      expect(source.navigationOf(tabId)?.pages).toHaveLength(2);
+      expect(other.snapshot).toEqual(otherBefore);
+    } finally { layout.dispose(); }
+  });
+
+  it('preserves the no-session shell refusal', () => {
+    expect(() => applyExtensionHostAction({ origin: { extensionId: 'app', sessionId: null, tabId: 'shell' }, action: { kind: 'openBrowserTab', url: 'https://example.com/' } })).toThrow('This session is no longer open');
+  });
+});
 
 /**
  * R A/B 10-06: a banner's or a link's click that names no place opens the App's own page, which lives on the task
