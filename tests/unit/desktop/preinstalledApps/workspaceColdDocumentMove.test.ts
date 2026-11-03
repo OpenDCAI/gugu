@@ -22,8 +22,9 @@ const gugu = {
 const el = (id: string) => document.getElementById(id)!
 async function moveFromToolbar() {
   el('more').click()
-  await until('the actual file toolbar offers Move', () => [...el('menu').children].some((item) => item.textContent === 'Move…'))
-  ;([...el('menu').children].find((item) => item.textContent === 'Move…') as HTMLButtonElement).click()
+  const move = [...el('menu').children].find((item) => item.textContent === 'Move to…') as HTMLButtonElement | undefined
+  expect(move, 'the actual file toolbar offers Move').toBeDefined()
+  move!.click()
 }
 beforeAll(async () => {
   document.body.innerHTML = new DOMParser().parseFromString(readFileSync(resolve('apps/desktop/preinstalled-apps/workspace/index.html'), 'utf8'), 'text/html').body.innerHTML
