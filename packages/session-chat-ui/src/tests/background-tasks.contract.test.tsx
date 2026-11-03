@@ -159,8 +159,8 @@ describe('background tasks at the end of the transcript', () => {
   })
 
   // owner 2026-10-27 原型:末尾那条回复带着过程行时,后台那一句与「执行中」同一行,单子就地展开在它下面。
-  it('hangs on a live process line that has no reply yet, across the steps under it', async () => {
-    const { state, host } = mount({}, true)
+  it('keeps wrapped background agents above the tool run on a live process line', async () => {
+    const { state, host } = mount({ onStopBackgroundTask: vi.fn() }, true)
     state.transcript.activeTurn.set({
       id: 'live', seq: 0, initiator: 'user', startedAt: Date.now() - 5000,
       items: [
@@ -169,7 +169,16 @@ describe('background tasks at the end of the transcript', () => {
         { kind: 'tool', id: 't2', seq: 2, name: 'bash', status: 'running' },
       ]
     } as unknown as TranscriptTurn)
-    state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
+    state.session.setBackgroundTasks({
+      commands: [],
+      subagents: [
+        agent({ completedSteps: 137, elapsedMs: 650_000, startedAt: Date.now() - 650_000 }),
+        agent({
+          id: 'agent-item-2', launchToolCallId: 'toolu_agent_2', name: 'Audit Electron main-process performance',
+          completedSteps: 114, elapsedMs: 650_000, startedAt: Date.now() - 650_000,
+        }),
+      ],
+    })
     // owner 0 号图:「执行中 · … · N 步 ⌄ | 后台 · … ›」同一行,❌ 单独一行排在步骤下面。
     const pill = () => host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-slot="background-tasks-pill"]')
     await until('the background pill sits on the live process line', () => pill() !== null)
@@ -183,6 +192,12 @@ describe('background tasks at the end of the transcript', () => {
     pill()!.click()
     await until('the list opens in that row', () => items(host).length === 2)
     expect(host.querySelector('[data-slot="turn-process"]')!.contains(items(host)[0])).toBe(true)
+    const toolRun = host.querySelector<HTMLElement>('[data-slot="tool-run"]')!
+    await untilStable('the expanded background list pushes the tool run down', () =>
+      toolRun.getBoundingClientRect().top - items(host).at(-1)!.getBoundingClientRect().bottom)
+    expect(items(host).at(-1)!.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      toolRun.getBoundingClientRect().top
+    )
     // owner 10-28:过程行和后台各管各的 —— 收起过程,后台单子照样开着、照样能点;开合后台,过程行不动。
     const line = () => host.querySelector<HTMLElement>('[data-slot="turn-process"]')!
     const processOpen = line().dataset.expanded
