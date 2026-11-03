@@ -104,7 +104,7 @@ beforeEach(() => {
   for (const [index, id] of allIds.entries()) {
     const at = id === OLD ? '2020-01-01T00:00:00.000Z' : `2026-11-03T00:00:${String(20 - index).padStart(2, '0')}.000Z`;
     const session = { id, projectId: PROJECT, title: id, runtime: 'acp', providerId: 'codex',
-      createdAt: at, updatedAt: at, lastInteractedAt: at, isPinned: false, agentStatus: null } as Session;
+      createdAt: at, lastInteractedAt: at, isPinned: false, agentStatus: null } as Session;
     const manager = sessionRegistry.acquire(id, PROJECT, [session]);
     pages.set(id, {
       id, state: 'provisioned', workspaceId: `workspace-${id}`,
@@ -157,7 +157,7 @@ function openOld(onlyIfNoTabs = false) {
 function sharedTimes() {
   return allIds.map(id => {
     const data = sessionRegistry.get(id)!.sessions.get(id)!.data;
-    return [id, data.lastInteractedAt, data.updatedAt];
+    return [id, data.lastInteractedAt, data.createdAt];
   });
 }
 
