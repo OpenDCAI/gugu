@@ -1,6 +1,6 @@
 import { shelfRelation } from '@shared/extensions/catalog';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
-import type { MarketListItem } from '@shared/extensions/market';
+import { marketCompatText, type MarketListItem } from '@shared/extensions/market';
 import type { SessionTranslate } from '../extension-consent';
 import type { AppLifecycle } from './app-lifecycle-button';
 
@@ -18,7 +18,7 @@ export function appLifecycle({ installed, enabled, updateVersion, offered, prein
     const compat = offered.cloud.compat;
     if (compat) return {
       kind: 'word',
-      text: compat.reason === 'needs-newer-app' ? translate('extensions.needsNewerApp', { version: compat.minAppVersion }) : translate('extensions.needsAuthorUpdate'),
+      text: marketCompatText(compat, translate),
       title: translate('extensions.compatExplain'),
     };
     return { kind: 'get' };
