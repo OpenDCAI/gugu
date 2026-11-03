@@ -7,6 +7,9 @@ import { state, changed, EMPTY } from '@/lib/sessionInputOutboxBridge'
 import { createReactHarness, renderWithAppProviders } from '../../../../../../../tests/support/testHarness'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
+import { SessionInputQueue } from '@/components/chat/SessionInputQueue'
+import type { SessionInputOutbox } from '@/lib/sessionInputOutbox'
+import { PhoneViewportShell } from '@/mobile/PhoneViewportShell'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
 
@@ -22,7 +25,7 @@ let harness: ReturnType<typeof createReactHarness>
 afterEach(() => {
   harness?.cleanup()
   const own = state()
-  own.accountId = null; own.rows = EMPTY; own.valid = () => false; changed()
+  own.accountId = null; own.queue = null; own.rows = EMPTY; own.valid = () => false; changed()
 })
 
 it('shows a running input after durable commit without waiting for a host queue response, then hands off its id', async () => {
@@ -41,7 +44,7 @@ it('shows a running input after durable commit without waiting for a host queue 
   harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
   const render = () => renderWithAppProviders(harness, <SessionConversation timeline={timeline} deviceId="host" sessionId="session" agentName="Agent" nativeRecord
     sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={send} pendingSends={[]} sending={false} agentWorking
-    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} })
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} footerNotice={<SessionInputQueue sessionId="session" waitingForConnection />} />, { contacts: {} })
   await render()
   await page.getByTestId('prompt-editor').fill('local queue appears now')
   const stop = harness.container.querySelector('[data-composer-action="stop"]')
@@ -52,6 +55,7 @@ it('shows a running input after durable commit without waiting for a host queue 
   await act(async () => { commit(); await durable })
   await until('durable local queue is visible before the host responds', () => !!harness.container.querySelector('[data-queued-prompt-id="local"]'))
   expect(harness.container.querySelector('[data-queued-prompt-id="local"]')?.textContent).toContain('local queue appears now')
+  expect(harness.container.querySelector('[data-native-input-id="local"]')).toBeNull()
   expect(harness.container.querySelector('[data-queued-prompt-id="local"] [data-locked="true"]')).not.toBeNull()
   await act(async () => { own.rows = EMPTY; changed() })
   expect(harness.container.querySelectorAll('[data-queued-prompt-id="local"]')).toHaveLength(1)
@@ -59,4 +63,44 @@ it('shows a running input after durable commit without waiting for a host queue 
   await render()
   expect(harness.container.querySelectorAll('[data-queued-prompt-id="local"]')).toHaveLength(1)
   expect(harness.container.querySelector('[data-queued-prompt-id="local"] [data-locked="true"]')).toBeNull()
+})
+
+it('shows and retries an online host refusal outside the normal locked queue', async () => {
+  await page.viewport(390, 844)
+  const own = state()
+  const flush = vi.fn(async () => {})
+  own.accountId = 'owner'; own.valid = () => true
+  own.queue = Promise.resolve({ flush } as unknown as SessionInputOutbox)
+  const input = { id: 'refused-local', accountId: 'owner', deviceId: 'host', sessionId: 'session', text: 'local refused input', createdAt: 1,
+    queued: true, failure: { code: 'send-failed' as const, message: 'Provider login expired' } }
+  own.rows = [input]
+  harness = createReactHarness()
+  harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
+  await renderWithAppProviders(harness, <SessionConversation timeline={emptyAgentWatchTimeline()} deviceId="host" sessionId="session" agentName="Agent" nativeRecord
+    sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} footerNotice={<SessionInputQueue sessionId="session" waitingForConnection={false} />} />, { contacts: {} })
+  await until('the connected host refusal is visible', () => !!harness.container.querySelector('[data-native-input-id="refused-local"] [data-send-state="failed"]'))
+  const status = harness.container.querySelector('[data-native-input-id="refused-local"] [data-send-state="failed"]')!
+  expect(status.textContent).toContain('Provider login expired')
+  expect(harness.container.querySelector('[data-queued-prompt-id="refused-local"]')).toBeNull()
+  expect(own.rows).toEqual([input])
+  await page.getByRole('button', { name: translateSessionMessage('transcript.retrySend'), exact: true }).click()
+  expect(flush).toHaveBeenCalledWith(true)
+})
+
+it('applies viewport geometry through CSS without rerendering the retained page', async () => {
+  await page.viewport(390, 844)
+  let renders = 0
+  function RetainedPage() { renders++; return <div>Existing conversation</div> }
+  harness = createReactHarness()
+  await renderWithAppProviders(harness, <PhoneViewportShell mobile><RetainedPage /></PhoneViewportShell>, { contacts: {} })
+  const shell = harness.container.querySelector('.gg-phone-viewport-shell')!
+  await until('shell follows the initial native viewport', () => shell.getBoundingClientRect().height === 844)
+  const initialRenders = renders
+  await page.viewport(390, 500)
+  await until('CSS receives the smaller native viewport', () => shell.getBoundingClientRect().height === 500)
+  expect(renders).toBe(initialRenders)
+  await page.viewport(390, 844)
+  await until('CSS restores the full viewport', () => shell.getBoundingClientRect().height === 844)
+  expect(renders).toBe(initialRenders)
 })

@@ -23,7 +23,7 @@ it('hands off each id once to the host queue or its own transcript echo', () => 
   const shown = localQueuedInputs([], [one, two], [{ id: one.id }], [old])
   expect(shown).toEqual([two])
   const echo: TranscriptTurn = { id: 'new-turn', seq: 2, initiator: 'user', outcome: { kind: 'done' }, items: [
-    { kind: 'message', id: 'native-two', role: 'user', seq: 0, text: two.text },
+    { kind: 'message', id: 'two', role: 'user', seq: 0, text: two.text },
   ] }
   expect(localQueuedInputs(shown, [two], [], [old, echo])).toEqual([])
 })
@@ -31,14 +31,33 @@ it('hands off each id once to the host queue or its own transcript echo', () => 
 it('does not let one native echo consume two identical queued inputs on later renders', () => {
   const one = { ...input('one'), text: 'same' }, two = { ...input('two'), text: 'same' }
   const echo: TranscriptTurn = { id: 'new-turn', seq: 2, initiator: 'user', outcome: { kind: 'done' }, items: [
-    { kind: 'message', id: 'native-one', role: 'user', seq: 0, text: 'same' },
+    { kind: 'message', id: 'one', role: 'user', seq: 0, text: 'same' },
   ] }
   const remaining = localQueuedInputs([one, two], [], [], [old, echo])
   expect(remaining.map(input => input.id)).toEqual(['two'])
   expect(localQueuedInputs(remaining, [], [], [old, echo]).map(input => input.id)).toEqual(['two'])
   expect(localQueuedInputs(remaining, [two], [], [old, echo]).map(input => input.id)).toEqual(['two'])
   const next: TranscriptTurn = { ...echo, id: 'next-turn', seq: 3, items: [
-    { kind: 'message', id: 'native-two', role: 'user', seq: 0, text: 'same' },
+    { kind: 'message', id: 'two', role: 'user', seq: 0, text: 'same' },
   ] }
   expect(localQueuedInputs(remaining, [], [], [old, echo, next])).toEqual([])
+})
+
+it('does not consume B when A hands off to the host before its identical transcript echo arrives', () => {
+  const a = { ...input('a'), text: 'same' }, b = { ...input('b'), text: 'same' }
+  const local = localQueuedInputs([], [a, b], [], [old])
+  const handedOff = localQueuedInputs(local, [b], [{ id: a.id }], [old])
+  expect(handedOff.map(input => input.id)).toEqual(['b'])
+  const echo: TranscriptTurn = { id: 'a-turn', seq: 2, initiator: 'user', outcome: { kind: 'done' }, items: [
+    { kind: 'message', id: 'a', role: 'user', seq: 0, text: 'same' },
+  ] }
+  expect(localQueuedInputs(handedOff, [b], [], [old, echo]).map(input => input.id)).toEqual(['b'])
+})
+
+it('uses the native message identity across turn prefixes, without matching the words', () => {
+  const own = input('11111111-1111-4111-8111-111111111111')
+  const echo: TranscriptTurn = { id: 'native-turn', seq: 2, initiator: 'user', outcome: { kind: 'done' }, items: [
+    { kind: 'message', id: `history:message:${own.id}`, role: 'user', seq: 0, text: 'the runtime rendered different text' },
+  ] }
+  expect(localQueuedInputs([own], [own], [], [old, echo])).toEqual([])
 })

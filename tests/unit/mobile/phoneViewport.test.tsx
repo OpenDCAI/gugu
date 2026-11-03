@@ -49,8 +49,8 @@ describe('phone shell visible viewport', () => {
     viewport.offsetTop = 24
     await update(viewport, 'resize')
     await keyboard(true)
-    expect(shell.current?.style.height).toBe('430px')
-    expect(shell.current?.style.top).toBe('24px')
+    expect(shell.current?.style.getPropertyValue('--phone-viewport-height')).toBe('430px')
+    expect(shell.current?.style.getPropertyValue('--phone-viewport-top')).toBe('24px')
     expect(bar.current?.style.getPropertyValue('--phone-nav-viewport-height')).toBe('800px')
     expect(renderPage).toHaveBeenCalledTimes(initialRenders)
     await act(async () => { page.blur(); await Promise.resolve() })
@@ -58,7 +58,7 @@ describe('phone shell visible viewport', () => {
     viewport.offsetTop = 0
     await keyboard(false)
     await update(viewport, 'resize')
-    expect(shell.current?.style.height).toBe('800px')
+    expect(shell.current?.style.getPropertyValue('--phone-viewport-height')).toBe('800px')
     expect(renderPage).toHaveBeenCalledTimes(initialRenders)
   })
 

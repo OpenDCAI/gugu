@@ -20,11 +20,17 @@ vi.mock('../../../apps/desktop/src/components/assistant-ui/session-transcript-vi
 
 import { SessionConversation } from '../../../apps/desktop/src/mobile/agent-watch/SessionConversation'
 import { emptyAgentWatchTimeline } from '../../../apps/desktop/src/mobile/agent-watch/agent-watch-store'
+import { state, changed, EMPTY } from '../../../apps/desktop/src/lib/sessionInputOutboxBridge'
+import type { SessionInputOutbox } from '../../../apps/desktop/src/lib/sessionInputOutbox'
+import { SessionInputQueue } from '../../../apps/desktop/src/components/chat/SessionInputQueue'
+import { translateSessionMessage } from '../../../apps/desktop/src/session/renderer/localization/locale-store'
 let harness: ReturnType<typeof createReactHarness>
 const oldScroll = Element.prototype.scrollTo
 const oldWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
 beforeEach(() => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 }); harness = createReactHarness(); stubVisibleIntersection(); Element.prototype.scrollTo = () => undefined })
-afterEach(() => { Object.defineProperty(window, 'innerWidth', oldWidth); harness.cleanup(); Element.prototype.scrollTo = oldScroll; vi.unstubAllGlobals() })
+afterEach(() => { Object.defineProperty(window, 'innerWidth', oldWidth); harness.cleanup(); Element.prototype.scrollTo = oldScroll; vi.unstubAllGlobals();
+  Object.assign(state(), { accountId: null, queue: null, rows: EMPTY, valid: () => false }); changed(); lifeRead.mockReset()
+})
 it('puts each App draft in the real task composer once, preserving human edits and sending nothing', async () => {
   const onSend = vi.fn(), applied = vi.fn()
   const timeline = emptyAgentWatchTimeline()
@@ -99,4 +105,26 @@ it('does not republish transcript commands while typing or clearing a phone draf
   const updated = transcriptCommands.mock.lastCall![0] as { onStop: () => void }
   updated.onStop()
   expect(replacementStop).toHaveBeenCalledTimes(1)
+})
+
+it('shows an online host refusal through the existing input queue failure status and retry action', async () => {
+  const failure = { code: 'send-failed' as const, message: 'Provider login expired' }
+  const input = { id: 'failed-local', accountId: 'owner', deviceId: 'desktop', sessionId: 'failure-1451', text: 'queued intent', createdAt: 1, queued: true, failure }
+  const flush = vi.fn(async () => {})
+  Object.assign(state(), { accountId: 'owner', queue: Promise.resolve({ flush } as unknown as SessionInputOutbox), rows: [input], valid: () => true })
+  lifeRead.mockResolvedValue({ sessionId: 'failure-1451', version: 1, kind: 'ready', pending: { count: 0, items: [] } })
+  await renderWithAppProviders(harness, createNode(SessionConversation, {
+    timeline: emptyAgentWatchTimeline(), deviceId: 'desktop', sessionId: 'failure-1451', agentName: 'Test agent', sessionRuntime: 'acp',
+    respondingItemId: null, onRespond: vi.fn(), onSend: vi.fn(), pendingSends: [], sending: false, agentWorking: true,
+    onStop: vi.fn(), stopping: false, onLoadOlder: async () => undefined,
+    footerNotice: createNode(SessionInputQueue, { sessionId: 'failure-1451', waitingForConnection: false }),
+  }))
+  await waitForCondition(() => !!harness.container.querySelector('[data-testid="prompt-editor"]'), 'phone composer ready')
+  const status = harness.container.querySelector('[data-native-input-id="failed-local"] [data-send-state="failed"]')
+  expect(status?.textContent).toContain(failure.message)
+  expect(harness.container.querySelector('[data-queued-prompt-id="failed-local"]')).toBeNull()
+  expect(state().rows).toEqual([input])
+  const retry = [...status!.querySelectorAll('button')].find(button => button.textContent === translateSessionMessage('transcript.retrySend'))!
+  await act(async () => retry.click())
+  expect(flush).toHaveBeenCalledWith(true)
 })

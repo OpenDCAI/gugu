@@ -984,9 +984,8 @@ function InnerLayout({
       style={{
         display: 'flex',
         width: '100vw',
-        height: mobile ? '100dvh' : '100vh',
+        height: mobile ? undefined : '100vh',
         position: mobile ? 'fixed' : undefined,
-        top: mobile ? 0 : undefined,
         left: mobile ? 0 : undefined,
         overflow: 'hidden',
         background: mobile ? 'var(--ta-panel-bg)' : 'var(--shell-bg)',
