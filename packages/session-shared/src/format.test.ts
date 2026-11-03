@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   differenceInCalendarDays,
   formatCalendarDay,
@@ -98,5 +98,27 @@ describe('calendar day: one style for lists, separators and the chat day boundar
   });
   it('an invalid time is drawn as such, not hidden', () => {
     expect(formatCalendarDay('not a time', 'zh-CN', { now })).toBe('Invalid Date');
+  });
+});
+
+describe('Intl formatter caching', () => {
+  it('reuses one RelativeTimeFormat/NumberFormat per locale and options', () => {
+    const yesterday = { now: new Date(nowMs + 86_400_000) };
+    // 先热身:缓存是模块级的,命中之后不该再有构造。
+    formatRelativeTimeParts(nowMs - 180_000, 'zh-CN', words, { mode: 'compact', addSuffix: true, nowMs });
+    formatRelativeTimeParts(nowMs - 180_000, 'zh-CN', words, { mode: 'compact', addSuffix: false, nowMs });
+    formatCalendarDay(nowMs, 'zh-CN', yesterday);
+    const relative = vi.spyOn(Intl, 'RelativeTimeFormat');
+    const numbers = vi.spyOn(Intl, 'NumberFormat');
+    try {
+      formatRelativeTimeParts(nowMs - 180_000, 'zh-CN', words, { mode: 'compact', addSuffix: true, nowMs });
+      formatRelativeTimeParts(nowMs - 180_000, 'zh-CN', words, { mode: 'compact', addSuffix: false, nowMs });
+      formatCalendarDay(nowMs, 'zh-CN', yesterday);
+      expect(relative).not.toHaveBeenCalled();
+      expect(numbers).not.toHaveBeenCalled();
+    } finally {
+      relative.mockRestore();
+      numbers.mockRestore();
+    }
   });
 });

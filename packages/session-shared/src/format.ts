@@ -5,7 +5,25 @@ export type DateValue = Date | number | string;
 export type TimeUnit = 'second' | 'minute' | 'hour' | 'day' | 'month' | 'year';
 
 export function formatNumber(value: number, options: Intl.NumberFormatOptions | undefined, locale: string): string {
-  return new Intl.NumberFormat(locale, options).format(value);
+  return cachedNumberFormat(locale, options ?? {}).format(value);
+}
+
+// Number/RelativeTime formatters are cached for the same reason as the date ones below: message rows and
+// relative-time labels format on a clock, and rebuilding an Intl formatter per call was measurable.
+const numberFormats = new Map<string, Intl.NumberFormat>();
+function cachedNumberFormat(locale: string, options: Intl.NumberFormatOptions): Intl.NumberFormat {
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let format = numberFormats.get(key);
+  if (!format) numberFormats.set(key, format = new Intl.NumberFormat(locale, options));
+  return format;
+}
+
+const relativeTimeFormats = new Map<string, Intl.RelativeTimeFormat>();
+function cachedRelativeTimeFormat(locale: string, options: Intl.RelativeTimeFormatOptions): Intl.RelativeTimeFormat {
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let format = relativeTimeFormats.get(key);
+  if (!format) relativeTimeFormats.set(key, format = new Intl.RelativeTimeFormat(locale, options));
+  return format;
 }
 
 // One formatter per locale, options and time zone: every message row formats its time, and building an
@@ -59,7 +77,7 @@ export function formatCalendarDay(value: DateValue, locale: string, { withTime =
   if (days === 0) return formatDate(date, CLOCK, locale);
   if (days === 1) {
     // 英文 Intl 给小写「yesterday」;它常单独当标签用,首字母大写(中文不受影响)。
-    const word = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-1, 'day');
+    const word = cachedRelativeTimeFormat(locale, { numeric: 'auto' }).format(-1, 'day');
     const yesterday = word.charAt(0).toLocaleUpperCase(locale) + word.slice(1);
     return withTime ? `${yesterday} ${formatDate(date, CLOCK, locale)}` : yesterday;
   }
@@ -125,8 +143,8 @@ export function formatRelativeTimeParts(
   const distanceParts = (compact: boolean, addSuffix: boolean): RelativeTimePart[] => {
     const { count, unit } = strictDistance(timestamp, nowMs, compact ? Math.floor : Math.round);
     // 短形(侧栏、提交列表)与长形是同一个 Intl 单位格式,只差 narrow/long:中文「10分钟 / 3小时」,英文「10m / 3h」。
-    if (!addSuffix) return text(new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: compact ? 'narrow' : 'long' }).format(count));
-    return new Intl.RelativeTimeFormat(locale, { numeric: 'always', style: compact ? 'narrow' : 'long' })
+    if (!addSuffix) return text(cachedNumberFormat(locale, { style: 'unit', unit, unitDisplay: compact ? 'narrow' : 'long' }).format(count));
+    return cachedRelativeTimeFormat(locale, { numeric: 'always', style: compact ? 'narrow' : 'long' })
       .formatToParts(timestamp > nowMs ? count : -count, unit)
       .map((part): RelativeTimePart => ({ type: part.type === 'literal' ? 'suffix' : 'value', value: part.value }));
   };
