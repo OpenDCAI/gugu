@@ -45,6 +45,26 @@ describe('each actual pane owns its content', () => {
     layout.dispose();
   });
 
+  it('offers an explicit return to the conversation after a narrow open without changing the layout', async () => {
+    const conversation = createTabProvider({ ...provider, kind: 'conversation', conversation: true });
+    const layout = new PaneLayoutStore(createTabRegistry([provider, conversation]), { viewId: 'narrow-conversation-return' });
+    const source = layout.open('conversation', { id: 'conversation' }, { from: null, intent: 'newTab' })!;
+    layout.focusedPane.setDimensions(390, 620);
+    const tree = JSON.stringify(layout.layout);
+    const file = layout.open('page', { id: 'file' }, { from: source, intent: 'navigate' })!;
+    expect(layout.groups).toHaveLength(1);
+    expect(layout.focusedPane.tabOrder).toEqual([source, file]);
+    const group = layout.groups[0];
+    act(() => root.render(<PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent /></PaneContext.Provider>));
+    const back = dom.window.document.querySelector<HTMLButtonElement>('[data-testid="tab-return-conversation"]');
+    expect(back).not.toBeNull();
+    await act(async () => { back!.click(); });
+    expect(layout.focusedPane.resolvedActiveTabId).toBe(source);
+    expect(layout.focusedPane.tabOrder).toEqual([source, file]);
+    expect(JSON.stringify(layout.layout)).toBe(tree);
+    layout.dispose();
+  });
+
   it('fullscreen preserves both mounted page resources and the actual split', () => {
     const layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'real-pane-content' });
     const a = layout.open('page', { id: 'a' }, { from: null, intent: 'newTab' })!;
