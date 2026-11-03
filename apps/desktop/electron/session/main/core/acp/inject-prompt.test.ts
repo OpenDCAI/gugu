@@ -44,6 +44,26 @@ describe('shared ACP prompt admission', () => {
     expect(promptDetached).toHaveBeenCalledTimes(1);
     expect(waitPromptDetached.mock.calls).toEqual([[{ requestId: 'original', admissionOnly: true }], [{ requestId: 'original' }]]);
   });
+
+  it('keeps client custody through the real runtime queue and its transcript', async () => {
+    const { runtime, finish } = await busySession();
+    const deliveries = [];
+    for (const clientMessageId of ['client-single', 'client-triple']) {
+      deliveries.push(await injectEmdashPromptDetached('conv-1', clientMessageId, { clientMessageId }));
+    }
+    expect(runtime.getSessionState('conv-1').queuedPrompts.map(prompt => prompt.clientMessageId))
+      .toEqual(['client-single', 'client-triple']);
+    await finish();
+    await Promise.all(deliveries.map(delivery => delivery.completion));
+    await vi.waitFor(() => {
+      const history = runtime.getHistory('conv-1');
+      if (!history.success) throw new Error('History unavailable');
+      expect(history.data.turns.flatMap(turn => turn.items.flatMap(item => item.kind === 'message' && item.role === 'user'
+        && item._meta?.guguClientMessageId ? [item._meta.guguClientMessageId] : [])))
+        .toEqual(['client-single', 'client-triple']);
+    });
+  });
+
   it('keeps image references on the same native prompt instead of making a second input', async () => {
     const promptDetached = vi.fn(async () => ({ requestId: 'native-1', queued: true }));
     state.client = { promptDetached, waitPromptDetached: async () => ({}) };

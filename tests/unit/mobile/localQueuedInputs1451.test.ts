@@ -61,3 +61,30 @@ it('uses the native message identity across turn prefixes, without matching the 
   ] }
   expect(localQueuedInputs([own], [own], [], [old, echo])).toEqual([])
 })
+
+it('hands off an empty outbox to a runtime queue with a different id and the original client identity', () => {
+  const single = input('client-single'), triple = input('client-triple')
+  const shown = localQueuedInputs([], [single, triple], [], [old])
+  const echo: TranscriptTurn = { id: 'provider-turn', seq: 2, initiator: 'user', outcome: { kind: 'done' }, items: [
+    { kind: 'message', id: 'provider-single', role: 'user', seq: 0, text: single.text, _meta: { guguClientMessageId: single.id } },
+  ] }
+  expect(localQueuedInputs(shown, [], [{ id: 'runtime-triple', clientMessageId: triple.id }], [old, echo])).toEqual([])
+})
+
+it('does not use a renamed native receipt for a different input with the same text', () => {
+  const a = { ...input('client-a'), text: 'same' }, b = { ...input('client-b'), text: 'same' }
+  const echo: TranscriptTurn = { id: 'provider-turn', seq: 2, initiator: 'user', outcome: { kind: 'done' }, items: [
+    { kind: 'message', id: 'provider-a', role: 'user', seq: 0, text: 'same', _meta: { guguClientMessageId: a.id } },
+  ] }
+  const remaining = localQueuedInputs([a, b], [], [], [old, echo])
+  expect(remaining).toEqual([b])
+  expect(localQueuedInputs(remaining, [], [], [old, echo])).toEqual([b])
+})
+
+it('does not invent an identity receipt when an older host only returns matching text', () => {
+  const own = input('client')
+  const echo: TranscriptTurn = { id: 'old-provider-turn', seq: 2, initiator: 'user', outcome: { kind: 'done' }, items: [
+    { kind: 'message', id: 'old-provider-id', role: 'user', seq: 0, text: own.text },
+  ] }
+  expect(localQueuedInputs([own], [], [{ id: 'old-runtime-id' }], [old, echo])).toEqual([own])
+})

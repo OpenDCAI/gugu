@@ -59,10 +59,17 @@ it('shows a running input after durable commit without waiting for a host queue 
   expect(harness.container.querySelector('[data-queued-prompt-id="local"] [data-locked="true"]')).not.toBeNull()
   await act(async () => { own.rows = EMPTY; changed() })
   expect(harness.container.querySelectorAll('[data-queued-prompt-id="local"]')).toHaveLength(1)
-  timeline.queuedPrompts = [{ id: 'local', text: 'local queue appears now' }]
+  timeline.queuedPrompts = [{ id: 'runtime-local', clientMessageId: 'local', text: 'local queue appears now' }]
   await render()
-  expect(harness.container.querySelectorAll('[data-queued-prompt-id="local"]')).toHaveLength(1)
-  expect(harness.container.querySelector('[data-queued-prompt-id="local"] [data-locked="true"]')).toBeNull()
+  expect(harness.container.querySelector('[data-queued-prompt-id="local"]')).toBeNull()
+  expect(harness.container.querySelectorAll('[data-queued-prompt-id="runtime-local"]')).toHaveLength(1)
+  expect(harness.container.querySelector('[data-queued-prompt-id="runtime-local"] [data-locked="true"]')).toBeNull()
+  timeline.queuedPrompts = []
+  timeline.turns = [{ id: 'provider-turn', seq: 1, initiator: 'user', outcome: { kind: 'done' }, items: [
+    { kind: 'message', role: 'user', id: 'provider-local', seq: 0, text: 'local queue appears now', _meta: { guguClientMessageId: 'local' } },
+  ] }]
+  await render()
+  expect(harness.container.querySelector('[data-queued-prompt-id]')).toBeNull()
 })
 
 it('shows and retries an online host refusal outside the normal locked queue', async () => {

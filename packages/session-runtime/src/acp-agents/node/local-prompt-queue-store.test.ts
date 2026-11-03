@@ -25,11 +25,11 @@ it('preserves next-tool-call intent across restart but releases the process-loca
     store.save('session', [
       { id: 'ordinary', text: 'ordinary', origin: 'communication', createdAt: 1, updatedAt: 1,
         queueTiming: 'next-tool-call', queueDispatching: true },
-      { id: 'explicit', text: 'explicit queue', origin: 'communication', createdAt: 2, updatedAt: 2 },
+      { id: 'explicit', clientMessageId: 'client-owned', text: 'explicit queue', origin: 'communication', createdAt: 2, updatedAt: 2 },
     ]);
     expect(store.load('session')).toEqual([
       { text: 'ordinary', origin: 'communication', queueTiming: 'next-tool-call' },
-      { text: 'explicit queue', origin: 'communication' },
+      { clientMessageId: 'client-owned', text: 'explicit queue', origin: 'communication' },
     ]);
     expect(readFileSync(join(root, 'session.json'), 'utf8')).not.toContain('queueDispatching');
   } finally { rmSync(root, { recursive: true, force: true }); }

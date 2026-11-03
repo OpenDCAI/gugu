@@ -8,11 +8,12 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import type { SessionInput } from '../../../apps/desktop/src/lib/sessionInputOutbox'
 import { translateSessionMessage } from '../../../apps/desktop/src/session/renderer/localization/locale-store'
 const scope = vi.hoisted(() => ({ enqueue: vi.fn(async () => undefined), pending: [] as SessionInput[], timeline: null as ReturnType<typeof emptyAgentWatchTimeline> | null,
+  composer: null as null | { onBeforeSend?: () => void; onSend: (text: string) => Promise<void> },
   nativeRecord: null as { turns: ReturnType<typeof emptyAgentWatchTimeline>['turns']; activeTurn: null; nextCursor: null } | null }))
 vi.mock('../../../apps/desktop/src/lib/sessionInputOutboxBridge', () => ({ enqueueSessionInput: scope.enqueue, retrySessionInputs: vi.fn(), useQueuedSessionInputs: (sessionId: string) => scope.pending.filter(input => input.sessionId === sessionId) }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/useAgentWatchSession', () => ({ useAgentWatchSession: () => ({ timeline: scope.timeline ?? emptyAgentWatchTimeline(), phase: 'error', error: 'Host unreachable', pendingSends: [], reload() {}, loadOlder: async () => undefined, cancel() {}, respond() {} }) }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/useNativeSessionRecord', () => ({ useNativeSessionRecord: () => ({ record: scope.nativeRecord, error: null, followTail() {}, loadNewer() {}, loadOlder: async () => undefined }) }))
-vi.mock('../../../apps/desktop/src/mobile/agent-watch/SessionConversation', () => ({ SessionConversation: ({ onSend, footerNotice }: { onSend: (text: string) => Promise<void>; footerNotice?: ReactNode }) => <>{footerNotice}<button data-cold-native-composer="" onClick={() => { void onSend('Cold native input') }}>Send</button></> }))
+vi.mock('../../../apps/desktop/src/mobile/agent-watch/SessionConversation', () => ({ SessionConversation: (props: { onBeforeSend?: () => void; onSend: (text: string) => Promise<void>; footerNotice?: ReactNode }) => { scope.composer = props; return <>{props.footerNotice}<button data-cold-native-composer="" onClick={() => { void props.onSend('Cold native input') }}>Send</button></> } }))
 vi.mock('../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store', () => ({ installedExtensionsStore: { enabledTabContributions: [] } }))
 vi.mock('../../../apps/desktop/src/components/ui/sheetStack', async original => ({ ...await original<object>(), useBackLayer() {} }))
 let harness: ReturnType<typeof createReactHarness>
@@ -58,4 +59,29 @@ it.each(['queue', 'transcript'] as const)('does not show a lost-acknowledgement 
   expect(harness.container.querySelector(`[data-native-input-id="${id}"]`)).toBeNull()
   expect(harness.container.querySelector(`[data-native-input-id="${unrelatedId}"] [data-send-state="failed"]`)).not.toBeNull()
   expect(scope.pending).toHaveLength(2)
+})
+
+
+it.each([
+  { mobile: true, busy: true, identity: undefined, blocked: true },
+  { mobile: true, busy: false, identity: undefined, blocked: false },
+  { mobile: true, busy: true, identity: true, blocked: false },
+  { mobile: false, busy: true, identity: undefined, blocked: false },
+])('checks the phone queued handoff before enqueue: %j', async ({ mobile, busy, identity, blocked }) => {
+  vi.stubGlobal('innerWidth', mobile ? 390 : 1200)
+  scope.timeline = { ...emptyAgentWatchTimeline(), turns: busy ? [{ id: 'working', seq: 0, initiator: 'user', items: [] }] : [] }
+  const session = { conversationId: 'session', projectId: 'project', title: 'Task', runtime: 'acp', nativeInputVersion: 2,
+    ...(identity ? { nativeInputIdentity: true } : {}), agentStatus: busy ? 'working' : 'idle' } as SessionpageSessionSummary
+  const render = () => renderWithAppProviders(harness, <SessionTimelinePage device={device('host', [], { is_online: true })} session={session} onBack={() => undefined} />)
+  await render()
+  if (blocked) {
+    expect(() => scope.composer!.onBeforeSend?.()).toThrow(/Update|更新/)
+    await expect(scope.composer!.onSend('keep the whole draft')).rejects.toThrow(/Update|更新/)
+    expect(scope.enqueue).not.toHaveBeenCalled()
+    Object.assign(session, { nativeInputIdentity: true })
+    await render()
+  }
+  expect(() => scope.composer!.onBeforeSend?.()).not.toThrow()
+  await scope.composer!.onSend('keep the whole draft')
+  expect(scope.enqueue).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'keep the whole draft', queued: busy }))
 })
