@@ -71,7 +71,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
       <Button variant="ghost" size="md" className={mobile ? 'min-h-[var(--control-h-touch)]' : undefined} data-testid={AUTOMATION_TEST_IDS.chatHeaderMembersButton} aria-label={t('header.memberList')} title={t('header.memberList')} aria-pressed={infoShown}
         onClick={() => infoShown ? onCloseInfo() : onOpenInfo('members')}>
         {status && <span {...status}>{status['data-agent-display-status'] === 'needs_user' ? <AgentNeedsUserGlyph size={8} /> : null}</span>}
-        <Users />{wideGroup ? t('header.members', { count: memberCount }) : memberCount}
+        <Users className="text-[var(--faint-fg)]" />{wideGroup ? t('header.members', { count: memberCount }) : memberCount}
       </Button>
       {wideGroup && <span aria-hidden className="mx-1 h-4 border-s border-[var(--border)]" />}
     </> : <IconButton on={folderShown || undefined} title={folderName} aria-label={folderName} aria-pressed={folderShown}
