@@ -178,4 +178,18 @@ describe('LocalAttachmentStore', () => {
     await expect(access(join(root, 'store', 'objects', ref.id))).rejects.toThrow();
     await expect(store.get(ref.id)).resolves.toBeNull();
   });
+
+  it('坏索引(非 JSON)按空索引读:put/get 照常,索引随之重建', async () => {
+    const root = await makeRoot();
+    const storeDir = join(root, 'store');
+    await mkdir(storeDir, { recursive: true });
+    // 半截/手改坏的 index.json —— 从前这里会让整条加载链抛 SyntaxError,附件功能对整个 home 哑掉。
+    await writeFile(join(storeDir, 'index.json'), '{"records":');
+
+    const store = new LocalAttachmentStore(storeDir);
+    const ref = await store.put({ data: new Uint8Array([7, 8, 9]), mimeType: 'image/png', name: 'after-corrupt.png' });
+
+    await expect(store.get(ref.id)).resolves.toEqual({ ref, data: new Uint8Array([7, 8, 9]) });
+    await expect(readFile(join(storeDir, 'objects', ref.id))).resolves.toEqual(Buffer.from([7, 8, 9]));
+  });
 });

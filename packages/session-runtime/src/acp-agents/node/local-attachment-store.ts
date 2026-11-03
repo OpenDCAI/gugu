@@ -110,7 +110,13 @@ export class LocalAttachmentStore implements AttachmentStore {
       return;
     }
 
-    const parsed: unknown = JSON.parse(contents);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(contents);
+    } catch {
+      // 坏索引等同「没有索引」:对象字节还在 objects/ 下,别让整个附件功能对这个 home 永久报错。
+      return;
+    }
     if (!Array.isArray(parsed)) return;
     for (const value of parsed) {
       if (isAttachmentRecord(value)) {
