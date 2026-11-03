@@ -8,6 +8,8 @@ import { platform } from '../platform'
 import { chatPreviewText } from '../lib/agentTurnFailure'
 import type { AccountImRepository } from '../lib/imRepository'
 import type { PersonalConversationDeletion } from '../lib/deleteListedConversation'
+import type { PatchChat } from './chatRealtimeMutations'
+import { prepareProjectedReadWatermark } from './chatRealtimeMutations'
 import { currentAuthSessionSignal } from '../lib/authSessionLoss'
 import {
   createChatProjection, readProjectionCursor,
@@ -89,6 +91,34 @@ export async function notifyForIngestedMessage(
     last_message_preview: chatPreviewText({ last_message_preview: message.content, last_message_failure: null }) }), silent: !context.soundEnabled })
 }
 
+/** 屏上正打开的主时间线不产生未读红点；手工标未读与别的话题流仍保留。 */
+export function acknowledgeOnScreenChatRows(
+  rows: readonly ChatItem[],
+  context: {
+    current?: readonly ChatItem[]
+    onScreen: (chatId: string) => boolean
+    patchChat: PatchChat
+    deferPersist?: (persist: () => void) => void
+  },
+): ChatItem[] {
+  const currentById = new Map(context.current?.map((chat) => [chat.id, chat]) ?? [])
+  return rows.map((chat) => {
+    if (!context.onScreen(chat.id) || chat.unread_count <= 0 || chat.is_marked_unread) return chat
+    if (chat.unread_locator && chat.unread_locator.stream_kind !== 'main') return chat
+    const seq = Math.max(chat.last_read_seq, chat.next_message_seq - 1)
+    const current = currentById.get(chat.id)
+    // mark_read 还在路上时，旧投影可能重复到达；沿用本地更新的整组读状态，❌ 每一发再写一次。
+    if (current && current.last_read_seq >= seq && (current.read_state_version ?? 0) > (chat.read_state_version ?? 0)) {
+      return { ...chat, last_read_seq: current.last_read_seq, is_marked_unread: current.is_marked_unread,
+        read_state_version: current.read_state_version, unread_count: current.unread_count, unread_locator: current.unread_locator }
+    }
+    const prepared = prepareProjectedReadWatermark(chat, seq, context.patchChat)
+    if (context.deferPersist) context.deferPersist(prepared.persist)
+    else prepared.persist()
+    return prepared.chat
+  })
+}
+
 // @@@chat-projection — store 这一侧怎么消费投影:属主按账号一个、权威行落地、接到 revision 派发上。
 // 投影自己的代数与取数在 lib/chatProjection*.ts(唯一属主,spec I7);这里只有 store 那一半,
 // 与上面 applyFetchedChatList 同域 —— 落地用的就是它。**快照与增量共用这一条**,❌ 不写第二套。
@@ -100,11 +130,12 @@ export function useChatProjectionBinding(deps: {
   activeChatIdRef: MutableRefObject<string | null>
   requestSeqRef: MutableRefObject<number>
   notifications: { chatMessages: boolean; sound: boolean }
+  patchChat: PatchChat
   setChats: (rows: ChatItem[]) => void
   /** 当前选中被权威地撤销了 —— store 自己决定怎么清空那一侧的状态。 */
   onActiveRevoked: (chatId: string) => void
 }) {
-  const { ledger, repositoryRef, getRepository, chatsRef, activeChatIdRef, requestSeqRef, setChats, onActiveRevoked } = deps
+  const { ledger, repositoryRef, getRepository, chatsRef, activeChatIdRef, requestSeqRef, setChats, onActiveRevoked, patchChat } = deps
   const ownerRef = useRef<{ accountId: string; owner: ChatProjection } | null>(null)
 
   const ownerFor = useCallback((accountId: string): ChatProjection => {
@@ -127,10 +158,15 @@ export function useChatProjectionBinding(deps: {
       activeChatId, fetched, requestSeq: options.requestSeq, preserveMissingActive: options.preserveMissingActive,
     }) && (!options.revokedMembership || options.revokedMembership(activeChatId!))
     ledger.recordProjected(fetched, options.requestSeq)
-    setChats(await applyFetchedChatList(ledger, await getRepository(), { fetched, identities },
+    const pendingReads: Array<() => void> = []
+    const acknowledged = acknowledgeOnScreenChatRows(fetched, {
+      current: chatsRef.current, onScreen: isChatOnScreen, patchChat, deferPersist: (persist) => pendingReads.push(persist),
+    })
+    setChats(await applyFetchedChatList(ledger, await getRepository(), { fetched: acknowledged, identities },
       { currentChats: chatsRef.current, activeChatId, revokeMissingActive, isConversationDeleted }))
+    for (const persist of pendingReads) persist()
     if (revokeMissingActive && activeChatId) onActiveRevoked(activeChatId)
-  }, [ledger, activeChatIdRef, chatsRef, getRepository, onActiveRevoked, setChats])
+  }, [ledger, activeChatIdRef, chatsRef, getRepository, onActiveRevoked, patchChat, setChats])
 
   /** 冷启快照:一次「哪些会话属于我」的读 + 与增量同一套族读 ⇒ 2 波(spec I7,没有第二条拉取路)。 */
   const hydrate = useCallback((accountId: string) => ownerFor(accountId)

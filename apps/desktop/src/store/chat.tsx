@@ -278,11 +278,15 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     setActiveChatIdState(null)
   }, [cache, invalidateMessageSnapshots, setActiveChatIdState])
 
+  const patchChat: PatchChat = useCallback((chatId, partial, expectedReadStateVersion) => {
+    setChats((prev) => patchChatRows(prev, chatId, partial, expectedReadStateVersion))
+  }, [])
+
   // @@@chat-projection — 会话列表的每一发云端取数都经投影(spec I7 唯一属主):按键取数、按戳 join,
   // 一条通知的代价与账号里有多少会话无关。绑定的三件事在 chatProjectionBinding.ts。
   const chatProjection = useChatProjectionBinding({
     ledger: projectionRef.current, repositoryRef: imRepositoryRef, getRepository: getImRepository,
-    chatsRef, activeChatIdRef, requestSeqRef: listRequestSeqRef, setChats, onActiveRevoked,
+    chatsRef, activeChatIdRef, requestSeqRef: listRequestSeqRef, setChats, onActiveRevoked, patchChat,
     notifications: { chatMessages: notificationSettings.chatMessages, sound: notificationSettings.sound },
   })
 
@@ -320,10 +324,6 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     await notifyForIngestedMessage(userId, chat, message, { onScreen: isChatOnScreen,
       notificationsEnabled: notificationSettings.chatMessages, soundEnabled: notificationSettings.sound })
   }
-
-  const patchChat: PatchChat = useCallback((chatId, partial, expectedReadStateVersion) => {
-    setChats((prev) => patchChatRows(prev, chatId, partial, expectedReadStateVersion))
-  }, [])
 
   const upsertChat = useCallback((chat: ChatItem) => {
     // #4314 Resolve an optimistic peer's identity before tracking it in the projection ledger.

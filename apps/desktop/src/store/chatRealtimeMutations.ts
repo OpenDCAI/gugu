@@ -131,8 +131,48 @@ export function advanceReadWatermark(
 ): void {
   if (seq < 0) return
   const current = chats.find((c) => c.id === chatId)
+  const next = projectedReadWatermark(current, seq, extraPatch)
+  if (!next) return
+  if (next.shouldPersist) {
+    markChatReadUpTo(chatId, seq, patchChat, next.optimisticVersion, next.previousReadState)
+  }
+  patchChat(chatId, next.partial)
+}
+
+/**
+ * 会话列表投影刚带回「当前正在看的群有新消息」时，先算出不带红点的行；调用方把它交给 React 后再执行写入，
+ * 失败回滚因此一定排在乐观状态之后，也不会盖掉之后更新的读状态。
+ */
+export function prepareProjectedReadWatermark(
+  chat: ChatItem,
+  seq: number,
+  patchChat: PatchChat,
+): { chat: ChatItem; persist: () => void } {
+  const next = projectedReadWatermark(chat, seq)
+  if (!next) return { chat, persist: () => undefined }
+  return {
+    chat: { ...chat, ...next.partial },
+    persist: () => {
+      if (next.shouldPersist) {
+        markChatReadUpTo(chat.id, seq, patchChat, next.optimisticVersion, next.previousReadState)
+      }
+    },
+  }
+}
+
+function projectedReadWatermark(
+  current: ChatItem | undefined,
+  seq: number,
+  extraPatch?: Partial<ChatItem>,
+): {
+  partial: Partial<ChatItem>
+  shouldPersist: boolean
+  optimisticVersion: number
+  previousReadState: Pick<ChatItem, 'unread_count' | 'unread_locator' | 'last_read_seq' | 'is_marked_unread' | 'read_state_version'>
+} | null {
+  if (seq < 0) return null
   const known = current?.last_read_seq ?? 0
-  if (seq < known) return
+  if (seq < known) return null
   const shouldPersist = seq > known || current?.is_marked_unread === true
   const previousReadState = {
     unread_count: current?.unread_count ?? 0,
@@ -143,19 +183,21 @@ export function advanceReadWatermark(
     read_state_version: current?.read_state_version ?? 0,
   }
   const optimisticVersion = previousReadState.read_state_version + (shouldPersist ? 1 : 0)
-  if (shouldPersist) {
-    markChatReadUpTo(chatId, seq, patchChat, optimisticVersion, previousReadState)
+  return {
+    shouldPersist,
+    optimisticVersion,
+    previousReadState,
+    partial: {
+      // A thread can remain unread while the main stream advances. The next
+      // authoritative list refresh owns the aggregate; do not erase a locator
+      // for another stream optimistically.
+      ...(!current?.unread_locator || current.unread_locator.stream_kind === 'main' ? { unread_locator: null, unread_count: 0 } : {}),
+      last_read_seq: seq,
+      is_marked_unread: false,
+      read_state_version: optimisticVersion,
+      ...extraPatch,
+    },
   }
-  patchChat(chatId, {
-    // A thread can remain unread while the main stream advances. The next
-    // authoritative list refresh owns the aggregate; do not erase a locator
-    // for another stream optimistically.
-    ...(!current?.unread_locator || current.unread_locator.stream_kind === 'main' ? { unread_locator: null, unread_count: 0 } : {}),
-    last_read_seq: seq,
-    is_marked_unread: false,
-    read_state_version: optimisticVersion,
-    ...extraPatch,
-  })
 }
 
 // @@@1884 服务端水位推进（chat.mark_read,服务端单调只增）。模块私有:守卫在 advanceReadWatermark,
