@@ -32,9 +32,10 @@ import { adoptDeviceName, type DeviceLabelClient } from '@gugu/core/cloud/device
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase'
 import { getSupabaseAnonKey, getSupabaseUrl } from '@gugu/core/cloud/config'
 import { writeStoredServerSession } from './server-auth'
+import { prepareAccountLogin } from './server-boot.cjs'
 import { assertAccountLogin } from './server-startup'
 import { EXIT_CONFIG } from './server-exit'
-import { accountDataDir, applyAccountEnv, clearSignedOutMark, emailFromAccessToken, listAccounts, writeAccountMeta, writeServerConnectVia } from './server-layout'
+import { accountDataDir, applyAccountEnv, clearSignedOutMark, emailFromAccessToken, readServerAccount, serverHome, writeAccountMeta, writeServerConnectVia } from './server-layout'
 
 type StartResponse = { device_code: string; user_code: string; expires_in: number; interval: number }
 
@@ -137,8 +138,8 @@ async function readFirstStdinLine(): Promise<string> {
 export const LOGIN_EXIT_TUNNEL_CLOSED = 3
 
 export async function runServerLogin(out: Out = defaultOut, args: readonly string[] = []): Promise<number> {
-  const existing = listAccounts().find(account => account.signedIn)
-  if (existing) {
+  const existing = readServerAccount()
+  if (existing?.signedIn) {
     out(`This server is already signed in as ${existing.email ?? existing.userId}. To sign in again or change accounts, run gugu-server logout first.`)
     return 1
   }
@@ -204,18 +205,19 @@ async function pollUntilDone(
       const tokens = await exchangeTokenHash(polled.data.token_hash, String(polled.data.type ?? 'magiclink'))
       const userId = userIdFromSupabaseAccessToken(tokens.accessToken)
       if (!userId) throw new Error('登录令牌里没有用户 id(sub)')
-      try { assertAccountLogin(listAccounts(), userId) }
+      try { assertAccountLogin(readServerAccount(), userId) }
       catch (error) { out(error instanceof Error ? error.message : String(error)); return EXIT_CONFIG }
       const email = emailFromAccessToken(tokens.accessToken)
       // 知道是谁之后才把数据目录指到这个账号自己的目录,再落登录态(替身的 userData 第一次读到就缓存住)。
+      prepareAccountLogin(serverHome(), userId)
       applyAccountEnv(userId)
       writeAccountMeta(userId, email)
       writeStoredServerSession(tokens)
       // 重新登上了:之前「登录已失效 / 被移除」的说法作废。
-      clearSignedOutMark(accountDataDir(userId))
+      clearSignedOutMark(accountDataDir())
       // #6264 远程 SSH(桌面经 SSH 递来的凭证)/ 远程隧道(一行命令 + 确认页):最近一次登录说了算。
       // 名字随它一起记:账号进程第一次心跳据此报名字(core/cloud/serverConnectVia.ts serverDeviceLabel)。
-      writeServerConnectVia(accountDataDir(userId), fromGrant ? 'ssh' : 'tunnel', { name })
+      writeServerConnectVia(accountDataDir(), fromGrant ? 'ssh' : 'tunnel', { name })
       const deviceId = fromGrant || name ? await deviceIdForAccount(userId, tokens.accessToken) : null
       // 这一行早就有了(重装 / 重新登录)、名字还是库取的 `Linux 2`:换成人给的名字。改不成不挡登录。
       if (deviceId && name) {

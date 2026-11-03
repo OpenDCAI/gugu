@@ -1,5 +1,5 @@
 /**
- * `gugu-server link [--account <账号 id>] [--adopt-ssh]`(#6264 远程 SSH 的机器:添加它的那台桌面与它之间的一切走 SSH)。
+ * `gugu-server link [--adopt-ssh]`(#6264 远程 SSH 的机器:添加它的那台桌面与它之间的一切走 SSH)。
  *
  * 照 VS Code Remote-SSH「本机客户端 ↔ SSH ↔ server 的本机套接字」:桌面经 `ssh -T … exec gugu-server link`
  * 起它,它把自己的标准输入输出**原样**接到这个账号的 attach 套接字上(先发一帧 L 打招呼,见 attach-protocol.ts)。
@@ -36,8 +36,8 @@ import {
   ptyAttachSocketPath,
   type AttachError,
 } from '../session/main/core/pty/attach/attach-protocol'
-import { describeConnectError, pickAttachAccount } from './account-call'
-import { listAccounts, writeServerConnectVia, type ServerAccount } from './server-layout'
+import { describeConnectError, accountRequestError } from './account-call'
+import { readServerAccount, writeServerConnectVia, type ServerAccount } from './server-layout'
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/
 
@@ -69,7 +69,7 @@ export function parseLinkArgs(args: readonly string[]): LinkArgs | { error: stri
     if (arg === '--adopt-ssh') adoptSsh = true
     else if (arg === '--account') account = args[++i] ?? ''
     else if (arg.startsWith('--account=')) account = arg.slice('--account='.length)
-    else return { error: '用法:gugu-server link [--account <账号 id>] [--adopt-ssh]' }
+    else return { error: '用法:gugu-server link [--adopt-ssh]' }
     if (account !== null && !ID.test(account)) return { error: '--account 后面要写账号 id' }
   }
   return { account, adoptSsh }
@@ -115,7 +115,7 @@ export async function runLink(
   args: readonly string[],
   io: Io = process,
   deps: {
-    accounts?: () => ServerAccount[]
+    account?: () => ServerAccount | null
     adopt?: (account: ServerAccount) => void
     connect?: (socketPath: string) => net.Socket
     retryWhileWaiting?: RetryWhileWaiting
@@ -127,9 +127,10 @@ export async function runLink(
     io.stderr.write(`${parsed.error}\n`)
     return LINK_EXIT.usage
   }
-  const account = pickAttachAccount((deps.accounts ?? listAccounts)(), parsed.account)
-  if ('error' in account) {
-    io.stderr.write(`${account.error}\n`)
+  const account = (deps.account ?? readServerAccount)()
+  const accountError = accountRequestError(account, parsed.account)
+  if (accountError || !account) {
+    io.stderr.write(`${accountError}\n`)
     return LINK_EXIT.notSignedIn
   }
   if (parsed.adoptSsh) {

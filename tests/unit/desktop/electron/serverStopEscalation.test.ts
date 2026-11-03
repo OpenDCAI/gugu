@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 const state = vi.hoisted(() => ({ alive: true, home: '' }))
 vi.mock('../../../../apps/desktop/electron/server/server-layout', async original => ({
   ...await original<typeof import('../../../../apps/desktop/electron/server/server-layout')>(),
-  listAccounts: () => [], supervisorDataDir: () => path.join(state.home, 'data'),
+  readServerAccount: () => null, supervisorDataDir: () => path.join(state.home, 'data'),
 }))
 vi.mock('../../../../apps/desktop/electron/server/process-alive', async original => ({
   ...await original<typeof import('../../../../apps/desktop/electron/server/process-alive')>(),

@@ -1,9 +1,8 @@
 /**
  * One system user signs in to one Gugu account and runs one server process.
  * Installation state lives under <GUGU_SERVER_HOME>/data; account data remains
- * under accounts/<id>/{data,home} for compatibility and signed-out retention.
- * A historical installation containing multiple signed-in accounts is rejected
- * without deleting data; the operator chooses which account to sign out.
+ * under account/{data,home}. The preload migrates historical directories before
+ * application code loads; retired accounts retain their history outside runtime.
  */
 import { execFile } from '@gugu/core/local/childProcess'
 import { installationServerNames } from './server-installation'
@@ -65,48 +64,26 @@ export function serverHome(): string {
 }
 
 export const supervisorDataDir = (): string => path.join(serverHome(), 'data')
-export const accountsDir = (): string => path.join(serverHome(), 'accounts')
-export const accountDir = (userId: string): string => path.join(accountsDir(), userId)
-export const accountDataDir = (userId: string): string => path.join(accountDir(userId), 'data')
-export const accountHomeDir = (userId: string): string => path.join(accountDir(userId), 'home')
+export const accountDir = (): string => path.join(serverHome(), 'account')
+export const accountDataDir = (): string => path.join(accountDir(), 'data')
+export const accountHomeDir = (): string => path.join(accountDir(), 'home')
 /** 登录态文件名与 server-auth.ts 的 sessionPath() 一致(那边按当前进程的 userData 拼)。 */
 export const SESSION_FILE = 'server-session.enc'
 
-const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-export function listAccounts(): ServerAccount[] {
-  let names: string[]
-  try {
-    names = fs.readdirSync(accountsDir())
-  } catch {
-    return []
-  }
-  return names
-    .filter((name) => USER_ID.test(name))
-    .map((userId) => {
-      let meta: { email?: unknown; addedAt?: unknown } = {}
-      try {
-        meta = JSON.parse(fs.readFileSync(path.join(accountDir(userId), 'account.json'), 'utf8'))
-      } catch {
-        meta = {}
-      }
-      return {
-        userId,
-        email: typeof meta.email === 'string' ? meta.email : null,
-        addedAt: typeof meta.addedAt === 'string' ? meta.addedAt : null,
-        dir: accountDir(userId),
-        dataDir: accountDataDir(userId),
-        homeDir: accountHomeDir(userId),
-        signedIn: fs.existsSync(path.join(accountDataDir(userId), SESSION_FILE)),
-        signedOut: readSignedOutMark(accountDataDir(userId)),
-      }
-    })
-    .sort((a, b) => (a.addedAt ?? '').localeCompare(b.addedAt ?? ''))
+export function readServerAccount(): ServerAccount | null {
+  let meta: { userId?: unknown; email?: unknown; addedAt?: unknown }
+  try { meta = JSON.parse(fs.readFileSync(path.join(accountDir(), 'account.json'), 'utf8')) }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT' && !fs.existsSync(accountDir())) return null; throw error }
+  if (typeof meta.userId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(meta.userId)) throw new Error('Invalid account/account.json identity')
+  return { userId: meta.userId, email: typeof meta.email === 'string' ? meta.email : null,
+    addedAt: typeof meta.addedAt === 'string' ? meta.addedAt : null,
+    dir: accountDir(), dataDir: accountDataDir(), homeDir: accountHomeDir(),
+    signedIn: fs.existsSync(path.join(accountDataDir(), SESSION_FILE)), signedOut: readSignedOutMark(accountDataDir()) }
 }
 
 export function writeAccountMeta(userId: string, email: string | null): void {
-  fs.mkdirSync(accountDir(userId), { recursive: true })
-  const file = path.join(accountDir(userId), 'account.json')
+  fs.mkdirSync(accountDir(), { recursive: true })
+  const file = path.join(accountDir(), 'account.json')
   let addedAt = new Date().toISOString()
   try {
     const previous = JSON.parse(fs.readFileSync(file, 'utf8')) as { addedAt?: unknown }
@@ -118,10 +95,10 @@ export function writeAccountMeta(userId: string, email: string | null): void {
 }
 
 /** 把一个账号的进程环境指到它自己的目录(在加载主进程之前调用)。 */
-export function applyAccountEnv(userId: string, env: NodeJS.ProcessEnv = process.env): void {
+export function applyAccountEnv(userId: string, env: NodeJS.ProcessEnv = process.env, directory = accountDir()): void {
   env.GUGU_SERVER_ACCOUNT = userId
-  env.GUGU_TASK_HOST_USER_DATA = accountDataDir(userId)
-  env.GUGU_HOME = accountHomeDir(userId)
+  env.GUGU_TASK_HOST_USER_DATA = path.join(directory, 'data')
+  env.GUGU_HOME = path.join(directory, 'home')
   // tmux 按账号分 socket:同一个 Linux 用户下两个账号各有各的 tmux 服务端,
   // 一个账号回收孤儿会话时碰不到另一个账号的终端。
   env.GUGU_TMUX_SOCKET_LABEL = `${accountTmuxLabelPrefix(env)}${userId.slice(0, 8)}`

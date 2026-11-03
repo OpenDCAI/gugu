@@ -58,6 +58,22 @@ const runSh = (home: string, script: string): string => {
 }
 
 describe('#6264 从这台机器上卸载咕咕 server:远端脚本', () => {
+  it('reads the fixed account and retained history once, skipping rollback aliases', () => {
+    const home = tmp()
+    try {
+      const root = fakeInstall(home)
+      fs.renameSync(path.join(root, 'accounts', ME), path.join(root, 'account'))
+      fs.symlinkSync('../account', path.join(root, 'accounts', ME))
+      fs.mkdirSync(path.join(root, 'retired'))
+      fs.renameSync(path.join(root, 'accounts', OTHER), path.join(root, 'retired', OTHER))
+      const parsed = parseInspectOutput(runSh(home, inspectScript()))!
+      expect(parsed.accounts).toHaveLength(2)
+      expect(parsed.accounts.filter(account => account.userId === ME)).toEqual([{ userId: ME, email: 'me@example.test', signedIn: true }])
+      expect(runSh(home, uninstallScript())).toContain(UNINSTALLED_MARK)
+      expect(fs.existsSync(root)).toBe(false)
+      expect(fs.existsSync(path.join(home, 'projects/app'))).toBe(true)
+    } finally { fs.rmSync(home, { recursive: true, force: true }) }
+  })
   it('看一眼:报出版本与每个账号(有没有登录态、邮箱)', () => {
     const home = tmp()
     try {

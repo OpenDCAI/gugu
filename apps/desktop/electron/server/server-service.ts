@@ -20,7 +20,7 @@ import path from 'node:path'
 import { isProcessAlive } from './process-alive'
 import { readAccountRuntime } from './server-account-runtime'
 import { clearStopped, liveKeeperPid, recordLoginShell, startKeeper } from './server-keeper'
-import { activityProof, listAccounts } from './server-layout'
+import { activityProof, readServerAccount } from './server-layout'
 import { SERVICE_UMASK } from './server-permissions'
 import { assertPackageEnvironment, controllerOwnsUpdates } from './server-package-environment.mts'
 import { homeLockHolder, readPendingVerify, writePendingVerify } from './server-startup'
@@ -566,9 +566,9 @@ export async function installService(out: Out): Promise<boolean> {
     mode,
     targetVersion: process.env.GUGU_TASK_HOST_VERSION ?? null,
     running: readRunningServer,
-    accountsMatchPackage: (version) => listAccounts().filter((account) => account.signedIn).every((account) => readAccountRuntime(account.dataDir).version === version),
+    accountsMatchPackage: (version) => { const account = readServerAccount(); return !account?.signedIn || readAccountRuntime(account.dataDir).version === version },
     isAlive: isProcessAlive,
-    isBusy: () => listAccounts().some((account) => account.signedIn && activityProof(account.dataDir) !== 'idle'),
+    isBusy: () => { const account = readServerAccount(); return Boolean(account?.signedIn && activityProof(account.dataDir) !== 'idle') },
     requireIdle: controllerOwnsUpdates(home),
     stop: (pid) => {
       try {

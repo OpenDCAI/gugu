@@ -93,7 +93,7 @@ describe('那台机器上:gugu-server link', () => {
     stdout.on('data', (chunk: Buffer) => out.push(chunk))
     const adopted: string[] = []
     const done = runLink(['--account', ACCOUNT, '--adopt-ssh'], { stdin, stdout, stderr: new PassThrough() }, {
-      accounts: () => [account(dir)],
+      account: () => (account(dir)),
       adopt: (a) => adopted.push(a.userId),
       connect: () => socket,
     })
@@ -148,7 +148,7 @@ describe('那台机器上:gugu-server link', () => {
     const err: Buffer[] = []
     stderr.on('data', (chunk: Buffer) => err.push(chunk))
     const io = { stdin: new PassThrough(), stdout: new PassThrough(), stderr }
-    const run = runLink(['--account', ACCOUNT], io, { accounts: () => [account(dir)], connect: () => socket })
+    const run = runLink(['--account', ACCOUNT], io, { account: () => (account(dir)), connect: () => socket })
     socket.emit(
       'data',
       encodeJsonFrame(FRAME.error, { code: 'protocol_mismatch', message: 'm', protocol: { server: 1, client: 2 } }),
@@ -162,15 +162,15 @@ describe('那台机器上:gugu-server link', () => {
     ;(refused as unknown as { destroy: () => void }).destroy = () => undefined
     const stdout = new PassThrough()
     const io = { stdin: new PassThrough(), stdout, stderr: new PassThrough() }
-    const r1 = runLink(['--account', ACCOUNT], io, { accounts: () => [account(dir)], connect: () => refused })
+    const r1 = runLink(['--account', ACCOUNT], io, { account: () => (account(dir)), connect: () => refused })
     refused.emit('data', encodeJsonFrame(FRAME.error, { code: 'bad_request', message: 'no links here' }))
     expect(await r1).toBe(4)
 
-    expect(await runLink(['--account', ACCOUNT], io, { accounts: () => [] })).toBe(5)
+    expect(await runLink(['--account', ACCOUNT], io, { account: () => null })).toBe(5)
 
     const dead = new PassThrough() as unknown as net.Socket
     ;(dead as unknown as { destroy: () => void }).destroy = () => undefined
-    const r3 = runLink(['--account', ACCOUNT], io, { accounts: () => [account(dir)], connect: () => dead })
+    const r3 = runLink(['--account', ACCOUNT], io, { account: () => (account(dir)), connect: () => dead })
     dead.emit('error', Object.assign(new Error('nope'), { code: 'ENOENT' }))
     expect(await r3).toBe(3)
   })
@@ -190,7 +190,7 @@ describe('那台机器上:gugu-server link', () => {
     const out: Buffer[] = []
     stdout.on('data', (chunk: Buffer) => out.push(chunk))
     const run = runLink(['--account', ACCOUNT], { stdin: new PassThrough(), stdout, stderr: new PassThrough() }, {
-      accounts: () => [account(dir)],
+      account: () => (account(dir)),
       connect: fake,
       retryWhileWaiting: (_dir, cb) => {
         onChange = cb
@@ -238,7 +238,7 @@ describe('那台机器上:gugu-server link', () => {
     const err: Buffer[] = []
     stderr.on('data', (chunk: Buffer) => err.push(chunk))
     const run = runLink(['--account', ACCOUNT], { stdin: new PassThrough(), stdout: new PassThrough(), stderr }, {
-      accounts: () => [account(dir)],
+      account: () => (account(dir)),
       connect: () => dead,
       retryWhileWaiting: () => () => undefined,
       waitMs: 20,
@@ -336,7 +336,7 @@ describe('桌面主进程:每台机器一条设备连接', () => {
     expect(args).toContain('BatchMode=yes')
     expect(args).toContain('ControlPath=/tmp/cm-%C')
     expect(args).toEqual(expect.arrayContaining(['-p', '2222', '-i', '/k/id']))
-    expect(args.at(-1)).toBe(`exec ~/.local/bin/gugu-server link --account ${ACCOUNT} --adopt-ssh`)
+    expect(args.at(-1)).toBe(`exec ~/.local/bin/gugu-server link --adopt-ssh`)
     expect(() => sshLinkArgs(target, { controlPath: null, accountUserId: 'bad id' })).toThrow()
   })
 

@@ -11,13 +11,15 @@ vi.mock('electron', () => ({ app: { getVersion: () => '0.3.0' }, safeStorage: {}
 vi.mock('../../../../apps/desktop/electron/server/server-auth', () => ({ writeStoredServerSession: vi.fn() }))
 vi.mock('../../../../apps/desktop/electron/server/server-layout', () => ({
   applyAccountEnv: vi.fn(),
-  accountDataDir: (userId: string) => `/data/${userId}`,
+  accountDataDir: () => '/data/u1',
+  serverHome: () => '/installation',
   clearSignedOutMark: vi.fn(),
   emailFromAccessToken: () => 'me@x.y',
-  listAccounts: () => layout.accounts,
+  readServerAccount: () => layout.accounts[0] ?? null,
   writeAccountMeta: vi.fn(),
   writeServerConnectVia: layout.writeServerConnectVia,
 }))
+vi.mock('../../../../apps/desktop/electron/server/server-boot.cjs', () => ({ prepareAccountLogin: vi.fn() }))
 vi.mock('@gugu/core', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@gugu/core')>()),
   resolveLocalDeviceId: async () => 'dev-1',

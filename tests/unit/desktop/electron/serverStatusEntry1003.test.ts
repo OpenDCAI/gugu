@@ -9,7 +9,7 @@ vi.mock('../../../../apps/desktop/electron/server/server-account-runtime', () =>
 vi.mock('../../../../apps/desktop/electron/server/server-service', () => ({ describeService: () => 'test supervisor', readRunningServer: mocks.supervisor }))
 vi.mock('../../../../apps/desktop/electron/server/server-layout', () => ({
   accountDataDir: (id: string) => `/accounts/${id}/data`, applyAccountEnv: () => undefined,
-  listAccounts: mocks.accounts, supervisorDataDir: () => '/supervisor/data',
+  readServerAccount: mocks.accounts, supervisorDataDir: () => '/supervisor/data',
 }))
 vi.mock('../../../../apps/desktop/electron/server/server-electron-shim', () => ({ default: {} }))
 
@@ -36,7 +36,7 @@ it('status --json wires installation, live supervisor, and live account identiti
   mocks.runtime.mockReturnValue({ pid: 42, version: 'actual-account' })
   mocks.installed.mockReturnValue('installed-package')
   mocks.supervisor.mockReturnValue({ pid: 7, version: 'actual-supervisor', supervisedBy: 'systemd' })
-  mocks.accounts.mockReturnValue([{ userId: 'u1', email: 'test@example.test', signedIn: true, signedOut: null, dataDir: '/accounts/u1/data' }])
+  mocks.accounts.mockReturnValue({ userId: 'u1', email: 'test@example.test', signedIn: true, signedOut: null, dataDir: '/account/data' })
   let stdout = ''
   vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => { stdout += String(chunk); return true })
   const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
@@ -45,6 +45,6 @@ it('status --json wires installation, live supervisor, and live account identiti
   const json = JSON.parse(stdout.split('__GUGU_STATUS_BEGIN__\n')[1]!.split('\n__GUGU_STATUS_END__')[0]!)
   expect(json).toMatchObject({ version: 'cli-package', installedVersion: 'installed-package', supervisorVersion: 'actual-supervisor', accounts: [{ userId: 'u1', running: true, version: 'actual-account' }] })
   expect(mocks.installed).toHaveBeenCalledWith(home)
-  expect(mocks.runtime).toHaveBeenCalledWith('/accounts/u1/data')
+  expect(mocks.runtime).toHaveBeenCalledWith('/account/data')
   expect(exit).toHaveBeenCalledTimes(1)
 })

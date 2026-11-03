@@ -13,7 +13,7 @@ describe('controller-owned installations', () => {
     const call = vi.fn()
     const error = vi.fn()
     const rc = await runMatchVersion(['--account', 'user', '--apply', '1.0.0', '--now'], vi.fn(), error, {
-      home, accounts: () => [{ userId: 'user', dataDir, dir: path.dirname(dataDir), homeDir: home, email: null, addedAt: null, signedIn: true, signedOut: null }],
+      home, account: () => ({ userId: 'user', dataDir, dir: path.dirname(dataDir), homeDir: home, email: null, addedAt: null, signedIn: true, signedOut: null }),
       runningVersion: () => '2.0.0', supervisorRunning: () => true, call,
     })
     expect(rc).toBe(8)

@@ -23,9 +23,9 @@ const signals: EventEmitter = process
 let signalHandlers: Record<'SIGINT' | 'SIGTERM' | 'SIGUSR2' | 'exit' | 'uncaughtException', ReturnType<EventEmitter['listeners']>>
 const id = '00000000-0000-4000-8000-000000000001'
 function signIn(userId = id): void {
-  const dir = path.join(home, 'accounts', userId)
+  const dir = path.join(home, 'account')
   fs.mkdirSync(path.join(dir, 'data'), { recursive: true })
-  fs.writeFileSync(path.join(dir, 'account.json'), JSON.stringify({ email: `${userId}@example.test` }))
+  fs.writeFileSync(path.join(dir, 'account.json'), JSON.stringify({ userId, email: `${userId}@example.test` }))
   fs.writeFileSync(path.join(dir, 'data/server-session.enc'), 'fixture')
 }
 beforeEach(() => {
@@ -61,7 +61,7 @@ describe('installation run enters the account body without a child process', () 
     })
     const body = vi.fn(async (userId: string) => { expect(userId).toBe(id); expect(prepare).toHaveBeenCalledOnce() })
     await runSingleServer(prepare, body)
-    expect(body).toHaveBeenCalledExactlyOnceWith(id)
+    expect(body).toHaveBeenCalledExactlyOnceWith(id, path.join(home, 'account'))
   })
 
   it('a duplicate run leaves verification and the active keeper’s stop flag untouched', async () => {
@@ -84,26 +84,26 @@ describe('installation run enters the account body without a child process', () 
     signIn()
     await vi.advanceTimersByTimeAsync(3_000)
     await running
-    expect(body).toHaveBeenCalledExactlyOnceWith(id)
+    expect(body).toHaveBeenCalledExactlyOnceWith(id, path.join(home, 'account'))
   })
 
-  it('refuses residual multiple accounts without entering either body or deleting their data', async () => {
-    signIn(); signIn('00000000-0000-4000-8000-000000000002')
+  it('rejects invalid account metadata without entering its body or deleting data', async () => {
+    signIn(); fs.writeFileSync(path.join(home, 'account/account.json'), '{broken')
     const body = vi.fn(async () => undefined)
     await expect(runSingleServer(() => undefined, body)).rejects.toThrow('exit 78')
     expect(body).not.toHaveBeenCalled()
-    expect(fs.readdirSync(path.join(home, 'accounts'))).toHaveLength(2)
+    expect(fs.readFileSync(path.join(home, 'account/account.json'), 'utf8')).toBe('{broken')
     expect(fs.existsSync(path.join(home, 'data/stopped'))).toBe(true)
   })
 
-  it('keeps legacy-guard multi-account rejection restartable without setting stopped', async () => {
+  it('keeps legacy-guard configuration rejection restartable without setting stopped', async () => {
     legacy.active = true
-    signIn(); signIn('00000000-0000-4000-8000-000000000002')
+    signIn(); fs.writeFileSync(path.join(home, 'account/account.json'), '{broken')
     const body = vi.fn(async () => undefined)
     await expect(runSingleServer(() => undefined, body)).rejects.toThrow('exit 1')
     expect(body).not.toHaveBeenCalled()
     expect(fs.existsSync(path.join(home, 'data/stopped'))).toBe(false)
-    expect(fs.readdirSync(path.join(home, 'accounts'))).toHaveLength(2)
+    expect(fs.readFileSync(path.join(home, 'account/account.json'), 'utf8')).toBe('{broken')
   })
   it.each(['keeper', 'launchd', 'systemd'])('preserves the service stdout retention policy under %s', async mode => {
     process.env.GUGU_SERVER_SUPERVISED = mode

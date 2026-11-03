@@ -10,3 +10,5 @@ export function writeJson(file: string, value: unknown): void
 export function pointCurrent(home: string, directory: string): void
 export function readBadVersions(home: string): Record<string, number>
 export function legacyGuardActive(home: string): boolean
+export function migrateAccountLayout(home: string): void
+export function prepareAccountLogin(home: string, userId: string): void

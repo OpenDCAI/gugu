@@ -24,7 +24,7 @@ beforeEach(() => {
   }
   fs.symlinkSync('versions/1.0.0', path.join(home, 'current'))
   clock = 1000; output = []
-  deps = { home, accounts: () => [{ userId: 'user', dataDir: accountData, dir: path.dirname(accountData), homeDir: home, email: null, addedAt: null, signedIn: true, signedOut: null }],
+  deps = { home, account: () => ({ userId: 'user', dataDir: accountData, dir: path.dirname(accountData), homeDir: home, email: null, addedAt: null, signedIn: true, signedOut: null }),
     runningVersion: () => '1.0.0', supervisorRunning: () => true, now: () => clock, waitMs: 2000,
     sleep: async () => { clock += 500 }, call: vi.fn(async () => ({ result: { requested: true, at: RECEIPT } })) }
 })

@@ -5,15 +5,15 @@ import { isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
 import { VERSION_RESTART_RPC } from '@gugu/core/cloud/serverMachineHealth'
 import type { DeviceRpcResponse } from '@gugu/core/cloud/deviceRpcProtocol'
 import { MATCH_MARK, versionBinary } from './server-account-versions'
-import { callAccountProcess, pickAttachAccount } from './account-call'
-import { listAccounts, type ServerAccount } from './server-layout'
+import { callAccountProcess, accountRequestError } from './account-call'
+import { readServerAccount, type ServerAccount } from './server-layout'
 import { readUpdateRecord } from './server-update-state'
 
 const ID = /^[A-Za-z0-9:_-]{1,128}$/
 
 export type MatchArgs =
-  | { mode: 'report'; account: string; desktop: string; version: string; protocol: number | null }
-  | { mode: 'apply'; account: string; version: string; now: boolean }
+  | { mode: 'report'; account: string | null; desktop: string; version: string; protocol: number | null }
+  | { mode: 'apply'; account: string | null; version: string; now: boolean }
 
 export function parseMatchArgs(args: readonly string[]): MatchArgs | { error: string } {
   const values = new Map<string, string>()
@@ -23,13 +23,13 @@ export function parseMatchArgs(args: readonly string[]): MatchArgs | { error: st
     const [key, inline] = arg.slice(2).split(/=(.*)/s)
     values.set(key!, inline ?? (key === 'now' ? '1' : (args[++i] ?? '')))
   }
-  const account = values.get('account') ?? ''
-  if (!ID.test(account)) return { error: '--account 后面要写账号 id' }
+  const account = values.get('account') ?? null
+  if (account !== null && !ID.test(account)) return { error: '--account 后面要写账号 id' }
   const apply = values.get('apply')
   if (apply !== undefined) return isServerVersion(apply) ? { mode: 'apply', account, version: apply, now: values.has('now') } : { error: '--apply 后面要写版本号' }
   const desktop = values.get('desktop') ?? ''
   const version = values.get('version') ?? ''
-  if (!ID.test(desktop) || !isServerVersion(version)) return { error: '用法:gugu-server match-version --account <id> --desktop <桌面 id> --version <版本> [--protocol <n>]' }
+  if (!ID.test(desktop) || !isServerVersion(version)) return { error: '用法:gugu-server match-version --desktop <桌面 id> --version <版本> [--protocol <n>]' }
   const protocol = Number(values.get('protocol'))
   return { mode: 'report', account, desktop, version, protocol: Number.isInteger(protocol) && protocol > 0 ? protocol : null }
 }
@@ -42,7 +42,7 @@ export function formatMatchLine(fields: Record<string, string | number | boolean
 
 export type MatchDeps = {
   home: string
-  accounts?: () => ServerAccount[]
+  account?: () => ServerAccount | null
   runningVersion: (account: ServerAccount) => string | null
   supervisorRunning: () => boolean
   call?: (account: ServerAccount, type: string, payload: unknown) => Promise<DeviceRpcResponse<unknown>>
@@ -60,8 +60,9 @@ async function callUpdate(account: ServerAccount, type: string, payload: unknown
 export async function runMatchVersion(args: readonly string[], out: (line: string) => void, err: (line: string) => void, deps: MatchDeps): Promise<number> {
   const parsed = parseMatchArgs(args)
   if ('error' in parsed) { err(parsed.error); return 2 }
-  const account = pickAttachAccount((deps.accounts ?? listAccounts)(), parsed.account)
-  if ('error' in account) { err(account.error); return 5 }
+  const account = (deps.account ?? readServerAccount)()
+  const accountError = accountRequestError(account, parsed.account)
+  if (accountError || !account) { err(accountError ?? 'No current account'); return 5 }
   let current: string | null = null
   try {
     const directory = fs.realpathSync(path.join(deps.home, 'current'))

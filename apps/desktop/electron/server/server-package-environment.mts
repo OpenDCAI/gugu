@@ -88,10 +88,15 @@ function legacyBackend(home: string, migrateFrom?: string): string | null {
   const current = path.join(home, 'current')
   if (fs.existsSync(current)) return packageBackend(fs.realpathSync(current))
   const accounts = path.join(home, 'accounts')
-  if (fs.existsSync(accounts) && fs.readdirSync(accounts).length && !unusedAccountHome(home, accounts)) {
+  if (hasAccountData(home, accounts)) {
     throw new Error('Existing account environment cannot be verified; explicit migration is required')
   }
   return null
+}
+
+function hasAccountData(home: string, accounts: string): boolean {
+  return fs.existsSync(path.join(home, 'account')) || fs.existsSync(path.join(home, 'retired'))
+    || (fs.existsSync(accounts) && fs.readdirSync(accounts).length > 0 && !unusedAccountHome(home, accounts))
 }
 
 /** Older boot checkers create empty account skeletons before starting a package for the first time. */
@@ -118,7 +123,7 @@ export function prepareInstallation(home: string, identity: ServerPackageIdentit
   // nor another self-update marker proves the original account environment; the controller must migrate it first.
   const accounts = path.join(home, 'accounts')
   if (!existing && options.updateOwner === 'controller' && !options.migrateFrom
-    && fs.existsSync(accounts) && fs.readdirSync(accounts).length && !unusedAccountHome(home, accounts)) {
+    && hasAccountData(home, accounts)) {
     throw new Error('Legacy managed server requires an explicit verified migration source')
   }
   const backend = existing?.backendUrl ?? legacyBackend(home, options.migrateFrom)

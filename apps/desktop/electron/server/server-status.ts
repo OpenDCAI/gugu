@@ -49,7 +49,9 @@ export function parseStatusJson(stdout: string): StatusReport | null {
   if (end < 0) return null
   try {
     const value = JSON.parse(stdout.slice(begin + STATUS_JSON_BEGIN.length, end).trim()) as StatusReport
-    return value && Array.isArray(value.accounts) ? value : null
+    return value && Array.isArray(value.accounts) && value.accounts.every(account => account
+      && typeof account.userId === 'string' && typeof account.signedIn === 'boolean'
+      && typeof account.running === 'boolean' && (account.email === null || typeof account.email === 'string')) ? value : null
   } catch {
     return null
   }

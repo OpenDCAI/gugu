@@ -2,7 +2,7 @@
  * #6264 远程 SSH 的机器:这台桌面与它之间的一切只走 SSH(product spec「两种连法，处处能用」)。
  *
  * 照 VS Code Remote-SSH(本机客户端 ↔ SSH ↔ server 的本机套接字):每台机器一条「设备连接」——
- * 一个常驻的 `ssh -T … exec gugu-server link --account <谁> --adopt-ssh` 子进程,骑在这台机器那条认证过的
+ * 一个常驻的 `ssh -T … exec gugu-server link --adopt-ssh` 子进程,骑在这台机器那条认证过的
  * 共享连接上(ControlMaster,见 ssh-machines.ts / ssh-install/logic.ts)。上面跑的是与咕咕云设备 RPC **逐字相同**的
  * 信封(请求、应答、推送),渲染层的设备 RPC 客户端(src/lib/deviceRpc.ts)只是把「频道」换成它 —— 于是设置、
  * 资源库、已安排、文件、审阅、会话列表与时间线、投递、导入全都走 SSH,❌ 一处一处分叉。
@@ -57,7 +57,7 @@ export function sshLinkArgs(
   // --adopt-ssh:老机器第一次被装它的那台桌面经 SSH 接上时补记「远程 SSH」。经远程隧道的中转连过去的 ❌ 带它
   // (那会把一台远程隧道的机器记成远程 SSH,设备列表标错、机器上限数错)。
   const adopt = options.adoptSsh === false ? '' : ' --adopt-ssh'
-  return sshBatchArgs(target, `exec ${remoteServerPaths(desktopServerChannel()).binTilde} link --account ${options.accountUserId}${adopt}`, options.controlPath)
+  return sshBatchArgs(target, `exec ${remoteServerPaths(desktopServerChannel()).binTilde} link${adopt}`, options.controlPath)
 }
 
 /** 还没接上就结束了:为什么(退出码 + 标准错误最后几行)。纯函数。 */

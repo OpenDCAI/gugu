@@ -22,6 +22,7 @@ import { MACHINE_LIMIT_ERROR, parseMachineLimitRefusal, type MachineLimitRefusal
 import { serverProtocolTooOld } from '@gugu/core/cloud/serverMachineHealth'
 import { isIpLikeLabel } from '@gugu/core/shared/ipLikeLabel'
 import { quoteShellArg } from '../../session/main/utils/shellEscape'
+import { parseStatusJson } from '../server-status'
 import { desktopServerChannel, remoteServerPaths } from '../server-names'
 
 // ── 用户填的地址 ───────────────────────────────────────────────────────────────
@@ -482,13 +483,11 @@ export function probeScript(): string {
     `  if [ "$PC" = 2 ] && printf '%s' "$PO" | grep -qF '${unknownCommandLine('protocol')}'; then echo protocol_unknown=1; fi`,
     '  echo "protocol_err=$(printf \'%s\\n\' "$PO" | tail -n 1 | tr -d \'\\r\' | cut -c1-200)"',
     'fi',
-    'P="$(cat "$H/data/server.lock" 2>/dev/null)"',
-    'if [ -n "$P" ] && kill -0 "$P" 2>/dev/null; then echo running=1; fi',
-    'for d in "$H"/accounts/*/; do',
-    '  [ -f "${d}data/server-session.enc" ] || continue',
-    '  e="$(sed -n \'s/.*"email": *"\\([^"]*\\)".*/\\1/p\' "${d}account.json" 2>/dev/null | head -n 1)"',
-    '  echo "account=$(basename "$d") $e"',
-    'done',
+    'if [ -x "$B" ]; then',
+    '  SO="$("$B" status --json 2>&1)"; SC=$?',
+    '  echo "status_exit=$SC"',
+    '  printf \'%s\\n\' "$SO"',
+    'fi',
     'if command -v curl >/dev/null 2>&1; then echo fetcher=curl; elif command -v wget >/dev/null 2>&1; then echo fetcher=wget; fi',
     'echo "freekb=$(df -Pk "$HOME" 2>/dev/null | awk \'NR==2{print $4}\')"',
     'X="$HOME/.gugu-exec-test.$$"',
@@ -530,6 +529,7 @@ export type ProbeResult = {
   /** 家目录里能不能执行程序(noexec 挂载时不能);没测成为 null。 */
   exec: boolean | null
   accounts: Array<{ userId: string; email: string | null }>
+  statusError?: string | null
 }
 
 export function parseProbeOutput(stdout: string): ProbeResult | null {
@@ -537,19 +537,17 @@ export function parseProbeOutput(stdout: string): ProbeResult | null {
   const end = stdout.indexOf(PROBE_END, begin)
   if (begin < 0 || end < 0) return null
   const fields = new Map<string, string>()
-  const accounts: ProbeResult['accounts'] = []
   for (const line of stdout.slice(begin + PROBE_BEGIN.length, end).split(/\r?\n/)) {
     const eq = line.indexOf('=')
     if (eq <= 0) continue
     const key = line.slice(0, eq).trim()
     const value = line.slice(eq + 1).trim()
-    if (key === 'account') {
-      const [userId, ...rest] = value.split(' ')
-      if (/^[A-Za-z0-9_-]{1,128}$/.test(userId)) accounts.push({ userId, email: rest.join(' ').trim() || null })
-      continue
-    }
     fields.set(key, value)
   }
+  const report = fields.get('installed') ? parseStatusJson(stdout.slice(begin, end)) : null
+  const statusError = !fields.get('installed') ? null : fields.get('status_exit') !== '0' || !report
+    ? `Could not determine the installed server account state: status --json exit ${fields.get('status_exit') ?? '?'} or invalid status markers/JSON` : null
+  const accounts = report?.accounts.filter(account => account.signedIn).map(({ userId, email }) => ({ userId, email })) ?? []
   const fetcher = fields.get('fetcher')
   const freeKb = Number(fields.get('freekb'))
   const installedProtocol = /^\d{1,6}$/.test(fields.get('protocol') ?? '') ? Number(fields.get('protocol')) : null
@@ -573,12 +571,12 @@ export function parseProbeOutput(stdout: string): ProbeResult | null {
     installedProtocol,
     protocolCheck,
     protocolError: protocolCheck === 'failed' ? `exit ${fields.get('protocol_exit') ?? '?'}: ${fields.get('protocol_err') ?? ''}`.trim() : null,
-    running: fields.get('running') === '1',
+    running: report?.supervisorVersion != null || report?.accounts.some(account => account.running) === true,
     fetcher: fetcher === 'curl' || fetcher === 'wget' ? fetcher : null,
     freeKb: fields.get('freekb') && Number.isFinite(freeKb) ? freeKb : null,
     writable: fields.get('writable') !== '0',
     exec: exec === '1' ? true : exec === '0' ? false : null,
-    accounts,
+    accounts, statusError,
   }
 }
 

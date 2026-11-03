@@ -55,6 +55,18 @@ import { parseSshMachines } from '../../../../apps/desktop/electron/server/ssh-m
 import type { ServerSshInstallState } from '../../../../apps/desktop/src/lib/serverSshInstall'
 import { MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '../../../../packages/core/src/cloud/serverMachineHealth'
 
+import { formatStatusJson } from '../../../../apps/desktop/electron/server/server-status'
+
+const statusLines = (fields: string[]): string[] => {
+  const version = fields.find(line => line.startsWith('installed='))?.slice('installed='.length)
+  if (!version) return []
+  return ['status_exit=0', formatStatusJson({ version, supervisorVersion: fields.includes('running=1') ? version : null,
+    accounts: fields.filter(line => line.startsWith('account=')).map(line => {
+      const [userId, ...email] = line.slice('account='.length).split(' ')
+      return { userId: userId!, email: email.join(' ').trim() || null, signedIn: true, running: fields.includes('running=1'), signedOut: null }
+    }) })]
+}
+
 const INSTALL_SH = path.resolve(__dirname, '../../../../scripts/gugu-server/install.sh')
 
 /** 把脚本写进文件再 `sh 文件` 跑(❌ spawnSync 的 input:macOS 上会间歇性挂死,#3766)。 */
@@ -288,6 +300,11 @@ describe('远端脚本', () => {
       fs.writeFileSync(path.join(account, 'server-session.enc'), 'x')
       fs.writeFileSync(path.join(home, '.gugu-server', 'accounts', 'u-other', 'account.json'), JSON.stringify({ userId: 'u-other', email: 'colleague@lab.edu' }, null, 2))
       fs.mkdirSync(path.join(home, '.gugu-server', 'accounts', 'u-signed-out'), { recursive: true })
+      fs.mkdirSync(path.join(home, '.local/bin'), { recursive: true })
+      fs.mkdirSync(path.join(home, '.gugu-server/current'), { recursive: true })
+      fs.writeFileSync(path.join(home, '.gugu-server/current/version'), '0.2.99')
+      const report = formatStatusJson({ version: '0.2.99', accounts: [{ userId: 'u-other', email: 'colleague@lab.edu', signedIn: true, running: false, signedOut: null }] })
+      fs.writeFileSync(path.join(home, '.local/bin/gugu-server'), `#!/bin/sh\nif [ \"$1\" = status ]; then printf '%s' ${shQuote(report)}; else echo 2; fi\n`, { mode: 0o755 })
       const out = runScript(probeScript(), { ...process.env, HOME: home, GUGU_SERVER_HOME: '' }).stdout
       const probe = parseProbeOutput(out)!
       expect(probe.os).toBe(os.platform() === 'darwin' ? 'Darwin' : 'Linux')
@@ -319,7 +336,7 @@ describe('远端脚本', () => {
         fs.mkdirSync(path.join(home, '.gugu-server', 'current'), { recursive: true })
         fs.writeFileSync(path.join(home, '.gugu-server', 'current', 'version'), '0.2.160')
         const bin = path.join(home, '.local', 'bin', 'gugu-server')
-        fs.writeFileSync(bin, `#!/bin/sh\nif [ "$1" = help ]; then echo "--grant-stdin"; exit 0; fi\n${body}\n`)
+        fs.writeFileSync(bin, `#!/bin/sh\nif [ "$1" = help ]; then echo "--grant-stdin"; exit 0; fi\nif [ "$1" = status ]; then printf '%s' ${shQuote(formatStatusJson({ version: '0.2.160', accounts: [] }))}; exit 0; fi\n${body}\n`)
         fs.chmodSync(bin, 0o755)
         const probe = parseProbeOutput(runScript(probeScript(), { ...process.env, HOME: home, GUGU_SERVER_HOME: '' }).stdout)!
         expect(probe, body).toMatchObject({ installedVersion: '0.2.160', ...expected })
@@ -614,14 +631,14 @@ describe('本机下载(那台机器上不了网时)', () => {
 })
 
 describe('读远端输出', () => {
-  const probeLines = (extra: string[]) => `welcome!\nos=Windows\n${PROBE_BEGIN}\nos=Linux\narch=aarch64\nuser=alice\nhostname=ip-172-31-1-2\n${extra.join('\n')}\n${PROBE_END}\n`
+  const probeLines = (extra: string[]) => `welcome!\nos=Windows\n${PROBE_BEGIN}\nos=Linux\narch=aarch64\nuser=alice\nhostname=ip-172-31-1-2\n${[...extra, ...statusLines(extra)].join('\n')}\n${PROBE_END}\n`
 
   it('parseProbeOutput 只读标记之间,.bashrc 的噪音混不进来', () => {
     const out = probeLines(['distro=Ubuntu 22.04.4 LTS', 'libc=glibc 2.35', 'installed=0.2.49', 'grant=1', 'running=1', 'account=u1 a@b.c', 'account=u2 ', 'fetcher=curl', 'freekb=1048576', 'exec=1'])
     expect(parseProbeOutput(out)).toEqual({
       os: 'Linux', arch: 'aarch64', user: 'alice', hostname: 'ip-172-31-1-2', distro: 'Ubuntu 22.04.4 LTS', libc: 'glibc 2.35',
       installedVersion: '0.2.49', supportsGrant: true, installedProtocol: null, protocolCheck: 'failed', protocolError: 'exit ?:', running: true, fetcher: 'curl', freeKb: 1048576, writable: true, exec: true,
-      accounts: [{ userId: 'u1', email: 'a@b.c' }, { userId: 'u2', email: null }],
+      accounts: [{ userId: 'u1', email: 'a@b.c' }, { userId: 'u2', email: null }], statusError: null,
     })
     expect(parseProbeOutput('no markers')).toBeNull()
     // 装着的那份说得出协议版本才有数;不认这条命令(打空行)/ 形状不对 = null。
@@ -787,6 +804,7 @@ function fakeSsh(machine: Machine, seen: string[], calls: string[][] = []): Spaw
         `freekb=${machine.freeKb ?? 50_000_000}`, 'exec=1',
         PROBE_END,
       ]
+      lines.splice(lines.length - 1, 0, ...statusLines(lines))
       return { code: 0, stdout: lines.join('\n'), stderr: '' }
     }
     if (text.includes('--package')) {

@@ -19,7 +19,7 @@ vi.mock('../../../../apps/desktop/electron/server/server-auth', () => ({ writeSt
 vi.mock('../../../../apps/desktop/electron/server/server-layout', () => ({
   applyAccountEnv: vi.fn(),
   emailFromAccessToken: vi.fn(),
-  listAccounts: () => [],
+  readServerAccount: () => null,
   writeAccountMeta: vi.fn(),
 }))
 

@@ -323,6 +323,7 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
     const parsed = parseProbeOutput(result.stdout)
     // 认证通过、脚本也跑了,却读不到标记:对方的登录脚本把我们的脚本吞了或改了(`exec zsh`、往 stdin 读东西)。
     if (!parsed) throw new StepFailure('shellStartup', lastLines(`${result.stdout}\n${result.stderr}`))
+    if (parsed.statusError) throw new StepFailure('unknown', parsed.statusError)
     return parsed
   }
 

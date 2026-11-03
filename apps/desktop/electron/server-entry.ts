@@ -15,9 +15,8 @@ import path from 'node:path'
 import { isOwnProcessAlive, isProcessAlive, SERVER_PROCESS_MARK } from './server/process-alive'
 import { ensureCaBundleForChildren } from './server/server-ca-bundle'
 import {
-  accountDataDir,
   applyAccountEnv,
-  listAccounts,
+  readServerAccount,
   supervisorDataDir,
   writeSignedOutMark,
 } from './server/server-layout'
@@ -70,7 +69,7 @@ try {
   process.exit(1)
 }
 // ⚠️ 这里**不**设 GUGU_TASK_HOST_USER_DATA:替身的 userData 第一次被读到就缓存住,而每个命令要指的目录不同
-// (守护进程用 data/,账号进程用 accounts/<id>/data/,login 要等换到令牌、知道是谁之后才定)。见 server-layout.ts。
+// (守护进程用 data/,账号数据用 account/data/,login 要等换到令牌、知道是谁之后才定)。见 server-layout.ts。
 
 const USAGE = `用法:
   gugu-server                    运行咕咕 server(常驻;一般由系统服务拉起)
@@ -87,15 +86,15 @@ const USAGE = `用法:
   gugu-server stop               停掉正在运行的 server(连同各账号的进程)
   gugu-server selftest           检查这份咕咕 server 在这台机器上能不能跑(原生模块、自带的 tmux)
   gugu-server prepare-install    安装器核对包与既有安装的环境(不读取账号凭据)
-  gugu-server unregister --account <账号 id>
+  gugu-server unregister
                                  把这台机器从这个账号里移除并注销登录(卸载时自动调用)
-  gugu-server link [--account <账号 id>] [--adopt-ssh]
+  gugu-server link [--adopt-ssh]
                                  把标准输入输出接到这个账号的咕咕 server 上(远程 SSH:桌面经 SSH 自动调用)
   gugu-server open-url <网址或文件>
                                  在正看着这台机器的咕咕桌面上打开网页(这台机器上的 $BROWSER 就是它)
-  gugu-server resume --account <账号 id>
+  gugu-server resume
                                  通知保留的账号进程恢复连接并立即补收消息
-  gugu-server match-version --account <账号 id> (--desktop <桌面 id> --version <版本> | --apply <版本>)
+  gugu-server match-version (--desktop <桌面 id> --version <版本> | --apply <版本>)
                                  旧桌面兼容入口:查看 current/已准备目标，或确认重启到已准备目标`
 
 function fail(error: unknown): never {
@@ -114,18 +113,6 @@ function lockHolder(dataDir: string): number | null {
   } catch {
     return null
   }
-}
-
-/**
- * #6264 守护进程之外还在跑的账号进程(守护进程被 kill -9 / OOM 后留下的孤儿,或刚才没来得及收的):
- * 按各账号锁里的进程号收掉。先 SIGTERM 等它正常退出(收会话、放锁),30 秒不走再 SIGKILL。
- */
-async function stopAccountProcesses(): Promise<number[]> {
-  const pids = listAccounts()
-    .map((account) => lockHolder(account.dataDir))
-    .filter((pid): pid is number => pid !== null && pid !== process.pid)
-  await Promise.all(pids.map(pid => stopServerProcess(pid, 30_000)))
-  return pids
 }
 
 async function stopServerProcess(pid: number, graceMs: number): Promise<void> {
@@ -174,10 +161,10 @@ function prepareRuntimeInstallation(): void {
 }
 
 /** Both run and the deployed supervisor's boot probe enter this exact account body. */
-async function runAccount(userId: string): Promise<void> {
-  if (!listAccounts().some(account => account.userId === userId)) throw new Error(`Account not found: ${userId}`)
-  applyAccountEnv(userId)
-  ensureCaBundleForChildren(accountDataDir(userId))
+async function runAccount(userId: string, directory: string): Promise<void> {
+  if (!fs.statSync(directory).isDirectory()) throw new Error(`Account directory is unavailable: ${directory}`)
+  applyAccountEnv(userId, process.env, directory)
+  ensureCaBundleForChildren(path.join(directory, 'data'))
   await import('./main')
 }
 
@@ -238,11 +225,11 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
     case 'run-account': {
       // Compatibility for already deployed supervisors: no home lock, the same main and account lock.
       const userId = args[0]
-      if (!userId || !listAccounts().some((account) => account.userId === userId)) {
+      if (!userId || !/^[a-zA-Z0-9_-]{1,128}$/.test(userId) || !fs.existsSync(path.join(serverHome, 'accounts', userId))) {
         stderr(`没有这个账号:${userId ?? '(未指定)'}`)
         process.exit(2)
       }
-      await runAccount(userId)
+      await runAccount(userId, path.join(serverHome, 'accounts', userId))
       return
     }
     case 'start': {
@@ -255,18 +242,11 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       return process.exit(await runServerLogin(undefined, args))
     }
     case 'logout': {
-      const signedIn = listAccounts().filter((account) => account.signedIn)
+      const target = readServerAccount()
       const who = args[0]
-      const target = who
-        ? signedIn.find((account) => account.email === who || account.userId === who)
-        : signedIn.length === 1
-          ? signedIn[0]
-          : undefined
-      if (!target) {
-        if (signedIn.length === 0) out('这台机器上没有登录的账号。')
-        else if (who) out(`这台机器上没有登录 ${who}。`)
-        else out(`这台机器上登录了好几个人,请写上退出哪一个:\n${signedIn.map((a) => `  gugu-server logout ${a.email ?? a.userId}`).join('\n')}`)
-        process.exit(who || signedIn.length === 0 ? 1 : 2)
+      if (!target?.signedIn || (who && target.email !== who && target.userId !== who)) {
+        out(target?.signedIn ? `This server is signed in as ${target.email ?? target.userId}.` : '这台机器上没有登录的账号。')
+        return process.exit(1)
       }
       // 只删登录态,这个账号的会话记录、任务库留着:同一个人再登录,东西都还在。
       fs.rmSync(path.join(target.dataDir, 'server-session.enc'), { force: true })
@@ -286,14 +266,11 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       out(`常驻服务:${describeService()}`)
       const { formatAccountLines, formatStatusJson, statusAccounts } = await import('./server/server-status')
       const { readAccountRuntime, installedPackageVersion } = await import('./server/server-account-runtime')
-      const all = listAccounts()
-      const { onlySignedInAccount } = await import('./server/server-startup')
-      try { onlySignedInAccount(all) } catch (error) { out(String(error)) }
-      const runtimes = new Map(all.map((account) => [account.userId, readAccountRuntime(account.dataDir)]))
-      const pidOf = (userId: string) => {
-        return runtimes.get(userId)?.pid ?? null
-      }
-      const accounts = statusAccounts(all, (account) => pidOf(account.userId) !== null, (account) => runtimes.get(account.userId)?.version ?? null)
+      const account = readServerAccount()
+      const runtime = account ? readAccountRuntime(account.dataDir) : null
+      const pidOf = () => runtime?.pid ?? null
+      // Keep the released status wire shape; runtime has at most one account.
+      const accounts = statusAccounts(account ? [account] : [], () => pidOf() !== null, () => runtime?.version ?? null)
       for (const line of formatAccountLines(accounts, pidOf)) out(line)
       // 咕咕桌面经 SSH 读的那一份(机器显示离线时,问清是没开机还是登录没了)。
       if (args.includes('--json')) {
@@ -328,23 +305,20 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       }
       const pid = lockHolder(supervisorDataDir())
       if (pid) await stopServerProcess(pid, 45_000)
-      const strays = await stopAccountProcesses()
-      if (!pid && strays.length === 0) {
-        out('server 没在运行。')
-        process.exit(0)
-      }
-      out(strays.length > 0 ? `已停止(另收掉了 ${strays.length} 个没随守护进程退出的账号进程)。` : '已停止。')
+      if (!pid) { out('server 没在运行。'); return process.exit(0) }
+      out('已停止。')
       out('再次启动请执行 gugu-server start;移除开机自启请执行 gugu-server service uninstall。')
       return process.exit(0)
     }
     case 'unregister': {
-      // 卸载前逐个账号调:从账号里移除这台机器、注销它的续期令牌、删本地登录态(见 server-unregister.ts)。
+      const account = readServerAccount()
       const i = args.indexOf('--account')
-      const userId = i >= 0 ? args[i + 1] : undefined
-      if (!userId || !listAccounts().some((account) => account.userId === userId)) {
-        stderr(`没有这个账号:${userId ?? '(未指定)'}`)
-        return process.exit(2)
+      const requested = i >= 0 ? args[i + 1] : undefined
+      if (!account || (requested !== undefined && requested !== account.userId)) {
+        stderr(account ? `Current account is ${account.email ?? account.userId}; requested account does not match.` : 'No account is configured.')
+        return process.exit(78)
       }
+      const userId = account.userId
       applyAccountEnv(userId)
       const { unregisterAccountNow } = await import('./server/server-unregister-wiring')
       await unregisterAccountNow(userId, out)

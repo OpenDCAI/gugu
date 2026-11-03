@@ -3,7 +3,7 @@ import { checkAccountBoot } from './server-selftest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pruneVersions, readVersionPin } from './server-account-versions'
-import { activityProof, listAccounts } from './server-layout'
+import { activityProof, readServerAccount } from './server-layout'
 import { assertPackageEnvironment } from './server-package-environment.mts'
 import { pointCurrent as pointCurrentFile } from './server-boot.cjs'
 import { legacyGuardActive, readBadVersions, readPendingVerify, writePendingVerify } from './server-startup'
@@ -124,7 +124,7 @@ export async function activateServerPackage(home: string, directory: string, opt
   await lifecycle.stage(path.basename(target), async () => {})
   if (target === previous) return
   createServerUpdateStateWriter(home).set('ready', path.basename(target))
-  const busy = options.isBusy ?? (() => listAccounts().some(account => account.signedIn && activityProof(account.dataDir) !== 'idle'))
+  const busy = options.isBusy ?? (() => { const account = readServerAccount(); return Boolean(account?.signedIn && activityProof(account.dataDir) !== 'idle') })
   if (legacyGuardActive(home)) throw new ServerPackageDeferredError('The legacy upgrade guard still owns the current transition')
   if (busy()) throw new ServerPackageDeferredError('Accounts are no longer idle; package activation was deferred')
   lifecycle.switchSupervisor({ from: path.basename(from), to: path.basename(target), fromDir: from,

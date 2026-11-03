@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { acquireHomeLock, assertAccountLogin, homeLockHolder, markServerReady, onlySignedInAccount, ownsHomeLock, readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
+import { acquireHomeLock, assertAccountLogin, homeLockHolder, markServerReady, ownsHomeLock, readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
 import type { ServerAccount } from '../../../../apps/desktop/electron/server/server-layout'
 
 let home: string
@@ -143,18 +143,8 @@ describe('single-process server startup', () => {
     expect(fs.existsSync(path.join(home, 'data/server.lock'))).toBe(false)
   })
 
-  it('waits with no signed-in account and accepts exactly one without deleting signed-out data', () => {
-    expect(onlySignedInAccount([account('old', false)])).toBeNull()
-    expect(onlySignedInAccount([account('old', false), account('one')])?.userId).toBe('one')
-  })
-
-  it('rejects residual multiple accounts with both names and a recovery instruction', () => {
-    expect(() => onlySignedInAccount([account('one'), account('two')])).toThrow('one@example.test, two@example.test')
-    expect(() => onlySignedInAccount([account('one'), account('two')])).toThrow('logout <email>')
-  })
-
   it('allows the same account to renew login but refuses another identity', () => {
-    expect(() => assertAccountLogin([account('one')], 'one')).not.toThrow()
-    expect(() => assertAccountLogin([account('one')], 'two')).toThrow('one@example.test')
+    expect(() => assertAccountLogin(account('one'), 'one')).not.toThrow()
+    expect(() => assertAccountLogin(account('one'), 'two')).toThrow('one@example.test')
   })
 })
