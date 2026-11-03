@@ -1,4 +1,6 @@
 import { configuredIntegrationIndex } from '../integrations/integration-resource-index'
+import { tapMainEvents } from '@main/lib/events'
+import { automationChangedChannel, automationRunChangedChannel } from '@shared/core/automations/automationEvents'
 import { integrationAccountSignature,panelIntegrationChecks } from './assistant-panel-integration-checks'
 import { eq } from 'drizzle-orm'
 import { db } from '@main/db/client'
@@ -23,6 +25,11 @@ export const assistantPanelLocal = {
   integrationIndex: configuredIntegrationIndex,
   onLibraryChanged: onUserLibraryChanged,
   onIntegrationsChanged(listener: () => void) { return providerAccountRegistry.onChanged(listener) },
+  onSchedulesChanged(listener: () => void) {
+    return tapMainEvents(channel => {
+      if (channel === automationChangedChannel.name || channel === automationRunChangedChannel.name) listener()
+    })
+  },
   async home(sessionId: string, identity?: { assistantId: string; deviceId: string; ownerId: string }) {
     const row = (await getSessions()).find(row => row.id === sessionId && !row.archivedAt)
     if (!row?.workspaceId) throw new Error('PANEL_SESSION_HOME_UNAVAILABLE')

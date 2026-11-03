@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AssistantPanelChange, AssistantPanelClient } from '../../packages/core/src/cloud/assistantPanel'
-import { prepareAssistantPanelAdmission } from '../../apps/desktop/electron/sessionpage/assistant-panel-admission'
+import { applyAssistantPanelPending, prepareAssistantPanelAdmission } from '../../apps/desktop/electron/sessionpage/assistant-panel-admission'
 
 const change: AssistantPanelChange = { operation_id: 'save',revision: '1',assistant_user_id: 'assistant',owner_user_id: 'owner',domain: 'memory',resource_key: 'note',
   device_id: 'home',operation: 'save',payload: {},status: 'pending',error_code: null }
@@ -20,6 +20,22 @@ function fixture() {
 }
 
 describe('assistant panel admission', () => {
+  it('applies background changes without admitting a turn or consuming its notice',async () => {
+    const f=fixture()
+    f.cloud.pending.mockResolvedValueOnce({revision:'1',changes:[change],notices:[]})
+      .mockResolvedValue({revision:'1',changes:[],notices:[]})
+    await applyAssistantPanelPending(f.input)
+    expect(f.application.apply).toHaveBeenCalledOnce()
+    expect(f.cloud.ack).toHaveBeenCalledExactlyOnceWith('assistant','runtime','save')
+    expect(f.cloud.admit).not.toHaveBeenCalled()
+    expect(f.application.prepareText).not.toHaveBeenCalled()
+    const prepared=await prepareAssistantPanelAdmission(f.input)
+    expect(f.application.apply).toHaveBeenCalledOnce()
+    expect(f.cloud.admit).toHaveBeenCalledOnce()
+    expect(f.accepted).not.toHaveBeenCalled()
+    await prepared.accepted()
+    expect(f.accepted).toHaveBeenCalledOnce()
+  })
   it('terminally rejects a persistent effect and delivers its explanation before admitting later work', async () => {
     const world = fixture()
     const later = { ...change,operation_id: 'later',resource_key: 'later',revision: '2' }

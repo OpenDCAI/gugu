@@ -67,6 +67,16 @@ function transport() {
   return { rows,calls,input,failures,loseNextResponse: () => { lose = true },deleteWhileUploading: () => { removeBeforeCommit = true } }
 }
 
+it('reads only one authority snapshot for an unchanged ready collection',async () => {
+  const f=transport()
+  await publishAssistantPanelCollection(f.input)
+  f.input.cloud.snapshot.mockClear(); f.input.cloud.resource.mockClear(); f.input.cloud.commit.mockClear()
+  await publishAssistantPanelCollection(f.input)
+  expect({snapshots:f.input.cloud.snapshot.mock.calls.length,resources:f.input.cloud.resource.mock.calls.length})
+    .toEqual({snapshots:1,resources:0})
+  expect(f.input.cloud.commit).not.toHaveBeenCalled()
+})
+
 it('uploads zero bodies across repeated metadata-only inventory sweeps', async () => {
   const f = transport()
   await publishAssistantPanelCollection(f.input)

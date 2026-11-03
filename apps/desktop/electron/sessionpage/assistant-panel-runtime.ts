@@ -1,10 +1,10 @@
 import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { watch, type FSWatcher } from 'node:fs'
-import { basename, dirname } from 'node:path'
+import { basename, dirname, isAbsolute, relative, sep } from 'node:path'
 import { withBoundedOperation } from '@gugu/core/cloud/boundedOperation'
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase'
-import { createAssistantPanelClient, type AssistantPanelChange, type AssistantPanelDomain, type AssistantPanelItem } from '@gugu/core/cloud/assistantPanel'
+import { createAssistantPanelClient, type AssistantPanelChange, type AssistantPanelDomain, type AssistantPanelItem, type AssistantPanelSnapshot } from '@gugu/core/cloud/assistantPanel'
 import { readAssistantPanelBody, uploadAssistantPanelBody } from '@gugu/core/cloud/assistantPanelBodies'
 import type { AssistantHomeKind } from '@gugu/core/shared/assistantPolicy'
 import { assistantHomePaths } from '@gugu/core/shared/assistantPolicy'
@@ -12,7 +12,7 @@ import type { assistantPanelLocal } from '../session/main/core/app/assistant-pan
 import { applyAssistantPanelService } from './assistant-panel-service'
 import { localAgentForSession } from './sessionpage-session-agent'
 import { createAssistantPanelApplication, type AssistantPanelHome } from './assistant-panel-application'
-import { prepareAssistantPanelAdmission, type PanelPreparedAdmission } from './assistant-panel-admission'
+import { applyAssistantPanelPending, prepareAssistantPanelAdmission, type PanelPreparedAdmission } from './assistant-panel-admission'
 import { prepareAssistantProfileReview } from './assistant-profile-review'
 import { assistantResourceChanges } from './assistant-resource-changes'
 import { invalidateAssistantIndex, stopAssistantIndexRefresh } from './assistant-index-cache'
@@ -62,8 +62,9 @@ export function createAssistantPanelRuntime(deps: {
     let chatId: string | undefined
     let tail: Promise<unknown> = Promise.resolve()
     let publication: Promise<void> | null = null
+    let pulling: Promise<void> | null = null
     let scheduled: ReturnType<typeof setTimeout> | undefined
-    let republish = false, disposed = false
+    let republish = false, disposed = false, deferredPublication = false
     const watchers = new Map<string, FSWatcher>()
     const collectionTimers = new Map<AssistantPanelDomain, ReturnType<typeof setTimeout>>()
     const collections = new Map<AssistantPanelDomain, { promise: Promise<void>; again: boolean }>()
@@ -71,6 +72,7 @@ export function createAssistantPanelRuntime(deps: {
       const next = tail.catch(() => undefined).then(work); tail = next; return next
     }
     async function auth(): Promise<Auth> {
+      if (disposed) throw new Error('PANEL_RUNTIME_DISPOSED')
       const value = await hostAuth()
       if (!value || value.userId !== binding.ownerId) throw new Error('PANEL_ACCOUNT_CHANGED')
       return value
@@ -107,7 +109,7 @@ export function createAssistantPanelRuntime(deps: {
         (await deps.local.sessions(binding.ownerId)).filter(row => row.agentId === binding.assistantId).map(row => row.summary.conversationId),binding.ownerId),cloud),
       invalidate: () => invalidateAssistantIndex(deps.guguHome,binding.cwd,binding.kind,binding.ownerId),
     })
-    async function prepare(text: string) {
+    async function currentInstance() {
       let instance = deps.instanceId()
       for (const pause of [150,450]) {
         if (instance) break
@@ -115,7 +117,23 @@ export function createAssistantPanelRuntime(deps: {
         instance = deps.instanceId()
       }
       if (!instance) throw new Error('PANEL_RUNTIME_LEASE_UNAVAILABLE')
-      return prepareAssistantPanelAdmission({ assistant: binding.assistantId,instance,cloud,application,text,locale: deps.locale() })
+      return instance
+    }
+    async function prepare(text: string) {
+      return prepareAssistantPanelAdmission({ assistant: binding.assistantId,instance: await currentInstance(),cloud,application,text,locale: deps.locale() })
+    }
+    function pullPending(): Promise<void> {
+      if (pulling) return pulling
+      pulling = serial(async () => {
+        await auth()
+        const instance = await currentInstance()
+        for (let pass = 0; pass < 12; pass++) {
+          const result = await applyAssistantPanelPending({ assistant: binding.assistantId,instance,cloud,application,locale: deps.locale() })
+          if (!result.settledFailure && !result.superseded) return
+        }
+        throw new Error('CONCURRENT_CHANGES_RETRY')
+      }).finally(() => { pulling = null })
+      return pulling
     }
     async function observations(domain: AssistantPanelDomain, previous: AssistantPanelItem[]): Promise<PanelObservation[]> {
       if (['memory','files','skills','personality','voice-notes'].includes(domain)) {
@@ -151,17 +169,40 @@ export function createAssistantPanelRuntime(deps: {
       return []
     }
     function observeFiles() {
+      if (disposed) return
+      for (const watcher of watchers.values()) watcher.close()
+      watchers.clear()
       const paths = assistantHomePaths(binding.home,binding.cwd,binding.kind)
-      for (const root of new Set([paths.memoryDir,paths.resourcesDir,paths.skillsDir,dirname(paths.instructions)])) {
-        if (watchers.has(root)) continue
+      function observe(key: string, path: string, recursive: boolean, accept: (file: string) => boolean, rearm = false) {
+        const watcher = watch(path,{ recursive },(_event,file) => {
+          if (disposed || watchers.get(key) !== watcher) return
+          const name = file ? basename(String(file)) : ''
+          if (!accept(name)) return
+          if (rearm) observeFiles()
+          schedulePublication()
+        })
+        watchers.set(key,watcher)
+        watcher.on('error',() => {
+          if (watchers.get(key) === watcher) { watcher.close(); watchers.delete(key) }
+          deferredPublication = true; deps.failed('panel')
+        })
+      }
+      for (const target of new Set([paths.memoryDir,paths.resourcesDir,paths.skillsDir,paths.instructions])) {
         try {
-          watchers.set(root,watch(root,{ recursive: root !== dirname(paths.instructions) },(_event,file) => {
-            const name = file ? basename(String(file)) : ''
-            if (name.startsWith('.') || name.endsWith('.tmp') || root === dirname(paths.instructions) && name !== basename(paths.instructions)) return
-            schedulePublication()
-          }))
-          watchers.get(root)!.on('error',() => { watchers.get(root)?.close(); watchers.delete(root); deps.failed('panel') })
-        } catch { /* A new collection may not have a directory yet; retry after publication. */ }
+          observe(target,target,target !== paths.instructions,name => !name.startsWith('.') && !name.endsWith('.tmp'))
+        } catch { /* Its parent observes first creation or replacement. */ }
+        let parent = dirname(target), child = basename(target)
+        while (parent) {
+          const outside = relative(binding.kind === 'cloud' ? binding.home : binding.cwd,parent)
+          if (isAbsolute(outside) || outside.split(sep)[0] === '..') break
+          const expected = child
+          try { observe(`parent:${target}`,parent,false,name => !name || name === expected,true); break }
+          catch {
+            const next = dirname(parent)
+            if (next === parent) break
+            child = basename(parent); parent = next
+          }
+        }
       }
     }
     function schedulePublication() {
@@ -184,7 +225,7 @@ export function createAssistantPanelRuntime(deps: {
       clearTimeout(collectionTimers.get(domain))
       const timer = setTimeout(() => {
         collectionTimers.delete(domain)
-        void publishCollection(domain).catch(() => deps.failed(domain))
+        void publishCollection(domain).catch(() => { deferredPublication = true; deps.failed(domain) })
       },100)
       timer.unref(); collectionTimers.set(domain,timer)
     }
@@ -192,7 +233,8 @@ export function createAssistantPanelRuntime(deps: {
       if (ownerId === binding.ownerId) scheduleCollection(kind === 'capabilities' ? 'capabilities' : 'device-notes')
     })
     const stopIntegrations = deps.local.onIntegrationsChanged?.(() => scheduleCollection('integrations'))
-    function publishCollection(domain: AssistantPanelDomain): Promise<void> {
+    const stopSchedules = deps.local.onSchedulesChanged?.(() => scheduleCollection('schedules'))
+    function publishCollection(domain: AssistantPanelDomain, baseline?: AssistantPanelSnapshot): Promise<void> {
       const active = collections.get(domain)
       if (active) { active.again = true; return active.promise }
       const state = { promise: null as unknown as Promise<void>,again: false }
@@ -204,6 +246,7 @@ export function createAssistantPanelRuntime(deps: {
           const instanceId = deps.instanceId(),deviceId = await deps.deviceId()
           if (!instanceId) throw new Error('PANEL_RUNTIME_LEASE_UNAVAILABLE')
           await publishAssistantPanelCollection({ assistantId: binding.assistantId,instanceId,deviceId,domain,cloud,
+            baseline: baseline ?? await cloud.snapshot(binding.assistantId),
             bodyFailures: failures,
             collect: previous => observations(domain,previous),
             upload: async row => uploadAssistantPanelBody({ ...await access(),label: row.key.split('/').pop() ?? domain,bytes: row.bytes! }),
@@ -216,6 +259,7 @@ export function createAssistantPanelRuntime(deps: {
             revoke: async (item,row) => application.apply({ operation_id: randomUUID(),revision: item.revision,assistant_user_id: binding.assistantId,
               owner_user_id: binding.ownerId,domain,resource_key: row.key,device_id: deviceId,operation: 'remove',payload: { before: row.data },status: 'applied',error_code: null }),
           })
+          baseline = undefined // A trailing observation gets its own authority.
         } while (state.again && !disposed)
       })().finally(() => { collections.delete(domain); if (state.again && !disposed) scheduleCollection(domain) })
       collections.set(domain,state)
@@ -223,34 +267,43 @@ export function createAssistantPanelRuntime(deps: {
     }
     function publish(): Promise<void> {
       if (publication) return publication
+      clearTimeout(scheduled); scheduled = undefined; republish = false; deferredPublication = false
       publication = (async () => {
         if ((await hostAuth())?.userId !== binding.ownerId) { dispose(); return }
-        await serial(() => prepare(''))
+        await pullPending()
+        const baseline = await cloud.snapshot(binding.assistantId)
         for (const domain of ['memory','personality','files','skills','voice-notes','schedules','capabilities','device-notes','integrations'] as const) {
           if (disposed) break
           try {
-            await publishCollection(domain)
-          } catch { deps.failed(domain) }
+            await publishCollection(domain,baseline)
+          } catch { deferredPublication = true; deps.failed(domain) }
         }
         observeFiles()
-      })().finally(() => { publication = null; if (republish) schedulePublication() })
+      })().catch(error => { deferredPublication = true; throw error })
+        .finally(() => { publication = null; if (republish) schedulePublication() })
       return publication
     }
     // The existing host is already running. This timer cannot start or wake it.
-    const refresh = setInterval(() => { void publish().catch(() => deps.failed('panel')) },30_000)
+    const refresh = setInterval(() => {
+      void pullPending().then(() => { if (deferredPublication) schedulePublication() }).catch(() => deps.failed('panel'))
+    },30_000)
     refresh.unref()
+    const reconcile = setInterval(() => { void publish().catch(() => deps.failed('panel')) },600_000)
+    reconcile.unref()
     function dispose() {
       if (disposed) return
       disposed = true; republish = false
-      clearInterval(refresh); clearTimeout(scheduled)
+      clearInterval(refresh); clearInterval(reconcile); clearTimeout(scheduled)
       stopLibrary?.()
       stopIntegrations?.()
+      stopSchedules?.()
       for (const timer of collectionTimers.values()) clearTimeout(timer)
       collectionTimers.clear()
       for (const watcher of watchers.values()) watcher.close()
       watchers.clear()
     }
     observeFiles()
+    schedulePublication()
     return { application,dispose,
       prepare: (text: string) => serial(async () => {
         const prepared = await prepareAssistantProfileReview(await prepare(text),

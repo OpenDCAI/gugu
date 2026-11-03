@@ -2,7 +2,10 @@ import { expect, it, vi } from 'vitest'
 const data = vi.hoisted(() => ({
   automations: [{ id: 'morning',agentSessionId: 'assistant' },{ id: 'evening',agentSessionId: 'assistant' },{ id: 'reminder',agentSessionId: 'assistant' },{ id: 'other',agentSessionId: 'other' }],
   schedules: [{ id: 'morning',nextRunAt: 20,lastRun: { status: 'done',at: 10,error: null } },{ id: 'evening',nextRunAt: 30,lastRun: { status: 'failed',at: 11,error: { code: 'deadline_exceeded',details: 'private provider response' } } }],
+  tap: undefined as ((channel:string,data:unknown)=>void)|undefined,
+  stop: vi.fn(),
 }))
+vi.mock('@main/lib/events',()=>({tapMainEvents:(tap:typeof data.tap)=>{data.tap=tap;return data.stop}}))
 vi.mock('@main/db/client',() => ({ db: {} }))
 vi.mock('../../apps/desktop/electron/session/main/core/projects/operations/assistant-project-cleanup',() => ({ noteAssistantProjectCandidate: vi.fn() }))
 vi.mock('@main/core/sessions/getSessions',() => ({ getSessions: vi.fn() }))
@@ -16,6 +19,14 @@ vi.mock('@gugu/core',() => ({ listAgents: vi.fn() }))
 vi.mock('../../apps/desktop/electron/session/main/core/app/user-library',() => ({ onUserLibraryChanged: vi.fn(),readUserLibraryVolume: vi.fn(),readUserLibraryEntry: vi.fn(),writeUserLibraryEntry: vi.fn(),removeUserLibraryEntry: vi.fn() }))
 vi.mock('../../apps/desktop/electron/session/main/core/app/assistant-panel-integration-checks',() => ({ panelIntegrationChecks: vi.fn() }))
 import { assistantPanelLocal } from '../../apps/desktop/electron/session/main/core/app/assistant-panel-local'
+it('observes existing scheduler broadcasts without constructing another scheduler',()=>{
+  const changed=vi.fn(),stop=assistantPanelLocal.onSchedulesChanged(changed)
+  data.tap!('automation:changed',{automationId:'morning'})
+  data.tap!('automation:run-changed',{automationId:'morning'})
+  data.tap!('session:changed',{})
+  expect(changed).toHaveBeenCalledTimes(2)
+  stop();expect(data.stop).toHaveBeenCalledOnce()
+})
 it('publishes all owned schedules with only public run status, time and error code',async () => {
   const rows = await assistantPanelLocal.schedules(['assistant'])
   expect(rows.map(row => row.id)).toEqual(['morning','evening','reminder'])

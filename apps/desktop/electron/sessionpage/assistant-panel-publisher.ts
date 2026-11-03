@@ -4,7 +4,7 @@ import { readFile, readdir, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { assistantHomePaths } from '@gugu/core/shared/assistantPolicy'
 import { splitInstructions } from '@gugu/core/shared/assistantInstructions'
-import type { AssistantPanelClient, AssistantPanelDomain, AssistantPanelItem } from '@gugu/core/cloud/assistantPanel'
+import type { AssistantPanelClient, AssistantPanelDomain, AssistantPanelItem, AssistantPanelSnapshot } from '@gugu/core/cloud/assistantPanel'
 import { AssistantPanelError } from '@gugu/core/cloud/assistantPanel'
 import type { AssistantPanelHome } from './assistant-panel-application'
 import type { AssistantPanelBodyFailures } from './assistant-panel-body-failures'
@@ -24,6 +24,7 @@ function stable(value: unknown): string {
  * explicitly change its marker to error. */
 export async function publishAssistantPanelCollection(input: {
   assistantId: string; instanceId: string; deviceId: string; domain: AssistantPanelDomain; cloud: Pick<AssistantPanelClient, 'resource' | 'snapshot' | 'commit'>
+  baseline?: AssistantPanelSnapshot
   bodyFailures: AssistantPanelBodyFailures
   collect(previous: AssistantPanelItem[]): Promise<PanelObservation[]>
   upload(observation: PanelObservation): Promise<{ itemId: string; sha256: string }>
@@ -49,7 +50,8 @@ export async function publishAssistantPanelCollection(input: {
   try {
     // Capture authority before reading local files. A later owner edit must
     // never be overwritten by an older observation of the same resource.
-    const baseline = await input.cloud.snapshot(input.assistantId)
+    const baseline = input.baseline ?? await input.cloud.snapshot(input.assistantId)
+    const known = new Map(baseline.items.filter(row => row.domain === input.domain).map(row => [row.resource_key,row]))
     const revisions = new Map(baseline.items.filter(row => row.domain === input.domain).map(row => [row.resource_key,row.revision]))
     const pending = new Set(baseline.application.filter(row => row.domain === input.domain && !row.terminal).map(row => row.resourceKey))
     const records = await input.collect(baseline.items.filter(row => row.domain === input.domain && !row.resource_key.startsWith('__collection__')))
@@ -57,12 +59,22 @@ export async function publishAssistantPanelCollection(input: {
     await input.bodyFailures.retain(input.domain,new Set(records.map(row => row.key)))
     const seen = new Set<string>()
     let invalidBody: unknown
+    let changed = false
     for (const row of records) {
       seen.add(row.key)
-      const current = await input.cloud.resource(input.assistantId,input.domain,row.key)
-      if (current?.deleted_at) { await input.revoke(current,row); continue }
-      if (pending.has(row.key) || (current?.revision ?? '0') !== (revisions.get(row.key) ?? '0')) continue
       const digest = row.bytes ? sha256(row.bytes) : undefined
+      const observed = known.get(row.key)
+      // An unchanged observation needs no write and cannot overwrite a newer
+      // owner revision. Changed observations still read authority before CAS.
+      if (observed && !observed.deleted_at && !observed.stale_at && !pending.has(row.key)
+        && stable(observed.data) === stable(row.data)
+        && (digest ? observed.body_item_id && observed.body_sha256 === digest : observed.body_item_id === null)) {
+        await input.bodyFailures.clear(input.domain,row.key)
+        continue
+      }
+      const current = await input.cloud.resource(input.assistantId,input.domain,row.key)
+      if (current?.deleted_at) { changed = true; await input.revoke(current,row); continue }
+      if (pending.has(row.key) || (current?.revision ?? '0') !== (revisions.get(row.key) ?? '0')) { changed = true; continue }
       const reused = digest && current?.body_item_id && current.body_sha256 === digest
         ? { itemId: current.body_item_id,sha256: digest } : undefined
       if (!digest || reused) await input.bodyFailures.clear(input.domain,row.key)
@@ -82,6 +94,7 @@ export async function publishAssistantPanelCollection(input: {
             throw error
           }
         }
+        changed = true
         await commit(row.key,current?.revision ?? '0','save',row.data,body)
         await input.bodyFailures.clear(input.domain,row.key)
       } catch (error) {
@@ -94,20 +107,25 @@ export async function publishAssistantPanelCollection(input: {
         throw error
       }
     }
-    const snapshot = await input.cloud.snapshot(input.assistantId)
-    for (const previous of snapshot.items.filter(row => row.domain === input.domain && !row.resource_key.startsWith('__collection__')
+    for (const previous of baseline.items.filter(row => row.domain === input.domain && !row.deleted_at && !row.resource_key.startsWith('__collection__')
       && (!scoped || row.device_id === input.deviceId) && !seen.has(row.resource_key))) {
       if (pending.has(previous.resource_key) || revisions.get(previous.resource_key) !== previous.revision) continue
+      changed = true
       try { await commit(previous.resource_key,previous.revision,'remove',{}) }
       catch (error) { if (!['PT409','55000'].includes(String((error as { code?: string }).code))) throw error }
     }
-    const latest = await input.cloud.snapshot(input.assistantId)
     if (invalidBody) throw invalidBody
-    const count = latest.items.filter(row => row.domain === input.domain && !row.resource_key.startsWith('__collection__')
-      && (!scoped || row.device_id === input.deviceId)).length
-    const marker = await input.cloud.resource(input.assistantId,input.domain,markerKey)
-    const data = { state: 'ready',schemaVersion: 1,itemCount: count }
-    if (marker?.stale_at || stable(marker?.data) !== stable(data)) {
+    let latest = changed ? await input.cloud.snapshot(input.assistantId) : baseline
+    const ready = () => ({ state: 'ready',schemaVersion: 1,itemCount: latest.items.filter(row => row.domain === input.domain
+      && !row.deleted_at && !row.resource_key.startsWith('__collection__') && (!scoped || row.device_id === input.deviceId)).length })
+    let marker = latest.items.find(row => row.domain === input.domain && row.resource_key === markerKey && !row.deleted_at)
+    if (marker?.stale_at || stable(marker?.data) !== stable(ready())) {
+      // A transition to ready needs a current count. A ready unchanged marker
+      // can use the round's shared baseline without another authority read.
+      if (latest === baseline) latest = await input.cloud.snapshot(input.assistantId)
+      marker = await input.cloud.resource(input.assistantId,input.domain,markerKey) ?? undefined
+      const data = ready()
+      if (marker && !marker.stale_at && stable(marker.data) === stable(data)) return
       try { await commit(markerKey,marker?.revision ?? '0','prepared',data) }
       catch (error) { if (!['PT409','55000'].includes(String((error as { code?: string }).code))) throw error }
     }
