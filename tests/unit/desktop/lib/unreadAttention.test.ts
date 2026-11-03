@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
 import type { ChatItem, ChatUnreadLocator } from '@gugu/core/shared/types/chat'
 import { chatAttention } from '@gugu/core/shared/ui/chatModels'
@@ -8,6 +8,7 @@ import { LocalImCacheError, openLocalSyncDb } from '../../../../apps/desktop/src
 import { sidebarChatSignals } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
 import { phoneChatUnread } from '../../../../apps/desktop/src/mobile/chat/phoneChatUnread'
 import { advanceReadWatermark } from '../../../../apps/desktop/src/store/chatRealtimeMutations'
+import { acknowledgeOnScreenChatRows } from '../../../../apps/desktop/src/store/chatListProjection'
 import { chat } from '../../../support/testHarness'
 
 const reads = vi.hoisted(() => ({ write: vi.fn() }))
@@ -26,6 +27,67 @@ const row = (stream: string, unread: number, addressed?: number) => ({
   chat_id: 'topic', stream_id: stream, stream_kind: stream.startsWith('thread') ? 'thread' : 'main', thread_root_id: null,
   message_id: `m-${stream}`, message_seq: 1, unread_count: unread, cursor_seq: 0, version: 1, is_marked_unread: false,
   ...(addressed === undefined ? {} : { addressed_count: addressed }),
+})
+
+beforeEach(() => { reads.write.mockReset(); reads.write.mockResolvedValue(undefined) })
+
+describe('an open chat does not grow an unread badge', () => {
+  it('acknowledges the projected main-stream tail before the row is painted', () => {
+    const incoming = chat({ id: 'open-group', kind: 'group', unread_count: 1, last_read_seq: 4, next_message_seq: 6,
+      read_state_version: 7, unread_locator: { ...locator(1, 1), stream_id: 'main:open-group', message_seq: 5 } })
+    const patches: Array<Partial<ChatItem>> = []
+    const pendingReads: Array<() => void> = []
+
+    const [shown] = acknowledgeOnScreenChatRows([incoming], {
+      onScreen: (id) => id === incoming.id,
+      patchChat: (_id, partial) => { patches.push(partial) },
+      deferPersist: (persist) => pendingReads.push(persist),
+    })
+
+    expect(shown).toMatchObject({ unread_count: 0, unread_locator: null, last_read_seq: 5, read_state_version: 8 })
+    expect(reads.write).not.toHaveBeenCalled()
+    pendingReads.forEach((persist) => persist())
+    expect(reads.write).toHaveBeenCalledWith({ kind: 'main', chatId: incoming.id, seq: 5 })
+    expect(patches).toEqual([])
+
+    const [repeated] = acknowledgeOnScreenChatRows([incoming], {
+      current: [shown], onScreen: () => true, patchChat: vi.fn(),
+    })
+    expect(repeated).toMatchObject({ unread_count: 0, unread_locator: null, last_read_seq: 5, read_state_version: 8 })
+    expect(reads.write).toHaveBeenCalledOnce()
+  })
+
+  it('keeps unread state for chats off screen, manual unread intent, and another stream', () => {
+    const offScreen = chat({ id: 'off-screen', kind: 'group', unread_count: 1, last_read_seq: 0, next_message_seq: 2 })
+    const manual = chat({ ...offScreen, id: 'manual', is_marked_unread: true })
+    const thread = chat({ ...offScreen, id: 'thread', unread_locator: { ...locator(1, 1), stream_id: 'thread:root', stream_kind: 'thread' } })
+
+    const result = acknowledgeOnScreenChatRows([offScreen, manual, thread], {
+      onScreen: (id) => id !== offScreen.id,
+      patchChat: vi.fn(),
+    })
+
+    expect(result).toEqual([offScreen, manual, thread])
+    expect(reads.write).not.toHaveBeenCalled()
+  })
+
+  it('restores the unread tuple if acknowledging the open chat fails', async () => {
+    let fail!: (error: Error) => void
+    reads.write.mockReturnValueOnce(new Promise((_, reject) => { fail = reject }))
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const incoming = chat({ id: 'open-failure', kind: 'group', unread_count: 2, last_read_seq: 3, next_message_seq: 6,
+      read_state_version: 4, unread_locator: { ...locator(2, 1), stream_id: 'main:open-failure', message_seq: 4 } })
+    const patches: Array<{ partial: Partial<ChatItem>; expected?: number }> = []
+    const pending: Array<() => void> = []
+    const [shown] = acknowledgeOnScreenChatRows([incoming], { onScreen: () => true,
+      patchChat: (_id, partial, expected) => { patches.push({ partial, expected }) }, deferPersist: (persist) => pending.push(persist) })
+    expect(shown.unread_count).toBe(0)
+    pending[0]!()
+    fail(new Error('offline'))
+    await Promise.resolve(); await Promise.resolve()
+    expect(patches.at(-1)).toEqual({ partial: expect.objectContaining({ unread_count: 2, unread_locator: incoming.unread_locator }), expected: 5 })
+    quiet.mockRestore()
+  })
 })
 
 describe('addressed_count is a required column of list_unread_locators', () => {
