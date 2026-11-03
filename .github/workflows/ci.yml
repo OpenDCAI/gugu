@@ -64,7 +64,7 @@ jobs:
               build=true
               # Toolchain, dependencies and CI itself can break any platform build.
               case "$file" in
-                .github/workflows/ci.yml|.github/actions/*|.node-version|.npmrc|package.json|*/package.json|pnpm-lock.yaml|pnpm-workspace.yaml|patches/*)
+                .github/workflows/ci.yml|.github/workflows/ci-mac-build.yml|.github/actions/*|.node-version|.npmrc|package.json|*/package.json|pnpm-lock.yaml|pnpm-workspace.yaml|patches/*)
                   desktop_mac=true
                   android=true
                   ;;

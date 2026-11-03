@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -45,6 +45,35 @@ function decision(event: unknown, name = 'pull_request', ref = originalRef) {
 }
 
 describe('fixed macOS callee original-event route', () => {
+  it.each([
+    ['.github/workflows/ci-mac-build.yml', 'true'],
+    ['docs/ci-guide.md', 'false']
+  ])('classifies the actual caller shell for %s', (changedPath, due) => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-mac-changes-'))
+    try {
+      const git = join(dir, 'git')
+      const paths = join(dir, 'paths')
+      const output = join(dir, 'output')
+      writeFileSync(git, '#!/bin/sh\ncat "$CI_ROUTE_CHANGED_PATHS"\n')
+      chmodSync(git, 0o700)
+      writeFileSync(paths, changedPath + '\n')
+      writeFileSync(output, '')
+      const caller = YAML.parse(readFileSync('.github/workflows/ci.yml', 'utf8'))
+      const body = caller.jobs.changes.steps.find((step: { id?: string }) => step.id === 'classify').run
+      const result = spawnSync('bash', ['-e', '-c', body], {
+        encoding: 'utf8', timeout: 10000,
+        env: { ...process.env, PATH: dir + ':' + process.env.PATH, CI_ROUTE_CHANGED_PATHS: paths,
+          GITHUB_OUTPUT: output, EVENT_NAME: 'pull_request', GITHUB_REPOSITORY: 'GUYI-AI/gugu',
+          PR_HEAD_REPOSITORY: 'GUYI-AI/gugu', PR_HEAD_REF: 'fix/fixture' }
+      })
+      expect(result.status).toBe(0)
+      expect(readFileSync(output, 'utf8')).toBe(`build=${due}\ndesktop-mac=${due}\nandroid=${due}\n`)
+      expect(result.stdout).toContain(`::notice title=ci-job-outputs::build=${due} desktop-mac=${due} android=${due}`)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it.each(['opened', 'synchronize', 'reopened'])('allows the exact same-repository integration PR: %s', (action) => {
     expect(decision({ ...baseEvent, action })).toEqual(['self-hosted', 'macOS', 'ARM64', 'gugu-public-mac1'])
   })
