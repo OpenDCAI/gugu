@@ -64,12 +64,14 @@ it.each(scenarios.flatMap(scenario => (['zh-CN', 'en-US'] as const).map(locale =
     if (!error) {
       await until('the existing phone preview displays host-authorized bytes', () => document.body.textContent?.includes(contents) === true);
     } else {
-      const notOpened = locale === 'zh-CN' ? '这条会话还没打开过这个文件。' : "This session hasn't opened this file yet.";
+      const notOpened = locale === 'zh-CN' ? 'agent 改过 · 请在电脑上打开' : 'Edited by agent · Open on computer';
       const refusal = key === 'notOpened' ? notOpened : String(getI18n().t(`agentWatch.output.${key}`, {
         ns: 'main', limit: formatBytes(OPENED_FILE_MAX_BYTES),
       }));
-      await until('the existing preview displays the host refusal', () => document.body.textContent?.includes(refusal) === true);
+      await until('the preview has finished reading the host refusal', () => !!document.querySelector('[data-file-selection]') && !document.querySelector('[data-testid="message-file-preview-loading"]'));
+      expect(document.body.textContent).toContain(refusal);
       if (key !== 'notOpened') expect(document.body.textContent).not.toContain(notOpened);
+      else expect(document.body.textContent).not.toContain(String(getI18n().t('agentWatch.output.readFailed', { ns: 'main' })));
       expect(document.body.textContent).not.toContain(contents);
     }
     expect(read).toHaveBeenLastCalledWith('host-device', expect.objectContaining({ conversationId: sessionId, path, offset: 0 }));
