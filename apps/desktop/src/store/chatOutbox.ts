@@ -77,7 +77,7 @@ export interface ChatOutbox {
   /** 当前未决记录快照(chatId/threadRootId 过滤;UI 合并点注入用)。 */
   pendingFor(chatId: string, threadRootId: string | null): OutboxRecord[]
   /** 等某条真送达(送达 resolve;终态 failed/丢弃 reject)。结构性发送(新建话题 root)用。 */
-  delivered(clientMessageId: string): Promise<void>
+  delivered(clientMessageId: string, options?: { waitForRetry?: boolean }): Promise<void>
 }
 
 export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
@@ -94,14 +94,21 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
   let lastEnqueuedAt = 0
   const isActive = (operationEpoch = epoch) => !disposed && operationEpoch === epoch
   // delivered() 的等待者:送达 resolve,终态 failed / 丢弃 reject(供「新建话题 root 必须先落库」类结构性发送)
-  const waiters = new Map<string, Set<{ resolve: () => void; reject: (err: Error) => void }>>()
+  const waiters = new Map<string, Set<{ resolve: () => void; reject: (err: Error) => void; waitForRetry?: boolean }>>()
   function resolveWaiter(id: string): void {
     for (const waiter of waiters.get(id) ?? []) waiter.resolve()
     waiters.delete(id)
   }
-  function rejectWaiter(id: string, reason: string): void {
-    for (const waiter of waiters.get(id) ?? []) waiter.reject(new Error(reason))
-    waiters.delete(id)
+  const canRetry = (record: OutboxRecord | undefined) => record && !record.dependencyDiscarded
+    && record.operation?.kind !== 'upload' && record.operation?.kind !== 'nativeAttachment'
+  function rejectWaiter(id: string, reason: string, retryable = false): void {
+    const subscribers = waiters.get(id)
+    for (const waiter of subscribers ?? []) {
+      if (retryable && waiter.waitForRetry && canRetry(records.get(id))) continue
+      waiter.reject(new Error(reason))
+      subscribers?.delete(waiter)
+    }
+    if (!subscribers?.size) waiters.delete(id)
   }
 
   async function persist(record: OutboxRecord, state: OutboxRecord['state'], patch: Partial<OutboxRecord> = {}, operationEpoch = epoch): Promise<OutboxRecord> {
@@ -123,14 +130,14 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
     return new Promise((resolve) => schedule(resolve, ms))
   }
 
-  function sourceDelivered(id: string): Promise<void> {
+  function sourceDelivered(id: string, options?: { waitForRetry?: boolean }): Promise<void> {
     if (disposed) return Promise.reject(new Error('outbox scope disposed'))
     const source = records.get(id)
     if (!source) return Promise.resolve()
-    if (source.state === 'failed') return Promise.reject(new Error(source.lastError ?? i18n.t('outbox.sendFailed', { ns: 'messaging' })))
+    if (source.state === 'failed' && !(options?.waitForRetry && canRetry(source))) return Promise.reject(new Error(source.lastError ?? i18n.t('outbox.sendFailed', { ns: 'messaging' })))
     return new Promise<void>((resolve, reject) => {
       const subscribers = waiters.get(id) ?? new Set()
-      subscribers.add({ resolve, reject })
+      subscribers.add({ resolve, reject, waitForRetry: options?.waitForRetry })
       waiters.set(id, subscribers)
     })
   }
@@ -171,7 +178,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
         }, operationEpoch)
         if (!isActive(operationEpoch) || !records.has(record.clientMessageId)) return
         deps.onState(failed)
-        rejectWaiter(failed.clientMessageId, failed.lastError ?? i18n.t('outbox.sendFailed', { ns: 'messaging' }))
+        rejectWaiter(failed.clientMessageId, failed.lastError ?? i18n.t('outbox.sendFailed', { ns: 'messaging' }), true)
         kick()
       } catch (persistError) {
         outboxLog.error({ error: persistError }, 'durable ack failure could not be persisted')
@@ -204,7 +211,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
           }, operationEpoch)
           if (!isActive(operationEpoch)) return
           deps.onState(record)
-          rejectWaiter(record.clientMessageId, record.lastError!)
+          rejectWaiter(record.clientMessageId, record.lastError!, true)
           kick()
           continue
         }
@@ -246,7 +253,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
           record = await persist(record, 'failed', {}, operationEpoch)
           if (!isActive(operationEpoch)) return
           deps.onState(record)
-          rejectWaiter(record.clientMessageId, record.lastError ?? i18n.t('outbox.sendFailed', { ns: 'messaging' }))
+          rejectWaiter(record.clientMessageId, record.lastError ?? i18n.t('outbox.sendFailed', { ns: 'messaging' }), true)
           kick()
         }
       }

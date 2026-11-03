@@ -329,7 +329,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     const operation = record.operation
     if ((operation?.kind !== 'upload' && operation?.kind !== 'nativeAttachment') || !operation.commit) throw new Error('Missing attachment commitment')
     const commit = operation.commit, id = record.clientMessageId
-    if (record.dependsOn) await outbox.delivered(record.dependsOn)
+    if (record.dependsOn) await outbox.delivered(record.dependsOn, { waitForRetry: true })
     if (!active || !outbox.has(id)) return
     if (!prepared) {
       const row = await retryAttachmentUpload(attempt => timing.stage('readback', attempt, () => chatService.getMessageById(id, record.senderUserId)))

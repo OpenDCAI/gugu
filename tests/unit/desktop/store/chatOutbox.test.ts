@@ -52,6 +52,36 @@ function deferred<T = void>() {
   return { promise, resolve }
 }
 describe('chatOutbox 状态机', () => {
+  it('retains an opted-in dependency waiter across retryable failure while ordinary callers still reject', async () => {
+    const deliver = vi.fn(async () => { throw new Error('offline') })
+    const h = harness(deliver)
+    await h.outbox.enqueue(makeRecord('source'))
+    const ordinary = h.outbox.delivered('source').catch(error => error)
+    let completed = false, rejected = false
+    const retained = h.outbox.delivered('source', { waitForRetry: true }).then(() => { completed = true }, () => { rejected = true })
+    await settle(h)
+    expect(h.saved.get('source')?.state).toBe('failed')
+    expect((await ordinary).message).toBe('offline')
+    expect(completed).toBe(false)
+    expect(rejected).toBe(false)
+    const afterFailure = h.outbox.delivered('source', { waitForRetry: true })
+    deliver.mockResolvedValueOnce(undefined)
+    await h.outbox.retry('source')
+    await Promise.all([retained, afterFailure])
+    expect(completed).toBe(true)
+    expect(h.saved.size).toBe(0)
+  })
+  it('rejects retained dependency waiters when the original is discarded', async () => {
+    const pending = deferred()
+    const h = harness(() => pending.promise)
+    await h.outbox.enqueue(makeRecord('source'))
+    const waiting = h.outbox.delivered('source', { waitForRetry: true }).catch(error => error)
+    await h.outbox.discard('source')
+    expect(await waiting).toBeInstanceOf(Error)
+    pending.resolve()
+    await settle(h)
+    expect(h.saved.size).toBe(0)
+  })
   it('成功路径:pending→sending→sent,行即删', async () => {
     const h = harness(async () => {})
     await h.outbox.enqueue(makeRecord('a'))

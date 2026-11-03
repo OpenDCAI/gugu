@@ -418,6 +418,32 @@ describe('disk-backed attachment restart through the durable repository', () => 
     expect(settle).not.toHaveBeenCalled()
     stop(); f.wiring.dispose()
   })
+  it('resumes after an offline dependency exhausts its text retries and the existing online kick retries it', async () => {
+    vi.useFakeTimers()
+    const invoke = bridge(), f = wiringHarness('reply')
+    await stage(f, 'reply', { reply: 'source' })
+    const now = new Date().toISOString()
+    await putOutboxRecord(await f.repository, { clientMessageId: 'source', chatId: 'chat-1', senderUserId: 'owner-1',
+      payload: { content: 'text', contentType: 'text', toUserIds: [], replyToMessageId: null, threadRootId: null, isThreadRoot: false, isWhisper: false },
+      operation: { kind: 'message' }, state: 'pending', attempts: 0, lastError: null, enqueuedAt: now, updatedAt: now })
+    f.wiring.dispose()
+    const send = vi.spyOn(chatService, 'sendMessage').mockRejectedValue(new TypeError('offline'))
+    vi.spyOn(chatService, 'getMessageById').mockResolvedValue(null)
+    const restored = wiringHarness('reply', f.repository), stop = restored.wiring.restoreAndWatch()
+    await flushMicrotasks(50); await vi.advanceTimersByTimeAsync(12_000)
+    expect(send).toHaveBeenCalledTimes(3)
+    const pending = restored.wiring.outbox.pendingFor('chat-1', null)
+    expect(pending.find(row => row.clientMessageId === 'source')?.state).toBe('failed')
+    expect(pending.find(row => row.clientMessageId === 'reply')?.state).toBe('uploading')
+    expect(invoke.mock.calls.filter(([, args]) => args.file)).toEqual([])
+    send.mockResolvedValueOnce(persistedMessage('source'))
+    window.dispatchEvent(new Event('online'))
+    await vi.waitFor(() => expect(invoke.mock.calls.filter(([, args]) => args.file)).toHaveLength(1))
+    const repository = await f.repository
+    await vi.waitFor(() => expect(repository.snapshot().outbox).toEqual([]))
+    expect(restored.appendMessage.mock.calls.map(([row]) => row.id)).toEqual(['source', 'reply'])
+    stop(); restored.wiring.dispose()
+  })
   it.each(['complete', 'discard', 'dispose'])('waits for the original text dependency across restart (%s)', async outcome => {
     const invoke = bridge(), f = wiringHarness('reply')
     await stage(f, 'reply', { reply: 'source' })
