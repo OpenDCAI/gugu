@@ -97,11 +97,13 @@ const projectionStub = {
   rows: [] as unknown[],
   identityRows: [] as unknown[],
   revoked: new Set<string>(),
+  deleted: new Set<string>(),
   advanceImpl: null as null | (() => Promise<unknown[] | null>),
   reset() {
     projectionStub.rows = []
     projectionStub.identityRows = []
     projectionStub.revoked = new Set()
+    projectionStub.deleted = new Set()
     projectionStub.advanceImpl = null
   },
 }
@@ -136,6 +138,7 @@ vi.mock('../../../../apps/desktop/src/lib/chatProjection', () => ({
     current: () => projectionStub.rows,
     identities: () => projectionStub.identityRows,
     isMembershipRevoked: (chatId: string) => projectionStub.revoked.has(chatId),
+    isConversationDeleted: (chatId: string) => projectionStub.deleted.has(chatId),
     ledger: () => [],
     reset: () => undefined,
   }),
@@ -222,6 +225,7 @@ function fireMembershipRevision(tombstone = false): void {
   for (const listener of listeners) void Promise.resolve(listener(operations)).catch(() => undefined)
 }
 beforeEach(async () => {
+  projectionStub.reset()
   publishGate.current = null
   latestStore = null
   harness = null
@@ -362,4 +366,22 @@ describe('system badge follows addressed unread, while list rows stay complete',
     await flushReact();
     expect(platform.setBadge).toHaveBeenLastCalledWith(1);
   });
+});
+
+it.each(['revision','refresh'])('clears an open personally deleted DM through %s even when the server list becomes empty', async (path) => {
+  await renderStore();
+  await act(async () => { latestStore!.setActiveChatId('chat-1') });
+  await flushReact();
+  projectionStub.deleted.add('chat-1');
+  expect(projectionStub.revoked.has('chat-1')).toBe(false);
+  if (path === 'revision') {
+    projectionStub.rows = [];
+    await act(async () => { fireMembershipRevision(false) });
+  } else {
+    serverChatList.mockResolvedValue({chats:[],identities:[]});
+    await act(async () => { await latestStore!.refreshChats() });
+  }
+  await flushReact(20);
+  expect(latestStore!.chats).toEqual([]);
+  expect(latestStore!.activeChatId).toBeNull();
 });

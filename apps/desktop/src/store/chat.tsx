@@ -292,7 +292,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       // (它会原样交回同一份行)。刚建号/刚建会话时成员行**晚一点**提交,命名它的是 journal 的
       // 那条 operation(服务端义务 O1),路径是 wake → advance,不是一次定时轮询。
       const data = await chatProjection.hydrate(userId)
-      if (data.length > 0 || chatsRef.current.length === 0 || options.acceptEmpty === true) {
+      if (data.length > 0 || chatsRef.current.length === 0 || options.acceptEmpty === true || chatProjection.hasDeletedConversation(userId, chatsRef.current)) {
         // 选中一条会话是**用户的意图**,不是列表刷新的投影 —— 什么时候才算「它没了」由账本判(#4314)。
         await chatProjection.publish(data, chatProjection.identities(userId), {
           requestSeq, notify: !isFirstLoad, preserveMissingActive: options.preserveMissingActive,

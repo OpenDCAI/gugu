@@ -144,6 +144,9 @@ export function useChatProjectionBinding(deps: {
   const hydrate = useCallback((accountId: string) => ownerFor(accountId)
     .hydrate(readProjectionCursor(repositoryRef.current), currentAuthSessionSignal()), [ownerFor, repositoryRef])
 
+  const hasDeletedConversation = useCallback((accountId: string, chats: readonly ChatItem[]) =>
+    chats.some(chat => ownerFor(accountId).isConversationDeleted(chat.id)), [ownerFor])
+
   const identities = useCallback((accountId: string) => ownerFor(accountId).identities(), [ownerFor])
 
   const attach = useCallback((accountId: string, subscribe: ChatProjectionAttachment['subscribe']) => {
@@ -161,5 +164,5 @@ export function useChatProjectionBinding(deps: {
 
   // ⚠️ 必须**稳定**:返回新字面量 ⇒ 依赖它的 effect 与 useCallback 每渲染都重建 ⇒ 订阅/渲染循环
   // (实测:第一版返回字面量,chatSelectionIntent4314 直接跑到 heap OOM)。
-  return useMemo(() => ({ hydrate, identities, publish, attach }), [hydrate, identities, publish, attach])
+  return useMemo(() => ({ hydrate, identities, publish, attach, hasDeletedConversation }), [hydrate, identities, publish, attach, hasDeletedConversation])
 }
