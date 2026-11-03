@@ -81,6 +81,8 @@ export interface FileSurface {
    * relay's connection acting as the agent, so the service stamps what the program writes as the agent's.
    */
   asAgent?: string | null;
+  /** A program's existing host-stamped call owns its cancellable read snapshots. */
+  callId?: string;
   signal?: AbortSignal;
 }
 
@@ -658,7 +660,7 @@ async function versionPointers(token: string, row: ItemRow, actor: string): Prom
 export function createAppFiles(platform: FilesPlatform) {
   type ReadSnapshot = { pageId: number; extensionId: string; itemId: string; needs: Grant['needs']; actor: string | null; leases: number; active: number; file?: Promise<FileHandle>; timer?: ReturnType<typeof setTimeout> };
   const snapshots = new Map<string, ReadSnapshot>();
-  const snapshotKey = (surface: FileSurface, itemId: string, version: number) => JSON.stringify([surface.pageId, surface.extensionId, surface.asAgent ?? null, itemId, version]);
+  const snapshotKey = (surface: FileSurface, itemId: string, version: number) => JSON.stringify([surface.pageId, surface.extensionId, surface.asAgent ?? null, surface.callId ?? null, itemId, version]);
   const staleVersion = () => new AppFileError('stale-version', 'This file version is no longer available. Open the file again to read its current version.');
   const disposeSnapshot = (key: string, entry: ReadSnapshot): Promise<void> => {
     clearTimeout(entry.timer);
@@ -674,6 +676,7 @@ export function createAppFiles(platform: FilesPlatform) {
     entry.timer.unref?.();
   };
   const snapshot = (surface: FileSurface, itemId: string, version: number): ReadSnapshot => {
+    surface.signal?.throwIfAborted();
     const key = snapshotKey(surface, itemId, version);
     let entry = snapshots.get(key);
     if (!entry) {
@@ -681,6 +684,8 @@ export function createAppFiles(platform: FilesPlatform) {
       platform.sync.pageFor(surface.pageId, surface.extensionId);
       entry = { pageId: surface.pageId, extensionId: surface.extensionId, itemId, needs: null, actor: surface.asAgent ?? null, leases: 0, active: 0 };
       snapshots.set(key, entry);
+      const held = entry;
+      surface.signal?.addEventListener('abort', () => { held.leases = 0; void disposeSnapshot(key, held); }, { once: true });
     }
     entry.needs = itemId === surface.itemId ? null : has(surface.extensionId, 'files:read') ? 'files:read' : 'files:write';
     touch(key, entry);

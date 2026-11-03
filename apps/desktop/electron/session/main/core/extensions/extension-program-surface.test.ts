@@ -293,7 +293,7 @@ describe('an App program as a caller of its App (F16)', () => {
     const child = fakeChild();
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
     const release = surface.hand('topic-call', 'agent-1', [], [{ chatId: TOPIC, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
-    const page = { pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1', signal: expect.any(AbortSignal) };
+    const page = { pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1', callId: expect.any(String), signal: expect.any(AbortSignal) };
     expect(await call(child, 801, 'filesList', { place: { chat: TOPIC } }, 'topic-call')).toMatchObject({ ok: true });
     expect(listAppFiles).toHaveBeenLastCalledWith(page, { place: { chat: TOPIC } });
     expect(await call(child, 802, 'filesOpen', { ref: { chat: FOLDER_CHAT, id: 'source-file' } }, 'topic-call')).toMatchObject({ ok: true });
@@ -320,7 +320,7 @@ describe('an App program as a caller of its App (F16)', () => {
     const result = await call(child, 1, 'filesOpen', { ref: { id: 'item-board' } }, 'call-1');
     expect(result).toEqual({ m: APP_FRAME_MARKER, t: 'result', id: 1, ok: true, value: { docName: 'd@1' } });
     expect(openAppFile).toHaveBeenCalledWith(
-      { pageId: surface.pageId, extensionId: 'board', handed: { chat: BOARD_CHAT, id: 'item-board' }, asAgent: 'agent-1', signal: expect.any(AbortSignal) },
+      { pageId: surface.pageId, extensionId: 'board', handed: { chat: BOARD_CHAT, id: 'item-board' }, asAgent: 'agent-1', callId: expect.any(String), signal: expect.any(AbortSignal) },
       { ref: { id: 'item-board' } },
     );
     // The call ends: what was opened on being handed alone goes with it.
@@ -363,7 +363,7 @@ describe('an App program as a caller of its App (F16)', () => {
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
     const first = surface.hand('call-a', 'agent-1', [HANDED]);
     const second = surface.hand('call-b', 'agent-2', [{ ...HANDED, agentUserId: 'agent-2' }]);
-    const asAgent = (agent: string) => ({ pageId: surface.pageId, extensionId: 'board', handed: { chat: BOARD_CHAT, id: 'item-board' }, asAgent: agent, signal: expect.any(AbortSignal) });
+    const asAgent = (agent: string) => ({ pageId: surface.pageId, extensionId: 'board', handed: { chat: BOARD_CHAT, id: 'item-board' }, asAgent: agent, callId: expect.any(String), signal: expect.any(AbortSignal) });
     expect(await call(child, 40, 'filesOpen', { ref: { id: 'item-board' } }, 'call-b')).toMatchObject({ ok: true });
     expect(openAppFile).toHaveBeenLastCalledWith(asAgent('agent-2'), { ref: { id: 'item-board' } });
     expect(await call(child, 41, 'filesOpen', { ref: { id: 'item-board' } }, 'call-a')).toMatchObject({ ok: true });
@@ -412,7 +412,7 @@ describe('an App program as a caller of its App (F16)', () => {
     // A session's working copy is no chat's: in an agent's call it stays the capability's, never refused here.
     const local = { ref: { workspace: 'session:session-1', name: 'notes.md' } };
     expect(await call(child, 54, 'filesOpen', local, 'call-1')).toMatchObject({ ok: true });
-    expect(openAppFile).toHaveBeenLastCalledWith({ pageId: surface.pageId, extensionId: 'board', handed: null, signal: expect.any(AbortSignal) }, local);
+    expect(openAppFile).toHaveBeenLastCalledWith({ pageId: surface.pageId, extensionId: 'board', handed: null, callId: expect.any(String), signal: expect.any(AbortSignal) }, local);
     // So is a project's folder (L1, 170 10-19): no membership to check a folder against — the capability's, as a session's.
     const project = { ref: { workspace: 'project:project-1', name: 'docs/plan.md' } };
     expect(await call(child, 55, 'filesOpen', project, 'call-2')).toMatchObject({ ok: true });
@@ -523,7 +523,7 @@ describe('an App program as a caller of its App (F16)', () => {
     const child = fakeChild();
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
     const release = surface.hand('call-1', 'agent-1', [], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
-    const asAgent = { pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1', signal: expect.any(AbortSignal) };
+    const asAgent = { pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1', callId: expect.any(String), signal: expect.any(AbortSignal) };
     const asPerson = { pageId: surface.pageId, extensionId: 'board', handed: null };
     expect(await call(child, 50, 'filesList', { place: { chat: FOLDER_CHAT } }, 'call-1')).toMatchObject({ ok: true });
     expect(listAppFiles).toHaveBeenLastCalledWith(asAgent, { place: { chat: FOLDER_CHAT } });
@@ -554,7 +554,7 @@ describe('an App program as a caller of its App (F16)', () => {
     const release = surface.hand('call-1', 'agent-1', [], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
     const ref = { ref: { chat: FOLDER_CHAT, id: 'item-notes' } };
     expect(await call(child, 70, 'filesOpen', ref, 'call-1')).toMatchObject({ ok: true });
-    expect(openAppFile).toHaveBeenLastCalledWith({ pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1', signal: expect.any(AbortSignal) }, ref);
+    expect(openAppFile).toHaveBeenLastCalledWith({ pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1', callId: expect.any(String), signal: expect.any(AbortSignal) }, ref);
     await release();
     expect(fileSync.revoke).toHaveBeenCalledTimes(1);
     const which = fileSync.revoke.mock.calls[0]![2] as (grant: { itemId: string; needs: string | null; asAgent?: string }) => boolean;
@@ -588,7 +588,7 @@ describe('an App program as a caller of its App (F16)', () => {
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
     const first = surface.hand('call-a', 'agent-1', [], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
     const second = surface.hand('call-b', 'agent-2', [{ itemId: 'item-folder', chatId: FOLDER_CHAT, agentUserId: 'agent-2' }]);
-    const asAgent = (agent: string) => ({ pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: agent, signal: expect.any(AbortSignal) });
+    const asAgent = (agent: string) => ({ pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: agent, callId: expect.any(String), signal: expect.any(AbortSignal) });
     expect(await call(child, 60, 'filesList', { place: { chat: FOLDER_CHAT } }, 'call-b')).toMatchObject({ ok: true });
     expect(listAppFiles).toHaveBeenLastCalledWith(asAgent('agent-2'), { place: { chat: FOLDER_CHAT } });
     expect(await call(child, 61, 'filesList', { place: { chat: FOLDER_CHAT } }, 'call-a')).toMatchObject({ ok: true });
@@ -655,15 +655,17 @@ describe('an App program as a caller of its App (F16)', () => {
 describe('R3 scoped file reads follow the program call lifetime', () => {
   it('k1 release aborts its own page signal without cancelling another call', async () => {
     const child = fakeChild(), surface = attachProgramSurface('board', child as unknown as ChildProcess);
-    let page: { signal?: AbortSignal } | undefined;
+    let page: { signal?: AbortSignal; callId?: string } | undefined;
     openAppFile.mockImplementationOnce(async (...args: unknown[]) => { page = args[0] as typeof page; return { docName: 'd@1' }; });
     const release = surface.hand('cancelled', 'agent-1', [HANDED]);
     surface.hand('other', 'agent-1', [HANDED]);
     await call(child, 9001, 'filesOpen', { ref: { id: HANDED.itemId } }, 'cancelled');
     const signal = page?.signal;
+    expect(page?.callId).toBe('cancelled');
     openAppFile.mockImplementationOnce(async (...args: unknown[]) => { page = args[0] as typeof page; return { docName: 'd@1' }; });
     await call(child, 9002, 'filesOpen', { ref: { id: HANDED.itemId } }, 'other');
     const other = page?.signal;
+    expect(page?.callId).toBe('other');
     await release();
     const otherWasLive = other !== undefined && !other.aborted;
     await surface.close();
@@ -685,6 +687,7 @@ describe('R3 scoped file reads follow the program call lifetime', () => {
       await surface.close();
       expect(pages.slice(0, 2).map(page => page.signal?.aborted)).toEqual([true, true]);
       expect(pages[2]).not.toHaveProperty('signal');
+      expect(pages[2]).not.toHaveProperty('callId');
     } finally { openAppFile.mockImplementation(async () => ({ docName: 'd@1' })); await surface.close(); }
   });
 });

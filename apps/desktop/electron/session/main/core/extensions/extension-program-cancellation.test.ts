@@ -29,16 +29,18 @@ vi.mock('@main/core/extensions/extensions-root', () => ({ extensionsService: () 
 vi.mock('@main/core/extensions/account-token', async original => ({ ...await original<object>(), currentAccountAccessToken: async () => null }));
 vi.mock('@main/core/extensions/file-sync', () => ({
   fileSync: { attachPort: (id: number, extensionId: string) => ({ id, extensionId }),
-    fromPort: vi.fn(), pageGone: vi.fn(), revoke: vi.fn(), openCount: () => 0, ensureFor: vi.fn() },
+    fromPort: vi.fn(), pageGone: vi.fn(), revoke: vi.fn(), pageFor: (id: number, extensionId: string) => ({ id, extensionId }), openCount: () => 0, ensureFor: vi.fn() },
   fileServiceUrl: () => 'http://files.invalid', localFileService: {},
 }));
 vi.mock('@main/core/extensions/extension-icon', () => ({ renderExtensionIcon: () => null }));
 vi.mock('@shared/extensions/app-files-core', async original => {
   const actual = await original<typeof import('@shared/extensions/app-files-core')>();
   return { ...actual, createAppFiles: (platform: FilesPlatform) => {
-    const files = actual.createAppFiles({ ...platform, resolveFile: (...args) => resolveFile(...args) });
+    const files = actual.createAppFiles({ ...platform, account: async () => ({ token: 'fixture', userId: 'owner' }), resolveFile: (...args) => resolveFile(...args) });
     return { ...files, open: async (...args: Parameters<typeof files.open>) => {
       try { return await files.open(...args); } catch (error) { readError = error; throw error; }
+    }, read: async (...args: Parameters<typeof files.read>) => {
+      try { return await files.read(...args); } catch (error) { readError = error; throw error; }
     } };
   } };
 });
@@ -48,7 +50,7 @@ const { APP_FRAME_MARKER } = await import('@shared/extensions/app-runtime-protoc
 
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
 describe('R3 program lifetime reaches the existing byte recovery', () => {
-  it('k4 releases an actual files.open during backoff without another fetch', async () => {
+  it('k4 releases an actual files.read during backoff without another fetch', async () => {
     const child = Object.assign(new EventEmitter(), { connected: true, send: vi.fn() });
     const surface = attachProgramSurface('reader', child as unknown as ChildProcess);
     const chunks = new Map<number, Uint8Array>();
@@ -76,7 +78,9 @@ describe('R3 program lifetime reaches the existing byte recovery', () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-03T00:00:00Z')); readError = undefined;
     const release = surface.hand('call-1', 'agent', [{ itemId: ITEM, chatId: CHAT, agentUserId: 'agent' }]);
     try {
-      child.emit('message', { m: APP_FRAME_MARKER, t: 'call', id: 44, call: 'call-1', method: 'filesOpen', args: { ref: { id: ITEM } } });
+      child.emit('message', { m: APP_FRAME_MARKER, t: 'call', id: 43, call: 'call-1', method: 'filesOpen', args: { ref: { id: ITEM } } });
+      await vi.waitFor(() => expect(child.send).toHaveBeenCalledWith(expect.objectContaining({ t: 'result', id: 43, ok: true })));
+      child.emit('message', { m: APP_FRAME_MARKER, t: 'call', id: 44, call: 'call-1', method: 'filesRead', args: { ref: { id: ITEM, version: 1 }, offset: 0, length: 1 } });
       await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
       await release();
       const warningCount = warnings.length;

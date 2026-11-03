@@ -78,7 +78,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   // in no call: as a page, by the capability words.
   const filePage = (args: Record<string, unknown>, callId: string | undefined, resource: boolean): DesktopFilePage => {
     const call = callId === undefined ? undefined : calls.get(callId);
-    const scope = { pageId, extensionId, ...(call ? { signal: call.controller.signal } : {}) };
+    const scope = { pageId, extensionId, ...(call ? { callId, signal: call.controller.signal } : {}) };
     const ref = args.ref === undefined ? null : fileRefOf(args.ref);
     if (call && ref && 'id' in ref && !isWorkspace(ref)) {
       const given = call.files.find((file) => file.itemId === ref.id);
