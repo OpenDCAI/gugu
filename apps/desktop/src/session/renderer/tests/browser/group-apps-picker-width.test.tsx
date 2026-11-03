@@ -3,6 +3,7 @@ import { runInAction } from 'mobx';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { page } from 'vitest/browser';
 import { i18n } from '@/i18n';
+import { rendererLogger } from '@/lib/log';
 import { createReactHarness, renderWithAppProviders } from '../../../../../../../tests/support/testHarness';
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import { GroupAppsPicker } from '@/components/chat/GroupAppsPicker';
@@ -54,7 +55,7 @@ async function measure(name: string) {
   const spacing = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--spacing'));
   // The theme spacing token is rem-based; resolve it through the root font size.
   const unit = spacing * parseFloat(getComputedStyle(document.documentElement).fontSize);
-  console.info('GROUP_APPS_PICKER_WIDTH', JSON.stringify({ name, viewport: innerWidth, width, minWidth: getComputedStyle(popup).minWidth, maxWidth: getComputedStyle(popup).maxWidth, minimum: 40 * unit, maximum: Math.min(80 * unit, innerWidth - 4 * unit) }));
+  rendererLogger('tests/group-apps-picker-width').info({ name, viewport: innerWidth, width, minWidth: getComputedStyle(popup).minWidth, maxWidth: getComputedStyle(popup).maxWidth, minimum: 40 * unit, maximum: Math.min(80 * unit, innerWidth - 4 * unit) }, 'GROUP_APPS_PICKER_WIDTH');
   return { popup, width, unit };
 }
 
