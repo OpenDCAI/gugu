@@ -20,6 +20,8 @@ import {
 } from '@shared/core/sessions/sessions';
 import { makePtySessionId } from '@shared/core/pty/ptySessionId';
 import { sessionDescendantIds } from './session-descendants';
+import { getRendererSession } from '@/lib/sessionPublication';
+import { rememberTask } from '@renderer/features/command-palette/recent-tasks';
 
 export class PageSessionsStore implements IDisposable {
   private offAgentStatusChanged: (() => void) | null = null;
@@ -274,6 +276,7 @@ export class PageSessionsStore implements IDisposable {
   ): Promise<ArchiveOutcome> {
     const store = this.sessions.get(sessionId);
     if (!store) return { archived: [], unreached: [] };
+    const recentOwner = getRendererSession()?.user.id ?? null;
 
     const removed = new Map<string, NonNullable<typeof store>>();
     const removedSessions = new Map<string, NonNullable<ReturnType<typeof this.ptySessions.get>>>();
@@ -297,6 +300,7 @@ export class PageSessionsStore implements IDisposable {
     try {
       // 主进程报回这一次真正收走的行(含别的机器上的子会话):归档提示的「撤销」按它放回。
       const outcome = await rpc.sessions.archiveSession(this.projectId, sessionId, scope);
+      for (const ref of outcome.archived) rememberTask(ref.sessionId, true, recentOwner);
       if (scope.removeSocialIdentity !== false) hide();
       for (const session of removedSessions.values()) session.destroy();
       return outcome;
