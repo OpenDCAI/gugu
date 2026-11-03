@@ -72,6 +72,11 @@ export const ExtensionViewLayer = observer(function ExtensionViewLayer() {
 const FOLLOW_STILL_FRAMES = 10;
 const FOLLOW_MAX_MS = 2_000;
 
+function releaseHiddenFocus(box: HTMLElement): void {
+  const focused = box.ownerDocument.activeElement;
+  if (focused instanceof HTMLElement && box.contains(focused)) focused.blur();
+}
+
 interface Surface {
   partition: string;
   entryUrl: string;
@@ -359,6 +364,7 @@ export const ExtensionPage = observer(function ExtensionPage({
           const layer = layerRef.current;
           if (!box || !layer) return;
           if (!claim) {
+            releaseHiddenFocus(box);
             box.style.visibility = 'hidden';
             if (managed) box.style.opacity = '0';
             box.inert = true;
@@ -372,6 +378,7 @@ export const ExtensionPage = observer(function ExtensionPage({
               clip.height > 0 &&
               claim.element.isConnected &&
               claim.element.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+            if (!shown) releaseHiddenFocus(box);
             box.style.left = `${clip.left}px`;
             box.style.top = `${clip.top}px`;
             box.style.width = `${clip.width}px`;
