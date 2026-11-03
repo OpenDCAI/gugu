@@ -39,16 +39,19 @@ async function move(x: number, y: number) {
   await sweep([{ x, y }]);
 }
 
-/**
- * A moving mouse reports every frame. Base UI's safe polygon keeps the popup open across the row-to-popup gap only while
- * moves keep coming (it closes after 40 ms without one, safePolygon.mjs), so the crossing is sent as one stream of moves
- * instead of one awaited CDP round trip per step — on a loaded machine those round trips alone exceed 40 ms.
- */
+/** CDP uses top-page coordinates; map through every test frame's scale and border while keeping one stream of moves. */
 async function sweep(points: readonly { x: number; y: number }[]) {
-  const frame = (window.frameElement as HTMLElement | null)?.getBoundingClientRect() ?? { left: 0, top: 0 };
   const session = cdp() as unknown as { send: (method: string, params: object) => Promise<unknown> };
   await act(async () => {
-    await Promise.all(points.map((point) => session.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: frame.left + point.x, y: frame.top + point.y })));
+    await Promise.all(points.map(({ x, y }) => {
+      for (let current: Window = window; current.frameElement; current = current.parent) {
+        const frame = current.frameElement as HTMLElement, box = frame.getBoundingClientRect();
+        const scale = box.width / frame.offsetWidth;
+        x = box.left + (frame.clientLeft + x) * scale;
+        y = box.top + (frame.clientTop + y) * scale;
+      }
+      return session.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    }));
   });
 }
 
