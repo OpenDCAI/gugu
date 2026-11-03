@@ -2108,7 +2108,7 @@ describe('message_members = 可寻址名录(spec ⑨)', () => {
     await client.close()
   })
   // 状态两种来源写在行上:跑在这台机器上的读宿主按 agent 的状态流;其余只有云端 presence,是它的宿主发布的副本。
-  test('agent 行带运行状态:本机的读宿主,其余读云端并写明来源、时刻与那台宿主在不在线;可按类型与状态筛', async () => {
+  test.each([false, true])('agent 行保留运行读数,状态筛选按设备在线信号: %s', async (hostOnline) => {
     const h = directoryHarness()
     const baseRpc = h.deps.restRpc
     const presenceAsked: unknown[] = []
@@ -2119,8 +2119,8 @@ describe('message_members = 可寻址名录(spec ⑨)', () => {
           results: {
             'codex-8-id': {
               status: 'presence',
-              // 宿主刚退出的样子:agent 行刚写过(derived_status 还说在线),设备行已经离线 ⇒ host_online 看设备行。
-              presence: { agent_status: 'needs_user', agent_status_detail: 'approval', updated_at: '2026-09-26T10:00:00.000Z', derived_status: 'online', device_status: 'offline' },
+              // agent 行仍说在线,可达性只看设备;离线时保留读数但不命中状态筛选。
+              presence: { agent_status: 'needs_user', agent_status_detail: 'approval', updated_at: '2026-09-26T10:00:00.000Z', derived_status: 'online', device_status: hostOnline ? 'online' : 'offline' },
             },
           },
         }
@@ -2144,7 +2144,7 @@ describe('message_members = 可寻址名录(spec ⑨)', () => {
     expect(byName.get('Codex 1')).toMatchObject({ status: 'working', detail: 'running', status_from: 'this_machine' })
     expect(byName.get('Codex 1')).not.toHaveProperty('status_at')
     expect(byName.get('Codex 8')).toMatchObject({
-      status: 'needs_user', detail: 'approval', status_from: 'cloud', status_at: '2026-09-26T10:00:00.000Z', host_online: false,
+      status: 'needs_user', detail: 'approval', status_from: 'cloud', status_at: '2026-09-26T10:00:00.000Z', host_online: hostOnline,
     })
     expect(byName.get('老板')).not.toHaveProperty('status')
     // 本机有读数的不再去问云端
@@ -2153,7 +2153,7 @@ describe('message_members = 可寻址名录(spec ⑨)', () => {
     // 按名字排:翻页有确定的顺序
     expect(all.items.findIndex((row) => row.display_name === 'Codex 1')).toBeLessThan(all.items.findIndex((row) => row.display_name === 'Codex 8'))
 
-    expect((await members({ status: 'approval' })).items.map((row) => row.display_name)).toEqual(['Codex 8'])
+    expect((await members({ status: 'approval' })).items.map((row) => row.display_name)).toEqual(hostOnline ? ['Codex 8'] : [])
     expect((await members({ status: 'working' })).items.map((row) => row.display_name)).toEqual(['Codex 1'])
     expect((await members({ type: 'human' })).items.map((row) => row.display_name)).toEqual(['老板'])
     expect((await members({ type: 'agent' })).total).toBe(2)

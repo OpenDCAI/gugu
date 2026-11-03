@@ -110,6 +110,7 @@ type SidebarSessionEntry = {
   isPinned: boolean;
   time: number;
   group: SidebarStateGroup | null;
+  hostOnline?: boolean;
   /** Raw addressing name; components decide how to display it. */
   title: string;
   createdAt?: string;
@@ -751,6 +752,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   private remoteEntries(projectId: string, machine: string): SidebarSessionEntry[] {
     const listed = this.machines?.sessionsOf?.(machine);
     if (!listed) return [];
+    const hostOnline = this.machines?.connected?.(machine) ?? listed.live;
     const entries: SidebarSessionEntry[] = [];
     for (const session of listed.sessions) {
       if (session.projectId !== projectId) continue;
@@ -764,6 +766,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
         // Direct-link freshness only governs access; identified agents share presence with avatars.
         group: sidebarStateGroup(sessionPresentation(session, listed.live,
           session.agent?.userId ?? sessionAgentBindings.bindingFor(session.conversationId)?.agentUserId)),
+        hostOnline,
         title: session.title,
       });
     }
@@ -854,11 +857,11 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
 
   /**
    * spec session-page 链6: count of conversations waiting on the human, for the amber dot on a
-   * collapsed project row. Raw status only — viewing a conversation never clears it.
+   * collapsed project row. Offline marks remain visible but do not count; viewing never clears them.
    */
   needsYouCountForProject(projectId: string): number {
     const entries = this.placement.entries.get(projectId) ?? [];
-    return entries.filter((e) => e.group === 'needs-you').length;
+    return entries.filter((e) => e.group === 'needs-you' && e.hostOnline !== false).length;
   }
 
   toggleIdleExpanded(foldKey: string): void {

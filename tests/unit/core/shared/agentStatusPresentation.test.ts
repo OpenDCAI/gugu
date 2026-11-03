@@ -139,5 +139,12 @@ describe('needs-you and attention are defined once', () => {
   it("an unreachable host's working is not drawn; its other readings are", () => {
     expect(presentAgentStatus({ reading: { status: 'working', detail: 'running' }, hostOnline: false })).toBeNull()
     expect(presentAgentStatus({ reading: { status: 'needs_user', detail: 'approval' }, hostOnline: false })).toMatchObject({ tone: 'needs_user' })
+    // U7-C decision (b): retain the row mark while excluding offline hosts from attention totals.
+    for (const status of ['needs_user', 'error'] as const) {
+      const presentation = presentAgentStatus({ reading: { status, detail: null }, hostOnline: false })
+      expect(presentation?.tone).toBe(status)
+      expect(isNeedsYou(presentation, false)).toBe(false)
+      expect(isNeedsYou(presentation, true)).toBe(true)
+    }
   })
 })
