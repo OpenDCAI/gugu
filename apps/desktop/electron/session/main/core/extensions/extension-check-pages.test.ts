@@ -299,6 +299,17 @@ describe('where it opens decides its size (owner 10-13)', () => {
 
 describe('hidden widget checks', () => {
   const widget = { id: 'w1', messageId: 'm1', senderId: 'sender-1', text: 'Dinner', data: { poll: 'p1' } };
+  it('h2 uses the message height for the desktop slot and its report', async () => {
+    const report = await check({ widget: { ...widget, height: 360 }, chatId: 'chat-1', caller: 's1' });
+    expect(windows[0]!.size).toEqual({ width: 420, height: 360 });
+    expect(report.widget?.size).toEqual({ w: 420, h: 360 });
+  });
+  it('h3 uses the message height at the phone bubble width without pictures', async () => {
+    const report = await check({ widget: { ...widget, height: 360 }, chatId: 'chat-1', caller: 's1', phone: true, look: false });
+    expect(windows[0]!.size).toEqual({ width: 267, height: 360 });
+    expect(report.widget?.size).toEqual({ w: 267, h: 360 });
+    expect(report.pictures).toBeUndefined();
+  });
   it('binds the original input as the real operator before loading, and pictures only the fixed slot', async () => {
     const report = await check({ widget, chatId: 'chat-1', caller: 's1' });
     expect(binds[0]).toMatchObject({ widget: { messageId: 'm1', senderId: 'sender-1', data: { poll: 'p1' } }, conversation: 'chat-1', workspace: null, operator: { kind: 'agent', id: 'user:agent-f' } });

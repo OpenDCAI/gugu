@@ -942,6 +942,14 @@ describe('app_check', () => {
     expect(result).not.toHaveProperty('page');
   });
 
+  it('h1 preserves message height when parsing and forwarding a widget check', async () => {
+    list.mockReturnValue({ extensions: [], invalid: [] });
+    const widget = { id: 'm1', messageId: 'm1', senderId: 'sender-1', text: 'Dinner', data: { poll: 'p1' }, height: 360 };
+    const checkSurface = vi.fn(async () => ({ ...clean, rendered: false, reason: 'missing' as const, text: 'Dinner\nApp is not installed.', widget: { id: 'm1', message_id: 'm1', chat_id: 'chat-1' } }));
+    await runExtensionAgentAction({ action: 'check', tab_kind: 'dinner-vote.main', chat_id: 'chat-1', widget }, { checkSurface, ...worker });
+    expect(checkSurface).toHaveBeenCalledWith(expect.objectContaining({ widget: expect.objectContaining({ height: 360 }) }));
+  });
+
   it('hands the host the tab and the context as asked, and says a clean run is ok', async () => {
     list.mockReturnValue({ extensions: [installed], invalid: [] });
     const checkSurface = vi.fn(async () => clean);

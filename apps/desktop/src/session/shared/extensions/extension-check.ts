@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod';
+import { WIDGET_HEIGHT_MIN, WIDGET_HEIGHT_MAX } from '@gugu/core/shared/ui/widgetModels';
 import type { CheckReadings, ExtensionOperator } from './bridge-protocol';
 
 /**
@@ -84,6 +85,7 @@ export interface ExtensionStepResult {
 export const WIDGET_CHECK_SCHEMA = z.object({
   id: z.string().min(1), messageId: z.string().min(1), senderId: z.string().min(1),
   text: z.string(), data: z.record(z.string(), z.unknown()),
+  height: z.number().int().min(WIDGET_HEIGHT_MIN).max(WIDGET_HEIGHT_MAX).optional(),
 });
 export type WidgetCheck = z.infer<typeof WIDGET_CHECK_SCHEMA>;
 

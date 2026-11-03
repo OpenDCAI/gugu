@@ -860,7 +860,7 @@ export async function widgetCheckScopeOf(context, messageId, injected = {}) {
   if (wid !== undefined && (typeof wid !== 'string' || !wid.length)) throw unreadable()
   return {
     tabKind: `${widget.app}.${widget.view}`, chatId: String(message.chat_id),
-    widget: { id: wid ?? String(message.id), messageId: String(message.id), senderId: String(message.sender_user_id), text: widget.text, data: widget.data ?? {} },
+    widget: { id: wid ?? String(message.id), messageId: String(message.id), senderId: String(message.sender_user_id), text: widget.text, data: widget.data ?? {}, ...(widget.height === undefined ? {} : { height: widget.height }) },
   }
 }
 async function assertRecipientsAreMembers(chatId, toUserIds, deps) {

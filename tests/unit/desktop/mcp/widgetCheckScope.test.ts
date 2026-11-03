@@ -28,6 +28,14 @@ describe('widget checks use message visibility and membership', () => {
     expect(deps.restGet).toHaveBeenCalledTimes(1)
     expect(deps.restRpc.mock.calls.map(([name]) => name)).toEqual(['can_read_message', 'list_member_ids'])
   })
+  it('h0 preserves the message height in the checked widget scope', async () => {
+    const deps = source({ content: JSON.stringify({ ...JSON.parse(content), height: 360 }) })
+    expect((await widgetCheckScopeOf(context, messageId, deps)).widget.height).toBe(360)
+  })
+  it.each([9999, 1.5])('h4 omits invalid message height %s', async height => {
+    const deps = source({ content: JSON.stringify({ ...JSON.parse(content), height }) })
+    expect((await widgetCheckScopeOf(context, messageId, deps)).widget).not.toHaveProperty('height')
+  })
   it.each([
     ['missing', {}, true, [agentId], false],
     ['hidden whisper or before joining', {}, false, [agentId], true],
