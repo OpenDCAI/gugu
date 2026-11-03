@@ -37,7 +37,10 @@ import { createPhonePreparation, phonePreparationFailureText, phoneRequestFailur
 import { deferPhonePreparation, phonePreparationExpired, phonePreparationMayRun, phonePreparationWaitError } from './phone-agent-preparation-queue.mjs'
 
 const required = (value, name) => { if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`); return value.trim() }
-const parseSession = (value) => uuid(typeof value === 'string' ? value.replace(/^session:/, '') : value, 'session_id')
+const parseSession = (value) => {
+  try { return uuid(typeof value === 'string' ? value.replace(/^session:/, '') : value, 'session_id') }
+  catch (error) { throw new SessionInputAdmissionError(error.message, 'rejected', 'invalid_args') }
+}
 const uniqueProofs = (...sets) => [...new Map(sets.flatMap((entries) => entries ?? []).map((proof) => [JSON.stringify(proof), structuredClone(proof)])).values()]
 
 /** Native Android owns this process. No receive, credential, or execution loop depends on a WebView. */

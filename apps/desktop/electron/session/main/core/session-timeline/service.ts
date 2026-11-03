@@ -1,5 +1,5 @@
 import { promptAttachmentSchema, turnFileRefSchema } from '@gugu/session-core/acp/client';
-import { sessionInputAdmission, type SessionInputAdmission } from '@gugu/core/shared/sessionInputAdmission';
+import { SessionInputAdmissionError, sessionInputAdmission, type SessionInputAdmission } from '@gugu/core/shared/sessionInputAdmission';
 import { createNativeRecordReader } from './native-record';
 import { ask, withdrawAll } from '../asks';
 import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondAskQuestion } from '../asks/ask';
@@ -1412,7 +1412,8 @@ export async function send(
         delivery: { queue: true, origin: 'manual', ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) } });
       return { ok: true, value: { accepted: 'queued', admission: 'accepted', ...(clientMessageId ? { clientMessageId } : {}) } };
     } catch (error) {
-      return { ok: false, error: { code: 'send_failed', message: (error as Error)?.message ?? String(error), admission: sessionInputAdmission(error) } };
+      return { ok: false, error: { code: error instanceof SessionInputAdmissionError ? error.code ?? 'send_failed' : 'send_failed',
+        message: (error as Error)?.message ?? String(error), admission: sessionInputAdmission(error) } };
     }
   }
   const row = readSessionRow(conversationId);
@@ -1428,7 +1429,7 @@ export async function send(
     const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, files, attachments);
     return { ok: true, value: { ...accepted, admission: 'accepted', ...(clientMessageId ? { clientMessageId } : {}) } };
   } catch (error) {
-    return { ok: false, error: { code: error instanceof SessionWriteError ? error.code : 'send_failed',
+    return { ok: false, error: { code: error instanceof SessionWriteError || error instanceof SessionInputAdmissionError ? error.code ?? 'send_failed' : 'send_failed',
       message: (error as Error)?.message ?? String(error), admission: sessionInputAdmission(error) } };
   }
 }

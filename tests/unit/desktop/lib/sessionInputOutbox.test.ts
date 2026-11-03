@@ -6,6 +6,19 @@ import { buildSessionDirectEnvelope } from '@gugu/core/local/agent/deliveryEnvel
 import { openSessionInputStorage, SessionInputOutbox, sessionInputBubbles, withSessionInputDeadline, type HostPendingRow, type SessionInput, type SessionInputFailure } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 
 describe('native session input persistence', () => {
+  it('honors an explicit custody acceptance even when a later operation reports an error', async () => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    let attempts = 0
+    const queue = new SessionInputOutbox('owner', storage, async () => {
+      attempts++
+      throw new SessionInputAdmissionError('accepted, but notification failed', 'accepted', 'same-code')
+    }, () => true)
+    await queue.enqueue({ deviceId: null, sessionId: 'agent', text: 'already in host custody' })
+    await queue.flush(); await queue.flush()
+    expect(attempts).toBe(1)
+    expect(await queue.list()).toEqual([])
+  })
+
   it('hands definitive refusals to the person across restarts, with independent single-input recovery', async () => {
     const storage = await openSessionInputStorage(new IDBFactory())
     const attempts: [string, string][] = []

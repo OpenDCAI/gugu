@@ -220,7 +220,6 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
     reason: entry.error,
     label: [translateSessionMessage('transcript.sendFailed'), safeFailureLine(entry.reason ?? entry.error ?? '').slice(0, 64)].filter(Boolean).join(' · '),
     onRetry: () => propsRef.current.commands?.onRetrySend?.(entry.itemId),
-    onEdit: () => propsRef.current.commands?.onEditMessage?.({ itemId: entry.itemId }),
     onDiscard: () => propsRef.current.commands?.onDiscardSend?.(entry.itemId),
   }), entry.root, entry.itemId)));
 

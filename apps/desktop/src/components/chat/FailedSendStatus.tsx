@@ -2,11 +2,10 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
-import { translateSessionMessage } from '@renderer/localization/locale-store'
 
 /** Shared failed-message disclosure, including the existing touch menu. */
-export function FailedSendStatus({ reason, label, onRetry, onDiscard, onEdit }: {
-  reason?: string | null; label?: string; onRetry?: () => void; onDiscard: () => void; onEdit?: () => void
+export function FailedSendStatus({ reason, label, onRetry, onDiscard }: {
+  reason?: string | null; label?: string; onRetry?: () => void; onDiscard: () => void
 }) {
   const { t } = useTranslation('messaging')
   const [open, setOpen] = useState(false)
@@ -30,8 +29,6 @@ export function FailedSendStatus({ reason, label, onRetry, onDiscard, onEdit }: 
       {failureReason && <div className="max-w-72 break-words px-3 py-2 text-[length:var(--font-body)] text-[var(--text-secondary)]">{failureReason}</div>}
       {onRetry && <MenuItem render={<button type="button" />} nativeButton data-testid="message-send-retry"
         onClick={() => run(onRetry)} style={{ minHeight: 32, fontSize: 'var(--font-body)' }}>{t('common.retry')}</MenuItem>}
-      {onEdit && <MenuItem render={<button type="button" />} nativeButton data-testid="message-send-edit"
-        onClick={() => run(onEdit)} style={{ minHeight: 32, fontSize: 'var(--font-body)' }}>{translateSessionMessage('transcript.editMessage')}</MenuItem>}
       <MenuItem render={<button type="button" />} nativeButton data-testid="message-send-discard" danger
         onClick={() => run(onDiscard)} style={{ minHeight: 32, fontSize: 'var(--font-body)' }}>{t('common.discard')}</MenuItem>
     </DropdownMenu.Content>}

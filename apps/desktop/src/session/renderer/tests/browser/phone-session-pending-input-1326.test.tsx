@@ -141,7 +141,9 @@ it('uses the shared failed-message disclosure on touch and the existing inline e
   expect(document.querySelector('[data-testid="message-send-failed-menu"]')?.textContent).toContain(input.failure.message);
   expect(document.querySelector('[data-testid="message-send-retry"]')).not.toBeNull();
   expect(document.querySelector('[data-testid="message-send-discard"]')).not.toBeNull();
-  await act(async () => { (document.querySelector('[data-testid="message-send-edit"]') as HTMLButtonElement).click(); });
+  await act(async () => { (harness.container.querySelector('[data-testid="message-send-failed"]') as HTMLButtonElement).click(); });
+  await until('the failure disclosure closes', () => !document.querySelector('[data-testid="message-send-failed-menu"]'));
+  await act(async () => { (harness.container.querySelector('[data-slot="message-edit"]') as HTMLButtonElement).click(); });
   await until('the existing message editor opens for the refused row', () => !!harness.container.querySelector('[data-user-message-editor="phone-refused"]'));
   expect((harness.container.querySelector('textarea') as HTMLTextAreaElement).value).toBe(input.text);
   expect(retry).not.toHaveBeenCalled();

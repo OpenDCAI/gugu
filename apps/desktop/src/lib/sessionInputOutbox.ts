@@ -35,7 +35,7 @@ export type SessionInputBubble = { id: string; text: string; from?: string | nul
   | { state: 'stopped' }
   /** The durable sender still owns this input and will automatically retry it. */
   | { state: 'waiting'; failure: SessionInputFailure }
-  /** A host-owned row failed, in the host's words. */
+  /** The host owns a failed row, or explicitly refused to take the sender's input. */
   | { state: 'failed'; failure: SessionInputFailure | null; hostReason: string | null }
   | { state: 'unknown' })
 
@@ -171,10 +171,14 @@ export class SessionInputOutbox {
         await withSessionInputDeadline(this.send(input))
         await this.storage.remove(this.accountId, input.id)
       } catch (error) {
-        blocked.add(target)
-        rendererLogger('session/input-outbox').warn({ deviceId: input.deviceId, sessionId: input.sessionId, error: String(error) }, 'Native input not delivered; it stays queued')
-        await this.storage.put({ ...input, admission: sessionInputAdmission(error) === 'rejected' ? 'rejected' : 'uncertain', failure: error instanceof SessionInputFailureError ? error.failure
-          : { code: 'send-failed', message: error instanceof Error ? error.message : String(error) } })
+        const admission = sessionInputAdmission(error)
+        if (admission === 'accepted') await this.storage.remove(this.accountId, input.id)
+        else {
+          blocked.add(target)
+          rendererLogger('session/input-outbox').warn({ deviceId: input.deviceId, sessionId: input.sessionId, error: String(error), admission }, 'Native input not delivered; it stays queued')
+          await this.storage.put({ ...input, admission, failure: error instanceof SessionInputFailureError ? error.failure
+            : { code: 'send-failed', message: error instanceof Error ? error.message : String(error) } })
+        }
       }
       this.changed()
     }
