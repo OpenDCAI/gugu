@@ -288,8 +288,6 @@ export function SessionRowShell({
                 <span className="flex size-5 items-center justify-center">
                   <AgentStatusGlyph presentation={presentation} label={translate(`agentStatus.${presentation.label}`)} variant="2" />
                 </span>
-              ) : notificationCount > 0 ? (
-                <span className="flex size-5 items-center justify-center"><SidebarUnreadCount count={notificationCount} /></span>
               ) : needsAttention ? (
                 <span className="flex size-5 items-center justify-center">
                   <span
@@ -298,6 +296,8 @@ export function SessionRowShell({
                     title={translate('sidebar.sessionTreeNeedsAttention')}
                   />
                 </span>
+              ) : notificationCount > 0 ? (
+                <span className="flex size-5 items-center justify-center"><SidebarUnreadCount count={notificationCount} /></span>
               ) : statusUnavailable ? (
                 <span className="flex size-5 items-center justify-center">
                   <span

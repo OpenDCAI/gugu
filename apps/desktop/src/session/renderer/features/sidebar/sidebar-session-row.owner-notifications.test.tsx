@@ -16,6 +16,9 @@ it('gives an error or approval priority over unread notifications in the existin
     expect(html).not.toContain('data-notification-count');
     expect(html).toContain(reading.status === 'error' ? 'agentStatus.error' : 'agentStatus.needsApproval');
   }
+  const subtree = renderToStaticMarkup(<SessionRowShell {...props} needsAttention />);
+  expect(subtree).not.toContain('data-notification-count');
+  expect(subtree).toContain('sidebar.sessionTreeNeedsAttention');
   const resolved = renderToStaticMarkup(<SessionRowShell {...props} presentation={presentAgentStatus({ reading: { status: 'idle', detail: 'plain' } })} />);
   expect(resolved).toContain('data-notification-count="2"');
 });
