@@ -548,38 +548,35 @@ const save = () => gugu.writeData('save.json', JSON.stringify(state))
  */
 export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files
 
-Claim an existing data file's name or suffix and open it live; never copy it into your bundle
-(\`app_install\` data \`{ item_id }\`). Top-level \`await\` needs \`<script type="module">\`.
+Claim a data file's name or suffix; open it live, never bundle it (\`app_install\` data \`{ item_id }\`).
+Top-level \`await\` needs \`<script type="module">\`.
 
 ## App data
 
-A chat file named exactly as your tab's \`chatFile\` is your App's state: \`entry.appState\` is true and the folder
-view hides it (APIs, agents and links still reach it). A file you claim by suffix is a person's document and shows.
-\`gugu.files.viewPreferences({ chat }, { showAppData: true })\` sets the person's source-chat preference;
-no options: read it.
+Your tab's exact \`chatFile\` is App state: \`entry.appState\` is true; hidden in the folder, accessible to APIs,
+agents and links. Suffix-claimed documents show. \`gugu.files.viewPreferences({ chat }, { showAppData: true })\`
+sets the person's source-chat preference; omit options to read it.
 
 ## Which files you may open
 
 Topic file addresses resolve to their source chat; messages keep the topic's.
 
-Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.file\` as it is; by name,
-\`{ chat | workspace, name }\`. A place: \`{ chat: ctx.chat.id }\` or \`{ workspace: ctx.workspace.id }\` (a project's:
-\`gugu.projects.list()\` → \`{ projects: [{ id, name, workspace }] }\`). A session's tab has both.
+Each call names a file: an entry, \`ctx.file\`, or \`{ chat | workspace, name }\`; or a place:
+\`{ chat: ctx.chat.id }\` / \`{ workspace: ctx.workspace.id }\`. A session tab has both.
+\`gugu.projects.list()\` → \`{ projects: [{ id, name, workspace }] }\`.
 
-- The file you were opened for (\`ctx.file\`) — the host picked your App by its claim
-  (\`opensFiles\`, e.g. \`{ "chat": [".vote.json"] }\`; most specific wins) or picked via "open with".
-  No capability; a session's claims go under \`"session"\`.
-- \`"chatFile": "x.board.json"\` on it (API 14): opened in a chat, \`ctx.file\` is that top-level file, \`{}\` at first: fill it.
-- \`"sideWidth": 480\` (API 16): a tab's px beside a chat; none: half.
-- A name claims that one file (\`"session": ["TODO.md"]\`); a suffix is for a format of your own. Keep what your App
-  does not understand as is. Changing course, remove the topics and files you made, or ask. A session file
-  in a folder the search index skips hears the disk only when written.
+- \`ctx.file\`: no capability. The host picked your claim (\`opensFiles\`, e.g. \`{"chat":[".vote.json"]}\`, most
+  specific wins) or "open with". Session claims: \`"session"\`.
+- \`"chatFile": "x.board.json"\` (API 14): in chat, \`ctx.file\` is this top-level file, initially \`{}\`: fill it.
+- \`"sideWidth": 480\` (API 16): chat-side tab width in px; default: half.
+- A name claims one file (\`"session":["TODO.md"]\`); suffixes: your own format. Preserve unknown data.
+  Changing course, remove your topics/files or ask. Session files in search-skipped folders hear disk changes on write only.
 - Any other file (a chat you are in, a folder here): \`files:write\`, or \`files:read\` (read-only).
 - Another machine's working copy: list and \`f.read\` work; open whole/download need \`files:read:all-machines\`.
 - \`gugu.files.list(place)\`: \`files:read\`; \`gugu.files.create({...place,name},content)\`, \`gugu.files.rename(entry,name)\`,
   \`gugu.files.remove(entry)\`: \`files:write\`. JSON: objects, not \`JSON.stringify\` strings.
-- \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): all the reader's chats' files by part of the
-  path, with \`chatName\`; \`gugu.files.recent({ limit })\`: those this person opened last (\`openedAt\`).
+- \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): path search across the reader's chats, with
+  \`chatName\`. \`gugu.files.recent({ limit })\`: last opened (\`openedAt\`).
 - A chat's subfolders: \`gugu.files.list({ chat, folder })\` lists one (path or id, \`''\` the top; none: all;
   \`'folder'\` entries: list only);
   create and upload take \`folder\` too (made if missing); \`gugu.files.mkdir({ chat, path })\`,
@@ -587,9 +584,12 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
 - A working copy lists one folder: \`gugu.files.list({ workspace, folder })\` (\`''\` top). Non-documents: \`f.read(offset, length)\`, \`f.blob()\`.
 - \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A working copy (\`folder\`: below it only): \`{ kind: 'changes', changes }\` or \`resync\`.
-- \`gugu.files.openWith(entry)\` (a click or key) uses the most specific claim or "always use". \`{ ask: true }\`: they pick among all;
-  \`{ at }\`: a place, the opener's \`link\`. Unclaimed: gugu's preview, or details and download.
-  \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: gone or unreadable.
+- \`gugu.files.openWith(entry)\` (click/key): specific claim or "always use"; \`{ ask: true }\`: pick among all.
+  \`{ at }\`: opener's \`link\` place. Unclaimed: preview, or details/download. \`{ peek: true }\`: beside this page
+  (always for project files). Gone/unreadable: \`not-found\`.
+- \`gugu.files.openWith(entry, { tab: 'explore' })\`: your own tab claiming the chat file in \`opensFiles.chat\`;
+  no picker/default read or write. \`at\`/\`peek\` work. Invalid/empty/missing/unclaimed tab, \`ask\`, workspace/local:
+  \`invalid\`. Gesture/read permissions remain. Old hosts ignore \`tab\` (ordinary opener); no feature detection.
 - \`gugu.files.upload(place)\` (\`files:write\`, a click or key) opens the picker → the new entries (\`[]\`);
   a File: uploaded (≤ 25 MB, else \`too-large\`). \`gugu.files.download(entry)\` (a click or key) asks where
   to save → \`true\` saved; \`gugu.files.forward(entry|[…])\`: the forward page.
