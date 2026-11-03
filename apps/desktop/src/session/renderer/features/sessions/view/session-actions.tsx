@@ -12,7 +12,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { log } from '@renderer/utils/logger';
 import { useSessionViewContext } from '../session-view-context';
-import { LegacyDmHistoryDialog } from '@/components/legacy-dm-history/LegacyDmHistory';
+import { LegacyDmHistoryDialog } from '@/components/legacy-dm-history/LegacyDmHistoryEntry';
 
 /**
  * 一条会话的动作 —— 置顶、重命名、重启本会话、归档(#7052)。「通用 / 编程」的手动切换已删:展示跟设置 → 通用的「终端」开关走。

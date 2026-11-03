@@ -65,7 +65,7 @@ import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
 import { STATUS_MESSAGE_KEY, SessionHistoryRow, historyOptionId, sourceLabel } from './session-history-row';
 import { SessionHistorySectionBox } from './session-history-section-box';
 import { useSessionHistory, useSessionHistoryDirectories } from './use-session-history';
-import { LegacyDmArchiveButton } from '@/components/legacy-dm-history/LegacyDmHistory';
+import { LegacyDmArchiveButton } from '@/components/legacy-dm-history/LegacyDmHistoryEntry';
 
 // spec session-page「会话历史」(#6083)。形状照 设计同事 2026-09-23 给的参照(「直接 copy 这套会话历史」):
 //   标题行(右侧一个动作)→ 搜索 + 一个分组筛选菜单 + 目录下拉 → 一目录一节(节头:文件夹图标、名字、

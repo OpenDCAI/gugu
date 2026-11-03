@@ -8,7 +8,6 @@ import { messageForUser } from '@/lib/userFacingError';
 import { rendererLogger } from '@/lib/log';
 import { ChevronLeft, X } from '@/lib/icons';
 import { rpc } from '@/session/renderer/lib/ipc';
-import { Button as SessionButton } from '@/session/renderer/lib/ui/button';
 import { useSessionMessages } from '@/session/renderer/localization/use-session-messages';
 import { formatDateTime } from '@/session/renderer/features/session-history/session-history-row';
 import { Sheet } from '../ui/Sheet';
@@ -27,16 +26,6 @@ import { readLegacyDmList, readLegacyDmMessages, mergeLegacyMessages, type Legac
 import { legacyMessageBody } from './message-body';
 
 const log = rendererLogger('legacy-dm-history');
-
-/** A separate read-only archive; opening it never selects a chat or a native session. */
-export function LegacyDmArchiveButton() {
-  const { translate } = useSessionMessages();
-  const [open, setOpen] = useState(false);
-  return <>
-    <SessionButton size="sm" variant="ghost" onClick={() => setOpen(true)}>{translate('legacyDm.archive')}</SessionButton>
-    {open && <LegacyDmHistoryDialog onClose={() => setOpen(false)} />}
-  </>;
-}
 
 export function LegacyDmHistoryDialog({ sessionId, onClose }: { sessionId?: string; onClose: () => void }) {
   const { user } = useAuth();
