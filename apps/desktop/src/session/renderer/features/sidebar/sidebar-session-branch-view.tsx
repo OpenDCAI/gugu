@@ -20,7 +20,7 @@ export function SidebarSessionBranchCount({ summary, expanded, onToggle }: {
     <button
       type="button"
       data-session-branch-count={summary.total}
-      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-sm bg-foreground/5 px-1.5 text-[11px] leading-none text-foreground-muted tabular-nums hover:bg-foreground/10"
+      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-sm bg-foreground/5 px-1 text-[length:var(--font-caption)] leading-none text-foreground-muted tabular-nums hover:bg-foreground/10"
       aria-label={`${translate(expanded ? 'sidebar.collapseChildSessions' : 'sidebar.expandChildSessions')}: ${label}`}
       aria-expanded={expanded}
       title={states ? `${label}: ${states}` : label}
