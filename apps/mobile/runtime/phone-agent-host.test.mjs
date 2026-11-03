@@ -1224,6 +1224,40 @@ test('reconnect scans each agent immediately; one failure and its shared retry c
   } finally { await fx.close() }
 })
 
+test('failed sign-out preserves a disconnect and reconciles each agent once on reconnect', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  t.mock.method(performance, 'now', () => Date.now())
+  let rejectSignOut, signingOut = false
+  const signOut = new Promise((resolve, reject) => { rejectSignOut = reject })
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, {
+    prepare: async args => {
+      await seedInboxAgents(args)
+      args.cloud.signOut = () => { signingOut = true; return signOut }
+    },
+  })
+  try {
+    assert.equal(fx.host.state().ready, true)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    const pending = fx.host.handle({ type: 'auth_request', action: 'sign_out', id: randomUUID() })
+    await flushInbox()
+    assert.equal(signingOut, true)
+    assert.equal(fx.host.state().ready, false)
+    fx.connectivityChanged(false)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    rejectSignOut(new Error('sign-out network unavailable'))
+    await pending
+    assert.equal(fx.host.state().ready, false)
+    assert.match(fx.host.state().error, /手机宿主连接已断开/)
+    fx.connectivityChanged(true)
+    await flushInbox(); await flushInbox()
+    assert.equal(fx.host.state().ready, true)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB])
+    fx.connectivityChanged(true)
+    await advanceInbox(t, 30_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB])
+  } finally { rejectSignOut(new Error('test cleanup')); await fx.close() }
+})
+
 test('a disconnect during a scan remains uncovered until a later connected full scan; stopped callbacks cannot scan', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
   t.mock.method(performance, 'now', () => Date.now())

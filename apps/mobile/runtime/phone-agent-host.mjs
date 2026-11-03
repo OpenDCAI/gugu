@@ -771,13 +771,13 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     }
     let reportedConnectivity = false
     rpcHost = await rpcFactory({ cloud, ownerId, deviceId, invoke, provider, onCommand: tick, warn, onConnectivity: (connected) => {
-      if (stopped || signingOut) return
+      if (stopped) return
       const reconnected = connected && !rpcConnected
       if (!connected && (rpcConnected || !reportedConnectivity)) inboxGap++
       reportedConnectivity = true; rpcConnected = connected
       healthErrors.rpc = connected ? null : { message: '手机宿主连接已断开，正在重新连接' }
       updateReadiness()
-      if (startupComplete && reconnected) void reconcileInboxes()
+      if (startupComplete && reconnected && !signingOut) void reconcileInboxes()
     } })
     if (!reportedConnectivity) rpcConnected = true
     await heartbeat(); publish()
