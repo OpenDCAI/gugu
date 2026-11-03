@@ -34,6 +34,17 @@ describe('widget_send', () => {
     expect((await call(args)).error).not.toBe(true)
     expect(send).toHaveBeenCalledWith(args, JSON.stringify({ v: 2, text: 'Results', app: 'board', view: 'main', data: { count: 2 } }))
   })
+  it.each([64, 140, 480, 520])('writes the optional height %s into the message', async height => {
+    const { call, send } = await connect(async () => ({ apps: [hit] }))
+    expect((await call({ ...args, height })).error).not.toBe(true)
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(send.mock.calls[0]![1])).toEqual({ v: 2, text: 'Results', app: 'board', view: 'main', height, data: { count: 2 } })
+  })
+  it.each([20, 900, 300.5, 63, 521, null, '140'])('rejects invalid height %s before posting', async height => {
+    const { call, send } = await connect(async () => ({ apps: [hit] }))
+    expect(await call({ ...args, height })).toMatchObject({ error: true, text: expect.stringMatching(/height.*64.*520/s) })
+    expect(send).not.toHaveBeenCalled()
+  })
   it('refuses oversized UTF-8 input before any write and says the actual size', async () => {
     const { call, send } = await connect(async () => ({ apps: [hit] }))
     expect(await call({ ...args, data: { s: '界'.repeat(1363) } })).toMatchObject({ error: true, text: expect.stringContaining('4097 UTF-8 bytes') })

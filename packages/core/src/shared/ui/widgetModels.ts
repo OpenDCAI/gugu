@@ -4,13 +4,18 @@ export interface WidgetMessage {
   text: string
   app: string
   view: string
+  height?: number
   data?: Record<string, unknown>
 }
 
+export const WIDGET_HEIGHT_MIN = 64
+export const WIDGET_HEIGHT_MAX = 520
+export const WIDGET_HEIGHT_ERROR = `height must be an integer from ${WIDGET_HEIGHT_MIN} to ${WIDGET_HEIGHT_MAX}`
 export const WIDGET_DATA_MAX_BYTES = 4096
 export const WIDGET_CONTENT_MAX_BYTES = 6144
 const bytes = (text: string) => new TextEncoder().encode(text).length
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
+const validHeight = (height: unknown): height is number => typeof height === 'number' && Number.isInteger(height) && height >= WIDGET_HEIGHT_MIN && height <= WIDGET_HEIGHT_MAX
 
 /** The last top-level data object's source bytes, matching the database's json -> data (including whitespace/escapes). */
 function dataSourceBytes(content: string): number {
@@ -39,6 +44,7 @@ export function widgetMessageError(value: unknown): string | null {
   if ('id' in value || 'title' in value) return 'widget cannot contain top-level id or title'
   if (typeof value.text !== 'string' || !value.text.length || [...value.text].length > 200) return 'text must contain 1–200 plain text characters'
   if (typeof value.app !== 'string' || !value.app.length || typeof value.view !== 'string' || !value.view.length) return 'app and view are required'
+  if (value.height !== undefined && !validHeight(value.height)) return WIDGET_HEIGHT_ERROR
   if (value.data !== undefined) {
     if (!object(value.data)) return 'data must be a JSON object'
     const size = bytes(JSON.stringify(value.data))
@@ -47,15 +53,16 @@ export function widgetMessageError(value: unknown): string | null {
   return null
 }
 
-/** Malformed, legacy and oversized messages keep the old [Widget] placeholder. */
+/** Malformed, legacy and oversized messages keep the old [Widget] placeholder; unsupported heights use the manifest default. */
 export function parseWidgetMessage(content: string | null | undefined): WidgetMessage | null {
   if (!content || bytes(content) > WIDGET_CONTENT_MAX_BYTES) return null
   try {
     const raw: unknown = JSON.parse(content)
+    if (object(raw) && !validHeight(raw.height)) delete raw.height
     if (widgetMessageError(raw)) return null
     if (dataSourceBytes(content) > WIDGET_DATA_MAX_BYTES) return null
-    const { text, app, view, data } = raw as WidgetMessage
-    return { v: 2, text, app, view, ...(data === undefined ? {} : { data }) }
+    const { text, app, view, height, data } = raw as WidgetMessage
+    return { v: 2, text, app, view, ...(height === undefined ? {} : { height }), ...(data === undefined ? {} : { data }) }
   } catch { return null }
 }
 

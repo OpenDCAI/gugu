@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { WIDGET_HEIGHT_MIN, WIDGET_HEIGHT_MAX } from '@gugu/core/shared/ui/widgetModels';
 import { EXTENSION_API_VERSION } from './bridge-protocol';
 import { networkHostAllowed } from './partition';
 import { APP_PLATFORMS } from './app-platforms';
@@ -223,8 +224,8 @@ const tabContributionSchema = z.strictObject({
    * break them all to state something they already state.
    */
   entry: bundlePathSchema.optional(),
-  /** API 26: this tab may also appear in a message, at a fixed height. */
-  widget: z.strictObject({ height: z.number().int().min(64).max(520) }).optional(),
+  /** API 26: this tab may also appear in a message, with this default height. */
+  widget: z.strictObject({ height: z.number().int().min(WIDGET_HEIGHT_MIN).max(WIDGET_HEIGHT_MAX) }).optional(),
   /**
    * A host-owned page; no HTML is loaded from the App for this tab.
    * `settings`: the App's configuration / status page, one per App.
