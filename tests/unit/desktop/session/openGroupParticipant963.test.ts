@@ -8,7 +8,7 @@ const ready = observable.box(false);
 vi.mock('@renderer/features/sessions/session-pane-ready', () => ({ sessionPaneReady: () => () => ready.get() }));
 vi.mock('@renderer/features/sessions/stores/session-selectors', async (importOriginal) => ({
   ...await importOriginal<typeof import('@renderer/features/sessions/stores/session-selectors')>(),
-  getSessionView: () => ({ paneLayout: { groups: [{ pane: { tabOrder: state.tabs } }], open: state.open } }),
+  getSessionView: () => ({ paneLayout: { groups: [{ pane: { tabOrder: state.tabs, entries: new Map() } }], open: state.open } }),
   getSessionPageStore: () => undefined,
 }));
 vi.mock('@renderer/features/sessions/stores/session-registry', () => ({

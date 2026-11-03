@@ -1,6 +1,6 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
-import { ChevronDown } from '@/lib/icons';
+import { ChevronDown, ChevronLeft } from '@/lib/icons';
 import { Button } from '@renderer/lib/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@renderer/lib/ui/dropdown-menu';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -35,6 +35,13 @@ export const TabBar = observer(function TabBar({
   const { paneId, pane } = usePaneContext();
 
   const { translate } = useSessionMessages();
+  const active = pane.activeEntry;
+  const opener = active?.openerTabId ? pane.entries.get(active.openerTabId) : undefined;
+  const ownsFileToolbar = active?.kind === 'file' || active?.kind === 'chat-panel' && !!(active.state as { file?: unknown }).file;
+  // File pages own this action in their content toolbar. Other pages keep it in the
+  // pane's ordinary action group, never in the absolute, fixed-width grip slot.
+  const returnConversation = !ownsFileToolbar && active && opener && pane.registry.has(opener.kind) && pane.registry.get(opener.kind).conversation && (pane.navigationOf(active.tabId)?.index ?? 0) === 0
+    ? <Button size="icon-sm" variant="ghost" data-testid="tab-return-conversation" aria-label={translate('tabs.backToConversation')} title={translate('tabs.backToConversation')} onClick={() => void pane.go(active.tabId, -1)}><ChevronLeft className="size-3.5" /></Button> : null;
   const resolvedTabs = pane.resolvedTabs;
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -92,7 +99,7 @@ export const TabBar = observer(function TabBar({
           />
         ) : null
       }
-      actionsSlot={actionsSlot}
+      actionsSlot={returnConversation ? <>{returnConversation}{actionsSlot}</> : actionsSlot}
       reserveShellRestoreLane={reserveShellRestoreLane}
       leadingReservePx={leadingReservePx}
       leadingSlot={leadingSlot}

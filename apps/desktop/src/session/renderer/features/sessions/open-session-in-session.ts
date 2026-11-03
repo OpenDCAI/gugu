@@ -67,7 +67,7 @@ export function openSessionInSessionWhenReady({
       const paneLayout = getSessionView(host?.projectId ?? projectId, host?.sessionId ?? sessionId)?.paneLayout;
       if (!onlyIfNoTabs || !paneLayout?.groups.some((g) => g.pane.tabOrder.length > 0)) {
         const existing = paneLayout?.groups.flatMap((group) => [...group.pane.entries.values()]
-          .filter((entry) => entry.kind === sessionTabKind(session.data.runtime) && (entry.state as { sessionId?: string }).sessionId === sessionId)
+          .filter((entry) => entry.kind === sessionTabKind(session.data.runtime) && (entry.state as { sessionId?: string } | null)?.sessionId === sessionId)
           .map((entry) => ({ group, entry })))[0];
         if (existing) {
           paneLayout!.setActiveGroup(existing.group.paneId);

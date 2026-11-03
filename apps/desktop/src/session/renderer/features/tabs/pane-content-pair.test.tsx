@@ -11,18 +11,13 @@ import { PaneContext } from './pane-context';
 import { PaneLayoutStore } from './pane-layout-store';
 import { tabFullscreen } from './tab-fullscreen';
 import { commandRegistry } from '@renderer/lib/commands/registry';
-import { FileToolbar } from '../sessions/editor/file-toolbar';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root;
 let dom: JSDOM;
 const mounts = new Map<string, number>();
 function Page({ id }: { id: string }) { useEffect(() => { mounts.set(id, (mounts.get(id) ?? 0) + 1); }, [id]); return <div data-page={id} />; }
-const Content = observer(({ host }: TabContentProps) => {
-  const history = host.navigationOf(host.resolvedActiveTabId ?? '');
-  const page = history?.pages[history.index];
-  return <>{(page?.state as { id?: string } | undefined)?.id === 'file' && host.resolvedActiveTabId ? <FileToolbar host={host} tabId={host.resolvedActiveTabId} path="file" menu={null} /> : null}{host.resolvedTabs.map((tab) => <Page key={tab.tabId} id={tab.tabId} />)}</>;
-});
+const Content = observer(({ host }: TabContentProps) => <>{host.resolvedTabs.map((tab) => <Page key={tab.tabId} id={tab.tabId} />)}</>);
 const provider = createTabProvider({ kind: 'page', resourceKey: (s: { id: string }) => s.id, initialize: () => ({ dispose() {} }), dispose() {}, TabBarItem: () => null, TabBarItemDragPreview: () => null, TabContent: Content });
 
 beforeEach(() => {
@@ -66,7 +61,7 @@ describe('each actual pane owns its content', () => {
     act(() => root.render(<DndContext><PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent /></PaneContext.Provider></DndContext>));
     const back = dom.window.document.querySelector<HTMLButtonElement>('[data-testid="tab-return-conversation"]');
     expect(back).not.toBeNull();
-    expect(back!.closest('[data-tab-content-toolbar]')).not.toBeNull();
+    expect(back!.closest('[data-tabbar-actions]')).not.toBeNull();
     await act(async () => { back!.click(); });
     expect(layout.focusedPane.resolvedActiveTabId).toBe(source);
     expect(layout.focusedPane.tabOrder).toEqual([source, file]);
