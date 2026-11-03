@@ -24,7 +24,7 @@ describe('resuming work interrupted by a host update', () => {
       expect(id).toBe(sessionId);
       expect(text).toMatch(/^Your work was interrupted at .+ because Gugu on this machine restarted to update to 0\.3\.1-beta\.1129\./);
       expect(text).toContain('Commands that were running did not report back; check their state, then continue from where you stopped.');
-      expect(text).toContain('If a tool call immediately before this notice says it was rejected or interrupted by the user, that was this restart cancelling the request, not a refusal by the user. If you still need the same operation, request approval for it again.');
+      expect(text).toContain('If a tool call immediately before this notice says it was rejected or interrupted by the user, that was this restart, not the user. If you still need that operation, run it again (asking for approval first if it needs one).');
       expect(text).not.toMatch(/\bturn\b|轮|回合/);
       expect(options).toEqual({ keyScope: 'host:update', receipt: {
         id: stableUuid(['host:update', 'update-interrupted', String(update.at)]), at: new Date(update.at).toISOString(),
