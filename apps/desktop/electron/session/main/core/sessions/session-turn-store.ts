@@ -1,5 +1,5 @@
 import { findToolImage, trimCursorPageForTransport, trimTurnsForTransport } from '@gugu/session-core/session-record';
-import { and, asc, desc, eq, gte, like, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, like, lt, notLike, sql } from 'drizzle-orm';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { db } from '@main/db/client';
 import { sessionTurns } from '@main/db/schema';
@@ -231,13 +231,18 @@ export async function appendRecordTurnNow(sessionId: string, turn: TranscriptTur
 export async function storedTurnIndexBase(sessionId: string): Promise<number> {
   await persistenceTails.get(sessionId);
   const rows = await db
-    .select({ turnId: sessionTurns.turnId })
+    .select({ turnId: sessionTurns.turnId, data: sessionTurns.data })
     .from(sessionTurns)
     .where(eq(sessionTurns.sessionId, sessionId));
   let max = -1;
-  for (const { turnId } of rows) {
-    const index = /:turn:(\d+)$/.exec(turnId)?.[1];
-    if (index !== undefined) max = Math.max(max, Number(index));
+  for (const { turnId, data } of rows) {
+    const sources = turnId.startsWith('owner-notify:')
+      ? (JSON.parse(data) as TranscriptTurn).items.flatMap(item => item.kind === 'message' && item.ownerNotification?.sourceTurnId ? [item.ownerNotification.sourceTurnId] : []) : [turnId];
+    // A notified but interrupted turn already owns its identity; a restarted engine must not reuse it.
+    for (const source of sources) {
+      const index = /:turn:(\d+)$/.exec(source)?.[1];
+      if (index !== undefined) max = Math.max(max, Number(index));
+    }
   }
   return max + 1;
 }
@@ -246,7 +251,7 @@ async function storedTurnCount(sessionId: string): Promise<number> {
   const rows = await db
     .select({ count: sql<number>`count(*)` })
     .from(sessionTurns)
-    .where(eq(sessionTurns.sessionId, sessionId));
+    .where(and(eq(sessionTurns.sessionId, sessionId), notLike(sessionTurns.turnId, 'owner-notify:%')));
   return rows[0]?.count ?? 0;
 }
 
