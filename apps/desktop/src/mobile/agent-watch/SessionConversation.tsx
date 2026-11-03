@@ -15,7 +15,8 @@ import { ThemeProvider } from '@gugu/session-ui/react/primitives'
 import { appendToDraft } from '@/store/chatContext'
 import { useLocale } from '@/i18n'
 import { useTheme } from '@/store/theme'
-import { useChatDraft } from '@/components/chat/useChatDraft'
+import { useSessionConversationDraft } from './use-session-conversation-draft'
+import { useMobileShell } from '@/hooks/useMobileShell'
 import { useConversationQueue } from '@/components/chat/useConversationQueue'
 import { SessionTranscriptView } from '@/components/assistant-ui/session-transcript-view.aui'
 import { AgentConversationComposer } from '@renderer/lib/chat/agent-conversation-view'
@@ -84,7 +85,8 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const editor = useRef<PromptEditorRef | null>(null)
   const inFlight = useRef<{ attachments: ReadonlySet<string>; waiting: boolean } | null>(null)
   const input = useRef<HTMLInputElement>(null)
-  const composerDraft = useChatDraft(`session:${deviceId}/${sessionId}`)
+  const mobile = useMobileShell()
+  const composerDraft = useSessionConversationDraft(deviceId, sessionId, !mobile && nativeRecord && !local && !phoneHost)
   const { text: draftText, setText: setDraftText } = composerDraft
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const [attachmentWaiting, setAttachmentWaiting] = useState(false)

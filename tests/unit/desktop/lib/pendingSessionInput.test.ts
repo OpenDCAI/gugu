@@ -90,3 +90,8 @@ describe('ordinary input transcript custody', () => {
     })
   })
 })
+
+it('keeps the offline input waiting in its transcript without a Retry action', () => {
+  const failed = projectSessionPendingInput(null, [{ ...input(), failure: { code: 'host-offline' } }], [], [old])
+  expect(failed).toMatchObject({ id: 'send', text: 'hello', delivery: { state: 'waiting', retryable: false, reason: expect.any(String), error: expect.any(String) } })
+})
