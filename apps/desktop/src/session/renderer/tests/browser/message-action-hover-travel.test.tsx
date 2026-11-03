@@ -131,6 +131,44 @@ it.each([false, true])('hands the pill to the previous bubble before the old clo
   }
 });
 
+it.each([false, true])('records horizontal travel on the owned row before vertical reverse entry (isMine: %s)', async (isMine) => {
+  const lower = await mount(true, false, false, isMine);
+  const box = lower.getBoundingClientRect();
+  await move(isMine ? box.right - 10 : box.left + 10, box.top + box.height / 2);
+  await until('the lower pill opens from its edge', () => targetPillOpen(lower));
+  const pill = pills()[0];
+  await until('the lower pill finishes entering', () => !pill.hasAttribute('data-starting-style') && pill.getAnimations().every((animation) => animation.playState === 'finished'));
+  const previous = harness.container.querySelector<HTMLElement>('[data-testid="message-bubble-action-target"]')!;
+  const rect = previous.getBoundingClientRect();
+  const point = { x: rect.left + rect.width / 2, y: rect.bottom - 1 };
+  const horizontal = { x: point.x, y: box.top + box.height / 2 };
+  expect(lower.contains(document.elementFromPoint(horizontal.x, horizontal.y)), 'horizontal movement stays on the owned bubble').toBe(true);
+  const owner = readHoverOwner();
+  const handovers: unknown[] = [];
+  const off = subscribeHoverOwner(() => handovers.push(readHoverOwner()));
+  // Compare with the actual pointer event after CDP's scaled-frame conversion, not its unrounded input.
+  const moves: { x: number; y: number }[] = [];
+  const record = (event: PointerEvent) => moves.push({ x: event.clientX, y: event.clientY });
+  lower.addEventListener('pointermove', record);
+  await move(horizontal.x, horizontal.y);
+  lower.removeEventListener('pointermove', record);
+  off();
+  expect(moves).toHaveLength(1);
+  expect.soft(readHoverOwner()?.point, 'the open row updates its last pointer position').toEqual(moves[0]);
+  expect(readHoverOwner()).toBe(owner);
+  expect(handovers).toEqual([]);
+  expect(previous.contains(document.elementFromPoint(point.x, point.y)), 'vertical entry hits the previous bubble').toBe(true);
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    await move(point.x, point.y);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(readHoverOwner()?.elements?.trigger, 'vertical entry takes ownership without the old close timer').toBe(previous.closest('[data-message-bubble-row]'));
+    expect(targetPillOpen(previous)).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it('keeps mouse hover disabled on the phone', async () => {
   const target = await mount(false);
   await userEvent.hover(target);
