@@ -43,7 +43,7 @@ export function AboutSection() {
   const [version, setVersion] = useState(__APP_VERSION__)
   const showAppCard = platform.capabilities.appVersion || platform.capabilities.appUpdates
   const updateReady = updateStatus?.status === 'downloaded'
-  const updateMessage = queryFailed ? t('shell.update.errorFallback', { ns: 'main' }) : updateStatusMessage(t, updateStatus) || ''
+  const updateMessage = updateStatusMessage(t, updateStatus) || ''
   const receiveStatus = useRef(createUpdateStateReceiver())
   const applyStatus = useCallback((detail: UpdateStatusDetail | null | undefined) => {
     if (!receiveStatus.current(detail)) return
@@ -121,6 +121,7 @@ export function AboutSection() {
                 </Button>
               )}
               {updateMessage && <SettingsNote>{updateMessage}</SettingsNote>}
+              {queryFailed && <SettingsNote>{t('shell.update.errorFallback', { ns: 'main' })}</SettingsNote>}
             </SettingsRow>
           )}
         </SettingsGroup>

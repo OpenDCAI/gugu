@@ -52,6 +52,19 @@ describe('关于页说得出「下载新版本中… N%」', () => {
     expect(text()).not.toContain('internal IPC failure')
     expect(text()).not.toContain('/private/example')
   })
+  it('a failed check keeps newer real progress visible alongside the request error', async () => {
+    let fail!: (error: Error) => void
+    checkForUpdates.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject }))
+    await harness.render(createElement(AboutSection))
+    const check = [...harness.container.querySelectorAll('button')].find((b) => b.textContent === '检查更新')!
+    await act(async () => { check.click() })
+    await fire(UI_EVENTS.updateStatus, { ...downloading(42), revision: 8 })
+    await act(async () => { fail(new Error('manifest unavailable')) })
+    expect(text()).toContain('下载新版本中… 42%')
+    expect(text()).toContain('更新过程中出错，请重试。')
+    expect(text()).not.toContain('manifest unavailable')
+  })
+
   it('a delayed mount snapshot cannot replace a newer download event', async () => {
     let reply!: (state: unknown) => void
     updateState.mockImplementationOnce(() => new Promise((resolve) => { reply = resolve }))
