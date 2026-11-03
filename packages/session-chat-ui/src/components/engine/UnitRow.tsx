@@ -45,7 +45,7 @@ import type { ChatCaches } from '@session-chat/core/caches';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import type { ChatTheme } from '@session-chat/core/theme';
 import type { RenderUnit } from '@session-chat/core/units';
-import { unitReservedHeight } from '@session-chat/core/units';
+import { unitContainsItem, unitReservedHeight } from '@session-chat/core/units';
 import type { Virtualizer } from '@session-chat/core/virtualizer';
 import type { ViewState } from '@session-chat/state/view-state';
 import {
@@ -168,6 +168,16 @@ export function UnitRow(props: UnitRowProps) {
 
   const chrome = createMemo(() => props.unit.chrome);
   const insetX = createMemo(() => chrome()?.insetX ?? 0);
+  // Only the previous/new latest bubble changes its expansion policy. Publishing
+  // another input must not remeasure every historical row's names and labels.
+  const latestConversationMessageId = createMemo(() => {
+    const id = props.latestConversationMessageId;
+    return id && unitContainsItem(props.unit, id.replace(/:batch-\d+$/, '')) ? id : null;
+  });
+  const finalReplyId = createMemo(() => {
+    const id = props.finalReplyId;
+    return id && unitContainsItem(props.unit, id) ? id : null;
+  });
 
   // ── LOGICAL ctx — the true committed collapse state ─────────────────────────
   // This is what measure() always reads. The tween target comes from here.
@@ -182,8 +192,8 @@ export function UnitRow(props: UnitRowProps) {
     measureEpoch: props.measureEpoch,
     expandedId: props.expandedId,
     editingMessage: props.editingMessage,
-    finalReplyId: props.finalReplyId,
-    latestConversationMessageId: props.latestConversationMessageId,
+    finalReplyId: finalReplyId(),
+    latestConversationMessageId: latestConversationMessageId(),
     background: props.background,
   });
 
@@ -368,8 +378,8 @@ export function UnitRow(props: UnitRowProps) {
     // render is kept alive during the tween.
     expandedId: collapsing() ? rowItemId() : props.expandedId,
     editingMessage: props.editingMessage,
-    finalReplyId: props.finalReplyId,
-    latestConversationMessageId: props.latestConversationMessageId,
+    finalReplyId: finalReplyId(),
+    latestConversationMessageId: latestConversationMessageId(),
     background: props.background,
   });
 
