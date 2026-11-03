@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptTurn } from '@gugu/session-chat-ui';
-import { timelineTurnsFromTranscript } from '../../../../apps/desktop/src/session/renderer/features/sessions/view/session-timeline-turns';
+import { timelineTurnsFromTranscript, ticksFromTurns } from '../../../../apps/desktop/src/session/renderer/features/sessions/view/session-timeline-turns';
+import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 
 const msg = (id: string, role: 'user' | 'assistant', text: string) =>
   ({ kind: 'message', id, seq: 0, role, text }) as TranscriptTurn['items'][number];
@@ -22,8 +23,8 @@ describe('timelineTurnsFromTranscript (#4874 minimap ticks)', () => {
       turn('t2', 'user', [msg('u2', 'user', 'second ask')]),
     ]);
     expect(ticks).toEqual([
-      { id: 't1', anchorItemId: 'u1', itemIds: ['u1', 'a1', 'a2'], prompt: 'first ask', reply: 'first reply' },
-      { id: 't2', anchorItemId: 'u2', itemIds: ['u2'], prompt: 'second ask', reply: '' },
+      { id: 't1', anchorItemId: 'u1', itemIds: ['u1', 'a1', 'a2'], prompt: 'first ask', reply: 'first reply', mine: true },
+      { id: 't2', anchorItemId: 'u2', itemIds: ['u2'], prompt: 'second ask', reply: '', mine: true },
     ]);
   });
 
@@ -58,9 +59,9 @@ describe('#6006 input boundaries inside a provider turn', () => {
       ]),
     ]);
     expect(ticks).toEqual([
-      { id: 't', anchorItemId: 'u1', itemIds: ['u1', 'a1'], prompt: 'first', reply: 'first reply' },
-      { id: 't:u2', sourceTurnId: 't', anchorItemId: 'u2', itemIds: ['u2'], prompt: 'second', reply: '' },
-      { id: 't:u3', sourceTurnId: 't', anchorItemId: 'u3', itemIds: ['u3', 'a3'], prompt: 'third', reply: 'third reply' },
+      { id: 't', anchorItemId: 'u1', itemIds: ['u1', 'a1'], prompt: 'first', reply: 'first reply', mine: true },
+      { id: 't:u2', sourceTurnId: 't', anchorItemId: 'u2', itemIds: ['u2'], prompt: 'second', reply: '', mine: true },
+      { id: 't:u3', sourceTurnId: 't', anchorItemId: 'u3', itemIds: ['u3', 'a3'], prompt: 'third', reply: 'third reply', mine: true },
     ]);
   });
 
@@ -107,7 +108,48 @@ describe('hidden input boundaries', () => {
       msg('human', 'user', 'My follow-up'), msg('answer', 'assistant', '[NO_REPLY]'),
     ])]);
     expect(humans).toEqual([{
-      id: 't:human', sourceTurnId: 't', anchorItemId: 'human', itemIds: ['human', 'answer'], prompt: 'My follow-up', reply: '',
+      id: 't:human', sourceTurnId: 't', anchorItemId: 'human', itemIds: ['human', 'answer'], prompt: 'My follow-up', reply: '', mine: true,
     }]);
+  });
+});
+
+describe('UI-17 ownership and mixed ticks', () => {
+  const delivery = (fromId: string) => renderDeliveryEnvelope({
+    route: 'chat', from: 'Sender', fromId, fromType: 'human', messageId: 'msg:group',
+    chat: '7', chatKind: 'group', content: 'Group question',
+    sourceLink: 'gugu-chat://3f2a9c1e-0000-4000-8000-000000000007/5b0c0e1d-0000-4000-8000-000000000001',
+  });
+  const self = { userId: 'me', displayName: 'Me', guguNumber: null };
+
+  it('marks direct input and own group messages as mine while retaining group preview provenance', () => {
+    const turns = timelineTurnsFromTranscript([
+      turn('direct', 'user', [msg('u1', 'user', 'Direct question')]),
+      turn('own-group', 'user', [msg('u2', 'user', delivery('user:me'))]),
+      turn('other', 'user', [msg('u3', 'user', delivery('user:other'))]),
+    ], self);
+    expect(turns.map(({ mine }) => mine)).toEqual([true, true, false]);
+    expect(turns[1].sender).toEqual({ kind: 'group', name: 'Me', chatId: '3f2a9c1e-0000-4000-8000-000000000007' });
+    expect(turns[2].sender?.kind).toBe('group');
+  });
+
+  it('uses the same signed-in ID fallback as shared human selection before a profile is available', () => {
+    const [own] = timelineTurnsFromTranscript([
+      turn('own-group', 'user', [msg('u', 'user', delivery('user:me'))]),
+    ], null, { selfUserId: 'me' });
+    expect(own.mine).toBe(true);
+    expect(own.sender?.kind).toBe('group');
+  });
+
+  it('represents a mixed tick by its first own turn, while an all-other tick keeps its first turn', () => {
+    const turns = timelineTurnsFromTranscript([
+      turn('other-1', 'user', [msg('u1', 'user', delivery('user:other'))]),
+      turn('mine', 'user', [msg('u2', 'user', 'My turn')]),
+      turn('other-2', 'user', [msg('u3', 'user', delivery('user:other'))]),
+      turn('other-3', 'user', [msg('u4', 'user', delivery('user:other'))]),
+    ], self);
+    expect(ticksFromTurns(turns, 2).map(({ mine, from, to, turn }) => ({ mine, from, to, anchor: turn.anchorItemId }))).toEqual([
+      { mine: true, from: 1, to: 2, anchor: 'u2' },
+      { mine: false, from: 3, to: 4, anchor: 'u3' },
+    ]);
   });
 });
