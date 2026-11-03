@@ -55,8 +55,9 @@ function reconnect(view: LifeView) {
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>(done => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 beforeEach(() => {
   host.state.connected = true; host.state.generation = 0; host.state.view = life('ready');
@@ -109,6 +110,40 @@ it('discards an old connection read even when it reports a larger ready version'
   await Promise.resolve(); await Promise.resolve();
   expect(host.create).not.toHaveBeenCalled();
   emit(life('ready', 2));
+  await pending;
+  expect(host.create).toHaveBeenCalledOnce();
+});
+
+it.each(['reject', 'resolve'] as const)('invalidates an in-flight attachment when the same host leaves ready (%s)', async completion => {
+  const first = deferred<{ dispose(): void }>();
+  const old = { dispose: vi.fn() }, current = { dispose: vi.fn() };
+  host.create.mockReturnValueOnce(first.promise).mockResolvedValueOnce(current);
+  const pending = attachAcpSessionWhenReady('session', new AbortController().signal)
+    .then(value => ({ value }), error => ({ error }));
+  await vi.waitFor(() => expect(host.create).toHaveBeenCalledOnce());
+  emit(life('starting', 2));
+  if (completion === 'reject') first.reject(Object.assign(new Error('Missing live session'), { code: 'NOT_FOUND' }));
+  else first.resolve(old);
+  await Promise.resolve(); await Promise.resolve();
+  expect(host.state.generation).toBe(0);
+  expect(host.create).toHaveBeenCalledOnce();
+  emit(life('ready', 3));
+  expect(await pending).toEqual({ value: current });
+  expect(host.create).toHaveBeenCalledTimes(2);
+  expect(old.dispose).toHaveBeenCalledTimes(completion === 'resolve' ? 1 : 0);
+  expect(host.changes.size).toBe(0);
+  expect(host.disconnects.size).toBe(0);
+});
+
+it('does not start an attachment after the same batch has superseded ready with starting', async () => {
+  host.state.view = life('starting');
+  const pending = attachAcpSessionWhenReady('session', new AbortController().signal);
+  await vi.waitFor(() => expect(host.read).toHaveBeenCalledOnce());
+  emit(life('ready', 2));
+  emit(life('starting', 3));
+  await Promise.resolve(); await Promise.resolve();
+  expect(host.create).not.toHaveBeenCalled();
+  emit(life('ready', 4));
   await pending;
   expect(host.create).toHaveBeenCalledOnce();
 });
