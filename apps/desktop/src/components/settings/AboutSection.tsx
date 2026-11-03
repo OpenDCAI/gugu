@@ -8,8 +8,10 @@ import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow } from './Settin
 import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { createUpdateStateReceiver } from '../../../shared/update-state'
+import { rendererLogger } from '../../lib/log'
 
 const APP_ICON_URL = publicAssetPath('/assets/app/gugu-icon-512.png')
+const updateLog = rendererLogger('about-update')
 
 // @@@app-version - build-time constant injected from root package.json by vite (see vite.config.mts).
 // Available on every target, so the version footer shows even on the web build where there is no
@@ -34,19 +36,19 @@ function updateStatusMessage(t: TFunction<'settings'>, detail: UpdateStatusDetai
 export function AboutSection() {
   const { t } = useTranslation('settings')
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusDetail | null>(null)
-  const [queryError, setQueryError] = useState('')
+  const [queryFailed, setQueryFailed] = useState(false)
   const [checking, setChecking] = useState(false)
   // Seed from the build-time version so it renders immediately on all platforms; Electron's IPC
   // path below refines it to the live app.getVersion() (identical value in practice).
   const [version, setVersion] = useState(__APP_VERSION__)
   const showAppCard = platform.capabilities.appVersion || platform.capabilities.appUpdates
   const updateReady = updateStatus?.status === 'downloaded'
-  const updateMessage = queryError || updateStatusMessage(t, updateStatus) || ''
+  const updateMessage = queryFailed ? t('shell.update.errorFallback', { ns: 'main' }) : updateStatusMessage(t, updateStatus) || ''
   const receiveStatus = useRef(createUpdateStateReceiver())
   const applyStatus = useCallback((detail: UpdateStatusDetail | null | undefined) => {
     if (!receiveStatus.current(detail)) return
     setUpdateStatus(detail ?? null)
-    setQueryError('')
+    setQueryFailed(false)
   }, [])
 
   useEffect(() => {
@@ -69,12 +71,13 @@ export function AboutSection() {
 
   async function handleCheckForUpdates() {
     setChecking(true)
-    setQueryError('')
+    setQueryFailed(false)
     try {
       const result = await platform.checkForUpdates() as UpdateStatusDetail
       applyStatus(result)
     } catch (err) {
-      setQueryError(err instanceof Error ? err.message : String(err))
+      updateLog.warn({ error: err instanceof Error ? err.message : String(err) }, 'Update check request failed')
+      setQueryFailed(true)
     } finally {
       setChecking(false)
     }

@@ -43,6 +43,15 @@ async function fire(name: string, detail: unknown) {
 const text = () => harness.container.textContent ?? ''
 
 describe('关于页说得出「下载新版本中… N%」', () => {
+  it('reports a failed check without exposing raw IPC diagnostics in the UI', async () => {
+    checkForUpdates.mockRejectedValueOnce(new Error('internal IPC failure /private/example'))
+    await harness.render(createElement(AboutSection))
+    const check = [...harness.container.querySelectorAll('button')].find((b) => b.textContent === '检查更新')!
+    await act(async () => { check.click() })
+    expect(text()).toContain('更新失败')
+    expect(text()).not.toContain('internal IPC failure')
+    expect(text()).not.toContain('/private/example')
+  })
   it('a delayed mount snapshot cannot replace a newer download event', async () => {
     let reply!: (state: unknown) => void
     updateState.mockImplementationOnce(() => new Promise((resolve) => { reply = resolve }))
