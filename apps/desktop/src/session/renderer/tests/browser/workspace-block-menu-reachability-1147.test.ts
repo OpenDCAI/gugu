@@ -58,6 +58,7 @@ const verbs = {
   openLink: async () => {}, openBrowserTab: async () => {}, reportError: async (message: string) => { throw new Error(message); },
   clipboard: { writeText: async (text: string) => { copied.push(text); } },
   files: {
+    canDelete: async () => [false],
     open: async (ref: unknown) => {
       const id = (ref as { id: string }).id;
       if (id === entry.id) return file;
