@@ -128,4 +128,18 @@ describe('ChatView find', () => {
       m.dispose();
     }
   });
+  it('keeps stepping honest on a row whose text carries astral characters', async () => {
+    const row = turn('te', [msg('ue', 'user', `🎉🎉🎉🎉 ${NEEDLE} ${NEEDLE}`)]);
+    const m = await mount([row]);
+    try {
+      m.view.find(NEEDLE);
+      await until('a match is highlighted', () => highlighted() != null);
+      const before = (highlighted() as Range).startOffset;
+      expect(m.view.findStep('next').total).toBe(2);
+      await until('the highlight moves to the other match', () => ((highlighted() as Range | null)?.startOffset ?? before) !== before);
+      expect((highlighted() as Range).toString().toLowerCase()).toBe(NEEDLE);
+    } finally {
+      m.dispose();
+    }
+  });
 });

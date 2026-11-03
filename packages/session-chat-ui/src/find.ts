@@ -30,7 +30,7 @@ const NONE: readonly FoldGate[] = [];
 const MAX_FRAMES = 90;
 const behind = (outer: readonly FoldGate[], id: string): readonly FoldGate[] => [...outer, { id, stored: true }];
 const part = (text: string | null | undefined, gates = NONE): Part[] => (text ? [{ text, gates }] : []);
-const nonWs = (text: string): number => text.match(/\S/gu)?.length ?? 0;
+const nonWs = (text: string): number => text.replace(/\s/gu, '').length;
 
 /** The text each row paints, from the same functions its renderer uses, tagged with the folds hiding it. */
 function unitParts(unit: RenderUnit, caches: Caches): Part[] {
