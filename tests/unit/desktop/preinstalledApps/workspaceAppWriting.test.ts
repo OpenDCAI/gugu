@@ -174,6 +174,7 @@ describe('markdown redesign: the real document page', () => {
     $('block-handle').click()
     const first = $('menu').querySelector('button')!
     expect(first.textContent).toBe('Insert below this paragraph ›')
+    expect($('menu').querySelectorAll(':scope > .menu-separator')).toHaveLength(1)
     expect($('menu').querySelectorAll('.menu-submenu button')).toHaveLength(0)
     first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     expect([...$('menu').querySelectorAll('.menu-submenu button')].map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider'])

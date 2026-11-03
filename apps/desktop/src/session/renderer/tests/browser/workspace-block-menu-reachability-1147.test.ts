@@ -154,6 +154,7 @@ async function openHandle(insertion = true) {
   await pointer(x, y, 'mousePressed');
   await pointer(x, y, 'mouseReleased');
   await until('the real block menu opens', () => !byId('menu').hidden);
+  expect(byId('menu').querySelectorAll(':scope > .menu-separator')).toHaveLength(1);
   const items = [...byId('menu').querySelectorAll<HTMLButtonElement>(':scope > button, :scope > .menu-group > button')];
   expect(items.map((item) => item.textContent)).toEqual(['Insert below this paragraph ›', 'Turn into ›', 'Duplicate', 'Move up', 'Move down', 'Delete', 'Copy link to block', 'Cite in chat']);
   if (insertion) {

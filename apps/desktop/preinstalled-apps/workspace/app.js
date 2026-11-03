@@ -2430,7 +2430,7 @@ function blockMenu() {
     { separator: true },
   ]
   toggleMenu($('block-handle'), [
-    ...(!current.file.readOnly && !current.view.state.readOnly ? [...edits, { separator: true }] : []),
+    ...(!current.file.readOnly && !current.view.state.readOnly ? edits : []),
     ...blockLinks(current, pick),
   ])
 }
