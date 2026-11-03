@@ -30,9 +30,10 @@ export interface AgentSettingsModalProps {
   onClose?: () => void
   /** 打开时停在哪一页(「助理」App 里点头像换形象 = 'look')。 */
   initialTab?: AgentSettingsTab
+  zIndex?: number | string
 }
 
-export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = 'profile' }: AgentSettingsModalProps) {
+export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = 'profile', zIndex }: AgentSettingsModalProps) {
   const { t } = useTranslation('agents')
   // 打开时拿到的是一份快照(通讯录把选中的人存在自己的 state 里);资料 / 形象一保存,头部头像与各页要看到新的那份 ——
   // 通讯录里有这个人就读通讯录里最新的。
@@ -75,6 +76,7 @@ export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = '
 
   return (
     <Sheet
+      zIndex={zIndex}
       fullScreenMobile
       desktopWidth="880px"
       desktopMaxHeight="580px" desktopHeight="580px"
