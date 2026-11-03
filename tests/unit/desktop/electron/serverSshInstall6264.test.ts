@@ -910,6 +910,21 @@ describe('runSshInstall', () => {
     expect(seen.find((stdin) => stdin.includes('login --grant-stdin'))).toContain("--name 'box'")
   })
 
+  it('does not label a removed account as already signed in while requesting a fresh grant', async () => {
+    const mintGrant = vi.fn(async () => ({ deviceCode: 'ZGV2aWNlY29kZTEyMzQ1Njc4' }))
+    const report = formatStatusJson({ version: '1136', supervisorVersion: '1136', accounts: [{
+      userId: 'u1', email: 'me@x.y', signedIn: true, running: false,
+      signedOut: { reason: 'removed', at: '2026-11-03T04:02:00Z' },
+    }] })
+    const probeRaw = `${PROBE_BEGIN}\nos=Linux\narch=x86_64\nuser=alice\nhostname=box\nlibc=glibc 2.35\ninstalled=1136\ngrant=1\nprotocol_exit=0\nprotocol=${REMOTE_PROTOCOL_VERSION}\nstatus_exit=0\n${report}\n${PROBE_END}\n`
+    const { final, seen } = await install({ installed: true, grant: true, running: true, probeRaw }, { mintGrant })
+    expect(mintGrant).toHaveBeenCalledTimes(1)
+    expect(seen.filter(script => script.includes('login --grant-stdin'))).toHaveLength(1)
+    expect(final.failure).toBeNull()
+    expect(final.machine?.alreadySignedIn).toBe(false)
+    expect(final.result?.alreadySignedIn).toBe(false)
+  })
+
   it('自己本来就登在那台机器上:如实标出「重新接上」', async () => {
     const { final } = await install({ installed: true, grant: true, running: true, accounts: ['u1 me@x.y'] })
     expect(final.machine?.alreadySignedIn).toBe(true)
