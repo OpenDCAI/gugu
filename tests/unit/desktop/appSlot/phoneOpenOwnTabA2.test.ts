@@ -98,6 +98,32 @@ const ref = { chat: CHAT, id: SALES }
 const choices = () => opened.mock.calls.map(([detail]) => (detail as { choice: unknown }).choice)
 const lensExplore = { kind: 'one', candidate: expect.objectContaining({ extensionId: 'data-lens', tabKind: 'data-lens.explore' }) }
 
+it('a phone page with no own history cannot turn Back into a jump to its opener', async () => {
+  host?.dispose()
+  const navigate = vi.fn(async () => true)
+  host = hostAppFrame(frame, {
+    extensionId: 'data-lens', tabId: 'own-page', tabName: 'explore', chatId: CHAT,
+    capabilities: ['files:read'], locale: 'en-US', themeMode: 'light',
+    navigation: { canBack: false, canForward: false },
+  }, { showMessage: vi.fn(), showSession: vi.fn(), openWith: opened, peek: peeked, chrome: vi.fn(), navigate } as never)
+  expect(await call('navigationGo', { delta: -1, tabId: 'another-page' })).toMatchObject({ ok: true, value: false })
+  expect(navigate).not.toHaveBeenCalled()
+})
+
+it('the phone page accepts only a valid delta into an available own history', async () => {
+  host?.dispose()
+  const navigate = vi.fn(async () => true)
+  host = hostAppFrame(frame, {
+    extensionId: 'data-lens', tabId: 'own-page', tabName: 'explore', chatId: CHAT,
+    capabilities: ['files:read'], locale: 'en-US', themeMode: 'light',
+    navigation: { canBack: true, canForward: false },
+  }, { showMessage: vi.fn(), showSession: vi.fn(), openWith: opened, peek: peeked, chrome: vi.fn(), navigate } as never)
+  expect(await call('navigationGo', { delta: 'back' })).toMatchObject({ ok: false, code: 'invalid' })
+  expect(navigate).not.toHaveBeenCalled()
+  expect(await call('navigationGo', { delta: -1 })).toMatchObject({ ok: true, value: true })
+  expect(navigate).toHaveBeenCalledExactlyOnceWith(-1)
+})
+
 describe('the phone: openWith(file, { tab }) opens its own tab (A2 T9)', () => {
   it.each(['navigate', 'newTab', 'beside'] as const)('folder redesign carries %s through the real phone host', async (intent) => {
     expect(await call('filesOpenWith', { ref, tab: 'explore', intent })).toMatchObject({ ok: true })
