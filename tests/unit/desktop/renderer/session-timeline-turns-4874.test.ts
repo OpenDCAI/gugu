@@ -115,7 +115,7 @@ describe('hidden input boundaries', () => {
 
 describe('UI-17 ownership and mixed ticks', () => {
   const delivery = (fromId: string) => renderDeliveryEnvelope({
-    route: 'chat', from: 'Sender', fromId, fromType: 'human', messageId: 'msg:group',
+    route: 'chat', from: 'Sender', fromId, fromType: 'human', messageId: 'msg:group', at: '2026-11-03',
     chat: '7', chatKind: 'group', content: 'Group question',
     sourceLink: 'gugu-chat://3f2a9c1e-0000-4000-8000-000000000007/5b0c0e1d-0000-4000-8000-000000000001',
   });
