@@ -26,14 +26,14 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
     // The deployed guard must still be able to restore the old multi-account server.
     if (legacyGuardActive(home)) exitServer(1)
     if (process.env.GUGU_SERVER_SUPERVISED !== 'systemd') markStopped(home)
-    exitServer(EXIT_CONFIG)
+    return exitServer(EXIT_CONFIG)
   }
   const release = claimHomeLock(home)
   if (!release) {
     let holder: number | null = null
     try { holder = Number(fs.readFileSync(path.join(home, 'data/server.lock'), 'utf8')) } catch { /* The holder may have just exited. */ }
     warn(`Another server already holds this installation’s lock (pid ${holder && Number.isInteger(holder) ? holder : 'unknown'})`)
-    exitServer(EXIT_CONFIG)
+    return exitServer(EXIT_CONFIG)
   }
   process.on('exit', release)
   prepare()
