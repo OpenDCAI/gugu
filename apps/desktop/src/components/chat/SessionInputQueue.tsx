@@ -11,6 +11,7 @@ import { sessionInputFailureText, sessionInputWaitingReason } from '@/lib/pendin
 import { useMobileShell } from '@/hooks/useMobileShell'
 import { toast } from '@renderer/lib/hooks/use-toast'
 import { Button } from '@/components/ui/Button'
+import { nativeMessageKey } from '@gugu/session-core/session-record/native-read'
 
 /**
  * The person's inputs not yet in the transcript, each drawn from its one custody owner (`sessionInputBubbles`):
@@ -24,13 +25,14 @@ export function SessionInputQueue({ sessionId, waitingForConnection, life = null
   const pending = useQueuedSessionInputs(sessionId)
   const { t } = useTranslation('messaging')
   const mobile = useMobileShell()
+  const drawnIds = new Set(mobile ? inTranscript.map(nativeMessageKey) : inTranscript)
   const queuedFailures = new Map(mobile ? pending.filter(input => input.queued === true && input.failure
     && !life?.pending.items.some(row => row.messageId === input.id)).map(input => [input.id, input.failure!]) : [])
   const sender = pending.filter(input => (waitingForConnection || queuedFailures.has(input.id))
     && (!mobile || input.queued !== true || input.failure))
   const retry = () => { void retrySessionInputs().catch(error => toast({ title: translateSessionMessage('acpFailure.sendMessage'), description: messageForUser(error), variant: 'destructive' })) }
   const bubbles = sessionInputBubbles(sender, life?.pending.items ?? [], life?.hold ?? null)
-    .filter(bubble => !inTranscript.includes(bubble.id) && !pending.some(input => input.id === bubble.id && input.queued === false))
+    .filter(bubble => !drawnIds.has(mobile ? nativeMessageKey(bubble.id) : bubble.id) && !pending.some(input => input.id === bubble.id && input.queued === false))
   if (!bubbles.length) return null
   return <div className="flex flex-col gap-2 px-3 py-2" data-native-input-queue="">
     {bubbles.map(bubble => <div key={bubble.id} className="flex flex-col items-end gap-1" data-native-input-id={bubble.id}>

@@ -39,6 +39,7 @@ import { installedExtensionsStore } from '@/session/renderer/features/extensions
 import { useNetworkOnline } from '@/hooks/useNetworkOnline'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { useMobileShell } from '@/hooks/useMobileShell'
+import { hostedInputIds } from './local-queued-inputs'
 
 /**
  * owner 10-16 The App tabs a session offers on the phone: installed, switched on, opening no file — the session page's 「+」
@@ -116,6 +117,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const hostSilent = !local && online && ((link === 'lost' && (!error || remoteFailureKind(errorCode) === 'machine-unreachable')) || (native && nativeRecord.unreachable))
   const answering = online && !hostSilent
   const conversation = native ? { ...timeline, turns: [...(nativeRecord.record?.turns ?? []), ...(nativeRecord.record?.activeTurn ? [nativeRecord.record.activeTurn] : [])], hasOlder: nativeRecord.record ? nativeRecord.record.nextCursor !== null : false } : timeline
+  const drawnInputIds = mobile ? [...hostedInputIds(conversation.queuedPrompts, conversation.turns)] : undefined
 
   // 提醒**不在这一页**发:它挂在看管入口的根上(useAgentWatchAlerts),这样在机器列表、
   // 会话列表、乃至刚切走时都叫得住人。这里再发一份的话,正开着这条会话时同一件事会响两次。
@@ -263,7 +265,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           headerRunning={presentation?.tone === 'running'}
           onStop={cancel}
           stopping={cancelling}
-          footerNotice={<><SessionInputQueue sessionId={session.conversationId} waitingForConnection={!answering} inTranscript={mobile ? conversation.queuedPrompts.map(input => input.id) : undefined} />{actionErrorNotice}</>}
+          footerNotice={<><SessionInputQueue sessionId={session.conversationId} waitingForConnection={!answering} inTranscript={drawnInputIds} />{actionErrorNotice}</>}
           onAtBottom={native ? nativeRecord.loadNewer : undefined}
           historyReady={!native || nativeRecord.record !== null} historyCursor={native ? nativeRecord.record?.nextCursor : undefined}
           onLoadOlder={native ? nativeRecord.loadOlder : loadOlder}
