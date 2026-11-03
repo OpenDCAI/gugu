@@ -179,8 +179,10 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const recoveryState = useRef({ text: composerDraft.text, attachments })
   recoveryState.current = { text: composerDraft.text, attachments }
   const recoveryComposer = useMemo(() => ({ getState: () => recoveryState.current, setText: composerDraft.setText }), [composerDraft.setText])
-  const outputs = useOpenedOutputOpener({ deviceId, sessionId, onQuote: text => composerDraft.setText(value => appendToDraft(value, text)),
-    readFileChunk: local ? input => readConversationFile(true, deviceId, input) : undefined })
+  const quoteOutput = useCallback((text: string) => setDraftText(value => appendToDraft(value, text)), [setDraftText])
+  const readOutput = useCallback((input: Parameters<typeof readConversationFile>[2]) => readConversationFile(true, deviceId, input), [deviceId])
+  const outputs = useOpenedOutputOpener({ deviceId, sessionId, onQuote: quoteOutput, readFileChunk: local ? readOutput : undefined })
+  const { openFile, handlers: outputHandlers } = outputs
   const background = usePhoneBackgroundTasks(deviceId, sessionId, timeline.turns, dismissals, !phoneHost, localClient?.fetchBackgroundTasks)
   const nativeTurns = timeline.turns
   const senderInputs = useQueuedSessionInputs(sessionId)
@@ -225,21 +227,23 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     unavailable: () => translateSessionMessage('attachmentViewer.unavailable'),
     onError: error => setBackgroundError(messageForUser(error)),
   }), [deviceId, sessionId, local, outputs.openFile])
-  const commands: ChatCommands = {
+  // Publishing new commands remeasures every Solid transcript row. Editing a
+  // phone draft must not rebuild the history before its outbox commit can run.
+  const commands = useMemo<ChatCommands>(() => ({
     onRetrySend: () => { void retrySessionInputs().catch(error => toast({ title: translateSessionMessage('acpFailure.sendMessage'), description: messageForUser(error), variant: 'destructive' })) },
     ...(nativeRecord && !phoneHost ? userAttachments : {}),
     classifyLink: classifyFileLink, onOpenLink: followConversationLink, onOpenSender: openMessageSender,
-    onOpenFile: ({ path }) => outputs.openFile(path),
+    onOpenFile: ({ path }) => openFile(path),
     conversationAgentSession: () => sessionId, conversationAgentUserId: () => agentUserId ?? null,
     ...quotes.commands,
     onDismissBackgroundTask: ({ entryId }) => { dismissSubagent(sessionId, entryId); setDismissals(value => value + 1) },
     resolveToolImage: async (itemId, index) => toolImageUrl(await (phoneHost ? phoneTimelineClient.fetchToolImage(deviceId, sessionId, itemId, index) : nativeRecord ? machineRpc(deviceId, local).sessionTimeline.sessionNativeToolImage({ conversationId: sessionId, itemId, index }).then(result => { if (!result.ok) throw new Error(result.error.message); if (!result.value.ok) throw new Error(result.value.message); return result.value.image }) : (localClient ?? { fetchToolImage }).fetchToolImage(deviceId, sessionId, itemId, index))),
-    onViewImages: ({ urls, index, thumb }) => { openImageViewer(urls.map(url => ({ url, alt: '', thumb })), index) }, ...outputs.handlers, conversationAgentName: () => agentName, onStop,
+    onViewImages: ({ urls, index, thumb }) => { openImageViewer(urls.map(url => ({ url, alt: '', thumb })), index) }, ...outputHandlers, conversationAgentName: () => agentName, onStop,
     onStopBackgroundTask: ({ stopId }) => {
       setBackgroundError(null)
       void (localClient?.stopBackgroundTask ?? stopBackgroundTask)(deviceId, sessionId, stopId).catch(error => setBackgroundError(messageForUser(error)))
     },
-  }
+  }), [nativeRecord, phoneHost, userAttachments, openFile, outputHandlers, sessionId, agentUserId, quotes.commands, deviceId, local, localClient, agentName, onStop])
   const composer = <>
     <ConversationSettlements sessionId={sessionId} settlements={timeline.settlements} runtime={sessionRuntime} mobile machine={machineLabel} busyItemId={respondingItemId} respond={onRespond} />
     {footerNotice}
@@ -248,10 +252,10 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     {phoneHost ? <PhoneTaskDraftRecovery deviceId={deviceId} sessionId={sessionId} composer={recoveryComposer} sending={sending} /> : null}
     {queue.error ? <div role="alert">{queue.error}</div> : null}
     <input ref={input} type="file" hidden multiple onChange={event => { addFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
-    <AgentConversationComposer {...options.props} {...queue.props} {...lockedHarness(harness)} queuedPrompts={[...queue.props.queuedPrompts, ...pendingSends.slice(1).map(send => ({ id: send.id, text: send.text, origin: 'manual' as const, locked: true }))]} mobile isWorking={agentWorking} canSubmit={!sending && !stopping && (!!composerDraft.text.trim() || attachments.length > 0)}
+    <AgentConversationComposer {...options.props} {...queue.props} {...lockedHarness(harness)} queuedPrompts={[...queue.props.queuedPrompts, ...pendingSends.slice(1).map(send => ({ id: send.id, text: send.text, origin: 'manual' as const, locked: true }))]} mobile phoneActions={mobile} isWorking={agentWorking} canSubmit={!sending && !stopping && (!!composerDraft.text.trim() || attachments.length > 0)}
       onStop={agentWorking ? onStop : undefined} editorApiRef={receiveEditor} editorOptions={{ clearOnSubmit: false, enterBehavior: 'newline' }}
       queuedPromptEdit={quotes.composer.queuedPromptEdit} onChangeQueuedPromptEdit={quotes.composer.changeQueuedPromptEdit} onFinishQueuedPromptEdit={quotes.composer.finishQueuedPromptEdit} renderQueuedPromptText={quotes.composer.renderQueuedPromptText}
-      onInputChange={composerDraft.setText} onSubmit={value => { void submit(value) }} onSubmitWhileWorking={value => { void submit(value) }}
+      onInputChange={composerDraft.setText} onSubmit={submit} onSubmitWhileWorking={submit}
       attachmentStatus={attachmentWaiting ? translateSessionMessage('composer.attachmentWaiting') : undefined}
       attachments={attachments} onAttachmentsChange={changeAttachments}
       onRetryAttachment={uploads.retry} onFilesDropped={addFiles} onImageFilesDropped={addFiles}
