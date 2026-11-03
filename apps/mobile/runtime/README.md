@@ -15,7 +15,7 @@ APK 自带 `agent-runtime/intl-smoke-cli.mjs`。在自有 Android 测试实例�
 ## 边界
 
 - `agent.mjs` 处理原生字节协议；`pi-session.mjs` 为每个咕咕会话建立独立 Pi 转录和取消边界。
-- `phone-network.mjs` 为 Android 移动网络设置双栈连接尝试窗口的 2000ms 下限，保留更长的已有配置。
+- `packages/core/src/local/node-network.mjs` 与 server 共用双栈连接尝试窗口的 2000ms 下限，保留更长的已有配置。
 - `phone-agent-host.mjs` 接正式设备命令、跨设备会话 RPC、Agent 收件箱、状态与结果投递。身份创建使用既有 provision saga，成功须以设备命令的终态为准。
 - `phone-capacitor.mjs` 是打包时的原生传输适配。通过任务范围的 AsyncLocalStorage，复用现有 `PHONE_ACTIONS` 和健康聚合逻辑；Android 执行器复用现有原生插件方法。
 - `phone-actions.mjs` 提供受控动作目录。写入与敏感操作必须收到真人 owner 对确切请求的确认；模型填写的 `confirmed` 或审批字段不构成授权。

@@ -30,7 +30,7 @@ const chunks: FileChunkCache = {
   async put(id, index, bytes) { requireFileRange(FILE_CHUNK_BYTES, 0, bytes.length); await (await attachmentCache()).put(key(id, index), new Response(new Uint8Array(bytes))) },
   async clear(id) { const cache = await attachmentCache(); await Promise.all((await cache.keys()).filter(request => request.url.startsWith(`${attachmentCacheOrigin}/chunks/${id}/`)).map(request => cache.delete(request))) },
 }
-const metadata = createFileMetadataLoader(async (context, refs) => attachmentRequest({ ...await endpoint(context), fetch: (url, init) => fetch(url, { ...init, signal: context.signal }) }, 'file-resolve', { refs, as: context.actor.actorId }))
+const metadata = createFileMetadataLoader(async (context, refs) => attachmentRequest(await endpoint(context), 'file-resolve', { refs, as: context.actor.actorId }, context.signal))
 const native = (op: string, context: FileContext, args = {}): Promise<unknown> => window.electronAPI
   ? window.electronAPI.invoke('files:read', { op, actor: context.actor, ref: context.ref, ...args }) : Promise.resolve(null)
 const nativeBytes = (context: FileContext, file: { id: string; size: number }): FileBytes => ({

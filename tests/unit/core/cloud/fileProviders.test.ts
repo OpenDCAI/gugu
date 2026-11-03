@@ -271,7 +271,7 @@ describe('one cloud provider and verified raw chunk cache', () => {
     expect(await hit.read(0, 1)).toEqual(new Uint8Array([73])); await hit.dispose()
     expect(a.calls.filter(row => row.route === 'file-download')).toHaveLength(1)
   })
-  it('resumes a real interrupted HTTP GET from the persisted prefix without fetching that prefix again', async () => {
+  it('recovers a real interrupted HTTP GET in the same read without fetching its verified prefix again', async () => {
     const c = cache(), requests: (string | undefined)[] = []
     let firstResponse: ServerResponse | undefined
     const server = createServer((request, response) => {
@@ -289,13 +289,12 @@ describe('one cloud provider and verified raw chunk cache', () => {
     c.store.put = async (key, index, bytes) => { await originalPut(key, index, bytes); if (index === 0) firstResponse?.destroy() }
     const deps = { endpoint: a.endpoint, cache: c.store, sink: async () => sink(), fetch }
     try {
-      await expect(cloudFileProviders(deps).managed(revision, context)).rejects.toThrow()
-      expect(c.chunks.size).toBe(1); expect(c.store.clear).not.toHaveBeenCalled()
-      const resumed = await cloudFileProviders(deps).managed(revision, context) // New provider instance, same raw cache.
+      const resumed = await cloudFileProviders(deps).managed(revision, context)
+      expect(c.chunks.size).toBe(2); expect(c.store.clear).not.toHaveBeenCalled()
       const chunks = [await resumed.read(0, 524288), await resumed.read(524288, plain.length - 524288)]
       expect(digest(Buffer.concat(chunks))).toBe(revision.sha256)
       expect(requests).toEqual([undefined, 'bytes=524288-'])
-      expect(a.calls.filter(row => row.route === 'file-download')).toHaveLength(2)
+      expect(a.calls.filter(row => row.route === 'file-download')).toHaveLength(1)
       await resumed.dispose()
     } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())) }
   })
@@ -322,6 +321,23 @@ describe('one cloud provider and verified raw chunk cache', () => {
     expect(JSON.stringify(a.calls)).not.toContain(Buffer.from(key).toString('base64'))
     expect(objectFetch).toHaveBeenCalledTimes(1)
     await decoded.dispose(); key.fill(0)
+  })
+  it.each(['key', 'ciphertext_sha256'])('rejects an expired lease renewal that changes encrypted %s before reading more bytes', async field => {
+    const local = { ...revision, source: 'local' as const, host_account_id: 'host', host_device_id: 'device', host_project_id: 'project', relative_path: 'file.bin', temporary_transfer: true }
+    const key = await createFileKey(), encoded = await transformFile({ direction: 'encrypt', revision: local, source: bytesFile(plain), sink: sink(), key })
+    const cipher = Buffer.concat([await encoded.file.read(0, 524288), await encoded.file.read(524288, encoded.file.size - 524288)])
+    const commitment = { codec: 'secretstream-v1', key: Buffer.from(key).toString('base64'), ciphertext_bytes: cipher.length, ciphertext_sha256: digest(cipher), expires_at: '2000-01-01T00:00:00Z' }
+    const a = api(local, cipher, commitment), apiFetch = a.fetcher.getMockImplementation()!, objectFetch = vi.fn(async () => {
+      a.fetcher.mockImplementation(async (url, init) => {
+        const response = await apiFetch(url, init), row = await response.json()
+        return Response.json(String(url).endsWith('/file-download') ? { ...row, [field]: field === 'key' ? Buffer.alloc(32, 1).toString('base64') : 'f'.repeat(64) } : row)
+      })
+      return new Response(null, { status: 403 })
+    })
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: cache().store, sink: async () => sink(), fetch: objectFetch as typeof fetch })
+    await expect(cloud.temporary(local, context)).rejects.toThrow('File download commitment changed')
+    expect(objectFetch).toHaveBeenCalledTimes(1); expect(a.calls.filter(row => row.route === 'file-download')).toHaveLength(2)
+    await encoded.file.dispose(); key.fill(0)
   })
   // A project chat has no host: only the device that keeps a version can send it. While it is offline the reader is told
   // which machine, at once, instead of waiting for a copy that cannot come.
