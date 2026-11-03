@@ -65,9 +65,6 @@ export type ChatAttachment = {
   dataUrl?: string;
 };
 
-/** @deprecated 用 `ChatAttachment` —— 附件条不再只画图。 */
-export type ChatImageAttachment = ChatAttachment;
-
 export type ChatMessage = {
   kind: 'message';
   id: string;
