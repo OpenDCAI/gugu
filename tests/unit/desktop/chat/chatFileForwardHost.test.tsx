@@ -10,14 +10,14 @@ import { APP_FORWARD_FILES_EVENT, type AppForwardFilesDetail } from '../../../..
  * here, a stored file at the version the folder showed, a text document as its text is now (no version).
  */
 const { shareMock, bytesMock, dialog } = vi.hoisted(() => ({
-  shareMock: vi.fn(async (_endpoint: unknown, args: Record<string, unknown>) => ({ id: args.message_id, chat_id: args.chat_id })),
+  shareMock: vi.fn(async (_file: AppForwardFilesDetail['files'][number], _chatId: string) => {}),
   bytesMock: vi.fn(),
   dialog: { props: null as null | { sourceChatId: string; preview: unknown; onForward(ids: string[]): Promise<void>; onClose(): void } },
 }))
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ chatDb: {}, getCurrentAuthUserId: async () => 'me', dataClient: {} }))
 vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', () => ({ attachmentsEndpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 't' }) }))
 vi.mock('@gugu/core/cloud/attachmentsApi', () => ({ shareAttachment: shareMock, forwardAttachment: bytesMock, uploadAttachmentBytes: bytesMock, commitAttachment: bytesMock }))
-vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({ useChatStore: () => ({ chats: [] }) }))
+vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({ useChatStore: () => ({ chats: [], forwardMessage: shareMock }) }))
 vi.mock('../../../../apps/desktop/src/store/auth', () => ({ useAuth: () => ({ user: { id: 'me' } }) }))
 vi.mock('react-i18next', async (original) => ({ ...(await original<object>()), useTranslation: () => ({ t: (key: string, values?: { count?: number }) => `${key}:${values?.count}` }) }))
 vi.mock('../../../../apps/desktop/src/components/chat/ForwardMessageDialog', () => ({
@@ -51,10 +51,9 @@ describe('ChatFileForwardHost', () => {
     ] })
     expect(dialog.props!.preview).toBe('forward.filesPreview:2')
     await dialog.props!.onForward(['c1', 'c2'])
-    expect(shareMock.mock.calls.map(([, args]) => [args.item_id, args.version, args.chat_id, args.sender_user_id])).toEqual([
-      ['i1', 4, 'c1', 'me'], ['i1', 4, 'c2', 'me'], ['i2', null, 'c1', 'me'], ['i2', null, 'c2', 'me'],
+    expect(shareMock.mock.calls.map(([file, target]) => [file.itemId, file.document ? null : file.version, target])).toEqual([
+      ['i1', 4, 'c1'], ['i1', 4, 'c2'], ['i2', null, 'c1'], ['i2', null, 'c2'],
     ])
-    expect(new Set(shareMock.mock.calls.map(([, args]) => args.message_id)).size).toBe(4)
     expect(bytesMock).not.toHaveBeenCalled()
   })
 })

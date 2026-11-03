@@ -17,7 +17,6 @@ vi.mock('@/lib/attachmentBytes', () => ({ attachmentMetadata: f.metadata, cached
 }))
 vi.mock('@/components/extensionBundle/ExtensionBundleCard', () => ({ ExtensionBundleCard: () => null }))
 vi.mock('@/components/markdown/Markdown', () => ({ Markdown: () => null }))
-vi.mock('@/components/chat/sendAttachmentBatch', () => ({ sendAttachmentBatch: f.send }))
 vi.mock('react-i18next', async (importOriginal) => ({ ...await importOriginal<typeof import('react-i18next')>(), useTranslation: () => ({ t: (key: string) => key }) }))
 
 const original = { id: 'message', chat_id: 'group', sender_user_id: 'user-1', to_user_ids: ['private-reader'],
@@ -46,7 +45,7 @@ describe('expired attachment re-upload', () => {
   })
   afterEach(() => { harness.cleanup(); attachmentQueryClient.clear(); notifyManager.setNotifyFunction(callback => { callback() }); vi.unstubAllGlobals() })
   async function render(isMine = true) {
-    await renderWithAppProviders(harness, createElement(ExpiredAttachmentCard, { meta, messageId: 'message', isMine }), { toast })
+    await renderWithAppProviders(harness, createElement(ExpiredAttachmentCard, { meta, messageId: 'message', isMine }), { toast, chat: { sendAttachmentsToChat: f.send } })
   }
   async function click() {
     const button = [...harness.container.querySelectorAll('button')].find(el => el.textContent === 'attachmentView.reupload')!
@@ -60,7 +59,7 @@ describe('expired attachment re-upload', () => {
   })
   it.each(['ready', 'expired'])('displays a visible %s file using only read-only metadata, without signing or reading bytes', async status => {
     f.metadata.mockResolvedValue({ status, sha256: 'ab'.repeat(32) })
-    await renderWithAppProviders(harness, createElement(MediaAttachmentBubble, { meta, messageId: 'message', isMine: true }), { toast })
+    await renderWithAppProviders(harness, createElement(MediaAttachmentBubble, { meta, messageId: 'message', isMine: true }), { toast, chat: { sendAttachmentsToChat: f.send } })
     await vi.waitFor(async () => {
       await act(async () => {})
       expect(harness.container.textContent).toContain(status === 'expired' ? 'attachmentView.fileExpired' : 'large.bin')
@@ -73,7 +72,7 @@ describe('expired attachment re-upload', () => {
   it.each(['file', 'image'] as const)('keeps an uncommitted %s in its local preview without querying an uncommitted message', async kind => {
     const content = formatAttachmentMetadata({ kind, fileName: kind === 'image' ? 'sending.png' : 'sending.bin', mimeType: kind === 'image' ? 'image/png' : 'application/octet-stream', sizeBytes: 60, url: 'blob:https://fixture.invalid/selected-file' })
     const pending = parseAttachmentContent(content, { id: 'not-yet-committed', local_send_state: 'sending' })!
-    await renderWithAppProviders(harness, createElement(MediaAttachmentBubble, { meta: pending, messageId: 'not-yet-committed', isMine: true }), { toast })
+    await renderWithAppProviders(harness, createElement(MediaAttachmentBubble, { meta: pending, messageId: 'not-yet-committed', isMine: true }), { toast, chat: { sendAttachmentsToChat: f.send } })
     await act(async () => {})
     expect(harness.container.textContent).not.toContain('attachmentView.fileGone')
     if (kind === 'image') expect(harness.container.querySelector('img')?.getAttribute('src')).toBe('blob:https://fixture.invalid/selected-file')
@@ -105,15 +104,16 @@ describe('expired attachment re-upload', () => {
     expect(f.metadata).toHaveBeenCalledWith(meta.source)
     expect(f.cached).toHaveBeenCalledWith('ab'.repeat(32))
     expect(f.send).toHaveBeenCalledTimes(1)
-    expect(f.send.mock.calls[0][0]).toMatchObject({ chatId: 'group', senderId: 'user-1', toUserIds: ['private-reader'], isWhisper: true, threadRootId: 'thread' })
-    expect(f.send.mock.calls[0][0].files[0]).toMatchObject({ name: 'large.bin', size: 10 })
+    expect(f.send.mock.calls[0][0]).toBe('group')
+    expect(f.send.mock.calls[0][2]).toMatchObject({ toUserIds: ['private-reader'], isWhisper: true, threadRootId: 'thread' })
+    expect(f.send.mock.calls[0][1][0]).toMatchObject({ name: 'large.bin', size: 10 })
     expect(f.signed).not.toHaveBeenCalled()
     expect(toast).not.toHaveBeenCalled()
   })
   it('keeps replies to an original thread root in that thread', async () => {
     f.message.mockResolvedValue({ ...original, is_thread_root: true, thread_root_id: null })
     await render(); await click()
-    expect(f.send.mock.calls[0][0].threadRootId).toBe('message')
+    expect(f.send.mock.calls[0][2].threadRootId).toBe('message')
   })
   it.each([null, { ...original, sender_user_id: 'other' }, { ...original, retracted_at: 'now' }])('refuses a missing, other-sender or retracted original before reading local bytes (%s)', async row => {
     f.message.mockResolvedValue(row)
@@ -130,7 +130,7 @@ describe('expired attachment re-upload', () => {
     Object.defineProperty(input, 'files', { value: [new File(['picked original'], 'original.bin')] })
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
     expect(f.send).toHaveBeenCalledTimes(1)
-    expect(f.send.mock.calls[0][0].files[0]).toMatchObject({ name: 'large.bin', size: 15 })
+    expect(f.send.mock.calls[0][1][0]).toMatchObject({ name: 'large.bin', size: 15 })
     expect(f.signed).not.toHaveBeenCalled()
   })
   it('refuses a stale expiry action after the reference is gone or already ready', async () => {

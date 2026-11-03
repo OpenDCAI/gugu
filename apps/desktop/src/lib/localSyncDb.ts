@@ -519,7 +519,7 @@ function validateCurrentRow(store: ImStoreName, raw: unknown, accountId: string)
     } else if (store === 'outbox') {
       if (!isRecord(raw.value) || raw.value.clientMessageId !== raw.id || raw.value.senderUserId !== accountId
         || typeof raw.value.chatId !== 'string' || !isLegacyOutboxPayload(raw.value.payload)
-        || !['pending', 'sending', 'failed'].includes(String(raw.value.state)) || !Number.isInteger(raw.value.attempts)
+        || !['pending', 'sending', 'uploading', 'failed'].includes(String(raw.value.state)) || !Number.isInteger(raw.value.attempts)
         || (raw.value.lastError !== null && typeof raw.value.lastError !== 'string')
         || typeof raw.value.enqueuedAt !== 'string' || typeof raw.value.updatedAt !== 'string') throw new Error('outbox')
     }

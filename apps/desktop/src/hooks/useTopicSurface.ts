@@ -6,7 +6,7 @@
 // 分栏里的那条话题**是一条真的 chat**,所以它有自己的一条「线」(useChatConversation:消息窗口 + 已读水位),
 // 与老 thread 面板的根本差别就在这:老面板是同一个 chat 里的一段过滤视图,新分栏是另一条线。
 // 线的实时与主区 activeChat 走同一份 subscribeChatLineRevisions(#6470),❌ 在这里另听线级事件。
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { ChatItem, MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
@@ -89,7 +89,7 @@ export function useTopicSurface({
   onCreateFailed,
   embedded,
 }: UseTopicSurfaceArgs): TopicSurface {
-  const { conversations } = useChatStore('conversations')
+  const { conversations, createTopic } = useChatStore('conversations', 'createTopic')
   const chatId = chat?.id ?? null
   const sourceMessages = useRef(messages)
   sourceMessages.current = messages
@@ -125,6 +125,9 @@ export function useTopicSurface({
   splitChatIdRef.current = splitTopic?.chatId ?? null
   const line = useChatConversation(splitChatId, conversations)
   const sendSplitMessage = line.sendMessage
+
+  // Covers normal opening and an outbox retry opening the existing tab.
+  useEffect(() => { if (splitChatId) reloadTopics() }, [splitChatId, reloadTopics])
 
   const openSplit = useCallback(
     (topic: OpenTopic, toggle = false) => {
@@ -171,14 +174,14 @@ export function useTopicSurface({
           const existing = (await topicService.listTopicsOfChat(chatId)).find((topic) => topic.source_message_id === sourceMessageId)
           if (existing) { openSplit({ chatId: existing.chat_id, name: existing.name }); return }
         }
-        const created = await topicService.createTopic({
+        const created = await createTopic({
           sourceChatId: chatId,
           sourceMessageId,
           // 任务卡上开的话题(手机点卡、老卡还没有话题时)叫任务那句话,❌ 落成服务端的默认名。
           name: source.content_type === 'text' ? topicNameFromMessage(source.content)
             : source.content_type === 'card' ? topicNameFromMessage(parseComposerCard(source.content)?.text) : null,
         })
-        reloadTopics()
+        if (!created) return // retained outbox failure already exposes retry/discard
         openSplit({ chatId: created.chat_id, name: created.name })
       } catch (error) {
         // fail loud:开不出来必须当场告诉用户。原因进日志(用户拿内部失败描述做不了任何事),
@@ -187,7 +190,7 @@ export function useTopicSurface({
         onCreateFailedRef.current(error)
       }
     },
-    [chatId, openSplit, reloadTopics],
+    [chatId, openSplit, createTopic],
   )
 
   return {

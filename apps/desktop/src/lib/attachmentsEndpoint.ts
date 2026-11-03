@@ -45,21 +45,6 @@ export async function commitPreparedChatAttachment(endpoint: AttachmentsEndpoint
   return message
 }
 
-/** One file sent to a chat as an attachment message (upload, then commit): the message row as `messages_view` has it. */
-export async function sendFileToChat(file: File, to: { chatId: string; senderId: string; toUserIds?: string[] }): Promise<Record<string, unknown>> {
-  const endpoint = await attachmentsEndpoint()
-  const contentType = file.type || 'application/octet-stream'
-  const prepared = await prepareChatAttachment(endpoint, file, { chat_id: to.chatId, as: to.senderId })
-  return commitPreparedChatAttachment(endpoint, prepared, {
-    message_id: crypto.randomUUID(),
-    chat_id: to.chatId,
-    sender_user_id: to.senderId,
-    file_name: file.name || 'file',
-    content_type: contentType,
-    to_user_ids: to.toUserIds ?? [],
-  })
-}
-
 /**
  * A task attachment named before it is placed (P3): on a desktop, the id its DM-folder file will take (new files are
  * version 1) and the file the agent works on — the dragged original, or one copy of a paste (or of an image the agent
