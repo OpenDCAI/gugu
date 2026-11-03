@@ -236,23 +236,29 @@ describe('workspace App: what the old workspace panel did', () => {
 
 describe('the document and file list share their complete file menu', () => {
   test.each([false, true])('both entries keep the same actions and permissions when readOnly=%s', async (readOnly) => {
-    gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry: entries[0], readOnly, close: vi.fn() } as never)
-    contextChanged({ ...context, file: { chat: 'chat-1', id: 'plan' } })
-    await until('the same file is open', () => app().shown === 'plan.md')
-    rowMore('plan').click()
-    await until('delete permission is known', () => gugu.files.canDelete.mock.calls.length > 0)
-    const rowItems = offered()
-    pressEscape()
-    $('more').click()
-    expect(offered()).toEqual(rowItems)
-    expect(rowItems.slice(0, 3)).toEqual(['复制链接', '用别的 App 打开', '下载'])
-    expect(rowItems.includes('删除')).toBe(!readOnly)
-    expect(rowItems.includes('改名')).toBe(!readOnly)
-    expect(rowItems).toContain('选择')
-    expect(rowItems).toContain('详情')
-    pressEscape()
-    contextChanged({ ...context })
-    await until('Back closes the file', () => app().shown === null)
+    const ctx = { ...context, capabilities: readOnly ? ['files:read'] : context.capabilities }
+    contextChanged(ctx)
+    await until('the folder and its permission are ready', () => !!document.querySelector('[data-id="plan"]') && $('upload').hidden === readOnly)
+    try {
+      gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry: entries[0], close: vi.fn() } as never)
+      contextChanged({ ...ctx, file: { chat: 'chat-1', id: 'plan' } })
+      await until('the same file is open', () => app().shown === 'plan.md')
+      rowMore('plan').click()
+      if (!readOnly) await until('delete permission is shown', () => offered().includes('删除'))
+      const rowItems = offered()
+      pressEscape()
+      $('more').click()
+      expect(offered()).toEqual(rowItems)
+      expect(rowItems.slice(0, 3)).toEqual(['复制链接', '用别的 App 打开', '下载'])
+      expect(rowItems.includes('删除')).toBe(!readOnly)
+      expect(rowItems.includes('改名')).toBe(!readOnly)
+      expect(rowItems).toContain('选择')
+      expect(rowItems).toContain('详情')
+    } finally {
+      pressEscape()
+      contextChanged({ ...context })
+      await until('Back closes the file and restores its list', () => app().shown === null && !!document.querySelector('[data-id="plan"]'))
+    }
   })
 })
 

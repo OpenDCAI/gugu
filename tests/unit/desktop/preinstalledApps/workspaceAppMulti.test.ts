@@ -212,7 +212,7 @@ describe('picking', () => {
     const target = row('a').querySelector<HTMLButtonElement>('.file-open')!
     target.dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true }))
     expect($('menu').hidden).toBe(false)
-    expect(document.activeElement?.textContent).toBe('打开')
+    expect(document.activeElement?.textContent).toBe('转发')
     pressEscape()
     expect(document.activeElement).toBe(target)
     target.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }))

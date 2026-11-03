@@ -215,6 +215,13 @@ describe('markdown redesign: the real document page', () => {
     close()
   })
 
+  test('M7 a read-only document never offers rename, move or delete even in a writable folder', () => {
+    file.readOnly = true
+    $('more').click()
+    const labels = menuItems().map((item) => item.textContent)
+    expect(labels).toEqual(['Forward', 'Copy link', 'Open with another App', 'Download', 'Open', 'Select', 'Details'])
+  })
+
   test('editing coalesces pointer bursts into one placement and one geometry read per frame', async () => {
     $('mode-split').click()
     const block = paragraph()
