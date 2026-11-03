@@ -1706,3 +1706,11 @@ describe('readOpenedFile', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'not_a_file' } });
   });
 });
+
+
+it('advertises end-to-end native input identity only for the ACP host contract', async () => {
+  state.rows = [row({ id: 'identity-acp', runtime: 'acp' }), row({ id: 'identity-pty', runtime: 'pty' })];
+  const { sessions } = await service.listSessions();
+  expect(sessions.find(session => session.conversationId === 'identity-acp')).toMatchObject({ nativeInputVersion: 2, nativeInputIdentity: true });
+  expect(sessions.find(session => session.conversationId === 'identity-pty')).not.toHaveProperty('nativeInputIdentity');
+});

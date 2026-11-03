@@ -750,6 +750,7 @@ function summaryOf(
     lastInteractedAt: session.lastInteractedAt,
     supported: location.supported,
     nativeInputVersion: 2,
+    ...(session.runtime === 'acp' ? { nativeInputIdentity: true as const } : {}),
     nativeLastMessage: nativeConversationActivity(session.id),
     nativeUnreadKeys: nativeConversationUnread(session.id),
     nativeUnreadAliases: nativeConversationAliases(session.id),

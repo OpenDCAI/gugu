@@ -650,6 +650,8 @@ export type SessionpageSessionSummary = {
   cwd?: string;
   /** The host preserves clientMessageId on raw session inputs. Absent on older hosts. */
   nativeInputVersion?: 1 | 2;
+  /** Client identity survives host queue admission and provider transcript IDs. */
+  nativeInputIdentity?: true;
   /** Live native activity, not a second IM row. Offline heartbeat digests carry no message text. */
   nativeLastMessage?: { text: string; at: string } | null;
   /** Raw personal conversation replies. IM deliveries keep their existing unread counter. */

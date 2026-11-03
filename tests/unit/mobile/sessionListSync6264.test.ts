@@ -270,3 +270,13 @@ describe('摘要里的 agent(#7199:离线时任务区也认得出个人助理自
     expect('agent' in sessions[2]!).toBe(false)
   })
 })
+
+
+it('keeps optional native identity capability through heartbeat normalization and cold directory', () => {
+  const base = { conversationId: 'legacy', title: 'Task', nativeInputVersion: 2, runtime: 'acp' }
+  const rows = normalizeSessionDigest([base, { ...base, conversationId: 'modern', nativeInputIdentity: true }, { ...base, conversationId: 'invalid', nativeInputIdentity: 'true' }])
+  const sessions = sessionListFromDigest(rows, false).sessions
+  expect(sessions[0]).not.toHaveProperty('nativeInputIdentity')
+  expect(sessions[1]).toMatchObject({ nativeInputVersion: 2, nativeInputIdentity: true })
+  expect(sessions[2]).not.toHaveProperty('nativeInputIdentity')
+})

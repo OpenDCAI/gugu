@@ -219,6 +219,7 @@ export function normalizeSessionDigest(value: unknown): DeviceSessionSummary[] {
     if (!sessionId || !title) continue
     out.push({
       ...((row.nativeInputVersion === 1 || row.nativeInputVersion === 2) ? { nativeInputVersion: row.nativeInputVersion } : {}),
+      ...(row.nativeInputIdentity === true ? { nativeInputIdentity: true as const } : {}),
       ...(row.runtime === 'acp' || row.runtime === 'pty' || row.runtime === 'unknown' ? { runtime: row.runtime } : {}),
       conversationId: sessionId,
       projectId: typeof row.projectId === 'string' ? row.projectId : '',

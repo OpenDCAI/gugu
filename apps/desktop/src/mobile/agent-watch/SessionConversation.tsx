@@ -58,7 +58,7 @@ import { pendingPromptLanded } from '@session-chat/state/pending-prompt'
 /** The phone supplies session data and RPC actions to the same project conversation UI. */
 export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, harness, draft, onDraftApplied, startupPrompt, phoneHost = false, local = false, nativeRecord = false, hostReachable = true,
   machineLabel, sessionRuntime, respondingItemId, onRespond, onSend, pendingSends, sending, agentWorking,
-  onStop, stopping, footerNotice, onLoadOlder, onAtBottom, emptyNote,
+  onStop, stopping, footerNotice, onLoadOlder, onAtBottom, emptyNote, onBeforeSend,
   historyReady = true, historyCursor,
 }: {
   timeline: AgentWatchTimeline; deviceId: string; sessionId: string; agentName: string; agentUserId?: string | null
@@ -70,6 +70,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   startupPrompt?: import('@gugu/session-chat-ui').PendingPrompt | null
   sessionRuntime: SessionpageSessionSummary['runtime']; respondingItemId: string | null
   onRespond: (input: SettlementResponse) => Promise<SessionpageSessionRespondResult>; onSend: (text: string, files?: TurnFileRef[]) => Promise<void>
+  onBeforeSend?: () => void
   pendingSends: readonly PendingSend[]; sending: boolean; agentWorking: boolean
   headerRunning?: boolean
   onStop: () => void; stopping: boolean; footerNotice?: ReactNode; onLoadOlder: () => Promise<void>
@@ -87,6 +88,8 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const editor = useRef<PromptEditorRef | null>(null)
   const inFlight = useRef<{ attachments: ReadonlySet<string>; waiting: boolean; cancelWait(): void } | null>(null)
   const input = useRef<HTMLInputElement>(null)
+  const sendTarget = useRef({ deviceId, sessionId, onSend, onBeforeSend })
+  sendTarget.current = { deviceId, sessionId, onSend, onBeforeSend }
   const mobile = useMobileShell()
   const composerDraft = useSessionConversationDraft(deviceId, sessionId, !mobile && nativeRecord && !local && !phoneHost)
   const { text: draftText, setText: setDraftText } = composerDraft
@@ -156,8 +159,18 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       target.setDraftText(next); editor.current?.setText(next)
     })
   }, [sessionId, visibility.shown])
+  // An upload keeps the conversation where this submission began.
+  const currentSendTarget = () => sendTarget.current.deviceId === deviceId && sendTarget.current.sessionId === sessionId
+    ? sendTarget.current : { onSend, onBeforeSend }
+  const checkBeforeSend = () => {
+    try { currentSendTarget().onBeforeSend?.(); return true }
+    catch (error) {
+      toast({ title: translateSessionMessage('acpFailure.sendMessage'), description: messageForUser(error), variant: 'destructive' })
+      return false
+    }
+  }
   const submit = async (value: string) => {
-    if (sending || stopping || inFlight.current) return
+    if (sending || stopping || inFlight.current || !checkBeforeSend()) return
     let cancelWait!: () => void
     const cancelled = new Promise<false>(resolve => { cancelWait = () => resolve(false) })
     const submission = { attachments: new Set(attachments.map(file => file.id)), waiting: uploads.unsettled(), cancelWait }
@@ -170,11 +183,11 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       const sentAttachments = attachments
       const files = uploads.files(sentAttachments.map(file => file.id))
       const text = value.trim()
-      if (!text && !files.length) return
+      if ((!text && !files.length) || !checkBeforeSend()) return
       composerDraft.setText(''); composerDraft.flush(); editor.current?.setText('')
       setAttachments(current => current.filter(file => !sentAttachments.some(sent => sent.id === file.id)))
       try {
-        await onSend(text, files)
+        await currentSendTarget().onSend(text, files)
         view.current?.setScrollMode({ kind: 'tail' })
         for (const file of sentAttachments) uploads.forget(file.id)
       } catch (error) {
