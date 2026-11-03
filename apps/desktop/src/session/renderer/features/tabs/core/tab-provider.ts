@@ -155,6 +155,8 @@ export interface TabProvider<
   OpenArgs = S,
 > {
   readonly kind: K;
+  /** Only a conversation may create/reuse a companion for an ordinary navigation. */
+  conversation?: boolean;
 
   /**
    * Stable identity for a tab, derived from its serializable state.

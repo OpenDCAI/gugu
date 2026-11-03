@@ -158,6 +158,7 @@ class TabEntryImpl<S = unknown> implements TabEntry<S> {
  * 都是这一格里的并排(spec session-page「并排」),由 PaneStore 自己做。
  */
 export interface PaneSplitter {
+  tabClosing?(entry: TabEntry): void;
   /** 这一枚能不能单独成窗,能的话怎么开(会话自己那枚 = 整个会话,App 那枚 = 这个 App,别的附页 = 这一枚)。 */
   windowOpener?(tabId: string): (() => void) | null;
   /** 挪到这条会话的另一格(走格子的先后:后一格,没有就前一格);只有这一格 = null。 */
@@ -1284,6 +1285,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   private _removeTab(id: string): void {
     const entry = this.entries.get(id);
     if (!entry) return;
+    this._layoutSplitter?.tabClosing?.(entry);
 
     // Record for reopen history before removing.
     const index = this.tabOrder.indexOf(id);

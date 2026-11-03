@@ -1,7 +1,7 @@
 import { action, computed, makeObservable, observable, reaction } from 'mobx';
 import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX, PaneStore } from '@renderer/features/tabs/pane-store';
 import type { TabGroupsSnapshot, TabManagerSnapshot } from '@shared/view-state';
-import type { OpenTarget, TabViewContext } from './core/tab-provider';
+import type { OpenTarget, TabEntry, TabViewContext } from './core/tab-provider';
 import type {
   AnyTabProvider,
   KindOf,
@@ -10,6 +10,7 @@ import type {
   TabRegistry,
 } from './core/tab-provider-registry';
 import type { TabPersistenceAdapter } from './persistence';
+import { accountTabPlacementMemory, type TabPlacementMemory } from './tab-placement-memory';
 import {
   equalizeSplit,
   evenSizes,
@@ -145,6 +146,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
   private readonly _autoCloseDisposers = new Map<string, () => void>();
   private readonly _onActiveTabChange: ((tabId: string | undefined) => void) | undefined;
   private readonly _singleStrip: boolean;
+  private readonly _placementMemory: TabPlacementMemory;
   private readonly _activeTabDisposer: () => void;
   private _lastPersistentActivePaneId: string;
   private readonly _lastPersistentActiveTabIds = new Map<string, string | undefined>();
@@ -160,6 +162,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
        * 合成一格 —— 两格的话,两格各自屏上那页并排着回来。
        */
       singleStrip?: boolean;
+      placementMemory?: TabPlacementMemory;
     }
   ) {
     this._registry = registry;
@@ -167,6 +170,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     this._persistor = persistor;
     this._onActiveTabChange = opts?.onActiveTabChange;
     this._singleStrip = opts?.singleStrip ?? false;
+    this._placementMemory = opts?.placementMemory ?? accountTabPlacementMemory();
 
     const initial = this._createPane();
     this.groups.push(initial);
@@ -311,6 +315,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
   detachToWindow(tabId: string): string | null {
     const source = this.groups.find((g) => g.pane.entries.has(tabId));
     if (!source) return null;
+    this._rememberPlacement(source.pane.entries.get(tabId)!, 'separate');
     const detached = source.pane.detachTab(tabId);
     if (!detached) return null;
     const paneId = crypto.randomUUID();
@@ -419,7 +424,14 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     const index = this.groups.findIndex((g) => g.paneId === paneId);
     if (index === -1) return;
 
+    for (const group of this.groups) {
+      for (const entry of group.pane.entries.values()) {
+        if (entry.companionPaneId === paneId) entry.companionPaneId = undefined;
+      }
+    }
+
     const closing = this.groups[index];
+    for (const entry of closing.pane.entries.values()) this._rememberPlacement(entry, 'beside');
     // Focus goes to the pane that takes its place in the walk order: the next one, or the previous at the end.
     const adjacentId =
       neighbourInOrder(this.layout, paneId, 'after') ?? neighbourInOrder(this.layout, paneId, 'before');
@@ -461,6 +473,14 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       insertBeforeTabId,
       activate,
     });
+    this._rememberPlacement(detached.entry, this.groups.filter((group) => group.pane.tabOrder.length > 0).length > 1 ? 'beside' : 'separate');
+    // A human moved a page into a pane next to a conversation: that pane is now its companion.
+    for (const group of this.groups) {
+      if (neighbourInOrder(this.layout, group.paneId, 'after') !== toPaneId && neighbourInOrder(this.layout, group.paneId, 'before') !== toPaneId) continue;
+      for (const entry of group.pane.entries.values()) {
+        if (this._registry.has(entry.kind) && this._registry.get(entry.kind).conversation) entry.companionPaneId = toPaneId;
+      }
+    }
     if (activate) this.activePaneId = toPaneId;
   }
 
@@ -578,14 +598,8 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       : (args as unknown);
     if (initialState === null) return; // aborted by onBeforeOpen
 
-    if (config?.intent === 'navigate' && typeof config.from === 'string') {
-      const source = this.groups.find((group) => group.pane.entries.has(config.from!));
-      if (!source) return;
-      source.pane.navigate(config.from, kind, initialState);
-      if (config.activate ?? true) {
-        this.setActiveGroup(source.paneId);
-        source.pane.setActiveTab(config.from);
-      }
+    if (config?.intent) {
+      this._openFrom(kind, initialState, config);
       return;
     }
 
@@ -683,6 +697,71 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
   }
 
   /** Returns true if any pane has a tab of the given kind + resourceKey open. */
+  private _resourceId(kind: string, state: unknown): string {
+    const place = this._ctx.place;
+    const container = place?.kind === 'session' ? `session:${place.sessionId}` : place?.kind === 'chat' ? `chat:${place.chatId}` : this._ctx.viewId;
+    return `${container}\u0000${kind}\u0000${this._registry.get(kind).resourceKey(state as never)}`;
+  }
+
+  private _rememberPlacement(entry: TabEntry, placement: 'separate' | 'beside'): void {
+    const pages = [...(entry.history?.pages ?? []), { kind: entry.kind, state: entry.state }];
+    for (const page of pages) {
+      if (!this._registry.has(page.kind) || this._registry.get(page.kind).conversation) continue;
+      this._placementMemory.write(this._resourceId(page.kind, page.state), placement);
+    }
+  }
+
+  private _openFrom(kind: string, state: unknown, config: TabOpenOptions): void {
+    const source = typeof config.from === 'string'
+      ? this.groups.find((group) => group.pane.entries.has(config.from!))
+      : undefined;
+    if (typeof config.from === 'string' && !source) return;
+    const from = source && config.from ? source.pane.entries.get(config.from) : undefined;
+    const remembered = config.intent === 'navigate' ? this._placementMemory.read(this._resourceId(kind, state)) : undefined;
+    const intent = remembered === 'separate' ? 'newTab' : remembered === 'beside' ? 'beside' : config.intent;
+    const conversation = from && this._registry.has(from.kind) && this._registry.get(from.kind).conversation === true;
+    const targetId = typeof config.target === 'object' ? config.target.paneId : this.activePaneId;
+    let target = source ?? this.groups.find((group) => group.paneId === targetId) ?? this.groups[0];
+    let replace: string | undefined;
+
+    if (intent === 'navigate' && from && !conversation) {
+      replace = from.tabId;
+    } else if (intent === 'beside' || (intent === 'navigate' && conversation)) {
+      const companion = conversation && from.companionPaneId
+        ? this.groups.find((group) => group.paneId === from.companionPaneId)
+        : undefined;
+      if (companion && intent === 'navigate') {
+        target = companion;
+        replace = target.pane.resolvedActiveTabId;
+      } else if (this.groups.length < MAX_PANE_COUNT && (!target.pane.dimensions || target.pane.dimensions.width >= MIN_PANE_WIDTH_PX * 2 + 1)) {
+        const next = this._createPane();
+        this.groups.push(next);
+        this.layout = insertBeside(this.layout, target.paneId, next.paneId, 'right');
+        this._syncGroupOrder();
+        if (conversation) from.companionPaneId = next.paneId;
+        target = next;
+      }
+      // Too narrow: an ordinary tab in the source pane. Resizing never changes the tree.
+    }
+
+    if (replace) {
+      target.pane.navigate(replace, kind, state);
+    } else {
+      const tabId = target.pane.openWithState(kind, state, { activate: false });
+      if (!tabId) return;
+      if (source?.pane === target.pane && from) {
+        const next = target.pane.tabOrder.filter((id) => id !== tabId);
+        next.splice(next.indexOf(from.tabId) + 1, 0, tabId);
+        target.pane.tabOrder = next;
+      }
+      replace = tabId;
+    }
+    if (config.activate ?? true) {
+      this.activePaneId = target.paneId;
+      target.pane.setActiveTab(replace);
+    }
+  }
+
   isOpen(kind: string, key: string): boolean {
     return this.groups.some((g) => g.pane.hasOpenKey(kind, key));
   }
@@ -852,6 +931,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       layoutOpener: (kind, args, config) => this.open(kind, args, config),
       isViewActive: () => this._isViewActiveBox.get(),
       layoutSplitter: {
+        tabClosing: (entry) => this._rememberPlacement(entry, this.groups.filter((group) => group.pane.tabOrder.length > 0).length > 1 ? 'beside' : 'separate'),
         windowOpener: (tabId) => this.windowOpener?.(tabId) ?? null,
         pairAnchorTab: () => {
           const anchor = this.pairAnchor?.() ?? null;
