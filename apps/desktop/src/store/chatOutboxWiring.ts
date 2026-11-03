@@ -511,7 +511,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
                   error instanceof AttachmentSourceRefused ? error.message : undefined)
               }
             }
-          })().catch(err => { if (active) console.error('[chatOutbox] attachment restore failed', err) })
+          })().catch(error => { if (active) rendererLogger('chat/outbox').error({ error: String(error) }, 'attachment restore failed') })
         }
       }).catch((err) => { if (active) console.error('[chatOutbox] restore failed', err) })
       // 网络恢复 → 全部 failed 自动重投(验收②的自动路径;拍板 a:退避封顶后交 online kick)
