@@ -30,6 +30,21 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('attachment ownership transfers to the durable chat outbox', () => {
+  it('stages each file and its final commitment before any publication, including the file behind a slow one', async () => {
+    const f = fixture(), files = [new File(['a'], 'first.txt'), new File(['b'], 'second.txt')]
+    let finish!: () => void
+    f.commitAttachment.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const done = sendAttachmentBatch({ ...f.args, files, replyToMessageId: 'source' })
+    await vi.waitFor(() => expect(f.commitAttachment).toHaveBeenCalledOnce())
+    expect(f.stageAttachment).toHaveBeenCalledTimes(2)
+    for (const [index, call] of f.stageAttachment.mock.calls.entries()) {
+      const [message, , intent] = call as unknown as [MessageItem, undefined, { file: File; commit: unknown }]
+      expect(intent.file).toBe(files[index])
+      expect(intent.commit).toMatchObject({ message_id: message.id, file_name: files[index].name, reply_to_message_id: 'source' })
+      expect(f.stageAttachment.mock.invocationCallOrder[index]).toBeLessThan(f.commitAttachment.mock.invocationCallOrder[0])
+    }
+    finish(); await done
+  })
   it('persists its source id before showing a placeholder or starting an upload', async () => {
     const f = fixture()
     const id = await sendAttachmentBatch(f.args)

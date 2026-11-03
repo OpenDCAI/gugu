@@ -17,7 +17,17 @@ export async function attachmentsEndpoint(): Promise<AttachmentsEndpoint> {
 }
 
 /** Planning does not publish a file. The ordered commit invokes the same publisher as group-file Apps. */
-export type PreparedChatAttachment = { staging_key: string } | { local: File }
+export type PreparedChatAttachment = { staging_key: string } | { local: File | { path: string; name: string; size: number; contentType: string; lastModified: number }; itemId?: string }
+export class AttachmentSourceRefused extends Error {
+  constructor(reason: 'missing' | 'changed' | 'denied') {
+    const keys = { missing: 'outbox.sourceFileMissing', changed: 'outbox.sourceFileChanged', denied: 'outbox.sourceFileDenied' } as const
+    super(i18n.t(keys[reason], { ns: 'messaging' }))
+  }
+}
+export function chatAttachmentSource(file: File) {
+  const path = globalThis.window?.electronAPI?.getPathForFile?.(file)
+  return path ? { path, size: file.size, lastModified: file.lastModified } : undefined
+}
 async function publishNative(args: Record<string, unknown>) {
   try { return await window.electronAPI!.invoke('files:publish', args) }
   catch { throw new Error(i18n.t('attachmentView.fileUnavailable', { ns: 'messaging' })) }
@@ -26,9 +36,11 @@ const cloudChatAttachment = async (endpoint: AttachmentsEndpoint, file: File, ch
   staging_key: await uploadAttachmentBytes(endpoint, { bytes: file, name: file.name || 'file', contentType: resolveFileMimeType(file) }, { chat_id: chatId, as: actor, ...(requestId ? { request_id: requestId } : {}) }, { onPlan, retry, onProgress }),
 })
 /** An image is uploaded when sent, also in a project chat whose other files stay on the machine that sends them. */
+export async function chatAttachmentUsesLocal(scope: { chat_id: string; is_whisper?: boolean }, contentType: string): Promise<boolean> {
+  return !!globalThis.window?.electronAPI && !scope.is_whisper && !contentType.startsWith('image/') && await publishNative({ chatId: scope.chat_id }) === true
+}
 export async function prepareChatAttachment(endpoint: AttachmentsEndpoint, file: File, scope: { chat_id: string; as: string; is_whisper?: boolean; request_id?: string }, onPlan?: (plan: AttachmentUploadPlan) => void, retry = false, onProgress?: (progress: AttachmentByteProgress) => void): Promise<PreparedChatAttachment> {
-  const native = globalThis.window?.electronAPI
-  if (native && !scope.is_whisper && !resolveFileMimeType(file).startsWith('image/') && await publishNative({ chatId: scope.chat_id }) === true) return { local: file }
+  if (await chatAttachmentUsesLocal(scope, resolveFileMimeType(file))) return { local: file }
   return cloudChatAttachment(endpoint, file, scope.chat_id, scope.as, scope.request_id, onPlan, retry, onProgress)
 }
 export async function commitPreparedChatAttachment(endpoint: AttachmentsEndpoint, prepared: PreparedChatAttachment, args: Omit<CommitArgs, 'staging_key'>): Promise<Record<string, unknown>> {
@@ -36,12 +48,19 @@ export async function commitPreparedChatAttachment(endpoint: AttachmentsEndpoint
   if (args.is_whisper || !window.electronAPI) throw new Error('Project file audience changed')
   const file = prepared.local
   // A pasted file is memory-backed and has no disk path: hand main its bytes instead.
-  const path = window.electronAPI.getPathForFile(file), data = path ? undefined : await file.arrayBuffer()
-  const row = await publishNative({ chatId: args.chat_id, file: { name: file.name, path, size: file.size, contentType: resolveFileMimeType(file), ...(data && { data }) }, message: args }) as { id: string; version: number; message?: Record<string, unknown> } | null
+  const restored = 'path' in file
+  const path = restored ? file.path : window.electronAPI.getPathForFile(file), data = path ? undefined : restored ? undefined : await file.arrayBuffer()
+  const row = await publishNative({ chatId: args.chat_id, itemId: prepared.itemId,
+    file: { name: file.name, path, size: file.size, contentType: restored ? file.contentType : resolveFileMimeType(file),
+      ...(path ? { lastModified: file.lastModified } : {}), ...(data && { data }) }, message: args }) as { id: string; version: number; message?: Record<string, unknown> } | { refused: 'missing' | 'changed' | 'denied' } | null
+  if (row && 'refused' in row) throw new AttachmentSourceRefused(row.refused)
   // This account's file storage setting changed after planning: the same cloud provider must authorize any upload afresh.
-  if (!row) return commitPreparedChatAttachment(endpoint, await cloudChatAttachment(endpoint, file, args.chat_id, args.sender_user_id), args)
+  if (!row) {
+    if (restored) throw new Error(i18n.t('outbox.selectFileAgain', { ns: 'messaging' }))
+    return commitPreparedChatAttachment(endpoint, await cloudChatAttachment(endpoint, file, args.chat_id, args.sender_user_id), args)
+  }
   const message = row.message
-  if (!message || message.id !== args.message_id || message.sender_user_id !== args.sender_user_id || message.chat_id !== args.chat_id || message.file_item_id !== row.id || message.file_version !== row.version) throw new Error('Project attachment was not committed')
+  if (!message || prepared.itemId && row.id !== prepared.itemId || message.id !== args.message_id || message.sender_user_id !== args.sender_user_id || message.chat_id !== args.chat_id || message.file_item_id !== row.id || message.file_version !== row.version) throw new Error('Project attachment was not committed')
   return message
 }
 

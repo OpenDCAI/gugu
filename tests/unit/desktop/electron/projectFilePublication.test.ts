@@ -152,6 +152,11 @@ function fixture(proactive = false, identity = { accountId: 'owner', deviceId: '
   return { publish, rpc, store: cloud, account: (value: string) => { accountId = value } }
 }
 describe('project file publication runs before document conversion or cloud upload', () => {
+  it('keeps a group publication in its project while carrying the sender’s stable item id', async () => {
+    const f = fixture()
+    await f.publish('group', file, null, 'owner', undefined, { itemId: 'stable-item', task: false })
+    expect(f.rpc.mock.calls.find(([name]) => name === 'file_device_publish')?.[1]).toMatchObject({ p_item: 'stable-item', p_project: 'project' })
+  })
   it('publishes only metadata by default and stores authentic workspace fields in the existing local index', async () => {
     const f = fixture()
     expect(await f.publish('group', file, null, 'owner', f.store)).toEqual(row)

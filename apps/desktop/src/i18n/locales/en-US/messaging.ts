@@ -820,6 +820,9 @@ export default {
   },
   "outbox": {
     "selectFileAgain": "Upload interrupted. Select the file again.",
+    "sourceFileMissing": "The original file was moved or deleted. Select the file again.",
+    "sourceFileChanged": "The original file has changed. Select the file again.",
+    "sourceFileDenied": "The original file cannot be read because permission was denied. Select the file again.",
     "sourceNotSent": "The original message was not sent. Retry it before forwarding again.",
     "sourceDiscarded": "The original message was discarded before it was sent",
     "deliveryTimeout": "Delivery timed out after {{seconds}}s because the network stopped responding",

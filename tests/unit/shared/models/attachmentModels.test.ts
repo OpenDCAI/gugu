@@ -9,6 +9,11 @@ import {
 } from '@gugu/core/shared/ui/attachmentModels'
 
 describe('attachment models', () => {
+  it.each(['sending', 'failed', 'unknown'] as const)('keeps an unsent %s attachment on its local preview rather than looking up a missing message', local_send_state => {
+    const body = formatAttachmentMetadata({ kind: 'file', fileName: 'report.txt', mimeType: 'text/plain', sizeBytes: 42, url: 'blob:original' })
+    expect(parseAttachmentContent(body, { id: 'unsent', local_send_state })).toMatchObject({ fileName: 'report.txt', sizeBytes: 42, source: { kind: 'url', url: 'blob:original' } })
+    expect(parseAttachmentContent(body, { id: 'sent', local_send_state: null })?.source).toEqual({ kind: 'message', messageId: 'sent' })
+  })
   it('formats and parses attachment metadata content', () => {
     const content = formatAttachmentMetadata({
       kind: 'image',

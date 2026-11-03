@@ -50,8 +50,8 @@ export type SyncStateRow = LocalImRow & { key: string; value: unknown }
 
 export type OutboxOperation =
   | { kind: 'message' }
-  | { kind: 'upload' }
-  | { kind: 'nativeAttachment'; commit: Omit<CommitArgs, 'staging_key'> }
+  | { kind: 'upload'; commit?: Omit<CommitArgs, 'staging_key'>; source?: { path: string; size: number; lastModified: number }; itemId?: string }
+  | { kind: 'nativeAttachment'; commit: Omit<CommitArgs, 'staging_key'>; source?: { path: string; size: number; lastModified: number }; itemId?: string }
   | { kind: 'forward'; source: { kind: 'message'; id: string } | { kind: 'file'; id: string; version: number | null } }
   | { kind: 'attachment'; commit: CommitArgs }
   | { kind: 'topic'; input: CreateTopicInput & { topicId: string } }

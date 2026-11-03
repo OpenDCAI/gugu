@@ -124,7 +124,7 @@ export function parseAttachmentContent(content: string | null, ref?: MessageFile
   if (legacy) {
     const url = urlLine.slice(URL_PREFIX.length).trim()
     if (!url) return null
-    source = ref?.id && !(ref.local_send_state === 'sending' && url.startsWith('blob:')) ? { kind: 'message', messageId: ref.id } : { kind: 'url', url }
+    source = ref?.id && !(ref.local_send_state && url.startsWith('blob:')) ? { kind: 'message', messageId: ref.id } : { kind: 'url', url }
   } else if (ref?.file_item_id && Number.isInteger(ref.file_version) && (ref.file_version as number) >= 1) {
     source = { kind: 'item', itemId: ref.file_item_id, version: ref.file_version as number }
   } else if (ref?.file_blob_id && ref.id) {

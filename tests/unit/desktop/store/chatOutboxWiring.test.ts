@@ -47,7 +47,7 @@ function optimisticMessage(id: string): MessageItem {
   }
 }
 
-function wiringHarness(messageId: string) {
+function wiringHarness(messageId: string, existingRepository?: Promise<AccountImRepository>) {
   let messages = [optimisticMessage(messageId)]
   let threadMessages: MessageItem[] = []
   const toast = vi.fn<OutboxWiringIo['toast']>()
@@ -57,7 +57,7 @@ function wiringHarness(messageId: string) {
   const appendMessage = vi.fn<OutboxWiringIo['appendMessage']>((message) => {
     messages = upsertMessageById(messages, message)
   })
-  const repository = openImRepository('owner-1', {
+  const repository = existingRepository ?? openImRepository('owner-1', {
     adapter: createMemoryLocalSyncDb(),
     storage: window.localStorage,
   })
@@ -115,6 +115,7 @@ afterEach(() => {
   vi.clearAllTimers()
   vi.useRealTimers()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('committed outbound reconciliation', () => {
@@ -337,4 +338,99 @@ it('does not publish a native reply discarded while waiting for its source', asy
   expect(publish).not.toHaveBeenCalled()
   expect((await f.repository).snapshot().outbox).toEqual([])
   f.wiring.dispose()
+})
+
+
+describe('disk-backed attachment restart through the durable repository', () => {
+  const endpoint = { supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token' }
+  const nativeMessage = (id: string, itemId = 'stable-item') => ({ ...persistedMessage(id), content_type: 'attachment' as const,
+    file_item_id: itemId, file_version: 1 })
+  const stage = async (f: ReturnType<typeof wiringHarness>, id: string, options: { isWhisper?: boolean; type?: string; reply?: string } = {}) => {
+    const message = { ...optimisticMessage(id), content_type: 'attachment' as const, reply_to_message_id: options.reply ?? null }
+    const file = new File(['bytes'], 'original.txt', { type: options.type ?? 'text/plain', lastModified: 123 })
+    const commit = { message_id: id, chat_id: message.chat_id, sender_user_id: 'owner-1', file_name: file.name,
+      content_type: file.type, is_whisper: !!options.isWhisper, reply_to_message_id: message.reply_to_message_id }
+    await f.wiring.stageAttachment(message, undefined, { file, commit })
+    return { message, file, commit }
+  }
+  const bridge = (exists = true) => {
+    const invoke = vi.fn(async (_name: string, args: Record<string, unknown>) => args.file
+      ? { id: args.itemId, version: 1, message: nativeMessage((args.message as { message_id: string }).message_id, args.itemId as string) } : exists)
+    const api = { invoke, getPathForFile: () => '/original/a.txt' }
+    vi.stubGlobal('window', new Proxy(window, { get: (target, key) => key === 'electronAPI' ? api : Reflect.get(target, key, target) }))
+    vi.spyOn(attachmentEndpoint, 'attachmentsEndpoint').mockResolvedValue(endpoint)
+    return invoke
+  }
+  it('restores a staged batch with all intents before replaying the unpublished second file', async () => {
+    const invoke = bridge(), f = wiringHarness('first')
+    const first = await stage(f, 'first'), second = await stage(f, 'second')
+    const before = (await f.repository).snapshot().outbox.map(row => row.value)
+    expect(before).toHaveLength(2)
+    for (const record of before) expect(record.operation).toMatchObject({ kind: 'upload',
+      source: { path: '/original/a.txt', size: 5, lastModified: 123 }, itemId: expect.any(String), commit: { message_id: record.clientMessageId } })
+    const itemIds = before.map(record => (record.operation as { itemId: string }).itemId)
+    f.wiring.dispose()
+    vi.spyOn(chatService, 'getMessageById').mockImplementation(async id => id === 'first' ? nativeMessage(first.message.id) : null)
+    const restored = wiringHarness('first', f.repository)
+    const stop = restored.wiring.restoreAndWatch()
+    await vi.waitFor(() => expect(restored.appendMessage).toHaveBeenCalledTimes(2))
+    const published = invoke.mock.calls.filter(([, args]) => args.file)
+    expect(published).toHaveLength(1)
+    expect(published[0][1]).toMatchObject({ itemId: itemIds[1], message: second.commit,
+      file: { path: '/original/a.txt', size: 5, lastModified: 123, name: 'original.txt' } })
+    expect((await f.repository).snapshot().outbox).toEqual([])
+    stop(); restored.wiring.dispose()
+  })
+  it.each(['image/png', 'whisper', 'cloud'])('does not resume a disk path when the shared provider decision is %s', async mode => {
+    const invoke = bridge(mode !== 'cloud'), f = wiringHarness('excluded')
+    await stage(f, 'excluded', { type: mode === 'image/png' ? mode : 'text/plain', isWhisper: mode === 'whisper' })
+    f.wiring.dispose()
+    vi.spyOn(chatService, 'getMessageById').mockResolvedValue(null)
+    const restored = wiringHarness('excluded', f.repository), stop = restored.wiring.restoreAndWatch()
+    await vi.waitFor(() => expect((restored.messages()[0]).local_send_state).toBe('failed'))
+    expect(invoke.mock.calls.filter(([, args]) => args.file)).toEqual([])
+    expect((await f.repository).snapshot().outbox[0].value.lastError).toBeTruthy()
+    stop(); restored.wiring.dispose()
+  })
+  it('reads an old pathless native operation once and fails immediately without an observation window', async () => {
+    const f = wiringHarness('pathless'), commit = { message_id: 'pathless', chat_id: 'chat-1', sender_user_id: 'owner-1', file_name: 'paste.txt' }
+    const now = new Date().toISOString()
+    await putOutboxRecord(await f.repository, { clientMessageId: 'pathless', chatId: 'chat-1', senderUserId: 'owner-1',
+      payload: { content: 'paste', contentType: 'attachment', toUserIds: [], replyToMessageId: null, threadRootId: null, isThreadRoot: false, isWhisper: false },
+      operation: { kind: 'nativeAttachment', commit }, state: 'uploading', attempts: 0, lastError: null, enqueuedAt: now, updatedAt: now })
+    const read = vi.spyOn(chatService, 'getMessageById').mockResolvedValue(null)
+    const settle = vi.spyOn(attachmentRecovery, 'settleAttachmentSend')
+    const stop = f.wiring.restoreAndWatch()
+    await vi.waitFor(() => expect(f.messages()[0].local_send_state).toBe('failed'))
+    expect(read).toHaveBeenCalledExactlyOnceWith('pathless', 'owner-1')
+    expect(settle).not.toHaveBeenCalled()
+    stop(); f.wiring.dispose()
+  })
+  it.each(['complete', 'discard', 'dispose'])('waits for the original text dependency across restart (%s)', async outcome => {
+    const invoke = bridge(), f = wiringHarness('reply')
+    await stage(f, 'reply', { reply: 'source' })
+    const now = new Date().toISOString()
+    await putOutboxRecord(await f.repository, { clientMessageId: 'source', chatId: 'chat-1', senderUserId: 'owner-1',
+      payload: { content: 'text', contentType: 'text', toUserIds: [], replyToMessageId: null, threadRootId: null, isThreadRoot: false, isWhisper: false },
+      operation: { kind: 'message' }, state: 'pending', attempts: 0, lastError: null, enqueuedAt: now, updatedAt: now })
+    f.wiring.dispose()
+    const delivered = deferred<MessageItem>()
+    vi.spyOn(chatService, 'sendMessage').mockReturnValue(delivered.promise)
+    const read = vi.spyOn(chatService, 'getMessageById').mockResolvedValue(null)
+    const restored = wiringHarness('reply', f.repository), stop = restored.wiring.restoreAndWatch()
+    await flushMicrotasks(50)
+    expect(read).not.toHaveBeenCalled()
+    if (outcome === 'discard') await restored.wiring.outbox.discard('reply')
+    if (outcome === 'dispose') restored.wiring.dispose()
+    delivered.resolve(persistedMessage('source'))
+    if (outcome === 'complete') {
+      await vi.waitFor(() => expect(invoke.mock.calls.filter(([, args]) => args.file)).toHaveLength(1))
+      expect(restored.appendMessage.mock.calls[0][0].id).toBe('source')
+    } else {
+      await flushMicrotasks(50)
+      expect(read).not.toHaveBeenCalled()
+      expect(invoke.mock.calls.filter(([, args]) => args.file)).toEqual([])
+    }
+    stop(); restored.wiring.dispose()
+  })
 })

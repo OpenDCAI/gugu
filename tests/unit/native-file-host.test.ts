@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -7,7 +7,15 @@ import { createNativeFileHost } from '../../apps/desktop/electron/nativeFileHost
 import { FILE_CHUNK_BYTES, type FileBytes, type FileRevision } from '@gugu/core/shared/fileResolver'
 
 const roots: string[] = []
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
+const denied = vi.hoisted(() => ({ path: '' }))
+vi.mock('node:fs/promises', async original => {
+  const fs = await original<typeof import('node:fs/promises')>()
+  return { ...fs, access: async (...args: Parameters<typeof fs.access>) => {
+    if (args[0] === denied.path) throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+    return fs.access(...args)
+  } }
+})
+afterEach(async () => { denied.path = ''; await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 const bytes = new Uint8Array([0, 255, 7])
 const sha = (data: Uint8Array) => createHash('sha256').update(data).digest('hex')
 const commitment = { size_bytes: bytes.length, sha256: sha(bytes), content_type: 'application/octet-stream' }
@@ -28,6 +36,33 @@ async function fixture() {
 }
 
 describe('native file capabilities are scoped and never expose incomplete originals', () => {
+  it.each([false, true])('passes a stable item id without turning a group attachment into a task (task=%s)', async task => {
+    const f = await fixture(), file = { name: 'original.txt', path: join(f.root, 'original.txt'), size: 3, contentType: 'text/plain' }
+    await f.host.publish(1, { chatId: 'group', file, task, itemId: 'stable-item' })
+    expect(f.publish).toHaveBeenCalledWith('group', file, 'owner', undefined, { task, itemId: 'stable-item' })
+  })
+  it.each(['missing', 'changed', 'denied'] as const)('returns a structured %s refusal before invoking the publisher', async reason => {
+    const f = await fixture(), path = join(f.root, 'original.txt')
+    await writeFile(path, bytes)
+    const lastModified = Math.trunc((await stat(path)).mtimeMs)
+    if (reason === 'missing') await rm(path)
+    if (reason === 'changed') await utimes(path, 1, (lastModified + 2000) / 1000)
+    if (reason === 'denied') denied.path = path
+    await expect(f.host.publish(1, { chatId: 'group', itemId: 'stable', file: {
+      name: 'original.txt', path, size: 3, contentType: 'text/plain', lastModified,
+    } })).resolves.toEqual({ refused: reason })
+    expect(f.publish).not.toHaveBeenCalled()
+  })
+  it('accepts an unchanged original with fractional mtime milliseconds and refuses a size change', async () => {
+    const f = await fixture(), path = join(f.root, 'original.txt')
+    await writeFile(path, bytes); await utimes(path, 1, 1_700_000_000.123456)
+    const mtimeMs = (await stat(path)).mtimeMs
+    expect(mtimeMs).not.toBe(Math.trunc(mtimeMs))
+    const request = { chatId: 'group', itemId: 'stable', file: { name: 'original.txt', path, size: 3, contentType: 'text/plain', lastModified: Math.trunc(mtimeMs) } }
+    await expect(f.host.publish(1, request)).resolves.toEqual({ id: 'item', version: 1 })
+    await expect(f.host.publish(1, { ...request, file: { ...request.file, size: 4 } })).resolves.toEqual({ refused: 'changed' })
+    expect(f.publish).toHaveBeenCalledOnce()
+  })
   it('publishes as the authenticated owner and refuses a lost account or closed window', async () => {
     const f = await fixture(), request = { chatId: 'group', file: { name: 'file.bin', path: join(f.root, 'file.bin'), size: 3, contentType: 'application/octet-stream' } }
     await expect(f.host.publish(1, request)).resolves.toEqual({ id: 'item', version: 1 })

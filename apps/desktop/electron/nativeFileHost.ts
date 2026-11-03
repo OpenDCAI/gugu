@@ -1,10 +1,10 @@
-import { createReadStream } from 'node:fs'
-import { chmod, mkdir, rename, stat } from 'node:fs/promises'
+import { constants, createReadStream } from 'node:fs'
+import { access, chmod, mkdir, rename, stat } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import { createFileSink } from './fileSnapshot'
-import type { SelectedProjectFile, ProjectFileMessage } from './projectFilePublication'
+import type { SelectedProjectFile, ProjectFileMessage, ProjectFilePublishOptions } from './projectFilePublication'
 import { sanitizeRemoteFileName } from './remoteFileOpen'
 import { fileRefKey, requireFileRange, requireFileRevision, type FileBytes, type FileContext, type FileProviders, type FileRevision, type FileStageCommand } from '@gugu/core/shared/fileResolver'
 
@@ -13,7 +13,7 @@ export function createNativeFileHost(deps: {
   root: string; owner(): Promise<string | null>; alive(scope: number): boolean
   local: FileProviders['local']; ssh: FileProviders['ssh']; openPath(path: string): Promise<string>
   published(directory: string): void; maxBytes?: number
-  publish?(chatId: string, file: SelectedProjectFile, owner: string, message?: ProjectFileMessage, task?: { itemId?: string }): Promise<unknown>
+  publish?(chatId: string, file: SelectedProjectFile, owner: string, message?: ProjectFileMessage, options?: Pick<ProjectFilePublishOptions, 'task' | 'itemId'>): Promise<unknown>
   /** A task attachment's own copy for the agent (`writeTaskCopy`): its path. */
   taskCopy?(name: string, bytes: Uint8Array, mimeType?: string): Promise<{ path: string; name: string; size: number; mimeType?: string }>
   publication?(chatId: string, owner: string): Promise<boolean>
@@ -42,7 +42,26 @@ export function createNativeFileHost(deps: {
     /** `task`: a task's input attachment, kept on this device (`ProjectFilePublishOptions.task`). */
     async publish(scope: number, request: { chatId: string; file?: SelectedProjectFile; message?: ProjectFileMessage; task?: boolean; itemId?: string }) {
       const epoch = epochOf(scope), owner = await deps.owner(); if (!owner || !deps.publish || !request.file && !deps.publication) throw new Error('File publisher is unavailable')
-      await check(scope, owner, epoch); const row = request.file ? await deps.publish(request.chatId, request.file, owner, request.message, request.task === true ? { itemId: request.itemId } : undefined) : await deps.publication!(request.chatId, owner); await check(scope, owner, epoch); return row
+      await check(scope, owner, epoch)
+      if (request.file?.lastModified !== undefined) {
+        let refused: 'missing' | 'changed' | 'denied' | undefined
+        try {
+          const original = await stat(request.file.path)
+          await access(request.file.path, constants.R_OK)
+          if (!original.isFile() || original.size !== request.file.size || Math.trunc(original.mtimeMs) !== request.file.lastModified) refused = 'changed'
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code
+          if (code === 'ENOENT' || code === 'ENOTDIR') refused = 'missing'
+          else if (code === 'EACCES' || code === 'EPERM') refused = 'denied'
+          else throw error
+        }
+        await check(scope, owner, epoch)
+        if (refused) return { refused }
+      }
+      const options = request.task === true || request.itemId ? { task: request.task === true, itemId: request.itemId } : undefined
+      const row = request.file ? await deps.publish(request.chatId, request.file, owner, request.message, options) : await deps.publication!(request.chatId, owner)
+      await check(scope, owner, epoch)
+      return row
     },
     async taskCopy(scope: number, request: { name: string; data: ArrayBuffer; mimeType?: string }) {
       const epoch = epochOf(scope), owner = await deps.owner(); if (!owner || !deps.taskCopy) throw new Error('File publisher is unavailable')

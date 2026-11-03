@@ -67,7 +67,7 @@ export interface ChatOutbox {
   commitUpload(record: OutboxRecord): Promise<boolean>
   has(clientMessageId: string): boolean
   confirm(clientMessageId: string, delivered: unknown): Promise<void>
-  failUpload(clientMessageId: string, error: unknown): Promise<void>
+  failUpload(clientMessageId: string, error: unknown, reason?: string): Promise<void>
   /** 显式丢弃:删行 + onDiscarded(调用方负责移除乐观行)。 */
   discard(clientMessageId: string): Promise<void>
   /** 网络恢复 kick:全部 failed → pending 自动重投(验收②的自动路径)。 */
@@ -323,13 +323,13 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       kick()
       return true
     },
-    async failUpload(id, error) {
+    async failUpload(id, error, reason) {
       const record = records.get(id)
       if (!record || disposed) return
       const operationEpoch = epoch
       outboxLog.error({ error, messageId: id }, 'attachment upload failed')
       const failed = await persist(record, 'failed', {
-        lastError: i18n.t('outbox.selectFileAgain', { ns: 'messaging' }),
+        lastError: reason ?? i18n.t('outbox.selectFileAgain', { ns: 'messaging' }),
       }, operationEpoch)
       if (!isActive(operationEpoch)) return
       deps.onState(failed)
@@ -393,7 +393,9 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       for (const row of rows) {
         lastEnqueuedAt = Math.max(lastEnqueuedAt, Date.parse(row.enqueuedAt))
         // 死在投递中的 'sending' 行视同 pending 重投(幂等键兜底,双发机制性不可能)
-        const interrupted = row.state === 'uploading' && row.operation?.kind !== 'nativeAttachment'
+        const operation = row.operation
+        const recoverable = operation?.kind === 'upload' && operation.source && operation.commit && operation.itemId
+        const interrupted = row.state === 'uploading' && operation?.kind !== 'nativeAttachment' && !recoverable
         const state = interrupted ? 'failed' : row.operation?.kind === 'nativeAttachment' && row.state !== 'failed' ? 'uploading' : row.state === 'sending' ? 'pending' : row.state
         const record: OutboxRecord = { ...row, state, ...(interrupted ? { operation: { kind: 'upload' }, lastError: i18n.t('outbox.selectFileAgain', { ns: 'messaging' }) } : {}) }
         if (state !== row.state) await deps.save(record)

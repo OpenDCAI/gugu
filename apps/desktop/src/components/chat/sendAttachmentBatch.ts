@@ -1,7 +1,7 @@
 import type { OutboxWiring } from '../../store/chatOutboxWiring'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { formatAttachmentMetadata, inferAttachmentKind, resolveFileMimeType } from '@gugu/core/shared/ui/attachmentModels'
-import { type AttachmentsEndpoint } from '@gugu/core/cloud/attachmentsApi'
+import { type AttachmentsEndpoint, type CommitArgs } from '@gugu/core/cloud/attachmentsApi'
 import { attachmentsEndpoint, prepareChatAttachment, type PreparedChatAttachment } from '../../lib/attachmentsEndpoint'
 import { requireThreadCapableChat } from '../../lib/chatThreadGate'
 import { attachmentSendTiming, attachmentUploadTimeoutMs, type AttachmentSendTiming } from '../../lib/attachmentSendTiming'
@@ -105,13 +105,22 @@ export async function sendAttachmentBatch(args: {
   if (args.threadRootId != null || args.isThreadRoot === true) await requireThreadCapableChat(args.chatId, 'sendAttachmentBatch')
   const captionIndex = args.files.findLastIndex(file => inferAttachmentKind(file) === 'image')
   const placeholders: Awaited<ReturnType<typeof placeholderRow>>[] = []
+  const commits: Omit<CommitArgs, 'staging_key'>[] = []
   let index = 0
   try {
     for (const [fileIndex, file] of args.files.entries()) {
       const row = await placeholderRow(file, fileIndex === captionIndex ? args.caption : undefined, args)
       placeholders.push(row)
+      const commit = {
+        message_id: row.message.id, chat_id: args.chatId, sender_user_id: args.senderId,
+        file_name: file.name || 'file', content_type: resolveFileMimeType(file), to_user_ids: args.toUserIds ?? [],
+        reply_to_message_id: args.replyToMessageId ?? null, thread_root_id: args.threadRootId ?? null,
+        is_thread_root: !!args.isThreadRoot, is_whisper: !!args.isWhisper,
+        ...(fileIndex === captionIndex && args.caption ? { caption: args.caption } : {}),
+      }
+      commits.push(commit)
       // Durable ownership precedes visibility; uploading does not block the lane.
-      await args.outbox.stageAttachment(row.message)
+      await args.outbox.stageAttachment(row.message, undefined, { file, commit })
       args.appendMessage(row.message)
       void args.outbox.outbox.delivered(row.message.id).then(row.release, () => {})
     }
@@ -122,13 +131,7 @@ export async function sendAttachmentBatch(args: {
     for (; index < args.files.length; index++) {
       const file = args.files[index], row = placeholders[index]
       const prepared = await uploads[index]
-      await args.outbox.commitAttachment(row.message, prepared, {
-        message_id: row.message.id, chat_id: args.chatId, sender_user_id: args.senderId,
-        file_name: file.name || 'file', content_type: resolveFileMimeType(file), to_user_ids: args.toUserIds ?? [],
-        reply_to_message_id: args.replyToMessageId ?? null, thread_root_id: args.threadRootId ?? null,
-        is_thread_root: !!args.isThreadRoot, is_whisper: !!args.isWhisper,
-        ...(index === captionIndex && args.caption ? { caption: args.caption } : {}),
-      }, timings[index])
+      await args.outbox.commitAttachment(row.message, prepared, commits[index], timings[index])
       // Only ready commits belong to outbox retry now. Uncommitted File objects
       // still belong to the composer and return there on this round's failure.
       args.onSent?.(file, index)

@@ -2,7 +2,7 @@ import { openTopicTab } from '../session/renderer/features/chats/chat-tabs/chat-
 import type { AppForwardFilesDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { commitAttachment, forwardAttachment, shareAttachment, type CommitArgs } from '@gugu/core/cloud/attachmentsApi'
 import { messageItemFromRow } from '@gugu/core/cloud/messageItem'
-import { attachmentsEndpoint, prepareChatAttachment, type PreparedChatAttachment } from '../lib/attachmentsEndpoint'
+import { AttachmentSourceRefused, attachmentsEndpoint, chatAttachmentSource, chatAttachmentUsesLocal, prepareChatAttachment, type PreparedChatAttachment } from '../lib/attachmentsEndpoint'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import { topicService, type CreateTopicInput, type CreatedTopic } from '../lib/topics'
 // @@@send-outbox (#1762 洞③/#1941) — outbox 与 chat store 的接线层(卫星,参照 chatRealtimeMutations
@@ -17,7 +17,7 @@ import type { ToastType } from '../components/toastContext'
 import type { ChatItem, MessageContentType, MessageItem } from '@gugu/core/shared/types/chat'
 import { upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
 import { attachmentSendTiming, type AttachmentSendTiming } from '../lib/attachmentSendTiming'
-import { settleAttachmentSend, type ObserveAttachmentMessage } from '../lib/attachmentSendRecovery'
+import { retryAttachmentUpload, settleAttachmentSend, type ObserveAttachmentMessage } from '../lib/attachmentSendRecovery'
 import { chatService } from '../lib/chat'
 import {
   ackOutboxRecord,
@@ -53,7 +53,7 @@ export interface OutboxWiringIo {
 
 export interface OutboxWiring {
   outbox: ChatOutbox
-  stageAttachment(message: MessageItem, dependsOn?: string): Promise<void>
+  stageAttachment(message: MessageItem, dependsOn?: string, intent?: { file: File; commit: Omit<CommitArgs, 'staging_key'> }): Promise<void>
   commitAttachment(message: MessageItem, prepared: PreparedChatAttachment, commit: Omit<CommitArgs, 'staging_key'>, timing?: AttachmentSendTiming, dependsOn?: string): Promise<void>
   forward(source: MessageItem | AppForwardFilesDetail['files'][number], targetChatId: string, senderUserId: string): Promise<void>
   createTopic(input: CreateTopicInput, senderUserId: string): Promise<CreatedTopic | null>
@@ -161,9 +161,8 @@ export async function resolveOutboxRecipients(
 
 export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
   let active = true
-  // Bytes never enter persistence. An interrupted native publication requires a fresh selection.
+  // Bytes never enter persistence. Disk-backed selections retain only their original path and commitment.
   const attachmentTimings = new Map<string, AttachmentSendTiming>()
-  const nativeCommits = new Map<string, () => Promise<MessageItem | undefined>>()
   const topicResults = new Map<string, CreatedTopic | undefined>()
   // clientMessageId → 本次会话里发送方交来的投递前置。送达/丢弃即删;失败保留,手动重试会再跑一次。
   const beforeDeliverHooks = new Map<string, () => Promise<void>>()
@@ -193,7 +192,6 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
 
   function removeRow(record: OutboxRecord): void {
     beforeDeliverHooks.delete(record.clientMessageId)
-    nativeCommits.delete(record.clientMessageId)
     attachmentTimings.delete(record.clientMessageId)
     if (!active) return
     if (record.payload.threadRootId) {
@@ -326,36 +324,56 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     onDiscarded: removeRow,
   })
 
+  // Live sends and restored sends share the same dependency wait and native publisher.
+  async function finishNativeAttachment(record: OutboxRecord, prepared?: PreparedChatAttachment,
+    timing = attachmentSendTiming(record.clientMessageId, record.chatId)) {
+    const operation = record.operation
+    if ((operation?.kind !== 'upload' && operation?.kind !== 'nativeAttachment') || !operation.commit) throw new Error('Missing attachment commitment')
+    const commit = operation.commit, id = record.clientMessageId
+    if (record.dependsOn) await outbox.delivered(record.dependsOn)
+    if (!active || !outbox.has(id)) return
+    if (!prepared) {
+      const row = await retryAttachmentUpload(attempt => timing.stage('readback', attempt, () => chatService.getMessageById(id, record.senderUserId)))
+      if (!active || !outbox.has(id)) return
+      if (row) {
+        if (row.id !== id || row.chat_id !== record.chatId || row.sender_user_id !== record.senderUserId || row.seq <= 0 || row.content_type !== 'attachment') throw new Error('Invalid native attachment receipt')
+        await outbox.confirm(id, row)
+        return
+      }
+      const source = operation.source
+      if (!source || !operation.itemId || !await chatAttachmentUsesLocal(commit, commit.content_type ?? 'application/octet-stream')) throw new Error(i18n.t('outbox.selectFileAgain', { ns: 'messaging' }))
+      if (!active || !outbox.has(id)) return
+      prepared = { local: { ...source, name: commit.file_name, contentType: commit.content_type ?? 'application/octet-stream' }, itemId: operation.itemId }
+      if (!await outbox.commitUpload({ ...record, operation: { ...operation, kind: 'nativeAttachment', commit } })) return
+    }
+    const endpoint = await attachmentsEndpoint()
+    if (!active || !outbox.has(id)) return
+    const row = await settleAttachmentSend({ endpoint, prepared, commit, timing,
+      observeMessage: io.observeMessage?.(record.senderUserId, record.chatId),
+      onLateMessage: row => { if (active) void outbox.confirm(id, row) },
+    })
+    if (!row) throw new Error(i18n.t('outbox.sendFailed', { ns: 'messaging' }))
+    if (active) await outbox.confirm(id, row)
+  }
+
   const wiring: OutboxWiring = {
     outbox,
-    async stageAttachment(message, dependsOn) {
-      await outbox.stageUpload(outboxRecordForMessage(message, { kind: 'upload' }, dependsOn))
+    async stageAttachment(message, dependsOn, intent) {
+      await outbox.stageUpload(outboxRecordForMessage(message, { kind: 'upload', ...(intent ? {
+        commit: intent.commit, source: chatAttachmentSource(intent.file), itemId: crypto.randomUUID(),
+      } : {}) }, dependsOn))
     },
     async commitAttachment(message, prepared, commit, timing = attachmentSendTiming(message.id, message.chat_id), dependsOn) {
       attachmentTimings.set(message.id, timing)
+      const staged = outbox.pendingFor(message.chat_id, message.thread_root_id ?? null).find(row => row.clientMessageId === message.id)?.operation
       const operation: OutboxOperation = 'staging_key' in prepared
         ? { kind: 'attachment', commit: { ...commit, staging_key: prepared.staging_key } }
-        : { kind: 'nativeAttachment', commit }
-      if ('local' in prepared) nativeCommits.set(message.id, async () => {
-        const source = outboxRecordForMessage(message, operation, dependsOn).dependsOn
-        if (source) await outbox.delivered(source)
-        if (!outbox.has(message.id)) return
-        const endpoint = await attachmentsEndpoint()
-        if (!outbox.has(message.id)) return
-        const row = await settleAttachmentSend({ endpoint, prepared, commit, timing,
-          observeMessage: io.observeMessage?.(commit.sender_user_id, message.chat_id),
-          onLateMessage: row => { if (active) void outbox.confirm(message.id, row) },
-        })
-        if (!row) throw new Error(i18n.t('outbox.sendFailed', { ns: 'messaging' }))
-        return row
-      })
-      if (!await outbox.commitUpload(outboxRecordForMessage(message, operation, dependsOn))) { nativeCommits.delete(message.id); return }
-      const publish = nativeCommits.get(message.id)
-      if (publish) {
-        nativeCommits.delete(message.id)
-        const row = await publish()
-        if (row && active) await outbox.confirm(message.id, row)
-      }
+        : { kind: 'nativeAttachment', commit,
+          source: staged?.kind === 'upload' ? staged.source : undefined,
+          itemId: staged?.kind === 'upload' && staged.itemId ? staged.itemId : crypto.randomUUID() }
+      const record = outboxRecordForMessage(message, operation, dependsOn)
+      if (!await outbox.commitUpload(record)) return
+      if ('local' in prepared && operation.kind === 'nativeAttachment') await finishNativeAttachment(record, { ...prepared, itemId: operation.itemId }, timing)
     },
     async forward(source, targetChatId, senderUserId) {
       const { stageAttachment, commitAttachment } = wiring
@@ -427,7 +445,6 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     dispose() {
       active = false
       beforeDeliverHooks.clear()
-      nativeCommits.clear()
       attachmentTimings.clear()
       topicResults.clear()
       outbox.dispose()
@@ -475,15 +492,9 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
         const user = io.user()
         if (!user) return
         for (const record of records) {
-          if (record.operation?.kind === 'nativeAttachment') {
-            const timing = attachmentSendTiming(record.clientMessageId, record.chatId)
-            const commit = record.operation.commit
-            void settleAttachmentSend({ commit, timing,
-              observeMessage: io.observeMessage?.(record.senderUserId, record.chatId),
-            }).then(row => {
-              if (!active) return
-              return row ? outbox.confirm(record.clientMessageId, row) : outbox.failUpload(record.clientMessageId, new Error('Native receipt not found'))
-            }, error => active ? outbox.failUpload(record.clientMessageId, error) : undefined)
+          if (record.state !== 'failed' && (record.operation?.kind === 'nativeAttachment' || record.operation?.kind === 'upload')) {
+            void finishNativeAttachment(record).catch(error => active ? outbox.failUpload(record.clientMessageId, error,
+              error instanceof AttachmentSourceRefused ? error.message : undefined) : undefined)
           }
           if (record.payload.threadRootId) continue // 话题行在 openThread 时经 injectThreadOutboxRows 注入
           const row = outboxRecordToMessage(record, user)

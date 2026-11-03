@@ -819,6 +819,9 @@ export default {
   },
   "outbox": {
     "selectFileAgain": "上传已中断，请重新选择文件。",
+    "sourceFileMissing": "原文件已移动或删除，请重新选择文件。",
+    "sourceFileChanged": "原文件已修改，请重新选择文件。",
+    "sourceFileDenied": "没有读取原文件的权限，请重新选择文件。",
     "sourceNotSent": "原消息尚未送达，请先重试原消息再转发。",
     "sourceDiscarded": "原消息未发出，已被丢弃",
     "deliveryTimeout": "投递超时 {{seconds}}s（网络挂起）",

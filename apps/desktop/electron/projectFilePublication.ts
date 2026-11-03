@@ -14,7 +14,7 @@ import type { FilesPlatform } from '../src/session/shared/extensions/app-files-c
 
 export type ProjectFileMessage = Omit<CommitArgs, 'staging_key'>
 /** `data` carries the bytes of a selection that has no disk path (a clipboard paste); `path` is then empty. */
-export type SelectedProjectFile = { name: string; path: string; size: number; contentType: string; data?: ArrayBuffer }
+export type SelectedProjectFile = { name: string; path: string; size: number; contentType: string; data?: ArrayBuffer; lastModified?: number }
 /** The file this publication is the next version of, and the version it started from (`file_device_publish`'s `p_expected`). */
 export type ProjectFileNextVersion = { itemId: string; expectedVersion: number }
 /**
