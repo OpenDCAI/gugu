@@ -49,6 +49,8 @@ describe('archived-agent delivery revisions', () => {
     })
     const line: ChatLine = {
       userId: 'viewer', chatId: () => 'chat-1', maxSeqOf: () => 2, getMessageSnapshotEpoch: () => 0,
+      readCommittedMessage: id => repository.snapshot().message.find(row => row.id === id)?.value,
+      noteCommittedMessages: vi.fn(),
       applyMessagesSnapshot: vi.fn(), healMessageGap: vi.fn(), revalidateWindowOverlays: revalidate,
       setMessagesAndCache: (update) => cache.update('chat-1', update),
       persistWindowToLocalSync: vi.fn(), setThreadMessages: vi.fn(),
@@ -69,9 +71,7 @@ describe('archived-agent delivery revisions', () => {
     const coordinator = createAccountRevisionCoordinator('viewer', repository, {
       syncSince, subscribeWake: (_account, onWake) => { wake = onWake; return () => {} },
     })
-    const off = subscribeChatLineRevisions(coordinator.subscribe, { ...line,
-      readCommittedMessage: id => repository.snapshot().message.find(row => row.id === id)?.value,
-      noteCommittedMessages: vi.fn() })
+    const off = subscribeChatLineRevisions(coordinator.subscribe, line)
     coordinator.start()
     try {
       // Continue to the next page even on the broken parent: the poison revision stays in its inbox.
