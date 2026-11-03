@@ -102,7 +102,7 @@ export interface FilesPlatform {
     ungrant(pageId: number, docName: string): void;
     revoke(pageId: number, reason: SyncRevokeReason | null, docNames?: (grant: Grant) => boolean): void;
     /** Stored snapshots end with the same page/revocation lifecycle as collaborative files. */
-    onPageRelease?(listener: (pageId: number) => void): () => void;
+    onPageRelease?(listener: (pageId: number, docNames?: (grant: Grant) => boolean) => void): () => void;
   };
   /**
    * Which App opens a file of this kind here, and by which claimed suffix (摩擦单 F39): the host knows what is
@@ -655,7 +655,7 @@ async function versionPointers(token: string, row: ItemRow, actor: string): Prom
 
 
 export function createAppFiles(platform: FilesPlatform) {
-  type ReadSnapshot = { pageId: number; extensionId: string; actor: string | null; leases: number; active: number; file?: Promise<FileHandle>; timer?: ReturnType<typeof setTimeout> };
+  type ReadSnapshot = { pageId: number; extensionId: string; itemId: string; needs: Grant['needs']; actor: string | null; leases: number; active: number; file?: Promise<FileHandle>; timer?: ReturnType<typeof setTimeout> };
   const snapshots = new Map<string, ReadSnapshot>();
   const snapshotKey = (pageId: number, itemId: string, version: number) => `${pageId}:${itemId}@${version}`;
   const staleVersion = () => new AppFileError('stale-version', 'This file version is no longer available. Open the file again to read its current version.');
@@ -683,15 +683,17 @@ export function createAppFiles(platform: FilesPlatform) {
     if (!entry) {
       // This registers the existing port's navigation/destruction lifecycle, not another byte transport.
       platform.sync.pageFor(surface.pageId, surface.extensionId);
-      entry = { pageId: surface.pageId, extensionId: surface.extensionId, actor: surface.asAgent ?? null, leases: 0, active: 0 };
+      entry = { pageId: surface.pageId, extensionId: surface.extensionId, itemId, needs: null, actor: surface.asAgent ?? null, leases: 0, active: 0 };
       snapshots.set(key, entry);
     }
+    entry.needs = itemId === surface.itemId ? null : has(surface.extensionId, 'files:read') ? 'files:read' : 'files:write';
     touch(key, entry);
     return entry;
   };
-  const releasePage = (pageId: number): void => {
+  const releasePage = (pageId: number, docNames?: (grant: Grant) => boolean): void => {
     for (const [key, entry] of snapshots) {
       if (entry.pageId !== pageId) continue;
+      if (docNames && !docNames({ docName: '', itemId: entry.itemId, access: 'ro', needs: entry.needs, ...(entry.actor ? { asAgent: entry.actor } : {}) })) continue;
       entry.leases = 0;
       disposeSnapshot(key, entry);
     }

@@ -609,7 +609,7 @@ Stored binary or text >1 MiB shares working-copy \`f.read(offset,length)\`: host
 \`f.bytes()\`/\`f.blob()\` read all. Chat ranges pin \`entry.version\`; unavailable old bytes throw \`stale-version\`
 (reopen for current), never mix revisions. \`await f.close()\`, page removal or five idle minutes release the
 snapshot. Remote working-copy size stays null until a range answers. Small stored text and \`readVersion\`
-read whole; beside-document/download/forward stay unchanged. Range base64 adds about 33% on the bridge.
+read whole; beside-document/download/forward stay unchanged. Cross-machine workspace replies retain base64.
 
 ## A text file (markdown)
 

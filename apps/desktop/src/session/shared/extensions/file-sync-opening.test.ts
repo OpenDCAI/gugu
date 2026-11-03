@@ -54,6 +54,9 @@ it('stored range lifetimes use page revocation/removal, not a document epoch reo
   c.relay.onPageRelease(released);
   c.relay.attachPage(2, 'reader', { post: vi.fn(), close: vi.fn() });
   await c.relay.revoke(2, null); expect(released).not.toHaveBeenCalled();
-  await c.relay.revoke(2, 'unbound'); expect(released).toHaveBeenLastCalledWith(2);
-  c.relay.pageGone(2); expect(released).toHaveBeenCalledTimes(2);
+  const predicate = () => true;
+  await c.relay.revoke(2, 'unbound', predicate); expect(released).toHaveBeenLastCalledWith(2, predicate);
+  await c.relay.revoke(2, 'removed-from-group'); expect(released).toHaveBeenLastCalledWith(2, undefined);
+  c.relay.pageGone(2); expect(released).toHaveBeenLastCalledWith(2);
+  expect(released).toHaveBeenCalledTimes(3);
 });

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MissingFileObjectError, type FileHandle } from '@gugu/core/shared/fileResolver';
 import { createAppFiles, type FilesPlatform } from './app-files-core';
-import { bridgeFailure, BRIDGE_VERBS } from './bridge-protocol';
+import { bridgeFailure, callRefusal } from './bridge-protocol';
 
 const item = '44444444-4444-4444-8444-444444444444';
 const owner = '11111111-1111-4111-8111-111111111111';
@@ -86,7 +86,7 @@ describe('chat stored files reuse verified, pinned range reads', () => {
   });
   it('does not grant an unbound page or another file through the capability-free bridge verb', async () => {
     const f = fixture();
-    expect(BRIDGE_VERBS.filesRead.needs).toBe(null);
+    expect(callRefusal('filesRead', { ref }, { kind: 'page', has: () => false, gesture: false, widget: false })).toBe(null);
     await expect(f.files.read({ ...surface, itemId: null }, { ref, offset: 0, length: 2 })).rejects.toMatchObject({ code: 'denied' });
     await expect(f.files.read({ ...surface, itemId: 'another' }, { ref, offset: 0, length: 2 })).rejects.toMatchObject({ code: 'denied' });
     expect(f.read).not.toHaveBeenCalled();

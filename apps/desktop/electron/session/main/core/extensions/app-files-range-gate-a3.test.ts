@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+import { callRefusal } from '@shared/extensions/bridge-protocol';
 
 const f = vi.hoisted(() => ({ capabilities: new Set<string>(), read: vi.fn(async () => ({ size: 4, offset: 0, data: new Uint8Array([0]) })), localRead: vi.fn(async () => ({ size: 4, offset: 0, data: 'AA==' })), machine: vi.fn(async () => null as { deviceId: string; projectId: string | null } | null), remoteRead: vi.fn(async () => ({ there: true as const, value: { size: 4, offset: 0, data: 'AP+A' } })) }));
 vi.mock('electron', () => ({ BrowserWindow: {}, dialog: {} }));
@@ -19,9 +20,11 @@ it('chat ranges reach the shared file gate with their pinned version and binding
   await readAppFile({ ...page, handed: { id: item, chat: "group" } }, { ref: { id: item, version: 3 }, offset: 1, length: 2 });
   expect(f.read).toHaveBeenCalledWith(expect.objectContaining({ itemId: item, pageId: 3 }), { ref: { id: item, version: 3 }, offset: 1, length: 2 });
 });
-it('a handed working copy still cannot read ranges without files:read', async () => {
-  await expect(readAppFile({ ...page, handed: workspace }, { ref: workspace, offset: 0, length: 1 })).rejects.toMatchObject({ code: 'denied' });
+it('the shared bridge requires files:read even for a handed working copy', async () => {
+  expect(callRefusal('filesRead', { ref: workspace, offset: 0, length: 1 }, { kind: 'page', has: cap => f.capabilities.has(cap), gesture: false, widget: false })).toMatchObject({ code: 'denied' });
   expect(f.localRead).not.toHaveBeenCalled(); expect(f.machine).not.toHaveBeenCalled();
+  f.capabilities.add('files:read');
+  expect(callRefusal('filesRead', { ref: workspace }, { kind: 'page', has: cap => f.capabilities.has(cap), gesture: false, widget: false })).toBe(null);
 });
 it('files:read admits a local working copy and preserves the remote all-machines gate', async () => {
   f.capabilities.add('files:read');

@@ -317,9 +317,6 @@ export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; 
   const offset = Number(args.offset ?? 0);
   const length = Number(args.length ?? 0);
   if (isChat(ref)) return files.read(chatSurface(page), { ref: { ...ref, version: (args.ref as { version?: number })?.version }, offset, length });
-  if (!extensionsService().hasCapability(page.extensionId, 'files:read')) {
-    throw new AppFileError('denied', 'Not permitted: reading a working copy needs "files:read"');
-  }
   const there = await onItsMachine(page, ref, 'filesRead', { ref, offset, length });
   if (there.there) return workspaceAppFileChunk(there.value as { size: number; offset: number; data: string });
   const { readWorkingCopy } = await import('./working-copy-files');
