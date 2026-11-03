@@ -39,7 +39,17 @@ describe('the App can navigate only its own tab history', () => {
     await expect(api(a).navigation!.go(1)).resolves.toBe(true);
     expect(pane.entries.get(a)?.state).toEqual({ path: '/README' });
   });
-  it('returns false when its tab has no history', async () => {
+  it('Back follows only the host-recorded opener, never an App-supplied tab id', async () => {
+    const { pane, api, a, b } = setup();
+    pane.entries.get(a)!.openerTabId = b;
+    pane.setActiveTab(a);
+    await expect(api(a).navigation!.go(-1, { tabId: 'untrusted-target' })).resolves.toBe(true);
+    expect(pane.resolvedActiveTabId).toBe(b);
+    expect(pane.entries.get(a)?.state).toEqual({ path: '/' });
+    pane.closeTab(b);
+    await expect(api(a).navigation!.go(-1)).resolves.toBe(false);
+  });
+  it('returns false when its tab has no history' , async () => {
     const { api, a } = setup(); const app = api(a);
     expect(typeof app.navigation?.go).toBe('function');
     await expect(app.navigation!.go(-1)).resolves.toBe(false);

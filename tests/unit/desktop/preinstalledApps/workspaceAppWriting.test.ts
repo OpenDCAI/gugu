@@ -60,9 +60,10 @@ const md = {
   }),
 }
 const gugu = {
+  navigation: { go: vi.fn(async (_delta: number) => true) },
   linkTo: vi.fn(async ({ file, at }: { file: { id: string }; at?: { lines: string } }) => `gugu-file://${file.id}${at ? `#${at.lines}` : ''}`),
   setTabTitle: vi.fn(async () => {}),
-  getContext: vi.fn(async () => ({ chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, file: { chat: 'chat-1', id: 'plan' }, locale: 'en', capabilities: ['files:read', 'files:write'] })),
+  getContext: vi.fn(async () => ({ chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, file: { chat: 'chat-1', id: 'plan' }, locale: 'en', navigation: { canBack: true, canForward: false, backToConversation: true }, capabilities: ['files:read', 'files:write'] })),
   onContextChanged: vi.fn(() => () => {}),
   onLink: vi.fn(() => () => {}),
   dispatch: vi.fn(async (_text: string, _options: unknown) => ({ to: { chat: 'chat-1' } })),
@@ -112,6 +113,13 @@ beforeEach(() => {
 })
 
 describe('folder documents: reading', () => {
+  test('a handed file exposes its host-owned Back to conversation through the existing navigation API', async () => {
+    const back = $('page-back') as HTMLButtonElement;
+    expect(back.disabled).toBe(false);
+    expect(back.textContent).toContain('Back to conversation');
+    back.click();
+    expect(gugu.navigation.go).toHaveBeenCalledWith(-1);
+  });
   test('a document opens on its reading; a task ticked there ticks its line in the source, and only that', async () => {
     expect(document.body.dataset.mode).toBe('preview')
     const boxes = [...$('preview').querySelectorAll<HTMLInputElement>('input[type=checkbox]')]

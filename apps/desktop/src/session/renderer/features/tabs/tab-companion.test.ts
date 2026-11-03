@@ -42,6 +42,18 @@ describe('a conversation explicitly owns its companion pane', () => {
     expect(JSON.stringify(layout.layout)).toBe(tree);
   });
 
+  it('a companion file returns to its actual conversation without discarding either tab', async () => {
+    const { layout, conversation, conversationPane, open } = setup();
+    const file = open('report-e2e.md')!;
+    const companion = layout.focusedPane;
+    const order = layout.groups.map(({ pane }) => [...pane.tabOrder]);
+    expect(companion.entries.get(file)?.openerTabId).toBe(conversation);
+    expect(companion.canGo(file, -1)).toBe(true);
+    await expect(companion.go(file, -1)).resolves.toBe(true);
+    expect(layout.focusedPane).toBe(conversationPane);
+    expect(conversationPane.resolvedActiveTabId).toBe(conversation);
+    expect(layout.groups.map(({ pane }) => [...pane.tabOrder])).toEqual(order);
+  });
   it('reuses one pane and one navigation context, clears a closed companion and recreates it', () => {
     const { layout, conversation, conversationPane, open } = setup();
     open('A.md');

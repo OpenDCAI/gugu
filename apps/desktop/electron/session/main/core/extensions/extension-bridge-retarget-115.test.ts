@@ -13,14 +13,15 @@ const CHAT = '0b000000-0000-4000-8000-000000000001';
 const PLAN = '0c000000-0000-4000-8000-000000000001';
 const CFG = '0c000000-0000-4000-8000-000000000002';
 const resourceChat = vi.hoisted(() => vi.fn(async (chatId: string, _reader: { asAgent: string | null }) => chatId));
+const focus = vi.hoisted(() => ({ guest: false, host: vi.fn(), destroyed: false }));
 const sent: { id: number; event: { type: string; context?: { file?: { id: string }; layout?: { width: number; height: number } } } }[] = [];
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn(), on: vi.fn() },
   webContents: {
     fromId: (id: number) =>
-      id === PAGE
-        ? { id, isDestroyed: () => false, hostWebContents: { id: 42 }, session: {}, once: () => undefined, on: () => undefined, send: (_channel: string, event: never) => sent.push({ id, event }) }
+      id === 42 ? { id, isDestroyed: () => focus.destroyed, focus: focus.host } : id === PAGE
+        ? { id, isDestroyed: () => false, hostWebContents: { id: 42 }, isFocused: () => focus.guest, session: {}, once: () => undefined, on: () => undefined, send: (_channel: string, event: never) => sent.push({ id, event }) }
         : undefined,
   },
 }));
@@ -45,6 +46,7 @@ const { bindExtensionSurface, retargetExtensionSurface, setExtensionBridgeHost, 
 const contexts = () => sent.filter(({ event }) => event.type === 'context').map(({ event }) => event.context!);
 
 beforeEach(async () => {
+  focus.guest = false; focus.destroyed = false; focus.host.mockClear();
   setExtensionBridgeHost({
     deliver: () => Promise.resolve(),
     presentation: () => ({ locale: 'en', themeMode: 'dark' as const, fullscreen: false, windowFocused: true }),
@@ -168,4 +170,20 @@ describe('a resident page moved to another file (摩擦单 F115)', () => {
     } finally { closed.mockRestore(); }
   });
 
+});
+
+// DOM blur is not a native focus handoff between Electron WebContents.
+it('returns native focus from a hidden bound guest to its actual embedder', () => {
+  focus.guest = true;
+  updateExtensionSurfaceLayout(PAGE, { visible: false, width: 440, height: 700 });
+  expect(focus.host).toHaveBeenCalledOnce();
+});
+it('does not steal focus for a shown guest, an unfocused hidden guest, or a destroyed host', () => {
+  focus.guest = true;
+  updateExtensionSurfaceLayout(PAGE, { visible: true, width: 441, height: 700 });
+  focus.guest = false;
+  updateExtensionSurfaceLayout(PAGE, { visible: false, width: 440, height: 700 });
+  focus.guest = true; focus.destroyed = true;
+  updateExtensionSurfaceLayout(PAGE, { visible: false, width: 441, height: 700 });
+  expect(focus.host).not.toHaveBeenCalled();
 });
