@@ -80,3 +80,15 @@ describe('App stored files enter the canonical local resolver before all cloud m
     expect(f.open).not.toHaveBeenCalled(); expect(f.never).not.toHaveBeenCalled();
   });
 });
+
+describe('R3 App file read cancellation', () => {
+  it('k2 forwards the exact surface signal to the file resolver', async () => {
+    const f = fixture(), controller = new AbortController();
+    const resolve = vi.fn(f.platform.resolveFile!);
+    f.platform.resolveFile = resolve;
+    await f.files.open({ ...surface, signal: controller.signal }, { ref: { id: revision.item_id! } });
+    expect(resolve).toHaveBeenCalledExactlyOnceWith({ id: revision.item_id! }, null, {
+      version: undefined, localOnly: true, signal: controller.signal,
+    });
+  });
+});

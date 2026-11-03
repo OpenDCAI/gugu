@@ -81,6 +81,7 @@ export interface FileSurface {
    * relay's connection acting as the agent, so the service stamps what the program writes as the agent's.
    */
   asAgent?: string | null;
+  signal?: AbortSignal;
 }
 
 export interface FilesPlatform {
@@ -91,7 +92,7 @@ export interface FilesPlatform {
   publishFile?(chatId: string, file: AppFileUpload, parentId: string | null, actor: string, store?: () => Promise<ItemRow>,
     options?: { next?: { itemId: string; expectedVersion: number } }): Promise<ItemRow | null>;
   /** Delegates to the one file resolver; localOnly performs no cloud lookup or byte read. */
-  resolveFile?(ref: ChatFileRef, actorId: string | null, options: { localOnly?: boolean; version?: number }): Promise<ResolvedFile | null>;
+  resolveFile?(ref: ChatFileRef, actorId: string | null, options: { localOnly?: boolean; version?: number; signal?: AbortSignal }): Promise<ResolvedFile | null>;
   /** The signed-in account; throw `AppFileError('failed', …)` when there is none. */
   account(): Promise<{ token: string; userId: string }>;
   hasCapability(extensionId: string, capability: 'files:read' | 'files:write'): boolean;
@@ -701,7 +702,7 @@ export function createAppFiles(platform: FilesPlatform) {
     try { return local.revision; } finally { await local.dispose(); }
   }
   async function fileFor(surface: FileSurface, ref: ChatFileRef, version?: number, localOnly = false): Promise<FileHandle | null> {
-    const file = await platform.resolveFile?.(ref, surface.asAgent ?? null, { version, localOnly });
+    const file = await platform.resolveFile?.(ref, surface.asAgent ?? null, { version, localOnly, ...(surface.signal ? { signal: surface.signal } : {}) });
     if (!file && localOnly) return null;
     if (!file) throw new AppFileError('failed', 'Verified file resolver is not installed');
     if (file.status !== 'ready') throw new AppFileError('not-found', `The file has no bytes${version === undefined ? '' : ` for version ${version}`}`);

@@ -113,6 +113,7 @@ export interface DesktopFilePage {
   asAgent?: string | null;
   /** A page's own chat, as it was bound: already its resource container (`surfaceResourceChat`). */
   boundChat?: string | null;
+  signal?: AbortSignal;
 }
 
 
@@ -229,6 +230,7 @@ function chatSurface(page: DesktopFilePage): FileSurface {
     extensionId: page.extensionId,
     itemId: page.handed && 'chat' in page.handed ? page.handed.id : null,
     asAgent: page.asAgent ?? null,
+    ...(page.signal ? { signal: page.signal } : {}),
   };
 }
 

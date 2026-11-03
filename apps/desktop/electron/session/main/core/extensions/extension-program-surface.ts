@@ -5,6 +5,7 @@ import { APP_FRAME_MARKER, fileRefOf, isWorkspace, placeOf, type FrameToHost, ty
 import { currentAccountAccessToken } from '@main/core/extensions/account-token';
 import { log } from '@main/lib/logger';
 import type { BridgeCaller } from './extension-bridge';
+import type { DesktopFilePage } from './app-files';
 import { fileSync } from './file-sync';
 import { resourceChatIdOf } from '@shared/extensions/app-files-core';
 import { extensionProjections } from './extension-projection-bridge';
@@ -61,7 +62,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   /** Each call running now, by its id: whose it is, and what it handed. */
   let closing: Promise<void> | undefined;
   let withdrawn = false;
-  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[]; sessionId?: string; callerKind: 'agent' | 'person' }>();
+  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[]; sessionId?: string; callerKind: 'agent' | 'person'; controller: AbortController }>();
   const post = (frame: HostToFrame) => {
     if (child.connected) child.send(frame);
   };
@@ -75,18 +76,19 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   // is the agent's doing. In a chat that call handed it (A1), or the chat of a file it handed it (G5), what it lists,
   // makes, renames and removes is that agent's too, judged by the agent's membership. Anything else — and every verb made
   // in no call: as a page, by the capability words.
-  const filePage = (args: Record<string, unknown>, callId: string | undefined, resource: boolean) => {
+  const filePage = (args: Record<string, unknown>, callId: string | undefined, resource: boolean): DesktopFilePage => {
     const call = callId === undefined ? undefined : calls.get(callId);
+    const scope = { pageId, extensionId, ...(call ? { signal: call.controller.signal } : {}) };
     const ref = args.ref === undefined ? null : fileRefOf(args.ref);
     if (call && ref && 'id' in ref && !isWorkspace(ref)) {
       const given = call.files.find((file) => file.itemId === ref.id);
-      if (given) return { pageId, extensionId, handed: { chat: given.chatId, id: given.itemId }, asAgent: given.agentUserId };
+      if (given) return { ...scope, handed: { chat: given.chatId, id: given.itemId }, asAgent: given.agentUserId };
     }
     const place = !ref && args.place && typeof args.place === 'object' ? (args.place as { chat?: unknown }) : null;
     const chat = ref && 'chat' in ref ? ref.chat : place?.chat;
     const given = call && typeof chat === 'string' ? call.files.find((handed) => handed.chatId === chat)
       ?? call.chats.find((handed) => (resource ? handed.resourceChatId : handed.chatId) === chat) : undefined;
-    return given ? { pageId, extensionId, handed: null, asAgent: given.agentUserId } : { pageId, extensionId, handed: null };
+    return given ? { ...scope, handed: null, asAgent: given.agentUserId } : { ...scope, handed: null };
   };
   const callerFor = (callId: string | undefined): BridgeCaller => ({
     extensionId,
@@ -135,8 +137,10 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   return {
     pageId,
     hand(callId, agent, files, chats = [], sessionId, callerKind = 'agent') {
-      calls.set(callId, { agent, files, chats, sessionId, callerKind });
+      const controller = new AbortController();
+      calls.set(callId, { agent, files, chats, sessionId, callerKind, controller });
       return async () => {
+        controller.abort();
         calls.delete(callId);
         // The call is over: whatever the program opened as its agent goes too — the program closes it itself, its last
         // writes first (F106). A file it was handed, unless another call running now hands it as the same agent; one it
@@ -159,6 +163,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
       if (processGone) extensionProjections.closePage(pageId);
       if (closing) return closing;
       withdrawn = true;
+      for (const call of calls.values()) call.controller.abort();
       calls.clear();
       fileSync.pageGone(pageId);
       void import('./extension-bridge').then(({ stopPageWatches }) => stopPageWatches(pageId));
