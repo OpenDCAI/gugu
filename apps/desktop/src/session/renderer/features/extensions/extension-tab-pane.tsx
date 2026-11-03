@@ -1,6 +1,7 @@
 import { projectWorkspace, sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { useTaskConversation } from '@/lib/taskConversation';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { TabLayerShownContext } from '@renderer/features/tabs/retained-tab-content';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { rpc } from '@renderer/lib/ipc';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -36,6 +37,7 @@ export function ExtensionTabPane({
   tabKind,
   sessionId,
   tabId,
+  viewState,
   filePath,
   projectId,
   chatId,
@@ -48,6 +50,7 @@ export function ExtensionTabPane({
   /** Null: the pane is in no session yet (the draft panel). */
   sessionId: string | null;
   tabId: string;
+  viewState?: Record<string, unknown>;
   /**
    * The file this tab was opened for, when it was opened because the extension
    * claimed that file type. Passed to the bind call so the surface can read it
@@ -75,7 +78,7 @@ export function ExtensionTabPane({
   const [failure, setFailure] = useState<SurfaceFailure | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Not looked at while its retained session page is hidden (@@@retained-session-pages).
-  const shown = useContext(PageShownContext);
+  const shown = useContext(PageShownContext) && useContext(TabLayerShownContext);
   const shownRef = useRef(shown);
   shownRef.current = shown;
   const reportLayoutRef = useRef<(() => void) | null>(null);
@@ -119,7 +122,7 @@ export function ExtensionTabPane({
       layoutTeardownRef.current = null;
       extensionSurfaceStore.setWebContentsId(sessionId, tabId, null);
     },
-    [sessionId, tabId]
+    [sessionId, tabId, viewState]
   );
 
   /**
@@ -192,6 +195,7 @@ export function ExtensionTabPane({
             conversation: conversationRef.current,
             ...(resourceChatRef.current ? { resourceChat: resourceChatRef.current } : {}),
             tabId,
+            viewState,
             tabKind,
             ...(filePath ? { filePath } : {}),
             ...(itemId ? { itemId } : {}),
@@ -213,7 +217,7 @@ export function ExtensionTabPane({
           });
       });
     },
-    [extensionId, filePath, projectId, chatId, itemId, startLayoutReports, sessionId, tabId]
+    [extensionId, filePath, projectId, chatId, itemId, startLayoutReports, sessionId, tabId, viewState]
   );
 
   const failureText =

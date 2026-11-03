@@ -22,8 +22,7 @@ import { residentPageKey, residentPlace } from './extension-view-store';
 import { extensionSurfaceStore, extensionTabTitle } from './extension-surface-store';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
-import { placeOnScreen, takeAppOffScreen } from '@renderer/app/screen-layout-actions';
-import { appPlacementStore } from './app-placement-store';
+import { placeOnScreen } from '@renderer/app/screen-layout-actions';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { openFileInBuiltInEditor } from '@renderer/features/sessions/stores/open-file-in-file-editor';
 import { fileTabLabels } from '@renderer/features/sessions/editor/file-tab-label';
@@ -102,7 +101,7 @@ function createExtensionTabContent(extensionId: string, kind: string) {
     const place = ctx.place;
     const sessionId = place?.kind === 'session' ? place.sessionId : undefined;
     if (!resource.filePath) {
-      return <ExtensionSharedSlot tabKind={kind} sessionId={sessionId} chatId={place?.kind === 'chat' ? place.chatId : undefined} tabId={activeTab.tabId} perSession={isPerSession(kind)} />;
+      return <ExtensionSharedSlot tabKind={kind} sessionId={sessionId} chatId={place?.kind === 'chat' ? place.chatId : undefined} tabId={activeTab.tabId} viewState={host.navigationOf(activeTab.tabId)?.pages[host.navigationOf(activeTab.tabId)!.index]?.viewState} perSession={isPerSession(kind)} />;
     }
     return (
       <ExtensionTabPane
@@ -155,51 +154,16 @@ export function createExtensionTabProvider(
 
   return createTabProvider({
     kind,
-    // 单挂,身份两种:
-    //   · 认领的文件 → 身份 = 那个文件。语义是「替内置编辑器打开它」,就该和被替下来的
-    //     那个一致(file-tab-provider: `resourceKey: (s) => filePathKey(s.path)`):同一个 a.sql 点第
-    //     二次回到原来那个 tab,两个不同的 .sql 是两个 tab。
-    //   · 为自己开的 → 一个 App 只有一枚(behavior tab-extensions「一个 App 只有一份」,#7052):
-    //     在这条会话里再开一次 = 回到那一枚(在别的格里就挪过来),❌ 开出第二枚。
-    // key 不必带 kind:单挂查找已经按 kind 分过组(PaneStore.findSingleMountEntry)。
-    mount: 'single',
     resourceKey: (state: ExtensionTabState) => (state?.filePath ? filePathKey(state.filePath) : 'app'),
-    // Its own page beside the conversation takes the width its manifest declares (`sideWidth`, read now: an update can
-    // change it); a file opened in it is the conversation's peer, half each.
-    sideWidth: (state: ExtensionTabState) => (state?.filePath ? undefined : installedExtensionsStore.sideWidth(kind)),
-    /**
-     * 每一条把它开出来的路(「+」、面板空态、左栏、agent 的 `open_in_tab`、链接)都经过这里,所以「摆到这里」
-     * 只在这里记一次:记下的那一刻,原来摆着它的会话就不留它了(app-placement-sync)。为文件开的不记。
-     */
-    onBeforeOpen: (args: ExtensionTabState, ctx): ExtensionTabState => {
-      if (args?.filePath) return { filePath: args.filePath };
-      // 每个任务一份的(#7317):这个任务开它的,就是这个任务自己的那枚,❌ 从别的任务拿过来。
-      if (isPerSession(kind)) return { perSession: true };
-      if (ctx.place?.kind === 'session') {
-        const { projectId, sessionId } = ctx.place;
-        appPlacementStore.place(kind, { projectId, sessionId });
-        // 它本来自己占着一块:那块收掉(一个 App 只有一份)。群里的页属于那个群,不挪群以外的那张。
-        takeAppOffScreen(kind);
-      }
-      return {};
-    },
+    onBeforeOpen: (args: ExtensionTabState): ExtensionTabState => args?.filePath ? { filePath: args.filePath } : (isPerSession(kind) ? { perSession: true } : {}),
     // `entry.state` is the only path a per-tab fact travels on, and until now it
     // was read by nobody — which is why a tab could not be told which file it was
     // opened for. Reading it here is what makes the file claim mean anything.
     initialize: (entry, _handle, ctx) => new ExtensionTabResource(extensionId, entry.state?.filePath, () => {
       if (entry.state?.filePath) return fileBaseName(entry.state.filePath);
-      const surface = extensionSurfaceStore.sharedState(residentPageKey(kind, residentPlace({ ...ctx.place, perSession: isPerSession(kind) })));
+      const surface = extensionSurfaceStore.sharedState(residentPageKey(kind, residentPlace({ ...ctx.place, tabId: entry.tabId, perSession: isPerSession(kind) })));
       return extensionTabTitle(surface, titleOf()).label;
     }),
-    /**
-     * 人关掉常驻的那一枚 = **它从这里拿走**(behavior tab-extensions):App 照常启用、照常在跑,
-     * 再要它从左栏、「+」或右键左栏「App」里拿。❌ 不是停用(那只在「App」页做),也 ❌ 不留在别处。
-     * 认领文件开出来的那种:那一格是为某个文件开的,关就是关。
-     */
-    onBeforeClose: (entry, _resource, ctx) => {
-      if (!entry.state?.filePath && !isPerSession(kind) && ctx.place?.kind === 'session') appPlacementStore.take(kind, { sessionId: ctx.place.sessionId });
-      return true;
-    },
     dispose: (entry, resource: ExtensionTabResource, ctx) => {
       // Drop what the extension said about this tab along with the tab. A
       // reopened tab is a new one and starts at its manifest title, not at the
@@ -228,7 +192,7 @@ export function createExtensionTabProvider(
       const perSession = isPerSession(kind);
       const surface = claimedFileForSurface
         ? own
-        : extensionSurfaceStore.sharedState(residentPageKey(kind, residentPlace({ ...place, perSession })));
+        : extensionSurfaceStore.sharedState(residentPageKey(kind, residentPlace({ ...place, tabId: tab.tabId, perSession })));
       // GenericTabItem 是 observer(= React.memo)。每次渲染给一个新数组身份,
       // 那层 memo 就永远比不中 —— 这是「稳定引用确有理由」的那种情况。
       // The file this tab was opened for, when a claim opened it.

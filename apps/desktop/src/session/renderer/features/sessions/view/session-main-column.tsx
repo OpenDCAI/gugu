@@ -1,6 +1,6 @@
 import { DndContext } from '@dnd-kit/core';
 import { observer } from 'mobx-react-lite';
-import { Fragment, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { auxLeadingReserve, PutBackButton } from '@renderer/app/aux-window-host';
 import { BlockGrip, CloseBlockButton, droppedOutsideWindow, startSessionBlockDrag } from '@renderer/app/screen-frame';
@@ -13,18 +13,15 @@ import {
   revealTabWindow,
 } from '@renderer/app/screen-layout-actions';
 import { auxWindows } from '@renderer/app/aux-windows';
-import { useGroupRef } from 'react-resizable-panels';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { PaneContent } from '@renderer/features/tabs/pane-content';
 import { PaneProvider } from '@renderer/features/tabs/pane-context';
-import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX } from '@renderer/features/tabs/pane-layout-store';
 import { edgeFirst, PANE_EDGES, PaneEdgeDropZones } from '@renderer/features/tabs/pane-edge-drop';
 import { useTabDrag } from '@renderer/features/tabs/use-tab-drag';
-import { cornerPane, minExtent, type PaneLayoutNode } from '@renderer/features/tabs/pane-layout-tree';
+import { PaneTreeView } from '@renderer/features/tabs/pane-tree-view';
 import { TabDragOverlay } from '@renderer/features/tabs/tab-bar/tab-drag-preview';
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@renderer/lib/ui/context-menu';
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@renderer/lib/ui/resizable';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { sessionViewOfRuntime } from '@shared/core/sessions/sessions';
 import { parseExtensionTabKind } from '@shared/extensions/manifest';
@@ -149,97 +146,11 @@ export const SessionMainColumn = observer(function SessionMainColumn() {
         onDragCancel={drag.onDragCancel}
       >
         <div className="h-full min-h-0 min-w-0" data-session-panes="">
-          <PaneTree
-            node={paneLayout.layout}
-            topLeftPaneId={cornerPane(paneLayout.layout, 'top-left')}
-            topRightPaneId={cornerPane(paneLayout.layout, 'top-right')}
-            draggingTabId={drag.dragging}
-          />
+          <PaneTreeView layout={paneLayout} renderPane={(paneId, first, last) => <PaneCell paneId={paneId} atLeftEdge={first} atWindowEdge={last} draggingTabId={drag.dragging} />} />
         </div>
         <TabDragOverlay />
       </DndContext>
     </SessionActionsProvider>
-  );
-});
-
-const childPanelId = (node: PaneLayoutNode) => (node.type === 'pane' ? `pane-${node.paneId}` : `cut-${node.id}`);
-
-const PaneTree = observer(function PaneTree({
-  node,
-  topLeftPaneId,
-  topRightPaneId,
-  draggingTabId,
-}: {
-  node: PaneLayoutNode;
-  topLeftPaneId: string;
-  topRightPaneId: string;
-  draggingTabId: string | null;
-}) {
-  if (node.type === 'pane') {
-    return (
-      <PaneCell
-        paneId={node.paneId}
-        atLeftEdge={node.paneId === topLeftPaneId}
-        atWindowEdge={node.paneId === topRightPaneId}
-        draggingTabId={draggingTabId}
-      />
-    );
-  }
-  return <PaneCut node={node} topLeftPaneId={topLeftPaneId} topRightPaneId={topRightPaneId} draggingTabId={draggingTabId} />;
-});
-
-/**
- * 一刀:几格左右并排或上下叠着,中间是可拖的分界。拖分界改份额并记住;双击分界 = 这一刀等分(spec「双击分界 = 等分」)。
- * 份额以 store 为准:等分、读回存档这类不是拖出来的改动,从这里推给分栏组件。
- */
-const PaneCut = observer(function PaneCut({
-  node,
-  topLeftPaneId,
-  topRightPaneId,
-  draggingTabId,
-}: {
-  node: Extract<PaneLayoutNode, { type: 'split' }>;
-  topLeftPaneId: string;
-  topRightPaneId: string;
-  draggingTabId: string | null;
-}) {
-  const { paneLayout } = useWorkspaceViewModel();
-  const groupRef = useGroupRef();
-  const ids = node.children.map(childPanelId);
-  const idsKey = ids.join(',');
-  const sizesKey = node.sizes.join(',');
-
-  useEffect(() => {
-    const handle = groupRef.current;
-    if (!handle) return;
-    const wanted = Object.fromEntries(ids.map((id, index) => [id, node.sizes[index] ?? 0]));
-    try {
-      const current = handle.getLayout();
-      if (ids.every((id) => Math.abs((current[id] ?? -1) - wanted[id]) < 0.5)) return;
-      handle.setLayout(wanted);
-    } catch {
-      // Not laid out yet (first paint): its defaultSize already says the same.
-    }
-    // ids / sizes are read through their keys: a new array every render must not re-run this.
-  }, [idsKey, sizesKey, groupRef]);
-
-  return (
-    <ResizablePanelGroup
-      orientation={node.orientation}
-      groupRef={groupRef}
-      onLayoutChanged={(layout, meta) => {
-        if (meta.isUserInteraction) paneLayout.setSplitSizes(node.id, ids.map((id) => layout[id] ?? 0));
-      }}
-    >
-      {node.children.map((child, index) => (
-        <Fragment key={childPanelId(child)}>
-          {index > 0 && <ResizableHandle onDoubleClick={() => paneLayout.equalizeSplit(node.id)} />}
-          <ResizablePanel id={childPanelId(child)} defaultSize={`${node.sizes[index] ?? 0}%`} minSize={`${paneMinSize(child, node.orientation)}px`}>
-            <PaneTree node={child} topLeftPaneId={topLeftPaneId} topRightPaneId={topRightPaneId} draggingTabId={draggingTabId} />
-          </ResizablePanel>
-        </Fragment>
-      ))}
-    </ResizablePanelGroup>
   );
 });
 
@@ -264,7 +175,7 @@ const PaneCell = observer(function PaneCell({
   const group = paneLayout.groups.find((g) => g.paneId === paneId);
   if (!group) return null;
   // 拖到哪条边 = 在那一边并排(spec session-page「并排」);放不下两页的那一向不出落点。
-  const splitEdges = draggingTabId === null ? [] : PANE_EDGES.filter((edge) => group.pane.pairSplitBlocked(draggingTabId, edge) === null);
+  const splitEdges = draggingTabId === null ? [] : PANE_EDGES.filter((edge) => paneLayout.splitBlocked(paneId, draggingTabId, edge) === null);
   return (
     <PaneProvider group={group} isFocusedPane={sessionView.focusedRegion === 'main' && paneLayout.activePaneId === paneId}>
       <SplitPaneHotkey />
@@ -282,10 +193,6 @@ const PaneCell = observer(function PaneCell({
     </PaneProvider>
   );
 });
-
-/** 一格(或一刀)在这一向最少要多大:里面每格不比 MIN_PANE_WIDTH_PX / MIN_PANE_HEIGHT_PX 更窄更矮。 */
-const paneMinSize = (node: PaneLayoutNode, orientation: 'horizontal' | 'vertical') =>
-  orientation === 'horizontal' ? minExtent(node, 'width', MIN_PANE_WIDTH_PX) : minExtent(node, 'height', MIN_PANE_HEIGHT_PX);
 
 /** 一格此刻画出来多大:主窗里,或单独成窗的那扇窗里(格子 id 全局不重)。量不到(没画出来)= null。 */
 function paneCellSize(paneId: string): { width: number; height: number } | null {

@@ -1,6 +1,6 @@
 import { log } from '@renderer/utils/logger';
 import type { OpenTarget, TabProvider, TabResource } from './tab-provider';
-import type { TabOpenIntent, TabReturnTo } from '@shared/view-state';
+import type { TabOpenIntent } from '@shared/view-state';
 
 // ── Type aliases ──────────────────────────────────────────────────────────────
 
@@ -48,36 +48,12 @@ export type TabOpenArgs<R extends TabRegistry> = {
  * Stripped before the args reach onBeforeOpen.
  */
 export interface TabOpenOptions {
-  /** The requesting navigation context; null is an explicit root open. */
-  from?: string | null;
+  /** Trusted source context; null only for an explicit root open. */
+  from: string | null;
   intent?: TabOpenIntent;
-  /** Previous page to reveal when this tab is closed while shown. */
-  returnTo?: TabReturnTo;
-  /** When true, opens as a preview tab (replaced on next preview open). */
-  preview?: boolean;
-  /**
-   * When true and the tab is already open (single-mount hit), replace its
-   * current state with the new open args. Ignored for multi-mount providers.
-   */
-  overrideState?: boolean;
-  /**
-   * 新开的这一格要不要抢焦点。默认 true。
-   *
-   * false 是给**宿主替用户摆上去**的 tab 用的:启用的扩展在每条会话页都有一格
-   * (behavior tab-extensions),那一格不能在会话打开的一瞬间把对话顶下去。
-   */
+  /** Agent requests can navigate without bringing the result forward. */
   activate?: boolean;
-  /**
-   * 开在对话右边并排(spec session-page「并排」):agent 打开的、从对话里点开的走这条。
-   * 认哪一枚是对话由会话页那一侧挂上来(PaneLayoutStore.setPairAnchor);没有对话 = 照常开在 `target`。
-   * 和 `activate` 一起:人点开的(默认 true)= 连好后把并排亮到屏上;agent 打开的传 false = 用户正看着别的就
-   * ❌ 切走,一对只在页签条上连好(spec session-page「并排」:不切走正在看的)。
-   */
-  beside?: boolean;
-  /**
-   * Which pane to open into. Defaults to 'active' (focused pane).
-   * 'right'/'left' will split if needed; { paneId } targets an explicit pane.
-   */
+  /** An explicit pane for a root or a host-created page. */
   target?: OpenTarget;
 }
 

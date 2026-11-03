@@ -57,7 +57,7 @@ export const StagedSection = observer(function StagedSection() {
         },
         status: change.status,
       },
-      { preview: true }
+      { intent: 'navigate' }
     );
   };
 
@@ -73,7 +73,7 @@ export const StagedSection = observer(function StagedSection() {
         },
         status: change.status,
       },
-      { preview: false }
+      { intent: 'newTab' }
     );
   };
 

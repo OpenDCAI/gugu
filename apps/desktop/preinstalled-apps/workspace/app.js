@@ -55,6 +55,8 @@ const STRINGS = {
     noMatch: '没有文件名含「{q}」的文件。',
     denied: '这个 App 没有读取{folder}的权限。',
     openWith: '用别的 App 打开',
+    openNewTab: '在新页签打开',
+    openBeside: '在旁边打开',
     more: '更多',
     downloadOnly: '这个文件在这里只能下载，不能在这里看和改。',
     storedTextReadOnly: '这个文件按原样存着，在这里只能看，不能改。',
@@ -242,6 +244,8 @@ const STRINGS = {
     noMatch: 'No file name contains “{q}”.',
     denied: 'This App may not read this folder.',
     openWith: 'Open with another App',
+    openNewTab: 'Open in new tab',
+    openBeside: 'Open beside',
     more: 'More',
     downloadOnly: 'This file can only be downloaded here; it cannot be shown or changed here.',
     storedTextReadOnly: 'This file is kept as it was stored: you can read it here, not change it.',
@@ -531,6 +535,19 @@ function markdownSupport(cm) {
 async function applyContext(ctx) {
   const previous = state.ctx
   state.ctx = ctx
+  const restored = !previous && ctx.viewState
+  if (restored) {
+    if (['chat', 'workspace'].includes(restored.root)) state.root = restored.root
+    state.folder = typeof restored.folder === 'string' ? restored.folder : null
+    state.filter = typeof restored.filter === 'string' ? restored.filter : ''
+    if (KINDS.includes(restored.kind)) state.kind = restored.kind
+    if (SORTS.includes(restored.sort)) state.sort = restored.sort
+    if (restored.filters && typeof restored.filters === 'object') state.filters = restored.filters
+    state.picked = new Set(Array.isArray(restored.picked) ? restored.picked.filter((id) => typeof id === 'string') : [])
+    state.selecting = restored.selecting === true
+    state.pickFrom = typeof restored.pickFrom === 'string' ? restored.pickFrom : null
+    $('filter').value = state.filter
+  }
   state.t = stringsFor(ctx.locale, ctx.chat)
   document.documentElement.lang = isZh(ctx.locale) ? 'zh-CN' : 'en'
   renderChrome()
@@ -553,14 +570,15 @@ async function applyContext(ctx) {
     // The root on screen is the same place still (its conversation arrived, say): the person stays where they are.
     const stays = !!previous && state.root === shown && shown !== null && shownPlace(previous) === shownPlace(ctx) && !!previous.file === !!ctx.file
     if (!stays) {
-      state.folder = null
+      if (!restored) state.folder = null
       state.listed = new Set()
       state.entries = []
     }
     if (stays) renderList()
     if (!stays && inGroup && canRead() && !ctx.file) {
       state.showAppData = false
-      await refreshList(true)
+      await refreshList(!restored)
+      if (restored && Number.isFinite(restored.scrollTop)) $('file-list').scrollTop = restored.scrollTop
     }
   }
   // The host hands this page a file when it picked this App for it (真源 §2.6: a click goes to the host,
@@ -1336,7 +1354,7 @@ const offline = (entry) => entry.storedOn?.online === false && !entry.keep
 
 // A press on a file: the host picks the App that opens it and says why if it cannot now. Whether the machine that keeps
 // it is on is read afresh then, never from the list as it was loaded: the list is read again to show it.
-function openFile(entry, intent = 'preview') {
+function openFile(entry, intent = 'navigate') {
   if (entry.storedOn) void refreshList()
   return openInHost(entry, false, intent)
 }
@@ -1483,6 +1501,7 @@ function gridItem(entry, now) {
   }
   open.append(mark, Object.assign(document.createElement('span'), { className: 'file-name', textContent: shownName(entry) }))
   open.onclick = (event) => pressFile(entry, event)
+  open.onauxclick = (event) => { if (event.button === 1) { event.preventDefault(); pressFile(entry, event) } }
   li.append(open)
   pickable(li, entry)
   const keep = keepMark(entry, now)
@@ -1519,7 +1538,7 @@ function rowMenu(li, entry, canDelete = false) {
     ? [{ text: t.rename, run: () => startRename(li, entry) }, { text: t.move, run: () => showMoveDialog(entry) }] : []
   const remove = canWriteHere() && !entry.systemRole && canDelete
     ? [{ text: t.remove, run: () => removeFile(entry), ask: folder && under(entry.id).length ? fmt(t.confirmRemoveFolder, { n: under(entry.id).length }) : t.confirmRemove }] : []
-  const groups = [[open]]
+  const groups = [[open, ...(!folder ? [{ text: t.openNewTab, run: () => openFile(entry, 'newTab') }, { text: t.openBeside, run: () => openFile(entry, 'beside') }] : [])]]
   if (folder) groups.push(change)
   else {
     const use = [...(canForward() ? [{ text: t.forward, run: () => forwardEntries([entry]) }] : []),
@@ -1662,9 +1681,10 @@ async function copyLink(entry, at) {
 // claim in the chat, or the person's "always use it" (真源 §2.6). When that is this App (.md, plain .json)
 // the host hands the file back as context.file and applyContext opens it; nothing opens inline on a click.
 // `ask`: "Open with another App" — the host's picker, every App that opens this file, this one included.
-async function openInHost(entry, ask = false, intent = 'preview') {
+async function openInHost(entry, ask = false, intent = 'navigate') {
   try {
-    await gugu.files.openWith(entry, { intent, ...(ask ? { ask: true } : {}) })
+    const viewState = { root: state.root, folder: state.folder, filter: state.filter, kind: state.kind, sort: state.sort, filters: state.filters, picked: [...state.picked], selecting: state.selecting, pickFrom: state.pickFrom, scrollTop: $('file-list').scrollTop }
+    await gugu.files.openWith(entry, { intent, viewState, ...(ask ? { ask: true } : {}) })
   } catch (error) {
     showBanner(fmt(state.t.failed, { e: error.message }), 'error')
   }
@@ -2767,9 +2787,9 @@ function pickable(li, entry) {
 // A press on a file: with Shift, the run to it; with Ctrl/⌘ — or while anything is picked — it is picked or let go; else it opens.
 function pressFile(entry, event) {
   if (event?.shiftKey) return pick(entry.id, 'range')
-  if (event?.ctrlKey || event?.metaKey || state.picked.size || state.selecting) return pick(entry.id, 'toggle')
+  if (state.picked.size || state.selecting) return pick(entry.id, 'toggle')
   state.pickFrom = entry.id
-  return openFile(entry, event?.detail >= 2 ? 'pinned' : 'preview')
+  return openFile(entry, event?.altKey ? 'beside' : event?.ctrlKey || event?.metaKey || event?.button === 1 ? 'newTab' : 'navigate')
 }
 
 function pick(id, how) {

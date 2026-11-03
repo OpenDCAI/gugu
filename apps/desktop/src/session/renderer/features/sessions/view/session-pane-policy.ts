@@ -22,26 +22,14 @@ export function findChatPaneId(paneLayout: SessionPaneLayout): string | undefine
   )?.paneId;
 }
 
-/**
- * 「开在对话旁边」认的那一枚对话(spec session-page「并排」):这条会话自己的对话页签和它所在那一格。
- * 先认会话自己那枚(页签里记的会话对得上),没有就认正显示着对话的那一格里的对话页签;都没有 = null,照常开。
- */
-export function findConversationAnchor(
-  paneLayout: SessionPaneLayout,
-  sessionId: string
-): { paneId: string; tabId: string } | null {
-  for (const { paneId, pane } of paneLayout.groups) {
-    for (const [tabId, entry] of pane.entries) {
-      if (CHAT_TAB_KINDS.has(entry.kind) && (entry.state as { sessionId?: string } | undefined)?.sessionId === sessionId) {
-        return { paneId, tabId };
-      }
+/** Resolve only the named conversation's identity; no active-pane or neighbouring fallback. */
+export function sessionConversationTabId(paneLayout: SessionPaneLayout, sessionId: string): string | null {
+  for (const { pane } of paneLayout.groups) {
+    for (const entry of pane.entries.values()) {
+      if (CHAT_TAB_KINDS.has(entry.kind) && (entry.state as { sessionId?: string })?.sessionId === sessionId) return entry.tabId;
     }
   }
-  const paneId = findChatPaneId(paneLayout);
-  const group = paneLayout.groups.find((g) => g.paneId === paneId);
-  const chat = group?.pane.resolvedTabs.find((t) => t.isActive && CHAT_TAB_KINDS.has(t.kind)) ??
-    group?.pane.resolvedTabs.find((t) => CHAT_TAB_KINDS.has(t.kind));
-  return group && chat ? { paneId: group.paneId, tabId: chat.tabId } : null;
+  return null;
 }
 
 /**
@@ -107,7 +95,7 @@ export function closeTabsOfSession(
 export function replaceSessionTab(paneLayout: SessionPaneLayout, sessionId: string, kind: string): void {
   runInAction(() => {
     const { chatTabAt } = closeTabsOfSession(paneLayout, sessionId);
-    paneLayout.open(kind, { sessionId }, chatTabAt ? { target: { paneId: chatTabAt.paneId } } : undefined);
+    paneLayout.open(kind, { sessionId }, { from: null, intent: 'newTab', ...(chatTabAt ? { target: { paneId: chatTabAt.paneId } } : {}) });
     if (!chatTabAt) return;
     const pane = paneLayout.groups.find((g) => g.paneId === chatTabAt.paneId)?.pane;
     if (!pane) return;

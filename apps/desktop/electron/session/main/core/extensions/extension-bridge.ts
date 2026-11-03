@@ -88,6 +88,7 @@ interface SurfaceBinding {
   conversation: string | null;
   widget?: AppWhere['widget'];
   tabId: string;
+  viewState?: Record<string, unknown>;
   /**
    * #6387 Which of the extension's declared tabs this surface draws. A banner a tab
    * posts opens this tab on click — `tabId` alone is a runtime handle and says nothing
@@ -319,6 +320,7 @@ export interface ExtensionErrorRecord {
     itemId: string | null;
     sessionId: string | null;
     tabId: string;
+  viewState?: Record<string, unknown>;
   };
 }
 const ERROR_RECORD_MAX = 50;
@@ -567,6 +569,7 @@ export async function bindExtensionSurface(input: {
   webContentsId: number;
   extensionId: string;
   tabId: string;
+  viewState?: Record<string, unknown>;
   tabKind: string;
   /** Set only when the tab was opened for a file of its workspace this extension claimed. */
   filePath?: string;
@@ -622,6 +625,7 @@ export async function bindExtensionSurface(input: {
     conversation,
     ...(input.widget ? { widget: structuredClone(input.widget) } : {}),
     tabId: input.tabId,
+    viewState: input.viewState,
     tabName,
     filePath,
     itemId: input.itemId ?? null,
@@ -804,6 +808,7 @@ export async function retargetExtensionSurface(input: {
   opening?: PreparedChatFile;
   webContentsId: number;
   tabId: string;
+  viewState?: Record<string, unknown>;
   filePath?: string;
   itemId?: string;
 } & Partial<AppWhere>): Promise<void> {
@@ -835,6 +840,7 @@ export async function retargetExtensionSurface(input: {
   binding.workspace = workspace;
   binding.conversation = conversation;
   binding.tabId = input.tabId;
+  binding.viewState = input.viewState;
   binding.filePath = filePath;
   binding.itemId = input.itemId ?? null;
   binding.opening = input.opening;
@@ -1247,6 +1253,7 @@ function contextFor(binding: SurfaceBinding, workspace: ExtensionWorkspace | und
   const file = handedFileOf(binding);
   return {
     apiVersion: EXTENSION_API_VERSION,
+    ...(binding.viewState ? { viewState: structuredClone(binding.viewState) } : {}),
     tabId: binding.tabId,
     ...(binding.modal ? { modal: { data: binding.modal.data } } : {}),
     ...(drawnIn?.chat ? { chat: { ...drawnIn.chat, ...(contextHasMembers(binding) ? { members: drawnIn.members } : {}) } } : {}),
@@ -2017,7 +2024,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
           throw error;
         }
         if (tab !== undefined && target.kind !== 'chat') throw Object.assign(new Error('openWith tab is only available for chat files'), { code: 'invalid' });
-        if (target.kind === 'session') return void (await deliver(shown, { kind: 'openSessionFile', ...target.target, intent }));
+        if (target.kind === 'session') return void (await deliver(shown, { kind: 'openSessionFile', ...target.target, intent, ...(args.viewState && typeof args.viewState === 'object' && !Array.isArray(args.viewState) ? { viewState: structuredClone(args.viewState as Record<string, unknown>) } : {}) }));
         if (target.kind === 'peek') return void (await deliver(shown, { kind: 'peek', target: target.target }));
         const choice = tab === undefined
           ? files.openerChoice(target.target.typedName, ask)
@@ -2027,7 +2034,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         const { chatId, itemId } = target.target;
         const place = placeFor(choice, (args as { at?: unknown }).at);
         if (place) deliverToOpeningPage(place.candidate.extensionId, placeLink(place.candidate, place.at, itemId), { chat: chatId }, itemId);
-        const detail = { ...target.target, choice, intent, ...(resumed ? { background: true } : {}) };
+        const detail = { ...target.target, choice, intent, ...(args.viewState && typeof args.viewState === 'object' && !Array.isArray(args.viewState) ? { viewState: structuredClone(args.viewState as Record<string, unknown>) } : {}), ...(resumed ? { background: true } : {}) };
         if (peek) return void (await deliver(shown, { kind: 'peek', target: { kind: 'chat', detail } }));
         await deliver(shown, { kind: 'openWith', detail });
         return undefined;

@@ -70,7 +70,7 @@ export function startSideSession(projectId: string, sessionId: string): void {
             forkedFromSessionId: source.id,
           },
         },
-        { preview: false, beside: true }
+        { from: null, intent: 'beside' }
       );
       sessionView.setFocusedRegion('main');
     })

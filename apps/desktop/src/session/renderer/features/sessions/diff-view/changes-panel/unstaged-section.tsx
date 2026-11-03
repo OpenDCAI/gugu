@@ -61,7 +61,7 @@ export const UnstagedSection = observer(function UnstagedSection() {
         },
         status: change.status,
       },
-      { preview: true }
+      { intent: 'navigate' }
     );
   };
 
@@ -77,7 +77,7 @@ export const UnstagedSection = observer(function UnstagedSection() {
         },
         status: change.status,
       },
-      { preview: false }
+      { intent: 'newTab' }
     );
   };
 

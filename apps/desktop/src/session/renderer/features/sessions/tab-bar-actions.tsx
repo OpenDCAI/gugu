@@ -79,7 +79,7 @@ const TaskAddItems = observer(function TaskAddItems() {
   const { data: agents } = useAgents();
   const canSideSession = canStartSideSession(projectId, sessionId, agents);
   const terminalEnabled = useTerminalEnabled();
-  const openTab = (kind: string) => sessionView.paneLayout.open(kind, {}, { preview: false, target: { paneId } });
+  const openTab = (kind: string) => sessionView.paneLayout.open(kind, {}, { from: null, intent: 'newTab', target: { paneId } });
   const folder = installedExtensionsStore.enabledTabContributions.find((entry) => entry.kind === WORKSPACE_APP_KIND);
   return (
     <>
@@ -87,10 +87,10 @@ const TaskAddItems = observer(function TaskAddItems() {
         renderWorkspaceActionMenuItem(actionId, translate, {
           blocked: sessionWorkspaceActionBlocked(projectId, actionId) !== null,
           blockedTitle: workspaceBlockedTitle(sessionWorkspaceActionBlocked(projectId, actionId), translate, projectId),
-          openBrowser: () => pane.open('browser', { preview: false }),
-          openReview: () => sessionView.paneLayout.open('review', {}),
+          openBrowser: () => pane.open('browser', { intent: 'newTab' }),
+          openReview: () => sessionView.paneLayout.open('review', {}, { from: null, intent: 'newTab' }),
           openTerminal: () => void sessionView.openTerminalAsTab(),
-          openPorts: () => sessionView.paneLayout.open('remote-ports', {}, { preview: false }),
+          openPorts: () => sessionView.paneLayout.open('remote-ports', {}, { from: null, intent: 'newTab' }),
           startSideSession: () => startSideSession(projectId, sessionId),
           canStartSideSession: canSideSession
         }),

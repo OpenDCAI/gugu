@@ -43,6 +43,7 @@ export interface ExtensionViewClaim {
    * 这一格用这个 App 打开的群文件。页从第一个调用起 context.file 就是它,一生不换文件。
    */
   itemId?: string;
+  viewState?: Record<string, unknown>;
   /** 那一格的内容区。根层量它的框来摆页、报尺寸。 */
   element: HTMLElement;
 }
@@ -63,9 +64,10 @@ export const RESIDENT_PAGES_KEPT = 3;
  * 一格属于的地方:群右栏那一格是它的群;每任务一份的页签在任务里那一格是那个任务;别处(会话里、它的整页)都是群以外那一张。
  * 每任务一份的页签不在任何任务里(整页、单独成窗)时也落到 `app`:那张页知道自己不在任务里,说一句就是。
  */
-export function residentPlace(target: { chatId?: string; sessionId?: string; perSession?: boolean; itemId?: string }): string {
-  const place = target.chatId ? `chat:${target.chatId}` : target.perSession && target.sessionId ? `session:${target.sessionId}` : 'app';
-  return target.itemId ? `${place}:file:${target.itemId}` : place;
+export function residentPlace(target: { chatId?: string; sessionId?: string; tabId?: string; perSession?: boolean; itemId?: string }): string {
+  const place = target.chatId ? `chat:${target.chatId}` : target.sessionId ? `session:${target.sessionId}` : 'app';
+  const page = target.itemId ? `${place}:file:${target.itemId}` : place;
+  return target.tabId ? `${page}:tab:${target.tabId}` : page;
 }
 
 export function residentPageKey(kind: string, place: string): string {

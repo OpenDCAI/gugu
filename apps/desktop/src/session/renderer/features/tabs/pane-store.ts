@@ -16,7 +16,6 @@ import {
   type TabManagerSnapshot,
   type TabHistorySnapshot,
   type TabPageSnapshot,
-  type TabReturnTo,
 } from '@shared/view-state';
 import type { TabHost } from './core/tab-host';
 import { tabFullscreen } from './tab-fullscreen';
@@ -38,108 +37,35 @@ import { createUnavailableTabResource, isUnavailableTabResource } from './unavai
 export const MIN_PANE_WIDTH_PX = 220;
 export const MIN_PANE_HEIGHT_PX = 160;
 
-/** 并排里另一页摆在钉住那页的哪一边:左右 = 左右并排,上下 = 上下叠着。 */
-export type PairEdge = 'left' | 'right' | 'top' | 'bottom';
-
-/**
- * 并排(spec session-page「并排」,一条会话分屏只有这一种):钉住的那页(`anchor` —— 分屏前在看的那页,
- * agent 打开时是对话)和另一页(`side`),同一条页签条上连成一对。之后点别的页签、再拖进来一页,换掉的都是 `side`。
- * `sideAt` = 另一页摆在哪一边;`ratio` = 前一页(左 / 上)占几成。
- */
-export type TabPair = { anchor: string; side: string; sideAt: PairEdge; ratio: number | null };
-
-const OPPOSITE_EDGE: Record<PairEdge, PairEdge> = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' };
-export const isVerticalPairEdge = (edge: PairEdge): boolean => edge === 'top' || edge === 'bottom';
-/** 另一页摆在前一格(左 / 上)。 */
-const sideLeads = (edge: PairEdge): boolean => edge === 'left' || edge === 'top';
-
-/** 换了摆法、前一格换了一页:比例翻过来,两页各自的宽窄照旧(ratio 记的是前一格占几成;null = 照页面自己声明的宽)。 */
-function ratioKeepingWidths(before: TabPair, after: TabPair): number | null {
-  if (before.ratio === null) return null;
-  return sideLeads(before.sideAt) === sideLeads(after.sideAt) ? before.ratio : 1 - before.ratio;
-}
-
-/** 这一格放得下两页吗(各至少 MIN_PANE_WIDTH_PX 宽 / MIN_PANE_HEIGHT_PX 高;量不到 = 放得下)。 */
-function roomForTwo(dimensions: { width: number; height: number } | null, vertical: boolean): boolean {
-  if (!dimensions) return true;
-  return vertical ? dimensions.height >= MIN_PANE_HEIGHT_PX * 2 + 1 : dimensions.width >= MIN_PANE_WIDTH_PX * 2 + 1;
-}
-
-/** Serialize a live entry to the built-in or extension shape used in snapshots and history. */
+/** Serialize only navigation and provider state; obsolete preview/pair metadata is never written. */
 function descriptorOf(entry: TabEntry): TabDescriptor {
   const state = toJS(entry.state) as Record<string, unknown>;
   const navigation = {
-    ...(entry.returnTo ? { returnTo: toJS(entry.returnTo) } : {}),
     ...(entry.history ? { history: toJS(entry.history) } : {}),
     ...(entry.companionPaneId ? { companionPaneId: entry.companionPaneId } : {}),
+    ...(entry.openerTabId ? { openerTabId: entry.openerTabId } : {}),
   };
-  if (!isBuiltInTabKind(entry.kind)) {
-    return {
-      kind: 'extension',
-      extensionKind: entry.kind,
-      tabId: entry.tabId,
-      isPreview: entry.isPreview,
-      state,
-      ...navigation,
-    };
-  }
-  return {
-    kind: entry.kind,
-    tabId: entry.tabId,
-    isPreview: entry.isPreview,
-    ...state,
-    ...navigation,
-  } as BuiltInTabDescriptor;
+  return isBuiltInTabKind(entry.kind)
+    ? { ...state, kind: entry.kind, tabId: entry.tabId, ...navigation } as BuiltInTabDescriptor
+    : { kind: 'extension', extensionKind: entry.kind, tabId: entry.tabId, state, ...navigation };
 }
 
-/** Deserialize a TabDescriptor back to its runtime provider identity and opaque state. */
-function stateFromDescriptor(desc: TabDescriptor): {
-  kind: string;
-  tabId: string;
-  isPreview: boolean;
-  state: unknown;
-  returnTo?: TabReturnTo;
-  history?: TabHistorySnapshot;
-  companionPaneId?: string;
-} {
-  if (desc.kind === 'extension') {
-    return {
-      kind: desc.extensionKind,
-      tabId: desc.tabId,
-      isPreview: desc.isPreview,
-      state: desc.state ?? {},
-      returnTo: desc.returnTo,
-      history: desc.history,
-      companionPaneId: desc.companionPaneId,
-    };
-  }
-  const { kind, tabId, isPreview, returnTo, history, companionPaneId, ...state } = desc;
-  return { kind, tabId, isPreview, state, returnTo, history, companionPaneId };
+/** Old snapshots are read at this boundary; their preview/return metadata has no runtime meaning. */
+function stateFromDescriptor(desc: TabDescriptor): TabPageSnapshot & { tabId: string; history?: TabHistorySnapshot; companionPaneId?: string; openerTabId?: string } {
+  const metadata = { tabId: desc.tabId, history: desc.history, companionPaneId: desc.companionPaneId, openerTabId: desc.openerTabId };
+  if (desc.kind === 'extension') return { ...metadata, kind: desc.extensionKind, state: desc.state ?? {} };
+  const state: Record<string, unknown> = { ...desc };
+  for (const key of ['kind', 'tabId', 'history', 'companionPaneId', 'openerTabId', 'isPreview', 'returnTo']) delete state[key];
+  return { ...metadata, kind: desc.kind, state };
 }
 
 class TabEntryImpl<S = unknown> implements TabEntry<S> {
-  readonly kind: string;
-  readonly tabId: string;
-  isPreview: boolean;
-  returnTo?: TabReturnTo;
   history?: TabHistorySnapshot;
   companionPaneId?: string;
-  /** Reactive, serializable domain state. Mutated in-place; read by snapshot. */
-  state: S;
-
-  constructor(kind: string, tabId: string, isPreview: boolean, state: S, returnTo?: TabReturnTo) {
-    this.kind = kind;
-    this.tabId = tabId;
-    this.isPreview = isPreview;
-    this.state = state;
-    this.returnTo = returnTo;
-    makeObservable(this, {
-      isPreview: observable,
-      state: observable,
-      returnTo: observable,
-      history: observable.ref,
-      companionPaneId: observable,
-    });
+  openerTabId?: string;
+  navigationRequest = 0;
+  constructor(readonly kind: string, readonly tabId: string, public state: S) {
+    makeObservable(this, { state: observable, history: observable.ref, companionPaneId: observable, openerTabId: observable });
   }
 }
 
@@ -163,8 +89,10 @@ export interface PaneSplitter {
   windowOpener?(tabId: string): (() => void) | null;
   /** 挪到这条会话的另一格(走格子的先后:后一格,没有就前一格);只有这一格 = null。 */
   moveToOtherPane?(tabId: string): (() => void) | null;
-  /** 这一格里的对话那一枚(「开在对话旁边」的那一枚,PaneLayoutStore.setPairAnchor);不在这一格 = null。 */
-  pairAnchorTab?(): string | null;
+  split?(tabId: string, edge: 'right' | 'bottom'): void;
+  splitBlocked?(tabId: string, edge: 'right' | 'bottom'): 'full' | 'only-tab' | 'too-small' | null;
+  revealTab?(tabId: string): boolean;
+  hasSibling?(): boolean;
 }
 
 export class PaneStore<R extends TabRegistry = TabRegistry>
@@ -178,16 +106,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   tabOrder: string[] = [];
   /** 拿着焦点的那一枚。并排时屏上有两枚,这是其中点着的那一边;「屏上显示着哪几枚」读 `shownTabIds`。 */
   activeTabId: string | undefined = undefined;
-  /** 并排的一对(spec session-page「并排」);整份替换。成不成立读 `livePair`。 */
-  pair: TabPair | null = null;
-  /**
-   * 用户拆开过哪几类页签(「拆开」、⌘\):之后开在对话旁边的**同一类**不再自动并排,只多一枚页签 —— 那是用户对这一类
-   * 选的「不分屏」,❌ 让 agent 一打开就推翻。按类各记各的(owner 10-28):拆开过文件页,群文件 / 成员 / 设置照旧并排。
-   * 用户自己再把这一类分屏才清掉。关掉一边 ≠ 拆开;程序为让位拆开的(`separatePair({ remember: false })`)也不算。
-   */
-  splitDeclinedKinds = new Set<string>();
-  /** 上一枚拿过焦点的页签:分屏时「正看着的就是要挪的那枚」,另一边放它(⌘\ 也是和它并排)。 */
-  private _previousActiveTabId: string | undefined = undefined;
   /** Current pixel dimensions of the pane container, null until first measurement. */
   dimensions: { width: number; height: number } | null = null;
 
@@ -242,17 +160,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     makeObservable(this, {
       tabOrder: observable,
       activeTabId: observable,
-      pair: observable.ref,
-      splitDeclinedKinds: observable,
-      livePair: computed,
-      pairSlots: computed,
-      pairShown: computed,
       shownTabIds: computed,
-      pairWith: action,
-      separatePair: action,
-      splitBeside: action,
-      toggleSplit: action,
-      setPairRatio: action,
       isVisible: computed,
       dimensions: observable,
       resolvedActiveTabId: computed,
@@ -269,7 +177,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       setPreviousTabActive: action,
       setTabActiveIndex: action,
       setDimensions: action,
-      pin: action,
       closeOthers: action,
       closeToRight: action,
       closeAll: action,
@@ -278,9 +185,9 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       restoreSnapshot: action,
       detachTab: action,
       adoptEntry: action,
-      retargetEntry: action,
       navigate: action,
       go: action,
+      goTo: action,
       setPageViewState: action,
       renameRequest: observable,
       requestRename: action,
@@ -391,234 +298,14 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     return this.entries.get(this.resolvedActiveTabId ?? '');
   }
 
-  /** 这一对还成立吗:两枚都在、都认得出来(同一种页签也行 —— 两个文件、两个网页照样并排)。 */
-  get livePair(): TabPair | null {
-    const pair = this.pair;
-    return pair && this._canPair(pair.anchor, pair.side) ? pair : null;
-  }
-
-  /** 一对在屏上怎么摆;页签条保留自己的顺序。 */
-  get pairSlots(): { first: string; second: string; vertical: boolean } | null {
-    const pair = this.livePair;
-    if (!pair) return null;
-    const sideFirst = pair.sideAt === 'left' || pair.sideAt === 'top';
-    return {
-      first: sideFirst ? pair.side : pair.anchor,
-      second: sideFirst ? pair.anchor : pair.side,
-      vertical: isVerticalPairEdge(pair.sideAt),
-    };
-  }
-
-  /**
-   * 这一对此刻在屏上:点着的是其中一枚,且这一格放得下两页(各至少 MIN_PANE_WIDTH_PX 宽 / MIN_PANE_HEIGHT_PX 高)。
-   * 放不下时一对照样连着,屏上只显示点着的那一页,宽了自动回并排(spec session-page「并排」)。
-   */
-  get pairShown(): boolean {
-    if (tabFullscreen.isOn(this)) return false;
-    const pair = this.livePair;
-    if (!pair) return false;
-    const active = this.resolvedActiveTabId;
-    if (active !== pair.anchor && active !== pair.side) return false;
-    return roomForTwo(this.dimensions, isVerticalPairEdge(pair.sideAt));
-  }
-
-  /** 此刻画在屏上的页签:并排时两枚(按屏上的先后:左 / 上在前),否则点着的那一枚。 */
+  /** Each real pane shows its active navigation context. */
   get shownTabIds(): readonly string[] {
-    const slots = this.pairSlots;
-    if (slots && this.pairShown) return [slots.first, slots.second];
     const active = this.resolvedActiveTabId;
     return active ? [active] : [];
   }
 
-  private _canPair(anchor: string, side: string): boolean {
-    if (anchor === side) return false;
-    const a = this.entries.get(anchor);
-    const b = this.entries.get(side);
-    if (!a || !b) return false;
-    if (!this.registry.has(a.kind) || !this.registry.has(b.kind)) return false;
-    const ra = this._resources.get(anchor);
-    const rb = this._resources.get(side);
-    return !!ra && !!rb && !isUnavailableTabResource(ra) && !isUnavailableTabResource(rb);
-  }
-
-  /**
-   * 开在对话旁边(agent 打开的、从对话里点开的):把 `tabId` 摆到 `anchorId`(对话)旁边并排(spec session-page「并排」)。
-   * ❌ 不改点着的是哪一枚:用户正看着对话,就看到并排;正看着别的(终端、审阅),就不切走,一对只在页签条上连好。
-   * 唯一例外是用户正点着被顶下来的那页 —— 那个位置换了一页,焦点跟着位置走。
-   * 用户拆开过这一类(splitDeclinedKinds)、或摆不到一起(认不出来)= 什么都不做,它照常是一枚页签。
-   */
-  pairWith(anchorId: string, tabId: string, closePreview = false): void {
-    if (this.splitDeclinedFor(tabId) || !this._canPair(anchorId, tabId)) return;
-    const current = this.livePair;
-    if (current && (current.anchor === anchorId || current.side === anchorId)) {
-      // 对话已经在这一对里(钉住的、或被摆到另一边的都算):另一页换成它,摆法不动,从此钉住的是对话。
-      const other = current.anchor === anchorId ? current.side : current.anchor;
-      if (other === tabId) return;
-      const otherFocused = this.activeTabId === other;
-      const sideAt = current.anchor === anchorId ? current.sideAt : OPPOSITE_EDGE[current.sideAt];
-      this._replaceSide({ anchor: anchorId, side: other, sideAt, ratio: current.ratio }, tabId, closePreview);
-      if (otherFocused) this.activeTabId = tabId;
-      return;
-    }
-    this.pair = { anchor: anchorId, side: tabId, sideAt: 'right', ratio: null };
-  }
-
-  /**
-   * 「拆开」(两枚中间那根线上的钮、页签右键、⌘\):两枚都变回普通页签,点着的那枚占满(照 Chrome「Separate views」)。
-   * 这是用户对这一类选了不分屏:之后开在对话旁边的同一类不再自动并排,直到他自己再分屏。
-   * `remember: false` = 程序为让位拆开的(会话浮在页上时,群面板 setPanelFull),不是用户的选择,❌ 记。
-   */
-  separatePair({ remember = true }: { remember?: boolean } = {}): void {
-    const pair = this.pair;
-    this.pair = null;
-    if (!remember || !pair) return;
-    // 记的是并排在对话旁边的那几类;对话那一枚(锚)本身不算一类「不想并排」的页签。
-    const anchorTab = this._layoutSplitter?.pairAnchorTab?.() ?? null;
-    for (const id of [pair.anchor, pair.side]) {
-      const kind = id === anchorTab ? undefined : this.entries.get(id)?.kind;
-      if (kind) this.splitDeclinedKinds.add(kind);
-    }
-  }
-
-  /** 这一枚所属的那一类,用户拆开过没有(拆开过 = 开在对话旁边的不再自动并排)。 */
-  splitDeclinedFor(tabId: string): boolean {
-    const kind = this.entries.get(tabId)?.kind;
-    return !!kind && this.splitDeclinedKinds.has(kind);
-  }
-
-  /** 用户自己把这几枚分屏了:它们那几类的「拆开过」清掉(别的类照旧)。 */
-  private _acceptSplitOf(...tabIds: (string | undefined)[]): void {
-    for (const id of tabIds) {
-      const kind = id ? this.entries.get(id)?.kind : undefined;
-      if (kind) this.splitDeclinedKinds.delete(kind);
-    }
-  }
-
-  /**
-   * 手动分屏(页签右键「向右分 / 向下分」、把页签拖到内容区的哪条边):`tabId` 摆到 `edge` 那一边并排,焦点给它。
-   * - 它本来就在这一对里 = 只换摆法(它挪到那一边,另一枚到对面)。
-   * - 屏上正并排着 = 它顶替另一页(钉住的那页不动)。
-   * - 否则和此刻屏上那页并排,那页钉住;挪的正是屏上那页 = 另一边放上一枚看过的(没有就放它旁边那枚)。
-   * 返回分没分成。
-   */
-  splitBeside(tabId: string, edge: PairEdge): boolean {
-    if (this.pairSplitBlocked(tabId, edge) !== null) return false;
-    const pair = this.livePair;
-    if (pair && (tabId === pair.anchor || tabId === pair.side)) {
-      const moved = { ...pair, sideAt: tabId === pair.side ? edge : OPPOSITE_EDGE[edge] };
-      this.pair = { ...moved, ratio: ratioKeepingWidths(pair, moved) };
-    } else if (pair && this.pairShown) {
-      this._replaceSide(pair, tabId);
-      const replaced = this.pair!;
-      const moved = { ...replaced, sideAt: edge };
-      this.pair = { ...moved, ratio: ratioKeepingWidths(replaced, moved) };
-    } else {
-      const anchor = this._partnerFor(tabId);
-      if (!anchor || !this._canPair(anchor, tabId)) return false;
-      this.pair = { anchor, side: tabId, sideAt: edge, ratio: null };
-    }
-    this._acceptSplitOf(this.pair!.anchor, this.pair!.side);
-    this._focus(tabId);
-    return true;
-  }
-
-  /** 往 `edge` 那边分为什么分不出来(null = 分得出来):没有别的页可并排 / 这一格太窄(太矮)放不下两页。 */
-  pairSplitBlocked(tabId: string, edge: PairEdge): 'only-tab' | 'too-small' | null {
-    const partner = this._partnerFor(tabId);
-    if (!partner || !this._canPair(partner, tabId)) return 'only-tab';
-    return roomForTwo(this.dimensions, isVerticalPairEdge(edge)) ? null : 'too-small';
-  }
-
-  /**
-   * ⌘\:看着的是这一对(并排着、或窄得只显示一页)= 拆开;没并排 = 此刻这页钉住,和上一枚看过的(没有就旁边那枚)并排。
-   * 正看着这一对之外的页签时按 = 分屏,❌ 拆开一对屏上看不见的。
-   */
-  toggleSplit(): void {
-    const pair = this.livePair;
-    const current = this.resolvedActiveTabId;
-    if (pair && (current === pair.anchor || current === pair.side)) {
-      this.separatePair();
-      return;
-    }
-    const other = current ? this._partnerFor(current) : undefined;
-    if (!current || !other || !this._canPair(current, other)) return;
-    if (!roomForTwo(this.dimensions, false)) return;
-    // 手动分屏时按页签先后决定初始摆法,不移动页签。
-    const otherFirst = this.tabOrder.indexOf(other) < this.tabOrder.indexOf(current);
-    this.pair = { anchor: current, side: other, sideAt: otherFirst ? 'left' : 'right', ratio: null };
-    this._acceptSplitOf(current, other);
-  }
-
-  /** 和 `tabId` 并排的会是哪一页(见 splitBeside)。 */
-  private _partnerFor(tabId: string): string | undefined {
-    const pair = this.livePair;
-    if (pair && tabId === pair.anchor) return pair.side;
-    if (pair && tabId === pair.side) return pair.anchor;
-    if (pair && this.pairShown) return pair.anchor;
-    const shown = this.resolvedActiveTabId;
-    if (shown && shown !== tabId) return shown;
-    const previous = this._previousActiveTabId;
-    if (previous && previous !== tabId && this.entries.has(previous)) return previous;
-    const at = this.tabOrder.indexOf(tabId);
-    return at === -1 ? undefined : (this.tabOrder[at - 1] ?? this.tabOrder[at + 1]);
-  }
-
-  /** 拖中间那条分界:前一页(左 / 上)占几成(两边各守最窄 / 最矮由拖的那一侧按像素卡住)。null = 回到页面自己声明的宽(双击分界)。 */
-  setPairRatio(ratio: number | null): void {
-    if (!this.pair || (ratio !== null && !Number.isFinite(ratio))) return;
-    this.pair = { ...this.pair, ratio: ratio === null ? null : Math.min(0.9, Math.max(0.1, ratio)) };
-  }
-
-  /**
-   * 前一页(左 / 上)此刻占几成:拖过 = 拖成的那样;没拖过 = 声明了宽的那页(sideWidth,另一页优先)照它的像素、至多一半,
-   * 都没声明 = 一半一半(两页对等)。
-   */
-  get pairShare(): number {
-    const pair = this.livePair;
-    if (!pair) return 0.5;
-    if (pair.ratio !== null) return pair.ratio;
-    const extent = isVerticalPairEdge(pair.sideAt) ? this.dimensions?.height : this.dimensions?.width;
-    const declared = [pair.side, pair.anchor].map((tabId) => ({ tabId, px: this._sideWidthOf(tabId) })).find((it) => it.px !== undefined);
-    if (!declared || !extent) return 0.5;
-    const share = Math.min(0.5, declared.px! / extent);
-    return declared.tabId === this.pairSlots!.first ? share : 1 - share;
-  }
-
-  private _sideWidthOf(tabId: string): number | undefined {
-    const entry = this.entries.get(tabId);
-    return entry && this.registry.has(entry.kind) ? this.registry.get(entry.kind).sideWidth?.(entry.state as never) : undefined;
-  }
-
-  /**
-   * 另一页换成 `tabId`:摆法和页签顺序不动。
-   * 被顶下来的是瞄一眼那种就收掉 —— 瞄一眼的意思就是不留(spec session-page「并排」)。
-   */
-  private _replaceSide(pair: TabPair, tabId: string, closePreview = true): void {
-    const old = pair.side;
-    this.pair = { ...pair, side: tabId, ratio: this._ratioForNewSide(pair, tabId) };
-    // 和人点 × 一样先问一句(有没存的东西会问):被否了就留成一枚普通页签,❌ 悄悄扔掉。
-    if (closePreview && this.entries.get(old)?.isPreview) void this._requestClose(old, false);
-  }
-
-  /**
-   * 另一页换成 `tabId`:换进来的(或被顶下来的)那页声明了自己的宽,就照新的这页来,❌ 接着用上一页拖出来的比例;
-   * 两页都是对等的(都没声明)才留着拖过的比例。
-   */
-  private _ratioForNewSide(pair: TabPair, tabId: string): number | null {
-    return this._sideWidthOf(tabId) === undefined && this._sideWidthOf(pair.side) === undefined ? pair.ratio : null;
-  }
-
   private _focus(id: string): void {
-    if (this.activeTabId !== id) this._previousActiveTabId = this.activeTabId;
     this.activeTabId = id;
-  }
-
-  /** 这一对少了一枚 = 拆开,剩下那枚接着亮(关掉右边那页 → 对话占满)。 */
-  private _dropFromPair(id: string): void {
-    const pair = this.pair;
-    if (!pair || (id !== pair.anchor && id !== pair.side)) return;
-    this.pair = null;
-    if (this.activeTabId === id) this.activeTabId = id === pair.side ? pair.anchor : pair.side;
   }
 
   /** All entries of the given kind, in tab-order. */
@@ -665,16 +352,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * Only meaningful for single-mount providers; returns undefined for multi providers
    * or when no matching entry exists.
    */
-  findSingleMountEntry(kind: string, resourceKey: string): TabEntryImpl | undefined {
-    if (!this.registry.has(kind)) return undefined;
-    const def = this.registry.get(kind);
-    if ((def.mount ?? 'multi') !== 'single') return undefined;
-    for (const id of this.tabOrder) {
-      const e = this.entries.get(id);
-      if (e?.kind === kind && def.resourceKey(e.state as never) === resourceKey) return e;
-    }
-    return undefined;
-  }
 
   /**
    * Returns true if any tab of the given kind in this pane has the given resourceKey.
@@ -700,19 +377,11 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   }
 
   /** Find the first preview entry of a given kind (used for preview retargeting). */
-  private _previewEntryOfKind(kind: string): TabEntryImpl | undefined {
-    for (const id of this.tabOrder) {
-      const e = this.entries.get(id);
-      if (e?.kind === kind && e.isPreview) return e;
-    }
-    return undefined;
-  }
 
   get resolvedTabs(): ResolvedTab[] {
     const result: ResolvedTab[] = [];
     const effectiveActiveId = this.resolvedActiveTabId;
     const shown = this.shownTabIds;
-    const slots = this.pairSlots;
     for (const id of this.tabOrder) {
       const entry = this.entries.get(id);
       if (!entry) continue;
@@ -721,10 +390,8 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       result.push({
         kind: entry.kind,
         tabId: id,
-        isPreview: entry.isPreview,
         isActive: shown.includes(id),
         isFocused: effectiveActiveId === id,
-        pairRole: slots?.first === id ? 'start' : slots?.second === id ? 'end' : undefined,
         resource,
       } as ResolvedTab);
     }
@@ -732,38 +399,12 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   }
 
   get snapshot(): TabManagerSnapshot {
-    const tabs: TabDescriptor[] = [];
-    for (const id of this.tabOrder) {
+    const tabs = this.tabOrder.flatMap((id) => {
       const entry = this.entries.get(id);
-      if (!entry) continue;
-      if (this.registry.has(entry.kind)) {
-        const provider = this.registry.get(entry.kind);
-        if (provider.isPersistent?.(entry.state as never) === false) continue;
-      }
-      tabs.push(descriptorOf(entry));
-    }
-    const activeTabId = tabs.some((tab) => tab.tabId === this.activeTabId)
-      ? this.activeTabId
-      : tabs[0]?.tabId;
-    // 用 `pair` 不用 `livePair`:右边那页是 App、App 被停用时它暂时成了占位(livePair 不认),这时存档也得留着这一对,
-    // 重新启用回来还是一对;❌ 中途一次自动保存把它永久丢掉。
-    const pair = this.pair;
-    const savedPair =
-      pair && tabs.some((tab) => tab.tabId === pair.anchor) && tabs.some((tab) => tab.tabId === pair.side)
-        ? {
-            anchorTabId: pair.anchor,
-            sideTabId: pair.side,
-            ...(pair.ratio === null ? {} : { share: pair.ratio }),
-            // 只在不是默认那种(另一页在右)时记,旧存档读回来照旧是左右并排。
-            ...(pair.sideAt === 'right' ? {} : { sideAt: pair.sideAt }),
-          }
-        : undefined;
-    return {
-      tabs,
-      activeTabId,
-      ...(savedPair ? { pair: savedPair } : {}),
-      ...(this.splitDeclinedKinds.size > 0 ? { splitDeclinedKinds: [...this.splitDeclinedKinds].sort() } : {}),
-    };
+      if (!entry || (this.registry.has(entry.kind) && this.registry.get(entry.kind).isPersistent?.(entry.state as never) === false)) return [];
+      return [descriptorOf(entry)];
+    });
+    return { tabs, activeTabId: tabs.some((tab) => tab.tabId === this.activeTabId) ? this.activeTabId : tabs[0]?.tabId };
   }
 
   /**
@@ -774,57 +415,21 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * `isPreview` comes from the caller's `preview` flag.
    * `overrideState` applies when the layout found a single-mount match in this pane.
    */
-  openWithState(
-    kind: string,
-    initialState: unknown,
-    opts?: { isPreview?: boolean; overrideState?: boolean; activate?: boolean; returnTo?: TabReturnTo }
-  ): string | undefined {
-    const isPreview = opts?.isPreview ?? false;
-    const activate = opts?.activate ?? true;
-
-    if (!this.registry.has(kind)) {
-      console.warn(`[PaneStore] Unknown tab kind: ${kind}`);
-      return undefined;
-    }
-    const def = this.registry.get(kind);
-
-    // Single-mount dedup: if already open in THIS pane, focus (and optionally update state).
-    if ((def.mount ?? 'multi') === 'single') {
-      const key = def.resourceKey(initialState as never);
-      const existing = this.findSingleMountEntry(kind, key);
-      if (existing) {
-        if (!isPreview) existing.isPreview = false;
-        if (opts?.overrideState) existing.state = initialState;
-        if (opts?.returnTo && opts.returnTo.tabId !== existing.tabId) existing.returnTo = opts.returnTo;
-        if (activate) this.setActiveTab(existing.tabId);
-        return existing.tabId;
-      }
-    }
-
-    // Preview retarget: replace the existing preview for this kind, if any.
-    if (isPreview) {
-      const previewEntry = this._previewEntryOfKind(kind);
-      if (previewEntry) {
-        this.retargetEntry(previewEntry.tabId, { state: initialState, isPreview: true, returnTo: opts?.returnTo?.tabId === previewEntry.tabId ? previewEntry.returnTo : opts?.returnTo });
-        // 不抢的打开(开在对话旁边)也走到这里:原地换了内容,但不切过去(spec session-page「并排」)。
-        if (activate) this.setActiveTab(previewEntry.tabId, true);
-        return previewEntry.tabId;
-      }
-    }
-
-    // Fresh tab.
-    const origin = opts?.returnTo?.tabId ?? this.resolvedActiveTabId;
+  openWithState(kind: string, initialState: unknown, opts?: { activate?: boolean; after?: string; openerTabId?: string }): string | undefined {
+    if (!this.registry.has(kind)) return undefined;
     const tabId = crypto.randomUUID();
-    const entry = new TabEntryImpl(kind, tabId, isPreview, initialState, opts?.returnTo);
+    const entry = new TabEntryImpl(kind, tabId, initialState);
+    entry.openerTabId = opts?.openerTabId;
     this._attachEntryAndInitialize(entry, { activate: false });
+    const origin = opts?.after;
     const at = origin ? this.tabOrder.indexOf(origin) : -1;
-    if (at !== -1 && this.entries.has(tabId)) {
+    if (at !== -1) {
       const order = this.tabOrder.filter((id) => id !== tabId);
       order.splice(at + 1, 0, tabId);
       this.tabOrder = order;
     }
-    if (activate && this.entries.has(tabId)) this.setActiveTab(tabId, true);
-    return this.entries.has(tabId) ? tabId : undefined;
+    if (opts?.activate ?? true) this.setActiveTab(tabId);
+    return tabId;
   }
 
   /**
@@ -832,29 +437,24 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * Delegates to the layout opener if available (handles cardinality + routing),
    * falling back to computing state and opening directly in this pane.
    */
-  openKind(kind: string, args: Record<string, unknown>, config?: TabOpenOptions): void {
+  openKind(kind: string, args: Record<string, unknown>, config?: Omit<TabOpenOptions, 'from'>): void {
+    const from = this.resolvedActiveTabId ?? null;
     if (this._layoutOpener) {
-      this._layoutOpener(kind, args, config);
-    } else {
-      // Fallback: compute state and open directly in this pane.
-      if (!this.registry.has(kind)) return;
-      const def = this.registry.get(kind);
-      const state: unknown = def.onBeforeOpen
-        ? def.onBeforeOpen(args as never, this._ctx)
-        : (args as unknown);
-      if (state === null) return;
-      this.openWithState(kind, state, {
-        isPreview: !!config?.preview,
-        overrideState: !!config?.overrideState,
-        returnTo: config?.returnTo,
-      });
+      this._layoutOpener(kind, args, { ...config, from, intent: config?.intent ?? 'navigate' });
+      return;
     }
+    if (!this.registry.has(kind)) return;
+    const def = this.registry.get(kind);
+    const state = def.onBeforeOpen ? def.onBeforeOpen(args as never, this._ctx) : args;
+    if (state === null) return;
+    if (from && (config?.intent ?? 'navigate') === 'navigate') this.navigate(from, kind, state);
+    else this.openWithState(kind, state, { activate: config?.activate, after: from ?? undefined, openerTabId: from ?? undefined });
   }
 
   /**
    * Typed open for direct PaneStore consumers (e.g. PaneLayoutStore routing into a pane).
    */
-  open<K extends KindOf<R>>(kind: K, args: OpenArgsOf<R, K>, config?: TabOpenOptions): void {
+  open<K extends KindOf<R>>(kind: K, args: OpenArgsOf<R, K>, config?: Omit<TabOpenOptions, 'from'>): void {
     this.openKind(kind as string, args, config);
   }
 
@@ -862,9 +462,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     this._removeTab(id);
   }
 
-  returnToOf(tabId: string): TabReturnTo | undefined {
-    return this.entries.get(tabId)?.returnTo;
-  }
 
   /** Read the current page without manufacturing a second tab identity. */
   navigationOf(tabId: string): TabHistorySnapshot | undefined {
@@ -885,6 +482,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     const entry = this.entries.get(tabId);
     const history = this.navigationOf(tabId);
     if (!entry || !history || !this.registry.has(kind)) return;
+    if (entry.kind === kind && this.registry.get(kind).resourceKey(entry.state as never) === this.registry.get(kind).resourceKey(state as never)) return;
     this._beforeNavigate(entry, () => {
       const pages = history.pages.slice(0, history.index + 1);
       pages[history.index] = { ...pages[history.index], kind: entry.kind, state: toJS(entry.state) };
@@ -896,15 +494,36 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   go(tabId: string, delta: -1 | 1): void {
     const entry = this.entries.get(tabId);
     const history = this.navigationOf(tabId);
-    if (!entry || !history || !history.pages[history.index + delta]) return;
+    if (!entry || !history) return;
+    if (!history.pages[history.index + delta]) {
+      if (delta === -1 && entry.openerTabId) {
+        if (this.entries.has(entry.openerTabId)) this.setActiveTab(entry.openerTabId);
+        else this._layoutSplitter?.revealTab?.(entry.openerTabId);
+      }
+      return;
+    }
+    this.goTo(tabId, history.index + delta);
+  }
+
+  goTo(tabId: string, index: number): void {
+    const entry = this.entries.get(tabId);
+    const history = this.navigationOf(tabId);
+    if (!entry || !history?.pages[index] || index === history.index) return;
     this._beforeNavigate(entry, () => {
       const pages = [...history.pages];
       pages[history.index] = { ...pages[history.index], kind: entry.kind, state: toJS(entry.state) };
-      this._showPage(entry, { pages, index: history.index + delta });
+      this._showPage(entry, { pages, index });
     });
   }
 
+  canGo(tabId: string, delta: -1 | 1): boolean {
+    const entry = this.entries.get(tabId);
+    const history = this.navigationOf(tabId);
+    return Boolean(history?.pages[history.index + delta] || (delta === -1 && entry?.openerTabId));
+  }
+
   private _beforeNavigate(entry: TabEntryImpl, apply: () => void): void {
+    const request = ++entry.navigationRequest;
     const resource = this._resources.get(entry.tabId);
     const def = this.registry.has(entry.kind) ? this.registry.get(entry.kind) : undefined;
     const allowed = resource && def?.onBeforeClose
@@ -912,7 +531,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       : true;
     const finish = (proceed: boolean) => {
       // A dialog may finish after another navigation or a close. It cannot act on that newer page.
-      if (proceed && this.entries.get(entry.tabId) === entry) runInAction(apply);
+      if (proceed && entry.navigationRequest === request && this.entries.get(entry.tabId) === entry) runInAction(apply);
     };
     if (typeof allowed === 'boolean') finish(allowed);
     else void allowed.then(finish);
@@ -921,9 +540,10 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   private _showPage(oldEntry: TabEntryImpl, history: TabHistorySnapshot): void {
     const page: TabPageSnapshot = history.pages[history.index];
     this._disposeEntry(oldEntry.tabId);
-    const entry = new TabEntryImpl(page.kind, oldEntry.tabId, false, page.state);
+    const entry = new TabEntryImpl(page.kind, oldEntry.tabId, page.state);
     entry.history = history;
     entry.companionPaneId = oldEntry.companionPaneId;
+    entry.openerTabId = oldEntry.openerTabId;
     this.entries.set(entry.tabId, entry);
     this._resources.set(entry.tabId, this.registry.has(entry.kind)
       ? this.registry.get(entry.kind).initialize(entry as never, this._buildHandle(entry), this._ctx)
@@ -940,14 +560,8 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * 屏上正并排时,钉住的那页不动 —— 亮起一枚不在这对里的,它顶替另一页、原来那页退下;屏上只有一页时照旧换成它。
    * 亮起这一对里的任一枚 = 那一边拿到焦点,并排照旧。用户拆开过的那一类不顶替,自己占满这一格(这一对留着)。
    */
-  setActiveTab(id: string, closePreview = false): void {
-    const pair = this.livePair;
-    const active = this.resolvedActiveTabId;
-    const conversationSelected = pair && pair.anchor === this._layoutSplitter?.pairAnchorTab?.() && (active === pair.anchor || active === pair.side);
-    if (pair && id !== pair.anchor && id !== pair.side && (this.pairShown || conversationSelected) && !this.splitDeclinedFor(id) && this._canPair(pair.anchor, id)) {
-      this._replaceSide(pair, id, closePreview);
-    }
-    this._focus(id);
+  setActiveTab(id: string): void {
+    if (this.entries.has(id)) this._focus(id);
   }
 
   reorderTabs(fromIndex: number, toIndex: number): void {
@@ -982,25 +596,18 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     if (probe.activeTabId && probe.activeTabId !== this.activeTabId) this.setActiveTab(probe.activeTabId);
   }
 
-  pin(tabId: string): void {
-    const entry = this.entries.get(tabId);
-    if (entry) entry.isPreview = false;
-  }
 
   closeOthers(tabId: string): void {
     void this._requestCloseInTurn(this.tabOrder.filter((id) => id !== tabId));
   }
 
   canSplitTab(tabId: string): boolean {
-    return this.inSplitLayout && this.pairSplitBlocked(tabId, 'right') === null;
+    return this.tabSplitBlocked(tabId, 'right') === null;
   }
 
   tabFill(tabId: string, multiBlock = false): { full: boolean; toggle: () => void } | null {
     const full = tabFullscreen.isOn(this, tabId);
-    const pair = this.livePair;
-    // 只有一块时,对话那一枚(并排的锚)照旧没有这颗钮:全屏它只等于把旁边那页藏起来。
-    const paired = !!pair && this.pairShown && tabId === pair.side;
-    if (!full && !paired && !multiBlock) return null;
+    if (!full && !multiBlock && !this._layoutSplitter?.hasSibling?.()) return null;
     return { full, toggle: () => runInAction(() => { this._focus(tabId); tabFullscreen.toggle(this, tabId); }) };
   }
 
@@ -1009,7 +616,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   }
 
   tabSplitBlocked(tabId: string, edge: 'right' | 'bottom'): 'full' | 'only-tab' | 'too-small' | null {
-    return this.pairSplitBlocked(tabId, edge);
+    return this._layoutSplitter?.splitBlocked?.(tabId, edge) ?? 'full';
   }
 
   /** 能分屏的地方(会话那一块);单独成窗的那一格只装一枚页签,不分。 */
@@ -1023,7 +630,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
 
   /** 页签右键「向右分 / 向下分」= 和屏上那页并排(spec session-page「并排」),❌ 再分出一格带自己的页签条。 */
   splitTab(tabId: string, edge: 'right' | 'bottom'): void {
-    this.splitBeside(tabId, edge);
+    this._layoutSplitter?.split?.(tabId, edge);
   }
 
   /** 关闭右侧页签:这一枚右边的都关掉(照 VS Code / Chrome)。 */
@@ -1130,35 +737,18 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
 
   restoreSnapshot(snapshot: Partial<TabManagerSnapshot>): void {
     if (snapshot.tabs) {
-      // Dispose all current entries.
-      for (const id of [...this.tabOrder]) {
-        this._disposeEntry(id);
-      }
+      for (const id of [...this.tabOrder]) this._disposeEntry(id);
       this.entries.clear();
       this._resources.clear();
       this.tabOrder = [];
-
-      // Re-initialize from snapshot.
       for (const desc of snapshot.tabs) {
-        const { kind, tabId, isPreview, state, returnTo, history, companionPaneId } = stateFromDescriptor(desc);
-        const entry = new TabEntryImpl(kind, tabId, isPreview, state, returnTo);
+        const { kind, tabId, state, history, companionPaneId, openerTabId } = stateFromDescriptor(desc);
+        const entry = new TabEntryImpl(kind, tabId, state);
         entry.history = history;
         entry.companionPaneId = companionPaneId;
-        if (this.registry.has(kind)) {
-          this._attachEntryAndInitialize(entry, { activate: false });
-        } else {
-          this._attachUnavailableEntry(entry);
-        }
-      }
-      // 存下来的一对照原样回来;那枚页签这回没认出来(App 还没登记),livePair 不认它,登记上了又是一对。
-      const pair = snapshot.pair;
-      this.pair = pair
-        ? { anchor: pair.anchorTabId, side: pair.sideTabId, sideAt: pair.sideAt ?? 'right', ratio: pair.share ?? null }
-        : null;
-      // 10-28 之前存的是一个不分类型的 splitDeclined:来源混着(多半是从前的「最大化」和浮出会话留下的),直接不读。
-      this.splitDeclinedKinds.clear();
-      for (const kind of Array.isArray(snapshot.splitDeclinedKinds) ? snapshot.splitDeclinedKinds : []) {
-        if (typeof kind === 'string') this.splitDeclinedKinds.add(kind);
+        entry.openerTabId = openerTabId;
+        if (this.registry.has(kind)) this._attachEntryAndInitialize(entry, { activate: false });
+        else this._attachUnavailableEntry(entry);
       }
     }
     if (snapshot.activeTabId !== undefined) this.activeTabId = snapshot.activeTabId;
@@ -1185,7 +775,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     if (!entry || !resource) return undefined;
 
     // 挪走(单独成窗)= 从这一对里拿出来,剩下那枚占满(spec session-page「并排」)。
-    this._dropFromPair(id);
     this.entries.delete(id);
     this._resources.delete(id);
     removeTabId(this, id);
@@ -1219,41 +808,17 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    *   2. Create a new entry with the new state at the same tabId slot.
    *   3. Initialize the new resource.
    */
-  retargetEntry(tabId: string, update: { state: unknown; isPreview?: boolean; returnTo?: TabReturnTo }): void {
-    const oldEntry = this.entries.get(tabId);
-    if (!oldEntry) return;
-
-    // Dispose old resource.
-    this._disposeEntry(tabId);
-    this._resources.delete(tabId);
-
-    // Create new entry at same slot.
-    const newEntry = new TabEntryImpl(
-      oldEntry.kind,
-      tabId,
-      update.isPreview ?? oldEntry.isPreview,
-      update.state,
-      update.returnTo
-    );
-    this.entries.set(tabId, newEntry);
-
-    // Initialize new resource.
-    if (this.registry.has(newEntry.kind)) {
-      const def = this.registry.get(newEntry.kind);
-      const resource = def.initialize(newEntry as never, this._buildHandle(newEntry), this._ctx);
-      this._resources.set(tabId, resource);
-    }
-  }
 
   reopenClosedTab(): void {
     const record = this._closedTabHistory.pop();
     if (!record) return;
     const { desc, index } = record;
-    const { kind, tabId, isPreview, state, returnTo, history, companionPaneId } = stateFromDescriptor(desc);
+    const { kind, tabId, state, history, companionPaneId, openerTabId } = stateFromDescriptor(desc);
     if (!this.registry.has(kind)) return;
-    const entry = new TabEntryImpl(kind, tabId, isPreview, state, returnTo);
+    const entry = new TabEntryImpl(kind, tabId, state);
     entry.history = history;
     entry.companionPaneId = companionPaneId;
+    entry.openerTabId = openerTabId;
     const def = this.registry.get(kind);
     const resource = def.initialize(entry as never, this._buildHandle(entry), this._ctx);
     this.entries.set(entry.tabId, entry);
@@ -1297,16 +862,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       this._closedTabHistory.shift();
     }
 
-    const returnId = entry.returnTo?.tabId;
-    if (returnId && returnId !== id && this.entries.has(returnId) && this.shownTabIds.includes(id)) {
-      const pair = this.livePair;
-      if (pair && (this.pairShown || pair.anchor === this._layoutSplitter?.pairAnchorTab?.()) && returnId !== pair.anchor && returnId !== pair.side && this._canPair(pair.anchor, returnId)) {
-        // As when selecting the previous page; this close already owns the outgoing preview's disposal.
-        this._replaceSide(pair, returnId, false);
-      }
-      this._focus(returnId);
-    }
-    this._dropFromPair(id);
     this._disposeEntry(id);
     this.entries.delete(id);
     this._resources.delete(id);
@@ -1328,10 +883,8 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   private _buildHandle(entry: TabEntryImpl): TabHandle {
     return {
       tabId: entry.tabId,
-      pin: action(() => {
-        entry.isPreview = false;
-      }),
       close: (opts?: { force?: boolean }): Promise<boolean> => {
+        if (this.entries.get(entry.tabId) !== entry) return Promise.resolve(false);
         if (opts?.force) {
           runInAction(() => this._removeTab(entry.tabId));
           return Promise.resolve(true);
@@ -1346,7 +899,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
             return Promise.resolve(
               def.onBeforeClose(entryRef as never, resource as never, this._ctx, { alone: false })
             ).then((proceed) => {
-              if (proceed) runInAction(() => this._removeTab(entry.tabId));
+              if (proceed && this.entries.get(entry.tabId) === entry) runInAction(() => this._removeTab(entry.tabId));
               return proceed;
             });
           }
@@ -1357,9 +910,11 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       open: (
         kind: string,
         args: Record<string, unknown>,
-        config?: { target?: unknown; preview?: boolean; overrideState?: boolean }
+        config?: Omit<TabOpenOptions, 'from'>
       ) => {
-        this.openKind(kind, args, config as TabOpenOptions | undefined);
+        if (this.entries.get(entry.tabId) !== entry) return;
+        if (this._layoutOpener) this._layoutOpener(kind, args, { ...config, from: entry.tabId, intent: config?.intent ?? 'navigate' });
+        else { this.setActiveTab(entry.tabId); this.openKind(kind, args, config); }
       },
     };
   }

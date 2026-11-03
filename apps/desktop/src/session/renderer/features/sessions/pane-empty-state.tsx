@@ -33,8 +33,8 @@ export function PaneEmptyState() {
   const { pane, paneId } = usePaneContext();
   const { paneLayout } = useWorkspaceViewModel();
   const entries = useSessionWorkspaceActions(
-    () => pane.open('browser', { preview: false }),
-    (kind) => paneLayout.open(kind, {}, { preview: false, target: { paneId } })
+    () => pane.open('browser', { intent: 'newTab' }),
+    (kind) => paneLayout.open(kind, {}, { from: null, intent: 'newTab', target: { paneId } })
   );
 
   return <WorkspacePanelActionList entries={entries} />;
@@ -68,7 +68,7 @@ export function useSessionWorkspaceActions(
       id: 'review',
       label: translate('workspace.review'),
       icon: <GitPullRequest className="size-3.5" />,
-      onClick: () => sessionView.paneLayout.open('review', {})
+      onClick: () => sessionView.paneLayout.open('review', {}, { from: null, intent: 'newTab' })
     },
     terminal: {
       id: 'terminal',
@@ -86,7 +86,7 @@ export function useSessionWorkspaceActions(
       id: 'ports',
       label: translate('remotePorts.tool'),
       icon: <Cable className="size-3.5" />,
-      onClick: () => sessionView.paneLayout.open('remote-ports', {}, { preview: false })
+      onClick: () => sessionView.paneLayout.open('remote-ports', {}, { from: null, intent: 'newTab' })
     }
   };
 

@@ -1,5 +1,5 @@
 import type { ResolvedTab, TabResource, TabViewContext } from './tab-provider';
-import type { TabReturnTo } from '@shared/view-state';
+import type { TabHistorySnapshot } from '@shared/view-state';
 
 /**
  * Narrow host interface that PaneStore implements.
@@ -11,14 +11,16 @@ export interface TabHost {
   readonly resolvedActiveTabId: string | undefined;
   /** The ambient context for this pane (viewId + any domain-specific fields). */
   readonly ctx: TabViewContext;
-  returnToOf(tabId: string): TabReturnTo | undefined;
+  navigationOf(tabId: string): TabHistorySnapshot | undefined;
+  goTo(tabId: string, index: number): void;
+  canGo(tabId: string, delta: -1 | 1): boolean;
+  go(tabId: string, delta: -1 | 1): void;
+  setPageViewState(tabId: string, state: Record<string, unknown>): void;
 
   /** Opens a tab of any registered kind. Untyped for use from resources/handles. */
   openKind(kind: string, args: unknown): void;
 
   setActiveTab(tabId: string): void;
-  /** Sets isPreview = false (no-op when already stable). */
-  pin(tabId: string): void;
   /** Force-close — no confirmation dialog, calls dispose, removes entry. */
   closeTab(tabId: string): void;
   /**
@@ -31,8 +33,6 @@ export interface TabHost {
   closeToRight(tabId: string): void;
   /** Closes every tab here. */
   closeAll(): void;
-  /** 右键「拆开」:并排的一对变回两枚普通页签(spec session-page「并排」)。 */
-  separatePair(): void;
   /**
    * 页签全屏(`tab-fullscreen.ts`):这一枚临时盖住整个工作区,❌ 动布局(拆开是另一件事,`separatePair`)。
    * 只在全屏有意义时给(并排着、或这一屏不止一块,或它正全屏着);别的时候 = null。页签上那颗钮和双击用它。

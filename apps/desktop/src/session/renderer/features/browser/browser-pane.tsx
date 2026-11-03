@@ -49,8 +49,8 @@ export const BrowserPane = observer(function BrowserPane({
   const { pane, paneId } = usePaneContext();
   const surface = useWorkspaceSurface();
   const startPageActions = useSessionWorkspaceActions(
-    () => pane.open('browser', { preview: false }),
-    (kind) => surface.paneLayout.open(kind, {}, { preview: false, target: { paneId } })
+    () => pane.open('browser', { intent: 'newTab' }),
+    (kind) => surface.paneLayout.open(kind, {}, { from: null, intent: 'newTab', target: { paneId } })
   );
   return (
     <BrowserPaneContent

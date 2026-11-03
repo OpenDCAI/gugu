@@ -4,12 +4,10 @@ import { TabSlot } from './tab-chip';
 
 export function DraggableTab({
   id,
-  pairRole,
   children,
 }: {
   id: string;
   /** 并排的一对里排左 / 排右:index.css 按它把两枚画成连着的一块(spec session-page「并排」)。 */
-  pairRole?: 'start' | 'end';
   children: React.ReactNode;
 }) {
   const data = useRef<{ tabReorderTarget?: string }>({});
@@ -26,7 +24,6 @@ export function DraggableTab({
       }}
       {...attributes}
       {...listeners}
-      data-tab-pair={pairRole}
       data-tab-dragging={isDragging || undefined}
       style={{ opacity: isDragging ? 0 : undefined }}
     >

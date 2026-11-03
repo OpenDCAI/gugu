@@ -1,7 +1,6 @@
 import { autorun } from 'mobx';
 import type { sessionTabView } from '@renderer/features/sessions/session-tab-registry';
 import { parseExtensionTabKind } from '@shared/extensions/manifest';
-import { appPlacementStore } from './app-placement-store';
 import { installedExtensionsStore } from './installed-extensions-store';
 
 type SessionPaneLayout = ReturnType<typeof sessionTabView.createPaneLayoutStore>;
@@ -32,7 +31,7 @@ export function startAppPlacementSync(paneLayout: SessionPaneLayout, sessionId: 
         if (!entry || !parseExtensionTabKind(entry.kind) || !isResident(entry.state)) continue;
         const contribution = installedExtensionsStore.allTabContributions.find((c) => c.kind === entry.kind);
         if (contribution?.perSession || (entry.state as { perSession?: true } | undefined)?.perSession) continue;
-        if (contribution?.forFiles || appPlacementStore.of(entry.kind)?.sessionId !== sessionId) doomed.push(tabId);
+        if (contribution?.forFiles) doomed.push(tabId);
       }
       for (const tabId of doomed) pane.closeTab(tabId);
     }

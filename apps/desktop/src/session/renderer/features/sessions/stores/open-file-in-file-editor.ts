@@ -1,7 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { toast } from 'sonner';
 import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
-import type { TabReturnTo } from '@shared/view-state';
+import type { TabOpenIntent } from '@shared/view-state';
 import { closeSessionPaneTab, sessionPaneTabs } from './session-pane-tabs';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { when } from 'mobx';
@@ -10,6 +10,7 @@ import {
   getSessionPageStore,
   getSessionView,
 } from '@renderer/features/sessions/stores/session-selectors';
+import { sessionConversationTabId } from '../view/session-pane-policy';
 import { sessionPaneReady } from '../session-pane-ready';
 import { rpc } from '@renderer/lib/ipc';
 import type { OpenedOutput } from '@gugu/session-chat-ui/opened-outputs';
@@ -117,7 +118,7 @@ type FileOpenTarget = 'active' | 'beside';
 async function openResolvedFileInPane(
   viewModel: WorkspaceViewModel,
   resolvedPath: string,
-  options: { preview: boolean; beside?: boolean; activate?: boolean; ask?: boolean; returnTo?: TabReturnTo; place?: { sessionId: string; at: FilePlace } }
+  options: { from: string | null; intent?: TabOpenIntent; activate?: boolean; ask?: boolean; place?: { sessionId: string; at: FilePlace } }
 ): Promise<string | null | undefined> {
   const opener = await pickSessionOpener(resolvedPath, options.ask === true);
   if ('cancelled' in opener) return undefined;
@@ -130,7 +131,7 @@ async function openResolvedFileInPane(
     const told = await rpc.extensions.sessionFilePlace({ sessionId: options.place.sessionId, filePath: resolvedPath, extensionId, tabKind, at: { ...options.place.at } });
     if (!told.success) throw new Error(`The place in ${resolvedPath} could not be handed to the App that opens it: ${told.error}`);
   }
-  const config = { preview: options.preview, ...(options.beside ? { beside: true } : {}), ...(options.activate === false ? { activate: false } : {}), ...(options.returnTo ? { returnTo: options.returnTo } : {}) };
+  const config = { from: options.from, intent: options.intent ?? 'navigate', activate: options.activate };
 
   if (claim) {
     // Through `paneLayout`, not `activePane`: an extension tab kind is a runtime
@@ -141,11 +142,7 @@ async function openResolvedFileInPane(
     return claim.tabKind;
   }
 
-  if (options.beside) {
-    viewModel.paneLayout.open('file', { path: resolvedPath }, config);
-  } else {
-    viewModel.activePane.open('file', { path: resolvedPath }, config);
-  }
+  viewModel.paneLayout.open('file', { path: resolvedPath }, config);
   return null;
 }
 
@@ -156,7 +153,7 @@ async function openSessionFile(
   target: FileOpenTarget,
   at?: FilePlace,
   ask = false,
-  options?: { intent?: 'preview' | 'pinned'; returnTo?: TabReturnTo }
+  options?: { intent?: TabOpenIntent; from?: string }
 ): Promise<string | null | undefined> {
   const provisioned = asProvisioned(getSessionPageStore(projectId, sessionId));
   if (!provisioned) throw new Error('This session has no prepared workspace');
@@ -190,9 +187,8 @@ async function openSessionFile(
   if (!viewModel) throw new Error('This session has no prepared pane');
 
   return openResolvedFileInPane(viewModel, resolvedPath, {
-    preview: options?.intent === 'preview',
-    beside: target === 'beside',
-    ...(options?.returnTo ? { returnTo: options.returnTo } : {}),
+    from: options?.from ?? (target === 'beside' ? sessionConversationTabId(viewModel.paneLayout, sessionId) : viewModel.activePane.resolvedActiveTabId ?? null),
+    intent: options?.intent ?? 'navigate',
     ...(at ? { place: { sessionId, at } } : {}),
     ...(ask ? { ask } : {}),
   });
@@ -214,14 +210,14 @@ export function openFileInBuiltInEditor(
   const provisioned = asProvisioned(getSessionPageStore(projectId, sessionId));
   const viewModel = provisioned?.viewModel ?? getSessionView(projectId, sessionId);
   if (!viewModel) return;
-  viewModel.activePane.open('file', { path: resolvedPath }, { preview: false });
+  viewModel.activePane.open('file', { path: resolvedPath }, { intent: 'navigate' });
 }
 
 export async function openFileInSessionEditor(
   projectId: string,
   sessionId: string,
   filePath: string,
-  opts?: { beside?: boolean; at?: FilePlace; ask?: boolean; intent?: 'preview' | 'pinned'; returnTo?: TabReturnTo }
+  opts?: { beside?: boolean; at?: FilePlace; ask?: boolean; intent?: TabOpenIntent; from?: string }
 ): Promise<string | null | undefined> {
   return openSessionFile(projectId, sessionId, filePath, opts?.beside ? 'beside' : 'active', opts?.at, opts?.ask === true, opts);
 }
@@ -274,8 +270,8 @@ export async function openExternalFilePath(
     // 没有可用的面板就退到系统默认程序 —— ❌ 不许在这里静默 return。
     // 「未选择项目」建出来的任务没有工作区面板,而它照样附得了文件(#5269)。
     if (viewModel) {
-      if (opts?.beside) viewModel.paneLayout.open('file', { path: filePath, external: true }, { preview: false, beside: true });
-      else viewModel.activePane.open('file', { path: filePath, external: true }, { preview: false });
+      if (opts?.beside) viewModel.paneLayout.open('file', { path: filePath, external: true }, { from: sessionConversationTabId(viewModel.paneLayout, sessionId), intent: 'navigate' });
+      else viewModel.activePane.open('file', { path: filePath, external: true }, { intent: 'navigate' });
       return;
     }
   }
@@ -355,7 +351,7 @@ export function openHostRequestedFileInSessionWhenReady({
   sessionId: string;
   path: string;
   external: boolean;
-  intent: 'preview' | 'pinned';
+  intent: TabOpenIntent;
   tabKind?: string;
   /** Everyone who opens it, the person picks (an App's `files.openWith(file, { ask: true })`). */
   ask?: boolean;
@@ -377,19 +373,19 @@ export function openHostRequestedFileInSessionWhenReady({
           session.viewModel.paneLayout.open(
             'file',
             { path, external: true },
-            { preview: intent === 'preview', beside: true, activate: false },
+            { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent, activate: false },
           );
           onResult({ success: true, openedWith: null });
         } else if (tabKind) {
           // 摩擦单 F122 «Open with X», named by the caller (main checked X claims it): what「用哪个打开」does once picked.
-          session.viewModel.paneLayout.open(tabKind, { filePath: path }, { preview: intent === 'preview', beside: true, activate: false });
+          session.viewModel.paneLayout.open(tabKind, { filePath: path }, { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent, activate: false });
           onResult({ success: true, openedWith: tabKind });
         } else {
           // Reported, not predicted: the host says what actually opened because the
           // renderer is the one that opened it — after the person picked, when they had to.
           void openResolvedFileInPane(session.viewModel, path, {
-            preview: intent === 'preview',
-            beside: true,
+            from: sessionConversationTabId(session.viewModel.paneLayout, sessionId),
+            intent,
             activate: false,
             ...(ask ? { ask } : {}),
           }).then(
@@ -442,7 +438,7 @@ export function openHostRequestedExtensionInSessionWhenReady({
   projectId: string;
   sessionId: string;
   tabKind: string;
-  intent: 'preview' | 'pinned';
+  intent: TabOpenIntent;
   reveal?: boolean;
   tabId?: string;
   ifAbsent?: boolean;
@@ -506,7 +502,7 @@ export function openHostRequestedExtensionInSessionWhenReady({
             tabKind,
             {},
             // `reveal` = 人点的(横幅、gugu://ext 链接):要看它,亮出来;agent 请上屏的不切走用户正看着的。
-            { preview: intent === 'preview', beside: true, activate: reveal },
+            { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent: 'navigate', activate: reveal },
           );
           onResult({ success: true });
         } catch (error) {
@@ -547,7 +543,7 @@ export function openHostRequestedBrowserInSessionWhenReady({
   projectId: string;
   sessionId: string;
   url: string;
-  intent: 'preview' | 'pinned';
+  intent: TabOpenIntent;
   onResult: (result: { success: boolean; error?: string; browserId?: string; created?: boolean }) => void;
   timeout?: number;
   acquire?: { browserId?: string; createIfMissing: boolean; deadline: number };
@@ -566,7 +562,7 @@ export function openHostRequestedBrowserInSessionWhenReady({
           );
           return;
         }
-        session.viewModel.showPage(url, { preview: intent === 'preview', reload: true, beside: true, activate: false });
+        session.viewModel.showPage(url, {  reload: true, beside: true, activate: false });
         onResult({ success: true });
       } catch (error) {
         onResult({
@@ -616,7 +612,7 @@ async function acquireBrowserPage(
   const created = !chosen;
   if (!chosen) {
     if (!request.createIfMissing) throw new Error('This session has no browser tab. Use browser_navigate with a URL first.');
-    view.showPage(url, { preview: false, reload: false, beside: true, activate: false });
+    view.showPage(url, { reload: false, beside: true, activate: false });
     chosen = tabs()[0];
   }
   if (!chosen) throw new Error('the session pane could not create a browser tab');

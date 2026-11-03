@@ -2,13 +2,12 @@ import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Maximize2, Minimize2 } from '@/lib/icons';
+import { Folder, Maximize2, Minimize2 } from '@/lib/icons';
 import type { TabHost } from '@renderer/features/tabs/core/tab-host';
 import type { ResolvedTab, TabViewContext } from '@renderer/features/tabs/core/tab-provider';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { usePaneContext } from '../pane-context';
 import { DraggableTab } from './draggable-tab';
-import { PairSeparator } from './pair-separator';
 import { TabChip } from './tab-chip';
 import type { TabCommand } from './tab-commands';
 import { TabContextMenu } from './tab-context-menu';
@@ -121,8 +120,11 @@ export const GenericTabItem = observer(function GenericTabItem({
     </button>
   ) : null;
 
+  const root = host.navigationOf(tab.tabId)?.pages[0];
+  const folderOrigin = root?.kind === 'workspace.main' || (root?.kind === 'chat-panel' && (root.state as { kind?: string; itemId?: string })?.kind === 'workspace.main' && !(root.state as { itemId?: string }).itemId);
+  if (folderOrigin) preSlot = <Folder className="size-3 text-foreground-muted" />;
   const base = tooltip ?? label;
-  const fullTitle = tab.isPreview ? `${base} (preview — double-click to keep)` : base;
+  const fullTitle = base;
 
   // ⚠️ 嵌套顺序是**几何**的一部分,❌ 别为了「读起来顺」把右键菜单挪回外层:
   // 页签的宽度规矩(平分 / 240 封顶 / 56 下限)写在 <DraggableTab> 内那层 <TabSlot>(.session-tab-slot)上,
@@ -131,21 +133,16 @@ export const GenericTabItem = observer(function GenericTabItem({
   // 把「+」顶出滚动区裁掉(owner:「这个也得修,还挺严重」);同时 .session-tab-slot 之间的
   // 短分隔线是**相邻兄弟**选择器(index.css),被 trigger 隔开后从来没画出来过。
   return (
-    <DraggableTab id={tab.tabId} pairRole={tab.pairRole}>
-      {/* 并排的一对:两枚中间那根线指上去就是「拆开」(spec session-page「并排」)。 */}
-      {tab.pairRole === 'end' ? (
-        <PairSeparator label={translate('tabs.separatePair')} onSeparate={() => host.separatePair()} />
-      ) : null}
+    <DraggableTab id={tab.tabId}>
       <TabContextMenu tab={tab} host={host} ctx={ctx} kindCommands={kindCommands}>
         <TabChip
           isActive={tab.isActive}
           // 并排时两枚都亮着,点着的那一边标题深、另一边浅 —— 与「哪一格握着焦点」同一种明暗(spec session-page「并排」)。
           isFocusedPane={isFocusedPane && (tab.isFocused ?? true)}
-          pairRole={tab.pairRole}
+
           label={label}
           hint={hint}
           title={fullTitle}
-          isPreview={tab.isPreview}
           hasError={hasError}
           preSlot={preSlot}
           labelSlot={
@@ -178,7 +175,7 @@ export const GenericTabItem = observer(function GenericTabItem({
           onClose={() => host.requestCloseTab(tab.tabId)}
           onMouseEnter={() => host.signalActivateIntent(tab.tabId)}
           onClick={handleSelect}
-          onDoubleClick={() => (tab.isPreview || !fill ? host.pin(tab.tabId) : fill.toggle())}
+          onDoubleClick={() => fill?.toggle()}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();

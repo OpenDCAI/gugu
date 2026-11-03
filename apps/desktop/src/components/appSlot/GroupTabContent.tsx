@@ -18,7 +18,7 @@ import { availableInstallOffers, type AppInstallOffer, type MarketOffer } from '
 import { groupUpdateFor } from '../../session/shared/extensions/app-card-state'
 import { isInstallRefused } from '../../session/shared/extensions/attachment-install'
 import { groupPageSlot, isFolderItem, type PanelItem } from '../../session/renderer/features/chats/chat-tabs/chat-panel-item'
-import { closeChatTab, panelFull, panelTabOf, replacePanelItem, returnToOf, setPanelFull, showChatOnly } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { closeChatTab, panelFull, panelTabOf, replacePanelItem, chatPaneOf, setPanelFull, showChatOnly } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { refusedLine } from '../extensionBundle/installedHere'
 import { Button } from '../ui/Button'
 import { Chip } from '../ui/Chip'
@@ -74,17 +74,6 @@ function offerFor(typedName: string, shared: ReadonlyMap<string, SharedPackage>,
 /** How many toolbar entries fit beside the title in a slot at its narrowest (360); the rest fold into the menu. */
 const INLINE_COMMANDS = 2
 
-/** What 「返回」 reaches from a tab, nearest last: its 上一页, and that one's, while each is still open beside the chat. */
-function backChain(chatId: string, tabId: string): { tabId: string; item: PanelItem }[] {
-  const chain: { tabId: string; item: PanelItem }[] = []
-  for (let back = returnToOf(chatId, tabId); back; back = returnToOf(chatId, back)) {
-    const tab = panelTabOf(chatId, back)
-    if (!tab || tab.tabId === tabId || chain.some((entry) => entry.tabId === back)) break
-    chain.unshift({ tabId: back, item: tab.item })
-  }
-  return chain
-}
-
 export interface GroupTabContentProps {
   chatId: string
   tabId: string
@@ -100,7 +89,7 @@ export interface GroupTabContentProps {
   visible?: boolean
   onForward?: (message: MessageItem) => void
   /** A page here asked to open a file (a phone frame's `files.openWith`): this tab is its 上一页. */
-  onOpenWith: (detail: AppOpenWithDetail, returnTo: string) => void
+  onOpenWith: (detail: AppOpenWithDetail, from: string) => void
 }
 
 /**
@@ -124,8 +113,9 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
   const resourceChat = chat?.kind === 'topic' ? chat.source_chat_id ?? undefined : chat?.id
   const desktop = platform.kind === 'electron'
   const { user } = useAuth()
-  const back = returnToOf(chatId, tabId)
-  const backIsPanel = back !== null && panelTabOf(chatId, back) !== null
+  const pane = chatPaneOf(chatId, tabId)
+  const backIsPanel = pane?.canGo(tabId, -1) ?? false
+  const back = () => backIsPanel ? pane?.go(tabId, -1) : showChatOnly(chatId)
   const close = () => closeChatTab(chatId, tabId)
   const [offer, setOffer] = useState<Offer | null>(null)
   const [installingOffer, setInstallingOffer] = useState(false)
@@ -334,7 +324,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
   const fileHost = useFileHost(item.itemId && !isFolderItem(item) ? item.itemId : null)
   const appError = shown.error
   const backButton = backIsPanel ? (
-    <IconButton size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-back" onClick={close} aria-label={t('chatArea.openWith.back')}>
+    <IconButton size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-back" onClick={back} aria-label={t('chatArea.openWith.back')}>
       <ChevronLeft />
     </IconButton>
   ) : null
@@ -370,7 +360,13 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
       {appError ? <AppErrorMark error={appError} onToggle={() => setErrorShown((open) => !open)} testId="group-app-slot-error" /> : null}
     </>
   )
-  const frames = [...backChain(chatId, tabId), ...(offerUnknown || offerFolds ? [] : [{ tabId, item }])].filter((entry) => entry.item.kind !== null)
+  const history = pane?.navigationOf(tabId)
+  const frames = (history?.pages ?? [{ kind: 'chat-panel', state: item }]).flatMap((page, index) => {
+    const current = index === (history?.index ?? 0)
+    const value = current ? item : page.state as PanelItem
+    return page.kind === 'chat-panel' && value.kind && (!current || (!offerUnknown && !offerFolds))
+      ? [{ tabId, item: value, pageKey: `${tabId}:${index}`, current }] : []
+  })
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col" data-testid="group-app-slot" data-app-kind={kind} data-chat-tab={tabId}>
       {/* 页签里(owner 10-26 选 A):页签就是标题、×、角标和出错,最大化长在页签上;App 声明的按钮同任务页一条(没声明就没有这一行)。 */}
@@ -379,7 +375,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
         divider
         // 手机上是一整页:页头和别的手机页同一档(peek 盖上来时也是这一档,一个页头)。
         {...(mobile ? { mobile: true } : {})}
-        leading={backButton ?? (mobile ? <RightPanelBackButton onBack={close} /> : undefined)}
+        leading={backButton ?? (mobile ? <RightPanelBackButton onBack={back} /> : undefined)}
         actions={
           <>
             {commands}
@@ -431,14 +427,14 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
       ) : null}
       {/* What the page on screen opens beside it (G1): over it here, the page kept for the way back. */}
       <AppPeekSlot sessionId={null} tabId={slot} narrow={mobile}>
-        {item.file && (!mobile || visible !== false) ? <MessageFilePreview fill tabbed={tabbed} mobile={mobile} message={item.message} onForward={onForward} file={{ kind: 'file', document: item.file.document, fileName: item.fileName ?? item.title, mimeType: item.file.contentType, sizeBytes: item.file.size, source: { kind: 'item', itemId: item.itemId!, version: item.file.version } }} onBack={mobile || backIsPanel ? close : undefined} onClose={close} /> : null}
+        {item.file && (!mobile || visible !== false) ? <MessageFilePreview fill tabbed={tabbed} mobile={mobile} message={item.message} onForward={onForward} file={{ kind: 'file', document: item.file.document, fileName: item.fileName ?? item.title, mimeType: item.file.contentType, sizeBytes: item.file.size, source: { kind: 'item', itemId: item.itemId!, version: item.file.version } }} onBack={mobile || backIsPanel ? back : undefined} onClose={close} /> : null}
         {desktop ? item.file || !kind ? null : (
           offerUnknown || offerFolds ? (
             <div className="min-h-0 flex-1" data-testid="group-app-slot-raw-folded" />
           ) : windowApp ? (
             <div className="min-h-0 flex-1"><ExtensionTabPane extensionId={windowApp} tabKind={kind} sessionId={null} tabId={slot} chatId={chatId} resourceChat={resourceChat} {...(item.itemId ? { itemId: item.itemId } : {})} /></div>
           ) : (
-            <ClaimedPage slotId={slot} chatId={chatId} resourceChat={resourceChat} kind={kind} itemId={item.itemId} takeOpening={item.takeOpening} />
+            <ClaimedPage slotId={slot} chatId={chatId} resourceChat={resourceChat} kind={kind} itemId={item.itemId} takeOpening={item.takeOpening} viewState={history?.pages[history.index]?.viewState} />
           )
         ) : (
           <>
@@ -447,14 +443,15 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
             {/* What 「返回」 reaches stays as it was, hidden (G2) — a frame, unlike a desktop page, is not kept elsewhere. */}
             {frames.map((entry) => (
               <PhoneAppFrame
-                key={`${entry.item.kind}:${entry.item.itemId}:${entry.tabId}`}
+                key={entry.pageKey}
                 chatId={chatId}
                 kind={entry.item.kind!}
                 itemId={entry.item.itemId}
-                hidden={entry.tabId !== tabId}
+                hidden={!entry.current}
+                viewState={history?.pages[Number(entry.pageKey.split(':').at(-1))]?.viewState}
                 onOpenWith={(detail) => onOpenWith(detail, tabId)}
-                tabId={groupPageSlot(chatId, entry.tabId)}
-                commandRef={entry.tabId === tabId ? frameCommand : undefined}
+                tabId={groupPageSlot(chatId, entry.pageKey)}
+                commandRef={entry.current ? frameCommand : undefined}
                 testId="group-app-frame"
                 missingTestId="group-app-slot-missing"
               />

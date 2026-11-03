@@ -124,7 +124,7 @@ function followMovedFiles(surface: ReturnType<typeof useWorkspaceSurface>, from:
       const resource = tab.resource as FileTabResource;
       if (!isWithinPath(resource.path, from) || resource.isDirty) continue;
       void pane.closeTab(tab.tabId);
-      if (to) pane.open('file', { path: to + resource.path.slice(from.length) }, { preview: false });
+      if (to) pane.open('file', { path: to + resource.path.slice(from.length) }, { intent: 'newTab' });
     }
   }
 }
@@ -745,7 +745,7 @@ export const EditorFileTree = observer(function EditorFileTree({
     // 照 VS Code:新文件建好就打开,新文件夹建好就展开。
     if (edit.mode === 'file') {
       if (onOpenFile) onOpenFile(result.value.path, false);
-      else surface.paneLayout.open('file', { path: result.value.path }, { preview: false });
+      else surface.paneLayout.open('file', { path: result.value.path }, { from: null, intent: 'newTab' });
     } else await expand(result.value.path);
   };
 

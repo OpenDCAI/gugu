@@ -1,24 +1,21 @@
 import type React from 'react';
 import type { CommandId } from '@shared/commands';
-import type { TabHistorySnapshot, TabReturnTo } from '@shared/view-state';
+import type { TabHistorySnapshot } from '@shared/view-state';
 import type { TabBarItemProps, TabContentProps } from './tab-host';
 import type { TabOpenOptions } from './tab-provider-registry';
 
 /**
  * Plain-data identity for a single open tab.
- * The engine stores these and serializes them as { kind, tabId, isPreview, ...state }.
+ * The engine serializes provider state and this context's page history independently.
  * Live view-model state lives in the domain resource returned by initialize().
  */
 export interface TabEntry<S = unknown> {
   readonly kind: string;
   readonly tabId: string;
-  /** Mutable so the engine can promote a preview to a stable tab (handle.pin()). */
-  isPreview: boolean;
-  /** Engine navigation metadata, independent of the provider's state. */
-  returnTo?: TabReturnTo;
   history?: TabHistorySnapshot;
   /** The conversation's explicit companion, cleared when that pane is closed. */
   companionPaneId?: string;
+  openerTabId?: string;
   /**
    * Reactive, serializable domain state for this tab.
    * Mutated in-place; the snapshot serializer reads it directly (no per-kind hook).
@@ -61,8 +58,6 @@ export type OpenTarget = 'active' | 'left' | 'right' | { paneId: string };
  */
 export interface TabHandle {
   readonly tabId: string;
-  /** Flip isPreview = false. Call when the resource gains user-authored content. */
-  pin(): void;
   /**
    * Close this tab. By default runs the onBeforeClose veto (user-style close).
    * Pass { force: true } to skip the veto (programmatic/auto-close).
@@ -77,7 +72,7 @@ export interface TabHandle {
   open(
     kind: string,
     args: Record<string, unknown>,
-    config?: TabOpenOptions
+    config?: Omit<TabOpenOptions, 'from'>
   ): void;
 }
 
@@ -125,13 +120,10 @@ export interface TabViewContext {
 export type ResolvedTab<T extends TabResource = TabResource> = {
   readonly tabId: string;
   readonly kind: string;
-  readonly isPreview: boolean;
   /** 此刻画在屏上。并排时一对两枚都是(spec session-page「并排」)—— 内容组件按「自己这种 + isActive」挑要画的那枚。 */
   readonly isActive: boolean;
   /** 拿着焦点的那一枚(并排时是点着的那一边;不并排时与 isActive 相同)。 */
   readonly isFocused?: boolean;
-  /** 在并排的一对里:对话那枚是 'start'(左),右边那页是 'end'。 */
-  readonly pairRole?: 'start' | 'end';
   readonly resource: T;
 };
 
@@ -176,11 +168,6 @@ export interface TabProvider<
   /** Runtime-only tabs return false so neither snapshots nor closed-tab history can resurrect them. */
   isPersistent?(state: S): boolean;
 
-  /**
-   * 这种页签两页并排时由内容自己把两页摆到两边(读 PairPlacementContext),❌ 另一页单独再挂一份内容 ——
-   * 挪进另一份 = 重新挂一次,网页就重新加载了(spec session-page「并排」)。
-   */
-  placesPairItself?: boolean;
 
   /**
    * 格里有这一枚,这一类的内容层就一直挂着(没上屏时照常藏起、不画)。对话那一类:群信息、群文件、话题的页和对话的名字、

@@ -180,6 +180,8 @@ export interface ExtensionHostContext {
    * instances apart. Absent on a page nobody draws — the background page, a program.
    */
   tabId?: string;
+  /** Opaque state of this navigation page; never grants or selects a resource. */
+  viewState?: Record<string, unknown>;
   /** A host modal's initial data, under the opener's context and existing grants. */
   modal?: { data?: unknown };
   /**

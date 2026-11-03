@@ -43,6 +43,7 @@ interface FramedPage {
 export function PhoneAppFrame({
   kind,
   tabId,
+  viewState,
   chatId,
   itemId,
   widget,
@@ -56,6 +57,7 @@ export function PhoneAppFrame({
   kind: string
   /** The slot it is drawn in: what the page says about itself is kept by it. */
   tabId: string
+  viewState?: Record<string, unknown>
   chatId: string | null
   /** Made for that file: keeps it for life (the slot keys the frame so). */
   itemId?: string
@@ -121,6 +123,7 @@ export function PhoneAppFrame({
   bindingRef.current = {
     extensionId,
     tabId,
+    viewState,
     tabName,
     chatId,
     ...(session ? { session } : {}),

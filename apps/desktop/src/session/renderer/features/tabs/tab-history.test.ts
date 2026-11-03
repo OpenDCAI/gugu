@@ -85,4 +85,24 @@ describe('a tab owns its page history', () => {
     await Promise.resolve();
     expect(pane.entries.get(id)?.state).toEqual({ path: 'config.json' });
   });
+
+  it('keeps the latest request even if the older confirmation finishes first', async () => {
+    const confirmations: Array<(proceed: boolean) => void> = [];
+    const { pane, id, open } = setup(() => new Promise<boolean>((resolve) => { confirmations.push(resolve); }));
+    open('README.md');
+    open('config.json');
+    confirmations[0](true);
+    await Promise.resolve();
+    expect(pane.entries.get(id)?.state).toEqual({ path: '/' });
+    confirmations[1](true);
+    await Promise.resolve();
+    expect(pane.entries.get(id)?.state).toEqual({ path: 'config.json' });
+  });
+
+  it('does not add duplicate history entries for the current resource', () => {
+    const { pane, id, open } = setup();
+    open('README.md');
+    open('README.md');
+    expect(pane.navigationOf(id)?.pages).toHaveLength(2);
+  });
 });

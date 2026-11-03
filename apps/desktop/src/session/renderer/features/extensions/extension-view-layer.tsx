@@ -243,6 +243,7 @@ export const ExtensionPage = observer(function ExtensionPage({
         conversation: claim?.chatId ?? claim?.conversation ?? null,
         ...(claim?.resourceChat ? { resourceChat: claim.resourceChat } : {}),
         tabId: claim?.tabId ?? '',
+        viewState: claim?.viewState,
         ...(claim?.itemId ? { itemId: claim.itemId } : {}),
         ...(claim?.takeOpening ? { opening: claim.takeOpening() } : {}),
       };

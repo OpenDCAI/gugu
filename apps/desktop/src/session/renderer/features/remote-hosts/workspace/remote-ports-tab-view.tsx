@@ -53,7 +53,7 @@ const RemotePortsBody = observer(function RemotePortsBody({ ctx }: { ctx: PortsS
       ) : (
         <RemotePortsView
           ctx={ctx}
-          onOpen={(port) => view.showPage(`http://localhost:${port}/`, { preview: false, reload: false })}
+          onOpen={(port) => view.showPage(`http://localhost:${port}/`, { reload: false })}
         />
       )}
     </div>

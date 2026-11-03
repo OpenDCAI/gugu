@@ -103,6 +103,7 @@ export interface PhoneAppBinding {
   extensionId: string
   /** The slot drawing it. */
   tabId: string
+  viewState?: Record<string, unknown>
   tabName: string
   /** The conversation it is in (`AppWhere`): the chat it is drawn for; in a session's tab, the person's private chat with its agent. */
   chatId: string | null
@@ -474,6 +475,7 @@ export function hostAppFrame(
   const unread = (error: unknown) => log.warn({ error: error instanceof Error ? error.message : String(error) }, 'the chat could not be read')
   const contextOf = (): ExtensionHostContext => ({
     apiVersion: EXTENSION_API_VERSION,
+    ...(hosted.binding.viewState ? { viewState: hosted.binding.viewState } : {}),
     tabId: hosted.binding.tabId,
     ...(hosted.binding.modal ? { modal: { data: hosted.binding.modal.data } } : {}),
     ...(hosted.binding.widget ? { widget: { messageId: hosted.binding.widget.messageId, data: hosted.binding.widget.data, sender: hosted.binding.widget.senderId } } : {}),
@@ -711,7 +713,7 @@ export function hostAppFrame(
           if (place) holdPlaceForOpeningPage(target.chatId, target.itemId, place.candidate, place.at)
           // Beside the page: a file nobody here opens shows in the host's preview there.
           if (args.peek === true) return peek({ kind: 'chat', detail: { ...target, choice, intent } })
-          hooks.openWith({ ...target, choice, intent })
+          hooks.openWith({ ...target, choice, intent, ...(args.viewState && typeof args.viewState === 'object' && !Array.isArray(args.viewState) ? { viewState: args.viewState as Record<string, unknown> } : {}) })
         })
       }
       case 'filesOpen':

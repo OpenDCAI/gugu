@@ -2,7 +2,7 @@ import { observer } from 'mobx-react-lite'
 import { Fragment, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { chatTabSlotKey, readShellSlots } from '../../lib/shellSlots'
-import { focusedChatTab, infoTabOf, panelTabOf, panelTabsOf, returnToOf, topicTabOf, type ChatPanelTab } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { focusedChatTab, infoTabOf, panelTabOf, panelTabsOf, topicTabOf, type ChatPanelTab } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
 
 const EMPTY: ReadonlyMap<string, HTMLElement> = new Map()
 
@@ -53,7 +53,5 @@ export const ChatTabPage = observer(function ChatTabPage({ chatId, panel, topic,
   if (focused?.kind === 'info') return <>{info()}</>
   const tab = focused?.kind === 'panel' ? panelTabOf(chatId, focused.tabId) : null
   if (!tab) return null
-  let root = tab.tabId
-  for (let back = returnToOf(chatId, root); back && panelTabOf(chatId, back); back = returnToOf(chatId, back)) root = back
-  return <Fragment key={root}>{panel(tab)}</Fragment>
+  return <Fragment key={tab.tabId}>{panel(tab)}</Fragment>
 })

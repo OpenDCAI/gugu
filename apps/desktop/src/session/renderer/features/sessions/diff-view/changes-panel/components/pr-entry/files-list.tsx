@@ -53,7 +53,7 @@ export const PrFilesList = observer(function PrFilesList({ pr }: { pr: PullReque
         },
         status: change.status,
       },
-      { preview: true }
+      { intent: 'navigate' }
     );
   };
 
@@ -73,7 +73,7 @@ export const PrFilesList = observer(function PrFilesList({ pr }: { pr: PullReque
         },
         status: change.status,
       },
-      { preview: false }
+      { intent: 'newTab' }
     );
   };
 

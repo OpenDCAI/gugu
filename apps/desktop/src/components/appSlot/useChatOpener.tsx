@@ -1,3 +1,4 @@
+import type { TabOpenIntent } from '@shared/view-state'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -11,7 +12,7 @@ import { installedExtensionsStore, WORKSPACE_APP_ID } from '../../session/render
 import { APP_OPEN_WITH_EVENT, type AppOpenWithDetail } from '../../session/shared/extensions/app-runtime-protocol'
 import { displayNameOf } from '../../session/shared/extensions/file-openers'
 import { folderItem, type PanelItem } from '../../session/renderer/features/chats/chat-tabs/chat-panel-item'
-import { openPanelItem, shownPanelTab, takeChatAsk } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { openPanelItem, chatPaneOf, takeChatAsk } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import { appsHere } from './appsHere'
@@ -20,7 +21,7 @@ import { OpenWithPick } from './OpenWithPick'
 const log = rendererLogger('app-slot/group')
 
 /** How an open came: the tab whose page asked (its 上一页), and what closing it hands back (a link's message). */
-type OpenFrom = { message?: MessageItem; restore?: () => void; returnTo?: string; intent?: 'preview' | 'pinned' }
+type OpenFrom = { message?: MessageItem; restore?: () => void; from?: string; intent?: TabOpenIntent }
 
 /**
  * A file the person opened beside a chat (every way in ends here: the folder's list, a link, a card, 「用 X 打开」), kept
@@ -41,7 +42,7 @@ function noteOpened(itemId: string): void {
  * claims the file, the one kept for its kind (「始终用它」), or the person picks — and it opens as a tab beside the chat
  * (`openPanelItem`). The pick, an App's several files and a file that cannot open are said over the chat (`overlay`).
  */
-export function useChatOpener(chatId: string | null, onShow?: (chatId: string, tabId: string) => void, canTake?: () => boolean): { overlay: ReactNode; openWith: (detail: AppOpenWithDetail, returnTo?: string) => void } {
+export function useChatOpener(chatId: string | null, onShow?: (chatId: string, tabId: string) => void, canTake?: () => boolean): { overlay: ReactNode; openWith: (detail: AppOpenWithDetail, from?: string) => void } {
   const { t } = useTranslation('messaging')
   const mobile = useMobileShell()
   const asking = useRef(0)
@@ -62,7 +63,7 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
     const shown = { ...item, ...(from.message ? { message: from.message } : {}) }
     // A pending message is not tab state: neither JSON nor structured-clone snapshots carry it.
     if (item.takeOpening) Object.defineProperty(shown, 'takeOpening', { get: () => item.takeOpening, enumerable: false })
-    const tabId = openPanelItem(target, shown, { preview: !!item.itemId && from.intent === 'preview', ...(from.returnTo ? { returnTo: from.returnTo } : {}), ...(from.restore ? { restore: from.restore } : {}) })
+    const tabId = openPanelItem(target, shown, { intent: from.intent ?? 'navigate', ...(from.from ? { from: from.from } : {}), ...(from.restore ? { restore: from.restore } : {}) })
     if (tabId) onShow?.(target, tabId)
     if (item.itemId) noteOpened(item.itemId)
   }, [onShow])
@@ -72,7 +73,8 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
   const openResolved = useCallback(
     (detail: AppOpenWithDetail, from: OpenFrom = {}) => {
       if (detail.chatId !== chatId) return
-      from = { ...from, intent: detail.intent ?? from.intent }
+      from = { ...from, from: detail.from ?? from.from, intent: detail.intent ?? from.intent }
+      if (from.from && detail.viewState) chatPaneOf(detail.chatId, from.from)?.setPageViewState(from.from, detail.viewState)
       if (detail.choice.kind === 'none') {
         if (isRenderableImage(detail.name, detail.file.contentType)) {
           openAttachmentImage({ kind: 'item', itemId: detail.itemId, version: detail.file.version }, detail.name, from.message ? { chatId: from.message.chat_id, messageId: from.message.id } : { chatId: detail.chatId })
@@ -99,13 +101,13 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
    * the chat shell, which brings that chat up and hands it to that chat (MainLayout).
    */
   const openWith = useCallback(
-    (detail: AppOpenWithDetail, returnTo?: string) => {
+    (detail: AppOpenWithDetail, from?: string) => {
       if (detail.chatId !== chatId) {
         window.dispatchEvent(new CustomEvent<AppOpenWithDetail>(APP_OPEN_WITH_EVENT, { detail }))
         return
       }
       asking.current += 1
-      openResolved(detail, returnTo ? { returnTo } : {})
+      openResolved(detail, from ? { from } : {})
     },
     [chatId, openResolved],
   )
@@ -136,9 +138,9 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
       const ask = takeChatAsk(chatId)
       if (!ask) return
       // A page beside the chat asked: the tab on screen is the 上一页 of what it opens (owner 10-24).
-      const returnTo = 'fromPage' in ask ? shownPanelTab(chatId)?.tabId : undefined
+      const source = 'from' in ask ? ask.from : undefined
       if ('itemId' in ask) {
-        const from: OpenFrom = { ...(ask.message ? { message: ask.message } : {}), ...(ask.restore ? { restore: ask.restore } : {}), ...(returnTo ? { returnTo } : {}) }
+        const from: OpenFrom = { ...(ask.message ? { message: ask.message } : {}), ...(ask.restore ? { restore: ask.restore } : {}), ...(source ? { from: source } : {}) }
         // 「用 X 打开」 its host resolved already (who opens it, or among which to ask): opened as it said — a file of another
         // chat goes to the chat shell, which brings that chat up (MainLayout).
         if (ask.opener && ask.opener.chatId !== chatId) {

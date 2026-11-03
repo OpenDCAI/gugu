@@ -155,7 +155,7 @@ export const terminalTabProvider: TabProvider<
   TerminalTabOpenArgs
 > = createTabProvider({
   kind: 'terminal',
-  mount: 'single',
+
   resourceKey: (state: TerminalTabState) => state.terminalId,
   isPersistent: (state: TerminalTabState) => !state.ephemeral,
 

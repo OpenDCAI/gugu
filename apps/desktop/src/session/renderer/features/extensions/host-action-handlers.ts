@@ -105,12 +105,11 @@ function openForClick(action: ExtensionHostAction, fromTab?: string): ExtensionH
       if (action.chatId) return openLinkTarget({ kind: 'app', extensionId: action.extensionId, tab: action.tab ?? installedExtensionsStore.mainTabOf(action.extensionId)?.kind.slice(action.extensionId.length + 1) ?? '', path: '', query: {}, place: { chat: action.chatId } });
       { const opened = openApp(action.extensionId, action.tab); revealSessionpage(); return opened; }
     case 'openChatFile':
-      if (action.onlyIfOpen) return import('@renderer/features/chats/chat-tabs/chat-layouts').then(({ panelTabsOf, showChatTab, chatLayoutOf }) => {
+      if (action.onlyIfOpen) return import('@renderer/features/chats/chat-tabs/chat-layouts').then(({ panelTabsOf, showChatTab }) => {
         const tabs = panelTabsOf(action.chatId);
         if (!tabs.some((entry) => entry.shown && !entry.inWindow && groupPageSlot(action.chatId, entry.tabId) === fromTab)) return;
         const tab = tabs.find((entry) => !entry.inWindow && entry.item.itemId === action.itemId && entry.item.kind === action.onlyIfOpen);
         if (!tab) return;
-        if (action.intent === 'pinned') chatLayoutOf(action.chatId).groups.find((group) => group.pane.entries.has(tab.tabId))?.pane.pin(tab.tabId);
         showChatTab(action.chatId, tab.tabId);
         // The body is already there. The original metadata validation starts after presenting it.
         return new Promise<{ chat: string }>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve({ chat: action.chatId }))));
@@ -210,7 +209,7 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
       return;
     case 'openBrowserTab': {
       const view = requireSessionView(sessionId);
-      view.showPage(action.url, { preview: false, reload: false });
+      view.showPage(action.url, { reload: false });
       view.setFocusedRegion('main');
       return;
     }
@@ -233,8 +232,11 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
         const detail = action.detail;
         updateFileNames([{ id: detail.itemId, filename: detail.name, content_type: detail.file.contentType }], installedExtensionsStore.manifests);
       });
-      window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: action.detail }));
-      return;
+      return import('@renderer/features/chats/chat-tabs/chat-layouts').then(({ panelTabsOf, chatPaneOf }) => {
+        const from = panelTabsOf(action.detail.chatId).find((tab) => groupPageSlot(action.detail.chatId, tab.tabId) === tabId)?.tabId;
+        if (from && action.detail.viewState) chatPaneOf(action.detail.chatId, from)?.setPageViewState(from, action.detail.viewState);
+        window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: { ...action.detail, from } }));
+      });
     // An App's 「用 X 打开」 on a session's working-copy file: in that session's pane, by the resolver a click there goes
     // through (`openFileInSessionEditor`) — the same for a session on this computer and one on another.
     case 'openSessionFile': {
@@ -246,7 +248,11 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
         await prepareSessionPane(projectId, action.sessionId);
         if (!findSession(action.sessionId)) throw new Error('This session has no prepared pane');
         const { openFileInSessionEditor } = await import('@renderer/features/sessions/stores/open-file-in-file-editor');
-        const opened = await openFileInSessionEditor(projectId, action.sessionId, action.path, { beside: true, ask: action.ask, intent: action.intent, ...(sessionId === action.sessionId ? { returnTo: { tabId } } : {}) });
+        if (sessionId === action.sessionId && action.viewState) {
+          const pane = findSessionView(sessionId)?.paneLayout.groups.find(({ pane }) => pane.entries.has(tabId))?.pane;
+          pane?.setPageViewState(tabId, action.viewState);
+        }
+        const opened = await openFileInSessionEditor(projectId, action.sessionId, action.path, { ask: action.ask, intent: action.intent, ...(sessionId === action.sessionId ? { from: tabId } : {}) });
         if (opened === undefined) throw new Error('The person did not pick an App to open it with');
       })();
     }

@@ -181,7 +181,6 @@ export class FileTabResource implements TabResource {
 
   /** Called by the Monaco editor when the user makes the first edit — pins the tab. */
   onFirstEdit(): void {
-    this._handle?.pin();
   }
 
   /**

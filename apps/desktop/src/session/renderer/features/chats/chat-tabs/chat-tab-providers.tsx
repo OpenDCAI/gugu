@@ -20,7 +20,6 @@ import { parseExtensionTabKind } from '@shared/extensions/manifest';
 import { groupPageSlot, isFolderItem, panelItemKey, type PanelItem } from './chat-panel-item';
 import { takeRestore } from './chat-tab-restores';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
-import { PairPlacementContext } from '@renderer/features/tabs/pair-placement-context';
 import { RetainedTabContent, useRetainedTabs } from '@renderer/features/tabs/retained-tab-content';
 
 /** The chat itself: its messages and composer, first in its strip, never closed. */
@@ -81,7 +80,8 @@ const ChatTabContent = observer(function ChatTabContent(_props: TabContentProps)
 
 export const chatTabProvider = createTabProvider<typeof CHAT_TAB_KIND, ChatTabState, TabResource>({
   kind: CHAT_TAB_KIND,
-  mount: 'single',
+  conversation: true,
+
   resourceKey: () => 'chat',
   // 别的页签的页、对话的名字和右端按钮都由对话画:它一直挂着(没上屏就藏着)。
   keepMounted: true,
@@ -163,11 +163,10 @@ const ShellTabSlots = observer(function ShellTabSlots({ host, ctx, kind }: TabCo
   const chatId = chatIdOfView(ctx);
   const tabs = host.resolvedTabs;
   const retained = useRetainedTabs(tabs.map((tab) => tab.tabId), tabs.filter((tab) => tab.isActive).map((tab) => tab.tabId));
-  const place = useContext(PairPlacementContext);
   return (
     <>
       {tabs.filter((tab) => tab.kind === kind && retained.has(tab.tabId)).map((tab) => (
-        <ShellTabSlot key={tab.tabId} chatId={chatId} tab={tab} host={host} style={tab.isActive ? place?.(tab.tabId) ?? undefined : undefined} />
+        <ShellTabSlot key={tab.tabId} chatId={chatId} tab={tab} host={host} />
       ))}
     </>
   );
@@ -186,8 +185,7 @@ function PanelTabContent(props: TabContentProps) {
 
 export const chatPanelTabProvider = createTabProvider<typeof CHAT_PANEL_TAB_KIND, PanelItem, TabResource>({
   kind: CHAT_PANEL_TAB_KIND,
-  placesPairItself: true,
-  mount: 'single',
+
   resourceKey: panelItemKey,
   // An App's own page beside the chat is as wide as its manifest says (`sideWidth`); a file, in it or the host's preview, is
   // the chat's peer: half each.
@@ -223,8 +221,7 @@ function TopicTabContent(props: TabContentProps) {
 
 export const chatTopicTabProvider = createTabProvider<typeof CHAT_TOPIC_TAB_KIND, ChatTopicState, TabResource>({
   kind: CHAT_TOPIC_TAB_KIND,
-  placesPairItself: true,
-  mount: 'single',
+
   resourceKey: () => 'topic',
   // As before: the topic beside a group is this window's; a restart opens the group alone.
   isPersistent: () => false,
@@ -255,8 +252,7 @@ function InfoTabContent(props: TabContentProps) {
 
 export const chatInfoTabProvider = createTabProvider<typeof CHAT_INFO_TAB_KIND, ChatInfoState, TabResource>({
   kind: CHAT_INFO_TAB_KIND,
-  placesPairItself: true,
-  mount: 'single',
+
   resourceKey: () => 'info',
   sideWidth: () => CHAT_INFO_SIDE_WIDTH,
   initialize: stateResource,
