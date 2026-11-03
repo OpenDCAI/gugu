@@ -59,6 +59,15 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
     const declaration = (name: string) => main.statements.find(node => ts.isVariableStatement(node)
       && node.declarationList.declarations.some(item => item.name.getText(main) === name))!.getText(main)
     const fatal = main.statements.find(node => node.getText(main).startsWith("process.on('uncaughtException'"))!.getText(main)
+    let lockGuard = ''
+    const visit = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node) && node.name.getText(main) === 'reportActivity' && node.initializer && ts.isArrowFunction(node.initializer) && ts.isBlock(node.initializer.body)) {
+        lockGuard = node.initializer.body.statements.find(statement => ts.isIfStatement(statement) && statement.expression.getText(main).includes('ownsHomeLock'))!.getText(main)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(main)
+    expect(lockGuard).not.toBe('')
     await build({ stdin: { loader: 'ts', resolveDir: process.cwd(), contents: `
       import {appendFileSync,existsSync} from 'node:fs';
       import {join} from 'node:path';
@@ -75,7 +84,8 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
       const createLogger=()=>shutdownLogger,classifyFatal=()=>'defect',recordFatalSync=()=>{};
       const killAllCodexAppServerProcessGroupsSync=()=>{},opencodeServeAttachSessionDelivery={disposeSync(){}},droidDaemonSessionDelivery={disposeSync(){}};
       const emdashBridge=null,closeTunnelMachines=null,tunnelEndpoint=null;
-      const app={getPath:()=>''},noteExitReason=()=>{},stopServerActivity=()=>{},deviceRuntimeHost=null,SERVER_MODE=process.env.EXIT_SCOPE!=='desktop',EXIT_RESTART=75,isSingleServerRun=()=>false;
+      let lockLost=false;
+      const app={getPath:()=>''},noteExitReason=()=>{},stopServerActivity=()=>{},deviceRuntimeHost=null,SERVER_MODE=process.env.EXIT_SCOPE!=='desktop',EXIT_RESTART=75,EXIT_CONFIG=78,isSingleServerRun=()=>lockLost,ownsHomeLock=()=>false;
       let signalStopping=false;
       ${declaration('killEnginesOnCrash')}
       ${declaration('exitOnSignal')}
@@ -89,7 +99,8 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
         while(!existsSync(process.env.BOOT_TREE_FILE)) await new Promise(resolve=>setTimeout(resolve,5));
         while(!existsSync(process.env.MISE_TREE_FILE)) await new Promise(resolve=>setTimeout(resolve,5));
         process.on('message',kind=>{
-          if(kind==='crash') setImmediate(()=>{throw new Error('download parser failure fixture')});
+          if(kind==='lock-lost'){lockLost=true;${lockGuard}}
+          else if(kind==='crash') setImmediate(()=>{throw new Error('download parser failure fixture')});
           else exitOnSignal('SIGTERM',kind==='stop'?143:75);
         });
         process.send('ready');
@@ -152,7 +163,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
       }
     }
   }
-  it.each([['crash', 1], ['update', 75], ['stop', 143]] as const)('reaps the adapter and an in-progress boot check before the actual %s exit', exitHost)
+  it.each([['crash', 1], ['update', 75], ['stop', 143], ['lock-lost', 78]] as const)('reaps the adapter and an in-progress boot check before the actual %s exit', exitHost)
   it.runIf(tmuxAvailable).each([['crash', 1], ['update', 75]] as const)('preserves an actual double-forked tmux and its command across %s', async (kind, code) => exitHost(kind, code, true))
   it('keeps desktop-owned external programs outside the worker cleanup scope', async () => exitHost('crash', 1, false, false))
 })

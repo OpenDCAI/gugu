@@ -336,7 +336,7 @@ describe('桌面主进程:每台机器一条设备连接', () => {
     expect(args).toContain('BatchMode=yes')
     expect(args).toContain('ControlPath=/tmp/cm-%C')
     expect(args).toEqual(expect.arrayContaining(['-p', '2222', '-i', '/k/id']))
-    expect(args.at(-1)).toBe(`exec ~/.local/bin/gugu-server link --adopt-ssh`)
+    expect(args.at(-1)).toBe(`exec ~/.local/bin/gugu-server link --account ${ACCOUNT} --adopt-ssh`)
     expect(() => sshLinkArgs(target, { controlPath: null, accountUserId: 'bad id' })).toThrow()
   })
 

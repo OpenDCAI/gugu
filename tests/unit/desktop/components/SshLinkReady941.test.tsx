@@ -7,8 +7,8 @@ import { act } from 'react'
 import { ToastContext } from '@/components/toastContext'
 import type { SshUpgradeEvent } from '@/lib/sshLink'
 
-const state = vi.hoisted(() => ({ devices: [] as Device[], ssh: false, calls: [] as unknown[][], busyAgents: 0 as number | undefined, onUpgrade: null as ((event: SshUpgradeEvent) => void) | null }))
-vi.mock('@/lib/deviceRpc', () => ({ callDeviceRpc: async (...args: unknown[]) => { state.calls.push(args); return { result: args[1] === 'server.versionMatch.activity' ? { busyAgents: state.busyAgents } : { requested: true } } } }))
+const state = vi.hoisted(() => ({ devices: [] as Device[], ssh: false, calls: [] as unknown[][], busyAgents: 0 as number | undefined, refused: false, onUpgrade: null as ((event: SshUpgradeEvent) => void) | null }))
+vi.mock('@/lib/deviceRpc', () => ({ callDeviceRpc: async (...args: unknown[]) => { state.calls.push(args); return { result: args[1] === 'server.versionMatch.activity' ? { busyAgents: state.busyAgents } : { requested: !state.refused } } } }))
 vi.mock('@/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: state.devices }) }))
 vi.mock('@/lib/sshLinkChannel', () => ({
   isSshMachine: () => state.ssh,
@@ -27,7 +27,7 @@ import { SshLinkSignIn } from '@/components/SshLinkSignIn'
 import { requestSshServerUpgrade } from '@/lib/sshLinkChannel'
 
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { state.ssh = false; state.devices = []; state.calls = []; state.busyAgents = 0; harness = createReactHarness() })
+beforeEach(() => { state.ssh = false; state.devices = []; state.calls = []; state.busyAgents = 0; state.refused = false; harness = createReactHarness() })
 afterEach(() => harness.cleanup())
 const target = '0.3.1-beta.990003.1'
 function server(scope: 'account' | 'supervisor' | undefined, capability: boolean): Device {
@@ -110,6 +110,15 @@ async function confirmRestart() {
   await clickElement(document.querySelector<HTMLElement>('[data-testid=ssh-link-update-now]')!)
   await clickElement(document.querySelector<HTMLElement>('[data-testid=ssh-link-update-confirm-now]')!)
 }
+
+it('reports a refused tunnel restart and keeps its action available', async () => {
+  state.devices = [server(undefined, true)]; state.refused = true
+  const toast = vi.fn()
+  await harness.render(<ToastContext.Provider value={{ toast }}><SshLinkSignIn /></ToastContext.Provider>)
+  await confirmRestart()
+  expect(toast).toHaveBeenCalledWith(expect.any(String), 'error')
+  expect(document.querySelector('[data-testid=ssh-link-update-now]')).not.toBeNull()
+})
 
 it.each(['account', 'supervisor', undefined] as const)('sends the displayed %s target as an explicit confirmed restart', async scope => {
   state.devices = [server(scope, true)]

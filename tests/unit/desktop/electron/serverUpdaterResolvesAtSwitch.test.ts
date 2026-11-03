@@ -58,6 +58,19 @@ function updater(isBusy: () => boolean, verifyBoot: (binary: string) => Promise<
 }
 
 describe('server self-upgrade resolves its target at the moment it switches', () => {
+  it('keeps a prepared target and confirmation after a regular feed refresh fails', async () => {
+    published = '0.2.53-beta.62.1'; stage(published)
+    const { control, shutdown, stop } = updater(() => true)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8')).state).toBe('ready')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('release feed offline')))
+    await vi.advanceTimersByTimeAsync(29 * 60_000)
+    expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8'))).toMatchObject({ state: 'ready', version: published })
+    expect(control.restartConfirmed(published, true)).toEqual(expect.any(Number))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(shutdown).toHaveBeenCalledOnce()
+    stop()
+  })
   it('reads the current version-switch activity without scheduling an update', async () => {
     const isBusy = vi.fn(() => true)
     const { control, shutdown, stop } = updater(isBusy)

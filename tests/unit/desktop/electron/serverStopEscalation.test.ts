@@ -2,21 +2,28 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Module from 'node:module'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-const state = vi.hoisted(() => ({ alive: true, home: '' }))
+const state = vi.hoisted(() => ({ alive: true, home: '', managed: false, account: false, stopSystemd: vi.fn() }))
 vi.mock('../../../../apps/desktop/electron/server/server-layout', async original => ({
   ...await original<typeof import('../../../../apps/desktop/electron/server/server-layout')>(),
-  readServerAccount: () => null, supervisorDataDir: () => path.join(state.home, 'data'),
+  readServerAccount: () => state.account ? { userId: 'fixture', signedIn: true, dataDir: path.join(state.home, 'data') } : null, supervisorDataDir: () => path.join(state.home, 'data'),
 }))
 vi.mock('../../../../apps/desktop/electron/server/process-alive', async original => ({
   ...await original<typeof import('../../../../apps/desktop/electron/server/process-alive')>(),
   isProcessAlive: () => state.alive,
 }))
 vi.mock('../../../../apps/desktop/electron/server/server-electron-shim', () => ({ default: {} }))
+vi.mock('../../../../apps/desktop/electron/server/server-service', async original => ({
+  ...await original<typeof import('../../../../apps/desktop/electron/server/server-service')>(),
+  readRunningServer: () => state.managed ? { pid: 123456, version: '1.0.0', supervisedBy: 'systemd' } : null,
+  stopSystemdService: () => { state.stopSystemd(); state.alive = false },
+}))
 const argv = process.argv
 const loader = Module as unknown as { _load: unknown }
 const originalLoad = loader._load
+
+beforeEach(() => { vi.resetModules(); state.managed = false; state.account = false; state.stopSystemd.mockReset() })
 
 afterEach(() => {
   loader._load = originalLoad
@@ -54,4 +61,52 @@ it('the real stop command escalates a locked process from TERM to KILL and repor
   expect(stdout).toContain('KILL for pid 123456')
   await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
   expect(exit).not.toHaveBeenCalledWith(1)
+})
+
+async function cli(command: 'stop' | 'logout') {
+  state.home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-stop-escalation-'))
+  fs.mkdirSync(path.join(state.home, 'data'))
+  fs.writeFileSync(path.join(state.home, 'data/server.lock'), '123456')
+  state.alive = true
+  vi.stubEnv('GUGU_SERVER_HOME', state.home); vi.stubEnv('GUGU_TIER', 'beta'); vi.stubEnv('GUGU_SERVER_MODE', undefined)
+  process.argv = ['node', 'server-entry.js', command]
+  const kill = vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+    if (signal === 'SIGKILL') state.alive = false
+    if (signal === 0 && !state.alive) throw Object.assign(new Error('gone'), { code: 'ESRCH' })
+    return true
+  })
+  const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+  vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+  vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+  vi.useFakeTimers()
+  await import('../../../../apps/desktop/electron/server-entry')
+  return { kill, exit }
+}
+
+it('stops a systemd-managed server through its manager without sending KILL', async () => {
+  state.managed = true
+  const { kill, exit } = await cli('stop')
+  await vi.waitFor(() => expect(kill).toHaveBeenCalledWith(123456, 0))
+  await vi.runAllTimersAsync()
+  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+  expect(state.stopSystemd).toHaveBeenCalledOnce()
+  expect(kill).not.toHaveBeenCalledWith(123456, 'SIGTERM')
+  expect(kill).not.toHaveBeenCalledWith(123456, 'SIGKILL')
+})
+it('logout returns only after the outgoing account process has exited', async () => {
+  state.account = true
+  const { kill, exit } = await cli('logout')
+  await vi.waitFor(() => expect(kill).toHaveBeenCalledWith(123456, 'SIGTERM'))
+  expect(exit).not.toHaveBeenCalled()
+  state.alive = false
+  await vi.runAllTimersAsync()
+  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+})
+it('logout reports failure if its bounded exit wait expires', async () => {
+  state.account = true
+  const { kill, exit } = await cli('logout')
+  await vi.waitFor(() => expect(kill).toHaveBeenCalledWith(123456, 'SIGTERM'))
+  await vi.runAllTimersAsync()
+  expect(exit).toHaveBeenCalledWith(1)
+  expect(exit).not.toHaveBeenCalledWith(0)
 })
