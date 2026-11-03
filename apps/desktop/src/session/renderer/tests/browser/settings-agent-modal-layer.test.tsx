@@ -4,6 +4,8 @@ import { contact, createReactHarness, renderWithAppProviders } from '../../../..
 import { until } from '../../../../../../../tests/support/awaitCondition';
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { AgentSettingsModal } from '@/components/agentsettings/AgentSettingsModal';
+import { AgentModelPicker } from '@/components/agentsettings/AgentModelPicker';
+import { Sheet } from '@/components/ui/Sheet';
 import { i18n } from '@/i18n';
 import '@/i18n/registerMainCatalog';
 import '@/i18n/registerSettingsCatalog';
@@ -69,4 +71,33 @@ it('keeps the default agent dialog outside Settings at the ordinary modal layer'
   });
   const modal = await dialog();
   expect(getComputedStyle(modal.closest('.gg-sheet-viewport')!).zIndex).toBe('2000');
+});
+
+it.each(['look', 'model'])('one desktop Escape closes %s and leaves Settings open', async (entry) => {
+  const closeSettings = vi.fn();
+  await renderWithAppProviders(harness, <SettingsPanel initialSection="assistant" onClose={closeSettings} />, {
+    auth: { id: 'owner-layer' }, contacts: { contacts: [contact(fixture.assistant)] },
+  });
+  await userEvent.click(page.getByTestId(`settings-assistant-${entry}`));
+  await dialog();
+  await userEvent.keyboard('{Escape}');
+  await until('the agent dialog closes after one Escape', () => !document.querySelector('[data-testid="agent-settings-modal"]'));
+  expect(closeSettings).not.toHaveBeenCalled();
+  expect(document.querySelector('[data-testid="settings-panel"]')).not.toBeNull();
+});
+
+it.each([2000, 5100])('the real model menu can be hit and selected above Sheet %i', async (zIndex) => {
+  const select = vi.fn();
+  await renderWithAppProviders(harness, <Sheet zIndex={zIndex} onClose={vi.fn()} ariaLabel="Model settings">
+    <AgentModelPicker items={[{ id: 'first', name: 'First model' }, { id: 'second', name: 'Second model' }]}
+      value="first" disabled={false} onChange={select} />
+  </Sheet>, { auth: { id: 'owner-layer' }, contacts: {} });
+  await userEvent.click(page.getByTestId('composer-model-trigger'));
+  await until('the real model menu opens', () => !!document.querySelector('[data-slot="combobox-content"]'));
+  const popup = document.querySelector<HTMLElement>('[data-slot="combobox-content"]')!;
+  const box = popup.getBoundingClientRect();
+  expect(popup.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))).toBe(true);
+  expect(getComputedStyle(popup.parentElement!).zIndex).toBe(String(zIndex + 1));
+  await userEvent.click(page.getByRole('option', { name: 'Second model', exact: true }));
+  expect(select).toHaveBeenCalledWith('second');
 });
