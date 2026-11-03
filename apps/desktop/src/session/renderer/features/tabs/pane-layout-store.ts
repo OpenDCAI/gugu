@@ -692,7 +692,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
         windowOpener: (tabId) => this.windowOpener?.(tabId) ?? null,
         split: (tabId, edge) => { this.splitPane(paneId, edge, tabId); },
         splitBlocked: (tabId, edge) => this.splitBlocked(paneId, tabId, edge),
-        entryForTab: (tabId) => [...this.groups, ...this.windowPanes.values()].map(({ pane }) => pane.entries.get(tabId)).find(Boolean),
+        entryForTab: (tabId) => this.groups.map(({ pane }) => pane.entries.get(tabId)).find(Boolean),
         revealTab: (tabId) => {
           const group = this.groups.find((candidate) => candidate.pane.entries.has(tabId));
           if (!group) return false;
