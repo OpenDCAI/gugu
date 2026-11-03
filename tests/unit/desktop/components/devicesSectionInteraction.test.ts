@@ -68,6 +68,8 @@ async function openMenuItem(testId: string, row = 0): Promise<void> {
 let container: HTMLDivElement
 let root: Root
 beforeEach(() => {
+  restartNow.mockClear()
+  retryMatch.mockClear()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -84,7 +86,7 @@ describe('DevicesSection interaction', () => {
       app_version: '0.3.0', server_confirmed_restart: true,
       server_update: { state: 'ready', version: '0.3.1', scope: 'supervisor' } }
     const render = async (patch: Partial<Device> = {}) => {
-      const value = store({ devices: [device({ device_id: 'srv', capabilities, ...patch })] })
+      const value = store({ devices: [device({ device_id: 'srv', last_seen_at: new Date().toISOString(), capabilities, ...patch })] })
       await act(async () => { root.render(createElement(DevicesContext.Provider, { value }, createElement(DevicesSection))) })
       await flush()
     }
@@ -92,6 +94,7 @@ describe('DevicesSection interaction', () => {
     await act(async () => { container.querySelector<HTMLElement>('[data-testid="settings-device-update-now"]')!.click() })
     await act(async () => { container.querySelector<HTMLElement>('[data-testid="settings-device-update-now-yes"]')!.click() })
     await flush()
+    expect(container.querySelector('[data-testid="settings-device-restarting"]')).not.toBeNull()
     await render({ is_online: false, status: 'offline' })
     expect(container.querySelector('[data-testid="settings-device-restarting"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="settings-device-update-now"]')).toBeNull()
