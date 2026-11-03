@@ -49,7 +49,11 @@ const $ = (id: string) => document.getElementById(id) as HTMLElement
 const ids = () => [...$('file-list').querySelectorAll<HTMLElement>('li.file')].map((li) => li.dataset.id)
 const row = (id: string) => document.querySelector(`[data-id="${id}"]`) as HTMLElement
 const open = (id: string, init: MouseEventInit = {}) => row(id).querySelector('.file-open')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...init }))
-const select = (id: string) => row(id).querySelector<HTMLButtonElement>('.file-pick')!.click()
+const select = (id: string) => {
+  if (!bar().hidden) return open(id)
+  row(id).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+  ;[...$('menu').querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === '选择')!.click()
+}
 const picked = () => ids().filter((id) => row(id!).classList.contains('picked'))
 const bar = () => $('pick-bar')
 const barButton = (text: string) => [...bar().querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === text)!
@@ -80,7 +84,7 @@ beforeEach(() => {
 })
 
 describe('picking', () => {
-  test('checkbox selection highlights the row; a later press toggles, and Escape lets go of all', () => {
+  test('Select highlights the row; a later press toggles, and Escape lets go of all', () => {
     expect(bar().hidden).toBe(true)
     select('a')
     expect(picked()).toEqual(['a'])
@@ -96,7 +100,7 @@ describe('picking', () => {
     expect(bar().hidden).toBe(true)
   })
 
-  test('checkboxes pick without opening; Shift picks the run from the one pressed last, in the order on screen', () => {
+  test('Select picks without opening; Shift picks the run from the one pressed last, in the order on screen', () => {
     select('a')
     expect(picked()).toEqual(['a'])
     open('d', { shiftKey: true })

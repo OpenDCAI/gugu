@@ -1595,21 +1595,24 @@ function rowMenu(li, entry, canDelete = false) {
   return groups.filter((group) => group.length).flatMap((group, i) => i ? [{ separator: true }, ...group] : group)
 }
 
+// The row and the document toolbar use the same asynchronous delete capability answer.
+function showEntryMenu(anchor, entry, items, context) {
+  const said = deletableSaid.get(deletableKey(entry))
+  toggleMenu(anchor, items(said === true), context)
+  if (said === undefined) void mayDelete(entry).then((yes) => {
+    if (!yes || state.menuAnchor !== anchor) return
+    closeMenu()
+    toggleMenu(anchor, items(true), context)
+  })
+}
+
 function fileMenu(li, open, entry) {
   const show = (point) => {
     const picked = !isFolder(entry) && state.picked.size
     const context = { point, entry: picked ? null : entry, selection: picked }
     if (picked) return toggleMenu(open, [...pickedActions(), { separator: true }, { text: state.t.pickCancel, run: clearPicks }], context)
     // The menu opens at once; 删除 joins it when the answer is back and says yes (at once, when it is already known).
-    const said = deletableSaid.get(deletableKey(entry))
-    toggleMenu(open, rowMenu(li, entry, said === true), context)
-    if (said === undefined) {
-      void mayDelete(entry).then((yes) => {
-        if (!yes || state.menuAnchor !== open) return
-        closeMenu()
-        toggleMenu(open, rowMenu(li, entry, true), context)
-      })
-    }
+    showEntryMenu(open, entry, (yes) => rowMenu(li, entry, yes), context)
   }
   let timer = null
   let held = false
@@ -3117,9 +3120,18 @@ function start() {
   }
   // The same menu at every width; the wide pane also keeps its Download and Open with shortcuts.
   $('more').onclick = () => {
-    const items = [...(state.current?.file.type === 'text' ? [[state.t.split, () => setMode('split')]] : []), [state.t.download, downloadShown], [state.t.openWith, () => openInHost(state.shown, true)]]
-    if (canWrite() && state.shown && !state.shown.systemRole && !state.current?.file.readOnly) items.push([state.t.rename, () => startRename($('doc-title'), state.shown)])
-    toggleMenu($('more'), items)
+    const entry = state.shown
+    if (!entry) return
+    const writable = canWrite() && !entry.systemRole && !state.current?.file.readOnly
+    showEntryMenu($('more'), entry, (canDelete) => [
+      ...(state.current?.file.type === 'text' ? [{ text: state.t.split, run: () => setMode('split') }] : []),
+      ...(canForward() ? [{ text: state.t.forward, run: () => forwardEntries([entry]) }] : []),
+      { text: state.t.copyLink, run: () => copyLink(entry) },
+      { text: state.t.openWith, run: () => openInHost(entry, true) },
+      { text: state.t.download, run: downloadShown },
+      ...(writable ? [{ text: state.t.rename, run: () => startRename($('doc-title'), entry) }, { text: state.t.move, run: () => showMoveDialog(entry) }] : []),
+      ...(writable && canDelete ? [{ text: state.t.remove, run: () => removeFile(entry), ask: state.t.confirmRemove }] : []),
+    ], { entry })
   }
   document.addEventListener('pointerdown', (event) => {
     if (state.menuAnchor && !$('menu').contains(event.target) && !state.menuAnchor.contains(event.target)) closeMenu()

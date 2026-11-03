@@ -7,6 +7,7 @@ import { TabBar } from './tab-bar';
 import { isUnavailableTabResource, UnavailableTabContent } from './unavailable-tab';
 import { RetainedTabContent, useRetainedTabs } from './retained-tab-content';
 import { tabFullscreen, WORKSPACE_ANCHOR } from './tab-fullscreen';
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 
 const CONTENT_FOCUS_SELECTOR = '.native-edit-context, textarea:not([readonly]), webview, [data-browser-page], [contenteditable="true"]';
 const FULLSCREEN_STYLE = {
@@ -30,6 +31,16 @@ export const PaneContent = observer(function PaneContent({
   contentOverlay?: ReactNode;
 }) {
   const { paneId, pane } = usePaneContext();
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  useCommandProvider(useMemo(() => ({
+    scopeId: 'session-sub' as const,
+    isActive: (element: HTMLElement | null) => !!element && !!shellRef.current?.contains(element),
+    getCommands: () => ([-1, 1] as const).map((delta) => ({
+      id: delta === -1 ? 'app.navigateBack' as const : 'app.navigateForward' as const,
+      hideFromPalette: true,
+      execute() { const id = pane.resolvedActiveTabId; if (id) void pane.go(id, delta); },
+    })),
+  }), [pane]));
   const { setNodeRef: dropRef, isOver } = useDroppable({ id: `pane-content-${paneId}` });
   const contentRef = useRef<HTMLDivElement | null>(null);
   const setContentRef = useCallback((element: HTMLDivElement | null) => { dropRef(element); contentRef.current = element; }, [dropRef]);
@@ -60,14 +71,7 @@ export const PaneContent = observer(function PaneContent({
   const retained = new Set([...recent, ...pane.registry.all().filter((provider) => provider.keepMounted && kinds.includes(provider.kind)).map((provider) => provider.kind)]);
   const fullscreen = tabFullscreen.isOn(pane);
   return (
-    <div className={fullscreen ? 'flex min-w-0 flex-col overflow-hidden bg-background' : 'flex h-full min-w-0 flex-col overflow-hidden'} style={fullscreen ? FULLSCREEN_STYLE : undefined} data-tab-fullscreen={fullscreen ? '' : undefined}
-      onKeyDown={(event) => {
-        if (event.defaultPrevented || event.nativeEvent.isComposing || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || !['[', ']'].includes(event.key)) return;
-        const id = pane.resolvedActiveTabId;
-        if (!id) return;
-        event.preventDefault();
-        void pane.go(id, event.key === '[' ? -1 : 1);
-      }}
+    <div ref={shellRef} className={fullscreen ? 'flex min-w-0 flex-col overflow-hidden bg-background' : 'flex h-full min-w-0 flex-col overflow-hidden'} style={fullscreen ? FULLSCREEN_STYLE : undefined} data-tab-fullscreen={fullscreen ? '' : undefined}
       onMouseUp={(event) => {
         if (event.defaultPrevented || (event.button !== 3 && event.button !== 4)) return;
         const id = pane.resolvedActiveTabId;

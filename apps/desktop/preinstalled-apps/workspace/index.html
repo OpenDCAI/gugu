@@ -11,6 +11,7 @@
     <header class="files-toolbar files-tools">
       <nav id="crumbs" class="crumbs" hidden></nav>
       <div id="kinds" class="kinds" role="group"></div>
+      <div id="chips" class="chips" hidden></div>
       <button id="search-toggle" class="icon" type="button" aria-expanded="false"><gugu-icon name="search"></gugu-icon></button>
       <input id="filter" class="filter" type="search" autocomplete="off" hidden />
       <button id="sort" class="sort" type="button" aria-haspopup="menu" aria-expanded="false"><span id="sort-label"></span><gugu-icon name="chevron-down"></gugu-icon></button>
@@ -23,8 +24,6 @@
       <button id="new-doc" class="primary" type="button" aria-haspopup="menu" aria-expanded="false" hidden><gugu-icon name="plus"></gugu-icon><span id="new-label" class="sr-only"></span></button>
     </header>
     <div id="pick-bar" class="pick-bar" role="toolbar" hidden></div>
-    <!-- The filters there is something to pick by (上传者 / 存放 / 保留方式), and the way to clear them. -->
-    <div id="chips" class="chips" hidden></div>
     <!-- Where the list is (子文件夹): the way up, then each folder from the top. Hidden at the top. -->
     <!-- What went wrong on the list (a name taken there, a failed move or upload): the file's own line is not drawn here. -->
     <div id="list-banner" class="banner" role="status" hidden></div>
@@ -44,6 +43,7 @@
           <button id="mode-edit" role="tab" type="button"></button>
           <button id="mode-split" role="tab" type="button" hidden></button>
         </div>
+        <div id="doc-info" class="doc-info" hidden></div>
         <span id="doc-status" class="status"></span>
         <div id="peers" class="peers"></div>
         <div class="json-actions">
@@ -57,7 +57,6 @@
       </div>
     </header>
     <div id="banner" class="banner" role="status" hidden></div>
-    <div id="doc-info" class="doc-info" hidden></div>
     <p id="doc-message" class="empty doc-message"></p>
     <div class="panes">
       <div id="editor" class="editor"></div>

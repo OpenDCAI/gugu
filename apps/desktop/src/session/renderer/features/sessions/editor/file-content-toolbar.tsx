@@ -46,7 +46,7 @@ export const FileContentToolbar = observer(function FileContentToolbar({
   return (
     <div className={cn(panelHeaderBarClass, '@container/file-toolbar justify-between gap-2')}>
       <div className="flex shrink-0 items-center gap-1">
-        <Button size="icon-sm" variant="ghost" aria-label={translate('tabs.back')} title={translate('tabs.back')} disabled={!host.canGo(tabId, -1)} onClick={() => void host.go(tabId, -1)}><ArrowLeft className="size-3.5" /></Button>
+        <Button size="sm" variant="ghost" className="gap-1 text-xs" aria-label={translate('tabs.back')} title={translate('tabs.back')} disabled={!host.canGo(tabId, -1)} onClick={() => void host.go(tabId, -1)}><ArrowLeft className="size-3.5" />{translate('tabs.back')}</Button>
         <Button size="icon-sm" variant="ghost" aria-label={translate('tabs.forward')} title={translate('tabs.forward')} disabled={!host.canGo(tabId, 1)} onClick={() => void host.go(tabId, 1)}><ArrowRight className="size-3.5" /></Button>
       </div>
       <FilePathBreadcrumb path={tab.path} />

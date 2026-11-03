@@ -117,7 +117,7 @@ export interface TypedTabRegistry<P extends readonly AnyTabProvider[]> extends T
  * ```ts
  * export const myTabProvider = createTabProvider({
  *   kind: 'my-kind',
- *   mount: { type: 'single', dedupKey: (s) => s.id },
+ *   resourceKey: (state) => state.id,
  *   initialize: (entry, handle, ctx) => { ... },
  *   dispose: (entry, resource, ctx) => { ... },
  *   ...

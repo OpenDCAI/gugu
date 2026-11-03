@@ -39,7 +39,6 @@ export type ChatTopicState = { topicChatId: string; name: string };
 export type ChatInfoState = { group: boolean; page?: 'main' | 'members' | 'announcement'; at?: number };
 
 /** A list of rows: as wide as the drawers it replaces (spec session-page「并排」: a page declares its width beside the chat). */
-const CHAT_INFO_SIDE_WIDTH = 360;
 
 /** The chat a strip belongs to (its place, `chat-layouts`). */
 export const chatIdOfView = (ctx: TabViewContext): string => (ctx.place?.kind === 'chat' ? ctx.place.chatId : '');
@@ -187,9 +186,6 @@ export const chatPanelTabProvider = createTabProvider<typeof CHAT_PANEL_TAB_KIND
   kind: CHAT_PANEL_TAB_KIND,
 
   resourceKey: panelItemKey,
-  // An App's own page beside the chat is as wide as its manifest says (`sideWidth`); a file, in it or the host's preview, is
-  // the chat's peer: half each.
-  sideWidth: (item) => (item.kind && !item.itemId ? installedExtensionsStore.sideWidth(item.kind) : undefined),
   // The host's preview holds a message and a file version of this moment: gone with the window, as before.
   isPersistent: (item) => item.kind !== null,
   initialize: stateResource,
@@ -255,7 +251,6 @@ export const chatInfoTabProvider = createTabProvider<typeof CHAT_INFO_TAB_KIND, 
   kind: CHAT_INFO_TAB_KIND,
 
   resourceKey: (state) => `${state.page}:${state.at ?? ''}`,
-  sideWidth: () => CHAT_INFO_SIDE_WIDTH,
   initialize: stateResource,
   dispose: () => {},
   TabBarItem: InfoTabItem,

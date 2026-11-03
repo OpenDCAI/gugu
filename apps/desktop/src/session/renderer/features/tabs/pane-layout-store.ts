@@ -56,7 +56,7 @@ const parseEdgeDrop = (overId: string): { edge: PaneEdge; paneId: string } | nul
  * and the shares. `groups` lists the panes in layout order (top-left to bottom-right).
  *
  * Cross-pane concerns handled here:
- * - mount:'single' cardinality — at most one tab per dedupKey across ALL panes
+ * - source-aware navigation and explicit conversation companions
  * - Tab move (detachTab + adoptEntry) — resource survives unchanged, no lifecycle calls
  * - target routing — 'active', 'left', 'right', { paneId }
  * - splitting a pane on any edge (spec session-page「一屏几块」:拖页签到格子边上 = 再分格)

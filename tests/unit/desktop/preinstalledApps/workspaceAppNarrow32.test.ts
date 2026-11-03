@@ -31,6 +31,7 @@ const gugu = {
   codemirror: vi.fn(() => new Promise(() => {})),
   markdown: vi.fn(() => new Promise(() => {})),
   files: {
+    canDelete: vi.fn(async () => [false]),
     viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => entries),
     onChanged: vi.fn(() => () => {}),
@@ -107,8 +108,8 @@ describe('workspace App in a narrow pane (F32)', () => {
     $('more').click()
     expect($('menu').hidden).toBe(false)
     expect($('more').getAttribute('aria-expanded')).toBe('true')
-    expect([...$('menu').children].map((item) => item.textContent)).toEqual(['Download', 'Open with another App', 'Rename'])
-    ;($('menu').firstElementChild as HTMLButtonElement).click()
+    expect([...$('menu').children].map((item) => item.textContent)).toEqual(['Copy link', 'Open with another App', 'Download', 'Rename', 'Move to…'])
+    ;([...$('menu').children].find((item) => item.textContent === 'Download') as HTMLButtonElement).click()
     expect($('menu').hidden, 'choosing closes it').toBe(true)
     expect($('more').getAttribute('aria-expanded')).toBe('false')
     await vi.waitFor(() => expect(gugu.files.download).toHaveBeenCalledWith(expect.objectContaining({ id: 'big' })))
@@ -140,7 +141,7 @@ describe('workspace App in a narrow pane (F32)', () => {
     const files = document.querySelector('.files')!
     // The kinds, the order and the view under the search, then the filters; 子文件夹: the crumbs between them and the list (hidden at the top), then the
     // list's own line for what went wrong.
-    expect([...files.children].map((e) => e.id || e.classList[0]).slice(0, 8)).toEqual(['files-toolbar', 'pick-bar', 'chips', 'list-banner', 'files-empty', 'file-list'])
+    expect([...files.children].map((e) => e.id || e.classList[0]).slice(0, 8)).toEqual(['files-toolbar', 'pick-bar', 'list-banner', 'files-empty', 'file-list'])
     expect($('pick-bar').hidden).toBe(true)
   })
 

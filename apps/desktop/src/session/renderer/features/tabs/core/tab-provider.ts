@@ -53,7 +53,7 @@ export type OpenTarget = 'active' | 'left' | 'right' | { paneId: string };
 
 /**
  * Capability handle given to resources at initialize time.
- * Resources use this to drive pin-on-edit, programmatic close, and new-tab
+ * Resources use this to drive programmatic close and source-aware page
  * opens — without holding a direct store reference.
  */
 export interface TabHandle {
@@ -67,7 +67,7 @@ export interface TabHandle {
   /**
    * Open a tab in the view that owns this handle.
    * `kind` selects the provider; `args` are the domain open-args (the "searchParams");
-   * `config` carries engine routing flags (target pane, preview, overrideState).
+   * `config` carries the explicit navigation intent and optional host target pane.
    */
   open(
     kind: string,
@@ -151,19 +151,11 @@ export interface TabProvider<
   conversation?: boolean;
 
   /**
-   * Stable identity for a tab, derived from its serializable state.
-   * Used by the engine for: in-pane dedup, single-mount cross-pane focus,
-   * and list-selection queries (isOpen / isActive).
+   * Stable resource identity, independent of the navigation context's tab id.
+   * Used for page equality and list-selection queries (isOpen / isActive).
    * Must be pure and stable across state mutations that do not change identity.
    */
   resourceKey(state: S): string;
-
-  /**
-   * 'single': at most one tab per resourceKey across ALL panes in a view.
-   *           The engine enforces this at the layout level.
-   * 'multi':  multiple tabs with the same resourceKey may coexist (default).
-   */
-  mount?: 'single' | 'multi';
 
   /** Runtime-only tabs return false so neither snapshots nor closed-tab history can resurrect them. */
   isPersistent?(state: S): boolean;
@@ -174,13 +166,6 @@ export interface TabProvider<
    * 右端按钮都由对话画进各自的格子 —— 启动时亮着的是别的页签,对话没挂上,它们就都是空的。
    */
   keepMounted?: boolean;
-
-  /**
-   * How wide (px) this page wants to be beside another, as the narrow one of a pair (spec session-page「并排」: a group's
-   * info, its folder, an App's page beside its chat). None: the two are peers, half each. The pair keeps it until the
-   * divider is dragged; at most half the pane.
-   */
-  sideWidth?(state: S): number | undefined;
 
   /**
    * Normalize/validate open args, perform synchronous side-effects

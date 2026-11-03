@@ -103,7 +103,7 @@ export const MarkdownEditorRenderer = observer(function MarkdownEditorRenderer({
           content={content}
           density="comfortable"
           frontmatter
-          className="mx-auto w-full max-w-3xl px-6 py-6"
+          className="mx-auto w-full max-w-3xl px-6 pt-1 pb-6"
           resolveImage={resolveImage}
           onOpenLink={openWorkspaceLink}
         />

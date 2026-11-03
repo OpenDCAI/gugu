@@ -110,6 +110,7 @@ export function useShellNavigation({
   useEffect(() => {
     if (!enabled) return
     const onMouseUp = (event: MouseEvent) => {
+      if (event.defaultPrevented) return
       if (event.button === MOUSE_BACK_BUTTON) {
         event.preventDefault()
         goBack()
