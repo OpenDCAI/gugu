@@ -246,7 +246,7 @@ describe('picking', () => {
     expect(options[0]!.title).toBe('只有上传这份文件的人能改它保留多久。')
     choose('‹ 保留方式')
     choose('‹ 更多')
-    expect($('menu').querySelector('button')!.textContent).toBe('打开')
+    expect($('menu').querySelector('button')!.textContent).toBe('转发')
   })
 
   test('another kind lets go of what was picked', () => {
@@ -267,7 +267,7 @@ describe('转发 (API 23)', () => {
   test('a file\'s menu: Forward first in the use group (as a message\'s menu has it before Download); the host\'s page gets that file', async () => {
     const items = menuOf('a')
     const labels = items.map((item) => item.textContent)
-    expect(labels.slice(labels.indexOf('转发'), labels.indexOf('转发') + 3)).toEqual(['转发', '下载', '复制链接'])
+    expect(labels.slice(0, 4)).toEqual(['转发', '复制链接', '用别的 App 打开', '下载'])
     items.find((item) => item.textContent === '转发')!.click()
     await until('forward asked', () => gugu.files.forward!.mock.calls.length > 0)
     expect(gugu.files.forward).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'a' })])
