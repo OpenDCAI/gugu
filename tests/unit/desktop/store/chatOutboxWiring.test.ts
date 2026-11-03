@@ -5,9 +5,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
 import { chatService } from '../../../../apps/desktop/src/lib/chat'
+import { topicService } from '../../../../apps/desktop/src/lib/topics'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { openImRepository, putOutboxRecord, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import {
+  bindOutboxActions,
   createOutboxWiring,
   resolveOutboxRecipients,
   type OutboxWiringIo,
@@ -115,6 +117,28 @@ afterEach(() => {
   vi.clearAllTimers()
   vi.useRealTimers()
   vi.restoreAllMocks()
+})
+
+it.each(['agent', 'human', 'departed', 'self'])('queues a %s-authored source through the existing topic service', async (kind) => {
+  const sourceMessageId = `source-${kind}`
+  const created = { chat_id: 'created-topic', public_id: null, name: 'Source contract',
+    source_chat_id: 'chat-1', source_message_id: sourceMessageId, creator_user_id: 'owner-1' }
+  const create = vi.spyOn(topicService, 'createTopic').mockResolvedValue(created)
+  const send = vi.spyOn(chatService, 'sendMessage').mockRejectedValue(new Error('Topics must use create_topic'))
+  const f = wiringHarness(sourceMessageId)
+  try {
+    const actions = bindOutboxActions({ current: f.wiring }, 'owner-1')
+    expect(await actions.createTopic({ sourceChatId: 'chat-1', sourceMessageId, name: 'Source contract' }))
+      .toEqual(created)
+    expect(create).toHaveBeenCalledExactlyOnceWith({ sourceChatId: 'chat-1', sourceMessageId,
+      name: 'Source contract', topicId: expect.any(String) })
+    expect(send).not.toHaveBeenCalled()
+    expect((await f.repository).snapshot().outbox).toEqual([])
+  } finally {
+    f.wiring.dispose()
+    const repository = await f.repository
+    repository.close()
+  }
 })
 
 describe('committed outbound reconciliation', () => {
