@@ -119,8 +119,8 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-it.each(['agent', 'human', 'departed', 'self'])('queues a %s-authored source through the existing topic service', async (kind) => {
-  const sourceMessageId = `source-${kind}`
+it('queues the source and explicit recipients through the existing topic service', async () => {
+  const sourceMessageId = 'topic-source'
   const created = { chat_id: 'created-topic', public_id: null, name: 'Source contract',
     source_chat_id: 'chat-1', source_message_id: sourceMessageId, creator_user_id: 'owner-1' }
   const create = vi.spyOn(topicService, 'createTopic').mockResolvedValue(created)
@@ -128,10 +128,10 @@ it.each(['agent', 'human', 'departed', 'self'])('queues a %s-authored source thr
   const f = wiringHarness(sourceMessageId)
   try {
     const actions = bindOutboxActions({ current: f.wiring }, 'owner-1')
-    expect(await actions.createTopic({ sourceChatId: 'chat-1', sourceMessageId, name: 'Source contract' }))
+    expect(await actions.createTopic({ sourceChatId: 'chat-1', sourceMessageId, name: 'Source contract', memberUserIds: ['explicit-peer'] }))
       .toEqual(created)
     expect(create).toHaveBeenCalledExactlyOnceWith({ sourceChatId: 'chat-1', sourceMessageId,
-      name: 'Source contract', topicId: expect.any(String) })
+      name: 'Source contract', memberUserIds: ['explicit-peer'], topicId: expect.any(String) })
     expect(send).not.toHaveBeenCalled()
     expect((await f.repository).snapshot().outbox).toEqual([])
   } finally {

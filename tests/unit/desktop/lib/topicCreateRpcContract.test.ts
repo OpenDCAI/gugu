@@ -11,8 +11,8 @@ const { topicService } = await import('../../../../apps/desktop/src/lib/topics')
 
 beforeEach(() => { rpc.mockReset(); from.mockReset() })
 
-it.each(['agent', 'human', 'departed', 'self'])('uses create_topic for a %s-authored source without a local author roster', async (kind) => {
-  const sourceMessageId = `source-${kind}`
+it('uses create_topic with the durable topic and source IDs, without a local author roster', async () => {
+  const sourceMessageId = 'topic-source'
   rpc.mockResolvedValue({ data: [{ chat_id: 'topic', name: 'Source contract', creator_user_id: 'opener' }], error: null })
   const result = await topicService.createTopic({ sourceChatId: 'source', sourceMessageId, name: ' Source contract ', topicId: 'durable-topic' })
   expect(rpc).toHaveBeenCalledExactlyOnceWith('create_topic', {
