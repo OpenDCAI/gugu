@@ -142,7 +142,7 @@ const taskRows = () => [...host.querySelectorAll('[cmdk-item][data-value^="task:
 async function emptyPalette() {
   await act(async () => {
     root.render(<QueryClientProvider client={queryClient}>
-      <CommandPaletteModal key={++generation} onClose={() => {}} />
+      <CommandPaletteModal key={++generation} onClose={() => {}} onSuccess={() => {}} />
     </QueryClientProvider>);
   });
   // Wait for the real query consumer's ten rows, not elapsed wall-clock time.
