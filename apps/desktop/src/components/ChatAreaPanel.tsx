@@ -1,3 +1,4 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useMessageQuote } from '@/hooks/useMessageQuote'
 import { GroupRenameContext, useChatCommands } from './chat/use-chat-commands'
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
@@ -12,7 +13,6 @@ import { useChatStore } from '../store/chatContext'
 import { ChatLineScope } from '../store/chatLineScope'
 import { useAuth } from '../store/auth'
 import type { AgentConversationActivity, GroupCollabSnapshot, MessageItem } from '@gugu/core/shared/types/chat'
-import { chatService } from '../lib/chat'
 import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'; import { useDeliveryWaits } from '../hooks/useDeliveryWaits'
 import { useSourceMessageReveal } from '../hooks/useSourceMessageReveal'
 import { useChatHistoryPagination } from './chat/useChatHistoryPagination'
@@ -119,7 +119,7 @@ export function ChatAreaPanel({ chatId, ...surface }: ChatAreaPanelProps) {
 function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarget = false, hidden = false, mobile = false, openNonce, onBack, chrome, blockHost, onOpenUserChat }: Omit<ChatAreaPanelProps, 'chatId'>) {
   const { toast } = useToast()
   const { t } = useTranslation('messaging')
-  const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, sendAttachments, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, messageWindow, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'sendAttachments', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'messageWindow', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId')
+  const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, forwardMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, sendAttachments, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, messageWindow, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'forwardMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'sendAttachments', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'messageWindow', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId')
   const { user } = useAuth()
   const surfaceTab = useImPageTab(imPage), surfaceVisible = surfaceTab === 'chats' && !hidden
   const surfaceElement = useRef<HTMLDivElement>(null)
@@ -145,6 +145,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   const isRoomChatSurface = activeChat ? isRoomChat(activeChat.kind) : false
   // 场所型(群/话题)读自己的 name/avatar;私聊读对端。名字与对话列表、⌘K 面板、「来自 X」同一个函数(chatDisplayName)。
   const activeChatName = activeChat ? chatDisplayName(activeChat, peerIdentity?.display_name) : ''
+  const shownActiveChatName = useShownAgentName({ name: activeChatName, createdAt: !isRoomChatSurface && peerIdentity?.type === 'agent' ? peerIdentity.created_at ?? undefined : undefined })
   const activeChatAvatar = isRoomChatSurface ? (activeChat?.avatar ?? null) : (peerIdentity?.avatar ?? null)
   // #1312 — every right-side surface (settings, announcement, members, workspace, history, topic split,
   // file preview) occupies the SAME right slot as a flex sibling that narrows the message column; the
@@ -360,11 +361,11 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     if (!user || forwardMessages.length === 0) return
     for (const msg of forwardMessages) {
       for (const targetChatId of targetChatIds) {
-        await chatService.forwardMessage(msg.id, targetChatId, user.id)
+        await forwardMessage(msg, targetChatId)
       }
     }
     if (selectMode) exitSelectMode()
-  }, [forwardMessages, user, selectMode, exitSelectMode])
+  }, [forwardMessages, user, selectMode, exitSelectMode, forwardMessage])
 
   // Listen for RPC-triggered quote
   useEffect(() => {
@@ -668,11 +669,9 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
         position: 'relative',
       }}
     >
-      {/* Title bar — @@@ui-ruler 会话头 = PaneHeader。原来这里自己拍高度(padding 15px 顶 + align-items:flex-start),
-          与会话列表/通讯录/发现/设置四个列头的 47/52/77 各不相同;现在四处同吃 --pane-header-h,标题坐在同一条基线上。
-          @@@822 右侧窗控留白(Windows/Linux 138px、Mac/web 0)不再撑出一套自己的 padding,只加在 PaneHeader 的
-          paddingRight 上。@@@1375 owner: header 与正文同色,只用 divider 一条线区分。 */}
-      {blockHost && <ChatBlockHead host={blockHost} actions={headerActions} chat={activeChat} name={activeChatName} avatar={activeChatAvatar} isAgent={peerIdentity?.type === 'agent'} identitiesById={identitiesById} />}
+      {/* 会话头共用 PaneHeader 尺寸和窗控留白，与正文同色，只用 divider 分隔。
+          ChatBlockHead 把同一份标题和动作放进块头。 */}
+      {blockHost && <ChatBlockHead host={blockHost} actions={headerActions} chat={activeChat} name={shownActiveChatName} avatar={activeChatAvatar} isAgent={peerIdentity?.type === 'agent'} identitiesById={identitiesById} />}
       {blockTabs}
       {((!chrome && !blockHost) || searchMode) && <PaneHeader
         divider={!(mobile && topicSurface.topics.length > 0)} data-chat-area-header=""
@@ -716,7 +715,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
                 aria-label={t('chatArea.conversationProfile')}
                 style={{ color: 'var(--fg)', fontWeight: 600, letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, cursor: 'pointer' }}
               >
-                {activeChatName}
+                {shownActiveChatName}
               </span>
               {/* @@@group-count (#1102) 群名后成员数 (N) — 对齐设计稿 #single-name 群头 `创业产品 (4)`
                   (faint-fg, 常规字重)。计数从 群名旁移过来,与下方成员状态行解耦。 */}

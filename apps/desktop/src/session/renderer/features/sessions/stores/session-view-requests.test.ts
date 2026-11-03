@@ -26,3 +26,13 @@ describe('session page bridge', () => {
     expect(opened).toEqual([['chat-1', true]]);
   });
 });
+
+it('forwards a resource request to the session renderer without serializing the authorized file host', async () => {
+  const target = {} as Window;
+  const openChatResource = vi.fn(async () => undefined);
+  installSessionViewRequestBridge(target, { openChat: vi.fn(), openChatResource });
+  const bridge = (target as unknown as Record<string, SessionViewRequestBridge>)[SESSION_VIEW_REQUEST_BRIDGE_KEY];
+  const request = { projectId: 'project', sessionId: 'native-session', chatId: 'owned-dm', sourceTabId: 'file' };
+  await bridge.openChatResource?.(request);
+  expect(openChatResource).toHaveBeenCalledExactlyOnceWith(request);
+});

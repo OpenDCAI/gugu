@@ -196,8 +196,10 @@ function auditAcpRequest(method, params) {
 }
 
 function write(message) {
-  process.stdout.write(`${JSON.stringify(message)}\n`)
+  if (!process.stdout.write(`${JSON.stringify(message)}\n`)) appReader?.pause()
 }
+
+process.stdout.on('drain', () => appReader?.resume())
 
 function respond(id, result, error) {
   write(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result })

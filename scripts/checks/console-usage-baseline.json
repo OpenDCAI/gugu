@@ -106,11 +106,6 @@
   },
   {
     "rule": "console-member",
-    "file": "apps/desktop/src/components/chat/sendAttachmentBatch.ts",
-    "count": 1
-  },
-  {
-    "rule": "console-member",
     "file": "apps/desktop/src/components/chat/useConversationScrollMemory.ts",
     "count": 1
   },

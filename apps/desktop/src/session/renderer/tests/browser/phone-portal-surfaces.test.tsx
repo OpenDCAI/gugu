@@ -61,13 +61,39 @@ it('the search surface stays steady under hover and a keyboard press', async () 
   await userEvent.keyboard('{/Space}')
 })
 
-it('small project avatars draw one stable cover with unique clipping', async () => {
-  await harness.render(<div data-phone-shell=""><ProjectFolderAvatar coverId="same-project" size={32} /><ProjectFolderAvatar coverId="same-project" size={40} /></div>)
+it.each(['light', 'dark'])('%s: flat project folders stay inside each avatar size', async theme => {
+  document.documentElement.dataset.theme = theme
+  const sizes = [32, 40, 48, 64]
+  await harness.render(<div data-phone-shell="">{sizes.map(size => <ProjectFolderAvatar key={size} coverId="same-project" size={size} />)}</div>)
   const icons = [...harness.container.querySelectorAll<SVGSVGElement>('.gg-project-avatar')]
-  expect(icons).toHaveLength(2)
-  expect(icons.map(icon => icon.getBoundingClientRect().width)).toEqual([32, 40])
-  const clips = [...harness.container.querySelectorAll('clipPath')]
-  expect(clips).toHaveLength(2)
-  expect(new Set(clips.map(clip => clip.id)).size).toBe(2)
-  for (const icon of icons) expect(icon.querySelectorAll('.gg-project-avatar-cover')).toHaveLength(1)
+  expect(icons.map(icon => icon.getBoundingClientRect().width)).toEqual(sizes)
+  expect(icons.map(icon => icon.getBoundingClientRect().height)).toEqual(sizes)
+  for (const icon of icons) {
+    expect(icon.querySelector('radialGradient, linearGradient, filter, clipPath')).toBeNull()
+    const bounds = icon.getBBox()
+    expect(bounds.width).toBeGreaterThan(0)
+    expect(bounds.height).toBeGreaterThan(0)
+    expect(bounds.x).toBeGreaterThanOrEqual(0)
+    expect(bounds.y).toBeGreaterThanOrEqual(0)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(48)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(48)
+    for (const face of icon.querySelectorAll('path[fill]')) {
+      expect(getComputedStyle(face).fill).not.toBe('none')
+    }
+  }
+})
+
+it.each(['light', 'dark'])('%s: project colors remain stable and become more vivid while running', async theme => {
+  document.documentElement.dataset.theme = theme
+  await harness.render(<>{[0, 0, 1, 8, 100].map((running, i) => <ProjectFolderAvatar key={i} coverId="same-project" running={running} />)}</>)
+  const colors = [...harness.container.querySelectorAll<SVGPathElement>('.gg-project-avatar path[fill]:first-child')].map(face => getComputedStyle(face).fill)
+  expect(colors).toHaveLength(5)
+  expect(colors[0]).toBe(colors[1])
+  expect(colors[3]).toBe(colors[4])
+  const chroma = (color: string) => {
+    const channels = color.match(/\d+/g)!.map(Number)
+    return Math.max(...channels) - Math.min(...channels)
+  }
+  expect(chroma(colors[0])).toBeLessThan(chroma(colors[2]))
+  expect(chroma(colors[2])).toBeLessThan(chroma(colors[3]))
 })

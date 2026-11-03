@@ -3,6 +3,7 @@ import type { IntegrationCredentials } from '@gugu/session-plugins/integrations'
 import type { MovableIntegrationAccount } from '@shared/core/integrations/integration-move';
 import { COPY_MAX_FILE_BYTES, type FsEntry, type HomeFs } from './assistant-move-copy';
 import { MoveError, planMove, runMove, summarizeAccounts, type MoveDeps, type MoveJournal, type MoveSchedule, type MoveSide } from './assistant-move';
+import { durableMoveJournal } from './assistant-move-journal';
 
 type Node = { kind: 'dir' } | { kind: 'file'; bytes: Uint8Array } | { kind: 'symlink' };
 
@@ -211,9 +212,118 @@ function baseDeps(over: Partial<MoveDeps> & Pick<MoveDeps, 'direction' | 'source
 }
 
 describe('助理搬家编排 (#7199)', () => {
+  it.each(['to-cloud', 'to-computer'] as const)('restores online after completed handoff without reading the retired source (%s)', async direction => {
+    const events: string[] = [];
+    const local = localSide(events, { schedules: [SCHEDULE], accounts: [{ integrationId: 'notion', accountId: 'default', credentials: { t: 1 } }] });
+    const cloud = cloudSide(events, { schedules: direction === 'to-computer' ? [SCHEDULE] : [], accounts: direction === 'to-computer' ? [{ integrationId: 'notion', accountId: 'default', credentials: { t: 1 } }] : [] });
+    const source = direction === 'to-cloud' ? local : cloud;
+    const target = direction === 'to-cloud' ? cloud : local;
+    let adopted = false;
+    let desired = 'online';
+    const deps = baseDeps({ direction, source, openTarget: async () => target,
+      isAdopted: async () => adopted,
+      adopt: async () => { adopted = true; source.sched.length = 0; },
+      restart: async () => { desired = 'offline'; throw new Error('online request lost'); },
+    }, events);
+    await expect(runMove(deps)).rejects.toMatchObject({ step: 'restart' });
+    expect(JSON.stringify(deps.journal.load()?.completion)).not.toContain('credentials');
+    const schedulesBefore = structuredClone(target.sched);
+    await target.fs.writeText(target.paths.instructions, 'NEW-AT-TARGET');
+    let sourceReads = 0;
+    const unavailable = async () => { sourceReads++; throw new Error('retired source offline'); };
+    source.fs.list = unavailable;
+    source.fs.readText = unavailable;
+    source.integrations.exportForMove = unavailable;
+    source.schedules.list = unavailable;
+    source.integrations.disconnect = async () => { throw new Error('retired source offline'); };
+    deps.openTarget = async () => { throw new Error('do not reopen a completed target'); };
+    let activations = 0;
+    Object.assign(deps, { restoreOnline: async () => { activations++; desired = 'online'; } });
+    const result = await runMove(deps);
+    expect(desired).toBe('online');
+    expect(activations).toBe(1);
+    expect(sourceReads).toBe(0);
+    expect(target.sched).toEqual(schedulesBefore);
+    expect(target.d.text(target.paths.instructions)).toBe('NEW-AT-TARGET');
+    expect(result.accounts.kept).toContainEqual({ integrationId: 'notion', accountId: 'default' });
+    expect(result.warnings.some(warning => warning.startsWith('revoke '))).toBe(true);
+  });
+  it.each(['to-cloud', 'to-computer'] as const)('preserves target edits made during an interrupted move (%s)', async (direction) => {
+    const events: string[] = [];
+    const local = localSide(events, { files: { '/gh/assistant': 'dir', '/gh/assistant/.claude': 'dir', '/gh/assistant/.claude/memory': 'dir', '/gh/assistant/.claude/memory/note.md': 'OLD' } });
+    const cloud = cloudSide(events, { files: { '/home/u': 'dir', '/home/u/.claude': 'dir', '/home/u/.claude/projects': 'dir', '/home/u/.claude/projects/-home-u-助理': 'dir', '/home/u/.claude/projects/-home-u-助理/memory': 'dir', '/home/u/.claude/projects/-home-u-助理/memory/note.md': 'OLD' } });
+    const source = direction === 'to-cloud' ? local : cloud;
+    const target = direction === 'to-cloud' ? cloud : local;
+    source.sched.push(SCHEDULE);
+    target.schedules.restore = async () => { throw new Error('interrupted before schedule handoff'); };
+    const deps = baseDeps({ direction, source, openTarget: async () => target }, events);
+    await expect(runMove(deps)).rejects.toMatchObject({ step: 'schedules' });
+    const note = `${target.paths.memoryDir}/note.md`;
+    target.d.nodes.set(note, { kind: 'file', bytes: new TextEncoder().encode('NEW-AT-TARGET') });
+    deps.isAdopted = async () => true;
+    deps.restart = async () => {};
+    await expect(runMove(deps)).rejects.toMatchObject({ step: 'files', cause: { code: 'conflict' } });
+    expect(target.d.text(note)).toBe('NEW-AT-TARGET');
+    expect(source.d.text(`${source.paths.memoryDir}/note.md`)).toBe('OLD');
+    expect(deps.journal.load()).not.toBeNull();
+  });
+  it.each(['to-cloud', 'to-computer'] as const)('restores retired schedules after controller cache loss (%s)', async (direction) => {
+    const events: string[] = [];
+    const source = direction === 'to-cloud' ? localSide(events, { schedules: [SCHEDULE] }) : cloudSide(events, { schedules: [SCHEDULE] });
+    source.workdir = '/original-assistant';
+    const target = direction === 'to-cloud' ? cloudSide(events) : localSide(events);
+    let raw: string | null = null;
+    const storage = { read: async () => raw, write: async (value: string) => { raw = value; }, clear: async () => { raw = null; } };
+    let adopted = false;
+    const deps = baseDeps({ direction, source, openTarget: async () => target,
+      model: { source: 'platform', modelId: 'original-model', protocol: 'anthropic-messages' },
+      journal: await durableMoveJournal(journalStore(), storage),
+      isAdopted: async () => adopted,
+      adopt: async () => { adopted = true; source.sched.length = 0; throw new Error('adoption response lost'); },
+    }, events);
+    await expect(runMove(deps)).rejects.toMatchObject({ step: 'adopt' });
+    expect(JSON.parse(raw!).sourceWorkdir).toBe('/original-assistant');
+    expect(JSON.parse(raw!).model.modelId).toBe('original-model');
+    source.schedules.list = async () => null;
+    // A new controller/store instance has no localStorage but reloads the native recovery file.
+    deps.journal = await durableMoveJournal(journalStore(), storage);
+    const result = await runMove(deps);
+    expect(result.schedules.restored).toBe(1);
+    expect(target.sched).toEqual([SCHEDULE]);
+    expect(raw).toBeNull();
+  });
+  it('waits for the schedule snapshot to reach durable storage before retirement', async () => {
+    const events: string[] = [];
+    const source = localSide(events, { schedules: [SCHEDULE] });
+    let durable: MoveJournal | null = null;
+    const cache = journalStore();
+    const deps = baseDeps({ direction: 'to-cloud', source, openTarget: async () => cloudSide(events),
+      journal: { ...cache, save: async (journal) => {
+        const snapshot = structuredClone(journal);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        durable = snapshot;
+        cache.save(snapshot);
+      } },
+      adopt: async () => {
+        expect(durable?.schedules).toEqual([SCHEDULE]);
+        source.sched.length = 0;
+      },
+    }, events);
+    await runMove(deps);
+  });
+
+  it('does not adopt when the recovery journal cannot be persisted', async () => {
+    const events: string[] = [];
+    const deps = baseDeps({ direction: 'to-cloud', source: localSide(events, { schedules: [SCHEDULE] }), openTarget: async () => cloudSide(events),
+      journal: { load: () => null, save: () => { throw new Error('disk full'); }, clear: () => {} },
+    }, events);
+    await expect(runMove(deps)).rejects.toMatchObject({ step: 'preflight', sourceIntact: true });
+    expect(events).not.toContain('adopt');
+  });
   it('verifies the model even when adoption already happened, and never turns that failure into move success', async () => {
     const events: string[] = [];
     const deps = baseDeps({ direction: 'to-cloud', source: localSide(events), openTarget: async () => cloudSide(events),
+      journal: journalStore({ direction: 'to-cloud', assistantId: 'agent-1', startedAt: 1, done: ['preflight'], schedules: [], source: LOCAL_HOME }),
       isAdopted: async () => true, configure: async () => { events.push('model'); throw new Error('model not applied'); } }, events);
     await expect(runMove(deps)).rejects.toMatchObject({ step: 'adopt', sourceIntact: false });
     expect(events).toContain('model');
@@ -361,30 +471,40 @@ describe('助理搬家编排 (#7199)', () => {
     expect(events).not.toContain('adopt');
   });
 
-  it('重启没成不算搬家失败,记一笔 warning;之后账号照常剪切', async () => {
+  it.each(['to-cloud', 'to-computer'] as const)('restart online failure retains recovery and source credentials (%s)', async (direction) => {
     const events: string[] = [];
     const local = localSide(events, {
       files: { '/gh/assistant': 'dir', '/gh/assistant/.claude': 'dir' },
       accounts: [{ integrationId: 'notion', accountId: 'default', credentials: { t: 1 } }],
     });
-    const report = await runMove(
-      baseDeps(
+    const target = cloudSide(events);
+    let desired = 'online';
+    const deps = baseDeps(
         {
-          direction: 'to-cloud',
+          direction,
           source: local,
-          openTarget: async () => cloudSide(events),
+          openTarget: async () => target,
           restart: async () => {
-            throw new Error('device busy');
+            desired = 'offline';
+            throw new Error('online request lost');
           },
         },
         events
-      )
-    );
-    expect(report.warnings).toEqual(['restart: device busy']);
+      );
+    await expect(runMove(deps)).rejects.toMatchObject({ step: 'restart', sourceIntact: false });
+    expect(desired).toBe('offline');
+    expect(deps.journal.load()?.done).toContain('schedules');
+    expect(deps.journal.load()?.done).not.toContain('restart');
+    expect(local.stored).toHaveLength(1);
+    deps.isAdopted = async () => true;
+    deps.restart = async () => { desired = 'online'; };
+    await runMove(deps);
+    expect(desired).toBe('online');
+    expect(deps.journal.load()).toBeNull();
     expect(local.stored).toEqual([]);
   });
 
-  it('云上那版咕咕还不认搬账号 / 重排:不当失败、不撤任何账号,如实回报(已安排逐条列出)', async () => {
+  it('retains schedules and recovery until an older target supports schedule restoration', async () => {
     const events: string[] = [];
     const local = localSide(events, {
       files: { '/gh/assistant': 'dir', '/gh/assistant/.claude': 'dir' },
@@ -399,12 +519,20 @@ describe('助理搬家编排 (#7199)', () => {
     cloud.schedules.restore = async () => {
       throw tooOld;
     };
-    const report = await runMove(baseDeps({ direction: 'to-cloud', source: local, openTarget: async () => cloud }, events));
+    const deps = baseDeps({ direction: 'to-cloud', source: local, openTarget: async () => cloud }, events);
+    await expect(runMove(deps)).rejects.toMatchObject({ step: 'schedules', cause: { code: 'unknown_method' } });
+    expect(deps.journal.load()?.schedules).toEqual([SCHEDULE]);
+    expect(local.stored).toHaveLength(1);
+    expect(events).not.toContain('restart');
+    cloud.schedules.restore = async (items) => { cloud.sched.push(...items); return { restored: items.length, skipped: [] }; };
+    deps.isAdopted = async () => true;
+    const report = await runMove(deps);
 
     expect(report.accounts.unsupported).toBe(true);
     expect(report.accounts.moved).toEqual([]);
     expect(local.stored).toHaveLength(1);
-    expect(report.schedules.unsupported).toEqual([SCHEDULE]);
+    expect(cloud.sched).toEqual([SCHEDULE]);
+    expect(deps.journal.load()).toBeNull();
     expect(events).toContain('restart');
   });
 
@@ -583,7 +711,7 @@ describe('助理搬家编排 (#7199)', () => {
     expect(events).not.toContain('adopt');
   });
 
-  it('认不出旧家那一头它的会话时:不当成「一条都没有」—— 用日志里的那份;日志也没有就如实标 unreadable', async () => {
+  it('uses the saved schedules when the source retired, and fails if no snapshot can be recovered', async () => {
     const events: string[] = [];
     const local = localSide(events, { files: { '/gh/assistant': 'dir', '/gh/assistant/.claude': 'dir' } });
     local.schedules.list = async () => null;
@@ -594,9 +722,9 @@ describe('助理搬家编排 (#7199)', () => {
     expect(r1.schedules.unreadable).toBe(false);
 
     const cloud2 = cloudSide(events);
-    const r2 = await runMove(baseDeps({ direction: 'to-cloud', source: local, openTarget: async () => cloud2 }, events));
+    await expect(runMove(baseDeps({ direction: 'to-cloud', source: local, openTarget: async () => cloud2 }, events)))
+      .rejects.toMatchObject({ step: 'schedules' });
     expect(cloud2.sched).toEqual([]);
-    expect(r2.schedules.unreadable).toBe(true);
   });
 
   it('确认框清单:只含名字,不含任何凭据字段', () => {

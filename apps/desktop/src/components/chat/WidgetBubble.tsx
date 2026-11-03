@@ -13,6 +13,13 @@ import { isInstallRefused } from '../../session/shared/extensions/attachment-ins
 import { refusedLine } from '../extensionBundle/installedHere'
 import { ExtensionPage } from '../../session/renderer/features/extensions/extension-view-layer'
 import { useConversationVisibility } from './useConversationVisibility'
+import { useAuth } from '../../store/auth'
+import { messageForUser } from '../../lib/userFacingError'
+import { rendererLogger } from '../../lib/log'
+import { installPackageOf, sharedPackagesOf, subscribeSharedPackages, type SharedPackage } from '../extensionBundle/sharedPackages'
+import { availableInstallOffers, widgetInstallOffer, type MarketOffer } from '../extensionBundle/installOffers'
+
+const log = rendererLogger('chat/widget')
 
 type Message = Pick<MessageItem, 'id' | 'chat_id' | 'sender_user_id' | 'content'>
 
@@ -26,7 +33,7 @@ export const WidgetBubble = observer(function WidgetBubble({ message }: { messag
   const reason = !appsHere || (manifest?.platforms && !manifest.platforms.includes(platform.kind === 'electron' ? 'desktop' : 'phone')) ? 'platform'
     : !manifest ? 'missing' : !installedExtensionsStore.isEnabled(widget.app) ? 'disabled' : !tab?.widget ? 'view' : null
   if (reason || !tab?.widget) return <WidgetUnavailable widget={widget} reason={reason ?? 'view'} chatId={message.chat_id} />
-  return <WidgetView key={`${message.id}:${manifest?.version}`} message={message} widget={widget} height={tab.widget.height} />
+  return <WidgetView key={`${message.id}:${manifest?.version}`} message={message} widget={widget} height={widget.height ?? tab.widget.height} />
 })
 
 function WidgetView({ message, widget, height }: { message: Message; widget: WidgetMessage; height: number }) {
@@ -46,35 +53,54 @@ function WidgetView({ message, widget, height }: { message: Message; widget: Wid
   </div>
 }
 
-function WidgetUnavailable({ widget, reason, chatId }: { widget: WidgetMessage; reason: string; chatId: string }) {
+const WidgetUnavailable = observer(function WidgetUnavailable({ widget, reason, chatId }: { widget: WidgetMessage; reason: string; chatId: string }) {
   const { t } = useTranslation('messaging')
+  const { user } = useAuth()
   const { ref, shown } = useConversationVisibility(true)
-  const [offer, setOffer] = useState<{ version: string } | null | undefined>()
+  const [sources, setSources] = useState<{ chatId: string; userId: string; shared: ReadonlyMap<string, SharedPackage>; market: readonly MarketOffer[] } | null>(null)
+  const [cue, setCue] = useState(0)
   const [installing, setInstalling] = useState(false)
   const [error, setError] = useState('')
+  const canOffer = reason === 'missing' || reason === 'view'
+  useEffect(() => subscribeSharedPackages(changed => { if (changed === chatId) setCue(cue => cue + 1) }), [chatId])
   useEffect(() => {
-    if (!shown || reason !== 'missing' || !appsHere || offer !== undefined) return
+    setSources(null)
+    setError('')
+    if (!shown || !canOffer || !appsHere || !user?.id) return
     let live = true
-    void appsHere.marketOffers().then(result => {
-      if (live) { setOffer(result.data?.find(app => app.manifest.id === widget.app) ?? null); if (!result.success) setError(result.error ?? '') }
-    }, error => { if (live) { setOffer(null); setError(String(error)) } })
+    void Promise.all([
+      sharedPackagesOf(chatId, user.id).catch(error => {
+        log.warn({ error: messageForUser(error), chatId }, 'widget App packages could not be read')
+        return new Map<string, SharedPackage>()
+      }),
+      appsHere.marketOffers().then(result => {
+        if (live && !result.success) setError(messageForUser(result.error))
+        return result.data ?? []
+      }, error => { if (live) setError(messageForUser(error)); return [] }),
+    ]).then(([shared, market]) => { if (live) setSources({ chatId, userId: user.id, shared, market }) })
     return () => { live = false }
-  }, [shown, reason, widget.app, offer])
+  }, [shown, canOffer, chatId, user?.id, cue])
+  const offer = canOffer && sources?.chatId === chatId && sources.userId === user?.id
+    ? widgetInstallOffer(availableInstallOffers(sources.shared, sources.market, installedExtensionsStore.manifests, installedExtensionsStore.origins),
+      widget.app, widget.view, platform.kind === 'electron' ? 'desktop' : 'phone') : null
   const install = async () => {
     if (!appsHere || !offer) return
     setInstalling(true)
+    setError('')
     try {
-      const result = await appsHere.installFromMarket({ ref: { extensionId: widget.app, version: offer.version }, chatId })
+      const result = offer.from.kind === 'shared'
+        ? await appsHere.installAttachment({ ...installPackageOf(offer.from.card), chatId })
+        : await appsHere.installFromMarket({ ref: { extensionId: offer.from.extensionId, version: offer.from.version }, chatId })
       if (!result.success) throw new Error(result.error)
       if (result.data && isInstallRefused(result.data)) setError(refusedLine(result.data))
-    } catch (error) { setError(String(error)) }
+    } catch (error) { setError(messageForUser(error)) }
     finally { setInstalling(false) }
   }
   return <div ref={ref} className="max-w-full min-w-0">
     <p className="whitespace-pre-wrap break-words">{widget.text}</p>
     <p className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">{t(`message.widgetUnavailable.${reason}`)}{' '}
-      {offer ? <Button size="sm" variant="ghost" disabled={installing} onClick={() => void install()}>{t('chatArea.openWith.install')}</Button> : null}
+      {offer ? <Button size="sm" variant="ghost" disabled={installing} onClick={() => void install()} data-widget-install>{t('chatArea.openWith.install')}</Button> : null}
     </p>
     {error ? <p role="alert">{error}</p> : null}
   </div>
-}
+})

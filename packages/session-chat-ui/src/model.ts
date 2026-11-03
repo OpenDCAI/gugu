@@ -79,6 +79,8 @@ export type ChatMessage = {
   text: string;
   /** True while the agent is still writing to this message. */
   streaming?: boolean;
+  /** View-only state of an ordinary input before its native echo is available. */
+  sendStatus?: { state: 'sending' | 'waiting' | 'accepted' | 'failed' | 'unknown'; error?: string; reason?: string; retryable?: boolean };
   /** View-only confirmed file send; normalized to the existing attachment card before painting. */
   sentAttachment?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment;
   sentAttachments?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment[];

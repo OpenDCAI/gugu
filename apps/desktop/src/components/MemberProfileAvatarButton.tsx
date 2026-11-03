@@ -1,4 +1,6 @@
 import { Avatar } from './Avatar'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import type { AutomationTestId } from '../lib/automationDom'
 import type { MemberProfileCardModel } from './MemberProfileCard'
 import { useTranslation } from 'react-i18next'
@@ -23,6 +25,8 @@ export function MemberProfileAvatarButton({
   onOpen: (event: React.MouseEvent<HTMLButtonElement>) => void
 }) {
   const { t } = useTranslation('contacts')
+  const identity = useAvatarIdentity(isAgent ? member.id : '')
+  const name = useShownAgentName({ name: member.displayName, createdAt: isAgent ? identity?.created_at ?? undefined : undefined })
   return (
     <button
       type="button"
@@ -35,7 +39,7 @@ export function MemberProfileAvatarButton({
       data-profile-member-id={member.id}
       data-profile-member-type={member.type}
       data-profile-member-role={member.role}
-      aria-label={t('profile.viewProfile', { name: member.displayName })}
+      aria-label={t('profile.viewProfile', { name })}
       aria-expanded={active}
       onClick={(event) => {
         event.stopPropagation()
@@ -57,7 +61,7 @@ export function MemberProfileAvatarButton({
       }}
     >
       <Avatar
-        name={member.displayName}
+        name={name}
         avatarUrl={member.avatar}
         seed={member.id}
         size={avatarSize}

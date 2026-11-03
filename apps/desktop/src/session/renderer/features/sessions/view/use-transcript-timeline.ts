@@ -1,5 +1,8 @@
 import { useLayoutEffect, useState } from 'react';
-import { createComputed, createMemo, createRoot } from 'solid-js';
+import { createComputed, createMemo, createRoot, createSignal } from 'solid-js';
+import { readIdentityDirectoryBridge } from '@/lib/identityDirectoryBridge';
+import { readSelfIdentityBridge } from '@/lib/selfIdentityBridge';
+import type { TimelineRailOptions } from '@gugu/core/shared/timelineRail';
 import { pendingPromptTurn, type ChatSessionState, type SelfIdentity, type TranscriptApi } from '@gugu/session-chat-ui';
 import { timelineTurnsFromTranscript, type TimelineTurn } from './session-timeline-turns';
 
@@ -19,18 +22,34 @@ export function useTranscriptTimeline<T>(
   useLayoutEffect(() => {
     if (!transcript) return;
     return createRoot((dispose) => {
+      const directory = readIdentityDirectoryBridge();
+      const [identityRevision, setIdentityRevision] = createSignal(0);
+      const refreshIdentity = () => setIdentityRevision((revision) => revision + 1);
+      const offDirectory = directory?.subscribe(refreshIdentity);
+      const offSelf = readSelfIdentityBridge()?.subscribe(refreshIdentity);
+      const options: TimelineRailOptions = {
+        resolveSenderType: (fromId) => {
+          if (!fromId.startsWith('user:')) return null;
+          const id = fromId.slice(5);
+          const identity = directory?.getSnapshot()?.[id];
+          if (!identity) directory?.ensure([id]);
+          return identity?.type;
+        },
+      };
       // Streaming only reprojects the active turn, not the entire history.
-      const committed = createMemo(() =>
-        timelineTurnsFromTranscript(transcript.state.committedTurns, selfIdentity()),
-      );
+      const committed = createMemo(() => {
+        identityRevision();
+        return timelineTurnsFromTranscript(transcript.state.committedTurns, selfIdentity(), options);
+      });
       const active = createMemo(() => {
+        identityRevision();
         const pending = session?.state.pendingPrompt;
         const turn = transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
-        return timelineTurnsFromTranscript(turn ? [turn] : [], selfIdentity());
+        return timelineTurnsFromTranscript(turn ? [turn] : [], selfIdentity(), options);
       });
       const selected = createMemo(() => select([...committed(), ...active()]));
       createComputed(() => setSnapshot({ transcript, value: selected() }));
-      return dispose;
+      return () => { offDirectory?.(); offSelf?.(); dispose(); };
     });
   }, [transcript, selfIdentity, select, session]);
 

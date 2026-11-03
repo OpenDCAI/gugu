@@ -1,3 +1,5 @@
+import { isOwnedAgentPeer, openOwnedAgentEntry } from '@/lib/ownedAgentConversation';
+import { readChatSummary } from '@/lib/chatSummariesBridge';
 import type { ReactNode } from 'react';
 import type { GuardResult } from '@renderer/app/view-registry';
 
@@ -15,6 +17,11 @@ export const chatView = {
   MainPanel: () => null,
   canActivate: (params: unknown): GuardResult => {
     const chatId = typeof params === 'object' && params !== null ? (params as { chatId?: unknown }).chatId : undefined;
+    const chat = typeof chatId === 'string' ? readChatSummary(chatId) : null;
+    if ((chat?.kind === 'dm' || chat?.kind === 'ai') && isOwnedAgentPeer(chat.peerUserId)) {
+      openOwnedAgentEntry(chatId as string);
+      return { ok: false, redirect: 'screen' };
+    }
     return typeof chatId === 'string' && chatId.length > 0 ? { ok: true } : { ok: false, redirect: 'home' };
   },
 };

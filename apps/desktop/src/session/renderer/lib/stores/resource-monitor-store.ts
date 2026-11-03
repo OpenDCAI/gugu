@@ -1,13 +1,14 @@
 import { computed, makeObservable, observable, runInAction } from 'mobx';
 import { events, rpc } from '@renderer/lib/ipc';
-import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
-import type { ResourceSnapshot } from '@shared/resource-monitor';
+import { resourceSnapshotChannel, type ResourceMonitorUpdate, type ResourceSamplingFailure } from '@shared/events/resourceEvents';
+import { resourceTotals, type ResourceSnapshot } from '@shared/resource-monitor';
 
 export class ResourceMonitorStore {
   snapshot: ResourceSnapshot | null = null;
   /** The snapshot before `snapshot`, so the view can difference cumulative CPU seconds and counters. */
   previousSnapshot: ResourceSnapshot | null = null;
   isLoadingInitialSnapshot = false;
+  samplingFailure: ResourceSamplingFailure | null = null;
   internals = false;
   private offSnapshot: (() => void) | null = null;
   private clientId = crypto.randomUUID();
@@ -26,6 +27,7 @@ export class ResourceMonitorStore {
       snapshot: observable.ref,
       previousSnapshot: observable.ref,
       isLoadingInitialSnapshot: observable,
+      samplingFailure: observable.ref,
       internals: observable,
       totalCpuPercent: computed,
       totalMemoryBytes: computed,
@@ -41,15 +43,11 @@ export class ResourceMonitorStore {
    */
   get totalCpuPercent(): number | undefined {
     const snap = this.snapshot;
-    if (!snap || snap.app.cpuPercent === undefined) return undefined;
-    let sum = snap.app.cpuPercent;
-    for (const e of snap.entries) sum += e.cpu;
-    return sum;
+    return snap ? resourceTotals(snap).cpuPercent : undefined;
   }
 
   get totalMemoryBytes(): number | undefined {
-    const app = this.appMemoryBytes;
-    return app === undefined ? undefined : app + this.agentMemoryBytes;
+    return this.snapshot ? resourceTotals(this.snapshot).memoryBytes : undefined;
   }
 
   get appMemoryBytes(): number | undefined {
@@ -59,12 +57,12 @@ export class ResourceMonitorStore {
   get agentMemoryBytes(): number {
     if (!this.snapshot) return 0;
     let sum = 0;
-    for (const e of this.snapshot.entries) sum += e.memory;
+    for (const e of [...this.snapshot.entries, ...(this.snapshot.processGroups ?? [])]) sum += e.memory;
     return sum;
   }
 
   get entryCount(): number {
-    return this.snapshot?.entries.length ?? 0;
+    return (this.snapshot?.entries.length ?? 0) + (this.snapshot?.processGroups?.filter(g => g.kind === 'session').length ?? 0);
   }
 
   start(): void {
@@ -74,12 +72,16 @@ export class ResourceMonitorStore {
     runInAction(() => {
       this.snapshot = null;
       this.previousSnapshot = null;
+      this.samplingFailure = null;
       this.isLoadingInitialSnapshot = true;
     });
-    const onSnapshot = (snap: ResourceSnapshot | null) => {
+    const onSnapshot = (update: ResourceMonitorUpdate) => {
       if (this.subscriptionId !== subscriptionId) return;
       runInAction(() => {
-        if (snap) this.applyFetchedSnapshot(snap);
+        if (update && 'samplingError' in update) {
+          if (!this.snapshot || update.samplingError.timestamp >= this.snapshot.timestamp) this.samplingFailure = update.samplingError;
+        }
+        else if (update) this.applyFetchedSnapshot(update);
         this.isLoadingInitialSnapshot = false;
       });
     };
@@ -120,6 +122,7 @@ export class ResourceMonitorStore {
 
   private applyFetchedSnapshot(snap: ResourceSnapshot): void {
     if (this.snapshot && this.snapshot.timestamp > snap.timestamp) return;
+    if (!this.samplingFailure || snap.timestamp >= this.samplingFailure.timestamp) this.samplingFailure = null;
     this.previousSnapshot = this.snapshot;
     this.snapshot = snap;
   }

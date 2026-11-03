@@ -26,6 +26,7 @@ import {
   type ExtensionBridgeResponse,
   type ExtensionAppState,
   type ExtensionChat,
+  type ExtensionMember,
   type ExtensionHostContext,
   type ExtensionHostEvent,
   type ExtensionOperator,
@@ -560,6 +561,8 @@ function waitForBinding(webContentsId: number): Promise<void> {
 }
 
 export async function bindExtensionSurface(input: {
+  /** Resource container already resolved by the host renderer, never supplied by an App. */
+  resourceChat?: string;
   opening?: PreparedChatFile;
   webContentsId: number;
   extensionId: string;
@@ -606,7 +609,7 @@ export async function bindExtensionSurface(input: {
   const filePath = await workspaceRelativeFile(workspace ? { workspace } : null, input.filePath).catch(recover);
   // Bound again for another group or file (the host normally retargets instead): the open files the
   // page holds were granted under the old binding, so they go, as in `retargetExtensionSurface`.
-  const conversation = await surfaceResourceChat(input.conversation ?? undefined, input.operator).catch(recover);
+  const conversation = await surfaceResourceChat(input.conversation ?? undefined, input.operator, input.resourceChat).catch(recover);
   if (bindingChanges.get(input.webContentsId) !== change) throw new Error('That surface binding changed');
   const previous = bindings.get(input.webContentsId);
   if (previous && (previous.conversation !== conversation || previous.itemId !== (input.itemId ?? null))) {
@@ -630,6 +633,7 @@ export async function bindExtensionSurface(input: {
     metrics: { visible: true, width: 0, height: 0 },
     themeMode: null,
   });
+  preloadFolder(bindings.get(input.webContentsId)!, input.webContentsId);
   if (input.operator?.kind === 'agent') agentPages.set(input.webContentsId, { counts: null, shown: [] });
   // Which machine its session is on, found once now: whose program's notifications it hears is read from that
   // (`knownSessionMachine`), never asked of every machine per notification.
@@ -796,6 +800,7 @@ export function currentOrLastSession(): { sessionId: string; projectId: string }
  * 尺寸留着:新的一格换完会再报一次,一样大就什么都不推,不一样大才再推一次(摩擦单 F115:原来清零,每换一次都推两遍)。
  */
 export async function retargetExtensionSurface(input: {
+  resourceChat?: string;
   opening?: PreparedChatFile;
   webContentsId: number;
   tabId: string;
@@ -818,7 +823,7 @@ export async function retargetExtensionSurface(input: {
   }
   const recover = (error: unknown) => restoreBindingChange(input.webContentsId, binding, change, error);
   const filePath = await workspaceRelativeFile(workspace ? { workspace } : null, input.filePath).catch(recover);
-  const conversation = await surfaceResourceChat(input.conversation ?? undefined, binding.operator).catch(recover);
+  const conversation = await surfaceResourceChat(input.conversation ?? undefined, binding.operator, input.resourceChat).catch(recover);
   if (bindings.get(input.webContentsId) !== binding || bindingChanges.get(input.webContentsId) !== change) throw new Error('That surface binding changed');
   // Another handed-over file: the one it could open without a capability was the old one, so its open files go (it is
   // told, and reopens what it may). Its other files were never the place's to give.
@@ -826,12 +831,17 @@ export async function retargetExtensionSurface(input: {
     fileSync.revoke(input.webContentsId, 'unbound');
   }
   const was = fileOf(binding);
+  const folderChanged = binding.conversation !== conversation || binding.itemId !== (input.itemId ?? null);
   binding.workspace = workspace;
   binding.conversation = conversation;
   binding.tabId = input.tabId;
   binding.filePath = filePath;
   binding.itemId = input.itemId ?? null;
   binding.opening = input.opening;
+  if (folderChanged) {
+    openingFolders.delete(binding);
+    preloadFolder(binding, input.webContentsId);
+  }
   bindingChanges.delete(input.webContentsId);
   pushContext(input.webContentsId);
   // Moved to a file a pill or a link is waiting to open: its place is this page's now.
@@ -916,6 +926,7 @@ const groupReads = coalescedReads((key, error) =>
 export function notifyGroupWorkspaceChanged(changes: readonly GroupFilesChange[]): Promise<void> {
   const reads: Promise<void>[] = [];
   for (const { chatId, itemIds } of changes) {
+    for (const binding of bindings.values()) if (binding.conversation === chatId) openingFolders.delete(binding);
     const key = placeKey({ chat: chatId });
     const readers = new Set<string | null>();
     for (const places of pageWatches.values()) for (const watch of places.values()) {
@@ -1073,10 +1084,30 @@ export async function bringSessionUp(session: { sessionId: string; projectId: st
 
 /**
  * Each chat a surface sits in: the group, topic or private chat itself (`getContext().chat`: name, kind, its group) and who is in it
- * (摩擦单 F36), read together when a page of that chat first asks for its context, and again when who is in it changes
- * (the window says so, `chatMembersChanged`); every page of the chat is then told (`onContextChanged`).
+ * (摩擦单 F36 for Apps through API 26), read together when a page first asks. Newer Apps read members explicitly.
+ * Roster changes tell only pages whose context includes members (`onContextChanged`).
  */
-const chatsDrawnIn = new Map<string, { chat: ExtensionChat | null; members: NonNullable<ExtensionHostContext['chat']>['members'] }>();
+const chatsDrawnIn = new Map<string, { chat: ExtensionChat | null; members?: ExtensionMember[] }>();
+const contextHasMembers = (binding: SurfaceBinding) => !(extensionsService().get(binding.extensionId).manifest.apiVersion >= 27);
+const chatIsRead = (binding: SurfaceBinding) => {
+  const read = binding.conversation ? chatsDrawnIn.get(binding.conversation) : undefined;
+  return read !== undefined && (!contextHasMembers(binding) || read.members !== undefined);
+};
+
+/** The folder's first reads belong to this binding, consumed once even on failure. Machine presence may move before that first call. */
+const openingFolders = new WeakMap<SurfaceBinding, { list?: Promise<AppFileEntry[]>; preferences?: Promise<{ showAppData: boolean }> }>();
+function preloadFolder(binding: SurfaceBinding, pageId: number): void {
+  if (binding.extensionId !== 'workspace' || binding.tabName !== 'main' || !binding.conversation || binding.workspace || binding.itemId || binding.modal
+    || binding.operator.kind !== 'person' || contextHasMembers(binding) || !extensionsService().hasCapability(binding.extensionId, 'files:read')) return;
+  const page = pageCaller(binding, pageId, false).filePage({});
+  const args = { place: { chat: binding.conversation } };
+  const files = import('@main/core/extensions/app-files');
+  const list = files.then((files) => files.listAppFiles(page, args));
+  const preferences = files.then((files) => files.appFileViewPreferences(page, args));
+  openingFolders.set(binding, { list, preferences });
+  // Observe rejection while the App is loading; the original promises still deliver those same errors to its calls.
+  void Promise.allSettled([list, preferences]);
+}
 
 /** A page's own chat is bound as its resource container (`surfaceResourceChat`); any other is looked up, as whoever works the call. */
 function resourceChatFor(caller: BridgeCaller, chat: string): Promise<string> {
@@ -1085,26 +1116,33 @@ function resourceChatFor(caller: BridgeCaller, chat: string): Promise<string> {
 }
 
 /** A person's live chat context already names its resource container. Agent membership is checked as that agent. */
-async function surfaceResourceChat(chatId: string | undefined, operator?: ExtensionOperator): Promise<string | null> {
+async function surfaceResourceChat(chatId: string | undefined, operator?: ExtensionOperator, resourceChat?: string): Promise<string | null> {
   if (!chatId) return null;
   const asAgent = operator?.kind === 'agent' ? operator.id.replace(/^user:/, '') : null;
+  if (!asAgent && resourceChat) return resourceChat;
   const chat = asAgent ? undefined : chatsDrawnIn.get(chatId)?.chat;
   return chat?.id ?? resourceChatOf(chatId, { asAgent });
 }
 
-async function readChatMembers(chatId: string): Promise<void> {
+async function readChatMembers(chatId: string, includeMembers = true): Promise<void> {
   if (![...bindings.values()].some((binding) => binding.conversation === chatId)) {
     chatsDrawnIn.delete(chatId);
     return;
   }
   const files = await import('@main/core/extensions/app-files');
-  const [members, chat] = await Promise.all([files.chatMembersOf(chatId), files.surfaceChatOf(chatId)]);
+  const [members, chat] = await Promise.all([includeMembers ? files.chatMembersOf(chatId) : undefined, files.surfaceChatOf(chatId)]);
   chatsDrawnIn.set(chatId, { chat, members });
 }
 /** Pages of a chat not read yet wait on the one read under way, not a read each (a folder's page asks three ways at once). */
 const chatsBeingRead = new Map<string, Promise<void>>();
-function chatRead(chatId: string): Promise<void> {
-  const reading = chatsBeingRead.get(chatId) ?? readChatMembers(chatId).finally(() => chatsBeingRead.delete(chatId));
+function chatRead(chatId: string, includeMembers = true): Promise<void> {
+  const pending = chatsBeingRead.get(chatId);
+  // An older App joining a chat-only read still needs its members before its first answer.
+  if (pending) return pending.then(() => {
+    const read = chatsDrawnIn.get(chatId);
+    if (includeMembers && read && read.members === undefined) return chatRead(chatId);
+  });
+  const reading = readChatMembers(chatId, includeMembers).finally(() => chatsBeingRead.delete(chatId));
   chatsBeingRead.set(chatId, reading);
   return reading;
 }
@@ -1119,8 +1157,14 @@ export async function chatMembersChanged(chatId: string, changes: readonly Membe
     return;
   }
   if (!rosterMoved(chatsDrawnIn.get(chatId)?.members ?? null, changes)) return;
+  const pages = [...bindings].filter(([, binding]) => binding.conversation === chatId && contextHasMembers(binding));
+  if (pages.length === 0) {
+    const read = chatsDrawnIn.get(chatId);
+    if (read) delete read.members;
+    return;
+  }
   await readChatMembers(chatId).catch(unread(chatId));
-  for (const [webContentsId, binding] of bindings) if (binding.conversation === chatId) pushContext(webContentsId);
+  for (const [webContentsId] of pages) pushContext(webContentsId);
 }
 
 /**
@@ -1205,7 +1249,7 @@ function contextFor(binding: SurfaceBinding, workspace: ExtensionWorkspace | und
     apiVersion: EXTENSION_API_VERSION,
     tabId: binding.tabId,
     ...(binding.modal ? { modal: { data: binding.modal.data } } : {}),
-    ...(drawnIn?.chat ? { chat: { ...drawnIn.chat, members: drawnIn.members } } : {}),
+    ...(drawnIn?.chat ? { chat: { ...drawnIn.chat, ...(contextHasMembers(binding) ? { members: drawnIn.members } : {}) } } : {}),
     ...(workspace ? { workspace } : {}),
     // Absent stays absent: a tab opened from the entry rail has no file.
     ...(file ? { file } : {}),
@@ -1249,9 +1293,9 @@ export function pushContext(webContentsId: number): void {
   const binding = bindings.get(webContentsId);
   if (!binding) return;
   const chatId = binding.conversation;
-  if (chatId && !chatsDrawnIn.has(chatId)) {
+  if (chatId && !chatIsRead(binding)) {
     // Never pushed without its chat: no `chat` would read as not in a chat. Unread, `getContext` says so.
-    void chatRead(chatId).then(() => chatsDrawnIn.has(chatId) && pushContext(webContentsId), unread(chatId));
+    void chatRead(chatId, contextHasMembers(binding)).then(() => chatsDrawnIn.has(chatId) && pushContext(webContentsId), unread(chatId));
     return;
   }
   const send = (workspace: ExtensionWorkspace | undefined) => {
@@ -1591,9 +1635,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
     case 'getContext':
       if (!binding) return contextOutside(extensionId);
-      // In a chat, the members and the chat come with the first answer (not a moment later). The chat unread is said (the
+      // Through API 26, the members come with the first answer. Newer Apps ask for them explicitly. An unread chat is said (the
       // files API's own error), never left out: no `chat` would tell the App it is not in one.
-      if (binding.conversation && !chatsDrawnIn.has(binding.conversation)) await chatRead(binding.conversation);
+      if (binding.conversation && !chatIsRead(binding)) await chatRead(binding.conversation, contextHasMembers(binding));
       return contextFor(binding, await workspaceOf(binding));
 
     case 'getAppState':
@@ -1679,7 +1723,11 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         extensionId,
         args,
         {
-          chat: drawnIn?.chat ? { id: drawnIn.chat.id, name: drawnIn.chat.name, members: drawnIn.members } : null,
+          chat: drawnIn?.chat ? { id: drawnIn.chat.id, name: drawnIn.chat.name, members: page && contextHasMembers(page) ? drawnIn.members! : [] } : null,
+          ...(page && drawnIn?.chat && !contextHasMembers(page) ? { readMembers: async () => {
+            const { chatMembersOf } = await import('@main/core/extensions/app-files');
+            return chatMembersOf(drawnIn.chat!.id, { asAgent: operator?.kind === 'agent' ? operator.id.replace(/^user:/, '') : null });
+          } } : {}),
           session: page ? sessionOfBinding(page) : null,
           ...(operator?.kind === 'agent' ? { as: operator.id.replace(/^user:/, '') } : {}),
         },
@@ -1856,6 +1904,14 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
       // what it opened is never refused.
       const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, await caller.resourcePage(args), args);
+      if (binding && (method === 'filesList' || method === 'filesViewPreferences')) {
+        const opening = openingFolders.get(binding);
+        const key = method === 'filesList' ? 'list' : 'preferences';
+        const read = opening?.[key];
+        if (opening) delete opening[key];
+        const place = args.place as Record<string, unknown> | undefined;
+        if (read && place?.chat === binding.conversation && Object.keys(place).length === 1 && args.folder === undefined && args.showAppData === undefined) return await read;
+      }
       const listsWorkingCopy = method === 'filesList' && Boolean((args.place as { workspace?: unknown } | null)?.workspace);
       if (listsWorkingCopy) workingCopyPages.add(caller.pageId);
       const verbs = {

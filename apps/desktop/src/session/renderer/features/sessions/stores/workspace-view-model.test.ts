@@ -36,10 +36,6 @@ vi.mock('@renderer/features/sessions/diff-view/diff-tab-item', () => ({
   DiffTabBarItemDragPreview: () => null,
   diffGroupSuffix: (group: string) => `(${group})`,
 }));
-vi.mock('@renderer/features/sessions/session-title-utils', () => ({
-  formatSessionTitleForDisplay: (_providerId: unknown, title: unknown) =>
-    (title as string) ?? 'Conversation',
-}));
 
 // ACP imports chat-ui which calls document.createElement at module load time.
 // Stub out the entire chat-store chain to avoid the DOM dependency in node tests.

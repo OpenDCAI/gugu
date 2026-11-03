@@ -609,6 +609,12 @@ describe('session timeline service', () => {
     });
   });
 
+  it('does not expose the session identifier when an approval answer has no session', async () => {
+    expect(await service.respond({
+      conversationId: 'private-session-identifier', itemId: 'ask-1', optionId: 'decline', kind: 'permission', by: 'desktop',
+    })).toEqual({ ok: false, error: { code: 'session_not_found', message: '这台机器上没有这条会话' } });
+  });
+
   it('没有记录可读(这一家没接 / 还没开起来)也打得开:快照是第一句话,❌ record_unsupported', async () => {
     const factory = vi.fn(async () => makeTimeline().timeline);
     service.setSessionTimelineFactory(factory);

@@ -1,3 +1,4 @@
+import { isTranscriptDelivery } from '@/lib/pendingSessionDeliveries';
 import { resolveDeliveredAttachment } from '@renderer/lib/chat/delivered-message-presentation';
 import { readNativeOfflineDraft, writeNativeOfflineDraft } from '@/lib/nativeOfflineDraft';
 import { useSessionInputAccount } from '@/lib/sessionInputOutboxBridge';
@@ -7,6 +8,7 @@ import { useSearchedTaskReveal, useSessionSourceMessage } from './use-session-so
 import { canQueueNativeInput } from './queue-native-input';
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
+import { useRememberNativeTail } from './use-remember-native-tail';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { sessionLifeView } from '../stores/session-life-views';
 import { lifeIsStarting } from '@shared/core/sessions/session-life';
@@ -97,7 +99,7 @@ import { droppedDirectoryMention } from '@renderer/lib/drag-files';
 import { pathAttachmentTarget } from '@gugu/session-chat-ui/markdown-attachment-mentions';
 import { readMermaidTheme } from '@gugu/session-chat-ui/mermaid';
 import { SessionScheduleChip } from '../session-schedule-chip';
-import { sessionComposerFrameLiftClassName, sessionComposerTrayClassName, sessionComposerTrayStyle } from '../session-composer-styles';
+import { sessionComposerTrayClassName, sessionComposerTrayStyle } from '../session-composer-styles';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
@@ -1426,16 +1428,11 @@ const ComposerForStore = observer(function ComposerForStore({
         granularity={mcpPanel?.granularity ?? 'per-server'}
         onApply={applyMcpSelection}
       />
-      {schedules.length > 0 ? (
-        <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
-          <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
-        </div>
-      ) : null}
       <NeedsYouSlot />
       {/* This task's agent's failed deliveries (the shell draws the same bar a chat's composer shows). */}
       {agentUserId ? <AgentFailureSlot agentUserId={agentUserId} /> : null}
       {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. */}
-      {life && lifeIsStarting(life) && !store.transcriptPendingId ? (
+      {life && lifeIsStarting(life) && !store.transcriptPendingId && !store.chatState.session.state.pendingMessages.length ? (
         <div className="flex justify-center px-3 py-1 text-xs text-foreground-muted" data-life-stage={life.stage?.at}>
           <LoadingIndicator ariaLabel={translate('transcript.starting')} label={translate('transcript.starting')} />
         </div>
@@ -1447,10 +1444,14 @@ const ComposerForStore = observer(function ComposerForStore({
       ) : null}
       {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
       <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life}
-        inTranscript={[store.transcriptPendingId, store.stoppedRowId, ...store.failedRowIds].filter((id): id is string => id !== null)} />
+        inTranscript={[store.transcriptPendingId, store.stoppedRowId, ...store.failedRowIds, ...life?.pending.items.filter(input => isTranscriptDelivery(input)).map(input => input.messageId) ?? []].filter((id): id is string => id !== null)} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
-        className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
+        bandAbove={schedules.length > 0 ? (
+          <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
+            <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
+          </div>
+        ) : null}
         // 会话页的标签头不显示 harness,锁着的那颗 agent 标留在模型左边(私聊照旧藏)。
         hideLockedAgent={false}
         isWorking={a.isWorking}
@@ -1588,6 +1589,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const store = activeTab ? (activeTab.resource as AcpChatTabResource).store : null;
 
   const visibility = useConversationVisibility(useContext(PageShownContext));
+  useRememberNativeTail(store?.projectId, store?.runtimeSessionId, store?.affordances.isBusy ?? false, visibility.shown);
   const rootRef = visibility.ref;
   const reading = useNativeConversationRead(store ? machineRegistry.machineOf(store.runtimeSessionId) : null, store?.runtimeSessionId, visibility.shown, () => {
     const transcript = store?.chatState.transcript.state;
@@ -2081,6 +2083,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       // 被它掩护着看不出来。⇒ 这里补上；同时 UserMessageCard 改成没接回调就不渲染。
       canRevertMessage: (itemId) => historyActionsEnabled && (store?.canRevertMessage(itemId) ?? false),
       onEditMessage: ({ itemId }) => store?.beginMessageEdit(itemId),
+      onRetrySend: () => store?.retryPendingInput(),
       editingMessage: messageEdit ? {
         ...messageEdit,
         pending: messageEditPending,
@@ -2099,7 +2102,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       onRestorePrompt: quotes.restorePrompt,
       onContinueTurn: () => {
         // A message stopped before it went has nothing to continue from: it just goes now.
-        if (store?.stoppedRowId) store.continueStoppedRow();
+        if (store?.stoppedRowId || store?.chatState.session.state.pendingMessages.some(input => input.stopped)) store.continueStoppedRow();
         else continueSessionTurn(store, translate('transcript.continueTurnPrompt'));
       },
       onDiscardTurn: ({ turnId }) => store?.discardStoppedTurn(turnId),

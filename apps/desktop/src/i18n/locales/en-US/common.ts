@@ -1,4 +1,7 @@
 export default {
+  "agentName": {
+    "naming": "Naming the agent…"
+  },
   "needsYou": {
     "title": "Needs you",
     "waitingTasks": "Tasks waiting for you",

@@ -1,3 +1,6 @@
+vi.mock('../../../../apps/desktop/src/components/appSlot/OwnedAgentResourcesHost', () => ({ OwnedAgentResourcesHost: () => null }))
+const resourceHosts = vi.hoisted(() => ({ host: vi.fn(), suspend: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/ownedAgentResources', () => ({ hostOwnedAgentResources: resourceHosts.host, suspendOwnedAgentResources: resourceHosts.suspend }))
 vi.mock('../../../../apps/desktop/src/hooks/useSessionInputOutbox', () => ({ SessionInputOutboxHost: () => null }))
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
@@ -20,6 +23,7 @@ import { rememberAssistantTaskChat } from '../../../../apps/desktop/src/lib/assi
 import { installAssistantShellBridge, publishAssistantShell } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stores/app-state'
 import { MOBILE_TABS } from '@gugu/core/shared/enums/sidebarTabModels'
+import * as needsYouTasks from '../../../../apps/desktop/src/components/needsYou/useNeedsYouTasks'
 const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[], remote: false }))
 vi.mock('../../../../apps/desktop/src/lib/ownedAgentConversation', async original => {
   const actual = await original<typeof import('../../../../apps/desktop/src/lib/ownedAgentConversation')>()
@@ -814,6 +818,17 @@ describe('MainLayout', () => {
     expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-assistant-tab"]')).toBeNull()
   })
+  it.each(['error', 'needs_user', null] as const)('keeps the attention list slot with no assistant (attention=%s, #1165)', async attention => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    const read = vi.spyOn(needsYouTasks, 'useNeedsYouTasks').mockReturnValue({ tasks: [], attention, error: null })
+    try {
+      await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
+      const slot = harness.container.querySelector('[data-mobile-tab-page="chats"] [data-needs-you-list-slot]')
+      expect(slot !== null).toBe(attention !== null)
+      expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
+    } finally { read.mockRestore() }
+  })
   // #446 列表底栏不因聚焦收放;键盘是否遮住它只认原生 IME 信号。
   it('keeps the root tab bar mounted when an editable control gains focus without a keyboard signal', async () => {
     platformMock.kind = 'capacitor'
@@ -1009,24 +1024,32 @@ it.each(['owned', 'group'] as const)('opens a %s file on its file host and prese
   const chatId = 'file-chat'
   const source = message({ id: 'receipt', chat_id: chatId, file_item_id: 'F1', file_version: 1 })
   chatStoreMock.chats = [{ id: chatId, kind: kind === 'owned' ? 'dm' : 'group', peer_user_id: kind === 'owned' ? 'agent' : null }] as never
-  if (kind === 'owned') taskRoute.contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'user-1' }]
+  if (kind === 'owned') { taskRoute.contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'user-1' }]; taskRoute.remote = true }
   fileOwner.mockResolvedValue({ data: { chat_id: chatId }, error: null })
   openNativeConversation.mockClear()
   await renderMainLayoutWithToast()
   await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1', version: 1 }, { message: source }) })
-  expect(sessionPageViewRequests.openChat).toHaveBeenCalledExactlyOnceWith(chatId, false, 'resource')
-  expect(openNativeConversation).not.toHaveBeenCalled()
+  if (kind === 'owned') {
+    expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
+    expect(openNativeConversation).toHaveBeenCalledWith({ kind: 'session', sessionId: 'task-session', projectId: 'project', deviceId: 'host' })
+    expect(resourceHosts.host).toHaveBeenCalledWith('user-1', chatId, expect.objectContaining({ sessionId: 'task-session', projectId: 'project' }))
+  } else {
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledExactlyOnceWith(chatId, false, 'resource')
+    expect(openNativeConversation).not.toHaveBeenCalled()
+  }
   expect(takeChatAsk(chatId)).toEqual({ itemId: 'F1', message: source })
 })
 
-it('opens an App card in an owned DM on its resource host instead of redirecting to the task', async () => {
+it('opens an App card beside the owned agent session without an IM block', async () => {
+  taskRoute.remote = true
   chatStoreMock.chats = [{ id: 'owned-app', kind: 'dm', peer_user_id: 'agent' }] as never
   taskRoute.contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'user-1' }]
   openNativeConversation.mockClear()
   await renderMainLayoutWithToast()
   await act(async () => { await openLinkTarget({ kind: 'app', extensionId: 'board', tab: 'main', path: '', query: {}, place: { chat: 'owned-app' } }) })
-  expect(sessionPageViewRequests.openChat).toHaveBeenCalledExactlyOnceWith('owned-app', false, 'resource')
-  expect(openNativeConversation).not.toHaveBeenCalled()
+  expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
+  expect(openNativeConversation).toHaveBeenCalledWith({ kind: 'session', sessionId: 'task-session', projectId: 'project', deviceId: 'host' })
+  expect(resourceHosts.host).toHaveBeenCalledWith('user-1', 'owned-app', expect.objectContaining({ sessionId: 'task-session' }))
   expect(takeChatAsk('owned-app')).toEqual({ app: 'board', tab: 'main' })
 })
 
@@ -1069,10 +1092,8 @@ describe('MainLayout: personal assistant destinations', () => {
         if (name === 'resource-file' && 'itemId' in detail) await openLinkTarget({ kind: 'file', itemId: detail.itemId })
         else window.dispatchEvent(new CustomEvent(name, { detail }))
       })
-      if ('itemId' in detail) {
-        expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('personal-dm', false, 'resource')
-        expect(navigate).not.toHaveBeenCalled()
-      } else expect(navigate).toHaveBeenCalledWith('assistant')
+      expect(navigate).toHaveBeenCalledWith('assistant')
+      expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
       expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
       if ('itemId' in detail) expect((takeChatAsk('personal-dm') as { itemId?: string } | null)?.itemId).toBe('personal-file')
       if ('text' in detail) expect(chatStoreMock.writeDraft).toHaveBeenCalledWith('personal-dm', { at: 'end', text: 'follow-up' })

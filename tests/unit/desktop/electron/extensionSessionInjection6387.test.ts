@@ -298,6 +298,7 @@ describe('上下文工程第二批 P3: <gugu_apps> names the Apps that give a se
     expect(block.match(/<gugu_apps>/g)).toHaveLength(1)
     expect(block).toContain('- 全能搜索 (omnisearch)')
     expect(block).toContain('- agent-notes (App agent-notes)')
+    expect(block).not.toContain('For the rest of this conversation,')
   })
 })
 

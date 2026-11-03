@@ -2,7 +2,6 @@ import { messageForUser } from '@/lib/userFacingError';
 import './assistant-onboarding.css'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useMutation } from '@tanstack/react-query'
 import { cloudComputerFailureKind, type CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { AgentAvatar } from '../agentAvatar/AgentAvatar'
@@ -22,6 +21,10 @@ import { offerCustomizeCard, writeSetupStep } from '../../lib/assistantSetupStat
 import { AssistantSetupCleanupError } from '../../lib/assistantSetupPreparation'
 import { readOccupation, takeAssistantStartAtHome } from '../../lib/firstRun'
 import { AssistantIntro } from './AssistantIntro'
+import { AssistantHomeChoice } from './AssistantHomeChoice'
+import { AssistantServerSetup } from './AssistantServerSetup'
+import { pendingServerAssistant } from '../../lib/assistantServerSetup'
+import { clearAssistantOnboardingNavigation, readAssistantOnboardingNavigation, saveAssistantOnboardingNavigation } from '../../lib/assistantOnboardingNavigation'
 import { AssistantSetupIdentity } from './AssistantSetupIdentity'
 import { DEFAULT_ASSISTANT_LOOK } from '../agentAvatar/look'
 import { reloadMyAssistant } from '../../lib/myAssistant'
@@ -29,13 +32,12 @@ import { rendererLogger } from '../../lib/log'
 import { getMembership } from '../../lib/billing/membership'
 import { membershipSettingsSection } from '../../lib/billing/settingsDestination'
 import { cloudComputerEnabled } from '@gugu/core/cloud/optionalServices'
-import { refreshCloudComputer } from '../../lib/cloudComputerStore'
 import { UI_EVENTS } from '../../lib/uiEvents'
-import { CloudComputerProvisionPanel, CloudComputerRefusal, type CloudComputerActionFailure } from '../settings/CloudComputerSection'
+import { CloudComputerProvisionPanel, type CloudComputerActionFailure } from '../settings/CloudComputerSection'
 
 const log = rendererLogger('assistant/onboarding')
 
-type Step = 'intro' | 'name' | 'home'
+type Step = 'intro' | 'name' | 'home' | 'server'
 type Busy = null | 'cloud' | 'computer' | 'resume'
 
 /** 引导页根上的主题色相(一个数,见 assistant-today.css 的 --ta-tint-h)。 */
@@ -71,8 +73,9 @@ export function AssistantOnboarding({
 }) {
   const { t } = useTranslation('assistant')
   const cloudEnabled = cloudComputerEnabled()
-  const [step, setStep] = useState<Step>(() => (takeAssistantStartAtHome(ownerUserId) ? 'name' : 'intro'))
-  const [draft, setDraft] = useState<AssistantSetupDraft>(() => ({
+  const [navigation] = useState(() => readAssistantOnboardingNavigation(ownerUserId))
+  const [step, setStep] = useState<Step>(() => navigation?.step ?? (takeAssistantStartAtHome(ownerUserId) ? 'name' : 'intro'))
+  const [draft, setDraft] = useState<AssistantSetupDraft>(() => navigation?.draft ?? ({
     // owner 10-16 夜:助理默认名就是「咕咕」(不再叫「个人助理」);人可以改成别的
     name: t('setup.defaultName'),
     ...DEFAULT_ASSISTANT_LOOK,
@@ -101,11 +104,16 @@ export function AssistantOnboarding({
   const hue = BODY_COLORS[draft.color]?.hue ?? 268
   const displayName = draft.name.trim() || t('setup.namePlaceholder')
 
+  useEffect(() => {
+    if (step !== 'server') clearAssistantOnboardingNavigation(ownerUserId)
+  }, [ownerUserId, step])
+
   // 上次在这台电脑上建到一半(退出 / 断网):接着建同一个,❌ 再建一个。
   useEffect(() => {
     if (!localDeviceId) return
     let record
     try {
+      if (pendingServerAssistant(ownerUserId)) { setStep('server'); return }
       record = pendingLocalAssistant(ownerUserId)
     } catch (e) {
       log.error({ error: String(e) }, 'read pending local assistant failed')
@@ -128,7 +136,7 @@ export function AssistantOnboarding({
       .finally(() => setBusy(resumed ? null : 'computer'))
   }, [ownerUserId, localDeviceId])
 
-  // 到「住哪」那一步才问会员档:没读到就当不是会员(云上那一条给「了解会员」,❌ 替人点一下领取)。
+  // 安家页读取会员权益；读取失败如实显示，不能当成免费会员。
   useEffect(() => {
     if (!cloudEnabled || step !== 'home' || member !== null) return
     let cancelled = false
@@ -237,7 +245,7 @@ export function AssistantOnboarding({
               {busy === 'resume' ? t('setup.resuming', { name: displayName }) : t('setup.installing', { name: displayName })}
             </h1>
             {error && busy === 'computer' ? <>
-              <p className="ta-onb-error" role="alert">{retryCleanup ? t('setup.cleanupFailed') : setupEnded ? t('setup.ended') : error}</p>
+              <p className="ta-onb-error" role="alert">{retryCleanup ? t('setup.cleanupFailed') : setupEnded ? t('setup.ended') : t('setup.failed')}</p>
               <Button onClick={async () => {
                 if (retryCleanup) {
                   setCancelling(true)
@@ -263,143 +271,33 @@ export function AssistantOnboarding({
           <AssistantIntro primaryLabel={t('setup.introStart')} onPrimary={() => setStep('name')} look={draft} />
         ) : step === 'name' ? (
           <AssistantSetupIdentity draft={draft} onChange={setDraft} onBack={() => setStep('intro')} onContinue={() => setStep('home')} />
+        ) : step === 'server' ? (
+          <AssistantServerSetup key={ownerUserId} ownerUserId={ownerUserId} name={displayName} createDraft={setupDraft} onBack={() => setStep('home')}
+            onAddServer={() => saveAssistantOnboardingNavigation(ownerUserId, draft)} />
         ) : memberError ? (
           <>
             <p className="ta-onb-error" role="alert">{memberError}</p>
             <Button onClick={() => setMemberAttempt((attempt) => attempt + 1)}>{t('setup.retry')}</Button>
           </>
         ) : (
-          <HomeChoice
+          <AssistantHomeChoice
             name={displayName}
             member={cloudEnabled ? member : false}
             cloudEnabled={cloudEnabled}
             cloudAvailable={cloudAvailable}
             canHostHere={!!localDeviceId}
-            busy={busy}
+            busy={busy !== null}
             error={error}
             cloudFailure={cloudFailure}
             onCloud={() => void claimCloud()}
+            onServer={() => setStep('server')}
             onComputer={() => void installHere()}
+            onUpgrade={openMembership}
             onBack={() => setStep('name')}
             draftAvatar={draftAvatarUrl(draft)}
           />
         )}
       </div>
     </div>
-  )
-}
-
-function HomeChoice({
-  name,
-  member,
-  cloudEnabled,
-  cloudAvailable,
-  canHostHere,
-  busy,
-  error,
-  cloudFailure,
-  onCloud,
-  onComputer,
-  onBack,
-  draftAvatar,
-}: {
-  name: string
-  member: boolean | null
-  cloudEnabled: boolean
-  cloudAvailable: boolean
-  canHostHere: boolean
-  busy: Busy
-  error: string | null
-  cloudFailure: CloudComputerActionFailure | null
-  onCloud: () => void
-  onComputer: () => void
-  onBack: () => void
-  draftAvatar: string
-}) {
-  const { t } = useTranslation('assistant')
-  const { t: tc } = useTranslation('common')
-  const cloudCheck = useMutation({ mutationFn: refreshCloudComputer })
-  if (member === null) {
-    return (
-      <p className="ta-onb-sub inline-flex items-center gap-2" data-testid="assistant-setup-home-loading">
-        <LoadingIndicator size="inline" />
-        {t('cloud.loading')}
-      </p>
-    )
-  }
-  const cloud = cloudEnabled ? (
-    <div className="ta-onb-choice" data-recommended={member && cloudAvailable} data-testid="assistant-setup-home-cloud">
-      <span className="ta-onb-choice-title">{t('setup.homeCloudTitle')}</span>
-      <span className="ta-onb-choice-body">{t('setup.homeCloudBody')}</span>
-      <div className="ta-onb-choice-actions">
-        {!cloudAvailable ? (
-          <>
-            {!cloudCheck.error && <span className="ta-onb-note" role="status">{t(cloudCheck.isSuccess ? 'setup.cloudStillUnavailable' : 'setup.cloudNotOpen')}</span>}
-            {canHostHere && <span className="ta-onb-note">{t('setup.chooseComputer')}</span>}
-            <Button variant="secondary" className="rounded-full" disabled={busy !== null || cloudCheck.isPending} onClick={() => cloudCheck.mutate()}>
-              {cloudCheck.isPending ? <><LoadingIndicator size="inline" />{t('cloud.loading')}</> : t('setup.retry')}
-            </Button>
-          </>
-        ) : member ? (
-          <Button variant="primary" size="lg" className="rounded-full" disabled={busy !== null} onClick={onCloud} data-testid="assistant-setup-claim-cloud">
-            {t('setup.homeCloudAction')}
-          </Button>
-        ) : (
-          <>
-            <span className="ta-onb-note">{t('setup.homeCloudNeedsMember')}</span>
-            <Button variant="secondary" className="rounded-full" onClick={openMembership} data-testid="assistant-setup-member">
-              {t('setup.memberLink')}
-            </Button>
-          </>
-        )}
-      </div>
-    </div>
-  ) : null
-  const computer = canHostHere ? (
-    <div className="ta-onb-choice" data-recommended={!member || !cloudAvailable} data-testid="assistant-setup-home-computer">
-      <span className="ta-onb-choice-title">{t('setup.homeComputerTitle')}</span>
-      <span className="ta-onb-choice-body">{t('setup.homeComputerBody')}</span>
-      <div className="ta-onb-choice-actions">
-        <Button variant="primary" size="lg" className="rounded-full" disabled={busy !== null} onClick={onComputer} data-testid="assistant-setup-install-here">
-          {t('setup.homeComputerAction')}
-        </Button>
-      </div>
-    </div>
-  ) : (
-    <div className="ta-onb-choice" data-testid="assistant-setup-home-nocomputer">
-      <span className="ta-onb-choice-title">{t('setup.homeNoComputerTitle')}</span>
-      <span className="ta-onb-choice-body">{t('setup.homeNoComputerBody')}</span>
-    </div>
-  )
-  return (
-    <>
-      <AgentAvatar name={name} avatar={draftAvatar} id="assistant-draft" size={72} />
-      <h1 className="ta-onb-title">{t('setup.homeTitle', { name })}</h1>
-      <div className="ta-onb-choices">
-        {member && cloudAvailable ? (
-          <>
-            {cloud}
-            {computer}
-          </>
-        ) : (
-          <>
-            {computer}
-            {cloud}
-          </>
-        )}
-      </div>
-      {cloudCheck.error && <p className="ta-onb-error" role="alert">{tc(`cloudComputer.reason.${cloudComputerFailureKind(cloudCheck.error)}`)}</p>}
-      {error ? (
-        <p className="ta-onb-error" role="alert" data-testid="assistant-setup-error">
-          {error}
-        </p>
-      ) : null}
-      {cloudFailure ? <CloudComputerRefusal failure={cloudFailure} prefixKey="devices.cloud.provisionFailed" onUpgrade={openMembership} /> : null}
-      <div className="ta-onb-actions">
-        <Button variant="secondary" size="lg" className="rounded-full" onClick={onBack}>
-          {t('setup.back')}
-        </Button>
-      </div>
-    </>
   )
 }

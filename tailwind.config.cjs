@@ -1,5 +1,5 @@
 /** @type {import('tailwindcss').Config} */
-// ⚠️ 本表只做 Tailwind v3 兼容覆盖(字阶 / 间距 / 圆角)。**颜色一律在 apps/desktop/src/styles/tokens.css**,
+// ⚠️ 本表只做 Tailwind v3 兼容覆盖(字阶 / 圆角)。**颜色一律在 apps/desktop/src/styles/tokens.css**,
 // 这里一条色都不留:原来那 20 条微信调色板(brand.green / bubble.sent / bg.sidebar …)全仓零消费者,
 // 却和真正生效的 borderRadius 躺在同一个 theme.extend 里,读表的人分不清哪半是活的(Refs #6104 / F-16)。
 // 阴影同理:原来这里平行定义了一份 boxShadow.{dropdown,modal,card,panel},与 tokens.css 同名不同值。
@@ -35,14 +35,10 @@ const config = {
       lineHeight: {
         base: '1.4',
       },
-      spacing: {
-        xs: '4px',
-        sm: '8px',
-        md: '12px',
-        lg: '16px',
-        xl: '20px',
-        '2xl': '24px',
-      },
+      // Semantic spacing stays in tokens.css as ordinary :root custom properties, not a
+      // Tailwind theme scale. In v4, spacing.lg wins over container.lg for max-w-lg (and
+      // w-lg/min-w-lg), shrinking a 32rem container to 16px. No named spacing utilities
+      // are consumed; numeric utilities and var(--spacing-*) keep their existing values.
       // @@@shape-table (Refs #6104) — assistant-ui design.md 的 8 档语义表,**定义处在
       // apps/desktop/src/styles/tokens.css**,这里只是 Tailwind 那半边的逐字等值副本。
       // ⚠️ 这张表与会话页 apps/desktop/src/session/renderer/index.css 的 @theme 进的是**同一个

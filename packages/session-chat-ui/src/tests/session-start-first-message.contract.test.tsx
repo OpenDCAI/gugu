@@ -41,6 +41,76 @@ function mount(preset: ChatLayoutPreset, { agentConversation, ...opts }: { pinUs
 const FIRST = 'Look at this project.'
 const header = (host: HTMLElement) => host.querySelector<HTMLElement>('[data-slot="turn-process"]')
 
+describe('ordinary sending stays in the transcript', () => {
+  it('keeps the last bubble stationary when a long conversation enters host startup', async () => {
+    const { state, host, view } = mount('double', { agentConversation: true })
+    state.transcript.history.seed(Array.from({ length: 12 }, (_, seq) => ({
+      id: `old-${seq}`, seq, initiator: 'user', startedAt: Date.now() - 30000 + seq,
+      items: [{ kind: 'message', id: `old-${seq}-user`, seq: 0, role: 'user', text: `Previous input ${seq}` },
+        { kind: 'message', id: `old-${seq}-reply`, seq: 1, role: 'assistant', text: `Previous reply ${seq}` }],
+    } as TranscriptTurn)))
+    const pending = { id: 'long-send', text: FIRST, sentAt: Date.now(), held: true, delivery: { state: 'sending' as const } }
+    state.session.setPendingPrompt(pending)
+    view.setScrollMode({ kind: 'tail' })
+    await until('the last bubble is on screen', () => !!host.querySelector('[data-user-card="long-send"]'))
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const before = host.querySelector('[data-user-card="long-send"]')!.getBoundingClientRect().top
+    state.session.setPendingPrompt({ ...pending, starting: 'starting', delivery: { state: 'accepted' } })
+    await until('the host startup line mounts', () => (host.textContent ?? '').includes('Starting'))
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    expect(host.querySelectorAll('[data-user-card="long-send"]')).toHaveLength(1)
+    expect(Math.abs(host.querySelector('[data-user-card="long-send"]')!.getBoundingClientRect().top - before)).toBeLessThanOrEqual(1)
+  })
+
+  it.each(['single', 'double'] as ChatLayoutPreset[])('keeps one bubble through acknowledgement, history and native echo (%s)', async preset => {
+    const { state, host } = mount(preset, { agentConversation: true, pinUserMessages: true })
+    const sentAt = Date.now()
+    const pending = { id: 'send', text: FIRST, sentAt, held: true, delivery: { state: 'sending' as const } }
+    state.session.setPendingPrompt(pending)
+    await until('the pending input is drawn', () => host.querySelectorAll('[data-user-card]').length === 1 && !!host.querySelector('[data-send-state="sending"]'))
+    const top = host.querySelector('[data-user-card]')!.getBoundingClientRect().top
+    state.transcript.history.seed([])
+    state.session.setPendingPrompt({ ...pending, delivery: { state: 'accepted' } })
+    await until('accepted input stays without its spinner', () => host.querySelectorAll('[data-user-card]').length === 1 && !host.querySelector('[data-send-state="sending"]'))
+    expect(Math.abs(host.querySelector('[data-user-card]')!.getBoundingClientRect().top - top)).toBeLessThanOrEqual(1)
+    state.transcript.activeTurn.set({ id: 'native', seq: 1, initiator: 'user', startedAt: sentAt, items: [] })
+    await until('an early native turn does not hide the input', () => !!host.querySelector('[data-user-card="send"]'))
+    state.transcript.activeTurn.set({ id: 'native', seq: 1, initiator: 'user', startedAt: sentAt,
+      items: [{ kind: 'message', id: 'echo', seq: 0, role: 'user', text: FIRST }] })
+    await until('its native echo replaces the pending projection once', () => !!host.querySelector('[data-user-card="echo"]') && host.querySelectorAll('[data-user-card]').length === 1)
+    expect(Math.abs(host.querySelector('[data-user-card]')!.getBoundingClientRect().top - top)).toBeLessThanOrEqual(1)
+  })
+
+  it('keeps sender-owned input waiting without a retry action or a running agent', async () => {
+    const { state, host, view } = mount('double', { agentConversation: true })
+    const retry = vi.fn()
+    view.setCommands({ onRetrySend: retry })
+    state.session.setPendingPrompt({ id: 'owned', text: FIRST, held: true,
+      delivery: { state: 'waiting', reason: 'Send interrupted', error: 'SSH transport closed', retryable: false } })
+    await until('automatic custody status is visible', () => !!host.querySelector('[data-send-state="waiting"]'))
+    expect(host.textContent).toContain('Waiting to send · Send interrupted')
+    expect(host.querySelector('[data-send-state="waiting"]')?.getAttribute('title')).toBe('SSH transport closed')
+    expect(host.querySelector('[data-send-state="waiting"] button')).toBeNull()
+    expect(host.querySelector('[data-live="true"]')).toBeNull()
+    expect(host.querySelectorAll('[data-user-card]')).toHaveLength(1)
+    expect(retry).not.toHaveBeenCalled()
+  })
+
+  it('keeps the failed input and a working retry action in place', async () => {
+    const { state, host, view } = mount('double', { agentConversation: true })
+    const retry = vi.fn()
+    view.setCommands({ onRetrySend: retry })
+    state.session.setPendingPrompt({ id: 'send', text: FIRST, held: true,
+      delivery: { state: 'failed', error: 'connection refused' } })
+    await until('failed input exposes retry', () => !!host.querySelector('[data-send-state="failed"] button'))
+    expect(host.querySelectorAll('[data-user-card]')).toHaveLength(1)
+    expect(host.querySelector('[data-send-state="failed"]')?.getAttribute('title')).toBe('connection refused')
+    expect(host.querySelector('[data-live="true"]')).toBeNull()
+    host.querySelector<HTMLButtonElement>('[data-send-state="failed"] button')!.click()
+    expect(retry).toHaveBeenCalledWith('send')
+  })
+})
+
 describe('session start with a first message', () => {
   it.each(['single', 'double'] as ChatLayoutPreset[])(
     'shows the first message as already running while the session is set up ($0 layout)',
@@ -202,4 +272,88 @@ describe('session start with a first message', () => {
     button.click()
     expect(restart).not.toHaveBeenCalled()
   })
+})
+
+// Incoming receipts carry an envelope ID even when the provider assigns its own user-message ID.
+import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
+import type { PendingPrompt } from '@session-chat/state/pending-prompt'
+const incomingText = (id: string, text: string) => renderDeliveryEnvelope({ route: 'session-direct', from: 'Agent sender', fromType: 'agent', fromId: 'session:sender', messageId: `msg:${id}`, at: '2026-11-02 04:00 UTC-8', content: text })
+
+describe('incoming deliveries share the transcript layout', () => {
+  it.each([false, true])('keeps the envelope and position through acceptance and native echo (busy=%s)', async busy => {
+    const { state, host } = mount('double', { agentConversation: true, pinUserMessages: true })
+    const before: TranscriptTurn = { id: 'current', seq: 0, initiator: 'user', startedAt: Date.now(), items: [{ kind: 'message', id: 'current-user', seq: 0, role: 'user', text: 'Current task' }] }
+    if (busy) state.transcript.activeTurn.set(before)
+    const input: PendingPrompt = { id: 'delivery', text: incomingText('source-a', 'Incoming instruction'), received: true, held: true, sentAt: Date.now(), delivery: { state: 'sending' } }
+    state.session.setPendingMessages([input])
+    await until('incoming sending bubble appears once with sender', () => !!host.querySelector('[data-user-card="delivery"]') && !!host.querySelector('[data-send-state="sending"]') && host.textContent!.includes('Agent sender'))
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const top = host.querySelector('[data-user-card="delivery"]')!.getBoundingClientRect().top
+    state.session.setPendingMessages([{ ...input, delivery: { state: 'accepted' } }])
+    await until('acceptance clears the spinner without removing the message', () => !host.querySelector('[data-send-state="sending"]'))
+    expect(host.querySelector('[data-user-card="delivery"]')!.getBoundingClientRect().top).toBe(top)
+    const native: TranscriptTurn = { ...(busy ? before : { id: 'native', seq: 0, initiator: 'agent' as const, startedAt: input.sentAt }), items: [...(busy ? before.items : []), { kind: 'message', id: 'provider-echo', seq: 1, role: 'user', text: input.text }] }
+    state.transcript.activeTurn.set(native)
+    await until('native echo takes over without a duplicate', () => !!host.querySelector('[data-user-card="provider-echo"]') && !host.querySelector('[data-user-card="delivery"]'))
+    expect(host.querySelector('[data-user-card="provider-echo"]')!.getBoundingClientRect().top).toBe(top)
+  })
+
+  it('measures multiple unknown receipts with compression and a cancelled turn, without duplicating native messages', async () => {
+    const { state, host } = mount('double', { agentConversation: true, pinUserMessages: true })
+    const inputs: PendingPrompt[] = ['a', 'b', 'c'].map(id => ({ id, text: incomingText(`source-${id}`, `Incoming ${id}`), received: true, delivery: { state: 'unknown', retryable: false } }))
+    const history: TranscriptTurn[] = inputs.map((input, seq) => ({ id: `turn-${seq}`, seq, initiator: 'agent', items: [
+      { kind: 'message', id: `echo-${seq}`, seq: 0, role: 'user', text: input.text },
+      ...(seq === 1 ? [{ kind: 'compaction' as const, id: 'compression', seq: 1, compactionId: 'cmp', status: 'in_progress' as const, summary: '', startedAt: Date.now() }] : []),
+    ], ...(seq === 0 ? { outcome: { kind: 'cancelled' as const, reason: 'cancelled' as const } } : {}) }))
+    state.transcript.history.seed(history)
+    state.session.setPendingMessages(inputs)
+    state.session.setCondition({ code: 'auth-required', detail: 'sign-in-missing', label: 'Host status remains visible' })
+    await until('all unknown status lines are present', () => host.querySelectorAll('[data-send-state="unknown"]').length === 3)
+    expect(host.querySelectorAll('[data-user-card]')).toHaveLength(3)
+    expect(host.querySelectorAll('[data-send-state="unknown"] button')).toHaveLength(0)
+    expect(host.textContent).toContain('Compacting')
+    expect(host.textContent).toContain('Stopped')
+    expect(host.textContent).toContain('Host status remains visible')
+    const rows = [...host.querySelectorAll<HTMLElement>('[data-user-card]')].map(el => el.getBoundingClientRect()).sort((a, b) => a.top - b.top)
+    for (let i = 1; i < rows.length; i++) expect(rows[i]!.top).toBeGreaterThan(rows[i-1]!.bottom + 21)
+    state.session.setPendingMessages([])
+    await until('cleared custody removes only status lines', () => !host.querySelector('[data-send-state="unknown"]'))
+    expect(host.querySelectorAll('[data-user-card]')).toHaveLength(3)
+  })
+})
+
+it('shows a sending indicator alongside the existing restoring process line without moving the input', async () => {
+  const { state, host } = mount('double', { agentConversation: true })
+  const input: PendingPrompt = { id: 'restoring-send', text: FIRST, held: true, starting: 'restoring', delivery: { state: 'sending' } }
+  state.session.setPendingPrompt(input)
+  await until('restoring and sending are visible together', () => host.textContent!.includes('Restoring') && !!host.querySelector('[data-send-state="sending"]'))
+  const top = host.querySelector('[data-user-card="restoring-send"]')!.getBoundingClientRect().top
+  state.session.setPendingPrompt({ ...input, delivery: { state: 'accepted' } })
+  await until('acknowledgement removes the spinner while recovery continues', () => !host.querySelector('[data-send-state="sending"]'))
+  expect(host.textContent).toContain('Restoring')
+  expect(host.querySelector('[data-user-card="restoring-send"]')!.getBoundingClientRect().top).toBe(top)
+})
+
+it('removes the tail fallback as soon as out-of-budget native history arrives, and keeps the native identity afterward', async () => {
+  const { state, host } = mount('double', { agentConversation: true })
+  const input: PendingPrompt = { id: 'budget-fallback', text: incomingText('budget-source', 'Legacy unconfirmed input'), received: true, delivery: { state: 'unknown', retryable: false } }
+  const newest: TranscriptTurn = { id: 'newer', seq: 100, initiator: 'user', items: [{ kind: 'message', id: 'newer-user', seq: 0, role: 'user', text: 'Newer input' }] }
+  state.transcript.history.seed([newest])
+  state.session.setPendingMessages([input])
+  await until('the budget fallback is in the normal transcript', () => !!host.querySelector('[data-user-card="budget-fallback"]'))
+  const native: TranscriptTurn = { id: 'legacy', seq: 50, initiator: 'agent', items: [{ kind: 'message', id: 'legacy-native', seq: 0, role: 'user', text: input.text }] }
+  state.transcript.history.seed([native, newest])
+  await until('native history removes the fallback in the same handoff', () => !!host.querySelector('[data-user-card="legacy-native"]') && !host.querySelector('[data-user-card="budget-fallback"]'))
+  expect(host.querySelectorAll('[data-send-state="unknown"]')).toHaveLength(1)
+  state.transcript.history.prepend([{ id: 'older', seq: 10, initiator: 'user', items: [{ kind: 'message', id: 'older-user', seq: 0, role: 'user', text: 'Earlier history' }] }])
+  await until('an unrelated older page has rendered', () => !!host.querySelector('[data-user-card="older-user"]'))
+  expect(host.querySelectorAll('[data-user-card="legacy-native"]')).toHaveLength(1)
+  expect(host.querySelector('[data-user-card="budget-fallback"]')).toBeNull()
+  expect(host.querySelectorAll('[data-send-state="unknown"]')).toHaveLength(1)
+  state.transcript.history.seed([newest])
+  await until('a narrower history window omits the native row', () => !host.querySelector('[data-user-card="legacy-native"]'))
+  expect(host.querySelector('[data-user-card="budget-fallback"]')).toBeNull()
+  state.transcript.history.seed([native, newest])
+  await until('the same native row returns with its receipt', () => !!host.querySelector('[data-user-card="legacy-native"]') && !!host.querySelector('[data-send-state="unknown"]'))
+  expect(host.querySelector('[data-user-card="budget-fallback"]')).toBeNull()
 })

@@ -1,3 +1,4 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 // 联系人详情(人 / Agent)和它用到的几块:原样从 ContactsPanel.tsx 搬出(那个文件行数冻结、只减不增),
 // 手机「伙伴」点一个朋友也开这一页(#446)。
@@ -192,6 +193,8 @@ function AgentDetail({
   commonGroup: ContactGroupChat | null
   getCommonGroupChats: (contactId: string) => Promise<ContactGroupChat[]>
 }) {
+  const shownName = useShownAgentName({ name: contact.display_name, agentType: contact.agent_type, createdAt: contact.created_at ?? undefined })
+
   const { user } = useAuth()
   const [showShareModal, setShowShareModal] = useState(false)
   const [visibilitySaving, setVisibilitySaving] = useState(false)
@@ -234,11 +237,11 @@ function AgentDetail({
   return (
     <>
       <div className="flex items-start gap-4">
-        <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size="lg" isAgent />
+        <Avatar name={shownName} avatarUrl={contact.avatar} seed={contact.id} size="lg" isAgent />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <OwnedAgentNameEditor key={contact.id} agentId={contact.id} name={contact.display_name} ownerUserId={contact.owner_user_id} status={status} className={detailTitleClass}>
-              <h2>{contact.display_name}</h2>
+              <h2>{shownName}</h2>
             </OwnedAgentNameEditor>
             <Chip>{ct('common.agent')}</Chip>
             <AgentContactStatusChip agentId={contact.id} tone={statusTone} label={statusLabel} />
@@ -382,6 +385,8 @@ export function ContactDetail({
   onSetAgentDesiredStatus: (agentId: string, desiredStatus: 'online' | 'offline') => Promise<void>
   getCommonGroupChats: (contactId: string) => Promise<ContactGroupChat[]>
 }) {
+  const shownName = useShownAgentName({ name: contact ? displayName(contact) : ct('panel.contactDetail'), agentType: contact?.agent_type, createdAt: contact?.type === 'agent' ? contact.created_at ?? undefined : undefined })
+
   const { user } = useAuth()
   const commonAgentGroup = contact?.type === 'agent' ? commonGroupForAgent(contact.id, groupChats) : null
   const agentRequestState = contact?.type === 'agent'
@@ -399,7 +404,7 @@ export function ContactDetail({
       <PaneHeader
         divider
         mobile={mobile}
-        title={contact ? displayName(contact) : ct('panel.contactDetail')}
+        title={shownName}
         leading={mobile && onBack ? <PaneBackButton label={ct('panel.backToContactList')} onBack={onBack} /> : undefined}
       />
 

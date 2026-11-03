@@ -33,7 +33,7 @@ export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       `  import { f, me, myName, $, $$, html, render } from '${APP_RUNTIME_GLUE_MODULE}'  // gugu's, not in your bundle; me: 'user:<uuid>'`,
       '  f.data.answers[me] = x  // live JSON, spread ok, never cloned; typed together: gugu.text(""), in data {"$text":""}; many adding: a map by id',
       '  f.presence.set(pos)  // per-frame state; the file: events, results (a catch)',
-      '  let members = (await gugu.getContext()).chat?.members ?? []  // { id, name, kind }: pick, never copy',
+      '  let members = (await gugu.chats.members({ chat: (await gugu.getContext()).chat.id })).members  // { id, name, kind }: pick, never copy; manifest chat:read',
       '  // f.onChange(renderShared): render($("#shared"), html`…`) — inputs of file values too, rows by data-key; drafts, bind.text boxes: #controls',
       '  // wake only the agent it concerns: gugu.dispatch("your move", { to: { chat, member: member.id }, refs: [{ file: f.entry }] }) — state stays in the file; manifest.permissions.capabilities ["chat:relay"]',
       '  // agents follow: a tool in tools.js, run(args, { agent }) — guide apps-programs',

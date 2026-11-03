@@ -277,6 +277,7 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     ...(typeof row.home_dir === 'string' && row.home_dir && row.home_dir.length <= 4096 ? { home_dir: row.home_dir } : {}),
     ...(row.runs_as_root === true ? { runs_as_root: true } : {}),
     ...(row.assistant_home === true ? { assistant_home: true } : {}),
+    ...(row.assistant_home_setup === 1 ? { assistant_home_setup: 1 as const } : {}),
     ...(row.server_confirmed_restart === true ? { server_confirmed_restart: true as const } : {}),
     ...(parseSessionBootFailures(row.server_boot_failures).length ? { server_boot_failures: parseSessionBootFailures(row.server_boot_failures) } : {}),
     ...normalizeServerUpdate(row.server_update),

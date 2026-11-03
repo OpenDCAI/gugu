@@ -2,9 +2,51 @@ import { describe, expect, it } from 'vitest'
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
 import { buildSessionDirectEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
-import { openSessionInputStorage, SessionInputOutbox, sessionInputBubbles, withSessionInputDeadline, type HostPendingRow, type SessionInput } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
+import { openSessionInputStorage, SessionInputOutbox, sessionInputBubbles, withSessionInputDeadline, type HostPendingRow, type SessionInput, type SessionInputFailure } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 
 describe('native session input persistence', () => {
+  it('keeps a failure visible through automatic retry and clears it when a manual retry actually begins', async () => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    let finish: (() => void) | undefined
+    let sending = false
+    const queue = new SessionInputOutbox('owner', storage, async () => {
+      sending = true
+      await new Promise<void>(resolve => { finish = resolve })
+      throw new Error('still offline')
+    }, () => true)
+    const input = await queue.enqueue({ deviceId: null, sessionId: 'agent', text: 'retry me' })
+    await storage.put({ ...input, failure: { code: 'send-failed', message: 'offline' } })
+    const automatic = queue.flush()
+    await expect.poll(() => sending).toBe(true)
+    expect((await queue.list())[0].failure).toEqual({ code: 'send-failed', message: 'offline' })
+    finish!()
+    await automatic
+    sending = false
+    const manual = queue.flush(true)
+    await expect.poll(() => sending).toBe(true)
+    expect((await queue.list())[0].failure).toBeUndefined()
+    finish!()
+    await manual
+    expect((await queue.list())[0].failure).toEqual({ code: 'send-failed', message: 'still offline' })
+  })
+
+  it.each<SessionInputFailure>([
+    { code: 'host-offline' }, { code: 'host-not-ready' }, { code: 'phone-unconfirmed' },
+    { code: 'no-acknowledgement' }, { code: 'send-failed', message: 'SSH transport closed' },
+  ])('retains automatic custody after $code until acceptance', async failure => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    const delivered: string[] = []
+    const queue = new SessionInputOutbox('owner', storage, async input => { delivered.push(input.id) }, () => true)
+    const input = await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'recover automatically' })
+    await storage.put({ ...input, failure })
+    expect(sessionInputBubbles(await queue.list(), [], null)).toEqual([
+      { id: input.id, text: input.text, state: 'waiting', failure },
+    ])
+    await queue.flush()
+    expect(delivered).toEqual([input.id])
+    expect(await queue.list()).toEqual([])
+  })
+
   it('preserves stored runtime attachment references and does not block the following input', async () => {
     const storage = await openSessionInputStorage(new IDBFactory())
     const received: SessionInput[] = []
@@ -124,9 +166,9 @@ describe('a bubble reads the one custody owner of its messageId', () => {
       [sender('b', 2, { failure: { code: 'host-offline' } }), sender('a', 1)],
       [host(3, 'q', 'queued'), host(1, 'f', 'failed'), host(2, 'u', 'unknown')],
       null,
-    ).map(bubble => [bubble.id, bubble.state, bubble.state === 'failed' ? bubble.failure : null])).toEqual([
+    ).map(bubble => [bubble.id, bubble.state, bubble.state === 'failed' || bubble.state === 'waiting' ? bubble.failure : null])).toEqual([
       ['f', 'failed', null], ['u', 'unknown', null], ['q', 'sending', null],
-      ['a', 'sending', null], ['b', 'failed', { code: 'host-offline' }],
+      ['a', 'sending', null], ['b', 'waiting', { code: 'host-offline' }],
     ])
   })
 

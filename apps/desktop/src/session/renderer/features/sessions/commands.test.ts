@@ -31,10 +31,6 @@ vi.mock('@renderer/features/sessions/diff-view/diff-tab-item', () => ({
   DiffTabBarItemDragPreview: () => null,
   diffGroupSuffix: (group: string) => `(${group})`,
 }));
-vi.mock('@renderer/features/sessions/session-title-utils', () => ({
-  formatSessionTitleForDisplay: (_providerId: unknown, title: unknown) =>
-    (title as string) ?? 'Conversation',
-}));
 
 
 const mocks = vi.hoisted(() => ({

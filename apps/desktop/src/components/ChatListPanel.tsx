@@ -1,3 +1,4 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useNativeAgentChats } from '@/hooks/useNativeAgentChats'
 import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -268,6 +269,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
   const isRoom = isRoomChat(chat.kind)
   const peerName = isRoom ? '' : resolveOrLoud(peerIdentity?.display_name, `chat-list peer ${chat.peer_user_id ?? 'missing'} for chat ${chat.id}`)
   const displayName = chatDisplayName(chat, peerName)
+  const shownName = useShownAgentName({ name: displayName, createdAt: isAgentChat ? peerIdentity?.created_at ?? undefined : undefined })
   const preview = chatPreviewText(chat)
   const hasBolt = isRoom || isAgentChat
 
@@ -300,7 +302,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
           // Avatar — agent status lives in the corner badge (AvatarStatusBadge); the old
           // top-right dot was consolidated into it (#793 follow-up).
           <PhoneProjectChatAvatar chat={chat} mobile={mobile}><Avatar
-            name={displayName}
+            name={shownName}
             avatarUrl={isRoom ? chat.avatar : peerIdentity?.avatar}
             seed={chat.peer_user_id ?? undefined}
             size={mobile ? 48 : 'sm'}
@@ -314,7 +316,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
         title={
           <>
             {isAgentChat && chat.peer_user_id && <AgentHostStaleBadge agentUserId={chat.peer_user_id} size={13} />}
-            {displayName}
+            {shownName}
           </>
         }
         accessory={

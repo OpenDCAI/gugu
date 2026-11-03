@@ -1,3 +1,4 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { OwnedAgentNameEditor } from './OwnedAgentNameEditor'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { useAgentDisplayStatus } from '../../hooks/useAgentDisplayStatus'
@@ -110,6 +111,7 @@ export function AgentContactProfileCard({
   onRequest?: () => void
   onOpenGroup?: () => void
 }) {
+  const shownName = useShownAgentName({ name: contact.display_name, agentType: contact.agent_type, createdAt: contact.created_at ?? undefined })
   const { t } = useTranslation('contacts')
   const { status, presence } = useAgentDisplayStatus(contact.id)
   const { allowsLiveActions } = agentContactPresentation(status)
@@ -125,10 +127,10 @@ export function AgentContactProfileCard({
   return (
     <div className={styles.card}>
       <div className={avatarClass()}>
-        <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size={96} isAgent />
+        <Avatar name={shownName} avatarUrl={contact.avatar} seed={contact.id} size={96} isAgent />
       </div>
       <OwnedAgentNameEditor key={contact.id} agentId={contact.id} name={contact.display_name} ownerUserId={contact.owner_user_id} status={status} className={styles.name}>
-        {contact.display_name}
+        {shownName}
         <span className={styles.bolt}><Zap size={13} /></span>
       </OwnedAgentNameEditor>
       {tone ? (

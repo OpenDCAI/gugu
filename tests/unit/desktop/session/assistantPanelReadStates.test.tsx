@@ -41,12 +41,12 @@ it('does not turn a disabled routine-detail query into a missing item', async ()
   expect(harness.container.textContent).not.toContain('routines.goneTitle')
   expect(harness.container.querySelector('[data-testid="loading-indicator"]')).not.toBeNull()
 })
-it('retains the formatted title and unread indicator in cloud task rows', async () => {
+it('retains the raw legacy title and unread indicator in older cloud task rows', async () => {
   tasks=[{work_id:'format-title',title:'codex (1)',coordinator_session_id:'assistant-session',coordinator_device_id:'home',executors:[{session_id:'task',device_id:'home',agent_user_id:'worker'}],executor_outcomes:{},outcome:'completed',updated_at:'2026-10-26T08:00:00Z'}] as AssistantWorkTask[]
   const client = await render(context())
   await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="assistant-seg-tasks"]')!)
-  await act(async () => { await vi.waitFor(() => {expect(client.isFetching()).toBe(0);expect(harness.container.textContent).toContain('Codex (1)')}) })
-  expect(harness.container.textContent).toContain('Codex (1)')
+  await act(async () => { await vi.waitFor(() => {expect(client.isFetching()).toBe(0);expect(harness.container.textContent).toContain('codex (1)')}) })
+  expect(harness.container.textContent).toContain('codex (1)')
   expect(harness.container.querySelector('.ta-unseen')).not.toBeNull()
 })
 

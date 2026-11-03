@@ -1,3 +1,5 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { useEffect, useState, type ReactNode } from 'react'
 import type { AgentDisplayStatus, GroupMemberRole, GroupMemberType, ListenMode } from '@gugu/core/shared/types/chat'
 import { LISTEN_MODES } from '@gugu/core/shared/types/chat'
@@ -221,6 +223,8 @@ export function MemberProfileCard({
 }) {
   const { t } = useTranslation('contacts')
   const isAgent = member.type === 'agent'
+  const identity = useAvatarIdentity(isAgent ? member.id : '')
+  const shownName = useShownAgentName({ name: member.displayName, createdAt: isAgent ? identity?.created_at ?? undefined : undefined })
   // single = direct scope (not in a group) → matches prototype .pop.single
   const isSingle = member.profileScope !== 'group'
   const isGroupProfile = !isSingle
@@ -285,7 +289,7 @@ export function MemberProfileCard({
       <div className={profileHeaderClass}>
         <div style={{ width: avatarSize, height: avatarSize, flexShrink: 0, position: 'relative' }}>
           <Avatar
-            name={member.displayName}
+            name={shownName}
             avatarUrl={member.avatar}
             seed={member.id}
             size={avatarSize}
@@ -294,7 +298,7 @@ export function MemberProfileCard({
           />
         </div>
         <div className={profileHeaderTextClass} style={{ flex: 1, minWidth: 0 }}>
-          {isAgent ? <OwnedAgentNameEditor key={member.id} agentId={member.id} name={member.displayName} ownerUserId={member.ownerUserId} status={status} membership={member.membership} className="text-base font-semibold"><span className={profileNameClass}>{member.displayName}</span></OwnedAgentNameEditor> : <div className={profileNameClass}>{member.displayName}</div>}
+          {isAgent ? <OwnedAgentNameEditor key={member.id} agentId={member.id} name={member.displayName} ownerUserId={member.ownerUserId} status={status} membership={member.membership} className="text-base font-semibold"><span className={profileNameClass}>{shownName}</span></OwnedAgentNameEditor> : <div className={profileNameClass}>{member.displayName}</div>}
           {/* One metadata line, the same cells-with-gap idiom as the agent's row in the member list. */}
           {isAgent ? (
             <div data-profile-agent-meta className={profileAgentMetaClass}>

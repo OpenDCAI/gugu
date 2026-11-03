@@ -61,6 +61,8 @@ import { stripUntrustedSessionAuthority, trustedPlatformInputPatch } from './ses
 
 export { mergeTrustedSessionMeta, stripUntrustedSessionAuthority } from './session-meta';
 
+import { withTerminalOutputNegotiation } from './terminal-output-negotiation';
+
 const ACP_WIRE_CHANNEL = 'acp-wire';
 
 
@@ -351,6 +353,12 @@ export async function acpWorkerLease(): Promise<{
 export async function peekAcpWorkerClient(): Promise<AcpRuntimeProcessClient | null> {
   const handle = await acpWorker.peek();
   return handle ? handle.client as AcpRuntimeProcessClient : null;
+}
+
+/** Resource observation never initializes an idle worker. */
+export async function peekAcpResourceHandle() {
+  const handle = await acpWorker.peek();
+  return handle ? { pid: handle.process.pid, client: handle.client as AcpRuntimeProcessClient } : null;
 }
 
 export async function peekAcpRuntimeClient(): Promise<AcpRuntimeClient | null> {
@@ -825,7 +833,7 @@ function exposeRendererWire(): () => void {
     },
     () => acpWorker.get(),
     (handle) =>
-      withValidation(acpApiContract, forwardController(acpApiContract, decorateRuntimeClient(handle.client)), runtimeWireValidationPolicy()),
+      withTerminalOutputNegotiation(withValidation(acpApiContract, forwardController(acpApiContract, decorateRuntimeClient(handle.client)), runtimeWireValidationPolicy()), forwardController(acpRuntimeApiContract, handle.client)),
     { channel: ACP_WIRE_CHANNEL }
   );
 }
