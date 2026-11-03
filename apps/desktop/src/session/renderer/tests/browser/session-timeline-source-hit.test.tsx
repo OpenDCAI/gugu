@@ -30,7 +30,7 @@ it.each(['en-US', 'zh-CN'] as const)('keeps every source-arrow hit point outside
   const reveal = vi.fn(), jump = vi.fn(); harness = createReactHarness();
   const prompt = 'Earlier background command';
   await renderWithAppProviders(harness, <div style={{ position: 'relative', width: 220, height: 300 }}>
-    <SessionTimelineRail turns={[{ id: 'turn', anchorItemId: 'input', itemIds: ['input'], prompt, reply: 'Finished' }]} currentTurnId="turn" onJump={jump} />
+    <SessionTimelineRail turns={[{ id: 'turn', anchorItemId: 'input', itemIds: ['input'], prompt, reply: 'Finished', mine: true }]} currentTurnId="turn" onJump={jump} />
     <div data-content style={{ position: 'absolute', left: 40, top: 141 }}>
       <ConversationSourcePopover label="Show original message" text="Peer：the exact source" onOpenOriginal={reveal} />
     </div>
