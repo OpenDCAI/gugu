@@ -15,6 +15,7 @@ import type {
   SessionHistoryRow,
 } from '@shared/core/session-history/session-history';
 import { SESSION_HOME_SECTION_KEY } from '@shared/core/session-history/session-history';
+import { isMacHost } from '@shared/host-os';
 import '@renderer/index.css';
 
 vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: {} }) }));
@@ -344,6 +345,7 @@ describe('会话历史(按目录分节)核心合同', () => {
   });
 
   it('k4/k5 routes find by focus while the real history SearchInput stays mounted', async () => {
+    const findShortcut = isMacHost() ? '{Meta>}f{/Meta}' : '{Control>}f{/Control}';
     render(<><CommandShortcutBinder /><TranscriptFindControl /></>);
     await expect.element(screen.getByTestId('session-history-search')).toBeVisible();
     const history = screen.getByTestId('session-history-search').element();
@@ -351,12 +353,12 @@ describe('会话历史(按目录分节)核心合同', () => {
     await screen.getByTestId('session-history-search').click();
     await userEvent.keyboard('{Tab}');
     expect(document.activeElement).toBe(filter);
-    await userEvent.keyboard('{Control>}f{/Control}');
+    await userEvent.keyboard(findShortcut);
     await vi.waitFor(() => expect(document.activeElement).toBe(history));
     const transcript = screen.getByTestId('transcript-find-focus').element() as HTMLElement;
     await screen.getByTestId('transcript-find-focus').click();
     expect(document.activeElement).toBe(transcript);
-    await userEvent.keyboard('{Control>}f{/Control}');
+    await userEvent.keyboard(findShortcut);
     await vi.waitFor(() => expect(document.activeElement?.getAttribute('placeholder')).toMatch(/Find|查找/));
     expect(document.activeElement).not.toBe(history);
     expect(screen.getByTestId('session-history-search').all()).toHaveLength(1);

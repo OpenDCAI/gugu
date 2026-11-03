@@ -16,7 +16,11 @@ for (const [width, height] of [[1100, 800], [390, 620], [390, 844]]) it(`keeps o
   await page.viewport(width, height)
   await i18n.changeLanguage('zh-CN')
   await renderWithAppProviders(h, <AgentSettingsModal agent={contact({ id: 'a1', type: 'agent', owner_user_id: 'u1' })} />, { auth: { id: 'u1' } })
-  if (mobile) await page.getByRole('button', { name: '资料', exact: true }).click()
+  await Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished))
+  if (mobile) {
+    await page.getByRole('button', { name: '资料', exact: true }).click()
+    await expect.element(page.getByTestId('agent-profile-content')).toBeVisible()
+  }
   await Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished))
   const modal = document.querySelector('[data-testid="agent-settings-modal"]')!.getBoundingClientRect()
   const actions = document.querySelector<HTMLElement>('[data-testid="agent-profile-actions"]')!

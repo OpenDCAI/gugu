@@ -721,7 +721,7 @@ describe('市场页 (#7059)', () => {
     const blocked = app('arxiv', ['research']);
     const newer = app('trace', ['developer']);
     const entries = [
-      { ...blocked, cloud: { ...blocked.cloud, compat: { reason: 'needs-newer-app' as const, minAppVersion: '9.0.0' } } },
+      { ...blocked, cloud: { ...blocked.cloud, compat: { reason: 'needs-newer-app' as const, gate: 'app' as const, minAppVersion: '9.0.0' } } },
       listing[1]!,
       { ...newer, cloud: { ...newer.cloud, newerNeedsApp: '2.0.0' } },
     ];

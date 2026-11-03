@@ -528,6 +528,8 @@ export type RemoteSessionCaller = {
    * 可选:旧版本的发起方不带,收方按没配处理。
    */
   childHarness?: string | null;
+  /** 调用方项目的跨设备身份;旧调用方或任务工作区不带。 */
+  groupChatId?: string;
   transport: 'acp' | 'pty';
   /** 发起方跑的 harness 自家模型;没有 = null。 */
   model: string | null;
