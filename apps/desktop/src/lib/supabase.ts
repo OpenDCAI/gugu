@@ -3,12 +3,14 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { Session } from '@supabase/supabase-js'
 import { authBoundedFetch } from './authBoundedFetch'
 import { getRendererAccessToken, getRendererSession } from './sessionPublication'
+import { MAIN_AUTH_STORAGE_KEY, isAuthTemporaryStorageKey } from '../../shared/auth-storage-keys'
+export { MAIN_AUTH_STORAGE_KEY, MAIN_PKCE_STORAGE_KEY, OAUTH_PENDING_STORAGE_KEY } from '../../shared/auth-storage-keys'
 
-export const MAIN_AUTH_STORAGE_KEY = 'sb-main'
 const mainAuthStorage = window.localStorage
 type NativeAuthStorage = {
   get(options: { key: string }): Promise<{ value: string | null }>
   write(options: { key: string; value: string }): Promise<void>
+  remove(options: { key: string }): Promise<void>
 }
 const nativeAuthStorage = registerPlugin<NativeAuthStorage>('GuguAuthStorage')
 let storageTail = Promise.resolve()
@@ -66,11 +68,32 @@ async function readNativeStorage(): Promise<string | null> {
   return projected.raw
 }
 
+/** PKCE/attempt data belongs to auth-js and the interactive flow, never to the session writer.
+ * Native values stay in GuguAuthStorage, so a killed WebView can receive the browser callback. */
+export const mainAuthTemporaryStorage = {
+  async getItem(key: string): Promise<string | null> {
+    if (!isAuthTemporaryStorageKey(key)) throw new Error('Unsupported temporary auth storage key')
+    return Capacitor.isNativePlatform()
+      ? ordered(async () => (await nativeAuthStorage.get({ key })).value)
+      : mainAuthStorage.getItem(key)
+  },
+  async setItem(key: string, value: string): Promise<void> {
+    if (!isAuthTemporaryStorageKey(key)) throw new Error('Unsupported temporary auth storage key')
+    if (Capacitor.isNativePlatform()) await ordered(() => nativeAuthStorage.write({ key, value }))
+    else mainAuthStorage.setItem(key, value)
+  },
+  async removeItem(key: string): Promise<void> {
+    if (!isAuthTemporaryStorageKey(key)) throw new Error('Unsupported temporary auth storage key')
+    if (Capacitor.isNativePlatform()) await ordered(() => nativeAuthStorage.remove({ key }))
+    else mainAuthStorage.removeItem(key)
+  },
+}
+
 export const mainAuthSessionStorage = {
   storage: {
-    getItem: (key) => key !== MAIN_AUTH_STORAGE_KEY ? null : Capacitor.isNativePlatform() ? ordered(readNativeStorage) : mainAuthStorage.getItem(MAIN_AUTH_STORAGE_KEY),
-    setItem: () => {},
-    removeItem: () => {},
+    getItem: (key) => isAuthTemporaryStorageKey(key) ? mainAuthTemporaryStorage.getItem(key) : key !== MAIN_AUTH_STORAGE_KEY ? null : Capacitor.isNativePlatform() ? ordered(readNativeStorage) : mainAuthStorage.getItem(MAIN_AUTH_STORAGE_KEY),
+    setItem: (key, value) => { if (isAuthTemporaryStorageKey(key)) return mainAuthTemporaryStorage.setItem(key, value) },
+    removeItem: (key) => { if (isAuthTemporaryStorageKey(key)) return mainAuthTemporaryStorage.removeItem(key) },
   } satisfies GuguSupabaseStorage,
   getState: () => ({ bootCandidate, warning: legacyCleanup === null ? null : new Error('Legacy auth storage cleanup pending') }),
   commit(session: Session, signal: AbortSignal): Promise<void> {
@@ -116,6 +139,7 @@ const authClient = createGuguSupabaseClient({
   storageKey: MAIN_AUTH_STORAGE_KEY,
   persistSession: true,
   autoRefreshToken: false,
+  flowType: 'pkce',
   fetch: authBoundedFetch,
   // supabase-js 收到 SIGNED_OUT 就 realtime.setAuth(),它默认的取令牌回调是 auth.getSession() —— 一次刷新失败
   // 发出的 SIGNED_OUT 会让它从上面那份删不掉的存储里再刷一次,失败再签出,自己转圈(#6723)。这里的 realtime

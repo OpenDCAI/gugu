@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { LoginPage } from './pages/LoginPage'
+import { startAuthCallbackRouting } from './lib/authCallbacks'
 import { MainLayout } from './layouts/MainLayout'
 import { AgentJoinRoute } from './pages/AgentJoinRoute'
 import { AuthContext, type AuthUser } from './store/auth'
@@ -130,6 +131,7 @@ export default function App() {
   useEffect(() => {
     return sessionCoordinator.start()
   }, [])
+  useEffect(startAuthCallbackRouting, [])
 
   const authRpcHandlers: RendererRpcHandlers = {
     // #5025 主进程问「现在登录的是谁」时,boot-restoring 期间的 null 不是答案而是「还没恢复完」。

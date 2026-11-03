@@ -10,6 +10,7 @@ import { anchorDownload } from './anchorDownload'
 import { systemSettingsUrl, type HostOs } from '../../shared/system-settings-urls'
 import { detectHostOs } from '@shared/host-os'
 import type { SystemPermission } from './types'
+import { electronAuthCallbacks } from './electronAuthCallbacks'
 
 /** @@@host-os 系统探针只有 `@shared/host-os` 一条;这里只是把 'other' 翻成本地的 ''。 */
 function hostOs(): HostOs {
@@ -50,6 +51,7 @@ function unavailable(feature: string): Error {
 export const electronPlatform: AppPlatform = {
   kind: 'electron',
   documentTitle: '咕咕 Desktop',
+  authCallbacks: electronAuthCallbacks,
   /**
    * 桌面**跳得到系统设置、但查不到状态**:macOS 不给应用读通知授权,按文件夹的访问授权
    * 也只能弹框要、不能查(Electron 无接口;node-mac-permissions 2.5.0 实测

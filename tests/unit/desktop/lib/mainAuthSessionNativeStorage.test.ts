@@ -9,12 +9,15 @@ type SdkMutationStorage = {
 const sdkMutationStorage = (storage: unknown): SdkMutationStorage => storage as SdkMutationStorage
 const native = vi.hoisted(() => ({
   value: null as string | null,
-  get: vi.fn(async () => ({ value: native.value })),
-  write: vi.fn(async ({ value }: { key: string; value: string }) => { native.value = value }),
+  temporary: new Map<string, string>(),
+  enabled: true,
+  get: vi.fn(async ({ key }: { key: string }) => ({ value: key === 'sb-main' ? native.value : native.temporary.get(key) ?? null })),
+  write: vi.fn(async ({ key, value }: { key: string; value: string }) => { if (key === 'sb-main') native.value = value; else native.temporary.set(key, value) }),
+  remove: vi.fn(async ({ key }: { key: string }) => { native.temporary.delete(key) }),
 }))
 vi.mock('@capacitor/core', () => ({
-  Capacitor: { isNativePlatform: () => true },
-  registerPlugin: () => ({ get: native.get, write: native.write }),
+  Capacitor: { isNativePlatform: () => native.enabled },
+  registerPlugin: () => ({ get: native.get, write: native.write, remove: native.remove }),
 }))
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: vi.fn(() => ({ auth: {} })) }))
 function session(id: string, suffix = 'old'): Session {
@@ -32,8 +35,11 @@ describe('mainAuthSessionStorage native state agent', () => {
   beforeEach(() => {
     window.localStorage.clear()
     native.value = null
+    native.enabled = true
+    native.temporary.clear()
     native.get.mockClear()
     native.write.mockClear()
+    native.remove.mockClear()
   })
   afterEach(() => vi.restoreAllMocks())
   it('durably establishes RETIRED_EMPTY before projecting definitive null', async () => {
@@ -196,5 +202,51 @@ describe('mainAuthSessionStorage native state agent', () => {
     await expect(Promise.resolve(mainAuthSessionStorage.storage.getItem(MAIN_AUTH_STORAGE_KEY))).rejects.toThrow('native read failed')
     native.value = JSON.stringify({ state: 'RETIRED_EMPTY' })
     await expect(Promise.resolve(mainAuthSessionStorage.storage.getItem(MAIN_AUTH_STORAGE_KEY))).resolves.toBeNull()
+  })
+  it.each([true, false])('persists only allowed temporary data across module restart (native=%s)', async (enabled) => {
+    native.enabled = enabled
+    const { mainAuthTemporaryStorage, MAIN_PKCE_STORAGE_KEY, OAUTH_PENDING_STORAGE_KEY } = await loadStorage()
+    for (const key of [MAIN_PKCE_STORAGE_KEY, OAUTH_PENDING_STORAGE_KEY]) await mainAuthTemporaryStorage.setItem(key, `opaque-${key}`)
+    const restarted = await loadStorage()
+    for (const key of [MAIN_PKCE_STORAGE_KEY, OAUTH_PENDING_STORAGE_KEY]) {
+      await expect(restarted.mainAuthTemporaryStorage.getItem(key)).resolves.toBe(`opaque-${key}`)
+      await restarted.mainAuthTemporaryStorage.removeItem(key)
+      await expect(restarted.mainAuthTemporaryStorage.getItem(key)).resolves.toBeNull()
+    }
+    if (enabled) {
+      expect(window.localStorage.getItem(MAIN_PKCE_STORAGE_KEY)).toBeNull()
+      expect(window.localStorage.getItem(OAUTH_PENDING_STORAGE_KEY)).toBeNull()
+      expect(native.remove).toHaveBeenCalledTimes(2)
+    } else expect(native.write).not.toHaveBeenCalled()
+  })
+  it('lets auth-js await native PKCE writes/removal without acquiring session write ownership', async () => {
+    const { MAIN_AUTH_STORAGE_KEY, MAIN_PKCE_STORAGE_KEY, mainAuthSessionStorage } = await loadStorage()
+    const active = session('canonical-user')
+    await mainAuthSessionStorage.commit(active, new AbortController().signal)
+    const committed = native.value
+    await mainAuthSessionStorage.storage.setItem(MAIN_PKCE_STORAGE_KEY, 'sdk-verifier')
+    await expect(mainAuthSessionStorage.storage.getItem(MAIN_PKCE_STORAGE_KEY)).resolves.toBe('sdk-verifier')
+    await mainAuthSessionStorage.storage.setItem(MAIN_AUTH_STORAGE_KEY, 'other-user')
+    await mainAuthSessionStorage.storage.removeItem(MAIN_AUTH_STORAGE_KEY)
+    expect(native.value).toBe(committed)
+    await mainAuthSessionStorage.storage.removeItem(MAIN_PKCE_STORAGE_KEY)
+    await expect(mainAuthSessionStorage.storage.getItem(MAIN_PKCE_STORAGE_KEY)).resolves.toBeNull()
+    expect(native.value).toBe(committed)
+  })
+  it('rejects temporary access to session/unknown keys and propagates native write/remove failures', async () => {
+    const { mainAuthTemporaryStorage, MAIN_PKCE_STORAGE_KEY } = await loadStorage()
+    for (const key of ['sb-main', 'other', 'sb-main-code-verifier-extra']) {
+      await expect(mainAuthTemporaryStorage.getItem(key)).rejects.toThrow('Unsupported')
+      await expect(mainAuthTemporaryStorage.setItem(key, 'bad')).rejects.toThrow('Unsupported')
+      await expect(mainAuthTemporaryStorage.removeItem(key)).rejects.toThrow('Unsupported')
+    }
+    native.write.mockRejectedValueOnce(new Error('temporary write failed'))
+    await expect(mainAuthTemporaryStorage.setItem(MAIN_PKCE_STORAGE_KEY, 'verifier')).rejects.toThrow('temporary write failed')
+    await mainAuthTemporaryStorage.setItem(MAIN_PKCE_STORAGE_KEY, 'verifier')
+    native.remove.mockRejectedValueOnce(new Error('temporary removal failed'))
+    await expect(mainAuthTemporaryStorage.removeItem(MAIN_PKCE_STORAGE_KEY)).rejects.toThrow('temporary removal failed')
+    await expect(mainAuthTemporaryStorage.getItem(MAIN_PKCE_STORAGE_KEY)).resolves.toBe('verifier')
+    await mainAuthTemporaryStorage.removeItem(MAIN_PKCE_STORAGE_KEY)
+    await expect(mainAuthTemporaryStorage.getItem(MAIN_PKCE_STORAGE_KEY)).resolves.toBeNull()
   })
 })
