@@ -5,6 +5,7 @@ import { installedExtensionsStore } from '../../../../../apps/desktop/src/sessio
 import { EXTENSION_API_VERSION, parseExtensionManifest } from '../../../../../apps/desktop/src/session/shared/extensions/manifest'
 import enMessaging from '../../../../../apps/desktop/src/i18n/locales/en-US/messaging'
 import zhMessaging from '../../../../../apps/desktop/src/i18n/locales/zh-CN/messaging'
+import { UI_EVENTS } from '../../../../../apps/desktop/src/lib/uiEvents'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem, GroupChatSettings, GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
 import { chat as topicFixture, clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
@@ -76,11 +77,15 @@ describe('final group toolbar v4', () => {
     headerWidth = mode === 'width' ? 560 : 900
     await header(mode === 'dm' || mode === 'topic' ? mode : 'group', { menu: true, mobile: mode === 'mobile', stripNarrow: mode === 'strip' })
     const app = document.querySelector<HTMLElement>('[data-testid="chat-header-menu-app"]')
-    expect(app?.textContent).toBe('Toolbar App')
+    expect(app?.querySelector('.gg-menu-item-label')?.textContent).toBe('Toolbar App')
     if (mode !== 'dm' && mode !== 'topic') {
       expect(document.querySelector('[data-testid="chat-header-apps-button"]')).toBeNull()
       expect(menuItem('应用')).toBeDefined()
     }
+    const opened = vi.fn()
+    window.addEventListener(UI_EVENTS.openApp, opened)
+    try { await clickElement(app!) } finally { window.removeEventListener(UI_EVENTS.openApp, opened) }
+    expect((opened.mock.calls[0]![0] as CustomEvent).detail).toEqual({ extensionId: 'toolbar-app', chatId: 'chat' })
   })
 
   it.each(['group', 'topic'] as const)('[immediate] %s member pill contains only the count and keeps its accessible name', async (kind) => {
