@@ -491,14 +491,27 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
         if (!active) return
         const user = io.user()
         if (!user) return
-        for (const record of records) {
+        const attachments = new Map<string, OutboxRecord[]>()
+        for (const record of records.toSorted((a, b) => a.enqueuedAt.localeCompare(b.enqueuedAt))) {
           if (record.state !== 'failed' && (record.operation?.kind === 'nativeAttachment' || record.operation?.kind === 'upload')) {
-            void finishNativeAttachment(record).catch(error => active ? outbox.failUpload(record.clientMessageId, error,
-              error instanceof AttachmentSourceRefused ? error.message : undefined) : undefined)
+            const chat = attachments.get(record.chatId) ?? []
+            chat.push(record)
+            attachments.set(record.chatId, chat)
           }
           if (record.payload.threadRootId) continue // 话题行在 openThread 时经 injectThreadOutboxRows 注入
           const row = outboxRecordToMessage(record, user)
           io.setMessagesAndCache((prev) => upsertMessageById(prev, row), record.chatId)
+        }
+        for (const chat of attachments.values()) {
+          void (async () => {
+            for (const record of chat) {
+              try { await finishNativeAttachment(record) }
+              catch (error) {
+                if (active) await outbox.failUpload(record.clientMessageId, error,
+                  error instanceof AttachmentSourceRefused ? error.message : undefined)
+              }
+            }
+          })().catch(err => { if (active) console.error('[chatOutbox] attachment restore failed', err) })
         }
       }).catch((err) => { if (active) console.error('[chatOutbox] restore failed', err) })
       // 网络恢复 → 全部 failed 自动重投(验收②的自动路径;拍板 a:退避封顶后交 online kick)

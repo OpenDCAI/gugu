@@ -382,6 +382,39 @@ describe('disk-backed attachment restart through the durable repository', () => 
     expect((await f.repository).snapshot().outbox).toEqual([])
     stop(); restored.wiring.dispose()
   })
+  it.each(['success', 'failure'])('restores attachments in enqueue order after the first publication ends in %s', async outcome => {
+    const invoke = bridge(), f = wiringHarness('big')
+    await stage(f, 'big'); await stage(f, 'small')
+    f.wiring.dispose()
+    const first = deferred<void>(), publishing: string[] = []
+    invoke.mockImplementation(async (_name, args) => {
+      if (!args.file) return true
+      const id = (args.message as { message_id: string }).message_id
+      publishing.push(id)
+      if (id === 'big') {
+        await first.promise
+        if (outcome === 'failure') return { refused: 'changed' } as never
+      }
+      return { id: args.itemId, version: 1, message: nativeMessage(id, args.itemId as string) }
+    })
+    vi.spyOn(chatService, 'getMessageById').mockResolvedValue(null)
+    const restored = wiringHarness('big', f.repository), stop = restored.wiring.restoreAndWatch()
+    try {
+      await vi.waitFor(() => expect(publishing).toContain('big'))
+      await flushMicrotasks(50)
+      expect(publishing).toEqual(['big'])
+      first.resolve()
+      await vi.waitFor(() => expect(restored.appendMessage.mock.calls.map(([row]) => row.id))
+        .toEqual(outcome === 'success' ? ['big', 'small'] : ['small']))
+      expect(publishing).toEqual(['big', 'small'])
+      expect((await f.repository).snapshot().outbox.map(row => row.value)).toEqual(outcome === 'success' ? [] : [
+        expect.objectContaining({ clientMessageId: 'big', state: 'failed' }),
+      ])
+    } finally {
+      first.resolve(); stop(); restored.wiring.dispose()
+      await flushMicrotasks(50)
+    }
+  })
   it.each(['missing', 'changed', 'denied'] as const)('retains the exact original-file %s reason on the failed durable row', async reason => {
     const invoke = bridge(), f = wiringHarness('refused')
     await stage(f, 'refused'); f.wiring.dispose()
