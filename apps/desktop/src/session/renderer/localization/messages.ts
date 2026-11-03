@@ -371,7 +371,7 @@ const enUSCoreMessages = {
   'extensions.downloading': 'Downloading {percent}%',
   'extensions.compatExplain': 'Why this version cannot be installed here',
   'extensions.needsNewerApp': 'Needs gugu {version} or newer',
-  'extensions.needsAppApi': 'Needs a Gugu version that supports App API {apiVersion}',
+  'extensions.needsAppApi': 'Needs a gugu version that supports App API {apiVersion}',
   'extensions.needsAuthorUpdate': 'Needs an update from the author',
   'extensions.deprecated': 'No longer maintained',
   'extensions.deprecatedUseReplacement': 'Use {name}',

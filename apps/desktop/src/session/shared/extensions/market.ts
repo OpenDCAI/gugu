@@ -60,7 +60,7 @@ export function marketCompatText(
   if (compat.reason === 'needs-author-update') return translate ? translate('extensions.needsAuthorUpdate') : `targets apiVersion ${compat.apiVersion}, which this gugu no longer runs; its author has to update it`;
   if (short) return translate ? translate('extensions.tileNeedsApp') : 'needs a newer gugu';
   if (compat.gate === 'api' && compat.firstRelease === null) {
-    return translate ? translate('extensions.needsAppApi', { apiVersion: compat.apiVersion }) : `needs a Gugu version that supports App API ${compat.apiVersion}`;
+    return translate ? translate('extensions.needsAppApi', { apiVersion: compat.apiVersion }) : `needs a gugu version that supports App API ${compat.apiVersion}`;
   }
   const version = compat.gate === 'api' ? compat.firstRelease! : compat.minAppVersion;
   return translate ? translate('extensions.needsNewerApp', { version }) : `needs gugu ${version} or newer`;
