@@ -2,6 +2,7 @@ import { pendingPromptLanded, type PendingPrompt } from '@session-chat/state/pen
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import { i18n } from '@/i18n'
 import { messageForUser } from './userFacingError'
+import { translateSessionMessage } from '@renderer/localization/locale-store'
 import type { HostPendingRow, SessionInput, SessionInputFailure } from './sessionInputOutbox'
 
 export function sessionInputBaseline(turns: readonly TranscriptTurn[]): Pick<SessionInput, 'baseline' | 'afterTurnId'> {
@@ -16,6 +17,14 @@ export function sessionInputFailureText(failure: SessionInputFailure): string {
   return i18n.t(`message.sendStatus.failure.${key}`, { ns: 'messaging' })
 }
 
+/** A short attempt status; custody is determined by the retained sender row, never this label. */
+export function sessionInputWaitingReason(failure: SessionInputFailure): string {
+  const key = failure.code === 'host-offline' ? 'transcript.waitingHostOffline'
+    : failure.code === 'host-not-ready' ? 'transcript.waitingHostNotReady'
+    : failure.code === 'send-failed' ? 'transcript.waitingSendInterrupted' : 'transcript.waitingAcknowledgement'
+  return translateSessionMessage(key)
+}
+
 /** One ordinary input follows sender custody, host custody and its native echo without changing its row. */
 export function projectSessionPendingInput(previous: PendingPrompt | null, sender: readonly SessionInput[],
   host: readonly HostPendingRow[], turns: readonly TranscriptTurn[]): PendingPrompt | null {
@@ -23,7 +32,8 @@ export function projectSessionPendingInput(previous: PendingPrompt | null, sende
   let prompt: PendingPrompt | null = input ? {
     id: input.id, text: input.text, sentAt: input.createdAt, baselineMessageIds: input.baseline, afterTurnId: input.afterTurnId,
     attachments: input.files?.map(file => ({ id: file.itemId, name: file.name, href: `gugu-file://${file.itemId}?v=${file.version}`, kind: file.mimeType.startsWith('image/') ? 'image' : 'file' })),
-    held: true, delivery: input.failure ? { state: 'failed', error: sessionInputFailureText(input.failure) } : { state: 'sending' },
+    // Presence in the durable sender outbox means automatic recovery, for every failure code.
+    held: true, delivery: input.failure ? { state: 'waiting', retryable: false, reason: sessionInputWaitingReason(input.failure), error: sessionInputFailureText(input.failure) } : { state: 'sending' },
   } : previous?.delivery ? { ...previous, held: true, delivery: { state: 'accepted' } } : null
   if (!prompt) return null
   const promptId = prompt.id

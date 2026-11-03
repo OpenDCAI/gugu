@@ -135,7 +135,8 @@ describe('the session composer\'s box', () => {
     )
     const tray = () => container!.getElementsByClassName(sessionComposerTrayClassName)[0] as HTMLElement
     const card = () => container!.querySelector<HTMLElement>('[data-slot="composer-bar"]')!
-    await until('task outline has layout', () => !!tray() && !!card() && card().getBoundingClientRect().height > 0)
+    // The card eases its border-color into the outline; compare the settled colors, not a frame of that transition.
+    await until('task outline has settled', () => !!tray() && !!card() && card().getBoundingClientRect().height > 0 && card().getAnimations().length === 0)
     expect(getComputedStyle(tray()).borderRightColor).toBe(getComputedStyle(card()).borderRightColor)
     expect(getComputedStyle(card()).boxShadow).toBe('none')
     const stack = container!.querySelector<HTMLElement>('[data-composer-stack]')!

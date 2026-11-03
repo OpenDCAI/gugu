@@ -100,6 +100,11 @@ export type SubscribeDeviceRpc = (input: {
   deviceId: string
 }) => Promise<() => void> | (() => void)
 
+export type SubscribeOwnedAgentChanges = (input: {
+  ownerUserId: string
+  onChanged: () => Promise<void>
+}) => Promise<() => void> | (() => void)
+
 export interface DeviceRuntimeHostOptions {
   env?: NodeJS.ProcessEnv
   /** 排空跟进的间隔(上一轮取到过命令却没有一条落终态时,隔多久复查)。❌ 不是轮询周期,见 spec device-runtime。 */
@@ -151,6 +156,8 @@ export interface DeviceRuntimeHostOptions {
    */
   subscribeCommandWake?: SubscribeDeviceCommandWake
   subscribeDeviceRpc?: SubscribeDeviceRpc
+  subscribeOwnedAgentChanges?: SubscribeOwnedAgentChanges
+  onOwnedAgentsChanged?: (ownerUserId: string) => Promise<void> | void
   warn?: (message: string) => void
   // @@@auth-expired-signal - fired exactly once when the host's auth is PERMANENTLY lost (refresh
   onAuthExpired?: (message: string) => void
@@ -358,6 +365,8 @@ export function createDeviceRuntimeHostLoop(
   let commandWake: { deviceId: string; unsubscribe: () => void } | null = null
   let commandWakeEpoch = 0
   let deviceRpc: { deviceId: string; unsubscribe: () => void } | null = null
+  let ownedAgentChanges: { ownerUserId: string; unsubscribe: () => void } | null = null
+  let ownedAgentChangesEpoch = 0
   let lifecycleGeneration = 0
   let lastAuth: RuntimeAuth | null = null
   let activeOwnerUserId: string | null = null
@@ -451,6 +460,12 @@ export function createDeviceRuntimeHostLoop(
     deviceRpc = null
   }
 
+  function unsubscribeOwnedAgentChanges(): void {
+    ownedAgentChanges?.unsubscribe()
+    ownedAgentChanges = null
+    ownedAgentChangesEpoch += 1
+  }
+
   async function establishOwnerBoundary(ownerUserId: string): Promise<void> {
     if (persistedOwnerUserId === undefined) {
       persistedOwnerUserId = await readDeviceRuntimeOwner(env)
@@ -459,6 +474,7 @@ export function createDeviceRuntimeHostLoop(
     if (previousOwnerUserId !== null && previousOwnerUserId !== ownerUserId) {
       unsubscribeCommandWake()
       unsubscribeDeviceRpc()
+      unsubscribeOwnedAgentChanges()
       if (activeHeartbeat) await activeHeartbeat
       await clearLocalAgentRuntimesForOwnerChange({
         env,
@@ -512,6 +528,25 @@ export function createDeviceRuntimeHostLoop(
       return
     }
     deviceRpc = { deviceId, unsubscribe }
+  }
+
+  async function ensureOwnedAgentChanges(ownerUserId: string, generation: number): Promise<void> {
+    if (!options.subscribeOwnedAgentChanges || generation !== lifecycleGeneration) return
+    if (ownedAgentChanges?.ownerUserId === ownerUserId) return
+    unsubscribeOwnedAgentChanges()
+    const epoch = ownedAgentChangesEpoch
+    const current = () => generation === lifecycleGeneration && epoch === ownedAgentChangesEpoch && activeOwnerUserId === ownerUserId
+    const unsubscribe = await options.subscribeOwnedAgentChanges({
+      ownerUserId,
+      onChanged: async () => {
+        if (current()) await options.onOwnedAgentsChanged?.(ownerUserId)
+      },
+    })
+    if (!current()) {
+      unsubscribe()
+      return
+    }
+    ownedAgentChanges = { ownerUserId, unsubscribe }
   }
 
   // 一次「该取命令了」的请求。没有 tick 在飞就立刻跑一轮;有就排一个后续的 ——
@@ -695,12 +730,14 @@ export function createDeviceRuntimeHostLoop(
       if (!auth?.accessToken || !auth.userId) {
         unsubscribeCommandWake()
         unsubscribeDeviceRpc()
+        unsubscribeOwnedAgentChanges()
         lastAuth = null
         lastTickAt = nowMs()
         queueBelievedEmpty = false
         return { skipped: true }
       }
       await establishOwnerBoundary(auth.userId)
+      await ensureOwnedAgentChanges(auth.userId, generation)
       lastAuth = auth
       lastError = null
       // @@@activity-edge (#3961/#4008) — 逐 agent 的维护与边沿发布都在 activity 的 flight 上跑(见 maintainLocalAgents),
@@ -865,6 +902,7 @@ export function createDeviceRuntimeHostLoop(
       if (handleAuthExpired(err)) {
         unsubscribeCommandWake()
         unsubscribeDeviceRpc()
+        unsubscribeOwnedAgentChanges()
         lastAuth = null
         queueBelievedEmpty = false
         return { skipped: true }
@@ -1418,6 +1456,7 @@ export function createDeviceRuntimeHostLoop(
     unsubscribeAgentTurnState = null
     unsubscribeCommandWake()
     unsubscribeDeviceRpc()
+    unsubscribeOwnedAgentChanges()
     lastAuth = null
     if (runningTick) await runningTick.catch(() => undefined)
     // 定时任务那一轮从前是在 tick 里被 await 的;现在它有自己的 flight,停机同样要等它落地 ——

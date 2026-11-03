@@ -89,6 +89,16 @@ function projectManagerWithSessions(
 }
 
 describe('SidebarStore project ordering', () => {
+  it('keeps the raw title and creation time for component display without rewriting addressing data', () => {
+    const createdAt = '2026-11-02T08:00:00.000Z';
+    const page = { ...sessionFixture('fresh', createdAt), data: { ...sessionFixture('fresh', createdAt).data, title: 'Codex 5', providerId: 'codex', runtime: 'acp', lastInteractedAt: createdAt } };
+    const manager = { projects: new Map([['project', { id: 'project', createdAt, mountedProject: { sessionManager: { sessions: new Map([['fresh', page]]) } } }]]) } as unknown as SidebarProjectManager;
+    sessionRegistry.acquire('fresh', 'project', [{ ...page.data, projectId: 'project', runtime: 'acp', agentStatus: null }]);
+    try {
+      const store = new SidebarStore(manager);
+      expect(store.placement.entries.get('project')).toEqual([expect.objectContaining({ title: 'Codex 5', createdAt })]);
+    } finally { sessionRegistry.release('fresh'); }
+  });
   it('counts a projectless child once when its workspace is also folded into a project group (#574)', () => {
     const home = IMPLICIT_SESSION_HOME_PROJECT_ID;
     const row = 'hydration-project';
@@ -501,7 +511,7 @@ describe('SidebarStore project ordering', () => {
     sessionRegistry.release('home-task');
   });
 
-  it('keeps executors in the Sessions section when the assistant home project row is hidden', () => {
+  it('keeps task-workspace executors in Tasks without an assistant-project hiding exception', () => {
     const home = 'assistant-home';
     const record = (id: string, parentSessionId?: string) => ({
       id, projectId: home, providerId: 'codex', title: id, runtime: 'acp' as const,
@@ -517,19 +527,23 @@ describe('SidebarStore project ordering', () => {
         { id: home, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: records.map((r) => r.id) },
         { id: 'business', createdAt: '2026-01-01T00:00:00.000Z', sessionIds: [] },
       ]);
+      (manager.projects.get(home) as unknown as { data: { kind?: string } }).data = { kind: 'workspace' };
       const store = new SidebarStore(manager);
       store.setAssistantAgentId('assistant');
-      store.setAssistantHomeProjectId(home);
+      store.expandedSessionIds.add('own');
       store.expandedSessionIds.add('executor');
       expect(store.orderedProjects.map((p) => p.id)).toEqual(['business']);
       expect(store.standaloneSessionEntries.map((r) => [r.sessionId, r.depth])).toEqual([
-        ['executor', 0], ['grandchild', 1], ['other', 0],
+        ['own', 0], ['executor', 1], ['grandchild', 2], ['other', 0],
       ]);
       expect(store.rowOfSession(home, 'executor')).toBeNull();
       expect(store.navChain.some((r) => r.kind === 'conversation' && r.sessionId === 'executor')).toBe(true);
       // With the project visible again its sessions return to the project, without duplicates.
-      store.setAssistantHomeProjectId(null);
-      expect(store.standaloneSessionEntries).toEqual([]);
+      (manager.projects.get(home) as unknown as { data: { kind?: string } }).data = {};
+      const userProjectStore = new SidebarStore(manager);
+      userProjectStore.setAssistantAgentId('assistant');
+      expect(userProjectStore.orderedProjects.map((p) => p.id)).toContain(home);
+      expect(userProjectStore.standaloneSessionEntries).toEqual([]);
       expect(manager.projects.size).toBe(2);
     } finally {
       identity.mockRestore();
@@ -856,6 +870,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     store.machines = { ...machines, isAssistantHome: () => true, label: () => 'Renamed assistant',
       sessionsOf: () => ({ sessions: [...listed.values()], live }) };
     store.setAssistantAgentId('assistant-id');
+    store.expandedSessionIds.add('rc-assistant');
     store.expandedSessionIds.add('rc-executor');
     store.expandAllProjects();
     try {
@@ -864,7 +879,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       expect(store.projectLabel('d22-home')).toBeNull();
       expect(store.projectLabel('d22-business')).toBe('Business');
       expect(store.standaloneSessionEntries.map((e) => [e.sessionId, e.depth])).toEqual([
-        ['rc-executor', 0], ['rc-grandchild', 1],
+        ['rc-assistant', 0], ['rc-executor', 1], ['rc-grandchild', 2],
       ]);
       expect(store.rowOfSession('d22-home', 'rc-executor')).toBeNull();
       expect(store.navChain.some((r) => r.kind === 'conversation' && r.sessionId === 'rc-executor')).toBe(true);
@@ -907,7 +922,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     sessionRegistry.release('rt-g');
   });
 
-  it('#7199 个人助理自己的会话不进任务区;它派的照常在、成了根,并认得出是它派的', () => {
+  it('keeps the assistant and its child tasks visible after moving them to the task workspace', () => {
     acquire('rt-asst', REMOTE_SESSION_HOME, 'rc-asst');
     acquire('rt-kid', REMOTE_SESSION_HOME, 'rc-kid', 'rc-asst');
     acquire('rt-other', REMOTE_SESSION_HOME, 'rc-other');
@@ -925,12 +940,12 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     expect(store.launchedByAssistant(REMOTE_SESSION_HOME, 'rc-kid')).toBe(false);
 
     store.setAssistantAgentId('u-asst');
-    expect(shown()).toEqual(['rc-kid@0', 'rc-other@0']);
+    expect(shown()).toEqual(['rc-asst@0', 'rc-kid@1', 'rc-other@0']);
     expect(store.launchedByAssistant(REMOTE_SESSION_HOME, 'rc-kid')).toBe(true);
     expect(store.launchedByAssistant(REMOTE_SESSION_HOME, 'rc-other')).toBe(false);
-    // 认的是 agent 身份:换成别人的 id,它那条就回来。
+    // 身份只供派生关系判断使用，不再把个人助理从任务中滤掉。
     store.setAssistantAgentId('u-kid');
-    expect(shown()).toEqual(['rc-asst@0', 'rc-other@0']);
+    expect(shown()).toEqual(['rc-asst@0', 'rc-kid@1', 'rc-other@0']);
     for (const id of ['rt-asst', 'rt-kid', 'rt-other']) sessionRegistry.release(id);
   });
 

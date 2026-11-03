@@ -3,6 +3,7 @@ import { act, type ReactNode } from 'react';
 import { CartesianTimeAxis } from '@visactor/vchart/cjs/component/axis/cartesian/time-axis';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ResourcePoint, ResourceSnapshot } from '@shared/resource-monitor';
+import type { ResourceSamplingFailure } from '@shared/events/resourceEvents';
 import { createReactHarness, deferred } from '../../../../../../../../tests/support/testHarness';
 import { ResourceTimeline } from './resource-timeline';
 
@@ -12,10 +13,10 @@ type ChartProps = {
   options: unknown;
   onDimensionClick: (event: { dimensionInfo: { data: { datum: { id: number }[] }[] }[] }) => void;
 };
-const rig = vi.hoisted(() => ({ charts: [] as ChartProps[], history: vi.fn(), point: vi.fn(), snapshot: null as ResourceSnapshot | null }));
+const rig = vi.hoisted(() => ({ charts: [] as ChartProps[], history: vi.fn(), point: vi.fn(), snapshot: null as ResourceSnapshot | null, failure: null as ResourceSamplingFailure | null }));
 vi.mock('mobx-react-lite', () => ({ observer: (component: unknown) => component }));
 vi.mock('@visactor/react-vchart', () => ({ VChart: (props: ChartProps) => { rig.charts.push(props); return <div />; } }));
-vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { resourceMonitor: { get snapshot() { return rig.snapshot; } } } }));
+vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { resourceMonitor: { get snapshot() { return rig.snapshot; }, get samplingFailure() { return rig.failure; } } } }));
 vi.mock('@renderer/features/command-palette/resource-monitor-view', () => ({
   ResourceMonitorView: ({ live, header }: { live: boolean; header: ReactNode }) => <div data-testid="process-table" data-live={String(live)}>{header}</div>,
 }));
@@ -34,13 +35,31 @@ const memory = () => rig.charts.filter((p) => p.spec.yField === 'mem').at(-1)!;
 const clickAt = (id: number) => cpu().onDimensionClick({ dimensionInfo: [{ data: [{ datum: [{ id }] }] }] });
 let harness: ReturnType<typeof createReactHarness>;
 beforeEach(() => {
-  vi.clearAllMocks(); rig.charts.length = 0; rig.snapshot = snapshot(1);
+  vi.clearAllMocks(); rig.charts.length = 0; rig.snapshot = snapshot(1); rig.failure = null;
   document.documentElement.dataset.theme = 'light';
   rig.history.mockResolvedValue(history(points)); rig.point.mockResolvedValue({ success: true, data: snapshot(2000) });
   harness = createReactHarness();
 });
 afterEach(() => { harness.cleanup(); delete document.documentElement.dataset.theme; });
 const render = async (compact = false) => { await harness.render(<ResourceTimeline compact={compact} live />); await act(async () => { await vi.dynamicImportSettled(); }); };
+
+it.each([false, true])('labels old values stale with a timed process-list error in page and popup (compact=%s)', async (compact) => {
+  rig.failure = { timestamp: 2000, reason: 'process-list-read-failed' };
+  await render(compact);
+  const alert = harness.container.querySelector('[role="alert"]');
+  expect(alert?.textContent).toContain('resourceMonitor.processListFailed');
+  expect(alert?.textContent).toContain(new Date(2000).toLocaleTimeString());
+  expect(alert?.textContent).toContain('resourceMonitor.staleData');
+  rig.failure = null;
+  await render(compact);
+  expect(harness.container.querySelector('[data-resource-sampling-error]')).toBeNull();
+});
+
+it.each([false, true])('states the limited Windows scope in page and popup (compact=%s)', async (compact) => {
+  rig.snapshot = { ...snapshot(1), processTreeScope: 'electron-and-pty-roots' };
+  await render(compact);
+  expect(harness.container.textContent).toContain('resourceMonitor.windowsPartial');
+});
 
 it.each([false, true])('buckets history refreshes without dropping chart data (compact=%s)', async (compact) => {
   await render(compact);

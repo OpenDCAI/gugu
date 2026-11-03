@@ -43,9 +43,9 @@ describe('command palette tasks across devices', () => {
     expect(ids(paletteTasks([], rows, '', 'assistant-id'))).toEqual(['child', 'native']);
   });
 
-  it('uses the sidebar title formatter and preserves the inbound project and device', () => {
+  it('keeps raw task titles for search and preserves the inbound project and device', () => {
     expect(paletteTasks([], [remote('task', at(1), { title: 'codex (2)' })], '', null))
-      .toEqual([expect.objectContaining({ title: 'Codex (2)', projectId: 'inbound-project', deviceId: 'other-device', deviceLabel: 'Other computer' })]);
+      .toEqual([expect.objectContaining({ title: 'codex (2)', projectId: 'inbound-project', deviceId: 'other-device', deviceLabel: 'Other computer' })]);
     expect(paletteTasks([local('here', at(2))], [], '', null)[0]).not.toHaveProperty('deviceId');
   });
 

@@ -70,7 +70,9 @@ import { ContactsProvider } from '../store/contacts'
 import { DevicesProvider } from '../store/devices'
 import { ServerLoginApproveHost } from '../mobile/server-login/ServerLoginApproveHost'
 import { AssistantShellHost } from '../components/assistant/AssistantShellHost'
+import { OwnedAgentResourcesHost } from '../components/appSlot/OwnedAgentResourcesHost'
 import { ChatSlotHost } from '../components/ChatSlotHost'
+import { OfflineSessionSlotHost } from '../components/chat/OfflineSessionSlotHost'
 import { ChatListSlotHost } from '../components/ChatListSlotHost'
 import { AssistantTaskChatOpener } from '../components/assistant/AssistantTaskChatOpener'
 import { FeedbackHost } from '../components/FeedbackHost'
@@ -273,9 +275,9 @@ function InnerLayout({
   }, [mobile])
   useEffect(() => () => composerFocusCleanupRef.current?.(), [])
   const openOwnedAgent = useOwnedAgentConversationEntry({ ownerId: user.id, chats, contacts, mobile, onOpen: () => { if (!mobile) setActiveTab('tasks') } })
-  const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason, peerId?: string, draft?: string, sourceChatId?: string): string | null => {
+  const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason, peerId?: string, draft?: string, sourceChatId?: string, purpose?: 'resource'): string | null => {
     if (!sourceChatId && openAssistantChat(chatId)) return mobile ? 'assistant' : assistantSlotKey('chat')
-    if (openOwnedAgent(chatId, peerId, draft, sourceChatId)) return 'tasks'
+    if (openOwnedAgent(chatId, peerId, draft, sourceChatId, purpose)) return 'tasks'
     if (!chatsAreBlocks) return null
     const sessionPage = readSessionpageViewRequestBridge()
     if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
@@ -284,7 +286,8 @@ function InnerLayout({
     if (sourceChatId) {
       if (!sessionPage.openGroupChat) throw new Error(t('shell.errors.taskBridgeUnavailable'))
       sessionPage.openGroupChat(sourceChatId, chatId)
-    } else sessionPage.openChat(chatId, false)
+    } else if (purpose) sessionPage.openChat(chatId, false, purpose)
+    else sessionPage.openChat(chatId, false)
     if (focus) focusComposerForUserEntry(focus, chatId)
     return chatSlotKey(chatId)
   }, [setActiveTab, chatsAreBlocks, focusComposerForUserEntry, mobile, openAssistantChat, openOwnedAgent, t])
@@ -295,16 +298,7 @@ function InnerLayout({
     const chat = chatsRef.current.find((candidate) => candidate.id === chatId)
     const topic = chat?.kind === 'topic' && chat.source_chat_id ? chat : null
     const shownChatId = topic?.source_chat_id ?? chatId
-    let viewportKey: string | null
-    if (purpose && chatsAreBlocks) {
-      // A file ask is consumed by ChatAreaPanel. Redirecting its owned-agent DM to a task leaves that ask unclaimed.
-      const sessionPage = readSessionpageViewRequestBridge()
-      if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
-      setSettingsModalOpen(false)
-      setActiveTab('tasks')
-      sessionPage.openChat(shownChatId, false, purpose)
-      viewportKey = chatSlotKey(shownChatId)
-    } else viewportKey = openChatBlock(shownChatId)
+    const viewportKey = openChatBlock(shownChatId, undefined, undefined, undefined, undefined, purpose)
     if (!viewportKey) {
       setActiveTab('chats')
       setMobilePane('chat')
@@ -312,7 +306,7 @@ function InnerLayout({
     }
     if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id! })
     return topic ? `${viewportKey ?? 'chats'}:topic` : viewportKey ?? 'chats'
-  }, [setActiveTab, openChatBlock, setActiveChatId, chatsAreBlocks, t])
+  }, [setActiveTab, openChatBlock, setActiveChatId])
   const [appDetail, setAppDetail] = useState<import('@gugu/core/shared/ui/guguLink').AppDetailLink>()
   useLinkNavigation({ ownerId: user.id, chats, contacts,
     openSender: (target, sourceChatId) => handleSwitchToChat(target, undefined, sourceChatId),
@@ -1306,12 +1300,13 @@ function InnerLayout({
       )}
       {/* gugu-dev#181 项目块、对话块里的对话:会话页留格子(lib/shellSlots.ts 的 chat:<id>),这里画进去。 */}
       {!mobile && sessionHostAvailable && (
-        <ChatSlotHost
+        <><OwnedAgentResourcesHost ownerId={user.id} /><ChatSlotHost
           onOpenUserChat={slotOpenProfileChat}
          
           onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile}
-        />
+        /></>
       )}
+      {!mobile && sessionHostAvailable && <OfflineSessionSlotHost />}
 
     </div>
   )

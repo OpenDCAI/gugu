@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { forwardFolderFile } from '../../lib/chatCanonicalStorage'
 import { APP_FORWARD_FILES_EVENT, type AppForwardFilesDetail } from '../../session/shared/extensions/app-runtime-protocol'
 import { useAuth } from '../../store/auth'
 import { useChatStore } from '../../store/chatContext'
@@ -12,7 +11,7 @@ import { ForwardMessageDialog } from './ForwardMessageDialog'
  */
 export function ChatFileForwardHost() {
   const { t } = useTranslation('messaging')
-  const { chats } = useChatStore('chats')
+  const { chats, forwardMessage } = useChatStore('chats', 'forwardMessage')
   const { user } = useAuth()
   const [request, setRequest] = useState<AppForwardFilesDetail | null>(null)
   useEffect(() => {
@@ -22,7 +21,7 @@ export function ChatFileForwardHost() {
   }, [])
   if (!request || !user) return null
   const forward = async (targetChatIds: string[]) => {
-    for (const file of request.files) for (const chatId of targetChatIds) await forwardFolderFile(file, chatId, user.id)
+    for (const file of request.files) for (const chatId of targetChatIds) await forwardMessage(file, chatId)
   }
   const [only] = request.files
   return (

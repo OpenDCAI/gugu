@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createDiffController } from '@renderer/lib/codemirror/diff-controller';
 import { bindModel } from '@renderer/lib/codemirror/model-binding';
 import { modelPosition } from '@renderer/lib/codemirror/model-position';
+import { isMacHost } from '@shared/host-os';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => { cleanups.reverse().forEach(dispose => dispose()); cleanups.length = 0; });
@@ -110,7 +111,7 @@ describe('CM diff controller', () => {
         expect(left.state.doc.toString()).toBe('a\nc\n');
       }
 
-      runScopeHandlers(right, new KeyboardEvent('keydown', { key: 's', ctrlKey: true }), 'editor');
+      runScopeHandlers(right, new KeyboardEvent('keydown', { key: 's', [isMacHost() ? 'metaKey' : 'ctrlKey']: true }), 'editor');
       expect(saves).toBe(1);
       expect(controller.snapshot().modified.ranges).toHaveLength(1);
     });

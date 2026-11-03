@@ -1,3 +1,4 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 // @@@5856 成员面板 —— 产品预期见 product spec「成员与响应档位」。
 //
 // 群和话题**共用这一个面板**:话题的名单可以比来源窄,但读法一模一样 —— 名单就是这条 chat 自己的
@@ -182,6 +183,7 @@ function MemberRow({
   // 名册里有这个 id、身份却没跟上来 —— 这是数据层该出而没出的值,照 GroupMemberAvatarRow 的做法喊出来,
   // ❌ 不静默补一个「未知用户」。
   const diagnostic = identity ? null : resolveOrLoud(undefined, `member list identity ${memberId}`)
+  const shownName = useShownAgentName({ name: identity?.display_name ?? diagnostic ?? '', createdAt: isAgent ? identity?.created_at ?? undefined : undefined })
   return (
     <div
       data-member-row={memberId}
@@ -195,7 +197,7 @@ function MemberRow({
       style={onOpen ? MEMBER_ROW_INTERACTIVE_STYLE : MEMBER_ROW_STYLE}
     >
       <Avatar
-        name={identity?.display_name ?? ''}
+        name={shownName}
         avatarUrl={identity?.avatar ?? null}
         seed={memberId}
         size="sm"
@@ -208,7 +210,7 @@ function MemberRow({
             data-member-name={memberId}
             style={MEMBER_ROW_NAME_STYLE}
           >
-            {identity?.display_name ?? diagnostic}
+            {shownName}
           </span>
           <ArchivedAgentLabel status={statusBadge} />
           {roleLabel ? (

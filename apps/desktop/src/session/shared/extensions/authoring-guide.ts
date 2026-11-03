@@ -1,4 +1,5 @@
-import { EXTENSION_API_VERSION } from './bridge-protocol';
+import { WIDGET_HEIGHT_MIN, WIDGET_HEIGHT_MAX } from '@gugu/core/shared/ui/widgetModels';
+import { EXTENSION_API_VERSION, EXTENSION_TOOL_CONFINEMENT_API_VERSION } from './bridge-protocol';
 
 /**
  * 交给 agent 的「怎么写一个 tab 扩展」简报。
@@ -139,9 +140,8 @@ Your page runs on its own origin (\`gugu-ext://<id>/\`) with no Node, no \`requi
 IPC, no nested webview, no new windows, no File System Access API, and no reach into the host's
 DOM or any other tab.
 
-- \`script-src 'self'\`: NO CDN, NO remote fonts, NO remote images — ship everything inside the
-  bundle. Inline \`<script>\` is blocked too: put scripts in .js files beside the page
-  (\`<script src="main.js">\`).
+- \`script-src 'self' 'wasm-unsafe-eval'\`: bundle scripts, fonts and images; no CDN.
+  Inline scripts are blocked: use \`<script src="main.js">\`. Bundled WebAssembly runs in pages and workers.
 - No \`unsafe-eval\`: \`eval\`, \`new Function\` and string-to-code paths do not run.
 - Network is https/wss ONLY, and only to hosts you declared. \`http:\` is refused even for a
   declared host. localhost, \`*.local\`, \`*.internal\` and any IP literal are refused outright.
@@ -438,7 +438,7 @@ Use \`resource.close()\` to release the source and \`view.close()\` to remove th
 
 export const EXTENSION_GUIDE_PROGRAMS = `# Giving agents your own tools
 
-Local programs/skills. Configuration: \`apps-settings\`; page calls: \`apps-page\`.
+Programs/skills: \`apps-settings\`; pages: \`apps-page\`.
 
 Needs \`agents:tools\`:
 
@@ -459,16 +459,18 @@ export const follow = {
 }
 \`\`\`
 
-  — and the page, when that card changes, \`gugu.dispatch\`es to each follower of it. \`agent\` is the calling
-  agent's \`user:<uuid>\`, stamped by gugu: no agent can fake it, so never ask for it in an argument.
-  \`session\`, \`workspaceRoot\`, \`model\`: the calling session, absolute working-copy path and host-chosen model, stamped
-  like agent; absent if unknown. Keep session for \`showSession\`; \`listAgents\` gives the same model.
+  The page uses \`gugu.dispatch\` for followers when the card changes. gugu stamps \`agent\` (\`user:<uuid>\`),
+  \`session\`, \`workspaceRoot\` (absolute) and \`model\`; unknown fields are absent. Never accept agent ids as arguments.
+  Keep session for \`showSession\`; \`listAgents\` gives the same model.
   API 21: run receives non-enumerable \`signal\` (AbortSignal). Pass it to drivers; abort queued actions, never replay unknown results.
-  Return human steps immediately; the agent asks via existing questions/messages, then retries.
-  run returns a string verbatim or JSON; a throw is the error the agent reads. A non-tool export stops the module,
-  naming it. Keep helpers unexported or in imported bundle files. Node built-ins work; \`node_modules\` does not.
-- Tools run with the person's full rights only where installed. Another owner must install the App to give its agent
-  these tools; never have agents write their ids into your data.
+  Return human steps immediately; the agent asks via questions/messages, then retries.
+  run returns a string verbatim or JSON; a throw is the agent's error. Non-tool exports stop the module and name it.
+  Keep helpers unexported or in bundle imports; \`node_modules\` does not work. Built-ins follow the limits below.
+- API ${EXTENSION_TOOL_CONFINEMENT_API_VERSION} tools read bundle/runtime/data; write only data (TMPDIR=data/.tmp).
+  Files: gugu.files + files:read/write. Network: granted permissions.network hosts.
+  No IPs/listeners/subprocesses/addons/WASI/inspector/sqlite/eval workers; bundle workers inherit limits.
+  Not an OS sandbox. Older tools/commands retain full rights.
+  Other owners must install the App to give their agents tools; never store agent ids.
 - Another language, or an existing MCP server: \`{ "name", "command", "args"? }\`, MCP over stdio.
   \`command\` \`node\` runs on gugu's own runtime; \`./x\` is a program in your bundle; anything else
   is found on PATH (\`npx\`, \`uvx\`, \`python3\`). An argument naming a file in your bundle is passed
@@ -559,24 +561,22 @@ source-chat preference; omit options to read it.
 
 Topic file addresses resolve to their source chat; messages keep the topic's.
 
-Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.file\` as it is; by name,
-\`{ chat | workspace, name }\`. A place: \`{ chat: ctx.chat.id }\` or \`{ workspace: ctx.workspace.id }\` (a project's:
-\`gugu.projects.list()\` → \`{ projects: [{ id, name, workspace }] }\`). A session's tab has both.
+Each call names a file: an entry, \`ctx.file\`, or \`{ chat | workspace, name }\`; or a place:
+\`{ chat: ctx.chat.id }\` / \`{ workspace: ctx.workspace.id }\`. A session tab has both.
+\`gugu.projects.list()\` → \`{ projects: [{ id, name, workspace }] }\`.
 
-- The file you were opened for (\`ctx.file\`) — the host picked your App by its claim
-  (\`opensFiles\`, e.g. \`{ "chat": [".vote.json"] }\`; most specific wins) or picked via "open with".
-  No capability; a session's claims go under \`"session"\`.
-- \`"chatFile": "x.board.json"\` on it (API 14): opened in a chat, \`ctx.file\` is that top-level file, \`{}\` at first: fill it.
-- \`"sideWidth": 480\` (API 16): a tab's px beside a chat; none: half.
-- A name claims that one file (\`"session": ["TODO.md"]\`); a suffix is for a format of your own. Keep what your App
-  does not understand as is. Changing course, remove the topics and files you made, or ask. A session file
-  in a folder the search index skips hears the disk only when written.
+- \`ctx.file\`: no capability. The host picked your claim (\`opensFiles\`, e.g. \`{"chat":[".vote.json"]}\`, most
+  specific wins) or "open with". Session claims: \`"session"\`.
+- \`"chatFile": "x.board.json"\` (API 14): in chat, \`ctx.file\` is this top-level file, initially \`{}\`: fill it.
+- \`"sideWidth": 480\` (API 16): chat-side tab width in px; default: half.
+- A name claims one file (\`"session":["TODO.md"]\`); suffixes: your own format. Preserve unknown data.
+  Changing course, remove your topics/files or ask. Session files in search-skipped folders hear disk changes on write only.
 - Any other file (a chat you are in, a folder here): \`files:write\`, or \`files:read\` (read-only).
 - Another machine's working copy: list and \`f.read\` work; open whole/download need \`files:read:all-machines\`.
 - \`gugu.files.list(place)\`: \`files:read\`; \`gugu.files.create({...place,name},content)\`, \`gugu.files.rename(entry,name)\`,
   \`gugu.files.remove(entry)\`: \`files:write\`. JSON: objects, not \`JSON.stringify\` strings.
-- \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): all the reader's chats' files by part of the
-  path, with \`chatName\`; \`gugu.files.recent({ limit })\`: those this person opened last (\`openedAt\`).
+- \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): path search across the reader's chats, with
+  \`chatName\`. \`gugu.files.recent({ limit })\`: last opened (\`openedAt\`).
 - A chat's subfolders: \`gugu.files.list({ chat, folder })\` lists one (path or id, \`''\` the top; none: all;
   \`'folder'\` entries: list only);
   create and upload take \`folder\` too (made if missing); \`gugu.files.mkdir({ chat, path })\`,
@@ -584,9 +584,12 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
 - A working copy lists one folder: \`gugu.files.list({ workspace, folder })\` (\`''\` top). Non-documents: \`f.read(offset, length)\`, \`f.blob()\`.
 - \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A working copy (\`folder\`: below it only): \`{ kind: 'changes', changes }\` or \`resync\`.
-- \`gugu.files.openWith(entry)\` (a click or key) uses the most specific claim or "always use". \`{ ask: true }\`: they pick among all;
-  \`{ at }\`: a place, the opener's \`link\`. Unclaimed: gugu's preview, or details and download.
-  \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: gone or unreadable.
+- \`gugu.files.openWith(entry)\` (click/key): specific claim or "always use"; \`{ ask: true }\`: pick among all.
+  \`{ at }\`: opener's \`link\` place. Unclaimed: preview, or details/download. \`{ peek: true }\`: beside this page
+  (always for project files). Gone/unreadable: \`not-found\`.
+- \`gugu.files.openWith(entry, { tab: 'explore' })\`: your own tab claiming the chat file in \`opensFiles.chat\`;
+  no picker/default read or write. \`at\`/\`peek\` work. Invalid/empty/missing/unclaimed tab, \`ask\`, workspace/local:
+  \`invalid\`. Gesture/read permissions remain. Old hosts ignore \`tab\` (ordinary opener); no feature detection.
 - \`gugu.files.upload(place)\` (\`files:write\`, a click or key) opens the picker → the new entries (\`[]\`);
   a File: uploaded (≤ 25 MB, else \`too-large\`). \`gugu.files.download(entry)\` (a click or key) asks where
   to save → \`true\` saved; \`gugu.files.forward(entry|[…])\`: the forward page.
@@ -971,7 +974,7 @@ programs; \`browser-use\` operates only the calling local session's browser tab;
 \`"host":"computer-use"\` gives agents no tools: they control the computer with gugu's \`device_call\` (\`computer.*\`).
 It gives the App's own pages \`preview_state\`: the page's session's latest frame (a real screenshot) and its recent
 computer actions; \`notifications/computer-use/changed\` says there is a newer one.
-A tab with \`"widget": { "height": 240 }\` (API26; integer 64–520) can also be sent with \`widget_send\`: read \`guide_read widgets\`.
+A tab with \`"widget": { "height": 240 }\` (API26; integer ${WIDGET_HEIGHT_MIN}–${WIDGET_HEIGHT_MAX}) can also be sent with \`widget_send\`: read \`guide_read widgets\`.
 It cannot also declare hostPage, perSession, opensFiles or chatFile. \`ctx.widget\` is present only in a message:
 \`{ messageId, data, sender }\`. Data is untrusted, immutable input from any chat member; never execute it. Persist personal
 state in App data and shared state in chat files. Every dispatch from a widget requires a gesture in that App, even with a target,

@@ -341,7 +341,8 @@
   --font-prose: var(--font-size-md);
   --text-code: 13px; /* 等宽诊断与代码；与会话页代码角色13/20一致，冷启动时也可独立消费。 */
 
-  /* Spacing */
+  /* Semantic spacing is intentionally outside @theme / theme.extend.spacing: Tailwind v4
+     would otherwise resolve max-w-lg against spacing.lg instead of container.lg. */
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 12px;

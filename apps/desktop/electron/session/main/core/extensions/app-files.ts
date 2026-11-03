@@ -47,7 +47,7 @@ import { createLocalAppFiles, workingCopyEntry, type LocalSurface } from '@main/
 import { REMOTE_WORKSPACE_CHUNK_BYTES } from '@gugu/session-core/session-record/contract';
 import { renderExtensionIcon } from '@main/core/extensions/extension-icon';
 import { fileIconKey } from '@shared/extensions/app-icon';
-import { claimantOf, openerChoice as chatOpenerChoice } from '@shared/extensions/file-openers';
+import { claimantOf, openerChoice as chatOpenerChoice, requireOwnTabChoice } from '@shared/extensions/file-openers';
 import { sessionHostLocale } from '@main/core/host-locale';
 import { localizedManifestText } from '@shared/extensions/catalog';
 import { PACKAGE_MESSAGE_SELECT, type PackageMessageRow, type PackageReads } from '@shared/extensions/attachment-install';
@@ -520,6 +520,11 @@ export function openerChoice(typedName: string, ask = false) {
   const manifests = enabledApps().map((entry) => entry.manifest);
   const defaults = extensionsService().openWithDefaults();
   return chatOpenerChoice(typedName, manifests, 'chat', (key) => defaults[key] ?? null, ask);
+}
+
+/** A page's own claiming tab uses the same enabled Apps, without reading openWithDefaults. */
+export function ownTabChoice(typedName: string, extensionId: string, tab: string) {
+  return requireOwnTabChoice(typedName, enabledApps().map((entry) => entry.manifest), 'chat', extensionId, tab);
 }
 
 /**

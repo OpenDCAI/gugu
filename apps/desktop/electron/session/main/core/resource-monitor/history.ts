@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { sqlite } from '@main/db/client';
-import { RESOURCE_HISTORY_LIMITS, type ResourceHistory, type ResourcePoint, type ResourceSnapshot } from '@shared/resource-monitor';
+import { RESOURCE_HISTORY_LIMITS, resourceTotals, type ResourceHistory, type ResourcePoint, type ResourceSnapshot } from '@shared/resource-monitor';
 
 /** Local bounded history; SQLite reuses deleted pages. No timer or whole-history memory cache. */
 export class ResourceHistoryStore {
@@ -11,8 +11,9 @@ export class ResourceHistoryStore {
     const bytes = Buffer.byteLength(json);
     if (bytes > this.limits.bytes) throw new Error('A resource sample exceeds the history byte limit');
     return this.connection.transaction(() => {
-      const cpu = snapshot.app.cpuPercent === undefined ? null : snapshot.app.cpuPercent + snapshot.entries.reduce((n, e) => n + e.cpu, 0);
-      const memory = snapshot.app.memoryBytes === undefined ? null : snapshot.app.memoryBytes + snapshot.entries.reduce((n, e) => n + e.memory, 0);
+      const totals = resourceTotals(snapshot);
+      const cpu = totals.cpuPercent ?? null;
+      const memory = totals.memoryBytes ?? null;
       const id = Number(this.connection.prepare('INSERT INTO resource_history(timestamp,run_id,cpu,memory,bytes,snapshot) VALUES (?,?,?,?,?,?)')
         .run(snapshot.timestamp, snapshot.runId ?? '', cpu, memory, bytes, json).lastInsertRowid);
       this.connection.prepare(`DELETE FROM resource_history WHERE id <= (

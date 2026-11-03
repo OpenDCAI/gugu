@@ -1,17 +1,19 @@
-import { execFile } from '@gugu/core/local/childProcess';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
-import { app, BrowserWindow } from 'electron';
+import { app } from 'electron';
 import pidusage from 'pidusage';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
 import { appSettingsService } from '@main/core/settings/settings-service';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { collectRendererMetrics } from './renderer-metrics';
+import { collectAcpResourceRoots } from '../acp/runtime-process/resource-roots';
+import { accountProcessTrees, type ResourceProcessRoot } from './process-accounting';
+import { listResourceProcesses, collectLedgerResourceRoots } from './owned-processes';
 import { collectResourceContext } from './context';
 import { resourceHistory } from './history';
 import { parsePtySessionId } from '@shared/core/pty/ptySessionId';
-import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
+import { resourceSnapshotChannel, type ResourceSamplingFailure } from '@shared/events/resourceEvents';
 import type {
   ResourceAppProcess,
   ResourceAppUsage,
@@ -23,11 +25,12 @@ const SAMPLE_INTERVAL_MS = 1500;
 const BACKGROUND_SAMPLE_INTERVAL_MS = 10_000;
 const CPU_COUNT = os.cpus().length;
 const TOTAL_MEMORY_BYTES = os.totalmem();
-const STALE_LOCAL_PTY_MEMORY_BYTES = 2 * 1024 * 1024;
 
-type ProcessUsage = { cpu: number; memory: number; ppid?: number };
+type ProcessUsage = { cpu?: number; memory: number; ppid?: number };
 type ProcessUsageMap = Record<string, ProcessUsage>;
-type ProcessTreeSnapshot = { trees: Map<number, number[]>; sampledPids: number[] };
+class ProcessListReadError extends Error {
+  constructor(cause: unknown) { super('Resource process list could not be read', { cause }); }
+}
 
 const runId = randomUUID();
 let inFlight: Promise<ResourceSnapshot> | null = null;
@@ -37,20 +40,54 @@ export function sampleOnce(): Promise<ResourceSnapshot> {
 }
 async function collectSample(): Promise<ResourceSnapshot> {
   const active = ptySessionRegistry.listActiveSessions();
-  const localPids = active
-    .map((a) => a.pid)
-    .filter((p): p is number => typeof p === 'number' && p > 0);
-
-  const { trees: processTrees, sampledPids } = await listProcessTrees(localPids);
-  const usage = await samplePidUsage(sampledPids);
+  const { usage: appUsage, processes: electronProcesses } = sampleAppUsage();
+  if (process.platform === 'win32') {
+    // Preserve the existing Windows scope until a native tree reader is available.
+    const localPids = active.flatMap(a => typeof a.pid === 'number' && a.pid > 0 ? [a.pid] : []);
+    const usage = await samplePidUsage(localPids);
+    const entries: ResourcePtyEntry[] = active.flatMap(a => {
+      const parsed = parsePtySessionId(a.ptySessionId);
+      const u = typeof a.pid === 'number' ? usage[String(a.pid)] : undefined;
+      if (!parsed || (typeof a.pid === 'number' && (!u || u.memory < 2 * 1024 * 1024))) return [];
+      return [{ ptySessionId: a.ptySessionId, ...parsed, pid: a.pid, ppid: u?.ppid, cpu: u?.cpu ?? 0, memory: u?.memory ?? 0, providerId: a.metadata?.providerId, title: a.metadata?.title }];
+    });
+    return completeSnapshot(appUsage, electronProcesses, entries, undefined, 'electron-and-pty-roots');
+  }
+  const roots: ResourceProcessRoot[] = [
+    { id: 'electron-main', pid: process.pid, kind: 'electron', label: 'Main' },
+    ...electronProcesses.map(p => ({ id: `electron:${p.pid}`, pid: p.pid, kind: 'electron' as const, label: p.name ?? p.type })),
+    ...active.flatMap(a => typeof a.pid === 'number' && a.pid > 0 ? [{ id: a.ptySessionId, pid: a.pid, kind: 'pty' as const, label: a.metadata?.title ?? a.ptySessionId }] : []),
+  ];
+  const [processes, acpRoots] = await Promise.all([
+    listResourceProcesses().catch((cause: unknown) => { throw new ProcessListReadError(cause); }),
+    collectAcpResourceRoots(),
+  ]);
+  roots.push(...acpRoots, ...await collectLedgerResourceRoots(processes));
+  const candidates = accountProcessTrees(roots, processes, {}).pidsByRoot;
+  const usage = await samplePidUsage([...new Set([...candidates.values()].flat())]);
+  // Electron CPU uses its cumulative baseline; RSS uses the same OS sampler as child processes.
+  for (const p of electronProcesses) {
+    const sampled = usage[String(p.pid)];
+    if (sampled) p.memory = sampled.memory;
+    usage[String(p.pid)] = { memory: p.memory, cpu: p.cpu, ppid: sampled?.ppid };
+  }
+  const { groups: processGroups, pidsByRoot } = accountProcessTrees(roots, processes, usage);
+  const assigned = new Set(processGroups.flatMap(group => group.processes.map(p => p.pid)));
+  for (const root of roots) if (root.kind === 'pty') for (const pid of pidsByRoot.get(root.id) ?? []) assigned.add(pid);
+  const appProcesses = electronProcesses.filter(p => !assigned.has(p.pid));
+  if (electronProcesses.length) {
+    appUsage.memoryBytes = appProcesses.reduce((sum, p) => sum + p.memory, 0);
+    const knownCpu = appProcesses.flatMap(p => p.cpu === undefined ? [] : [p.cpu]);
+    appUsage.cpuPercent = knownCpu.length ? knownCpu.reduce((sum, cpu) => sum + cpu, 0) : undefined;
+  }
 
   const entries: ResourcePtyEntry[] = [];
   for (const a of active) {
     const parsed = parsePtySessionId(a.ptySessionId);
     if (!parsed) continue;
-    const tree = typeof a.pid === 'number' ? processTrees.get(a.pid) : undefined;
+    const tree = typeof a.pid === 'number' ? pidsByRoot.get(a.ptySessionId) : undefined;
     const u = tree ? aggregateProcessUsage(tree, usage) : undefined;
-    if (isStaleLocalPty(a.pid, u)) continue;
+    if (typeof a.pid === 'number' && !processes.some(p => p.pid === a.pid)) continue;
     entries.push({
       ptySessionId: a.ptySessionId,
       projectId: parsed.projectId,
@@ -65,7 +102,16 @@ async function collectSample(): Promise<ResourceSnapshot> {
     });
   }
 
-  const { usage: appUsage, processes: appProcesses } = sampleAppUsage();
+  return completeSnapshot(appUsage, appProcesses, entries, processGroups, 'owned-process-tree');
+}
+
+async function completeSnapshot(
+  appUsage: ResourceAppUsage,
+  appProcesses: ResourceAppProcess[],
+  entries: ResourcePtyEntry[],
+  processGroups: ResourceSnapshot['processGroups'],
+  processTreeScope: ResourceSnapshot['processTreeScope'],
+): Promise<ResourceSnapshot> {
   return {
     timestamp: Date.now(),
     runId,
@@ -75,6 +121,9 @@ async function collectSample(): Promise<ResourceSnapshot> {
     app: appUsage,
     appProcesses,
     entries,
+    processGroups,
+    memoryMetric: 'rss',
+    processTreeScope,
     ...(hasResourceMonitorInternals() ? { internals: { renderers: await collectRendererMetrics() } } : {}),
   };
 }
@@ -100,67 +149,6 @@ async function samplePidUsage(localPids: number[]): Promise<ProcessUsageMap> {
   }
 }
 
-/**
- * node-pty gives us the PTY's process group leader, which is usually a tiny
- * shell wrapper (`sh -c ...`). Agent CLIs and lifecycle scripts run as children
- * of that wrapper, so sampling only the root PID makes active agents look like
- * 3-6 MB shells. On POSIX, include descendants so the monitor reflects the
- * resource cost of the whole PTY session. Windows falls back to root PID
- * sampling, matching the previous behavior.
- */
-async function listProcessTrees(localPids: number[]): Promise<ProcessTreeSnapshot> {
-  const fallback = new Map(localPids.map((pid) => [pid, [pid]]));
-  const fallbackSnapshot = { trees: fallback, sampledPids: localPids };
-  if (localPids.length === 0 || process.platform === 'win32') return fallbackSnapshot;
-
-  try {
-    const stdout = await execFileText('ps', ['-axo', 'pid=,ppid=']);
-    const livePids = new Set<number>();
-    const childrenByParent = new Map<number, number[]>();
-    for (const line of stdout.split('\n')) {
-      const [pidText, ppidText] = line.trim().split(/\s+/);
-      const pid = Number(pidText);
-      const ppid = Number(ppidText);
-      if (!Number.isInteger(pid) || !Number.isInteger(ppid) || pid <= 0 || ppid < 0) continue;
-      livePids.add(pid);
-      const siblings = childrenByParent.get(ppid) ?? [];
-      siblings.push(pid);
-      childrenByParent.set(ppid, siblings);
-    }
-
-    const trees = new Map<number, number[]>();
-    for (const rootPid of localPids) {
-      const visited = new Set<number>();
-      const stack = [rootPid];
-      while (stack.length > 0) {
-        const pid = stack.pop();
-        if (pid === undefined || visited.has(pid)) continue;
-        visited.add(pid);
-        const children = childrenByParent.get(pid);
-        if (children) stack.push(...children);
-      }
-      trees.set(rootPid, [...visited]);
-    }
-    const sampledPids = [...new Set([...trees.values()].flat())].filter((pid) => livePids.has(pid));
-    return { trees, sampledPids };
-  } catch (err) {
-    log.warn('resource-sampler: process tree lookup failed', err);
-    return fallbackSnapshot;
-  }
-}
-
-function execFileText(file: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(file, args, { maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      resolve(String(stdout));
-    });
-  });
-}
-
 function aggregateProcessUsage(pids: number[], usage: ProcessUsageMap): ProcessUsage | undefined {
   let cpu = 0;
   let memory = 0;
@@ -169,15 +157,10 @@ function aggregateProcessUsage(pids: number[], usage: ProcessUsageMap): ProcessU
     const item = usage[String(pid)];
     if (!item) continue;
     found = true;
-    cpu += item.cpu;
+    cpu += item.cpu ?? 0;
     memory += item.memory;
   }
   return found ? { cpu, memory } : undefined;
-}
-
-function isStaleLocalPty(pid: number | undefined, usage: ProcessUsage | undefined): boolean {
-  if (pid === undefined || !usage) return false;
-  return usage.cpu === 0 && usage.memory < STALE_LOCAL_PTY_MEMORY_BYTES;
 }
 
 /**
@@ -235,13 +218,12 @@ export function hasResourceMonitorInternals(): boolean {
 
 export function startResourceSampler(): void {
   if (timer) return;
-  app.on('browser-window-focus', sampleSoon);
   sampleSoon();
 }
 
-function sampleSoon(): void {
+function sampleSoon(delay = 0): void {
   if (timer) clearTimeout(timer);
-  timer = setTimeout(() => void tick(), 0);
+  timer = setTimeout(() => void tick(), delay);
 }
 
 async function tick(): Promise<void> {
@@ -249,21 +231,23 @@ async function tick(): Promise<void> {
   sampling = true;
   const current = timer;
   let snap: ResourceSnapshot | null = null;
+  let samplingError: ResourceSamplingFailure | null = null;
   try {
     snap = await sampleOnce();
   } catch (err) {
     log.warn('resource-sampler: sample failed', err);
+    samplingError = { timestamp: Date.now(), reason: err instanceof ProcessListReadError ? 'process-list-read-failed' : 'sample-failed' };
   }
   sampling = false;
   if (!timer) return;
-  if (timer !== current) return sampleSoon();
+  if (timer !== current) return sampleSoon(openSubscriptions.size ? 0 : BACKGROUND_SAMPLE_INTERVAL_MS);
   if (snap) {
     try { resourceHistory.append(snap); }
     catch (error) { snap.recordingError = 'write-failed'; log.warn('resource history write failed', error); }
   }
-  if (openSubscriptions.size) events.emit(resourceSnapshotChannel, snap);
-  // The monitor covers the whole app: a foreground auxiliary window also counts.
-  const delay = BrowserWindow.getFocusedWindow() ? SAMPLE_INTERVAL_MS : BACKGROUND_SAMPLE_INTERVAL_MS;
+  if (openSubscriptions.size) events.emit(resourceSnapshotChannel, samplingError ? { samplingError } : snap);
+  // Keep the same complete process-tree metric in history, at a lower cost without a viewer.
+  const delay = openSubscriptions.size ? SAMPLE_INTERVAL_MS : BACKGROUND_SAMPLE_INTERVAL_MS;
   timer = setTimeout(() => void tick(), delay);
 }
 
@@ -271,7 +255,6 @@ export function stopResourceSampler(): void {
   if (timer) {
     clearTimeout(timer);
     timer = null;
-    app.off('browser-window-focus', sampleSoon);
     cpuBaseline = null;
     try {
       pidusage.clear();
@@ -291,11 +274,13 @@ export function setResourceMonitorOpen(
   const latestSequence = latestSequenceByClient.get(clientId) ?? 0;
   if (sequence <= latestSequence) return;
   latestSequenceByClient.set(clientId, sequence);
+  const hadViewers = openSubscriptions.size > 0;
   if (open) {
     openSubscriptions.set(subscriptionId, internals);
   } else {
     openSubscriptions.delete(subscriptionId);
   }
+  if (timer && hadViewers !== (openSubscriptions.size > 0)) sampleSoon(openSubscriptions.size ? 0 : BACKGROUND_SAMPLE_INTERVAL_MS);
   void reconcileResourceSampler();
 }
 

@@ -51,6 +51,7 @@ import { taskName } from '@main/core/sessions/task-name';
 import { agentIdsBySession, sessionAgents } from '@main/core/sessionpage/sessionpage-session-agent';
 import { db } from '@main/db/client';
 import { sessions, projects, type SessionRow } from '@main/db/schema';
+import { persistedWorkspacePath } from '@main/core/projects/utils';
 import { tapMainEvents } from '@main/lib/events';
 import { listSessionSchedules } from '@main/core/automations/repo';
 import {
@@ -735,7 +736,9 @@ function summaryOf(
 ): SessionpageSessionSummary {
   const agent = agents?.get(session.id);
   const location = locateRow(session);
+  const cwd = session.workspaceId ? persistedWorkspacePath(session.workspaceId) : null;
   return {
+    ...(cwd ? { cwd } : {}),
     conversationId: session.id,
     projectId: session.projectId,
     title: taskName(session),
@@ -1494,7 +1497,7 @@ export async function respond(
   input: SessionpageSessionRespondRequest
 ): Promise<SessionTimelineResult<SessionpageSessionRespondResult>> {
   const row = readSessionRow(input.conversationId);
-  if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
+  if (!row) return fail('session_not_found', '这台机器上没有这条会话');
   const target = writeTargetFrom(row);
 
   const acquired = await acquire(input.conversationId);

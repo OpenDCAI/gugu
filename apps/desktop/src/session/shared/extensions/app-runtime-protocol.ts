@@ -248,6 +248,14 @@ export function workspaceSession(place: { workspace?: string | null } | null | u
 
 const invalidPlace = (message: string) => Object.assign(new Error(message), { code: 'invalid' as const });
 
+/** An explicit opener is validated by the trusted host, including values from untyped page code. */
+export function openWithTabOf(options: Record<string, unknown>): string | undefined {
+  if (!Object.hasOwn(options, 'tab')) return undefined;
+  if (typeof options.tab !== 'string' || !options.tab.trim()) throw invalidPlace('openWith tab must be a non-empty tab name');
+  if (options.ask === true) throw invalidPlace('openWith tab and ask cannot be combined');
+  return options.tab;
+}
+
 /** A chat's id, as getContext() and every entry carry it (`send` takes the same, app-send-core.ts). */
 const CHAT_ID =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

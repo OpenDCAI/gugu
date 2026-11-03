@@ -43,7 +43,8 @@ export type AssistantWorkdir = { state: 'found'; path: string } | { state: 'pend
 export function assistantWorkdir(home: AssistantHomePlace, assistantId: string): AssistantWorkdir {
   const { sessions, live } = homeSessions(home);
   const own = sessions.find((session) => isAssistantSession(session, assistantId));
-  const path = own ? appState.projects.projects.get(own.projectId)?.data?.path ?? null : null;
+  const project = own ? appState.projects.projects.get(own.projectId)?.data : null;
+  const path = own?.cwd ?? (project?.kind !== 'workspace' ? project?.path ?? null : null);
   if (path) return { state: 'found', path };
   return live ? { state: 'missing' } : { state: 'pending' };
 }

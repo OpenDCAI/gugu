@@ -26,6 +26,7 @@ import {
   APP_FRAME_MARKER,
   SYNC_PORT_WINDOW_MESSAGE,
   fileRefOf,
+  openWithTabOf,
   fileSearchOf,
   isWorkspace,
   sessionWorkspace,
@@ -55,7 +56,7 @@ import {
 import { filesOpenedBy } from '../../session/shared/extensions/app-files-core'
 import { coalescedReads } from '../../session/shared/extensions/coalesced-reads'
 import { localizedManifestText } from '../../session/shared/extensions/catalog'
-import { claimantOf, openerChoice, placeFor, placeLink, type FileOpenerCandidate } from '../../session/shared/extensions/file-openers'
+import { claimantOf, openerChoice, placeFor, placeLink, requireOwnTabChoice, type FileOpenerCandidate } from '../../session/shared/extensions/file-openers'
 import { opensInChats, withCoveredCapabilities, type ExtensionCapability, type ExtensionManifest } from '../../session/shared/extensions/manifest'
 import { readDisplayIdentities } from '../../lib/identityReadAdapter'
 import { memberFaces } from '../../lib/memberFaces'
@@ -686,8 +687,10 @@ export function hostAppFrame(
         return Promise.resolve(undefined)
       }
       case 'filesOpenWith': {
+        const tab = openWithTabOf(args)
         const ref = fileRefOf(args.ref)
         if (isWorkspace(ref)) {
+          if (tab !== undefined) refused('invalid', 'openWith tab is only available for chat files')
           if (!hooks.openWorkingCopy) refused('invalid', 'No file preview in this surface')
           const id = workspaceSession(ref)
           const listed = id ? listedSession(readCachedDevices(), liveDeviceSessions(), id) : null
@@ -703,7 +706,9 @@ export function hostAppFrame(
           )
         }
         return files.openTarget(surface(), { ref: chatRef(args.ref) }).then((target) => {
-          const choice = openerChoice(target.typedName, appsHereNow(), 'chat', phoneApps.remembered, args.ask === true)
+          const choice = tab === undefined
+            ? openerChoice(target.typedName, appsHereNow(), 'chat', phoneApps.remembered, args.ask === true)
+            : requireOwnTabChoice(target.typedName, appsHereNow(), 'chat', hosted.binding.extensionId, tab)
           // A pill in the page: its place, for the page about to open the file — as a file link in the chat (`groupFileOpener`).
           const place = placeFor(choice, args.at)
           if (place) holdPlaceForOpeningPage(target.chatId, target.itemId, place.candidate, place.at)

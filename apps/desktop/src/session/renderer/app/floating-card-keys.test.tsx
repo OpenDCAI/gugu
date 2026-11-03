@@ -35,11 +35,11 @@ afterEach(() => {
 function Dock({ cardShown, hideCard }: { cardShown: boolean; hideCard: () => void }) {
   const dockRef = useRef<HTMLDivElement>(null);
   useFloatingCardKeys(cardShown, hideCard, dockRef);
-  return <div ref={dockRef}><div contentEditable data-testid="editor" tabIndex={0} /></div>;
+  return <div ref={dockRef}><div data-region="composer"><div contentEditable data-testid="prompt-editor" tabIndex={0} /></div></div>;
 }
 
 function escapeInEditor(): void {
-  const editor = container.querySelector('[data-testid="editor"]') as HTMLElement;
+  const editor = container.querySelector('[data-testid="prompt-editor"]') as HTMLElement;
   editor.focus();
   editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 }
@@ -56,7 +56,7 @@ describe('the floating folder card, typing and Escape', () => {
   it('keeps the card while typing and sends the keys to the new-task box (owner 10-26)', () => {
     const hideCard = vi.fn();
     act(() => root.render(<Dock cardShown hideCard={hideCard} />));
-    const editor = container.querySelector('[data-testid="editor"]') as HTMLElement;
+    const editor = container.querySelector('[data-testid="prompt-editor"]') as HTMLElement;
     editor.focus();
     editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }));
     expect(hideCard).not.toHaveBeenCalled();
@@ -69,5 +69,24 @@ describe('the floating folder card, typing and Escape', () => {
     escapeInEditor();
     expect(hideCard).not.toHaveBeenCalled();
     expect(navSaw).toEqual(['Escape']);
+  });
+
+  it.each(['a', 'Escape'])('leaves %s to another text field while the card floats', (key) => {
+    const hideCard = vi.fn();
+    act(() => root.render(<><Dock cardShown hideCard={hideCard} /><input data-testid="other-input" /></>));
+    const input = container.querySelector<HTMLInputElement>('[data-testid="other-input"]')!;
+    input.focus();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    expect(hideCard).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(input);
+    expect(navSaw).toEqual([key]);
+  });
+
+  it('still directs unowned typing to the dock without hiding the card', () => {
+    const hideCard = vi.fn();
+    act(() => root.render(<Dock cardShown hideCard={hideCard} />));
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(container.querySelector('[data-testid="prompt-editor"]'));
+    expect(hideCard).not.toHaveBeenCalled();
   });
 });

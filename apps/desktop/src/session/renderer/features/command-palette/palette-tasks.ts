@@ -1,6 +1,5 @@
 import type { SearchItem } from '@shared/core/search';
 import { isAssistantSession, type ListedSession } from '@renderer/features/assistant/assistant-lineage';
-import { formatSessionTitleForDisplay } from '@renderer/features/sessions/session-title-utils';
 import { rowOpens } from '@/session/shared/remote-sessions/session-directory';
 import { rankPaletteMatches } from './palette-rank';
 
@@ -14,7 +13,7 @@ export function paletteTasks(local: readonly SearchItem[], listed: readonly List
     .filter(({ summary }) => rowOpens(summary) && !isAssistantSession(summary, assistantId))
     .map(({ deviceId, deviceLabel, summary }): PaletteTask => ({
       kind: 'session', id: summary.conversationId, projectId: summary.projectId,
-      title: formatSessionTitleForDisplay(summary.harness, summary.title),
+      title: summary.title,
       subtitle: '', score: 0, lastInteractedAt: summary.lastInteractedAt, deviceId, deviceLabel,
     }));
   for (const item of rankPaletteMatches(remote, query, item => [item.title])) {

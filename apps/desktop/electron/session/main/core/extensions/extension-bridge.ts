@@ -49,7 +49,7 @@ import type {
   ExtensionHostActionResult,
 } from '@shared/extensions/host-actions';
 import { fileSync } from '@main/core/extensions/file-sync';
-import { fileRefOf, folderOf, isWorkspace, placeKey, placeOf, projectWorkspace, sessionIdOf, sessionWorkspace, workspaceSession, workspaceTarget, type AppFileEntry, type AppFileRef, type AppPlace, type AppWhere, type WorkspacePlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
+import { fileRefOf, folderOf, isWorkspace, openWithTabOf, placeKey, placeOf, projectWorkspace, sessionIdOf, sessionWorkspace, workspaceSession, workspaceTarget, type AppFileEntry, type AppFileRef, type AppPlace, type AppWhere, type WorkspacePlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
 import { placeFor, placeLink, type FileOpenerCandidate } from '@shared/extensions/file-openers';
 import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 import { rosterMoved, type MemberChange } from '@shared/extensions/app-files-core';
@@ -1985,18 +1985,21 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         // the host's preview there, so nothing is refused for want of an App.
         const ask = (args as { ask?: unknown }).ask === true;
         const peek = (args as { peek?: unknown }).peek === true;
+        const tab = openWithTabOf(args);
         const ref = fileRefOf(args.ref);
-        // A live file already has its authorized replica. Show its existing tab before validating metadata again.
+        // Ordinary opens show an authorized live replica before refreshing metadata; an explicit tab must first claim it.
         const opened = !ask && !peek && !args.at && !isWorkspace(ref) && 'id' in ref && shown.operator.kind === 'person'
           ? [...bindings.entries()].filter(([id, binding]) => binding.itemId === ref.id && binding.conversation === shown.conversation
+            && (tab === undefined || (binding.extensionId === page.extensionId && binding.tabName === tab))
             && (ref.chat === undefined || ref.chat === binding.conversation)
             && binding.embedderId === shown.embedderId && binding.operator.kind === 'person' && fileSync.openCount(id) > 0)
           : [];
         const current = opened.length === 1 ? opened[0] : undefined;
-        const resumed = current && current[1].conversation ? await deliver(shown, {
+        const present = () => current && current[1].conversation ? deliver(shown, {
           kind: 'openChatFile', chatId: current[1].conversation, itemId: current[1].itemId!,
           onlyIfOpen: `${current[1].extensionId}.${current[1].tabName}`,
         }) : undefined;
+        let resumed = tab === undefined ? await present() : undefined;
         let target: Awaited<ReturnType<typeof files.openWithTarget>>;
         try {
           target = await files.openWithTarget(page, { ref, ask, peek });
@@ -2007,9 +2010,14 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
           }
           throw error;
         }
+        if (tab !== undefined && target.kind !== 'chat') throw Object.assign(new Error('openWith tab is only available for chat files'), { code: 'invalid' });
         if (target.kind === 'session') return void (await deliver(shown, { kind: 'openSessionFile', ...target.target }));
         if (target.kind === 'peek') return void (await deliver(shown, { kind: 'peek', target: target.target }));
-        const choice = files.openerChoice(target.target.typedName, ask);
+        const choice = tab === undefined
+          ? files.openerChoice(target.target.typedName, ask)
+          : files.ownTabChoice(target.target.typedName, page.extensionId, tab);
+        // An explicitly named tab must still claim this file before an existing replica is brought forward.
+        if (tab !== undefined) resumed = await present();
         const { chatId, itemId } = target.target;
         const place = placeFor(choice, (args as { at?: unknown }).at);
         if (place) deliverToOpeningPage(place.candidate.extensionId, placeLink(place.candidate, place.at, itemId), { chat: chatId }, itemId);

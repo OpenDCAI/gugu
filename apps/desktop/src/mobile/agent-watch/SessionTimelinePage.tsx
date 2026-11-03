@@ -1,4 +1,6 @@
 import { observer } from 'mobx-react-lite'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { useNativeSessionRecord } from './useNativeSessionRecord'
 import { useSessionRestart } from './useSessionRestart'
 import { SessionLoadFailure } from './SessionLoadFailure'
@@ -119,6 +121,8 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   // Identified agents share the group/avatar reading; transport only governs timeline access.
   const shownStatus = useShownAgentStatus()
   const agentUserId = session.agent?.userId
+  const identity = useAvatarIdentity(agentUserId ?? '')
+  const shownName = useShownAgentName({ name: session.title, createdAt: identity?.created_at ?? undefined })
   // A machine that does not answer: offline — ❌ the agent's presence, which outlives it as long as its lease.
   const presentation = !answering ? (agentUserId ? presentAgentStatus({ reading: null, reachability: 'offline' }) : null)
     : shownStatus.presentation(agentUserId, sessionPresentation(session, true, agentUserId))
@@ -126,7 +130,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined
   // The task's one name is its agent's name: the header says it once.
   const taskHeader = {
-    title: session.title,
+    title: shownName,
     titleLeading: (
       <span className="gg-aw-title-avatar">
         <SessionAvatar agentId={agentUserId} sessionId={session.conversationId} presentation={presentation} />
@@ -235,7 +239,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           缓存里有东西时那是白藏 —— 错误已经在上面那条说明里说清楚了,内容照常给。 */}
       {(
         <SessionConversation
-          agentName={session.title}
+          agentName={shownName}
           agentUserId={agentUserId}
           harness={session.harness}
           timeline={conversation}

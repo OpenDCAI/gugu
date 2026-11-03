@@ -10,7 +10,7 @@ import { openOwnedAgentEntry } from '@/lib/ownedAgentConversation';
  * ⌘ 点只在看这屏时才拼到旁边(同会话行、项目行)。
  */
 export function openChatOnScreen(chatId: string, beside: boolean, purpose?: 'resource'): void {
-  if (purpose !== 'resource' && openOwnedAgentEntry(chatId)) return;
+  if (openOwnedAgentEntry(chatId, undefined, undefined, undefined, purpose)) return;
   const projectId = projectGroupsStore.projectOfChat(chatId);
   const content: ScreenBlockContent = projectId
     ? { kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) }

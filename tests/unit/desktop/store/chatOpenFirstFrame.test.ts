@@ -268,7 +268,7 @@ describe('打开会话的第一帧', () => {
     } finally { harness.cleanup() }
   })
 
-  it('shows a topic attachment placeholder at the latest page and removes it when upload fails', async () => {
+  it('shows a topic attachment placeholder at the latest page and rolls uncommitted bytes back on upload failure', async () => {
     network.resolve()
     const all = Array.from({ length: 200 }, (_, index) => message({ id: `att-${index + 1}`, chat_id: 'chatA', seq: index + 1 }))
     vi.mocked(chatService.getMessages).mockImplementation(async (_chat, _user, way, limit = 40, before, after) =>
@@ -289,7 +289,8 @@ describe('打开会话的第一帧', () => {
       await vi.waitFor(() => expect(scopedLines.get('chatA')!.messageWindow.messages.some((row) => row.seq < 0 && row.content_type === 'attachment')).toBe(true), WAIT)
       expect(scopedLines.get('chatA')!.messageWindow.hasNewer).toBe(false)
       await act(async () => { upload.reject(new Error('upload failed')); await send })
-      expect(scopedLines.get('chatA')!.messageWindow.messages.some((row) => row.seq < 0)).toBe(false)
+      expect(scopedLines.get('chatA')!.messageWindow.messages.find((row) => row.seq < 0)).toBeUndefined()
+      expect(await send).toBeInstanceOf(Error)
       expect(uploads.commit).not.toHaveBeenCalled()
     } finally { upload.resolve('unused'); harness.cleanup() }
   })

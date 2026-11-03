@@ -43,6 +43,7 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
   const env = options.env ?? process.env;
   const logger = initProcessLogging({ name: 'acp-agents-runtime', env });
 
+  const childHost = new ChildAcpProcessHost();
   void serveWorkerProcess(
     (scope) => {
       const attachmentsDir = env.GUGU_ACP_ATTACHMENTS_DIR;
@@ -50,7 +51,6 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
         throw new Error('ACP runtime process started without GUGU_ACP_ATTACHMENTS_DIR');
       }
 
-      const childHost = new ChildAcpProcessHost();
       const platformSessionClosed = createEventStreamHost(
         acpRuntimeApiContract.platformSessionClosed
       );
@@ -114,6 +114,6 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
         workerValidatePolicy(env)
       );
     },
-    { port: options.port, exit: options.exit, logger }
+    { port: options.port, exit: options.exit, logger, onOutputPressure: paused => childHost.setOutputPaused(paused) }
   );
 }

@@ -1,3 +1,4 @@
+import { hostOwnedAgentResources, suspendOwnedAgentResources } from '@/lib/ownedAgentResources'
 import { readAssistantShellBridge } from '@/lib/assistantShellBridge'
 import type { NativeComposerDraft } from '@/lib/nativeComposerHandoff'
 import { appendToDraft, useChatStore } from '@/store/chatContext'
@@ -20,7 +21,7 @@ import type { GroupParticipantRequest } from '@/session/renderer/features/chats/
 /** Ownership is checked before looking up a private timeline. An async open cannot cross an account switch. */
 export function useOwnedAgentConversationEntry(input: {
   ownerId: string; chats: readonly ChatItem[]; contacts: readonly ContactUser[]; mobile: boolean; onOpen: () => void
-}): (chatId: string | undefined, peerId?: string, draft?: string | NativeComposerDraft, sourceChatId?: string) => boolean {
+}): (chatId: string | undefined, peerId?: string, draft?: string | NativeComposerDraft, sourceChatId?: string, purpose?: 'resource') => boolean {
   const { drafts, writeDraft, draftAttachments, setDraftAttachments, identitiesById, setActiveChatId } = useChatStore('drafts', 'writeDraft', 'draftAttachments', 'setDraftAttachments', 'identitiesById', 'setActiveChatId')
   const draftState = useRef({ drafts, writeDraft, draftAttachments, setDraftAttachments })
   draftState.current = { drafts, writeDraft, draftAttachments, setDraftAttachments }
@@ -32,13 +33,14 @@ export function useOwnedAgentConversationEntry(input: {
   const generation = useRef(0)
   const cancelGroupRequest = useRef<GroupParticipantRequest | undefined>(undefined)
   useEffect(() => () => { ++generation.current; cancelGroupRequest.current?.() }, [input.ownerId])
-  const open = useCallback((chatId: string | undefined, peerId?: string, draft?: string | NativeComposerDraft, sourceChatId?: string) => {
+  const open = useCallback((chatId: string | undefined, peerId?: string, draft?: string | NativeComposerDraft, sourceChatId?: string, purpose?: 'resource') => {
     const state = current.current
     const asked = ++generation.current
     cancelGroupRequest.current?.()
     const peer = state.chats.find(chat => chat.id === chatId && (chat.kind === 'dm' || chat.kind === 'ai'))?.peer_user_id ?? peerId
     const contact = state.contacts.find(one => one.id === peer) ?? (peer ? state.identitiesById[peer] : undefined)
     if (!contact || !isOwnedAgent(contact, state.ownerId) || contact.id === readAssistantShellBridge()?.getSnapshot()?.assistant?.id) return false
+    if (purpose && chatId && !state.mobile) suspendOwnedAgentResources(state.ownerId, chatId)
     const old = draftState.current
     const incoming: NativeComposerDraft | undefined = typeof draft === 'string' ? { text: draft } : draft
     const text = incoming ? incoming.append ? appendToDraft(chatId ? old.drafts?.[chatId] ?? '' : '', incoming.text) : incoming.text : chatId ? old.drafts?.[chatId] ?? '' : ''
@@ -78,6 +80,9 @@ export function useOwnedAgentConversationEntry(input: {
         await openTarget(target.kind === 'local'
           ? { kind: 'session', sessionId: target.sessionId, projectId: target.projectId }
           : { kind: 'session', sessionId: target.session.conversationId, projectId: target.session.projectId, deviceId: target.deviceId }, ...requestArgs)
+      }
+      if (purpose && chatId && !state.mobile && asked === generation.current && current.current.ownerId === state.ownerId) {
+        hostOwnedAgentResources(state.ownerId, chatId, target.kind === 'local' ? target : { projectId: target.session.projectId, sessionId: target.session.conversationId })
       }
     }).catch(error => {
       if (asked === generation.current) cancelGroupRequest.current?.()

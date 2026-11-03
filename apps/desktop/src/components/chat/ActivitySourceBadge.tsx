@@ -1,4 +1,6 @@
 import { Button } from '../ui/Button'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useChatStore } from '@/store/chatContext'
 import { observer } from 'mobx-react-lite'
 import { useTranslation } from 'react-i18next'
 import { readAssistantShellBridge } from '../../lib/assistantShellBridge'
@@ -14,17 +16,19 @@ export const ActivitySourceBadge = observer(function ActivitySourceBadge({ chatI
   const owner=useAssistantWorkOwnerId()
   const assistant = readAssistantShellBridge()?.getSnapshot()
   const {value}=useAssistantWorkRecords(assistant?.chatId===chatId?owner:null,assistant?.assistant?.id??'')
-  if (!assistant?.assistant || assistant.chatId !== chatId) return null
   const tasks = (value?.records??[]).filter(work=>{
     const source = work.source_link?parseConversationLink(work.source_link):null
     return source?.chatId === chatId && source.messageId === messageId
   }).flatMap(work=>work.executors.map(executor=>assistantWorkTarget(work,executor.session_id)!))
+  const {identitiesById}=useChatStore('identitiesById')
+  const names=useShownAgentName(tasks.map(task=>({name:task.title??'',createdAt:identitiesById[task.taskAgentId??'']?.created_at??undefined})))
+  if (!assistant?.assistant || assistant.chatId !== chatId) return null
   if (!tasks.length) return null
   return <span className="activity-source-links">
-    {tasks.map((task) => <Button variant="ghost" size="sm" key={`${task.workId}:${task.task.sessionId}`}
-      className="activity-source-link" title={task.title} aria-label={t('links.task', { title: task.title })}
+    {tasks.map((task,index) => <Button variant="ghost" size="sm" key={`${task.workId}:${task.task.sessionId}`}
+      className="activity-source-link" title={names[index]} aria-label={t('links.task', { title: names[index] })}
       onClick={() => window.dispatchEvent(new CustomEvent(OPEN_ASSISTANT_TASK_CHAT,{detail:task}))}>
-      <span aria-hidden="true">↗</span><span>{task.title}</span>
+      <span aria-hidden="true">↗</span><span>{names[index]}</span>
     </Button>)}
   </span>
 })

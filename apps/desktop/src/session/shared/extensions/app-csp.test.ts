@@ -9,7 +9,7 @@ describe('extensionContentSecurityPolicy', () => {
     expect(extensionContentSecurityPolicy('gugu-ext://notes', ['api.example.com', '*.cdn.example.com'])).toBe(
       [
         "default-src 'self'",
-        "script-src 'self'",
+        "script-src 'self' 'wasm-unsafe-eval'",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' https://api.example.com https://*.cdn.example.com https://cdn.example.com data: blob:",
         "font-src 'self' https://api.example.com https://*.cdn.example.com https://cdn.example.com data:",
@@ -25,7 +25,37 @@ describe('extensionContentSecurityPolicy', () => {
   });
 
   it('on the phone only who may frame it differs: the gugu page', () => {
-    expect(extensionContentSecurityPolicy('https://localhost', [])).toMatch(/frame-ancestors https:\/\/localhost$/);
-    expect(extensionContentSecurityPolicy('https://localhost', [])).toContain("connect-src 'self';");
+    expect(extensionContentSecurityPolicy('https://localhost', [])).toBe(
+      [
+        "default-src 'self'",
+        "script-src 'self' 'wasm-unsafe-eval'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "font-src 'self' data:",
+        "media-src 'self' blob:",
+        "connect-src 'self'",
+        "frame-src 'none'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+        'frame-ancestors https://localhost',
+      ].join('; '),
+    );
   });
+
+  it.each([
+    { label: 'no declared hosts', networkHosts: [] },
+    { label: 'declared hosts', networkHosts: ['api.example.com', '*.cdn.example.com'] },
+  ])(
+    'allows bundled WebAssembly without string-to-code or remote scripts ($label)',
+    ({ networkHosts }) => {
+      const directives = extensionContentSecurityPolicy('gugu-ext://notes', networkHosts).split('; ');
+      const script = directives.find((directive) => directive.startsWith('script-src '));
+
+      expect(script).toBe("script-src 'self' 'wasm-unsafe-eval'");
+      expect(script).not.toContain("'unsafe-eval'");
+      expect(script).not.toContain("'unsafe-inline'");
+      expect(directives).toContain("frame-src 'none'");
+    },
+  );
 });

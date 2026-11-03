@@ -1,3 +1,5 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { platform } from '@/platform';
 import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '../sessions/gugu-reason';
@@ -11,7 +13,6 @@ import { useAssistantShell } from '@renderer/features/assistant/assistant-shell'
 import { when } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useRef } from 'react';
-import { formatSessionTitleForDisplay } from '@renderer/features/sessions/session-title-utils';
 import { requestArchiveSession } from '@renderer/features/sessions/archive-session-flow';
 import { moveSessionUnder } from '@renderer/features/sessions/set-session-parent-flow';
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
@@ -117,13 +118,19 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   // 它给自己排的定时,一台机器一个来源:本机的问本机(automation:* 事件驱动);别的机器上的(挂没挂着都一样)读那台机器
   // 推来的会话目录里那一格 —— 与置顶、未读同一条腿,❌ 再为挂着的那几条各开一条跨网问答。
   const localSchedules = useSessionSchedules(null, sessionId, machine === null);
-  if (!session && !listed) return null;
   const schedule =
     machine === null
       ? sessionScheduleDigest(localSchedules)
       : (listed ?? sidebarStore.remoteSession(projectId, sessionId))?.summary.schedule;
-  const row = session ? rowOfStore(session, schedule) : rowOfListing(listed!);
+  const row = session ? rowOfStore(session, schedule) : listed ? rowOfListing(listed) : null;
   const agentUserId = agentBinding?.agentUserId ?? listed?.summary.agent?.userId;
+  const identity = useAvatarIdentity(agentUserId ?? '');
+  const title = useShownAgentName({ name: row?.title ?? '', agentType: row?.providerId, createdAt: row?.createdAt ?? identity?.created_at ?? undefined });
+  const forkParent = row?.forkedFromSessionId
+    ? sessionRegistry.get(row.forkedFromSessionId)?.sessions.get(row.forkedFromSessionId)
+    : undefined;
+  const forkedFromTitle = useShownAgentName({ name: forkParent?.data.title ?? '', agentType: forkParent?.data.providerId, createdAt: forkParent?.data.createdAt });
+  if (!row) return null;
   const presentation = shownStatus.presentation(agentUserId, session
     ? mountedSessionPresentation(session, agentUserId)
     : sessionPresentation(listed!.summary, listed!.live, agentUserId));
@@ -144,16 +151,9 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     !agentUserId && row.status === null &&
     harness !== undefined &&
     !hasStatusSource({ runtime: row.runtime, hooksKind: harness.capabilities.hooks.kind });
-  const title = formatSessionTitleForDisplay(providerId, row.title);
 
   // spec session-fork-share: fork 自谁 = 父会话此刻的名字,从父会话自己的 store 读(❌ 存一份副本);
   // 父会话没挂上就不写名字。名字可能很长 → tooltip 里截断,否则在窄侧栏竖成一条。
-  const forkParent = row.forkedFromSessionId
-    ? sessionRegistry.get(row.forkedFromSessionId)?.sessions.get(row.forkedFromSessionId)
-    : undefined;
-  const forkedFromTitle = forkParent
-    ? formatSessionTitleForDisplay(forkParent.data.providerId, forkParent.data.title)
-    : undefined;
   const forkedFromLabel =
     forkedFromTitle && forkedFromTitle.length > 20
       ? `${forkedFromTitle.slice(0, 20)}…`
@@ -265,7 +265,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       dragged.sessionId !== sessionId &&
       sidebarStore.parentOf(dragged.sessionId) !== sessionId &&
       !sidebarStore.isWithin(sessionId, dragged.sessionId),
-    (child) => moveSessionUnder(child, { projectId, sessionId, title }, sidebarStore.parentOf(child.sessionId))
+    (child) => moveSessionUnder(child, { projectId, sessionId, title: row.title }, sidebarStore.parentOf(child.sessionId))
   );
 
   // @@@done-unread 「做完未读」= idle + 未 seen —— 表达方式见 sidebar-session-row。
@@ -379,7 +379,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           // 拖起来就不是在看这张卡了。
           identityCard.dismiss();
           // 带上项目:落在一块的边上时,分出来的那块要开这条会话的页(spec session-page「一屏几块」)。
-          setDraggedScreenContent(e.dataTransfer, { kind: 'session', sessionId, title, projectId }, e.currentTarget);
+          setDraggedScreenContent(e.dataTransfer, { kind: 'session', sessionId, title: row.title, projectId }, e.currentTarget);
         },
         onDragEnd: clearDraggedScreenContent,
         ...nestHere,
@@ -393,7 +393,8 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           <SidebarIdentityCard
             projectId={projectId}
             sessionId={sessionId}
-            title={title}
+            title={row.title}
+            displayTitle={title}
             anchor={rowAnchor}
             onDismiss={identityCard.dismiss}
           />
@@ -466,6 +467,7 @@ type SessionInRegistry = NonNullable<ReturnType<NonNullable<ReturnType<typeof se
 type SidebarRowData = {
   providerId: string;
   title: string;
+  createdAt?: string;
   status: SessionInRegistry['status'];
   detail: SessionInRegistry['detail'];
   seen: boolean;
@@ -485,6 +487,7 @@ function rowOfStore(session: SessionInRegistry, schedule: SessionpageScheduleDig
   return {
     providerId: session.data.providerId,
     title: session.data.title,
+    createdAt: session.data.createdAt,
     status: session.status,
     detail: session.detail,
     seen: session.seen,

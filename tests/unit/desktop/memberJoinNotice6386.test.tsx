@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MemberProfileCardModel } from '../../../apps/desktop/src/components/MemberProfileCard'
 import { MemberJoinNotice } from '../../../apps/desktop/src/components/groups/MemberJoinNotice'
 import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
-import { clickElement, createNode, createReactHarness, message, renderWithAppProviders } from '../../support/testHarness'
+import { clickElement, createNode, createReactHarness, displayIdentity, message, renderWithAppProviders } from '../../support/testHarness'
 
 function profile(id: string, displayName: string, overrides: Partial<MemberProfileCardModel> = {}): MemberProfileCardModel {
   return { id, displayName, avatar: null, email: null, type: 'human', role: 'member', membership: 'current', ...overrides }
@@ -42,7 +42,7 @@ describe('parseSystemNotice:只认写这一行的那一方写的那种', () => {
 describe('MemberJoinNotice', () => {
   let harness: ReturnType<typeof createReactHarness>
   beforeEach(() => { harness = createReactHarness() })
-  afterEach(() => { harness.cleanup() })
+  afterEach(() => { harness.cleanup(); vi.useRealTimers() })
 
   const profiles = {
     'u-a': profile('u-a', 'Alice'),
@@ -66,6 +66,19 @@ describe('MemberJoinNotice', () => {
     expect(buttons.map((button) => button.textContent)).toEqual(['Alice', 'Claude 5'])
     await clickElement(buttons[1]!)
     expect(onMention).toHaveBeenCalledWith({ id: 'u-b', name: 'Claude 5' })
+  })
+
+  it('shows the naming label while inserting the real mention target', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime('2026-11-02T08:00:00.000Z')
+    const onMention = vi.fn()
+    await renderWithAppProviders(harness, createNode(MemberJoinNotice, { userIds: ['u-b'], content: '', memberProfiles: profiles, onMention }), {
+      chat: { identitiesById: { 'u-b': displayIdentity('u-b', { type: 'agent', display_name: 'Claude 5', created_at: '2026-11-02T08:00:00.000Z' }) } },
+    })
+    const button = harness.container.querySelector<HTMLElement>('[data-testid="member-join-mention"]')!
+    expect(button.textContent).toBe('正在起名…')
+    await clickElement(button)
+    expect(onMention).toHaveBeenCalledExactlyOnceWith({ id: 'u-b', name: 'Claude 5' })
   })
 
   it('已退群的人和自己不能点(正对照:同一行里在群的那个能点)', async () => {
