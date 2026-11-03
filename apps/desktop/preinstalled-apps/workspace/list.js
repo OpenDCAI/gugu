@@ -160,7 +160,7 @@ export function rangeOf(order, anchor, id) {
   return order.slice(Math.min(from, to), Math.max(from, to) + 1)
 }
 
-/** What a batch 「设为临时 / 一直保留」 may change: the reader's own cloud copies; the rest, said apart (not theirs, no copy). */
+/** What a batch 「设为临时 / 持续保存」 may change: the reader's own cloud copies; the rest, said apart (not theirs, no copy). */
 export function keepable(entries) {
   return {
     mine: entries.filter((e) => e.keep?.mine),
