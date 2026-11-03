@@ -10,7 +10,7 @@ import '@/i18n/registerSettingsCatalog';
 import '@/styles/tokens.css';
 
 const fixture = vi.hoisted(() => ({
-  assistant: { id: 'assistant-layer', display_name: 'Layer assistant', avatar: null, type: 'agent' as const, owner_user_id: 'owner-layer', agent_type: 'claude-code' },
+  assistant: { id: 'assistant-layer', display_name: 'Layer assistant', avatar: null, type: 'agent' as const, owner_user_id: 'owner-layer', agent_type: 'claude-code' as const },
 }));
 // Only external identity/presence/device reads are fixtures. Both dialogs, their
 // portals, styles and the look/model panes are the actual product components.
