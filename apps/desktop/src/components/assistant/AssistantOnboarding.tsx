@@ -22,6 +22,8 @@ import { AssistantSetupCleanupError } from '../../lib/assistantSetupPreparation'
 import { readOccupation, takeAssistantStartAtHome } from '../../lib/firstRun'
 import { AssistantIntro } from './AssistantIntro'
 import { AssistantHomeChoice } from './AssistantHomeChoice'
+import { AssistantEngineChoice } from './AssistantEngineChoice'
+import type { AssistantEngine } from '../../lib/assistantHomeIpc'
 import { AssistantServerSetup } from './AssistantServerSetup'
 import { pendingServerAssistant } from '../../lib/assistantServerSetup'
 import { clearAssistantOnboardingNavigation, readAssistantOnboardingNavigation, saveAssistantOnboardingNavigation } from '../../lib/assistantOnboardingNavigation'
@@ -37,7 +39,7 @@ import { CloudComputerProvisionPanel, type CloudComputerActionFailure } from '..
 
 const log = rendererLogger('assistant/onboarding')
 
-type Step = 'intro' | 'name' | 'home' | 'server'
+type Step = 'intro' | 'name' | 'home' | 'engine' | 'server'
 type Busy = null | 'cloud' | 'computer' | 'resume'
 
 /** 引导页根上的主题色相(一个数,见 assistant-today.css 的 --ta-tint-h)。 */
@@ -89,6 +91,7 @@ export function AssistantOnboarding({
     return { ...draft, owner: { preferredName: ownerName?.trim() ?? '', about: label ? t('setup.ownerOccupation', { occupation: label }) : '' } }
   }, [draft, ownerName, ownerUserId, t, tMain])
   const [busy, setBusy] = useState<Busy>(null)
+  const [engine, setEngine] = useState<AssistantEngine>('claude')
   const localAttempt = useRef<AbortController | null>(null)
   const localInstallationStarted = useRef(false)
   const [installing, setInstalling] = useState(false)
@@ -120,6 +123,7 @@ export function AssistantOnboarding({
       return
     }
     if (!record) return
+    setEngine(record.blueprint.members[0]?.agent_type === 'codex' ? 'codex' : 'claude')
     let resumed = false
     localInstallationStarted.current = true
     setInstalling(true)
@@ -196,7 +200,7 @@ export function AssistantOnboarding({
       if (pending) {
         onInstalling()
         await resumeLocalAssistant(pending)
-      } else await setUpAssistantOnThisComputer(await setupDraft(), localDeviceId, { signal: attempt.signal, onInstalling })
+      } else await setUpAssistantOnThisComputer(await setupDraft(), localDeviceId, { engine, signal: attempt.signal, onInstalling })
       writeSetupStep(ownerUserId, 'connect')
       reloadMyAssistant(ownerUserId)
     } catch (e) {
@@ -213,7 +217,7 @@ export function AssistantOnboarding({
       setCancelling(false)
       setBusy(keepBusy ? 'computer' : null)
     }
-  }, [setupDraft, localDeviceId, ownerUserId])
+  }, [setupDraft, localDeviceId, ownerUserId, engine])
 
   // 管家正在云上给它开家(会员一键领取之后,或上一次开到一半):进度由现成的开通面板说。
   if (cloudEnabled && (snapshot?.state === 'provisioning' || snapshot?.state === 'error')) {
@@ -274,6 +278,9 @@ export function AssistantOnboarding({
         ) : step === 'server' ? (
           <AssistantServerSetup key={ownerUserId} ownerUserId={ownerUserId} name={displayName} createDraft={setupDraft} onBack={() => setStep('home')}
             onAddServer={() => saveAssistantOnboardingNavigation(ownerUserId, draft)} />
+        ) : step === 'engine' ? (
+          <AssistantEngineChoice name={displayName} draftAvatar={draftAvatarUrl(draft)} engine={engine} onChange={setEngine}
+            onContinue={() => void installHere()} onBack={() => setStep('home')} />
         ) : memberError ? (
           <>
             <p className="ta-onb-error" role="alert">{memberError}</p>
@@ -291,7 +298,7 @@ export function AssistantOnboarding({
             cloudFailure={cloudFailure}
             onCloud={() => void claimCloud()}
             onServer={() => setStep('server')}
-            onComputer={() => void installHere()}
+            onComputer={() => setStep('engine')}
             onUpgrade={openMembership}
             onBack={() => setStep('name')}
             draftAvatar={draftAvatarUrl(draft)}

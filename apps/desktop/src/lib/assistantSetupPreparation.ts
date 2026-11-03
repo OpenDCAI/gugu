@@ -15,7 +15,8 @@ export async function prepareLocalAssistantSetup(ipc: DesktopIpc, input: Prepare
   signal?: AbortSignal; onInstalling?: () => void
 }): Promise<PrepareLocalHomeResult> {
   if (options.signal?.aborted) throw cancelled()
-  const started = await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationStart) as { id: string }
+  const started = await (input.engine ? ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationStart, input.engine)
+    : ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationStart)) as { id: string }
   let installing = false
   const markInstalling = () => { if (!installing) { installing = true; options.onInstalling?.() } }
   const off = ipc.eventOn(ASSISTANT_HOME_CHANNELS.preparationChanged, data => {

@@ -43,16 +43,18 @@ vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/voice-
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-ideas-layer', () => ({ AssistantIdeasLayer: () => null }))
 
 const { AssistantMainPanel } = await import('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-view')
+const { refreshLocalAssistantHome } = await import('@/lib/assistantSetup')
 let harness: ReturnType<typeof createReactHarness>
 const cloud = (status: CloudComputerSnapshot['state'], error: string | null = null): CloudComputerSnapshot => ({
   state: status, deviceId: 'cloud', error, since: null,
 })
 
 beforeEach(() => {
+  vi.clearAllMocks()
   harness = createReactHarness()
   state.shell = {
     cloudAvailable: true, canHostHere: true, cloud: cloud('provisioning'), loadError: null,
-    assistant: { id: 'same-agent', display_name: '咕咕', avatar: null, created_at: null },
+    assistant: { id: 'same-agent', display_name: '咕咕', avatar: null, created_at: null, agent_type: 'claude-code' },
     assistantState: 'found', ownerName: '主人', chatId: 'same-chat', home: { kind: 'cloud', deviceId: 'cloud' },
     setup: 'connect', member: true, preparing: false,
   }
@@ -60,6 +62,17 @@ beforeEach(() => {
 afterEach(() => harness.cleanup())
 const render = () => harness.render(createElement(AssistantMainPanel))
 const publish = () => act(async () => { for (const listener of state.listeners) listener() })
+
+it('refreshes the actual local engine once its identity metadata is known', async () => {
+  state.shell = { ...state.shell!, cloud: null, assistant: { ...state.shell!.assistant!, agent_type: null },
+    home: { kind: 'computer', deviceId: 'local', thisDevice: true, label: '电脑', online: true, known: true } }
+  await render()
+  expect(refreshLocalAssistantHome).not.toHaveBeenCalled()
+  state.shell = { ...state.shell!, assistant: { ...state.shell!.assistant!, agent_type: 'codex' } }
+  await publish()
+  expect(refreshLocalAssistantHome).toHaveBeenCalledWith('codex')
+  expect(refreshLocalAssistantHome).not.toHaveBeenCalledWith('claude')
+})
 
 it('keeps provisioning and failure on the retry surface even after the identity appears', async () => {
   await render()

@@ -6,7 +6,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const f = vi.hoisted(() => ({ root: '', available: false, unusable: false, probe: vi.fn(), install: vi.fn() }))
 vi.mock('@gugu/session-core/deps/runtime', () => ({ agentProgramsOf: () => [{ dependencyId: 'claude-code' }] }))
-vi.mock('../../../../apps/desktop/electron/session/main/core/agents/plugin-registry', () => ({ getPlugin: () => ({}) }))
+const registry = vi.hoisted(() => ({ getPlugin: vi.fn(() => ({})) }))
+vi.mock('../../../../apps/desktop/electron/session/main/core/agents/plugin-registry', () => registry)
 vi.mock('../../../../apps/desktop/electron/session/main/core/dependencies/managed-agent-home', () => ({
   managedAgentPrefix: () => f.root, managedMiseBinDir: () => path.join(f.root, 'bin'),
   agentBinDirsInPriorityOrder: () => [path.join(f.root, 'bin')], vendorInstallDirs: () => [],
@@ -43,6 +44,13 @@ it('atomically replaces an existing unusable launcher', async () => {
   await prepared.commit()
   await prepared.dispose()
   expect(await readFile(launcher(), 'utf8')).toBe('prepared@one')
+})
+
+it('prepares dependencies from the selected Codex plugin', async () => {
+  const prepared = await prepareAssistantRuntime('codex', new AbortController().signal, 'codex')
+  expect(registry.getPlugin).toHaveBeenCalledWith('codex')
+  expect(registry.getPlugin).not.toHaveBeenCalledWith('claude')
+  await prepared.dispose()
 })
 
 it('keeps an installation that became usable while preparing', async () => {

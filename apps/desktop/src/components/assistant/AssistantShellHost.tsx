@@ -242,7 +242,7 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
       canHostHere: !!localDeviceId,
       cloud: snapshot,
       loadError: cloudComputer?.loadError ? String(cloudComputer.loadError) : null,
-      assistant: contact ? { id: contact.id, display_name: contact.display_name, avatar: contact.avatar, created_at: contact.created_at ?? null } : null,
+      assistant: contact ? { id: contact.id, display_name: contact.display_name, avatar: contact.avatar, created_at: contact.created_at ?? null, agent_type: contact.agent_type } : null,
       assistantState,
       ownerName: user?.nickname ?? null,
       ownerId: user?.id ?? null,

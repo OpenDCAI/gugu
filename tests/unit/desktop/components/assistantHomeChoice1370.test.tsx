@@ -9,7 +9,22 @@ import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 vi.mock('@/components/agentAvatar/AgentAvatar', () => ({ AgentAvatar: () => null }))
 vi.mock('@/lib/cloudComputerStore', () => ({ refreshCloudComputer: vi.fn() }))
 vi.mock('@/components/settings/CloudComputerSection', () => ({ CloudComputerRefusal: () => null }))
+vi.mock('@/session/renderer/features/settings/agents-page/AgentDetailModal', () => ({ AgentDetailModal: () => null }))
+const setup = vi.hoisted(() => ({ cloud: vi.fn(async () => {}), local: vi.fn(async () => ({})) }))
+vi.mock('@/lib/assistantSetup', () => ({ claimCloudAssistant: setup.cloud, setUpAssistantOnThisComputer: setup.local,
+  pendingLocalAssistant: () => null, resumeLocalAssistant: vi.fn(), draftAvatarUrl: () => '', AssistantSetupError: class extends Error {} }))
+vi.mock('@/lib/assistantServerSetup', () => ({ pendingServerAssistant: () => null }))
+vi.mock('@/lib/firstRun', () => ({ readOccupation: async () => ({ key: 'research' }), takeAssistantStartAtHome: () => true }))
+vi.mock('@/lib/billing/membership', () => ({ getMembership: async () => ({ tier: 'max' }) }))
+vi.mock('@/lib/myAssistant', () => ({ reloadMyAssistant: vi.fn() }))
+vi.mock('@/lib/assistantSetupState', () => ({ offerCustomizeCard: vi.fn(), writeSetupStep: vi.fn() }))
+vi.mock('@gugu/core/cloud/optionalServices', () => ({ cloudComputerEnabled: () => true }))
+vi.mock('@/components/assistant/AssistantSetupIdentity', () => ({ AssistantSetupIdentity: ({ onContinue }: { onContinue: () => void }) =>
+  createElement('button', { 'data-testid': 'identity-continue', onClick: onContinue }, 'Continue') }))
+vi.mock('@/components/assistant/AssistantServerSetup', () => ({ AssistantServerSetup: () => createElement('div', { 'data-testid': 'server-existing-flow' }) }))
 import { AssistantHomeChoice } from '../../../../apps/desktop/src/components/assistant/AssistantHomeChoice'
+import { AssistantEngineChoice } from '../../../../apps/desktop/src/components/assistant/AssistantEngineChoice'
+import { AssistantOnboarding } from '../../../../apps/desktop/src/components/assistant/AssistantOnboarding'
 
 let harness: ReturnType<typeof createReactHarness>
 const callbacks = { onCloud: vi.fn(), onServer: vi.fn(), onComputer: vi.fn(), onUpgrade: vi.fn(), onBack: vi.fn() }
@@ -69,4 +84,46 @@ it('does not present a disabled cloud service as a membership restriction', asyn
   expect(query('assistant-setup-member')).toBeNull()
   expect(query('assistant-setup-home-cloud')?.getAttribute('data-recommended')).toBe('false')
   expect(query('assistant-setup-choose-server')).not.toBeNull()
+})
+
+it('selects a local engine without starting setup until confirmed', async () => {
+  const onChange = vi.fn(), onContinue = vi.fn(), onBack = vi.fn()
+  const props = { name: '咕咕', draftAvatar: '', engine: 'claude' as const, onChange, onContinue, onBack }
+  await harness.render(createElement(AssistantEngineChoice, props))
+  expect(query('assistant-setup-engine-claude')?.getAttribute('aria-pressed')).toBe('true')
+  await click('assistant-setup-engine-codex')
+  expect(onChange).toHaveBeenCalledWith('codex')
+  expect(onContinue).not.toHaveBeenCalled()
+  await click('assistant-setup-engine-continue')
+  expect(onContinue).toHaveBeenCalledOnce()
+})
+
+async function renderOnboarding() {
+  await harness.render(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(AssistantOnboarding, {
+    ownerUserId: 'owner', ownerName: 'Researcher', snapshot: null, device: null, cloudAvailable: true, localDeviceId: 'local-device',
+  })))
+  await click('identity-continue')
+  await vi.waitFor(() => expect(query('assistant-setup-claim-cloud')).not.toBeNull())
+}
+
+it('enters the engine step only for local hosting and passes the chosen engine into setup', async () => {
+  await renderOnboarding()
+  await click('assistant-setup-install-here')
+  expect(query('assistant-setup-engine')).not.toBeNull()
+  expect(setup.local).not.toHaveBeenCalled()
+  await click('assistant-setup-engine-codex')
+  await click('assistant-setup-engine-continue')
+  await vi.waitFor(() => expect(setup.local).toHaveBeenCalledWith(expect.anything(), 'local-device',
+    expect.objectContaining({ engine: 'codex' })))
+})
+
+it('keeps cloud and server hosting on their existing paths without an engine step', async () => {
+  await renderOnboarding()
+  await click('assistant-setup-claim-cloud')
+  await vi.waitFor(() => expect(setup.cloud).toHaveBeenCalledOnce())
+  expect(query('assistant-setup-engine')).toBeNull()
+  await click('assistant-setup-choose-server')
+  expect(query('server-existing-flow')).not.toBeNull()
+  expect(query('assistant-setup-engine')).toBeNull()
+  expect(setup.local).not.toHaveBeenCalled()
 })

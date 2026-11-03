@@ -5745,7 +5745,7 @@ app.whenReady().then(async () => {
         const panelStatePath = assistantRole && assistantResourceOwner ? await assistantPanel.bind({
           sessionId: persistedSessionId,assistantId: provisioned.guguAgentUserId,ownerId: assistantResourceOwner,cwd: info.cwd,
         }) : undefined
-        const capabilities = assistantRole && info.providerId === 'claude' ? await preparePersonalAssistantContext(
+        const capabilities = assistantRole && (info.providerId === 'claude' || info.providerId === 'codex') ? await preparePersonalAssistantContext(
           loaded, info.cwd, resolveGuguHome(process.env), SERVER_MODE ? 'cloud' : 'computer', {
             accountId: async () => {
               const owner = (await getSessionpageAuth())?.userId
@@ -5757,7 +5757,7 @@ app.whenReady().then(async () => {
               if (!auth) throw new Error('Assistant startup index: owner not authenticated')
               return runAction(action, auth, signal)
             },
-          },
+          }, undefined, info.providerId === 'codex' ? 'codex' : 'claude',
         ) : info.providerId === 'claude' && !SERVER_MODE
           ? assistantHomeTaskContext(loaded, info.cwd, resolveGuguHome(process.env)) : loaded
         injectMark('capabilities-loaded')

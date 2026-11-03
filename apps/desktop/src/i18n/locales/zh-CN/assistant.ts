@@ -112,6 +112,9 @@ export default {
     "unavailable": "这里还开通不了咕咕。"
   },
   "setup": {
+    "engineTitle": "选择助理引擎",
+    "engineBody": "可沿用已有登录或 API key。",
+    "engineSettings": "配置 {{engine}}",
     "identityTitle": "给它一个名字和形象",
     "customizeLook": "换形象",
     "nameTitle": "给它起个名字",
