@@ -23,6 +23,8 @@ const provider = createTabProvider({ kind: 'page', resourceKey: (s: { id: string
 beforeEach(() => {
   mounts.clear(); dom = new JSDOM('<div id="root"></div>');
   vi.stubGlobal('window', dom.window); vi.stubGlobal('document', dom.window.document); vi.stubGlobal('navigator', dom.window.navigator); vi.stubGlobal('HTMLElement', dom.window.HTMLElement);
+  // Fixture tab ids are UUIDs, already valid CSS identifiers.
+  vi.stubGlobal('CSS', { escape: (id: string) => id });
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   root = createRoot(dom.window.document.getElementById('root')!);
 });

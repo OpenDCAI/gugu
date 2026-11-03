@@ -903,6 +903,12 @@ describe('WorkspaceViewModel source-aware page opens', () => {
     view.showPage('https://example.com/', { reload: false });
     expect(open).toHaveBeenCalledWith('browser', { initialUrl: 'https://example.com/' }, { from: 'source', intent: 'navigate', activate: true });
   });
+  it.each(['newTab', 'beside'] as const)('preserves an explicit %s browser request', (intent) => {
+    const { view, open } = fake();
+    const options = { reload: false, intent };
+    view.showPage('https://example.com/', options);
+    expect(open).toHaveBeenCalledWith('browser', { initialUrl: 'https://example.com/' }, { from: 'source', intent, activate: true });
+  });
   it('keeps reload explicit on the active browser', () => {
     const { view } = fake(); const reload = vi.fn();
     browserControlsRegistry.register('current-browser', { adapter: { reload } as never, focusUrl() {} });

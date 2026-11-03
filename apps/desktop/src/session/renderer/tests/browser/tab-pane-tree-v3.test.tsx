@@ -1,6 +1,6 @@
 import { act } from 'react';
-import { afterEach, expect, it } from 'vitest';
-import { cdp } from 'vitest/browser';
+import { afterAll, afterEach, expect, it } from 'vitest';
+import { cdp, page } from 'vitest/browser';
 import { createReactHarness } from '../../../../../../../tests/support/testHarness';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 import { createTabProvider, createTabRegistry } from '@renderer/features/tabs/core/tab-provider-registry';
@@ -10,9 +10,12 @@ import '@renderer/index.css';
 
 let harness: ReturnType<typeof createReactHarness>;
 let layout: PaneLayoutStore;
+const viewport = { width: window.innerWidth, height: window.innerHeight };
+afterAll(() => page.viewport(viewport.width, viewport.height));
 afterEach(() => { harness?.cleanup(); layout?.dispose(); });
 
 async function mount() {
+  await page.viewport(1100, 800);
   harness = createReactHarness();
   harness.container.style.cssText = 'position:fixed;left:0;top:0;width:1000px;height:600px';
   const provider = createTabProvider({ kind: 'page', resourceKey: (state: { id: string }) => state.id, initialize: () => ({ dispose() {} }), dispose() {}, TabContent: () => null, TabBarItem: () => null, TabBarItemDragPreview: () => null });
@@ -32,7 +35,7 @@ it('shields embedded pages during a real divider drag and releases the shield on
   const before = JSON.stringify(layout.snapshot.layout);
   const x = rect.left + rect.width / 2;
   const y = rect.top + 80;
-  expect(separator.contains(document.elementFromPoint(x, y)), 'the actual divider receives the pointer').toBe(true);
+  expect(separator.contains(document.elementFromPoint(x, y)), JSON.stringify({ divider: rect.toJSON(), viewport: { width: innerWidth, height: innerHeight }, hit: document.elementFromPoint(x, y)?.outerHTML.slice(0, 250) })).toBe(true);
   const mouse = async (type: 'mouseMoved' | 'mousePressed' | 'mouseReleased', localX: number, pressed = false) => {
     let x = localX, topY = y;
     for (let current: Window = window; current.frameElement; current = current.parent) {
