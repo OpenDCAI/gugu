@@ -21,12 +21,12 @@ import { TailValue } from './sidebar-identity-tail';
 /**
  * 侧栏会话行的**身份卡**(#6092,取代 #5818 的「标题就地翻成 agent 名」)。
  *
- * 行上只写得下标题;指针停在行上,行右侧弹出一张卡回答「这一行是谁、在哪」:**任务名、设备、文件夹**
- * 三行(设备与文件夹 owner 2026-10-28 加,见 sidebar-identity-place.ts)。任务名就是它 agent 的名字 ——
+ * 行上只写得下标题;指针停在行上,行右侧弹出一张卡回答「这一行是谁、在哪」:**Agent 名、设备、文件夹**
+ * 三行(设备与文件夹 owner 2026-10-28 加,见 sidebar-identity-place.ts)。值仍是它统一的 agent 名字 ——
  * 一个任务只有一个名字(owner 2026-10-31),所以 ❌ 再摆一行「agent 名」,
  * **整行点一下就复制这一行**。#7334 起卡上不再摆会话 ID 与 agent ID —— 平时拿名字的人用不上两串 ID,
  * 摆着只是多一层要读的东西;要会话 ID 的人主动去拿(行的右键「复制会话 ID」)。
- * 复制出去的是**带标签的这一对**(「任务名：X」)—— 单个值离开了标签,粘到哪都读不出它是什么
+ * 复制出去的是**带标签的这一对**(「Agent 名：X」)—— 单个值离开了标签,粘到哪都读不出它是什么
  * (owner 2026-10-16)。每行各复制各的,❌ 合成一次复制(owner 同日:「复制任务名就是复制任务名」)。
  *
  * 形状(assistant-ui design.md 的浮层与行规):
@@ -316,7 +316,7 @@ function IdentityRow({ row }: { row: RowSpec }) {
   const copy = async () => {
     if (row.value === null) return;
     try {
-      // 带上标签:「任务名：X」。分隔符取文案(中文全角「：」,英文「: 」),拼接在这里做 ——
+      // 带上标签:「Agent 名：X」。分隔符取文案(中文全角「：」,英文「: 」),拼接在这里做 ——
       // ❌ 把会话标题当插值参数塞进文案模板:标题是用户写的任意文字。
       await platform.writeClipboardText(`${row.label}${translate('identityCard.copyKeySeparator')}${row.value}`);
       flash(copiedLabel);
