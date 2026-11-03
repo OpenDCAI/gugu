@@ -4,7 +4,7 @@
 #   curl -fsSL …/install.sh | sh -s -- --channel beta        # 装 Beta 通道
 #   wget -qO- …/install.sh | sh                                # 没有 curl 的机器
 #   sh install.sh --package 包.tar.gz --version V --sha256 S   # 用现成的包(那台机器上不了网时,桌面下好经 SSH 传过来)
-#   sh install.sh --version V [--keep-current]                 # 装指定的那一版(和某台桌面匹配的);--keep-current 只装不切
+#   sh install.sh --version V [--keep-current]                 # 准备指定版本;--keep-current 只装不切
 #
 # 不要 root、不要事先装任何东西:只用 sh + (curl 或 wget) + tar + gzip + sha256 校验工具,busybox 也行。
 # 装到 ~/.gugu-server/versions/<版本>,current 软链指向在用的版本,~/.local/bin/gugu-server 启动 current。
@@ -137,11 +137,10 @@ fi
 
 TARGET="$SERVER_HOME/versions/$VERSION"
 # Hand the prepared target to the supervisor's one lifecycle owner. The lease precedes publication,
-# including --keep-current's gap before a desktop reports/adopts this version.
-if [ "$KEEP_CURRENT" = 1 ]; then
-  mkdir -p "$SERVER_HOME/versions/.prepared"
-  : > "$SERVER_HOME/versions/.prepared/$VERSION"
-fi
+# Every installation is published by a different process from the running pruner. Keep this
+# lease until the new run owns the home lock, including a pruner already holding an old keep set.
+mkdir -p "$SERVER_HOME/versions/.prepared"
+: > "$SERVER_HOME/versions/.prepared/$VERSION"
 # 切换前在用的那个版本:留着(它可能正在跑,也是回退的去处)。
 PREV="$(readlink "$SERVER_HOME/current" 2>/dev/null | sed 's#^versions/##')"
 # Bootstrap stages packages only. The running supervisor owns all reclamation and rollback pointers.
@@ -233,7 +232,7 @@ switch_current() {
   fi
   [ "$(readlink "$link" 2>/dev/null)" = "$want" ] || die "切换 $link 失败(现在指向 $(readlink "$link" 2>/dev/null))"
 }
-# --keep-current:只装不切(给某个账号换到和它桌面匹配的那一版,由守护进程只重启那一个账号,见 match-version)。
+# --keep-current:只准备包，保持 current 和正在服务的进程；安装级更新器负责激活。
 if [ "$KEEP_CURRENT" = 1 ] && [ -n "$PREV" ] && [ -x "$SERVER_HOME/current/bin/gugu-server" ]; then
   say "已安装咕咕 server $VERSION(不改动在用的 $PREV)"
 else
@@ -269,8 +268,11 @@ say "已安装咕咕 server $VERSION → $SERVER_HOME/current"
 if [ "$DO_SERVICE" = 1 ]; then
   # service install 负责「现在真在跑的是这个版本」:已经有 server 在跑(重新执行安装命令 = 急着升级)时,
   # 它把在跑的那个换到新版本上,最后报出此刻在跑的版本与进程号;没换成就说清怎么办、以非 0 退出。
-  "$BIN" service install ||
+  if "$BIN" service install; then :; else
+    SERVICE_RC=$?
     say "server 未能以 $VERSION 启动(见上);处理后执行:$CMD service install"
+    exit "$SERVICE_RC"
+  fi
 fi
 
 if [ "$DO_LOGIN" = 1 ]; then

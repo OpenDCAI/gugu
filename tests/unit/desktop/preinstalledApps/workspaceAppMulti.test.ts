@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // 群文件夹第三步(owner 10-28):多选 —— 勾选框、Ctrl/⌘、Shift 连续选、长按(手机);选中以后一次下载(API 20:桌面问
-// 一次文件夹、手机走系统分享)、一起设为临时或一直保留(只交自己传的、有云端副本的,其余说明跳过了几个)、在聊天中
+// 一次文件夹、手机走系统分享)、一起设为临时或持续保存(只交自己传的、有云端副本的,其余说明跳过了几个)、在聊天中
 // 一条一条定位(1/3 ‹ ›)。换文件夹、换类型都放开选中。页面跑在假的 window.gugu 上。
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -207,7 +207,7 @@ describe('picking', () => {
     open('c')
     row('b').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 90, clientY: 20 }))
     const actions = [...$('menu').querySelectorAll<HTMLButtonElement>('button')]
-    expect(actions.map((item) => item.textContent)).toEqual(['转发', '下载', '设为临时', '一直保留', '在聊天中定位', '取消选择'])
+    expect(actions.map((item) => item.textContent)).toEqual(['转发', '下载', '设为临时', '设为持续保存', '在聊天中定位', '取消选择'])
     actions[1]!.click()
     await until('batch download called', () => gugu.files.download.mock.calls.length > 0)
     expect(gugu.files.download).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'a' }), expect.objectContaining({ id: 'c' })])

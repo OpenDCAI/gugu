@@ -5,20 +5,23 @@ import threads, { type WorkerOptions } from 'node:worker_threads';
 import { registerHooks, syncBuiltinESMExports } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { relative } from 'node:path';
-import { networkHostAllowed } from '@shared/extensions/network-host';
+import { networkHostVerdict } from '@shared/extensions/network-host';
 import { resolvesInside } from '@shared/extensions/path-containment';
 
 // A seat belt for declared tools, not an OS sandbox for malicious code. Runs in every thread before App code.
-const hosts: string[] = JSON.parse(process.env.GUGU_APP_NETWORK_HOSTS!);
-const hostEnv = JSON.stringify(hosts);
+const hostEnv = process.env.GUGU_APP_NETWORK_HOSTS!;
+const hosts: { granted: string[]; declared: string[] } = JSON.parse(hostEnv);
 const root = process.cwd();
 const execArgv = [...process.execArgv];
-const deny = (what: string): never => { throw Object.assign(new Error(`gugu: this App ${what}`), { code: 'ERR_ACCESS_DENIED' }); };
+const deny = (what: string, subject = 'this App'): never => { throw Object.assign(new Error(`gugu: ${subject} ${what}`), { code: 'ERR_ACCESS_DENIED' }); };
 const lock = (object: object, key: PropertyKey, value: unknown) => Object.defineProperty(object, key, { value, writable: false, configurable: false });
 const allow = (host: unknown) => {
-  if (typeof host !== 'string' || net.isIP(host.replace(/^\[|\]$/g, '')) || !networkHostAllowed(hosts, host)) {
-    deny(`did not declare network access to ${typeof host === 'string' ? host : 'this socket'}`);
+  if (typeof host !== 'string' || net.isIP(host.replace(/^\[|\]$/g, ''))) {
+    return deny(`did not declare network access to ${typeof host === 'string' ? host : 'this socket'}`);
   }
+  const verdict = networkHostVerdict(hosts.declared, hosts.granted, host);
+  if (verdict === 'withdrawn') deny(`network access to ${host} was revoked in Apps`, "this App's");
+  if (verdict === 'not-declared') deny(`did not declare network access to ${host}`);
 };
 
 const connect = net.Socket.prototype.connect;

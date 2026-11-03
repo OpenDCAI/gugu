@@ -185,7 +185,7 @@ afterAll(async () => {
 });
 
 function confinement(hosts: string[] = []): ProgramConfinement {
-  return { fsRead: [bundle, join(dir, 'runtime'), data], fsWrite: [data], hosts };
+  return { fsRead: [bundle, join(dir, 'runtime'), data], fsWrite: [data], hosts, declaredHosts: hosts };
 }
 
 /** The corpus's verdicts, started as main starts a program; `confine` null = today's unconfined launch (the control). */
@@ -256,7 +256,7 @@ describe('an App tools program runs within what it declared (apiVersion 29)', ()
     symlinkSync(dir, alias, 'dir');
     try {
       connections = 0;
-      const out = await runCorpus({ fsRead: [join(alias, 'bundle'), join(alias, 'data')], fsWrite: [join(alias, 'data')], hosts: [] }, alias);
+      const out = await runCorpus({ fsRead: [join(alias, 'bundle'), join(alias, 'data')], fsWrite: [join(alias, 'data')], hosts: [], declaredHosts: [] }, alias);
       for (const route of ALLOWED) expect.soft(out[route], route).toBe('ok');
       for (const route of [...FS_ROUTES, 'sqliteGetBuiltin', ...NET_ROUTES]) expect.soft(out[route], route).toBe('ERR_ACCESS_DENIED');
       expect(connections).toBe(0);
@@ -291,6 +291,46 @@ describe('an App tools program runs within what it declared (apiVersion 29)', ()
       expect(out.other).toBe('ERR_ACCESS_DENIED');
       expect(out.ip).toBe('ERR_ACCESS_DENIED');
       expect(connections).toBe(2);
+    } finally {
+      writeFileSync(join(bundle, 'app.mjs'), CORPUS);
+    }
+  }, 60_000);
+
+  it('keeps the withdrawn-host reason in file workers even with an empty environment', async () => {
+    connections = 0;
+    const probe = String.raw`
+      import net from 'node:net';
+      const out = {};
+      for (const host of ['withdrawn.invalid', 'undeclared.invalid']) {
+        out[host] = await new Promise((done) => {
+          try {
+            const s = net.connect({ port: ${port}, host, lookup: (_host, options, cb) => cb(null, options.all ? [{ address: '127.0.0.1', family: 4 }] : '127.0.0.1', 4) }, () => { s.destroy(); done('connected') });
+            s.on('error', (e) => done(e.code + ':' + e.message));
+          } catch (e) { done(e.code + ':' + e.message); }
+        });
+      }
+    `;
+    writeFileSync(join(bundle, 'worker-reason.mjs'), probe + "import { parentPort } from 'node:worker_threads'; parentPort.postMessage(out);");
+    writeFileSync(join(bundle, 'app.mjs'), probe + String.raw`
+      import { Worker } from 'node:worker_threads';
+      const child = await new Promise((resolve, reject) => {
+        const worker = new Worker(new URL('./worker-reason.mjs', import.meta.url), { env: {}, execArgv: [] });
+        worker.once('message', (value) => { worker.terminate(); resolve(value); });
+        worker.once('error', reject);
+      });
+      out.workerWithdrawn = child['withdrawn.invalid'];
+      out.workerUndeclared = child['undeclared.invalid'];
+      process.stdout.write(JSON.stringify(out) + '\n'); process.exit(0);
+    `);
+    try {
+      const out = await runCorpus({ ...confinement(), declaredHosts: ['withdrawn.invalid'] });
+      const withdrawn = "ERR_ACCESS_DENIED:gugu: this App's network access to withdrawn.invalid was revoked in Apps";
+      const undeclared = 'ERR_ACCESS_DENIED:gugu: this App did not declare network access to undeclared.invalid';
+      expect(out['withdrawn.invalid']).toBe(withdrawn);
+      expect(out.workerWithdrawn).toBe(withdrawn);
+      expect(out['undeclared.invalid']).toBe(undeclared);
+      expect(out.workerUndeclared).toBe(undeclared);
+      expect(connections).toBe(0);
     } finally {
       writeFileSync(join(bundle, 'app.mjs'), CORPUS);
     }

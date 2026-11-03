@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 // 群文件夹的列表(owner 10-28 定稿的第一步):按类型分段(全部 / 文档 / 图片和视频 / 其他)、排序(最近 / 名称 / 大小,
-// 按最近时分今天 / 昨天 / 过去 7 天 / 每月)、行尾淡淡的「临时 · 还剩多久」和存在哪台机器,⋯ 里的「设为临时 / 一直保留」
+// 按最近时分今天 / 昨天 / 过去 7 天 / 每月)、行尾淡淡的「临时 · 还剩多久」和存在哪台机器,⋯ 里的「设为临时 / 持续保存」
 // (只有自己传的、有云端副本的能改;不能改的说为什么,在悬停里)。页面跑在假的 window.gugu 上。
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { runInNewContext } from 'node:vm'
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { until } from '../../../support/awaitCondition'
 
@@ -80,6 +81,21 @@ beforeEach(() => {
   }
 })
 
+test.each(['zh', 'en'] as const)('%s retention copy matches File storage', (locale) => {
+  const source = readFileSync(resolve(process.cwd(), 'apps/desktop/preinstalled-apps/workspace/app.js'), 'utf8')
+  const table = source.match(/const STRINGS = (\{[\s\S]*?\n\})\n/)
+  expect(table, 'the App localization table').not.toBeNull()
+  const strings = (runInNewContext(`(${table![1]})`) as Record<string, Record<string, string>>)[locale]!
+  const obsolete = ['一直保留', 'Until deleted', '文件存储与读取', '设备 › 文件存储', 'Devices › File storage', '直到有人删除', 'until someone deletes']
+  const outdated = Object.entries(strings).flatMap(([key, value]) => obsolete
+    .filter((phrase) => value.toLowerCase().includes(phrase.toLowerCase()))
+    .map((phrase) => ({ key, phrase, value })))
+  expect(outdated, 'obsolete retention names, rules and settings paths').toEqual([])
+  for (const key of ['storedOnMine', 'keepTip']) {
+    expect(strings[key], key).toContain(locale === 'zh' ? '设置 › 文件存储' : 'Settings › File storage')
+  }
+})
+
 describe('kinds and order', () => {
   test('newest change first, under today / yesterday / the past 7 days / each month', () => {
     expect(ids()).toEqual(['spec', 'clip', 'shot', 'pack', 'notes'])
@@ -123,7 +139,7 @@ describe('a row: its suffix, its size, how long its cloud copy has left, the mac
     const clip = row('clip').querySelector<HTMLElement>('.file-keep')!
     expect(clip.textContent).toBe('临时 · 5 小时')
     expect(clip.hasAttribute('data-soon')).toBe(true)
-    expect(row('pack').querySelector('.file-keep'), 'kept until deleted: nothing to say (owner 10-28)').toBe(null)
+    expect(row('pack').querySelector('.file-keep'), 'kept cloud copy: nothing to say (owner 10-28)').toBe(null)
   })
 
   test('a project file that stays on its machine names the machine; the rest on hover', () => {
@@ -134,13 +150,13 @@ describe('a row: its suffix, its size, how long its cloud copy has left, the mac
   })
 })
 
-describe('「设为临时 / 一直保留」 in the ⋯', () => {
+describe('「设为临时 / 持续保存」 in the ⋯', () => {
   test('my upload: both ways offered, the current one ticked; choosing one keeps it so and reads the list again', async () => {
     openMenu('spec')
     item('保留方式 ›').click()
-    expect(radios().map((r) => [r.textContent, r.getAttribute('aria-checked'), r.disabled])).toEqual([['临时', 'true', false], ['一直保留', 'false', false]])
+    expect(radios().map((r) => [r.textContent, r.getAttribute('aria-checked'), r.disabled])).toEqual([['临时', 'true', false], ['持续保存', 'false', false]])
     const reads = gugu.files.list.mock.calls.length
-    item('一直保留').click()
+    item('持续保存').click()
     await until('the list read again', () => gugu.files.list.mock.calls.length > reads)
     expect(gugu.files.keep).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'spec' }), 'permanent')
   })

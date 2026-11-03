@@ -112,7 +112,12 @@ beforeEach(async () => {
   editor().dispatch({ changes: { from: 0, to: editor().state.doc.length, insert: text } });
   await userEvent.keyboard('{Escape}');
   await userEvent.click(byId('mode-preview'));
-  byId('preview').scrollTop = 0;
+  const preview = byId('preview');
+  if (preview.scrollTop !== 0) {
+    const settled = new Promise<Event>((resolve) => preview.addEventListener('scroll', resolve, { once: true }));
+    preview.scrollTop = 0;
+    await settled;
+  }
   await until('the original reading is redrawn', () => renders > before && !!byId('preview').querySelector('p[data-line="5-5"]') && !byId('preview').querySelector('table'));
   upload.mockClear();
   copied.length = 0;

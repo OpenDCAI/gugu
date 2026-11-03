@@ -5,7 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth';
-import { DESKTOP_REPORT_REFRESH_MS, readDesktopReports, readVersionSwitchRequest, VERSION_SWITCH_FILE } from '@gugu/core/cloud/serverDesktopVersions';
 import type { DeviceRpcHandlerContext } from '@gugu/core/cloud/deviceRpcResponder';
 import { createSessionHostDeviceRpcHandlers } from './device-session-host';
 import { FrameSessionHost } from './frame-host';
@@ -21,103 +20,35 @@ afterEach(() => {
 const ctx = { publishEvent: () => undefined, request: { user_id: 'owner' } } as unknown as DeviceRpcHandlerContext;
 const host = { attach: vi.fn() } as unknown as FrameSessionHost;
 
-describe('taskhost.open 带来的桌面版本', () => {
-  it('咕咕 server 上记下;协议超出兼容窗口留换版请求;形状不对的不记也不挡开窗口', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-desktop-report-'));
-    process.env.GUGU_SERVER_MODE = '1';
-    process.env.GUGU_TASK_HOST_USER_DATA = dir;
-    const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => host });
-    const open = handlers['taskhost.open']!;
-    expect(await open({ client: 'client0001', desktop: { id: 'mbp', version: '0.2.160', protocol: REMOTE_PROTOCOL_VERSION } }, ctx)).toEqual({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } });
-    expect(readDesktopReports(dir).mbp).toMatchObject({ version: '0.2.160', protocol: REMOTE_PROTOCOL_VERSION });
-    expect(readVersionSwitchRequest(dir)).toBeNull();
-    await open({ client: 'client0002', desktop: { id: 'next', version: '0.3.0', protocol: REMOTE_PROTOCOL_VERSION + 1 } }, ctx);
-    expect(readVersionSwitchRequest(dir)).not.toBeNull();
-    expect(await open({ client: 'client0003', desktop: { id: 'bad id', version: '0.1' } }, ctx)).toEqual({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } });
-    expect(Object.keys(readDesktopReports(dir)).sort()).toEqual(['mbp', 'next']);
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  it('桌面自己(不是咕咕 server):什么也不记', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-desktop-report-'));
-    delete process.env.GUGU_SERVER_MODE;
-    process.env.GUGU_TASK_HOST_USER_DATA = dir;
-    const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => host });
-    await handlers['taskhost.open']!({ client: 'client0001', desktop: { id: 'mbp', version: '0.2.160', protocol: REMOTE_PROTOCOL_VERSION } }, ctx);
-    expect(fs.readdirSync(dir)).toEqual([]);
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  // #6914 改了这条线上的方法:比下沿旧的桌面开了窗口也只会在某个动作上半截失败 ⇒ 当场拒,说清是哪边旧。
-  it('比 MIN_CLIENT_PROTOCOL 旧的桌面:桌面主机当场拒、不开窗口;不报协议的不下结论', async () => {
-    delete process.env.GUGU_SERVER_MODE;
-    const attach = vi.fn();
-    const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => ({ attach }) as unknown as FrameSessionHost });
-    const open = handlers['taskhost.open']!;
-    const refused = await open({ client: 'client0001', desktop: { id: 'old', version: '0.2.51', protocol: MIN_CLIENT_PROTOCOL - 1 } }, ctx);
-    expect(refused).toMatchObject({ error: { code: 'client_outdated' } });
-    expect(attach).not.toHaveBeenCalled();
-    // 对照:够新的、以及不报协议的(老到不报 = 不知道)照常开。
-    expect(await open({ client: 'client0002', desktop: { id: 'new', version: '0.2.53', protocol: MIN_CLIENT_PROTOCOL } }, ctx)).toEqual({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } });
-    expect(await open({ client: 'client0003', desktop: { id: 'mute', version: '0.2.40' } }, ctx)).toEqual({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } });
-    expect(attach).toHaveBeenCalledTimes(2);
-    // 手机不报 desktop,只报 protocol:同一个下沿。
-    expect(await open({ client: 'client0004', protocol: MIN_CLIENT_PROTOCOL - 1 }, ctx)).toMatchObject({ error: { code: 'client_outdated' } });
-    expect(await open({ client: 'client0005', protocol: MIN_CLIENT_PROTOCOL }, ctx)).toEqual({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } });
-    expect(attach).toHaveBeenCalledTimes(3);
-  });
-
-  it('咕咕 server 拒旧桌面之前照样记下它、留换版请求(换成匹配的那一版之后它就开得了)', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-desktop-report-'));
-    process.env.GUGU_SERVER_MODE = '1';
-    process.env.GUGU_TASK_HOST_USER_DATA = dir;
-    const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => host });
-    const refused = await handlers['taskhost.open']!({ client: 'client0001', desktop: { id: 'old', version: '0.2.51', protocol: MIN_CLIENT_PROTOCOL - 1 } }, ctx);
-    expect(refused).toMatchObject({ error: { code: 'client_outdated' } });
-    expect(readDesktopReports(dir).old).toMatchObject({ version: '0.2.51', protocol: MIN_CLIENT_PROTOCOL - 1 });
-    expect(readVersionSwitchRequest(dir)).toMatchObject({ confirmed: false });
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  // 老客户端被拒后每有一处界面在问就重开一次(mac1 实测空闲时约 6 秒一次):一小时内同一台只记一次。
-  it('同一台旧桌面反复来开:一小时内只记一次,过了一小时再记', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
+describe('taskhost.open accepts only protocol facts from released desktop reports', () => {
+  it('opens compatible peers without writing reports, requests or account update state', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-no-desktop-state-'));
+    process.env.GUGU_SERVER_MODE = '1'; process.env.GUGU_TASK_HOST_USER_DATA = dir;
+    const { handlers, dispose } = createSessionHostDeviceRpcHandlers({ host: () => host });
     try {
-      vi.setSystemTime(new Date('2026-10-05T08:00:00Z'));
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-desktop-report-'));
-      process.env.GUGU_SERVER_MODE = '1';
-      process.env.GUGU_TASK_HOST_USER_DATA = dir;
-      const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => host });
-      const open = handlers['taskhost.open']!;
-      const old = { id: 'old', version: '0.2.51', protocol: MIN_CLIENT_PROTOCOL - 1 };
-      await open({ client: 'client0001', desktop: old }, ctx);
-      const first = readDesktopReports(dir).old!.at;
-      // 守护进程处理完换版请求会删掉它;一小时内再来 ❌ 再留一个。
-      fs.rmSync(path.join(dir, VERSION_SWITCH_FILE));
-      vi.setSystemTime(new Date('2026-10-05T08:00:06Z'));
-      expect(await open({ client: 'client0002', desktop: old }, ctx)).toMatchObject({ error: { code: 'client_outdated' } });
-      expect(readDesktopReports(dir).old!.at).toBe(first);
-      expect(readVersionSwitchRequest(dir)).toBeNull();
-      vi.setSystemTime(new Date(Date.parse('2026-10-05T08:00:00Z') + DESKTOP_REPORT_REFRESH_MS));
-      await open({ client: 'client0003', desktop: old }, ctx);
-      expect(readDesktopReports(dir).old!.at).toBeGreaterThan(first);
-      expect(readVersionSwitchRequest(dir)).not.toBeNull();
-      fs.rmSync(dir, { recursive: true, force: true });
-    } finally {
-      vi.useRealTimers();
-    }
+      for (const protocol of [MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION, REMOTE_PROTOCOL_VERSION + 1]) {
+        expect(await handlers['taskhost.open']!({ client: 'client0001', desktop: { id: 'same-device:new-version', version: '9.0.0', protocol } }, ctx))
+          .toEqual({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } });
+      }
+      expect(fs.readdirSync(dir)).toEqual([]);
+      expect(handlers['server.versionMatch.retry']).toBeUndefined();
+      expect(handlers['server.versionMatch.retryWhenIdle']).toBeUndefined();
+      expect(handlers['server.versionMatch.restartNow']).toBeUndefined();
+    } finally { dispose(); fs.rmSync(dir, { recursive: true, force: true }); }
   });
-
-  it.each(['server.versionMatch.retry', 'server.versionMatch.retryWhenIdle'])('%s only requests an idle retry; a desktop reports unavailable', async (verb) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-desktop-report-'));
-    process.env.GUGU_TASK_HOST_USER_DATA = dir;
-    const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => host });
-    delete process.env.GUGU_SERVER_MODE;
-    expect(await handlers[verb]!({}, ctx)).toMatchObject({ error: { code: 'unavailable' } });
-    process.env.GUGU_SERVER_MODE = '1';
-    expect(await handlers[verb]!({}, ctx)).toEqual({ result: { requested: true } });
-    expect(readVersionSwitchRequest(dir)).toMatchObject({ confirmed: false });
-    fs.rmSync(dir, { recursive: true, force: true });
+  it('still enforces the same protocol floor for old desktop and modern protocol fields', async () => {
+    const attach = vi.fn();
+    const { handlers, dispose } = createSessionHostDeviceRpcHandlers({ host: () => ({ attach }) as unknown as FrameSessionHost });
+    const open = handlers['taskhost.open']!;
+    try {
+      expect(await open({ client: 'client0001', desktop: { id: 'old', version: '1.0.0', protocol: MIN_CLIENT_PROTOCOL - 1 } }, ctx))
+        .toMatchObject({ error: { code: 'client_outdated' } });
+      expect(await open({ client: 'client0002', protocol: MIN_CLIENT_PROTOCOL - 1 }, ctx)).toMatchObject({ error: { code: 'client_outdated' } });
+      expect(attach).not.toHaveBeenCalled();
+      expect(await open({ client: 'client0003', protocol: MIN_CLIENT_PROTOCOL }, ctx)).toEqual({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } });
+      expect(await open({ client: 'client0004' }, ctx)).toEqual({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } });
+      expect(attach).toHaveBeenCalledTimes(2);
+    } finally { dispose(); }
   });
 });
 

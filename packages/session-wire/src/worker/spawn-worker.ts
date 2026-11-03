@@ -20,6 +20,27 @@ const DEFAULT_SUPERVISION: ProcessSupervision = {
   maxRestarts: 5,
 };
 
+// Keep the managed handle: its PID changes when supervision restarts a worker.
+const workers = new Set<ManagedProcess>();
+
+/** Crash/signal exit: no graceful close that could cancel an active session. */
+export function killAllWorkersSync(beforeKill?: (pids: number[]) => void): void {
+  let failure: unknown;
+  try {
+    beforeKill?.([...workers].flatMap(worker => worker.pid === undefined ? [] : [worker.pid]));
+  } catch (error) { failure = error; }
+  for (const worker of workers) {
+    const pid = worker.pid;
+    if (pid === undefined) continue;
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') failure ??= error;
+    }
+  }
+  if (failure) throw failure;
+}
+
 export type WorkerSpec<Defs extends ContractDefinitions> = {
   name: string;
   contract: Contract<Defs>;
@@ -65,9 +86,12 @@ export async function spawnWorker<Defs extends ContractDefinitions>(
       shutdownGraceMs: spec.shutdownGraceMs,
       spec: toRuntimeSpec(spec),
       onProcess(process) {
+        workers.add(process);
+        scope.add(() => { workers.delete(process); });
         scope.add(forwardRuntimeLogs(process, logger, { source }));
         scope.add(
           process.onExit((exit) => {
+            if (!exit.willRestart) workers.delete(process);
             const level = exit.willRestart ? 'warn' : exit.code ? 'error' : 'info';
             logger[level]('worker process exited', exit);
           })

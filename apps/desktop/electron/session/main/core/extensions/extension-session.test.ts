@@ -96,6 +96,7 @@ vi.mock('@main/lib/logger', () => ({
 }));
 
 import { extensionPartition } from '@shared/extensions/partition';
+import { log } from '@main/lib/logger';
 import {
   clearExtensionSessionData,
   configureExtensionSession,
@@ -105,8 +106,8 @@ import {
 
 const EXTENSION_ID = 'arxiv-search';
 
-function bundle(networkHosts: readonly string[], rootDir = '/bundles/v1') {
-  return { extensionId: EXTENSION_ID, rootDir, networkHosts };
+function bundle(networkHosts: readonly string[], rootDir = '/bundles/v1', declaredHosts = networkHosts) {
+  return { extensionId: EXTENSION_ID, rootDir, networkHosts, declaredHosts };
 }
 
 function fakeSessionFor(extensionId: string): FakeSession {
@@ -165,9 +166,10 @@ describe('configureExtensionSession', () => {
 
     // Revoking is a new grant list on the live session, not a new session —
     // the surface stays up, it just stops being able to reach that host.
-    configureExtensionSession(bundle([]));
+    configureExtensionSession(bundle([], '/bundles/v1', ['export.arxiv.org']));
     expect(fakeSessionFor(EXTENSION_ID)).toBe(ses);
     expect(verdictFor(ses, 'https://export.arxiv.org/api/query')).toBe('cancelled');
+    expect(log.warn).toHaveBeenLastCalledWith('Blocked extension network request', expect.objectContaining({ reason: 'host-withdrawn' }));
   });
 
   it('follows a widened grant list too, so a re-consent takes effect at once', () => {

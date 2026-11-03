@@ -39,6 +39,7 @@ export {
   defaultEngineTreeOps,
   reapEngineTree,
   signalEngineTree,
+  signalProcessDescendantsSync,
   type EngineTreeOps,
   type EngineTreeReap,
 } from './engine-tree';

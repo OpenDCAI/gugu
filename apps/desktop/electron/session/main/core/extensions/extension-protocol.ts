@@ -21,8 +21,9 @@ export interface ExtensionBundle {
   extensionId: string;
   /** Absolute path of the installed bundle directory. */
   rootDir: string;
-  /** Hosts the manifest declared, mirrored into the served CSP. */
+  /** Currently granted hosts, mirrored into the served CSP. */
   networkHosts: readonly string[];
+  declaredHosts: readonly string[];
 }
 
 /**

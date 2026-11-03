@@ -1,3 +1,4 @@
+import apiIndex from '@shared/extensions/fixtures/app-api-index.json';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -692,4 +693,16 @@ describe('two unpacked at once', () => {
     expect(fs.existsSync(leftover)).toBe(false);
     market.discard(copy);
   });
+});
+
+it('A7 the same API refusal excludes open-with offers and refuses install before download', async () => {
+  const site = new FakeSite(apiIndex);
+  const market = new CloudExtensionMarket(site, {
+    stagingRoot: path.join(root, 'staging-api'), heldRoot: path.join(root, 'held-api'), snapshotStore: memoryStore(),
+    resolveHost: async () => ({ platform: 'desktop', appVersion: '0.3.1-beta.1133.1', apiVersionMin: 25, apiVersionMax: 25 }),
+  });
+  expect((await market.entries()).find(entry => entry.manifest.id === 'data-lens')?.compat?.reason).toBe('needs-newer-app');
+  expect((await market.offers()).map(entry => entry.manifest.id)).not.toContain('data-lens');
+  await expect(market.materialize('data-lens', '0.1.1')).rejects.toThrow(/needs .*gugu|[Nn]eeds .*Gugu/);
+  expect(site.downloads).toBe(0);
 });

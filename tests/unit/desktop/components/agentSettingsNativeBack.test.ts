@@ -26,7 +26,15 @@ afterEach(() => {
 })
 
 describe('手机 Agent 设置:返回键与左上箭头同一件事', () => {
-  it('详情层按返回回到 nav 层、设置还开着;nav 层再按才关', async () => {
+  it.each(['native back', 'Escape'])('%s: 详情先回 nav，nav 再关闭', async (key) => {
+    const trigger = async () => {
+      if (key === 'native back') { expect(await back()).toBe(true); return }
+      const popup = document.querySelector<HTMLElement>('[data-testid="agent-settings-modal"]')!
+      await act(async () => {
+        popup.focus()
+        popup.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      })
+    }
     const onClose = vi.fn()
     await renderWithAppProviders(
       harness,
@@ -37,11 +45,11 @@ describe('手机 Agent 设置:返回键与左上箭头同一件事', () => {
     await clickElement(document.body.querySelector<HTMLButtonElement>('[data-testid="agent-settings-modal"] nav button')!)
     expect(topLeft()?.getAttribute('aria-label')).toBe('返回')
 
-    expect(await back()).toBe(true)
+    await trigger()
     expect(onClose).not.toHaveBeenCalled()
     expect(topLeft()?.getAttribute('aria-label')).toBe('关闭')
 
-    expect(await back()).toBe(true)
+    await trigger()
     expect(onClose).toHaveBeenCalledOnce()
   })
 })

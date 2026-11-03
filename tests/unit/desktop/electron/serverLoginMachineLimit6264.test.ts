@@ -18,8 +18,9 @@ vi.mock('electron', () => ({ app: { getVersion: () => '0.3.0' }, safeStorage: {}
 vi.mock('../../../../apps/desktop/electron/server/server-auth', () => ({ writeStoredServerSession: vi.fn() }))
 vi.mock('../../../../apps/desktop/electron/server/server-layout', () => ({
   applyAccountEnv: vi.fn(),
+  serverHome: () => process.env.GUGU_SERVER_HOME,
   emailFromAccessToken: vi.fn(),
-  listAccounts: () => [],
+  readServerAccount: () => null,
   writeAccountMeta: vi.fn(),
 }))
 

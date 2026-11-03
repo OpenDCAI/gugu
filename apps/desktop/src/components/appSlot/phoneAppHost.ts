@@ -32,6 +32,7 @@ import {
   isWorkspace,
   sessionWorkspace,
   workspaceSession,
+  workspaceAppFileChunk,
   placeOf,
   sessionIdOf,
   type AppForumConsentDetail,
@@ -231,6 +232,7 @@ const files = createAppFiles({
   filesUrl: rendererFileServiceUrl,
   warn: (message, data) => log.warn(data ?? {}, message),
   sync: {
+    onPageRelease: (listener) => relay.onPageRelease(listener),
     ensureFor: (asAgent) => { relay.ensureFor(asAgent) },
     pageFor: (pageId) => {
       const hosted = frames.get(pageId)
@@ -509,6 +511,9 @@ export function hostAppFrame(
     const refusal = callRefusal(method, args, { kind: 'page', has: (capability) => hosted.binding.capabilities.includes(capability), gesture, widget: Boolean(hosted.binding.widget) })
     if (refusal) refused(refusal.code, refusal.message)
     const session = hosted.binding.session
+    // Only the workspace's cross-machine wire is base64. The App gets the same binary reply as a chat read.
+    const computerReply = (value: unknown) => method === 'filesRead'
+      ? workspaceAppFileChunk(value as { size: number; offset: number; data: string }) : value
     if ((session || args.device !== undefined) && verbFacts(method)?.machine) {
       const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
       if (!manifest) refused('not-installed', `${hosted.binding.extensionId} is not installed on this phone`)
@@ -516,10 +521,10 @@ export function hostAppFrame(
         const invalid = notOnSessionMachine(manifest, method, args)
         if (invalid) throw invalid
         const { device, ...callArgs } = args
-        return callOnComputer({ extensionId: manifest.id, extensionName: manifest.name, version: manifest.version }, { deviceId: appDeviceId(device), deviceLabel: null }, method, callArgs)
+        return callOnComputer({ extensionId: manifest.id, extensionName: manifest.name, version: manifest.version }, { deviceId: appDeviceId(device), deviceLabel: null }, method, callArgs).then(computerReply)
       }
       if (session && followsSessionMachine(manifest, method, args)) {
-        return callOnComputer({ extensionId: manifest.id, extensionName: manifest.name, version: manifest.version }, session, method, args)
+        return callOnComputer({ extensionId: manifest.id, extensionName: manifest.name, version: manifest.version }, session, method, args).then(computerReply)
       }
     }
     switch (method) {
@@ -732,6 +737,8 @@ export function hostAppFrame(
       }
       case 'filesClose':
         return Promise.resolve(files.close(surface(), args as never))
+      case 'filesRead':
+        return files.read(surface(), { ref: { ...chatRef(args.ref), version: (args.ref as { version?: number })?.version }, offset: Number(args.offset), length: Number(args.length) })
       case 'filesList':
         return files.groupFiles(chatPlace(args.place), typeof args.folder === 'string' ? { folder: args.folder } : {})
       case 'filesSearch':

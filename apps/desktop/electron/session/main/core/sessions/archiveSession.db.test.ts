@@ -203,7 +203,6 @@ describe('archiveSession', () => {
     const config = JSON.stringify({ version: '1', type: 'acp', model: 'original-model', agentDisplayName: 'same-task' });
     fixture.sqlite.prepare('UPDATE sessions SET config=? WHERE id=?').run(config, 'same-task');
     fixture.sqlite.prepare("INSERT INTO messages (id, session_id, content, sender) VALUES ('old-message', 'same-task', 'original history', 'user')").run();
-    fixture.sqlite.prepare("INSERT INTO session_attachments (id, session_id, name, size, stored_path, origin) VALUES ('old-file', 'same-task', 'retained.txt', 22, ?, 'copy')").run(file);
     const receipt = { userId: 'old-identity', removedAt: '2026-10-31T00:00:00Z' };
     identityHost.archive.mockResolvedValueOnce(receipt);
     await archiveSession('p1', 'same-task');
@@ -214,7 +213,6 @@ describe('archiveSession', () => {
     expect(identityHost.restore).toHaveBeenLastCalledWith({ projectId: 'p1', sessionId: 'same-task' }, receipt);
     expect(fixture.sqlite.prepare('SELECT id, project_id, config, archived_at FROM sessions').all()).toEqual([{ id: 'same-task', project_id: 'p1', config, archived_at: null }]);
     expect(fixture.sqlite.prepare('SELECT session_id, content FROM messages').all()).toEqual([{ session_id: 'same-task', content: 'original history' }]);
-    expect(fixture.sqlite.prepare('SELECT stored_path FROM session_attachments').all()).toEqual([{ stored_path: file }]);
     expect(existsSync(file)).toBe(true);
   });
 
@@ -710,9 +708,6 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     const owned = join(ownedDir, 'copy.txt');
     const userFile = join(mocks.userData, 'user-original.txt');
     for (const file of [owned, userFile]) await writeFile(file, 'retained task content');
-    for (const [id, origin, path] of [['copy', 'copy', owned], ['reference', 'reference', userFile]]) {
-      fixture.sqlite.prepare('INSERT INTO session_attachments (id, session_id, name, size, stored_path, origin) VALUES (?, ?, ?, 1, ?, ?)').run(id, 'retained', id, path, origin);
-    }
     for (const id of ['retained', 'untouched']) {
       fixture.sqlite.prepare("INSERT INTO activity_events (event_id, observed_at, kind, session_id, data) VALUES (?, 1, 'session.created', ?, '{}')").run(id, id);
       fixture.sqlite.prepare('INSERT INTO session_run_intervals (session_id, started_at, last_seen_at) VALUES (?, 1, 2)').run(id);
@@ -733,7 +728,6 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     for (const table of ['activity_events', 'session_run_intervals', 'session_model_sources', 'activity_session_projects']) {
       expect(fixture.sqlite.prepare(`SELECT session_id FROM ${table} ORDER BY session_id`).all()).toEqual([{ session_id: 'retained' }, { session_id: 'untouched' }]);
     }
-    expect(fixture.sqlite.prepare('SELECT id FROM session_attachments').all()).toHaveLength(2);
     expect(await viewStateService.get('session:retained')).toEqual({ open: true });
     expect(await sessionPlatformModel('retained')).toEqual(model);
     expect(await sessionOutputs('retained')).toEqual(outputs);

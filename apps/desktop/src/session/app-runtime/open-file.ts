@@ -1180,6 +1180,10 @@ export class OpenFile {
   }
 
   private base(handle: Handle): Record<string, unknown> {
+    const bytes = (): Uint8Array<ArrayBuffer> => {
+      const text = this.type === 'json' ? JSON.stringify(this.doc.getMap('root').toJSON(), null, 2) : this.content().toString();
+      return new TextEncoder().encode(text);
+    };
     const presence = Object.freeze(
       liveObject({
         self: { get: () => ({ ...this.self, state: this.presenceState }) },
@@ -1201,6 +1205,9 @@ export class OpenFile {
     return liveObject({
       entry: { get: () => ({ ...this.entry }) },
       readOnly: { get: () => this.readOnly },
+      size: { get: () => bytes().byteLength },
+      bytes: { value: async () => { this.live(handle); return bytes(); } },
+      blob: { value: async () => { this.live(handle); return new Blob([bytes()], { type: this.entry.contentType }); } },
       // A closed handle reads `gone`; the file's other handles carry on.
       status: { get: () => (handle.closed ? 'gone' : this.status) },
       saved: { get: () => this.saved },
@@ -1616,6 +1623,8 @@ export class StoredTextSnapshot {
         }
       } },
       blob: { value: async () => blob },
+      bytes: { value: async () => new Uint8Array(await blob.arrayBuffer()) },
+      size: { get: () => blob.size },
     }), { type: { value: 'text', enumerable: true } });
     internals.set(file, this);
     return Object.freeze(file);

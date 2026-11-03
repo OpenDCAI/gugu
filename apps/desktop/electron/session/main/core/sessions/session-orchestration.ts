@@ -11,6 +11,8 @@ import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { readCurrentActivitySource } from './session-activity-source';
 import { receiveAssistantWorkReport, workReportSchema, type WorkReport } from '../../../../sessionpage/assistant-work';
 import { isProjectAgentAction, runProjectAgentAction, type ProjectAgentAction } from '../projects/project-agent-actions';
+import { localProjectOfGroup } from '../projects/operations/project-groups';
+import { getProjectById } from '../projects/operations/getProjects';
 import { isLibraryAgentAction, runLibraryAgentAction, type LibraryAgentAction } from '../app/user-library';
 import { randomUUID } from 'node:crypto';
 import { sessionDirectMessageId } from './session-direct-identity';
@@ -228,6 +230,8 @@ export type SessionSnapshot = {
   /** 父级的远端祖先暂时够不着,与 session_set_parent 同一条回执。 */
   not_reached?: string[];
   project_id: string;
+  /** 跨机省略 project 时,说明实际落点及推导或回落原因。 */
+  project_note?: string;
   title: string;
   provider_id: string;
   /** Panel (acp) or terminal (pty). Reported explicitly so a caller never has to infer the shape from
@@ -2119,15 +2123,17 @@ async function runTargetAction(
 /** 本机发起方在跨机器请求里的自述;机器与 Agent ID 由宿主补。 */
 export async function sessionCallerFacts(
   context: SessionCallerContext,
-): Promise<Pick<RemoteSessionCaller, 'sessionId' | 'name' | 'harness' | 'childHarness' | 'transport' | 'model' | 'platformModel'>> {
+): Promise<Pick<RemoteSessionCaller, 'sessionId' | 'name' | 'harness' | 'childHarness' | 'groupChatId' | 'transport' | 'model' | 'platformModel'>> {
   const caller = await callerRow(context);
   const sender = await localEnvelopeSender(caller);
   const platform = await sessionPlatformModel(caller.id);
+  const group = await sessionpageProjectGroupForSession(caller.id, process.env);
   return {
     sessionId: caller.id,
     name: sender.title,
     harness: caller.provider ?? null,
     childHarness: (await callerChildHarnessDefault(caller.id, caller.provider ?? null)) ?? null,
+    ...(group.kind === 'group' ? { groupChatId: group.groupChatId } : {}),
     transport: transportOf(caller),
     model: caller.config?.model ?? null,
     platformModel: platform ? platformOptionId(platform.modelId) : null,
@@ -2210,12 +2216,28 @@ async function spawnForRemoteCaller(
   // 与本机同一条默认(spawnedBy):挂在发起会话下面(它在别的机器上,记在 config 里),点没点名项目都一样。
   const named = namedPlacement(action);
 
-  // 工作目录:点名了项目用那个项目的根工作区;没点名用这台机器的隐式主目录项目 —— 与会话页新建会话同一步
-  // (projectRootPlacement)。
+  // 跨机默认与人在项目里选设备一样,按同一项目群找本机项目,落在根工作区。
+  // 没有关联仍走原任务工作区,但回执要说清原因与关联入口。
+  let matchedProjectId: string | undefined;
+  if (!named && caller.groupChatId) {
+    const matched = await localProjectOfGroup(caller.groupChatId);
+    if (!matched.success) throw new Error(matched.error.message);
+    matchedProjectId = matched.data;
+  }
   const { projectId, workspaceId } = await projectRootPlacement(
-    named ?? {},
-    named ? `project ${named.project_path ?? named.project_id} on this machine` : 'this machine\'s home project',
+    named ?? (matchedProjectId ? { project_id: matchedProjectId } : {}),
+    named ? `project ${named.project_path ?? named.project_id} on this machine` : 'default project on this machine',
   );
+  let projectNote: string | undefined;
+  if (!named) {
+    const project = await getProjectById(projectId);
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+    projectNote = matchedProjectId
+      ? `Project "${project.name}" (root workspace, matched the caller's project group).`
+      : caller.groupChatId
+        ? `Task workspace "${project.name}": this device has no local project associated with the caller's project group. Use project_add_device to associate a folder first.`
+        : `Task workspace "${project.name}" (no caller project group supplied).`;
+  }
   signal?.throwIfAborted();
 
   const transport: SessionRuntime = action.transport ?? caller.transport;
@@ -2281,9 +2303,10 @@ async function spawnForRemoteCaller(
   });
   return {
     ...snapshot(row, {}, await sessionModel(row)),
+    ...(projectNote ? { project_note: projectNote } : {}),
     ...(not_reached.length ? { not_reached } : {}),
     ...(action.assistant_work ? {assistant_work_target:{session_id:row.id,device_id:(await assistantWorkLedgerContext()).deviceId}} : {}),
-    // 发起方与 child 不在同一台机器、也不在同一个项目群里:往来只有点对点这一条。
+    // 保留跨机 child 的点对点回信入口。
     message_route: { tool: 'session_message', to: [encodeTypedId('session', row.id)] },
   };
 }

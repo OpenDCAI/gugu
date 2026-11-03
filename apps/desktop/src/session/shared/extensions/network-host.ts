@@ -19,3 +19,9 @@ export function networkHostMatches(pattern: string, hostname: string): boolean {
 export function networkHostAllowed(patterns: readonly string[], hostname: string): boolean {
   return patterns.some((pattern) => networkHostMatches(pattern, hostname));
 }
+
+/** Explain a refusal using the manifest and the person's current grant. */
+export function networkHostVerdict(declared: readonly string[], granted: readonly string[], host: string): 'allowed' | 'withdrawn' | 'not-declared' {
+  if (networkHostAllowed(granted, host)) return 'allowed';
+  return networkHostAllowed(declared, host) ? 'withdrawn' : 'not-declared';
+}

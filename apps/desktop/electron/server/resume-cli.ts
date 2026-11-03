@@ -1,6 +1,6 @@
 import { ATTACH_EXIT, HOST_RESUME_CALL } from '../session/main/core/pty/attach/attach-protocol'
-import { callAccountProcess, pickAttachAccount } from './account-call'
-import { listAccounts } from './server-layout'
+import { callAccountProcess, accountRequestError } from './account-call'
+import { readServerAccount } from './server-layout'
 import { ownerTimeZoneFromEnvironment } from './owner-timezone'
 
 /** Controller -> local account socket. No remote device action, process restart,
@@ -8,18 +8,25 @@ import { ownerTimeZoneFromEnvironment } from './owner-timezone'
 export async function runResume(
   args: readonly string[],
   io: { stdout: NodeJS.WritableStream; stderr: NodeJS.WritableStream } = process,
-  deps = { accounts: listAccounts, call: callAccountProcess },
+  deps = { account: readServerAccount, call: callAccountProcess },
 ): Promise<number> {
-  const suspendedSince = args.length === 4 && args[2] === '--suspended-since' ? Number(args[3]) : undefined
-  if (![2, 4].includes(args.length) || args[0] !== '--account' || !/^[a-zA-Z0-9_-]{1,128}$/.test(args[1]!)
-    || (args.length === 4 && (args[2] !== '--suspended-since' || !Number.isSafeInteger(suspendedSince)
-      || suspendedSince! <= 0 || suspendedSince! >= Date.now()))) {
-    io.stderr.write('用法: gugu-server resume --account <账号 id>\n')
+  const rest = [...args]
+  let requested: string | null = null
+  if (rest[0] === '--account') {
+    requested = rest[1] ?? ''
+    rest.splice(0, 2)
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(requested)) { io.stderr.write('Invalid account identity\n'); return 2 }
+  }
+  const suspendedSince = rest.length === 2 && rest[0] === '--suspended-since' ? Number(rest[1]) : undefined
+  if (rest.length !== 0 && (rest.length !== 2 || rest[0] !== '--suspended-since'
+    || !Number.isSafeInteger(suspendedSince) || suspendedSince! <= 0 || suspendedSince! >= Date.now())) {
+    io.stderr.write('用法: gugu-server resume [--suspended-since <timestamp>]\n')
     return 2
   }
-  const account = pickAttachAccount(deps.accounts(), args[1]!)
-  if ('error' in account) {
-    io.stderr.write(`${account.error}\n`)
+  const account = deps.account()
+  const accountError = accountRequestError(account, requested)
+  if (accountError || !account) {
+    io.stderr.write(`${accountError}\n`)
     return ATTACH_EXIT.notSignedIn
   }
   let timeZoneContext

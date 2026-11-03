@@ -4,13 +4,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { watchParent } from '../../../../apps/desktop/electron/server/server-parent-watch'
-import { rotateByCopyTruncate, rotateByRename } from '../../../../apps/desktop/electron/server/server-log-rotate'
-import { chooseVersionBinary, runningVersionOf } from '../../../../apps/desktop/electron/server/server-version-match'
+import { rotateByCopyTruncate } from '../../../../apps/desktop/electron/server/server-log-rotate'
+import { runningVersionOf } from '../../../../apps/desktop/electron/server/server-account-runtime'
 import { runChecks } from '../../../../apps/desktop/electron/server/server-selftest'
 import { pruneVersions } from '../../../../apps/desktop/electron/server/server-account-versions'
 import { isOwnProcessAlive } from '../../../../apps/desktop/electron/server/process-alive'
-import { accountProcessEnv } from '../../../../apps/desktop/electron/server/server-supervisor'
 
 vi.mock('electron', () => ({ app: { getPath: () => os.tmpdir() }, safeStorage: {} }))
 
@@ -25,26 +23,6 @@ afterEach(() => {
 })
 
 describe('账号进程盯着守护进程', () => {
-  it('父进程换人(守护进程被 kill -9 / OOM,被 init 收养)就报一次孤儿', () => {
-    let tick: () => void = () => undefined
-    let parent = 100
-    const onOrphaned = vi.fn()
-    watchParent({ expectedParent: 100, currentParent: () => parent, onOrphaned, setInterval: (fn) => ((tick = fn), {}), clearInterval: () => undefined })
-    tick()
-    expect(onOrphaned).not.toHaveBeenCalled()
-    parent = 1
-    tick()
-    tick()
-    expect(onOrphaned).toHaveBeenCalledTimes(1)
-    expect(onOrphaned).toHaveBeenCalledWith({ expected: 100, now: 1 })
-  })
-
-  it('本来就没有守护进程(手动跑、父进程号 ≤ 1):不盯', () => {
-    const setInterval = vi.fn()
-    watchParent({ expectedParent: 1, currentParent: () => 1, onOrphaned: vi.fn(), setInterval })
-    expect(setInterval).not.toHaveBeenCalled()
-  })
-
   it('锁里的进程号活着但被别的程序复用了:不算我们的进程,锁可以接管', () => {
     expect(isOwnProcessAlive(process.pid, 'server.js', () => '/usr/sbin/nginx -g daemon off;')).toBe(false)
     expect(isOwnProcessAlive(process.pid, 'server.js', () => '/srv/versions/0.2.140/node/bin/node /srv/versions/0.2.140/app/dist-electron/server.js run-account x')).toBe(true)
@@ -54,17 +32,6 @@ describe('账号进程盯着守护进程', () => {
 })
 
 describe('日志有上限', () => {
-  it('supervisor.log 超过上限整份挪成 .1(只留一份旧的)', () => {
-    const file = path.join(tmp(), 'supervisor.log')
-    fs.writeFileSync(file, 'x'.repeat(2_000))
-    fs.writeFileSync(`${file}.1`, 'older')
-    expect(rotateByRename(file, 1_000)).toBe(true)
-    expect(fs.existsSync(file)).toBe(false)
-    expect(fs.readFileSync(`${file}.1`, 'utf8')).toHaveLength(2_000)
-    fs.writeFileSync(file, 'small')
-    expect(rotateByRename(file, 1_000)).toBe(false)
-  })
-
   it('service.log 被别的进程以追加方式持有着:copytruncate,之后接着从新的末尾写、没有空洞', () => {
     const file = path.join(tmp(), 'service.log')
     const fd = fs.openSync(file, 'a')
@@ -91,23 +58,7 @@ describe('reclamation preserves explicit live and rollback ownership', () => {
   })
 })
 
-describe('SSH 命令用在跑的那一版', () => {
-  const exists = (files: string[]) => (file: string) => files.includes(file)
-
-  it('current 已经是新版、账号进程还是旧版:换成旧版的可执行文件', () => {
-    expect(chooseVersionBinary({ ownVersion: '0.2.140', runningVersion: '0.2.139', versionsDir: '/h/versions', exists: exists(['/h/versions/0.2.139/bin/gugu-server']), alreadySwitched: false })).toBe('/h/versions/0.2.139/bin/gugu-server')
-  })
-
-  it('版本一致 / 读不到 / 盘上没有那一版 / 已经换过一次:就用自己', () => {
-    const base = { versionsDir: '/h/versions', exists: () => true, alreadySwitched: false }
-    expect(chooseVersionBinary({ ...base, ownVersion: '0.2.140', runningVersion: '0.2.140' })).toBeNull()
-    expect(chooseVersionBinary({ ...base, ownVersion: '0.2.140', runningVersion: null })).toBeNull()
-    expect(chooseVersionBinary({ ...base, ownVersion: undefined, runningVersion: '0.2.139' })).toBeNull()
-    expect(chooseVersionBinary({ ...base, ownVersion: '0.2.140', runningVersion: '0.2.139', exists: () => false })).toBeNull()
-    expect(chooseVersionBinary({ ...base, ownVersion: '0.2.140', runningVersion: '0.2.139', alreadySwitched: true })).toBeNull()
-    expect(chooseVersionBinary({ ...base, ownVersion: '0.2.140', runningVersion: '../../etc' })).toBeNull()
-  })
-
+describe('live process package identity', () => {
   it('在跑的版本从进程环境读,读不到退回命令行里的 versions/<版本>/', () => {
     const read = (files: Record<string, string>) => (file: string) => files[file] ?? null
     expect(runningVersionOf(9, read({ '/proc/9/environ': 'A=1\0GUGU_TASK_HOST_VERSION=0.2.139\0B=2' }))).toBe('0.2.139')
@@ -128,13 +79,5 @@ describe('升级前自检', () => {
       { name: 'abi', ok: false, error: 'NODE_MODULE_VERSION 115 vs 127' },
       { name: 'later', ok: true },
     ])
-  })
-})
-
-describe('账号进程的内存设置', () => {
-  it('Linux 上让 glibc 把大块临时内存用完即还(实测每个账号省约 130MB);用户自己设过不动;别的平台不设', () => {
-    expect(accountProcessEnv({ PATH: '/bin' }, 'linux')).toMatchObject({ PATH: '/bin', MALLOC_MMAP_THRESHOLD_: '16384', GUGU_SERVER_WAIT_PID: '' })
-    expect(accountProcessEnv({ MALLOC_MMAP_THRESHOLD_: '131072' }, 'linux').MALLOC_MMAP_THRESHOLD_).toBe('131072')
-    expect(accountProcessEnv({}, 'darwin').MALLOC_MMAP_THRESHOLD_).toBeUndefined()
   })
 })

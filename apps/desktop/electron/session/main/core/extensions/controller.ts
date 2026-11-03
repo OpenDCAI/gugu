@@ -225,6 +225,7 @@ export const extensionsController = createRPCController({
         // What it may reach, not what it asked for: a host the user took back
         // is enforced away here and mirrored out of the served CSP.
         networkHosts: extensionsService().grantedHosts(installed.manifest.id),
+        declaredHosts: installed.manifest.permissions?.network ?? [],
       });
       return {
         success: true,
@@ -807,6 +808,7 @@ export const extensionsController = createRPCController({
         apiVersion: installed.manifest.apiVersion,
         rootDir: installed.rootDir,
         networkHosts: service.grantedHosts(installed.manifest.id),
+        declaredHosts: installed.manifest.permissions?.network ?? [],
       });
       // The filter binds at once; the CSP does not — it was stamped when the
       // document loaded. Reloading is what stops an open surface from carrying a

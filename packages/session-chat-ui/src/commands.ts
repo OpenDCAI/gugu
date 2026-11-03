@@ -182,6 +182,8 @@ export type ChatCommands = {
   onDiscardTurn?: (arg: { turnId: string }) => void;
   /** False: this stopped turn offers no 「丢弃」. Absent: it does. */
   canDiscardTurn?: (turnId: string) => boolean;
+  /** Live transcript identity, read while rendering cached outcome rows. */
+  isLatestTurn?: (turnId: string) => boolean;
 
   /**
    * 计划审批卡（#7139）上点了一个选项：宿主用会话自己的 `requestId` / `optionId` 答那条待批请求

@@ -86,7 +86,7 @@ function requestSingleInstanceLock(): boolean {
     holder = 0
   }
   // #6264 只认「活着且真是咕咕 server 进程」的持有者:进程号被复用时这把锁不能永远没人敢接。
-  // (守护进程被 kill -9 后留下的孤儿账号进程会自己退出,见 server-parent-watch.ts。)
+  // The installation run owns a separate home lock; this lock protects the account data directory.
   if (isOwnProcessAlive(holder, SERVER_PROCESS_MARK)) return false
   fs.rmSync(lockPath, { force: true })
   return tryAcquire()

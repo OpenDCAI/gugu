@@ -1,5 +1,5 @@
 import type { TabOpenIntent } from '@shared/view-state';
-import { fileRefOf, type AppFileEntry, type AppFileOpened, type AppFileSearch, type AppFileRef, type AppFileUpload, type AppFileVersion, type AppFileVersionContent, type AppPlace } from '@shared/extensions/app-runtime-protocol';
+import { fileRefOf, type AppFileChunk, type AppFileEntry, type AppFileOpened, type AppFileSearch, type AppFileRef, type AppFileUpload, type AppFileVersion, type AppFileVersionContent, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts } from '@shared/extensions/bridge-protocol';
 import type { AppSessionIndexOptions, AppSessionIndex, AppSessionReadOptions, AppSessionRead } from '@shared/extensions/app-sessions';
 import type { ProjectionHost } from './projection-source';
@@ -42,9 +42,9 @@ export interface GuguHost extends ProjectionHost {
   readonly appFiles: {
     open(args: { ref: AppFileRef; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened>;
     reopen(args: { ref: AppFileRef; readOnly?: boolean }): Promise<AppFileOpened>;
-    close(args: { docName: string }): Promise<void>;
-    /** A working copy's file, up to 512 KB at an offset (base64), and its size: how one of any size is read. */
-    read(args: { ref: AppFileRef; offset: number; length: number }): Promise<{ size: number; offset: number; data: string }>;
+    close(args: { docName?: string; ref?: AppFileRef & { version?: number } }): Promise<void>;
+    /** A pinned chat file or working copy, up to 512 KB at an offset, in the shared range packet. */
+    read(args: { ref: AppFileRef & { version?: number }; offset: number; length: number }): Promise<AppFileChunk>;
     /** `folder` (子文件夹): only what is directly in that folder; not given, every file of the place. */
     list(args: { place: AppPlace; folder?: string }): Promise<AppFileEntry[]>;
     /** Across every chat the reader is in: by a piece of the path, newest first; the ones this person opened last. */
