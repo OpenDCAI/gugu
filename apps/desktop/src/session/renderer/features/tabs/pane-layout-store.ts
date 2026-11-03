@@ -484,7 +484,8 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     if (typeof config.from === 'string' && !source) return;
     const from = source && config.from ? source.pane.entries.get(config.from) : undefined;
     const remembered = (config.intent ?? 'navigate') === 'navigate' ? this._placementMemory.read(this._resourceId(kind, state)) : undefined;
-    if (remembered === 'beside') {
+    const conversation = from && this._registry.has(from.kind) && this._registry.get(from.kind).conversation === true;
+    if (remembered === 'beside' || ((config.intent ?? 'navigate') === 'navigate' && conversation)) {
       const key = this._registry.get(kind).resourceKey(state as never);
       for (const group of this.groups) for (const entry of group.pane.entries.values()) {
         if (entry.kind !== kind || this._registry.get(kind).resourceKey(entry.state as never) !== key) continue;
@@ -497,7 +498,6 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       }
     }
     const intent = remembered === 'separate' ? 'newTab' : remembered === 'beside' ? 'beside' : (config.intent ?? 'navigate');
-    const conversation = from && this._registry.has(from.kind) && this._registry.get(from.kind).conversation === true;
     const targetId = typeof config.target === 'object' ? config.target.paneId : this.activePaneId;
     let target = source ?? this.groups.find((group) => group.paneId === targetId) ?? this.groups[0];
     let replace: string | undefined;
@@ -525,7 +525,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     if (replace) {
       target.pane.navigate(replace, kind, state);
     } else {
-      const tabId = target.pane.openWithState(kind, state, { activate: false, after: from?.tabId, openerTabId: source?.pane === target.pane ? from?.tabId : undefined });
+      const tabId = target.pane.openWithState(kind, state, { activate: false, after: from?.tabId, openerTabId: conversation || source?.pane === target.pane ? from?.tabId : undefined });
       if (!tabId) return;
       if (source?.pane === target.pane && from) {
         const next = target.pane.tabOrder.filter((id) => id !== tabId);
@@ -692,11 +692,13 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
         windowOpener: (tabId) => this.windowOpener?.(tabId) ?? null,
         split: (tabId, edge) => { this.splitPane(paneId, edge, tabId); },
         splitBlocked: (tabId, edge) => this.splitBlocked(paneId, tabId, edge),
+        entryForTab: (tabId) => [...this.groups, ...this.windowPanes.values()].map(({ pane }) => pane.entries.get(tabId)).find(Boolean),
         revealTab: (tabId) => {
           const group = this.groups.find((candidate) => candidate.pane.entries.has(tabId));
           if (!group) return false;
           this.setActiveGroup(group.paneId);
           group.pane.setActiveTab(tabId);
+          group.pane.focusActiveContent();
           return true;
         },
         hasSibling: () => this.groups.length > 1,

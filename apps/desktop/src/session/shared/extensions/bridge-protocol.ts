@@ -183,7 +183,8 @@ export interface ExtensionHostContext {
   tabId?: string;
   /** Opaque state of this navigation page; never grants or selects a resource. */
   viewState?: Record<string, unknown>;
-  navigation?: { canBack: boolean; canForward: boolean };
+  /** Back may reveal this tab's host-recorded conversation opener; no target ids are exposed. */
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   /** A host modal's initial data, under the opener's context and existing grants. */
   modal?: { data?: unknown };
   /**

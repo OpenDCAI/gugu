@@ -361,7 +361,8 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
     </>
   )
   const history = pane?.navigationOf(tabId)
-  const navigation = { canBack: (history?.index ?? 0) > 0, canForward: !!history && history.index < history.pages.length - 1 }
+  const opener = pane?.openerOf(tabId)
+  const navigation = { canBack: pane?.canGo(tabId, -1) ?? false, canForward: pane?.canGo(tabId, 1) ?? false, backToConversation: (history?.index ?? 0) === 0 && !!opener && pane!.registry.has(opener.kind) && pane!.registry.get(opener.kind).conversation === true }
   const frames = (history?.pages ?? [{ kind: 'chat-panel', state: item }]).flatMap((page, index) => {
     const current = index === (history?.index ?? 0)
     const value = current ? item : page.state as PanelItem

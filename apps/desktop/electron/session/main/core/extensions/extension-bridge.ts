@@ -89,7 +89,7 @@ interface SurfaceBinding {
   widget?: AppWhere['widget'];
   tabId: string;
   viewState?: Record<string, unknown>;
-  navigation?: { canBack: boolean; canForward: boolean };
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   /**
    * #6387 Which of the extension's declared tabs this surface draws. A banner a tab
    * posts opens this tab on click — `tabId` alone is a runtime handle and says nothing
@@ -322,7 +322,7 @@ export interface ExtensionErrorRecord {
     sessionId: string | null;
     tabId: string;
   viewState?: Record<string, unknown>;
-  navigation?: { canBack: boolean; canForward: boolean };
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   };
 }
 const ERROR_RECORD_MAX = 50;
@@ -572,7 +572,7 @@ export async function bindExtensionSurface(input: {
   extensionId: string;
   tabId: string;
   viewState?: Record<string, unknown>;
-  navigation?: { canBack: boolean; canForward: boolean };
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   tabKind: string;
   /** Set only when the tab was opened for a file of its workspace this extension claimed. */
   filePath?: string;
@@ -813,7 +813,7 @@ export async function retargetExtensionSurface(input: {
   webContentsId: number;
   tabId: string;
   viewState?: Record<string, unknown>;
-  navigation?: { canBack: boolean; canForward: boolean };
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   filePath?: string;
   itemId?: string;
 } & Partial<AppWhere>): Promise<void> {
@@ -1006,6 +1006,13 @@ export function updateExtensionSurfaceLayout(
 ): void {
   const binding = bindings.get(webContentsId);
   if (!binding) return;
+  // A hidden <webview> can keep native keyboard focus after its DOM element blurs.
+  // Return it only to that guest's bound embedder; never raise another window.
+  if (!metrics.visible && binding.embedderId !== null) {
+    const guest = webContents.fromId(webContentsId);
+    const embedder = webContents.fromId(binding.embedderId);
+    if (guest?.isFocused?.() && guest.hostWebContents?.id === binding.embedderId && embedder && !embedder.isDestroyed()) embedder.focus();
+  }
   const unchanged =
     binding.metrics.visible === metrics.visible &&
     binding.metrics.width === metrics.width &&

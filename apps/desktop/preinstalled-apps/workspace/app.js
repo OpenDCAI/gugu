@@ -57,6 +57,7 @@ const STRINGS = {
     openWith: '用别的 App 打开',
     openNewTab: '在新页签打开',
     back: '文件夹',
+    backToConversation: '返回对话',
     historyForward: '前进',
     openBeside: '在旁边打开',
     more: '更多',
@@ -247,6 +248,7 @@ const STRINGS = {
     openWith: 'Open with another App',
     openNewTab: 'Open in new tab',
     back: 'Folder',
+    backToConversation: 'Back to conversation',
     historyForward: 'Forward',
     openBeside: 'Open beside',
     more: 'More',
@@ -610,7 +612,10 @@ function renderChrome() {
   $('filter').placeholder = t.filter
   $('search-toggle').title = t.filter
   $('search-toggle').setAttribute('aria-label', t.filter)
-  $('page-back-label').textContent = t.back
+  const back = state.ctx?.navigation?.backToConversation ? t.backToConversation : t.back
+  $('page-back-label').textContent = back
+  $('page-back').title = back
+  $('page-back').setAttribute('aria-label', back)
   $('page-back').disabled = !state.ctx?.navigation?.canBack
   $('page-forward').disabled = !state.ctx?.navigation?.canForward
   $('page-forward').title = t.historyForward

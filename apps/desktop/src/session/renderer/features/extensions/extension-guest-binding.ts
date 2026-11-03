@@ -8,7 +8,7 @@ export interface ExtensionGuestTarget extends AppWhere {
   itemId?: string;
   filePath?: string;
   viewState?: Record<string, unknown>;
-  navigation?: { canBack: boolean; canForward: boolean };
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
 }
 
 type Reply = { success: boolean; error?: string };
@@ -42,7 +42,7 @@ export class ExtensionGuestBinding {
     const work = guest.tail.then(async () => {
       if (this.guest !== guest) return null;
       const previous = guest.target;
-      if (previous && previous.tabId === target.tabId && previous.workspace === target.workspace && previous.conversation === target.conversation && previous.itemId === target.itemId && previous.filePath === target.filePath && previous.viewState === target.viewState && previous.navigation?.canBack === target.navigation?.canBack && previous.navigation?.canForward === target.navigation?.canForward) {
+      if (previous && previous.tabId === target.tabId && previous.workspace === target.workspace && previous.conversation === target.conversation && previous.itemId === target.itemId && previous.filePath === target.filePath && previous.viewState === target.viewState && previous.navigation?.canBack === target.navigation?.canBack && previous.navigation?.canForward === target.navigation?.canForward && previous.navigation?.backToConversation === target.navigation?.backToConversation) {
         return { success: true, webContentsId: guest.webContentsId };
       }
       const reply = await (previous ? this.dispatch.retarget : this.dispatch.bind)(guest.webContentsId, target);

@@ -251,7 +251,7 @@ export const extensionsController = createRPCController({
    * can never hand one extension another's grants.
    */
   bindSurface: async (args: {
-    navigation?: { canBack: boolean; canForward: boolean };
+    navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
     viewState?: Record<string, unknown>;
     resourceChat?: string;
     opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
@@ -414,7 +414,7 @@ export const extensionsController = createRPCController({
    */
   retargetSurface: async (args: {
     viewState?: Record<string, unknown>;
-    navigation?: { canBack: boolean; canForward: boolean };
+    navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
     resourceChat?: string;
     opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;

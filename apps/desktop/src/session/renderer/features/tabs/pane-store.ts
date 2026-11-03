@@ -92,6 +92,7 @@ export interface PaneSplitter {
   split?(tabId: string, edge: 'right' | 'bottom'): void;
   splitBlocked?(tabId: string, edge: 'right' | 'bottom'): 'full' | 'only-tab' | 'too-small' | null;
   revealTab?(tabId: string): boolean;
+  entryForTab?(tabId: string): TabEntry | undefined;
   hasSibling?(): boolean;
 }
 
@@ -497,8 +498,12 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     if (!entry || !history) return Promise.resolve(false);
     if (!history.pages[history.index + delta]) {
       if (delta === -1 && entry.openerTabId) {
-        if (this.entries.has(entry.openerTabId)) this.setActiveTab(entry.openerTabId);
-        else this._layoutSplitter?.revealTab?.(entry.openerTabId);
+        if (this.entries.has(entry.openerTabId)) {
+          this.setActiveTab(entry.openerTabId);
+          this.focusActiveContent();
+          return Promise.resolve(true);
+        }
+        return Promise.resolve(this._layoutSplitter?.revealTab?.(entry.openerTabId) ?? false);
       }
       return Promise.resolve(false);
     }
@@ -516,10 +521,14 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     });
   }
 
+  openerOf(tabId: string): TabEntry | undefined {
+    const id = this.entries.get(tabId)?.openerTabId;
+    return id ? this.entries.get(id) ?? this._layoutSplitter?.entryForTab?.(id) : undefined;
+  }
+
   canGo(tabId: string, delta: -1 | 1): boolean {
-    const entry = this.entries.get(tabId);
     const history = this.navigationOf(tabId);
-    return Boolean(history?.pages[history.index + delta] || (delta === -1 && entry?.openerTabId));
+    return Boolean(history?.pages[history.index + delta] || (delta === -1 && this.openerOf(tabId)));
   }
 
   private _beforeNavigate(entry: TabEntryImpl, apply: () => void): Promise<boolean> {

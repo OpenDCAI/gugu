@@ -53,7 +53,7 @@ export function ExtensionTabPane({
   sessionId: string | null;
   tabId: string;
   viewState?: Record<string, unknown>;
-  navigation?: { canBack: boolean; canForward: boolean };
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   /**
    * The file this tab was opened for, when it was opened because the extension
    * claimed that file type. Passed to the bind call so the surface can read it
@@ -187,7 +187,7 @@ export function ExtensionTabPane({
     if (result?.success) extensionSurfaceStore.setWebContentsId(sessionId, tabId, result.webContentsId);
     return result;
   }, [guestBinding, sessionId, tabId]);
-  useEffect(() => { void aim().catch((error: unknown) => log.warn('Extension surface binding failed:', error)); }, [aim, filePath, itemId, viewState, navigation?.canBack, navigation?.canForward]);
+  useEffect(() => { void aim().catch((error: unknown) => log.warn('Extension surface binding failed:', error)); }, [aim, filePath, itemId, viewState, navigation?.canBack, navigation?.canForward, navigation?.backToConversation]);
 
   const attachWebview = useCallback(
     (element: BrowserWebviewElement | null) => {

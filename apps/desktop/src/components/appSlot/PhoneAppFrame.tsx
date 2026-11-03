@@ -60,7 +60,7 @@ export function PhoneAppFrame({
   /** The slot it is drawn in: what the page says about itself is kept by it. */
   tabId: string
   viewState?: Record<string, unknown>
-  navigation?: { canBack: boolean; canForward: boolean }
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean }
   onNavigate?: (delta: -1 | 1) => Promise<boolean>
   chatId: string | null
   /** Made for that file: keeps it for life (the slot keys the frame so). */

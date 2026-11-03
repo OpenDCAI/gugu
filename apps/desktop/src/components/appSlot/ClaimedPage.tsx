@@ -17,7 +17,7 @@ const HIDING_ATTRIBUTES = ['style', 'class', 'hidden', 'inert']
  * watches its own box and every ancestor's hiding attributes, and claims while it is visible,
  * releases while it is not — the same for the App's own page and a page opened for a file.
  */
-export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, resourceChat, kind, itemId, takeOpening, viewState, navigation }: { slotId: string; chatId: string; resourceChat?: string; kind: string; itemId?: string; viewState?: Record<string, unknown>; navigation?: { canBack: boolean; canForward: boolean }; takeOpening?: () => PreparedChatFile | undefined }) {
+export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, resourceChat, kind, itemId, takeOpening, viewState, navigation }: { slotId: string; chatId: string; resourceChat?: string; kind: string; itemId?: string; viewState?: Record<string, unknown>; navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean }; takeOpening?: () => PreparedChatFile | undefined }) {
   const { t } = useTranslation('messaging')
   const boxRef = useRef<HTMLDivElement | null>(null)
   // A covered slot keeps its claim for the way back.

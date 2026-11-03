@@ -1,5 +1,6 @@
 import { observer } from 'mobx-react-lite';
-import { useMemo } from 'react';
+import { useContext, useMemo } from 'react';
+import { PaneContext } from '@renderer/features/tabs/pane-context';
 import type {
   ResolvedTab,
   TabBarItemProps,
@@ -82,6 +83,7 @@ function isPerSession(kind: string): boolean {
 
 function createExtensionTabContent(extensionId: string, kind: string) {
   return observer(function ExtensionTabContent({ host, ctx }: TabContentProps) {
+    const pane = useContext(PaneContext)?.pane;
     // 并排时屏上有两枚(spec session-page「并排」):挑自己这种里亮着的那枚。
     const activeTab = host.resolvedTabs.find((tab) => tab.isActive && tab.kind === kind);
     const resource = activeTab?.resource;
@@ -93,7 +95,8 @@ function createExtensionTabContent(extensionId: string, kind: string) {
       return null;
     }
     const history = host.navigationOf(activeTab.tabId);
-    const navigation = { canBack: (history?.index ?? 0) > 0, canForward: !!history && history.index < history.pages.length - 1 };
+    const opener = pane?.openerOf(activeTab.tabId);
+    const navigation = { canBack: host.canGo(activeTab.tabId, -1), canForward: host.canGo(activeTab.tabId, 1), backToConversation: (history?.index ?? 0) === 0 && !!opener && pane!.registry.has(opener.kind) && pane!.registry.get(opener.kind).conversation === true };
     const place = ctx.place;
     const sessionId = place?.kind === 'session' ? place.sessionId : undefined;
     if (!resource.filePath) {

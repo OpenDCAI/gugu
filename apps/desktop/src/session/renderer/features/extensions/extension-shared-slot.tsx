@@ -34,7 +34,7 @@ export function ExtensionSharedSlot({
   /** The tab is one per task (manifest `perSession`): this slot holds that task's own page, not the App's one page. */
   perSession?: boolean;
   viewState?: Record<string, unknown>;
-  navigation?: { canBack: boolean; canForward: boolean };
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
 }) {
   const slotRef = useRef<HTMLDivElement | null>(null);
   // A retained session page that is hidden keeps this slot mounted, but must not hold the App page: the
@@ -53,7 +53,7 @@ export function ExtensionSharedSlot({
     if (!element || !shown) return;
     const token = extensionViewStore.claim(tabKind, { ...(sessionId ? { sessionId } : {}), ...(chatId ? { chatId } : {}), ...(conversation ? { conversation } : {}), ...(itemId ? { itemId } : {}), ...(perSession ? { perSession } : {}), tabId, viewState, navigation, element });
     return () => extensionViewStore.release(tabKind, token);
-  }, [tabKind, sessionId, chatId, conversation, itemId, tabId, shown, perSession, viewState, navigation?.canBack, navigation?.canForward]);
+  }, [tabKind, sessionId, chatId, conversation, itemId, tabId, shown, perSession, viewState, navigation?.canBack, navigation?.canForward, navigation?.backToConversation]);
 
   return (
     <div className="flex h-full w-full flex-col">

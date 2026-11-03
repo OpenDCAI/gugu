@@ -334,3 +334,10 @@ body[data-state='doc'] .doc-message, body.gone .modes { display: none; }
 .preview, body[data-mode='split'] .preview { padding-top: 4px; }
 .preview > .gg-md > :first-child { margin-block-start: 0; }
 body[data-mode='edit'] .editor .cm-content { padding-top: 4px; }
+
+/* Pane widths, including a desktop half-pane: optional metadata yields before navigation, modes or More. */
+@media (max-width: 640px) {
+  .doc-actions { flex: none; }
+  .doc-actions .doc-info, .doc-actions .status, .doc-actions .peers { display: none; }
+  #page-back-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}

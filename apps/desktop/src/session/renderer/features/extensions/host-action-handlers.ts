@@ -150,8 +150,7 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
         const entry = pane?.entries.get(sourceId);
         const kind = entry?.kind === 'chat-panel' ? (entry.state as { kind?: string })?.kind : entry?.kind;
         if (!kind?.startsWith(`${extensionId}.`)) return { navigated: false };
-        const history = pane?.navigationOf(sourceId);
-        if (!history?.pages[history.index + action.delta]) return { navigated: false };
+        if (!pane?.canGo(sourceId, action.delta)) return { navigated: false };
         return { navigated: await pane!.go(sourceId, action.delta) };
       })();
     case 'openAppModal': {

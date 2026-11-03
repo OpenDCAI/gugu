@@ -104,7 +104,7 @@ export interface PhoneAppBinding {
   /** The slot drawing it. */
   tabId: string
   viewState?: Record<string, unknown>
-  navigation?: { canBack: boolean; canForward: boolean }
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean }
   tabName: string
   /** The conversation it is in (`AppWhere`): the chat it is drawn for; in a session's tab, the person's private chat with its agent. */
   chatId: string | null

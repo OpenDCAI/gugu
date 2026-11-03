@@ -16,8 +16,7 @@ export const FileToolbar = observer(function FileToolbar({ host, tabId, path, mo
 }) {
   const { translate } = useSessionMessages();
   const pane = useContext(PaneContext)?.pane;
-  const entry = pane?.entries.get(tabId);
-  const opener = entry?.openerTabId ? pane?.entries.get(entry.openerTabId) : undefined;
+  const opener = pane?.openerOf(tabId);
   const returnsConversation = !!opener && !!pane?.registry.has(opener.kind) && !!pane.registry.get(opener.kind).conversation && (host.navigationOf(tabId)?.index ?? 0) === 0;
   const back = translate(returnsConversation ? 'tabs.backToConversation' : 'tabs.back');
   return <div role="toolbar" data-file-toolbar="" data-tab-content-toolbar="" className={`${panelHeaderBarClass} @container/file-toolbar min-w-0 justify-between gap-2`}>
