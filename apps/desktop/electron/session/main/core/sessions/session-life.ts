@@ -1,7 +1,7 @@
 import { hydrateLife, OUTCOME_UNKNOWN, shouldStartOnHydrate, step } from '@gugu/core/local/session-life/step';
 import { STAGES } from '@gugu/core/local/session-life/types';
 import { isSqliteBusy } from '@gugu/core/shared/sqliteBusy';
-import { toSerializedError } from '@gugu/session-shared/result';
+import { toSerializedError, withAbort } from '@gugu/session-shared/result';
 import type {
   Attempt, AuthEpoch, Effect, Event, Gen, Hold, InterruptEvent, Life,
   PendingView, RunStageEffect, Seq, SerializedError, StageResult,
@@ -391,33 +391,12 @@ export class SessionLife {
             cause: { name: 'AdmissionCancelled', message: 'The session stopped before dispatch' } });
           return;
         }
-        let result: Awaited<ReturnType<LegAdapter['dispatch']>>;
-        try {
-          result = await run.adapter.dispatch(entry.life.have, this.ports.store(sessionId).row(sessionId, effect.seq), {
-            gen: run.gen, signal: run.abort.signal,
-            onUncertain: cause => this.send(sessionId, { k: 'admission-uncertain', gen: run.gen, seq: effect.seq, cause }),
-          });
-        } catch (error) {
-          // @@@dispatch-throw - bytes may have left: the channel is no longer a proven admission path.
-          // Exit records this row as unknown (never replayed) and restarts only for the rows behind it.
-          this.send(sessionId, { k: 'exit', gen: run.gen, exit: { cause: toSerializedError(error), code: null, signal: null } });
-          return;
-        }
-        switch (result.result) {
-          case 'accepted':
-            this.send(sessionId, { k: 'receipt', gen: run.gen, seq: effect.seq, result: 'accepted', nativeReceiptId: result.nativeReceiptId });
-            return;
-          case 'rejected-before-admission':
-            this.send(sessionId, { k: 'receipt', gen: run.gen, seq: effect.seq, result: result.result, cause: result.cause, nativeReceiptId: null });
-            return;
-          case 'channel-lost': {
-            // #552: one redelivery per row. A row that already lost a channel once fails on the second loss.
-            const lostBefore = this.ports.store(sessionId).row(sessionId, effect.seq).failure !== null;
-            this.send(sessionId, { k: 'receipt', gen: run.gen, seq: effect.seq, nativeReceiptId: null,
-              result: lostBefore ? 'rejected-before-admission' : 'channel-lost', cause: result.cause });
-            return;
-          }
-        }
+        // The native attempt still owns its receipt. An explicit lifecycle abort only releases this IO lane,
+        // so teardown can close the provider even when it never acknowledges that attempt.
+        const dispatch = this.dispatch(sessionId, run, effect.seq, entry.life.have);
+        void dispatch.catch(error => { if (run.abort.signal.aborted) this.ports.failed(sessionId, error); });
+        try { await withAbort(dispatch, run.abort.signal); }
+        catch (error) { if (!run.abort.signal.aborted) throw error; }
         return;
       }
       case 'teardown':
@@ -437,6 +416,39 @@ export class SessionLife {
       case 'abort': case 'write-receipt': case 'write-hold': case 'remove': case 'delete-row': return;
       default: return assertNever(effect);
     }
+  }
+
+  private async dispatch(sessionId: string, run: Run, seq: Seq, have: Parameters<LegAdapter['dispatch']>[0]): Promise<void> {
+    let result: Awaited<ReturnType<LegAdapter['dispatch']>>;
+    try {
+      result = await run.adapter.dispatch(have, this.ports.store(sessionId).row(sessionId, seq), {
+        gen: run.gen, signal: run.abort.signal,
+        onUncertain: cause => this.send(sessionId, { k: 'admission-uncertain', gen: run.gen, seq, cause }),
+      });
+    } catch (error) {
+      if (run.abort.signal.aborted) return;
+      // @@@dispatch-throw - bytes may have left: the channel is no longer a proven admission path.
+      // Exit records this row as unknown (never replayed) and restarts only for the rows behind it.
+      this.send(sessionId, { k: 'exit', gen: run.gen, exit: { cause: toSerializedError(error), code: null, signal: null } });
+      return;
+    }
+    if (!this.entries.has(sessionId)) return;
+    switch (result.result) {
+      case 'accepted':
+        this.send(sessionId, { k: 'receipt', gen: run.gen, seq, result: 'accepted', nativeReceiptId: result.nativeReceiptId });
+        return;
+      case 'rejected-before-admission':
+        this.send(sessionId, { k: 'receipt', gen: run.gen, seq, result: result.result, cause: result.cause, nativeReceiptId: null });
+        return;
+      case 'channel-lost': {
+        // #552: one redelivery per row. A row that already lost a channel once fails on the second loss.
+        const lostBefore = this.ports.store(sessionId).row(sessionId, seq).failure !== null;
+        this.send(sessionId, { k: 'receipt', gen: run.gen, seq, nativeReceiptId: null,
+          result: lostBefore ? 'rejected-before-admission' : 'channel-lost', cause: result.cause });
+        return;
+      }
+    }
+    return;
   }
 
   /** A failed read marker leaves an accepted, unsettled row: a later cloud nudge reconciles it without dispatch. */

@@ -289,6 +289,61 @@ describe('connectStdioAcpV2', () => {
     } finally { native.resolve({ messageId: 'native' }); vi.useRealTimers(); }
   });
 
+  it('keeps watching progress when an overlapping unwatched request completes', async () => {
+    const manual = Promise.withResolvers<v2.PromptResponse>();
+    const native = Promise.withResolvers<v2.PromptResponse>();
+    let calls = 0;
+    const pair = agentPair({ prompt: () => ++calls === 1 ? manual.promise : native.promise });
+    await initialize(pair.api);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const first = pair.api.prompt({ sessionId: 's1', prompt: [] });
+      const uncertain = vi.fn();
+      const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' },
+        admissionTimeoutMs: 60_000, onAdmissionUncertain: uncertain,
+      });
+      await vi.advanceTimersByTimeAsync(59_000);
+      manual.resolve({ messageId: 'manual' }); await first;
+      await pair.send({ sessionUpdate: 'state_update', state: 'running' });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(59_000);
+      expect(uncertain).not.toHaveBeenCalled();
+      native.resolve({ messageId: 'native' }); await receipt;
+    } finally { manual.resolve({ messageId: 'manual' }); native.resolve({ messageId: 'native' }); vi.useRealTimers(); }
+  });
+
+  it.each(['completed', 'failed'] as const)('ends the pause at real tool compaction %s and does not reopen it for metadata-only updates', async status => {
+    const native = Promise.withResolvers<v2.PromptResponse>();
+    const pair = agentPair({ prompt: () => native.promise });
+    await initialize(pair.api);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const uncertain = vi.fn();
+      const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' },
+        admissionTimeoutMs: 60_000, onAdmissionUncertain: uncertain,
+      });
+      await pair.send({ sessionUpdate: 'tool_call', toolCallId: 'compact', title: 'Compact conversation', kind: 'think', status: 'in_progress',
+        _meta: { contextCompaction: { trigger: 'automatic', preTokens: 100 } } });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(uncertain).not.toHaveBeenCalled();
+      await pair.send({ sessionUpdate: 'tool_call_update', toolCallId: 'compact', status,
+        _meta: { contextCompaction: { trigger: 'automatic', durationMs: 180_000 } } });
+      await vi.advanceTimersByTimeAsync(0);
+      await pair.send({ sessionUpdate: 'tool_call_update', toolCallId: 'compact',
+        _meta: { contextCompaction: { postTokens: 20 } } });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(uncertain).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(uncertain).toHaveBeenCalledTimes(1);
+      native.resolve({ messageId: 'native' }); await receipt;
+      expect(pair.cancels).toEqual([]);
+    } finally { native.resolve({ messageId: 'native' }); vi.useRealTimers(); }
+  });
+
   it('does not count a different session as life for the outstanding admission', async () => {
     const native = Promise.withResolvers<v2.PromptResponse>();
     const pair = agentPair({ prompt: () => native.promise });

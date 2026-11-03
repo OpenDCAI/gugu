@@ -306,8 +306,8 @@ function stepReady(state: Extract<Life, { kind: 'ready' }>, event: RowlessEvent,
       if (state.have.channel.timing !== 'idle-only') return protocol(state, event)
       return state.admission.kind === 'busy' ? pump(state, q) : unchanged(state)
     case 'exit': {
-      const effects: Effect[] = state.admission.kind === 'awaiting' && q.dispatching.includes(state.admission.seq) ? unknownRows([state.admission.seq]) : []
-      effects.push({ e: 'teardown', gen: state.gen, have: state.have })
+      const effects: Effect[] = state.admission.kind === 'awaiting' ? unknownRows([state.admission.seq]) : []
+      effects.push({ e: 'abort', gen: state.gen }, { e: 'teardown', gen: state.gen, have: state.have })
       if (head(q) === null) return [seal({ kind: 'dormant', hold: null, lastExit: event.exit }), effects]
       const [next, run] = start(ctx, false)
       return [next, [...effects, ...run]]
@@ -315,7 +315,7 @@ function stepReady(state: Extract<Life, { kind: 'ready' }>, event: RowlessEvent,
     case 'interrupt':
       if (event.reason === 'idle-reap' && (state.admission.kind !== 'free' || head(q) !== null)) return unchanged(state)
       return [seal({ kind: 'stopping', gen: state.gen, have: state.have, destination: destination(event, q) }),
-        [{ e: 'teardown', gen: state.gen, have: state.have }]]
+        [{ e: 'abort', gen: state.gen }, { e: 'teardown', gen: state.gen, have: state.have }]]
     case 'fault': return faulted(state, event, q)
     case 'stage-ok': case 'stage-fail': case 'settled': case 'restore': case 'signed-in':
       return protocol(state, event)

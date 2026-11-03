@@ -105,7 +105,7 @@ export function connectStdioAcpV2(
       const receipt = await request.finally(() => {
         watchdog?.close();
         if (watchdog) watching.delete(watchdog);
-        if (watching.size === 0) watchdogs.delete(params.sessionId);
+        if (watchdog && watching.size === 0) watchdogs.delete(params.sessionId);
       });
       return { status: 'accepted', requestId: dispatch?.requestId ?? crypto.randomUUID(), ...receipt };
     },

@@ -26,6 +26,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; uncertainAdmi
   const dispatched: Seq[] = [];
   const failures: unknown[] = [];
   const marked: Seq[] = [];
+  const reported: PendingRow[] = [];
   const trace: string[] = [];
   const blocked = deferred<void>();
   const dispatchStarted = deferred<void>();
@@ -97,7 +98,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; uncertainAdmi
         onExit(_have, cb) { exitCallbacks.push(cb); return () => { trace.push('unlisten'); }; },
       } satisfies LegAdapter;
     },
-    markRead: async row => { if (markFailOnce) { markFailOnce = false; throw new Error('read marker failed'); } marked.push(row.seq); }, reportFailure: async (_rows, cause) => { if (reportThrows) { reportThrows = false; throw new Error('report failed'); } trace.push(`failure:${cause.name}`); },
+    markRead: async row => { if (markFailOnce) { markFailOnce = false; throw new Error('read marker failed'); } marked.push(row.seq); }, reportFailure: async (rows, cause) => { if (reportThrows) { reportThrows = false; throw new Error('report failed'); } reported.push(...rows); trace.push(`failure:${cause.name}`); },
     publish: view => { views.push(view); }, removed: id => { removed.push(id); trace.push(`removed:${id}`); }, failed: (_id, error) => { failures.push(error); }, now: () => 1234,
   };
   const owner = new SessionLife(ports);
@@ -105,10 +106,39 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; uncertainAdmi
   function fork(id: string, parent = 's') { forks.set(id, parent); records.set(id, { owner: null, hold: null, archived: false }); }
   function enqueue(id = 's') { const s = seq(++counter); rows.set(s, { seq: s, sessionId: id, sentAt: 0, kind: 'ordinary', state: 'queued', failure: null, message: { id: `m${s}`, text: `input ${s}` }, sources: [], turn: { kind: 'prompt' } }); return s; }
   const send = (id = 's', messageId = `user-${++counter}`) => owner.enqueue({ sessionId: id, messageId, text: messageId, kind: 'ordinary' });
-  return { owner, records, rows, active, views, removed, dispatched, failures, marked, trace, blocked, dispatchStarted, receipt, exitCallbacks, session, fork, enqueue, send, store };
+  return { owner, records, rows, active, views, removed, dispatched, failures, marked, reported, trace, blocked, dispatchStarted, receipt, exitCallbacks, session, fork, enqueue, send, store };
 }
 
 export const ownerCases: readonly { name: string; run: () => Promise<void> }[] = [
+  { name: 'a real provider exit reports the uncertain inbox batch exactly once and can tear it down', async run() {
+    const r = rig({ delayReceipt: true, uncertainAdmission: true }); r.session(); await r.owner.signIn('A');
+    const original = r.owner.enqueue({ sessionId: 's', text: 'inbox body', kind: 'inbox-batch', sources: [] }).seq;
+    await r.dispatchStarted.promise;
+    assert.equal(r.rows.get(original)?.state, 'unknown'); assert.equal(r.reported.length, 0);
+    r.exitCallbacks[0]!(EXIT); await r.owner.quiescent('s');
+    assert.deepEqual(r.reported.map(row => [row.seq, row.kind]), [[original, 'inbox-batch']]);
+    assert.equal(r.trace.includes('teardown'), true); assert.equal(r.active.size, 0);
+    r.exitCallbacks[0]!(EXIT); await r.owner.quiescent('s');
+    assert.equal(r.reported.length, 1); assert.deepEqual(r.marked, []);
+    r.receipt.resolve({ result: 'accepted', nativeReceiptId: 'after-exit' });
+  } },
+  ...(['user-stop', 'archive', 'sign-out'] as const).map(reason => ({
+    name: `uncertain native admission cannot block ${reason} teardown`,
+    async run() {
+      const r = rig({ delayReceipt: true, uncertainAdmission: true }); r.session(); await r.owner.signIn('A');
+      r.send('s', 'original-input'); await r.dispatchStarted.promise;
+      let stopping: Promise<void> | undefined;
+      try {
+        stopping = reason === 'sign-out' ? r.owner.signOut() : r.owner.interrupt('s', { k: 'interrupt', reason });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        assert.equal(r.trace.includes('teardown'), true, 'teardown must start without a native receipt');
+        await stopping;
+        assert.equal(r.active.size, 0);
+        assert.equal(r.views.at(-1)?.kind, reason === 'archive' ? 'archived' : 'dormant');
+        assert.deepEqual(r.dispatched, [seq(1)]);
+      } finally { r.receipt.resolve({ result: 'accepted', nativeReceiptId: 'late-native' }); await stopping; }
+    },
+  })),
   { name: 'uncertain admission retains host custody and the native attempt, then settles its original late receipt', async run() {
     const r = rig({ delayReceipt: true, uncertainAdmission: true }); r.session(); await r.owner.signIn('A');
     const { seq: original } = r.send('s', 'original-input');
