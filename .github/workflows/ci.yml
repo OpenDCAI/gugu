@@ -41,11 +41,18 @@ jobs:
       - id: classify
         env:
           EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           build=true
           desktop_mac=true
           android=true
-          if [ "$EVENT_NAME" = pull_request ]; then
+          # Only this repository's exact integration branch bypasses the PR path filters.
+          if [ "$EVENT_NAME" = pull_request ] && {
+            [ "$GITHUB_REPOSITORY" != GUYI-AI/gugu ] ||
+              [ "$PR_HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ] ||
+              [ "$PR_HEAD_REF" != integration/beta-20261103 ]
+          }; then
             build=false
             desktop_mac=false
             android=false
