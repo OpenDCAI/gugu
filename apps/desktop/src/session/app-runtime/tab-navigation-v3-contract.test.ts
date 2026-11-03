@@ -15,7 +15,8 @@ afterEach(() => { panes.splice(0).forEach((pane) => pane.dispose()); state.proje
 
 function setup() {
   const def = createTabProvider({ kind: 'workspace.main', resourceKey: (s: { path: string }) => s.path, initialize: () => ({ dispose() {} }), dispose() {}, TabBarItem: () => null, TabBarItemDragPreview: () => null, TabContent: () => null });
-  const pane = new PaneStore(createTabRegistry([def]), { viewId: 'navigation-contract' });
+  const conversation = createTabProvider({ ...def, kind: 'conversation', conversation: true });
+  const pane = new PaneStore(createTabRegistry([def, conversation]), { viewId: 'navigation-contract' });
   panes.push(pane);
   pane.open('workspace.main', { path: '/' }, { intent: 'newTab' });
   const a = pane.resolvedActiveTabId!;
@@ -40,13 +41,14 @@ describe('the App can navigate only its own tab history', () => {
     expect(pane.entries.get(a)?.state).toEqual({ path: '/README' });
   });
   it('Back follows only the host-recorded opener, never an App-supplied tab id', async () => {
-    const { pane, api, a, b } = setup();
-    pane.entries.get(a)!.openerTabId = b;
+    const { pane, api, a } = setup();
+    const conversation = pane.openWithState('conversation', { path: 'chat' })!;
+    pane.entries.get(a)!.openerTabId = conversation;
     pane.setActiveTab(a);
     await expect(api(a).navigation!.go(-1, { tabId: 'untrusted-target' })).resolves.toBe(true);
-    expect(pane.resolvedActiveTabId).toBe(b);
+    expect(pane.resolvedActiveTabId).toBe(conversation);
     expect(pane.entries.get(a)?.state).toEqual({ path: '/' });
-    pane.closeTab(b);
+    pane.closeTab(conversation);
     await expect(api(a).navigation!.go(-1)).resolves.toBe(false);
   });
   it('returns false when its tab has no history', async () => {

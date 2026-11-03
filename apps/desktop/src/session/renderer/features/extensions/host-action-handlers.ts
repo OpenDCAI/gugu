@@ -150,7 +150,10 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
         const entry = pane?.entries.get(sourceId);
         const kind = entry?.kind === 'chat-panel' ? (entry.state as { kind?: string })?.kind : entry?.kind;
         if (!kind?.startsWith(`${extensionId}.`)) return { navigated: false };
-        if (!pane?.canGo(sourceId, action.delta)) return { navigated: false };
+        const history = pane?.navigationOf(sourceId);
+        const opener = pane?.openerOf(sourceId);
+        const conversationBack = action.delta === -1 && !!opener && pane!.registry.has(opener.kind) && pane!.registry.get(opener.kind).conversation === true;
+        if (!history?.pages[history.index + action.delta] && !conversationBack) return { navigated: false };
         return { navigated: await pane!.go(sourceId, action.delta) };
       })();
     case 'openAppModal': {

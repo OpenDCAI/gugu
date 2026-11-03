@@ -96,7 +96,8 @@ function createExtensionTabContent(extensionId: string, kind: string) {
     }
     const history = host.navigationOf(activeTab.tabId);
     const opener = pane?.openerOf(activeTab.tabId);
-    const navigation = { canBack: host.canGo(activeTab.tabId, -1), canForward: host.canGo(activeTab.tabId, 1), backToConversation: (history?.index ?? 0) === 0 && !!opener && pane!.registry.has(opener.kind) && pane!.registry.get(opener.kind).conversation === true };
+    const backToConversation = (history?.index ?? 0) === 0 && !!opener && pane!.registry.has(opener.kind) && pane!.registry.get(opener.kind).conversation === true;
+    const navigation = { canBack: (history?.index ?? 0) > 0 || backToConversation, canForward: !!history && history.index < history.pages.length - 1, backToConversation };
     const place = ctx.place;
     const sessionId = place?.kind === 'session' ? place.sessionId : undefined;
     if (!resource.filePath) {
