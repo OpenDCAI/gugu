@@ -16,7 +16,7 @@ function fixture(): string {
   cleanup.push(() => rmSync(root, { recursive: true, force: true }))
   const files = {
     'package.json': JSON.stringify({ name: 'fixture' }),
-    'entry.ts': 'import { sep } from "node:path"; import { legacy } from "legacy-dep"; import { value } from "runtime-dep/sub"; import { scoped } from "@fixture/runtime"; import { linked } from "linked-dep"; import { other } from "runtime-dependency"; import { own } from "./own"; export const answer = [value, scoped, linked, other, own, legacy]; export const separator = sep',
+    'entry.ts': 'import { sep } from "node:path"; import { legacy } from "legacy-dep"; import { value } from "runtime-dep/sub"; import { scoped } from "@fixture/runtime"; import { linked, nested, nestedScoped } from "linked-dep"; import { other } from "runtime-dependency"; import { own } from "./own"; export const answer = [value, scoped, linked, other, own, legacy, nested, nestedScoped]; export const separator = sep',
     'node_modules/legacy-dep/package.json': JSON.stringify({ name: 'legacy-dep', main: 'index.js' }),
     'node_modules/legacy-dep/index.js': 'exports.legacy = require("runtime-dep/sub").value',
     'own.ts': 'export const own = 91003',
@@ -25,7 +25,11 @@ function fixture(): string {
     'node_modules/@fixture/runtime/package.json': JSON.stringify({ name: '@fixture/runtime', type: 'module', main: 'index.js' }),
     'node_modules/@fixture/runtime/index.js': 'export const scoped = 71002',
     'node_modules/linked-dep/package.json': JSON.stringify({ name: 'linked-dep', main: 'index.js' }),
-    'node_modules/linked-dep/index.js': 'exports.linked = 81002',
+    'node_modules/linked-dep/index.js': 'exports.linked = 81002; exports.nested = require("runtime-dep/sub").value; exports.nestedScoped = require("@fixture/runtime").scoped',
+    'node_modules/linked-dep/node_modules/runtime-dep/package.json': JSON.stringify({ name: 'runtime-dep', main: 'sub.js' }),
+    'node_modules/linked-dep/node_modules/runtime-dep/sub.js': 'exports.value = 72001',
+    'node_modules/linked-dep/node_modules/@fixture/runtime/package.json': JSON.stringify({ name: '@fixture/runtime', type: 'module', main: 'index.js' }),
+    'node_modules/linked-dep/node_modules/@fixture/runtime/index.js': 'export const scoped = 72002',
     'node_modules/runtime-dependency/package.json': JSON.stringify({ name: 'runtime-dependency', main: 'index.js' }),
     'node_modules/runtime-dependency/index.js': 'exports.other = 81003',
   }
@@ -36,7 +40,7 @@ function fixture(): string {
   return root
 }
 
-function configuration(root: string, watch: boolean): InlineConfig {
+function configuration(root: string, watch: boolean, loaded: string[] = []): InlineConfig {
   return {
     root,
     configFile: false,
@@ -45,7 +49,13 @@ function configuration(root: string, watch: boolean): InlineConfig {
     plugins: [devNodeExternals({
       dependencies: { 'runtime-dep': '^1.0.0', 'linked-dep': 'workspace:*' },
       devDependencies: { '@fixture/runtime': '^1.0.0' },
-    })],
+    }), {
+      name: 'observe-externalized-package-loads',
+      load(id) {
+        // CommonJS creates tiny virtual external bridges; the dependency source must never load.
+        if (!id.startsWith('\0') && /\/node_modules\/(?:runtime-dep|@fixture\/runtime)\//.test(id)) loaded.push(id)
+      },
+    }],
     build: {
       watch: watch ? {} : null,
       minify: false,
@@ -67,7 +77,8 @@ function runArtifact(root: string): unknown {
 describe('Electron development dependency externalization', () => {
   it('leaves installed packages to Node, keeps local source bundled, and rebuilds source changes', async () => {
     const root = fixture()
-    const watcher = await build(configuration(root, true))
+    const loaded: string[] = []
+    const watcher = await build(configuration(root, true, loaded))
     if (!('on' in watcher)) throw new Error('Expected a Rollup watcher')
     cleanup.push(() => watcher.close())
     const completed = () => new Promise<void>((resolve, reject) => {
@@ -77,22 +88,26 @@ describe('Electron development dependency externalization', () => {
       })
     })
     await completed()
+    expect(loaded).toEqual([])
     const output = () => readFileSync(join(root, 'out/bundle.cjs'), 'utf8')
-    expect(output()).toMatch(/require\(['"]runtime-dep\/sub['"]\)/)
-    expect(output()).toMatch(/require\(['"]@fixture\/runtime['"]\)/)
+    expect(output()).toContain('node_modules/runtime-dep/sub.js')
+    expect(output()).toContain('node_modules/@fixture/runtime/index.js')
     expect(output()).not.toContain('71001')
     expect(output()).not.toContain('71002')
+    expect(output()).not.toContain('72001')
+    expect(output()).not.toContain('72002')
     expect(output()).toContain('81002')
     expect(output()).toContain('81003')
     expect(output()).toContain('91003')
-    expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91003, 71001])
+    expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91003, 71001, 72001, 72002])
     const rebuilt = completed()
     writeFileSync(join(root, 'own.ts'), 'export const own = 91004')
     await rebuilt
     expect(output()).toContain('91004')
     expect(output()).not.toContain('91003')
-    expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91004, 71001])
-  }, 20_000)
+    expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91004, 71001, 72001, 72002])
+    expect(loaded).toEqual([])
+  }, 60_000)
 
   it('keeps installed dependencies bundled in ordinary production builds', async () => {
     const root = fixture()
@@ -103,6 +118,6 @@ describe('Electron development dependency externalization', () => {
     expect(output).not.toMatch(/require\(['"](?:runtime-dep\/sub|@fixture\/runtime)['"]\)/)
     // The production artifact must run on its own, including CJS/ESM interop, without its source packages.
     rmSync(join(root, 'node_modules'), { recursive: true })
-    expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91003, 71001])
-  }, 20_000)
+    expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91003, 71001, 72001, 72002])
+  }, 60_000)
 })

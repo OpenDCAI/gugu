@@ -1,3 +1,4 @@
+import { isAbsolute } from 'node:path'
 import type { Plugin } from 'vite'
 
 export interface DependencyManifest {
@@ -24,10 +25,17 @@ export function devNodeExternals(manifest: DependencyManifest): Plugin {
       const original = options.external
       return {
         ...options,
-        // Rollup checks this before resolvers, including the CommonJS plugin's package resolution.
+        // Externalize the resolved instance, not its bare name: bundled workspace code may
+        // resolve a different package version from the application's root node_modules.
         external(source: string, importer: string | undefined, resolved: boolean) {
-          const name = source.split('/').slice(0, source.startsWith('@') ? 2 : 1).join('/')
-          if (installed.has(name)) return true
+          if (resolved && isAbsolute(source) && !source.includes('\0')) {
+            const normalized = source.replaceAll('\\', '/')
+            const packagePath = normalized.split('/node_modules/').at(-1)!
+            if (packagePath !== normalized) {
+              const name = packagePath.split('/').slice(0, packagePath.startsWith('@') ? 2 : 1).join('/')
+              if (installed.has(name)) return true
+            }
+          }
           if (typeof original === 'function') return original(source, importer, resolved)
           const entries = Array.isArray(original) ? original : original ? [original] : []
           return entries.some(entry => typeof entry === 'string' ? entry === source : entry.test(source))
