@@ -1,6 +1,9 @@
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FileHandle } from '@gugu/core/shared/fileResolver';
+import { createAppFiles } from '@shared/extensions/app-files-core';
+import { FileSyncRelay } from '@shared/extensions/file-sync-core';
 
 // Chats are named by their id (编号 18: placeOf refuses anything else).
 const BOARD_CHAT = '0c4a7e10-0000-4000-8000-00000000b0a2';
@@ -120,6 +123,61 @@ beforeEach(() => {
 });
 
 describe('an App program as a caller of its App (F16)', () => {
+  it.each([null, 'files:read', 'files:write'] as const)('ending one call preserves another agent\'s pending stored read (grant %s)', async needs => {
+    const relay = new FileSyncRelay({ serviceUrl: () => '', token: async () => null, connect: vi.fn(), hasCapability: () => true, warn: vi.fn() });
+    fileSync.attachPort.mockImplementationOnce((id, extensionId, port) => relay.attachPage(id, extensionId, { ...port, close: () => {} }));
+    fileSync.revoke.mockImplementationOnce((id, reason, predicate) => relay.revoke(id, reason, predicate));
+    fileSync.revoke.mockImplementationOnce((id, reason, predicate) => relay.revoke(id, reason, predicate));
+    const program = attachProgramSurface('board', fakeChild() as unknown as ChildProcess);
+    const x = '44444444-4444-4444-8444-444444444444', y = '55555555-5555-4555-8555-555555555555';
+    const releaseA = program.hand('range-a', 'agent-a', [{ itemId: x, chatId: BOARD_CHAT, agentUserId: 'agent-a' }]);
+    const releaseB = program.hand('range-b', 'agent-b', [{ itemId: y, chatId: BOARD_CHAT, agentUserId: 'agent-b' }]);
+    const started = Promise.withResolvers<void>(), finish = Promise.withResolvers<Uint8Array<ArrayBuffer>>();
+    const disposed: string[] = [];
+    const files = createAppFiles({
+      account: async () => ({ token: 'synthetic', userId: 'person' }), hasCapability: (_id, cap) => cap === needs,
+      identities: async () => [], faces: async () => ({}), filesUrl: () => '', warn: vi.fn(),
+      sync: { ensureFor: () => {}, pageFor: () => relay.page(program.pageId)!, grant: () => {}, ungrant: () => {},
+        revoke: (id, reason, predicate) => { void relay.revoke(id, reason, predicate); }, onPageRelease: listener => relay.onPageRelease(listener) },
+      resolveFile: async (ref, actor, options) => {
+        if (!('id' in ref)) throw new Error('The fixture expects a file id');
+        return {
+          status: 'ready', purpose: 'file', reader: { accountId: 'person', actorId: actor ?? 'person' },
+          revision: { source: 'local', item_id: ref.id, version: options.version, chat_id: BOARD_CHAT, size_bytes: 2, file_name: 'data.bin', content_type: 'application/octet-stream', sha256: null },
+          read: async () => { if (ref.id === y) { started.resolve(); return finish.promise; } return new Uint8Array([1, 2]); },
+          stream: async function* () { yield new Uint8Array([1, 2]); },
+          dispose: async () => { disposed.push(ref.id); },
+        } satisfies FileHandle;
+      },
+    });
+    const a = { pageId: program.pageId, extensionId: 'board', itemId: needs === null ? x : null, asAgent: 'agent-a' };
+    const b = { pageId: program.pageId, extensionId: 'board', itemId: y, asAgent: 'agent-b' };
+    await files.read(a, { ref: { id: x, version: 1 }, offset: 0, length: 2 });
+    const outcome = files.read(b, { ref: { id: y, version: 1 }, offset: 0, length: 2 }).then(value => ({ value }), error => ({ error }));
+    await started.promise;
+    await releaseA();
+    finish.resolve(new Uint8Array([3, 4]));
+    try {
+      expect(await outcome).toMatchObject({ value: { data: new Uint8Array([3, 4]) } });
+      expect(files.readHandleCount()).toBe(1);
+      expect(disposed).toEqual([x]);
+      await releaseB();
+      expect(files.readHandleCount()).toBe(0);
+      const readBoth = () => Promise.all([
+        files.read(a, { ref: { id: x, version: 1 }, offset: 0, length: 2 }),
+        files.read(b, { ref: { id: y, version: 1 }, offset: 0, length: 2 }),
+      ]);
+      await readBoth();
+      expect(files.readHandleCount()).toBe(2);
+      await relay.revoke(program.pageId, 'removed-from-group');
+      expect(files.readHandleCount()).toBe(0);
+      await readBoth();
+      expect(files.readHandleCount()).toBe(2);
+      relay.pageGone(program.pageId);
+      expect(files.readHandleCount()).toBe(0);
+    } finally { relay.pageGone(program.pageId); await program.close(); }
+  });
+
   it('a person\'s stamped page call keeps person membership for files, chats and messages', async () => {
     granted.add('files:read');
     granted.add('chat:read');

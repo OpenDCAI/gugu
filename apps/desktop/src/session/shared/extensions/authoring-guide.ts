@@ -548,14 +548,14 @@ const save = () => gugu.writeData('save.json', JSON.stringify(state))
  */
 export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files
 
-Claim a data file's name or suffix; open it live, never bundle it (\`app_install\` data \`{ item_id }\`).
-Top-level \`await\` needs \`<script type="module">\`.
+Claim a file's name/suffix and open it live; don't bundle data (\`app_install\` data \`{item_id}\`).
+Top-level await needs \`<script type="module">\`.
 
 ## App data
 
-Your tab's exact \`chatFile\` is App state: \`entry.appState\` is true; hidden in the folder, accessible to APIs,
-agents and links. Suffix-claimed documents show. \`gugu.files.viewPreferences({ chat }, { showAppData: true })\`
-sets the person's source-chat preference; omit options to read it.
+A tab's exact \`chatFile\` is hidden App state (\`entry.appState\`); APIs/agents/links still reach it.
+Suffix claims are visible documents. \`gugu.files.viewPreferences({chat}, {showAppData:true})\` sets the person's
+source-chat preference; omit options to read it.
 
 ## Which files you may open
 
@@ -601,42 +601,44 @@ Each call names a file: an entry, \`ctx.file\`, or \`{ chat | workspace, name }\
   23: \`savedName\`: save name. Authors: \`{id,name,kind:human|agent|system}\` or null.
 - API 19: \`keep: {expiresAt,mine}|null\`; \`gugu.files.keep(entry, 'temporary'|'permanent')\`; 20: [], as download.
 
+## Every opened handle
+
+\`await gugu.files.open(entry)\` returns readable content with \`entry\`, \`type\` (text/json/binary),
+\`readOnly\`, \`size: number|null\`, \`f.bytes(): Promise<Uint8Array>\`, \`f.blob(): Promise<Blob>\`, \`f.close()\`.
+Document bytes are current UTF-8; JSON uses \`JSON.stringify(root, null, 2)\`. Only text/JSON have \`text\`;
+branch on \`type\` or use \`f.bytes()\`, never poll for text.
+
+Stored binary or text >1 MiB shares working-copy \`f.read(offset,length)\`: host packets ≤512 KiB;
+\`f.bytes()\`/\`f.blob()\` read all. Chat ranges pin \`entry.version\`; unavailable old bytes throw \`stale-version\`
+(reopen for current), never mix revisions. \`await f.close()\`, page removal or five idle minutes release the
+snapshot. Remote working-copy size stays null until a range answers. Small stored text and \`readVersion\`
+read whole; beside-document/download/forward stay unchanged. Cross-machine workspace replies retain base64.
+
 ## A text file (markdown)
 
 Its handle — \`f.text\`, \`f.edit(old, new)\`, anchors — and an editor bound to it: \`apps-editors\`.
 
 ## A JSON file
 
-The file keeps every write: frame-by-frame motion belongs in \`f.presence\` (\`apps-together\`),
-results in the file. Agent instructions belong in tools (\`apps-programs\`), never in data.
-Its id is \`f.entry.id\`. Shape changes must read old data, migrate it and raise \`version\`.
+Use \`f.presence\` (\`apps-together\`) for motion, the file for results, tools (\`apps-programs\`) for agent
+instructions. Migrate old data when its shape changes; raise your format's version. File id: \`f.entry.id\`.
 
-\`f.data\` is a live object: read and write it as any object, spread included. An object assigned
-over one merges key by key — the keys you list, all the way down; the keys you saw and left out go —
-and \`= {}\` clears the keys you see: what others add meanwhile stays. Two writing the same plain
-value: the later wins. What many people add to is a map keyed by id, sorted when shown: a vote
-\`f.data.votes[me] = i\`; a form \`f.data.answers[me] = { … }\`; a board
-\`f.data.cards[crypto.randomUUID()] = { title, column }\` (a move writes \`column\`).
-\`f.toJSON()\` is a plain copy; ❌ cloning \`f.data\` (\`structuredClone\` throws). Mid-drag
-others, an agent or git may change the file: drop by id (or content), never by the index it began at.
-Group a frame's writes with \`f.transact(() => { … })\`.
+\`f.data\` is live: read/write/spread it. Assigning an object merges keys: listed keys recurse; keys seen but
+omitted are removed; unseen concurrent additions survive, including with \`= {}\`. Concurrent plain values:
+last write wins. Key collections by id (\`f.data.cards[crypto.randomUUID()] = {title,column}\`); sort only for display.
+\`f.toJSON()\` makes a plain copy; \`structuredClone\` on it throws. Change by id/content, never an old index.
+\`f.transact(() => …)\` groups a frame's writes.
 
-Text people type in together (a title, a note, a slide's body) is created as \`gugu.text('')\` —
-\`f.data.slides[id] = { title: gugu.text('') }\`; in data an agent writes \`{"$text": ""}\`. It reads as a
-string, and a string assigned to it merges letter by letter. To type in it: \`f.textAt(['slides', id,
-'title'])\` is a text handle, as a text file is — \`gugu.bind.text(input, f.textAt([…]))\`. A field made
-as a plain string is one value: the later write wins, and \`textAt\` refuses it.
-Key per-person data by \`f.presence.self.userId\` (\`user:<uuid>\`, server-stamped; \`self.name\`: their
-name) — ❌ never ask the person who they are. ❌ No locks or "being edited by" fields of your own (they lock
-people out and still lose letters): show who edits what with presence.
+Collaborative text: \`f.data.title = gugu.text('')\` (agent JSON: \`{"$text":""}\`). It reads as a string;
+string assignment merges letters. \`f.textAt(['title'])\` returns a text handle for
+\`gugu.bind.text(input, …)\`; plain strings remain single values and refuse textAt.
+Per-person data keys: \`f.presence.self.userId\` (server-stamped \`user:<uuid>\`, \`self.name\`). Do not ask who they
+are or invent locks/"being edited" fields: use presence.
 
-Others' text goes in with \`textContent\` or \`render\` with html\`…\` (it escapes every \${…}), never joined into
-\`innerHTML\` — markup in a title could draw a fake button. On a change, redraw with \`render\`: it patches by
-\`data-key\`; an input showing the file's value goes in it, and the one someone is in stays (focus, half-typed text,
-IME). Drafts not yet submitted and \`gugu.bind.text\` boxes go outside it (\`#controls\`, drawn once): \`render\`
-resets an unfocused input to its markup's value. ❌ \`innerHTML\` or \`replaceChildren\` on a change: the input goes,
-its half value lands in the file. To point at another file, store its entry's \`id\` and open it with
-\`gugu.files.openWith(entry)\`; a name alone is text nobody can open.
+Render others' text with \`textContent\` or \`render\` with html\`…\` (interpolations escaped), never raw innerHTML.
+On changes, \`render\` patches by \`data-key\` and preserves focused inputs/IME. Keep unsubmitted drafts and
+\`gugu.bind.text\` controls outside the rerendered area. Replacing innerHTML/children loses drafts/carets.
+Link another file with its entry id and \`gugu.files.openWith(entry)\`; a name alone is not a link.
 
 ## When things go wrong
 
