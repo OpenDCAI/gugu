@@ -37,6 +37,7 @@ import type {
   DiffViewSnapshot,
   SessionViewSnapshot,
   TerminalDrawerActiveItem,
+  TabOpenIntent,
 } from '@shared/view-state';
 import { sessionTabView } from '../session-tab-registry';
 import { PrStore } from './pr-store';
@@ -285,10 +286,12 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     url: string,
     {
       reload,
+      intent = 'navigate',
       beside = false,
       activate = true,
     }: {
       reload: boolean;
+      intent?: TabOpenIntent;
       /** 开在对话右边并排(spec session-page「并排」)。 */
       beside?: boolean;
       /** 和 beside 一起:agent 打开的传 false —— 用户正看着别的就不切走,一对只在页签条上连好。 */
@@ -296,7 +299,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     }
   ): void {
     const from = beside ? sessionConversationTabId(this.paneLayout, this.sessionId) : this.activePane.resolvedActiveTabId ?? null;
-    this.paneLayout.open('browser', { initialUrl: url }, { from, intent: 'navigate', activate });
+    this.paneLayout.open('browser', { initialUrl: url }, { from, intent, activate });
     if (reload) {
       const resource = this.activePane.activeResourceOfKind<BrowserTabResource>('browser');
       if (resource) browserControlsRegistry.get(resource.browserId)?.adapter?.reload();
