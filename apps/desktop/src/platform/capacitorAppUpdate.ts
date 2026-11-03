@@ -241,7 +241,7 @@ export async function checkForUpdates(): Promise<VersionedUpdateState<AppUpdateS
   } catch (error) {
     const message = errorMessage(error)
     log.warn({ error: message }, '取更新清单失败')
-    return emit({ success: false, status: 'error', updateInfo: null, message })
+    throw error
   }
   if (shouldRejectUpdateTarget(target, id.channel) || !semver.gt(target.version, id.installed)) {
     offered = null

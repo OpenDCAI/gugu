@@ -105,6 +105,30 @@ afterEach(() => {
 })
 
 describe('#1342 system installer state', () => {
+  it('rejects a failed manifest check without replacing a real in-flight download', async () => {
+    let release!: () => void
+    const options: FakeOptions = {
+      version: '0.2.47-beta.10.1',
+      manifest: manifest('0.2.47-beta.11.1'),
+      downloadHold: new Promise<void>((resolve) => { release = resolve }),
+    }
+    const { progress } = fakeNative(options)
+    const update = await load()
+    await update.updateState()
+    await vi.waitFor(() => expect(statusEvents.at(-1)?.status).toBe('downloading'))
+    for (const listener of progress) listener({ percent: 37 })
+    const downloading = await update.updateState()
+    options.manifest = new Error('manifest unavailable')
+    try {
+      await expect(update.checkForUpdates()).rejects.toThrow('manifest unavailable')
+      expect(await update.updateState()).toEqual(downloading)
+      expect(statusEvents.at(-1)).toEqual(downloading)
+    } finally {
+      release()
+      await vi.waitFor(() => expect(statusEvents.at(-1)?.status).toBe('downloaded'))
+    }
+  })
+
   it('publishes installation handoff and restores the staged package after cancellation with a newer revision', async () => {
     let cancel!: (error: Error) => void
     const installHold = new Promise<void>((_resolve, reject) => { cancel = reject })
