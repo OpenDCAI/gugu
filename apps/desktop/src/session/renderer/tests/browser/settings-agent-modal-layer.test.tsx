@@ -15,7 +15,7 @@ const fixture = vi.hoisted(() => ({
   mobile: false,
   assistant: { id: 'assistant-layer', display_name: 'Layer assistant', avatar: null, type: 'agent' as const, owner_user_id: 'owner-layer', agent_type: 'claude-code' as const },
 }));
-vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => fixture.mobile }));
+vi.mock('@/hooks/useMobileShell', async (original) => ({ ...await original<object>(), useMobileShell: () => fixture.mobile }));
 // Only external identity/presence/device reads are fixtures. Both dialogs, their
 // portals, styles and the look/model panes are the actual product components.
 vi.mock('@/lib/myAssistant', async (original) => ({
