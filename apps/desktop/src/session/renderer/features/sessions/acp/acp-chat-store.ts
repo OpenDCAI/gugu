@@ -841,8 +841,9 @@ export class AcpChatStore {
       runInAction(() => {
         this.transcriptPendingId = pending?.id ?? sender.find(row => row.queued === false)?.id ?? null;
         const next = pending ? { ...pending, starting,
-          ...(view?.kind === 'failed' && view.failure && view.pending.items.some(row => row.messageId === pending.id)
-            ? { delivery: { state: 'failed' as const, error: view.failure.message } } : {}) } : null;
+          // Sender custody keeps its delivery status; host-owned startup failures recover through the task action.
+          ...(view?.kind === 'failed' && view.failure && !sender.some(row => row.id === pending.id) && view.pending.items.some(row => row.messageId === pending.id)
+            ? { delivery: { state: 'failed' as const, retryable: false, error: view.failure.message } } : {}) } : null;
         if (!isDeepEqual(prior, next)) {
           session.setPendingPrompt(next);
           this._syncMessageCount();

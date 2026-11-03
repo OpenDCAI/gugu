@@ -126,7 +126,7 @@ public class GuguAgentHostHandoffTest {
     }
 
     @Test public void anExplicitStopWithProvenExitsAcceptsTheRealReadInterruptedBoundary() throws Exception {
-        Throwable pipeClose = readFailure(true, new IOException("read interrupted"));
+        Throwable pipeClose = readFailure(true, new IOException("read interrupted by close() on another thread"));
         CompletableFuture<Void> proof = PhoneAgentHostHandoff.confirmExit(CompletableFuture.completedFuture(null), true, pipeClose);
         assertNull(PhoneAgentHostHandoff.finishFailure(true, proof, new CompletionException(pipeClose), null));
         AtomicInteger starts = new AtomicInteger();
@@ -135,7 +135,7 @@ public class GuguAgentHostHandoffTest {
     }
 
     @Test public void expectedStopPipeClosuresRequireBothAnExplicitStopAndAProvenExit() throws Exception {
-        for (String message : new String[] { "read interrupted", "Stream closed", "Pipe closed" }) {
+        for (String message : new String[] { "read interrupted", "Stream closed", "Pipe closed", "read interrupted by close() on another thread", "vendor-specific closed reader", null }) {
             Throwable pipeClose = readFailure(true, new IOException(message));
             for (boolean predecessorExited : new boolean[] { true, false }) {
                 for (boolean childExited : new boolean[] { true, false }) {
@@ -169,7 +169,16 @@ public class GuguAgentHostHandoffTest {
             assertSame(cleanup, PhoneAgentHostHandoff.finishFailure(true, proven, pipeClose, cleanup));
         }
         IOException unknownReadError = new IOException("actual read failure");
-        assertSame(unknownReadError, readFailure(true, unknownReadError));
+        Throwable stoppedRead = readFailure(true, unknownReadError);
+        assertSame(unknownReadError, stoppedRead.getCause());
+        assertNull(PhoneAgentHostHandoff.finishFailure(true, proven, stoppedRead, null));
+    }
+
+    @Test public void theRealAndroidReadInterruptionOutsideStopRemainsAFailure() throws Exception {
+        IOException failure = new IOException("read interrupted by close() on another thread");
+        Throwable activeRead = readFailure(false, failure);
+        assertSame(failure, activeRead);
+        assertSame(failure, PhoneAgentHostHandoff.finishFailure(false, CompletableFuture.completedFuture(null), activeRead, null));
     }
 
     @Test public void aCleanExplicitStopCanSetStoppedButUnexpectedEofOrMissingExitProofCannot() {
