@@ -10,6 +10,3 @@ import type { DiffTabResource } from './stores/diff-tab-resource';
 export function activeDiffResource(pane: PaneStore): DiffTabResource | undefined {
   return pane.activeResourceOfKind<DiffTabResource>('diff');
 }
-
-/** @deprecated Use activeDiffResource */
-export const activeDiffEntry = activeDiffResource;

@@ -1,7 +1,7 @@
 import type { GitChange } from '@gugu/session-core/git';
 import { observer } from 'mobx-react-lite';
 import { usePrefetchDiffModels } from '@renderer/features/sessions/diff-view/changes-panel/hooks/use-prefetch-diff-models';
-import { activeDiffEntry } from '@renderer/features/sessions/diff-view/pane-selectors';
+import { activeDiffResource } from '@renderer/features/sessions/diff-view/pane-selectors';
 import {
   useSessionViewContext,
   useWorkspace,
@@ -28,7 +28,7 @@ export const PrFilesList = observer(function PrFilesList({ pr }: { pr: PullReque
 
   const prefetchPrDiff = usePrefetchDiffModels(projectId, workspaceId, 'pr', baseRef, modifiedRef);
 
-  const _activeDiff = activeDiffEntry(sessionView.activePane);
+  const _activeDiff = activeDiffResource(sessionView.activePane);
   const activePath =
     _activeDiff?.diffGroup === 'pr' &&
     _activeDiff.prNumber === prNumber &&

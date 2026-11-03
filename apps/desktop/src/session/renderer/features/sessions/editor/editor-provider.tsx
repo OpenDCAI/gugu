@@ -14,7 +14,7 @@ import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
 import { isEmbedVisible } from '@renderer/lib/portal-container';
 import { log } from '@renderer/utils/logger';
 import { useSessionViewContext } from '../session-view-context';
-import { activeFileEntry as getActiveFileEntry } from './pane-selectors';
+import { activeFileResource } from './pane-selectors';
 import { bindFileViewerMenu } from '@/components/preview/file-viewer-menu';
 import { notify } from '@/lib/notices';
 import { quoteWorkspaceFile } from '@renderer/lib/editor/quote-workspace-file';
@@ -107,7 +107,7 @@ export const EditorProvider = observer(function EditorProvider({
 
     const cleanupActive = registerActiveCodeEditor(editor);
     const cleanupMenu = bindFileViewerMenu(container, () => {
-      const file = getActiveFileEntry(paneTabManager);
+      const file = activeFileResource(paneTabManager);
       const model = editor.getModel();
       const range = editor.getSelection();
       if (!file || !model || !range) throw new Error('The file editor is no longer available');
@@ -214,7 +214,7 @@ export const EditorProvider = observer(function EditorProvider({
         return;
       }
 
-      const entry = getActiveFileEntry(paneTabManager);
+      const entry = activeFileResource(paneTabManager);
       if (!ownFocused || !entry?.bufferUri) return;
 
       event.preventDefault();
@@ -236,7 +236,7 @@ export const EditorProvider = observer(function EditorProvider({
         const editor = editorBox.get(); // reactive —— 编辑器建好时唤醒本 autorun
         if (!editor) return;
 
-        const entry = getActiveFileEntry(paneTabManager); // reactive
+        const entry = activeFileResource(paneTabManager); // reactive
         const newBufUri = entry?.bufferUri || null;
 
         if (!newBufUri) {
