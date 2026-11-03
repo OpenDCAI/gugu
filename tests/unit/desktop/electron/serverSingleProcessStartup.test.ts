@@ -8,6 +8,7 @@ import type { ServerAccount } from '../../../../apps/desktop/electron/server/ser
 let home: string
 beforeEach(() => {
   vi.stubEnv('GUGU_TASK_HOST_VERSION', '2.0.0')
+  vi.stubEnv('GUGU_SERVER_BOOT_ID', 'current-test-boot')
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-single-start-'))
   for (const version of ['1.0.0', '2.0.0']) fs.mkdirSync(path.join(home, 'versions', version), { recursive: true })
   fs.symlinkSync('versions/2.0.0', path.join(home, 'current'))
