@@ -27,12 +27,20 @@ export const UNINSTALLED_MARK = '__GUGU_UNINSTALLED__'
 /** 卸的是这台桌面那条通道的 server(server-names.ts),同一个用户下别的通道的那份不碰。 */
 const { home: SERVER_HOME, bin: SERVER_BIN } = remoteServerPaths(desktopServerChannel())
 
+// install.sh can preserve an older home under a newer channel's command name.
+// Read its literal assignment; never evaluate the launcher's shell contents.
+const installationPaths = [
+  `B=${SERVER_BIN}`,
+  `H=${SERVER_HOME}`,
+  'PINNED="$(sed -n \'s/^GUGU_SERVER_HOME="\\([^"]*\\)" exec .*/\\1/p\' "$B" 2>/dev/null | head -n 1)"',
+  'case "$PINNED" in /*) H="$PINNED" ;; esac',
+]
+
 /** 看一眼:装没装、哪个版本、登着哪些账号(账号 id、有没有登录态、邮箱)。输出夹在两行标记之间。 */
 export function inspectScript(): string {
   return [
     `echo ${INSPECT_BEGIN}`,
-    `H=${SERVER_HOME}`,
-    `B=${SERVER_BIN}`,
+    ...installationPaths,
     'if [ -d "$H" ] || [ -e "$B" ] || [ -L "$B" ]; then echo installed=1; fi',
     'echo "version=$(cat "$H/current/version" 2>/dev/null)"',
     'for d in "$H/account" "$H"/accounts/*/ "$H"/retired/*/; do',
@@ -86,8 +94,8 @@ export function toInspection(result: InspectResult, currentUserId: string | null
 export function uninstallScript(options: { keepUserId?: string | null } = {}): string {
   const keep = options.keepUserId && /^[A-Za-z0-9_-]{1,128}$/.test(options.keepUserId) ? options.keepUserId : ''
   return [
-    `H=${SERVER_HOME}`,
-    `B=${SERVER_BIN}`,
+    ...installationPaths,
+    'if [ ! -d "$H" ]; then echo "卸载失败:安装目录不存在 $H (启动脚本 $B)" >&2; exit 1; fi',
     // #6264 先把这台机器上每个账号都注销(从账号里移除这台机器、续期令牌作废),照 `code tunnel unregister`:
     // ❌ 只删本地文件 —— 那样别人的账号里一直挂着一台永远离线的机器、云端的会话也一直有效。
     // 桌面自己那个账号(KEEP)由桌面在卸完后自己移除(它知道要不要连同智能体一起删)。老版本不认这条命令:照卸。
@@ -123,13 +131,17 @@ export function uninstallScript(options: { keepUserId?: string | null } = {}): s
     '  id="$(sed -n \'s/.*"userId": *"\\([^"]*\\)".*/\\1/p\' "$d/account.json" 2>/dev/null | head -n 1)"; [ -n "$id" ] || id="$(basename "$d")"',
     `  "$T" -L "${serverNames(desktopServerChannel()).bin}-$(printf %s "$id" | cut -c1-8)" kill-server >/dev/null 2>&1`,
     'done',
-    'for l in "$B" "$HOME/.local/bin/node"; do',
-    '  if [ -L "$l" ]; then case "$(readlink "$l")" in "$H"/*) rm -f "$l" ;; esac; fi',
+    `for l in ${['stable', 'beta'].map(channel => `"$HOME/.local/bin/${serverNames(channel).bin}"`).join(' ')} "$HOME/.local/bin/node" ${SERVER_HOME}; do`,
+    '  remove=0',
+    '  if [ -L "$l" ]; then case "$(readlink "$l")" in "$H"|"$H"/*) remove=1 ;; esac',
+    '  elif [ -f "$l" ] && grep -qF "GUGU_SERVER_HOME=\\"$H\\"" "$l"; then remove=1; fi',
+    '  if [ "$remove" = 1 ]; then',
+    '    rm -f "$l"',
+    '    if [ -e "$l" ] || [ -L "$l" ]; then echo "卸载失败:删不掉 $l" >&2; exit 1; fi',
+    '  fi',
     'done',
-    // 命令是一行启动脚本(install.sh 写的):里面钉着的正是这个目录才删。
-    'if [ -f "$B" ] && [ ! -L "$B" ] && grep -qF "GUGU_SERVER_HOME=\\"$H\\"" "$B"; then rm -f "$B"; fi',
     'rm -rf "$H"',
-    'if [ -e "$H" ]; then echo "卸载失败:删不掉 $H" >&2; exit 1; fi',
+    'if [ -e "$H" ] || [ -L "$H" ]; then echo "卸载失败:删不掉 $H" >&2; exit 1; fi',
     `echo ${UNINSTALLED_MARK}`,
     '',
   ].join('\n')

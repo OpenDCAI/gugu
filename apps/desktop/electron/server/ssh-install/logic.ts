@@ -547,7 +547,7 @@ export function parseProbeOutput(stdout: string): ProbeResult | null {
   const report = fields.get('installed') ? parseStatusJson(stdout.slice(begin, end)) : null
   const statusError = !fields.get('installed') ? null : fields.get('status_exit') !== '0' || !report
     ? `Could not determine the installed server account state: status --json exit ${fields.get('status_exit') ?? '?'} or invalid status markers/JSON` : null
-  const accounts = report?.accounts.filter(account => account.signedIn).map(({ userId, email }) => ({ userId, email })) ?? []
+  const accounts = report?.accounts.filter(account => account.signedIn && !account.signedOut).map(({ userId, email }) => ({ userId, email })) ?? []
   const fetcher = fields.get('fetcher')
   const freeKb = Number(fields.get('freekb'))
   const installedProtocol = /^\d{1,6}$/.test(fields.get('protocol') ?? '') ? Number(fields.get('protocol')) : null

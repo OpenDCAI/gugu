@@ -116,7 +116,7 @@ describe('#6264 从这台机器上卸载咕咕 server:远端脚本', () => {
       const bin = path.join(home, '.local', 'bin', 'gugu-server')
       fs.rmSync(bin)
       fs.writeFileSync(bin, binLauncher(path.join(home, 'elsewhere')), { mode: 0o755 })
-      runSh(home, uninstallScript())
+      expect(() => runSh(home, uninstallScript())).toThrow()
       expect(fs.existsSync(bin)).toBe(true)
       fs.mkdirSync(serverHome, { recursive: true })
       fs.writeFileSync(bin, binLauncher(serverHome), { mode: 0o755 })
