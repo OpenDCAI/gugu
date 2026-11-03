@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createRequire } from 'node:module'
+import { execFileSync } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { build, type InlineConfig } from 'vite'
 import { devNodeExternals } from '../../../scripts/build/dev-node-externals.mjs'
@@ -57,10 +57,11 @@ function configuration(root: string, watch: boolean): InlineConfig {
 }
 
 function runArtifact(root: string): unknown {
-  const require = createRequire(join(root, 'package.json'))
-  const artifact = join(root, 'out/bundle.cjs')
-  delete require.cache[artifact]
-  return require(artifact).answer
+  // A fresh Node process matches Electron restarting after a main-process rebuild.
+  // It also avoids the test runner's own CJS module cache when the output path is reused.
+  return JSON.parse(execFileSync(process.execPath, [
+    '-e', 'process.stdout.write(JSON.stringify(require("./out/bundle.cjs").answer))',
+  ], { cwd: root, encoding: 'utf8' }))
 }
 
 describe('Electron development dependency externalization', () => {
