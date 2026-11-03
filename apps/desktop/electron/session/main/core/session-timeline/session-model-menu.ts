@@ -31,6 +31,8 @@ export type SessionModelMenu = {
 
 export type SessionpageSessionOptionsWithMenu = SessionpageSessionOptions & {
   modelMenu?: SessionModelMenu;
+  /** The host's provider metadata name, also supplied for permission-only sessions. */
+  permissionAgentName?: string;
   /**
    * 这家声明的权限档表(`capabilities.autoApprove.modes`,来源各家插件的 permission-modes.ts)—— 手机拿它跑桌面那份
    * `localizePermissionModeOptions` / `selectedPermissionModeId`,与桌面同一个来源、同一套说法(#6693)。
@@ -38,6 +40,12 @@ export type SessionpageSessionOptionsWithMenu = SessionpageSessionOptions & {
    */
   modeMap?: ProviderPermissionModeMap;
 };
+
+export async function readSessionPermissionAgentName(providerId: string): Promise<string> {
+  const { agentsController } = await import('@main/core/agents/controller');
+  const agents = await agentsController.list();
+  return agents.find((entry) => entry.id === providerId)?.name ?? providerId;
+}
 
 export async function readSessionModelMenu(sessionId: string, providerId: string): Promise<SessionModelMenu> {
   const [{ sessionPlatformModel }, { getPlatformModelCatalogResolver }, { probeHarnessCatalogState }, { agentsController }] =

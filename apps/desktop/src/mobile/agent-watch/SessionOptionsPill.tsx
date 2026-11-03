@@ -199,7 +199,8 @@ export function SessionOptionsPill({
   const models = options?.modelMenu && options.model ? sessionModelView(options.modelMenu, options.model) : null
   const modelItem = models?.groups.flatMap((group) => group.items).find((item) => item.id === models.selectedId)
   const modeMap = options?.modeMap
-  const label = pillLabel(groups, modeMap, agentName, modelItem ? (modelItem.shortName ?? modelItem.name) : null)
+  const permissionAgentName = options?.permissionAgentName ?? options?.modelMenu?.agentName ?? agentName
+  const label = pillLabel(groups, modeMap, permissionAgentName, modelItem ? (modelItem.shortName ?? modelItem.name) : null)
 
   // 没得选就整个不画(orca 同款)。会话没在跑、还没读到、这条会话本来就没有可调档位,
   // 三种情况都落在这里。
@@ -207,14 +208,14 @@ export function SessionOptionsPill({
 
   const disabled = busy || pending !== null
   const current = view ? groups.find(([d]) => d === view) : undefined
-  const currentChoices = current ? presentChoices(current[0], current[1], modeMap, agentName) : null
+  const currentChoices = current ? presentChoices(current[0], current[1], modeMap, permissionAgentName) : null
   const atRoot = current?.[0] === root[0]
   const others = groups.filter(([d]) => d !== root[0])
 
   const pick = (dimension: SessionOptionDimension, group: SessionOptionGroup, value: string): void => {
     // 重选当前那一档 = 什么都不做(orca 同一条:❌ 不重复下发已经生效的值),只回顶层,像选了别的一样。
     // 「当前那一档」按屏上选中的那一行算(权限档收成四档后,原生 `dontAsk` 显示在「只读」那一行上)。
-    if (presentChoices(dimension, group, modeMap, agentName).selected === value) {
+    if (presentChoices(dimension, group, modeMap, permissionAgentName).selected === value) {
       setView(root[0])
       return
     }
@@ -386,7 +387,7 @@ export function SessionOptionsPill({
                   >
                     <span className="gg-aw-summary-label">{t(`agentWatch.options.${dimension}`)}</span>
                     <span className="gg-aw-summary-value">
-                      {selectedName(dimension, group, modeMap, agentName) ?? t('agentWatch.options.unknownValue')}
+                      {selectedName(dimension, group, modeMap, permissionAgentName) ?? t('agentWatch.options.unknownValue')}
                     </span>
                     <ChevronRight />
                   </Button>

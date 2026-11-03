@@ -92,7 +92,7 @@ import { knownHarnessConfigRoots } from '@main/core/agent-hooks/harness-config-r
 import { sessionLife } from '@main/core/sessions/session-life';
 import { runtimeFork } from '@main/core/sessions/session-life-forks';
 import { notStartedSessionOptions } from './not-started-options';
-import { readSessionModelMenu, type SessionpageSessionOptionsWithMenu } from './session-model-menu';
+import { readSessionModelMenu, readSessionPermissionAgentName, type SessionpageSessionOptionsWithMenu } from './session-model-menu';
 import {
   acpSessionLive,
   deliverPermissionDecision,
@@ -909,7 +909,8 @@ async function withModelMenu(
   if (!row.provider) return options;
   const modeMap = options.mode ? declaredModeMap(row.provider) : undefined;
   const modelMenu = options.model ? await readSessionModelMenu(row.id, row.provider) : undefined;
-  return { ...options, ...(modelMenu ? { modelMenu } : {}), ...(modeMap ? { modeMap } : {}) };
+  const permissionAgentName = options.mode ? modelMenu?.agentName ?? await readSessionPermissionAgentName(row.provider) : undefined;
+  return { ...options, ...(modelMenu ? { modelMenu } : {}), ...(modeMap ? { modeMap } : {}), ...(permissionAgentName ? { permissionAgentName } : {}) };
 }
 
 /** 这家声明的权限档表;没声明(或不认识这家)就没有。 */

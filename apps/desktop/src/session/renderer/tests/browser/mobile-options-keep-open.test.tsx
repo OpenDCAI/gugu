@@ -190,17 +190,22 @@ it('session options: a sheet closed while a pick is in flight stays closed when 
   expect(q(sheet), 'the sheet the person closed stays closed').toBeNull();
 });
 
-it.each(['en-US', 'zh-CN'] as const)('session permission descriptions name the harness in %s', async locale => {
+it.each([
+  { locale: 'en-US', model: true }, { locale: 'zh-CN', model: true },
+  { locale: 'en-US', model: false }, { locale: 'zh-CN', model: false },
+] as const)('session permission descriptions use the host name in $locale (model menu: $model)', async ({ locale, model }) => {
   const { i18n } = await import('@/i18n');
   await i18n.changeLanguage(locale);
   try {
-    Object.assign(machine.options, { modeMap: { 'read-only': { id: 'default' }, plan: { id: 'plan' } } });
-    mount(<SessionOptionsPill deviceId="device" sessionId="conversation" agentName="Claude Code" busy={false} />);
+    Object.assign(machine.options, { permissionAgentName: 'Claude Code', modeMap: { 'read-only': { id: 'default' }, plan: { id: 'plan' } } });
+    if (!model) delete machine.options.model;
+    mount(<SessionOptionsPill deviceId="device" sessionId="conversation" agentName="My agent nickname" busy={false} />);
     await click('[data-testid="agent-watch-options-open"]');
-    await click('[data-testid="agent-watch-options-drill"][data-dimension="mode"]');
+    if (model) await click('[data-testid="agent-watch-options-drill"][data-dimension="mode"]');
     await until('the read-only description names the harness', () => q('[data-testid="agent-watch-options"]')?.textContent?.includes('Claude Code') === true);
     const description = q('[data-testid="agent-watch-option-choice"][data-dimension="mode"][data-option-id="default"]')?.textContent;
     expect(description).toContain('Claude Code');
+    expect(description).not.toContain('My agent nickname');
     expect(description).not.toContain('{agent}');
   } finally {
     await i18n.changeLanguage('zh-CN');
