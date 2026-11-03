@@ -22,11 +22,12 @@ function readBuildPaths() {
       const paths = entry.vite.build.rollupOptions.output.paths
       const dir = mkdtempSync(join(tmpdir(), 'gugu-boot-path-'))
       try {
+        const input = join(dir, 'entry.mjs')
+        writeFileSync(input, 'export { inspectAccountLayout } from "boot"')
         const result = await build({ configFile: false, logLevel: 'silent', plugins: [{
           name: 'external-id-fixture',
-          resolveId(id) { return id === 'entry' ? id : id === 'boot' ? { id: ${JSON.stringify(windows)}, external: true } : null },
-          load(id) { return id === 'entry' ? 'export { inspectAccountLayout } from "boot"' : null },
-        }], build: { write: false, minify: false, lib: { entry: 'entry', formats: ['cjs'] }, rollupOptions: { output: { paths } } } })
+          resolveId(id) { return id === 'boot' ? { id: ${JSON.stringify(windows)}, external: true } : null },
+        }], build: { write: false, minify: false, lib: { entry: input, formats: ['cjs'] }, rollupOptions: { output: { paths } } } })
         const output = (Array.isArray(result) ? result[0] : result).output.find(item => item.type === 'chunk')
         writeFileSync(join(dir, 'server.js'), output.code)
         writeFileSync(join(dir, 'server-boot.cjs'), 'exports.inspectAccountLayout = () => "ready"')
