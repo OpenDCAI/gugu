@@ -46,6 +46,7 @@ import { projectSessionPendingInput } from '@/lib/pendingSessionInput';
 import { isTranscriptDelivery, loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries';
 import { batch } from 'solid-js';
 import { AcpLiveSession, AcpStartError, asValueSource } from '@renderer/lib/acp/acp-live-session';
+import { attachAcpSessionWhenReady } from '@renderer/lib/acp/acp-session-attachment';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
 import { watchRunningSession, type RunningSessionWatch } from '@renderer/lib/acp/running-sessions';
 import { machineLinkHandingOff, machineLinkState, onMachineReconnected } from '@renderer/lib/machine-clients';
@@ -151,6 +152,7 @@ export class AcpChatStore {
   private _unwatchSenderInputs: (() => void) | null = null;
   /** Opened on a stopped session: nothing to attach to until it runs again. */
   private _attachWhenReady = false;
+  private _attachmentAbort: AbortController | null = null;
   /**
    * The custody row the transcript draws as the next turn (`pendingPrompt`), while it waits for that turn: from the
    * send on it sits where its turn will be, ❌ first in the tray above the composer and then up in the transcript.
@@ -1619,6 +1621,7 @@ export class AcpChatStore {
     this._queueEditTimer = null;
     if (this._disposed) return;
     this._disposed = true;
+    this._attachmentAbort?.abort();
     unregisterSessionCommands(this.runtimeSessionId);
     if (this._draftTimer !== null) {
       window.clearTimeout(this._draftTimer);
@@ -1983,6 +1986,8 @@ export class AcpChatStore {
       this._resetRuntimeHistoryState();
     } else this._resetHistoryState();
     const generation = this._historyGeneration;
+    this._attachmentAbort?.abort();
+    const attachmentAbort = this._attachmentAbort = new AbortController();
     try {
       // #5381 先把库里那份画出来,不等引擎。侧边对话跳过:它的上下文开在主对话那条上,
       // 自己不该有一份历史(库里也没有它的行 —— 它的 id 是运行时视图 id)。
@@ -2031,7 +2036,7 @@ export class AcpChatStore {
       // 起引擎与读库**并行**:两件事互不依赖。❌ 不许把 spawn 排在一次读之后 ——
       // 本机库读起来接近零延迟,会把这个串行藏得看不见,换到读得慢的那一侧(库大、盘忙、
       // 将来换成非本机的存储)它就是白等的一段,而 spec 要求会话启动不被任何东西挡住。
-      const clientSessionReady = AcpLiveSession.create(this.runtimeSessionId);
+      const clientSessionReady = attachAcpSessionWhenReady(this.runtimeSessionId, attachmentAbort.signal);
       // 引擎这一路的错误统一在下面 await 时抛;这里只是别让它在等库期间变成未处理拒绝。
       clientSessionReady.catch(() => {});
 
@@ -2124,6 +2129,7 @@ export class AcpChatStore {
         this.session = clientSession;
         this.chatState.transcript.history.seed(visibleTurns);
         this._subscribeLiveSession(clientSession);
+        this._resumeDraftSync(clientSession);
         this._applyDraftSnapshot(clientSession.draft.current());
         this.historyLoading = false;
         this.loadError = null;
@@ -2389,7 +2395,8 @@ export class AcpChatStore {
         runInAction(() => {
           this._applyDraftSnapshot(draft);
         })
-      )
+      ),
+      session.onDraftSyncReady(() => runInAction(() => this._resumeDraftSync(session)))
     );
   }
 
@@ -2399,12 +2406,13 @@ export class AcpChatStore {
       this._draftTimer = null;
       const draft = { rev, input: text.trim().length > 0 ? { text } : null };
       // Until the page attaches the draft is local to this store; there is no session to persist it through.
-      if (!this.session) return;
-      const session = this._requireSession('acpFailure.syncDraft');
-      if (!session) return;
+      const session = this.session;
+      if (!session?.canSyncDraft()) return;
+      const generation = session.draftConnectionGeneration;
       void session
         .setPromptDraft(draft)
         .then((result) => {
+          if (this._disposed || this.session !== session || generation !== session.draftConnectionGeneration) return;
           if (!result.success) this._toastError('acpFailure.syncDraft', result.error);
           if (result.success && draft.input === null && this._pendingDraftRev === rev) {
             runInAction(() => {
@@ -2412,12 +2420,23 @@ export class AcpChatStore {
             });
           }
         })
-        .catch((error: unknown) => this._toastError('acpFailure.syncDraft', error));
+        .catch((error: unknown) => {
+          if (!this._disposed && this.session === session && generation === session.draftConnectionGeneration) this._toastError('acpFailure.syncDraft', error);
+        });
     }, 300);
+  }
+
+  private _resumeDraftSync(session: AcpLiveSession): void {
+    if (this.session !== session || !session.canSyncDraft() || this._pendingDraftRev === null) return;
+    // The local edit (including an empty draft after sending) wins over the new runtime's snapshot.
+    this._draftRev = Math.max(this._draftRev, session.draft.current()?.rev ?? 0) + 1;
+    this._pendingDraftRev = this._draftRev;
+    this._scheduleDraftWrite(this.draftText, this._draftRev);
   }
 
   private _applyDraftSnapshot(draft: PromptDraft | null | undefined): void {
     if (draft === undefined) return;
+    if (this._pendingDraftRev !== null && this.session && !this.session.canSyncDraft()) return;
     if (draft === null) {
       if (this._pendingDraftRev === null) {
         this._draftRev += 1;
@@ -2825,10 +2844,13 @@ export class AcpChatStore {
   /** Keep the failure reason visible through the existing one-line sanitizer, and persist its full detail. */
   private _toastError(title: AcpFailureTitle, error: unknown): void {
     const cause = describeFailureCause(error);
-    log.error('ACP chat action failed', { sessionId: this.sessionId, title, error: cause });
+    const errorType = error && typeof error === 'object' && 'type' in error ? error.type : undefined;
+    log.error('ACP chat action failed', { sessionId: this.sessionId, title, errorType, error: cause });
     toast({
       title: translateSessionMessage(title),
-      description: failureText(cause ?? '', translateSessionMessage),
+      description: errorType === 'conversation_not_found'
+        ? translateSessionMessage('acpFailure.sessionUnavailable')
+        : failureText(cause ?? '', translateSessionMessage),
       variant: 'destructive',
     });
   }

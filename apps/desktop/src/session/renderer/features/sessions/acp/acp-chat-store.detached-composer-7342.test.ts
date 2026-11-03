@@ -98,6 +98,8 @@ function attached(input: { record: Partial<Session>; liveModel: string; liveUsag
     activeTurn: replica(null),
     plan: replica(null),
     draft: replica(null),
+    canSyncDraft: () => true,
+    onDraftSyncReady: () => () => {},
     terminals: replica([] as unknown[]),
     config: replica({
       modelOptions: { selected: input.liveModel, available: [] },
