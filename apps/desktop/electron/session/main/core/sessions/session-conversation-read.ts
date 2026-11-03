@@ -73,12 +73,12 @@ export function markNativeConversationVisible(sessionId: string, itemIds: readon
   return update(sessionId, journal => seeNativeReplies(journal, itemIds)).unread;
 }
 
-export function truncateNativeConversationRead(sessionId: string, fromSeq: number, transaction?: JournalDb): (() => void) | undefined {
-  const activity = truncateNativeConversationActivity(sessionId, fromSeq, transaction ?? db);
+export function truncateNativeConversationRead(sessionId: string, fromSeq: number, transaction?: JournalDb, removed: ReadonlySet<number> = new Set()): (() => void) | undefined {
+  const activity = truncateNativeConversationActivity(sessionId, fromSeq, transaction ?? db, removed);
   const prefix = `${sessionId}:turn:s`;
   const publish = update(sessionId, journal => Object.fromEntries(Object.entries(journal).filter(([key]) => {
     const seq = key.startsWith(prefix) ? /^(\d+):/.exec(key.slice(prefix.length))?.[1] : undefined;
-    return seq === undefined || Number(seq) < fromSeq;
+    return seq === undefined || (Number(seq) < fromSeq && !removed.has(Number(seq)));
   })), transaction).publish;
   return () => { publish(); if (activity) publishActivity(sessionId); };
 }

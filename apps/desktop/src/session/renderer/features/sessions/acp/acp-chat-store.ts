@@ -272,6 +272,8 @@ export class AcpChatStore {
   private _storedBootstrapMaxSeq = -1;
   private _ownerNotificationTurns: TranscriptTurn[] = [];
   private _ownerNotificationReadSeq = -1;
+  private _ownerNotificationReadEpoch: number | null = null;
+  private _ownerNotificationGeneration = 0;
   private _ownerNotificationListeners = new Set<() => void>();
   private _ownerNotificationRead: Promise<void> = Promise.resolve();
   /** 本次面板期间才落库的那些行来自引擎的哪几轮(运行时原始 turn id)—— 引擎那侧据此不再重复出它们。 */
@@ -694,38 +696,9 @@ export class AcpChatStore {
       const result = await session.revertSession(item.revertAnchor);
       if (!result.success) { this._toastError('acpFailure.revert', result.error); return false; }
       if (this.session !== session || generation !== this._historyGeneration) return false;
+      this._resetOwnerNotificationRead();
+      if (!await this._readRevertedHistory(generation, session)) return false;
       runInAction(() => {
-        this._storedHistoryTurns = [];
-        this._storedOrigins = [];
-        this._olderHistoryTurns = [];
-        this._storedBaseSeq = null;
-        this._storedBootstrapMaxSeq = -1;
-        this._persistedRuntimeTurnIds = new Set();
-        this._runtimeReplayEndSeq = 0;
-        this._runtimeWindowStartSeq = 0;
-        this._runtimeTurns = [];
-        this._olderCursor = undefined;
-      });
-      const stored = await rpc.sessions.getStoredHistory({ sessionId: this.sessionId, limit: 100 });
-      // 库里非空时引擎那一页只用来定分界和改动游标(同开场)。
-      const history = await session.getHistory(undefined, stored.turns.length ? 1 : 100);
-      if (!history.success) throw history.error;
-      if (this.session !== session || generation !== this._historyGeneration) return false;
-      runInAction(() => {
-        this._storedHistoryTurns = stored.turns;
-        this._storedOrigins = stored.originTurnIds;
-        this._storedBaseSeq = stored.turns[0]?.seq ?? null;
-        this._storedBootstrapMaxSeq = stored.turns.at(-1)?.seq ?? -1;
-        this._persistedRuntimeTurnIds = new Set(stored.originTurnIds);
-        this._olderCursor = stored.turns.length ? stored.nextCursor : history.data.nextCursor;
-        this._olderSource = stored.turns.length ? 'stored' : 'runtime';
-        this._runtimeReplayEndSeq = stored.turns.length ? (history.data.turns.at(-1)?.seq ?? -1) + 1 : 0;
-        this._runtimeWindowStartSeq = stored.turns.length ? 0 : (history.data.turns[0]?.seq ?? 0);
-        this._runtimeTurns = stored.turns.length ? [] : history.data.turns;
-        this._runtimeCursor = history.data.cursor;
-        this._runtimeCount = history.data.count;
-        this.chatState.transcript.history.seed(this._composedHistory());
-        this.chatState.transcript.activeTurn.set(null);
         this.chatState.session.setPendingPrompt(null);
         if (restoreDraft && this.draftText === draftBefore) this.setDraftText(item.text);
         this._syncMessageCount();
@@ -733,6 +706,35 @@ export class AcpChatStore {
       return true;
     } catch (error) { this._toastError('acpFailure.revert', error); return false; }
     finally { runInAction(() => { this.reverting = false; }); }
+  }
+
+  /** A confirmed revert invalidates both the loaded window and every cursor that used its old sequences. */
+  private async _readRevertedHistory(generation: number, session: AcpLiveSession | null, current: () => boolean = () => true): Promise<boolean> {
+    const stored = await rpc.sessions.getStoredHistory({ sessionId: this.sessionId, limit: 100 });
+    const history = session ? await session.getHistory(undefined, stored.turns.length ? 1 : 100) : null;
+    if (history && !history.success) throw history.error;
+    if (this._disposed || this.session !== session || generation !== this._historyGeneration || !current()) return false;
+    const runtime = history?.success ? history.data : null;
+    runInAction(() => batch(() => {
+      this._storedHistoryTurns = stored.turns;
+      this._storedOrigins = stored.originTurnIds;
+      this._storedBaseSeq = stored.turns[0]?.seq ?? null;
+      this._storedBootstrapMaxSeq = stored.turns.at(-1)?.seq ?? -1;
+      this._persistedRuntimeTurnIds = new Set(stored.originTurnIds);
+      this._olderHistoryTurns = [];
+      this._olderCursor = stored.turns.length ? stored.nextCursor : runtime?.nextCursor;
+      this._olderSource = stored.turns.length ? 'stored' : 'runtime';
+      this._runtimeReplayEndSeq = stored.turns.length ? (runtime?.turns.at(-1)?.seq ?? -1) + 1 : 0;
+      this._runtimeWindowStartSeq = stored.turns.length ? 0 : (runtime?.turns[0]?.seq ?? 0);
+      this._runtimeTurns = stored.turns.length ? [] : runtime?.turns ?? [];
+      this._runtimeCursor = runtime?.cursor ?? null;
+      this._runtimeCount = runtime?.count ?? 0;
+      const view = this._ownerNotificationView();
+      this.chatState.transcript.history.seed(view.turns);
+      this.chatState.transcript.activeTurn.set(view.activeTurn);
+      this._syncMessageCount();
+    }));
+    return true;
   }
 
   get affordances(): AgentAffordances {
@@ -1656,6 +1658,7 @@ export class AcpChatStore {
    * 库页之间会断档(中间又聊了几轮),游标重置后再往上翻又和旧页重叠 —— 同一批回合出现两遍。
    */
   private _resetHistoryState(): void {
+    this._resetOwnerNotificationRead();
     this._incomingHistoryRequest++;
     this._incomingHistoryReading = false;
     this._incomingHistoryResolved.clear();
@@ -1669,6 +1672,13 @@ export class AcpChatStore {
     this._olderHistoryTurns = [];
     this._olderCursor = undefined;
     this._olderSource = 'runtime';
+  }
+
+  private _resetOwnerNotificationRead(): void {
+    this._ownerNotificationGeneration++;
+    this._ownerNotificationTurns = [];
+    this._ownerNotificationReadSeq = -1;
+    this._ownerNotificationReadEpoch = null;
   }
 
   /** 只清引擎那一侧(库里那页沿用时,见 `keepStoredPage`)。 */
@@ -2524,35 +2534,50 @@ export class AcpChatStore {
     return this._ownerNotificationView().turns;
   }
 
-  private _ownerNotificationView() {
+  private _ownerNotificationView(activeTurn = this.session?.activeTurn.current() ?? null) {
+    const stored = new Map(this._storedHistoryTurns.map(turn => [turn.id, turn]));
+    for (const turn of this._ownerNotificationTurns) if (!stored.has(turn.id)) stored.set(turn.id, turn);
     const composed = composeHistoryTurns({
-      stored: this._storedHistoryTurns,
+      stored: [...stored.values()].sort((a, b) => a.seq - b.seq),
       runtime: this._visibleHistoryTurns(this._runtimeTurns),
       runtimeReplayEndSeq: this._runtimeReplayEndSeq,
       persistedRuntimeTurnIds: this._persistedRuntimeTurnIds,
       older: this._olderHistoryTurns,
     });
-    const known = new Set(composed.map(turn => turn.id));
-    const turns = [...composed, ...this._ownerNotificationTurns.filter(turn => !known.has(turn.id))];
     const origins = new Map(this._storedHistoryTurns.map((turn, index) => [turn.id, this._storedOrigins[index]!]));
-    return projectOwnerNotifications(turns, this.session?.activeTurn.current() ?? null, origins);
+    return projectOwnerNotifications(composed, activeTurn, origins);
   }
 
   /** The host reports a committed record sequence. This never starts or prompts the provider. */
-  syncOwnerNotifications(head: number): Promise<void> {
+  syncOwnerNotifications(head: number, epoch = 0): Promise<void> {
+    const rewound = this._ownerNotificationReadEpoch !== null && epoch !== this._ownerNotificationReadEpoch;
+    if (epoch !== this._ownerNotificationReadEpoch) {
+      this._resetOwnerNotificationRead();
+      this._ownerNotificationReadEpoch = epoch;
+    }
+    const ownGeneration = this._ownerNotificationGeneration;
+    const current = () => ownGeneration === this._ownerNotificationGeneration;
     const read = this._ownerNotificationRead.then(async () => {
-      while (!this._disposed && !this.isTransient && head > this._ownerNotificationReadSeq) {
+      if (!current() || this._disposed || this.isTransient || this.reverting) return;
+      if (rewound && !await this._readRevertedHistory(++this._historyGeneration, this.session, current)) return;
+      while (current() && !this._disposed && !this.isTransient && !this.reverting && head > this._ownerNotificationReadSeq) {
         const generation = this._historyGeneration;
-        const page = await rpc.sessions.getStoredHistory({ sessionId: this.sessionId, fromSeq: this._ownerNotificationReadSeq + 1, ownerNotificationsOnly: true });
-        if (this._disposed) return;
+        const fromSeq = Math.max(this._ownerNotificationReadSeq, this._storedBootstrapMaxSeq) + 1;
+        if (head < fromSeq) { this._ownerNotificationReadSeq = Math.max(head, this._storedBootstrapMaxSeq); break; }
+        const page = await rpc.sessions.getStoredHistory({ sessionId: this.sessionId, fromSeq, ownerNotificationsOnly: true });
+        if (this._disposed || !current()) return;
         // A concurrent bootstrap can replace the view while this IPC is in flight. Read again against its new view.
         if (generation !== this._historyGeneration) continue;
         const byId = new Map(this._ownerNotificationTurns.map(turn => [turn.id, turn]));
         for (const turn of page.turns) byId.set(turn.id, turn);
         this._ownerNotificationTurns = [...byId.values()];
         this._ownerNotificationReadSeq = Math.max(head, ...page.turns.map(turn => turn.seq));
-        this.chatState.transcript.history.seed(this._composedHistory());
-        for (const listener of this._ownerNotificationListeners) listener();
+        runInAction(() => batch(() => {
+          const view = this._ownerNotificationView(this.session?.activeTurn.current() ?? this.chatState.transcript.state.activeTurnSnapshot);
+          this.chatState.transcript.history.seed(view.turns);
+          this.chatState.transcript.activeTurn.set(view.activeTurn);
+          for (const listener of this._ownerNotificationListeners) listener();
+        }));
       }
     });
     this._ownerNotificationRead = read.catch(() => undefined);

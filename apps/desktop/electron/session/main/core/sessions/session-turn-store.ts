@@ -9,6 +9,7 @@ import { noteNativeConversationReplies, truncateNativeConversationRead } from '.
 import { nativeConversationActivity } from './session-conversation-activity';
 import { publishNativeConversationInbox, queueNativeConversationInbox } from './native-conversation-inbox';
 import { mayFillReplay, didFillReplay, stopFillingReplay, readableStoredRows } from './session-turn-replay';
+import { rewindOwnerNotificationState, publishOwnerNotificationState } from './owner-notification-state';
 
 /**
  * 会话历史的落盘（#5381）。
@@ -388,19 +389,28 @@ export async function storedRevertBoundary(sessionId: string, anchor: string): P
 }
 
 export async function truncateStoredHistory(sessionId: string, fromSeq: number | null): Promise<void> {
-  await persistenceTails.get(sessionId);
   if (fromSeq === null) return;
-  stopFillingReplay(sessionId);
-  const removed = db.transaction(tx => {
-    const result = tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq))).returning({ seq: sessionTurns.seq }).all();
-    return { rows: result, publish: truncateNativeConversationRead(sessionId, fromSeq, tx) };
+  return withStoredTurns(sessionId, async () => {
+    stopFillingReplay(sessionId);
+    const removed = db.transaction(tx => {
+      const result = tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq))).returning({ seq: sessionTurns.seq, turnId: sessionTurns.turnId }).all();
+      const origins = new Set(result.map(row => row.turnId));
+      // A notification commits before its calling provider turn; deleting that turn must remove its earlier notice too.
+      const attached = tx.select({ seq: sessionTurns.seq, turnId: sessionTurns.turnId, data: sessionTurns.data }).from(sessionTurns)
+        .where(and(eq(sessionTurns.sessionId, sessionId), like(sessionTurns.turnId, 'owner-notify:%'))).all()
+        .filter(row => (JSON.parse(row.data) as TranscriptTurn).items.some(item => item.kind === 'message' && item.ownerNotification?.sourceTurnId && origins.has(item.ownerNotification.sourceTurnId)));
+      for (const row of attached) tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.turnId, row.turnId))).run();
+      rewindOwnerNotificationState(sessionId, tx);
+      return { rows: [...result, ...attached], publish: truncateNativeConversationRead(sessionId, fromSeq, tx, new Set(attached.map(row => row.seq))) };
+    });
+    removed.publish?.();
+    publishOwnerNotificationState(sessionId);
+    // Later turns take these sequences again; the activity index reads this to stop pointing at the removed ones.
+    if (removed.rows.length > 0) {
+      activitySignal({ event_id: `session.history_reverted:${randomUUID()}`, kind: 'session.history_reverted',
+        session_id: sessionId, turn_seq: fromSeq, occurred_at: Date.now() });
+    }
   });
-  removed.publish?.();
-  // Later turns take these sequences again; the activity index reads this to stop pointing at the removed ones.
-  if (removed.rows.length > 0) {
-    activitySignal({ event_id: `session.history_reverted:${randomUUID()}`, kind: 'session.history_reverted',
-      session_id: sessionId, turn_seq: fromSeq, occurred_at: Date.now() });
-  }
 }
 
 /** One stored turn by its sequence, or null when the session's stored history no longer has it. */

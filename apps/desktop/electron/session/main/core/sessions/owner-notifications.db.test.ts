@@ -13,11 +13,14 @@ vi.mock('../projects/utils', () => ({ resolveWorkspace: () => ({ path: mocks.roo
 vi.mock('./session-activity-source', () => ({ readCurrentTurnIdentity: async () => mocks.sourceTurn }));
 const { commitOwnerNotification, ownerNotificationFile } = await import('./owner-notifications');
 const { nativeConversationUnread, nativeOwnerNotificationUnread, markNativeConversationVisible } = await import('./session-conversation-read');
+const { ownerNotificationHead, ownerNotificationEpoch } = await import('./owner-notification-state');
+const { persistCommittedTurn, truncateStoredHistory } = await import('./session-turn-store');
 let fixture: Awaited<ReturnType<typeof openFixture>>;
 const context = { sessionId: 's', projectId: 'p', workspaceId: 'w' };
 const input = { request_id: '11111111-1111-4111-8111-111111111111', agent_user_id: 'agent', text: 'The result needs your review' };
 const records = () => (fixture.sqlite.prepare('SELECT data FROM session_turns ORDER BY seq').all() as { data: string }[]).map(row => JSON.parse(row.data) as TranscriptTurn);
 beforeEach(async () => {
+  mocks.sourceTurn = 'runtime-turn';
   mocks.root = await mkdtemp(join(tmpdir(), 'gugu-owner-notification-'));
   fixture = await openFixture(); mocks.db = fixture.db;
   fixture.sqlite.exec("INSERT INTO projects(id,name,path) VALUES('p','Fixture','/fixture'); INSERT INTO sessions(id,project_id,workspace_id,runtime) VALUES('s','p','w','acp')");
@@ -74,4 +77,42 @@ it('deduplicates concurrent identical file sends and refuses a session without a
   fixture.sqlite.exec("UPDATE sessions SET runtime='pty' WHERE id='s'");
   await expect(commitOwnerNotification(context, { ...input, request_id: '22222222-2222-4222-8222-222222222222' }, async () => {})).rejects.toThrow('not delivered to your owner');
   expect(records()).toHaveLength(1);
+});
+
+it('reverts notifications with their source turn and atomically resets unread, head and the cursor epoch', async () => {
+  const provider = (id: string): TranscriptTurn => ({ id, seq: 0, initiator: 'user', items: [{ kind: 'message', id: `${id}:input`, seq: 0, role: 'user', text: 'Work' }] });
+  mocks.sourceTurn = 'source-a';
+  await commitOwnerNotification(context, input, async () => {}); // notice 0 precedes provider commit 1
+  await persistCommittedTurn({ sessionId: 's', source: 'live', turn: provider('source-a') });
+  mocks.sourceTurn = 'source-b';
+  await commitOwnerNotification(context, { ...input, request_id: '22222222-2222-4222-8222-222222222222' }, async () => {});
+  await persistCommittedTurn({ sessionId: 's', source: 'live', turn: provider('source-b') });
+  expect(ownerNotificationHead('s')).toBe(2);
+  expect(nativeOwnerNotificationUnread('s')).toHaveLength(2);
+  await truncateStoredHistory('s', 3);
+  expect(records()).toHaveLength(2);
+  expect(records()[0]!.items[0]).toMatchObject({ ownerNotification: { requestId: input.request_id } });
+  expect(ownerNotificationHead('s')).toBe(0);
+  expect(ownerNotificationEpoch('s')).toBe(1);
+  expect(nativeOwnerNotificationUnread('s')).toHaveLength(1);
+  await truncateStoredHistory('s', 1);
+  expect(records()).toEqual([]);
+  expect(ownerNotificationHead('s')).toBeUndefined();
+  expect(ownerNotificationEpoch('s')).toBe(2);
+  expect(nativeConversationUnread('s')).toEqual([]);
+  mocks.sourceTurn = 'source-c';
+  const receipt = await commitOwnerNotification(context, { ...input, request_id: '33333333-3333-4333-8333-333333333333' }, async () => {});
+  expect(receipt.seq).toBe(0);
+  expect(ownerNotificationHead('s')).toBe(0);
+  expect(ownerNotificationEpoch('s')).toBe(2);
+  expect(nativeOwnerNotificationUnread('s')).toHaveLength(1);
+});
+
+it('rolls back record deletion and notification metadata if the read journal cannot be truncated', async () => {
+  await commitOwnerNotification(context, input, async () => {});
+  fixture.sqlite.prepare('UPDATE kv SET value=? WHERE key=?').run('invalid journal', 'native-conversation-read:s');
+  await expect(truncateStoredHistory('s', 0)).rejects.toThrow();
+  expect(records()).toHaveLength(1);
+  expect(ownerNotificationHead('s')).toBe(0);
+  expect(ownerNotificationEpoch('s')).toBe(0);
 });

@@ -3,7 +3,7 @@ import { open } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { and, desc, eq, like } from 'drizzle-orm';
 import { db } from '@main/db/client';
-import { kv, sessions, sessionTurns } from '@main/db/schema';
+import { sessions, sessionTurns } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
 import { resolveWorkspace } from '../projects/utils';
@@ -13,6 +13,8 @@ import type { TranscriptMessage, TranscriptTurn } from '@gugu/session-core/acp/c
 import { noteNativeConversationReplies } from './session-conversation-read';
 import { renumberStoredTurn, withStoredTurns } from './session-turn-store';
 import { readCurrentTurnIdentity } from './session-activity-source';
+import { setOwnerNotificationHead } from './owner-notification-state';
+export { ownerNotificationHead } from './owner-notification-state';
 
 export type OwnerNotificationInput = {
   request_id: string; agent_user_id: string; text: string;
@@ -21,12 +23,6 @@ export type OwnerNotificationInput = {
 type Context = { sessionId: string; projectId: string; workspaceId: string };
 const uploads = createAttachmentUploads();
 const hash = (data: Uint8Array) => createHash('sha256').update(data).digest('hex');
-const headKey = (id: string) => `owner-notification-head:${id}`;
-
-export function ownerNotificationHead(sessionId: string): number | undefined {
-  const row = db.select({ value: kv.value }).from(kv).where(eq(kv.key, headKey(sessionId))).get();
-  return row ? Number(row.value) : undefined;
-}
 
 async function snapshotFile(root: string, input: OwnerNotificationInput): Promise<NonNullable<TranscriptMessage['ownerNotification']>['files']> {
   if (!input.file) return undefined;
@@ -85,7 +81,7 @@ export async function commitOwnerNotification(context: Context, input: OwnerNoti
         outcome: { kind: 'done' }, items: [{ kind: 'message', id: `${sourceId}:message:${input.request_id}`, seq: 0, role: 'assistant',
           text: input.text || files![0]!.name, at, ownerNotification: { requestId: input.request_id, requestHash, ...(sourceTurnId ? { sourceTurnId } : {}), ...(files ? { files } : {}) } }] }, context.sessionId, next);
       tx.insert(sessionTurns).values({ id: `${context.sessionId}:${next}`, sessionId: context.sessionId, seq: next, turnId: sourceId, data: JSON.stringify(turn) }).run();
-      tx.insert(kv).values({ key: headKey(context.sessionId), value: String(next), updatedAt: at }).onConflictDoUpdate({ target: kv.key, set: { value: String(next), updatedAt: at } }).run();
+      setOwnerNotificationHead(context.sessionId, next, tx);
       publish = noteNativeConversationReplies(context.sessionId, turn, turn, tx);
       return next;
     });

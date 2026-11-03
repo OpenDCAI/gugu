@@ -656,8 +656,10 @@ export type SessionpageSessionSummary = {
   nativeUnreadKeys?: string[];
   /** Only deliberate owner notifications contribute a numeric notification badge. */
   nativeOwnerNotificationUnreadCount?: number;
-  /** Last committed notification sequence; absent when none has been sent. */
+  /** Last committed notification sequence; -1 when none remains, absent on older hosts. */
   nativeOwnerNotificationSeq?: number;
+  /** Increases when history is reverted, so reused sequences cannot retain an old notification cursor. */
+  nativeOwnerNotificationEpoch?: number;
   nativeUnreadAliases?: Record<string, string>;
   conversationId: string;
   projectId: string;
@@ -1218,6 +1220,7 @@ export type SessionpageQueueAction =
 
 /** ACP clients read the same durable commits and live turn as the desktop task page. */
 export type NativeSessionRecord = {
+  nativeOwnerNotificationEpoch?: number;
   latestStoredSeq: number;
   hasNewer: boolean;
   turns: TranscriptTurn[];

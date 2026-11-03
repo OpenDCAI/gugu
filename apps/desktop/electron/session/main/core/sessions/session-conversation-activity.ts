@@ -46,9 +46,9 @@ export function isPersonalConversationTurn(turn: TranscriptTurn): boolean {
   return turn.trigger ? turn.trigger.kind === 'owner' : turn.initiator === 'user';
 }
 
-export function truncateNativeConversationActivity(sessionId: string, fromSeq: number, source: ActivityDb): boolean {
+export function truncateNativeConversationActivity(sessionId: string, fromSeq: number, source: ActivityDb, removed: ReadonlySet<number> = new Set()): boolean {
   const current = nativeConversationActivity(sessionId, source);
-  if (!current || current.turnSeq < fromSeq) return false;
+  if (!current || (current.turnSeq < fromSeq && !removed.has(current.turnSeq))) return false;
   source.insert(kv).values({ key: keyFor(sessionId), value: 'null', updatedAt: Date.now() })
     .onConflictDoUpdate({ target: kv.key, set: { value: 'null', updatedAt: Date.now() } }).run();
   return true;
