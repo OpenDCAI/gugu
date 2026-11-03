@@ -236,24 +236,27 @@ describe('confirmed server update feedback', () => {
     expect(node('restarting')).not.toBeNull()
   })
 
-  it.each([undefined, 1234])('offline feedback ends a failed retry spinner (request %s)', async at => {
+  it.each([undefined, 1234])('keeps a failed retry pending while the host is offline (request %s)', async at => {
     restart.mockResolvedValue({ requested: true, at })
     const failed = { state: 'failed' as const, version: target, reason: 'boot-failed' as const }
     await render(server(failed)); await click('match-restart-now'); await click('update-now-yes')
     const offline = server(failed)
     offline.is_online = false; offline.status = 'offline'
     await render(offline)
-    expect(node('restarting')).toBeNull()
+    expect(node('restarting')).not.toBeNull()
     expect(node('match-failed')).toBeNull()
+    expect(node('update-now')).toBeNull()
+    expect(node('match-restart-now')).toBeNull()
     expect(toast).not.toHaveBeenCalled()
   })
 
-  it('yields to a supervisor update when the account stops reporting an update, even with a correlated ACK', async () => {
+  it('keeps a correlated request pending when only the update scope changes', async () => {
     restart.mockResolvedValue({ requested: true, at: 1234 })
     await render(); await click('update-now'); await click('update-now-yes')
     await render(server({ state: 'ready', version: target, scope: 'supervisor' }))
-    expect(node('restarting')).toBeNull()
-    expect(node('update')!.textContent).toContain('服务进程')
+    expect(node('restarting')).not.toBeNull()
+    expect(node('update')).toBeNull()
+    expect(node('update-now')).toBeNull()
     expect(toast).not.toHaveBeenCalled()
   })
 
