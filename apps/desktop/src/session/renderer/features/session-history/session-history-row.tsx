@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { formatCalendarDate } from '@/i18n/format';
 import type { SessionImportSource } from '@renderer/features/session-import/import-source';
 import { SessionPreviewPane } from '@renderer/features/session-import/session-preview-pane';
 import { Button } from '@renderer/lib/ui/button';
@@ -37,31 +38,6 @@ export function sourceLabel(
 
 export function historyOptionId(key: string): string {
   return `session-history-option-${key}`;
-}
-
-/**
- * 第二行是绝对时间,中文照模板写成「2026年8月20日，19:46」(年份总写,❌ 相对时间 —— 列表里一眼要能比先后);
- * 其它语言交给 Intl 的同一组字段。
- */
-export function formatDateTime(ms: number, locale: string): string {
-  const date = new Date(ms);
-  if (locale.startsWith('zh')) {
-    const hh = String(date.getHours());
-    const mm = String(date.getMinutes()).padStart(2, '0');
-    return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日，${hh}:${mm}`;
-  }
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    }).format(date);
-  } catch {
-    return date.toLocaleString();
-  }
 }
 
 /** 咕咕行的详情(本机行的详情是原件预览 SessionPreviewPane)。 */
@@ -167,7 +143,8 @@ export function SessionHistoryRow({
             className="block truncate text-sm leading-5 text-foreground-muted tabular-nums"
             dateTime={new Date(row.updatedAt).toISOString()}
           >
-            {formatDateTime(row.updatedAt, locale)}
+            {/* 绝对时间、年份总写:列表里一眼要能比先后。 */}
+            {formatCalendarDate(row.updatedAt, locale, { includeYear: true })}
           </time>
         </div>
         <Button
