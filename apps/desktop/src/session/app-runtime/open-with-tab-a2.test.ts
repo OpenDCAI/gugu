@@ -44,4 +44,10 @@ describe('gugu.files.openWith: { tab } reaches the host (A2 T10)', () => {
       { ref: { chat: CHAT, id: FILE }, ask: true },
     ]);
   });
+
+  it.each(['preview', 'pinned', 'invalid', null])('folder redesign intent %s is carried unchanged to the trusted host', async (intent) => {
+    const { gugu, openWith } = host();
+    await gugu.files.openWith({ chat: CHAT, id: FILE }, { intent });
+    expect(openWith).toHaveBeenCalledExactlyOnceWith({ ref: { chat: CHAT, id: FILE }, intent });
+  });
 });

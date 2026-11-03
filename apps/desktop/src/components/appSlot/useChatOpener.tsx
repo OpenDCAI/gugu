@@ -20,7 +20,7 @@ import { OpenWithPick } from './OpenWithPick'
 const log = rendererLogger('app-slot/group')
 
 /** How an open came: the tab whose page asked (its 上一页), and what closing it hands back (a link's message). */
-type OpenFrom = { message?: MessageItem; restore?: () => void; returnTo?: string }
+type OpenFrom = { message?: MessageItem; restore?: () => void; returnTo?: string; intent?: 'preview' | 'pinned' }
 
 /**
  * A file the person opened beside a chat (every way in ends here: the folder's list, a link, a card, 「用 X 打开」), kept
@@ -62,7 +62,7 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
     const shown = { ...item, ...(from.message ? { message: from.message } : {}) }
     // A pending message is not tab state: neither JSON nor structured-clone snapshots carry it.
     if (item.takeOpening) Object.defineProperty(shown, 'takeOpening', { get: () => item.takeOpening, enumerable: false })
-    const tabId = openPanelItem(target, shown, { ...(from.returnTo ? { returnTo: from.returnTo } : {}), ...(from.restore ? { restore: from.restore } : {}) })
+    const tabId = openPanelItem(target, shown, { preview: !!item.itemId && from.intent === 'preview', ...(from.returnTo ? { returnTo: from.returnTo } : {}), ...(from.restore ? { restore: from.restore } : {}) })
     if (tabId) onShow?.(target, tabId)
     if (item.itemId) noteOpened(item.itemId)
   }, [onShow])
@@ -72,6 +72,7 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
   const openResolved = useCallback(
     (detail: AppOpenWithDetail, from: OpenFrom = {}) => {
       if (detail.chatId !== chatId) return
+      from = { ...from, intent: detail.intent ?? from.intent }
       if (detail.choice.kind === 'none') {
         if (isRenderableImage(detail.name, detail.file.contentType)) {
           openAttachmentImage({ kind: 'item', itemId: detail.itemId, version: detail.file.version }, detail.name, from.message ? { chatId: from.message.chat_id, messageId: from.message.id } : { chatId: detail.chatId })

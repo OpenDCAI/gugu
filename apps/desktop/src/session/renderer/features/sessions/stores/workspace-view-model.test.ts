@@ -542,7 +542,7 @@ describe('WorkspaceViewModel default conversation tab', () => {
     const panes = viewModel.paneLayout.groups.map(({ pane }) =>
       pane.resolvedTabs.map((tab) => `${tab.isActive ? '*' : ''}${tab.kind}`)
     );
-    expect(panes).toEqual([['*session', '*terminal', 'review']]);
+    expect(panes).toEqual([['*session', 'review', '*terminal']]);
     expect(viewModel.paneLayout.groups[0].pane.livePair).toMatchObject({ anchor: 'tab-chat', side: 'tab-files', sideAt: 'right' });
 
     viewModel.dispose();

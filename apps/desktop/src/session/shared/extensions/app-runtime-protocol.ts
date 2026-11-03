@@ -255,6 +255,13 @@ export function openWithTabOf(options: Record<string, unknown>): string | undefi
   return options.tab;
 }
 
+/** The host validates page input; ordinary file clicks use the existing preview slot. */
+export function openWithIntentOf(options: Record<string, unknown>): 'preview' | 'pinned' {
+  if (!Object.hasOwn(options, 'intent')) return 'preview';
+  if (options.intent !== 'preview' && options.intent !== 'pinned') throw invalidPlace('openWith intent must be preview or pinned');
+  return options.intent;
+}
+
 /** A chat's id, as getContext() and every entry carry it (`send` takes the same, app-send-core.ts). */
 const CHAT_ID =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -527,6 +534,7 @@ export type HostToFrame =
  */
 export const APP_OPEN_WITH_EVENT = 'gugu:app-open-with';
 export interface AppOpenWithDetail {
+  intent?: 'preview' | 'pinned';
   /** Refresh this already-open App tab after it was shown; never activate a late validation result. */
   background?: boolean;
   /** Host-only, one-shot authorization carried to the file's binding. Contains no document content. */

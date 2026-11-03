@@ -188,7 +188,7 @@ describe('an App opened in the group (「在本群打开」)', () => {
     expect(harness.container.querySelector('[data-app-kind]')?.getAttribute('data-app-kind')).toBe(WORKSPACE_APP_KIND)
     expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
     expect(isFolderItem(shownItem(chatId))).toBe(true)
-    expect(panelTabsOf(chatId).map((tab) => tab.tabId), 'the folder beside the chat, the calendar still a tab').toEqual([shownPanelTab(chatId)?.tabId, calendar])
+    expect(panelTabsOf(chatId).map((tab) => tab.tabId), 'the folder follows the calendar without reordering it').toEqual([calendar, shownPanelTab(chatId)?.tabId])
   })
 
   it('opens its own page here, with no file', async () => {

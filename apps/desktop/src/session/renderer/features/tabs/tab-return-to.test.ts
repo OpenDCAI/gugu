@@ -120,6 +120,19 @@ describe('tab return navigation', () => {
     expect(pane.returnToOf(child)).toEqual({ tabId: origin });
   });
 
+  it('folder redesign keeps the folder origin when a second click reaches the now-shown preview', () => {
+    const { pane, open } = setup();
+    const folder = open('folder');
+    const preview = open('a', { preview: true, returnTo: { tabId: folder } });
+    expect(open('a', { preview: false, returnTo: { tabId: preview } })).toBe(preview);
+    expect(pane.returnToOf(preview)).toEqual({ tabId: folder });
+    open('b', { preview: true, returnTo: { tabId: folder } });
+    expect(pane.entries.get(preview)?.isPreview).toBe(false);
+    pane.setActiveTab(preview);
+    pane.closeTab(preview);
+    expect(pane.activeTabId).toBe(folder);
+  });
+
   it('retargets a preview with the new resource and its own previous page', () => {
     const { pane, open } = setup();
     const first = open('first');

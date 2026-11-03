@@ -1,6 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { toast } from 'sonner';
 import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
+import type { TabReturnTo } from '@shared/view-state';
 import { closeSessionPaneTab, sessionPaneTabs } from './session-pane-tabs';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { when } from 'mobx';
@@ -116,7 +117,7 @@ type FileOpenTarget = 'active' | 'beside';
 async function openResolvedFileInPane(
   viewModel: WorkspaceViewModel,
   resolvedPath: string,
-  options: { preview: boolean; beside?: boolean; activate?: boolean; ask?: boolean; place?: { sessionId: string; at: FilePlace } }
+  options: { preview: boolean; beside?: boolean; activate?: boolean; ask?: boolean; returnTo?: TabReturnTo; place?: { sessionId: string; at: FilePlace } }
 ): Promise<string | null | undefined> {
   const opener = await pickSessionOpener(resolvedPath, options.ask === true);
   if ('cancelled' in opener) return undefined;
@@ -129,9 +130,7 @@ async function openResolvedFileInPane(
     const told = await rpc.extensions.sessionFilePlace({ sessionId: options.place.sessionId, filePath: resolvedPath, extensionId, tabKind, at: { ...options.place.at } });
     if (!told.success) throw new Error(`The place in ${resolvedPath} could not be handed to the App that opens it: ${told.error}`);
   }
-  const config = options.beside
-    ? { preview: options.preview, beside: true, ...(options.activate === false ? { activate: false } : {}) }
-    : { preview: options.preview };
+  const config = { preview: options.preview, ...(options.beside ? { beside: true } : {}), ...(options.activate === false ? { activate: false } : {}), ...(options.returnTo ? { returnTo: options.returnTo } : {}) };
 
   if (claim) {
     // Through `paneLayout`, not `activePane`: an extension tab kind is a runtime
@@ -145,7 +144,7 @@ async function openResolvedFileInPane(
   if (options.beside) {
     viewModel.paneLayout.open('file', { path: resolvedPath }, config);
   } else {
-    viewModel.activePane.open('file', { path: resolvedPath }, { preview: options.preview });
+    viewModel.activePane.open('file', { path: resolvedPath }, config);
   }
   return null;
 }
@@ -156,7 +155,8 @@ async function openSessionFile(
   rawFilePath: string,
   target: FileOpenTarget,
   at?: FilePlace,
-  ask = false
+  ask = false,
+  options?: { intent?: 'preview' | 'pinned'; returnTo?: TabReturnTo }
 ): Promise<string | null | undefined> {
   const provisioned = asProvisioned(getSessionPageStore(projectId, sessionId));
   if (!provisioned) throw new Error('This session has no prepared workspace');
@@ -190,8 +190,9 @@ async function openSessionFile(
   if (!viewModel) throw new Error('This session has no prepared pane');
 
   return openResolvedFileInPane(viewModel, resolvedPath, {
-    preview: false,
+    preview: options?.intent === 'preview',
     beside: target === 'beside',
+    ...(options?.returnTo ? { returnTo: options.returnTo } : {}),
     ...(at ? { place: { sessionId, at } } : {}),
     ...(ask ? { ask } : {}),
   });
@@ -220,9 +221,9 @@ export async function openFileInSessionEditor(
   projectId: string,
   sessionId: string,
   filePath: string,
-  opts?: { beside?: boolean; at?: FilePlace; ask?: boolean }
+  opts?: { beside?: boolean; at?: FilePlace; ask?: boolean; intent?: 'preview' | 'pinned'; returnTo?: TabReturnTo }
 ): Promise<string | null | undefined> {
-  return openSessionFile(projectId, sessionId, filePath, opts?.beside ? 'beside' : 'active', opts?.at, opts?.ask === true);
+  return openSessionFile(projectId, sessionId, filePath, opts?.beside ? 'beside' : 'active', opts?.at, opts?.ask === true, opts);
 }
 
 /**

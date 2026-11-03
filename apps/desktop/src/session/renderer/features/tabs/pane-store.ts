@@ -379,7 +379,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     return pair && this._canPair(pair.anchor, pair.side) ? pair : null;
   }
 
-  /** 一对在屏上怎么摆:前一页(左 / 上)、后一页(右 / 下)、是不是上下叠着。页签条上也按这个先后排。 */
+  /** 一对在屏上怎么摆;页签条保留自己的顺序。 */
   get pairSlots(): { first: string; second: string; vertical: boolean } | null {
     const pair = this.livePair;
     if (!pair) return null;
@@ -443,7 +443,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       return;
     }
     this.pair = { anchor: anchorId, side: tabId, sideAt: 'right', ratio: null };
-    this._placeAdjacent(this.pair);
   }
 
   /**
@@ -500,7 +499,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       if (!anchor || !this._canPair(anchor, tabId)) return false;
       this.pair = { anchor, side: tabId, sideAt: edge, ratio: null };
     }
-    this._placeAdjacent(this.pair!);
     this._acceptSplitOf(this.pair!.anchor, this.pair!.side);
     this._focus(tabId);
     return true;
@@ -527,10 +525,9 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     const other = current ? this._partnerFor(current) : undefined;
     if (!current || !other || !this._canPair(current, other)) return;
     if (!roomForTwo(this.dimensions, false)) return;
-    // 左右照页签条上的先后:靠前那枚不挪,另一枚挨过去(对话打头就还在打头、还在左边)。
+    // 手动分屏时按页签先后决定初始摆法,不移动页签。
     const otherFirst = this.tabOrder.indexOf(other) < this.tabOrder.indexOf(current);
     this.pair = { anchor: current, side: other, sideAt: otherFirst ? 'left' : 'right', ratio: null };
-    this._placeAdjacent(this.pair, otherFirst ? 'side' : 'anchor');
     this._acceptSplitOf(current, other);
   }
 
@@ -575,21 +572,12 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   }
 
   /**
-   * 另一页换成 `tabId`:只把新页挪到钉住的那页旁边,其余页签保留相对次序。
+   * 另一页换成 `tabId`:摆法和页签顺序不动。
    * 被顶下来的是瞄一眼那种就收掉 —— 瞄一眼的意思就是不留(spec session-page「并排」)。
    */
   private _replaceSide(pair: TabPair, tabId: string, closePreview = true): void {
     const old = pair.side;
-    if (this.tabOrder[0] === tabId) {
-      // 页签条打头那枚(通常是对话)不挪走:它摆到前一格(左 / 上),钉住的那页挨到它后面,被顶下来的留在原处。
-      const sideAt: PairEdge = isVerticalPairEdge(pair.sideAt) ? 'top' : 'left';
-      const next = { ...pair, side: tabId, sideAt };
-      this.pair = { ...next, ratio: this._ratioForNewSide(pair, tabId) === null ? null : ratioKeepingWidths(pair, next) };
-      this._placeAdjacent(this.pair, 'side');
-    } else {
-      this.pair = { ...pair, side: tabId, ratio: this._ratioForNewSide(pair, tabId) };
-      this._placeAdjacent(this.pair);
-    }
+    this.pair = { ...pair, side: tabId, ratio: this._ratioForNewSide(pair, tabId) };
     // 和人点 × 一样先问一句(有没存的东西会问):被否了就留成一枚普通页签,❌ 悄悄扔掉。
     if (closePreview && this.entries.get(old)?.isPreview) void this._requestClose(old, false);
   }
@@ -600,28 +588,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    */
   private _ratioForNewSide(pair: TabPair, tabId: string): number | null {
     return this._sideWidthOf(tabId) === undefined && this._sideWidthOf(pair.side) === undefined ? pair.ratio : null;
-  }
-
-  /** 一对在页签条上挨着,先后和屏上一样(左 / 上那页在前)。`keep` 那枚不动,另一枚挪到它旁边。 */
-  private _placeAdjacent(pair: TabPair, keep: 'anchor' | 'side' = 'anchor'): void {
-    const order = this._adjacentOrder(this.tabOrder, pair, keep);
-    if (order.some((id, i) => id !== this.tabOrder[i])) this.tabOrder = order;
-  }
-
-  private _adjacentOrder(current: string[], pair: TabPair, keep: 'anchor' | 'side'): string[] {
-    if (!current.includes(pair.anchor) || !current.includes(pair.side)) return current;
-    const [fixed, moving] = keep === 'anchor' ? [pair.anchor, pair.side] : [pair.side, pair.anchor];
-    const order = current.filter((id) => id !== moving);
-    const at = order.indexOf(fixed);
-    const movingFirst = sideLeads(pair.sideAt) === (keep === 'anchor');
-    order.splice(movingFirst ? at : at + 1, 0, moving);
-    return order;
-  }
-
-  /** 页签插进来可能落在一对中间:让它们重新挨着。 */
-  private _keepPairAdjacent(): void {
-    const pair = this.livePair;
-    if (pair) this._placeAdjacent(pair);
   }
 
   private _focus(id: string): void {
@@ -811,7 +777,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       if (existing) {
         if (!isPreview) existing.isPreview = false;
         if (opts?.overrideState) existing.state = initialState;
-        if (opts?.returnTo) existing.returnTo = opts.returnTo;
+        if (opts?.returnTo && opts.returnTo.tabId !== existing.tabId) existing.returnTo = opts.returnTo;
         if (activate) this.setActiveTab(existing.tabId);
         return existing.tabId;
       }
@@ -821,7 +787,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     if (isPreview) {
       const previewEntry = this._previewEntryOfKind(kind);
       if (previewEntry) {
-        this.retargetEntry(previewEntry.tabId, { state: initialState, isPreview: true, returnTo: opts?.returnTo });
+        this.retargetEntry(previewEntry.tabId, { state: initialState, isPreview: true, returnTo: opts?.returnTo?.tabId === previewEntry.tabId ? previewEntry.returnTo : opts?.returnTo });
         // 不抢的打开(开在对话旁边)也走到这里:原地换了内容,但不切过去(spec session-page「并排」)。
         if (activate) this.setActiveTab(previewEntry.tabId);
         return previewEntry.tabId;
@@ -829,9 +795,17 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     }
 
     // Fresh tab.
+    const origin = opts?.returnTo?.tabId ?? this.resolvedActiveTabId;
     const tabId = crypto.randomUUID();
     const entry = new TabEntryImpl(kind, tabId, isPreview, initialState, opts?.returnTo);
-    this._attachEntryAndInitialize(entry, { activate });
+    this._attachEntryAndInitialize(entry, { activate: false });
+    const at = origin ? this.tabOrder.indexOf(origin) : -1;
+    if (at !== -1 && this.entries.has(tabId)) {
+      const order = this.tabOrder.filter((id) => id !== tabId);
+      order.splice(at + 1, 0, tabId);
+      this.tabOrder = order;
+    }
+    if (activate && this.entries.has(tabId)) this.setActiveTab(tabId);
     return this.entries.has(tabId) ? tabId : undefined;
   }
 
@@ -886,7 +860,9 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    */
   setActiveTab(id: string): void {
     const pair = this.livePair;
-    if (pair && id !== pair.anchor && id !== pair.side && this.pairShown && !this.splitDeclinedFor(id) && this._canPair(pair.anchor, id)) {
+    const active = this.resolvedActiveTabId;
+    const conversationSelected = pair && pair.anchor === this._layoutSplitter?.pairAnchorTab?.() && (active === pair.anchor || active === pair.side);
+    if (pair && id !== pair.anchor && id !== pair.side && (this.pairShown || conversationSelected) && !this.splitDeclinedFor(id) && this._canPair(pair.anchor, id)) {
       this._replaceSide(pair, id);
     }
     this._focus(id);
@@ -902,9 +878,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     const next: TabOrderState = { tabOrder: [...this.tabOrder], activeTabId: this.activeTabId };
     if (dragged === undefined || toIndex < 0 || toIndex >= next.tabOrder.length) return next.tabOrder;
     reorderTabIds(next, fromIndex, toIndex);
-    // 一对始终挨着(照 Chrome):拖其中一枚,它落在松手处、另一枚跟过去 —— 要拆开走两枚中间那颗钮、右键「拆开」或 ⌘\。
-    const pair = this.livePair;
-    return pair ? this._adjacentOrder(next.tabOrder, pair, dragged === pair.side ? 'side' : 'anchor') : next.tabOrder;
+    return next.tabOrder;
   }
 
   setNextTabActive(): void {
@@ -1097,8 +1071,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       this.pair = pair
         ? { anchor: pair.anchorTabId, side: pair.sideTabId, sideAt: pair.sideAt ?? 'right', ratio: pair.share ?? null }
         : null;
-      // 合成一条页签条的旧存档里,两格屏上那两页不一定挨着:读回来就让它们挨着(一对在页签条上始终连着)。
-      if (this.pair) this._placeAdjacent(this.pair);
       // 10-28 之前存的是一个不分类型的 splitDeclined:来源混着(多半是从前的「最大化」和浮出会话留下的),直接不读。
       this.splitDeclinedKinds.clear();
       for (const kind of Array.isArray(snapshot.splitDeclinedKinds) ? snapshot.splitDeclinedKinds : []) {
@@ -1153,7 +1125,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     } else {
       this.tabOrder.splice(insertIdx, 0, entry.tabId);
     }
-    this._keepPairAdjacent();
     if (opts?.activate ?? false) this.setActiveTab(entry.tabId);
   }
 
@@ -1203,7 +1174,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     this._resources.set(entry.tabId, resource);
     const insertAt = Math.min(index, this.tabOrder.length);
     this.tabOrder.splice(insertAt, 0, entry.tabId);
-    this._keepPairAdjacent();
     this.setActiveTab(entry.tabId);
   }
 
@@ -1243,7 +1213,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     const returnId = entry.returnTo?.tabId;
     if (returnId && returnId !== id && this.entries.has(returnId) && this.shownTabIds.includes(id)) {
       const pair = this.livePair;
-      if (pair && this.pairShown && returnId !== pair.anchor && returnId !== pair.side && this._canPair(pair.anchor, returnId)) {
+      if (pair && (this.pairShown || pair.anchor === this._layoutSplitter?.pairAnchorTab?.()) && returnId !== pair.anchor && returnId !== pair.side && this._canPair(pair.anchor, returnId)) {
         // As when selecting the previous page; this close already owns the outgoing preview's disposal.
         this._replaceSide(pair, returnId, false);
       }

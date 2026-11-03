@@ -1336,9 +1336,9 @@ const offline = (entry) => entry.storedOn?.online === false && !entry.keep
 
 // A press on a file: the host picks the App that opens it and says why if it cannot now. Whether the machine that keeps
 // it is on is read afresh then, never from the list as it was loaded: the list is read again to show it.
-function openFile(entry) {
+function openFile(entry, intent = 'preview') {
   if (entry.storedOn) void refreshList()
-  return openInHost(entry)
+  return openInHost(entry, false, intent)
 }
 
 // A cloud copy kept for a while (entry.keep.expiresAt): how long it has left, faint (owner 10-28) — the day it goes on hover.
@@ -1662,9 +1662,9 @@ async function copyLink(entry, at) {
 // claim in the chat, or the person's "always use it" (真源 §2.6). When that is this App (.md, plain .json)
 // the host hands the file back as context.file and applyContext opens it; nothing opens inline on a click.
 // `ask`: "Open with another App" — the host's picker, every App that opens this file, this one included.
-async function openInHost(entry, ask = false) {
+async function openInHost(entry, ask = false, intent = 'preview') {
   try {
-    await (ask ? gugu.files.openWith(entry, { ask: true }) : gugu.files.openWith(entry))
+    await gugu.files.openWith(entry, { intent, ...(ask ? { ask: true } : {}) })
   } catch (error) {
     showBanner(fmt(state.t.failed, { e: error.message }), 'error')
   }
@@ -2769,7 +2769,7 @@ function pressFile(entry, event) {
   if (event?.shiftKey) return pick(entry.id, 'range')
   if (event?.ctrlKey || event?.metaKey || state.picked.size || state.selecting) return pick(entry.id, 'toggle')
   state.pickFrom = entry.id
-  return openFile(entry)
+  return openFile(entry, event?.detail >= 2 ? 'pinned' : 'preview')
 }
 
 function pick(id, how) {

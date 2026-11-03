@@ -183,6 +183,25 @@ describe('message attachment entry', () => {
     expect(restore).toHaveBeenCalledTimes(1)
   })
 
+  it('replaces a folder preview but keeps the same file after an explicit pin', async () => {
+    const chatId = 'folder-preview-intent'
+    const folder = openPanelItem(chatId, folderItem())!
+    await harness.render(chatTabs({ chatId }))
+    const open = (itemId: string, intent: 'preview' | 'pinned') => ask(chatId, {
+      itemId, fromPage: true,
+      opener: { chatId, itemId, name: `${itemId}.pdf`, typedName: `${itemId}.pdf`, choice: { kind: 'one', candidate: pdf }, intent } as never,
+    })
+    open('first', 'preview')
+    open('second', 'preview')
+    expect(panelTabsOf(chatId).map(tab => tab.item.itemId ?? 'folder')).toEqual(['folder', 'second'])
+    const second = shownPanelTab(chatId)!.tabId
+    open('second', 'pinned')
+    open('third', 'preview')
+    expect(panelTabsOf(chatId).map(tab => tab.item.itemId ?? 'folder')).toEqual(['folder', 'second', 'third'])
+    expect(chatLayoutOf(chatId).groups[0]!.pane.entries.get(second)?.isPreview).toBe(false)
+    expect(panelTabsOf(chatId).some(tab => tab.tabId === folder)).toBe(true)
+  })
+
   it('the host preview also closes a message attachment instead of showing the folder', async () => {
     const chatId = 'message-raw'
     const restore = vi.fn()

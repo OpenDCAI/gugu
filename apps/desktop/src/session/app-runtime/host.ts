@@ -67,7 +67,7 @@ export interface GuguHost extends ProjectionHost {
     /** Bytes the caller has, or (no `files`) the person's picker — which only a page has, inside a gesture. */
     upload(args: { place: AppPlace; files?: AppFileUpload[]; sourceMessageIds?: string[]; folder?: string; keep?: string }): Promise<AppFileEntry[]>;
     /** The gesture halves: a page's only (`VerbFacts.only`) — a background page and a program have none. */
-    openWith?(args: { ref: AppFileRef; ask?: boolean; at?: Record<string, string>; peek?: boolean; tab?: string }): Promise<void>;
+    openWith?(args: { ref: AppFileRef; ask?: boolean; at?: Record<string, string>; peek?: boolean; tab?: string; intent?: 'preview' | 'pinned' }): Promise<void>;
     /** One file (`true` saved), or several (API 20: how many were saved; `0` when the person cancelled). */
     download?(args: { ref: AppFileRef } | { refs: AppFileRef[] }): Promise<boolean | number>;
     forward?(args: { refs: AppFileRef[] }): Promise<void>;

@@ -51,7 +51,7 @@ export type ExtensionHostAction =
   | { kind: 'showMessage'; detail: AppShowMessageDetail }
   | { kind: 'openWith'; detail: AppOpenWithDetail }
   /** A session's working-copy file (`files.openWith`): opened in that session's pane as a click there opens it. */
-  | { kind: 'openSessionFile'; sessionId: string; projectId: string | null; deviceId: string | null; path: string; ask: boolean }
+  | { kind: 'openSessionFile'; sessionId: string; projectId: string | null; deviceId: string | null; path: string; ask: boolean; intent?: 'preview' | 'pinned' }
   /** `files.forward`: the window's forward page for chat files (ChatFileForwardHost). */
   | { kind: 'forwardFiles'; detail: AppForwardFilesDetail }
   /** G1 Beside the page that asked, in its own slot (the origin's): the page stays as it is. */
@@ -62,7 +62,7 @@ export type ExtensionHostAction =
   /** An install could not give the chat it was asked for (main's own, no page asks it): the window says so, with the App's page. */
   | { kind: 'notGivenAt'; extensionId: string; chat: { id: string; name: string } }
   /** A banner's click naming a chat's file: opened in its chat, as a link to it is. */
-  | { kind: 'openChatFile'; chatId: string; itemId: string; onlyIfOpen?: string }
+  | { kind: 'openChatFile'; chatId: string; itemId: string; onlyIfOpen?: string; intent?: 'preview' | 'pinned' }
   /** 论坛 (9): the window draws the points sheet (posting a bounty, settling one) and does it if the person confirms. */
   | { kind: 'forumConsent'; detail: AppForumConsentDetail };
 

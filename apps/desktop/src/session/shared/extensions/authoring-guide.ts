@@ -584,7 +584,8 @@ Each call names a file: an entry, \`ctx.file\`, or \`{ chat | workspace, name }\
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
 - A working copy lists one folder: \`gugu.files.list({ workspace, folder })\` (\`''\` top). Non-documents: \`f.read(offset, length)\`, \`f.blob()\`.
 - \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A working copy (\`folder\`: below it only): \`{ kind: 'changes', changes }\` or \`resync\`.
-- \`gugu.files.openWith(entry)\` (click/key): specific claim or "always use"; \`{ ask: true }\`: pick among all.
+- \`gugu.files.openWith(entry)\`: claim or "always use"; \`{ ask: true }\`: pick among all.
+  Default \`intent: 'preview'\`; double-click: \`intent: 'pinned'\`.
   \`{ at }\`: opener's \`link\` place. Unclaimed: preview, or details/download. \`{ peek: true }\`: beside this page
   (always for project files). Gone/unreadable: \`not-found\`.
 - \`gugu.files.openWith(entry, { tab: 'explore' })\`: your own tab claiming the chat file in \`opensFiles.chat\`;

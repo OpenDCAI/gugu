@@ -241,7 +241,7 @@ describe('workspace App as a file manager: the host picks the App', () => {
     gugu.files.openWith.mockClear()
     clickFile('photo')
     await vi.waitFor(() => expect(gugu.files.openWith).toHaveBeenCalledTimes(1))
-    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'photo' }))
+    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'photo' }), { intent: 'preview' })
     expect(app().shown).toBe(null)
     expect(document.body.classList.contains('show-doc')).toBe(false)
   })
@@ -251,7 +251,7 @@ describe('workspace App as a file manager: the host picks the App', () => {
     gugu.files.open.mockClear()
     clickFile('plan')
     await vi.waitFor(() => expect(gugu.files.openWith).toHaveBeenCalledTimes(1))
-    expect(gugu.files.openWith.mock.calls[0]).toEqual([expect.objectContaining({ id: 'plan' })]) // no ask: the host decides
+    expect(gugu.files.openWith.mock.calls[0]).toEqual([expect.objectContaining({ id: 'plan' }), { intent: 'preview' }]) // no ask: the host decides
     await Promise.resolve()
     expect(gugu.files.open, '对照:以前这一下是自己用编辑器打开').not.toHaveBeenCalled()
     expect(app().shown).toBe(null)
@@ -271,7 +271,7 @@ describe('workspace App as a file manager: the host picks the App', () => {
     expect(target.getAttribute('aria-expanded')).toBe('false')
     expect(document.activeElement, 'and back on the ⋯').toBe(target)
     await vi.waitFor(() => expect(gugu.files.openWith).toHaveBeenCalledTimes(1))
-    expect(gugu.files.openWith.mock.calls[0]).toEqual([expect.objectContaining({ id: 'cfg' }), { ask: true }])
+    expect(gugu.files.openWith.mock.calls[0]).toEqual([expect.objectContaining({ id: 'cfg' }), { ask: true, intent: 'preview' }])
   })
 
   test('F2 edits the focused row and Delete still asks, while read-only keyboard actions do not write', async () => {

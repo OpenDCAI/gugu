@@ -26,6 +26,102 @@ function provider(kind: string, mount: 'single' | 'multi' = 'multi') {
 
 const ctx = { viewId: 's1', projectId: 'p1', workspaceId: 'w1', sessionId: 's1', modelRootPath: 'workspace:w1' };
 
+describe('folder redesign keeps tab order independent of paired pages', () => {
+  it('pairing existing pages does not reorder the strip', () => {
+    const { layout, pane, chatTabId, idOf, strip } = setup();
+    layout.open('page', { id: 'folder' });
+    layout.open('term', { id: 'terminal' });
+    layout.open('file', { id: 'README.md' });
+    const before = strip();
+    pane.pairWith(chatTabId, idOf('file', 'README.md')!);
+    expect(strip()).toEqual(before);
+  });
+
+  it('selecting another existing tab replaces the right page without moving tabs', () => {
+    const { layout, pane, idOf, strip, shown } = setup();
+    layout.open('file', { id: 'README.md' }, { beside: true });
+    layout.open('file', { id: 'config.json' }, { beside: true });
+    const before = strip();
+    pane.setActiveTab(idOf('file', 'README.md')!);
+    expect(shown()).toEqual(['chat:conv', 'file:README.md']);
+    expect(strip()).toEqual(before);
+  });
+
+  it('inserts a new page immediately after its origin and leaves existing tabs in order', () => {
+    const { layout, idOf, strip } = setup();
+    layout.open('page', { id: 'folder' });
+    const folder = idOf('page', 'folder')!;
+    layout.open('term', { id: 'terminal' });
+    layout.open('file', { id: 'README.md' }, { returnTo: { tabId: folder } });
+    expect(strip()).toEqual(['chat:conv', 'page:folder', 'file:README.md', 'term:terminal']);
+  });
+
+  it('restores the saved strip order without moving a saved pair together', () => {
+    const { layout, pane, chatTabId, idOf, strip } = setup();
+    layout.open('page', { id: 'folder' });
+    layout.open('file', { id: 'README.md' });
+    const before = strip();
+    pane.restoreSnapshot({ ...pane.snapshot, pair: { anchorTabId: chatTabId, sideTabId: idOf('file', 'README.md')! } });
+    expect(strip()).toEqual(before);
+  });
+
+  it('updates the selected right page in a narrow window and restores it on widening', () => {
+    const { layout, pane, idOf, shown, strip } = setup();
+    layout.open('file', { id: 'README.md' }, { beside: true });
+    layout.open('file', { id: 'config.json' }, { beside: true });
+    const before = strip();
+    pane.setDimensions(300, 600);
+    pane.setActiveTab(idOf('file', 'README.md')!);
+    expect(shown()).toEqual(['file:README.md']);
+    pane.setDimensions(900, 600);
+    expect(shown()).toEqual(['chat:conv', 'file:README.md']);
+    expect(strip()).toEqual(before);
+  });
+
+  it('replaces a file preview and returns to its pinned folder when closed', () => {
+    const { layout, pane, idOf, shown } = setup();
+    layout.open('page', { id: 'folder' }, { beside: true });
+    const folder = idOf('page', 'folder')!;
+    for (const id of ['README.md', 'config.json', 'notes.txt']) {
+      layout.open('file', { id }, { beside: true, preview: true, returnTo: { tabId: folder } });
+      expect(pane.entries.get(folder)?.isPreview).toBe(false);
+    }
+    expect(pane.tabOrder).toHaveLength(3);
+    const preview = idOf('file', 'notes.txt')!;
+    expect(pane.entries.get(preview)?.isPreview).toBe(true);
+    pane.closeTab(preview);
+    expect(shown()).toEqual(['chat:conv', 'page:folder']);
+  });
+
+  it('keeps a pinned file while replacing a later preview and reuses the existing file', () => {
+    const { layout, pane, idOf } = setup();
+    layout.open('page', { id: 'folder' }, { beside: true });
+    const folder = idOf('page', 'folder')!;
+    layout.open('file', { id: 'README.md' }, { beside: true, preview: true, returnTo: { tabId: folder } });
+    const readme = idOf('file', 'README.md')!;
+    pane.pin(readme);
+    layout.open('file', { id: 'config.json' }, { beside: true, preview: true, returnTo: { tabId: folder } });
+    const preview = idOf('file', 'config.json')!;
+    const before = [...pane.tabOrder];
+    layout.open('file', { id: 'README.md' }, { beside: true, preview: true, returnTo: { tabId: folder } });
+    expect(idOf('file', 'README.md')).toBe(readme);
+    expect(pane.entries.get(readme)?.isPreview).toBe(false);
+    expect(pane.tabOrder).toEqual(before.filter((id) => id !== preview));
+  });
+
+  it('returns a narrow preview to the folder and keeps that right page on widening', () => {
+    const { layout, pane, idOf, shown } = setup();
+    layout.open('page', { id: 'folder' }, { beside: true });
+    const folder = idOf('page', 'folder')!;
+    layout.open('file', { id: 'README.md' }, { beside: true, preview: true, returnTo: { tabId: folder } });
+    pane.setDimensions(300, 600);
+    pane.closeTab(idOf('file', 'README.md')!);
+    expect(shown()).toEqual(['page:folder']);
+    pane.setDimensions(900, 600);
+    expect(shown()).toEqual(['chat:conv', 'page:folder']);
+  });
+});
+
 function setup() {
   const registry = createTabRegistry([
     provider('chat', 'single'),
@@ -74,7 +170,7 @@ describe('并排:agent 打开的开在对话右边', () => {
     expect(strip()).toEqual(['chat:conv', 'page:docs', 'file:a.ts']);
     pane.setActiveTab(idOf('file', 'a.ts')!);
     expect(shown()).toEqual(['chat:conv', 'file:a.ts']);
-    expect(strip()).toEqual(['chat:conv', 'file:a.ts', 'page:docs']);
+    expect(strip()).toEqual(['chat:conv', 'page:docs', 'file:a.ts']);
   });
 
   it('瞄一眼打开的被顶下来直接收掉,❌ 留一枚页签', () => {
@@ -157,14 +253,16 @@ describe('并排:agent 打开的开在对话右边', () => {
     expect(shown()).toEqual(['chat:conv', 'file:a.ts']);
   });
 
-  it('太窄时点别的页签:屏上只有一页,照旧换成它,一对不变', () => {
+  it('太窄时点别的页签:显示所选页,拉宽后保留新选的另一页', () => {
     const { layout, pane, idOf, shown } = setup();
     layout.open('term', { id: 't1' }, { activate: false });
     layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
     pane.setDimensions(300, 600);
     pane.setActiveTab(idOf('term', 't1')!);
     expect(shown()).toEqual(['term:t1']);
-    expect(pane.livePair?.side).toBe(idOf('file', 'a.ts'));
+    expect(pane.livePair?.side).toBe(idOf('term', 't1'));
+    pane.setDimensions(900, 600);
+    expect(shown()).toEqual(['chat:conv', 'term:t1']);
   });
 
   it('同一页已经开着:请到右边,❌ 新开一枚', () => {
@@ -211,13 +309,13 @@ describe('并排:agent 打开的开在对话右边', () => {
     expect(pane.activeTabId).toBe(chatTabId);
   });
 
-  it('拖动页签:一对始终挨着', () => {
+  it('拖动页签只移动被拖动的一枚,并排位置保持不变', () => {
     const { layout, pane, strip } = setup();
     layout.open('term', { id: 't1' }, { activate: false });
     layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
     expect(strip()).toEqual(['chat:conv', 'file:a.ts', 'term:t1']);
     pane.reorderTabs(0, 2);
-    expect(strip()).toEqual(['term:t1', 'chat:conv', 'file:a.ts']);
+    expect(strip()).toEqual(['file:a.ts', 'term:t1', 'chat:conv']);
   });
 
   it('存下来、读回来还是那一对', () => {
@@ -379,7 +477,7 @@ describe('并排:手动分屏、拆开', () => {
     expect(pane.activeTabId).toBe(idOf('term', 't1'));
   });
 
-  it.each(['right', 'left', 'top', 'bottom'] as const)('replacing the %s side only inserts the incoming tab; the outgoing tab keeps its neighbors', (edge) => {
+  it.each(['right', 'left', 'top', 'bottom'] as const)('replacing the %s side preserves the complete strip order', (edge) => {
     const { layout, pane, idOf } = single();
     for (const id of ['anchor', 'old', 'between', 'incoming', 'last']) layout.open('term', { id }, { activate: false });
     const anchor = idOf('term', 'anchor')!, old = idOf('term', 'old')!, incoming = idOf('term', 'incoming')!;
@@ -388,7 +486,7 @@ describe('并排:手动分屏、拆开', () => {
     const before = [...pane.tabOrder];
     pane.setActiveTab(incoming);
     expect(pane.tabOrder.filter((id) => id !== incoming)).toEqual(before.filter((id) => id !== incoming));
-    expect(Math.abs(pane.tabOrder.indexOf(incoming) - pane.tabOrder.indexOf(anchor))).toBe(1);
+    expect(pane.tabOrder).toEqual(before);
     expect(pane.livePair?.side).toBe(incoming);
     const replaced = [...pane.tabOrder];
     pane.setActiveTab(old);
@@ -408,7 +506,7 @@ describe('并排:手动分屏、拆开', () => {
     expect(pane.tabOrder.filter((id) => id !== added)).toEqual(before.filter((id) => id !== middle));
   });
 
-  it('drag previews use the final pair-aware insertion without mutating the stored order', () => {
+  it('drag previews move only the dragged tab without mutating the stored order', () => {
     const { layout, pane, idOf } = single();
     for (const id of ['old', 'middle', 'last']) layout.open('term', { id }, { activate: false });
     pane.splitBeside(idOf('term', 'old')!, 'right');
@@ -418,7 +516,7 @@ describe('并排:手动分屏、拆开', () => {
     expect(preview).not.toEqual(before);
     pane.reorderTabs(1, 3);
     expect(pane.tabOrder).toEqual(preview);
-    expect(pane.tabOrder.slice(-2)).toEqual(before.slice(0, 2));
+    expect(pane.tabOrder).toEqual([before[0], before[2], before[3], before[1]]);
   });
 
   it('同一种页签也能并排:两个文件', () => {
@@ -429,7 +527,7 @@ describe('并排:手动分屏、拆开', () => {
     expect(shown()).toEqual(['file:a.ts', 'file:b.ts']);
   });
 
-  it('向下分 = 上下叠着;拖到左边 / 上边 = 摆在那一边,页签条上的先后跟着屏上', () => {
+  it('手动改并排位置不改变页签条顺序', () => {
     const { layout, pane, idOf, shown, strip } = single();
     layout.open('term', { id: 't1' }, { activate: false });
     pane.setActiveTab(pane.tabOrder[0]);
@@ -439,8 +537,8 @@ describe('并排:手动分屏、拆开', () => {
     pane.splitBeside(idOf('term', 't1')!, 'left');
     expect(pane.pairSlots?.vertical).toBe(false);
     expect(shown()).toEqual(['term:t1', 'chat:conv']);
-    expect(strip()).toEqual(['term:t1', 'chat:conv']);
-    expect(pane.resolvedTabs.map((t) => t.pairRole)).toEqual(['start', 'end']);
+    expect(strip()).toEqual(['chat:conv', 'term:t1']);
+    expect(pane.resolvedTabs.map((t) => t.pairRole)).toEqual(['end', 'start']);
   });
 
   it('拖到内容区的边上 = 在那一边并排(会话那一格不变成两格)', () => {
@@ -605,7 +703,7 @@ describe('并排:手动分屏、拆开', () => {
     } as never);
     expect(layout.groups).toHaveLength(1);
     const pane = layout.groups[0].pane;
-    expect(pane.tabOrder).toEqual(['c', 'p', 't']);
+    expect(pane.tabOrder).toEqual(['c', 't', 'p']);
     expect(pane.livePair).toEqual({ anchor: 'c', side: 'p', sideAt: 'bottom', ratio: null });
     expect(pane.activeTabId).toBe('p');
   });
@@ -620,10 +718,10 @@ describe('并排:手动分屏、拆开', () => {
     expect(shown()).toEqual(['page:docs', 'chat:conv']);
     expect(pane.livePair).toMatchObject({ anchor: chatTabId, side: idOf('page', 'docs'), ratio: 0.7 });
     // 被顶下来的退成普通页签,❌ 和对话连成一对。
-    expect(strip()).toEqual(['file:a.ts', 'page:docs', 'chat:conv']);
+    expect(strip()).toEqual(['chat:conv', 'page:docs', 'file:a.ts']);
   });
 
-  it('点页签条打头的对话:它还在打头、摆到左边,钉住的那页挨在后面,两页宽窄照旧', () => {
+  it('手动并排后选择对话也不自动交换两边,宽度和页签顺序不变', () => {
     const { layout, pane, chatTabId, idOf, shown, strip } = single();
     layout.open('term', { id: 't1' });
     layout.open('page', { id: 'docs' }, { preview: false, activate: false });
@@ -632,11 +730,11 @@ describe('并排:手动分屏、拆开', () => {
     expect(strip()).toEqual(['chat:conv', 'term:t1', 'page:docs']);
     pane.setActiveTab(chatTabId);
     expect(strip()).toEqual(['chat:conv', 'term:t1', 'page:docs']);
-    expect(shown()).toEqual(['chat:conv', 'term:t1']);
-    expect(pane.livePair?.ratio).toBeCloseTo(0.3);
+    expect(shown()).toEqual(['term:t1', 'chat:conv']);
+    expect(pane.livePair?.ratio).toBeCloseTo(0.7);
   });
 
-  it('task and group layouts keep a refocused first conversation pinned by the same pairing rule', () => {
+  it('task and group layouts preserve the same manually chosen sides and strip order', () => {
     const outputs = (['session', 'chat'] as const).map((host) => {
       const conversation = host === 'session' ? 'acp-chat' : 'chat';
       const view = createTabView([provider(conversation, 'single'), provider('term', 'single')]);
@@ -651,24 +749,24 @@ describe('并排:手动分屏、拆开', () => {
       layout.setPairAnchor(() => ({ paneId: layout.groups[0].paneId, tabId: idOf('Conversation') }));
       pane.setActiveTab(idOf('Anchor'));
       pane.splitBeside(idOf('Y'), 'right');
-      expect(labels()).toEqual(['Conversation', 'X', 'Anchor', 'Y']);
+      expect(labels()).toEqual(['Conversation', 'Y', 'Anchor', 'X']);
       pane.setActiveTab(idOf('Conversation'));
       const output = { order: labels(), sideAt: pane.livePair?.sideAt, ratio: pane.livePair?.ratio };
       layout.dispose();
       return output;
     });
     expect(outputs[0]).toEqual(outputs[1]);
-    expect(outputs[0]).toEqual({ order: ['Conversation', 'Anchor', 'X', 'Y'], sideAt: 'left', ratio: null });
+    expect(outputs[0]).toEqual({ order: ['Conversation', 'Y', 'Anchor', 'X'], sideAt: 'right', ratio: null });
   });
 
-  it('拖一对里的一枚:它落在松手处,另一枚跟过去,❌ 弹回原处', () => {
+  it('拖一对里的一枚不移动其余页签', () => {
     const { layout, pane, idOf, strip } = single();
     layout.open('term', { id: 't1' }, { activate: false });
     layout.open('page', { id: 'docs' }, { activate: false });
     layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
-    expect(strip()).toEqual(['chat:conv', 'file:a.ts', 'term:t1', 'page:docs']);
+    expect(strip()).toEqual(['chat:conv', 'file:a.ts', 'page:docs', 'term:t1']);
     pane.reorderTabs(pane.tabOrder.indexOf(idOf('file', 'a.ts')!), 3);
-    expect(strip()).toEqual(['term:t1', 'page:docs', 'chat:conv', 'file:a.ts']);
+    expect(strip()).toEqual(['chat:conv', 'page:docs', 'term:t1', 'file:a.ts']);
   });
 
   it('换摆法、前一格换了一页:两页宽窄照旧', () => {
@@ -690,14 +788,14 @@ describe('并排:手动分屏、拆开', () => {
     expect(shown()).toEqual(['chat:conv', 'term:t1']);
   });
 
-  it('重开关掉的页签落在一对中间:一对重新挨着', () => {
+  it('重开关掉的页签恢复原位置,不把一对挪在一起', () => {
     const { layout, pane, idOf, strip } = single();
     layout.open('term', { id: 't1' }, { activate: false });
     pane.closeTab(idOf('term', 't1')!);
     layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
     pane.setDimensions(300, 900);
     pane.reopenClosedTab();
-    expect(strip()).toEqual(['chat:conv', 'file:a.ts', 'term:t1']);
+    expect(strip()).toEqual(['chat:conv', 'term:t1', 'file:a.ts']);
   });
 
   it('两个文件并排:「屏上那个文件」是点着的那一边', () => {

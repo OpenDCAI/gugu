@@ -27,6 +27,7 @@ import {
   SYNC_PORT_WINDOW_MESSAGE,
   fileRefOf,
   openWithTabOf,
+  openWithIntentOf,
   fileSearchOf,
   isWorkspace,
   sessionWorkspace,
@@ -683,6 +684,7 @@ export function hostAppFrame(
       }
       case 'filesOpenWith': {
         const tab = openWithTabOf(args)
+        const intent = openWithIntentOf(args)
         const ref = fileRefOf(args.ref)
         if (isWorkspace(ref)) {
           if (tab !== undefined) refused('invalid', 'openWith tab is only available for chat files')
@@ -708,8 +710,8 @@ export function hostAppFrame(
           const place = placeFor(choice, args.at)
           if (place) holdPlaceForOpeningPage(target.chatId, target.itemId, place.candidate, place.at)
           // Beside the page: a file nobody here opens shows in the host's preview there.
-          if (args.peek === true) return peek({ kind: 'chat', detail: { ...target, choice } })
-          hooks.openWith({ ...target, choice })
+          if (args.peek === true) return peek({ kind: 'chat', detail: { ...target, choice, intent } })
+          hooks.openWith({ ...target, choice, intent })
         })
       }
       case 'filesOpen':

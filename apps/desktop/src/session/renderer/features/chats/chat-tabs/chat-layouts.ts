@@ -176,11 +176,11 @@ export function returnToOf(chatId: string, tabId: string): string | null {
 export const openPanelItem = action(function openPanelItem(
   chatId: string,
   item: PanelItem,
-  opts?: { returnTo?: string; restore?: () => void },
+  opts?: { returnTo?: string; restore?: () => void; preview?: boolean },
 ): string | undefined {
   const layout = chatLayoutOf(chatId);
   if (opts?.restore) keepRestore(chatId, item, opts.restore);
-  layout.open(CHAT_PANEL_TAB_KIND, item, { beside: true, overrideState: true, ...(opts?.returnTo ? { returnTo: { tabId: opts.returnTo } } : {}) });
+  layout.open(CHAT_PANEL_TAB_KIND, item, { beside: true, preview: opts?.preview, overrideState: true, ...(opts?.returnTo ? { returnTo: { tabId: opts.returnTo } } : {}) });
   const pane = paneOf(layout);
   return pane.findSingleMountEntry(CHAT_PANEL_TAB_KIND, panelItemKey(item))?.tabId;
 });

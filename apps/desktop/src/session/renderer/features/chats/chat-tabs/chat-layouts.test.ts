@@ -54,12 +54,28 @@ describe('a chat has its own tab first, and nothing else until something is open
 });
 
 describe('opening beside the chat', () => {
-  it('pairs with the chat; opening another takes the pair next to the chat (Chrome Swap), the one before stays a tab', () => {
+  it.each(['dm-folder-preview', 'group-folder-preview'])('folder redesign replaces only a preview and retains a double-click pinned file (%s)', (chatId) => {
+    const folder = openPanelItem(chatId, folderItem())!;
+    const first = openPanelItem(chatId, file('first'), { returnTo: folder, preview: true })!;
+    expect(pane(chatId).entries.get(first)?.isPreview).toBe(true);
+    const pinned = openPanelItem(chatId, file('first'), { returnTo: folder, preview: false })!;
+    expect(pinned).toBe(first);
+    openPanelItem(chatId, file('second'), { returnTo: folder, preview: true });
+    const third = openPanelItem(chatId, file('third'), { returnTo: folder, preview: true })!;
+    expect(pane(chatId).entries.get(pinned)?.isPreview).toBe(false);
+    expect(kinds(chatId)).toContain('first');
+    expect(kinds(chatId)).not.toContain('second');
+    closeChatTab(chatId, third);
+    expect(shownPanelTab(chatId)?.tabId).toBe(folder);
+    expect(pane(chatId).entries.has(pinned)).toBe(true);
+  });
+
+  it('pairs with the chat; another page opens after its origin without moving existing tabs', () => {
     openPanelItem('beside-1', board);
     expect(chatAlone('beside-1')).toBe(false);
     expect(shownPanelTab('beside-1')?.item).toMatchObject(board);
     openPanelItem('beside-1', deck);
-    expect(kinds('beside-1'), 'the pair sits together: the new one beside the chat, the one it replaced where the new one was').toEqual(['deck', 'kanban.board']);
+    expect(kinds('beside-1'), 'the old tab remains in place').toEqual(['kanban.board', 'deck']);
     expect(shownPanelTab('beside-1')?.item.itemId).toBe('deck');
     expect(panelTabsOf('beside-1').find((tab) => tab.item.kind === 'kanban.board')?.shown).toBe(false);
   });
@@ -78,7 +94,7 @@ describe('opening beside the chat', () => {
     openPanelItem('beside-3', { kind: 'kanban.board', itemId: 'B', title: '协作看板' });
     expect(panelTabsOf('beside-3')).toHaveLength(1);
     openPanelItem('beside-3', { kind: 'workspace.file', itemId: 'B', title: '协作看板.board' });
-    expect(panelTabsOf('beside-3').map((tab) => tab.item.kind)).toEqual(['workspace.file', 'kanban.board']);
+    expect(panelTabsOf('beside-3').map((tab) => tab.item.kind)).toEqual(['kanban.board', 'workspace.file']);
   });
 
   it('the folder is a tab only once it is opened, opened again it is the same one, and its × lets it go', () => {

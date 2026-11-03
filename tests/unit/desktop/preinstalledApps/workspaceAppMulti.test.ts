@@ -130,7 +130,7 @@ describe('picking', () => {
 
   test('single click still opens; the desktop has no per-row overflow button', () => {
     open('a')
-    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'a' }))
+    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'a' }), { intent: 'preview' })
     expect(picked()).toEqual([])
     expect(document.querySelector('.row-more')).toBe(null)
   })
@@ -163,7 +163,7 @@ describe('picking', () => {
     expect(picked()).toEqual([])
     expect($('select-files').getAttribute('aria-pressed')).toBe('false')
     open('a')
-    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'a' }))
+    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'a' }), { intent: 'preview' })
   })
 
   test('the wide header selects all, reports a partial selection, and clears all', () => {
