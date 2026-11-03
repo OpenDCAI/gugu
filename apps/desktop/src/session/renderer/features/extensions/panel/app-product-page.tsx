@@ -50,6 +50,7 @@ import {
   type CloudMarketEntryMeta,
   type MarketSourceRef,
   type MarketVersionHistoryEntry,
+  marketCompatText,
 } from '@shared/extensions/market';
 import { describeCapability, programDetails, type SessionTranslate } from '../extension-consent';
 import type { ExtensionsApi } from '../extensions-host';
@@ -777,9 +778,7 @@ export function AppProductPage({
       {/* 装不上 / 停止维护 / 这一版被撤回:一句话,带它的下一步。 */}
       {compat ? (
         <div className="mk-banner is-warn">
-          {compat.reason === 'needs-newer-app'
-            ? translate('extensions.needsNewerApp', { version: compat.minAppVersion })
-            : translate('extensions.needsAuthorUpdate')}
+          {marketCompatText(compat, translate)}
         </div>
       ) : cloud?.newerNeedsApp ? (
         // 给出的这一版装得了,只是还有更新的一版这台咕咕装不了:说出那一版,❌ 藏起来(market.ts `newerNeedsApp`)。
@@ -1002,9 +1001,7 @@ function VersionHistoryRow({
   const compatReason = entry.platformRefusal
     ? translate('extensions.platformVersionUnavailable')
     : entry.compat
-    ? entry.compat.reason === 'needs-newer-app'
-      ? translate('extensions.needsNewerApp', { version: entry.compat.minAppVersion })
-      : translate('extensions.needsAuthorUpdate')
+    ? marketCompatText(entry.compat, translate)
     : null;
   const firstLine = (entry.releaseNotes.split(/\r?\n/).find((line) => line.trim() !== '') ?? '')
     .trim()

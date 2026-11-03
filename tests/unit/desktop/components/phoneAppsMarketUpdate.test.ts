@@ -225,7 +225,7 @@ describe('「App」 on the phone: a market App’s versions and its 「自动更
   const doc = () => harness.container.ownerDocument
   const versionRow = (version: string) => doc().querySelector(`[data-testid="settings-apps-version-${version}"]`)
   const history = [
-    { version: '1.2.0', publishedAt: '2026-10-18T00:00:00Z', releaseNotes: 'Needs more', apiVersion: 4, minAppVersion: '9.0.0', yanked: null, compat: { reason: 'needs-newer-app', minAppVersion: '9.0.0' } },
+    { version: '1.2.0', publishedAt: '2026-10-18T00:00:00Z', releaseNotes: 'Needs more', apiVersion: 4, minAppVersion: '9.0.0', yanked: null, compat: { reason: 'needs-newer-app', gate: 'app', minAppVersion: '9.0.0' } },
     { version: '1.1.0', publishedAt: '2026-10-17T00:00:00Z', releaseNotes: '- Faster', apiVersion: 4, minAppVersion: '0.1.0', yanked: null, compat: null },
     { version: '1.0.0', publishedAt: '2026-10-16T00:00:00Z', releaseNotes: 'First', apiVersion: 4, minAppVersion: '0.1.0', yanked: null, compat: null },
     { version: '0.9.0', publishedAt: '2026-10-15T00:00:00Z', releaseNotes: 'Old', apiVersion: 4, minAppVersion: '0.1.0', yanked: { reason: 'broke' }, compat: null },
