@@ -11,7 +11,7 @@ beforeEach(() => {
   state.single.mockImplementation(async () => ({data:{kind:state.kind},error:state.readError})); state.rpc.mockImplementation(async () => state.reply);
 });
 it('uses the personal DM RPC and never the group archive path', async () => {
-  await deleteListedConversation('dm');
+  expect(await deleteListedConversation('dm')).toEqual({chat_id:'dm',deleted_at:'2026-11-03T03:48:01Z'});
   expect(state.rpc).toHaveBeenCalledExactlyOnceWith('delete_my_dm_conversation',{p_chat_id:'dm'});
   expect(state.archive).not.toHaveBeenCalled();
 });

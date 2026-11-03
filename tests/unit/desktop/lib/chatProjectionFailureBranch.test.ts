@@ -109,6 +109,31 @@ describe('chat projection 失败支 —— 一波失败 ⇒ 账本一行 ok:fals
     expect(cold.isConversationDeleted(chatId(0))).toBe(true)
     expect(seats).toHaveLength(2)
   })
+  it('consumes the local receipt before a paused revision, including cached and older reads, without revoking membership', async () => {
+    seedWorld(2)
+    const signal = new AbortController().signal
+    const projection = createChatProjection(VIEWER)
+    expect(await projection.hydrate('0', signal)).toHaveLength(2)
+    const beforeReplay = calls.length
+    const receipt = { chat_id: chatId(0), deleted_at: '2026-11-03T03:48:01Z' }
+    projection.confirmPersonalDeletion(receipt)
+    expect(await projection.hydrate('0', signal)).toHaveLength(1)
+    expect(calls).toHaveLength(beforeReplay) // The exact same-cursor path that previously resurrected the DM.
+    expect(projection.isMembershipRevoked(chatId(0))).toBe(false)
+    expect(projection.isConversationDeleted(chatId(0))).toBe(true)
+    expect(await projection.hydrate('1', signal)).toHaveLength(1) // Membership read is still the older server value.
+    const otherAccount = createChatProjection('another-owner')
+    expect(otherAccount.isConversationDeleted(chatId(0))).toBe(false)
+    const seats = rowsByKey.get('active_members') as Record<string, unknown>[]
+    seats[0]!.conversation_deleted_at = receipt.deleted_at
+    expect(await projection.advance([{revision:'2',event:'chat_members_changed',chatId:chatId(0),entityId:VIEWER}], '2', signal)).toHaveLength(1)
+    projection.confirmPersonalDeletion(receipt)
+    expect(await projection.hydrate('2', signal)).toHaveLength(1)
+    expect(projection.isMembershipRevoked(chatId(0))).toBe(false)
+    expect(seats).toHaveLength(2)
+    projection.reset()
+    expect(projection.isConversationDeleted(chatId(0))).toBe(false)
+  })
   it('阳控:一波里**一发**失败 ⇒ hydrate 响亮抛出,账本恰**一行** ok:false(不是每发一行)', async () => {
     const total = 150
     const batches = Math.ceil(total / FAMILY_BATCH_KEYS.chat)

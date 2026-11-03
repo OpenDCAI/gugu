@@ -9,6 +9,7 @@ import { isChatOnScreen } from '../lib/onScreenChat'
 import { rendererLogger } from '../lib/log'
 import { chatPreviewText } from '../lib/agentTurnFailure'
 import type { AccountImRepository } from '../lib/imRepository'
+import type { PersonalConversationDeletion } from '../lib/deleteListedConversation'
 import { currentAuthSessionSignal } from '../lib/authSessionLoss'
 import {
   createChatProjection, readProjectionCursor,
@@ -69,11 +70,13 @@ export async function applyFetchedChatList(
   if (revokeMissingActive && activeChatId) ledger.forgetChat(activeChatId)
   const merged = mergeFetchedChatsPreservingActiveLocal([...fetched], currentChats.filter(chat => !isConversationDeleted?.(chat.id)), activeChatId,
     { preserveMissingActive: !revokeMissingActive })
-  await publishChatSnapshot(repository, merged.filter((chat) => ids.has(chat.id)), identities)
-  const missing = ledger.missingFrom(merged)
+  await publishChatSnapshot(repository, merged.filter((chat) => ids.has(chat.id)), identities, isConversationDeleted)
+  if (isConversationDeleted) ledger.forgetDeleted(isConversationDeleted)
+  const visible = merged.filter(chat => !isConversationDeleted?.(chat.id))
+  const missing = ledger.missingFrom(visible)
   // 结构共享:没变的会话行沿用内存里那一版对象。投影每批都重拼全部行,不共享的话一条新消息
   // 就让当前会话 activeChat 换身份,聊天面板里以它为依赖的派生全部重算、每条气泡的 memo 随之失效。
-  return replaceEqualDeep(currentChats as ChatItem[], missing.length > 0 ? [...missing, ...merged] : merged)
+  return replaceEqualDeep(currentChats as ChatItem[], missing.length > 0 ? [...missing, ...visible] : visible)
 }
 
 /** 刷新带回的新消息通知扇出：与列表状态机无关的纯副作用（#1757 逐域抽取）。 */
@@ -149,6 +152,17 @@ export function useChatProjectionBinding(deps: {
 
   const identities = useCallback((accountId: string) => ownerFor(accountId).identities(), [ownerFor])
 
+  const confirmPersonalDeletion = useCallback(async (accountId: string, receipt: PersonalConversationDeletion): Promise<boolean> => {
+    const binding = ownerRef.current
+    if (!binding || binding.accountId !== accountId) return false
+    binding.owner.confirmPersonalDeletion(receipt) // Synchronous, before any older result can publish.
+    ledger.forgetChat(receipt.chat_id)
+    const repository = await getRepository()
+    if (ownerRef.current !== binding || repository.accountId !== accountId) return false
+    await repository.transaction(transaction => transaction.delete('chat', [accountId, receipt.chat_id]))
+    return ownerRef.current === binding
+  }, [getRepository, ledger])
+
   const attach = useCallback((accountId: string, subscribe: ChatProjectionAttachment['subscribe']) => {
     const owner = ownerFor(accountId)
     return owner.attach({
@@ -164,5 +178,5 @@ export function useChatProjectionBinding(deps: {
 
   // ⚠️ 必须**稳定**:返回新字面量 ⇒ 依赖它的 effect 与 useCallback 每渲染都重建 ⇒ 订阅/渲染循环
   // (实测:第一版返回字面量,chatSelectionIntent4314 直接跑到 heap OOM)。
-  return useMemo(() => ({ hydrate, identities, publish, attach, hasDeletedConversation }), [hydrate, identities, publish, attach, hasDeletedConversation])
+  return useMemo(() => ({ hydrate, identities, publish, attach, hasDeletedConversation, confirmPersonalDeletion }), [hydrate, identities, publish, attach, hasDeletedConversation, confirmPersonalDeletion])
 }

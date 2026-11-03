@@ -880,8 +880,8 @@ export const chatService = {
   },
 
   /** Delete this owner's DM list entry, or archive a group using its management authority. */
-  async archiveChat(chatId: string): Promise<void> {
-    await deleteListedConversation(chatId)
+  async archiveChat(chatId: string) {
+    return deleteListedConversation(chatId)
   },
 
   /**

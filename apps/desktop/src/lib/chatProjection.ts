@@ -79,6 +79,8 @@ export type ChatProjectionLedgerEntry = {
 }
 
 export type ChatProjection = {
+  /** RPC receipt has no revision stamp; retain this monotonic list fact until account reset. */
+  confirmPersonalDeletion: (receipt: import('./deleteListedConversation').PersonalConversationDeletion) => void
   /**
    * 冷启快照:一次「哪些会话属于我」的读 → 键集合 → **与增量同一套**族读与 assemble ⇒ 2 波。
    * 没有第二条拉取路(I7),也没有第二份装配逻辑。
@@ -158,6 +160,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
   let cache: ProjectionCache = new Map()
   let planner: PlannerState = EMPTY_PLANNER
   let rows: ChatItem[] = []
+  const confirmedDeletions = new Map<string, string>()
   const ledger: ChatProjectionLedgerEntry[] = []
   // 调度:`open` = 已折进、还没开跑的那一批(开跑即关批);`inflight` = 在跑/已排队那次的结果;
   // `tail` 把推进串行化(并发推进会让同一个键被两发,违 I2)且永不 reject —— 它只承载次序。
@@ -381,7 +384,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
   }
 
   const republish = (): ChatItem[] => {
-    rows = assemble(cache, viewerId)
+    rows = assemble(cache, viewerId).filter(row => !confirmedDeletions.has(row.id))
     return rows
   }
 
@@ -460,6 +463,10 @@ export function createChatProjection(viewerId: string): ChatProjection {
   }
 
   const owner: ChatProjection = {
+    confirmPersonalDeletion({ chat_id, deleted_at }) {
+      confirmedDeletions.set(chat_id, deleted_at)
+      republish()
+    },
     async hydrate(cursor, signal) {
       assertRevision(cursor, 'projection cursor')
       // 同一游标上已经有完整快照 ⇒ 这是一次重放,一发都不打(spec I3:重放不是无害,是免费)。
@@ -499,6 +506,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
       return !!cell && cell.value === null
     },
     isConversationDeleted(chatId) {
+      if (confirmedDeletions.has(chatId)) return true
       const cell = cache.get(entityKey('membership', membershipId(chatId, viewerId)))
       return !!cell?.value && typeof (cell.value as { conversation_deleted_at?: unknown }).conversation_deleted_at === 'string'
     },
@@ -511,6 +519,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
       })
     },
     reset() {
+      confirmedDeletions.clear()
       cache = new Map()
       planner = EMPTY_PLANNER
       rows = []
