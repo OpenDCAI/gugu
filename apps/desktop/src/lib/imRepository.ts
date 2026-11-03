@@ -30,6 +30,8 @@ import {
 
 type EntityValue = Record<string, unknown>
 const repositoryLog = rendererLogger('im/repository')
+export const CHAT_MEMBERSHIP_REVISION_PREFIX = 'chat-membership-revision:'
+export type ChatMembershipRevision = { revision: string; left: boolean; revokedThrough: string | null }
 
 export type IdentityRow = LocalImRow & { id: string; value: DisplayIdentity }
 export type ChatRow = LocalImRow & { id: string; order: number; value: ChatItem }
@@ -305,7 +307,10 @@ function createTransaction(accountId: string, operations: LocalImDbOperation[], 
       if (!identity.removed_at && removed.has(identity.id)) return
       put('identity', { accountId, id: identity.id, value: identity })
     },
-    putChat: (id, value, order = 0) => put('chat', { accountId, id: nonEmpty(id, 'chat.id'), order, value }),
+    putChat: (id, value, order = 0) => {
+      if ((readView(`${CHAT_MEMBERSHIP_REVISION_PREFIX}${id}`) as ChatMembershipRevision | undefined)?.left) return
+      put('chat', { accountId, id: nonEmpty(id, 'chat.id'), order, value })
+    },
     putMembership: (chatId, identityId, value) => put('membership', {
       accountId,
       chatId: nonEmpty(chatId, 'membership.chatId'),
@@ -314,7 +319,8 @@ function createTransaction(accountId: string, operations: LocalImDbOperation[], 
     }),
     putMessage(value) {
       const version = readView(`message-revision:${value.id}`) as { deleted?: boolean } | undefined
-      if (version?.deleted) return
+      const membership = readView(`${CHAT_MEMBERSHIP_REVISION_PREFIX}${value.chat_id}`) as ChatMembershipRevision | undefined
+      if (version?.deleted || membership?.left) return
       const chatId = nonEmpty(value.chat_id, 'message.chatId')
       const root = value.thread_root_id ?? null
       const streamId = messageStreamId(value)
@@ -329,13 +335,10 @@ function createTransaction(accountId: string, operations: LocalImDbOperation[], 
       claims.push(claim)
       return claim
     },
-    putStream: (id, chatId, kind, rootMessageId = null) => put('stream', {
-      accountId,
-      id: nonEmpty(id, 'stream.id'),
-      chatId: nonEmpty(chatId, 'stream.chatId'),
-      kind,
-      rootMessageId,
-    }),
+    putStream: (id, chatId, kind, rootMessageId = null) => {
+      if ((readView(`${CHAT_MEMBERSHIP_REVISION_PREFIX}${chatId}`) as ChatMembershipRevision | undefined)?.left) return
+      put('stream', { accountId, id: nonEmpty(id, 'stream.id'), chatId: nonEmpty(chatId, 'stream.chatId'), kind, rootMessageId })
+    },
     putPresence: (identityId, value) => put('presence', {
       accountId,
       identityId: nonEmpty(identityId, 'presence.identityId'),
@@ -399,6 +402,8 @@ export interface CachedMessageWindow {
 /** Called by the revision handler inside the existing inbox/cursor transaction. */
 export function ingestAccountMessage(repository: AccountImRepository, transaction: ImRepositoryTransaction,
   message: MessageItem, revision: string): { won: boolean } {
+  const membership = transaction.readView(`${CHAT_MEMBERSHIP_REVISION_PREFIX}${message.chat_id}`) as ChatMembershipRevision | undefined
+  if (membership?.left || (membership?.revokedThrough && BigInt(revision) <= BigInt(membership.revokedThrough))) return { won: false }
   const snapshot = repository.snapshot()
   const versionKey = `message-revision:${message.id}`
   const version = transaction.readView(versionKey) as { revision: string; deleted?: boolean } | undefined
@@ -429,6 +434,7 @@ export async function replaceMessageWindow(
   verifiedTailSeq?: number | null,
 ): Promise<void> {
   await repository.transaction((transaction) => {
+    if ((transaction.readView(`${CHAT_MEMBERSHIP_REVISION_PREFIX}${chatId}`) as ChatMembershipRevision | undefined)?.left) return
     const deleted = new Set(repository.snapshot().view.filter(row => row.key.startsWith('message-revision:')
       && (row.value as { deleted?: boolean }).deleted).map(row => row.key.slice('message-revision:'.length)))
     const fetched = messages.filter((message) => message.chat_id === chatId && message.seq >= 0 && !deleted.has(message.id))
@@ -688,6 +694,23 @@ function applyOperations(
       rows.set(key, structuredClone(operation.value))
       changed.add(operation.store)
       effective.push({ ...operation, value: rows.get(key)! })
+      // A membership tombstone also removes rows staged earlier in this page,
+      // before a later rejoin can admit new messages. All deletes share this commit.
+      if (operation.store === 'view' && typeof operation.value.key === 'string'
+        && operation.value.key.startsWith(CHAT_MEMBERSHIP_REVISION_PREFIX)
+        && (operation.value.value as ChatMembershipRevision).left) {
+        const chatId = operation.value.key.slice(CHAT_MEMBERSHIP_REVISION_PREFIX.length)
+        for (const store of ['chat', 'message', 'stream', 'view'] as const) {
+          for (const [rowKey, row] of rowsOf(store)) {
+            const matches = store === 'chat' ? row.id === chatId
+              : store === 'view' ? row.key === `message-window:${chatId}` : row.chatId === chatId
+            if (!matches) continue
+            rowsOf(store).delete(rowKey)
+            changed.add(store)
+            effective.push({ type: 'delete', store, key: keyForRow(store, row) })
+          }
+        }
+      }
     } else if (rows.delete(key)) {
       changed.add(operation.store)
       effective.push(operation)

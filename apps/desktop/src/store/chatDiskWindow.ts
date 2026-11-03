@@ -1,6 +1,6 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
-import { readMessageWindow, type AccountImRepository } from '../lib/imRepository'
+import { CHAT_MEMBERSHIP_REVISION_PREFIX, readMessageWindow, type AccountImRepository } from '../lib/imRepository'
 import { trimToMessageWindow } from './chatMessageWindow'
 import type { ChatWindowCache } from './chatWindowCache'
 
@@ -12,7 +12,14 @@ export function bindRepositoryMessageCache(repository: AccountImRepository, cach
       for (const row of previous.chat) if (!snapshot.chat.some(chat => chat.id === row.id)) cache.delete(row.id)
     }
     const messagesChanged = previous?.message !== snapshot.message
+    const viewsChanged = previous?.view !== snapshot.view
     previous = snapshot
+    if (!messagesChanged && !viewsChanged) return
+    for (const row of snapshot.view) {
+      if (row.key.startsWith(CHAT_MEMBERSHIP_REVISION_PREFIX) && (row.value as { left?: boolean }).left) {
+        cache.delete(row.key.slice(CHAT_MEMBERSHIP_REVISION_PREFIX.length))
+      }
+    }
     if (!messagesChanged) return
     const deleted = new Set(snapshot.view.filter(row => row.key.startsWith('message-revision:')
       && (row.value as { deleted?: boolean }).deleted).map(row => row.key.slice('message-revision:'.length)))

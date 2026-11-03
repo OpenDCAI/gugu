@@ -6,7 +6,7 @@ import {
   type AccountRevisionRuntime,
   type AccountRevisionSource,
 } from './accountRevisionRuntime'
-import { ingestAccountMessage, imSelectors, type AccountImRepository, type ImRepositoryTransaction } from './imRepository'
+import { CHAT_MEMBERSHIP_REVISION_PREFIX, ingestAccountMessage, imSelectors, type AccountImRepository, type ChatMembershipRevision, type ImRepositoryTransaction } from './imRepository'
 import { rendererLogger } from './log'
 
 const coordinatorLog = rendererLogger('chat/account-revision')
@@ -247,11 +247,13 @@ export function createAccountRevisionCoordinator(
       }
       if (messages && event === 'chat_members_changed') {
         const member = readMemberRosterRevision(operation.payload)
-        if (member.left && member.memberId === accountId) {
-          transaction.delete('chat', [accountId, member.chatId])
-          for (const row of repository.snapshot().message) if (row.chatId === member.chatId) transaction.delete('message', [accountId, row.id])
-          for (const row of repository.snapshot().stream) if (row.chatId === member.chatId) transaction.delete('stream', [accountId, row.id])
-          transaction.delete('view', [accountId, `message-window:${member.chatId}`])
+        if (member.memberId === accountId) {
+          const key = `${CHAT_MEMBERSHIP_REVISION_PREFIX}${member.chatId}`
+          const previous = transaction.readView(key) as ChatMembershipRevision | undefined
+          if (!previous || BigInt(previous.revision) < BigInt(operation.revision)) {
+            transaction.putView(key, { revision: operation.revision, left: member.left,
+              revokedThrough: member.left ? operation.revision : previous?.revokedThrough ?? null } satisfies ChatMembershipRevision)
+          }
         }
       }
       transaction.putView(operationKey(operation.revision), messages && event === 'message_created'

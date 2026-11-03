@@ -13,6 +13,9 @@ const row = (id: string, seq = 1) => message({ id, seq, chat_id: 'room', sender_
 const arrival = (revision: string, id: string, body: unknown = row(id)): AccountRevisionOperation => ({
   revision, event: 'message_created', payload: { chat_id: 'room', entity_id: id, message: body },
 })
+const membership = (revision: string, left: boolean, userId = 'viewer'): AccountRevisionOperation => ({
+  revision, event: 'chat_members_changed', payload: { chat_id: 'room', user_id: userId, kind: 'roster', tombstone: left },
+})
 async function rig(initial: AccountRevisionOperation[] = [], recover = vi.fn(async (_id: string) => null as ReturnType<typeof message> | null)) {
   const repository = await openImRepository('viewer', { adapter: createMemoryLocalSyncDb() })
   await repository.transaction(tx => tx.putSyncState('account-revision-cursor', { revision: '0' }))
@@ -137,4 +140,86 @@ it('bounds a whole arrival batch and marks its unverified range sparse instead o
   const window = readMessageWindow(r.repository, 'room')!
   expect(window.messages).toHaveLength(120)
   expect(window).toMatchObject({ sparse: true, oldestSeq: 51, maxSeq: 170 })
+})
+
+it('membership revocation invalidates a successful body recovery that was already in flight', async () => {
+  const body = deferred<ReturnType<typeof message> | null>()
+  const r = await rig([], vi.fn(() => body.promise))
+  const cache = new ChatWindowCache('viewer')
+  stops.push(bindRepositoryMessageCache(r.repository, cache))
+  await r.repository.transaction(tx => tx.putChat('room', chat({ id: 'room' })))
+  const pending = r.send(arrival('1', 'late-before-leave', null))
+  await vi.waitFor(() => expect(r.recover).toHaveBeenCalledWith('late-before-leave'))
+  const leaving = r.send(membership('2', true))
+  await vi.waitFor(() => expect(r.repository.snapshot().sync_state.find(row => row.key === 'account-revision-cursor')!.value).toEqual({ revision: '2' }))
+  expect(r.repository.snapshot().chat).toEqual([])
+  body.resolve(row('late-before-leave'))
+  await Promise.all([pending, leaving])
+  expect(r.repository.snapshot().message).toEqual([])
+  expect(r.repository.snapshot().stream).toEqual([])
+  expect(readMessageWindow(r.repository, 'room')).toBeNull()
+  expect(cache.rows('room')).toEqual([])
+  expect(r.notify).not.toHaveBeenCalled()
+})
+
+it('membership revocation removes a message staged earlier in the same revision page', async () => {
+  const r = await rig()
+  const cache = new ChatWindowCache('viewer')
+  stops.push(bindRepositoryMessageCache(r.repository, cache))
+  await r.repository.transaction(tx => tx.putChat('room', chat({ id: 'room' })))
+  await r.send(arrival('1', 'staged-before-leave'), membership('2', true))
+  expect(r.repository.snapshot().message).toEqual([])
+  expect(r.repository.snapshot().stream).toEqual([])
+  expect(readMessageWindow(r.repository, 'room')).toBeNull()
+  expect(cache.rows('room')).toEqual([])
+  expect(r.notify).not.toHaveBeenCalled()
+})
+
+it('membership rejoin admits new messages without reviving a pre-revocation recovery', async () => {
+  const body = deferred<ReturnType<typeof message> | null>()
+  const r = await rig([], vi.fn(() => body.promise))
+  const cache = new ChatWindowCache('viewer')
+  stops.push(bindRepositoryMessageCache(r.repository, cache))
+  const pending = r.send(arrival('1', 'old-membership', null))
+  await vi.waitFor(() => expect(r.recover).toHaveBeenCalledWith('old-membership'))
+  const rejoining = r.send(membership('2', true), membership('3', false), arrival('4', 'new-membership', row('new-membership', 2)))
+  await vi.waitFor(() => expect(r.repository.snapshot().sync_state.find(row => row.key === 'account-revision-cursor')!.value).toEqual({ revision: '4' }))
+  body.resolve(row('old-membership'))
+  await Promise.all([pending, rejoining])
+  expect(r.repository.snapshot().message.map(message => message.id)).toEqual(['new-membership'])
+  expect(cache.rows('room').map(message => message.id)).toEqual(['new-membership'])
+  expect(r.notify.mock.calls.map(([message]) => message.id)).toEqual(['new-membership'])
+})
+
+it('membership revocation clears an arrival cached before chat metadata and rejects a late window', async () => {
+  const r = await rig()
+  const cache = new ChatWindowCache('viewer')
+  stops.push(bindRepositoryMessageCache(r.repository, cache))
+  await r.send(arrival('1', 'early-body'))
+  expect(r.repository.snapshot().chat).toEqual([])
+  expect(cache.rows('room').map(message => message.id)).toEqual(['early-body'])
+  r.notify.mockClear()
+  await r.send(membership('2', true))
+  expect(cache.rows('room')).toEqual([])
+  await replaceMessageWindow(r.repository, 'room', [row('early-body')])
+  expect(r.repository.snapshot().message).toEqual([])
+  expect(readMessageWindow(r.repository, 'room')).toBeNull()
+  expect(cache.rows('room')).toEqual([])
+  expect(r.notify).not.toHaveBeenCalled()
+})
+
+it('membership rejoin permits a new body and notification after the revoked interval', async () => {
+  const r = await rig()
+  await r.send(membership('1', true), membership('2', false))
+  await r.repository.transaction(tx => tx.putChat('room', chat({ id: 'room' })))
+  await r.send(arrival('3', 'after-rejoin'))
+  expect(readMessageWindow(r.repository, 'room')!.messages.map(message => message.id)).toEqual(['after-rejoin'])
+  expect(r.notify.mock.calls.map(([message]) => message.id)).toEqual(['after-rejoin'])
+})
+
+it('membership changes for another member do not revoke this account or suppress its messages', async () => {
+  const r = await rig()
+  await r.send(membership('1', true, 'peer'), arrival('2', 'still-authorized'))
+  expect(r.repository.snapshot().message.map(message => message.id)).toEqual(['still-authorized'])
+  expect(r.notify.mock.calls.map(([message]) => message.id)).toEqual(['still-authorized'])
 })
