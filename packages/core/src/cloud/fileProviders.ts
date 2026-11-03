@@ -5,9 +5,10 @@ import type { FileChunkCache } from '../shared/fileCache'
 import { attachmentRequest, type AttachmentsEndpoint } from './attachmentsApi'
 import { withBoundedOperation } from './boundedOperation'
 import { anySignal } from '../shared/anySignal'
+import { isDownloadConnectionError, retryFileDownload } from './fileDownloadRetry'
 
 export type { FileChunkCache } from '../shared/fileCache'
-type Download = { status: string; code?: string; url: string; expires_at?: string; thumb_url?: string | null; download_id: string; key?: string; codec?: string; sha256: string | null; size_bytes: number; ciphertext_bytes?: number; ciphertext_sha256?: string; bucket_id?: string; object_name?: string; message_id?: string }
+type Download = { status: string; code?: string; url: string; expires_at?: string; origin_url?: string; origin_expires_at?: string; thumb_url?: string | null; download_id: string; key?: string; codec?: string; sha256: string | null; size_bytes: number; ciphertext_bytes?: number; ciphertext_sha256?: string; bucket_id?: string; object_name?: string; message_id?: string }
 const missingObject = (row: { status: string; code?: string }) => row.status === 'missing' && row.code === 'object_not_found'
 const hex = (bytes: Uint8Array) => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
 const cacheKey = (context: FileContext, digest: string) => hex(sha256(new TextEncoder().encode(JSON.stringify([context.actor, fileRefKey(context.ref), digest]))))
@@ -16,47 +17,53 @@ const sameLegacyObject = (revision: FileRevision, row: { bucket_id?: string; obj
 // An unhashed historical object cannot authenticate persistent cached chunks between opens.
 const uncached: FileChunkCache = { get: async () => null, put: async () => {}, clear: async () => {} }
 
-/** One GET continues after URL expiry. A later open replays cached chunks and ranges only the missing suffix. */
-function remoteSource(size: number, key: string, cache: FileChunkCache, sign: () => Promise<Download>, fetcher: typeof fetch, signal?: AbortSignal) {
+/** Retain verified chunks; reconnect only the incomplete chunk, with the signer's authorized origin fallback. */
+function remoteSource(size: number, key: string, cache: FileChunkCache, sign: (renew?: boolean) => Promise<Download>, fetcher: typeof fetch, signal?: AbortSignal) {
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined, buffered: Uint8Array = new Uint8Array(), next = -1, interrupted = false
-  let last: { index: number; bytes: Uint8Array } | undefined
-  const receive = async () => {
-    try { return await reader!.read() } catch (error) { interrupted = true; throw error }
-  }
+  let last: { index: number; bytes: Uint8Array } | undefined, lease: Download | undefined, origin = false, renewed = false
+  const target = () => ({ stage: origin && lease?.origin_url || lease?.bucket_id === 'temporary' ? 'oss' as const : 'cdn' as const, url: origin && lease?.origin_url ? lease.origin_url : lease!.url })
+  const reset = async () => { await reader?.cancel().catch(() => undefined); reader = undefined; buffered = new Uint8Array() }
   const chunk = async (index: number): Promise<Uint8Array> => {
     signal?.throwIfAborted()
     const offset = index * FILE_CHUNK_BYTES, length = Math.min(FILE_CHUNK_BYTES, size - offset)
-    // Cipher frames may revisit the current network chunk; downloads keep only that chunk in memory.
     if (last?.index === index) return last.bytes
     const hit = await cache.get(key, index)
     if (hit && hit.length !== length) throw new Error('Invalid cached file chunk')
     if (hit && (!reader || index < next)) return hit
-    if (!reader) {
-      const lease = await sign()
-      let response: Response
-      try { response = await fetcher(lease.url, { signal, headers: offset ? { Range: `bytes=${offset}-` } : {} }) }
-      catch (error) { interrupted = true; throw error }
-      if (response.status !== (offset ? 206 : 200) || !response.body || offset && response.headers.get('content-range') !== `bytes ${offset}-${size - 1}/${size}`) {
-        await response.body?.cancel(); throw new Error(`Invalid file range response (HTTP ${response.status})`)
-      }
-      reader = response.body.getReader(); next = index
-    }
-    if (index !== next) throw new Error('File transfer must continue from its cached prefix')
-    const bytes = new Uint8Array(length)
-    for (let filled = 0; filled < length;) {
-      if (!buffered.length) {
-        const received = await receive()
-        if (received.done) throw new Error('Truncated file response')
-        buffered = received.value
-      }
-      const take = Math.min(buffered.length, length - filled)
-      bytes.set(buffered.subarray(0, take), filled); buffered = buffered.subarray(take); filled += take
-    }
-    if (offset + length === size && (buffered.length || !(await receive()).done)) throw new Error('File response has extra bytes')
-    await cache.put(key, index, bytes); next++; last = { index, bytes }
-    return bytes
+    try { lease ??= await sign() } catch (error) { interrupted = isDownloadConnectionError(error); throw error }
+    return retryFileDownload(target, async () => {
+      try {
+        if (!reader) {
+          let response = await fetcher(target().url, { signal, headers: offset ? { Range: `bytes=${offset}-` } : {} })
+          const expires = Date.parse(origin && lease!.origin_url ? lease!.origin_expires_at ?? lease!.expires_at ?? '' : lease!.expires_at ?? '')
+          // A valid capability's 403 is a refusal. Only an actually expired lease may be renewed, once per read.
+          if (response.status === 403 && !renewed && Number.isFinite(expires) && expires <= Date.now()) {
+            await response.body?.cancel(); renewed = true; lease = await sign(true)
+            response = await fetcher(target().url, { signal, headers: offset ? { Range: `bytes=${offset}-` } : {} })
+          }
+          if (response.status !== (offset ? 206 : 200) || !response.body || offset && response.headers.get('content-range') !== `bytes ${offset}-${size - 1}/${size}`) {
+            await response.body?.cancel(); throw new Error(`Invalid file range response (HTTP ${response.status})`)
+          }
+          reader = response.body.getReader(); next = index
+        }
+        if (index !== next) throw new Error('File transfer must continue from its cached prefix')
+        const bytes = new Uint8Array(length)
+        for (let filled = 0; filled < length;) {
+          if (!buffered.length) {
+            const received = await reader.read()
+            if (received.done) throw new Error('Truncated file response')
+            buffered = received.value
+          }
+          const take = Math.min(buffered.length, length - filled)
+          bytes.set(buffered.subarray(0, take), filled); buffered = buffered.subarray(take); filled += take
+        }
+        if (offset + length === size && (buffered.length || !(await reader.read()).done)) throw new Error('File response has extra bytes')
+        await cache.put(key, index, bytes); next++; last = { index, bytes }; interrupted = false
+        return bytes
+      } catch (error) { interrupted = isDownloadConnectionError(error); throw error }
+    }, signal, async () => { await reset(); if (lease?.origin_url) origin = true })
   }
-  return { size, interrupted: () => interrupted, async dispose() { await reader?.cancel().catch(() => undefined) }, async read(offset: number, length: number) {
+  return { size, interrupted: () => interrupted, dispose: reset, async read(offset: number, length: number) {
     requireFileRange(size, offset, length)
     if (!size) await chunk(0)
     const bytes = new Uint8Array(length)
@@ -79,7 +86,7 @@ export function cloudFileProviders(deps: {
 }): Pick<FileProviders, 'metadata' | 'managed' | 'temporary' | 'preview' | 'download'> {
   const request = async (context: FileContext, route: string, body: Record<string, unknown>) => {
     const endpoint = await deps.endpoint(context)
-    return attachmentRequest({ ...endpoint, fetch: (url, init) => (endpoint.fetch ?? fetch)(url, { ...init, signal: context.signal }) }, route, body)
+    return attachmentRequest(endpoint, route, body, context.signal)
   }
   const objectFetch = async (context: FileContext, url: RequestInfo | URL, init?: RequestInit) =>
     (deps.fetch ?? (await deps.endpoint(context)).fetch ?? fetch)(url, init)
@@ -102,13 +109,15 @@ export function cloudFileProviders(deps: {
       const row = await request(context, 'file-download', { ref, as: context.actor.actorId, request_id: crypto.randomUUID() }) as Download
       if (missingObject(row)) throw new MissingFileObjectError()
       if (row.status !== 'ready' || typeof row.url !== 'string' || row.size_bytes !== (encrypted ? ciphertextSize(revision.size_bytes) : revision.size_bytes) || row.sha256 !== revision.sha256 || !sameLegacyObject(revision, row) ||
-        encrypted && (row.ciphertext_bytes !== row.size_bytes || row.codec !== 'secretstream-v1' || !row.key || !/^[0-9a-f]{64}$/.test(row.ciphertext_sha256 ?? ''))) throw new Error('File download commitment changed')
+        row.origin_url !== undefined && typeof row.origin_url !== 'string' ||
+        encrypted && (row.ciphertext_bytes !== row.size_bytes || row.codec !== 'secretstream-v1' || !row.key || !/^[0-9a-f]{64}$/.test(row.ciphertext_sha256 ?? '') ||
+          lease && (row.ciphertext_sha256 !== lease.ciphertext_sha256 || row.key !== lease.key))) throw new Error('File download commitment changed')
       return lease = row
     }
     // A key still requires the current download ACL, even if every ciphertext chunk is cached.
     if (encrypted) await sign()
     const digest = encrypted ? lease!.ciphertext_sha256! : revision.sha256, key = cacheKey(context, digest ?? crypto.randomUUID())
-    const source = remoteSource(encrypted ? ciphertextSize(revision.size_bytes) : revision.size_bytes, key, destination || revision.legacy_object ? uncached : deps.cache, async () => lease ?? await sign(), (url, init) => objectFetch(context, url, init), context.signal)
+    const source = remoteSource(encrypted ? ciphertextSize(revision.size_bytes) : revision.size_bytes, key, destination || revision.legacy_object ? uncached : deps.cache, async renew => renew ? sign() : lease ?? await sign(), (url, init) => objectFetch(context, url, init), context.signal)
     let dataKey: Uint8Array | undefined
     let sink: FileSink | undefined
     try {
