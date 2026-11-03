@@ -20,10 +20,10 @@ const { getImRepositoryMock, TOPICS, pinPrefs } = vi.hoisted(() => ({
 
 vi.mock('../../../../apps/desktop/src/platform', () => import('../../../support/capacitorPlatformTestDouble'))
 vi.mock('../../../../apps/desktop/src/lib/chatPinSettings', () => ({
-  readChatPinSettings: vi.fn(async () => ({ appIds: [], topicIds: [...pinPrefs.ids] })),
+  readChatPinSettings: vi.fn(async () => ({ topicIds: [...pinPrefs.ids] })),
   setChatPinPreference: vi.fn(),
+  watchChatPinSettings: () => () => {},
 }))
-vi.mock('../../../../apps/desktop/src/lib/chatAppPins', () => ({ watchChatAppPins: () => () => {} }))
 // A closing panel retained for its exit animation must not count as an open panel.
 vi.mock('framer-motion', async (importOriginal) => ({
   ...await importOriginal<typeof import('framer-motion')>(),
@@ -142,7 +142,7 @@ describe('shared group topic tabs (#446, #837)', () => {
   it.each([false, true])('hides the strip without pins even when topics exist (mobile=%s)', async (mobile) => {
     pinPrefs.ids = []
     await render('g1', mobile)
-    await vi.waitFor(() => expect(queryClient.getQueryData(['chat-pins', 'user-1', 'g1'])).toEqual({ appIds: [], topicIds: [] }))
+    await vi.waitFor(() => expect(queryClient.getQueryData(['chat-pins', 'user-1', 'g1'])).toEqual({ topicIds: [] }))
     expect(q('[data-testid="phone-chat-tabs"]')).toBeNull()
   })
 

@@ -8,8 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
 import { ChatHeaderActions } from '../../../../../apps/desktop/src/components/chat/ChatHeaderActions'
 
-vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
-vi.mock('@/lib/chatPinSettings', () => ({ readChatPinSettings: async () => ({ appIds: [], topicIds: [] }), setChatPinPreference: vi.fn() }))
+vi.mock('@/lib/chatPinSettings', () => ({ readChatPinSettings: async () => ({ topicIds: [] }), setChatPinPreference: vi.fn(), watchChatPinSettings: () => () => {} }))
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
@@ -42,23 +41,26 @@ const onHeader = () => [...harness.container.querySelectorAll<HTMLElement>('butt
 const inMenu = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((el) => el.textContent)
 
 describe('a group header in a narrow tab strip', () => {
-  it('narrow: Apps, search and the folder fold into ⋯; members and ⋯ stay on the header', async () => {
+  it('narrow: Topics stays by members; Apps, search and the folder are in More', async () => {
     await renderHeader({ narrow: true, showHeaderMenu: true })
-    expect(onHeader()).not.toContain('群 Apps')
+    expect(onHeader()).not.toContain('群应用')
     expect(onHeader()).not.toContain('在对话中搜索')
     expect(onHeader()).not.toContain('群文件夹')
     expect(onHeader()).toContain('成员列表')
+    expect(onHeader()).toContain('话题')
     expect(onHeader()).toContain('更多操作')
-    expect(inMenu()).toEqual(expect.arrayContaining(['在对话中搜索', '群文件夹', '群 Apps']))
+    expect(inMenu()).toEqual(expect.arrayContaining(['搜索聊天记录⌘F', '群文件夹', '群应用']))
   })
 
-  it('wide: they stay on the header; the strip narrowing later folds them, widening brings them back', async () => {
+  it('wide: Apps returns as the strip widens; search and folder stay inside More', async () => {
     await renderHeader({ narrow: false, showHeaderMenu: false })
-    expect(onHeader()).toEqual(expect.arrayContaining(['群 Apps', '在对话中搜索', '群文件夹', '成员列表', '更多操作']))
+    expect(onHeader()).toEqual(expect.arrayContaining(['群应用', '话题', '成员列表', '更多操作']))
+    expect(onHeader()).not.toContain('在对话中搜索')
+    expect(onHeader()).not.toContain('群文件夹')
     await act(async () => { harness.container.setAttribute('data-strip-narrow', '') })
-    expect(onHeader()).not.toContain('群 Apps')
+    expect(onHeader()).not.toContain('群应用')
     expect(onHeader()).not.toContain('群文件夹')
     await act(async () => { harness.container.removeAttribute('data-strip-narrow') })
-    expect(onHeader()).toEqual(expect.arrayContaining(['群 Apps', '在对话中搜索', '群文件夹']))
+    expect(onHeader()).toEqual(expect.arrayContaining(['群应用', '话题']))
   })
 })

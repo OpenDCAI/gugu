@@ -3,6 +3,7 @@ import { act, createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GroupChatSettings, GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
+import type { groupAgentStatusIndicatorProps } from '../../../../../apps/desktop/src/lib/groupAgentStatus'
 import { ChatHeaderActions } from '../../../../../apps/desktop/src/components/chat/ChatHeaderActions'
 
 let harness: ReturnType<typeof createReactHarness>
@@ -31,15 +32,15 @@ beforeEach(() => {
 })
 afterEach(() => { harness.cleanup(); resizeCallbacks.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-async function header(kind: 'group' | 'topic' | 'dm', options: { mobile?: boolean; menu?: boolean; infoShown?: boolean; stripNarrow?: boolean } = {}) {
+async function header(kind: 'group' | 'topic' | 'dm', options: { mobile?: boolean; menu?: boolean; infoShown?: boolean; stripNarrow?: boolean; pinned?: boolean; muted?: boolean } = {}) {
   if (options.stripNarrow) { harness.container.className = 'session-tab-bar'; harness.container.setAttribute('data-strip-narrow', '') }
   const room = {
     snapshot: { humans: [{ id: 'human' }], agents: [{ id: 'agent-1' }, { id: 'agent-2' }] } as GroupCollabSnapshot,
     settings: { my_role: 'member', can_manage: false, allow_member_invite: false } as GroupChatSettings,
-    statusIndicatorProps: { role: 'img' as const, 'data-agent-display-status': 'working', 'aria-label': 'Working' },
+    statusIndicatorProps: { role: 'img' as const, 'data-agent-display-status': 'working', 'aria-label': 'Working' } as ReturnType<typeof groupAgentStatusIndicatorProps>,
     onReload: vi.fn(async () => {}),
   }
-  const chat = { id: 'chat', kind, is_pinned: false, notification_level: 'all' }
+  const chat = { id: 'chat', kind, is_pinned: options.pinned ?? false, notification_level: options.muted ? 'none' : 'all' }
   const props = {
     isGroupChat: kind === 'group', isRoomChat: kind !== 'dm', mobile: options.mobile,
     searchMode: false, folderShown: false, infoShown: options.infoShown ?? false, showHeaderMenu: options.menu ?? false,
@@ -107,8 +108,9 @@ describe('final group toolbar v4', () => {
 
   it.each(['group', 'topic', 'dm'] as const)('%s: pin and mute use chat writes and leave More open', async (kind) => {
     await header(kind, { menu: true })
-    const switches = [...document.querySelectorAll<HTMLElement>('[role="switch"]')]
+    const switches = [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')]
     expect(switches).toHaveLength(2)
+    expect(switches.every((element) => element.getAttribute('aria-checked') === 'false')).toBe(true)
     await clickElement(switches[0]!)
     expect(pinChat).toHaveBeenCalledWith('chat', true)
     expect(document.querySelector('[data-testid="group-header-menu"]')).not.toBeNull()
@@ -128,5 +130,22 @@ describe('final group toolbar v4', () => {
     expect(search.textContent).toContain('⌘F')
     await clickElement(search)
     expect(onEnterSearchMode).toHaveBeenCalledOnce()
+  })
+
+  it.each(['Enter', ' '])('keyboard %j exposes checked state and toggles existing pin/mute state off', async (key) => {
+    await header('group', { menu: true, pinned: true, muted: true })
+    const switches = [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')]
+    expect(switches).toHaveLength(2)
+    expect(switches.every((element) => element.getAttribute('aria-checked') === 'true')).toBe(true)
+    const activate = async (element: HTMLElement) => act(async () => {
+      element.focus()
+      element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+      element.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true, cancelable: true }))
+    })
+    await activate(switches[0]!)
+    expect(pinChat).toHaveBeenCalledExactlyOnceWith('chat', false)
+    await activate(switches[1]!)
+    expect(setChatNotificationLevel).toHaveBeenCalledExactlyOnceWith('chat', 'all')
+    expect(document.querySelector('[data-testid="group-header-menu"]')).not.toBeNull()
   })
 })
