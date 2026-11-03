@@ -615,6 +615,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
     )) as { for_agents: string };
     expect(result.for_agents).toContain('From the next session on they are listed natively (the person can switch that back).');
     expect(result.for_agents).not.toContain('can have them listed natively instead');
+    expect(result.for_agents).not.toContain('For the rest of this conversation,');
   });
 
   // D-30 A-B C4c: the person took the installing agent's group out on the sheet — its catalog then says not given.
@@ -661,6 +662,11 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
   };
   const BAD = '---\nname: bad-stamp\ndescription: Use when someone asks for a red stamp (红签): run its script.\n---\n';
   const OK = '---\nname: ok-stamp\ndescription: "Use when someone asks for a green stamp (绿签): run its script."\n---\n';
+  const PLAIN = '---\nname: plain-stamp\ndescription: "Make a plain stamp without decoration."\n---\n';
+  const useLine = 'For the rest of this conversation, when a request fits the ok-stamp skill above (Use when someone asks for a green stamp (绿签): run its script.), ' +
+    'read its SKILL.md first instead of working it out with your own tools; the request does not have to name the App.';
+  const plainUseLine = 'For the rest of this conversation, when a request fits the plain-stamp skill above (Make a plain stamp without decoration.), ' +
+    'read its SKILL.md first instead of working it out with your own tools; the request does not have to name the App.';
 
   function installedWith(skills: Record<string, string>): string {
     const rootDir = path.join(workDir, 'installed', 'skillx-bad');
@@ -689,7 +695,7 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
   ].join('\n');
 
   it.each([false, true])('describes the installed App and parsed skill, including a quiet reinstall=%s', async (quiet) => {
-    const rootDir = installedWith({ 'ok-stamp': OK });
+    const rootDir = installedWith({ 'ok-stamp': OK, 'plain-stamp': PLAIN });
     if (quiet) {
       list.mockReturnValue({ extensions: [{ manifest: stamps, rootDir }], invalid: [] });
       origins.mockReturnValue({ 'skillx-bad': 'folder' });
@@ -698,6 +704,11 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
     const answer = await install();
     expect(answer.for_agents?.startsWith(descriptionLines(rootDir))).toBe(true);
     expect(answer.for_agents).toContain('catalog_list');
+    for (const [name, line] of [['ok-stamp', useLine], ['plain-stamp', plainUseLine]] as const) {
+      expect(answer.for_agents!.split(line)).toHaveLength(2);
+      expect(answer.for_agents!.indexOf(line)).toBeGreaterThan(answer.for_agents!.indexOf(`- ${name} (App skillx-bad):`));
+      expect(answer.for_agents!.indexOf(line)).toBeLessThan(answer.for_agents!.indexOf('Its skills are in the catalog'));
+    }
     expect(requestInstallConsent).toHaveBeenCalledTimes(quiet ? 0 : 1);
 
     const denied = await runExtensionAgentAction(
@@ -706,6 +717,7 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
     ) as { for_agents?: string };
     expect(denied.for_agents ?? '').not.toContain(descriptionLines(rootDir));
     expect(denied.for_agents ?? '').not.toContain('catalog_list');
+    expect(denied.for_agents ?? '').not.toContain('For the rest of this conversation,');
     if (quiet) expect(denied.for_agents).toBeUndefined();
     else expect(denied.for_agents).toContain('Its owner did not give it to you');
   });
@@ -716,6 +728,8 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
     installAttachment.mockResolvedValueOnce({ installed: true, outcome: 'confirmed', id: stamps.id });
     const answer = await runExtensionAgentAction({ action: 'install_attachment', message_id: 'app-card' }) as { for_agents: string };
     expect(answer.for_agents.startsWith(descriptionLines(rootDir))).toBe(true);
+    expect(answer.for_agents.split(useLine)).toHaveLength(2);
+    expect(answer.for_agents.indexOf(useLine)).toBeGreaterThan(answer.for_agents.indexOf(path.join(rootDir, 'skills', 'ok-stamp', 'SKILL.md')));
   });
 
   it('the broken one by name, its SKILL.md and why — on the first (asked) install and on the quiet reinstall an author fixing it makes', async () => {
@@ -1482,6 +1496,8 @@ describe('app_install { market }', () => {
     expect(requestInstallConsent).not.toHaveBeenCalled();
     expect(answer.for_agents).toContain('- Reader (reader): Read and chart data files.');
     expect(answer.for_agents).toContain(`- read (App reader): Analyse a data file.\n  ${path.join(skillDir, 'SKILL.md')}`);
+    expect(answer.for_agents).toContain('For the rest of this conversation, when a request fits the read skill above (Analyse a data file.), read its SKILL.md first instead of working it out with your own tools; the request does not have to name the App.');
+    expect(answer.for_agents.split('For the rest of this conversation,')).toHaveLength(2);
   });
 
   it('reads a device-scoped market App before it is installed (L11)', async () => {

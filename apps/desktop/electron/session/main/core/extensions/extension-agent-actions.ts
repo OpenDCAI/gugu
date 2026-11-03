@@ -35,7 +35,7 @@ import { extensionVariants, removeExtensionVariant, prepareVariant, switchExtens
 import { installPrepared, notGivenNoteOf } from './install-prepared';
 import { resolvesInside } from './path-containment';
 import { readExtensionSkills } from '../../../../extension-session-mcp';
-import { appLine, skillLine } from '../../../../extension-agent-lines';
+import { appLine, skillLine, skillUseLine } from '../../../../extension-agent-lines';
 import { EXTENSION_ARCHIVE_MIME, EXTENSION_ARCHIVE_SUFFIX, packExtensionArchive, packInstalledExtension, unpackExtensionArchive } from './extension-archive';
 import type { CloudExtensionMarket, CloudMarketListing } from './market-catalog';
 import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS, APP_MANAGE_ARGS, manifestFragmentSchema } from '@shared/extensions/app-tool-args';
@@ -140,7 +140,8 @@ function forAgentsNote(installed: { manifest: ExtensionManifest; rootDir: string
     parts.push(appLine({ extensionId: manifest.id, name: manifest.name, instructions: manifest.contributes.instructions }));
   }
   if (manifest.contributes.skills) {
-    parts.push(...readExtensionSkills(manifest.id, path.join(rootDir, manifest.contributes.skills), () => {}).map(skillLine));
+    const skills = readExtensionSkills(manifest.id, path.join(rootDir, manifest.contributes.skills), () => {});
+    parts.push(...skills.map(skillLine), ...skills.map(skillUseLine));
   }
   if (servers.length > 0) {
     // #6634 问题 16: nothing has asked its programs for their tools yet, so this does not promise they are there —
