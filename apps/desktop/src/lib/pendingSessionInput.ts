@@ -39,10 +39,12 @@ export function projectSessionPendingInput(previous: PendingPrompt | null, sende
   const promptId = prompt.id
   const receipt = host.find(row => row.messageId === promptId)
   if (receipt?.state === 'failed' || receipt?.state === 'unknown') {
-    prompt = { ...prompt, delivery: { state: receipt.state, retryable: false, error: receipt.failure ? messageForUser(receipt.failure)
-      : i18n.t('message.sendStatus.unknownNotResent', { ns: 'messaging' }) } }
+    prompt = { ...prompt, delivery: receipt.awaitingReceipt
+      ? { state: 'waiting', retryable: false, reason: translateSessionMessage('transcript.waitingNativeReceipt'), error: receipt.failure ?? undefined }
+      : { state: receipt.state, retryable: false, error: receipt.failure ? messageForUser(receipt.failure)
+        : i18n.t('message.sendStatus.unknownNotResent', { ns: 'messaging' }) } }
   } else if (receipt?.state === 'accepted' || !input) {
     prompt = { ...prompt, delivery: { state: 'accepted' } }
   }
-  return pendingPromptLanded(prompt, turns) ? null : prompt
+  return !receipt?.awaitingReceipt && pendingPromptLanded(prompt, turns) ? null : prompt
 }

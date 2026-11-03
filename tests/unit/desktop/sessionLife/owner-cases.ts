@@ -15,7 +15,7 @@ function deferred<T>() {
 const seq = (value: number) => value as Seq;
 const EXIT: ExitFact = { cause: { name: 'Lost', message: 'adapter exited' }, code: 1, signal: null };
 
-function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrowsOnce?: boolean; markReadFailsOnce?: boolean;
+function rig(options: { block?: StageName; delayReceipt?: boolean; uncertainAdmission?: boolean; dispatchThrowsOnce?: boolean; markReadFailsOnce?: boolean;
   failAt?: StageName; failAwaitsPerson?: boolean; exitBeforeFail?: boolean; holdTeardownOf?: { id: string; until: Promise<void> }; channelLostTimes?: number; failOnceAt?: StageName; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
   const records = new Map<string, { owner: string | null; hold: Hold | null; archived: boolean }>();
   const rows = new Map<Seq, PendingRow>();
@@ -26,6 +26,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
   const dispatched: Seq[] = [];
   const failures: unknown[] = [];
   const marked: Seq[] = [];
+  const reported: PendingRow[] = [];
   const trace: string[] = [];
   const blocked = deferred<void>();
   const dispatchStarted = deferred<void>();
@@ -59,7 +60,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
       for (const e of effects) {
       if (e.e === 'write-hold') records.get(id)!.hold = e.hold;
       if (e.e === 'write-receipt') { const row = rows.get(e.seq); assert.ok(row); const r = e.receipt;
-        rows.set(e.seq, { ...row, state: r.state, failure: r.state === 'dispatching' ? row.failure : r.state === 'failed' ? r.cause : r.state === 'queued' ? r.channelLost ?? null : null }); }
+        rows.set(e.seq, { ...row, state: r.state, failure: r.state === 'dispatching' ? row.failure : r.state === 'failed' || r.state === 'unknown' ? r.cause ?? null : r.state === 'queued' ? r.channelLost ?? null : null }); }
     } },
     claim(id) { const claimed: Seq[] = []; for (const row of rows.values()) if (row.sessionId === id && row.state === 'dispatching') { rows.set(row.seq, { ...row, state: 'unknown' }); claimed.push(row.seq); } return claimed; },
     acceptedUnsettled(id) { return [...rows.values()].filter(row => row.sessionId === id && row.state === 'accepted' && !settled.has(row.seq)).map(row => row.seq); },
@@ -88,7 +89,8 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
           if (at !== 'identity' && at !== 'channel') active.add(lease);
           return (at === 'identity' ? { kind: 'bound', agentUserId: 'agent' } : lease) as StageOut[K];
         },
-        async dispatch(_have, row) { dispatched.push(row.seq); dispatchStarted.resolve();
+        async dispatch(_have, row, ctx) { dispatched.push(row.seq); dispatchStarted.resolve();
+          if (options.uncertainAdmission) ctx.onUncertain?.({ name: 'AdmissionUncertain', message: 'No provider response yet' });
           if (throwOnce) { throwOnce = false; throw new Error('worker RPC failed'); }
           if (lostTimes > 0) { lostTimes -= 1; return { result: 'channel-lost', cause: { name: 'AcpSessionMissing', message: 'gone' } }; }
           return options.delayReceipt ? receipt.promise : { result: 'accepted', nativeReceiptId: row.message.id }; },
@@ -96,7 +98,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
         onExit(_have, cb) { exitCallbacks.push(cb); return () => { trace.push('unlisten'); }; },
       } satisfies LegAdapter;
     },
-    markRead: async row => { if (markFailOnce) { markFailOnce = false; throw new Error('read marker failed'); } marked.push(row.seq); }, reportFailure: async (_rows, cause) => { if (reportThrows) { reportThrows = false; throw new Error('report failed'); } trace.push(`failure:${cause.name}`); },
+    markRead: async row => { if (markFailOnce) { markFailOnce = false; throw new Error('read marker failed'); } marked.push(row.seq); }, reportFailure: async (rows, cause) => { if (reportThrows) { reportThrows = false; throw new Error('report failed'); } reported.push(...rows); trace.push(`failure:${cause.name}`); },
     publish: view => { views.push(view); }, removed: id => { removed.push(id); trace.push(`removed:${id}`); }, failed: (_id, error) => { failures.push(error); }, now: () => 1234,
   };
   const owner = new SessionLife(ports);
@@ -104,10 +106,74 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
   function fork(id: string, parent = 's') { forks.set(id, parent); records.set(id, { owner: null, hold: null, archived: false }); }
   function enqueue(id = 's') { const s = seq(++counter); rows.set(s, { seq: s, sessionId: id, sentAt: 0, kind: 'ordinary', state: 'queued', failure: null, message: { id: `m${s}`, text: `input ${s}` }, sources: [], turn: { kind: 'prompt' } }); return s; }
   const send = (id = 's', messageId = `user-${++counter}`) => owner.enqueue({ sessionId: id, messageId, text: messageId, kind: 'ordinary' });
-  return { owner, records, rows, active, views, removed, dispatched, failures, marked, trace, blocked, dispatchStarted, receipt, exitCallbacks, session, fork, enqueue, send, store };
+  return { owner, records, rows, active, views, removed, dispatched, failures, marked, reported, trace, blocked, dispatchStarted, receipt, exitCallbacks, session, fork, enqueue, send, store };
 }
 
 export const ownerCases: readonly { name: string; run: () => Promise<void> }[] = [
+  ...([1, 2] as const).map(losses => ({
+    name: `#552: uncertain admission preserves the ${losses === 1 ? 'first missing recovery' : 'second missing rejection'}`,
+    async run() {
+      const r = rig({ uncertainAdmission: true, channelLostTimes: losses }); r.session(); await r.owner.signIn('A');
+      const { seq: original } = r.send('s', 'original-input'); await r.owner.quiescent('s');
+      assert.deepEqual(r.dispatched, [original, original]);
+      assert.equal(r.rows.size, 1);
+      assert.equal(r.rows.get(original)?.state, losses === 1 ? 'accepted' : 'failed');
+      assert.equal(r.trace.filter(line => line.endsWith(':identity')).length, 2);
+      assert.equal(r.views.filter(view => view.pending.items.some(row => row.state === 'unknown' && row.awaitingReceipt)).length, 2);
+      assert.deepEqual(r.marked, losses === 1 ? [original] : []);
+      assert.deepEqual(r.reported.map(row => row.seq), losses === 1 ? [] : [original]);
+      assert.deepEqual(r.failures, []);
+      await r.owner.signOut();
+    },
+  })),
+  { name: 'a real provider exit reports the uncertain inbox batch exactly once and can tear it down', async run() {
+    const r = rig({ delayReceipt: true, uncertainAdmission: true }); r.session(); await r.owner.signIn('A');
+    const original = r.owner.enqueue({ sessionId: 's', text: 'inbox body', kind: 'inbox-batch', sources: [] }).seq;
+    await r.dispatchStarted.promise;
+    assert.equal(r.rows.get(original)?.state, 'unknown'); assert.equal(r.reported.length, 0);
+    r.exitCallbacks[0]!(EXIT); await r.owner.quiescent('s');
+    assert.deepEqual(r.reported.map(row => [row.seq, row.kind]), [[original, 'inbox-batch']]);
+    assert.equal(r.trace.includes('teardown'), true); assert.equal(r.active.size, 0);
+    r.exitCallbacks[0]!(EXIT); await r.owner.quiescent('s');
+    assert.equal(r.reported.length, 1); assert.deepEqual(r.marked, []);
+    r.receipt.resolve({ result: 'accepted', nativeReceiptId: 'after-exit' });
+  } },
+  ...(['user-stop', 'archive', 'sign-out'] as const).map(reason => ({
+    name: `uncertain native admission cannot block ${reason} teardown`,
+    async run() {
+      const r = rig({ delayReceipt: true, uncertainAdmission: true }); r.session(); await r.owner.signIn('A');
+      r.send('s', 'original-input'); await r.dispatchStarted.promise;
+      let stopping: Promise<void> | undefined;
+      try {
+        stopping = reason === 'sign-out' ? r.owner.signOut() : r.owner.interrupt('s', { k: 'interrupt', reason });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        assert.equal(r.trace.includes('teardown'), true, 'teardown must start without a native receipt');
+        await stopping;
+        assert.equal(r.active.size, 0);
+        assert.equal(r.views.at(-1)?.kind, reason === 'archive' ? 'archived' : 'dormant');
+        assert.deepEqual(r.dispatched, [seq(1)]);
+      } finally { r.receipt.resolve({ result: 'accepted', nativeReceiptId: 'late-native' }); await stopping; }
+    },
+  })),
+  { name: 'uncertain admission retains host custody and the native attempt, then settles its original late receipt', async run() {
+    const r = rig({ delayReceipt: true, uncertainAdmission: true }); r.session(); await r.owner.signIn('A');
+    const { seq: original } = r.send('s', 'original-input');
+    await r.dispatchStarted.promise;
+    assert.equal(r.rows.get(original)?.state, 'unknown');
+    assert.equal(r.rows.get(original)?.failure?.name, 'AdmissionUncertain');
+    assert.equal(r.owner.read('s').pending.items[0]?.awaitingReceipt, true);
+    assert.equal(r.owner.read('s').pending.items[0]?.failure, 'No provider response yet');
+    assert.equal(r.send('s', 'original-input').seq, original);
+    assert.deepEqual(r.dispatched, [original]);
+    assert.equal(r.trace.includes('teardown'), false);
+    r.receipt.resolve({ result: 'accepted', nativeReceiptId: 'native-receipt' });
+    await r.owner.quiescent('s');
+    assert.equal(r.rows.get(original)?.state, 'accepted');
+    assert.equal(r.rows.get(original)?.failure, null);
+    assert.deepEqual(r.dispatched, [original]);
+    assert.deepEqual(r.marked, [original]);
+    assert.equal(r.trace.includes('teardown'), false);
+  } },
   { name: 'only a person\'s own prompt can be discarded: a delivery has a sender, and a chat-page first turn is what the run needs', async run() {
     const r = rig({ block: 'identity' }); r.session(); const own = r.enqueue();
     await r.owner.signIn('A'); await r.blocked.promise;

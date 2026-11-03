@@ -5,7 +5,7 @@ import { resolveSessionpageSessionIntegration } from '@gugu/session-plugins/agen
 import type { StartSessionInput } from '@gugu/session-core/acp';
 import type {
   AdmittedChannel, BoundIdentity, CapabilityGrant, ExitFact, Gen, Have, PlatformTicket, ProcessLease,
-  ResolvedCli, StageName, StageOut, WorkspaceLease,
+  ResolvedCli, SerializedError, StageName, StageOut, WorkspaceLease,
 } from '@gugu/core/local/session-life/types';
 import { persistedWorkspacePath, resolveWorkspace } from '@main/core/projects/utils';
 import { RETIRED_REMOTE_WORKSPACE_MESSAGE } from '@main/core/workspaces/resolve-workspace-kind';
@@ -198,13 +198,13 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     return lease({ gen, timing: 'next-tool-call', nativeSession }) as AdmittedChannel;
   }
 
-  async function admit(have: StageOut, pending: PendingRow, signal: AbortSignal): ReturnType<LegAdapter['dispatch']> {
+  async function admit(have: StageOut, pending: PendingRow, signal: AbortSignal, onUncertain?: (cause: SerializedError) => void): ReturnType<LegAdapter['dispatch']> {
     const delivery = pending.message.delivery;
     const turn = delivery?.files?.length ? await turnFileText(sessionId, delivery.files, true, delivery.attachments) : null;
     // A stop during file preparation still precedes every provider byte. Use Life's existing refusal receipt.
     if (signal.aborted) return { result: 'rejected-before-admission', cause: { name: 'AdmissionCancelled', message: 'The session stopped before dispatch' } };
     const images = [...(delivery?.attachments ?? []), ...(turn?.images ?? [])];
-    const attachments = { ...(images.length ? { attachments: images } : {}), ...(turn?.files?.length ? { files: turn.files } : {}) };
+    const attachments = { ...(onUncertain ? { onUncertain } : {}), ...(images.length ? { attachments: images } : {}), ...(turn?.files?.length ? { files: turn.files } : {}) };
     let sent: Awaited<ReturnType<typeof injectEmdashPromptDetached>>;
     switch (pending.turn.kind) {
       case 'prompt': {
@@ -251,7 +251,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       return (stages[at] as (have: unknown, signal: AbortSignal, gen: Gen) => Promise<StageOut[typeof at]>)(have, ctx.signal, ctx.gen);
     },
     async dispatch(have, pending, ctx) {
-      const admission = admit(have, pending, ctx.signal);
+      const admission = admit(have, pending, ctx.signal, ctx.onUncertain);
       admitting = admission.then(result => result.result === 'channel-lost', () => false);
       return admission;
     },
@@ -294,4 +294,3 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     },
   };
 }
-

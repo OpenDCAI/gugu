@@ -5,6 +5,7 @@ import { lifeHoldIsFailure } from '@/session/shared/core/sessions/session-life'
 import { sessionInputBaseline } from './pendingSessionInput'
 import { messageForUser } from './userFacingError'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
+import { translateSessionMessage } from '@renderer/localization/locale-store'
 
 // Existing-session human sends also use session-direct; only envelopes identify an agent delivery.
 export function isTranscriptDelivery(input: Pick<LifeView['pending']['items'][number], 'kind' | 'state' | 'text'>): boolean {
@@ -27,7 +28,9 @@ export function projectSessionPendingDeliveries(previous: readonly PendingPrompt
     const failedStart = view !== null && lifeHoldIsFailure(view.hold) && (row?.state === 'queued' || row?.state === 'dispatching')
     const stopped = view?.hold === 'user-stop' && row?.state === 'queued'
     const delivery: NonNullable<PendingPrompt['delivery']> = row?.state === 'unknown'
-      ? { state: 'unknown', retryable: false, error: row.failure ? messageForUser(row.failure) : undefined }
+      ? row.awaitingReceipt
+        ? { state: 'waiting', retryable: false, reason: translateSessionMessage('transcript.waitingNativeReceipt'), error: row.failure ? messageForUser(row.failure) : undefined }
+        : { state: 'unknown', retryable: false, error: row.failure ? messageForUser(row.failure) : undefined }
       : row?.state === 'failed' || failedStart
         ? { state: 'failed', retryable: failedStart, error: messageForUser(row?.failure ?? view?.failure?.message ?? '') }
         : row?.state === 'accepted' || (!row && view) ? { state: 'accepted' }

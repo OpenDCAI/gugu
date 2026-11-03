@@ -9,7 +9,7 @@ import * as v2 from '@agentclientprotocol/sdk/experimental/v2';
 import type { AcpAgentApi, AcpClientFactory, AcpProcessIo } from '@gugu/session-core/agents/plugins';
 import { nodeReadableToWeb } from './acp-stdio';
 import { cooperativeAcpMessages } from './acp-work-slice';
-import { decodePermissionRequest, decodeV2SessionUpdate, decodeConfigOptions, type NormalizedEvent } from '@gugu/session-core/acp';
+import { AdmissionWatchdog, decodePermissionRequest, decodeV2SessionUpdate, decodeConfigOptions, type NormalizedEvent } from '@gugu/session-core/acp';
 
 /**
  * ACP v2 over stdio, behind the same `AcpAgentApi` the host drives every adapter through.
@@ -32,8 +32,20 @@ export function connectStdioAcpV2(
     Writable.toWeb(io.stdin) as WritableStream<Uint8Array>,
     nodeReadableToWeb(io.stdout),
   );
-  const deliver = (sessionId: string, update: v2.SessionUpdate) =>
-    client.sessionEvent({ sessionId, event: decode(update), trace: update });
+  const watchdogs = new Map<string, Set<AdmissionWatchdog>>();
+  const compactions = new Map<string, Map<string, Extract<NormalizedEvent, { kind: 'compaction' }>>>();
+  const deliver = (sessionId: string, update: v2.SessionUpdate) => {
+    const event = decode(update);
+    if (event.kind === 'compaction' && event.status) {
+      const active = compactions.get(sessionId) ?? new Map();
+      if (event.status === 'in_progress') active.set(event.compactionId, event);
+      else active.delete(event.compactionId);
+      if (active.size) compactions.set(sessionId, active);
+      else compactions.delete(sessionId);
+    }
+    for (const watchdog of watchdogs.get(sessionId) ?? []) watchdog.observe(event);
+    client.sessionEvent({ sessionId, event, trace: update });
+  };
 
   const app = v2
     .client({ name: 'gugu' })
@@ -41,9 +53,10 @@ export function connectStdioAcpV2(
       const { sessionId, update } = params;
       deliver(sessionId, update);
     })
-    .onRequest(v2.methods.client.session.requestPermission, async ({ params }) =>
-      client.requestPermission(decodePermissionRequest(params)),
-    );
+    .onRequest(v2.methods.client.session.requestPermission, async ({ params }) => {
+      for (const watchdog of watchdogs.get(params.sessionId) ?? []) watchdog.activity();
+      return client.requestPermission(decodePermissionRequest(params));
+    });
   const connection = app.connect({ ...stream, readable: cooperativeAcpMessages(stream.readable) });
   const agent = connection.agent;
 
@@ -83,13 +96,17 @@ export function connectStdioAcpV2(
     async prompt(params, dispatch) {
       const request = agent.request(v2.methods.agent.session.prompt, params as v2.PromptRequest);
       const timeoutMs = dispatch?.admissionTimeoutMs;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const receipt = await (timeoutMs === undefined ? request : Promise.race([request, new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => {
-          void agent.notify(v2.methods.agent.session.cancel, { sessionId: params.sessionId }).catch(() => undefined);
-          reject(Object.assign(new Error(`Native prompt admission timed out after ${timeoutMs}ms`), { code: 'prompt_admission_timeout' }));
-        }, timeoutMs);
-      })]).finally(() => clearTimeout(timer)));
+      const watchdog = timeoutMs === undefined ? null : new AdmissionWatchdog(timeoutMs, () => dispatch?.onAdmissionUncertain?.());
+      const watching = watchdogs.get(params.sessionId) ?? new Set<AdmissionWatchdog>();
+      if (watchdog) {
+        for (const event of compactions.get(params.sessionId)?.values() ?? []) watchdog.observe(event);
+        watching.add(watchdog); watchdogs.set(params.sessionId, watching);
+      }
+      const receipt = await request.finally(() => {
+        watchdog?.close();
+        if (watchdog) watching.delete(watchdog);
+        if (watchdog && watching.size === 0) watchdogs.delete(params.sessionId);
+      });
       return { status: 'accepted', requestId: dispatch?.requestId ?? crypto.randomUUID(), ...receipt };
     },
     cancel: (params) => agent.notify(v2.methods.agent.session.cancel, params),

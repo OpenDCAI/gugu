@@ -93,7 +93,7 @@ export const forkStore: LifeStore = {
         const receipt: Receipt = effect.receipt;
         // A dispatching row keeps the loss it went back to the queue with (#552: its second loss fails it).
         found.row = { ...found.row, state: receipt.state, failure: receipt.state === 'dispatching' ? found.row.failure
-          : receipt.state === 'failed' ? receipt.cause : receipt.state === 'queued' ? receipt.channelLost ?? null : null };
+          : receipt.state === 'failed' || receipt.state === 'unknown' ? receipt.cause ?? null : receipt.state === 'queued' ? receipt.channelLost ?? null : null };
       }
     }
   },

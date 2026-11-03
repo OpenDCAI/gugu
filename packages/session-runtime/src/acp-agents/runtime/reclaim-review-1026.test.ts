@@ -74,10 +74,10 @@ it('does not mistake a host notice for a provider admission update', async () =>
   const pending = api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'hi', origin: 'communication' } });
   await vi.advanceTimersByTimeAsync(30_000);
   rt.announceSession({ sessionId: 'conv-1', notice: { code: 'agent-renamed', detail: 'Name changed' } });
-  const timedOut = expect(pending).rejects.toThrow('timed out');
   await vi.advanceTimersByTimeAsync(30_001);
-  await timedOut;
-  expect(h.agent.cancel).toHaveBeenCalledOnce();
+  await expect(pending).resolves.toMatchObject({ declined: false, uncertain: { code: 'prompt_admission_timeout' } });
+  expect(h.agent.cancel).not.toHaveBeenCalled();
+  expect(h.agent.closeSession).not.toHaveBeenCalled();
 });
 
 it('does not commit a failed hi for a provider refusal before admission', async () => {
