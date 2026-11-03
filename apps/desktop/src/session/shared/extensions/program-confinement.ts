@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /** The host-derived reach of a tools program; consent and launch share the manifest qualification. */
-export interface ProgramConfinement { fsRead: string[]; fsWrite: string[]; hosts: string[] }
+export interface ProgramConfinement { fsRead: string[]; fsWrite: string[]; hosts: string[]; declaredHosts: readonly string[] }
 export const CONFINE_HOSTS_ENV = 'GUGU_APP_NETWORK_HOSTS';
 
 /** Use the same real paths as the actual launch; ancestor symlinks cannot be granted by granting their children. */
@@ -14,7 +14,7 @@ export function confinedNodeArgs(confine: ProgramConfinement, runtimeDir: string
     ...paths(confine.fsWrite).map((dir) => `--allow-fs-write=${dir}`)];
 }
 export function confinedEnv(confine: ProgramConfinement): Record<string, string> {
-  return { NODE_OPTIONS: '', [CONFINE_HOSTS_ENV]: JSON.stringify(confine.hosts), TMPDIR: join(realpathSync(confine.fsWrite[0]!), '.tmp') };
+  return { NODE_OPTIONS: '', [CONFINE_HOSTS_ENV]: JSON.stringify({ granted: confine.hosts, declared: confine.declaredHosts }), TMPDIR: join(realpathSync(confine.fsWrite[0]!), '.tmp') };
 }
 
 /** Confined tools descriptors contain file arguments only: their MCP runtime and tools module. */
