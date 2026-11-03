@@ -172,7 +172,7 @@ describe('a machine that is off', () => {
     const reads = gugu.files.list.mock.calls.length
     row('ckpt').querySelector<HTMLButtonElement>('.file-open')!.click()
     await until('handed to the host', () => gugu.files.openWith.mock.calls.length > 0)
-    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'ckpt' }), { intent: 'preview' })
+    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'ckpt' }), expect.objectContaining({ intent: 'navigate' }))
     expect(banner()).not.toContain('离线')
     await until('the list read again', () => gugu.files.list.mock.calls.length > reads)
     gugu.files.openWith.mockClear()

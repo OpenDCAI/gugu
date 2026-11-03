@@ -1472,6 +1472,7 @@ function listItem(entry, now = new Date(Date.now())) {
   if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
   open.append(meta)
   open.onclick = (event) => (folder ? enterFolder(entry.id) : pressFile(entry, event))
+  open.onauxclick = (event) => { if (!folder && event.button === 1) { event.preventDefault(); pressFile(entry, event) } }
   if (!folder) pickable(li, entry)
   if (offline(entry)) li.dataset.offline = ''
   // Files carry the same resource link outside this App; folder moves stay inside it.
@@ -2791,7 +2792,7 @@ function toggleMenu(anchor, items, context = {}) {
 }
 
 // ─── 多选 ───────────────────────────────────────────────────────────────────
-// Ctrl/⌘ picks, Shift picks a range, and a frame picks rows across the list's empty space. The phone's explicit selection
+// Explicit checkboxes pick, Shift picks a range, and a frame picks rows across the list's empty space. The phone's explicit selection
 // mode shows a separate checkbox column; a long press opens the same row menu. While anything is
 // picked a press picks too. What is picked can be downloaded at once, made temporary or kept, and found in the chat one
 // message after another. Folders are not picked; a change of folder, kind or filter lets go of all.
@@ -2811,8 +2812,9 @@ function pickable(li, entry) {
   if (state.picked.has(entry.id)) li.classList.add('picked')
 }
 
-// A press on a file: with Shift, the run to it; with Ctrl/⌘ — or while anything is picked — it is picked or let go; else it opens.
+// Explicit open gestures win; Shift selects a range and an unmodified press toggles while selection is active.
 function pressFile(entry, event) {
+  if (event?.altKey || event?.ctrlKey || event?.metaKey || event?.button === 1) return openFile(entry, event.altKey ? 'beside' : 'newTab')
   if (event?.shiftKey) return pick(entry.id, 'range')
   if (state.picked.size || state.selecting) return pick(entry.id, 'toggle')
   state.pickFrom = entry.id
@@ -3115,7 +3117,7 @@ function start() {
   }
   // The same menu at every width; the wide pane also keeps its Download and Open with shortcuts.
   $('more').onclick = () => {
-    const items = [[state.t.split, () => setMode('split')], [state.t.download, downloadShown], [state.t.openWith, () => openInHost(state.shown, true)]]
+    const items = [...(state.current?.file.type === 'text' ? [[state.t.split, () => setMode('split')]] : []), [state.t.download, downloadShown], [state.t.openWith, () => openInHost(state.shown, true)]]
     if (canWrite() && state.shown && !state.shown.systemRole && !state.current?.file.readOnly) items.push([state.t.rename, () => startRename($('doc-title'), state.shown)])
     toggleMenu($('more'), items)
   }
