@@ -2394,7 +2394,7 @@ ipcMain.handle('app:get-version', () => app.getVersion())
 const remoteFileTempRoot = join(app.getPath('userData'), 'cache', 'remote-files')
 const remoteFileOpenDirectories = new Set<string>()
 const desktopFiles = createDesktopFileAccess({ auth: () => desktopAuthProvider().getAuth(), tempRoot: remoteFileTempRoot,
-  rpc: async (name, args) => { const auth = await desktopAuthProvider().getAuth(); if (!auth) throw new Error('File reader is not signed in'); const { data, error } = await makeChatClient(auth.accessToken).rpc(name, args); if (error) throw error; return data },
+  rpc: async (name, args) => { const auth = await desktopAuthProvider().getAuth(); if (!auth) throw new Error('File reader is not signed in'); const { data, error } = await makeChatClient(auth.accessToken).rpc(name, args); if (error) throw Object.assign(new Error(error.message, { cause: error }), { code: error.code, details: error.details, hint: error.hint }); return data },
   downloads: join(resolveGuguHome(process.env), 'attachments'), fetch: electronFetch, links: () => sshLinks,
   root: async projectId => { const bridge = loadEmdashBridge(); if (!bridge) throw new Error('Project registry is unavailable'); return bridge.emdashProjectRoot(projectId) },
   deviceStore: join(resolveGuguHome(process.env), 'project-files'), identityDb: makeIdentityClient,
