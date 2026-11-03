@@ -85,6 +85,7 @@ export function SshLinkSignIn() {
   const shown: SshLinkNotice | null = signingMachine
     ? { deviceId: signingMachine.device_id, name: signingMachine.label, reason: 'signInRequired' }
     : (notice ?? (tunnelWaiting ? { deviceId: tunnelWaiting.device_id, name: tunnelWaiting.label, reason: 'waitingIdle' } : null))
+  if (confirmRestart && (shown?.reason !== 'waitingIdle' || shown.deviceId !== confirmRestart.deviceId)) setConfirmRestart(null)
   if (!shown) return null
   const tunnelUpdate = !notice ? tunnelWaiting?.capabilities.server_update : undefined
   const confirmableUpdate = tunnelUpdate?.state === 'ready' && tunnelWaiting

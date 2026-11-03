@@ -91,6 +91,21 @@ it('uses a fresh zero count in the tunnel confirmation rather than the heartbeat
   expect(state.calls).toEqual([['remote', 'server.versionMatch.activity', {}, { timeoutMs: 15000 }]])
 })
 
+it('closes the confirmation when its tunnel goes offline and asks afresh after it returns', async () => {
+  const host = server(undefined, true)
+  state.devices = [host]
+  await harness.render(<SshLinkSignIn />)
+  await clickElement(document.querySelector<HTMLElement>('[data-testid=ssh-link-update-now]')!)
+  expect(document.querySelector('[data-testid=ssh-link-update-confirm]')).not.toBeNull()
+  state.devices = [{ ...host, is_online: false, status: 'offline' }]
+  await harness.render(<SshLinkSignIn />)
+  state.devices = [host]
+  await harness.render(<SshLinkSignIn />)
+  expect(document.querySelector('[data-testid=ssh-link-update-confirm]')).toBeNull()
+  await clickElement(document.querySelector<HTMLElement>('[data-testid=ssh-link-update-now]')!)
+  expect(state.calls.filter(call => call[1] === 'server.versionMatch.activity')).toHaveLength(2)
+})
+
 async function confirmRestart() {
   await clickElement(document.querySelector<HTMLElement>('[data-testid=ssh-link-update-now]')!)
   await clickElement(document.querySelector<HTMLElement>('[data-testid=ssh-link-update-confirm-now]')!)
