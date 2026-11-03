@@ -562,7 +562,7 @@ export class SessionCell {
       if (request?.prompt.origin === 'communication' && event.error && isInvalidToken(event.error)) {
         // A refused token needs the next foreground/token boundary, not another immediate steer.
         const { queueTiming: _timing, ...retry } = request.prompt;
-        const queued = this.dispatch({ type: 'QueuePrompt', prompt: retry });
+        const queued = this.dispatch({ type: 'QueuePrompt', prompt: retry, retainIdentity: true });
         if (queued.success && !request.steered) this.requeuedAfterTokenBoundary = true;
       }
       if (event.error && request && !request.steered && request.cycle === this.activeTurnCompletion

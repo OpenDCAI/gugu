@@ -68,10 +68,12 @@ export function createAgentEntry({ runTurn, cancelTurn, startPhoneAgentHost, bri
           if (command.type === 'host_call') emit({ type: 'host_result', ownerId: ownerId ?? command.ownerId, id: command.id,
             error: { code: 'host_not_ready', message: '手机宿主尚未就绪，请稍后重试' } })
           if (command.type === 'auth_request') emit({ type: 'auth_result', ownerId, id: command.id, error: { message: '手机宿主尚未就绪' } })
-          if (command.type === 'host_stop' && hostStartPromise) void hostStartPromise.then(closeHost).catch(() => undefined)
+          if (command.type === 'host_stop') return hostStartPromise?.then(closeHost) ?? Promise.resolve()
           return
         }
-        void Promise.resolve(host.handle(command)).catch((error) => emit({ type: 'host_error', ownerId, message: error.message }))
+        const handled = Promise.resolve(host.handle(command))
+        if (command.type === 'host_stop') return handled
+        void handled.catch((error) => emit({ type: 'host_error', ownerId, message: error.message }))
       } catch (error) { emit({ type: host ? 'host_error' : 'failed', ownerId, message: error.message }) }
     },
     close() {
@@ -86,22 +88,26 @@ export function createAgentEntry({ runTurn, cancelTurn, startPhoneAgentHost, bri
   }
 }
 
-/** EOF and a broken parent stdout pipe share the same awaited shutdown path. */
+/** Explicit stop and lost parent channels share one awaited shutdown. */
 export function bindAgentEntry(entry, { input, output, onError, onTimeout, onClosed = () => undefined, shutdownTimeoutMs = 5_000, timers = { setTimeout, clearTimeout } }) {
-  let closing
-  const close = () => {
+  let closing, timer, settled = false, timedOut = false
+  const close = (stopped) => {
     if (!closing) {
-      try { closing = Promise.resolve(entry.close()) }
+      try { closing = stopped ? Promise.resolve(stopped).then(() => entry.close()) : Promise.resolve(entry.close()) }
       catch (error) { closing = Promise.reject(error) }
-      let timedOut = false
-      const timer = timers.setTimeout(() => { timedOut = true; onTimeout({ reason: 'native_parent_channel_closed', timeoutMs: shutdownTimeoutMs }) }, shutdownTimeoutMs)
-      // A failed close is still bounded: only successful cleanup disarms forced shutdown.
-      void closing.then(() => { timers.clearTimeout(timer); if (!timedOut) onClosed() }, onError)
+      // Explicit stop keeps the native parent's budget; a lost parent remains bounded below.
+      void closing.then(
+        () => { settled = true; if (timer !== undefined) timers.clearTimeout(timer); if (!timedOut) onClosed() },
+        (error) => { settled = true; onError(error); if (stopped && !timedOut) { if (timer !== undefined) timers.clearTimeout(timer); onClosed() } },
+      )
+    }
+    if (!stopped && !settled && timer === undefined) {
+      timer = timers.setTimeout(() => { timedOut = true; onTimeout({ reason: 'native_parent_channel_closed', timeoutMs: shutdownTimeoutMs }) }, shutdownTimeoutMs)
       input.close?.()
     }
     return closing
   }
-  input.on('line', (line) => entry.handleLine(line))
+  input.on('line', (line) => { const stopped = entry.handleLine(line); if (stopped && !closing) close(stopped) })
   input.once('close', close)
   output.on('error', (error) => {
     close()

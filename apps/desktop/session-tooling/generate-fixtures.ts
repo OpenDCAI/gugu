@@ -10,7 +10,8 @@
  *
  * Each entry in `seeds` produces a corresponding .db file committed under
  * tooling/fixtures/. Run this script whenever the schema changes (after
- * `pnpm run db:generate`) to keep the fixtures in sync.
+ * generating SQL or writing a migration and running `pnpm session:db:snapshot`)
+ * to keep the fixtures in sync.
  *
  * better-sqlite3 is resolved via the Vitest alias to tooling/node-deps/,
  * an isolated copy compiled for system Node. The root node_modules copy

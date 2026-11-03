@@ -56,6 +56,16 @@ describe('native DM opening watermark', () => {
     expect(scope.write).not.toHaveBeenCalled()
   })
 
+  it.each([false, true])('leaves another stream unread when the main stream was already read (manual=%s)', async manual => {
+    const input = fixture()
+    await harness.render(<Reader input={{ ...input, chat: { ...input.chat, last_read_seq: 25, unread_count: 3,
+      unread_locator: { stream_kind: 'thread', stream_id: 'thread:dm:root', thread_root_id: 'root', message_id: 'reply',
+        message_seq: 24, cursor_seq: 20, unread_count: 3, addressed_count: 3, version: 7, is_marked_unread: manual },
+    } }} />)
+    expect(scope.write).not.toHaveBeenCalled()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
   it('still reaches the captured tail after individual visible replies advance the watermark', async () => {
     const input = fixture()
     await harness.render(<Reader input={{ ...input, atTail: false }} />)
