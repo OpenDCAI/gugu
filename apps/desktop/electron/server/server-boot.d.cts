@@ -12,3 +12,4 @@ export function readBadVersions(home: string): Record<string, number>
 export function legacyGuardActive(home: string): boolean
 export function migrateAccountLayout(home: string): void
 export function prepareAccountLogin(home: string, userId: string): void
+export function readCurrentAccount(home: string): { dir: string; id: string; email: string | null; addedAt: string | null; signedIn: boolean } | null

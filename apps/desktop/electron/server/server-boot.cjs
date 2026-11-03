@@ -19,16 +19,21 @@ function accountIdentity(directory, fallback) {
   const id = meta?.userId ?? fallback
   if (!accountId(id)) throw new Error(`Account identity is missing or invalid: ${directory}/account.json`)
   if (fallback && id !== fallback) throw new Error(`Account identity does not match its directory: ${directory}`)
-  return { dir: directory, id, email: typeof meta?.email === 'string' ? meta.email : id,
+  return { dir: directory, id, email: typeof meta?.email === 'string' ? meta.email : null,
+    addedAt: typeof meta?.addedAt === 'string' ? meta.addedAt : null,
     signedIn: fs.existsSync(path.join(directory, 'data/server-session.enc')) }
 }
-function realAccountDirectories(home) {
-  const current = path.join(home, 'account')
-  const candidates = []
+function readCurrentAccount(home) {
+  const directory = path.join(home, 'account')
   try {
-    if (!fs.lstatSync(current).isDirectory()) throw new Error(`Expected an account directory: ${current}`)
-    candidates.push(accountIdentity(current))
-  } catch (error) { if (error.code !== 'ENOENT') throw error }
+    if (!fs.lstatSync(directory).isDirectory()) throw new Error(`Expected an account directory: ${directory}`)
+  } catch (error) { if (error.code === 'ENOENT') return null; throw error }
+  return accountIdentity(directory)
+}
+function realAccountDirectories(home) {
+  const candidates = []
+  const current = readCurrentAccount(home)
+  if (current) candidates.push(current)
   const legacy = path.join(home, 'accounts')
   let entries
   try {
@@ -42,11 +47,18 @@ function realAccountDirectories(home) {
   return candidates
 }
 const shellQuote = value => `'${value.replace(/'/g, `'"'"'`)}'`
+function moveAccount(account, destination) {
+  const meta = path.join(account.dir, 'account.json')
+  let value = {}
+  try { value = readJson(meta) } catch (error) { if (error.code !== 'ENOENT') throw error }
+  if (!value.userId) writeJson(meta, { ...value, userId: account.id })
+  fs.renameSync(account.dir, destination)
+}
 function retireAccount(home, account) {
   const destination = path.join(home, 'retired', account.id)
   if (fs.existsSync(destination)) throw new Error(`Refusing to overwrite retained account data: ${destination}`)
   fs.mkdirSync(path.dirname(destination), { recursive: true })
-  fs.renameSync(account.dir, destination)
+  moveAccount(account, destination)
 }
 function syncAccountAlias(home, id) {
   const legacy = path.join(home, 'accounts')
@@ -72,7 +84,7 @@ function migrateAccountLayout(home) {
   const candidates = realAccountDirectories(home)
   const signedIn = candidates.filter(account => account.signedIn)
   if (signedIn.length > 1) {
-    const commands = signedIn.map(account => `${account.email}:\n  mkdir -p ${shellQuote(path.join(home, 'retired'))} && mv -n ${shellQuote(account.dir)} ${shellQuote(path.join(home, 'retired', account.id))}`)
+    const commands = signedIn.map(account => `${account.email ?? account.id}:\n  mkdir -p ${shellQuote(path.join(home, 'retired'))} && mv -n ${shellQuote(account.dir)} ${shellQuote(path.join(home, 'retired', account.id))}`)
     throw new Error(`More than one account is signed in. No account data was changed. Keep one account and move the others, then restart:\n${commands.join('\n')}`)
   }
   const current = path.join(home, 'account')
@@ -86,32 +98,20 @@ function migrateAccountLayout(home) {
     destinations.add(destination)
   }
   for (const account of retired) retireAccount(home, account)
-  if (selected && selected.dir !== current) {
-    // Old checker skeletons have no userId. Persist it before losing the directory name.
-    const meta = path.join(selected.dir, 'account.json')
-    let value = {}
-    try { value = readJson(meta) } catch (error) { if (error.code !== 'ENOENT') throw error }
-    if (!value.userId) writeJson(meta, { ...value, userId: selected.id })
-    fs.renameSync(selected.dir, current)
-  }
+  if (selected && selected.dir !== current) moveAccount(selected, current)
   syncAccountAlias(home, selected?.id)
 }
 function prepareAccountLogin(home, id) {
   if (!accountId(id)) throw new Error('Invalid account identity')
   const current = path.join(home, 'account')
   if (realAccountDirectories(home).some(account => account.dir !== current)) throw new Error('Legacy account data must be migrated by gugu-server start before login.')
-  let previous
-  try {
-    if (!fs.lstatSync(current).isDirectory()) throw new Error(`Expected an account directory: ${current}`)
-    previous = accountIdentity(current)
-  } catch (error) { if (error.code !== 'ENOENT') throw error }
-  if (previous?.signedIn && previous.id !== id) throw new Error(`Gugu server is signed in as ${previous.email}. Sign out first.`)
+  const previous = readCurrentAccount(home)
+  if (previous?.signedIn && previous.id !== id) throw new Error(`Gugu server is signed in as ${previous.email ?? previous.id}. Sign out first.`)
   if (previous?.id !== id) {
     if (previous) retireAccount(home, previous)
     const retained = path.join(home, 'retired', id)
     if (fs.existsSync(retained)) {
-      accountIdentity(retained, id)
-      fs.renameSync(retained, current)
+      moveAccount(accountIdentity(retained, id), current)
     }
     else {
       fs.mkdirSync(current, { recursive: true })
@@ -326,7 +326,7 @@ function checkPendingBoot(home) {
   return true
 }
 
-module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, homeLockHolder, readPendingVerify, writePendingVerify, markServerReady, writeJson, pointCurrent, readBadVersions, legacyGuardActive, migrateAccountLayout, prepareAccountLogin }
+module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, homeLockHolder, readPendingVerify, writePendingVerify, markServerReady, writeJson, pointCurrent, readBadVersions, legacyGuardActive, migrateAccountLayout, prepareAccountLogin, readCurrentAccount }
 
 // Importing these same helpers from a bundle never counts another attempt.
 if (process.argv[2] === 'run' && process.execArgv.some((arg, i) => arg === '--require' && process.execArgv[i + 1] === __filename)) {

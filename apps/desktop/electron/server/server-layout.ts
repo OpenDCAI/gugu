@@ -12,6 +12,7 @@ import { promisify } from 'node:util'
 import { parseServerConnectVia, SERVER_CONNECT_VIA_FILE } from '@gugu/core/cloud/serverConnectVia'
 import { SERVER_ACTIVITY_STALE_MS } from '@gugu/core/cloud/serverMachineHealth'
 import type { DeviceConnectVia } from '@gugu/core/shared/types/deviceHost'
+import { readCurrentAccount } from './server-boot.cjs'
 
 export type ServerAccount = {
   userId: string
@@ -71,14 +72,10 @@ export const accountHomeDir = (): string => path.join(accountDir(), 'home')
 export const SESSION_FILE = 'server-session.enc'
 
 export function readServerAccount(): ServerAccount | null {
-  let meta: { userId?: unknown; email?: unknown; addedAt?: unknown }
-  try { meta = JSON.parse(fs.readFileSync(path.join(accountDir(), 'account.json'), 'utf8')) }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT' && !fs.existsSync(accountDir())) return null; throw error }
-  if (typeof meta.userId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(meta.userId)) throw new Error('Invalid account/account.json identity')
-  return { userId: meta.userId, email: typeof meta.email === 'string' ? meta.email : null,
-    addedAt: typeof meta.addedAt === 'string' ? meta.addedAt : null,
-    dir: accountDir(), dataDir: accountDataDir(), homeDir: accountHomeDir(),
-    signedIn: fs.existsSync(path.join(accountDataDir(), SESSION_FILE)), signedOut: readSignedOutMark(accountDataDir()) }
+  const account = readCurrentAccount(serverHome())
+  return account ? { userId: account.id, email: account.email, addedAt: account.addedAt,
+    dir: account.dir, dataDir: accountDataDir(), homeDir: accountHomeDir(),
+    signedIn: account.signedIn, signedOut: readSignedOutMark(accountDataDir()) } : null
 }
 
 export function writeAccountMeta(userId: string, email: string | null): void {

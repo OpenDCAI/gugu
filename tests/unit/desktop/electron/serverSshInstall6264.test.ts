@@ -633,6 +633,13 @@ describe('本机下载(那台机器上不了网时)', () => {
 describe('读远端输出', () => {
   const probeLines = (extra: string[]) => `welcome!\nos=Windows\n${PROBE_BEGIN}\nos=Linux\narch=aarch64\nuser=alice\nhostname=ip-172-31-1-2\n${[...extra, ...statusLines(extra)].join('\n')}\n${PROBE_END}\n`
 
+  it.each(['missing', 'broken', 'wrong-shape'])('fails closed on %s status output instead of trusting legacy path guesses', kind => {
+    const payload = kind === 'missing' ? '' : `__GUGU_STATUS_BEGIN__\n${kind === 'broken' ? '{broken' : '{"accounts":[{}]}'}\n__GUGU_STATUS_END__`
+    const output = `${PROBE_BEGIN}\ninstalled=0.3.0\nstatus_exit=0\naccount=guessed me@example.test\n${payload}\n${PROBE_END}`
+    expect(parseProbeOutput(output)?.statusError).toContain('Could not determine')
+    expect(parseProbeOutput(output)?.accounts).toEqual([])
+  })
+
   it('parseProbeOutput 只读标记之间,.bashrc 的噪音混不进来', () => {
     const out = probeLines(['distro=Ubuntu 22.04.4 LTS', 'libc=glibc 2.35', 'installed=0.2.49', 'grant=1', 'running=1', 'account=u1 a@b.c', 'account=u2 ', 'fetcher=curl', 'freekb=1048576', 'exec=1'])
     expect(parseProbeOutput(out)).toEqual({

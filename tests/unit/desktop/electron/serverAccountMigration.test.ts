@@ -79,6 +79,24 @@ describe('single account directory migration', () => {
     expect(fs.readFileSync(path.join(source, 'data/history'), 'utf8')).toBe('history-one')
   })
 
+  it('keeps the same account data readable through the old path after boot rollback', () => {
+    const original = account('one')
+    const inode = fs.statSync(path.join(original, 'data/history')).ino
+    for (const version of ['1.0.0', '2.0.0']) fs.mkdirSync(path.join(home, 'versions', version), { recursive: true })
+    fs.symlinkSync('versions/2.0.0', path.join(home, 'current'))
+    fs.mkdirSync(path.join(home, 'data'))
+    fs.writeFileSync(path.join(home, 'data/pending-verify.json'), JSON.stringify({ from: '1.0.0', to: '2.0.0', attempts: 3 }))
+    const entry = path.join(home, 'entry.cjs')
+    fs.writeFileSync(entry, "throw new Error('rolled back package must not load')")
+    const result = spawnSync(process.execPath, ['--require', path.resolve('apps/desktop/electron/server/server-boot.cjs'), entry, 'run'], {
+      env: { ...process.env, GUGU_SERVER_HOME: home, GUGU_TASK_HOST_VERSION: '2.0.0' }, encoding: 'utf8',
+    })
+    expect(result.status).toBe(75)
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/1.0.0'))
+    expect(fs.statSync(path.join(original, 'data/history')).ino).toBe(inode)
+    expect(fs.readlinkSync(original)).toBe('../account')
+  })
+
   it('never overwrites an existing retired account', () => {
     account('one'); const old = account('old', false)
     account('old', false, path.join(home, 'retired/old'))
@@ -111,6 +129,15 @@ describe('single account directory migration', () => {
   it('rejects switching away from a signed-in owner', () => {
     account('one'); migrateAccountLayout(home)
     expect(() => prepareAccountLogin(home, 'two')).toThrow('one@example.test')
+    expect(fs.readFileSync(path.join(home, 'account/data/history'), 'utf8')).toBe('history-one')
+  })
+
+  it('retains the directory identity when old signed-out metadata lacks a userId', () => {
+    const previous = account('one', false)
+    fs.writeFileSync(path.join(previous, 'account.json'), JSON.stringify({ email: 'one@example.test' }))
+    migrateAccountLayout(home)
+    prepareAccountLogin(home, 'one')
+    expect(JSON.parse(fs.readFileSync(path.join(home, 'account/account.json'), 'utf8')).userId).toBe('one')
     expect(fs.readFileSync(path.join(home, 'account/data/history'), 'utf8')).toBe('history-one')
   })
 
