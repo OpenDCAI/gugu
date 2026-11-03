@@ -55,13 +55,13 @@ async function openMenu(mobile: boolean) {
     onCloseHeaderMenu: vi.fn(),
   }), { chat: { activeChatId: 'g', chats: [{ id: 'g', kind: 'group' }] as never } })
   const entry = mobile
-    ? [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === '群应用')!
-    : document.querySelector<HTMLElement>('button[aria-label="群应用"]')!
+    ? [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === '应用')!
+    : document.querySelector<HTMLElement>('button[aria-label="应用"]')!
   await clickElement(entry)
   return Array.from(document.querySelectorAll<HTMLElement>('[data-testid="group-apps-open"]'))
 }
 
-describe('群应用 打开本机的 App', () => {
+describe('应用 打开本机的 App', () => {
   for (const mobile of [false, true]) {
     it(`${mobile ? '手机' : '桌面'}:只列开着、有自己页面的 App;点一下 = openApp(它, 本对话)`, async () => {
       const rows = await openMenu(mobile)
@@ -79,7 +79,7 @@ describe('群应用 打开本机的 App', () => {
     })
   }
 
-  it('没有可打开的 App:群应用 列表为空', async () => {
+  it('没有可打开的 App:应用 列表为空', async () => {
     runInAction(() => { installedExtensionsStore.disabled = ['turtle-soup', 'paper-reader'] })
     expect(await openMenu(false)).toEqual([])
   })

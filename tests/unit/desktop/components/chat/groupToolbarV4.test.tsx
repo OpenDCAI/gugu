@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
 import { act, createRef } from 'react'
+import { runInAction } from 'mobx'
+import { installedExtensionsStore } from '../../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store'
+import { EXTENSION_API_VERSION, parseExtensionManifest } from '../../../../../apps/desktop/src/session/shared/extensions/manifest'
+import enMessaging from '../../../../../apps/desktop/src/i18n/locales/en-US/messaging'
+import zhMessaging from '../../../../../apps/desktop/src/i18n/locales/zh-CN/messaging'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem, GroupChatSettings, GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
 import { chat as topicFixture, clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
@@ -20,6 +25,10 @@ beforeEach(() => {
   harness = createReactHarness()
   headerWidth = 900
   vi.clearAllMocks()
+  runInAction(() => {
+    installedExtensionsStore.manifests = [parseExtensionManifest({ id: 'toolbar-app', name: 'Toolbar App', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Toolbar App' }] } })]
+    installedExtensionsStore.disabled = []
+  })
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
     return { x: 0, y: 0, left: 0, top: 0, width: this.hasAttribute('data-chat-area-header') ? headerWidth : 32, height: 40, right: headerWidth, bottom: 40, toJSON() {} }
   })
@@ -30,7 +39,7 @@ beforeEach(() => {
     unobserve() {}
   })
 })
-afterEach(() => { harness.cleanup(); resizeCallbacks.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { runInAction(() => { installedExtensionsStore.manifests = []; installedExtensionsStore.disabled = [] }); harness.cleanup(); resizeCallbacks.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 async function header(kind: 'group' | 'topic' | 'dm', options: { mobile?: boolean; menu?: boolean; infoShown?: boolean; stripNarrow?: boolean; pinned?: boolean; muted?: boolean; topics?: ChatItem[] } = {}) {
   if (options.stripNarrow) { harness.container.className = 'session-tab-bar'; harness.container.setAttribute('data-strip-narrow', '') }
@@ -57,12 +66,41 @@ const button = (label: string) => [...harness.container.querySelectorAll<HTMLBut
 const menuItem = (text: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((element) => element.textContent?.includes(text))
 
 describe('final group toolbar v4', () => {
+  it('[immediate] removes duplicate installed Apps only from wide-group More', async () => {
+    await header('group', { menu: true })
+    expect(document.querySelector('[data-testid="chat-header-apps-button"]')).not.toBeNull()
+    expect(document.querySelectorAll('[data-testid="chat-header-menu-app"]')).toHaveLength(0)
+  })
+
+  it.each(['width', 'mobile', 'strip', 'dm', 'topic'] as const)('[immediate control] %s keeps the existing installed-App menu', async (mode) => {
+    headerWidth = mode === 'width' ? 560 : 900
+    await header(mode === 'dm' || mode === 'topic' ? mode : 'group', { menu: true, mobile: mode === 'mobile', stripNarrow: mode === 'strip' })
+    const app = document.querySelector<HTMLElement>('[data-testid="chat-header-menu-app"]')
+    expect(app?.textContent).toBe('Toolbar App')
+    if (mode !== 'dm' && mode !== 'topic') {
+      expect(document.querySelector('[data-testid="chat-header-apps-button"]')).toBeNull()
+      expect(menuItem('应用')).toBeDefined()
+    }
+  })
+
+  it.each(['group', 'topic'] as const)('[immediate] %s member pill contains only the count and keeps its accessible name', async (kind) => {
+    await header(kind)
+    const members = button('成员列表')!
+    expect(members.textContent).toBe('3')
+    expect(members.querySelector('svg')).not.toBeNull()
+    expect(members.title).toBe('成员列表')
+  })
+
+  it.each([['en-US', enMessaging, 'Apps'], ['zh-CN', zhMessaging, '应用']] as const)('[immediate] %s uses the short Apps label', (_locale, catalog, label) => {
+    expect(catalog.header.groupApps).toBe(label)
+  })
+
   it('puts members, topics, invitation, Apps and More on a wide group; search and files live in More', async () => {
     await header('group', { menu: true })
     expect(button('成员列表')?.textContent).toContain('3')
     expect(button('话题')).toBeDefined()
     expect(button('邀请')).toBeDefined()
-    expect(button('群应用')).toBeDefined()
+    expect(button('应用')).toBeDefined()
     expect(button('在对话中搜索')).toBeUndefined()
     expect(button('群文件夹')).toBeUndefined()
     expect(menuItem('搜索聊天记录')).toBeDefined()
@@ -75,17 +113,17 @@ describe('final group toolbar v4', () => {
     await header('group', { menu: true, mobile: reason === 'mobile', stripNarrow: reason === 'strip' })
     expect(button('话题')).toBeDefined()
     expect(button('邀请')).toBeUndefined()
-    expect(button('群应用')).toBeUndefined()
+    expect(button('应用')).toBeUndefined()
     expect(menuItem('邀请')).toBeDefined()
-    expect(menuItem('群应用')).toBeDefined()
+    expect(menuItem('应用')).toBeDefined()
   })
 
   it('uses the own header width, restoring wide actions above the inclusive 560px boundary', async () => {
     headerWidth = 560
     await header('group')
-    expect(button('群应用')).toBeUndefined()
+    expect(button('应用')).toBeUndefined()
     await act(async () => { headerWidth = 561; for (const callback of resizeCallbacks) callback([], {} as ResizeObserver) })
-    expect(button('群应用')).toBeDefined()
+    expect(button('应用')).toBeDefined()
   })
 
   it.each(['wide', 'strip', 'width', 'mobile'] as const)('%s: keeps the topic unread total and dropdown row counts consistent', async (mode) => {
@@ -116,7 +154,7 @@ describe('final group toolbar v4', () => {
     expect(button('成员列表')).toBeDefined()
     expect(button('话题')).toBeUndefined()
     expect(button('邀请')).toBeUndefined()
-    expect(button('群应用')).toBeUndefined()
+    expect(button('应用')).toBeUndefined()
     expect(menuItem('会话信息')).toBeDefined()
   })
 
