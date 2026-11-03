@@ -237,10 +237,10 @@ describe('renamed files already open', () => {
     expect(openFileIds().has('rename-file')).toBe(true);
     updateFileNames([{ id: 'rename-file', filename: 'new.md', content_type: 'text/markdown' }], installed);
     const renamed = panelTabsOf('rename-source').find((candidate) => candidate.tabId === tab)!;
-    expect(renamed.item).toMatchObject({ itemId: 'rename-file', title: 'new', fileName: 'new.md', typedName: 'new.md' });
+    expect(renamed.item).toMatchObject({ itemId: 'rename-file', title: 'new.md', fileName: 'new.md', typedName: 'new.md' });
     expect(returnToOf('rename-source', tab)).toBe(folder);
     expect(shownPanelTab('rename-source')?.tabId).toBe(tab);
-    expect(panelTabsOf('rename-topic')[0]?.item.title).toBe('new');
+    expect(panelTabsOf('rename-topic')[0]?.item.title).toBe('new.md');
   });
 
   it('does not revive a closed file when a metadata read finishes afterwards', () => {
