@@ -7,6 +7,7 @@
 //   place  → only put in the chat's folder (a new file, or a new version of one) — no message;
 //   forward → a new-kind attachment message forwarded (the server makes the target's item);
 //   urls   → signed links for items' versions or whisper messages.
+import { retryFileDownload } from './fileDownloadRetry'
 import type { FileKeep } from '../shared/fileStorage'
 import { getSupabaseAnonKey, getSupabaseUrl } from './config'
 
@@ -37,21 +38,27 @@ export class AttachmentsError extends Error {
 
 async function call(endpoint: AttachmentsEndpoint, route: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
   signal?.throwIfAborted()
-  const response = await (endpoint.fetch ?? fetch)(`${endpoint.supabaseUrl.replace(/\/+$/, '')}/functions/v1/attachments/${route}`, {
-    method: 'POST',
-    headers: { apikey: endpoint.anonKey, Authorization: `Bearer ${endpoint.token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal,
-  })
-  const text = await response.text()
-  let json: unknown = null
-  try { json = JSON.parse(text) } catch { /* not json: said below as it is */ }
-  if (!response.ok) {
-    const said = (json ?? {}) as { error?: unknown; message?: unknown }
-    throw new AttachmentsError(route, response.status, typeof said.error === 'string' ? said.error : 'failed',
-      typeof said.message === 'string' ? said.message : `HTTP ${response.status} ${text.slice(0, 200)}`)
+  const url = `${endpoint.supabaseUrl.replace(/\/+$/, '')}/functions/v1/attachments/${route}`
+  const request = async () => {
+    const response = await (endpoint.fetch ?? fetch)(url, {
+      method: 'POST',
+      headers: { apikey: endpoint.anonKey, Authorization: `Bearer ${endpoint.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    })
+    const text = await response.text()
+    let json: unknown = null
+    try { json = JSON.parse(text) } catch { /* not json: said below as it is */ }
+    if (!response.ok) {
+      const said = (json ?? {}) as { error?: unknown; message?: unknown }
+      throw new AttachmentsError(route, response.status, typeof said.error === 'string' ? said.error : 'failed',
+        typeof said.message === 'string' ? said.message : `HTTP ${response.status} ${text.slice(0, 200)}`)
+    }
+    return json
   }
-  return json
+  return route === 'file-download' || route === 'file-resolve'
+    ? retryFileDownload(() => ({ stage: route === 'file-download' ? 'signature' : 'metadata', url }), request, signal)
+    : request()
 }
 
 /** Uploads to the configured object store using the server-issued scoped upload plan. */

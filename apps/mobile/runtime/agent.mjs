@@ -4,10 +4,10 @@ import { join } from 'node:path'
 import { runTurn, cancelTurn } from './pi-session.mjs'
 import { startPhoneAgentHost } from './phone-agent-host.mjs'
 import { createNativeBridge } from './native-bridge.mjs'
-import { configurePhoneNetwork } from './phone-network.mjs'
+import { configureNodeNetwork } from '../../../packages/core/src/local/node-network.mjs'
 import { bindAgentEntry, createAgentEntry } from './agent-entry.mjs'
 
-configurePhoneNetwork()
+configureNodeNetwork()
 const output = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
 const bridge = createNativeBridge(output)
 const entry = createAgentEntry({ runTurn, cancelTurn, startPhoneAgentHost, bridge, output })

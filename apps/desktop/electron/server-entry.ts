@@ -29,7 +29,9 @@ import { getSupabaseUrl } from '@gugu/core/cloud/config'
 import { resolveServerHome } from './server/server-installation'
 import { inspectAccountLayout } from './server/server-startup'
 import { homeLockHolder } from './server/server-startup'
+import { configureNodeNetwork } from '@gugu/core/local/node-network.mjs'
 
+configureNodeNetwork()
 
 const stderr = (line: string): void => void process.stderr.write(`${line}\n`)
 
