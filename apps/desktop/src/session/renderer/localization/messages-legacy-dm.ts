@@ -1,0 +1,26 @@
+export const enUSLegacyDmMessages = {
+  'legacyDm.history': 'Old private chat history',
+  'legacyDm.archive': 'Old private chat archive',
+  'legacyDm.readOnly': 'Read only',
+  'legacyDm.search': 'Search by name or chat number',
+  'legacyDm.empty': 'No old private chat history',
+  'legacyDm.unbound': 'This task has no verified identity. Its old chats remain in the private chat archive.',
+  'legacyDm.failed': 'Could not read old private chat history',
+  'legacyDm.more': 'Show more',
+  'legacyDm.older': 'Show earlier messages',
+  'legacyDm.unknownSender': 'Removed account',
+  'legacyDm.chatNumber': 'Private chat {number}',
+};
+export const zhCNLegacyDmMessages: Record<keyof typeof enUSLegacyDmMessages, string> = {
+  'legacyDm.history': '旧私聊历史',
+  'legacyDm.archive': '旧私聊归档',
+  'legacyDm.readOnly': '只读',
+  'legacyDm.search': '按名称或私聊编号搜索',
+  'legacyDm.empty': '没有旧私聊历史',
+  'legacyDm.unbound': '此会话没有可核实的身份，旧私聊仍可在历史归档中查阅。',
+  'legacyDm.failed': '暂时无法读取旧私聊历史',
+  'legacyDm.more': '显示更多',
+  'legacyDm.older': '查看更早消息',
+  'legacyDm.unknownSender': '已移除的账号',
+  'legacyDm.chatNumber': '私聊 {number}',
+};

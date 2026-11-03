@@ -5,6 +5,7 @@ import { enUSRemoteHostMessages, zhCNRemoteHostMessages } from './messages-remot
 import { enUSRemotePortMessages, zhCNRemotePortMessages } from './messages-remote-ports';
 import { enUSSubscriptionMessages, zhCNSubscriptionMessages } from './messages-subscriptions';
 import { enUSSessionWorkflowMessages, zhCNSessionWorkflowMessages } from './messages-session-workflows';
+import { enUSLegacyDmMessages, zhCNLegacyDmMessages } from './messages-legacy-dm';
 import { enUSSessionScheduleMessages, zhCNSessionScheduleMessages } from './messages-session-schedules';
 import { enUSAgentStatusMessages, zhCNAgentStatusMessages } from './messages-agent-status';
 import { enUSAppSettingsMessages, zhCNAppSettingsMessages } from './messages-app-settings';
@@ -2089,6 +2090,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
 export const enUSMessages = {
   ...enUSCoreMessages,
   ...enUSSessionWorkflowMessages,
+  ...enUSLegacyDmMessages,
   ...enUSProjectMessages,
   ...enUSCapabilityMessages,
   ...enUSSharedMessages,
@@ -2111,6 +2113,7 @@ export type SessionMessageLookupKey<Key extends string = SessionMessageKey> =
 export const zhCNMessages: Record<SessionMessageKey, string> = {
   ...zhCNCoreMessages,
   ...zhCNSessionWorkflowMessages,
+  ...zhCNLegacyDmMessages,
   ...zhCNProjectMessages,
   ...zhCNCapabilityMessages,
   ...zhCNSharedMessages,

@@ -12,6 +12,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { log } from '@renderer/utils/logger';
 import { useSessionViewContext } from '../session-view-context';
+import { LegacyDmHistoryDialog } from '@/components/legacy-dm-history/LegacyDmHistory';
 
 /**
  * 一条会话的动作 —— 置顶、重命名、重启本会话、归档(#7052)。「通用 / 编程」的手动切换已删:展示跟设置 → 通用的「终端」开关走。
@@ -46,6 +47,7 @@ export const SessionActionsProvider = observer(function SessionActionsProvider({
    */
   const [pendingReload, setPendingReload] = useState<{ sessionId: string } | null>(null);
   const [reloading, setReloading] = useState(false);
+  const [legacySessionId, setLegacySessionId] = useState<string | null>(null);
 
   const confirmReload = useCallback(async () => {
     const pending = pendingReload;
@@ -74,6 +76,10 @@ export const SessionActionsProvider = observer(function SessionActionsProvider({
         if (!session) return [];
         const pinned = session.data.isPinned ?? false;
         return [
+          {
+            id: 'session:legacy-history', label: translate('legacyDm.history'), icon: Archive,
+            group: 'edit' as const, run: () => setLegacySessionId(sessionId),
+          },
           {
             id: 'session:pin',
             label: translate(pinned ? 'task.unpin' : 'task.pin'),
@@ -113,6 +119,7 @@ export const SessionActionsProvider = observer(function SessionActionsProvider({
 
   return (
     <SessionActionsContext.Provider value={actions}>
+      {legacySessionId && <LegacyDmHistoryDialog sessionId={legacySessionId} onClose={() => setLegacySessionId(null)} />}
       <SessionReloadConfirm
         open={pendingReload !== null}
         onOpenChange={(next) => {
