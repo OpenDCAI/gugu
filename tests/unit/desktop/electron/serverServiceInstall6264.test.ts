@@ -43,7 +43,8 @@ it.each([0, 75, 78, 79, 143, 1])('launchd wrapper classifies the actual server e
     const plist = launchdPlist(executable, home, path.join(home, 'service.log'))
     const argumentsXml = plist.match(/<key>ProgramArguments<\/key><array>(.*?)<\/array>/s)![1]!
     const args = [...argumentsXml.matchAll(/<string>(.*?)<\/string>/gs)].map(match => match[1]!.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'))
-    const result = spawnSync(args[0]!, args.slice(1), { env: { ...process.env, GUGU_SERVER_HOME: home }, encoding: 'utf8' })
+    // macOS /bin/sh is Bash; Linux /bin/sh can be dash without noninteractive job control.
+    const result = spawnSync(process.platform === 'linux' ? '/bin/bash' : args[0]!, args.slice(1), { env: { ...process.env, GUGU_SERVER_HOME: home }, encoding: 'utf8' })
     expect(result.status, result.stderr).toBe([0, 78, 79, 143].includes(code) ? 0 : code)
     expect(result.stdout).toBe('')
     expect(result.stderr).toBe('')
@@ -62,11 +63,15 @@ it.runIf(process.platform === 'darwin')('launchd kills a stuck child group befor
   const xml = plist.match(/<key>ProgramArguments<\/key><array>(.*?)<\/array>/s)![1]!
   const args = [...xml.matchAll(/<string>(.*?)<\/string>/gs)].map(match => match[1]!.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'))
   const wrapper = spawn(args[0]!, args.slice(1), { env: { ...process.env, GUGU_SERVER_HOME: home, PATH: `${fakebin}:${process.env.PATH}` } })
-  const guard = setTimeout(() => wrapper.kill('SIGKILL'), 10_000)
+  const guard = setTimeout(() => {
+    if (childPid) try { process.kill(childPid, 'SIGKILL') } catch { /* already stopped */ }
+    wrapper.kill('SIGKILL')
+  }, 10_000)
   let stderr = ''
   wrapper.stderr!.on('data', value => { stderr += String(value) })
   try {
     childPid = Number(String((await once(wrapper.stdout!, 'data'))[0]))
+    console.info('Launchd hang fixture PID:', childPid)
     const closed = once(wrapper, 'close')
     wrapper.kill('SIGTERM')
     expect(await closed).toEqual([137, null])
