@@ -91,7 +91,7 @@ export function resultError(error: unknown): Error {
 export function isConnectionLostError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const { name, code } = error as { name?: unknown; code?: unknown };
-  return (name === 'WireError' && code === 'DISCONNECTED') || code === 'unreachable';
+  return (name === 'WireError' && code === 'DISCONNECTED') || code === 'unreachable' || code === 'server_outdated';
 }
 
 /** @param machine 这条会话所在的那台别的机器;本机会话 = null(线断了照旧按原话说)。 */

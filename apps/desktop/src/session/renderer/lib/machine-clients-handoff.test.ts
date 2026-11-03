@@ -16,6 +16,7 @@ type Handlers = Parameters<SessionHostPipeOpener>[0];
 const windows = vi.hoisted(() => [] as Array<{ onFrame(frame: string | Uint8Array): void; onClose(reason: string, options?: { handoff?: boolean }): void }>);
 const sent = vi.hoisted(() => [] as string[]);
 const peerProtocol = vi.hoisted(() => ({ value: null as number | null }));
+const matchServerVersion = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock('@shared/remote-hosts', async (importOriginal) => {
   const opener = Object.assign(
@@ -30,6 +31,7 @@ vi.mock('@shared/remote-hosts', async (importOriginal) => {
     openSessionHost: () => opener,
     listDevices: () => [{ id: 'd22', label: 'd22', isOnline: true }],
     subscribeDevices: () => () => undefined,
+    matchServerVersion,
   };
   return {
     ...(await importOriginal<typeof import('@shared/remote-hosts')>()),
@@ -42,7 +44,7 @@ Object.defineProperty(window, 'electronAPI', {
   configurable: true,
   value: { invoke: () => Promise.resolve([]), eventSend: () => {}, eventOn: () => () => {}, getPathForFile: () => '' },
 });
-const { closeMachineClient, machineClient, machineLinkHandingOff, machineLinkState, onMachineReconnected, subscribeMachineLink } = await import('./machine-clients');
+const { closeMachineClient, machineClient, machineLinkHandingOff, machineLinkState, onMachineReconnected, reportMachineOutdated, subscribeMachineLink } = await import('./machine-clients');
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -102,6 +104,20 @@ describe('到那台机器的线:计划内换线', () => {
     windows[0].onClose('frame not delivered');
     expect(machineLinkState('d22')).toBe('closed');
     expect(machineLinkHandingOff('d22')).toBe(false);
+    closeMachineClient('d22');
+  });
+
+  it('marks a connected machine outdated and requests version matching when a required RPC is missing', async () => {
+    windows.length = 0;
+    matchServerVersion.mockClear();
+    await machineClient('d22')!.connect();
+
+    reportMachineOutdated('d22');
+    reportMachineOutdated('d22');
+
+    expect(machineLinkState('d22')).toBe('tooOld');
+    expect(matchServerVersion).toHaveBeenCalledOnce();
+    expect(matchServerVersion).toHaveBeenCalledWith('d22');
     closeMachineClient('d22');
   });
 });

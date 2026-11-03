@@ -26,7 +26,7 @@ vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
 /** 到那台机器的线:此刻通不通,以及「从断变通」时要叫的那几位(由用例自己叫)。 */
 const link = vi.hoisted(() => ({
   /** switching = 计划内换线(对外照 open 说,machineLinkHandingOff 为真)。 */
-  state: 'open' as 'open' | 'closed' | 'switching',
+  state: 'open' as 'open' | 'closed' | 'switching' | 'tooOld',
   reconnected: new Set<() => void>(),
 }));
 vi.mock('@renderer/lib/machine-clients', async (importOriginal) => ({
@@ -92,6 +92,13 @@ function linkDrops(): WireErrorInstance {
 function linkSwitches(): WireErrorInstance {
   link.state = 'switching';
   return disconnected();
+}
+
+function hostIsOutdated(): Error {
+  link.state = 'tooOld';
+  return Object.assign(new Error('[machine] device-d22 runs an older 咕咕 without sessions.lifeView: update it'), {
+    code: 'server_outdated',
+  });
 }
 
 /** 让开场跑到「等线回来」那一步(失败已落定,宽限计时开始):只推到期的计时器,宽限那只不动。 */
@@ -161,6 +168,23 @@ describe('起会话途中到那台机器的线断了', () => {
     linkComesBack();
     expect(restarts).toHaveBeenCalledTimes(1);
     expect(store.loadError, '再开时清掉了那一行').toBeNull();
+  });
+
+  it('缺少远端 lifeView:等待版本匹配重启,重连后自动再开', async () => {
+    create.mockImplementation(() => Promise.reject(hostIsOutdated()));
+    const store = storeOn(MACHINE);
+    const first = bootstrap(store);
+    await settle();
+    expect(store.loadError).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(MACHINE_LINK_GRACE_MS);
+    await first;
+    expect(store.loadError).toMatchObject({ kind: 'connection_lost', deviceId: MACHINE });
+
+    const restarts = countRestarts(store);
+    linkComesBack();
+    expect(restarts).toHaveBeenCalledOnce();
+    expect(store.loadError).toBeNull();
   });
 
   it('线在这次开场途中已经断过又通了:当场再开,❌ 等下一次变通', async () => {
