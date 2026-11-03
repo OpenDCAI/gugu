@@ -95,6 +95,13 @@ const HOST_CATALOG = {
       reload: '重新载入',
       quit: '退出咕咕',
     },
+    updateRestart: {
+      title: '重启更新？',
+      one: '{count} 个正在运行的任务会被中断。',
+      other: '{count} 个正在运行的任务会被中断。',
+      restart: '现在重启',
+      later: '稍后',
+    },
     sessionPlatform: {
       /**
        * 会话跑到一半、咕咕额度的凭据签不出来时,agent 自己界面上显示的那一句(claude 显示为
@@ -178,6 +185,13 @@ const HOST_CATALOG = {
       reload: 'Reload',
       quit: 'Quit 咕咕',
     },
+    updateRestart: {
+      title: 'Restart to update?',
+      one: '{count} running task will be interrupted.',
+      other: '{count} running tasks will be interrupted.',
+      restart: 'Restart now',
+      later: 'Later',
+    },
     sessionPlatform: {
       credentialUnavailable: {
         signedOut: '咕咕: you are signed out. Sign in again in 咕咕, then resend',
@@ -198,4 +212,9 @@ export function isResolvedLocale(value: unknown): value is SupportedLocale {
 
 export function hostCatalog(locale: SupportedLocale): HostCatalog {
   return HOST_CATALOG[locale]
+}
+
+export function updateRestartCopy(catalog: HostCatalog, count: number) {
+  const copy = catalog.updateRestart
+  return { ...copy, detail: (count === 1 ? copy.one : copy.other).replace('{count}', String(count)) }
 }

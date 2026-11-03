@@ -551,7 +551,7 @@ import {
   formatBadgeCount,
   paintBadgeOnBitmap,
 } from './tray-badge'
-import { HOST_SYSTEM_LANGUAGES_CHANNEL, hostCatalog, type HostCatalog } from '../shared/host-localization'
+import { HOST_SYSTEM_LANGUAGES_CHANNEL, hostCatalog, updateRestartCopy, type HostCatalog } from '../shared/host-localization'
 
 // ── Dual-instance support ────────────────────────────────────────────────────
 // CLI arg (preferred): --user-data-dir=/path/to/dir ; env fallback: GUGU_USER_DATA_DIR=/path/to/dir
@@ -3141,6 +3141,27 @@ const updateFlow = createUpdateFlow({
     start: startMacDmgDownload,
   },
   updateQuit,
+  busyAgents: () => {
+    const bridge = loadEmdashBridge()
+    if (!bridge) throw new Error('Session backend unavailable for restart confirmation')
+    return bridge.sessionpageVersionSwitchActivity().busyAgents
+  },
+  confirmInterrupt: async (count) => {
+    focusMainWindow()
+    const copy = updateRestartCopy(currentHostCatalog(), count)
+    const options = {
+      type: 'question' as const,
+      message: copy.title,
+      detail: copy.detail,
+      buttons: [copy.restart, copy.later],
+      defaultId: 1,
+      cancelId: 1,
+    }
+    const { response } = await (mainWindow && !mainWindow.isDestroyed()
+      ? dialog.showMessageBox(mainWindow, options)
+      : dialog.showMessageBox(options))
+    return response === 0
+  },
   logInfo: (message, detail) => updaterLogger.info(detail ?? {}, message),
   logWarn: (message, detail) => updaterLogger.warn(detail ?? {}, message),
 })

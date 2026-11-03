@@ -63,6 +63,9 @@ export interface UpdateFlowDeps {
   /** @@@663 mac ad-hoc 存量包的 dmg 半自动路径:用不用、怎么起(它自己报进度与结果)。 */
   dmg: { applies: (info: UpdateInfoLike | null) => boolean; start: () => void }
   updateQuit: Pick<UpdateQuit, 'installAfterDownload' | 'downloaded' | 'downloadFailed'>
+  /** Same busyAgents reading used by the host's version-switch activity report. */
+  busyAgents: () => number
+  confirmInterrupt: (count: number) => Promise<boolean>
   logInfo: (message: string, detail?: Record<string, unknown>) => void
   logWarn: (message: string, detail?: Record<string, unknown>) => void
 }
@@ -86,6 +89,8 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
   // @@@5576 能静默下就静默下 —— 下完界面才出「重启更新」,装不装仍由用户点(product spec)。
   let silentDownloadActive = false
   let downloadedVersion: string | null = null
+  let acceptedBusyCount: number | null = null
+  let installFlight: Promise<void> | null = null
 
   // 「正在下」是状态源上的一个值(带 percent),❌ 另发一条进度事件:界面上「下载中」只有这一个来源。
   // 原先静默下载时进度被整段吞掉、状态停在 idle,用户点「检查更新」只得到「发现新版本」,
@@ -107,7 +112,9 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
     const message = error instanceof Error ? error.message : String(error)
     // 按过「重启更新」之后的那次下载是用户要的:照实报错(横幅出「更新失败 + 重试」),
     // 「下好就装」随之作废 —— 以后某次静默下载下好时 ❌ 突然退出去装(装不装由用户定)。
-    const userAsked = deps.updateQuit.downloadFailed()
+    const quitPending = deps.updateQuit.downloadFailed()
+    const userAsked = acceptedBusyCount !== null || installFlight !== null || quitPending
+    acceptedBusyCount = null
     const silentFailure = silentDownloadActive && !userAsked
     silentDownloadActive = false
     // @@@5576 静默下载失败:用户从没按过任何键,弹一个错给他是无端打扰;但也**不能就这么算了** ——
@@ -189,7 +196,13 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
       messageKey: 'about.updateDownloaded',
     })
     deps.onReady()
-    deps.updateQuit.downloaded({ version: downloadedVersion })
+    if (acceptedBusyCount !== null) {
+      const accepted = acceptedBusyCount
+      acceptedBusyCount = null
+      installFlight = finishInstall(accepted).catch((error: unknown) => {
+        deps.logWarn('[updater] restart confirmation failed; update remains ready', { error: String(error) })
+      }).finally(() => { installFlight = null })
+    }
   }
 
   deps.updater.onError((error) => {
@@ -204,8 +217,16 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
   // 装完起来再查才发现更新的,于是一次更新要按好几次。
   // ⇒ 按下先查一次 feed(复用同一个 check → 静默下载 → update-downloaded):有更新的就先下(界面显示
   //   「下载中 N%」),下好了直接装 —— 用户已经说过要装;没有更新的、或者查不到(离线),装手上这一份。
-  async function install(): Promise<void> {
+  async function finishInstall(accepted: number): Promise<void> {
+    const current = deps.busyAgents()
+    if (current > accepted && !await deps.confirmInterrupt(current)) return
     deps.updateQuit.installAfterDownload()
+    deps.updateQuit.downloaded({ version: downloadedVersion })
+  }
+
+  async function requestInstall(): Promise<void> {
+    const accepted = deps.busyAgents()
+    if (accepted > 0 && !await deps.confirmInterrupt(accepted)) return
     try {
       await deps.updater.checkForUpdates()
     } catch (error) {
@@ -214,10 +235,18 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
     // 查到更新的一版时,update-available → startSilentDownload 已经把状态置成 downloading;
     // 它下好时由 update-downloaded 接着装。
     if (deps.getStatus() === 'downloading') {
+      acceptedBusyCount = accepted
       deps.logInfo('[updater] 按下安装时 feed 上有更新的一版,先下它,下好就装', { staged: downloadedVersion })
       return
     }
-    deps.updateQuit.downloaded({ version: downloadedVersion })
+    await finishInstall(accepted)
+  }
+
+  function install(): Promise<void> {
+    if (installFlight) return installFlight
+    if (acceptedBusyCount !== null) return Promise.resolve()
+    installFlight = requestInstall().finally(() => { installFlight = null })
+    return installFlight
   }
 
   return {
