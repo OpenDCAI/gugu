@@ -76,7 +76,7 @@ export interface ChatOutbox {
   restore(): Promise<OutboxRecord[]>
   /** 当前未决记录快照(chatId/threadRootId 过滤;UI 合并点注入用)。 */
   pendingFor(chatId: string, threadRootId: string | null): OutboxRecord[]
-  /** 等某条真送达(送达 resolve;终态 failed/丢弃 reject)。结构性发送(新建话题 root)用。 */
+  /** Wait for delivery; default callers reject on failure. Durable dependents may wait through the source's existing retry. */
   delivered(clientMessageId: string, options?: { waitForRetry?: boolean }): Promise<void>
 }
 
@@ -93,7 +93,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
   let epoch = 0
   let lastEnqueuedAt = 0
   const isActive = (operationEpoch = epoch) => !disposed && operationEpoch === epoch
-  // delivered() 的等待者:送达 resolve,终态 failed / 丢弃 reject(供「新建话题 root 必须先落库」类结构性发送)
+  // Default waiters reject on failure. Opted-in waiters survive retryable failure; discard/dispose always reject.
   const waiters = new Map<string, Set<{ resolve: () => void; reject: (err: Error) => void; waitForRetry?: boolean }>>()
   function resolveWaiter(id: string): void {
     for (const waiter of waiters.get(id) ?? []) waiter.resolve()
@@ -332,7 +332,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
     },
     async failUpload(id, error, reason) {
       const record = records.get(id)
-      if (!record || disposed) return
+      if (!record || disposed || record.dependencyDiscarded) return
       const operationEpoch = epoch
       outboxLog.error({ error, messageId: id }, 'attachment upload failed')
       const failed = await persist(record, 'failed', {

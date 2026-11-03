@@ -13,6 +13,7 @@ import {
   type OutboxWiringIo,
 } from '../../../../apps/desktop/src/store/chatOutboxWiring'
 import type { OutboxRecord } from '../../../../apps/desktop/src/lib/imRepository'
+import { i18n } from '../../../../apps/desktop/src/i18n'
 const logError = vi.hoisted(() => vi.fn())
 vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: logError }) }))
 
@@ -444,7 +445,7 @@ describe('disk-backed attachment restart through the durable repository', () => 
     expect(restored.appendMessage.mock.calls.map(([row]) => row.id)).toEqual(['source', 'reply'])
     stop(); restored.wiring.dispose()
   })
-  it.each(['complete', 'discard', 'dispose'])('waits for the original text dependency across restart (%s)', async outcome => {
+  it.each(['complete', 'discard', 'source-discard', 'dispose'])('waits for the original text dependency across restart (%s)', async outcome => {
     const invoke = bridge(), f = wiringHarness('reply')
     await stage(f, 'reply', { reply: 'source' })
     const now = new Date().toISOString()
@@ -459,6 +460,7 @@ describe('disk-backed attachment restart through the durable repository', () => 
     await flushMicrotasks(50)
     expect(read).not.toHaveBeenCalled()
     if (outcome === 'discard') await restored.wiring.outbox.discard('reply')
+    if (outcome === 'source-discard') await restored.wiring.outbox.discard('source')
     if (outcome === 'dispose') restored.wiring.dispose()
     delivered.resolve(persistedMessage('source'))
     if (outcome === 'complete') {
@@ -468,6 +470,10 @@ describe('disk-backed attachment restart through the durable repository', () => 
       await flushMicrotasks(50)
       expect(read).not.toHaveBeenCalled()
       expect(invoke.mock.calls.filter(([, args]) => args.file)).toEqual([])
+      if (outcome === 'source-discard') expect(restored.wiring.outbox.pendingFor('chat-1', null)).toEqual([
+        expect.objectContaining({ clientMessageId: 'reply', dependencyDiscarded: true,
+          lastError: i18n.t('outbox.sourceDiscarded', { ns: 'messaging' }) }),
+      ])
     }
     stop(); restored.wiring.dispose()
   })
