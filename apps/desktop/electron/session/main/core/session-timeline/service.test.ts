@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { awaitFact } from '../../../../../../../tests/support/awaitFact';
 import * as asks from '../asks';
+import { askInstallInSession } from '../extensions/consent-in-session';
+import { answerAppInstall } from '@renderer/features/extensions/app-install-approval';
+import { EXTENSION_API_VERSION_MIN_SUPPORTED } from '@shared/extensions/manifest';
+import type { AppInstallAsk } from '@shared/extensions/host-actions';
 import type { QueuedPrompt } from '@gugu/session-core/acp/client';
 import type {
   PendingRequest,
@@ -61,6 +65,8 @@ const state = vi.hoisted(() => ({
 }));
 
 const persistedQuestions = vi.hoisted(() => new Map<string, Settlement[]>());
+vi.mock('../extensions/extension-bridge-relay', () => ({ requestExtensionInstallConsent: vi.fn(), closeExtensionInstallConsent: vi.fn() }));
+vi.mock('@renderer/features/extensions/install-consent', () => ({ askInShell: vi.fn(), installConsentPrompt: vi.fn() }));
 vi.mock('../sessions/agent-question-store', () => ({
   readAgentQuestionRecords: (id: string) => persistedQuestions.get(id) ?? [],
   rememberAgentQuestion: (id: string, item: PendingRequest | Settlement) => {
@@ -601,6 +607,12 @@ describe('session timeline service', () => {
     expect(await service.snapshot({ conversationId: 'nope' })).toMatchObject({
       error: { code: 'session_not_found' },
     });
+  });
+
+  it('does not expose the session identifier when an approval answer has no session', async () => {
+    expect(await service.respond({
+      conversationId: 'private-session-identifier', itemId: 'ask-1', optionId: 'decline', kind: 'permission', by: 'desktop',
+    })).toEqual({ ok: false, error: { code: 'session_not_found', message: '这台机器上没有这条会话' } });
   });
 
   it('没有记录可读(这一家没接 / 还没开起来)也打得开:快照是第一句话,❌ record_unsupported', async () => {
@@ -1394,6 +1406,38 @@ describe('session timeline service', () => {
     const settled = (promise: Promise<unknown>) => Promise.race([promise, flush().then(() => 'still asked')]);
     beforeEach(() => {
       state.hostWaits = [];
+    });
+
+    it('reviewing an unreadable remote manifest answers the ask and completes server consent as declined', async () => {
+      const { timeline } = makeTimeline();
+      service.setSessionTimelineFactory(async () => timeline);
+      const installed = askInstallInSession('conv-1', {
+        sourceDir: '/tmp/reader',
+        manifest: { id: 'reader', name: 'Reader', version: '1.0.0', apiVersion: EXTENSION_API_VERSION_MIN_SUPPORTED - 1,
+          defaultLocale: 'en', entry: 'main.html', contributes: { tabs: [{ name: 'main', title: 'Reader' }] } },
+        manifestDigest: 'digest-r', revokedPermissions: [], given: { first: true },
+      } as never, { name: 'Agent', agentUserId: null }, {
+        timeline: async () => ({ ask: asks.ask, respond: service.respond }),
+        idleSeconds: () => 999, window: null, closeWindow: async () => undefined,
+      });
+      try {
+        await flush();
+        const snapshot = await service.snapshot({ conversationId: 'conv-1' });
+        if (!snapshot.ok) throw new Error(snapshot.error.message);
+        const pending = snapshot.value.settlements[0]!;
+        expect(pending.state).toBe('pending');
+        const respond = vi.fn((answer: { optionId: string; digest?: string }) => service.respond({
+          conversationId: 'conv-1', itemId: pending.itemId, kind: 'permission', by: 'desktop', ...answer,
+        }));
+        await expect(answerAppInstall({
+          itemId: pending.itemId, ask: pending.origin!.payload as AppInstallAsk, optionId: 'install', respond,
+        })).rejects.toThrow('This install asks about a manifest this build cannot read');
+        expect(respond).toHaveBeenCalledExactlyOnceWith({ optionId: 'decline' });
+        await expect(installed).resolves.toEqual({ outcome: 'declined' });
+        expect(timeline.getSnapshot().settlements).toMatchObject([{ state: 'resolved', optionId: 'decline', resolvedBy: 'desktop' }]);
+      } finally {
+        asks.withdrawAll('conv-1', 'app-install');
+      }
     });
 
     it('a host question works on ACP, validates answers and commits only the first explicit answer', async () => {

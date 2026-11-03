@@ -4,6 +4,7 @@
  * 规则是一份冻结的快照(PickRules):主件池、点缀、排除的组合、每件的位置和配色色板、判据阈值都抄在里面,不读会变的目录。
  */
 import { BODY_COLORS, BODY_LIGHTNESS } from './identity'
+import { hexToOklch } from '../../../lib/colorOklch'
 import type { Slot, WearItem } from './outfitCatalog'
 
 type Rng = () => number
@@ -87,26 +88,12 @@ export const ROLL_RULES: PickRules = {
 }
 
 // ───────────── 配色判据 ─────────────
-function oklab(hex: string): { L: number; C: number; h: number } {
-  const v = parseInt(hex.slice(1), 16)
-  const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
-  const r = lin(((v >> 16) & 255) / 255),
-    g = lin(((v >> 8) & 255) / 255),
-    b = lin((v & 255) / 255)
-  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
-  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
-  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
-  const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s
-  const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s
-  const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s
-  return { L, C: Math.hypot(A, B), h: ((Math.atan2(B, A) * 180) / Math.PI + 360) % 360 }
-}
 
 const hueDist = (a: number, b: number) => Math.abs((((a - b) % 360) + 540) % 360 - 180)
 
 /** 这个配色会不会融进身体(明暗差不多,而且是中性色或同色系)。深色的熊耳朵在奶油身上照样分得开 */
 export function blendsWithBody(swatch: string, color: number, rules: PickRules = ROLL_RULES): boolean {
-  const s = oklab(swatch)
+  const s = hexToOklch(swatch)
   return Math.abs(s.L - BODY_LIGHTNESS) < rules.blendL && (s.C < rules.neutralC || hueDist(s.h, BODY_COLORS[color].hue) < rules.blendHue)
 }
 
@@ -143,8 +130,8 @@ export function pickWear(color: number, rng: Rng, rules: PickRules, opts: PickOp
       const excluded = (a: string) => rules.excluded.some(([x, y]) => (x === id && y === a) || (x === a && y === id))
       const cands = (rules.accents[item(id).slot] ?? []).filter((a) => !excluded(a))
       const acc = cands.length ? pick(cands, rng) : null
-      const mainHue = oklab(item(id).swatches[main.cw]).h
-      const goes = (sw: string) => oklab(sw).C < rules.neutralC || hueDist(oklab(sw).h, mainHue) < rules.accentHue
+      const mainHue = hexToOklch(item(id).swatches[main.cw]).h
+      const goes = (sw: string) => hexToOklch(sw).C < rules.neutralC || hueDist(hexToOklch(sw).h, mainHue) < rules.accentHue
       const acws = acc ? okForBody(acc).filter((i) => goes(item(acc).swatches[i])) : []
       if (acc && acws.length) wear.push({ id: acc, cw: pick(acws, rng) })
     }

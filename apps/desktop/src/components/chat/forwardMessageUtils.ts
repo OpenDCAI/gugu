@@ -1,6 +1,7 @@
 import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
 import { isRoomChat } from '@gugu/core/shared/ui/chatModels'
 import type { ChatPickRow } from './ChatPickSheet'
+import { parseWidgetMessage } from '@gugu/core/shared/ui/widgetModels'
 
 /** Compact, non-text-content preview label for the forwarded message. */
 export function forwardPreview(
@@ -9,6 +10,7 @@ export function forwardPreview(
 ): string {
   if (message.content_type === 'attachment') return labels.attachment
   if (message.content_type === 'card') return labels.card
+  if (message.content_type === 'widget') return parseWidgetMessage(message.content)?.text ?? '[Widget]'
   const text = message.content?.trim()
   return text && text.length > 0 ? text : labels.empty
 }

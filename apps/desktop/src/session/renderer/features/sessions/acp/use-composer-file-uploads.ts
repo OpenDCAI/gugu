@@ -10,6 +10,7 @@ import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 import { AttachmentsError } from '@gugu/core/cloud/attachmentsApi';
 import { useMemo, useRef, type Dispatch, type SetStateAction } from 'react';
 import { placeTaskAttachment, prepareTaskAttachment, type TaskAttachmentPlacement } from '@/lib/attachmentsEndpoint';
+import { selectedScreenshot, screenshotQuality, toggleScreenshotQuality, retryScreenshot, screenshotPreview } from '@/lib/pastedScreenshot';
 import { formatBytes } from '@renderer/utils/formatBytes';
 import { log } from '@renderer/utils/logger';
 import type { SessionMessageLookupKey } from '@renderer/localization/messages';
@@ -19,7 +20,7 @@ type Translate = (key: SessionMessageLookupKey, values?: Record<string, string |
 export type { TaskAttachmentTarget } from '@/lib/taskAttachmentTarget';
 import type { TaskAttachmentTarget } from '@/lib/taskAttachmentTarget';
 
-type Upload = { placement: TaskAttachmentPlacement; file: File; controller: AbortController; settled: Promise<boolean>; ref: TurnFileRef | null; status: 'running' | 'done' | 'failed' };
+type Upload = { placement: TaskAttachmentPlacement; file: File; controller: AbortController; settled: Promise<boolean>; ref: TurnFileRef | null; status: 'running' | 'done' | 'failed'; confirmed: number; total: number };
 
 function progressMeta(sent: number, total: number): string {
   const percent = total > 0 ? Math.min(100, Math.floor((sent / total) * 100)) : 100;
@@ -31,6 +32,8 @@ type ComposerFileUploadArgs = {
   to: () => Promise<TaskAttachmentTarget>;
   setAttachments: Dispatch<SetStateAction<ComposerAttachment[]>>;
   translate: Translate;
+  /** Existing-session composers opt into durable SSH uploads; creation keeps its own flow. */
+  resumable?: boolean;
 };
 
 /** One placement implementation, owned either by the live composer or a submitted request. */
@@ -44,7 +47,7 @@ export function createComposerFileUploads(readArgs: () => ComposerFileUploadArgs
   const nameOf = ((chipId: string, file: File) => {
     let ref = named.get(chipId);
     if (!ref) {
-      ref = prepareTaskAttachment(file);
+      ref = (readArgs().resumable ? selectedScreenshot(file) : Promise.resolve(file)).then(prepareTaskAttachment);
       named.set(chipId, ref);
       ref.catch(() => { if (named.get(chipId) === ref) named.delete(chipId); });
     }
@@ -56,46 +59,73 @@ export function createComposerFileUploads(readArgs: () => ComposerFileUploadArgs
       readArgs().setAttachments((prev) => prev.map((att) => (att.id === chipId ? { ...att, ...next } : att)))
   );
 
-  const start = (
-    (chipId: string, file: File) => {
-      const controller = new AbortController();
-      const placement = uploads.get(chipId)?.placement ?? {};
-      const upload: Upload = { placement, file, controller, settled: Promise.resolve(false), ref: null, status: 'running' };
-      patch(chipId, { state: 'uploading', progress: 0, cancelable: true, retryable: undefined, meta: progressMeta(0, file.size) });
-      const to = (target.current ??= readArgs().to().catch((error: unknown) => { target.current = null; throw error; }));
-      const settled = Promise.all([nameOf(chipId, file), to])
-        .then(([prepared, destination]) => placeTaskAttachment(file, prepared, destination, (sent, all) => {
-          if (!controller.signal.aborted) patch(chipId, { progress: all > 0 ? Math.min(100, (sent / all) * 100) : 100, meta: progressMeta(sent, all) });
-        }, { signal: controller.signal, placement }))
-        .then(
-          (ref) => {
-            if (controller.signal.aborted) return false;
-            upload.ref = ref;
-            upload.status = 'done';
-            patch(chipId, { state: 'done', progress: undefined, cancelable: undefined, meta: formatBytes(file.size) });
-            return true;
-          },
-          (error: unknown) => {
-            upload.status = 'failed';
-            if (controller.signal.aborted) return false;
-            // 原文进日志;chip 上只有人话。超过存储的上限(那一层自己拒)重试也不会好。
-            log.warn('composer attachment placement failed', { name: file.name, error: String(error) });
-            const tooLarge = error instanceof AttachmentsError && error.code === 'too_large';
-            const code = (error as { code?: string })?.code;
-            const key = code === 'transfer_disabled' ? 'composer.attachmentTransferDisabled'
-              : code === 'host_update_required' ? 'composer.attachmentHostUpdateRequired'
-              : code === 'task_identity_missing' ? 'composer.attachmentIdentityRequired'
-              : tooLarge ? 'composer.attachmentTooLarge' : 'composer.attachmentUploadFailed';
-            patch(chipId, { state: 'error', progress: undefined, cancelable: undefined,
-              meta: readArgs().translate(key), retryable: !tooLarge && code !== 'task_identity_missing' });
-            return false;
-          }
-        );
-      upload.settled = settled;
-      uploads.set(chipId, upload);
-      return settled;
-    }
-  );
+  const start = (chipId: string, file: File) => {
+    const controller = new AbortController();
+    const previous = uploads.get(chipId);
+    const placement = previous?.placement ?? {};
+    const retained = placement.upload?.started && !placement.upload.restartRequired;
+    const upload: Upload = { placement, file, controller, settled: Promise.resolve(false), ref: null, status: 'running', confirmed: retained ? previous?.confirmed ?? 0 : 0, total: previous?.total ?? file.size };
+    uploads.set(chipId, upload);
+    const active = () => !controller.signal.aborted && uploads.get(chipId) === upload;
+    const quality = readArgs().resumable ? screenshotQuality(file) : undefined;
+    patch(chipId, { imageQuality: quality, state: 'uploading', progress: retained ? (upload.total ? 100 * upload.confirmed / upload.total : 100) : !previous && quality === 'compressed' ? undefined : 0,
+      cancelable: true, retryable: undefined, meta: retained ? progressMeta(upload.confirmed, upload.total) : !previous && quality === 'compressed' ? readArgs().translate('composer.screenshotPreparing') : progressMeta(0, file.size) });
+    const to = (target.current ??= readArgs().to().catch((error: unknown) => { target.current = null; throw error; }));
+    let selected = file;
+    let phase: 'uploading' | 'resuming' | 'confirming' = 'uploading';
+    let received = upload.confirmed, total = upload.total;
+    const progress = () => {
+      if (!active()) return;
+      const suffix = phase === 'uploading' ? '' : ` · ${readArgs().translate(phase === 'resuming' ? 'composer.attachmentResuming' : 'composer.attachmentConfirming')}`;
+      patch(chipId, { progress: total > 0 ? Math.min(100, (received / total) * 100) : 100, meta: progressMeta(received, total) + suffix });
+    };
+    upload.settled = Promise.all([readArgs().resumable ? selectedScreenshot(file) : Promise.resolve(file), to]).then(async ([source, destination]) => {
+      controller.signal.throwIfAborted();
+      selected = source;
+      total = source.size;
+      const previewUrl = quality ? await screenshotPreview(source) : undefined;
+      controller.signal.throwIfAborted();
+      if (active()) patch(chipId, { name: source.name, mimeType: source.type, ...(previewUrl ? { previewUrl } : {}) });
+      progress();
+      const prepared = await nameOf(chipId, file);
+      controller.signal.throwIfAborted();
+      return placeTaskAttachment(source, prepared, destination, (sent, all) => {
+        received = sent; total = all; upload.confirmed = sent; upload.total = all; progress();
+      }, { signal: controller.signal, placement, ...(readArgs().resumable ? { resumable: true, onPhase: (next: typeof phase) => { phase = next; progress(); } } : {}) });
+    }).then((ref) => {
+      if (!active()) return false;
+      upload.ref = ref;
+      upload.status = 'done';
+      patch(chipId, { state: 'done', progress: undefined, cancelable: undefined, meta: formatBytes(selected.size) + (quality ? ` · ${readArgs().translate(selected === file ? 'composer.screenshotOriginal' : 'composer.screenshotCompressed')}` : '') });
+      return true;
+    }, (error: unknown) => {
+      upload.status = 'failed';
+      if (!active()) return false;
+      log.warn('composer attachment placement failed', { name: file.name, error: String(error) });
+      const tooLarge = error instanceof AttachmentsError && error.code === 'too_large';
+      const code = (error as { code?: string })?.code;
+      const key = code === 'transfer_disabled' ? 'composer.attachmentTransferDisabled'
+        : code === 'host_update_required' ? 'composer.attachmentHostUpdateRequired'
+        : code === 'task_identity_missing' ? 'composer.attachmentIdentityRequired'
+        : code === 'upload_lost' || code === 'upload_expired' ? 'composer.attachmentUploadExpired'
+        : code === 'screenshot_processing_failed' ? 'composer.screenshotFailed'
+        : tooLarge ? 'composer.attachmentTooLarge' : 'composer.attachmentUploadFailed';
+      patch(chipId, { state: 'error', progress: undefined, cancelable: undefined,
+        meta: readArgs().translate(key), retryable: !tooLarge && code !== 'task_identity_missing' });
+      return false;
+    });
+    return upload.settled;
+  };
+
+  const toggleQuality = (chipId: string) => {
+    const upload = uploads.get(chipId);
+    if (!upload || !readArgs().resumable || !screenshotQuality(upload.file)) return;
+    upload.controller.abort();
+    uploads.delete(chipId);
+    named.delete(chipId);
+    toggleScreenshotQuality(upload.file);
+    void start(chipId, upload.file);
+  };
 
   /** 上一枚 chip(已经在条上的就地接着用)并立刻开始放。 */
   const add = (
@@ -111,7 +141,7 @@ export function createComposerFileUploads(readArgs: () => ComposerFileUploadArgs
   const retry = (
     (chipId: string) => {
       const upload = uploads.get(chipId);
-      if (upload?.status === 'failed') void start(chipId, upload.file);
+      if (upload?.status === 'failed') { retryScreenshot(upload.file); void start(chipId, upload.file); }
     }
   );
 
@@ -169,7 +199,7 @@ export function createComposerFileUploads(readArgs: () => ComposerFileUploadArgs
     target.current = null;
   });
 
-  return { add, retry, keepOnly, prepare, waitForUploads, unsettled, files, has, forget, clear };
+  return { add, retry, toggleQuality, keepOnly, prepare, waitForUploads, unsettled, files, has, forget, clear };
 }
 
 export function useComposerFileUploads(args: ComposerFileUploadArgs) {

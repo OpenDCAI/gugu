@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { WIDGET_HEIGHT_MIN, WIDGET_HEIGHT_MAX } from '@gugu/core/shared/ui/widgetModels';
 import { EXTENSION_API_VERSION } from './bridge-protocol';
 import { networkHostAllowed } from './partition';
 import { APP_PLATFORMS } from './app-platforms';
@@ -223,6 +224,8 @@ const tabContributionSchema = z.strictObject({
    * break them all to state something they already state.
    */
   entry: bundlePathSchema.optional(),
+  /** API 26: this tab may also appear in a message, with this default height. */
+  widget: z.strictObject({ height: z.number().int().min(WIDGET_HEIGHT_MIN).max(WIDGET_HEIGHT_MAX) }).optional(),
   /**
    * A host-owned page; no HTML is loaded from the App for this tab.
    * `settings`: the App's configuration / status page, one per App.
@@ -639,6 +642,9 @@ export const extensionManifestSchema = z
         ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'entry'], message: 'an HTML tab needs its entry or the App entry' });
       }
       // A file's tab is already one page per file, and the settings page is one per App: neither has a task of its own.
+      if (tab.widget && (manifest.apiVersion < 26 || tab.hostPage || tab.perSession || tab.opensFiles || tab.chatFile)) {
+        ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'widget'], message: 'widget requires apiVersion 26 and cannot combine with hostPage, perSession, opensFiles or chatFile' });
+      }
       if (tab.perSession && (tab.hostPage === 'settings' || tab.opensFiles)) {
         ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'perSession'], message: 'a page per task cannot be the host settings page or open files' });
       }
@@ -687,7 +693,7 @@ export const extensionManifestSchema = z
     if (extendsAgents && manifest.contributes.instructions === undefined) {
       ctx.addIssue({ code: 'custom', path: ['contributes', 'instructions'], message: `an App that gives agents programs or skills says in one line (≤ ${INSTRUCTIONS_MAX_CHARS} characters) what it gives them: its line in every session's <gugu_apps>` });
     }
-    if (!extendsAgents && manifest.contributes.instructions !== undefined) {
+    if (!extendsAgents && !manifest.contributes.tabs.some(tab => tab.widget) && manifest.contributes.instructions !== undefined) {
       ctx.addIssue({ code: 'custom', path: ['contributes', 'instructions'], message: 'instructions tell agents about the App\'s programs or skills, and there are none' });
     }
     const offersTools = (declared as readonly string[]).includes('agents:tools');

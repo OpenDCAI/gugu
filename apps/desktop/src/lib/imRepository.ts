@@ -1,3 +1,5 @@
+import type { CommitArgs } from '@gugu/core/cloud/attachmentsApi'
+import type { CreateTopicInput } from './topics'
 import type {
   ChatItem,
   GroupAgentItem,
@@ -46,7 +48,18 @@ export type OutboxRow = LocalImRow & { id: string; value: OutboxRecord }
 export type ViewRow = LocalImRow & { key: string; value: unknown }
 export type SyncStateRow = LocalImRow & { key: string; value: unknown }
 
+export type OutboxOperation =
+  | { kind: 'message' }
+  | { kind: 'upload' }
+  | { kind: 'nativeAttachment'; commit: Omit<CommitArgs, 'staging_key'> }
+  | { kind: 'forward'; source: { kind: 'message'; id: string } | { kind: 'file'; id: string; version: number | null } }
+  | { kind: 'attachment'; commit: CommitArgs }
+  | { kind: 'topic'; input: CreateTopicInput & { topicId: string } }
+
 export interface OutboxRecord {
+  /** Missing on older durable text records. */
+  operation?: OutboxOperation
+  preview?: Pick<MessageItem, 'file_item_id' | 'file_version' | 'file_blob_id' | 'file_metadata' | 'image_dimensions'>
   clientMessageId: string
   chatId: string
   senderUserId: string
@@ -61,7 +74,10 @@ export interface OutboxRecord {
     /** 私聊发送时对端尚未就绪:投递前由 outbox 的 prepare 解析对端并写回 toUserIds(#1554,C2)。 */
     resolveDmPeer?: boolean
   }
-  state: 'pending' | 'sending' | 'failed'
+  /** Local source dependency, preserved across restarts. */
+  dependsOn?: string
+  dependencyDiscarded?: boolean
+  state: 'pending' | 'sending' | 'failed' | 'uploading'
   attempts: number
   lastError: string | null
   enqueuedAt: string

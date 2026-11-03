@@ -7,6 +7,8 @@
 //   · 有任何一个入群者的资料解析不出(退了群又从没说过话,名册与消息窗口都没有他),整行退回服务端写的
 //     纯文本:宁可不给点,也不拼一个「未知用户」出来。
 import { Fragment, type CSSProperties } from 'react'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useChatStore } from '@/store/chatContext'
 import { useTranslation } from 'react-i18next'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import { useAuth } from '../../store/auth'
@@ -39,6 +41,8 @@ export function MemberJoinNotice({ userIds, content, memberProfiles, onMention }
   const { t } = useTranslation('messaging')
   const { user } = useAuth()
   const profiles = userIds.map((id) => memberProfiles[id])
+  const { identitiesById } = useChatStore('identitiesById')
+  const names = useShownAgentName(profiles.map(profile => ({ name: profile?.displayName ?? '', createdAt: profile?.type === 'agent' ? identitiesById[profile.id]?.created_at ?? undefined : undefined })))
   const resolved = profiles.every((profile): profile is MemberProfileCardModel => !!profile)
 
   return (
@@ -61,10 +65,10 @@ export function MemberJoinNotice({ userIds, content, memberProfiles, onMention }
                       title={t('group.memberJoined.mentionHint', { name: profile.displayName })}
                       onClick={() => onMention({ id: profile.id, name: profile.displayName })}
                     >
-                      {profile.displayName}
+                      {names[index]}
                     </Button>
                   ) : (
-                    <span className="gg-member-join-name-static">{profile.displayName}</span>
+                    <span className="gg-member-join-name-static">{names[index]}</span>
                   )}
                 </Fragment>
               )

@@ -1,4 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
+import { formatClock } from '@/i18n/format';
 import { observer } from 'mobx-react-lite';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { rpc } from '@renderer/lib/ipc';
@@ -10,6 +11,7 @@ import { rendererLogger } from '@/lib/log';
 import { Button } from '@/components/ui/Button';
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs';
 import { ResourceMonitorView } from '@renderer/features/command-palette/resource-monitor-view';
+import { ResourceSamplingStatus } from './resource-sampling-status';
 import { tokenColor, useChartTheme } from '@/components/usage/useChartTheme';
 import './resource-timeline.css';
 const log = rendererLogger('resource-monitor/timeline');
@@ -66,6 +68,7 @@ export const ResourceTimeline = observer(function ResourceTimeline({ compact = f
   const chart = (metric: 'cpu' | 'memory', height: number) => <div aria-label={labels[metric]} style={{ height }}><TimelineChart data={data} metric={metric} compact={compact} select={select} labels={labels} /></div>;
 
   if (compact) return <section className="space-y-3 text-xs" aria-label={t('resourceMonitor.timeline')}>
+    <ResourceSamplingStatus />
     {tiles.map((tile) => <div key={tile.key} className="grid grid-cols-[6.5rem_1fr] items-center gap-3">
       <div className="whitespace-nowrap">
         <div className="text-foreground-muted">{tile.label}</div>
@@ -88,6 +91,7 @@ export const ResourceTimeline = observer(function ResourceTimeline({ compact = f
     : <h3 className="text-sm font-medium">{t('resourceMonitor.liveProcesses')}</h3>;
 
   return <section className="space-y-5 text-xs" aria-label={t('resourceMonitor.timeline')}>
+    <ResourceSamplingStatus />
     <div className="grid grid-cols-2 gap-3">
       {tiles.map((tile) => <div key={tile.key} className="space-y-1 rounded-md border border-border px-3 py-3">
         <div className="text-foreground-muted">{tile.label}</div>
@@ -108,7 +112,7 @@ export const ResourceTimeline = observer(function ResourceTimeline({ compact = f
         <div className="text-foreground-muted">{tiles.find((tile) => tile.key === metric)?.label}</div>
         {chart(metric, 96)}
       </div>) : <p className="text-foreground-muted">{t('resourceMonitor.empty')}</p>}
-      <p className="text-foreground-muted">{t('resourceMonitor.stored', { count: history?.count ?? 0, bytes: formatBytes(history?.bytes ?? 0), time: last ? new Date(last.timestamp).toLocaleTimeString() : '–' })} {t('resourceMonitor.retention')}</p>
+      <p className="text-foreground-muted">{t('resourceMonitor.stored', { count: history?.count ?? 0, bytes: formatBytes(history?.bytes ?? 0), time: last ? formatClock(last.timestamp) : '–' })} {t('resourceMonitor.retention')}</p>
     </div>
     {(error || snapshot?.recordingError) && <p role="alert">{error || t('resourceMonitor.writeFailed')} <Button size="sm" variant="ghost" onClick={() => setRevision((n) => n + 1)}>{t('resourceMonitor.retry')}</Button></p>}
     {selected || live
@@ -163,7 +167,7 @@ function TimelineChart({ data, metric, compact, select, labels }: { data: ChartD
     line: { style: { stroke, lineWidth: compact ? 1.5 : 2 } }, point: { visible: false }, legends: { visible: false },
     crosshair: { xField: { visible: !compact, line: { type: 'line', style: { lineWidth: 1 } } } },
     tooltip: { visible: !compact, mark: { visible: false }, dimension: {
-      title: { value: (d: ResourcePoint) => new Date(d.timestamp).toLocaleTimeString() },
+      title: { value: (d: ResourcePoint) => formatClock(d.timestamp) },
       content: [{ key: labels.cpu, value: (d: ResourcePoint) => cpuText(d.cpu) }, { key: labels.memory, value: (d: ResourcePoint) => memoryText(d.memory) }],
     } },
   }), [theme, stroke, compact, metric, labels.cpu, labels.memory]);

@@ -1,3 +1,5 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { useMessageTextSelection } from '../../hooks/useMessageTextSelection'
 import { MessageSelectionToolbar } from './MessageSelectionToolbar'
 import { messageSelectionActionItems } from './messageActionItems'
@@ -22,56 +24,20 @@ import { Markdown } from '../markdown/Markdown'; import { classifyFileLink } fro
 import { buildBubbleStyle } from './messageBubbleStyle'
 import { ComposerCardView } from './ComposerCardView'
 import { QuestionCardView } from './QuestionCardView'
+import { WidgetBubble } from './WidgetBubble'
 import { parseQuotedContent, partialQuotedContent, type QuoteSelection } from './messageQuoteContent'
 import { DirectMessageQuote, MessageQuote } from './MessageQuote'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
+import { parseWidgetMessage } from '@gugu/core/shared/ui/widgetModels'
 import { HoverActionBar, MessageHoverRegion, MessageHoverTrigger } from './HoverActionBar'
 import { DeferredEmojiQuickPicker } from './messageActionModules'
 import { MsgMoreMenu } from './MsgMoreMenu'
 import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
 import { highlightText } from './highlightText'
 import { SystemMessageNotice } from './SystemMessageNotice'
-import { BubbleSender, BubbleTime } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
+import { BubbleSender, BubbleTime, ReadReceiptRing } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
 
-// @@@send-outbox (#1762 洞③) — 传输瞬态指示(sending/failed)整体搬去 MessageSendStatus.tsx:
-// failed 从纯装饰红圈升级为「未送达」可见文字 + 重试/丢弃 popover(#1941 fail-loud)。
-
-// @@@1345 已读进度圆环：环填充比例=read/total。空环=已发出无人读(#5649 起渲染)；部分=进度弧；满=实心 + 对比色勾。@@@live-accent (Refs #6105) 弧与满环从 --accent(#fff/#000)改到 --live:「已读完成」是 live 态,画的是真实读数不是装饰灯。
-function ReadReceiptRing({ read, total }: { read: number; total: number }) {
-  const frac = total > 0 ? Math.max(0, Math.min(1, read / total)) : 0
-  const r = 5.5
-  const circ = 2 * Math.PI * r
-  const full = frac >= 1
-  return (
-    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
-      {/* @@@1483 空环(sent/未读)轨道色：原 --border-strong(0.12 alpha 发丝分隔线 token)做独立图标 → 白底上
-          几乎不可见(QA round1)。改用 muted-foreground token --text-tertiary(#9a9aa2 light/#6f6f78 dark)：
-          两端主题都清晰可见,又低于已读态 accent 的层级(sent<partial<read)。 */}
-      <circle cx="7.5" cy="7.5" r={r} fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" />
-      {frac > 0 && !full && (
-        <circle
-          cx="7.5"
-          cy="7.5"
-          r={r}
-          fill="none"
-          stroke="var(--live)"
-          strokeWidth="1.5"
-          strokeDasharray={circ}
-          strokeDashoffset={circ * (1 - frac)}
-          strokeLinecap="round"
-          transform="rotate(-90 7.5 7.5)"
-        />
-      )}
-      {full && (
-        <>
-          <circle cx="7.5" cy="7.5" r={r + 0.4} fill="var(--live)" />
-          {/* 勾用 --text-on-accent(=--primary-fg)：两侧主题各自落在背景那一端,画在 --live 上都够对比。❌ 别用恒 #fff 的 surface-white,深色侧白勾压亮蓝会糊 */}
-          <path d="M5 7.6l1.8 1.8 3.3-3.6" stroke="var(--text-on-accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </>
-      )}
-    </svg>
-  )
-}
+// Sending/failed state and its retry/discard menu live in MessageSendStatus.
 
 function VoiceAttachmentBubble({
   fileName,
@@ -220,7 +186,8 @@ export const MessageBubble = memo(function MessageBubble({
 }: BubbleProps) {
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
-  const handleCopyText = async (content = msg.content ?? '') => {
+  const copyText = msg.content_type === 'widget' ? parseWidgetMessage(msg.content)?.text ?? '[Widget]' : msg.content ?? ''
+  const handleCopyText = async (content = copyText) => {
     try {
       await platform.writeClipboardText(content)
       toast(t('message.copied'), 'success')
@@ -244,7 +211,6 @@ export const MessageBubble = memo(function MessageBubble({
   const mediaAttachment = msg.content_type === 'attachment' && !voiceAttachment
     ? parseAttachmentContent(msg.content, msg)
     : null
-
   useEffect(() => {
     if (!showMenu && !showMoreMenu && !showEmojiPicker) return
     const closeFromSharedEvent = () => {
@@ -258,9 +224,8 @@ export const MessageBubble = memo(function MessageBubble({
       document.removeEventListener(UI_EVENTS.closeContextMenus, closeFromSharedEvent as EventListener)
     }
   }, [showMenu, showMoreMenu, showEmojiPicker])
-
   const messageActions = (close: () => void, selectedText = menuSelection) => ({
-    isRetracted: !!msg.retracted_at, content: msg.content, hasHoverBar: !compactMobile, hasSelection: !compactMobile && !!selectedText, onClose: close,
+    isRetracted: !!msg.retracted_at, content: copyText, hasHoverBar: !compactMobile, hasSelection: !compactMobile && !!selectedText, onClose: close,
     onReply: () => { onQuote(msg); close() },
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
     onQuoteSelection: selectedText && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: selectedText }, { originalContent: msg.content }); close() } : undefined,
@@ -323,14 +288,16 @@ export const MessageBubble = memo(function MessageBubble({
   const card = msg.content_type === 'card' ? parseComposerCard(msg.content) : null
   const bubbleStyle = card ? { maxWidth: '100cqw' } : buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile, groupedWithPrev)
 
-  const avatarName = memberProfile?.displayName ?? ''
-  const avatarUrl = memberProfile?.avatar ?? null
   const avatarIsAgent = memberProfile?.type === 'agent' || (!msg.is_mine && isAgent)
+  const senderIdentity = useAvatarIdentity(avatarIsAgent ? msg.sender_user_id ?? '' : '')
+  const avatarName = useShownAgentName({ name: memberProfile?.displayName ?? '', createdAt: avatarIsAgent ? senderIdentity?.created_at ?? undefined : undefined })
+  const avatarUrl = memberProfile?.avatar ?? null
   // @@@avatar-status-badge (#793 rollout) - the agent sender's status lives on its memberProfile
   // (populated for both group agents and the DM peer in ChatAreaPanel's messageMemberProfiles).
   // Pass it through so the avatar shows the unified status corner badge.
   // @@@msg-avatar (#1102) - 消息头像对齐设计稿 .av.s(28–32px 小号);原 md=40 偏大显「旧/重」。
   // @@@1355 sender avatars are projected only from the canonical sender URL.
+  // Display-only naming never changes the sender id or profile actions.
   const avatar = <Avatar name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} harnessBadge={!compactMobile} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
   const canOpenProfile = !!memberProfile && !!onOpenMemberProfile
 
@@ -426,7 +393,7 @@ export const MessageBubble = memo(function MessageBubble({
             Design: .msg-actions{position:absolute}  agent → right:0 / own → left:0  */}
         <MessageHoverTrigger data-message-bubble-row="true" style={{ position: 'relative', display: 'flex', flexDirection: 'row', alignItems: 'flex-end', justifyContent: msg.is_mine ? 'flex-end' : 'flex-start', gap: '4px', width: 'fit-content', maxWidth: '100%', minWidth: 0, ...(msg.is_mine ? { marginLeft: 'auto' } : {}) }}>
           {msg.is_mine && !msg.retracted_at && sendState && (
-            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} blocks={msg.delivery_blocks} undeliveredTo={undeliveredTo ? undeliveredTo.split(',') : undefined} />
+            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} retryable={msg.local_send_retryable} blocks={msg.delivery_blocks} undeliveredTo={undeliveredTo ? undeliveredTo.split(',') : undefined} />
           )}
 
           {/* @@@1345 逐成员读回执做成进度圆环(替文字)：本人已发消息显示 ○ 环(填充比例=已读%)，
@@ -472,18 +439,18 @@ export const MessageBubble = memo(function MessageBubble({
             }}
           >
             {/* 名字只在群里收到的、一组的第一条上(DM 头栏已经说了是谁);任务卡自己写着是谁发的。 */}
-            {showSender && <BubbleSender member={memberProfile} senderId={msg.sender_user_id} replyMark={replyQuote} />}
+            {showSender && <BubbleSender member={memberProfile} displayName={avatarName} senderId={msg.sender_user_id} replyMark={replyQuote} />}
             {isRetracted ? (
               // #1323 模块3 — 撤回文字 --text-tertiary→--muted-fg(原偏淡)
               <span className="msg-time-room-inline" style={{ color: 'var(--muted-fg)', fontStyle: 'italic', '--msg-time-room': timeRoom } as React.CSSProperties}>{t('message.retracted')}</span>
             ) : (
-              <div className={timeInline ? 'msg-time-room' : undefined} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', '--msg-time-room': timeRoom } as React.CSSProperties}>
+              <div data-message-find-content="" className={timeInline ? 'msg-time-room' : undefined} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', '--msg-time-room': timeRoom } as React.CSSProperties}>
                 {card?.type === 'question' ? (
                   <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={replyQuote ? <>{replyQuote}{fmtMsgTime(msg.created_at)}</> : fmtMsgTime(msg.created_at)} />
                 ) : card ? (
                   <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={replyQuote ? <>{replyQuote}{fmtMsgTime(msg.created_at)}</> : fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} onOpenTopic={compactMobile && onOpenTopic && card.type === 'task' ? () => onOpenTopic(msg.id) : undefined} />
                 ) : msg.content_type === 'widget' ? (
-                  <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{t('message.widget')}</span>
+                  <WidgetBubble message={msg} />
                 ) : msg.content_type === 'attachment' ? (
                   voiceAttachment ? (
                     <VoiceAttachmentBubble

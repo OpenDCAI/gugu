@@ -75,6 +75,11 @@ const cliImportMethodSchema = z.object({
 const mcpOAuthMethodSchema = z.object({
   kind: z.literal('mcp-oauth'),
   serverUrl: z.string(),
+  transport: z.enum(['streamable-http', 'sse']).optional(),
+  /** A confidential, pre-registered client is held by the platform OAuth broker. */
+  registration: z.literal('pre-registered').optional(),
+  custody: z.literal('platform').optional(),
+  help: localizedTextSchema.optional(),
 });
 
 /**

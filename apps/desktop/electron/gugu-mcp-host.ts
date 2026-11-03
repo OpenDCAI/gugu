@@ -116,6 +116,15 @@ export class GuguMcpHost<TContext> {
       }
     }
   }
+  /** Notify live clients without restarting their engines or replacing their grants. */
+  async notifyToolsListChanged(): Promise<void> {
+    await Promise.all([...this.grants.values()].filter((record) => !record.revoked).flatMap((record) =>
+      [...record.clientsByMcpSession.values()].filter((client) => !client.closing).map(async ({ server }) => {
+        try { await server.server.notification({ method: 'notifications/tools/list_changed' }) }
+        catch (error) { log.warn({ error: (error as Error).message }, 'MCP tool list change notification failed') }
+      }),
+    ))
+  }
   async start(): Promise<void> {
     if (this.disposed) throw new Error('Gugu MCP host is disposed')
     if (this.endpoint) return

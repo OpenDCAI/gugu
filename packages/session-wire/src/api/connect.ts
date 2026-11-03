@@ -32,6 +32,8 @@ export type AttachOptions = {
 };
 
 export type ConnectOptions = {
+  /** Optional live-subscription handshake; older peers ignore unrecognized fields. */
+  capabilities?: readonly string[];
   instrumentation?: WireInstrumentation;
 };
 
@@ -307,7 +309,7 @@ export function connect(transport: WireTransport, options: ConnectOptions = {}):
       return producer;
     },
     snapshot(topic) {
-      return request({ kind: 'snapshot', id: createRequestId(), topic }) as Promise<
+      return request({ kind: 'snapshot', id: createRequestId(), topic, ...(options.capabilities ? { capabilities: options.capabilities } : {}) }) as Promise<
         LiveSnapshot<unknown>
       >;
     },
@@ -371,7 +373,7 @@ export function connect(transport: WireTransport, options: ConnectOptions = {}):
   ): Promise<void> {
     const attempt = {};
     entry.attempt = attempt;
-    const established = request({ kind: 'attach', id: createRequestId(), topic }).then(() => {});
+    const established = request({ kind: 'attach', id: createRequestId(), topic, ...(options.capabilities ? { capabilities: options.capabilities } : {}) }).then(() => {});
     established.then(
       () => {
         if (attachments.get(topic) !== entry || entry.attempt !== attempt) return;

@@ -18,7 +18,7 @@ export const AGENT_SEND_TO_ROW_H = 18;
 
 function destinationLayout(data: AgentSendItem, ctx: MeasureCtx) {
   const t = rowTranslator(ctx);
-  const where = agentSendLabel(data.send.to, t, ctx.chatName ?? (() => null));
+  const where = agentSendLabel(data.send.to, t, ctx.chatName ?? (() => null), ctx.selfIdentity);
   return readableLabel(data.status === 'running' ? `${where} · ${t('transcript.agentSending')}` : where, ctx);
 }
 

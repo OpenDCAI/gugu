@@ -7,11 +7,12 @@ import { EXTENSION_GUIDE_TOPICS } from '../../src/session/shared/extensions/auth
 import type { ExtensionPicture } from '../../src/session/shared/extensions/extension-check'
 import { assertMcpToolDescriptionWithinBudget, TOOL_OUTPUT_BYTE_BUDGET } from './mcp-tool-description-budget.mjs'
 import { VISUALS_GUIDE } from './visuals-guide'
+import { WIDGETS_GUIDE } from './widgets-guide'
 
 /** 每篇指南的字节上限 = 一次工具输出的预算(为什么是 8 000 见 @@@tool-output-budget)。 */
 export const GUIDE_TOPIC_BYTE_BUDGET = TOOL_OUTPUT_BYTE_BUDGET
 
-export const GUIDE_TOPICS: readonly { topic: string; about: string; text: string; picture?: 'look' }[] = [...EXTENSION_GUIDE_TOPICS, VISUALS_GUIDE]
+export const GUIDE_TOPICS: readonly { topic: string; about: string; text: string; picture?: 'look' }[] = [...EXTENSION_GUIDE_TOPICS, VISUALS_GUIDE, WIDGETS_GUIDE]
 
 const GUIDE_DESCRIPTIONS = {
   // F7 Agents never open the guides unasked (L7, both runs): the one line every agent sees says an App is an option.

@@ -4,6 +4,8 @@
 // 设计 SSOT: design/agent-running-group-1687.html（.bar/.tok/.state/.pop/.more/.ov/.otok/.opop）。
 import { useId, useLayoutEffect, useRef, useState, type FocusEvent, type ReactNode, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { TextShimmer } from '@gugu/session-ui/react/text-shimmer'
 import type { MouseEvent } from 'react'
 import { Avatar } from './Avatar'
@@ -104,7 +106,8 @@ function RunningTokenItem({
   preview: PreviewControl
 }) {
   const { t } = useTranslation('agents')
-  const displayName = resolveAgentRunningDisplayName(token.name)
+  const identity = useAvatarIdentity(token.id)
+  const displayName = useShownAgentName({ name: resolveAgentRunningDisplayName(token.name), createdAt: identity?.created_at ?? undefined })
   const stateWord = t(`runtime.stateWord.${token.stateKey}`)
   const triggerId = useId()
   const mobile = useMobileShell()

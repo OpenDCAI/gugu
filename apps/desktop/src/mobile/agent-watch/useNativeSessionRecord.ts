@@ -10,6 +10,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
   // What this phone read last time is drawn first, and is all there is while that machine is away.
   const [record, setRecord] = useState<NativeSessionRecord | null>(() => readCachedNativeRecord({ deviceId, sessionId }))
   const [error, setError] = useState<string | null>(null)
+  const [errorCode, setErrorCode] = useState<string | null>(null)
   /** The last read failed because that machine did not answer (not because it refused): the page says it is away. */
   const [unreachable, setUnreachable] = useState(false)
   const epoch = useRef(0)
@@ -23,7 +24,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
     const generation = ++epoch.current
     requests.current = Promise.resolve(); tailRequested.current = false
     const cached = readCachedNativeRecord({ deviceId, sessionId })
-    value.current = cached; setRecord(cached); setError(null)
+    value.current = cached; setRecord(cached); setError(null); setErrorCode(null)
     if (!cached) void hydrateCachedNativeRecord({ deviceId, sessionId }).then((stored) => {
       if (!stored || epoch.current !== generation || value.current) return
       value.current = stored; setRecord(stored)
@@ -63,7 +64,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
       const next = merge(value.current)
       if (next !== value.current) writeCachedNativeRecord({ deviceId, sessionId }, next)
       value.current = next; setRecord(next)
-      setError(null); setUnreachable(false)
+      setError(null); setErrorCode(null); setUnreachable(false)
     })
     requests.current = nextRequest
     return nextRequest
@@ -77,6 +78,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
         if (!active) return
         setError(messageForUser(error))
         const code = (error as { code?: unknown } | null)?.code
+        setErrorCode(typeof code === 'string' ? code : null)
         setUnreachable(remoteFailureKind(typeof code === 'string' ? code : null) === 'machine-unreachable')
       }
       if (active) timer = setTimeout(() => { void poll() }, 1000)
@@ -85,7 +87,8 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
     return () => { active = false; clearTimeout(timer) }
   }, [enabled, online, read])
   const report = (error: unknown) => setError(messageForUser(error))
-  return { record, error, unreachable,
+  return { record, error, errorCode, unreachable,
+    reload: () => read('tail'),
     loadOlder: async () => { if (value.current?.nextCursor !== null && value.current?.nextCursor !== undefined) await read('older') },
     loadNewer: () => { if (value.current?.hasNewer) void read('newer').catch(report) },
     followTail: () => { tailRequested.current = true; if (online) void read('tail').catch(report) },

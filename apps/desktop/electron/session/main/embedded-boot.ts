@@ -1,4 +1,4 @@
-import { clearRecoveredProjectBootFailures, sessionBootTasks } from './core/boot-tasks'
+import { sessionBootTasks } from './core/boot-tasks'
 // @@@sessionpage — the session backend's EMBEDDED-MODULE entry. The session backend is a cohesive
 // submodule (owner #43), NOT a set of gugu subsystems: it exposes exactly ONE boot entry here, and gugu
 // (the host) invokes it + bridges IPC — the host never reaches into the session backend's DB / pty /
@@ -71,7 +71,6 @@ import {
   type HostIpc,
 } from '@main/lib/host-ipc'
 import type { SessionSummary } from '@gugu/session-core/acp'
-import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils'
 import { sessionViewOfRuntime, type SessionView } from '@shared/core/sessions/sessions'
 
 import { registerRPCRouter } from '@shared/lib/ipc/rpc'
@@ -103,7 +102,8 @@ import {
   syncExtensionBackgrounds,
 } from '@main/core/extensions/extension-background'
 import { rpcRouter } from '@main/rpc' // ← the complete router, every controller
-import { backfillTurnText, initializeDatabase } from '@main/db/initialize'
+import { initializeDatabase } from '@main/db/initialize'
+import { startTurnTextBackfillWorker, stopTurnTextBackfillWorker, type SearchBackfillLogger } from '@main/db/turn-text-backfill-runner'
 import { migrateProjectKind } from '@main/core/projects/operations/migrate-project-kind'
 import { closeDatabase, db, sqlite } from '@main/db/client'
 import { resolveDatabasePath } from '@main/db/path'
@@ -141,6 +141,9 @@ import {
 import { projectSettingsService } from '@main/core/projects/settings/project-settings-service'
 import { getProjectById, getProjects } from '@main/core/projects/operations/getProjects'
 import { resolveAgentSessionProject } from '@main/core/projects/operations/resolve-agent-session-project'
+import { resolveAssistantSessionWorkspace } from '@main/core/projects/operations/task-directory-workspace'
+import { runPendingAssistantProjectCleanup } from '@main/core/projects/operations/assistant-project-cleanup'
+export { setAssistantProjectCleanupOwner, runPendingAssistantProjectCleanup } from '@main/core/projects/operations/assistant-project-cleanup'
 import { persistedWorkspacePath, resolveSession, resolveWorkspace } from '@main/core/projects/utils'
 import { RETIRED_REMOTE_WORKSPACE_MESSAGE } from '@main/core/workspaces/resolve-workspace-kind'
 import { archiveSession } from '@main/core/sessions/archiveSession'
@@ -322,6 +325,7 @@ export {
 export {
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,
+  rejectPendingSessionDirectMessage,
   recordFailedSessionDirectMessage,
   // 宿主在「投递属主注册好了」那一刻要用它把排队的首轮送出去 —— 收件箱 pull 看不见 `ordinary` 行。
   drainSessionMessageOutboxById,
@@ -436,6 +440,11 @@ export async function bootEmdashModule(ipcMain: IpcMain, discovery?: Pick<Sessio
   })
 }
 
+/** Host service readiness, rather than module initialization, starts the optional index work. */
+export function startSessionpageSearchBackfill(logger: SearchBackfillLogger): void {
+  startTurnTextBackfillWorker(logger)
+}
+
 async function maybeStartDevWsHost(): Promise<HostIpc | null> {
   if (app.isPackaged || process.env.GUGU_TASK_HOST_WS !== '1') return null
   const { startSessionHostWsServer } = await import('./host-ws/server')
@@ -530,6 +539,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   await backupBeforeTaskToSession(sqlite, resolveDatabasePath())
   await backupBeforeSessionNaming(sqlite, resolveDatabasePath())
   await initializeDatabase()
+  await runPendingAssistantProjectCleanup(true)
   // #609 已有的、登记在 ~ / task-home / GUGU_HOME 底下的项目改成 workspace(会话随之列进「任务」);幂等,失败不拦启动。
   try {
     const demoted = migrateProjectKind(path.join(app.getPath('userData'), 'project-kind-migration.json'))
@@ -618,9 +628,6 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     sessionBootTasks.runSync('deferred-sweep', '', claimInterruptedDeferredMessages)
   }
   searchService.initialize()
-  void backfillTurnText(sqlite).catch((error: unknown) =>
-    log.error('Turn-text backfill failed; retrying next start', { error: String(error) })
-  )
   workspaceFileIndexService.initialize()
   void editorBufferService.pruneStale()
   // 依赖体检的 `<bin> --version` 是 detached 起的(不然只杀得掉直接子进程)，收尾在 finally 里 ——
@@ -795,6 +802,7 @@ let disposeEmdashModulePromise: Promise<void> | null = null
 let stopPtyRecordSync: () => void = () => {}
 
 async function disposeEmdashModuleOnce(): Promise<void> {
+  stopTurnTextBackfillWorker()
   const failures: unknown[] = []
   const runPhase = async (phase: string, action: () => void | Promise<void>): Promise<void> => {
     const startedAt = performance.now()
@@ -1720,6 +1728,8 @@ export interface SessionpageAgentSessionStartInput {
   displayName: string
   agentType: string
   projectPath: string
+  /** Set by the authenticated host after checking the provision's assistant role. */
+  assistant?: { deviceId: string; ownerId: string }
   chatId: string
   initialText?: string
   initialPrompt?: string
@@ -1834,7 +1844,10 @@ async function startSessionpageAgentSessionClaimed(
     agentSessionLog.info({ agentUserId: input.agentUserId, stage, elapsedMs: Date.now() - startedAt }, 'agent session start stage — #4181')
   agentSessionLog.info({ agentUserId: input.agentUserId, agentType: input.agentType, displayName: input.displayName }, 'agent session start begin — #4181')
   // 目录还没登记 / 隐式任务工作区还没建(没有渲染层的咕咕 server)时当场补齐,见 resolve-agent-session-project.ts。
-  const project = await resolveAgentSessionProject(input.projectPath)
+  const assistantWorkspace = input.assistant ? await resolveAssistantSessionWorkspace(input.projectPath, {
+    sessionId: input.existingSessionId, assistantId: input.agentUserId, deviceId: input.assistant.deviceId, ownerId: input.assistant.ownerId,
+  }) : null
+  const project = assistantWorkspace?.project ?? await resolveAgentSessionProject(input.projectPath)
   throwIfAborted()
   mark('projects-loaded')
   const opened = projectManager.getProject(project.id)
@@ -1844,7 +1857,7 @@ async function startSessionpageAgentSessionClaimed(
       return result.data
     })
   mark('project-opened')
-  const repositoryWorkspaceId = opened.repositoryWorkspaceId ?? project.repositoryWorkspaceId
+  const repositoryWorkspaceId = assistantWorkspace?.workspaceId ?? opened.repositoryWorkspaceId ?? project.repositoryWorkspaceId
   if (!repositoryWorkspaceId)
     throw new Error(`session-page project ${project.id} has no repository workspace to run in`)
   const provider = toAgentProviderId(pluginIdForAgentType(input.agentType))
@@ -2347,7 +2360,7 @@ export async function emdashSessionpageSessionFacts(): Promise<Array<{
   return rows.map((session) => ({
     sessionId: session.id,
     projectId: session.projectId,
-    title: formatSessionTitleForDisplay(session.providerId, session.title),
+    title: session.title,
     projectName: projectName.get(session.projectId) ?? '',
     // 行 → Conversation 的映射器总是写这两格(`mapSessionRowToSession`);类型上可选只因渲染侧的乐观对象。
     status: session.agentStatus
@@ -2466,7 +2479,7 @@ export function sessionpageBusyForVersionSwitch(): boolean {
 /** One reading supplies both the existing idle policy and its visible agent count. */
 /** Same heartbeat, same ledger; discard tasks archived/deleted through any entry point. */
 export function sessionpageBootFailures() {
-  const failures = clearRecoveredProjectBootFailures(id => projectManager.getProject(id) !== undefined)
+  const failures = sessionBootTasks.snapshot()
   const ids = failures.map(failure => failure.taskId).filter(Boolean)
   if (ids.length) {
     try {

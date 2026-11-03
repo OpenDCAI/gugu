@@ -59,6 +59,7 @@ export default {
     },
     "turnFailure": {
       "card": {
+        "deliveryRejected": "消息未送达",
         "generic": "回复没有完成",
         "authentication": "模型服务拒绝了授权",
         "network": "连不上模型服务",
@@ -86,6 +87,7 @@ export default {
       "changeModel": "切换模型",
       "close": "关闭",
       "generic": "Agent 本次回复出错，未能完成",
+      "deliveryRejected": "这条消息未送达，请重发。",
       "notAdmitted": "消息已保留，助理就绪后回复。",
       "outcomeUnknown": "投递结果未知：消息可能已经送到助理，没有重投。",
       "undelivered": "消息暂未送达：没有运行中的咕咕实例持有这个 Agent，打开那个实例后会由它读取。",
@@ -769,7 +771,6 @@ export default {
       "queued": "发送中，助理就绪后回复",
       "undelivered": "所在实例未运行、未送达",
       "sending": "发送中",
-      "held": "等待重试",
       "stopped": "已停止，下一句发出时一起发送",
       "unknownNotResent": "结果未知，没有重发",
       "failure": {
@@ -813,9 +814,13 @@ export default {
     "whisperBoth": "悄悄话 · 仅你与对方可见",
     "whisperOnlyYou": "悄悄话 · 仅你可见",
     "whisperTo": "悄悄话给 {{name}} · 仅你与对方可见",
-    "widget": "[Widget]"
+    "widget": "[Widget]",
+    "widgetUnavailable": { "missing": "尚未安装 App。", "disabled": "App 已关闭。", "view": "此 App 视图不可用。", "platform": "此设备无法运行此 App。" }
   },
   "outbox": {
+    "selectFileAgain": "上传已中断，请重新选择文件。",
+    "sourceNotSent": "原消息尚未送达，请先重试原消息再转发。",
+    "sourceDiscarded": "原消息未发出，已被丢弃",
     "deliveryTimeout": "投递超时 {{seconds}}s（网络挂起）",
     "discarded": "已丢弃",
     "offscreenFailure": "有消息未送达，回到对应对话可重试或丢弃",

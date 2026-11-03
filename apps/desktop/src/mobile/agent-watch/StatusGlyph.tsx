@@ -3,6 +3,7 @@ import { displayStatusOf } from '@gugu/core/shared/ui/agentConversationStatusMod
 import { agentStatusText } from '@/lib/agentStatusText'
 import { Avatar } from '@/components/Avatar'
 import { useAvatarIdentity } from '@/lib/avatarIdentity'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 
 /**
  * 会话状态的那一小格。形制照抄 orca 手机端(`mobile/src/components/AgentSpinner.tsx`):
@@ -43,9 +44,10 @@ export function SessionAvatar({
   size?: number
 }) {
   const identity = useAvatarIdentity(agentId ?? '')
+  const name = useShownAgentName({ name: identity?.display_name ?? (presentation ? agentStatusText(presentation.label) : agentStatusText('none')), createdAt: identity?.created_at ?? undefined })
   return (
     <Avatar seed={agentId || sessionId} avatarUrl={identity?.avatar} isAgent harnessBadge={false} size={size}
-        name={identity?.display_name ?? (presentation ? agentStatusText(presentation.label) : agentStatusText('none'))}
+        name={name}
         statusLabel={presentation?.label ?? 'none'} agentStatus={presentation ? displayStatusOf(presentation.tone) : undefined} />
   )
 }

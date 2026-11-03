@@ -12,6 +12,7 @@ export { readAssistantWorkOwnerReceipts } from '../session/main/core/sessions/as
 export { archiveSession } from '../session/main/core/sessions/archiveSession'
 export {
   bootEmdashModule,
+  startSessionpageSearchBackfill,
   startNativeConversationInboxHost,
   setSessionAdmissionPreparation,
   assistantPanelLocal,
@@ -83,6 +84,8 @@ export {
   // #7341 第二步 项目跨设备:`projects.*` 的项目群四件事由宿主实现(sessionpage-project-group-binding.ts),
   // 对照变了经 notify 让渲染层重读。漏在这张清单外只会在有人「并进来」时才炸。
   setProjectGroupHost,
+  setAssistantProjectCleanupOwner,
+  runPendingAssistantProjectCleanup,
   notifyProjectGroupBindingChanged,
   type ProjectGroupHost,
   // agent 的 session_* 跨机器:别的机器问 `agentSession.*` 时由宿主答;别的机器上的 App 发来的消息由这台的 App 发信答。
@@ -165,6 +168,7 @@ export {
   onSessionpageAuthorizationActivityChange,
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,
+  rejectPendingSessionDirectMessage,
   recordFailedSessionDirectMessage,
   // 会话可用那一刻要排一次 outbox：收件箱 pull 的本机投影只捞 session-direct 行，
   // 用户打的第一句是 ordinary，只有 drain 能送出去（codex 的 90s 死锁即出在这一格）。

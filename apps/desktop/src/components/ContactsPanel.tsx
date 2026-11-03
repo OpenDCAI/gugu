@@ -1,3 +1,4 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { AgentContactRow } from './contacts/AgentContactRow'
 import { contactAgents, peopleContacts } from './contacts/contactSelectors'
@@ -59,8 +60,6 @@ import { getGroupRoleLabel } from '@gugu/core/shared/enums/groupRoleModels'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import type { GroupMemberItem } from '@gugu/core/shared/types/chat'
 import type { QrScanRoute } from '../lib/qrScanRoute'
-// @@@1397 群邀请 QR 与可复制链接同口径：都走 buildGroupInviteShareUrl(VITE_GUGU_WEB_URL/invite 落地页)，
-// 不再让 QR 单独编码 Android 下载页基址 → 扫码/点链都落同一 env 域名(app.gugu.nextmind.space)。
 import { AgentContactProfileCard, PersonContactProfileCard } from './contacts/ContactProfileCard'
 import { commonGroupForAgent, requestStateForAgent } from './contacts/agentContactRequest'
 import {
@@ -763,6 +762,8 @@ function GroupChatDetailPane({
       cancelled = true
     }
   }, [groupId, getImRepository])
+  const visibleMembers = members.slice(0, 12)
+  const memberNames = useShownAgentName(visibleMembers.map(member => ({ name: identitiesById[member.id]?.display_name ?? '', createdAt: member.type === 'agent' ? identitiesById[member.id]?.created_at ?? undefined : undefined })))
 
   if (!group) {
     return (
@@ -778,7 +779,6 @@ function GroupChatDetailPane({
     : group.member_count >= 3
       ? ct('groupDetail.small')
       : ct('common.groupChat')
-  const visibleMembers = members.slice(0, 12)
 
   return (
     <Pane paneRole="detail" mobile={mobile}>
@@ -845,10 +845,10 @@ function GroupChatDetailPane({
             </div>
           ) : (
             <div className="grid max-w-[720px] grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-3">
-              {visibleMembers.map((member) => (
+              {visibleMembers.map((member, index) => (
                 <div key={member.id} className={detailCardRowClass}>
                   <Avatar
-                    name={identitiesById[member.id]?.display_name ?? ''}
+                    name={memberNames[index]!}
                     avatarUrl={identitiesById[member.id]?.avatar}
                     seed={member.id}
                     size="sm"
@@ -856,7 +856,7 @@ function GroupChatDetailPane({
                   />
                   <div className="min-w-0 flex-1">
                     <div className="overflow-hidden text-ellipsis whitespace-nowrap text-[length:var(--font-body)] text-[var(--fg)]">
-                      {identitiesById[member.id]?.display_name ?? ''}
+                      {memberNames[index]}
                     </div>
                     <div className="text-xs text-[var(--muted-fg)]">
                       {member.type === 'agent' ? 'Agent · ' : ''}
@@ -1271,6 +1271,7 @@ export const ContactsPanel = memo(function ContactsPanel({
       ?? null,
     [contacts, selectedContactId, sharedGroupAgents]
   )
+  const selectedShownName = useShownAgentName({ name: selectedSidebarContact ? displayName(selectedSidebarContact) : '', agentType: selectedSidebarContact?.agent_type, createdAt: selectedSidebarContact?.type === 'agent' ? selectedSidebarContact.created_at ?? undefined : undefined })
   const selectedSidebarGroup = useMemo(
     () => groupChats.find((g) => g.id === selectedSidebarGroupId) ?? null,
     [groupChats, selectedSidebarGroupId]
@@ -1398,10 +1399,9 @@ export const ContactsPanel = memo(function ContactsPanel({
           })
           return (
             <CpaneShell
-              title={displayName(selectedSidebarContact)}
+              title={selectedShownName}
               overlay={
                 <>
-                  {/* 设置 modal — opens AgentSettingsModal (rename lives in AgentProfilePane) */}
                   {cpaneSettingsContact?.id === selectedSidebarContact.id ? (
                     <AgentSettingsModal
                       agent={cpaneSettingsContact}
@@ -1437,7 +1437,7 @@ export const ContactsPanel = memo(function ContactsPanel({
         }
         // human contact — 设计稿人物 cpane = 仅头像/名称 + 发消息卡片；旧 HumanDetail 不在设计稿 → 不 stack。
         return (
-          <CpaneShell title={displayName(selectedSidebarContact)}>
+          <CpaneShell title={selectedShownName}>
             <PersonContactProfileCard
               contact={selectedSidebarContact}
               onSwitchToChat={onSwitchToChat ? () => onSwitchToChat(selectedSidebarContact) : undefined}

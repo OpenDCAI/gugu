@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
-import { agentSendOf } from '@gugu/session-core/session-record/reply-process'
+import { agentSendOf, messageSendTargetOf } from '@gugu/session-core/session-record/reply-process'
 import { agentSendLabel } from '@session-chat/state/agent-send'
 import { withSentReplies } from '@session-chat/state/sent-replies'
 import { defaultChatTranslator } from '@session-chat/localization'
@@ -98,3 +98,16 @@ describe('send destinations resolved from the signed-in chat list', () => {
     expect(chatDisplayName('216013')).toBe('Signed-in group')
   })
 })
+
+it('resolves typed human addresses and canonical receipt links, and calls only the current reader you', () => {
+  const owner = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  publishChatSummaries([{ id: CHAT, kind: 'dm', peer_user_id: owner, unread_count: 0, name: 'Owner' }]);
+  expect(resolveChatId(`user:${owner}`)).toBe(CHAT);
+  const call = { ...send(`user:${owner}`), tool: 'message_send_file', outputText: JSON.stringify({ message_id: OTHER, source_link: `gugu-chat://${CHAT}/${OTHER}` }) };
+  const to = messageSendTargetOf(call)!;
+  expect(to).toMatchObject({ conversationId: CHAT, recipientUserId: owner });
+  expect(agentSendLabel(to, defaultChatTranslator, chatDisplayName, { userId: owner, displayName: 'Owner', guguNumber: null })).toBe('Sent to you');
+  expect(agentSendLabel(to, defaultChatTranslator, chatDisplayName, { userId: 'someone-else', displayName: null, guguNumber: null })).toBe('Sent to Owner');
+  publishChatSummaries([]);
+  expect(resolveChatId(`user:${owner}`)).toBeNull();
+});

@@ -218,11 +218,6 @@ export const electronPlatform: AppPlatform = {
     if (!api?.notifyScheduledTasksChanged) throw unavailable('Device runtime notification')
     api.notifyScheduledTasksChanged()
   },
-  notifyOwnedAgentsChanged() {
-    const api = electronApi()
-    if (!api?.notifyOwnedAgentsChanged) throw unavailable('Owned agents change notification')
-    api.notifyOwnedAgentsChanged()
-  },
   getPathForFile(file) {
     return electronApi()?.getPathForFile(file) ?? ''
   },

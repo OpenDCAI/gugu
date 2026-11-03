@@ -196,10 +196,10 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       markRead: ({ chatId, messageId }) => cloud.rpc('identity', 'mark_read_on_deliver', { p_chat_id: chatId, p_message_id: messageId, p_user_id: agentUserId }),
       inject: async (input) => {
         if (input.attachments?.length) throw new Error('附件未转换为手机宿主的文件元数据，未接收本次消息')
-        const row = rowsById.get(input.messageId)
+        const row = rowsById.get(input.sourceMessageId)
         if (!row) throw new Error('inbox admission has no authoritative source row')
         const confirmation = actions?.confirmationForMessage(agent, row)
-        await admit({ id: input.messageId, agentUserId, prompt: input.text, ...(confirmation ? { kind: 'confirmation', ...confirmation } : {}), route: { kind: 'chat', chatId: row.chatId, sourceMessageId: row.id, senderUserId: row.senderUserId, threadRootId: row.threadRootId ?? (row.isThreadRoot ? row.id : null), whisper: row.isWhisper } })
+        await admit({ id: input.sourceMessageId, agentUserId, prompt: input.text, ...(confirmation ? { kind: 'confirmation', ...confirmation } : {}), route: { kind: 'chat', chatId: row.chatId, sourceMessageId: row.id, senderUserId: row.senderUserId, threadRootId: row.threadRootId ?? (row.isThreadRoot ? row.id : null), whisper: row.isWhisper } })
         return 'accepted'
       },
     })

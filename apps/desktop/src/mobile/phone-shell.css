@@ -28,7 +28,7 @@
   grid-row: 2;
 }
 
-:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-actions-end'] > button {
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-actions-end'] > button:not([data-composer-locked-agent]) {
   grid-column: 3;
   grid-row: 2;
 }
@@ -47,6 +47,17 @@
   justify-self: end;
   max-width: calc(50% - var(--spacing-xs));
 }
+
+/* A locked harness shares the metadata row with its model. The middle three
+   tracks still occupy exactly the input's original middle column. */
+[data-phone-shell] [data-agent-conversation] [data-slot='composer'][data-mobile]:has([data-composer-locked-agent]) [data-slot='composer-bar'] {
+  grid-template-columns: var(--control-h-touch) minmax(0, 1fr) var(--control-h-touch) auto var(--control-h-touch);
+}
+[data-phone-shell] [data-agent-conversation] [data-slot='composer'][data-mobile]:has([data-composer-locked-agent]) [data-slot='composer-input'] { grid-column: 2 / 5; }
+[data-phone-shell] [data-agent-conversation] [data-slot='composer'][data-mobile]:has([data-composer-locked-agent]) [data-slot='composer-actions-end'] > button:not([data-composer-locked-agent]) { grid-column: 5; }
+[data-phone-shell] [data-agent-conversation] [data-slot='composer'][data-mobile] [data-composer-locked-agent] { grid-column: 3; grid-row: 1; }
+[data-phone-shell] [data-agent-conversation] [data-slot='composer'][data-mobile]:has([data-composer-locked-agent]) [data-slot='composer-model'] > button { grid-column: 4 / -1; max-width: 100%; }
+[data-phone-shell] [data-agent-conversation] [data-slot='composer'][data-mobile]:has([data-composer-locked-agent]) [data-slot='composer-actions-start'] > button:has([data-slot='composer-permission-mode']) { grid-column: 1 / 3; max-width: 100%; }
 
 [data-phone-shell] {
   --phone-font-caption: calc((var(--font-caption) + var(--font-body)) / 2);
@@ -93,6 +104,35 @@
 [data-phone-shell] .gg-list-row-title {
   font-size: var(--font-prose);
   line-height: var(--lh-prose);
+}
+
+/* A row's leading content must not set the title column. Pending tasks are
+   portalled into the list, so apply the same slot below their slot host too. */
+[data-phone-shell] [data-phone-root-list='chats'] .gg-list-row > .gg-list-row-leading,
+.gg-phone-message-avatar {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+[data-phone-shell] [data-phone-root-list='chats'] .gg-list-row > .gg-list-row-leading > *,
+.gg-phone-message-avatar > :not(.gg-phone-message-avatar-badge) {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.gg-phone-message-avatar { display: inline-flex; position: relative; }
+/* Match the visible centre of Avatar's 48px status corner (5px in from its edges). */
+.gg-phone-message-avatar-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 8px;
+  height: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 [data-phone-shell] .gg-settings-nav-pane[data-mobile] .gg-settings-nav-item {

@@ -7,6 +7,7 @@ export const viewStateController = createRPCController({
   },
   get: (key: string): Promise<unknown> => viewStateService.get(key),
   getAll: (): Promise<Record<string, unknown>> => viewStateService.getAll(),
+  getForRestore: async (sessionIds: string[]) => (await import('./restore-state')).readViewStateForRestore(sessionIds),
   del: (key: string): Promise<void> => viewStateService.del(key),
   reset: (): Promise<void> => viewStateService.reset(),
 });

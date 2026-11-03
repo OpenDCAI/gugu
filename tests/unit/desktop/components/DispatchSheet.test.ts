@@ -23,9 +23,9 @@ vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
   useChatStore: () => ({ chats, identitiesById: { 'u-alpha': { display_name: 'Alpha', avatar: null, type: 'human' } } }),
 }))
 // The person's own agents (contacts they own), wherever they run.
-const agent = (id: string, display_name: string) => ({ id, display_name, avatar: null, type: 'agent', owner_user_id: 'me' })
+const agent = (id: string, display_name: string) => ({ id, display_name, avatar: null, type: 'agent', owner_user_id: 'me', created_at: '2026-11-02T08:00:00.000Z' })
 vi.mock('../../../../apps/desktop/src/components/settings/channels/channelAgents', () => ({
-  useOwnedAgents: () => [agent('a-other', 'Other agent'), agent('a-sibling', 'Same project'), agent('a-here', 'This page')],
+  useOwnedAgents: () => [agent('a-other', 'Codex 5'), agent('a-sibling', 'Same project'), agent('a-here', 'This page')],
 }))
 
 const computers = [
@@ -53,6 +53,7 @@ beforeEach(async () => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.useRealTimers()
 })
 
 const rowIds = () => [...document.body.querySelectorAll('[data-pick-row]')].map((row) => row.getAttribute('data-pick-row'))
@@ -65,6 +66,19 @@ const type = async (field: HTMLInputElement | HTMLTextAreaElement, value: string
 })
 
 describe('DispatchSheet', () => {
+  it('shows and searches a fresh agent by the real name used for dispatch', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime('2026-11-02T08:00:00.000Z')
+    let picked: Promise<unknown> = Promise.resolve()
+    await act(async () => { picked = ask({ offers: ['my-agent'] }) })
+    await type(document.body.querySelector('input') as HTMLInputElement, 'codex')
+    const row = document.body.querySelector('[data-pick-row="agent:user:a-other"]')!
+    expect(row.textContent).toContain('Codex 5')
+    expect(row.textContent).not.toContain('正在起名…')
+    await click(row)
+    await click(document.body.querySelector('[data-testid="dispatch-sheet-action"]'))
+    await expect(picked).resolves.toEqual({ to: { agent: 'user:a-other' }, visible: false, text: 'cite' })
+  })
   it('appends only applicable resource templates without picking a target or sending', async () => {
     let picked: Promise<unknown> = Promise.resolve(), answered = false
     await act(async () => { picked = ask({ text: 'keep this URL', pills: ['reference'], resource: { kind: 'app-variant', target: { kind: 'app-detail', extensionId: 'radar', deviceId: 'device', variant: 'remote-watch' }, facts: ['fork'] } }); void picked.then(() => { answered = true }) })

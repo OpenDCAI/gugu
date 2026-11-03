@@ -1,4 +1,5 @@
 import { displayIdentityFromRow } from './displayIdentity'
+import { createIndexedDbHandle, type IndexedDbHandle } from './indexedDbHandle'
 
 const DB_NAME = 'gugu.localSync.v1'
 // v4(#7290):消息行多了指向字节的列(file_item_id / file_version / file_blob_id)。老客户端存下的行没有这几列,
@@ -55,8 +56,9 @@ const KEY_PATHS: Record<ImStoreName, string[]> = {
 }
 
 export async function openLocalSyncDb(indexedDb: IDBFactory = window.indexedDB): Promise<LocalImDbAdapter> {
-  const db = await openDatabase(indexedDb)
-  return createIndexedDbAdapter(db)
+  const handle = createIndexedDbHandle(() => openDatabase(indexedDb))
+  await handle.get()
+  return createIndexedDbAdapter(handle)
 }
 
 export function createMemoryLocalSyncDb(): LocalImDbAdapter {
@@ -330,10 +332,11 @@ function assertNoConflictingRows(rows: Record<ImStoreName, LocalImRow[]>): void 
   }
 }
 
-function createIndexedDbAdapter(db: IDBDatabase): LocalImDbAdapter {
+function createIndexedDbAdapter(handle: IndexedDbHandle): LocalImDbAdapter {
   return {
     async loadAccount(accountId) {
       assertId(accountId, 'accountId')
+      const db = await handle.get()
       const transaction = db.transaction(IM_STORE_NAMES, 'readonly')
       const entries = await Promise.all(IM_STORE_NAMES.map(async (name) => {
         const values = await requestResult<LocalImRow[]>(transaction.objectStore(name).index('accountId').getAll(accountId))
@@ -358,6 +361,7 @@ function createIndexedDbAdapter(db: IDBDatabase): LocalImDbAdapter {
       const touched = operations.some((operation) => operation.type === 'clearAccount')
         ? [...IM_STORE_NAMES]
         : [...new Set(operations.flatMap((operation) => operation.type === 'clearAccount' ? [] : [operation.store]))]
+      const db = await handle.get()
       const transaction = db.transaction(touched, 'readwrite')
       let enqueueError: unknown
       // A clear's cursor must finish BEFORE replacement puts: an advancing
@@ -390,7 +394,7 @@ function createIndexedDbAdapter(db: IDBDatabase): LocalImDbAdapter {
       enqueue(0)
       await done.catch((error) => { throw enqueueError ?? error })
     },
-    close: () => db.close(),
+    close: () => handle.close(),
   }
 }
 
@@ -515,7 +519,7 @@ function validateCurrentRow(store: ImStoreName, raw: unknown, accountId: string)
     } else if (store === 'outbox') {
       if (!isRecord(raw.value) || raw.value.clientMessageId !== raw.id || raw.value.senderUserId !== accountId
         || typeof raw.value.chatId !== 'string' || !isLegacyOutboxPayload(raw.value.payload)
-        || !['pending', 'sending', 'failed'].includes(String(raw.value.state)) || !Number.isInteger(raw.value.attempts)
+        || !['pending', 'sending', 'uploading', 'failed'].includes(String(raw.value.state)) || !Number.isInteger(raw.value.attempts)
         || (raw.value.lastError !== null && typeof raw.value.lastError !== 'string')
         || typeof raw.value.enqueuedAt !== 'string' || typeof raw.value.updatedAt !== 'string') throw new Error('outbox')
     }

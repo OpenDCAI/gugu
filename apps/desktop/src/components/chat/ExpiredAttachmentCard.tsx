@@ -10,13 +10,12 @@ import { useChatStore } from '../../store/chatContext'
 import { useToast } from '../toastContext'
 import { Button } from '../ui/Button'
 import { FileAttachmentCard } from './FileAttachmentCard'
-import { sendAttachmentBatch } from './sendAttachmentBatch'
 
 /** Re-upload is an ordinary new send, with the original message's audience and thread. */
 export function ExpiredAttachmentCard({ meta, messageId, isMine }: { meta: ParsedAttachment; messageId: string; isMine: boolean }) {
   const { t } = useTranslation('messaging')
   const { user } = useAuth()
-  const { appendMessage } = useChatStore('appendMessage')
+  const { sendAttachmentsToChat } = useChatStore('sendAttachmentsToChat')
   const { toast } = useToast()
   const [busy, setBusy] = useState(false)
   const [needsOriginal, setNeedsOriginal] = useState(false)
@@ -33,9 +32,8 @@ export function ExpiredAttachmentCard({ meta, messageId, isMine }: { meta: Parse
       if (status.status !== 'expired') throw new Error(t('attachmentView.fileUnavailable'))
       const local = picked ?? await cachedAttachmentCopy(status.sha256)
       if (!local) { setNeedsOriginal(true); return }
-      await sendAttachmentBatch({ files: [new File([local], attachment.fileName, { type: attachment.mimeType })],
-        chatId: original.chat_id, senderId: user.id, toUserIds: original.to_user_ids, isWhisper: original.is_whisper,
-        threadRootId: original.thread_root_id ?? (original.is_thread_root ? original.id : null), appendMessage })
+      await sendAttachmentsToChat(original.chat_id, [new File([local], attachment.fileName, { type: attachment.mimeType })], { toUserIds: original.to_user_ids, isWhisper: original.is_whisper,
+        threadRootId: original.thread_root_id ?? (original.is_thread_root ? original.id : null) })
       await attachmentQueryClient.invalidateQueries({ queryKey: ['attachment-state', user.id] })
     } catch (error) {
       toast(error instanceof Error ? error.message : t('attachmentView.fileUnavailable'), 'error')

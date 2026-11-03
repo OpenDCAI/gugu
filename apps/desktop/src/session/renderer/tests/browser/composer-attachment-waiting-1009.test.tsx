@@ -44,3 +44,24 @@ it.each([400, 900])('keeps waiting beside the attachment and leaves its cancel c
   render()
   await until('waiting hint cleared', () => !host!.querySelector('[data-slot="composer-attachment-status"]'))
 })
+
+
+it('keeps screenshot quality on the second line, stops preview propagation and locks it during sending', async () => {
+  host = document.createElement('div'); host.className = 'gugu-skin'; host.style.width = '400px'; document.body.appendChild(host); root = createRoot(host);
+  const changed = vi.fn(), viewed = vi.fn();
+  const render = (locked: boolean) => root!.render(<SessionLocalizationProvider><ChatComposer
+    attachments={[{ id: 'image', name: 'screenshot.webp', kind: 'image', imageQuality: 'compressed', previewUrl: 'data:image/webp;base64,', state: 'uploading', progress: 40, cancelable: true, meta: '120 KB / 300 KB · 40%' }]}
+    onAttachmentQualityChange={changed} onViewAttachment={viewed} attachmentQualityLocked={locked} onSubmit={() => {}} />
+  </SessionLocalizationProvider>);
+  render(false);
+  await until('quality action mounted', () => [...host!.querySelectorAll('button')].some(button => /Send original|发原图/.test(button.textContent ?? '')));
+  const quality = [...host.querySelectorAll('button')].find(button => /Send original|发原图/.test(button.textContent ?? ''))!;
+  const name = host.querySelector('[data-slot="composer-attachment"] span span')!;
+  expect(quality.getBoundingClientRect().top).toBeGreaterThan(name.getBoundingClientRect().top);
+  quality.click();
+  quality.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  expect(changed).toHaveBeenCalledWith('image'); expect(viewed).not.toHaveBeenCalled();
+  render(true);
+  await until('quality action locked', () => quality.disabled);
+  quality.click(); expect(changed).toHaveBeenCalledTimes(1);
+});

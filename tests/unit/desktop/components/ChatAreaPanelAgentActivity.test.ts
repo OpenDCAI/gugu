@@ -211,7 +211,7 @@ describe('ChatAreaPanel agent activity placement', () => {
     vi.mocked(chatService.getGroupCollab).mockClear()
 
     await renderWithAppProviders(harness, createNode(ChatAreaPanel, { openNonce: 0 }), {
-      chat: { getImRepository: getImRepositoryMock, activeChatId: 'chat-1', activeChat: groupChat, messages: [] },
+      chat: { createTopic: topicServiceMock.createTopic, getImRepository: getImRepositoryMock, activeChatId: 'chat-1', activeChat: groupChat, messages: [] },
     })
     const before = vi.mocked(chatService.getGroupCollab).mock.calls.length
     expect(before).toBeGreaterThanOrEqual(1)
@@ -219,7 +219,7 @@ describe('ChatAreaPanel agent activity placement', () => {
     // Reopening the SAME chat on mobile bumps openNonce without changing activeChatId — the reset clears the
     // collab snapshot, so the load effect must refire to refill it (the #461 asymmetry this guards).
     await renderWithAppProviders(harness, createNode(ChatAreaPanel, { openNonce: 1 }), {
-      chat: { getImRepository: getImRepositoryMock, activeChatId: 'chat-1', activeChat: groupChat, messages: [] },
+      chat: { createTopic: topicServiceMock.createTopic, getImRepository: getImRepositoryMock, activeChatId: 'chat-1', activeChat: groupChat, messages: [] },
     })
     expect(vi.mocked(chatService.getGroupCollab).mock.calls.length).toBeGreaterThan(before)
   })
@@ -240,7 +240,7 @@ describe('ChatAreaPanel agent activity placement', () => {
       vi.mocked(chatService.getGroupCollab).mockClear()
 
       await renderWithAppProviders(harness, createNode(ChatAreaPanel, { openNonce: 0 }), {
-        chat: { getImRepository: getImRepositoryMock, subscribeAccountRevision, activeChatId: 'chat-1', activeChat: chat({ id: 'chat-1', kind: 'group', name: 'Ops' }), messages: [] },
+        chat: { createTopic: topicServiceMock.createTopic, getImRepository: getImRepositoryMock, subscribeAccountRevision, activeChatId: 'chat-1', activeChat: chat({ id: 'chat-1', kind: 'group', name: 'Ops' }), messages: [] },
       })
       const afterOpen = vi.mocked(chatService.getGroupCollab).mock.calls.length
       expect(afterOpen).toBeGreaterThanOrEqual(1)
@@ -276,17 +276,17 @@ describe('ChatAreaPanel agent activity placement', () => {
       const settings = vi.mocked(chatService.getGroupChatSettings)
       const before = settings.mock.calls.length
       await act(async () => {
-        onChange([{ revision: '1', event: 'chat_members_changed', payload: { chat_id: 'other-group' } }])
+        onChange([{ revision: '1', event: 'chat_members_changed', payload: { chat_id: 'other-group', tombstone: false } }])
         await vi.advanceTimersByTimeAsync(350)
       })
       expect(settings).toHaveBeenCalledTimes(before)
       await act(async () => {
-        onChange([{ revision: 'other-reader', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'another-user', last_read_seq: 42 } }])
+        onChange([{ revision: 'other-reader', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'another-user', tombstone: false, kind: 'own' } }])
         await vi.advanceTimersByTimeAsync(350)
       })
       expect(settings).toHaveBeenCalledTimes(before)
       await act(async () => {
-        onChange([{ revision: '2', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'viewer-1' } }])
+        onChange([{ revision: '2', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'viewer-1', tombstone: false } }])
         await vi.advanceTimersByTimeAsync(350)
       })
       expect(settings).toHaveBeenCalledTimes(before + 1)
@@ -362,7 +362,7 @@ async function renderChatArea(chatState: {
     ),
     {
       chat: {
-        getImRepository: getImRepositoryMock,
+        createTopic: topicServiceMock.createTopic, getImRepository: getImRepositoryMock,
         identitiesById,
         activeChatId: 'chat-1',
         ...chatState,

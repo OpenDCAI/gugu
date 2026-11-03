@@ -305,7 +305,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     })
   }
 
-  it('keeps focused topic Find, filtering and highlighting without a header search button', async () => {
+  it('opens focused topic find and preserves explicit filtering without a header search button', async () => {
     await renderWithAppProviders(harness, createNode(TopicSplitPane, {
       ...baseProps, viewportKey: 'review-topic',
       messages: [message({ id: 'topic-hit', content: 'topic needle' }), message({ id: 'topic-miss', content: 'other text' })],
@@ -318,6 +318,11 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
         commandRegistry.setContext(composer)
         expect(commandRegistry.dispatch('app.find')).toBe(true)
       })
+      const find = harness.container.querySelector<HTMLInputElement>('input[placeholder="Find..."], input[placeholder="查找…"]')!
+      expect(find).not.toBeNull()
+      expect(harness.container.querySelector('[data-testid="chat-header-search-input"]')).toBeNull()
+      await act(async () => { find.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+      await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { viewportKey: 'review-topic' } })) })
       const input = harness.container.querySelector<HTMLInputElement>('[data-testid="chat-header-search-input"]')!
       expect(input).not.toBeNull()
       await typeInto(input, 'needle')
@@ -736,10 +741,10 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
 
 describe('@@@5856 「这条消息开得出话题吗」只有一个判据,顶栏与右键共用', () => {
   const base = { id: 'm', seq: 1, local_send_state: undefined, is_whisper: false, retracted_at: null, content_type: 'text' } as Parameters<typeof canSourceTopic>[0]
-  it('发送中 / 未送达 / 悄悄话 / 已撤回 都开不出;正常消息开得出', () => {
+  it('发送中等来源送达;未送达、悄悄话与已撤回不能开话题', () => {
     expect(canSourceTopic(base)).toBe(true)
-    expect(canSourceTopic({ ...base, seq: -1 })).toBe(false)
-    expect(canSourceTopic({ ...base, local_send_state: 'sending' })).toBe(false)
+    expect(canSourceTopic({ ...base, seq: -1 })).toBe(true)
+    expect(canSourceTopic({ ...base, local_send_state: 'sending' })).toBe(true)
     expect(canSourceTopic({ ...base, local_send_state: 'failed' })).toBe(false)
     expect(canSourceTopic({ ...base, is_whisper: true })).toBe(false)
     expect(canSourceTopic({ ...base, retracted_at: new Date().toISOString() })).toBe(false)

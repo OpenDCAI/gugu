@@ -65,6 +65,11 @@ export const readChatSummaries = read
 export function resolveChatId(address: string): string | null {
   const summaries = read()
   if (summaries?.has(address)) return address
+  if (address.startsWith('user:')) {
+    const userId = address.slice(5)
+    for (const [id, summary] of summaries ?? []) if (summary.kind === 'dm' && summary.peerUserId === userId) return id
+    return null
+  }
   if (!/^[1-9]\d*$/.test(address)) return null
   const publicId = Number(address)
   if (!Number.isSafeInteger(publicId)) return null

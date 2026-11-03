@@ -1,5 +1,6 @@
 import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
+import { startServerUsageSync } from './server/usage-sync'
 import { noteExitReason } from './lib/exit-reason'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
@@ -44,6 +45,7 @@ import { claimDeviceFreeCredits, readDeviceClaimStatus } from './device-free-cre
 import { createDeviceActionsRuntime, nativeComponentsDir, type DeviceActionsRuntime } from './device-actions/runtime'
 import { sampleCuaImage } from './device-actions/native/cua-image-sample'
 import { createComputerControlWindow } from './device-actions/computer-control-window'
+import { computerControlWindowReaders } from './device-actions/computer-control-foreground'
 import { installNativeAppearanceSync, installWindowMaterial, type WindowMaterialHost } from './window-material'
 import enDeviceStrings from '@/i18n/locales/en-US/settings'
 import zhDeviceStrings from '@/i18n/locales/zh-CN/settings'
@@ -122,6 +124,8 @@ import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
 import { handOffLegacyWechat } from './wechat/handoff'
 import { LegacyWechatStore } from './wechat/store'
 import { createDesktopDeviceCommandWakeSubscription } from './device-command-wake'
+import { createDesktopOwnedAgentChangesSubscription } from './owned-agent-changes'
+import { createCloudTaskNameAdopter } from './sessionpage/cloud-task-names'
 import { createDesktopDeviceRpcSubscription, type OpenTopicPublisher } from './device-rpc-responder'
 import { deviceRpcAskerLimitsFromEnv } from './device-rpc-askers'
 import type { MessagePreviewHostDeps } from './session/main/core/session-timeline/preview-rpc'
@@ -218,7 +222,7 @@ import { assistantWorkCoordinator } from '@gugu/core/cloud/assistantWorkRouting'
 import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
 import { enqueueAssistantWorkReport } from '@gugu/core/cloud/assistantWorkReports'
 import {withAssistantWorkReply} from '@gugu/core/shared/assistantWorkReply'
-import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
+import { ASSISTANT_PROVISION_SELECT, pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
 import { landTaskCardFirstTurn } from './sessionpage/task-card-first-turn'
 import { withQuestionCard } from './sessionpage/question-card'
 import {
@@ -391,6 +395,7 @@ import {
 import { createComputerUsePreview, installedComputerUseApps, type ComputerUsePreview } from './computer-use-program'
 import { sessionOf as computerSessionOf } from './device-actions/families/computer'
 import { connectedSessionIntegrations } from './session/main/core/integrations/session-integrations'
+import { providerAccountRegistry } from './session/main/core/provider-accounts/provider-account-registry-instance'
 import { platformCredentials } from './session/main/core/integrations/platform-credentials-instance'
 import { connectedCliSkills } from './session/main/core/integrations/cli/cli-integrations'
 import { integrationCredentialStore } from './session/main/core/integrations/integration-credential-store-instance'
@@ -398,6 +403,7 @@ import { applySessionMaterialization } from './session-materialization'
 import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
 import { startupDiscovery } from './sessionpage/startup-discovery'
 import { createAssistantPanelRuntime } from './sessionpage/assistant-panel-runtime'
+import { isPersonalAssistantAgent, personalAssistantSessionBindings } from './sessionpage/assistant-agent-role'
 import { assistantWorkBinding, assistantWorkForAgent } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
@@ -508,6 +514,7 @@ import {
 import { setAccountAccessTokenReader, setAccountFileResolver } from '@main/core/extensions/account-token'
 import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
 import { announceLocalDeviceIdentity } from './local-device-identity'
+import { setAssistantHomeDeviceResolver } from '@main/core/app/assistant-home-controller'
 import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
 import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
 import { emdashPlatformReleaseIntent } from './session/main/core/acp/emdash-platform-injector'
@@ -830,6 +837,9 @@ function stableMcpPersistence(name: string): GuguMcpHostPersistence {
   })
 }
 let integrationMcpHost: IntegrationMcpHost | null = null
+// No credentials in notifications: each request re-reads authenticated connections.
+providerAccountRegistry.onChanged(() => { void integrationMcpHost?.notifyToolsListChanged() })
+platformCredentials.onConnectionChanged(() => { void integrationMcpHost?.notifyToolsListChanged() })
 
 /**
  * 这条会话该带哪些**已连接集成**的 MCP server。
@@ -837,7 +847,7 @@ let integrationMcpHost: IntegrationMcpHost | null = null
  * 集成 ≠ MCP:十二家里只有走托管 MCP 授权的那几家能这样递(见 session-integrations)。
  * 递过去的地址是咕咕自己的转发口,❌ 不是对方的地址加用户令牌 —— 理由见 integration-mcp-bridge。
  *
- * 一家都没连 ⇒ 空数组,会话照旧;取不到身份也只是不带,❌ 不把会话拖死:agent 少一台 server
+ * 一家都没连也带常驻 server,以后连接时通知工具变化;取不到身份时不带:agent 少一台 server
  * 是能用的,起不来是不能用的。
  */
 async function integrationMcpServersFor(grantKey: string, subjectId: string): Promise<AcpMcpServer[]> {
@@ -850,10 +860,13 @@ async function integrationMcpServersFor(grantKey: string, subjectId: string): Pr
       { grantKey, integrations: entries.map((entry) => entry.integrationId) },
       'integrations available to this session',
     )
-    if (entries.length === 0) return []
     const { userId } = await requireRuntimeAuth(authProvider, 'gugu integration MCP bridge')
     integrationMcpHost ??= createIntegrationMcpHost(stableMcpPersistence('integration-mcp'))
-    return await buildIntegrationBridge(integrationMcpHost, grantKey, userId, subjectId, entries)
+    return await buildIntegrationBridge(integrationMcpHost, grantKey, userId, subjectId, async () => {
+      const auth = await requireRuntimeAuth(authProvider!, 'gugu integration MCP bridge')
+      if (auth.userId !== userId) throw new Error('This session belongs to a different signed-in account.')
+      return connectedSessionIntegrations()
+    })
   } catch (error) {
     integrationMcpLogger.warn(
       { error: (error as Error).message },
@@ -959,12 +972,15 @@ function createDeviceSessionpageBridge() {
       if (!emdash) throw new Error('session-page agent session runtime is unavailable')
       bmark('sessionpage-loaded')
       const existingSessionId = await sessionpageAgentSessionForStart(input.agentUserId, auth.userId)
+      const assistant = await isPersonalAssistantAgent(auth, input.agentUserId)
+      if ((await authProvider?.getAuth())?.userId !== auth.userId) throw new Error('Agent creation account changed')
       return emdash.startSessionpageAgentSession({
         agentUserId: input.agentUserId,
         existingSessionId,
         displayName: input.displayName,
         agentType: input.agentType,
         projectPath: input.projectPath,
+        assistant: assistant ? { deviceId, ownerId: auth.userId } : undefined,
         chatId: input.chatId,
         initialText: input.initialText,
         initialPrompt: input.initialPrompt,
@@ -1012,6 +1028,20 @@ function createDeviceSessionpageBridge() {
   return {
     ...bridge,
     downloadAttachment: desktopFiles.download,
+    rejectAgentInbox: async (input: import('@gugu/core/local/agent/agentInboxReader').AgentInboxInjectionInput, cause: unknown) => {
+      const local = (input.sources ?? []).filter(source => source.row.localSessionDirect);
+      if (local.length) {
+        const emdash = loadEmdashBridge();
+        if (!emdash) throw new Error('session-page session runtime is unavailable');
+        for (const source of local) emdash.rejectPendingSessionDirectMessage(source.row.localSessionDirect!.sessionId, source.row.id, cause);
+      }
+      const sessionId = getSessionpageLocalDelivery().sessionIdForAgent(input.agentUserId);
+      if (!sessionId) throw new Error(`No recipient session owns rejected inbox input for ${input.agentUserId}`);
+      const emdash = loadEmdashBridge();
+      if (!emdash) throw new Error('session-page session runtime is unavailable');
+      emdash.sessionLife().rejectInbox({ sessionId, text: input.text, kind: 'inbox-batch',
+        sources: (input.sources ?? []).map(source => ({ ...source, agentUserId: input.agentUserId })) }, cause);
+    },
     fetchLocalSessionDirectInbox: async (agentUserId: string) => {
       // @@@4629 属主解析走认领者注册表 —— ❌ 别退回「查会话页 agent 注册表,查不到再查 local-session」:
       // 那两个是内核角色,promote 把 native 认领者(codex app-server / opencode serve-attach)扶正时正好
@@ -1676,7 +1706,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       if (assistantCache?.ownerId === current.ownerId && assistantCache.until > Date.now()) return assistantCache.value
       const auth = await desktopAuthProvider().getAuth()
       if (!auth?.accessToken || auth.userId !== current.ownerId) return null
-      const {data,error} = await makeIdentityClient(auth.accessToken).from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+      const {data,error} = await makeIdentityClient(auth.accessToken).from('agent_provisions').select(ASSISTANT_PROVISION_SELECT)
         .eq('owner_user_id',current.ownerId).eq('member_key','assistant')
       if (error) throw error
       const value = pickAssistant((data ?? []) as AssistantProvisionRow[])
@@ -2021,14 +2051,13 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
       ? {}
       : {
           computerControlView: (cua) => createComputerControlWindow({
-            readWindows: (pid, signal) => cua().callTool('list_windows', { pid, on_screen_only: true }, { signal, timeoutMs: 2_000, lane: 'gugu-computer-indicator' }),
+            ...computerControlWindowReaders(cua),
             strings: () => {
               const bar = (hostLocaleStore?.current() === 'en-US' ? enDeviceStrings : zhDeviceStrings).devices.deviceActions.computerBar
-              const fill = (template: string, name: string, app?: string) => template.replace('{{name}}', name).replace('{{app}}', app ?? '')
+              const fill = (template: string, name: string) => template.replace('{{name}}', name)
               return {
-                driving: (name, app) => fill(app === undefined ? bar.drivingComputer : bar.drivingApp, name, app),
-                paused: (name, app) => fill(app === undefined ? bar.pausedComputer : bar.pausedApp, name, app),
-                someApp: bar.someApp,
+                driving: (name) => fill(bar.drivingApp, name),
+                paused: (name) => fill(bar.pausedApp, name),
                 stop: bar.stop,
                 resume: bar.resume,
                 someone: bar.someone,
@@ -2118,6 +2147,19 @@ function startDeviceRuntimeWhenRendererReady(): void {
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,
     subscribeCommandWake: createDesktopDeviceCommandWakeSubscription({ supabase }),
+    subscribeOwnedAgentChanges: createDesktopOwnedAgentChangesSubscription({
+      supabase,
+      warn: message => createLogger('device-runtime').warn({}, message),
+    }),
+    onOwnedAgentsChanged: async () => {
+      void adoptCloudTaskNames?.()
+      try {
+        const auth = await hostAuthProvider.getAuth()
+        if (auth?.accessToken && auth.userId) refreshAgentNamingFacts(auth)
+      } catch (error) {
+        createLogger('sessionpage/provision').warn({ error: String(error) }, 'Owned agents changed: naming facts auth unavailable')
+      }
+    },
     // 会话页会话时间线只挂**主账号**这条频道:任务本地库是这个桌面实例自己的库,
     // 而多账号 host 的频道属于另一个人的 device id —— 给它装等于把本机会话开给别的账号读写。
     // ⚠️ 经桥拿,❌ 别静态 import `session-timeline/device-rpc`:那会把整条链一起打进
@@ -2226,6 +2268,7 @@ const localDeviceId = announceLocalDeviceIdentity(resolveLocalDeviceId, (deviceI
     if (!window.isDestroyed()) window.webContents.send('device:self-identified', deviceId)
   }
 })
+setAssistantHomeDeviceResolver(localDeviceId)
 
 async function getLocalDeviceSelfSnapshot(): Promise<LocalDeviceSelfSnapshot | null> {
   if (!deviceRuntimeHost) return null
@@ -2626,23 +2669,6 @@ ipcMain.on('device-runtime:commands-changed', () => {
 // 渲染层刚建 / 改 / 删了定时任务。agent_scheduled_tasks 上没有任何事件,宿主只在兜底周期(wake 订着时 5 分钟)重读 ⇒ 由发起方说一声。
 ipcMain.on('device-runtime:scheduled-tasks-changed', () => {
   deviceRuntimeHost?.notifyScheduledTasksChanged()
-})
-// #6396 这个账号的 agent 有变动(常见是另一台设备刚建了一个,用掉了一个号)。服务端给本账号每台设备推
-// agent_changed,收它的是渲染层的修订总线;主进程不另开一条订阅,由渲染层转一声。本机下一条会话页会话起名时
-// 「用到几号」就已跟上 —— ❌ 否则要等它落地被服务端改名,会话起来一秒就换名字。
-ipcMain.on('owned-agents:changed', () => {
-  // Another device may have renamed one of this device's tasks: take the cloud names (pending local names win).
-  void adoptCloudTaskNames?.().catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting cloud task names failed'))
-  void authProvider?.getAuth()
-    .then((auth) => {
-      if (auth?.accessToken && auth.userId) refreshAgentNamingFacts({ accessToken: auth.accessToken, userId: auth.userId })
-    })
-    .catch((error: unknown) => {
-      createLogger('sessionpage/provision').warn(
-        { error: error instanceof Error ? error.message : String(error) },
-        '#6396 owned-agents changed: auth unavailable — naming facts refresh on the next change or session',
-      )
-    })
 })
 // @@@local-device-self - The renderer should not ask the cloud whether its own machine
 ipcMain.handle('device:get-self-snapshot', () => getLocalDeviceSelfSnapshot())
@@ -4745,7 +4771,7 @@ app.whenReady().then(async () => {
           const current = await assistantWorkDeliveryHost().context()
           if (!current || current.ownerId !== auth.userId) throw new Error('Work account changed')
           const identity = makeIdentityClient(auth.accessToken!)
-          const { data, error } = await identity.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+          const { data, error } = await identity.from('agent_provisions').select(ASSISTANT_PROVISION_SELECT)
             .eq('owner_user_id', auth.userId).eq('member_key', 'assistant')
           if (error) throw error
           const assistant = pickAssistant((data ?? []) as AssistantProvisionRow[])
@@ -5048,7 +5074,10 @@ app.whenReady().then(async () => {
     publishPendingTaskNames()
     // Cloud names first (a rename on another device is a person's), then the one-time legacy names (0043).
     // Both need the projected roster, so they become available once the session host booted (below).
-    const adoptTaskNames = () => sessionpageIdentityHost.adoptCloudNames().then(() => emdash.adoptLegacyTaskNames()).then(() => undefined)
+    const adoptTaskNames = createCloudTaskNameAdopter({
+      adopt: () => sessionpageIdentityHost.adoptCloudNames().then(() => emdash.adoptLegacyTaskNames()).then(() => undefined),
+      failed: (error) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting cloud task names failed'),
+    })
     const nativeInbox = emdash.startNativeConversationInboxHost({
       open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),
@@ -5066,6 +5095,15 @@ app.whenReady().then(async () => {
     })
     emdash.setSessionAdmissionPreparation((sessionId,text) => assistantPanel.prepare(sessionId,text))
     emdash.setProjectGroupHost(createSessionpageProjectGroupHost({ getAuth: getSessionpageAuth, env: process.env }))
+    emdash.setAssistantProjectCleanupOwner(async () => (await getSessionpageAuth())?.userId ?? null, localDeviceId, async () => {
+      const auth = await getSessionpageAuth()
+      if (!auth) return []
+      const bindings = await personalAssistantSessionBindings(auth, await listAgents(process.env, { includeGuests: true }))
+      if ((await getSessionpageAuth())?.userId !== auth.userId) throw new Error('Assistant cleanup account changed')
+      return bindings
+    })
+    onElectronCloudAnswer(() => { void emdash.runPendingAssistantProjectCleanup().catch(error =>
+      createLogger('assistant-project-cleanup').error({ error: String(error) }, 'Project cleanup remains pending')) })
     onProjectGroupMappingChanged(({ projectId }) => emdash.notifyProjectGroupBindingChanged(projectId))
     setSessionpageAgentCardRevoker(revokeAgentCards)
     // @@@task-shell-port (#5057) 「咕咕自营模型」那五个钩子的实现与网页版无头宿主共用一份
@@ -6440,7 +6478,12 @@ app.whenReady().then(async () => {
       },
     )
   }
-  if (!SERVER_MODE) loadMainWindowContents()
+  if (!SERVER_MODE) {
+    loadMainWindowContents()
+    void sessionHostBoot?.then(() => {
+      loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
+    }).catch((error: unknown) => createLogger('search/backfill').error({ error: String(error) }, 'Search backfill could not start after backend boot'))
+  }
   startDeviceRuntimeWhenRendererReady()
   // server 的升级另有一套(后台下好、没有 agent 在跑时切换),❌ 走桌面这套弹界面的更新器。
   if (!SERVER_MODE) {
@@ -6465,6 +6508,29 @@ app.whenReady().then(async () => {
     if (!sessionHostBoot) throw new Error('Session backend boot was not started')
     await sessionHostBoot
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
+    const usageLog = createLogger('server/usage-sync')
+    app.once('will-quit', startServerUsageSync({
+      userData: app.getPath('userData'),
+      identity: async () => {
+        const auth = await serverAuth?.getAuth()
+        const deviceId = await localDeviceId()
+        const reason = !auth?.userId ? 'signed-out'
+          : auth.userId !== process.env.GUGU_SERVER_ACCOUNT ? 'account-mismatch'
+            : !deviceId ? 'device-unavailable' : null
+        if (reason) { usageLog.info({ reason }, 'Usage sync deferred'); return null }
+        return { userId: auth!.userId, deviceId: deviceId! }
+      },
+      snapshot: request => {
+        const bridge = loadEmdashBridge()
+        if (!bridge) throw new Error('Session backend unavailable for usage sync')
+        return bridge.emdashRpcRouter.usage.localDaily(request)
+      },
+      client: supabase.schema('public'),
+      report: (result, error) => error
+        ? usageLog.warn({ reason: error instanceof Error ? error.name : 'unknown' }, 'Usage sync failed; next scheduled run will retry')
+        : usageLog.info({ result }, 'Usage sync completed'),
+    }))
+    loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
     // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
     const activityFile = join(app.getPath('userData'), 'activity.json')
