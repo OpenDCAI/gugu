@@ -41,4 +41,3 @@ export function SessionInputQueue({ sessionId, waitingForConnection, life = null
     </div>)}
   </div>
 }
-
