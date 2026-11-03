@@ -83,7 +83,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const [dismissals, setDismissals] = useState(0)
   const [backgroundError, setBackgroundError] = useState<string | null>(null)
   const editor = useRef<PromptEditorRef | null>(null)
-  const inFlight = useRef<{ attachments: ReadonlySet<string>; waiting: boolean } | null>(null)
+  const inFlight = useRef<{ attachments: ReadonlySet<string>; waiting: boolean; cancelWait(): void } | null>(null)
   const input = useRef<HTMLInputElement>(null)
   const mobile = useMobileShell()
   const composerDraft = useSessionConversationDraft(deviceId, sessionId, !mobile && nativeRecord && !local && !phoneHost)
@@ -129,6 +129,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     const kept = new Set(next.map(file => file.id))
     const submission = inFlight.current
     if (submission?.waiting && [...submission.attachments].some(id => !kept.has(id))) {
+      submission.cancelWait()
       inFlight.current = null
       setAttachmentWaiting(false)
     }
@@ -148,11 +149,13 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   }, [sessionId, visibility.shown])
   const submit = async (value: string) => {
     if (sending || stopping || inFlight.current) return
-    const submission = { attachments: new Set(attachments.map(file => file.id)), waiting: uploads.unsettled() }
+    let cancelWait!: () => void
+    const cancelled = new Promise<false>(resolve => { cancelWait = () => resolve(false) })
+    const submission = { attachments: new Set(attachments.map(file => file.id)), waiting: uploads.unsettled(), cancelWait }
     inFlight.current = submission
     try {
       setAttachmentWaiting(submission.waiting)
-      if (!await uploads.waitForUploads() || inFlight.current !== submission) return
+      if (!await Promise.race([uploads.waitForUploads(), cancelled]) || inFlight.current !== submission) return
       submission.waiting = false
       setAttachmentWaiting(false)
       const sentAttachments = attachments
@@ -197,17 +200,19 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const received = useRef<{ key: string; inputs: readonly PendingPrompt[] }>({ key: '', inputs: [] })
   const receivedKey = `${deviceId}/${sessionId}`
   // Phone-host jobs expose their waiting envelope through the existing native queue snapshot.
-  const phonePending: LifeView | null = phoneHost ? { sessionId, version: 0, kind: 'ready', stage: null, hold: null,
+  const phonePending = useMemo<LifeView | null>(() => phoneHost ? { sessionId, version: 0, kind: 'ready', stage: null, hold: null,
     failure: null, lastExit: null, nativeSession: null, pending: { count: timeline.queuedPrompts.length,
       items: timeline.queuedPrompts.flatMap((input, seq) => readDeliveryEnvelope(input.text)
-        ? [{ seq, messageId: input.id, text: input.text, preview: input.text, kind: 'session-direct' as const, state: 'queued' as const, failure: null }] : []) } } : null
-  const receivedInputs = projectSessionPendingDeliveries(received.current.key === receivedKey ? received.current.inputs : [], phonePending ?? life.view, nativeTurns)
+        ? [{ seq, messageId: input.id, text: input.text, preview: input.text, kind: 'session-direct' as const, state: 'queued' as const, failure: null }] : []) } } : null,
+  [phoneHost, sessionId, timeline.queuedPrompts])
+  const receivedInputs = useMemo(() => projectSessionPendingDeliveries(received.current.key === receivedKey ? received.current.inputs : [], phonePending ?? life.view, nativeTurns),
+    [receivedKey, phonePending, life.view, nativeTurns])
   const receiptHistory = usePendingDeliveryHistory({ deviceId, sessionId, local, enabled: nativeRecord && !phoneHost,
     ready: historyReady, cursor: historyCursor, turns: nativeTurns, inputs: receivedInputs })
   const turns = receiptHistory.turns
-  const settledInputs = receivedInputs.filter(input => input.delivery?.state !== 'accepted' || !pendingPromptLanded(input, turns))
+  const settledInputs = useMemo(() => receivedInputs.filter(input => input.delivery?.state !== 'accepted' || !pendingPromptLanded(input, turns)), [receivedInputs, turns])
   received.current = { key: receivedKey, inputs: settledInputs }
-  const pendingMessages = settledInputs.filter(receiptHistory.visible)
+  const pendingMessages = useMemo(() => settledInputs.filter(receiptHistory.visible), [settledInputs, receiptHistory.visible])
   const attachmentTurns = useRef(turns)
   attachmentTurns.current = turns
   const userAttachments = useMemo(() => nativeUserAttachmentCommands({

@@ -1,4 +1,6 @@
-import { createRef } from 'react'
+import { createRef, useState } from 'react'
+import { createChatContext, createChatState, type ChatView } from '@gugu/session-chat-ui'
+import { AgentConversationView } from '@renderer/lib/chat/agent-conversation-view'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
@@ -39,4 +41,42 @@ it('a running phone composer sends once and becomes Stop only after local commit
   commit()
   await until('local commit allows Stop', () => !!host?.querySelector('[data-composer-action="stop"]'))
   expect(stop).not.toHaveBeenCalled()
+})
+
+
+it('editing only the composer keeps rendered historical messages mounted', async () => {
+  await page.viewport(390, 844)
+  const context = createChatContext({ locale: () => 'en-US' })
+  const state = createChatState(context)
+  state.transcript.history.seed([{ id: 'turn', seq: 1, initiator: 'user', outcome: { kind: 'done' }, items: [
+    { kind: 'message', id: 'old-user', seq: 0, role: 'user', text: 'Existing user message' },
+    { kind: 'message', id: 'old-agent', seq: 1, role: 'assistant', text: 'Existing agent response' },
+  ] }])
+  const commands = { onOpenLink: vi.fn() }
+  let edit!: (text: string) => void
+  let view!: ChatView
+  function Fixture() {
+    const [text, setText] = useState('')
+    edit = setText
+    return <AgentConversationView context={context} state={state} commands={commands} onReady={ready => { view = ready }} composerContent={<div>{text}</div>} />
+  }
+  host = document.body.appendChild(document.createElement('div'))
+  host.style.cssText = 'position:fixed;inset:0;width:390px;height:844px'
+  root = createRoot(host)
+  try {
+    root.render(<Fixture />)
+    await until('historical message rendered', () => !!host?.querySelector('[data-agent-conversation-message="old-user"]'))
+    const row = host.querySelector('[data-agent-conversation-message="old-user"]')!
+    const body = row.firstChild
+    const nodes = [...row.querySelectorAll('*')]
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const publish = vi.spyOn(view, 'setCommands')
+    edit('new draft')
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    expect(row.isConnected).toBe(true)
+    expect(host.querySelector('[data-agent-conversation-message="old-user"]')).toBe(row)
+    expect(row.firstChild).toBe(body)
+    expect(nodes.every(node => node.isConnected)).toBe(true)
+    expect(publish).not.toHaveBeenCalled()
+  } finally { root.unmount(); root = null; state.dispose(); context.dispose() }
 })

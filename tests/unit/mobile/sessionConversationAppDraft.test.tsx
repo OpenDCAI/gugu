@@ -11,8 +11,8 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   setSessionOption: vi.fn(), onMachineEvent: vi.fn(() => () => {}), onLinkChange: vi.fn(() => () => {}),
   machineRpc: () => ({ sessions: { lifeView: lifeRead } }),
 }))
-vi.mock('../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { composerContent: import('react').ReactNode; commands?: unknown }) => {
-  transcriptCommands(props.commands)
+vi.mock('../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { composerContent: import('react').ReactNode; commands?: unknown; pendingMessages?: unknown }) => {
+  transcriptCommands(props.commands, props.pendingMessages)
   const [ready, setReady] = useState(false)
   useEffect(() => { const timer = setTimeout(() => setReady(true), 20); return () => clearTimeout(timer) }, [])
   return ready ? createElement('div', {}, props.composerContent) : null
@@ -86,13 +86,14 @@ it('does not republish transcript commands while typing or clearing a phone draf
   const field = () => harness.container.querySelector<HTMLElement>('[data-testid="prompt-editor"]')!
   await waitForCondition(() => !!field(), 'phone composer ready')
   const original = transcriptCommands.mock.lastCall![0]
+  const originalPending = transcriptCommands.mock.lastCall![1]
   transcriptCommands.mockClear()
   await act(async () => writeComposer(field(), 'typing a message'))
   await act(async () => writeComposer(field(), 'typing a longer message'))
   await act(async () => harness.container.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')!.click())
   expect(onSend).toHaveBeenCalledTimes(1)
   expect(transcriptCommands.mock.calls.length).toBeGreaterThan(0)
-  for (const [commands] of transcriptCommands.mock.calls) expect(commands).toBe(original)
+  for (const [commands, pending] of transcriptCommands.mock.calls) { expect(commands).toBe(original); expect(pending).toBe(originalPending) }
   const replacementStop = vi.fn()
   await renderWithAppProviders(harness, createNode(SessionConversation, { ...props, onStop: replacementStop }))
   const updated = transcriptCommands.mock.lastCall![0] as { onStop: () => void }
