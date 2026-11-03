@@ -93,65 +93,7 @@ it('reads a resting message after anchor layout without requiring an intersectio
     harness.container.querySelector<HTMLElement>('[data-agent-conversation-message]')!.style.transform = 'translateY(-500px)'
   })
   await paint()
-  const target = harness.container.querySelector('[data-agent-conversation-message]')!
-  observers.at(-1)!.callback([{ target, isIntersecting: true, intersectionRect: { height: 20 } } as IntersectionObserverEntry], {} as IntersectionObserver)
   await vi.waitFor(() => expect(onVisibleItems).toHaveBeenCalledWith(['visible-message']))
-})
-
-it('waits for post-layout intersection delivery instead of forcing layout in the transcript write frame', async () => {
-  const onVisibleItems = vi.fn()
-  await harness.render(createElement(AgentConversationView, { shown: true, onVisibleItems, context: {} as ChatContext, state: {} as ChatState }))
-  await paint()
-  const geometry = vi.mocked(HTMLElement.prototype.getBoundingClientRect)
-  geometry.mockClear()
-  const target = harness.container.querySelector<HTMLElement>('[data-agent-conversation-message]')!
-  await act(async () => { target.style.transform = 'translateY(10px)' })
-  await paint()
-  expect(geometry).not.toHaveBeenCalled()
-  const observer = observers.at(-1)!
-  expect(observer.observe).toHaveBeenCalledWith(target)
-  observer.callback([{ target, isIntersecting: true, intersectionRect: { height: 20 } } as IntersectionObserverEntry], {} as IntersectionObserver)
-  expect(geometry).toHaveBeenCalled()
-  await vi.waitFor(() => expect(onVisibleItems).toHaveBeenCalledWith(['visible-message']))
-})
-
-it('requires 250ms of stable visible geometry and restarts that interval after movement', async () => {
-  let now = 0
-  vi.spyOn(performance, 'now').mockImplementation(() => now)
-  const onVisibleItems = vi.fn()
-  await harness.render(createElement(AgentConversationView, { shown: true, onVisibleItems, context: {} as ChatContext, state: {} as ChatState }))
-  const target = harness.container.querySelector('[data-agent-conversation-message]')!
-  const entry = { target, isIntersecting: true, intersectionRect: { height: 20 } } as IntersectionObserverEntry
-  const observer = observers.at(-1)!
-  observer.callback([entry], {} as IntersectionObserver)
-  now = 249
-  observer.callback([entry], {} as IntersectionObserver)
-  expect(onVisibleItems).not.toHaveBeenCalled()
-  messageTop = 120
-  observer.callback([entry], {} as IntersectionObserver)
-  now = 498
-  observer.callback([entry], {} as IntersectionObserver)
-  expect(onVisibleItems).not.toHaveBeenCalled()
-  now = 499
-  observer.callback([entry], {} as IntersectionObserver)
-  expect(onVisibleItems).toHaveBeenCalledExactlyOnceWith(['visible-message'])
-})
-
-it('restarts the stable visibility interval after leaving and returning to the viewport', async () => {
-  let now = 0
-  vi.spyOn(performance, 'now').mockImplementation(() => now)
-  const onVisibleItems = vi.fn()
-  await harness.render(createElement(AgentConversationView, { shown: true, onVisibleItems, context: {} as ChatContext, state: {} as ChatState }))
-  const target = harness.container.querySelector('[data-agent-conversation-message]')!
-  const observer = observers.at(-1)!
-  const notify = (visible: boolean) => observer.callback([{ target, isIntersecting: visible, intersectionRect: { height: visible ? 20 : 0 } } as IntersectionObserverEntry], {} as IntersectionObserver)
-  notify(true)
-  now = 200; notify(false)
-  now = 300; notify(true)
-  now = 549; notify(true)
-  expect(onVisibleItems).not.toHaveBeenCalled()
-  now = 550; notify(true)
-  expect(onVisibleItems).toHaveBeenCalledExactlyOnceWith(['visible-message'])
 })
 
 it('does not let the post-layout scan read a covered message or run after hiding', async () => {

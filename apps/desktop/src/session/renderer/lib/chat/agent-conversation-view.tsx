@@ -77,11 +77,7 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        // Transcript writes also run in rAF. Let the browser finish layout
-        // before reading geometry instead of forcing it after every write.
-        host.querySelectorAll('[data-agent-conversation-message]').forEach(element => {
-          observer.unobserve(element); observer.observe(element);
-        });
+        report([...host.querySelectorAll('[data-agent-conversation-message]')]);
       });
     };
     const observe = () => host.querySelectorAll('[data-agent-conversation-message]').forEach(element => {
@@ -93,7 +89,6 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
       observer?.disconnect();
       seen = new WeakSet();
       observer = new IntersectionObserver(entries => {
-        for (const entry of entries) if (!entry.isIntersecting || entry.intersectionRect.height <= 0) candidates.delete(entry.target);
         report(entries.filter(entry => entry.isIntersecting && entry.intersectionRect.height > 0).map(entry => entry.target));
       }, { root: host, rootMargin: `0px 0px -${Math.max(0, rect.bottom - bottom)}px 0px` });
       observe();
