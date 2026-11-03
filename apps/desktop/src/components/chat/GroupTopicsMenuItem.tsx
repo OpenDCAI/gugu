@@ -53,9 +53,9 @@ function TopicMenuRow({ topic, pinned, pins }: { topic: SourceTopic; pinned: boo
         <span className="gg-topic-menu-line"><span className="gg-topic-name" data-unread={topic.unread_count > 0 || undefined}>{pinned && <Pin size={12} aria-hidden />}<span className="truncate">{topic.name}</span></span><span className="gg-topic-time">{formatCalendarDay(chatActivityAt(topic))}</span></span>
         <span className="gg-topic-menu-line gg-topic-preview"><span className="truncate">{chatPreviewText(topic)}</span><TopicUnreadChip count={topic.unread_count} muted={topic.is_muted} /></span>
       </MenuItem>
-      <MenuItem render={<IconButton size="sm" aria-label={pinLabel}>{null}</IconButton>} nativeButton title={pinLabel} data-testid="group-topic-pin" className="gg-topic-menu-pin"
+      <MenuItem render={<IconButton size="sm" aria-label={pinLabel}>{pinned ? <PinOff size={14} /> : <Pin size={14} />}</IconButton>} nativeButton title={pinLabel} data-testid="group-topic-pin" className="gg-topic-menu-pin"
         style={topicPinStyle} closeOnClick={false} disabled={!pins.ready || pins.saving} onClick={() => pins.set(topic.id, !pinned)}>
-        {pinned ? <PinOff size={14} /> : <Pin size={14} />}
+        {null}
       </MenuItem>
     </div>
   )
