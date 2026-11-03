@@ -16,6 +16,8 @@ export interface WorkflowEntry {
   path: string
   source: string
   workflow?: Record<string, unknown>
+  /** Exact-SHA callees read from Git objects, never from a mutable worktree file. */
+  reusableWorkflows?: Record<string, WorkflowEntry>
 }
 
 export interface VerdictEvent {
@@ -428,13 +430,76 @@ export function attachDeciderOutputs<T extends CheckRunSnapshot>(
 
 function inventoryDigest(entries: WorkflowEntry[]): string {
   const hash = createHash('sha256')
-  for (const entry of [...entries].sort((left, right) => left.path.localeCompare(right.path))) {
-    hash.update(entry.path)
+  const visit = (entry: WorkflowEntry, identity: string, parents: Set<WorkflowEntry>) => {
+    if (parents.has(entry)) throw new Error('cyclic reusable workflow inventory')
+    hash.update(identity)
     hash.update('\0')
     hash.update(entry.source)
     hash.update('\0')
+    for (const [use, child] of Object.entries(entry.reusableWorkflows ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
+      visit(child, `${identity}->${use}`, new Set([...parents, entry]))
+    }
+  }
+  for (const entry of [...entries].sort((left, right) => left.path.localeCompare(right.path))) {
+    visit(entry, entry.path, new Set())
   }
   return hash.digest('hex')
+}
+
+function pinnedWorkflow(use: unknown, label: string): { path: string; sha: string } {
+  const match = typeof use === 'string'
+    ? /^GUYI-AI\/gugu\/(\.github\/workflows\/[\w.-]+\.ya?ml)@([0-9a-f]{40})$/.exec(use)
+    : null
+  if (!match) throw new Error(`${label} uses a reusable workflow with non-local check names; an exact canonical SHA is required`)
+  return { path: match[1], sha: match[2] }
+}
+
+type DerivedJobCheck = { name: string; condition?: PathFilterCondition }
+
+function jobCheckNames(
+  entry: WorkflowEntry, id: string, job: Parsed, label: string, parents: string[] = [],
+  caller?: { workflow: Parsed; job: Parsed }
+): DerivedJobCheck[] {
+  const ownWorkflow: Parsed = entry.workflow ?? YAML.parse(entry.source)
+  let condition = pathFilterCondition(ownWorkflow, id, job, label)
+  const inputCondition = typeof job.if === 'string'
+    ? /^\s*(?:\$\{\{\s*)?inputs\.([A-Za-z_][\w-]*)\s*==\s*'true'\s*(?:\}\})?\s*$/.exec(job.if)
+    : null
+  if (inputCondition) {
+    const binding = caller?.job.with?.[inputCondition[1]]
+    const match = typeof binding === 'string'
+      ? /^\$\{\{\s*(needs\.[A-Za-z_][\w-]*\.outputs\.[A-Za-z_][\w-]*)\s*\}\}$/.exec(binding)
+      : null
+    if (!caller || !match) throw new Error(`${label} job ${id}: input condition requires an original changes output binding`)
+    condition = pathFilterCondition(caller.workflow, id, {
+      if: `${match[1]} == 'true'`, needs: caller.job.needs
+    }, label)
+  }
+  const names = matrixAssignments(job, `${label} job ${id}`).map((assignment) =>
+    expandJobName(String(job.name ?? id), assignment, `${label} job ${id} name`))
+  if (job.uses === undefined) return names.map((name) => ({ name, condition }))
+  // A skipped caller may not register child checks at all. Keep calls unconditional and gate
+  // the child build on the original decider output instead of inventing missing check runs.
+  if (job.if !== undefined) throw new Error(`${label} job ${id}: conditional reusable callers are not supported`)
+  const pin = pinnedWorkflow(job.uses, `${label} job ${id}`)
+  if (parents.includes(job.uses) || parents.length >= 8) throw new Error(`${label}: cyclic or excessive reusable workflow nesting`)
+  const child = entry.reusableWorkflows?.[job.uses]
+  if (!child || child.path !== pin.path) throw new Error(`${label}: missing exact pinned workflow ${job.uses}`)
+  const workflow: Parsed = child.workflow ?? YAML.parse(child.source)
+  const on = workflow.on
+  const callable = on === 'workflow_call' || (Array.isArray(on) && on.includes('workflow_call'))
+    || (on && typeof on === 'object' && Object.hasOwn(on, 'workflow_call'))
+  if (!callable || !workflow.jobs || typeof workflow.jobs !== 'object' || Array.isArray(workflow.jobs)) {
+    throw new Error(`${job.uses}: expected a callable workflow with jobs`)
+  }
+  const children = Object.entries<Parsed>(workflow.jobs).flatMap(([childId, childJob]) => {
+    if (!childJob || typeof childJob !== 'object' || Array.isArray(childJob)) throw new Error(`${job.uses}: invalid job ${childId}`)
+    return jobCheckNames(child, childId, childJob, job.uses, [...parents, job.uses], { workflow: ownWorkflow, job })
+  })
+  if (children.length === 0) throw new Error(`${job.uses}: reusable workflow has no checks`)
+  return names.flatMap((name) => children.map((child) => ({
+    name: `${name} / ${child.name}`, condition: child.condition
+  })))
 }
 
 export function deriveCheckProfiles(events: VerdictEvent[]): CheckProfile[] {
@@ -477,15 +542,7 @@ export function deriveCheckProfiles(events: VerdictEvent[]): CheckProfile[] {
         if (!job || typeof job !== 'object' || Array.isArray(job)) {
           throw new Error(`${label} job ${jobId} must be an object`)
         }
-        if (job.uses !== undefined) {
-          throw new Error(
-            `${label} job ${jobId} uses a reusable workflow with non-local check names`
-          )
-        }
-        const template = job.name ?? jobId
-        const condition = pathFilterCondition(workflow, jobId, job, label)
-        for (const assignment of matrixAssignments(job, `${label} job ${jobId}`)) {
-          const name = expandJobName(String(template), assignment, `${label} job ${jobId} name`)
+        for (const { name, condition } of jobCheckNames(entry, jobId, job, label)) {
           const key = `${event.type}\0${name}`
           const previous = expectedKeys.get(key)
           if (previous) {
@@ -772,13 +829,24 @@ export function loadWorkflowInventory(
     .filter((file) => WORKFLOW_PATH.test(file))
     .sort()
   if (workflowPaths.length === 0) throw new Error(`${ref} has no workflow inventory`)
-  return workflowPaths.map((workflowPath) => ({
-    path: workflowPath,
-    source: execute('git', ['show', `${ref}:${workflowPath}`], {
+  const readEntry = (sha: string, workflowPath: string, parents: string[] = []): WorkflowEntry => {
+    const identity = `${sha}:${workflowPath}`
+    if (parents.includes(identity) || parents.length >= 8) throw new Error('cyclic or excessive reusable workflow inventory')
+    const source = execute('git', ['show', identity], {
       cwd: root,
       encoding: 'utf8'
     }).toString()
-  }))
+    const workflow: Parsed = YAML.parse(source)
+    const reusableWorkflows: Record<string, WorkflowEntry> = {}
+    for (const [id, job] of Object.entries<Parsed>(workflow.jobs ?? {})) {
+      if (job?.uses === undefined) continue
+      const pin = pinnedWorkflow(job.uses, `${identity} job ${id}`)
+      reusableWorkflows[job.uses] = readEntry(pin.sha, pin.path, [...parents, identity])
+    }
+    return { path: workflowPath, source,
+      ...(Object.keys(reusableWorkflows).length > 0 ? { reusableWorkflows } : {}) }
+  }
+  return workflowPaths.map((workflowPath) => readEntry(ref, workflowPath))
 }
 
 function changedPaths(root: string, base: string, head: string): string[] {
