@@ -43,6 +43,11 @@ export function createChatListProjectionLedger() {
     rememberOptimistic(chat: ChatItem) { optimistic.set(chat.id, chat) },
     /** 权威地离场(删会话/退群/确证失去访问权):乐观行与「最后一次看见它」的水位一起丢弃 —— 之后它若以同一 id 回来,对它的沉默不再有资格撤销 (#4314)。 */
     forgetChat(chatId: string) { optimistic.delete(chatId); lastSeenSeq.delete(chatId) },
+    forgetDeleted(isDeleted: (id: string) => boolean) {
+      for (const id of new Set([...lastSeenSeq.keys(), ...optimistic.keys()])) {
+        if (isDeleted(id)) { optimistic.delete(id); lastSeenSeq.delete(id) }
+      }
+    },
     retireProjected(chatIds: Iterable<string>) { for (const id of chatIds) optimistic.delete(id) },
     missingFrom: (merged: readonly ChatItem[]) => [...optimistic.values()].filter((r) => !merged.some((c) => c.id === r.id)),
   }
@@ -53,14 +58,16 @@ export async function applyFetchedChatList(
   ledger: ChatListProjectionLedger,
   repository: AccountImRepository,
   snapshot: { fetched: readonly ChatItem[]; identities: readonly unknown[] },
-  into: { currentChats: readonly ChatItem[]; activeChatId: string | null; revokeMissingActive: boolean },
+  into: { currentChats: readonly ChatItem[]; activeChatId: string | null; revokeMissingActive: boolean; isConversationDeleted?: (id: string) => boolean },
 ): Promise<ChatItem[]> {
-  const { fetched, identities } = snapshot
-  const { currentChats, activeChatId, revokeMissingActive } = into
+  const { identities } = snapshot
+  const { currentChats, activeChatId, revokeMissingActive, isConversationDeleted } = into
+  const fetched = snapshot.fetched.filter(chat => !isConversationDeleted?.(chat.id))
+  if (isConversationDeleted) ledger.forgetDeleted(isConversationDeleted)
   const ids = new Set(fetched.map((chat) => chat.id))
   ledger.retireProjected(ids)
   if (revokeMissingActive && activeChatId) ledger.forgetChat(activeChatId)
-  const merged = mergeFetchedChatsPreservingActiveLocal([...fetched], [...currentChats], activeChatId,
+  const merged = mergeFetchedChatsPreservingActiveLocal([...fetched], currentChats.filter(chat => !isConversationDeleted?.(chat.id)), activeChatId,
     { preserveMissingActive: !revokeMissingActive })
   await publishChatSnapshot(repository, merged.filter((chat) => ids.has(chat.id)), identities)
   const missing = ledger.missingFrom(merged)
@@ -119,7 +126,8 @@ export function useChatProjectionBinding(deps: {
     options: { requestSeq: number; notify: boolean; preserveMissingActive?: boolean; revokedMembership?: (chatId: string) => boolean },
   ): Promise<void> => {
     const activeChatId = activeChatIdRef.current
-    const revokeMissingActive = ledger.shouldRevokeActive({
+    const isConversationDeleted = ownerRef.current?.owner.isConversationDeleted
+    const revokeMissingActive = !!activeChatId && !!isConversationDeleted?.(activeChatId) || ledger.shouldRevokeActive({
       activeChatId, fetched, requestSeq: options.requestSeq, preserveMissingActive: options.preserveMissingActive,
     }) && (!options.revokedMembership || options.revokedMembership(activeChatId!))
     ledger.recordProjected(fetched, options.requestSeq)
@@ -128,7 +136,7 @@ export function useChatProjectionBinding(deps: {
         { onScreen: isChatOnScreen, notificationsEnabled: notifyMessages, soundEnabled: notifySound })
     }
     setChats(await applyFetchedChatList(ledger, await getRepository(), { fetched, identities },
-      { currentChats: chatsRef.current, activeChatId, revokeMissingActive }))
+      { currentChats: chatsRef.current, activeChatId, revokeMissingActive, isConversationDeleted }))
     if (revokeMissingActive && activeChatId) onActiveRevoked(activeChatId)
   }, [ledger, activeChatIdRef, chatsRef, getRepository, notifyMessages, notifySound, onActiveRevoked, setChats])
 

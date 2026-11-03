@@ -93,6 +93,22 @@ describe('chat projection 失败支 —— 一波失败 ⇒ 账本一行 ok:fals
     expect(projection.ledger().filter((e) => e.trigger.includes('hydrate'))).toHaveLength(1)
     expect(calls.some((c) => c.endsWith('!FAIL'))).toBe(false)
   })
+  it('removes a personally deleted conversation on its own-member revision and after a fresh projection', async () => {
+    seedWorld(2)
+    const signal = new AbortController().signal
+    const projection = createChatProjection(VIEWER)
+    expect(await projection.hydrate('0', signal)).toHaveLength(2)
+    const seats = rowsByKey.get('active_members') as Record<string, unknown>[]
+    seats[0]!.conversation_deleted_at = '2026-11-03T03:48:01Z'
+    const changed = await projection.advance([{ revision: '1', event: 'chat_members_changed', chatId: chatId(0), entityId: VIEWER }], '1', signal)
+    expect(changed?.map(row => row.id)).toEqual([chatId(1)])
+    expect(projection.isMembershipRevoked(chatId(0))).toBe(false)
+    expect(projection.isConversationDeleted(chatId(0))).toBe(true)
+    const cold = createChatProjection(VIEWER)
+    expect(await cold.hydrate('1', signal)).toHaveLength(1)
+    expect(cold.isConversationDeleted(chatId(0))).toBe(true)
+    expect(seats).toHaveLength(2)
+  })
   it('阳控:一波里**一发**失败 ⇒ hydrate 响亮抛出,账本恰**一行** ok:false(不是每发一行)', async () => {
     const total = 150
     const batches = Math.ceil(total / FAMILY_BATCH_KEYS.chat)

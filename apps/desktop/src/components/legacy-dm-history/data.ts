@@ -19,6 +19,13 @@ function ownerSignal(ownerUserId: string): AbortSignal {
 /** RLS is always evaluated using the current person's token, never an agent/service-role token. */
 async function identify(rows: readonly DmRow[], scope: LegacyDmScope): Promise<LegacyDm[]> {
   const signal = ownerSignal(scope.ownerUserId);
+  // Removed seats are hidden by member RLS; resolve retained identities through the existing owner-scoped history RPC.
+  rows = await Promise.all(rows.map(async row => {
+    if (row.members.length !== 1 || row.members[0]?.user_id !== scope.ownerUserId) return row;
+    const historical = await chatDb.rpc('historical_dm_peer', { p_chat_id: row.id }).abortSignal(signal);
+    if (historical.error) throw new Error(historical.error.message);
+    return { ...row, members: [...row.members, ...((historical.data ?? []) as { user_id: string }[]).map(peer => ({ user_id: peer.user_id }))] };
+  }));
   const peerIds = rows.flatMap(row => row.members.map(member => member.user_id)).filter(id => id !== scope.ownerUserId);
   const [identities, markers] = await Promise.all([
     readDisplayIdentities(peerIds, signal),
@@ -46,9 +53,7 @@ const DM_SELECT = 'id,public_id,name,created_at,last_message_at,members:chat_mem
 /** The archive is a separate paginated read, never a conversation-store entry. */
 export async function readLegacyDmList(scope: LegacyDmScope, after?: string, query = '') {
   const signal = ownerSignal(scope.ownerUserId);
-  let request = chatDb.from('chats').select(scope.agentUserId
-    ? `${DM_SELECT},peer:chat_members!inner(user_id)` : DM_SELECT).eq('kind', 'dm').order('id').limit(PAGE_SIZE);
-  if (scope.agentUserId) request = request.eq('peer.user_id', scope.agentUserId);
+  let request = chatDb.from('chats').select(DM_SELECT).eq('kind', 'dm').order('id').limit(PAGE_SIZE);
   if (after) request = request.gt('id', after);
   if (query.trim()) {
     if (/^\d+$/.test(query.trim())) request = request.eq('public_id', Number(query.trim()));

@@ -100,6 +100,8 @@ export type ChatProjection = {
    * 沉默是仪器还没读到,不是阴性读数。
    */
   isMembershipRevoked: (chatId: string) => boolean
+  /** Personal list deletion is authoritative without revoking the retained membership. */
+  isConversationDeleted: (chatId: string) => boolean
   ledger: () => readonly ChatProjectionLedgerEntry[]
   reset: () => void
 }
@@ -183,7 +185,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
       const parsed = ids.map((id) => ({ id, ...splitMembershipId(id) }))
       const chatIds = [...new Set(parsed.map((entry) => entry.chatId))]
       const { data, error } = await chatDb.from('active_members')
-        .select('chat_id, user_id, last_read_seq, is_marked_unread, version, notification_level, is_pinned, updated_at, joined_at, inbox_published_at, role')
+        .select('chat_id, user_id, last_read_seq, is_marked_unread, version, notification_level, is_pinned, updated_at, joined_at, inbox_published_at, role, conversation_deleted_at')
         .in('chat_id', chatIds).abortSignal(signal)
       if (error) throw new Error(error.message)
       const found = (data ?? []) as Array<Record<string, unknown> & { chat_id: string; user_id: string }>
@@ -496,6 +498,10 @@ export function createChatProjection(viewerId: string): ChatProjection {
       // 从没读过这个键 ⇒ false。沉默是仪器还没读到,不是阴性读数(铁律 2)。
       return !!cell && cell.value === null
     },
+    isConversationDeleted(chatId) {
+      const cell = cache.get(entityKey('membership', membershipId(chatId, viewerId)))
+      return !!cell?.value && typeof (cell.value as { conversation_deleted_at?: unknown }).conversation_deleted_at === 'string'
+    },
     ledger: () => ledger,
     attach({ subscribe, cursor, signal, publish }) {
       return subscribe(PROJECTED_REVISION_EVENTS, async (operations) => {
@@ -530,6 +536,7 @@ export function membershipValue(row: Record<string, unknown>): Record<string, un
     updated_at: String(row.updated_at ?? ''),
     joined_at: String(row.joined_at ?? row.updated_at ?? ''),
     inbox_published: row.inbox_published_at != null,
+    conversation_deleted_at: typeof row.conversation_deleted_at === 'string' ? row.conversation_deleted_at : null,
     role: typeof row.role === 'string' ? (row.role as GroupMemberRole) : null,
   }
 }

@@ -3,13 +3,14 @@ import { attachmentEnvelope, formatAttachmentMetadata } from '@gugu/core/shared/
 import { messageItemFromRow } from '@gugu/core/cloud/messageItem';
 
 const world = vi.hoisted(() => ({ owner: 'owner', calls: [] as { table: string; method: string; args: unknown[] }[],
+  historical: [] as { user_id: string; removed_at: string | null }[],
   chats: [] as Record<string, unknown>[], messages: [] as Record<string, unknown>[], identities: [] as Record<string, unknown>[], markers: [] as { agent_user_id: string }[] }));
 vi.mock('@/lib/supabase', () => {
   const from = (table: string) => {
     let single = false;
     const query = new Proxy({
       then(resolve: (result: { data: unknown; error: null }) => unknown) {
-        const rows = table === 'chats' ? world.chats : table === 'messages_view' ? world.messages : world.markers;
+        const rows = table === 'chats' ? world.chats : table === 'messages_view' ? world.messages : table === 'historical_dm_peer' ? world.historical : world.markers;
         return Promise.resolve(resolve({ data: single ? rows[0] : rows, error: null }));
       },
     }, { get(target, key) {
@@ -19,7 +20,7 @@ vi.mock('@/lib/supabase', () => {
     world.calls.push({ table, method: 'from', args: [] });
     return query;
   };
-  return { chatDb: { from }, identityDb: { from } };
+  return { chatDb: { from, rpc: (fn: string, args: unknown) => { world.calls.push({ table: fn, method: 'rpc', args: [args] }); return from(fn); } }, identityDb: { from } };
 });
 vi.mock('@/lib/sessionPublication', () => ({ getRendererSession: () => ({ user: { id: world.owner } }) }));
 vi.mock('@/lib/authSessionLoss', () => ({ currentAuthSessionSignal: () => new AbortController().signal }));
@@ -29,7 +30,7 @@ const { legacyMessageBody } = await import('../../../apps/desktop/src/components
 const chat = (members: string[]) => ({ id: 'dm', public_id: 42, name: 'Old agent', created_at: '2026-10-01T00:00:00Z', last_message_at: null, members: members.map(user_id => ({ user_id })) });
 const raw = (seq = 7) => ({ id: `message-${seq}`, chat_id: 'dm', sender_user_id: 'agent', seq, content: 'Original body', content_type: 'text', created_at: '2026-10-01T01:02:03Z' });
 beforeEach(() => {
-  world.owner = 'owner'; world.calls = []; world.markers = [];
+  world.owner = 'owner'; world.calls = []; world.markers = []; world.historical = [];
   world.chats = [chat(['owner', 'agent'])]; world.messages = [raw()];
   world.identities = [{ id: 'agent', type: 'agent', owner_user_id: 'owner', display_name: 'Agent' }];
 });
@@ -72,4 +73,23 @@ it('refuses a stale account before issuing any query', async () => {
   world.owner = 'new-owner';
   await expect(readLegacyDmMessages({ ownerUserId: 'owner' }, 'dm')).rejects.toThrow(/account changed/);
   expect(world.calls).toEqual([]);
+});
+
+it('resolves a removed agent seat through owner-authorized history and preserves its retained name', async () => {
+  world.chats = [chat(['owner'])]; world.historical = [{user_id:'agent',removed_at:'2026-11-02T08:41:00Z'}];
+  world.identities[0].removed_at = world.historical[0].removed_at;
+  const bound = await readLegacyDmList({ ownerUserId:'owner',agentUserId:'agent' });
+  expect(bound.rows[0].agent).toMatchObject({id:'agent',display_name:'Agent'});
+  expect((await readLegacyDmList({ownerUserId:'owner'})).rows[0].agent?.id).toBe('agent');
+  expect(world.calls).toContainEqual({table:'historical_dm_peer',method:'rpc',args:[{p_chat_id:'dm'}]});
+  expect(world.calls.some(call => call.method === 'select' && String(call.args[0]).includes('!inner'))).toBe(false);
+  expect((await readLegacyDmMessages({ownerUserId:'owner',agentUserId:'agent'},'dm')).rows[0].sender_user_id).toBe('agent');
+});
+it.each(['assistant','human','another-owner'])('does not attach a hidden historical %s peer to a native session or archive', async (kind) => {
+  world.chats = [chat(['owner'])]; world.historical = [{user_id:'agent',removed_at:'2026-11-02T08:41:00Z'}];
+  if (kind === 'assistant') world.markers = [{agent_user_id:'agent'}];
+  if (kind === 'human') world.identities[0].type = 'human';
+  if (kind === 'another-owner') world.identities[0].owner_user_id = 'stranger';
+  expect((await readLegacyDmList({ownerUserId:'owner',agentUserId:'agent'})).rows).toEqual([]);
+  expect((await readLegacyDmList({ownerUserId:'owner'})).rows).toEqual([]);
 });
