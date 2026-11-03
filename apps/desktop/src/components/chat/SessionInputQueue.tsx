@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/Button'
  */
 export function SessionInputQueue({ sessionId, waitingForConnection, life = null, inTranscript = [] }: {
   sessionId: string; waitingForConnection: boolean; life?: LifeView | null
-  /** Inputs already drawn in the transcript: one place per message. */
+  /** Inputs already drawn in the transcript or composer queue: one place per message. */
   inTranscript?: readonly string[]
 }) {
   const pending = useQueuedSessionInputs(sessionId)

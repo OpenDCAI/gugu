@@ -7,16 +7,16 @@ import { emptyAgentWatchTimeline } from '../../../apps/desktop/src/mobile/agent-
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import type { SessionInput } from '../../../apps/desktop/src/lib/sessionInputOutbox'
 import { translateSessionMessage } from '../../../apps/desktop/src/session/renderer/localization/locale-store'
-const scope = vi.hoisted(() => ({ enqueue: vi.fn(async () => undefined), pending: [] as SessionInput[] }))
-vi.mock('../../../apps/desktop/src/lib/sessionInputOutboxBridge', () => ({ enqueueSessionInput: scope.enqueue, useQueuedSessionInputs: (sessionId: string) => scope.pending.filter(input => input.sessionId === sessionId) }))
-vi.mock('../../../apps/desktop/src/mobile/agent-watch/useAgentWatchSession', () => ({ useAgentWatchSession: () => ({ timeline: emptyAgentWatchTimeline(), phase: 'error', error: 'Host unreachable', pendingSends: [], reload() {}, loadOlder: async () => undefined, cancel() {}, respond() {} }) }))
+const scope = vi.hoisted(() => ({ enqueue: vi.fn(async () => undefined), pending: [] as SessionInput[], timeline: null as ReturnType<typeof emptyAgentWatchTimeline> | null }))
+vi.mock('../../../apps/desktop/src/lib/sessionInputOutboxBridge', () => ({ enqueueSessionInput: scope.enqueue, retrySessionInputs: vi.fn(), useQueuedSessionInputs: (sessionId: string) => scope.pending.filter(input => input.sessionId === sessionId) }))
+vi.mock('../../../apps/desktop/src/mobile/agent-watch/useAgentWatchSession', () => ({ useAgentWatchSession: () => ({ timeline: scope.timeline ?? emptyAgentWatchTimeline(), phase: 'error', error: 'Host unreachable', pendingSends: [], reload() {}, loadOlder: async () => undefined, cancel() {}, respond() {} }) }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/useNativeSessionRecord', () => ({ useNativeSessionRecord: () => ({ record: null, error: null, followTail() {}, loadNewer() {}, loadOlder: async () => undefined }) }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/SessionConversation', () => ({ SessionConversation: ({ onSend, footerNotice }: { onSend: (text: string) => Promise<void>; footerNotice?: ReactNode }) => <>{footerNotice}<button data-cold-native-composer="" onClick={() => { void onSend('Cold native input') }}>Send</button></> }))
 vi.mock('../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store', () => ({ installedExtensionsStore: { enabledTabContributions: [] } }))
 vi.mock('../../../apps/desktop/src/components/ui/sheetStack', async original => ({ ...await original<object>(), useBackLayer() {} }))
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
-afterEach(() => { harness.cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); scope.enqueue.mockClear(); scope.pending = [] })
+afterEach(() => { harness.cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); scope.enqueue.mockClear(); scope.pending = []; scope.timeline = null })
 it('shows only the pending message and its sending indicator while the phone is offline', async () => {
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
   scope.pending = [{ id: 'input', accountId: 'owner', deviceId: 'host', sessionId: 'session', text: 'Queued original words', createdAt: 1 }]
@@ -39,4 +39,14 @@ it('keeps the same native task composer when the phone is cold and offline, with
   expect(harness.container.querySelector('[data-testid="agent-watch-session-status"]')).toBeNull()
   await act(async () => { harness.container.querySelector<HTMLButtonElement>('[data-cold-native-composer]')!.click() })
   expect(scope.enqueue).toHaveBeenCalledWith({ deviceId: 'host', sessionId: 'session', text: 'Cold native input', queued: false, baseline: [], afterTurnId: undefined })
+})
+
+it('does not show a stale sender failure when the host queue already owns that exact id', async () => {
+  vi.stubGlobal('innerWidth', 390)
+  scope.pending = [{ id: 'same-id', accountId: 'owner', deviceId: 'host', sessionId: 'session', text: 'same words', createdAt: 1, queued: true,
+    failure: { code: 'send-failed', message: 'old response was lost' } }]
+  scope.timeline = { ...emptyAgentWatchTimeline(), queuedPrompts: [{ id: 'same-id', text: 'same words' }] }
+  const session = { conversationId: 'session', projectId: 'project', title: 'Task', runtime: 'acp', nativeInputVersion: 1, agentStatus: 'idle', status: { status: 'idle', detail: null } } as SessionpageSessionSummary
+  await renderWithAppProviders(harness, <SessionTimelinePage device={device('host', [], { is_online: true })} session={session} onBack={() => undefined} />)
+  expect(harness.container.querySelector('[data-native-input-id="same-id"]')).toBeNull()
 })
