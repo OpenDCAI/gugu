@@ -58,6 +58,7 @@ import {
   extensionTabKind,
   parseExtensionTabKind,
   type ExtensionManifest,
+  isConfinedToolProgram,
 } from '@shared/extensions/manifest';
 import type { CloudMarketEntry, MarketListItem } from '@shared/extensions/market';
 import {
@@ -790,10 +791,13 @@ export const extensionsController = createRPCController({
     try {
       const service = extensionsService();
       service.setPermissionGranted(args.extensionId, args.permission, args.granted);
-      if (args.permission === 'agents:tools' && !args.granted) {
-        void revokeExtensionPrograms(args.extensionId).catch((error: unknown) => log.warn('App program did not stop after permission withdrawal:', error));
-      }
       const installed = service.get(args.extensionId);
+      if ((!args.granted && args.permission === 'agents:tools') || (
+        installed.manifest.permissions?.network?.includes(args.permission)
+        && installed.manifest.contributes.mcpServers?.some((server) => isConfinedToolProgram(installed.manifest.apiVersion, server))
+      )) {
+        void revokeExtensionPrograms(args.extensionId).catch((error: unknown) => log.warn('App program did not stop after permission change:', error));
+      }
       configureExtensionSession({
         extensionId: installed.manifest.id,
         apiVersion: installed.manifest.apiVersion,

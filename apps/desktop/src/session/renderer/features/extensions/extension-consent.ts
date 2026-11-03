@@ -1,5 +1,5 @@
 import type { useSessionMessages } from '@renderer/localization/use-session-messages';
-import { compareExtensionVersions, programLine, type ExtensionCapability, type ExtensionManifest } from '@shared/extensions/manifest';
+import { compareExtensionVersions, isConfinedToolProgram, programLine, type ExtensionCapability, type ExtensionManifest } from '@shared/extensions/manifest';
 import { localizedManifestText } from '@shared/extensions/catalog';
 import { addedPermissions } from '@shared/extensions/upgrade';
 import { isComputerUseView } from '@shared/extensions/app-places';
@@ -96,6 +96,12 @@ function describeAgentTools(manifest: ExtensionManifest, translate: SessionTrans
     return machine ? translate('extensions.permissionsAgentsSkillsOnlyOn', { machine }) : translate('extensions.permissionsAgentsSkillsOnly');
   }
   const skills = manifest.contributes.skills ? translate('extensions.permissionsAgentsToolsSkills') : '';
+  if (servers.every((server) => isConfinedToolProgram(manifest.apiVersion, server))) {
+    const hosts = manifest.permissions?.network?.length
+      ? translate('extensions.permissionsAgentsToolsHosts', { hosts: manifest.permissions.network.join(', ') }) : '';
+    return machine ? translate('extensions.permissionsAgentsToolsConfinedOn', { skills, machine, hosts })
+      : translate('extensions.permissionsAgentsToolsConfined', { skills, hosts });
+  }
   return machine ? translate('extensions.permissionsAgentsToolsOn', { skills, machine }) : translate('extensions.permissionsAgentsTools', { skills });
 }
 

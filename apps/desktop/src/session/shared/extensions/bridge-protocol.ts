@@ -82,7 +82,10 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 26: declared App views in messages, with immutable per-message context and bounded viewport lifetimes.
 // 27: pages read members explicitly with chats.members(); context keeps the chat summary without a roster.
 // Pages declaring 26 or earlier retain their initial members and roster context updates.
-export const EXTENSION_API_VERSION = 27;
+// 29: tools modules are host-confined.
+/** Tools modules opt into host confinement from this API. Final numbering follows dev at merge. */
+export const EXTENSION_TOOL_CONFINEMENT_API_VERSION = 29;
+export const EXTENSION_API_VERSION = EXTENSION_TOOL_CONFINEMENT_API_VERSION;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
