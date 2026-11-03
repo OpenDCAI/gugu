@@ -1142,7 +1142,23 @@ async function moveTo(entry, folderId) {
 
 // 「移动到…」: every folder of the chat, the top first, each under the one it is in; not the entry itself or what is
 // under it (a folder cannot go inside itself). Where it is now is marked and cannot be picked.
-function showMoveDialog(entry) {
+async function showMoveDialog(entry) {
+  if (!canWriteHere() || entry.systemRole || state.current?.entry.id === entry.id && state.current.file.readOnly) return
+  // A document page has no directory subscription. Read its chat only when Move is chosen; reuse the same tree below.
+  if (state.ctx.file) {
+    const current = state.current, file = state.ctx.file, chat = state.ctx.chat?.id
+    try {
+      const entries = await gugu.files.list({ chat: entry.chat })
+      if (state.current !== current || state.ctx.file?.id !== file.id || state.ctx.file?.chat !== file.chat
+        || state.ctx.chat?.id !== chat || !canWriteHere() || current?.file.readOnly) return
+      state.entries = entries
+    } catch (error) {
+      if (state.current === current && state.ctx.file?.id === file.id && state.ctx.chat?.id === chat) {
+        showBanner(error.code === 'denied' ? state.t.denied : fmt(state.t.failed, { e: error.message }), 'error')
+      }
+      return
+    }
+  }
   const t = state.t
   const off = new Set(isFolder(entry) ? [entry.id, ...under(entry.id).map((e) => e.id)] : [])
   const rows = []
