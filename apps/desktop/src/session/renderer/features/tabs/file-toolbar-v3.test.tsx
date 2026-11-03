@@ -7,7 +7,7 @@ import { PaneLayoutStore } from '@renderer/features/tabs/pane-layout-store';
 import { createTabProvider, createTabRegistry } from '@renderer/features/tabs/core/tab-provider-registry';
 import { MessageFilePreviewPanel } from '@/components/chat/MessageFilePreviewPanel';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-i18next', async (original) => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }));
 vi.mock('@/components/markdown/Markdown', () => ({ Markdown: () => null }));
 vi.mock('@/components/chat/DocumentPreviewContent', () => ({ DocumentPreviewContent: () => null }));
