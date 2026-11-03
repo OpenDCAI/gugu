@@ -29,6 +29,46 @@ function live(pid) {
     return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('server.js')
   } catch { return true }
 }
+function bootId() {
+  if (process.platform !== 'linux') return process.env.GUGU_SERVER_BOOT_ID?.trim() || null
+  try {
+    const id = fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim()
+    if (!id) throw new Error('empty boot identity')
+    return id
+  }
+  catch (error) {
+    process.stderr.write(`[server] Could not read boot identity (${error.code || error.message}); retaining locks conservatively.\n`)
+    return null
+  }
+}
+const proofFile = (home, stat) => file(home, `.server-lock-${stat.dev}-${stat.ino}.json`)
+function lockInfo(home, name = file(home, 'server.lock')) {
+  const fd = fs.openSync(name, 'r')
+  try {
+    const stat = fs.fstatSync(fd)
+    const pid = Number(fs.readFileSync(fd, 'utf8').trim())
+    let proof
+    try { proof = readJson(proofFile(home, stat)) } catch { /* Released locks have no boot proof. */ }
+    return { pid, stat, proof }
+  } finally { fs.closeSync(fd) }
+}
+function lockLive(info, alive) {
+  const id = bootId()
+  if (id && info.proof?.pid === info.pid && typeof info.proof.bootId === 'string' && info.proof.bootId && info.proof.bootId !== id) return false
+  return alive(info.pid)
+}
+function homeLockHolder(home, alive = live) {
+  try {
+    const info = lockInfo(home)
+    return Number.isSafeInteger(info.pid) && info.pid > 0 && lockLive(info, alive) ? info.pid : null
+  } catch (error) { if (error.code === 'ENOENT') return null; throw error }
+}
+function removeLock(home, name) {
+  let stat
+  try { stat = fs.lstatSync(name) } catch (error) { if (error.code === 'ENOENT') return; throw error }
+  fs.rmSync(name, { force: true })
+  if (stat.nlink === 1) fs.rmSync(proofFile(home, stat), { force: true })
+}
 function ownsHomeLock(home) {
   try { return Number(fs.readFileSync(file(home, 'server.lock'), 'utf8')) === process.pid }
   catch (error) {
@@ -51,42 +91,57 @@ function waitForPreviousPid() {
   process.stderr.write('[server] Previous server wait expired; checking installation lock normally.\n')
 }
 function claimHomeLock(home) {
-  return ownsHomeLock(home) ? () => {
-    try { if (ownsHomeLock(home)) fs.rmSync(file(home, 'server.lock')) } catch { /* Already released. */ }
-  } : null
+  const lock = file(home, 'server.lock')
+  let owned
+  try { owned = lockInfo(home) } catch (error) { if (error.code === 'ENOENT') return null; throw error }
+  if (owned.pid !== process.pid) return null
+  return () => {
+    try {
+      const current = lockInfo(home)
+      if (current.pid === process.pid && current.stat.ino === owned.stat.ino && current.stat.dev === owned.stat.dev) removeLock(home, lock)
+    } catch { /* Already released. */ }
+  }
 }
 function acquireHomeLock(home, alive = live) {
   const lock = file(home, 'server.lock')
   fs.mkdirSync(path.dirname(lock), { recursive: true })
+  // A settled duplicate must not create temporary files or change the live data directory's mtime.
+  try {
+    const current = lockInfo(home)
+    if (!Number.isSafeInteger(current.pid) || current.pid <= 0 || lockLive(current, alive)) return null
+  } catch (error) { if (error.code !== 'ENOENT') throw error }
   const acquire = () => {
-    let fd
-    try { fd = fs.openSync(lock, 'wx', 0o600) }
-    catch (error) { if (error.code === 'EEXIST') return false; throw error }
-    const owned = fs.fstatSync(fd)
-    try { fs.writeFileSync(fd, String(process.pid)) }
-    catch (error) {
-      // A failed PID write must not leave an empty lock behind.
-      const current = fs.lstatSync(lock)
-      if (current.ino === owned.ino && current.dev === owned.dev) fs.rmSync(lock)
-      throw error
-    } finally { fs.closeSync(fd) }
-    return true
+    const candidate = `${lock}.candidate-${process.pid}-${process.hrtime.bigint()}`
+    const fd = fs.openSync(candidate, 'wx', 0o600)
+    const proof = proofFile(home, fs.fstatSync(fd))
+    try {
+      fs.writeFileSync(fd, String(process.pid))
+      writeJson(proof, { pid: process.pid, bootId: bootId() })
+      try { fs.linkSync(candidate, lock); return true }
+      catch (error) { if (error.code === 'EEXIST') return false; throw error }
+    } finally {
+      fs.closeSync(fd)
+      removeLock(home, candidate)
+      fs.rmSync(`${proof}.${process.pid}.tmp`, { force: true })
+    }
   }
   if (!acquire()) {
-    const holder = Number(fs.readFileSync(lock, 'utf8').trim())
+    const original = lockInfo(home)
+    const holder = original.pid
     // Invalid/empty content can belong to a writer between open(wx) and its PID write.
-    if (!Number.isSafeInteger(holder) || holder <= 0 || alive(holder)) return null
+    if (!Number.isSafeInteger(holder) || holder <= 0 || lockLive(original, alive)) return null
     const stale = `${lock}.stale-${process.pid}-${Date.now()}`
     try { fs.renameSync(lock, stale) }
     catch (error) { if (error.code === 'ENOENT') return null; throw error }
     try {
-      if (Number(fs.readFileSync(stale, 'utf8').trim()) !== holder) {
+      const moved = lockInfo(home, stale)
+      if (moved.pid !== holder || moved.stat.ino !== original.stat.ino || moved.stat.dev !== original.stat.dev) {
         // Another starter replaced the stale lock. Restore it without overwriting any newer owner.
         try { fs.linkSync(stale, lock) } catch (error) { if (error.code !== 'EEXIST') throw error }
         return null
       }
       if (!acquire()) return null
-    } finally { fs.rmSync(stale, { force: true }) }
+    } finally { removeLock(home, stale) }
   }
   return claimHomeLock(home)
 }
@@ -162,7 +217,7 @@ function checkPendingBoot(home) {
   return true
 }
 
-module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, readPendingVerify, writePendingVerify, markServerReady, writeJson, pointCurrent, readBadVersions, legacyGuardActive }
+module.exports = { acquireHomeLock, claimHomeLock, ownsHomeLock, homeLockHolder, readPendingVerify, writePendingVerify, markServerReady, writeJson, pointCurrent, readBadVersions, legacyGuardActive }
 
 // Importing these same helpers from a bundle never counts another attempt.
 if (process.argv[2] === 'run' && process.execArgv.some((arg, i) => arg === '--require' && process.execArgv[i + 1] === __filename)) {

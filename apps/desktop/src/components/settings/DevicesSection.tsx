@@ -486,13 +486,13 @@ function DeviceRow({
   const outcome = device.capabilities.server_update_outcome ?? model.update?.lastOutcome
   const hostWaiting = outcome?.kind === 'waiting'
   // New hosts answer this exact request. Old ACKs have no identity: yield to a changed host fact.
-  const answered = restarting && (model.update?.scope !== restarting.before.scope || (typeof restarting.request === 'number'
+  const answered = restarting && (typeof restarting.request === 'number'
     ? outcome?.request === restarting.request && outcome.kind !== 'waiting'
     : restarting.request === undefined && (model.update?.scope !== restarting.before.scope
       || model.update?.state !== restarting.before.state || model.update?.version !== restarting.before.version
-      || model.update?.reason !== restarting.before.reason)))
+      || model.update?.reason !== restarting.before.reason))
   if ((updateNow === 'ask' && !restartable)
-    || (restarting && (!device.is_online || model.version === restarting.version || answered))) setUpdateNow(null)
+    || (restarting && (model.version === restarting.version || answered))) setUpdateNow(null)
   useEffect(() => {
     if (!restarting) return
     const timer = setTimeout(() => {

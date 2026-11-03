@@ -16,6 +16,7 @@ import { packageIdentity, prepareInstallation, SERVER_PACKAGE_IDENTITY } from '.
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { spawnOwnedChild } from '@gugu/session-core/exec'
+import { signalProcessDescendantsSync } from '@gugu/session-core/acp/node'
 import { readAccountActivity } from './server-layout'
 
 /** Same cold-account smoke as ci-linux-packages.sh, through the target's actual entry. */
@@ -65,8 +66,18 @@ export async function checkAccountBoot(binary: string): Promise<void> {
   } finally {
     if (timeout) clearTimeout(timeout)
     watcher?.close()
-    await owned?.stop({ graceMs: 10_000 })
-    fs.rmSync(home, { recursive: true, force: true })
+    try {
+      // Probe tools can detach from run-account's group. Keep their parent chain until this snapshot.
+      if (owned?.child.pid !== undefined && owned.child.exitCode === null && owned.child.signalCode === null) {
+        signalProcessDescendantsSync([owned.child.pid], 'SIGKILL')
+      }
+    } finally {
+      try { await owned?.stop({ graceMs: 10_000 }) }
+      finally {
+        try { fs.rmSync(home, { recursive: true, force: true }) }
+        catch (error) { console.warn(`[server] Could not remove account boot scratch directory ${home}`, error) }
+      }
+    }
   }
   // main.ts handles our SIGTERM with exit(143). An unhandled SIGTERM is normal too;
   // SIGKILL or an unrelated fatal exit after the heartbeat is not a successful smoke.

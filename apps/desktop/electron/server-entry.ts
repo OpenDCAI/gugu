@@ -27,6 +27,7 @@ import { ensurePrivateDir, summarizeChanges, tightenServerTree } from './server/
 import { assertRuntimeBackend, ownPackageIdentity, packageBackend, packageIdentity, prepareInstallation } from './server/server-package-environment.mts'
 import { getSupabaseUrl } from '@gugu/core/cloud/config'
 import { resolveServerHome } from './server/server-installation'
+import { homeLockHolder } from './server/server-startup'
 
 
 const stderr = (line: string): void => void process.stderr.write(`${line}\n`)
@@ -107,6 +108,7 @@ const out = (line: string): void => void process.stdout.write(`${line}\n`)
 /** 读某个目录下单实例锁里的进程号(锁在但进程已死、或进程号已被别的程序复用 = 没在跑)。 */
 function lockHolder(dataDir: string): number | null {
   try {
+    if (dataDir === supervisorDataDir()) return homeLockHolder(serverHome)
     const pid = Number(fs.readFileSync(path.join(dataDir, 'server.lock'), 'utf8').trim())
     return isOwnProcessAlive(pid, SERVER_PROCESS_MARK) ? pid : null
   } catch {
@@ -122,26 +124,23 @@ async function stopAccountProcesses(): Promise<number[]> {
   const pids = listAccounts()
     .map((account) => lockHolder(account.dataDir))
     .filter((pid): pid is number => pid !== null && pid !== process.pid)
-  for (const pid of pids) {
-    try {
-      process.kill(pid, 'SIGTERM')
-    } catch {
-      // 已经退出了
-    }
-  }
-  const deadline = Date.now() + 30_000
-  while (Date.now() < deadline && pids.some((pid) => isProcessAlive(pid))) {
-    await new Promise((resolve) => setTimeout(resolve, 200))
-  }
-  for (const pid of pids) {
-    if (!isProcessAlive(pid)) continue
-    try {
-      process.kill(pid, 'SIGKILL')
-    } catch {
-      // 已经退出了
-    }
-  }
+  await Promise.all(pids.map(pid => stopServerProcess(pid, 30_000)))
   return pids
+}
+
+async function stopServerProcess(pid: number, graceMs: number): Promise<void> {
+  const { signalProcessDescendantsSync } = await import('@gugu/session-core/acp/node')
+  try { process.kill(pid, 'SIGTERM') }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') return; throw error }
+  if (await waitForPidExit(pid, graceMs)) return
+  // Snapshot the owned live root before severing its detached descendants' parent chain.
+  try { signalProcessDescendantsSync([pid], 'SIGKILL') }
+  finally {
+    try { process.kill(pid, 'SIGKILL') }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error }
+    out(`Server did not exit after TERM; used KILL for pid ${pid}.`)
+  }
+  if (!(await waitForPidExit(pid, 5_000))) throw new Error(`Process ${pid} did not exit after KILL`)
 }
 
 /** 升级换版时新进程由旧进程拉起:等旧的完全退出(单实例锁放掉)再启动,最多等 60 秒。 */
@@ -327,13 +326,7 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
         }
       }
       const pid = lockHolder(supervisorDataDir())
-      if (pid) {
-        process.kill(pid, 'SIGTERM')
-        if (!(await waitForPidExit(pid, 45_000))) {
-          stderr(`进程 ${pid} 45 秒内没有退出。`)
-          process.exit(1)
-        }
-      }
+      if (pid) await stopServerProcess(pid, 45_000)
       const strays = await stopAccountProcesses()
       if (!pid && strays.length === 0) {
         out('server 没在运行。')

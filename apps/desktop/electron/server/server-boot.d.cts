@@ -2,6 +2,7 @@ export type PendingVerify = { from: string; to: string; attempts: number; reques
 export function acquireHomeLock(home: string, alive?: (pid: number) => boolean): (() => void) | null
 export function claimHomeLock(home: string): (() => void) | null
 export function ownsHomeLock(home: string): boolean | undefined
+export function homeLockHolder(home: string, alive?: (pid: number) => boolean): number | null
 export function readPendingVerify(home: string): PendingVerify | null
 export function writePendingVerify(home: string, pending: PendingVerify): void
 export function markServerReady(home: string, now?: number): void

@@ -23,7 +23,7 @@ import { clearStopped, liveKeeperPid, recordLoginShell, startKeeper } from './se
 import { activityProof, listAccounts, supervisorDataDir } from './server-layout'
 import { SERVICE_UMASK } from './server-permissions'
 import { assertPackageEnvironment, controllerOwnsUpdates } from './server-package-environment.mts'
-import { readPendingVerify, writePendingVerify } from './server-startup'
+import { homeLockHolder, readPendingVerify, writePendingVerify } from './server-startup'
 import { createServerUpdateStateWriter } from './server-update-state'
 import { installationServerNames } from './server-installation'
 import { EXIT_RESTART, EXIT_CONFIG, EXIT_SIGNED_OUT } from './server-exit'
@@ -133,13 +133,17 @@ WantedBy=default.target
 `
 }
 
+const LAUNCHD_EXIT_TIMEOUT_S = 30
 export function launchdPlist(executable: string, home: string, log: string): string {
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const launcher = [
     '[ -f "$GUGU_SERVER_HOME/data/stopped" ] && exit 0',
-    `trap 'kill -TERM "$child" 2>/dev/null; wait "$child"; exit 0' TERM INT`,
+    `stop_child() { trap '' TERM INT; kill -TERM "$child" 2>/dev/null; set -m; ( sleep ${LAUNCHD_EXIT_TIMEOUT_S - 5}; printf '[server] Server did not exit in ${LAUNCHD_EXIT_TIMEOUT_S - 5} seconds; KILL pid %s\\n' "$child" >&2; kill -KILL "-$child" 2>/dev/null; kill -KILL "$child" 2>/dev/null ) & timer=$!; set +m; wait "$child" 2>/dev/null; code=$?; kill -TERM "-$timer" 2>/dev/null; wait "$timer" 2>/dev/null; case "$code" in 0|143|${EXIT_CONFIG}|${EXIT_SIGNED_OUT}) exit 0;; *) exit "$code";; esac; }`,
+    'trap stop_child TERM INT',
+    'set -m',
     '"$1" run & child=$!',
-    'wait "$child"; code=$?',
+    'set +m',
+    'wait "$child" 2>/dev/null; code=$?',
     `case "$code" in 0|143|${EXIT_CONFIG}|${EXIT_SIGNED_OUT}) exit 0;; *) exit "$code";; esac`,
   ].join('; ')
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -156,7 +160,7 @@ export function launchdPlist(executable: string, home: string, log: string): str
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>AbandonProcessGroup</key><true/>
-  <key>ExitTimeOut</key><integer>30</integer>
+  <key>ExitTimeOut</key><integer>${LAUNCHD_EXIT_TIMEOUT_S}</integer>
   <key>StandardOutPath</key><string>${esc(log)}</string>
   <key>StandardErrorPath</key><string>${esc(log)}</string>
 </dict>
@@ -201,10 +205,12 @@ export function restartServerAfterLogin(out: Out): void {
     result = tryRun('launchctl', ['kickstart', `gui/${uid}/${names().launchdLabel}`])
     if (!result.ok) result = tryRun('launchctl', ['kickstart', `user/${uid}/${names().launchdLabel}`])
   } else {
-    if (liveKeeperPid(home)) return
+    const keeper = liveKeeperPid(home)
+    if (keeper) { out(`The server keeper is already running (pid ${keeper}). Run gugu-server status for details.`); return }
     result = { ok: Boolean(startDetached(serviceExecutable())), out: 'The background server could not be started' }
   }
   if (!result.ok) out(`Signed in, but the server could not be started: ${result.out}. Run gugu-server start.`)
+  else out('Server start requested. Run gugu-server status to check its PID and version.')
 }
 
 function lingerEnabled(user: string): boolean {
@@ -395,8 +401,8 @@ function readText(file: string): string | null {
 }
 
 export function readRunningServer(): RunningServer | null {
-  const pid = Number(readText(path.join(supervisorDataDir(), 'server.lock'))?.trim())
-  if (!isProcessAlive(pid)) return null
+  const pid = homeLockHolder(serverHome())
+  if (pid === null) return null
   if (process.platform === 'linux') {
     return describeProcess(pid, readText(`/proc/${pid}/environ`), readText(`/proc/${pid}/cmdline`)?.replace(/\0/g, ' ') ?? null)
   }
