@@ -43,6 +43,36 @@ describe('message hover bar: one row owns it at a time', () => {
     expect(claimHoverOwner(b, false, undefined, { x: 110, y: below ? 300 : 180 })).toBe(true)
   })
 
+  it.each([false, true])('hands over on another bubble outside the popup width without a close timer (below: %s)', (below) => {
+    const trigger = document.createElement('div')
+    const popup = document.createElement('div')
+    const next = document.createElement('div')
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 600, 80))
+    vi.spyOn(popup, 'getBoundingClientRect').mockReturnValue(new DOMRect(590, below ? 282 : 158, 110, 40))
+    vi.spyOn(next, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, below ? 282 : 158, 600, 40))
+    const point = { x: 450, y: below ? 290 : 190 }
+    expect(claimHoverOwner(a, false, { trigger, popup })).toBe(true)
+    expect(claimHoverOwner(b, false, { trigger: next, popup: null }, point)).toBe(true)
+    releaseHoverOwner(b)
+    expect(claimHoverOwner(a, false, { trigger, popup })).toBe(true)
+    expect(claimHoverOwner(b, false, { trigger: next, popup: null }, { ...point, x: 650 })).toBe(false)
+  })
+
+  it.each([false, true])('distinguishes diagonal travel to the popup from entering another bubble vertically (below: %s)', (below) => {
+    const trigger = document.createElement('div')
+    const popup = document.createElement('div')
+    const next = document.createElement('div')
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 600, 80))
+    vi.spyOn(popup, 'getBoundingClientRect').mockReturnValue(new DOMRect(590, below ? 282 : 158, 110, 40))
+    vi.spyOn(next, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, below ? 282 : 158, 600, 40))
+    const point = { x: 550, y: below ? 290 : 190 }
+    expect(claimHoverOwner(a, false, { trigger, popup }, { x: 400, y: 240 })).toBe(true)
+    expect(claimHoverOwner(b, false, { trigger: next, popup: null }, point)).toBe(false)
+    releaseHoverOwner(a)
+    expect(claimHoverOwner(a, false, { trigger, popup }, { x: 550, y: 240 })).toBe(true)
+    expect(claimHoverOwner(b, false, { trigger: next, popup: null }, point)).toBe(true)
+  })
+
   it('uses the shifted left popup instead of assuming the popup is above the pointer', () => {
     const trigger = document.createElement('div')
     const popup = document.createElement('div')

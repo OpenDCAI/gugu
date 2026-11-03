@@ -107,6 +107,30 @@ it.each([false, true].flatMap((topClamp) => [false, true].flatMap((isMine) => [f
   await until('leaving the row and popup closes the pill', () => !pill.isConnected);
 });
 
+it.each([false, true])('hands the pill to the previous bubble before the old close timer runs (isMine: %s)', async (isMine) => {
+  const lower = await mount(true, false, false, isMine);
+  await userEvent.hover(lower);
+  await until('the lower pill opens', () => targetPillOpen(lower));
+  const pill = pills()[0];
+  await until('the lower pill finishes entering', () => !pill.hasAttribute('data-starting-style') && pill.getAnimations().every((animation) => animation.playState === 'finished'));
+  const previous = harness.container.querySelector<HTMLElement>('[data-testid="message-bubble-action-target"]')!;
+  const rect = previous.getBoundingClientRect();
+  // Enter the previous bubble from below; its centre can already be beyond the old travel corridor.
+  const point = { x: rect.left + rect.width / 2, y: rect.bottom - 1 };
+  const popup = pill.getBoundingClientRect();
+  expect(point.x < popup.left || point.x > popup.right, 'the pointer is on the other bubble, away from the popup buttons').toBe(true);
+  expect(previous.contains(document.elementFromPoint(point.x, point.y)), 'the pointer actually hits the previous bubble').toBe(true);
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    await move(point.x, point.y);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(readHoverOwner()?.elements?.trigger, 'ownership moves without waiting for the old close timer').toBe(previous.closest('[data-message-bubble-row]'));
+    expect(targetPillOpen(previous), 'only the previous bubble pill is visible').toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it('keeps mouse hover disabled on the phone', async () => {
   const target = await mount(false);
   await userEvent.hover(target);
