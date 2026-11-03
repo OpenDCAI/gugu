@@ -1173,6 +1173,8 @@ async function moveTo(entry, folderId) {
 async function showMoveDialog(entry) {
   if (state.ctx.file) {
     const context = state.ctx
+    if (entry.chat !== context.chat?.id) return
+    state.root = 'chat'
     await refreshList()
     if (state.ctx !== context || !canWrite() || state.listError) return
   }

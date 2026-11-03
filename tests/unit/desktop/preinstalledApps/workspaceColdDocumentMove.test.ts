@@ -8,7 +8,7 @@ import { until } from '../../../support/awaitCondition'
 const file = { id: 'readme', chat: 'chat', name: 'README.md', displayName: 'README.md', type: 'text', contentType: 'text/markdown', parentId: null, path: 'README.md', systemRole: null, version: 1, createdAt: '2026-11-03T08:00:00Z', updatedAt: null, sourceMessageIds: [], size: 1 }
 const folder = { ...file, id: 'docs', name: 'docs', displayName: 'docs', type: 'folder', path: 'docs' }
 const entries = [file, folder]
-const context = { tabId: 'file-context', file: { chat: 'chat', id: file.id }, chat: { id: 'chat', kind: 'group', name: 'Files', groupId: null }, locale: 'en-US', capabilities: ['files:read', 'files:write'] }
+const context = { tabId: 'file-context', file: { chat: 'chat', id: file.id }, chat: { id: 'chat', kind: 'group', name: 'Files', groupId: null }, workspace: { id: 'working-copy', sessionId: 'task' }, locale: 'en-US', capabilities: ['files:read', 'files:write'] }
 let changed: (ctx: Record<string, unknown>) => Promise<void>
 const gugu = {
   linkTo: async () => 'gugu-file://readme',
