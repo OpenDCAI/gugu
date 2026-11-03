@@ -30,7 +30,9 @@ export type SessionInputBubble = { id: string; text: string; from?: string | nul
   | { state: 'sending' }
   /** The person stopped the session before it went: it goes with their next message. */
   | { state: 'stopped' }
-  /** failure: the sender named it (retry re-sends its copy); hostReason: the host row failed, in the host's words. */
+  /** The durable sender still owns this input and will automatically retry it. */
+  | { state: 'waiting'; failure: SessionInputFailure }
+  /** A host-owned row failed, in the host's words. */
   | { state: 'failed'; failure: SessionInputFailure | null; hostReason: string | null }
   | { state: 'unknown' })
 
@@ -56,7 +58,7 @@ export function sessionInputBubbles(sender: readonly SessionInput[], host: reado
     }),
     ...[...sender].filter(input => !hosted.has(input.id)).sort((a, b) => a.createdAt - b.createdAt)
       .map((input): SessionInputBubble => ({ id: input.id, text: input.text,
-        ...(input.failure ? { state: 'failed', failure: input.failure, hostReason: null } : { state: 'sending' }) })),
+        ...(input.failure ? { state: 'waiting', failure: input.failure } : { state: 'sending' }) })),
   ]
 }
 

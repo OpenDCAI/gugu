@@ -48,7 +48,7 @@ it('keeps an unknown incoming receipt on its native bubble on the phone', async 
   expect(harness.container.querySelector('[data-send-state="unknown"] button')).toBeNull();
 });
 
-it('uses the ordinary pending projection on the phone, keeping acceptance and retry in the same bubble', async () => {
+it('uses the ordinary pending projection on the phone, keeping acceptance and automatic recovery in the same bubble', async () => {
   await page.viewport(390, 844);
   const input = { id: 'phone-send', sessionId: 'phone-task', accountId: 'owner', deviceId: 'device', text: 'hello from phone', createdAt: Date.now(), queued: false };
   Object.assign(state(), { accountId: 'owner', rows: [input], valid: () => true });
@@ -64,17 +64,17 @@ it('uses the ordinary pending projection on the phone, keeping acceptance and re
   expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
   expect(harness.container.querySelector('[data-user-card]')!.getBoundingClientRect().top).toBe(top);
   await act(async () => { state().rows = [{ ...input, failure: { code: 'host-offline' } }]; changed(); });
-  await until('offline input stays visible with its failure explanation', () => !!harness.container.querySelector('[data-send-state="failed"]'));
-  expect(harness.container.querySelector('[data-send-state="failed"] button')).toBeNull();
-  expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
-  await act(async () => { state().rows = [{ ...input, failure: { code: 'host-not-ready' } }]; changed(); });
-  await until('a host that is not ready still exposes retry', () => !!harness.container.querySelector('[data-send-state="failed"] button'));
-  await act(async () => { harness.container.querySelector<HTMLButtonElement>('[data-send-state="failed"] button')!.click(); });
-  expect(retry).toHaveBeenCalledOnce();
-  await act(async () => { state().rows = [{ ...input, failure: { code: 'send-failed', message: 'connection refused' } }]; changed(); });
-  await until('phone failure exposes in-place retry', () => !!harness.container.querySelector('[data-send-state="failed"] button'));
-  await act(async () => { harness.container.querySelector<HTMLButtonElement>('[data-send-state="failed"] button')!.click(); });
-  expect(retry).toHaveBeenCalledTimes(2);
+  await until('offline input waits for automatic delivery', () => !!harness.container.querySelector('[data-send-state="waiting"]'));
+  expect(harness.container.querySelector('[data-send-state="waiting"] button')).toBeNull();
+  expect(harness.container.textContent).toContain('Waiting to send');
+  expect(harness.container.querySelector('[data-send-state="failed"]')).toBeNull();
+  for (const failure of [{ code: 'host-not-ready' }, { code: 'send-failed', message: 'connection refused' }] as const) {
+    await act(async () => { state().rows = [{ ...input, failure }]; changed(); });
+    await until('the sender retains automatic custody', () => !!harness.container.querySelector('[data-send-state="waiting"]'));
+    expect(harness.container.querySelector('[data-send-state="waiting"] button')).toBeNull();
+    expect(harness.container.querySelector('[data-send-state="failed"]')).toBeNull();
+  }
+  expect(retry).not.toHaveBeenCalled();
   expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
 });
 

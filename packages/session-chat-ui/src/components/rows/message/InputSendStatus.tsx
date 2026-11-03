@@ -6,9 +6,9 @@ import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { vars } from '@session-chat/styles/theme.css';
 
 export const INPUT_SEND_FAILURE_HEIGHT = 22;
-export const inputSendStatusHeight = (item: ChatMessage): number => item.sendStatus?.state === 'failed' || item.sendStatus?.state === 'unknown' ? INPUT_SEND_FAILURE_HEIGHT : 0;
+export const inputSendStatusHeight = (item: ChatMessage): number => item.sendStatus?.state === 'waiting' || item.sendStatus?.state === 'failed' || item.sendStatus?.state === 'unknown' ? INPUT_SEND_FAILURE_HEIGHT : 0;
 
-/** Sending is an overlay beside the unchanged bubble; failure adds one measured action line. */
+/** Sending is an overlay beside the unchanged bubble; waiting or failure adds one measured status line. */
 export function InputSendStatus(props: { item: ChatMessage; right: number; top: number }) {
   const t = useChatTranslator();
   const commands = useCommands();
@@ -19,6 +19,12 @@ export function InputSendStatus(props: { item: ChatMessage; right: number; top: 
         style={{ position: 'absolute', right: `${props.right}px`, top: `${props.top}px`, opacity: .56, color: vars.fgMuted }}>
         <circle cx="7.5" cy="7.5" r="5.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.6 3.2" stroke-linecap="round" />
       </svg>
+    </Show>
+    <Show when={props.item.sendStatus?.state === 'waiting'}>
+      <div data-send-state="waiting" role="status"
+        style={{ height: `${INPUT_SEND_FAILURE_HEIGHT}px`, display: 'flex', 'align-items': 'center', 'justify-content': 'flex-end', 'font-size': '12px', color: vars.fgMuted }}>
+        {t('transcript.waitingToSend')}
+      </div>
     </Show>
     <Show when={props.item.sendStatus?.state === 'failed' || props.item.sendStatus?.state === 'unknown'}>
       <div data-send-state={props.item.sendStatus?.state} role="alert" title={props.item.sendStatus?.error}

@@ -116,6 +116,7 @@ const fallbackMessages = {
   'transcript.starting': 'Starting',
   'transcript.restoring': 'Restoring',
   'transcript.sending': 'Sending',
+  'transcript.waitingToSend': 'Waiting to send',
   'transcript.sendFailed': 'Send failed',
   'transcript.sendUnknown': 'Delivery unknown; not resent',
   'transcript.retrySend': 'Retry',
