@@ -11,6 +11,7 @@ const entries = [file, folder]
 const context = { tabId: 'file-context', file: { chat: 'chat', id: file.id }, chat: { id: 'chat', kind: 'group', name: 'Files', groupId: null }, locale: 'en-US', capabilities: ['files:read', 'files:write'] }
 let changed: (ctx: Record<string, unknown>) => Promise<void>
 const gugu = {
+  linkTo: async () => 'gugu-file://readme',
   getContext: async () => context, markdown: async () => ({ render: () => document.createDocumentFragment() }),
   setTabTitle: vi.fn(async () => {}), onContextChanged: (fn: typeof changed) => { changed = fn; return () => {} },
   onLink: () => () => {}, showContextMenu: vi.fn(async () => null),
@@ -52,6 +53,7 @@ it('loads destinations on Move and moves the cold document into an existing fold
   target.click()
   await until('the actual file is moved to docs', () => gugu.files.move.mock.calls.length === 1)
   expect(gugu.files.move).toHaveBeenCalledWith(file, { folder: 'docs' })
+  await setImmediate()
 })
 it('does not show a late Move dialog after its context loses file permission', async () => {
   el('move-cancel').click()
