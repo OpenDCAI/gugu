@@ -33,6 +33,7 @@ afterEach(() => { act(() => { tabFullscreen.exit(); root.unmount(); }); vi.unstu
 describe('each actual pane owns its content', () => {
   it('hands focus from the retained folder guest to the new page before history shortcuts are used', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 0; });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
     const folder = createTabProvider({ ...provider, kind: 'folder', keepMounted: true,
       TabContent: () => <webview tabIndex={0} data-folder-guest="" /> });
     const file = createTabProvider({ ...provider, kind: 'file',
