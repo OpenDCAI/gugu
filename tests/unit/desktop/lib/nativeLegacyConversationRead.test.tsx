@@ -67,7 +67,8 @@ it('waits for a late IM alias on an old host without consuming the entry', async
   expect(openItem).toHaveBeenCalledExactlyOnceWith('tool:sent:im-first')
 })
 
-it('keeps native confirmation disabled on an old host even when a reply becomes visible', async () => {
+it.each([undefined, 3])('keeps native confirmation disabled on an unsupported host version %s even when a reply becomes visible', async version => {
+  scope.version = version
   vi.useFakeTimers()
   let reading!: ReturnType<typeof useNativeConversationRead>
   function Fixture() { reading = useNativeConversationRead('host', 'session', true, () => []); return null }

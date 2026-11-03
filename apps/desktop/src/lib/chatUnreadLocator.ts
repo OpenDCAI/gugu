@@ -1,4 +1,5 @@
-import { cloudReadTarget, writeRead } from './readWriter'
+import { cloudReadTarget, nativeItemId, writeRead } from './readWriter'
+import type { NativeUnreadTarget } from './nativeUnreadTargets'
 import { chatDb } from './supabase'
 import { UI_EVENTS } from './uiEvents'
 import type { ChatItem, ChatUnreadLocator, MessageItem } from '@gugu/core/shared/types/chat'
@@ -32,9 +33,10 @@ export function markManualUnreadAndRefresh(
 
 // @@@mark-all-read — 给定范围内每条未读流(主线 + 每个话题)各发一次现成的已读 RPC。seq 取点击时 store 里的
 // next_message_seq-1:seq 是整个会话共用的计数(话题回复也占号),点击之后到的消息都比它大,留作未读;
-// 第一条未读已经比它大的流(store 还没跟上)跳过。部分失败不回滚,返回失败的会话数。
+// 第一条未读已经比它大的流(store 还没跟上)跳过。原生流只写点击时捕获的消息身份。部分失败不回滚,返回失败的会话数。
 export async function markChatsReadAndRefresh(deps: {
   chats: readonly ChatItem[]
+  nativeReads?: readonly NativeUnreadTarget[]
   refresh: (options?: { acceptEmpty?: boolean }) => Promise<void>
   /** 自动清除保留当前服务端人工标记;显式「全部标已读」默认仍清除它。 */
   preserveManualUnread?: boolean
@@ -42,13 +44,14 @@ export async function markChatsReadAndRefresh(deps: {
   canMarkRead?: (chatId: string) => boolean
 }): Promise<{ failedChats: number; error?: unknown }> {
   const seenSeq = new Map(deps.chats.map((chat) => [chat.id, chat.next_message_seq - 1]))
+  const nativeReads = (deps.nativeReads ?? []).map(target => ({ ...target, itemIds: [...target.itemIds] }))
   const { data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: null })
   if (error) throw new Error(error.message)
   const rows = (data ?? []) as Array<Record<string, unknown>>
   const manuallyUnread = new Set(deps.preserveManualUnread ? rows.filter(row => row.is_marked_unread === true).map(row => String(row.chat_id)) : [])
   const failedChatIds = new Set<string>()
   let failure: unknown
-  await Promise.all(rows.map(async (row) => {
+  await Promise.all([...rows.map(async (row) => {
     const chatId = String(row.chat_id)
     const seq = seenSeq.get(chatId)
     if (seq === undefined || manuallyUnread.has(chatId) || Number(row.message_seq) > seq || deps.canMarkRead?.(chatId) === false) return
@@ -60,7 +63,20 @@ export async function markChatsReadAndRefresh(deps: {
       failure ??= err
       unreadLocatorLog.error({ error: String(err), chatId, streamId: row.stream_id }, 'mark all read failed')
     }
-  }))
+  }), ...nativeReads.map(async (target) => {
+    if (target.chatId && (manuallyUnread.has(target.chatId) || deps.canMarkRead?.(target.chatId) === false)) return
+    try {
+      // The host accepts at most 500 identities per write. Later arrivals never enter this captured batch.
+      for (let start = 0; start < target.itemIds.length; start += 500) {
+        await writeRead({ kind: 'native', deviceId: target.deviceId, conversationId: target.conversationId,
+          itemIds: target.itemIds.slice(start, start + 500).map(nativeItemId) })
+      }
+    } catch (err) {
+      failedChatIds.add(target.chatId ?? JSON.stringify([target.deviceId, target.conversationId]))
+      failure ??= err
+      unreadLocatorLog.error({ error: String(err), deviceId: target.deviceId, conversationId: target.conversationId }, 'mark native conversation read failed')
+    }
+  })])
   await deps.refresh({ acceptEmpty: true })
   return { failedChats: failedChatIds.size, ...(failedChatIds.size ? { error: failure } : {}) }
 }

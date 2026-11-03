@@ -7,6 +7,7 @@ import { createReactHarness } from '../../../support/testHarness'
 import { useNativeConversationRead } from '../../../../apps/desktop/src/hooks/useNativeConversationRead'
 import { useNativeConversationVisibility } from '../../../../apps/desktop/src/lib/nativeConversationVisibility'
 import { updateDeviceSessions, removeDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
+import { addNativeReplies, seeNativeReplies, unreadNativeMessages } from '@gugu/session-core/session-record/native-read'
 
 const scope = vi.hoisted(() => ({ visible: vi.fn(async (_request: { conversationId: string; itemIds: string[] }) => ({ unreadKeys: ['msg_covered'] })) }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron' } }))
@@ -38,8 +39,8 @@ it('publishes the native tail only with a settled visible-item report and drops 
   expect([...entries.values()]).toEqual([expect.objectContaining({ sessionId: 'other', atTail: false })])
 })
 
-it('opens at the first unread provider identity and acknowledges only visible replies, without scrolling', async () => {
-  updateDeviceSessions('host', { sessions: [{ conversationId: 's', nativeInputVersion: 1, nativeUnreadKeys: ['msg_first', 'msg_covered'] } as never] })
+it.each([1, 2] as const)('opens at the first unread provider identity and acknowledges only visible replies on protocol v%s, without scrolling', async (version) => {
+  updateDeviceSessions('host', { sessions: [{ conversationId: 's', nativeInputVersion: version, nativeUnreadKeys: ['msg_first', 'msg_covered'] } as never] })
   const turns = [{ id: 's:turn:s4', items: ['first', 'covered'].map(name => ({ id: `s:turn:s4:message:msg_${name}`, kind: 'message', role: 'assistant', text: name })) }] as TranscriptTurn[]
   const openItem = vi.fn(() => true)
   let controls!: ReturnType<typeof useNativeConversationRead>
@@ -71,5 +72,46 @@ it('retries identity navigation after the target render units become available w
     await act(async () => { await vi.advanceTimersByTimeAsync(500) })
     expect(openItem).toHaveBeenCalledTimes(2)
     expect(scope.visible).not.toHaveBeenCalled()
+  } finally { vi.useRealTimers() }
+})
+
+it('merges two readers through the host journal and leaves hidden or unseen replies unread', async () => {
+  vi.useFakeTimers()
+  try {
+    let journal = addNativeReplies({}, ['desktop-visible', 'phone-visible', 'unseen'])
+    const publish = () => updateDeviceSessions('host', { sessions: [{ conversationId: 's', nativeInputVersion: 2,
+      nativeUnreadKeys: unreadNativeMessages(journal) } as never] })
+    scope.visible.mockImplementation(async ({ itemIds }) => {
+      journal = seeNativeReplies(journal, itemIds)
+      publish()
+      return { unreadKeys: unreadNativeMessages(journal) }
+    })
+    publish()
+    const controls = new Map<string, ReturnType<typeof useNativeConversationRead>>()
+    const Reader = ({ name, shown }: { name: string; shown: boolean }) => {
+      controls.set(name, useNativeConversationRead('host', 's', shown, () => []))
+      return null
+    }
+    const render = (shown: boolean) => harness.render(<><Reader name="desktop" shown={shown} /><Reader name="phone" shown={shown} /></>)
+    await render(true)
+    await act(async () => {
+      controls.get('desktop')!.onVisibleItems(['desktop-visible'])
+      controls.get('phone')!.onVisibleItems(['phone-visible'])
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    expect(unreadNativeMessages(journal)).toEqual(['unseen'])
+    await render(false)
+    const written = scope.visible.mock.calls.length
+    await act(async () => {
+      journal = addNativeReplies(journal, ['later'])
+      publish()
+      controls.get('phone')!.onVisibleItems(['later'])
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    expect(scope.visible).toHaveBeenCalledTimes(written)
+    expect(unreadNativeMessages(journal)).toEqual(['unseen', 'later'])
+    await render(true)
+    await act(async () => { controls.get('phone')!.onVisibleItems(['later']); await vi.advanceTimersByTimeAsync(1000) })
+    expect(unreadNativeMessages(journal)).toEqual(['unseen'])
   } finally { vi.useRealTimers() }
 })

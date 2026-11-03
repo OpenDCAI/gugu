@@ -6,6 +6,8 @@ import { markChatsReadAndRefresh } from '../lib/chatUnreadLocator'
 import { chatsInReadScope } from '../session/shared/conversation-row-menu'
 import { messageForUser } from '../lib/userFacingError'
 import { rendererLogger } from '../lib/log'
+import { nativeUnreadTargets } from '../lib/nativeUnreadTargets'
+import { directoryDevices, directoryRows, liveDeviceSessions } from '../session/shared/remote-sessions/session-directory'
 
 const log = rendererLogger('chat/mark-read')
 
@@ -16,10 +18,12 @@ export function useMarkChatsRead() {
   const { toast } = useToast()
   return useCallback((rootId?: string) => {
     const scope = rootId === undefined ? chats : chatsInReadScope(chats, rootId)
-    void Promise.resolve().then(() => {
+    const read = async () => {
       if (rootId !== undefined && !scope.some((chat) => chat.id === rootId)) throw new Error('Conversation is not loaded')
-      return markChatsReadAndRefresh({ chats: scope, refresh: refreshChats })
-    }).then(({ failedChats, error }) => {
+      const nativeReads = nativeUnreadTargets(directoryRows(directoryDevices(), liveDeviceSessions()), scope, rootId === undefined)
+      return markChatsReadAndRefresh({ chats: scope, nativeReads, refresh: refreshChats })
+    }
+    void read().then(({ failedChats, error }) => {
       if (failedChats > 0) toast(t('chatList.markAllReadPartial', { count: failedChats }), 'error', messageForUser(error))
     }).catch((error: unknown) => {
       log.error({ error: String(error), chatId: rootId }, 'mark read failed')

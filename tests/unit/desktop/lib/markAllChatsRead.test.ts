@@ -2,8 +2,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { chatsInReadScope } from '../../../../apps/desktop/src/session/shared/conversation-row-menu'
+import { addNativeReplies, seeNativeReplies, unreadNativeMessages } from '@gugu/session-core/session-record/native-read'
 
-const { rpc } = vi.hoisted(() => ({ rpc: vi.fn() }))
+const { rpc, nativeVisible } = vi.hoisted(() => ({ rpc: vi.fn(), nativeVisible: vi.fn() }))
+
+vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron' } }))
+vi.mock('@/session/renderer/lib/machine-clients', async original => ({ ...await original<object>(), machineClient: () => ({
+  api: { invoke: (channel: string, input: unknown) => {
+    if (channel !== 'sessionTimeline.sessionVisible') throw new Error(`Unexpected channel: ${channel}`)
+    return nativeVisible(input)
+  } },
+}) }))
 
 vi.mock('../../../../apps/desktop/src/lib/supabase', async () => {
   const actual = await vi.importActual<typeof import('../../../../apps/desktop/src/lib/supabase')>(
@@ -43,7 +52,80 @@ function unreadRow(chatId: string, messageSeq: number, rootId: string | null = n
 const readState = { last_read_seq: 0, is_marked_unread: false, version: 1 }
 
 describe('markChatsReadAndRefresh', () => {
-  beforeEach(() => { rpc.mockReset() })
+  beforeEach(() => { rpc.mockReset(); nativeVisible.mockReset() })
+
+  it('acknowledges captured native replies even when the cloud unread locator list is empty', async () => {
+    rpc.mockResolvedValue({ data: [], error: null })
+    nativeVisible.mockResolvedValue({ unreadKeys: [] })
+    const refresh = vi.fn(async () => {})
+    await markChatsReadAndRefresh({
+      chats: [], refresh,
+      nativeReads: [{ deviceId: 'host', conversationId: 'native-only', itemIds: ['reply'] }],
+    })
+    expect(nativeVisible).toHaveBeenCalledExactlyOnceWith({ conversationId: 'native-only', itemIds: ['reply'] })
+    expect(refresh).toHaveBeenCalledExactlyOnceWith({ acceptEmpty: true })
+  })
+
+  it('freezes native identities before the cloud read and leaves later replies unread in the host journal', async () => {
+    const itemIds = ['first', 'second']
+    let journal = addNativeReplies({}, itemIds)
+    rpc.mockImplementation(async (name: string, args?: Record<string, unknown>) => {
+      if (name === 'list_unread_locators') {
+        journal = addNativeReplies(journal, ['later'])
+        itemIds.push('later')
+        return { data: [unreadRow('dm', 3), unreadRow('dm', 4, 'thread')], error: null }
+      }
+      return { data: [{ ...readState, stream_id: args?.p_stream_id }], error: null }
+    })
+    nativeVisible.mockImplementation(async ({ itemIds: visible }: { itemIds: string[] }) => {
+      journal = seeNativeReplies(journal, visible)
+      return { unreadKeys: unreadNativeMessages(journal) }
+    })
+    const result = await markChatsReadAndRefresh({ chats: [chat('dm', 6)], refresh: async () => {},
+      nativeReads: [{ deviceId: 'host', conversationId: 'session', itemIds, chatId: 'dm' }] })
+    expect(result).toEqual({ failedChats: 0 })
+    expect(unreadNativeMessages(journal)).toEqual(['later'])
+    expect(nativeVisible).toHaveBeenCalledExactlyOnceWith({ conversationId: 'session', itemIds: ['first', 'second'] })
+    expect(rpc).toHaveBeenCalledWith('mark_stream_read', expect.objectContaining({ p_stream_id: 'thread:dm:thread', p_seq: 5 }))
+  })
+
+  it('splits a large captured journal into the host limit without adding replies between batches', async () => {
+    const itemIds = Array.from({ length: 1001 }, (_, i) => `reply-${i}`)
+    rpc.mockResolvedValue({ data: [], error: null })
+    nativeVisible.mockImplementation(async () => { itemIds.push('later'); return { unreadKeys: ['later'] } })
+    await markChatsReadAndRefresh({ chats: [], refresh: async () => {}, nativeReads: [{ deviceId: 'host', conversationId: 'session', itemIds }] })
+    expect(nativeVisible.mock.calls.map(([request]) => request.itemIds.length)).toEqual([500, 500, 1])
+    expect(nativeVisible.mock.calls.flatMap(([request]) => request.itemIds)).toEqual(itemIds.slice(0, 1001))
+  })
+
+  it('counts cloud and native failures of one DM once and still reads other native conversations', async () => {
+    rpc.mockImplementation(async (name: string) => name === 'list_unread_locators'
+      ? { data: [unreadRow('failed-dm', 2)], error: null }
+      : { data: null, error: { message: 'cloud unavailable' } })
+    nativeVisible.mockImplementation(async ({ conversationId }: { conversationId: string }) => {
+      if (conversationId !== 'success') throw new Error('host unavailable')
+      return { unreadKeys: [] }
+    })
+    const refresh = vi.fn(async () => {})
+    const result = await markChatsReadAndRefresh({ chats: [chat('failed-dm', 4)], refresh, nativeReads: [
+      { deviceId: 'host', conversationId: 'failed', itemIds: ['one'], chatId: 'failed-dm' },
+      { deviceId: 'host', conversationId: 'success', itemIds: ['two'] },
+      { deviceId: 'other-host', conversationId: 'failed', itemIds: ['three'] },
+    ] })
+    expect(result).toMatchObject({ failedChats: 2, error: expect.any(Error) })
+    expect(nativeVisible).toHaveBeenCalledWith({ conversationId: 'success', itemIds: ['two'] })
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a failed later native batch without replaying the successful batch or clearing the rest', async () => {
+    rpc.mockResolvedValue({ data: [], error: null })
+    nativeVisible.mockResolvedValueOnce({ unreadKeys: ['remaining'] }).mockRejectedValueOnce(new Error('disconnected'))
+    const result = await markChatsReadAndRefresh({ chats: [], refresh: async () => {}, nativeReads: [
+      { deviceId: 'host', conversationId: 'session', itemIds: Array.from({ length: 1001 }, (_, i) => String(i)) },
+    ] })
+    expect(result).toMatchObject({ failedChats: 1 })
+    expect(nativeVisible).toHaveBeenCalledTimes(2)
+  })
 
   it('marks every unread stream up to the seq the store had seen, thread streams on the same chat counter', async () => {
     const rows = [
@@ -131,7 +213,11 @@ describe('markChatsReadAndRefresh', () => {
       if (name === 'list_unread_locators') return { data: rows, error: null }
             return { data: [{ ...readState, stream_id: args?.p_stream_id }], error: null }
     })
-    await markChatsReadAndRefresh({ chats: [chat('a', 10), chat('b', 10)], refresh: async () => {}, ...(automatic ? { preserveManualUnread: true } : {}) })
+    nativeVisible.mockResolvedValue({ unreadKeys: [] })
+    await markChatsReadAndRefresh({ chats: [chat('a', 10), chat('b', 10)], refresh: async () => {},
+      nativeReads: [{ deviceId: 'host', conversationId: 'a', chatId: 'a', itemIds: ['native-a'] }],
+      ...(automatic ? { preserveManualUnread: true } : {}) })
+    expect(nativeVisible).toHaveBeenCalledTimes(automatic ? 0 : 1)
     expect(rpc.mock.calls.filter(([name]) => name !== 'list_unread_locators')).toEqual(automatic ? [
       ['mark_stream_read', { p_chat_id: 'b', p_stream_id: 'main:b', p_seq: 9, p_thread_root_id: null }],
     ] : [

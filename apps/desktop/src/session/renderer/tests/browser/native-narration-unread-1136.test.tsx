@@ -32,10 +32,10 @@ function fixture(count = 1) {
   return { context, state, harness };
 }
 
-it('acknowledges the original native reply only after identity navigation exposes its narration', async () => {
+it.each([1, 2] as const)('acknowledges the original native reply on protocol v%s only after identity navigation exposes its narration', async version => {
   const { context, state, harness } = fixture();
   let journal = addNativeReplies({}, [id(0)]);
-  const publish = () => updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 's', nativeInputVersion: 1,
+  const publish = () => updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 's', nativeInputVersion: version,
     nativeUnreadKeys: unreadNativeMessages(journal), nativeUnreadAliases: { msg_reply_0: id(0) } } as never] });
   rpc.visible.mockImplementation(async ({ itemIds }: { itemIds: string[] }) => {
     await act(async () => { journal = seeNativeReplies(journal, itemIds); publish(); });

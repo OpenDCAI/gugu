@@ -58,6 +58,16 @@ describe('native personal conversation unread', () => {
     markNativeConversationVisible('s', ['unknown']);
     expect(nativeConversationUnread('s')).toEqual(['s:turn:1:message:msg_covered']);
   });
+  it('accepts a captured mark-all identity batch and preserves a reply arriving before the write', () => {
+    noteNativeConversationReplies('s', turn(['msg_first', 'msg_second']));
+    const captured = nativeConversationUnread('s');
+    noteNativeConversationReplies('s', turn(['msg_later']));
+    markNativeConversationVisible('s', captured);
+    expect(nativeConversationUnread('s')).toEqual(['s:turn:1:message:msg_later']);
+    // A second client can submit the same capture without replacing the newer journal.
+    markNativeConversationVisible('s', captured);
+    expect(nativeConversationUnread('s')).toEqual(['s:turn:1:message:msg_later']);
+  });
   it('does not confuse a reused synthetic live id after the runtime restarts', () => {
     const live = turn(['auto:assistant:0']);
     const a = { ...live, id: 's:turn:s1', items: live.items.map(item => ({ ...item, id: 's:turn:s1:message:auto:assistant:0' })) };
