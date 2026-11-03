@@ -197,7 +197,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
 
     // Fire onActivate() whenever the active visible resource instance changes.
     // Tracking the resource instance (not just the tab id) ensures onActivate()
-    // fires after a preview-retarget, where retargetEntry() swaps in a new
+    // fires after navigation, where _showPage() swaps in a new
     // resource at the same tabId (leaving the id unchanged but the instance new).
     //
     // 并排时屏上有两枚(spec session-page「并排」):每一枚刚上屏都要 onActivate —— 它的意思是「这一页上屏了」
@@ -244,7 +244,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * when one is reinstalled — and the user's open tabs must come back rather
    * than stay dead until they reopen them by hand.
    *
-   * The entry object is reused, so tabId, order, preview flag and persisted
+   * The entry object is reused, so tabId, order and persisted
    * state survive: this promotes the tab in place, it does not reopen it.
    */
   /**
@@ -256,7 +256,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * what tears its surface down — a user who uninstalls something they stopped
    * trusting should not have it still running until the next restart.
    *
-   * The entry object is reused, so tabId, order, preview flag and persisted state
+   * The entry object is reused, so tabId, order and persisted state
    * survive and a reinstall promotes the very same tab back.
    */
   private _demoteTabsToUnavailable(kind: string): void {
@@ -376,8 +376,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     return this.registry.get(kind).resourceKey(e.state as never) === key;
   }
 
-  /** Find the first preview entry of a given kind (used for preview retargeting). */
-
   get resolvedTabs(): ResolvedTab[] {
     const result: ResolvedTab[] = [];
     const effectiveActiveId = this.resolvedActiveTabId;
@@ -416,14 +414,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     return descriptorOf({ ...entry, kind: page.kind, state: page.state, history: entry.history ? { pages: retained.map(({ page }) => page), index } : undefined });
   }
 
-  /**
-   * Open a tab in THIS pane. Skips single-mount cardinality (that is enforced by
-   * the layout store before routing here). Handles preview retarget within the pane.
-   *
-   * `initialState` is the already-computed state from the layout store.
-   * `isPreview` comes from the caller's `preview` flag.
-   * `overrideState` applies when the layout found a single-mount match in this pane.
-   */
+  /** Open a fresh navigation context in this pane from normalized provider state. */
   openWithState(kind: string, initialState: unknown, opts?: { activate?: boolean; after?: string; openerTabId?: string }): string | undefined {
     if (!this.registry.has(kind)) return undefined;
     const tabId = crypto.randomUUID();
@@ -809,14 +800,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     }
     if (opts?.activate ?? false) this.setActiveTab(entry.tabId);
   }
-
-  /**
-   * Replaces an existing entry's state in-place without changing tabId.
-   * Used by the generic open for preview retargeting:
-   *   1. Dispose the old resource.
-   *   2. Create a new entry with the new state at the same tabId slot.
-   *   3. Initialize the new resource.
-   */
 
   reopenClosedTab(): void {
     const record = this._closedTabHistory.pop();

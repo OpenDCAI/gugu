@@ -19,7 +19,7 @@ export interface GenericTabItemProps {
   ctx: TabViewContext;
   /** Plain visible text; used as the default tooltip base and rename commit basis. */
   label: string;
-  /** Tooltip base when different from label (e.g. full file path); preview hint appended. */
+  /** Tooltip base when different from label (e.g. full file path). */
   tooltip?: string;
   /** Leading icon slot (file icon, agent icon, spinner). */
   preSlot?: ReactNode;
@@ -41,7 +41,6 @@ export interface GenericTabItemProps {
  * Single generic tab chip renderer. Owns:
  * - Drag wrapper, click/keyboard interaction, active styling, pane separator
  * - Context menu wrapping
- * - Preview tooltip/italic formatting
  * - Inline rename (label → input) driven by host.renameRequest
  * - Close button with optional status indicator underneath
  *
@@ -97,7 +96,7 @@ export const GenericTabItem = observer(function GenericTabItem({
     // Keyboard-initiated selection needs an explicit call since onClick won't fire.
   };
 
-  // 页签全屏:关闭钮前一颗「全屏 / 退出全屏」,双击页签同一件事(瞄一眼的那种双击照旧是留下它)。
+  // 页签全屏:关闭钮前一颗「全屏 / 退出全屏」,双击页签同一件事。
   // 盖住的是整个工作区,所以这屏不止一块时每一枚点着的页签都有;只有一块时只给并排着的那一对(全屏才有区别)。
   const place = useScreenBlock();
   const fill = tab.isActive ? host.tabFill(tab.tabId, place.blockId !== null && place.multi) : null;

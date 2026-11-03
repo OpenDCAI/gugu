@@ -74,13 +74,7 @@ export class ExtensionTabResource implements TabResource {
   }
 }
 
-/**
- * 两种格,两种页:
- *   · 认领文件开出来的 → 一个文件一份页,只有活动的那一格驮着它,切走就释放(ExtensionTabPane)。
- *   · 常驻的那一格(App 为自己开的,整个 app 只有一枚,摆在哪条会话里就在哪)→ 页整个 app 一张,住在根层;
- *     这里只是它此刻的落点(ExtensionSharedSlot)。挪到别的会话时页跟过去,不重建 ——
- *     behavior tab-extensions「挪地方、切会话时它纹丝不动」。
- */
+/** File and folder pages share the same per-tab navigation context; hidden pages retain their own state. */
 /** The tab is one per task (manifest `perSession`, #7317): every task keeps its own, none is moved from another. */
 function isPerSession(kind: string): boolean {
   return installedExtensionsStore.allTabContributions.find((entry) => entry.kind === kind)?.perSession === true;

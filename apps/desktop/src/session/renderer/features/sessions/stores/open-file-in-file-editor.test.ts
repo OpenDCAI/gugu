@@ -688,7 +688,7 @@ describe('task file preview routing', () => {
     });
 
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true }));
-    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('notes.board', {}, { from: null, intent: 'navigate', activate: false });
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('notes.board', {}, { from: null, intent: 'newTab', activate: false });
     // `activePane.open` is typed to built-in kinds, so routing an extension through it
     // could not name this tab at all — that is why this one goes through the layout.
     expect(mocks.activePaneOpen).not.toHaveBeenCalled();
@@ -710,7 +710,7 @@ describe('task file preview routing', () => {
     const disposeFirst = open(first);
     await vi.waitFor(() => expect(first).toHaveBeenCalledWith({ success: true }));
     // Beside the conversation, and the tab the person is looking at stays in front.
-    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('computer-use.preview', {}, { from: null, intent: 'navigate', activate: false });
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('computer-use.preview', {}, { from: null, intent: 'newTab', activate: false });
 
     mocks.paneLayoutOpen.mockClear();
     mocks.openKinds.push('computer-use.preview');
@@ -740,7 +740,7 @@ describe('task file preview routing', () => {
 
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true }));
     expect(mocks.registerInstalledExtensionTabs).toHaveBeenCalledTimes(1);
-    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('fresh.panel', {}, { from: null, intent: 'navigate', activate: false });
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('fresh.panel', {}, { from: null, intent: 'newTab', activate: false });
     dispose();
   });
 

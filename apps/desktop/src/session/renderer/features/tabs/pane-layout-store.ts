@@ -613,9 +613,9 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       snapshot.paneSizes
     );
     this._syncGroupOrder();
-    for (const { pane } of this.groups) {
+    for (const { pane, paneId } of this.groups) {
       for (const entry of pane.entries.values()) {
-        if (entry.companionPaneId && !this.groups.some((group) => group.paneId === entry.companionPaneId)) entry.companionPaneId = undefined;
+        if (entry.companionPaneId && (entry.companionPaneId === paneId || !this.groups.some((group) => group.paneId === entry.companionPaneId))) entry.companionPaneId = undefined;
       }
     }
   }

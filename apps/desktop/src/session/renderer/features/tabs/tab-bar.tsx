@@ -1,6 +1,6 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
-import { ChevronDown } from '@/lib/icons';
+import { ChevronDown, ChevronLeft } from '@/lib/icons';
 import { Button } from '@renderer/lib/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@renderer/lib/ui/dropdown-menu';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -34,6 +34,12 @@ export const TabBar = observer(function TabBar({
 }) {
   const { paneId, pane } = usePaneContext();
 
+  const { translate } = useSessionMessages();
+  const active = pane.activeEntry;
+  const opener = active?.openerTabId ? pane.entries.get(active.openerTabId) : undefined;
+  const returnConversation = active && opener && pane.registry.has(opener.kind) && pane.registry.get(opener.kind).conversation && (pane.navigationOf(active.tabId)?.index ?? 0) === 0
+    ? <Button variant="ghost" size="sm" data-testid="tab-return-conversation" className="shrink-0" onClick={() => void pane.go(active.tabId, -1)}><ChevronLeft className="size-3.5" />{translate('tabs.backToConversation')}</Button>
+    : null;
   const resolvedTabs = pane.resolvedTabs;
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -94,7 +100,7 @@ export const TabBar = observer(function TabBar({
       actionsSlot={actionsSlot}
       reserveShellRestoreLane={reserveShellRestoreLane}
       leadingReservePx={leadingReservePx}
-      leadingSlot={leadingSlot}
+      leadingSlot={<>{leadingSlot}{returnConversation}</>}
     >
       <TabStripMotion scroller={scrollContainerRef} order={order.join('\0')} activeTabId={pane.activeTabId}>
       {order.map((id) => {

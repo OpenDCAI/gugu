@@ -30,13 +30,28 @@ it('shields embedded pages during a real divider drag and releases the shield on
   const separator = harness.container.querySelector<HTMLElement>('[data-slot="resizable-handle"]')!;
   const rect = separator.getBoundingClientRect();
   const before = JSON.stringify(layout.snapshot.layout);
-  const mouse = (type: 'mouseMoved' | 'mousePressed' | 'mouseReleased', x: number, pressed = false) => cdp().send('Input.dispatchMouseEvent', { type, x, y: rect.top + 80, button: type === 'mouseMoved' && !pressed ? 'none' : 'left', buttons: pressed ? 1 : 0, clickCount: type === 'mouseMoved' ? 0 : 1 });
-  await mouse('mouseMoved', rect.left);
-  await mouse('mousePressed', rect.left, true);
-  await until('the divider enables the shared native-page shield', () => document.documentElement.hasAttribute('data-gugu-dragging'));
-  expect(getComputedStyle(harness.container.querySelector('iframe')!).pointerEvents).toBe('none');
-  await mouse('mouseMoved', rect.left + 80, true);
-  await mouse('mouseReleased', rect.left + 80);
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + 80;
+  expect(separator.contains(document.elementFromPoint(x, y)), 'the actual divider receives the pointer').toBe(true);
+  const mouse = async (type: 'mouseMoved' | 'mousePressed' | 'mouseReleased', localX: number, pressed = false) => {
+    let x = localX, topY = y;
+    for (let current: Window = window; current.frameElement; current = current.parent) {
+      const frame = current.frameElement as HTMLElement, box = frame.getBoundingClientRect();
+      const scale = box.width / frame.offsetWidth;
+      x = box.left + (frame.clientLeft + x) * scale;
+      topY = box.top + (frame.clientTop + topY) * scale;
+    }
+    await cdp().send('Input.dispatchMouseEvent', { type, x, y: topY, button: type === 'mouseMoved' && !pressed ? 'none' : 'left', buttons: pressed ? 1 : 0, clickCount: type === 'mouseMoved' ? 0 : 1 });
+  };
+  await mouse('mouseMoved', x);
+  await mouse('mousePressed', x, true);
+  try {
+    await until('the divider enables the shared native-page shield', () => document.documentElement.hasAttribute('data-gugu-dragging'));
+    expect(getComputedStyle(harness.container.querySelector('iframe')!).pointerEvents).toBe('none');
+    await mouse('mouseMoved', x + 80, true);
+  } finally {
+    await mouse('mouseReleased', x + 80);
+  }
   await until('the user resize is saved', () => JSON.stringify(layout.snapshot.layout), (value) => value !== before);
   expect(document.documentElement.hasAttribute('data-gugu-dragging')).toBe(false);
 });

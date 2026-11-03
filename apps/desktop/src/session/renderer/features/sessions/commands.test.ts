@@ -269,7 +269,7 @@ describe('createSessionCommandProvider', () => {
 
   // #6780 旧侧栏两个页签的接班人:走空态 /「+」菜单同一个开页签入口,开在这个会话自己的页签条里。
   it.each([
-    ['session.sidebarChanges', 'sidebarChanges', ['review', {}]],
+    ['session.sidebarChanges', 'sidebarChanges', ['review', {}, { from: null, intent: 'newTab' }]],
     ['session.sidebarFiles', 'sidebarFiles', ['workspace.main', {}, { from: null, intent: 'newTab' }]],
   ] as const)('%s 打开对应页签', (id, _shortcutKey, openArgs) => {
     const view = {

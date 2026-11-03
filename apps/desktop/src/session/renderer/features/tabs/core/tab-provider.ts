@@ -172,8 +172,7 @@ export interface TabProvider<
    * (e.g. create a browser session), and return the initial serializable state.
    * Return null to abort the open.
    *
-   * If absent, the engine strips `preview`, `overrideState`, and `target` from
-   * args and uses the rest as the initial state.
+   * If absent, the open args become the initial state; routing stays in the separate open options.
    */
   onBeforeOpen?(args: OpenArgs, ctx: TabViewContext): S | null;
 

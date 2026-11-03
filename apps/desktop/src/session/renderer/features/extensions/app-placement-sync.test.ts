@@ -56,7 +56,7 @@ describe('startAppPlacementSync', () => {
     });
   });
 
-  it('keeps each task's independent App contexts regardless of the old placement table', () => {
+  it("keeps each task's independent App contexts regardless of the old placement table", () => {
     appPlacementStore.place('timer.main', { projectId: 'p', sessionId: 'a' });
     const a = fakeSession();
     a.add('chat', 'acp-chat', { sessionId: 'a' });
