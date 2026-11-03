@@ -21,6 +21,14 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+
+vi.mock('@renderer/lib/acp/acp-session-attachment', () => ({
+  attachAcpSessionWhenReady: async (id: string, signal: AbortSignal) => {
+    signal.throwIfAborted();
+    return (await import('@renderer/lib/acp/acp-live-session')).AcpLiveSession.create(id);
+  },
+}));
+
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
 
 /** 到那台机器的线:此刻通不通,以及「从断变通」时要叫的那几位(由用例自己叫)。 */

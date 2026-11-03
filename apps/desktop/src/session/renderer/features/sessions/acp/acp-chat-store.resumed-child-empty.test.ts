@@ -15,6 +15,14 @@ import type { Session } from '@shared/core/sessions/sessions';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 
 const records = vi.hoisted(() => new Map<string, Partial<Session>>());
+
+vi.mock('@renderer/lib/acp/acp-session-attachment', () => ({
+  attachAcpSessionWhenReady: async (id: string, signal: AbortSignal) => {
+    signal.throwIfAborted();
+    return (await import('@renderer/lib/acp/acp-live-session')).AcpLiveSession.create(id);
+  },
+}));
+
 vi.mock('../stores/session-registry', () => ({
   sessionRegistry: {
     get: (id: string) =>

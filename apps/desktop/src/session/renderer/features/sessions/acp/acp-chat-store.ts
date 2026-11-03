@@ -46,6 +46,7 @@ import { projectSessionPendingInput } from '@/lib/pendingSessionInput';
 import { isTranscriptDelivery, loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries';
 import { batch } from 'solid-js';
 import { AcpLiveSession, AcpStartError, asValueSource } from '@renderer/lib/acp/acp-live-session';
+import { attachAcpSessionWhenReady } from '@renderer/lib/acp/acp-session-attachment';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
 import { watchRunningSession, type RunningSessionWatch } from '@renderer/lib/acp/running-sessions';
 import { machineLinkHandingOff, machineLinkState, onMachineReconnected } from '@renderer/lib/machine-clients';
@@ -151,6 +152,7 @@ export class AcpChatStore {
   private _unwatchSenderInputs: (() => void) | null = null;
   /** Opened on a stopped session: nothing to attach to until it runs again. */
   private _attachWhenReady = false;
+  private _attachmentAbort: AbortController | null = null;
   /**
    * The custody row the transcript draws as the next turn (`pendingPrompt`), while it waits for that turn: from the
    * send on it sits where its turn will be, ❌ first in the tray above the composer and then up in the transcript.
@@ -1618,6 +1620,7 @@ export class AcpChatStore {
     this._queueEditTimer = null;
     if (this._disposed) return;
     this._disposed = true;
+    this._attachmentAbort?.abort();
     unregisterSessionCommands(this.runtimeSessionId);
     if (this._draftTimer !== null) {
       window.clearTimeout(this._draftTimer);
@@ -1982,6 +1985,8 @@ export class AcpChatStore {
       this._resetRuntimeHistoryState();
     } else this._resetHistoryState();
     const generation = this._historyGeneration;
+    this._attachmentAbort?.abort();
+    const attachmentAbort = this._attachmentAbort = new AbortController();
     try {
       // #5381 先把库里那份画出来,不等引擎。侧边对话跳过:它的上下文开在主对话那条上,
       // 自己不该有一份历史(库里也没有它的行 —— 它的 id 是运行时视图 id)。
@@ -2030,7 +2035,7 @@ export class AcpChatStore {
       // 起引擎与读库**并行**:两件事互不依赖。❌ 不许把 spawn 排在一次读之后 ——
       // 本机库读起来接近零延迟,会把这个串行藏得看不见,换到读得慢的那一侧(库大、盘忙、
       // 将来换成非本机的存储)它就是白等的一段,而 spec 要求会话启动不被任何东西挡住。
-      const clientSessionReady = AcpLiveSession.create(this.runtimeSessionId);
+      const clientSessionReady = attachAcpSessionWhenReady(this.runtimeSessionId, attachmentAbort.signal);
       // 引擎这一路的错误统一在下面 await 时抛;这里只是别让它在等库期间变成未处理拒绝。
       clientSessionReady.catch(() => {});
 

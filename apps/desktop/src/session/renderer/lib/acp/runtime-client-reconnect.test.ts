@@ -38,7 +38,7 @@ it.each(['draft', 'cancel'] as const)('does not queue a %s command across a disc
   expect(calls).toHaveBeenCalledTimes(1);
 });
 
-it.each(['snapshot', 'attach'] as const)('automatically recovers a state %s disconnected before its first result', async operation => {
+it.each(['snapshot', 'attach'] as const)('does not replay a session %s interrupted before its first result', async operation => {
   const first = memoryTransportPair(), second = memoryTransportPair();
   const started = pending<void>(), resume = pending<WireTransport>(), held = pending<void>();
   const snapshot: LiveSnapshot<unknown> = { generation: 2, sequence: 0, timestamp: 0, data: { lifecycle: 'ready' } };
@@ -57,9 +57,11 @@ it.each(['snapshot', 'attach'] as const)('automatically recovers a state %s disc
   const reading = (operation === 'snapshot' ? handle.snapshot() : handle.attach(() => {})).catch(error => { failure = error; return null; });
   await started.promise;
   first.disconnect();
+  expect(await reading).toBeNull();
+  expect(failure).toMatchObject({ code: 'DISCONNECTED' });
   resume.resolve(second.left);
-  const result = await reading;
-  expect(failure, 'an interrupted live-state read must reconnect without a user retry').toBeNull();
+  await vi.waitFor(() => expect(client.connection.connected).toBe(true));
+  const result = operation === 'snapshot' ? await handle.snapshot() : await handle.attach(() => {});
   expect(opens).toBe(2);
   if (operation === 'snapshot') expect(result).toMatchObject(snapshot);
   else { expect(result).toBeTypeOf('function'); (result as () => void)(); }

@@ -12,6 +12,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import type { HistoryCursor } from '@gugu/session-core/acp/client';
 
+
+vi.mock('@renderer/lib/acp/acp-session-attachment', () => ({
+  attachAcpSessionWhenReady: async (id: string, signal: AbortSignal) => {
+    signal.throwIfAborted();
+    return (await import('@renderer/lib/acp/acp-live-session')).AcpLiveSession.create(id);
+  },
+}));
+
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
 const custody = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => {}));
 vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNativeInput: () => false }));
