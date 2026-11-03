@@ -78,6 +78,31 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 describe('DevicesSection interaction', () => {
+  it.each(['outcome', 'version'])('keeps restarting across offline heartbeats until the matching %s arrives', async completion => {
+    restartNow.mockImplementationOnce(async () => ({ requested: true, at: 42 }))
+    const capabilities: Device['capabilities'] = { terminals: [], runtimes: [], host_kind: 'server',
+      app_version: '0.3.0', server_confirmed_restart: true,
+      server_update: { state: 'ready', version: '0.3.1', scope: 'supervisor', at: Date.now() } }
+    const render = async (patch: Partial<Device> = {}) => {
+      const value = store({ devices: [device({ device_id: 'srv', capabilities, ...patch })] })
+      await act(async () => { root.render(createElement(DevicesContext.Provider, { value }, createElement(DevicesSection))) })
+      await flush()
+    }
+    await render()
+    await act(async () => { container.querySelector<HTMLElement>('[data-testid="settings-device-match-restart-now"]')!.click() })
+    await act(async () => { container.querySelector<HTMLElement>('[data-testid="settings-device-update-now-yes"]')!.click() })
+    await flush()
+    await render({ is_online: false, status: 'offline' })
+    expect(container.querySelector('[data-testid="settings-device-restarting"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="settings-device-match-restart-now"]')).toBeNull()
+    await render({ capabilities: { ...capabilities, server_update_outcome: { kind: 'switched', target: '0.3.1', request: 41, at: Date.now() } } })
+    expect(container.querySelector('[data-testid="settings-device-restarting"]')).not.toBeNull()
+    await render({ capabilities: completion === 'version'
+      ? { ...capabilities, app_version: '0.3.1' }
+      : { ...capabilities, server_update_outcome: { kind: 'switched', target: '0.3.1', request: 42, at: Date.now() } } })
+    expect(container.querySelector('[data-testid="settings-device-restarting"]')).toBeNull()
+  })
+
   it('uses the same device name in Attach and the version dialog, with the tier in the description', async () => {
     const versions = [device({ device_id: 'old', label: 'Previous install', machine_id: 'same-mac', tier: 'production', is_online: false }),
       device({ device_id: 'active', label: 'Current install', machine_id: 'same-mac', tier: 'beta' })]

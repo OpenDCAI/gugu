@@ -34,6 +34,32 @@ describe('single-process server startup', () => {
     release()
   })
 
+  it('reclaims a live PID from another boot without changing the legacy numeric lock format', () => {
+    fs.mkdirSync(path.join(home, 'data'))
+    const lock = path.join(home, 'data/server.lock')
+    fs.writeFileSync(lock, '12345')
+    const inode = fs.statSync(lock)
+    const proof = path.join(home, 'data', `.server-lock-${inode.dev}-${inode.ino}.json`)
+    fs.writeFileSync(proof, JSON.stringify({ pid: 12345, bootId: 'previous-boot' }))
+    const release = acquireHomeLock(home, () => true)
+    expect(release).toBeTypeOf('function')
+    expect(Number(fs.readFileSync(lock, 'utf8').trim())).toBe(process.pid)
+    expect(fs.existsSync(proof)).toBe(false)
+    release!()
+    expect(fs.readdirSync(path.join(home, 'data')).filter(name => name.startsWith('.server-lock-'))).toEqual([])
+  })
+
+  it.each(['missing', 'wrong-pid', 'same-boot'])('preserves a live holder with %s boot evidence', mode => {
+    const release = acquireHomeLock(home, () => true)!
+    const data = path.join(home, 'data')
+    const proof = fs.readdirSync(data).find(name => name.startsWith('.server-lock-'))
+    expect(proof).toBeDefined()
+    if (mode === 'missing') fs.rmSync(path.join(data, proof!))
+    if (mode === 'wrong-pid') fs.writeFileSync(path.join(data, proof!), JSON.stringify({ pid: process.pid + 1, bootId: 'previous-boot' }))
+    expect(acquireHomeLock(home, () => true)).toBeNull()
+    release()
+  })
+
   it('clears pending verification on reaching a stable state and retains the request result', () => {
     writePendingVerify(home, { from: '1.0.0', to: '2.0.0', attempts: 0, request: 42 })
     markServerReady(home, 500)

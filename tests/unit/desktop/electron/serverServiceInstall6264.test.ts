@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { once } from 'node:events'
 import {
   chooseServiceMode,
   cronQuote,
@@ -44,7 +45,42 @@ it.each([0, 75, 78, 79, 143, 1])('launchd wrapper classifies the actual server e
     const args = [...argumentsXml.matchAll(/<string>(.*?)<\/string>/gs)].map(match => match[1]!.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'))
     const result = spawnSync(args[0]!, args.slice(1), { env: { ...process.env, GUGU_SERVER_HOME: home }, encoding: 'utf8' })
     expect(result.status, result.stderr).toBe([0, 78, 79, 143].includes(code) ? 0 : code)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toBe('')
   } finally { fs.rmSync(home, { recursive: true, force: true }) }
+})
+
+it.runIf(process.platform === 'darwin')('launchd kills a stuck child group before its own timeout and reports exit 137', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-launchd-hang-'))
+  let childPid: number | undefined
+  const executable = path.join(home, 'fake-server')
+  fs.writeFileSync(executable, `#!${process.execPath}\nprocess.on('SIGTERM',()=>{});process.stdout.write(String(process.pid));setInterval(()=>{},1000)`, { mode: 0o700 })
+  const fakebin = path.join(home, 'bin')
+  fs.mkdirSync(fakebin)
+  fs.writeFileSync(path.join(fakebin, 'sleep'), `#!/bin/sh\nprintf '%s' "$1" > '${home}/sleep-seconds'\n`, { mode: 0o700 })
+  const plist = launchdPlist(executable, home, path.join(home, 'service.log'))
+  const xml = plist.match(/<key>ProgramArguments<\/key><array>(.*?)<\/array>/s)![1]!
+  const args = [...xml.matchAll(/<string>(.*?)<\/string>/gs)].map(match => match[1]!.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'))
+  const wrapper = spawn(args[0]!, args.slice(1), { env: { ...process.env, GUGU_SERVER_HOME: home, PATH: `${fakebin}:${process.env.PATH}` } })
+  const guard = setTimeout(() => wrapper.kill('SIGKILL'), 10_000)
+  let stderr = ''
+  wrapper.stderr!.on('data', value => { stderr += String(value) })
+  try {
+    childPid = Number(String((await once(wrapper.stdout!, 'data'))[0]))
+    const closed = once(wrapper, 'close')
+    wrapper.kill('SIGTERM')
+    expect(await closed).toEqual([137, null])
+    const timeout = Number(plist.match(/<key>ExitTimeOut<\/key><integer>(\d+)<\/integer>/)![1])
+    expect(Number(fs.readFileSync(path.join(home, 'sleep-seconds'), 'utf8'))).toBe(timeout - 5)
+    expect(stderr).toContain(`KILL pid ${childPid}`)
+    expect(() => process.kill(childPid!, 0)).toThrow()
+  } finally {
+    clearTimeout(guard)
+    if (childPid) try { process.kill(childPid, 'SIGKILL') } catch { /* already stopped */ }
+    console.info('Launchd hang fixture cleanup:', home)
+    expect(home.startsWith(path.join(os.tmpdir(), 'gugu-launchd-hang-'))).toBe(true)
+    fs.rmSync(home, { recursive: true, force: true })
+  }
 })
 
 /**

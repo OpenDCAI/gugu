@@ -120,3 +120,13 @@ it('start tells the terminal which live PID already holds the lock', () => {
   expect(lines.join('\n')).toContain(`pid ${process.pid}`)
   expect(command.mock.calls.some(([cmd]) => cmd === 'launchctl')).toBe(false)
 })
+
+it('start reports a successfully accepted launchd start', () => {
+  const plist = path.join(home, 'Library/LaunchAgents/space.nextmind.gugu-server.plist')
+  fs.mkdirSync(path.dirname(plist), { recursive: true })
+  fs.writeFileSync(plist, '')
+  command.mockImplementation(() => result())
+  const lines: string[] = []
+  restartServerAfterLogin(line => lines.push(line))
+  expect(lines.join('\n')).toContain('start requested')
+})
