@@ -101,7 +101,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     editor.current?.setText(next)
     onDraftApplied?.()
   }, [draft, onDraftApplied, draftText, setDraftText])
-  const options = useConversationOptions({ deviceId, sessionId, local, phoneHost, reachable: hostReachable })
+  const options = useConversationOptions({ deviceId, sessionId, local, phoneHost, reachable: hostReachable }, harness ? engineLabel(harness) : agentName)
   const queue = useConversationQueue({ deviceId, sessionId, local, phoneHost }, timeline.queuedPrompts.filter(input => !readDeliveryEnvelope(input.text)), agentWorking, options.steers)
   const quotes = usePhoneSessionQuotes({ deviceId, sessionId, timeline, draftText, setDraftText, queue: queue.props, onLoadOlder, editor, view })
   const editorState = useRef({ text: draftText, edit: quotes.composer.queuedPromptEdit })

@@ -58,13 +58,14 @@ type Choice = { id: string; name: string; description?: string | null }
 function presentChoices(
   dimension: SessionOptionDimension,
   group: SessionOptionGroup,
-  modeMap: ProviderPermissionModeMap | undefined
+  modeMap: ProviderPermissionModeMap | undefined,
+  agentName: string
 ): { choices: Choice[]; selected: string | null } {
   if (dimension !== 'mode') return { choices: group.available, selected: group.selected ?? null }
   const reported = Object.fromEntries(
     group.available.map((c) => [c.id, { name: c.name, description: c.description ?? undefined }])
   )
-  const shown = localizePermissionModeOptions(reported, translateSessionMessage, modeMap) ?? reported
+  const shown = localizePermissionModeOptions(reported, translateSessionMessage, agentName, modeMap) ?? reported
   return {
     choices: Object.entries(shown).map(([id, option]) => ({ id, name: option.name, description: option.description })),
     selected: selectedPermissionModeId(group.selected ?? undefined, reported, modeMap) ?? null,
@@ -75,9 +76,10 @@ function presentChoices(
 function selectedName(
   dimension: SessionOptionDimension,
   group: SessionOptionGroup,
-  modeMap: ProviderPermissionModeMap | undefined
+  modeMap: ProviderPermissionModeMap | undefined,
+  agentName: string
 ): string | null {
-  const { choices, selected } = presentChoices(dimension, group, modeMap)
+  const { choices, selected } = presentChoices(dimension, group, modeMap, agentName)
   return choices.find((c) => c.id === selected)?.name ?? null
 }
 
@@ -100,10 +102,11 @@ function presentGroups(
 function pillLabel(
   groups: Array<[SessionOptionDimension, SessionOptionGroup]>,
   modeMap: ProviderPermissionModeMap | undefined,
+  agentName: string,
   modelName: string | null
 ): string | null {
   const parts = groups
-    .map(([dimension, group]) => (dimension === 'model' && modelName) || selectedName(dimension, group, modeMap))
+    .map(([dimension, group]) => (dimension === 'model' && modelName) || selectedName(dimension, group, modeMap, agentName))
     .filter((x): x is string => !!x)
   return parts.length > 0 ? parts.join(' · ') : null
 }
@@ -153,11 +156,13 @@ function ChoiceRow({
 export function SessionOptionsPill({
   deviceId,
   sessionId,
+  agentName,
   phoneHost = false,
   busy
 }: {
   deviceId: string
   sessionId: string
+  agentName: string
   phoneHost?: boolean
   /** agent 在跑 / 正在发送。跑到一半改选项会与它自己的输出交错,所以锁住。 */
   busy: boolean
@@ -194,7 +199,7 @@ export function SessionOptionsPill({
   const models = options?.modelMenu && options.model ? sessionModelView(options.modelMenu, options.model) : null
   const modelItem = models?.groups.flatMap((group) => group.items).find((item) => item.id === models.selectedId)
   const modeMap = options?.modeMap
-  const label = pillLabel(groups, modeMap, modelItem ? (modelItem.shortName ?? modelItem.name) : null)
+  const label = pillLabel(groups, modeMap, agentName, modelItem ? (modelItem.shortName ?? modelItem.name) : null)
 
   // 没得选就整个不画(orca 同款)。会话没在跑、还没读到、这条会话本来就没有可调档位,
   // 三种情况都落在这里。
@@ -202,14 +207,14 @@ export function SessionOptionsPill({
 
   const disabled = busy || pending !== null
   const current = view ? groups.find(([d]) => d === view) : undefined
-  const currentChoices = current ? presentChoices(current[0], current[1], modeMap) : null
+  const currentChoices = current ? presentChoices(current[0], current[1], modeMap, agentName) : null
   const atRoot = current?.[0] === root[0]
   const others = groups.filter(([d]) => d !== root[0])
 
   const pick = (dimension: SessionOptionDimension, group: SessionOptionGroup, value: string): void => {
     // 重选当前那一档 = 什么都不做(orca 同一条:❌ 不重复下发已经生效的值),只回顶层,像选了别的一样。
     // 「当前那一档」按屏上选中的那一行算(权限档收成四档后,原生 `dontAsk` 显示在「只读」那一行上)。
-    if (presentChoices(dimension, group, modeMap).selected === value) {
+    if (presentChoices(dimension, group, modeMap, agentName).selected === value) {
       setView(root[0])
       return
     }
@@ -381,7 +386,7 @@ export function SessionOptionsPill({
                   >
                     <span className="gg-aw-summary-label">{t(`agentWatch.options.${dimension}`)}</span>
                     <span className="gg-aw-summary-value">
-                      {selectedName(dimension, group, modeMap) ?? t('agentWatch.options.unknownValue')}
+                      {selectedName(dimension, group, modeMap, agentName) ?? t('agentWatch.options.unknownValue')}
                     </span>
                     <ChevronRight />
                   </Button>

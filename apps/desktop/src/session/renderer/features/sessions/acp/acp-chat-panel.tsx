@@ -1505,6 +1505,7 @@ const ComposerForStore = observer(function ComposerForStore({
         permissionModeOptions={localizePermissionModeOptions(
           sessionPermissionOptions,
           translate,
+          agents?.find((agent) => agent.id === providerId)?.name ?? providerId ?? '',
           providerPermissionModeMap
         )}
         selectedPermissionMode={selectedPermissionModeId(

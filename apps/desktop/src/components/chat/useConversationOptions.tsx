@@ -14,7 +14,7 @@ import { messageForUser } from '@/lib/userFacingError'
 export type ConversationTarget = { deviceId: string; sessionId: string; local: boolean; phoneHost?: boolean; /** false while that machine is away: nothing to ask; asked again once it is back. */ reachable?: boolean }
 
 /** Adapts the host facts through the project page's model, effort and permission assemblers. */
-export function useConversationOptions(target: ConversationTarget | null) {
+export function useConversationOptions(target: ConversationTarget | null, agentName: string) {
   const deviceId = target?.deviceId, sessionId = target?.sessionId, local = target?.local, phoneHost = target?.phoneHost, reachable = target?.reachable !== false
   const key = target ? `${deviceId}/${sessionId}/${local}/${phoneHost}` : ''
   const [read, setRead] = useState<{ key: string; options: SessionpageSessionOptionsWithMenu } | null>(null)
@@ -49,7 +49,7 @@ export function useConversationOptions(target: ConversationTarget | null) {
     effortOptions: localizeEffortOptions(options?.effort ? Object.fromEntries(options.effort.available.map(item => [item.id, { name: item.name, description: item.description }])) : null, translateSessionMessage),
     selectedEffort: options?.effort?.selected ?? undefined,
     onEffortChange: id => { void pick('effort', id) },
-    permissionModeOptions: localizePermissionModeOptions(permissions, translateSessionMessage, options?.modeMap),
+    permissionModeOptions: localizePermissionModeOptions(permissions, translateSessionMessage, options?.modelMenu?.agentName ?? agentName, options?.modeMap),
     selectedPermissionMode: selectedPermissionModeId(options?.mode?.selected ?? undefined, permissions, options?.modeMap),
     onPermissionModeChange: id => { void pick('mode', id) },
     ...(error ? { notice: { variant: 'error', message: error, onDismiss: () => setError(null) } } : {}),
