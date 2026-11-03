@@ -78,7 +78,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
         });
         process.send('ready');
       })();
-    ` }, bundle: true, platform: 'node', format: 'cjs', outfile: hostEntry })
+    ` }, bundle: true, platform: 'node', format: 'cjs', external: ['better-sqlite3', 'node-pty', '@parcel/watcher'], outfile: hostEntry })
   })
   afterAll(() => {
     if (!dir.startsWith(path.join(os.tmpdir(), 'gugu-host-exit-tree-'))) throw new Error('Unexpected fixture directory')
@@ -89,6 +89,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
     const bootRecord = path.join(dir, `${kind}-boot.json`)
     const tmuxRecord = path.join(dir, `${kind}-tmux.json`)
     const tmuxSocket = path.join(dir, `${kind}.sock`)
+    for (const file of [record, bootRecord, tmuxRecord]) fs.rmSync(file, { force: true })
     const unrelated = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { detached: true, stdio: 'ignore' })
     const host = fork(hostEntry, [], { silent: true, env: { ...process.env, TREE_FILE: record, BOOT_TREE_FILE: bootRecord,
       TMUX_TREE_FILE: tmuxRecord, TMUX_SOCKET: withTmux ? tmuxSocket : '' } })
@@ -96,7 +97,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
     let boot: { boot: number; bootWorker: number; probe: number } | undefined
     let tmux: { server: number; pane: number } | undefined
     try {
-      await once(host, 'message')
+      await once(host, 'message', { signal: AbortSignal.timeout(10_000) })
       tree = JSON.parse(fs.readFileSync(record, 'utf8')) as typeof tree
       boot = JSON.parse(fs.readFileSync(bootRecord, 'utf8')) as typeof boot
       if (withTmux) tmux = JSON.parse(fs.readFileSync(tmuxRecord, 'utf8')) as typeof tmux
