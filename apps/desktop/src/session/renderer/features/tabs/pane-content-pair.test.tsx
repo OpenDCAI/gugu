@@ -18,7 +18,11 @@ let root: Root;
 let dom: JSDOM;
 const mounts = new Map<string, number>();
 function Page({ id }: { id: string }) { useEffect(() => { mounts.set(id, (mounts.get(id) ?? 0) + 1); }, [id]); return <div data-page={id} />; }
-const Content = observer(({ host }: TabContentProps) => <>{host.resolvedTabs.some((tab) => tab.isActive && (tab.state as { id: string }).id === 'file') && host.resolvedActiveTabId ? <FileToolbar host={host} tabId={host.resolvedActiveTabId} path="file" menu={null} /> : null}{host.resolvedTabs.map((tab) => <Page key={tab.tabId} id={tab.tabId} />)}</>);
+const Content = observer(({ host }: TabContentProps) => {
+  const history = host.navigationOf(host.resolvedActiveTabId ?? '');
+  const page = history?.pages[history.index];
+  return <>{(page?.state as { id?: string } | undefined)?.id === 'file' && host.resolvedActiveTabId ? <FileToolbar host={host} tabId={host.resolvedActiveTabId} path="file" menu={null} /> : null}{host.resolvedTabs.map((tab) => <Page key={tab.tabId} id={tab.tabId} />)}</>;
+});
 const provider = createTabProvider({ kind: 'page', resourceKey: (s: { id: string }) => s.id, initialize: () => ({ dispose() {} }), dispose() {}, TabBarItem: () => null, TabBarItemDragPreview: () => null, TabContent: Content });
 
 beforeEach(() => {

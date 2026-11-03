@@ -20,9 +20,9 @@ export const FileToolbar = observer(function FileToolbar({ host, tabId, path, mo
   const opener = entry?.openerTabId ? pane?.entries.get(entry.openerTabId) : undefined;
   const returnsConversation = !!opener && !!pane?.registry.has(opener.kind) && !!pane.registry.get(opener.kind).conversation && (host.navigationOf(tabId)?.index ?? 0) === 0;
   const back = translate(returnsConversation ? 'tabs.backToConversation' : 'tabs.back');
-  return <div role="toolbar" data-file-toolbar="" data-tab-content-toolbar="" className={`${panelHeaderBarClass} min-w-0 justify-between gap-2`}>
+  return <div role="toolbar" data-file-toolbar="" data-tab-content-toolbar="" className={`${panelHeaderBarClass} @container/file-toolbar min-w-0 justify-between gap-2`}>
     <div className="flex shrink-0 items-center gap-1">
-      <Button size="sm" variant="ghost" className="gap-1 text-xs" aria-label={back} title={back} data-testid={returnsConversation ? 'tab-return-conversation' : undefined} disabled={!host.canGo(tabId, -1)} onClick={() => void host.go(tabId, -1)}><ArrowLeft className="size-3.5" />{back}</Button>
+      <Button size="sm" variant="ghost" className="gap-1 text-xs" aria-label={back} title={back} data-testid={returnsConversation ? 'tab-return-conversation' : undefined} disabled={!host.canGo(tabId, -1)} onClick={() => void host.go(tabId, -1)}><ArrowLeft className="size-3.5" /><span className="@max-[420px]/file-toolbar:sr-only">{back}</span></Button>
       <Button size="icon-sm" variant="ghost" aria-label={translate('tabs.forward')} title={translate('tabs.forward')} disabled={!host.canGo(tabId, 1)} onClick={() => void host.go(tabId, 1)}><ArrowRight className="size-3.5" /></Button>
     </div>
     {path}
