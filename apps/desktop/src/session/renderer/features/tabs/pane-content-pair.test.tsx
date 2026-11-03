@@ -31,6 +31,28 @@ beforeEach(() => {
 afterEach(() => { act(() => { tabFullscreen.exit(); root.unmount(); }); vi.unstubAllGlobals(); });
 
 describe('each actual pane owns its content', () => {
+  it('hands focus from the retained folder guest to the new page before history shortcuts are used', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 0; });
+    const folder = createTabProvider({ ...provider, kind: 'folder', keepMounted: true,
+      TabContent: () => <webview tabIndex={0} data-folder-guest="" /> });
+    const file = createTabProvider({ ...provider, kind: 'file',
+      TabContent: () => <div tabIndex={-1} data-browser-page="" /> });
+    const layout = new PaneLayoutStore(createTabRegistry([folder, file]), { viewId: 'guest-focus-history' });
+    const tabId = layout.open('folder', { id: 'folder' }, { from: null, intent: 'newTab' })!;
+    const group = layout.groups[0];
+    act(() => root.render(<PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>));
+    const guest = dom.window.document.querySelector<HTMLElement>('[data-folder-guest]')!;
+    guest.focus();
+    expect(dom.window.document.activeElement).toBe(guest);
+    await act(async () => { layout.open('file', { id: 'notes.txt' }, { from: tabId, intent: 'navigate' }); });
+    expect(dom.window.document.querySelector('[data-folder-guest]')).toBe(guest);
+    expect(dom.window.document.activeElement).toBe(dom.window.document.querySelector('[data-browser-page]'));
+    commandRegistry.setContext(dom.window.document.activeElement as HTMLElement);
+    await act(async () => { expect(commandRegistry.dispatch('app.navigateBack')).toBe(true); });
+    expect(group.pane.entries.get(tabId)?.kind).toBe('folder');
+    layout.dispose();
+  });
+
   it('dispatches the existing back/forward commands only into the pane that owns the focused element', async () => {
     const layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'pane-history-keys' });
     const a = layout.open('page', { id: 'folder' }, { from: null, intent: 'newTab' })!;

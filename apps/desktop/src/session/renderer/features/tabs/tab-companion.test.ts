@@ -27,6 +27,21 @@ function setup(memory: TabPlacementMemory = { read: () => undefined, write() {} 
 }
 
 describe('a conversation explicitly owns its companion pane', () => {
+  it('focuses the already-open beside file when the folder opens it again without adding a pane or tab', () => {
+    const { layout, conversation, open } = setup({ read: () => 'beside', write() {} });
+    const folder = layout.open('folder', { path: '/' }, { from: conversation, intent: 'newTab' })!;
+    open('README.md');
+    const side = layout.focusedPane;
+    const existing = side.resolvedActiveTabId!;
+    const before = layout.groups.map(({ pane }) => [...pane.tabOrder]);
+    const tree = JSON.stringify(layout.layout);
+    const reopened = layout.open('file', { path: 'README.md' }, { from: folder, intent: 'navigate' });
+    expect(reopened).toBe(existing);
+    expect(layout.focusedPane).toBe(side);
+    expect(layout.groups.map(({ pane }) => [...pane.tabOrder])).toEqual(before);
+    expect(JSON.stringify(layout.layout)).toBe(tree);
+  });
+
   it('reuses one pane and one navigation context, clears a closed companion and recreates it', () => {
     const { layout, conversation, conversationPane, open } = setup();
     open('A.md');

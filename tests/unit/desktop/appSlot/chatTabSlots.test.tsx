@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { createReactHarness } from '../../../support/testHarness'
@@ -11,6 +11,12 @@ import { ChatTabPage, ChatTabPortals } from '../../../../apps/desktop/src/compon
 import { PaneContent } from '../../../../apps/desktop/src/session/renderer/features/tabs/pane-content'
 import { PaneContext } from '../../../../apps/desktop/src/session/renderer/features/tabs/pane-context'
 import { KEPT_HIDDEN_TABS } from '../../../../apps/desktop/src/session/renderer/features/tabs/retained-tab-content'
+import { MessageFilePreviewPanel } from '../../../../apps/desktop/src/components/chat/MessageFilePreviewPanel'
+
+vi.mock('react-i18next', async original => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ t: (key: string) => key }) }))
+vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }))
+vi.mock('@/components/markdown/Markdown', () => ({ Markdown: () => null }))
+vi.mock('@/components/chat/DocumentPreviewContent', () => ({ DocumentPreviewContent: () => null }))
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { installShellSlots(); harness = createReactHarness() })
@@ -22,6 +28,24 @@ const Panels = observer(function Panels({ chatId }: { chatId: string }) {
 const portal = (chatId: string) => <><Panels chatId={chatId} /><ChatTabPortals chatId={chatId} panel={tab => <textarea data-draft={tab.tabId} defaultValue={tab.item.title} />} topic={() => <textarea data-topic-draft defaultValue="topic" />} info={() => <textarea data-info-draft defaultValue="info" />} /></>
 
 describe('chat slots follow actual panes and navigation contexts', () => {
+  it.each(['private-card', 'group-folder'])('carries the owning pane through the real %s portal into the shared file toolbar', async origin => {
+    const id = `native-toolbar-${origin}`
+    const layout = chatLayoutOf(id)
+    layout.focusedPane.setDimensions(390, 620)
+    const from = origin === 'group-folder' ? openPanelItem(id, folderItem(), { intent: 'newTab' }) : undefined
+    const tabId = openPanelItem(id, { kind: null, title: 'notes.txt', itemId: `notes-${origin}` }, from ? { from } : undefined)!
+    await harness.render(<><Panels chatId={id} /><ChatTabPortals chatId={id} panel={tab => <MessageFilePreviewPanel fill tabbed file={{ fileName: tab.item.title, sizeBytes: 12, mimeType: 'text/plain' }} kind="text" content="notes" loading={false} onClose={() => closeChatTab(id, tab.tabId)} />} topic={() => null} info={() => null} /></>)
+    const toolbar = harness.container.querySelector('[data-file-toolbar]')
+    expect(toolbar).not.toBeNull()
+    expect(toolbar!.querySelector('[aria-label="tabs.read"]')).not.toBeNull()
+    expect(toolbar!.querySelector<HTMLButtonElement>('[aria-label="tabs.edit"]')!.disabled).toBe(true)
+    const back = toolbar!.querySelector<HTMLButtonElement>(`[aria-label="${from ? 'tabs.back' : 'tabs.backToConversation'}"]`)!
+    expect(back).not.toBeNull()
+    expect(back.disabled).toBe(false)
+    await act(async () => back.click())
+    expect(chatPaneOf(id, tabId)!.activeEntry?.kind).toBe(from ? 'chat-panel' : 'chat')
+  })
+
   it('adds a slot after mount, keeps independent tabs, and releases only the closed slot', async () => {
     const id = 'slots-v3'; await harness.render(<Panels chatId={id} />); expect(slots()).toEqual([])
     const folder = await act(async () => openPanelItem(id, folderItem()))!

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const modal = vi.hoisted(() => ({ last: null as null | Record<string, (...args: unknown[]) => void> & { description?: string } }));
@@ -53,6 +54,20 @@ describe('关掉会话自己那枚页签:它还开着别的页签就问「会话
     modal.last!.onSuccess({});
     expect(await answer).toBe(true);
     expect(l.closed).toEqual([]);
+  });
+
+  it('names the other tabs from their rendered strip labels rather than generic kind names', async () => {
+    const l = layout();
+    view.layout = l;
+    const strip = document.createElement('div');
+    strip.innerHTML = '<div data-tabid="side" data-tab-label="Folder"></div><div data-tabid="web" data-tab-label="README.md"></div>';
+    document.body.appendChild(strip);
+    const answer = confirmCloseSessionTab('s1', ctx, { alone: true });
+    try {
+      expect(modal.last?.description).toContain('Folder');
+      expect(modal.last?.description).toContain('README.md');
+    } finally { modal.last!.onClose(); strip.remove(); }
+    expect(await answer).toBe(false);
   });
 
   it('会话和页签都关:先把别的页签一枚枚关掉,再关它自己', async () => {
