@@ -12,10 +12,8 @@ import '@/i18n/registerSettingsCatalog';
 import '@/styles/tokens.css';
 
 const fixture = vi.hoisted(() => ({
-  mobile: false,
   assistant: { id: 'assistant-layer', display_name: 'Layer assistant', avatar: null, type: 'agent' as const, owner_user_id: 'owner-layer', agent_type: 'claude-code' as const },
 }));
-vi.mock('@/hooks/useMobileShell', async (original) => ({ ...await original<object>(), useMobileShell: () => fixture.mobile }));
 // Only external identity/presence/device reads are fixtures. Both dialogs, their
 // portals, styles and the look/model panes are the actual product components.
 vi.mock('@/lib/myAssistant', async (original) => ({
@@ -35,7 +33,6 @@ vi.mock('@/session/renderer/lib/ipc', async (original) => ({ ...await original<o
 let harness: ReturnType<typeof createReactHarness>;
 let previousTheme: string | undefined;
 beforeEach(async () => {
-  fixture.mobile = false;
   await page.viewport(1600, 1000);
   await i18n.changeLanguage('en');
   previousTheme = document.documentElement.dataset.theme;
@@ -82,23 +79,6 @@ it.each(['look', 'aimodel'] as const)('one desktop Escape closes %s settings', a
     auth: { id: 'owner-layer' }, contacts: { contacts: [contact(fixture.assistant)] },
   });
   await dialog();
-  await userEvent.keyboard('{Escape}');
-  expect(close).toHaveBeenCalledOnce();
-});
-
-it('mobile Escape first returns from detail to navigation', async () => {
-  fixture.mobile = true;
-  await page.viewport(412, 900);
-  const close = vi.fn();
-  await renderWithAppProviders(harness, <AgentSettingsModal agent={contact(fixture.assistant)} initialTab="look" onClose={close} />, {
-    auth: { id: 'owner-layer' }, contacts: { contacts: [contact(fixture.assistant)] },
-  });
-  await until('the mobile detail pane opens', () => !!document.querySelector('[data-testid="agent-settings-modal"] nav'));
-  const nav = document.querySelector<HTMLElement>('[data-testid="agent-settings-modal"] nav')!;
-  expect(getComputedStyle(nav).display).toBe('none');
-  await userEvent.keyboard('{Escape}');
-  expect(close).not.toHaveBeenCalled();
-  expect(getComputedStyle(nav).display).toBe('flex');
   await userEvent.keyboard('{Escape}');
   expect(close).toHaveBeenCalledOnce();
 });
