@@ -573,10 +573,10 @@ describe('session timeline service', () => {
     const { readSessionPreview } = await import('./preview-rpc');
     const recorded = { id: 'old', seq: 0, initiator: 'user' as const,
       items: [{ kind: 'message' as const, id: 'old:input', seq: 0, role: 'user' as const, text: '<gugu_delivery route="chat" msg="msg:old"><![CDATA[old]]></gugu_delivery>' }],
-      outcome: { kind: 'error' as const, reason: 'prompt_failed' } };
+      outcome: { kind: 'error' as const, reason: 'prompt_failed' as const } };
     const cancelled = { ...recorded, id: 'conv-1:turn:s9', seq: 9,
       items: [{ ...recorded.items[0]!, id: 'conv-1:turn:s9:input', text: '<gugu_delivery route="chat" msg="msg:new"><![CDATA[new]]></gugu_delivery>' }],
-      outcome: { kind: 'cancelled' as const, reason: 'cancelled' } };
+      outcome: { kind: 'cancelled' as const, reason: 'cancelled' as const } };
     const fake = makeTimeline();
     const snapshot = fake.timeline.getSnapshot();
     fake.timeline.getSnapshot = () => ({ ...snapshot, turns: [recorded] });
