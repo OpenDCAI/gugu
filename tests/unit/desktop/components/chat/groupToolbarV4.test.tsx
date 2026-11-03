@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { act, createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { GroupChatSettings, GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
-import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
+import type { ChatItem, GroupChatSettings, GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
+import { chat as topicFixture, clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
 import type { groupAgentStatusIndicatorProps } from '../../../../../apps/desktop/src/lib/groupAgentStatus'
 import { ChatHeaderActions } from '../../../../../apps/desktop/src/components/chat/ChatHeaderActions'
 
@@ -32,7 +32,7 @@ beforeEach(() => {
 })
 afterEach(() => { harness.cleanup(); resizeCallbacks.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-async function header(kind: 'group' | 'topic' | 'dm', options: { mobile?: boolean; menu?: boolean; infoShown?: boolean; stripNarrow?: boolean; pinned?: boolean; muted?: boolean } = {}) {
+async function header(kind: 'group' | 'topic' | 'dm', options: { mobile?: boolean; menu?: boolean; infoShown?: boolean; stripNarrow?: boolean; pinned?: boolean; muted?: boolean; topics?: ChatItem[] } = {}) {
   if (options.stripNarrow) { harness.container.className = 'session-tab-bar'; harness.container.setAttribute('data-strip-narrow', '') }
   const room = {
     snapshot: { humans: [{ id: 'human' }], agents: [{ id: 'agent-1' }, { id: 'agent-2' }] } as GroupCollabSnapshot,
@@ -49,7 +49,7 @@ async function header(kind: 'group' | 'topic' | 'dm', options: { mobile?: boolea
     onToggleHeaderMenu: vi.fn(), onCloseHeaderMenu: vi.fn(),
   }
   await renderWithAppProviders(harness, createNode('div', { 'data-chat-area-header': '' }, createNode(ChatHeaderActions, props)), {
-    auth: null, chat: { activeChatId: chat.id, activeChat: chat as never, chats: [chat] as never, pinChat, setChatNotificationLevel },
+    auth: null, chat: { activeChatId: chat.id, activeChat: chat as never, chats: [chat, ...(options.topics ?? [])] as never, pinChat, setChatNotificationLevel },
   })
 }
 
@@ -86,6 +86,29 @@ describe('final group toolbar v4', () => {
     expect(button('群应用')).toBeUndefined()
     await act(async () => { headerWidth = 561; for (const callback of resizeCallbacks) callback([], {} as ResizeObserver) })
     expect(button('群应用')).toBeDefined()
+  })
+
+  it.each(['wide', 'strip', 'width', 'mobile'] as const)('%s: keeps the topic unread total and dropdown row counts consistent', async (mode) => {
+    headerWidth = mode === 'width' ? 560 : 900
+    const topics = [
+      topicFixture({ id: 'live', kind: 'topic', source_chat_id: 'chat', unread_count: 4 }),
+      topicFixture({ id: 'muted', kind: 'topic', source_chat_id: 'chat', unread_count: 120, is_muted: true }),
+      topicFixture({ id: 'archived', kind: 'topic', source_chat_id: 'chat', unread_count: 70, status: 'archived' }),
+      topicFixture({ id: 'elsewhere', kind: 'topic', source_chat_id: 'another-group', unread_count: 90 }),
+    ]
+    await header('group', { topics, stripNarrow: mode === 'strip', mobile: mode === 'mobile' })
+    const trigger = button('话题')!
+    expect(trigger.querySelector('.gg-chip')?.textContent).toBe('4')
+    await clickElement(trigger)
+    await vi.waitFor(() => expect(document.querySelector('[data-topic-id="live"] .gg-chip')?.textContent).toBe('4'))
+    expect(document.querySelector('[data-topic-id="muted"] .gg-chip')?.textContent).toBe('99+')
+    expect(document.querySelector('[data-topic-id="archived"]')).toBeNull()
+    expect(document.querySelector('[data-topic-id="elsewhere"]')).toBeNull()
+  })
+
+  it.each([{ count: 0, shown: undefined }, { count: 120, shown: '99+' }])('compact topic count $count follows the existing zero and overflow display', async ({ count, shown }) => {
+    await header('group', { stripNarrow: true, topics: [topicFixture({ kind: 'topic', source_chat_id: 'chat', unread_count: count })] })
+    expect(button('话题')?.querySelector('.gg-chip')?.textContent).toBe(shown)
   })
 
   it('keeps independent topics free of group-only tools, with members and conversation information', async () => {
