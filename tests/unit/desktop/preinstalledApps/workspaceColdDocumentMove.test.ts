@@ -14,7 +14,7 @@ const gugu = {
   setTabTitle: vi.fn(async () => {}), onContextChanged: (fn: typeof changed) => { changed = fn; return () => {} },
   onLink: () => () => {}, showContextMenu: vi.fn(async () => null),
   files: {
-    list: vi.fn(async () => entries), canDelete: vi.fn(async () => false),
+    list: vi.fn(async () => entries), canDelete: vi.fn(async () => [false]),
     move: vi.fn(async () => {}), viewPreferences: async () => ({ showAppData: false }),
     onChanged: () => () => {}, open: vi.fn(async () => ({ type: 'binary', entry: file, close() {} })),
   },
@@ -51,6 +51,9 @@ it('loads destinations on Move and moves the cold document into an existing fold
   expect(gugu.files.move).toHaveBeenCalledWith(file, { folder: 'docs' })
 })
 it('does not show a late Move dialog after its context loses file permission', async () => {
+  el('move-cancel').click()
+  gugu.files.list.mockReset().mockResolvedValue(entries)
+  gugu.files.move.mockClear()
   let finish!: (value: typeof entries) => void
   gugu.files.list.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
   await moveFromToolbar()
@@ -58,5 +61,5 @@ it('does not show a late Move dialog after its context loses file permission', a
   finish?.(entries)
   await Promise.resolve(); await Promise.resolve()
   expect(el('move-dialog').hidden).toBe(true)
-  expect(gugu.files.move).toHaveBeenCalledTimes(1)
+  expect(gugu.files.move).not.toHaveBeenCalled()
 })
