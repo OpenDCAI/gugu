@@ -657,7 +657,7 @@ async function versionPointers(token: string, row: ItemRow, actor: string): Prom
 export function createAppFiles(platform: FilesPlatform) {
   type ReadSnapshot = { pageId: number; extensionId: string; itemId: string; needs: Grant['needs']; actor: string | null; leases: number; active: number; file?: Promise<FileHandle>; timer?: ReturnType<typeof setTimeout> };
   const snapshots = new Map<string, ReadSnapshot>();
-  const snapshotKey = (pageId: number, itemId: string, version: number) => `${pageId}:${itemId}@${version}`;
+  const snapshotKey = (surface: FileSurface, itemId: string, version: number) => JSON.stringify([surface.pageId, surface.extensionId, surface.asAgent ?? null, itemId, version]);
   const staleVersion = () => new AppFileError('stale-version', 'This file version is no longer available. Open the file again to read its current version.');
   const disposeSnapshot = (key: string, entry: ReadSnapshot): Promise<void> => {
     clearTimeout(entry.timer);
@@ -673,13 +673,8 @@ export function createAppFiles(platform: FilesPlatform) {
     entry.timer.unref?.();
   };
   const snapshot = (surface: FileSurface, itemId: string, version: number): ReadSnapshot => {
-    const key = snapshotKey(surface.pageId, itemId, version);
+    const key = snapshotKey(surface, itemId, version);
     let entry = snapshots.get(key);
-    if (entry && (entry.extensionId !== surface.extensionId || entry.actor !== (surface.asAgent ?? null))) {
-      entry.leases = 0;
-      disposeSnapshot(key, entry);
-      entry = undefined;
-    }
     if (!entry) {
       // This registers the existing port's navigation/destruction lifecycle, not another byte transport.
       platform.sync.pageFor(surface.pageId, surface.extensionId);
@@ -750,7 +745,7 @@ export function createAppFiles(platform: FilesPlatform) {
       throw new AppFileError('denied', 'Reading this file needs "files:read" or "files:write"');
     }
     const held = snapshot(surface, ref.id, ref.version!);
-    const key = snapshotKey(surface.pageId, ref.id, ref.version!);
+    const key = snapshotKey(surface, ref.id, ref.version!);
     held.active++;
     clearTimeout(held.timer);
     const pending = held.file ??= fileFor(surface, { id: ref.id, ...(ref.chat ? { chat: ref.chat } : {}) }, ref.version).then(async file => {
@@ -954,7 +949,7 @@ export function createAppFiles(platform: FilesPlatform) {
 
     async close(surface: FileSurface, args: { docName?: string; ref?: ChatFileRef & { version?: number } }): Promise<void> {
       if (args.ref && 'id' in args.ref && typeof args.ref.version === 'number') {
-        const key = snapshotKey(surface.pageId, args.ref.id, args.ref.version);
+        const key = snapshotKey(surface, args.ref.id, args.ref.version);
         const held = snapshots.get(key);
         if (held) { held.leases = Math.max(0, held.leases - 1); if (!held.leases) await disposeSnapshot(key, held); }
       }

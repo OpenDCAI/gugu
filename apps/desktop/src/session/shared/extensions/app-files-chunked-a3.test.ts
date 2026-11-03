@@ -133,6 +133,50 @@ describe('chat stored files reuse verified, pinned range reads', () => {
     await f.files.close(surface, { ref }); expect(f.dispose).toHaveBeenCalledTimes(disposedMetadata + 1);
     expect(f.files.readHandleCount()).toBe(0);
   });
+  it('another actor reading the same file and version preserves an in-flight read', async () => {
+    const f = fixture();
+    const first = { ...surface, asAgent: '55555555-5555-4555-8555-555555555555' };
+    const second = { ...surface, asAgent: '66666666-6666-4666-8666-666666666666' };
+    await f.files.open(first, { ref: { id: item } });
+    const started = Promise.withResolvers<void>();
+    const answer = Promise.withResolvers<Uint8Array<ArrayBuffer>>();
+    f.read.mockImplementationOnce(() => { started.resolve(); return answer.promise; });
+    const reading = f.files.read(first, { ref, offset: 0, length: 2 })
+      .then(value => ({ value }), error => ({ error }));
+    await started.promise;
+    await f.files.open(second, { ref: { id: item } });
+    const other = await f.files.read(second, { ref, offset: 2, length: 2 });
+    await f.files.close(second, { ref });
+    answer.resolve(new Uint8Array([1, 2]));
+    try {
+      expect(await reading).toEqual({ value: { size: 32, offset: 0, data: new Uint8Array([1, 2]) } });
+      expect([...other.data]).toEqual([2, 3]);
+      expect(f.files.readHandleCount()).toBe(1);
+      await f.files.close(first, { ref });
+      expect(f.files.readHandleCount()).toBe(0);
+    } finally { f.release(); }
+  });
+  it('closing one actor cannot close another actor reading the same file and version', async () => {
+    const f = fixture();
+    const first = { ...surface, asAgent: '55555555-5555-4555-8555-555555555555' };
+    const second = { ...surface, asAgent: '66666666-6666-4666-8666-666666666666' };
+    await f.files.open(first, { ref: { id: item } });
+    await f.files.open(second, { ref: { id: item } });
+    const started = Promise.withResolvers<void>();
+    const answer = Promise.withResolvers<Uint8Array<ArrayBuffer>>();
+    f.read.mockImplementationOnce(() => { started.resolve(); return answer.promise; });
+    const reading = f.files.read(second, { ref, offset: 2, length: 2 })
+      .then(value => ({ value }), error => ({ error }));
+    await started.promise;
+    await f.files.close(first, { ref });
+    answer.resolve(new Uint8Array([3, 4]));
+    try {
+      expect(await reading).toEqual({ value: { size: 32, offset: 2, data: new Uint8Array([3, 4]) } });
+      expect(f.files.readHandleCount()).toBe(1);
+      await f.files.close(second, { ref });
+      expect(f.files.readHandleCount()).toBe(0);
+    } finally { f.release(); }
+  });
   it('a page revoked during a pending read never receives its bytes', async () => {
     const f = fixture();
     let finish!: (bytes: Uint8Array<ArrayBuffer>) => void;
