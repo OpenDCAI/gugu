@@ -453,6 +453,18 @@ describe('task file preview routing', () => {
     expect(mocks.activePaneOpen).not.toHaveBeenCalled();
   });
 
+  it.each(['newTab', 'beside'] as const)('keeps the external-file source and explicit %s intent while stat changes focus', async (intent) => {
+    const view = mocks.getSessionPageStore().viewModel;
+    view.activePane.resolvedActiveTabId = 'source-tab';
+    mocks.statExternalFile.mockImplementationOnce(async () => {
+      view.activePane.resolvedActiveTabId = 'another-tab';
+      return { success: true, data: { exists: true, isDirectory: false } };
+    });
+    await openFileInSessionEditor('project-1', 'session-1', '/tmp/other.md', { from: 'source-tab', intent });
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('file', { path: '/tmp/other.md', external: true }, { from: 'source-tab', intent });
+    expect(mocks.activePaneOpen).not.toHaveBeenCalled();
+  });
+
   it('routes outside-workspace Markdown through the same external preview fallback', async () => {
     await openFileInSessionEditor('project-1', 'session-1', '/tmp/Application Support/note.md');
     await openFileBesideConversation('project-1', 'session-1', '/tmp/Application Support/note.md');

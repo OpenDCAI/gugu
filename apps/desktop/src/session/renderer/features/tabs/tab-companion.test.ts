@@ -48,6 +48,20 @@ describe('a conversation explicitly owns its companion pane', () => {
     expect(layout.activePaneId).not.toBe(companion);
   });
 
+  it('keeps a moved conversation intact when its former companion becomes its own pane', () => {
+    const { layout, conversation, conversationPane, open } = setup();
+    open('A.md');
+    const companion = layout.focusedPane;
+    layout.moveTab(conversation, layout.groups.find((group) => group.pane === conversationPane)!.paneId, layout.activePaneId);
+    expect(companion.entries.get(conversation)?.kind).toBe('conversation');
+    expect(companion.entries.get(conversation)?.companionPaneId).not.toBe(layout.activePaneId);
+    open('never-opened.md');
+    expect(companion.entries.get(conversation)?.kind).toBe('conversation');
+    expect(companion.entries.get(conversation)?.state).toEqual({ path: 'conversation' });
+    expect(layout.focusedPane.entries.get(layout.focusedPane.resolvedActiveTabId!)?.state).toEqual({ path: 'never-opened.md' });
+    expect(layout.focusedPane).not.toBe(companion);
+  });
+
   it('degrades into a new tab when narrow and does not split on widening', () => {
     const { layout, conversationPane, open } = setup();
     conversationPane.setDimensions(390, 620);
