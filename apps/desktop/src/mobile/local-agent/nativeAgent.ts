@@ -1,4 +1,5 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
+import type { DeviceRpcError } from '@gugu/core/cloud/deviceRpcProtocol'
 import type { DeviceActionOutcome } from '@gugu/core/cloud/deviceActionHost'
 import type { PhoneDeviceInfo } from '../phone-device/nativePhoneActions'
 import type { PhoneGroupGrants } from '../phone-device/phoneActionCatalog'
@@ -46,7 +47,7 @@ export interface PhoneAgentHostCall {
   channel: string
   args: unknown[]
 }
-export interface PhoneAgentHostReply { result?: unknown; error?: { code: string; message: string } }
+export interface PhoneAgentHostReply { result?: unknown; error?: DeviceRpcError }
 
 export interface PhoneAgentHostConfig {
   ownerId: string

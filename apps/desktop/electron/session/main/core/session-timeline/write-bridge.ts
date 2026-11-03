@@ -1,4 +1,5 @@
 import { turnFileText } from './turn-files';
+import type { SessionInputAdmission } from '@gugu/core/shared/sessionInputAdmission';
 import { questionAnswerError } from '@gugu/session-core/session-record';
 import { getAcpRuntimeClient } from '@main/core/acp/runtime-process/host';
 import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader';
@@ -38,7 +39,7 @@ import { log } from '@main/lib/logger';
 export class SessionWriteError extends Error {
   readonly code: string;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, readonly admission: SessionInputAdmission = 'uncertain') {
     super(message);
     this.name = 'SessionWriteError';
     this.code = code;
@@ -127,7 +128,7 @@ export async function deliverSessionText(
   files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files'],
   attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]
 ): Promise<{ accepted: 'started' | 'queued' }> {
-  if (!text.trim() && !files?.length && !attachments?.length) throw new SessionWriteError('empty_text', '消息是空的');
+  if (!text.trim() && !files?.length && !attachments?.length) throw new SessionWriteError('empty_text', '消息是空的', 'rejected');
 
 
   // `runtime === null` 就是 pty:终端腿是默认形态,建会话时那一列常常没写。
@@ -150,7 +151,7 @@ export async function deliverSessionText(
     return { accepted: 'queued' };
   }
   if (target.runtime === 'pty' || target.runtime === null) {
-    if (attachments?.length) throw new SessionWriteError('unsupported_runtime', '终端任务不能回放图片附件');
+    if (attachments?.length) throw new SessionWriteError('unsupported_runtime', '终端任务不能回放图片附件', 'rejected');
     const turn = files?.length ? await turnFileText(target.id, files, false) : null;
     const body = [text.trim(), turn?.text].filter(Boolean).join('\n\n');
     const params = {
@@ -171,7 +172,7 @@ export async function deliverSessionText(
 
   throw new SessionWriteError(
     'unsupported_runtime',
-    `这条会话的运行时是 ${String(target.runtime)}，主进程没有往它发消息的通道`
+    `这条会话的运行时是 ${String(target.runtime)}，主进程没有往它发消息的通道`, 'rejected'
   );
 }
 

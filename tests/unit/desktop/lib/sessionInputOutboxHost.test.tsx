@@ -8,6 +8,7 @@ import { enqueueSessionInput, state } from '../../../../apps/desktop/src/lib/ses
 import { SessionInputQueue } from '../../../../apps/desktop/src/components/chat/SessionInputQueue'
 import { updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { messageQuoteText, readMessageQuote } from '@gugu/core/shared/ui/messageQuote'
+import { SessionInputAdmissionError, sessionInputAdmission } from '@gugu/core/shared/sessionInputAdmission'
 import { TASK_ATTACHMENT_PROTOCOL } from '@gugu/session-core/session-record/contract'
 import type { LifeView } from '../../../../apps/desktop/src/session/shared/core/sessions/session-life'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
@@ -21,7 +22,7 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { get kind()
 vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn: (machine: string | null) => ({ sessionTimeline: { sessionSend: (request: unknown) => { scope.machines.push(machine); return scope.send(request) } } }) }))
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ sendSessionText: async (_device: string, sessionId: string, text: string, clientMessageId: string, files?: unknown[]) => {
   const reply = await scope.send({ conversationId: sessionId, text, clientMessageId, ...(files?.length ? { files } : {}) })
-  if (!reply.ok) throw new Error(reply.error.message)
+  if (!reply.ok) throw new SessionInputAdmissionError(reply.error.message, sessionInputAdmission(reply.error), reply.error.code)
   return reply.value
 } }))
 vi.mock('../../../../apps/desktop/src/mobile/local-agent/phoneHostRpc', () => ({ invokePhoneHost: async (_device: string, _channel: string, [request]: [{ conversationId: string; text: string; clientRequestId: string; files?: unknown[] }]) => {
@@ -40,8 +41,8 @@ describe('native input shell lifecycle', () => {
     scope.owner = `rejected-input-${deviceId ?? 'local'}`
     scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
     updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'deleted-task', nativeInputVersion: 2 } as never] })
-    // This is the current host's real response when the advertised task was deleted before the send.
-    scope.send.mockResolvedValue({ ok: false, error: { code: 'session_not_found', message: '这台机器上没有会话 deleted-task' } })
+    // The admission boundary now explicitly refuses the send; a legacy negative reply has no such decision.
+    scope.send.mockResolvedValue({ ok: false, error: { code: 'session_not_found', message: '这台机器上没有会话 deleted-task', admission: 'rejected' } })
     await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
     let inputId: string | undefined
     await act(async () => {

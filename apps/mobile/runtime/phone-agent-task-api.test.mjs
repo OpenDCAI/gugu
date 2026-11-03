@@ -14,11 +14,32 @@ test('admission retains raw caption and files without resolving bytes, permits r
   })
   const input = { conversationId: agent.sessionId, text: 'original caption', clientRequestId: randomUUID(), files: [{ itemId: randomUUID(), version: 1 }] }
   const first = await api('sessionTimeline.sessionSend', [input], randomUUID())
-  assert.deepEqual(Object.keys(first.value).sort(), ['accepted', 'messageId'])
+  assert.deepEqual(Object.keys(first.value).sort(), ['accepted', 'admission', 'messageId'])
   assert.equal(inputs[0].prompt, 'original caption')
   assert.deepEqual(inputs[0].files, input.files)
   assert.deepEqual(await api('sessionTimeline.sessionSend', [input], randomUUID()), first)
   assert.equal(resolutions, 0)
   await api('sessionTimeline.sessionSend', [{ conversationId: agent.sessionId, text: 'following text', clientRequestId: randomUUID() }], randomUUID())
   assert.equal(inputs[1].prompt, 'following text')
+})
+
+
+test('only the authoritative refusal stops recovery; a save failure remains uncertain and replay keeps one job', async () => {
+  const store = { state: { jobs: {} } }
+  const agent = { sessionId: randomUUID(), agentUserId: randomUUID() }
+  let saved = false
+  const api = createPhoneTaskApi({ ownerId: randomUUID(), store, findSession: () => agent, verifyAgent: async () => {},
+    admit: async input => {
+      store.state.jobs[input.id] ??= input
+      if (!saved) throw Object.assign(new Error('permission denied while saving'), { code: 'not_granted' })
+    },
+  })
+  await assert.rejects(api('sessionTimeline.sessionSend', [{ conversationId: agent.sessionId, text: '' }], randomUUID()), { admission: 'rejected' })
+  const input = { conversationId: agent.sessionId, text: 'keep the same input', clientRequestId: randomUUID() }
+  await assert.rejects(api('sessionTimeline.sessionSend', [input], randomUUID()), error => error.admission === undefined && error.code === 'not_granted')
+  saved = true
+  const reply = await api('sessionTimeline.sessionSend', [input], randomUUID())
+  assert.equal(reply.value.admission, 'accepted')
+  assert.equal(Object.keys(store.state.jobs).length, 1)
+  assert.equal(store.state.jobs[reply.value.messageId].prompt, input.text)
 })

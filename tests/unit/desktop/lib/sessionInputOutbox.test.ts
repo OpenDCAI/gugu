@@ -1,10 +1,57 @@
 import { describe, expect, it } from 'vitest'
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
+import { SessionInputAdmissionError } from '@gugu/core/shared/sessionInputAdmission'
 import { buildSessionDirectEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { openSessionInputStorage, SessionInputOutbox, sessionInputBubbles, withSessionInputDeadline, type HostPendingRow, type SessionInput, type SessionInputFailure } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 
 describe('native session input persistence', () => {
+  it('hands definitive refusals to the person across restarts, with independent single-input recovery', async () => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    const attempts: [string, string][] = []
+    let refuse = true
+    const send = async (input: SessionInput) => {
+      attempts.push([input.id, input.text])
+      if (refuse) throw new SessionInputAdmissionError('This input is not allowed', 'rejected', 'a-future-host-code')
+    }
+    const queue = new SessionInputOutbox('owner', storage, send, () => true)
+    const a = await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'original' })
+    const b = await queue.enqueue({ deviceId: 'host', sessionId: 'other', text: 'keep this too' })
+    await queue.flush()
+    expect((await queue.list()).map(input => input.admission)).toEqual(['rejected', 'rejected'])
+    const restarted = new SessionInputOutbox('owner', storage, send, () => true)
+    await restarted.flush(); await restarted.flush(true)
+    expect(attempts).toHaveLength(2)
+    expect(sessionInputBubbles(await restarted.list(), [], null).map(bubble => bubble.state)).toEqual(['failed', 'failed'])
+    await restarted.edit(a.id, 'edited')
+    await restarted.flush()
+    expect(attempts).toHaveLength(2)
+    refuse = false
+    await restarted.retry(a.id)
+    expect(attempts).toEqual([[a.id, 'original'], [b.id, 'keep this too'], [a.id, 'edited']])
+    expect((await restarted.list()).map(input => input.id)).toEqual([b.id])
+    await restarted.discard(b.id)
+    expect(await restarted.list()).toEqual([])
+  })
+
+  it.each(['uncertain', undefined] as const)('automatically recovers a %s result with the same id, independent of its diagnostic code', async admission => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    const attempts: string[] = []
+    const send = async (input: SessionInput) => {
+      attempts.push(input.id)
+      if (attempts.length === 1) throw Object.assign(new Error('session not found'), { code: 'session_not_found', ...(admission ? { admission } : {}) })
+    }
+    const queue = new SessionInputOutbox('owner', storage, send, () => true)
+    const input = await queue.enqueue({ deviceId: null, sessionId: 'agent', text: 'retry the original' })
+    await queue.flush()
+    expect(sessionInputBubbles(await queue.list(), [], null)[0].state).toBe('waiting')
+    await expect(queue.edit(input.id, 'unsafe change')).rejects.toThrow('manual decision')
+    await expect(queue.discard(input.id)).rejects.toThrow('manual decision')
+    await queue.flush()
+    expect(attempts).toEqual([input.id, input.id])
+    expect(await queue.list()).toEqual([])
+  })
+
   it('keeps a failure visible through automatic retry and clears it when a manual retry actually begins', async () => {
     const storage = await openSessionInputStorage(new IDBFactory())
     let finish: (() => void) | undefined

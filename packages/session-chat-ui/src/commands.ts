@@ -39,6 +39,10 @@ export type ChatCommands = {
   onRetrySend?: (itemId: string) => void;
   /** Mount the host's tooltip or source popover without coupling Solid to the host UI framework. */
   onTooltipMount?: (target: { root: HTMLElement; text: string; onOpenOriginal?: () => void; originalLabel?: string }) => void | (() => void);
+  /** Mount the host's existing failed-message menu in the measured status line. */
+  onInputSendFailureMount?: (target: { root: HTMLElement; itemId: string; error?: string; reason?: string }) => void | (() => void);
+  canDiscardSend?: (itemId: string) => boolean;
+  onDiscardSend?: (itemId: string) => void;
   /** A recycled row supplies live getters; the host returns its DOM-listener cleanup. */
   onMessageTextMount?: (target: { root: HTMLElement; menuRoot?: HTMLElement; itemId: string; message: () => ChatMessage; sender?: () => string | null }) => void | (() => void);
   onOpenSender?: (target: import('./lib/sender-target').MessageSenderTarget) => void;

@@ -1,5 +1,6 @@
 import { lifeHoldIsFailure, type LifeView } from '@/session/shared/core/sessions/session-life'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
+import { sessionInputAdmission, type SessionInputAdmission } from '@gugu/core/shared/sessionInputAdmission'
 import { rendererLogger } from './log'
 import { createIndexedDbHandle } from './indexedDbHandle'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
@@ -8,6 +9,8 @@ export type SessionInput = {
   attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
   files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]
   failure?: SessionInputFailure
+  /** Only the receiving boundary can stop automatic recovery. Missing on legacy stored rows. */
+  admission?: Exclude<SessionInputAdmission, 'accepted'>
   /** Presentation only: an explicitly queued input remains in the composer queue. */
   queued?: boolean
   baseline?: string[]
@@ -58,7 +61,8 @@ export function sessionInputBubbles(sender: readonly SessionInput[], host: reado
     }),
     ...[...sender].filter(input => !hosted.has(input.id)).sort((a, b) => a.createdAt - b.createdAt)
       .map((input): SessionInputBubble => ({ id: input.id, text: input.text,
-        ...(input.failure ? { state: 'waiting', failure: input.failure } : { state: 'sending' }) })),
+        ...(input.admission === 'rejected' ? { state: 'failed', failure: input.failure ?? null, hostReason: null }
+          : input.failure ? { state: 'waiting', failure: input.failure } : { state: 'sending' }) })),
   ]
 }
 
@@ -101,6 +105,37 @@ export class SessionInputOutbox {
 
   list(): Promise<SessionInput[]> { return this.storage.list(this.accountId) }
 
+  /** A rejected input has never been handed over. Only this person's explicit action releases it. */
+  async retry(id: string): Promise<void> {
+    await this.changeRejected(id, input => {
+      const { failure: _failure, admission: _admission, ...body } = input
+      return body
+    })
+    await this.flush()
+  }
+
+  async edit(id: string, text: string): Promise<void> {
+    if (!text.trim()) throw new Error('Session input is empty')
+    await this.changeRejected(id, input => ({ ...input, text }))
+  }
+
+  async discard(id: string): Promise<void> { await this.changeRejected(id, () => null) }
+
+  private async changeRejected(id: string, change: (input: SessionInput) => SessionInput | null): Promise<void> {
+    await this.flushing
+    const written = this.writing.catch(() => undefined).then(async () => {
+      if (!this.current()) throw new Error('Session input account changed')
+      const input = (await this.list()).find(row => row.id === id)
+      if (!input || input.admission !== 'rejected') throw new Error('Session input is not awaiting a manual decision')
+      const next = change(input)
+      if (next) await this.storage.put(next)
+      else await this.storage.remove(this.accountId, id)
+      this.changed()
+    })
+    this.writing = written
+    await written
+  }
+
   flush(retryFailures = false): Promise<void> {
     this.retryFailures ||= retryFailures
     if (this.flushing) { this.again = true; return this.flushing }
@@ -123,6 +158,9 @@ export class SessionInputOutbox {
     for (const input of rows) {
       if (!this.current()) return
       const target = `${input.deviceId ?? 'local'}/${input.sessionId}`
+      // A definitive refusal belongs to the person, including after reopening the application.
+      // It does not prevent independent, later inputs for this target from being admitted.
+      if (input.admission === 'rejected') continue
       if (blocked.has(target)) continue
       try {
         if (input.failure && retryFailures) {
@@ -135,7 +173,7 @@ export class SessionInputOutbox {
       } catch (error) {
         blocked.add(target)
         rendererLogger('session/input-outbox').warn({ deviceId: input.deviceId, sessionId: input.sessionId, error: String(error) }, 'Native input not delivered; it stays queued')
-        await this.storage.put({ ...input, failure: error instanceof SessionInputFailureError ? error.failure
+        await this.storage.put({ ...input, admission: sessionInputAdmission(error) === 'rejected' ? 'rejected' : 'uncertain', failure: error instanceof SessionInputFailureError ? error.failure
           : { code: 'send-failed', message: error instanceof Error ? error.message : String(error) } })
       }
       this.changed()

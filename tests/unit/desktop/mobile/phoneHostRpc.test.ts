@@ -9,6 +9,14 @@ import { invokePhoneHost } from '../../../../apps/desktop/src/mobile/local-agent
 beforeEach(() => { mocked.native = true; mocked.ownerId = 'owner'; mocked.hostCall.mockReset(); mocked.remote.mockReset() })
 afterEach(() => { vi.useRealTimers() })
 describe('phone host uses the existing method contract without a workspace pipe', () => {
+  it.each(['rejected', 'uncertain', undefined])('preserves the admission decision %s over both phone transports', async admission => {
+    const error = { code: 'same-code', message: 'same reason', ...(admission ? { admission } : {}) }
+    mocked.hostCall.mockResolvedValue({ error })
+    mocked.remote.mockResolvedValue({ error })
+    for (const device of ['phone-owner', 'another-phone']) {
+      await expect(invokePhoneHost(device, 'sessionTimeline.sessionSend', [])).rejects.toMatchObject({ code: 'same-code', admission: admission ?? 'uncertain' })
+    }
+  })
   it('calls the exact current owner native host directly and preserves request id', async () => {
     mocked.hostCall.mockResolvedValue({ result: { id: 'made' } })
     await expect(invokePhoneHost('phone-owner', 'sessionTimeline.sessionCreate', [{ prompt: 'hello' }], 'retry-id')).resolves.toEqual({ id: 'made' })

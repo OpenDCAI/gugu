@@ -1,4 +1,5 @@
 import { archiveIdentity } from '../../../packages/core/src/cloud/agentIdentityRemoval.ts'
+import { SessionInputAdmissionError, sessionInputAdmission } from '../../../packages/core/src/shared/sessionInputAdmission.ts'
 import { archiveAgentRecord, agentsForOwner } from '../../../packages/core/src/local/state/agentOwner.ts'
 import { createPhoneAssistantWorkOutbox } from './phone-assistant-work-outbox.mjs'
 import { createPhoneAssistantWorkHistory } from './phone-assistant-work-history.mjs'
@@ -117,7 +118,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   const agents = () => agentsForOwner(Object.values(store.state.agents), ownerId)
   const findSession = (id, includeArchived = false) => {
     const agent = agentsForOwner(Object.values(store.state.agents), ownerId, { includeArchived }).find((item) => item.sessionId === parseSession(id))
-    if (!agent) throw Object.assign(new Error('session not found on this machine'), { code: 'SESSION_NOT_FOUND' })
+    if (!agent) throw new SessionInputAdmissionError('这台手机上已没有这条任务', 'rejected', 'SESSION_NOT_FOUND')
     return agent
   }
   const reporter = createAgentRuntimeStateReporter(cloud.identity, { onGoneAgent: async (id) => { delete store.state.agents[id]; await store.save(); publish() } })
@@ -125,7 +126,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   const verifyAgent = async (agentUserId) => {
     const { data, error } = await cloud.identity.from('active_users').select('id,type,owner_user_id,device_id,display_name,gugu_number,desired_status').eq('id', uuid(agentUserId)).maybeSingle()
     if (error) throw new Error(error.message)
-    if (!data || data.type !== 'agent' || data.owner_user_id !== ownerId || data.device_id !== deviceId) throw new Error('Agent 不属于当前账号和这台手机')
+    if (!data || data.type !== 'agent' || data.owner_user_id !== ownerId || data.device_id !== deviceId) throw new SessionInputAdmissionError('Agent 不属于当前账号和这台手机', 'rejected', 'not_granted')
     return data
   }
   const preview = (agent) => {
@@ -159,7 +160,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     signal?.throwIfAborted()
     if (stopped || signingOut) throw new Error('手机宿主正在停止，未接收新任务')
     const target = agents().find((row) => row.agentUserId === input.agentUserId)
-    if (!target) throw new Error('Agent 没有在这台手机上建立活动任务')
+    if (!target) throw new SessionInputAdmissionError('Agent 没有在这台手机上建立活动任务', 'rejected', 'SESSION_NOT_FOUND')
     const proof = input.inputDataProof
     let admitted = input
     if (proof && !store.state.jobs[input.id]) {
@@ -710,7 +711,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     }
     if (command.type === 'host_call') {
       try { emit({ type: 'host_result', ownerId, id: command.id, result: await invoke(command.channel, command.args, command.id, command.source === 'native-ui' ? { kind: 'native-ui', ownerId } : { kind: 'device-rpc' }) }) }
-      catch (error) { emit({ type: 'host_result', ownerId, id: command.id, error: { code: error.code ?? 'call_failed', message: error.message } }) }
+      catch (error) { emit({ type: 'host_result', ownerId, id: command.id, error: { code: error.code ?? 'call_failed', message: error.message, admission: sessionInputAdmission(error) } }) }
       return
     }
     if (command.type === 'configure' || command.type === 'host_start') {

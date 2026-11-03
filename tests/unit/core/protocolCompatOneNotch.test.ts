@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest'
 import { desktopProtocolOutsideWindow } from '../../../packages/core/src/cloud/serverDesktopVersions'
 import { helloProtocol, MIN_CLIENT_PROTOCOL, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION, serverProtocolTooOld } from '../../../packages/core/src/cloud/serverMachineHealth'
+import { sessionInputAdmission } from '../../../packages/core/src/shared/sessionInputAdmission'
 import { settlementFromWire, type Settlement } from '../../../packages/session-core/src/session-record/contract'
 
 describe('one protocol notch down still connects; the newer side degrades', () => {
@@ -35,4 +36,16 @@ describe('one protocol notch down still connects; the newer side degrades', () =
     expect(settlementFromWire(fresh)).toBe(fresh)
     expect(settlementFromWire({ ...base } as Settlement).origin).toBeUndefined()
   })
+})
+
+it('keeps task input admission additive in both directions within the protocol window', () => {
+  // New desktop -> previous server: hello speaks 17 and legacy negative replies remain automatic.
+  expect(helloProtocol(17)).toBe(17)
+  expect(sessionInputAdmission({ code: 'session_not_found', message: 'missing' })).toBe('uncertain')
+  // Previous desktop -> new server: 17 remains inside the window; its old code reads only code/message.
+  expect(desktopProtocolOutsideWindow(17)).toBe(false)
+  const error = { code: 'session_not_found', message: 'missing', admission: 'rejected' }
+  const legacyRead = ({ code, message }: { code: string; message: string }) => ({ code, message })
+  expect(legacyRead(error)).toEqual({ code: 'session_not_found', message: 'missing' })
+  expect(sessionInputAdmission(error)).toBe('rejected')
 })

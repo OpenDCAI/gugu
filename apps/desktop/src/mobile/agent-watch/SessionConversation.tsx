@@ -1,3 +1,4 @@
+import { useRejectedSessionInputCommands } from '@/hooks/useRejectedSessionInputCommands'
 import { registerNativeComposer } from '@/lib/nativeComposerHandoff'
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead'
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility'
@@ -43,8 +44,8 @@ import { nativeUserAttachmentCommands } from './native-user-attachments'
 import { usePhoneSessionQuotes } from './use-phone-session-quotes'
 import { EngineIcon } from '@/components/AgentHarnessIdentity'
 import { engineLabel } from '@/lib/usage/engineLabel'
-import { useQueuedSessionInputs, retrySessionInputs } from '@/lib/sessionInputOutboxBridge'
-import { projectSessionPendingInput } from '@/lib/pendingSessionInput'
+import { useQueuedSessionInputs } from '@/lib/sessionInputOutboxBridge'
+import { projectRejectedSessionInputs, projectSessionPendingInput } from '@/lib/pendingSessionInput'
 import { projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { useSessionLifeView } from './useSessionLifeView'
@@ -205,7 +206,8 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const turns = receiptHistory.turns
   const settledInputs = receivedInputs.filter(input => input.delivery?.state !== 'accepted' || !pendingPromptLanded(input, turns))
   received.current = { key: receivedKey, inputs: settledInputs }
-  const pendingMessages = settledInputs.filter(receiptHistory.visible)
+  const pendingMessages = [...settledInputs.filter(receiptHistory.visible), ...projectRejectedSessionInputs(senderInputs, nativeTurns)]
+  const rejectedInputCommands = useRejectedSessionInputCommands(sessionId)
   const attachmentTurns = useRef(turns)
   attachmentTurns.current = turns
   const userAttachments = useMemo(() => nativeUserAttachmentCommands({
@@ -226,7 +228,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     onError: error => setBackgroundError(messageForUser(error)),
   }), [deviceId, sessionId, local, outputs.openFile])
   const commands: ChatCommands = {
-    onRetrySend: () => { void retrySessionInputs().catch(error => toast({ title: translateSessionMessage('acpFailure.sendMessage'), description: messageForUser(error), variant: 'destructive' })) },
+    ...rejectedInputCommands,
     ...(nativeRecord && !phoneHost ? userAttachments : {}),
     classifyLink: classifyFileLink, onOpenLink: followConversationLink, onOpenSender: openMessageSender,
     onOpenFile: ({ path }) => outputs.openFile(path),

@@ -1,8 +1,9 @@
 import { changePhoneConversationQueue } from './phone-conversation-queue.mjs'
 import { randomUUID } from 'node:crypto'
 import { stableId, uuid } from './phone-agent-store.mjs'
+import { SessionInputAdmissionError } from '../../../packages/core/src/shared/sessionInputAdmission.ts'
 
-const failure = (code, message) => Object.assign(new Error(message), { code })
+const failure = (code, message) => new SessionInputAdmissionError(message, 'rejected', code)
 const methods = new Set(['prefetchFiles', 'sessionQueue', 'sessionSnapshot', 'sessionAfter', 'sessionOlder', 'sessionToolImage', 'sessionSend', 'sessionRespond', 'sessionOptions', 'sessionSetOption', 'sessionReloadModel'])
 
 /** Task-page methods share the native and remote taskhost.call transport. No DM or workspace
@@ -38,14 +39,16 @@ export function createPhoneTaskApi({ ownerId, store, models, timelines, actions,
     } else if (method === 'sessionSend') {
       const files = Array.isArray(input.files) ? input.files : []
       if (typeof input.text !== 'string' || (!input.text.trim() && !files.length)) throw failure('invalid_args', '请先填写任务内容')
-      const clientId = input.clientRequestId ? uuid(input.clientRequestId, 'clientRequestId') : requestId ?? randomUUID()
+      let clientId
+      try { clientId = input.clientRequestId ? uuid(input.clientRequestId, 'clientRequestId') : requestId ?? randomUUID() }
+      catch (error) { throw failure('invalid_args', error.message) }
       const id = stableId('phone-task-input', ownerId, agent.sessionId, clientId)
       const fingerprint = stableId('phone-task-input-body', JSON.stringify([input.text.trim(), files.map((file) => [file.itemId, file.version])]))
       const existing = store.state.jobs[id]
       if (existing && existing.inputFingerprint !== fingerprint) throw failure('invalid_args', '同一个发送请求不能更换任务内容，请先重试原消息')
       // Admission keeps the person's words; files are resolved only when this queued job reaches the model.
       await admit({ id, agentUserId: agent.agentUserId, inputFingerprint: fingerprint, prompt: input.text.trim(), ...(files.length ? { files } : {}), route: { kind: 'task', senderUserId: ownerId } })
-      value = { accepted: true, messageId: id }
+      value = { accepted: true, messageId: id, admission: 'accepted' }
     } else if (method === 'sessionOptions') value = await options(agent)
     else {
       if (agent.status === 'working' || Object.values(store.state.jobs).some((job) => job.agentUserId === agent.agentUserId && job.status === 'queued')) throw failure('session_busy', '手机任务正在运行，请结束或取消后再更换模型')

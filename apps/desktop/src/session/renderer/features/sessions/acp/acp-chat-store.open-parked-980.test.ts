@@ -295,6 +295,30 @@ describe('sender custody uses the ordinary transcript row', () => {
     store.dispose();
   });
 
+  it('draws multiple rejected sender inputs once and removes a discarded row without starting the task', async () => {
+    const { store } = storeFor();
+    store.bootstrap();
+    await parked(store);
+    const a = { id: 'refused-a', sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null,
+      text: 'first refused input', createdAt: 5000, queued: false, admission: 'rejected' as const,
+      failure: { code: 'send-failed' as const, message: 'No access' } };
+    const b = { ...a, id: 'refused-b', text: 'second refused input', createdAt: 5001 };
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [a, b] });
+    inputsChanged(); inputsChanged();
+    expect(store.chatState.session.state.pendingPrompt).toBeNull();
+    expect(store.chatState.session.state.pendingMessages).toMatchObject([
+      { id: a.id, delivery: { state: 'failed', retryable: true } }, { id: b.id, delivery: { state: 'failed', retryable: true } },
+    ]);
+    store.beginMessageEdit(a.id);
+    expect(store.messageEdit).toEqual({ itemId: a.id, text: a.text });
+    store.cancelMessageEdit(a.id);
+    inputState().rows = [b]; inputsChanged();
+    expect(store.chatState.session.state.pendingMessages.map(input => input.id)).toEqual([b.id]);
+    expect(life.start).not.toHaveBeenCalled();
+    expect(custody).not.toHaveBeenCalled();
+    store.dispose();
+  });
+
   it.each([
     { senderRetained: true, machine: null }, { senderRetained: false, machine: null },
     { senderRetained: true, machine: 'startup-remote' }, { senderRetained: false, machine: 'startup-remote' },

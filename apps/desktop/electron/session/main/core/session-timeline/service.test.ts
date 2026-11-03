@@ -153,7 +153,7 @@ vi.mock('@main/core/agents/plugin-registry', () => ({
 vi.mock('./write-bridge', () => {
   class SessionWriteError extends Error {
     readonly code: string;
-    constructor(code: string, message: string) {
+    constructor(code: string, message: string, readonly admission = 'uncertain') {
       super(message);
       this.name = 'SessionWriteError';
       this.code = code;
@@ -675,7 +675,7 @@ describe('session timeline service', () => {
     startCalls.length = 0;
     state.deliverText.mockResolvedValue({ accepted: 'started' });
     state.rows = [row({ providerSessionId: null, config: { type: 'acp', initialQueue: [{ text: 'hi' }] } })];
-    expect(await service.send('conv-1', '在吗')).toEqual({ ok: true, value: { accepted: 'started' } });
+    expect(await service.send('conv-1', '在吗')).toEqual({ ok: true, value: { accepted: 'started', admission: 'accepted' } });
     expect(startCalls).toEqual([]);
     expect(state.deliverText).toHaveBeenCalledTimes(1);
     expect(state.deliverText.mock.calls[0]?.[1]).toBe('在吗');
@@ -1083,12 +1083,28 @@ describe('session timeline service', () => {
     });
     expect(await service.send('conv-1', '你好')).toMatchObject({
       ok: false,
-      error: { code: 'session_not_live' },
+      error: { code: 'session_not_live', admission: 'uncertain' },
     });
     expect(await service.send('missing', '你好')).toMatchObject({
       ok: false,
-      error: { code: 'session_not_found' },
+      error: { code: 'session_not_found', admission: 'rejected' },
     });
+  });
+
+  it('reports admission from the refusing boundary, never from a diagnostic code', async () => {
+    expect(await service.send('conv-1', 'hello', 'input', [{}] as never)).toMatchObject({ ok: false,
+      error: { code: 'invalid_request', admission: 'rejected' } });
+    for (const admission of ['rejected', 'uncertain'] as const) {
+      state.deliverText = vi.fn(async () => { throw new SessionWriteError('identical-code', 'identical reason', admission); });
+      expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: false,
+        error: { code: 'identical-code', admission } });
+    }
+    // An arbitrary failure may occur after a durable insert; neither its code nor its words prove rejection.
+    state.deliverText = vi.fn(async () => { throw Object.assign(new Error('permission denied'), { code: 'not_granted' }); });
+    expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: false, error: { admission: 'uncertain' } });
+    state.deliverText = vi.fn(async () => ({ accepted: 'queued' as const }));
+    expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: true,
+      value: { admission: 'accepted', clientMessageId: 'input' } });
   });
 
   it('没人订阅之后到点才 dispose', async () => {
