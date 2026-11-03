@@ -61,14 +61,15 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
       import {defineContract} from ${JSON.stringify(path.resolve('packages/session-wire/src/api/define.ts'))};
       import {createScope} from ${JSON.stringify(path.resolve('packages/session-wire/src/util/scope.ts'))};
       import {createStubLogger} from ${JSON.stringify(path.resolve('packages/session-wire/src/testing/index.ts'))};
-      import {signalProcessDescendantsSync} from ${JSON.stringify(path.resolve('packages/session-core/src/acp/engine-tree.ts'))};
+      import * as engineTree from ${JSON.stringify(path.resolve('packages/session-core/src/acp/engine-tree.ts'))};
+      const {signalProcessDescendantsSync}=engineTree;
       import {checkAccountBoot} from ${JSON.stringify(path.resolve('apps/desktop/electron/server/server-selftest.ts'))};
       import {runMiseProcess} from ${JSON.stringify(path.resolve('apps/desktop/electron/session/main/core/dependencies/mise-process.ts'))};
       const logDir=${JSON.stringify(dir)},shutdownLogger={info(){},error(){},warn(){}};
       const createLogger=()=>shutdownLogger,classifyFatal=()=>'defect',recordFatalSync=()=>{};
       const killAllCodexAppServerProcessGroupsSync=()=>{},opencodeServeAttachSessionDelivery={disposeSync(){}},droidDaemonSessionDelivery={disposeSync(){}};
       const emdashBridge=null,closeTunnelMachines=null,tunnelEndpoint=null;
-      const app={getPath:()=>''},noteExitReason=()=>{},stopServerActivity=()=>{},deviceRuntimeHost=null,SERVER_MODE=true,EXIT_RESTART=75,isSingleServerRun=()=>false;
+      const app={getPath:()=>''},noteExitReason=()=>{},stopServerActivity=()=>{},deviceRuntimeHost=null,SERVER_MODE=process.env.EXIT_SCOPE!=='desktop',EXIT_RESTART=75,isSingleServerRun=()=>false;
       let signalStopping=false;
       ${declaration('killEnginesOnCrash')}
       ${declaration('exitOnSignal')}
@@ -93,7 +94,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
     if (!dir.startsWith(path.join(os.tmpdir(), 'gugu-host-exit-tree-'))) throw new Error('Unexpected fixture directory')
     fs.rmSync(dir, { recursive: true, force: true })
   })
-  async function exitHost(kind: string, code: number, withTmux = false) {
+  async function exitHost(kind: string, code: number, withTmux = false, server = true) {
     const record = path.join(dir, `${kind}.json`)
     const bootRecord = path.join(dir, `${kind}-boot.json`)
     const miseRecord = path.join(dir, `${kind}-mise.json`)
@@ -102,7 +103,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
     for (const file of [record, bootRecord, miseRecord, tmuxRecord]) fs.rmSync(file, { force: true })
     const unrelated = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { detached: true, stdio: 'ignore' })
     const host = fork(hostEntry, [], { silent: true, env: { ...process.env, TREE_FILE: record, BOOT_TREE_FILE: bootRecord, MISE_TREE_FILE: miseRecord,
-      TMUX_TREE_FILE: tmuxRecord, TMUX_SOCKET: withTmux ? tmuxSocket : '' } })
+      TMUX_TREE_FILE: tmuxRecord, TMUX_SOCKET: withTmux ? tmuxSocket : '', EXIT_SCOPE: server ? 'server' : 'desktop' } })
     let tree: { worker: number; adapter: number; engine: number } | undefined
     let boot: { boot: number; bootWorker: number; probe: number } | undefined
     let mise: { mise: number; miseWorker: number } | undefined
@@ -126,7 +127,8 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
       expect(await closed).toEqual([code, null])
       await vi.waitFor(() => {
         const live = defaultEngineTreeOps().snapshotSync()
-        for (const pid of Object.values({ ...tree, ...boot, ...mise })) expect(live.some(row => row.pid === pid)).toBe(false)
+        for (const pid of Object.values(tree!)) expect(live.some(row => row.pid === pid)).toBe(false)
+        for (const pid of Object.values({ ...boot, ...mise })) expect(live.some(row => row.pid === pid)).toBe(!server)
       })
       expect(defaultEngineTreeOps().snapshotSync().some(row => row.pid === unrelated.pid)).toBe(true)
       if (tmux) {
@@ -146,4 +148,5 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
   }
   it.each([['crash', 1], ['update', 75], ['stop', 143]] as const)('reaps the adapter and an in-progress boot check before the actual %s exit', exitHost)
   it.runIf(tmuxAvailable).each([['crash', 1], ['update', 75]] as const)('preserves an actual double-forked tmux and its command across %s', async (kind, code) => exitHost(kind, code, true))
+  it('keeps desktop-owned external programs outside the worker cleanup scope', async () => exitHost('crash', 1, false, false))
 })

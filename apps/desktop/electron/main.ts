@@ -3342,7 +3342,7 @@ const killEnginesOnCrash = (label: string): void => {
     appendFileSync(join(logDir, 'reap-probe.log'), `${new Date().toISOString()} reap-begin label=${label}\n`)
   } catch { /* 探针不许反噬关停 */ }
   shutdownLogger.info({ label }, 'native leg reap: begin')
-  reap('host-processes', () => killAllWorkersSync(pids => signalProcessDescendantsSync([process.pid, ...pids], 'SIGKILL')))
+  reap('host-processes', () => killAllWorkersSync(pids => signalProcessDescendantsSync(SERVER_MODE ? [process.pid, ...pids] : pids, 'SIGKILL')))
   reap('codex-app-server', killAllCodexAppServerProcessGroupsSync)
   reap('opencode-serve-attach', () => opencodeServeAttachSessionDelivery.disposeSync())
   reap('droid-daemon', () => droidDaemonSessionDelivery.disposeSync())
