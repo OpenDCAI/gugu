@@ -3,6 +3,7 @@ import './page-navigation-bootstrap'
 import { startServerUsageSync } from './server/usage-sync'
 import { noteExitReason } from './lib/exit-reason'
 import { killAllWorkersSync } from '@gugu/session-wire/worker'
+import { killServerDescendantsSync } from './server/server-processes'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
 import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assistantWorkAvailability'
@@ -3342,7 +3343,8 @@ const killEnginesOnCrash = (label: string): void => {
     appendFileSync(join(logDir, 'reap-probe.log'), `${new Date().toISOString()} reap-begin label=${label}\n`)
   } catch { /* 探针不许反噬关停 */ }
   shutdownLogger.info({ label }, 'native leg reap: begin')
-  reap('host-processes', () => killAllWorkersSync(pids => signalProcessDescendantsSync(SERVER_MODE ? [process.pid, ...pids] : pids, 'SIGKILL')))
+  reap('host-processes', () => killAllWorkersSync(pids => SERVER_MODE
+    ? killServerDescendantsSync(pids) : signalProcessDescendantsSync(pids, 'SIGKILL')))
   reap('codex-app-server', killAllCodexAppServerProcessGroupsSync)
   reap('opencode-serve-attach', () => opencodeServeAttachSessionDelivery.disposeSync())
   reap('droid-daemon', () => droidDaemonSessionDelivery.disposeSync())

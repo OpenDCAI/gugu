@@ -8,6 +8,7 @@ import { SERVER_LOG_MAX_BYTES, SERVICE_LOG_CHECK_MS } from '../../../../apps/des
 import { readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
 
 vi.mock('../../../../apps/desktop/electron/server/server-service', () => ({ repairServiceDefinition: vi.fn() }))
+vi.mock('../../../../apps/desktop/electron/server/server-processes', () => ({ killServerDescendantsSync: vi.fn() }))
 vi.mock('../../../../apps/desktop/electron/server/server-updater', () => ({ managedLayout: () => null,
   startServerUpdater: () => ({ dispose: vi.fn() }) }))
 const legacy = vi.hoisted(() => ({ active: false }))
@@ -19,7 +20,7 @@ vi.mock('../../../../apps/desktop/electron/server/server-startup', async origina
 let home: string
 const environment = { ...process.env }
 const signals: EventEmitter = process
-let signalHandlers: Record<'SIGINT' | 'SIGTERM' | 'SIGUSR2' | 'exit', ReturnType<EventEmitter['listeners']>>
+let signalHandlers: Record<'SIGINT' | 'SIGTERM' | 'SIGUSR2' | 'exit' | 'uncaughtException', ReturnType<EventEmitter['listeners']>>
 const id = '00000000-0000-4000-8000-000000000001'
 function signIn(userId = id): void {
   const dir = path.join(home, 'accounts', userId)
@@ -36,13 +37,13 @@ beforeEach(() => {
   process.env.GUGU_TASK_HOST_VERSION = '2.0.0'
   fs.mkdirSync(path.join(home, 'data'))
   fs.writeFileSync(path.join(home, 'data/server.lock'), String(process.pid))
-  signalHandlers = { SIGINT: signals.listeners('SIGINT'), SIGTERM: signals.listeners('SIGTERM'), SIGUSR2: signals.listeners('SIGUSR2'), exit: signals.listeners('exit') }
+  signalHandlers = { SIGINT: signals.listeners('SIGINT'), SIGTERM: signals.listeners('SIGTERM'), SIGUSR2: signals.listeners('SIGUSR2'), exit: signals.listeners('exit'), uncaughtException: signals.listeners('uncaughtException') }
   vi.spyOn(process, 'exit').mockImplementation(code => { throw new Error(`exit ${code}`) })
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
   vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 })
 afterEach(() => {
-  for (const event of ['SIGINT', 'SIGTERM', 'SIGUSR2', 'exit'] as const) {
+  for (const event of ['SIGINT', 'SIGTERM', 'SIGUSR2', 'exit', 'uncaughtException'] as const) {
     for (const handler of signals.listeners(event)) if (!signalHandlers[event].includes(handler)) signals.removeListener(event, handler as (...args: unknown[]) => void)
   }
   vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks()

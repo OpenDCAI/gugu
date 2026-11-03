@@ -63,6 +63,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
       import {createStubLogger} from ${JSON.stringify(path.resolve('packages/session-wire/src/testing/index.ts'))};
       import * as engineTree from ${JSON.stringify(path.resolve('packages/session-core/src/acp/engine-tree.ts'))};
       const {signalProcessDescendantsSync}=engineTree;
+      import {killServerDescendantsSync} from ${JSON.stringify(path.resolve('apps/desktop/electron/server/server-processes.ts'))};
       import {checkAccountBoot} from ${JSON.stringify(path.resolve('apps/desktop/electron/server/server-selftest.ts'))};
       import {runMiseProcess} from ${JSON.stringify(path.resolve('apps/desktop/electron/session/main/core/dependencies/mise-process.ts'))};
       const logDir=${JSON.stringify(dir)},shutdownLogger={info(){},error(){},warn(){}};

@@ -11,23 +11,29 @@ import { repairServiceDefinition } from './server-service'
 import { removeLegacyBrowserLogins } from '../lib/remove-legacy-browser-logins'
 import { rotateByCopyTruncate, SERVICE_LOG_CHECK_MS } from './server-log-rotate'
 import { SUPERVISOR_HEALTH_MS, writeSupervisorHealth } from './server-health'
+import { killServerDescendantsSync } from './server-processes'
 
 export async function runSingleServer(prepare: () => void, runAccount: (userId: string) => Promise<void>): Promise<void> {
   const home = serverHome()
   const warn = (message: string): void => { process.stderr.write(`[server] ${message}\n`) }
+  const exitServer = (code: number): never => {
+    try { killServerDescendantsSync() }
+    catch (error) { warn(`Could not reap server subprocesses: ${String(error)}`) }
+    process.exit(code)
+  }
   const exitConfig = (message: string): never => {
     warn(message)
     // The deployed guard must still be able to restore the old multi-account server.
-    if (legacyGuardActive(home)) process.exit(1)
+    if (legacyGuardActive(home)) exitServer(1)
     if (process.env.GUGU_SERVER_SUPERVISED !== 'systemd') markStopped(home)
-    process.exit(EXIT_CONFIG)
+    exitServer(EXIT_CONFIG)
   }
   const release = claimHomeLock(home)
   if (!release) {
     let holder: number | null = null
     try { holder = Number(fs.readFileSync(path.join(home, 'data/server.lock'), 'utf8')) } catch { /* The holder may have just exited. */ }
     warn(`Another server already holds this installation’s lock (pid ${holder && Number.isInteger(holder) ? holder : 'unknown'})`)
-    process.exit(EXIT_CONFIG)
+    exitServer(EXIT_CONFIG)
   }
   process.on('exit', release)
   prepare()
@@ -50,7 +56,7 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   const health = () => {
     if (ownsHomeLock(home) === false) {
       warn('Installation lock ownership was lost; stopping this server.')
-      process.exit(EXIT_CONFIG)
+      exitServer(EXIT_CONFIG)
     }
     writeSupervisorHealth(home, { version: process.env.GUGU_TASK_HOST_VERSION ?? null, pid: process.pid, startedAt })
   }
@@ -60,11 +66,16 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
 
   const stopWhileWaiting = (): void => {
     if (!['systemd', 'launchd'].includes(process.env.GUGU_SERVER_SUPERVISED ?? '')) markStopped(home)
-    process.exit(143)
+    exitServer(143)
   }
+  const crashWhileWaiting = (error: Error): void => {
+    warn(`Uncaught exception before account startup: ${error.message}`)
+    exitServer(1)
+  }
+  process.once('uncaughtException', crashWhileWaiting)
   process.on('SIGTERM', stopWhileWaiting)
   process.on('SIGINT', stopWhileWaiting)
-  const restartWhileWaiting = (): void => { process.exit(75) }
+  const restartWhileWaiting = (): void => { exitServer(75) }
   process.on('SIGUSR2', restartWhileWaiting)
   let account
   try { account = onlySignedInAccount(listAccounts()) }
@@ -78,7 +89,7 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   }
   let bootingAccount = Boolean(account)
   const updater = startServerUpdater({ isBusy: () => bootingAccount,
-    shutdown: () => process.exit(75),
+    shutdown: restartWhileWaiting,
     log: { info: (message, fields) => warn(`${message}${fields ? ` ${JSON.stringify(fields)}` : ''}`),
       warn: (message, fields) => warn(`${message}${fields ? ` ${JSON.stringify(fields)}` : ''}`) } })
   process.on('exit', () => updater.dispose())
@@ -92,6 +103,7 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   process.removeListener('SIGTERM', stopWhileWaiting)
   process.removeListener('SIGINT', stopWhileWaiting)
   process.removeListener('SIGUSR2', restartWhileWaiting)
+  process.removeListener('uncaughtException', crashWhileWaiting)
   bootingAccount = true
   await runAccount(account.userId)
 }
