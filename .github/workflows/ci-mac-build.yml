@@ -1,0 +1,37 @@
+name: Trusted macOS CI build
+on:
+  workflow_call:
+permissions:
+  contents: read
+  actions: read
+env:
+  CI: true
+  GUGU_SUPABASE_URL: http://127.0.0.1:54321
+  VITE_SUPABASE_URL: http://127.0.0.1:54321
+  GUGU_SUPABASE_ANON_KEY: community-build-placeholder
+  VITE_SUPABASE_ANON_KEY: community-build-placeholder
+  # Match pnpm-lock.yaml; update the version and digest together when Playwright changes.
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:b0ab6f3cb99aa7803adbc14d9027ec1785fc6e433b97e134e0f8fe61683b6b53
+jobs:
+  build:
+    name: Build
+    # This decision uses the original event; callers cannot opt into the public pool with inputs.
+    runs-on: ${{ (github.repository == 'GUYI-AI/gugu' && github.repository_id == '1428236928' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'GUYI-AI/gugu' && github.event.pull_request.head.ref == 'integration/beta-20261103' && github.event.pull_request.base.ref == 'dev' && startsWith(github.workflow_ref, 'GUYI-AI/gugu/.github/workflows/ci.yml@refs/pull/') && endsWith(github.workflow_ref, '/merge')) && fromJSON('["self-hosted","macOS","ARM64","gugu-public-mac1"]') || 'macos-15' }}
+    timeout-minutes: 45
+    env:
+      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: command -v tmux || brew install tmux
+      - uses: ./.github/actions/setup-community
+      - run: pnpm build:app:ci
+        env:
+          GUGU_BUILD_SERIAL: '1'
+      - run: pnpm rebuild:native
