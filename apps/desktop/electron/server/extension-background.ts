@@ -88,7 +88,8 @@ export function serverExtensionBackground(bundle: ExtensionBundle, entry: string
         await route.fulfill({ status: response.status, headers, body: Buffer.from(await response.arrayBuffer()) });
         return;
       }
-      if (request.isNavigationRequest() || !decideExtensionRequest(request.url(), currentBundle().networkHosts).allowed) {
+      const current = currentBundle();
+      if (request.isNavigationRequest() || !decideExtensionRequest(request.url(), current.networkHosts, current.declaredHosts).allowed) {
         await route.abort('blockedbyclient');
         return;
       }
@@ -100,7 +101,8 @@ export function serverExtensionBackground(bundle: ExtensionBundle, entry: string
       await route.fulfill({ response, ...(granted ? { headers: Object.fromEntries(Object.entries(granted).map(([key, values]) => [key, values.join(', ').replaceAll(`gugu-ext://${bundle.extensionId}`, origin)])) } : {}) });
     });
     await context.routeWebSocket('**/*', (socket) => {
-      if (decideExtensionRequest(socket.url(), currentBundle().networkHosts).allowed) socket.connectToServer();
+      const current = currentBundle();
+      if (decideExtensionRequest(socket.url(), current.networkHosts, current.declaredHosts).allowed) socket.connectToServer();
       else socket.close();
     });
     page = context.pages()[0] ?? await context.newPage();

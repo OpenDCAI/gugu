@@ -433,6 +433,7 @@ function openPage(request: ExtensionCheckRequest): CheckPage {
     apiVersion: installed.manifest.apiVersion,
     rootDir: installed.rootDir,
     networkHosts: service.grantedHosts(installed.manifest.id),
+    declaredHosts: installed.manifest.permissions?.network ?? [],
   });
   // Where it opens (owner 10-13): a group's panel, a phone, or a tab of the session as wide as it is shown there now.
   const size = request.phone
