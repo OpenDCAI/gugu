@@ -8,6 +8,16 @@ import { Button } from '../ui/Button'
 
 const FREQUENCY_KEY = 'gugu.reaction-frequency'
 
+/** 常用回应次数。这一格可能被外部工具或旧版本写坏:解析失败、或解出来不是对象,都按「还没攒过」读 —— ❌ 别让回应面板整页崩。 */
+function readFrequency(): Record<string, number> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(FREQUENCY_KEY) ?? '{}')
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, number>) : {}
+  } catch {
+    return {}
+  }
+}
+
 /** 桌面回应浮层与手机长按面板共用:一行常用 + 目录里的精选回应,在原面板内切换。 */
 export function EmojiQuickPicker({ anchor, onPick, onClose, onExpand, children, disabled = false, menu = false }: {
   anchor?: Element | RefObject<Element | null>
@@ -20,7 +30,7 @@ export function EmojiQuickPicker({ anchor, onPick, onClose, onExpand, children, 
 }) {
   const { t, i18n } = useTranslation('messaging')
   const [expanded, setExpanded] = useState(false)
-  const frequency: Record<string, number> = JSON.parse(localStorage.getItem(FREQUENCY_KEY) ?? '{}')
+  const frequency = readFrequency()
   const emojis = [...new Set([...REACTIONS.filter(({ emoji }) => frequency[emoji] > 0).sort((a, b) => frequency[b.emoji] - frequency[a.emoji]).map(({ emoji }) => emoji), ...QUICK_REACTIONS.map(({ emoji }) => emoji)])].slice(0, 6)
   const pick = (emoji: string) => {
     localStorage.setItem(FREQUENCY_KEY, JSON.stringify({ ...frequency, [emoji]: (frequency[emoji] ?? 0) + 1 }))
