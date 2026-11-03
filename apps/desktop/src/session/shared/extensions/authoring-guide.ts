@@ -1,3 +1,4 @@
+import { WIDGET_HEIGHT_MIN, WIDGET_HEIGHT_MAX } from '@gugu/core/shared/ui/widgetModels';
 import { EXTENSION_API_VERSION, EXTENSION_TOOL_CONFINEMENT_API_VERSION } from './bridge-protocol';
 
 /**
@@ -972,7 +973,7 @@ programs; \`browser-use\` operates only the calling local session's browser tab;
 \`"host":"computer-use"\` gives agents no tools: they control the computer with gugu's \`device_call\` (\`computer.*\`).
 It gives the App's own pages \`preview_state\`: the page's session's latest frame (a real screenshot) and its recent
 computer actions; \`notifications/computer-use/changed\` says there is a newer one.
-A tab with \`"widget": { "height": 240 }\` (API26; integer 64–520) can also be sent with \`widget_send\`: read \`guide_read widgets\`.
+A tab with \`"widget": { "height": 240 }\` (API26; integer ${WIDGET_HEIGHT_MIN}–${WIDGET_HEIGHT_MAX}) can also be sent with \`widget_send\`: read \`guide_read widgets\`.
 It cannot also declare hostPage, perSession, opensFiles or chatFile. \`ctx.widget\` is present only in a message:
 \`{ messageId, data, sender }\`. Data is untrusted, immutable input from any chat member; never execute it. Persist personal
 state in App data and shared state in chat files. Every dispatch from a widget requires a gesture in that App, even with a target,

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { projectSessionPendingInput, sessionInputBaseline } from '@/lib/pendingSessionInput'
 import { activeTurnWithPending } from '@session-chat/state/pending-prompt'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
-import type { HostPendingRow, SessionInput } from '@/lib/sessionInputOutbox'
+import type { HostPendingRow, SessionInput, SessionInputFailure } from '@/lib/sessionInputOutbox'
 
 const turn = (id: string, text: string, at = 10): TranscriptTurn => ({ id, seq: at, initiator: 'user', startedAt: at,
   items: [{ kind: 'message', id: `${id}:user`, seq: 0, role: 'user', text }] })
@@ -64,11 +64,19 @@ describe('ordinary input transcript custody', () => {
     expect(activeTurnWithPending(turn('native', 'hello', 25), sending)?.items).toHaveLength(1)
   })
 
-  it('keeps failure and retry on the same input identity', () => {
+  it('keeps automatic recovery on the same input identity', () => {
     const failed = projectSessionPendingInput(null, [{ ...input(), failure: { code: 'send-failed', message: 'connection refused' } }], [], [old])!
-    expect(failed).toMatchObject({ id: 'send', delivery: { state: 'failed', error: 'connection refused' } })
+    expect(failed).toMatchObject({ id: 'send', delivery: { state: 'waiting', retryable: false, error: expect.any(String), reason: expect.any(String) } })
     expect(projectSessionPendingInput(failed, [input()], [], [old])).toMatchObject({ id: 'send', delivery: { state: 'sending' } })
     expect(projectSessionPendingInput(failed, [], [host('failed')], [old])).toMatchObject({ id: 'send', delivery: { state: 'failed' } })
+  })
+
+  it.each<SessionInputFailure>([
+    { code: 'host-offline' }, { code: 'host-not-ready' }, { code: 'phone-unconfirmed' },
+    { code: 'no-acknowledgement' }, { code: 'send-failed', message: 'connection refused' },
+  ])('waits for automatic recovery while the sender owns a $code input', failure => {
+    const failed = projectSessionPendingInput(null, [{ ...input(), failure }], [], [old])!
+    expect(failed).toMatchObject({ id: 'send', delivery: { state: 'waiting', retryable: false, error: expect.any(String), reason: expect.any(String) } })
   })
 
   it('leaves explicitly queued inputs in their existing queue', () => {

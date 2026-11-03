@@ -6,6 +6,7 @@ import {
 import { appState } from '@renderer/lib/stores/app-state';
 import { formatBytes } from '@renderer/utils/formatBytes';
 import { createLifecycleScriptTerminalId } from '@shared/core/terminals/terminals';
+import { resourceTotals } from '@shared/resource-monitor';
 import type {
   ResourceAppProcess,
   ResourcePtyEntry,
@@ -62,14 +63,14 @@ export function entryLabel(entry: Entry, agentNames?: Map<string, string>): stri
 }
 
 export function formatReport(snapshot: ResourceSnapshot, groups: Group[]): string {
-  const entryMem = snapshot.entries.reduce((n, e) => n + e.memory, 0);
-  const entryCpu = snapshot.entries.reduce((n, e) => n + e.cpu, 0);
-  const totalMem = snapshot.app.memoryBytes === undefined ? undefined : snapshot.app.memoryBytes + entryMem;
+  const totals = resourceTotals(snapshot);
   const percent = (cpu: number | undefined) => (cpu === undefined ? '–' : `${cpu.toFixed(1)}%`);
-  const appCpu = snapshot.app.cpuPercent;
-
   const lines: string[] = [];
-  lines.push(`CPU (100% = one core) ${percent(appCpu === undefined ? undefined : appCpu + entryCpu)} Memory ${totalMem === undefined ? '–' : formatBytes(totalMem)}`);
+  lines.push(`CPU (100% = one core) ${percent(totals.cpuPercent)} Memory (RSS) ${totals.memoryBytes === undefined ? '–' : formatBytes(totals.memoryBytes)}`);
+  for (const group of snapshot.processGroups ?? []) {
+    lines.push(`${group.label} ${percent(group.cpu)} ${formatBytes(group.memory)}${group.sessionId ? ` (session=${group.sessionId})` : ''}`);
+    for (const process of group.processes) lines.push(`  ${process.name} ${percent(process.cpu)} ${formatBytes(process.memory)} (pid=${process.pid} ppid=${process.ppid})`);
+  }
 
   for (const proc of snapshot.appProcesses) {
     const label = appProcessLabel(proc.type, proc.name);

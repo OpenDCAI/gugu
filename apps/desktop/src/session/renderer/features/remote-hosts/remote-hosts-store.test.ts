@@ -22,6 +22,29 @@ const device = (overrides: Partial<RemoteHostDevice> = {}): RemoteHostDevice => 
   ...overrides,
 });
 
+it('warns with the device when session locations cannot be read, while retaining the project inventory', async () => {
+  const ipc = await import('@renderer/lib/ipc');
+  const { appState } = await import('@renderer/lib/stores/app-state');
+  const { log } = await import('@renderer/utils/logger');
+  const failure = new Error('session directory unavailable');
+  const rpc = vi.spyOn(ipc, 'rpcOn').mockReturnValue({
+    projects: { getProjects: vi.fn(async () => []) },
+    app: { getHomeDirectory: vi.fn(async () => '/home/test') },
+    sessionTimeline: { sessionsList: vi.fn(async () => { throw failure; }) },
+  } as unknown as ReturnType<typeof ipc.rpcOn>);
+  const sync = vi.spyOn(appState.projects, 'syncMachineProjects').mockImplementation(() => {});
+  const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+  try {
+    await new RemoteHostsStore().syncProjects('unreadable-device');
+    expect(warn).toHaveBeenCalledWith('[machines] 读那台机器的会话列表失败', {
+      deviceId: 'unreadable-device', error: String(failure),
+    });
+    expect(sync).toHaveBeenCalledWith('unreadable-device', []);
+  } finally {
+    rpc.mockRestore(); sync.mockRestore(); warn.mockRestore();
+  }
+});
+
 describe('machine picker projection', () => {
   it('shares one representative per remote machine while preserving configuration routes and following removals', () => {
     const store = new RemoteHostsStore();

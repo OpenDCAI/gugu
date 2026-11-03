@@ -181,3 +181,18 @@ it('reports a missing mapped task without treating it as an empty new conversati
   expect(scope.open).not.toHaveBeenCalled();
   expect(scope.onOpen).not.toHaveBeenCalled();
 });
+
+it('pauses an existing file host until native conversation navigation has completed', async () => {
+  const { canTakeOwnedAgentResource, clearOwnedAgentResources, hostOwnedAgentResources } = await import('../../../../apps/desktop/src/lib/ownedAgentResources')
+  hostOwnedAgentResources('owner', 'dm', { projectId: 'project', sessionId: 'session' })
+  let finishNavigation!: () => void
+  scope.open.mockImplementationOnce(() => new Promise<void>(resolve => { finishNavigation = resolve }))
+  await harness.render(<Fixture />)
+  expect(openOwnedAgentEntry('dm', undefined, undefined, undefined, 'resource')).toBe(true)
+  expect(canTakeOwnedAgentResource('owner', 'dm')).toBe(false)
+  await vi.waitFor(() => expect(scope.open).toHaveBeenCalled())
+  expect(canTakeOwnedAgentResource('owner', 'dm')).toBe(false)
+  finishNavigation()
+  await vi.waitFor(() => expect(canTakeOwnedAgentResource('owner', 'dm')).toBe(true))
+  clearOwnedAgentResources('owner')
+})

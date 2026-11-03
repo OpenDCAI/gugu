@@ -742,7 +742,7 @@ export class AcpChatStore {
     // unless the start failed terminally (the engine is not there), when queueing waits for something that never happens.
     // Starting with its message drawn is running: the composer stops it (`stop` asks the host), as in any turn.
     const deliveryState = this.chatState.session.state.pendingPrompt?.delivery?.state;
-    const startingDrawn = !state && this.transcriptPendingId !== null && deliveryState !== 'failed' && deliveryState !== 'unknown';
+    const startingDrawn = !state && this.transcriptPendingId !== null && deliveryState !== 'waiting' && deliveryState !== 'failed' && deliveryState !== 'unknown';
     return {
       isWorking: agentWorking || startingDrawn || deliveryState === 'sending' || deliveryState === 'accepted',
       isBusy: state?.isGenerating ?? false,

@@ -26,12 +26,14 @@ export type WireCallMessage = {
 
 export type WireSnapshotMessage = {
   kind: 'snapshot';
+  capabilities?: readonly string[];
   id: string;
   topic: string;
 };
 
 export type WireAttachMessage = {
   kind: 'attach';
+  capabilities?: readonly string[];
   id: string;
   topic: string;
 };
@@ -259,7 +261,8 @@ export function isWireMessage(value: unknown): value is WireMessage {
       return typeof message.id === 'string' && typeof message.path === 'string';
     case 'snapshot':
     case 'attach':
-      return typeof message.id === 'string' && typeof message.topic === 'string';
+      return typeof message.id === 'string' && typeof message.topic === 'string'
+        && (message.capabilities === undefined || (Array.isArray(message.capabilities) && message.capabilities.every(value => typeof value === 'string')));
     case 'detach':
       return typeof message.topic === 'string';
     case 'cancel':

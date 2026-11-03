@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { decodeV2SessionUpdate, type NormalizedEvent, type TranscriptTurn } from '@gugu/session-core/acp';
+import { decodeV2SessionUpdate, terminalPresentation, type NormalizedEvent, type TranscriptTurn } from '@gugu/session-core/acp';
 import { makeAcpHarness, makeStartInput } from '../acp-test-support';
 import { AcpRuntime } from './runtime';
 
@@ -66,7 +66,7 @@ describe('terminal publication lifecycle', () => {
       expect(sync).toHaveBeenCalledTimes(1);
       await vi.advanceTimersByTimeAsync(100);
       expect(sync).toHaveBeenCalledTimes(2);
-      expect(rt.sessionLiveModels(SESSION)!.states.terminals.snapshot().data).toEqual(rt.getTerminals(SESSION));
+      expect(rt.sessionLiveModels(SESSION)!.states.terminals.snapshot().data.map(terminalPresentation)).toEqual(rt.getTerminals(SESSION));
     } finally {
       loaded.resolve({});
     }
@@ -84,7 +84,7 @@ describe('terminal publication lifecycle', () => {
     const { rt, send, committed, launchId } = await started();
     const live = rt.sessionLiveModels(SESSION)!.states.terminals;
     const outputs: string[] = [];
-    const unsubscribe = live.subscribe(() => outputs.push(live.snapshot().data[0]?.output ?? ''));
+    const unsubscribe = live.subscribe(() => outputs.push(live.snapshot().data[0] ? terminalPresentation(live.snapshot().data[0]!).output : ''));
     const sync = vi.spyOn(rt.manager, 'syncTerminals');
     try {
       await send(rawChunk('first'));
@@ -115,7 +115,7 @@ describe('terminal publication lifecycle', () => {
       await send(rawChunk(' LAST_TAIL'));
       await send(decodeV2SessionUpdate({ sessionUpdate: 'terminal_update', terminalId: 't',
         exitStatus: { exitCode: 0, signal: null } }));
-      expect(rt.sessionLiveModels(SESSION)!.states.terminals.snapshot().data).toMatchObject([
+      expect(rt.sessionLiveModels(SESSION)!.states.terminals.snapshot().data.map(terminalPresentation)).toMatchObject([
         { output: 'first LAST_TAIL', exitStatus: { exitCode: 0, signal: null } },
       ]);
       expect(committed.filter(entry => entry.turn.id === launchId).at(-1)).toMatchObject({

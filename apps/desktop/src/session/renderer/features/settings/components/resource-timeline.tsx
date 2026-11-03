@@ -10,6 +10,7 @@ import { rendererLogger } from '@/lib/log';
 import { Button } from '@/components/ui/Button';
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs';
 import { ResourceMonitorView } from '@renderer/features/command-palette/resource-monitor-view';
+import { ResourceSamplingStatus } from './resource-sampling-status';
 import { tokenColor, useChartTheme } from '@/components/usage/useChartTheme';
 import './resource-timeline.css';
 const log = rendererLogger('resource-monitor/timeline');
@@ -66,6 +67,7 @@ export const ResourceTimeline = observer(function ResourceTimeline({ compact = f
   const chart = (metric: 'cpu' | 'memory', height: number) => <div aria-label={labels[metric]} style={{ height }}><TimelineChart data={data} metric={metric} compact={compact} select={select} labels={labels} /></div>;
 
   if (compact) return <section className="space-y-3 text-xs" aria-label={t('resourceMonitor.timeline')}>
+    <ResourceSamplingStatus />
     {tiles.map((tile) => <div key={tile.key} className="grid grid-cols-[6.5rem_1fr] items-center gap-3">
       <div className="whitespace-nowrap">
         <div className="text-foreground-muted">{tile.label}</div>
@@ -88,6 +90,7 @@ export const ResourceTimeline = observer(function ResourceTimeline({ compact = f
     : <h3 className="text-sm font-medium">{t('resourceMonitor.liveProcesses')}</h3>;
 
   return <section className="space-y-5 text-xs" aria-label={t('resourceMonitor.timeline')}>
+    <ResourceSamplingStatus />
     <div className="grid grid-cols-2 gap-3">
       {tiles.map((tile) => <div key={tile.key} className="space-y-1 rounded-md border border-border px-3 py-3">
         <div className="text-foreground-muted">{tile.label}</div>

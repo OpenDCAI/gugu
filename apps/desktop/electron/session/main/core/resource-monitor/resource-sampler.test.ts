@@ -8,6 +8,9 @@ const settings = vi.fn();
 const emit = vi.fn();
 const collect = vi.fn();
 const append = vi.fn();
+const ownershipRoots = vi.fn();
+const processRows = vi.fn();
+const activePtys = vi.fn();
 const appEvents = new EventEmitter();
 vi.mock('electron', () => ({
   app: {
@@ -18,7 +21,7 @@ vi.mock('electron', () => ({
   BrowserWindow: { getFocusedWindow: () => focusedWindow() },
 }));
 vi.mock('pidusage', () => ({ default: Object.assign(vi.fn(), { clear: vi.fn() }) }));
-vi.mock('@main/core/pty/pty-session-registry', () => ({ ptySessionRegistry: { listActiveSessions: () => [] } }));
+vi.mock('@main/core/pty/pty-session-registry', () => ({ ptySessionRegistry: { listActiveSessions: () => activePtys() } }));
 vi.mock('@main/core/settings/settings-service', () => ({
   appSettingsService: { get: () => settings() },
 }));
@@ -27,6 +30,8 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('./renderer-metrics', () => ({ collectRendererMetrics: collect }));
 vi.mock('./context', () => ({ collectResourceContext: async () => ({ windows: [] }) }));
 vi.mock('./history', () => ({ resourceHistory: { append } }));
+vi.mock('../acp/runtime-process/resource-roots', () => ({ collectAcpResourceRoots: () => ownershipRoots() }));
+vi.mock('./owned-processes', () => ({ listResourceProcesses: () => processRows(), collectLedgerResourceRoots: async () => [] }));
 
 function tab(cumulativeCPUUsage: number, pid = 7) {
   return { pid, type: 'Tab', cpu: { percentCPUUsage: 0, cumulativeCPUUsage }, memory: { workingSetSize: 1 } };
@@ -39,6 +44,9 @@ beforeEach(() => {
   focusedWindow.mockReturnValue({});
   settings.mockResolvedValue({ enabled: true, internals: false });
   collect.mockResolvedValue([]);
+  ownershipRoots.mockResolvedValue([]);
+  processRows.mockResolvedValue([]);
+  activePtys.mockReturnValue([]);
   vi.useFakeTimers();
   vi.setSystemTime(0);
 });
@@ -49,6 +57,40 @@ afterEach(async () => {
 });
 
 describe('resource sampler CPU', () => {
+  it('keeps Windows Electron and PTY-root scope without querying process trees or ACP provenance', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      const { sampleOnce } = await import('./resource-sampler');
+      const { default: sampleUsage } = await import('pidusage');
+      metrics.mockReturnValue([tab(10, 1)]);
+      const idle = await sampleOnce();
+      expect(idle.processTreeScope).toBe('electron-and-pty-roots');
+      expect(idle.processGroups).toBeUndefined();
+      expect(sampleUsage).not.toHaveBeenCalled();
+      activePtys.mockReturnValue([{ ptySessionId: 'project:scope:terminal', pid: 9, metadata: { title: 'Shell' } }]);
+      vi.mocked(sampleUsage).mockResolvedValue({ 9: { memory: 4 * 1024 * 1024, cpu: 5, ppid: 1 } } as never);
+      const active = await sampleOnce();
+      expect(sampleUsage).toHaveBeenCalledWith([9]);
+      expect(active.appProcesses.map(p => p.pid)).toEqual([1]);
+      expect(active.entries.map(e => [e.pid, e.memory])).toEqual([[9, 4 * 1024 * 1024]]);
+      expect(processRows).not.toHaveBeenCalled();
+      expect(ownershipRoots).not.toHaveBeenCalled();
+    } finally { Object.defineProperty(process, 'platform', platform); }
+  });
+  it('counts a worker PID only once even when Electron also reports it', async () => {
+    const { sampleOnce } = await import('./resource-sampler');
+    const { default: sampleUsage } = await import('pidusage');
+    metrics.mockReturnValue([tab(10, 1), tab(5, 3)]);
+    processRows.mockResolvedValue([{ pid: 1, ppid: 0, name: 'Electron' }, { pid: 3, ppid: 1, name: 'worker' }, { pid: 4, ppid: 3, name: 'codex' }]);
+    ownershipRoots.mockResolvedValue([{ id: 'acp-runtime', pid: 3, kind: 'runtime', label: 'ACP runtime' }]);
+    vi.mocked(sampleUsage).mockResolvedValue({ 1: { memory: 1024, cpu: 10 }, 3: { memory: 2048, cpu: 5 }, 4: { memory: 4096, cpu: 20 } } as never);
+    const snapshot = await sampleOnce();
+    expect(snapshot.appProcesses.map(p => p.pid)).toEqual([1]);
+    expect(snapshot.app.memoryBytes).toBe(1024);
+    expect(snapshot.processGroups?.[0].processes.map(p => p.pid)).toEqual([3, 4]);
+    expect(snapshot.processGroups?.[0].memory).toBe(6144);
+  });
   it('leaves missing process metrics unknown, then resumes real readings', async () => {
     const { sampleOnce } = await import('./resource-sampler');
     const missing = await sampleOnce();
@@ -112,31 +154,38 @@ describe('resource sampler cadence', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('uses 1.5 seconds in front, 10 seconds behind, and samples immediately on focus', async () => {
-    const { startResourceSampler } = await import('./resource-sampler');
-    startResourceSampler();
-    startResourceSampler();
+  it('uses complete trees every 1.5 seconds with a viewer and 10 seconds without, regardless of focus', async () => {
+    const { setResourceMonitorOpen } = await import('./resource-sampler');
+    setResourceMonitorOpen('client', 'panel', true, 1, false);
     await vi.advanceTimersByTimeAsync(0);
     expect(metrics).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1500);
     expect(metrics).toHaveBeenCalledTimes(2);
 
     focusedWindow.mockReturnValue(null);
-    // Finish the already scheduled foreground interval, then use the background delay.
+    // An open viewer stays responsive even without a focused native window.
     await vi.advanceTimersByTimeAsync(1500);
     expect(metrics).toHaveBeenCalledTimes(3);
+    setResourceMonitorOpen('client', 'panel', false, 2, false);
+    focusedWindow.mockReturnValue({});
+    appEvents.emit('browser-window-focus');
     await vi.advanceTimersByTimeAsync(9999);
     expect(metrics).toHaveBeenCalledTimes(3);
     await vi.advanceTimersByTimeAsync(1);
     expect(metrics).toHaveBeenCalledTimes(4);
 
-    focusedWindow.mockReturnValue({}); // A foreground auxiliary window also counts.
+    // Focusing unrelated app windows must not turn background recording into a busy loop.
     appEvents.emit('browser-window-focus');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(metrics).toHaveBeenCalledTimes(4);
+    setResourceMonitorOpen('client', 'panel', true, 3, false);
     await vi.advanceTimersByTimeAsync(0);
     expect(metrics).toHaveBeenCalledTimes(5);
     await vi.advanceTimersByTimeAsync(1500);
     expect(metrics).toHaveBeenCalledTimes(6);
-    expect(appEvents.listenerCount('browser-window-focus')).toBe(1);
+    expect(processRows).toHaveBeenCalledTimes(6);
+    expect(ownershipRoots).toHaveBeenCalledTimes(6);
+    expect(appEvents.listenerCount('browser-window-focus')).toBe(0);
   });
 
   it('waits for a slow sample to finish before starting the next interval', async () => {
@@ -197,9 +246,24 @@ describe('resource sampler cadence', () => {
     collect.mockRejectedValueOnce(new Error('renderer unavailable'));
     startResourceSampler();
     await vi.advanceTimersByTimeAsync(0);
-    expect(emit).toHaveBeenNthCalledWith(1, resourceSnapshotChannel, null);
+    expect(emit).toHaveBeenNthCalledWith(1, resourceSnapshotChannel, { samplingError: { timestamp: 0, reason: 'sample-failed' } });
     await vi.advanceTimersByTimeAsync(1500);
     expect(emit).toHaveBeenNthCalledWith(2, resourceSnapshotChannel, expect.objectContaining({ timestamp: 1500 }));
+  });
+
+  it('reports process-list failure without partial history and recovers on the next complete sample', async () => {
+    const { setResourceMonitorOpen } = await import('./resource-sampler');
+    const { log } = await import('@main/lib/logger');
+    const cause = new Error('ps permission denied');
+    processRows.mockRejectedValueOnce(cause);
+    setResourceMonitorOpen('client', 'page', true, 1, false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(emit).toHaveBeenLastCalledWith(resourceSnapshotChannel, { samplingError: { timestamp: 0, reason: 'process-list-read-failed' } });
+    expect(append).not.toHaveBeenCalled();
+    expect(log.warn).toHaveBeenCalledWith('resource-sampler: sample failed', expect.objectContaining({ cause }));
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(append).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenLastCalledWith(resourceSnapshotChannel, expect.objectContaining({ timestamp: 1500, memoryMetric: 'rss' }));
   });
 
   it('finishes loading when settings disable the sampler or cannot be read', async () => {
@@ -259,12 +323,16 @@ describe('page-scoped advanced diagnostics', () => {
     settings.mockResolvedValue({ enabled: true });
     await reconcileResourceSampler();
     await vi.advanceTimersByTimeAsync(3000);
-    expect(append).toHaveBeenCalledTimes(3);
+    expect(append).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(7000);
+    expect(append).toHaveBeenCalledTimes(2);
+    expect(processRows).toHaveBeenCalledTimes(2);
+    expect(ownershipRoots).toHaveBeenCalledTimes(2);
     expect(emit).not.toHaveBeenCalled(); // No renderer subscriptions / hidden DOM work.
     settings.mockResolvedValue({ enabled: false });
     await reconcileResourceSampler();
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(append).toHaveBeenCalledTimes(3);
+    expect(append).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
   });
   it('does not let a delayed old open restart advanced collection after its view closes', async () => {
