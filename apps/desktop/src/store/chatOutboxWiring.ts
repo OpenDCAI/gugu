@@ -207,7 +207,6 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
   // 运行态只由跑这个 agent 的宿主宣布,见 spec agent-status。
   async function handleSent(record: OutboxRecord, persisted: MessageItem): Promise<void> {
     beforeDeliverHooks.delete(record.clientMessageId)
-    nativeCommits.delete(record.clientMessageId)
     if (record.operation?.kind !== 'nativeAttachment') attachmentTimings.get(record.clientMessageId)?.finish('success', 'outbox')
     attachmentTimings.delete(record.clientMessageId)
     if (!active) return

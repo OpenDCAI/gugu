@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getLocaleSnapshot, i18n, setLocalePreference } from '../../../../apps/desktop/src/i18n'
+import { i18n } from '../../../../apps/desktop/src/i18n'
 import '../../../../apps/desktop/src/i18n/registerMessagingCatalog'
 
 vi.mock('@gugu/core/cloud/config', () => ({ getSupabaseUrl: () => 'https://db.test', getSupabaseAnonKey: () => 'anon' }))
@@ -17,12 +17,12 @@ describe('attachmentsEndpoint: the attachments function, with the token the sess
   it.each(['missing', 'changed', 'denied'] as const)('passes a structured %s refusal through IPC with localized actionable copy', async reason => {
     const invoke = vi.fn(async () => ({ refused: reason }))
     vi.stubGlobal('window', { electronAPI: { invoke, getPathForFile: vi.fn(() => { throw new Error('restored paths must not consume a File') }) } })
-    const previous = getLocaleSnapshot().preference
+    const previous = i18n.language
     const expected = { missing: ['The original file was moved or deleted.', '原文件已移动或删除'],
       changed: ['The original file has changed.', '原文件已修改'], denied: ['permission was denied', '没有读取原文件的权限'] }
     try {
       for (const [index, locale] of (['en-US', 'zh-CN'] as const).entries()) {
-        setLocalePreference(locale)
+        await i18n.changeLanguage(locale)
         const failure = await commitPreparedChatAttachment({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 't' },
           { local: { path: '/original/a.txt', name: 'a.txt', size: 3, contentType: 'text/plain', lastModified: 123 }, itemId: 'stable-item' },
           { message_id: 'message', chat_id: 'chat', sender_user_id: 'owner', file_name: 'a.txt' }).catch(error => error)
@@ -32,7 +32,7 @@ describe('attachmentsEndpoint: the attachments function, with the token the sess
       expect(invoke).toHaveBeenLastCalledWith('files:publish', expect.objectContaining({ itemId: 'stable-item', file: {
         path: '/original/a.txt', name: 'a.txt', size: 3, contentType: 'text/plain', lastModified: 123,
       } }))
-    } finally { setLocalePreference(previous) }
+    } finally { await i18n.changeLanguage(previous) }
   })
   it('signed out ⇒ said; signed in ⇒ that token, this build\'s server', async () => {
     await expect(attachmentsEndpoint()).rejects.toThrow(/not signed in/)
