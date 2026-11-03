@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { bindAgentEntry, createAgentEntry } from './agent-entry.mjs'
+import { createNativeBridge } from './native-bridge.mjs'
 
 const deferred = () => {
   let resolve, reject
@@ -288,4 +289,25 @@ test('failed explicit stop reports the cleanup error before exiting without a se
     assert.equal(b.exits, 1)
     assert.deepEqual(scheduled, [])
   } finally { await b.bound.close().catch(() => undefined) }
+})
+
+test('explicit stop still resolves native results needed by pending cleanup', async () => {
+  const requests = []
+  const bridge = createNativeBridge(request => requests.push(request))
+  const cleanup = bridge.call('permissions.check', {}, undefined, { ownerId: 'owner' })
+  const b = boundFixture({ bridge, startPhoneAgentHost: async () => ({ close: () => cleanup, handle: () => cleanup }) })
+  const result = { type: 'tool_result', id: requests[0].id, ownerId: 'owner', result: { granted: true } }
+  try {
+    b.input.emit('line', JSON.stringify({ type: 'host_start', ownerId: 'owner' }))
+    await tick()
+    b.input.emit('line', JSON.stringify({ type: 'host_stop', ownerId: 'owner' }))
+    await tick()
+    assert.equal(b.exits, 0)
+    b.input.emit('line', JSON.stringify(result))
+    await tick()
+    assert.equal(b.exits, 1, 'pending cleanup must receive the native reply before exit')
+    assert.deepEqual(await cleanup, result.result)
+    assert.deepEqual(b.errors, [])
+    assert.deepEqual(b.timeouts, [])
+  } finally { bridge.resolve(result); await b.bound.close() }
 })
