@@ -231,18 +231,14 @@ export async function appendRecordTurnNow(sessionId: string, turn: TranscriptTur
 export async function storedTurnIndexBase(sessionId: string): Promise<number> {
   await persistenceTails.get(sessionId);
   const rows = await db
-    .select({ turnId: sessionTurns.turnId, data: sessionTurns.data })
+    .select({ turnId: sessionTurns.turnId, notifiedSource: sql<string | null>`CASE WHEN ${sessionTurns.turnId} LIKE 'owner-notify:%' THEN json_extract(${sessionTurns.data}, '$.items[0].ownerNotification.sourceTurnId') END` })
     .from(sessionTurns)
     .where(eq(sessionTurns.sessionId, sessionId));
   let max = -1;
-  for (const { turnId, data } of rows) {
-    const sources = turnId.startsWith('owner-notify:')
-      ? (JSON.parse(data) as TranscriptTurn).items.flatMap(item => item.kind === 'message' && item.ownerNotification?.sourceTurnId ? [item.ownerNotification.sourceTurnId] : []) : [turnId];
+  for (const { turnId, notifiedSource } of rows) {
     // A notified but interrupted turn already owns its identity; a restarted engine must not reuse it.
-    for (const source of sources) {
-      const index = /:turn:(\d+)$/.exec(source)?.[1];
-      if (index !== undefined) max = Math.max(max, Number(index));
-    }
+    const index = /:turn:(\d+)$/.exec(notifiedSource ?? turnId)?.[1];
+    if (index !== undefined) max = Math.max(max, Number(index));
   }
   return max + 1;
 }

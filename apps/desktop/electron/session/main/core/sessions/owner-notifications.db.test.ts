@@ -72,6 +72,6 @@ it('deduplicates concurrent identical file sends and refuses a session without a
   expect(receipts[0]).toEqual(receipts[1]);
   expect(records()).toHaveLength(1);
   fixture.sqlite.exec("UPDATE sessions SET runtime='pty' WHERE id='s'");
-  await expect(commitOwnerNotification(context, { ...input, request_id: '22222222-2222-4222-8222-222222222222' }, async () => {})).rejects.toThrow('no readable native');
+  await expect(commitOwnerNotification(context, { ...input, request_id: '22222222-2222-4222-8222-222222222222' }, async () => {})).rejects.toThrow('not delivered to your owner');
   expect(records()).toHaveLength(1);
 });
