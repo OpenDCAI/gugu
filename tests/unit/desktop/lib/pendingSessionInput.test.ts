@@ -64,9 +64,9 @@ describe('ordinary input transcript custody', () => {
     expect(activeTurnWithPending(turn('native', 'hello', 25), sending)?.items).toHaveLength(1)
   })
 
-  it('keeps failure and retry on the same input identity', () => {
+  it('keeps automatic recovery on the same input identity', () => {
     const failed = projectSessionPendingInput(null, [{ ...input(), failure: { code: 'send-failed', message: 'connection refused' } }], [], [old])!
-    expect(failed).toMatchObject({ id: 'send', delivery: { state: 'failed', retryable: true, error: 'connection refused' } })
+    expect(failed).toMatchObject({ id: 'send', delivery: { state: 'waiting', retryable: false, error: expect.any(String), reason: expect.any(String) } })
     expect(projectSessionPendingInput(failed, [input()], [], [old])).toMatchObject({ id: 'send', delivery: { state: 'sending' } })
     expect(projectSessionPendingInput(failed, [], [host('failed')], [old])).toMatchObject({ id: 'send', delivery: { state: 'failed' } })
   })
@@ -74,9 +74,9 @@ describe('ordinary input transcript custody', () => {
   it.each<SessionInputFailure>([
     { code: 'host-offline' }, { code: 'host-not-ready' }, { code: 'phone-unconfirmed' },
     { code: 'no-acknowledgement' }, { code: 'send-failed', message: 'connection refused' },
-  ])('preserves the manual retry policy for $code', failure => {
+  ])('waits for automatic recovery while the sender owns a $code input', failure => {
     const failed = projectSessionPendingInput(null, [{ ...input(), failure }], [], [old])!
-    expect(failed).toMatchObject({ id: 'send', delivery: { state: 'failed', retryable: failure.code !== 'host-offline' } })
+    expect(failed).toMatchObject({ id: 'send', delivery: { state: 'waiting', retryable: false, error: expect.any(String), reason: expect.any(String) } })
   })
 
   it('leaves explicitly queued inputs in their existing queue', () => {
@@ -91,7 +91,7 @@ describe('ordinary input transcript custody', () => {
   })
 })
 
-it('keeps the failed offline input in its transcript without a Retry action', () => {
+it('keeps the offline input waiting in its transcript without a Retry action', () => {
   const failed = projectSessionPendingInput(null, [{ ...input(), failure: { code: 'host-offline' } }], [], [old])
-  expect(failed).toMatchObject({ id: 'send', text: 'hello', delivery: { state: 'failed', retryable: false } })
+  expect(failed).toMatchObject({ id: 'send', text: 'hello', delivery: { state: 'waiting', retryable: false, reason: expect.any(String), error: expect.any(String) } })
 })

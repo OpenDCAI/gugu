@@ -49,7 +49,7 @@ it.each(['absent', 'missing-version'])('accepts durable input when the Peek row 
   expect(field()?.value).toBe('Keep exactly one offline message')
   await act(async () => { harness.container.querySelector<HTMLButtonElement>('[data-native-offline-input] button')!.click() })
   await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id]')?.textContent).toContain('Keep exactly one offline message'))
-  await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id] [role="alert"]')).not.toBeNull())
+  await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id] [data-send-state="waiting"][role="status"]')).not.toBeNull())
   expect(harness.container.querySelectorAll('[data-native-input-id]')).toHaveLength(1)
   expect(harness.container.querySelector('[data-native-input-id] button')).toBeNull()
   expect(field()?.value).toBe('')

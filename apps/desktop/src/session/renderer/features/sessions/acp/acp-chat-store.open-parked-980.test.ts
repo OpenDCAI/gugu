@@ -282,7 +282,7 @@ describe('sender custody uses the ordinary transcript row', () => {
     store.dispose();
   });
 
-  it('keeps a sender failure in the same row without claiming the agent is working', async () => {
+  it('keeps sender-owned input waiting in the same row without claiming the agent is working', async () => {
     const { store } = storeFor();
     store.bootstrap();
     await parked(store);
@@ -290,7 +290,7 @@ describe('sender custody uses the ordinary transcript row', () => {
       sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'hello', createdAt: 5000,
       queued: false, failure: { code: 'send-failed', message: 'connection refused' } }] });
     inputsChanged();
-    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'failed-input', delivery: { state: 'failed' } });
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'failed-input', delivery: { state: 'waiting', retryable: false, error: 'connection refused' } });
     expect(store.affordances.isWorking).toBe(false);
     store.dispose();
   });

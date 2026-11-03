@@ -662,7 +662,7 @@ export function ChatRoot(props: ChatRootProps) {
       const activeTurn = activeTurnWithInputs(at, pendingPrompt, pendingMessages)!;
       // Reserve the same process row from send to startup: adding it at acknowledgement scrolls a long transcript.
       const pending = [...(pendingPrompt ? [pendingPrompt] : []), ...pendingMessages];
-      const failedPending = !at && pending.length > 0 && pending.every(input => input.stopped || input.delivery?.state === 'failed' || input.delivery?.state === 'unknown');
+      const failedPending = !at && pending.length > 0 && pending.every(input => input.stopped || input.delivery?.state === 'waiting' || input.delivery?.state === 'failed' || input.delivery?.state === 'unknown');
       const body = flattenTier([activeTurn], failedPending ? { ...ctx, active: false } : ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
       // A held input has no running process row, but it cannot hide the host's compression/stop/failure state.
       if (!failedPending) return body;

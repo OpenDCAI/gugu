@@ -33,8 +33,8 @@ it('accepts and visibly retains a native message without any mounted remote work
   await act(async () => { await handoffNativeComposer('cold-session', { text: 'Send when the host returns' }) })
   await vi.waitFor(() => expect(readComposer(field())).toBe('Send when the host returns'))
   await act(async () => { harness.container.querySelector<HTMLButtonElement>('[data-slot="composer-actions-end"] > button')!.click() })
-  await vi.waitFor(() => expect(scope.pendingPrompt).toMatchObject({ text: 'Send when the host returns', delivery: { state: 'failed', retryable: false } }))
-  expect(scope.pendingPrompt?.delivery).toMatchObject({ state: 'failed', error: expect.any(String) })
+  await vi.waitFor(() => expect(scope.pendingPrompt).toMatchObject({ text: 'Send when the host returns', delivery: { state: 'waiting', retryable: false } }))
+  expect(scope.pendingPrompt?.delivery).toMatchObject({ state: 'waiting', error: expect.any(String), reason: expect.any(String) })
   // The transcript owns this ordinary input, so the footer must not draw a second copy.
   expect(harness.container.querySelector('[data-native-input-id]')).toBeNull()
   expect(readComposer(field())).toBe('')
