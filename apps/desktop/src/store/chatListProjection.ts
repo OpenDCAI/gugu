@@ -9,8 +9,7 @@ import { isChatOnScreen } from '../lib/onScreenChat'
 import { rendererLogger } from '../lib/log'
 import { chatPreviewText } from '../lib/agentTurnFailure'
 import type { AccountImRepository } from '../lib/imRepository'
-import type { PatchChat } from './chatRealtimeMutations'
-import { prepareProjectedReadWatermark } from './chatRealtimeMutations'
+import { patchChatRows, prepareProjectedReadWatermark, type PatchChat } from './chatRealtimeMutations'
 import { currentAuthSessionSignal } from '../lib/authSessionLoss'
 import {
   createChatProjection, readProjectionCursor,
@@ -128,14 +127,15 @@ export function useChatProjectionBinding(deps: {
   requestSeqRef: MutableRefObject<number>
   notifications: { chatMessages: boolean; sound: boolean }
   canAcknowledge: (chatId: string) => boolean
-  patchChat: PatchChat
   setChats: (rows: ChatItem[]) => void
   /** 当前选中被权威地撤销了 —— store 自己决定怎么清空那一侧的状态。 */
   onActiveRevoked: (chatId: string) => void
 }) {
-  const { ledger, repositoryRef, getRepository, chatsRef, activeChatIdRef, requestSeqRef, setChats, onActiveRevoked, canAcknowledge, patchChat } = deps
+  const { ledger, repositoryRef, getRepository, chatsRef, activeChatIdRef, requestSeqRef, setChats, onActiveRevoked, canAcknowledge } = deps
   const { chatMessages: notifyMessages, sound: notifySound } = deps.notifications
   const ownerRef = useRef<{ accountId: string; owner: ChatProjection } | null>(null)
+  const patchChat: PatchChat = useCallback((chatId, partial, expectedReadStateVersion) =>
+    setChats(patchChatRows(chatsRef.current, chatId, partial, expectedReadStateVersion)), [chatsRef, setChats])
 
   const ownerFor = useCallback((accountId: string): ChatProjection => {
     if (ownerRef.current?.accountId !== accountId) {
