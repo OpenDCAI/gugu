@@ -4817,6 +4817,18 @@ app.whenReady().then(async () => {
         return emdash.runSessionAction(context, action as SessionAction, signal)
       }
       let record = action as Record<string, unknown>
+      if (record.action === 'owner-notify') {
+        const input = record as unknown as Parameters<typeof emdash.commitOwnerNotification>[1]
+        const verify = async () => {
+          if (!authProvider) throw new Error('owner notification runtime auth is unavailable')
+          const current = await requireRuntimeAuth(authProvider, 'owner notification commit')
+          if (current.userId !== auth.userId) throw new Error('owner notification account changed')
+          const binding = await senderBinding(context, auth.userId)
+          if (binding.guguAgentUserId !== input.agent_user_id) throw new Error('owner notification sender is not bound to this native session')
+        }
+        await verify()
+        return emdash.commitOwnerNotification(context, input, verify, signal)
+      }
       const projectResult = (result: unknown) => typeof record.action === 'string' && record.action.startsWith('project_')
         ? prepareProjectAgentNotice(result, {
           agentUserId: () => senderBinding(context, auth.userId).then((binding) => binding.guguAgentUserId),

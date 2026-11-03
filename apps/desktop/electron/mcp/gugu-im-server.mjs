@@ -523,14 +523,12 @@ async function restGetInBatches(ids, readBatch) {
 // 参数说明会随每个工具重复一遍,只写这一格独有的事;「目标从不推断」这类通用规则在平台提示词里讲一次。
 // chat_id 从哪来(投递信封的 chat=,或 public_id)只在 message_send 的 chat_id 上讲一次:每个列出的工具都重复同一句时,
 // 开场为它付 ≈200 token(上下文工程第一批 P5,2026-10-07 实测)。
-const CHAT_ID_DESCRIPTION = 'The target chat: the chat= value from your gugu_delivery envelope, a public_id, or your owner\'s address for your private chat with them.'
+const CHAT_ID_DESCRIPTION = 'The target chat: the chat= value from your gugu_delivery envelope, a public_id, or your owner\'s address to notify them in your native session.'
 const chatIdSchema = z.string().trim().min(1)
 
 /**
- * @@@owner-address-is-dm — chat_id 写主人的身份地址 = 和主人的私聊(#7351)。会话页 agent 默认没有这条私聊
- * (@@@no-auto-dm),它真要对主人说话的那一刻才开。这条 server 拿的是主人的 JWT ⇒ `open_dm(本 agent)` 开出来的
- * 就是主人 ↔ 本 agent 那一条,与主人在界面上点开同一个 RPC、同一形态;已有就是那条(幂等)。
- * 只认主人:别人的地址不是一个 chat,参数恒为本 agent 自己,开不出任何别人的私聊。
+ * Identity-address reads and the personal assistant's real IM conversation retain their existing DM lookup.
+ * Ordinary agent writes are resolved by resolveWriteTarget before reaching this function.
  */
 async function ownerDirectChatId(address, deps) {
   const decoded = decodeIdentityAddress(address, 'chat_id')
@@ -563,6 +561,43 @@ async function requireChat(args, deps) {
   const explicit = args && typeof args.chat_id === 'string' ? args.chat_id.trim() : ''
   if (explicit) return await resolveChatIdInput(explicit, deps)
   throw new Error('chat_id is required; the gugu MCP server never infers a conversation target')
+}
+
+/** Personal writes use the caller's native session; a DM is only an older spelling of that same destination. */
+async function resolveWriteTarget(args, deps) {
+  const address = typeof args?.chat_id === 'string' ? args.chat_id.trim() : ''
+  if (!address) throw new Error('chat_id is required; the gugu MCP server never infers a conversation target')
+  if (deps.context.personalAssistant) return { chatId: await requireChat(args, deps) }
+  if (/^(aid|user|gugu):/.test(address)) {
+    const decoded = decodeIdentityAddress(address, 'chat_id')
+    const userId = decoded.kind === 'user' ? decoded.id : (await lookupGuguNumber(decoded.number, deps)).id
+    const owner = await currentAuthUserId(deps)
+    if (userId !== owner) throw new Error(`chat_id ${address} is not a chat: an identity address works here only for your owner; for anyone else use an id from message_conversations`)
+    return { owner }
+  }
+  const chatId = await requireChat(args, deps)
+  if (UUID_RE.test(chatId)) {
+    const kind = await chatKindOf(deps, chatId)
+    if (kind === 'dm' || kind === 'ai') {
+      const members = await memberRowsOfMyChat(chatId, deps)
+      const ids = new Set(members.map(row => row.user_id))
+      const owner = await currentAuthUserId(deps)
+      if (ids.size === 2 && ids.has(owner) && ids.has(deps.context.agentId)) return { owner, chatId }
+    }
+  }
+  return { chatId }
+}
+
+async function sendOwnerNotification(args, deps, target, recipients, file) {
+  if (!deps.context.runHostAction) throw new Error('The sending native session host is unavailable; no owner notification was sent')
+  if (recipients?.some(id => id !== target.owner)) throw new Error('An owner notification can address only your owner')
+  if (args.reply_to_message_id) throw new Error('A proactive owner notification has no IM reply_to_message_id; omit that field')
+  const requestId = randomUUID()
+  const receipt = await deps.context.runHostAction({ action: 'owner-notify', request_id: requestId,
+    agent_user_id: deps.context.agentId, text: args.text ?? '', ...(file ? { file } : {}) })
+  if (receipt?.status !== 'sent' || receipt.message_id !== requestId || typeof receipt.session_id !== 'string'
+    || !receipt.session_id || !Number.isSafeInteger(receipt.seq) || receipt.seq < 0) throw new Error('The native session did not confirm the owner notification commit')
+  return JSON.stringify({ ...receipt, delivery: 'owner-native' })
 }
 function normalizeRecipientInput(v) {
   if (typeof v !== 'string') return v
@@ -1330,7 +1365,9 @@ async function handleMessage(args, deps) {
     }
   }
   const requestedRecipients = await resolveRecipientAddresses(normToList(args.to_user_ids), deps)
-  const chatId = await requireChat(args, deps)
+  const target = args.action === 'send' ? await resolveWriteTarget(args, deps) : { chatId: await requireChat(args, deps) }
+  if (target.owner) return sendOwnerNotification(args, deps, target, requestedRecipients)
+  const chatId = target.chatId
   if (args.action === 'send') {
     // @@@1244 — thread 归属由会话绑定决定，模型不可覆盖（防 thread 串话）。
     // 入站已按 acpSessionKey(agent,conv,threadRoot) 隔离到每 thread 一个 session；若出站让模型自由填
@@ -2219,7 +2256,30 @@ function withFolderFile(row) {
 
 async function handleFile(args, deps) {
   if (args.action === 'send-file') {
-    const chatId = await requireChat(args, deps)
+    const target = await resolveWriteTarget(args, deps)
+    if (target.owner) {
+      const recipients = await resolveRecipientAddresses(normToList(args.to_user_ids), deps)
+      let filePath = args.file_path
+      let name = args.file_name
+      let mime = args.mime_type
+      const folder = folderFileArg(args.file)
+      if (folder && filePath) throw new Error('An owner notification keeps a task-file snapshot; replacing a conversation-folder revision needs that folder\'s file operation')
+      if (folder) {
+        const resolved = await deps.resolveFile({ item_id: folder.itemId, ...(folder.version ? { version: folder.version } : {}) })
+        if (resolved.status !== 'ready') throw new Error('The file version for this owner notification is not readable')
+        const home = String(deps.context.guguHome ?? '').trim()
+        if (!home) { await resolved.dispose(); throw new Error('The native session file cache is unavailable') }
+        mime ??= resolved.revision.content_type
+        name ??= resolved.revision.file_name
+        const saved = await saveFileHandle(resolved, joinPath(home, 'session-media'), name)
+        filePath = saved.file_path
+      }
+      if (!filePath) throw new Error('message_send_file: give file_path or an existing folder file')
+      name ??= basename(filePath)
+      mime ??= resolveAttachmentMimeType(name, undefined)
+      return sendOwnerNotification(args, deps, target, recipients, { path: filePath, name, mime_type: mime })
+    }
+    const chatId = target.chatId
     await assertNotOwnerFriendDm(deps, chatId, 'message_send_file', 'message_send_file_as_owner')
     const toUserIds = await resolveRecipientAddresses(normToList(args.to_user_ids), deps)
     const folderFile = folderFileArg(args.file)

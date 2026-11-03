@@ -272,11 +272,13 @@ export async function getStoredHistory(params: {
   limit?: number;
   /** 给了就改成「seq ≥ fromSeq 的全部行」,供界面开场补读用;与 before/limit 互斥。 */
   fromSeq?: number;
+  ownerNotificationsOnly?: boolean;
 }): Promise<StoredTurnPage> {
   const page = await readStoredTurns(params.sessionId, {
     before: params.before,
     limit: params.limit,
     fromSeq: params.fromSeq,
+    ownerNotificationsOnly: params.ownerNotificationsOnly,
   });
   return params.fromSeq === undefined
     ? trimCursorPageForTransport(page)
@@ -315,7 +317,7 @@ export interface StoredTurnPage {
  */
 export async function readStoredTurns(
   sessionId: string,
-  options: { before?: number; limit?: number; fromSeq?: number } = {}
+  options: { before?: number; limit?: number; fromSeq?: number; ownerNotificationsOnly?: boolean } = {}
 ): Promise<StoredTurnPage> {
   if (options.fromSeq !== undefined) {
     // 「开场那一页之后新落库的行」—— 开场时补读一次用(acp-chat-store `_reloadStoredTail`)。❌ 不分页:这一段只是
@@ -330,7 +332,8 @@ export async function readStoredTurns(
       .where(
         and(
           eq(sessionTurns.sessionId, sessionId),
-          gte(sessionTurns.seq, options.fromSeq)
+          gte(sessionTurns.seq, options.fromSeq),
+          ...(options.ownerNotificationsOnly ? [like(sessionTurns.turnId, 'owner-notify:%')] : [])
         )
       )
       .orderBy(asc(sessionTurns.seq));

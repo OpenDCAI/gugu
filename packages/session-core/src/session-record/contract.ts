@@ -654,6 +654,10 @@ export type SessionpageSessionSummary = {
   nativeLastMessage?: { text: string; at: string } | null;
   /** Raw personal conversation replies. IM deliveries keep their existing unread counter. */
   nativeUnreadKeys?: string[];
+  /** Only deliberate owner notifications contribute a numeric notification badge. */
+  nativeOwnerNotificationUnreadCount?: number;
+  /** Last committed notification sequence; absent when none has been sent. */
+  nativeOwnerNotificationSeq?: number;
   nativeUnreadAliases?: Record<string, string>;
   conversationId: string;
   projectId: string;

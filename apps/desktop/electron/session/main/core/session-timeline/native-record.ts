@@ -2,6 +2,7 @@ import { nativeConversationUnread } from '../sessions/session-conversation-read'
 import type { SessionTimelineResult } from './service';
 import type { SessionTimeline } from '@gugu/session-core/session-record/contract';
 import type { TranscriptTurn } from '@gugu/session-core/acp/client';
+import { projectOwnerNotifications } from '@gugu/session-core/session-record/owner-notifications';
 import { nativeAttachmentDataUrl, type NativeAttachmentRequest } from './native-attachment';
 
 export function createNativeRecordReader(deps: {
@@ -28,7 +29,9 @@ async function nativeRecord(input: { conversationId: string; before?: number; af
     const hasNewer = latestStoredSeq > (turns.at(-1)?.seq ?? input.after ?? -1);
     const { trimTurnsForTransport } = await import('@gugu/session-core/session-record');
     const active = deps.activeTurn(input.conversationId);
-    return { ...page, turns, originTurnIds: selected.map(one => one.origin), latestStoredSeq, hasNewer, activeTurn: !hasNewer && active && !page.originTurnIds.includes(active.id) ? trimTurnsForTransport([active])[0]! : null };
+    const origins = new Map(selected.map(one => [one.turn.id, one.origin]));
+    const projected = projectOwnerNotifications(turns, !hasNewer && active && !page.originTurnIds.includes(active.id) ? trimTurnsForTransport([active])[0]! : null, origins);
+    return { ...page, turns: projected.turns, originTurnIds: projected.turns.map(turn => origins.get(turn.id)!), latestStoredSeq, hasNewer, activeTurn: projected.activeTurn };
   });
 }
 

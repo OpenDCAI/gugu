@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { isDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
-import { addNativeReplies, nativeMessageKey, nativeReadAliases, nativeReplyKeys, seeNativeReplies, unreadNativeMessages, type NativeReadJournal } from '@gugu/session-core/session-record/native-read';
+import { addNativeReplies, nativeMessageKey, nativeReadAliases, nativeReplyKeys, seeNativeReplies, unreadNativeMessages, unreadOwnerNotifications, type NativeReadJournal } from '@gugu/session-core/session-record/native-read';
 import { db, type AppDb } from '@main/db/client';
 import { kv, sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
@@ -21,6 +21,7 @@ function read(sessionId: string, source: JournalDb = db): NativeReadJournal {
 }
 export function nativeConversationAliases(sessionId: string): Record<string, string> { return nativeReadAliases(read(sessionId)); }
 export function nativeConversationUnread(sessionId: string): string[] { return unreadNativeMessages(read(sessionId)); }
+export function nativeOwnerNotificationUnread(sessionId: string): string[] { return unreadOwnerNotifications(read(sessionId)); }
 
 function update(sessionId: string, change: (journal: NativeReadJournal) => NativeReadJournal, transaction?: JournalDb): { unread: string[]; publish: () => void } {
   const write = (tx: JournalDb) => {
@@ -60,7 +61,8 @@ export function noteNativeConversationReplies(sessionId: string, turn: Transcrip
   }
   const keys = nativeReplyKeys(turn).filter(id => personal.has(id));
   const aliases = new Map(turn.items.flatMap((item, index) => item.kind === 'message' && live.items[index]?.kind === 'message' ? [[item.id, nativeMessageKey(live.items[index]!.id)]] : []));
-  const publish = keys.length ? update(sessionId, journal => addNativeReplies(journal, keys, aliases), transaction).publish : undefined;
+  const notifications = new Set(turn.items.flatMap(item => item.kind === 'message' && item.ownerNotification ? [item.id] : []));
+  const publish = keys.length ? update(sessionId, journal => addNativeReplies(journal, keys, aliases, notifications), transaction).publish : undefined;
   if (activity || publish) return () => {
     publish?.();
     if (activity) publishActivity(sessionId);

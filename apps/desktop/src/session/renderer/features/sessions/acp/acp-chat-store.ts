@@ -57,6 +57,7 @@ import {
 } from '@renderer/lib/chat/advertised-command-provider';
 import { getSharedChatContext } from '@renderer/lib/chat/shared-chat-context';
 import { composeHistoryTurns, sideChatOwnTurns } from './history-composition';
+import { projectOwnerNotifications } from '@gugu/session-core/session-record/owner-notifications';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import type { SessionMessageKey } from '@renderer/localization/messages';
@@ -269,6 +270,10 @@ export class AcpChatStore {
   private _storedBaseSeq: number | null = null;
   /** 开场读库那一刻库里最后一行的 seq。比它新的行,就是本次面板期间才落库的回合。 */
   private _storedBootstrapMaxSeq = -1;
+  private _ownerNotificationTurns: TranscriptTurn[] = [];
+  private _ownerNotificationReadSeq = -1;
+  private _ownerNotificationListeners = new Set<() => void>();
+  private _ownerNotificationRead: Promise<void> = Promise.resolve();
   /** 本次面板期间才落库的那些行来自引擎的哪几轮(运行时原始 turn id)—— 引擎那侧据此不再重复出它们。 */
   private _persistedRuntimeTurnIds: ReadonlySet<string> = new Set<string>();
   /**
@@ -2324,7 +2329,14 @@ export class AcpChatStore {
     const disconnectChatSession = connectSession(
       this.chatState,
       {
-        activeTurn: asValueSource(session.activeTurn),
+        activeTurn: {
+          getSnapshot: () => this._ownerNotificationView().activeTurn,
+          subscribe: cb => {
+            const stop = session.activeTurn.onChange(() => cb());
+            this._ownerNotificationListeners.add(cb);
+            return () => { stop(); this._ownerNotificationListeners.delete(cb); };
+          },
+        },
         plan: asValueSource(session.plan),
         sessionState: asValueSource(session.sessionState),
       },
@@ -2509,13 +2521,42 @@ export class AcpChatStore {
    * 判重按身份(seq 分界 + 运行时原始 turn id),❌ 不按条数 —— 规则与理由见 `composeHistoryTurns`。
    */
   private _composedHistory(): TranscriptTurn[] {
-    return composeHistoryTurns({
+    return this._ownerNotificationView().turns;
+  }
+
+  private _ownerNotificationView() {
+    const composed = composeHistoryTurns({
       stored: this._storedHistoryTurns,
       runtime: this._visibleHistoryTurns(this._runtimeTurns),
       runtimeReplayEndSeq: this._runtimeReplayEndSeq,
       persistedRuntimeTurnIds: this._persistedRuntimeTurnIds,
       older: this._olderHistoryTurns,
     });
+    const known = new Set(composed.map(turn => turn.id));
+    const turns = [...composed, ...this._ownerNotificationTurns.filter(turn => !known.has(turn.id))];
+    const origins = new Map(this._storedHistoryTurns.map((turn, index) => [turn.id, this._storedOrigins[index]!]));
+    return projectOwnerNotifications(turns, this.session?.activeTurn.current() ?? null, origins);
+  }
+
+  /** The host reports a committed record sequence. This never starts or prompts the provider. */
+  syncOwnerNotifications(head: number): Promise<void> {
+    const read = this._ownerNotificationRead.then(async () => {
+      while (!this._disposed && !this.isTransient && head > this._ownerNotificationReadSeq) {
+        const generation = this._historyGeneration;
+        const page = await rpc.sessions.getStoredHistory({ sessionId: this.sessionId, fromSeq: this._ownerNotificationReadSeq + 1, ownerNotificationsOnly: true });
+        if (this._disposed) return;
+        // A concurrent bootstrap can replace the view while this IPC is in flight. Read again against its new view.
+        if (generation !== this._historyGeneration) continue;
+        const byId = new Map(this._ownerNotificationTurns.map(turn => [turn.id, turn]));
+        for (const turn of page.turns) byId.set(turn.id, turn);
+        this._ownerNotificationTurns = [...byId.values()];
+        this._ownerNotificationReadSeq = Math.max(head, ...page.turns.map(turn => turn.seq));
+        this.chatState.transcript.history.seed(this._composedHistory());
+        for (const listener of this._ownerNotificationListeners) listener();
+      }
+    });
+    this._ownerNotificationRead = read.catch(() => undefined);
+    return read;
   }
 
   /** 还能不能往上翻。到头(游标为 null)或还没定下来来源时都是 false。 */

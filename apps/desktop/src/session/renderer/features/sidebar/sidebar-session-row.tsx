@@ -26,6 +26,7 @@ import type { SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import { SidebarSessionTitle } from './sidebar-session-title';
 import { SidebarScheduleHoverMark, SidebarScheduleMark } from './sidebar-schedule-badge';
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract';
+import { SidebarUnreadCount } from './sidebar-list-switch';
 
 // 侧栏一行会话的**外观**。本机会话(sidebar-session-item)与别的机器上的会话
 // (#6264,sidebar-remote-conversation-item)共用这一份 —— 行长得一模一样,只有数据来源和动作落点不同。
@@ -67,6 +68,7 @@ export type SessionRowShellProps = {
    */
   schedule?: SessionpageScheduleDigest | null;
   doneUnread: boolean;
+  notificationCount?: number;
   isActive: boolean;
   isCursor: boolean;
   isPendingArchive: boolean;
@@ -116,6 +118,7 @@ export function SessionRowShell({
   lastInteractedAt,
   schedule = null,
   doneUnread,
+  notificationCount = 0,
   isActive,
   isCursor,
   isPendingArchive,
@@ -285,6 +288,8 @@ export function SessionRowShell({
                 <span className="flex size-5 items-center justify-center">
                   <AgentStatusGlyph presentation={presentation} label={translate(`agentStatus.${presentation.label}`)} variant="2" />
                 </span>
+              ) : notificationCount > 0 ? (
+                <span className="flex size-5 items-center justify-center"><SidebarUnreadCount count={notificationCount} /></span>
               ) : needsAttention ? (
                 <span className="flex size-5 items-center justify-center">
                   <span

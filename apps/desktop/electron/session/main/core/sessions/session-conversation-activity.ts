@@ -42,6 +42,7 @@ export function noteNativeConversationActivity(sessionId: string, turn: Transcri
 
 /** Background work is activity in its own task, not an exchange with the owner. */
 export function isPersonalConversationTurn(turn: TranscriptTurn): boolean {
+  if (turn.items.some(item => item.kind === 'message' && item.ownerNotification)) return true;
   return turn.trigger ? turn.trigger.kind === 'owner' : turn.initiator === 'user';
 }
 
