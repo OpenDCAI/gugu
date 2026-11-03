@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { setImmediate } from 'node:timers/promises'
 import { beforeAll, expect, it, vi } from 'vitest'
 import { until } from '../../../support/awaitCondition'
 
@@ -43,7 +44,9 @@ it('loads destinations on Move and moves the cold document into an existing fold
   await moveFromToolbar()
   expect(gugu.files.list).toHaveBeenCalledWith({ chat: 'chat' })
   finish(entries)
-  await until('the loaded directory offers docs as a destination', () => !el('move-dialog').hidden && [...el('move-targets').querySelectorAll('button')].some((item) => item.textContent === 'docs'))
+  await setImmediate()
+  expect(el('move-dialog').hidden, el('files-empty-message').textContent ?? '').toBe(false)
+  expect(el('move-targets').textContent).toContain('docs')
   const target = [...el('move-targets').querySelectorAll('button')].find((item) => item.textContent === 'docs')!
   expect(target.disabled).toBe(false)
   target.click()
@@ -59,7 +62,7 @@ it('does not show a late Move dialog after its context loses file permission', a
   await moveFromToolbar()
   await changed({ ...context, capabilities: [] })
   finish?.(entries)
-  await Promise.resolve(); await Promise.resolve()
+  await setImmediate()
   expect(el('move-dialog').hidden).toBe(true)
   expect(gugu.files.move).not.toHaveBeenCalled()
 })
