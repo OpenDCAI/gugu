@@ -134,6 +134,22 @@ export function machineLinkState(deviceId: string): MachineLinkState {
   return state === 'switching' ? 'open' : state;
 }
 
+/**
+ * 已连上的对端答某个 RPC「没有 handler」同样是明确的版本不匹配。先把整台机器标成太旧、请宿主桥匹配版本，
+ * ❌ 让具体功能把它误报成引擎故障。对端换版重启会关掉当前窗口；常规重连随后重试等待机器链路的工作。
+ */
+export function reportMachineOutdated(deviceId: string): void {
+  const entry = entries.get(deviceId);
+  // 同一批挂载的页面可能一起撞见这个缺口；第一份观察负责唯一一次换版请求，其余页面读共享的机器状态。
+  if (!entry || entry.tooOld) return;
+  entry.tooOld = true;
+  notify(entry);
+  const match = findRemoteHostsBridge()?.matchServerVersion;
+  if (match) void match(deviceId).catch((error: unknown) =>
+    log.warn(`[machine:${deviceId.slice(0, 8)}] version match request failed`, { error: String(error) })
+  );
+}
+
 /** 正在换线(旧窗口已关、新窗口在开):这时失败的问是旧窗口上的,等新窗口开好就能重来。 */
 export function machineLinkHandingOff(deviceId: string): boolean {
   return entries.get(deviceId)?.client.state() === 'switching';

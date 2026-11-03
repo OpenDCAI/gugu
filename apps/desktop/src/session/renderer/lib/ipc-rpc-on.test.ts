@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   localInvoke: vi.fn(async () => 'local'),
   remoteInvoke: vi.fn(async () => 'remote'),
+  reportMachineOutdated: vi.fn(),
 }));
 
 vi.mock('./electron-api', () => ({
@@ -16,6 +17,7 @@ vi.mock('./electron-api', () => ({
 vi.mock('./machine-clients', () => ({
   machineClient: () => ({ api: { invoke: mocks.remoteInvoke } }),
   onEachMachine: () => () => {},
+  reportMachineOutdated: mocks.reportMachineOutdated,
 }));
 
 import { rpc, rpcOn } from './ipc';
@@ -51,5 +53,17 @@ describe('rpcOn', () => {
 
     expect(mocks.remoteInvoke).toHaveBeenCalledWith('sessions.setSessionParent', 'child-on-b', 'parent-here');
     expect(mocks.localInvoke).not.toHaveBeenCalled();
+  });
+
+  it('turns a missing remote lifeView into a machine-wide outdated state before surfacing it', async () => {
+    mocks.remoteInvoke.mockRejectedValueOnce(new Error("No handler registered for 'sessions.lifeView'"));
+
+    await expect(rpcOn('device-b').sessions.lifeView('session-on-b')).rejects.toMatchObject({
+      code: 'server_outdated',
+      deviceId: 'device-b',
+      channel: 'sessions.lifeView',
+    });
+
+    expect(mocks.reportMachineOutdated).toHaveBeenCalledWith('device-b');
   });
 });
