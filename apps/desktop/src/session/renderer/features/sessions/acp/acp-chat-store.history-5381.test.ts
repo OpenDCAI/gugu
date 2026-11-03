@@ -152,6 +152,7 @@ describe('#7304 原地回退后的历史对账', () => {
     internals._storedBaseSeq = 0;
     internals._storedBootstrapMaxSeq = 2;
     const session = {
+      activeTurn: { current: () => null },
       setPromptDraft: vi.fn(async () => ({ success: true as const, data: undefined })),
       sessionState: { current: () => ({ lifecycle: 'ready', queuedPrompts: [], pendingPermissions: [], isGenerating: false }) },
       getHistory: vi.fn(async () => ({ success: true as const, data: { turns: turns.slice(0, 1), nextCursor: null, cursor: { epoch: 'runtime', seq: 1 }, reset: false, count: 1 } })),

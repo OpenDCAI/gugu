@@ -79,6 +79,7 @@ function makeStore(): { store: InstanceType<StoreCtor>; asked: { value: number }
   const store = new AcpChatStore(`conv-5858-${seq}`, 'proj-1')
   const asked = { value: 0 }
   store.session = {
+    activeTurn: { current: () => null },
     getHistory: async () => {
       asked.value += 1
       // 运行时改口之后手上的那一份。

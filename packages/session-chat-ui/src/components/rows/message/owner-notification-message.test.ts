@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { expect, it } from 'vitest';
-import type { SegmentCtx } from '@session-chat/core/define';
+import type { SegmentCtx } from '@session-chat/core/units';
 import type { ChatMessage } from '@session-chat/model';
 import { messageFromItem } from './message.def';
 
