@@ -327,9 +327,11 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
   }
 
   /** A surviving harness's boot snapshot uses the normal writer path, never interruption recovery. */
-  reconcilePresence(params: StatusWriteParams & { status: HarnessPresenceStatus }): Promise<void> {
+  reconcilePresence(params: StatusWriteParams & { status: HarnessPresenceStatus; signal?: AbortSignal }): Promise<void> {
     const sessionId = params.sessionId;
     return this.inOrder(sessionId, () => this.apply(sessionId, ctx => {
+      // The boot deadline can expire while this write is queued or logFor reads the stored row.
+      if (params.signal?.aborted) return [];
       const current = this.currentReading(sessionId);
       const target: Pick<AgentStatusReading, 'status' | 'detail'> = params.status === 'busy'
         ? { status: 'working', detail: 'running' }

@@ -19,11 +19,19 @@ const requireBuiltin = createRequire(import.meta.url)
 const entry = path.resolve(__dirname, '../../../../apps/desktop/electron/session/main/embedded-boot.ts')
 
 /** Execute the real composition root; unrelated service boundaries are inert, not a copied boot sequence. */
-async function boot(fail: string, fatal = false) {
+async function boot(fail: string, fatal = false, presenceProbe?: {
+  reconciliation: (names: ReadonlySet<string>) => Promise<void>
+  tmuxSessionNames?: ReadonlySet<string>
+  inspect?: (registered: ReturnType<typeof vi.fn>, delivery: ReturnType<typeof vi.fn>) => Promise<void>
+  started?: () => void
+  registered?: () => void
+  deliveryReady?: () => void
+}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-boot-entry941-'))
   const tasks = sessionBootTasks
   for (const failure of tasks.snapshot()) tasks.clearTask(failure.taskId)
-  const registered = vi.fn()
+  const registered = vi.fn(() => presenceProbe?.registered?.())
+  const delivery = vi.fn(() => presenceProbe?.deliveryReady?.())
   const statusHooks: Array<(event: unknown) => void> = []
   const sessionHooks = new Map<string, (id: string) => void>()
   const rows: Record<string, Array<{ id: string }>> = { sessions: [], projects: [] }
@@ -59,11 +67,12 @@ async function boot(fail: string, fatal = false) {
     '../../migrations/session-naming': { runSessionNamingOnce: async () => null },
     '@main/core/sessions/attachments/session-attachment-store': { sweepOrphanSessionAttachmentDirectories: async () => 0 },
     '@main/core/data-dir-occupancy': { dataDirHeldByAnotherHost: () => ({ held: false }) },
-    '@main/core/pty/tmux-session-name': { listTmuxSessionNames: async () => new Set() },
+    '@main/core/pty/tmux-session-name': { listTmuxSessionNames: async () => presenceProbe?.tmuxSessionNames ?? new Set() },
     '@main/core/projects/operations/migrate-project-kind': { migrateProjectKind: () => [] },
     '@main/core/usage/run-interval-recorder': { closeInterruptedRunIntervals: fault('interval'), installRunIntervalRecorder: noop },
     '@main/core/sessions/sendMessage': { claimInterruptedDispatches: fault('dispatch') },
-    '@main/core/sessions/session-deferred-messages': { claimInterruptedDeferredMessages: fault('deferred') },
+    '@main/core/sessions/session-deferred-messages': { claimInterruptedDeferredMessages: fault('deferred'), installDeferredMessageDelivery: delivery },
+    '@main/core/agent-hooks/presence-interrupt': { reconcileSurvivorsWithPresence: (names: ReadonlySet<string>) => presenceProbe?.reconciliation(names) ?? Promise.resolve() },
     '@main/core/agent-status/agent-status-writer': { agentStatusWriter: {
       initialize: noop, forget: noop, settleAfterRestart: fault('status'),
       on: (_name: string, callback: (event: unknown) => void) => { statusHooks.push(callback); return () => {} },
@@ -86,13 +95,36 @@ async function boot(fail: string, fatal = false) {
     sessionpageVersionSwitchActivity: () => { busy: boolean; busyAgents: number }
   } }
   runInNewContext(compiled.outputText, { require: load, module, exports: module.exports, process, console, Buffer, setTimeout, clearTimeout, setInterval, clearInterval, __dirname: path.dirname(entry) })
+  presenceProbe?.started?.()
+  const booting = module.exports.bootSessionHostCore({ hostIpc: { ipcMain: {} }, browserFeatures: false, scheduleDiscovery: async () => {} })
   try {
-    await module.exports.bootSessionHostCore({ hostIpc: { ipcMain: {} }, browserFeatures: false, scheduleDiscovery: async () => {} })
+    await presenceProbe?.inspect?.(registered, delivery)
+    await booting
     return { tasks, registered, statusHooks, sessionHooks, rows, states, pending, lifeRows, activity: module.exports.sessionpageVersionSwitchActivity, readFailures: module.exports.sessionpageBootFailures, failures: module.exports.sessionpageBootFailures() }
-  } finally { fs.rmSync(home, { recursive: true, force: true }) }
+  } finally {
+    await booting.catch(() => {})
+    fs.rmSync(home, { recursive: true, force: true })
+  }
 }
 
 describe('real session host boot entry', () => {
+  it('registers RPC while reconciliation is pending, but installs deferred delivery only after it settles', async () => {
+    const gate = Promise.withResolvers<void>()
+    await boot('', false, {
+      reconciliation: () => gate.promise,
+      inspect: async (registered, delivery) => {
+        try {
+          // Let the real boot entry drain its ordinary ready-service promises.
+          // The reconciliation remains unresolved; this asserts ordering, not elapsed time.
+          await new Promise<void>(resolve => setImmediate(resolve))
+          expect(registered).toHaveBeenCalledOnce()
+          expect(delivery).not.toHaveBeenCalled()
+        } finally { gate.resolve() }
+        await new Promise<void>(resolve => setImmediate(resolve))
+        expect(delivery).toHaveBeenCalledOnce()
+      },
+    })
+  })
   it('keeps a new host busy during runtime installation before any session exists', async () => {
     const result = await boot('')
     expect(result.activity()).toEqual({ busy: false, busyAgents: 0 })

@@ -77,7 +77,7 @@ describe('U7 boot presence reconciliation through the real SQLite writer and def
   };
   const presence = (id: string, state: string, pid = 42, filename = pid) =>
     files.set(`/fixture/.claude/sessions/${filename}.json`, JSON.stringify({ pid, sessionId: id, status: state }));
-  const boot = async (ids: string[], afterSettle?: () => void) => {
+  const boot = async (ids: string[], afterSettle?: () => void, overrides: Partial<Parameters<Reconcile>[1]> = {}) => {
     const names = new Set(ids.map(tmuxName));
     await agentStatusWriter.settleAfterRestart(names, 'update');
     afterSettle?.();
@@ -95,6 +95,7 @@ describe('U7 boot presence reconciliation through the real SQLite writer and def
       },
       isAlive: pid => !dead.has(pid),
       spawnEnv: async () => ({ HOME: '/fixture', CLAUDE_CONFIG_DIR: '/fixture/.claude' }),
+      ...overrides,
     });
   };
 
@@ -162,6 +163,81 @@ describe('U7 boot presence reconciliation through the real SQLite writer and def
       expect(status('survivor')).toEqual(before);
       expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('host continue'), expect.objectContaining({ operation: 'presence-reconcile' }));
     } finally { restoreSelect(); }
+  });
+  it('bounds the whole twenty-survivor scan once and ignores presence arriving after that deadline', async () => {
+    for (let index = 0; index < 20; index++) seed(`survivor-${index}`, 'working', 'parked');
+    presence('survivor-0', 'idle');
+    const entered = Promise.withResolvers<void>(), read = Promise.withResolvers<Record<string, string>>();
+    const spawnEnv = vi.fn(() => { entered.resolve(); return read.promise; });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let completed = false;
+    const pending = boot(Array.from({ length: 20 }, (_, index) => `survivor-${index}`), undefined, { spawnEnv })
+      .then(() => { completed = true; });
+    try {
+      await entered.promise;
+      await vi.advanceTimersByTimeAsync(Reflect.get(presenceModule, 'PRESENCE_BOOT_TIMEOUT_MS') ?? 2000);
+      expect(completed, 'one overall deadline releases deferred-delivery readiness').toBe(true);
+      expect(spawnEnv).toHaveBeenCalledOnce();
+      expect(log.warn).toHaveBeenCalledOnce();
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('host continue'), expect.objectContaining({ operation: 'presence-reconcile', message: expect.stringContaining('timed out') }));
+    } finally {
+      read.resolve({ HOME: '/fixture', CLAUDE_CONFIG_DIR: '/fixture/.claude' });
+      await pending;
+      await new Promise<void>(resolve => setImmediate(resolve));
+      vi.useRealTimers();
+    }
+    for (let index = 0; index < 20; index++) expect(status(`survivor-${index}`)).toEqual({ status: 'working', detail: 'parked', seen: 1 });
+    expect(log.warn).toHaveBeenCalledOnce();
+    expect(interruptedTurnKeys()).toEqual([]);
+  });
+  it('keeps every stored reading when a later survivor stalls instead of publishing a partial scan', async () => {
+    seed('first', 'working', 'parked'); seed('second', 'working', 'parked');
+    presence('first', 'idle', 41); presence('second', 'idle', 42);
+    const secondEntered = Promise.withResolvers<void>(), secondRead = Promise.withResolvers<Record<string, string>>();
+    let reads = 0;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const pending = boot(['first', 'second'], undefined, {
+      spawnEnv: async () => {
+        if (++reads === 1) return { HOME: '/fixture', CLAUDE_CONFIG_DIR: '/fixture/.claude' };
+        secondEntered.resolve(); return secondRead.promise;
+      },
+    });
+    try {
+      await secondEntered.promise;
+      expect(status('first'), 'presence reads are staged until the complete scan succeeds').toEqual({ status: 'working', detail: 'parked', seen: 1 });
+      await vi.advanceTimersByTimeAsync(Reflect.get(presenceModule, 'PRESENCE_BOOT_TIMEOUT_MS') ?? 2000);
+    } finally {
+      secondRead.resolve({ HOME: '/fixture', CLAUDE_CONFIG_DIR: '/fixture/.claude' });
+      await pending;
+      await new Promise<void>(resolve => setImmediate(resolve));
+      vi.useRealTimers();
+    }
+    expect(status('first')).toEqual({ status: 'working', detail: 'parked', seen: 1 });
+    expect(status('second')).toEqual({ status: 'working', detail: 'parked', seen: 1 });
+  });
+  it('does not publish a correction whose writer read finishes after the overall deadline', async () => {
+    seed('survivor', 'working', 'parked'); presence('survivor', 'idle');
+    const entered = Promise.withResolvers<void>(), read = Promise.withResolvers<void>();
+    const writer = agentStatusWriter as unknown as { logFor(id: string): Promise<unknown> };
+    const original = writer.logFor.bind(writer);
+    const stalled = vi.spyOn(writer, 'logFor').mockImplementationOnce(async id => {
+      entered.resolve(); await read.promise; return original(id);
+    });
+    const changes: unknown[] = [], stop = agentStatusWriter.on('agent:status', change => { changes.push(change); });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let completed = false;
+    const pending = boot(['survivor']).then(() => { completed = true; });
+    try {
+      await entered.promise;
+      await vi.advanceTimersByTimeAsync(Reflect.get(presenceModule, 'PRESENCE_BOOT_TIMEOUT_MS') ?? 2000);
+      expect(completed).toBe(true);
+    } finally {
+      read.resolve(); await pending;
+      await statusWritesSettled(agentStatusWriter, 'survivor');
+      stalled.mockRestore(); stop(); vi.useRealTimers();
+    }
+    expect(status('survivor')).toEqual({ status: 'working', detail: 'parked', seen: 1 });
+    expect(changes).toEqual([]);
   });
   it.each(['waiting', 'busy', 'shell'])('R2: leaves the complete current reading and publication untouched for matching %s presence', async value => {
     seed('survivor', value === 'waiting' ? 'idle' : 'working', value === 'waiting' ? 'plain' : value === 'shell' ? 'parked' : 'running');
