@@ -118,7 +118,7 @@ describe('real session host boot entry', () => {
           // The reconciliation remains unresolved; this asserts ordering, not elapsed time.
           await new Promise<void>(resolve => setImmediate(resolve))
           expect(registered).toHaveBeenCalledOnce()
-          expect(delivery).not.toHaveBeenCalled()
+          expect(delivery.mock.calls.length).toBe(0)
         } finally { gate.resolve() }
         await new Promise<void>(resolve => setImmediate(resolve))
         expect(delivery).toHaveBeenCalledOnce()
