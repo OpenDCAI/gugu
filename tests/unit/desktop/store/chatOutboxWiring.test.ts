@@ -346,7 +346,7 @@ describe('disk-backed attachment restart through the durable repository', () => 
   const nativeMessage = (id: string, itemId = 'stable-item') => ({ ...persistedMessage(id), content_type: 'attachment' as const,
     file_item_id: itemId, file_version: 1 })
   const stage = async (f: ReturnType<typeof wiringHarness>, id: string, options: { isWhisper?: boolean; type?: string; reply?: string } = {}) => {
-    const message = { ...optimisticMessage(id), content_type: 'attachment' as const, reply_to_message_id: options.reply ?? null }
+    const message = { ...optimisticMessage(id), content_type: 'attachment' as const, reply_to_message_id: options.reply ?? null, is_whisper: !!options.isWhisper }
     const file = new File(['bytes'], 'original.txt', { type: options.type ?? 'text/plain', lastModified: 123 })
     const commit = { message_id: id, chat_id: message.chat_id, sender_user_id: 'owner-1', file_name: file.name,
       content_type: file.type, is_whisper: !!options.isWhisper, reply_to_message_id: message.reply_to_message_id }
@@ -379,6 +379,18 @@ describe('disk-backed attachment restart through the durable repository', () => 
     expect(published[0][1]).toMatchObject({ itemId: itemIds[1], message: second.commit,
       file: { path: '/original/a.txt', size: 5, lastModified: 123, name: 'original.txt' } })
     expect((await f.repository).snapshot().outbox).toEqual([])
+    stop(); restored.wiring.dispose()
+  })
+  it.each(['missing', 'changed', 'denied'] as const)('retains the exact original-file %s reason on the failed durable row', async reason => {
+    const invoke = bridge(), f = wiringHarness('refused')
+    await stage(f, 'refused'); f.wiring.dispose()
+    invoke.mockImplementation(async (_name, args) => args.file ? { refused: reason } as never : true)
+    vi.spyOn(chatService, 'getMessageById').mockResolvedValue(null)
+    const restored = wiringHarness('refused', f.repository), stop = restored.wiring.restoreAndWatch()
+    await vi.waitFor(() => expect(restored.messages()[0].local_send_state).toBe('failed'))
+    const failure = (await f.repository).snapshot().outbox[0].value
+    expect(failure.lastError).toBe(new attachmentEndpoint.AttachmentSourceRefused(reason).message)
+    expect(restored.messages()[0].local_send_error).toBe(failure.lastError)
     stop(); restored.wiring.dispose()
   })
   it.each(['image/png', 'whisper', 'cloud'])('does not resume a disk path when the shared provider decision is %s', async mode => {

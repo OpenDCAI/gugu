@@ -25,7 +25,7 @@ describe('project composer attachments use the group-file publisher', () => {
     expect(n.invoke).toHaveBeenCalledExactlyOnceWith('files:publish', { chatId: 'group' })
     expect(n.getPathForFile).not.toHaveBeenCalled()
     await expect(commitPreparedChatAttachment(endpoint, prepared, args)).resolves.toEqual(message)
-    expect(n.invoke).toHaveBeenLastCalledWith('files:publish', { chatId: 'group', file: { name: 'selected.pdf', path: '/project/actual.pdf', size: 3, contentType: 'application/pdf' }, message: args })
+    expect(n.invoke).toHaveBeenLastCalledWith('files:publish', { chatId: 'group', file: { name: 'selected.pdf', path: '/project/actual.pdf', size: 3, contentType: 'application/pdf', lastModified: selected.lastModified }, message: args })
     expect(arrayBuffer).not.toHaveBeenCalled(); expect(f.upload).not.toHaveBeenCalled(); expect(f.commit).not.toHaveBeenCalled()
   })
   it('keeps one cloud uploader and commit for an ordinary or explicitly cloud-enabled group', async () => {

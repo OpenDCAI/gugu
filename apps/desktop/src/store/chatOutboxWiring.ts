@@ -365,11 +365,12 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     async commitAttachment(message, prepared, commit, timing = attachmentSendTiming(message.id, message.chat_id), dependsOn) {
       attachmentTimings.set(message.id, timing)
       const staged = outbox.pendingFor(message.chat_id, message.thread_root_id ?? null).find(row => row.clientMessageId === message.id)?.operation
+      const intent = staged?.kind === 'upload' || staged?.kind === 'nativeAttachment' ? staged : undefined
       const operation: OutboxOperation = 'staging_key' in prepared
         ? { kind: 'attachment', commit: { ...commit, staging_key: prepared.staging_key } }
         : { kind: 'nativeAttachment', commit,
-          source: staged?.kind === 'upload' ? staged.source : undefined,
-          itemId: staged?.kind === 'upload' && staged.itemId ? staged.itemId : crypto.randomUUID() }
+          source: intent?.source,
+          itemId: intent?.itemId ?? prepared.itemId ?? crypto.randomUUID() }
       const record = outboxRecordForMessage(message, operation, dependsOn)
       if (!await outbox.commitUpload(record)) return
       if ('local' in prepared && operation.kind === 'nativeAttachment') await finishNativeAttachment(record, { ...prepared, itemId: operation.itemId }, timing)

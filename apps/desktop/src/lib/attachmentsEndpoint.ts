@@ -50,7 +50,7 @@ export async function commitPreparedChatAttachment(endpoint: AttachmentsEndpoint
   // A pasted file is memory-backed and has no disk path: hand main its bytes instead.
   const restored = 'path' in file
   const path = restored ? file.path : window.electronAPI.getPathForFile(file), data = path ? undefined : restored ? undefined : await file.arrayBuffer()
-  const row = await publishNative({ chatId: args.chat_id, itemId: prepared.itemId,
+  const row = await publishNative({ chatId: args.chat_id, ...(prepared.itemId ? { itemId: prepared.itemId } : {}),
     file: { name: file.name, path, size: file.size, contentType: restored ? file.contentType : resolveFileMimeType(file),
       ...(path ? { lastModified: file.lastModified } : {}), ...(data && { data }) }, message: args }) as { id: string; version: number; message?: Record<string, unknown> } | { refused: 'missing' | 'changed' | 'denied' } | null
   if (row && 'refused' in row) throw new AttachmentSourceRefused(row.refused)
