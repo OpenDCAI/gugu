@@ -42,9 +42,9 @@ export type SessionpageSessionOptionsWithMenu = SessionpageSessionOptions & {
 };
 
 export async function readSessionPermissionAgentName(providerId: string): Promise<string> {
-  const { agentsController } = await import('@main/core/agents/controller');
-  const agents = await agentsController.list();
-  return agents.find((entry) => entry.id === providerId)?.name ?? providerId;
+  const { listPlugins } = await import('@main/core/agents/plugin-registry');
+  // Same registry/name as agentsController.list(), without probing installations just to read a name.
+  return listPlugins().find((entry) => entry.metadata.id === providerId)?.metadata.name ?? providerId;
 }
 
 export async function readSessionModelMenu(sessionId: string, providerId: string): Promise<SessionModelMenu> {
