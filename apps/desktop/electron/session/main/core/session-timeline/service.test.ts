@@ -79,7 +79,9 @@ vi.mock('../sessions/agent-question-store', () => ({
   },
 }));
 
-vi.mock('../sessions/session-conversation-read', () => ({ nativeConversationUnread: () => state.nativeUnread, nativeConversationAliases: () => ({}) }));
+vi.mock('../sessions/session-conversation-read', () => ({ nativeConversationUnread: () => state.nativeUnread, nativeConversationAliases: () => ({}), nativeOwnerNotificationUnread: () => [] }));
+const notificationFiles = vi.hoisted(() => new Map<string, string[]>());
+vi.mock('../sessions/owner-notifications', () => ({ ownerNotificationHead: () => undefined, ownerNotificationFile: (sessionId: string, path: string) => notificationFiles.get(sessionId)?.includes(path) ?? false }));
 vi.mock('../sessions/session-conversation-activity', () => ({ nativeConversationActivity: () => null }));
 
 vi.mock('../sessions/session-turn-store', () => ({ getStoredHistory: (...args: unknown[]) => state.storedHistory(...args), getStoredToolImage: vi.fn() }));
@@ -1675,6 +1677,7 @@ describe('readOpenedFile', () => {
 
   beforeEach(() => {
     openedOutputs.clear();
+    notificationFiles.clear();
   });
 
   it('打开过的文件:按块读出原字节', async () => {
@@ -1691,6 +1694,14 @@ describe('readOpenedFile', () => {
     openedOutputs.set('conv-2', [{ kind: 'file', path: other }]);
     const result = await service.readOpenedFile({ conversationId: 'conv-1', path: other, offset: 0, length: 1024 });
     expect(result).toMatchObject({ ok: false, error: { code: 'not_opened' } });
+  });
+
+  it('reads the snapshot actually attached to this native notification and rejects another session or neighboring file', async () => {
+    notificationFiles.set('conv-1', [report]);
+    const result = await service.readOpenedFile({ conversationId: 'conv-1', path: report, offset: 0, length: 1024 });
+    expect(result.ok && Buffer.from(result.value.data, 'base64').toString('utf8')).toBe('<h1>汇报</h1>');
+    expect(await service.readOpenedFile({ conversationId: 'conv-2', path: report, offset: 0, length: 1024 })).toMatchObject({ ok: false, error: { code: 'not_opened' } });
+    expect(await service.readOpenedFile({ conversationId: 'conv-1', path: other, offset: 0, length: 1024 })).toMatchObject({ ok: false, error: { code: 'not_opened' } });
   });
 
   it('打开过、后来被删了:如实说文件不在了', async () => {
