@@ -367,6 +367,22 @@ export default {
     }
   },
   "auth": {
+    "google": {
+      "signIn": "用 Google 登录",
+      "cancel": "取消 Google 登录",
+      "waiting": "请在浏览器中完成 Google 登录",
+      "exchanging": "正在完成登录…",
+      "cancelled": "已取消 Google 登录",
+      "staleCallback": "已忽略旧的登录回调，请完成当前 Google 登录",
+      "timeout": "Google 登录已超时，请重试",
+      "invalidCallback": "登录回调无效，请重新发起 Google 登录",
+      "invalidCode": "登录授权已过期或与本次登录不匹配，请重试",
+      "provider": "Google 授权失败，请重试",
+      "browser": "无法打开授权浏览器，请重试",
+      "exchange": "无法完成 Google 登录，请检查网络后重试",
+      "storage": "无法保存或读取本次登录，请重试",
+      "callbackUnavailable": "无法接收登录回调，请重新打开咕咕后重试"
+    },
     "changeEmail": "换邮箱",
     "continue": "继续",
     "emailPlaceholder": "邮箱地址",

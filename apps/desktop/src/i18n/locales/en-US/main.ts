@@ -373,6 +373,22 @@ export default {
     }
   },
   "auth": {
+    "google": {
+      "signIn": "Sign in with Google",
+      "cancel": "Cancel Google sign-in",
+      "waiting": "Complete Google sign-in in your browser",
+      "exchanging": "Completing sign-in…",
+      "cancelled": "Google sign-in cancelled",
+      "staleCallback": "Ignored an earlier sign-in callback. Complete your current Google sign-in.",
+      "timeout": "Google sign-in timed out. Try again.",
+      "invalidCallback": "Invalid sign-in callback. Start Google sign-in again.",
+      "invalidCode": "This authorization expired or belongs to another sign-in. Try again.",
+      "provider": "Google authorization failed. Try again.",
+      "browser": "Could not open the authorization browser. Try again.",
+      "exchange": "Could not complete Google sign-in. Check your network and try again.",
+      "storage": "Could not save or read this sign-in attempt. Try again.",
+      "callbackUnavailable": "Could not receive the sign-in callback. Reopen Gugu and try again."
+    },
     "changeEmail": "Change email",
     "continue": "Continue",
     "emailPlaceholder": "Email address",

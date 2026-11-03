@@ -43,3 +43,21 @@ it('retains a failed upstream subscription until auth can show the failure', asy
   authCallbacks.subscribe(vi.fn(), nextError)()
   expect(nextError).not.toHaveBeenCalled()
 })
+
+it('discards queued and late callbacks after sign-in even when there is no consumer, before another sign-in view mounts', async () => {
+  let incoming!: (url: string) => void
+  m.subscribe.mockImplementation((listener) => { incoming = listener; return () => {} })
+  const { authCallbacks, startAuthCallbackRouting } = await import('../../../../apps/desktop/src/lib/authCallbacks')
+  startAuthCallbackRouting()
+  incoming('gugu-beta://auth/callback?code=queued-before-session-restored')
+  authCallbacks.setAuthenticated(true)
+  incoming('gugu-beta://auth/callback?code=late-after-login')
+  authCallbacks.setAuthenticated(false)
+  const next = vi.fn()
+  authCallbacks.subscribe(next, vi.fn())()
+  expect(next).not.toHaveBeenCalled()
+  const current = vi.fn()
+  authCallbacks.subscribe(current, vi.fn())
+  incoming('gugu-beta://auth/callback?code=current')
+  expect(current).toHaveBeenCalledExactlyOnceWith('gugu-beta://auth/callback?code=current')
+})

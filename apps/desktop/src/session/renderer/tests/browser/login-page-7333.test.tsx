@@ -24,6 +24,12 @@ const coordinator = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/auth', () => ({ authService: auth }));
 vi.mock('@/lib/sessionCoordinator', () => ({ sessionCoordinator: coordinator }));
+vi.mock('@/lib/googleLogin', () => ({ googleLogin: {
+  available: false,
+  subscribe: () => () => {},
+  getSnapshot: () => googleIdle,
+} }));
+const googleIdle = { phase: 'idle', busy: false };
 
 const { LoginPage } = await import('@/pages/LoginPage');
 

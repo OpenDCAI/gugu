@@ -103,6 +103,8 @@ import type { LocalSigning } from './macDmgUpdater'
 import { createSelectAccountHandler, webAuthnKeychainGroup } from './macWebAuthn'
 import { isOAuthCallback } from '../shared/oauth-callback'
 import { OAuthCallbackInbox } from './oauth-callback-inbox'
+import { googleAuthorizationUrl } from '../shared/google-authorization-url'
+import { isOAuthAttemptRedirect } from '../shared/oauth-attempt'
 import {
   cleanupRemoteFileDirectory,
   cleanupStaleRemoteFileDirectories,
@@ -2403,6 +2405,12 @@ ipcMain.handle('auth:oauth-redirect', () => `${GUGU_LINK_SCHEME}://auth/callback
 ipcMain.handle('auth:take-callbacks', (event) => {
   if (event.sender !== mainWindow?.webContents) throw new Error('OAuth callbacks are only available to the main window')
   return oauthCallbacks.take()
+})
+ipcMain.handle('auth:open-browser', async (event, raw: unknown) => {
+  if (event.sender !== mainWindow?.webContents || typeof raw !== 'string') throw new Error('Invalid OAuth browser request')
+  const redirectTo = new URL(raw).searchParams.get('redirect_to')
+  if (!redirectTo || !isOAuthAttemptRedirect(redirectTo, `${GUGU_LINK_SCHEME}://auth/callback`)) throw new Error('Invalid OAuth attempt callback')
+  await shell.openExternal(googleAuthorizationUrl(raw, getSupabaseUrl(), redirectTo))
 })
 const remoteFileTempRoot = join(app.getPath('userData'), 'cache', 'remote-files')
 const remoteFileOpenDirectories = new Set<string>()

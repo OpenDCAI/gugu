@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useSyncExternalStore } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { publicAssetPath } from '@gugu/core/shared/ui/publicAssets'
 import { authService } from '../lib/auth'
@@ -7,6 +7,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion'
+import { googleLogin } from '@/lib/googleLogin'
 
 // @@@packaged-file-assets - Packaged Electron loads dist/index.html via file://, so public assets must not start at filesystem root.
 const APP_LOGO_URL = publicAssetPath('/assets/app/gugu-icon-512.png') // 应用标识只此一张(gen-app-icons.py 产出),与 Dock / 关于页同源
@@ -113,6 +114,7 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [resendCountdown, setResendCountdown] = useState(0)
   const reduceMotion = usePrefersReducedMotion()
+  const google = useSyncExternalStore(googleLogin.subscribe, googleLogin.getSnapshot)
 
   useEffect(() => {
     if (resendCountdown <= 0) return
@@ -122,6 +124,7 @@ export function LoginPage() {
 
   const handleRequestOtp = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (google.busy) return
     if (!email) { setError(t('auth.emailRequired')); return }
     setLoading(true)
     setSubmitFailed(false)
@@ -138,6 +141,7 @@ export function LoginPage() {
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (google.busy) return
     setLoading(true)
     setSubmitFailed(false)
     const attempt = sessionCoordinator.beginInteractiveLogin()
@@ -314,7 +318,17 @@ export function LoginPage() {
                     <p role="alert" style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', color: 'var(--text-error)', margin: 0 }}>{error}</p>
                   )}
 
-                  <PrimaryButton disabled={loading || !email} loading={loading} label={t(submitFailed ? 'auth.retry' : 'auth.continue')} />
+                  <PrimaryButton disabled={loading || google.busy || !email} loading={loading} label={t(submitFailed ? 'auth.retry' : 'auth.continue')} />
+                  {googleLogin.available && <>
+                    <Button type="button" variant="secondary" size="xl"
+                      disabled={loading || google.phase === 'restoring' || google.phase === 'accepting' || (google.busy && google.phase === 'failed')}
+                      onClick={() => { setError(''); void (google.busy ? googleLogin.cancel() : googleLogin.start()) }}>
+                      {t(google.busy && google.phase !== 'failed' ? 'auth.google.cancel' : 'auth.google.signIn')}
+                    </Button>
+                    {google.busy && google.phase !== 'failed' && <p role="status" style={{ margin: 0, fontSize: 'var(--font-body)' }}>{t(google.phase === 'authorizing' ? 'auth.google.waiting' : 'auth.google.exchanging')}</p>}
+                    {google.failure && <p role="alert" style={{ margin: 0, fontSize: 'var(--font-body)', color: 'var(--text-error)' }}>{t(`auth.google.${google.failure}`)}</p>}
+                    {google.notice && <p role="alert" style={{ margin: 0, fontSize: 'var(--font-body)', color: 'var(--text-error)' }}>{t('auth.google.staleCallback')}</p>}
+                  </>}
 
                   {/* @@@1419 服务条款 / 隐私政策 同意小字（owner 追加，链接 _blank） */}
                   <p style={{ fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', color: 'var(--auth-card-text-dim)', textAlign: 'center', margin: '8px 0 0' }}>

@@ -52,6 +52,13 @@ export const electronPlatform: AppPlatform = {
   kind: 'electron',
   documentTitle: '咕咕 Desktop',
   authCallbacks: electronAuthCallbacks,
+  oauthBrowser: {
+    async openBrowser(url) {
+      const api = electronApi()
+      if (!api) throw unavailable('OAuth browser')
+      await api.invoke('auth:open-browser', url)
+    },
+  },
   /**
    * 桌面**跳得到系统设置、但查不到状态**:macOS 不给应用读通知授权,按文件夹的访问授权
    * 也只能弹框要、不能查(Electron 无接口;node-mac-permissions 2.5.0 实测
