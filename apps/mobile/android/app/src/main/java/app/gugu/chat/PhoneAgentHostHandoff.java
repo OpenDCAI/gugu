@@ -2,7 +2,6 @@ package app.gugu.chat;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -16,9 +15,7 @@ final class PhoneAgentHostHandoff {
     static String readLine(BufferedReader reader, BooleanSupplier stopping) throws IOException {
         try { return reader.readLine(); }
         catch (IOException error) {
-            String message = error.getMessage() == null ? "" : error.getMessage().toLowerCase(Locale.ROOT);
-            if (stopping.getAsBoolean() && ("read interrupted".equals(message) || "stream closed".equals(message) || "pipe closed".equals(message)))
-                throw new StopPipeClosed(error);
+            if (stopping.getAsBoolean()) throw new StopPipeClosed(error);
             throw error;
         }
     }
