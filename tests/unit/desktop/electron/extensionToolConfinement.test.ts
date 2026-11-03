@@ -32,10 +32,10 @@ describe('tools confinement follows the installed API and program form', () => {
     const toolsRuntime = join(rootDir, 'runtime', 'gugu-tools.mjs');
     const dataDir = join(rootDir, 'data');
     const { programs } = extensionAgentPrograms([{ extensionId: 'confined-tools', name: 'Tools', rootDir, dataDir,
-      apiVersion: EXTENSION_API_VERSION, networkHosts: ['example.com'], digest: 'fixture', disclosure: 'progressive',
+      apiVersion: EXTENSION_API_VERSION, networkHosts: [], manifest: manifest(), digest: 'fixture', disclosure: 'progressive',
       servers: [{ tools: 'tools.js' }], skillsDir: null }], { nodeExecutable: process.execPath, toolsRuntime,
       linkPrefix: 'gugu://ext', onProblem: vi.fn() });
-    expect(programs[0]).toMatchObject({ confine: { fsRead: [rootDir, dirname(toolsRuntime), dataDir], fsWrite: [dataDir], hosts: ['example.com'] } });
+    expect(programs[0]).toMatchObject({ confine: { fsRead: [rootDir, dirname(toolsRuntime), dataDir], fsWrite: [dataDir], hosts: [], declaredHosts: ['example.com'] } });
   });
 
   it.each([

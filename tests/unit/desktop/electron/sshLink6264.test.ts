@@ -21,7 +21,7 @@ import {
   LINK_READY_MARK,
   parseLinkHello,
 } from '../../../../apps/desktop/electron/session/main/core/pty/attach/attach-protocol'
-import { linkRefusal, parseLinkArgs, readLinkAck, runLink, watchDir } from '../../../../apps/desktop/electron/server/link-cli'
+import { linkRefusal, parseLinkArgs, pollServer, readLinkAck, runLink } from '../../../../apps/desktop/electron/server/link-cli'
 import { asBroadcast, createDeviceLinkHost } from '../../../../apps/desktop/electron/server/device-link-host'
 import {
   afterReadyMark,
@@ -33,7 +33,7 @@ import {
 import { classifySignInExit } from '../../../../apps/desktop/electron/server/ssh-link-ipc'
 import { writeServerConnectVia, type ServerAccount } from '../../../../apps/desktop/electron/server/server-layout'
 import { readServerConnectVia, serverDeviceLabel } from '../../../../packages/core/src/cloud/serverConnectVia'
-import { REMOTE_PROTOCOL_VERSION } from '../../../../packages/core/src/cloud/serverMachineHealth'
+import { REMOTE_PROTOCOL_VERSION, SERVER_UPDATE_CONTROL_RPCS } from '../../../../packages/core/src/cloud/serverMachineHealth'
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 5))
 
@@ -93,7 +93,7 @@ describe('那台机器上:gugu-server link', () => {
     stdout.on('data', (chunk: Buffer) => out.push(chunk))
     const adopted: string[] = []
     const done = runLink(['--account', ACCOUNT, '--adopt-ssh'], { stdin, stdout, stderr: new PassThrough() }, {
-      accounts: () => [account(dir)],
+      account: () => (account(dir)),
       adopt: (a) => adopted.push(a.userId),
       connect: () => socket,
     })
@@ -148,7 +148,7 @@ describe('那台机器上:gugu-server link', () => {
     const err: Buffer[] = []
     stderr.on('data', (chunk: Buffer) => err.push(chunk))
     const io = { stdin: new PassThrough(), stdout: new PassThrough(), stderr }
-    const run = runLink(['--account', ACCOUNT], io, { accounts: () => [account(dir)], connect: () => socket })
+    const run = runLink(['--account', ACCOUNT], io, { account: () => (account(dir)), connect: () => socket })
     socket.emit(
       'data',
       encodeJsonFrame(FRAME.error, { code: 'protocol_mismatch', message: 'm', protocol: { server: 1, client: 2 } }),
@@ -162,21 +162,21 @@ describe('那台机器上:gugu-server link', () => {
     ;(refused as unknown as { destroy: () => void }).destroy = () => undefined
     const stdout = new PassThrough()
     const io = { stdin: new PassThrough(), stdout, stderr: new PassThrough() }
-    const r1 = runLink(['--account', ACCOUNT], io, { accounts: () => [account(dir)], connect: () => refused })
+    const r1 = runLink(['--account', ACCOUNT], io, { account: () => (account(dir)), connect: () => refused })
     refused.emit('data', encodeJsonFrame(FRAME.error, { code: 'bad_request', message: 'no links here' }))
     expect(await r1).toBe(4)
 
-    expect(await runLink(['--account', ACCOUNT], io, { accounts: () => [] })).toBe(5)
+    expect(await runLink(['--account', ACCOUNT], io, { account: () => null })).toBe(5)
 
     const dead = new PassThrough() as unknown as net.Socket
     ;(dead as unknown as { destroy: () => void }).destroy = () => undefined
-    const r3 = runLink(['--account', ACCOUNT], io, { accounts: () => [account(dir)], connect: () => dead })
+    const r3 = runLink(['--account', ACCOUNT], io, { account: () => (account(dir)), connect: () => dead })
     dead.emit('error', Object.assign(new Error('nope'), { code: 'ENOENT' }))
     expect(await r3).toBe(3)
   })
 
   // 账号进程正在重起(换版 / 崩了被守护进程拉起):❌ 当场退 3 让桌面按退避重开,等它的套接字出现当场接上。
-  it('账号进程没在听 → 等套接字所在目录变化再连,接上照常;变化落在一次连接途中也不漏', async () => {
+  it('账号进程没在听 → 按拍再连,接上照常;连接途中的一拍也不漏', async () => {
     const sockets: net.Socket[] = []
     const fake = () => {
       const socket = new PassThrough() as unknown as net.Socket
@@ -190,9 +190,9 @@ describe('那台机器上:gugu-server link', () => {
     const out: Buffer[] = []
     stdout.on('data', (chunk: Buffer) => out.push(chunk))
     const run = runLink(['--account', ACCOUNT], { stdin: new PassThrough(), stdout, stderr: new PassThrough() }, {
-      accounts: () => [account(dir)],
+      account: () => (account(dir)),
       connect: fake,
-      watch: (_dir, cb) => {
+      retryWhileWaiting: (_dir, cb) => {
         onChange = cb
         return () => {
           watchStopped = true
@@ -216,18 +216,19 @@ describe('那台机器上:gugu-server link', () => {
     expect(await run).toBe(0)
   })
 
-  // 复核 146:目录监听出错 ❌ 让进程崩成退出码 1(桌面归成「连不上」);当成一次变化,再连一次。
-  it('目录监听出错 → 当成一次变化去再连,❌ 抛出', () => {
-    const watcher = Object.assign(new EventEmitter(), { close: vi.fn() })
-    const watch = vi.spyOn(fs, 'watch').mockReturnValue(watcher as unknown as fs.FSWatcher)
-    const changes: string[] = []
-    const stop = watchDir(dir, () => changes.push('change'))
-    // 没挂 'error' 的 EventEmitter emit('error') 会直接抛:这一条就是在钉「挂上了」。
-    expect(() => watcher.emit('error', new Error('EPERM'))).not.toThrow()
-    expect(changes).toEqual(['change'])
-    stop()
-    expect(watcher.close).toHaveBeenCalled()
-    watch.mockRestore()
+  it('rechecks readiness even when filesystem events are unavailable and stops after cancellation', () => {
+    vi.useFakeTimers()
+    const watch = vi.spyOn(fs, 'watch').mockImplementation(() => { throw new Error('delayed filesystem events') })
+    const retry = vi.fn()
+    const stop = pollServer(dir, retry)
+    try {
+      vi.advanceTimersByTime(600)
+      expect(retry).toHaveBeenCalledTimes(3)
+      stop()
+      vi.advanceTimersByTime(600)
+      expect(retry).toHaveBeenCalledTimes(3)
+      expect(watch).not.toHaveBeenCalled()
+    } finally { stop(); watch.mockRestore(); vi.useRealTimers() }
   })
 
   it('等满了账号进程还是没起来 → 退出码 3(没在跑),说清等了多久', async () => {
@@ -237,9 +238,9 @@ describe('那台机器上:gugu-server link', () => {
     const err: Buffer[] = []
     stderr.on('data', (chunk: Buffer) => err.push(chunk))
     const run = runLink(['--account', ACCOUNT], { stdin: new PassThrough(), stdout: new PassThrough(), stderr }, {
-      accounts: () => [account(dir)],
+      account: () => (account(dir)),
       connect: () => dead,
-      watch: () => () => undefined,
+      retryWhileWaiting: () => () => undefined,
       waitMs: 20,
     })
     dead.emit('error', Object.assign(new Error('gone'), { code: 'ENOENT' }))
@@ -440,12 +441,13 @@ describe('桌面主进程:每台机器一条设备连接', () => {
     expect(links.openDeviceIds()).toEqual([])
   })
 
-  it('接上前报的协议号低于这台桌面要求的 → 太旧(明确的版本信号);报得够 / 老版本不报 → 照常接上', async () => {
+  it('keeps update controls on an old link while refusing ordinary requests on that same link', async () => {
     const children: ReturnType<typeof fakeChild>[] = []
+    const onMessage = vi.fn()
     const links = createSshLinkManager({
       machineFor: async () => ({ target, accountUserId: ACCOUNT }),
       controlPath: () => null,
-      onMessage: () => undefined,
+      onMessage,
       onClosed: () => undefined,
       spawnSsh: () => {
         const child = fakeChild()
@@ -456,8 +458,24 @@ describe('桌面主进程:每台机器一条设备连接', () => {
     const old = links.open('old')
     await flush()
     children[0]!.stdout.write(`rc banner\n${LINK_PROTOCOL_MARK} 0\n${LINK_READY_MARK}\n`)
-    expect(await old).toMatchObject({ ok: false, reason: 'outdated' })
-    expect(children[0]!.killed).toEqual(['SIGTERM'])
+    expect(await old).toMatchObject({ ok: false, reason: 'outdated', controlOnly: true })
+    expect(children[0]!.killed).toEqual([])
+    const envelope = (type: string, id: string) => asBroadcast({ type, request_id: id, user_id: ACCOUNT, payload: {} })
+    const writes: Buffer[] = []
+    children[0]!.stdin.on('data', chunk => writes.push(Buffer.from(chunk)))
+    expect(links.send('old', asBroadcast({ type: 'taskhost.close', payload: {} }))).toBe(false)
+    await flush()
+    expect(writes).toEqual([])
+    expect(links.send('old', envelope('taskhost.call', 'ordinary'))).toBe(true)
+    expect(onMessage).toHaveBeenCalledWith('old', expect.objectContaining({ payload: expect.objectContaining({
+      type: 'taskhost.call:reply', request_id: 'ordinary', error: { code: 'server_outdated', message: '请更新那台机器上的咕咕' },
+    }) }))
+    for (const type of SERVER_UPDATE_CONTROL_RPCS) expect(links.send('old', envelope(type, type))).toBe(true)
+    expect(links.send('old', envelope('file.get', 'file'))).toBe(true)
+    await flush()
+    const frames = new FrameDecoder().push(Buffer.concat(writes))
+    expect(frames.map(frame => JSON.parse(frame.payload.toString()).payload.type)).toEqual([...SERVER_UPDATE_CONTROL_RPCS])
+    expect(onMessage).toHaveBeenCalledTimes(2)
 
     const fine = links.open('fine')
     await flush()

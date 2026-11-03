@@ -348,7 +348,10 @@ export function ChatRoot(props: ChatRootProps) {
   })();
   const theme = () => props.context.theme;
   const contentClass = () => props.contentClass ?? DEFAULT_CONTENT_CLASS;
-  const commands = () => props.commands?.() ?? {};
+  const commands = () => ({
+    ...props.commands?.(),
+    isLatestTurn: (turnId: string) => latestTurnId() === turnId,
+  });
   const editingMessage = () => commands().editingMessage;
   const [composerPlacement, setComposerPlacementSignal] = createSignal<ComposerPlacement>(
     resolveComposerPlacement(props.composerPlacement)

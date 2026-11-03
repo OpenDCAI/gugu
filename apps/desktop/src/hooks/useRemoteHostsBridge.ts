@@ -94,7 +94,7 @@ export function useRemoteHostsBridge(
               ? null
               : signInExpiredAt(signIns.get(device.device_id)),
           notices: serverMachineNotices(device.capabilities),
-          ...(device.capabilities?.server_update ? { serverUpdate: device.capabilities.server_update.state } : {}),
+          ...(device.capabilities?.server_update ? { serverUpdate: device.capabilities.server_update } : {}),
           ...(device.cloud_computer ? { cloudComputer: device.cloud_computer } : {}),
           ...(isAssistantHome(device, homeId) ? { assistantHome: true as const } : {}),
           ...(device.projects ? { projects: device.projects } : {}),

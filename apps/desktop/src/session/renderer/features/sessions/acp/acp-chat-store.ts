@@ -2383,7 +2383,16 @@ export class AcpChatStore {
       // 旧进程也没来得及发 `closed`。重连时这份状态被拒(NOT_FOUND)就是那句话 —— 与宿主停掉是同一个状态。
       // 少了这一行,句柄指着不存在的会话:打一个字被拒一次「草稿没存上」,发出去的那句停在「处理中」。
       session.sessionState.onGone(() =>
-        runInAction(() => this._onSessionClosedByHost(session))
+        runInAction(() => {
+          if (this.session !== session) return;
+          this._onSessionClosedByHost(session);
+          // The old host cannot commit its final frame. Read recovery exactly as reopening a stopped session.
+          batch(() => {
+            this.chatState.transcript.activeTurn.set(null);
+            this.chatState.session.setGenerating(false);
+          });
+          this._reloadReleasedTranscript();
+        })
       ),
       session.sessionState.onChange(() =>
         runInAction(() => {

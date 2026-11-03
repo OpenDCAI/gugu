@@ -35,6 +35,7 @@ import {
   RUNTIME_PACKAGES,
 } from '../gugu-server/runtime-packages.mts'
 import { defaultMiseCacheDir, obtainMiseArchive } from './mise-archive-cache.mts'
+import { serverLauncher } from '../gugu-server/launcher.mjs'
 
 const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
 const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -215,19 +216,7 @@ if (process.env.GUGU_SERVER_SKIP_NODE_DOWNLOAD === '1') {
 }
 
 mkdirSync(join(stage, 'bin'), { recursive: true })
-const launcher = `#!/bin/sh
-# 咕咕 server ${version} 启动器。跟随软链找到安装目录,用包里自带的 node 跑。
-set -e
-self="$0"
-while [ -L "$self" ]; do
-  target="$(readlink "$self")"
-  case "$target" in /*) self="$target" ;; *) self="$(dirname "$self")/$target" ;; esac
-done
-dir="$(cd "$(dirname "$self")/.." && pwd -P)"
-export GUGU_TASK_HOST_APP_PATH="$dir/app"
-export GUGU_TASK_HOST_VERSION="${version}"
-exec "$dir/node/bin/node" "$dir/app/dist-electron/server.js" "$@"
-`
+const launcher = serverLauncher(version, serverIdentity.channel)
 writeFileSync(join(stage, 'bin', 'gugu-server'), launcher)
 chmodSync(join(stage, 'bin', 'gugu-server'), 0o755)
 writeFileSync(join(stage, 'version'), `${version}\n`)

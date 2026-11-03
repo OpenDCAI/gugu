@@ -27,7 +27,7 @@ describe('retained account resume', () => {
   it('passes a confirmed suspension interval through the account command and rejects future intervals', async () => {
     const call = vi.fn(async () => ({ reply: Buffer.from('{"result":{"resumed":true}}') }))
     const account = { userId: 'owner', dataDir: '/unused', signedIn: true, email: null } as ServerAccount
-    const io = { stdout: new PassThrough(), stderr: new PassThrough() }, deps = { accounts: () => [account], call }
+    const io = { stdout: new PassThrough(), stderr: new PassThrough() }, deps = { account: () => (account), call }
     const since = Date.now() - 10_000
     expect(await runResume(['--account', 'owner', '--suspended-since', String(since)], io, deps)).toBe(0)
     expect(call).toHaveBeenCalledWith(account, { type: HOST_RESUME_CALL, payload: { suspendedSince: since } }, { timeoutMs: 5_000 })
@@ -86,7 +86,7 @@ describe('retained account resume', () => {
     const account = { userId: 'owner', dataDir: dir, signedIn: true, email: null } as ServerAccount
     const io = { stdout: new PassThrough(), stderr: new PassThrough() }
     try {
-      const deps = { accounts: () => [account], call: callAccountProcess }
+      const deps = { account: () => (account), call: callAccountProcess }
       expect(await runResume(['--account', 'owner'], io, deps)).toBe(0)
       expect(called).toHaveBeenCalledOnce()
       expect(await runResume(['--account', 'someone-else'], io, deps)).not.toBe(0)

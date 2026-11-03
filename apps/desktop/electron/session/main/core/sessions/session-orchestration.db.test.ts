@@ -4,6 +4,9 @@ import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
 import type { AppDb } from '@main/db/client';
+import { resumeHostUpdate } from '../agent-status/resume-host-update';
+import { sessionBootTasks } from '../boot-tasks';
+import { setSessionMessageRouter } from './session-message-router';
 
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
@@ -435,6 +438,30 @@ describe('session orchestration', () => {
   // 对照组(父提交 9951620de):App 走聊天(写一条悄悄话),根本不经过这一层。
   describe('from a sender that is not a session (messageSessionFrom)', () => {
     const envelope = (messageId: string, text: string) => `<app-envelope msg="${messageId}">${text}</app-envelope>`;
+
+    it('recovers the same host update twice through real orchestration and persists one accepted notice', async () => {
+      const actual = await vi.importActual<typeof import('./sendMessage')>('./sendMessage');
+      mocks.sendMessage.mockImplementation(actual.sendMessage);
+      mocks.readAcceptedMessage.mockImplementation(actual.readAcceptedMessage);
+      fixture.sqlite.exec("UPDATE sessions SET runtime='pty', config=json_set(config, '$.type', 'pty') WHERE id='caller'");
+      const receive = vi.fn(async (_id: string, message: { id: string }) => ({ status: 'accepted' as const, messageId: message.id }));
+      setSessionMessageRouter(receive);
+      sessionBootTasks.clear('update-resume', 'caller');
+      try {
+        const lastExit = { reason: 'update', at: 1_793_598_000_000 } as const;
+        await resumeHostUpdate(['caller'], lastExit, '0.3.1-beta.1129');
+        await resumeHostUpdate(['caller'], lastExit, '0.3.1-beta.1129');
+        expect(sessionBootTasks.snapshot().filter(failure => failure.operation === 'update-resume')).toEqual([]);
+        expect(receive).toHaveBeenCalledOnce();
+        const rows = fixture.sqlite.prepare("SELECT content FROM messages WHERE session_id='caller'").all() as { content: string }[];
+        expect(rows).toHaveLength(1);
+        expect(rows[0].content).toContain('Your work was interrupted');
+      } finally {
+        setSessionMessageRouter(null);
+        mocks.sendMessage.mockReset();
+        mocks.readAcceptedMessage.mockReset();
+      }
+    });
 
     it('delivers session-direct in the bytes its envelope makes, with no caller session', async () => {
       mocks.sendMessage.mockResolvedValueOnce({ id: 'm1', status: 'delivered' });

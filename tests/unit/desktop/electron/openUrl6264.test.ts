@@ -150,7 +150,7 @@ describe('gugu-server open-url → attach 套接字 → 账号进程', () => {
     const code = await runOpenUrl(['--', 'https://github.com/login/device'], { stdout: sink().stream, stderr: err.stream }, {
       env: { GUGU_PTY_ID: 'claude:conv-7', GUGU_SERVER_ACCOUNT: ACCOUNT },
       cwd: () => '/tmp',
-      accounts: () => [account()],
+      account: () => (account()),
     })
     expect(code).toBe(0)
     expect(err.text()).toBe('')
@@ -163,7 +163,7 @@ describe('gugu-server open-url → attach 套接字 → 账号进程', () => {
     await runOpenUrl(['http://localhost:5173/'], { stdout: sink().stream, stderr: sink().stream }, {
       env: {},
       cwd: () => '/srv/app/web',
-      accounts: () => [account()],
+      account: () => (account()),
     })
     expect(open).toHaveBeenCalledWith('conv-1', { kind: 'external', url: 'http://localhost:5173/' }, 'pinned')
   })
@@ -174,7 +174,7 @@ describe('gugu-server open-url → attach 套接字 → 账号进程', () => {
     const code = await runOpenUrl(['https://x.test/'], { stdout: sink().stream, stderr: err.stream }, {
       env: {},
       cwd: () => '/',
-      accounts: () => [account()],
+      account: () => (account()),
     })
     expect(code).toBe(0)
     expect(err.text()).toContain('https://x.test/')
@@ -185,7 +185,7 @@ describe('gugu-server open-url → attach 套接字 → 账号进程', () => {
     const code = await runOpenUrl(['https://x.test/'], { stdout: sink().stream, stderr: err.stream }, {
       env: {},
       cwd: () => '/',
-      accounts: () => [account()],
+      account: () => (account()),
     })
     expect(code).toBe(1)
     expect(err.text()).toContain('https://x.test/')

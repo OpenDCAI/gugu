@@ -21,6 +21,17 @@ const spec = (input: Partial<Parameters<typeof machineNotice>[0]>) =>
   machineNotice({ connection: 'reconnecting', label: 'Mac 1', dials: 0, translate: zh, ...input });
 
 describe('选着的机器用不了,说什么(#137)', () => {
+  it('reports the existing update state only while the connection is unavailable', () => {
+    const serverUpdate = { state: 'ready', version: '2.0', scope: 'supervisor' } as const;
+    expect(spec({ connection: 'outdated', notices: [{ kind: 'server-too-old' }], serverUpdate }))
+      .toMatchObject({ title: 'Mac 1 上的咕咕 2.0 已就绪，请在 设置 → 设备 中确认重启。', tier: 'info', waiting: false });
+    expect(spec({ connection: 'outdated', notices: [{ kind: 'server-too-old' }], serverUpdate: { ...serverUpdate, state: 'downloading' } }))
+      .toMatchObject({ title: 'Mac 1 上的咕咕正在更新，稍后会自动重新连接。', tier: 'info', waiting: true });
+    expect(spec({ connection: 'outdated', notices: [{ kind: 'desktop-too-old' }], serverUpdate }))
+      .toMatchObject({ title: 'Mac 1 的咕咕较新，请更新这台电脑上的咕咕', tier: 'error', waiting: false });
+    expect(spec({ connection: 'connected', serverUpdate })).toBeNull();
+    expect(spec({ connection: 'connected', serverUpdate: { ...serverUpdate, state: 'failed' } })).toBeNull();
+  });
   it('reuses the device protocol notice and says which endpoint must upgrade', () => {
     expect(spec({ connection: 'connecting', notices: [{ kind: 'desktop-too-old' }] }))
       .toMatchObject({ title: 'Mac 1 的咕咕较新，请更新这台电脑上的咕咕', tier: 'error', waiting: false, delayed: false });

@@ -60,7 +60,7 @@ export function configureExtensionSession(bundle: ExtensionBundle): Session {
   setupExtensionProtocol(ses, () => entry.bundle);
 
   ses.webRequest.onBeforeRequest((details, callback) => {
-    const decision = decideExtensionRequest(details.url, entry.bundle.networkHosts);
+    const decision = decideExtensionRequest(details.url, entry.bundle.networkHosts, entry.bundle.declaredHosts);
     if (decision.allowed) {
       callback({ cancel: false });
       return;
