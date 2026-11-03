@@ -134,13 +134,14 @@ async function stopServerProcess(pid: number, graceMs: number): Promise<void> {
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') return; throw error }
   if (await waitForPidExit(pid, graceMs)) return
   // Snapshot the owned live root before severing its detached descendants' parent chain.
+  let cleanupError: unknown
   try { signalProcessDescendantsSync([pid], 'SIGKILL') }
-  finally {
-    try { process.kill(pid, 'SIGKILL') }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error }
-    out(`Server did not exit after TERM; used KILL for pid ${pid}.`)
-  }
+  catch (error) { cleanupError = error }
+  try { process.kill(pid, 'SIGKILL') }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error }
+  out(`Server did not exit after TERM; used KILL for pid ${pid}.`)
   if (!(await waitForPidExit(pid, 5_000))) throw new Error(`Process ${pid} did not exit after KILL`)
+  if (cleanupError) throw cleanupError
 }
 
 /** 升级换版时新进程由旧进程拉起:等旧的完全退出(单实例锁放掉)再启动,最多等 60 秒。 */

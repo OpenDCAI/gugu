@@ -18,15 +18,13 @@ fs.mkdirSync(data, { recursive: true, mode: 0o700 })
 fs.writeFileSync(path.join(account, 'account.json'), '{}', { mode: 0o600 })
 const ready = Promise.withResolvers<void>()
 const startedAt = Date.now()
-const watcher = fs.watch(data, (_event, file) => {
-  if (file?.toString() !== 'activity.json') return
+const checkReady = () => {
   try {
     const activity = JSON.parse(fs.readFileSync(path.join(data, 'activity.json'), 'utf8'))
     if (activity.pid === child.pid && Number.isFinite(activity.startedAt) && activity.startedAt >= startedAt
       && Number.isFinite(activity.at) && activity.at >= activity.startedAt && activity.at <= Date.now()) ready.resolve()
   } catch { /* A partial heartbeat write is not readiness. */ }
-})
-watcher.on('error', error => ready.reject(error))
+}
 const child = spawn(binary, ['run-account', userId], {
   stdio: ['ignore', 'pipe', 'pipe'],
   env: { ...process.env, GUGU_SERVER_HOME: home, GUGU_HOME: path.join(account, 'home'),
@@ -41,6 +39,8 @@ child.stderr.on('data', collect)
 child.on('error', error => ready.reject(error))
 const exited = new Promise<void>(resolve => child.once('close', () => resolve()))
 child.once('exit', code => ready.reject(new Error(`Legacy account boot exited before readiness (${code})`)))
+const readiness = setInterval(checkReady, 200)
+checkReady()
 const timeout = setTimeout(() => ready.reject(new Error('Legacy account boot did not publish PID-bound readiness')), 45_000)
 try {
   await ready.promise
@@ -49,7 +49,7 @@ try {
   throw new Error(`${error instanceof Error ? error.message : String(error)}\n${output.toString()}`, { cause: error })
 } finally {
   clearTimeout(timeout)
-  watcher.close()
+  clearInterval(readiness)
   if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
   const kill = setTimeout(() => child.kill('SIGKILL'), 10_000)
   await exited

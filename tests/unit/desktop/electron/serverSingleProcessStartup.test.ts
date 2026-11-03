@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { acquireHomeLock, assertAccountLogin, markServerReady, onlySignedInAccount, ownsHomeLock, readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
+import { acquireHomeLock, assertAccountLogin, homeLockHolder, markServerReady, onlySignedInAccount, ownsHomeLock, readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
 import type { ServerAccount } from '../../../../apps/desktop/electron/server/server-layout'
 
 let home: string
@@ -41,6 +41,7 @@ describe('single-process server startup', () => {
     const inode = fs.statSync(lock)
     const proof = path.join(home, 'data', `.server-lock-${inode.dev}-${inode.ino}.json`)
     fs.writeFileSync(proof, JSON.stringify({ pid: 12345, bootId: 'previous-boot' }))
+    expect(homeLockHolder(home, () => true)).toBeNull()
     const release = acquireHomeLock(home, () => true)
     expect(release).toBeTypeOf('function')
     expect(Number(fs.readFileSync(lock, 'utf8').trim())).toBe(process.pid)
@@ -56,7 +57,23 @@ describe('single-process server startup', () => {
     expect(proof).toBeDefined()
     if (mode === 'missing') fs.rmSync(path.join(data, proof!))
     if (mode === 'wrong-pid') fs.writeFileSync(path.join(data, proof!), JSON.stringify({ pid: process.pid + 1, bootId: 'previous-boot' }))
+    expect(homeLockHolder(home, () => true)).toBe(process.pid)
     expect(acquireHomeLock(home, () => true)).toBeNull()
+    release()
+  })
+
+  it('publishes boot evidence before making the PID lock visible', () => {
+    const link = fs.linkSync
+    const publish = vi.spyOn(fs, 'linkSync').mockImplementation((candidate, target) => {
+      const inode = fs.statSync(candidate)
+      const proof = path.join(home, 'data', `.server-lock-${inode.dev}-${inode.ino}.json`)
+      expect(JSON.parse(fs.readFileSync(proof, 'utf8'))).toMatchObject({ pid: process.pid })
+      expect(Number(fs.readFileSync(candidate, 'utf8').trim())).toBe(process.pid)
+      expect(fs.existsSync(target)).toBe(false)
+      link(candidate, target)
+    })
+    const release = acquireHomeLock(home, () => true)!
+    expect(publish).toHaveBeenCalledOnce()
     release()
   })
 

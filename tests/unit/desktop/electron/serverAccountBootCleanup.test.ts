@@ -65,6 +65,14 @@ function fixture({ probe = false, failure = false } = {}) {
 }
 
 describe.runIf(process.platform !== 'win32')('account boot cleanup', () => {
+  it('observes a real heartbeat without depending on filesystem event delivery', async () => {
+    const { binary, reading } = fixture()
+    const watch = vi.spyOn(fs, 'watch').mockImplementation(() => { throw new Error('filesystem events are delayed') })
+    await expect(checkAccountBoot(binary)).resolves.toBeUndefined()
+    expect(watch).not.toHaveBeenCalled()
+    expect(fs.existsSync(reading().home)).toBe(false)
+  })
+
   it('stops a detached probe while its parent chain still exists, then removes its temporary home', async () => {
     const { binary, reading } = fixture({ probe: true })
     try {

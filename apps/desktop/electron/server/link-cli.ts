@@ -12,7 +12,7 @@
  *
  * 账号进程此刻没在跑(套接字还没有 / 还是上一个进程留下的死套接字):**等它起来**,❌ 当场退出 —— 守护进程几秒内就会把它
  * 拉起来(换版、崩了重起),桌面那头这条连接一直在等,套接字一出现当场接上;❌ 让桌面按退避一遍遍重开、在两拍之间干等。
- * 只看套接字所在目录的变化(fs.watch),❌ 轮询;最多等 LINK_SERVER_WAIT_MS(比桌面等「接上了」的 30 s 短一截,见那里)。
+ * 在原 LINK_SERVER_WAIT_MS 期限内每 200ms 再连一次;macOS 的目录事件可能比这个期限还晚才投递。
  *
  * 退出码(LINK_EXIT):0 正常断开;2 用法错(老版本对不认识的命令也是 2 = 太旧);3 账号进程没在跑(等满了也没起来);
  * 4 账号进程拒绝了(原因任意,照实报 —— ❌ 当成太旧);5 这台机器上没登这个账号;
@@ -51,14 +51,12 @@ export const LINK_SERVER_WAIT_MS = 20_000
 /** 这两种 = 账号进程此刻没在听(还没起来 / 死了留下的套接字),值得等;别的错误照实报。 */
 const NOT_LISTENING = new Set(['ENOENT', 'ECONNREFUSED'])
 
-type WatchDir = (dir: string, onChange: () => void) => () => void
+type RetryWhileWaiting = (dir: string, retry: () => void) => () => void
 
-export const watchDir: WatchDir = (dir, onChange) => {
-  const watcher = fs.watch(dir, () => onChange())
-  // 监听本身出错(目录被删 / 句柄失效):❌ 让进程崩成退出码 1(桌面会归成「连不上」);当成一次变化再连 ——
-  // 连不上就接着等到截止,照实退 3。
-  watcher.on('error', () => onChange())
-  return () => watcher.close()
+export const pollServer: RetryWhileWaiting = (dir, retry) => {
+  if (!fs.statSync(dir).isDirectory()) throw new Error('Account data directory is unavailable')
+  const timer = setInterval(retry, 200)
+  return () => clearInterval(timer)
 }
 
 export type LinkArgs = { account: string | null; adoptSsh: boolean }
@@ -120,7 +118,7 @@ export async function runLink(
     accounts?: () => ServerAccount[]
     adopt?: (account: ServerAccount) => void
     connect?: (socketPath: string) => net.Socket
-    watch?: WatchDir
+    retryWhileWaiting?: RetryWhileWaiting
     waitMs?: number
   } = {},
 ): Promise<number> {
@@ -150,7 +148,7 @@ export async function runLink(
     let socket: net.Socket | null = null
     let acked = false
     let settled = false
-    // 等账号进程起来的那一段:目录监听 + 截止计时;没在等 = null。
+    // 等账号进程起来的那一段:按固定间隔再连 + 原截止计时;没在等 = null。
     let waiting: { stop: () => void; again: boolean } | null = null
     const stopWaiting = () => {
       waiting?.stop()
@@ -171,18 +169,16 @@ export async function runLink(
     /** 账号进程没在听:等它的套接字出现再连。目录本身都没有 = 从没起来过,照实报。 */
     const waitForServer = (error: NodeJS.ErrnoException) => {
       if (waiting) {
-        // 目录变了、连上去还是没人听(套接字刚删还没建 / 刚建好还没 listen):接着等下一次变化。
-        // 兜住「建好还没 listen」那一下靠的是 attach-server.ts 在 listen 之后那次 chmod:它在同一个目录上再出一次事件。
-        // ⚠️ 挪走 / 删掉那次 chmod 之前,先让这里在 listen 完成后另有一次可等的变化,否则会一直等到截止。
+        // 上一拍连接还没结束:记住这一拍,失败以后立即再连,不并起多个连接。
         if (waiting.again) {
           waiting.again = false
           attempt()
         }
         return
       }
-      let stopWatch: () => void
+      let stopRetry: () => void
       try {
-        stopWatch = (deps.watch ?? watchDir)(path.dirname(socketPath), () => {
+        stopRetry = (deps.retryWhileWaiting ?? pollServer)(path.dirname(socketPath), () => {
           if (!waiting) return
           if (socket) waiting.again = true
           else attempt()
@@ -194,8 +190,8 @@ export async function runLink(
         () => notRunning(`等了 ${Math.round((deps.waitMs ?? LINK_SERVER_WAIT_MS) / 1000)} 秒,账号进程还是没起来。${describeConnectError(error, account.email)}`),
         deps.waitMs ?? LINK_SERVER_WAIT_MS,
       )
-      waiting = { stop: () => { stopWatch(); clearTimeout(timer) }, again: false }
-      // 开始监听之前它可能刚好起来了:监听挂上之后再试一次,❌ 漏掉那一下。
+      waiting = { stop: () => { stopRetry(); clearTimeout(timer) }, again: false }
+      // 连接刚好在第一拍之前恢复时,立即接上。
       attempt()
     }
     const attempt = () => {

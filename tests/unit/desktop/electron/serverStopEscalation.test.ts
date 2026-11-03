@@ -34,6 +34,7 @@ it('the real stop command escalates a locked process from TERM to KILL and repor
   state.alive = true
   vi.stubEnv('GUGU_SERVER_HOME', state.home)
   vi.stubEnv('GUGU_TIER', 'beta')
+  vi.stubEnv('GUGU_SERVER_MODE', undefined)
   process.argv = ['node', 'server-entry.js', 'stop']
   const kill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
     expect(pid).toBe(123456)
@@ -46,10 +47,11 @@ it('the real stop command escalates a locked process from TERM to KILL and repor
   const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
   vi.useFakeTimers()
   await import('../../../../apps/desktop/electron/server-entry')
+  await vi.waitFor(() => expect(kill).toHaveBeenCalledWith(123456, 'SIGTERM'), { timeout: 10_000 })
   await vi.runAllTimersAsync()
   expect(kill).toHaveBeenCalledWith(123456, 'SIGTERM')
   expect(kill).toHaveBeenCalledWith(123456, 'SIGKILL')
   expect(stdout).toContain('KILL for pid 123456')
-  expect(exit).toHaveBeenCalledWith(0)
+  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
   expect(exit).not.toHaveBeenCalledWith(1)
 })

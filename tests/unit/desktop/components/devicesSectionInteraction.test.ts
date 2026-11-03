@@ -82,24 +82,24 @@ describe('DevicesSection interaction', () => {
     restartNow.mockImplementationOnce(async () => ({ requested: true, at: 42 }))
     const capabilities: Device['capabilities'] = { terminals: [], runtimes: [], host_kind: 'server',
       app_version: '0.3.0', server_confirmed_restart: true,
-      server_update: { state: 'ready', version: '0.3.1', scope: 'supervisor', at: Date.now() } }
+      server_update: { state: 'ready', version: '0.3.1', scope: 'supervisor' } }
     const render = async (patch: Partial<Device> = {}) => {
       const value = store({ devices: [device({ device_id: 'srv', capabilities, ...patch })] })
       await act(async () => { root.render(createElement(DevicesContext.Provider, { value }, createElement(DevicesSection))) })
       await flush()
     }
     await render()
-    await act(async () => { container.querySelector<HTMLElement>('[data-testid="settings-device-match-restart-now"]')!.click() })
+    await act(async () => { container.querySelector<HTMLElement>('[data-testid="settings-device-update-now"]')!.click() })
     await act(async () => { container.querySelector<HTMLElement>('[data-testid="settings-device-update-now-yes"]')!.click() })
     await flush()
     await render({ is_online: false, status: 'offline' })
     expect(container.querySelector('[data-testid="settings-device-restarting"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="settings-device-match-restart-now"]')).toBeNull()
-    await render({ capabilities: { ...capabilities, server_update_outcome: { kind: 'switched', target: '0.3.1', request: 41, at: Date.now() } } })
+    expect(container.querySelector('[data-testid="settings-device-update-now"]')).toBeNull()
+    await render({ capabilities: { ...capabilities, server_update_outcome: { kind: 'switched', request: 41 } } })
     expect(container.querySelector('[data-testid="settings-device-restarting"]')).not.toBeNull()
     await render({ capabilities: completion === 'version'
       ? { ...capabilities, app_version: '0.3.1' }
-      : { ...capabilities, server_update_outcome: { kind: 'switched', target: '0.3.1', request: 42, at: Date.now() } } })
+      : { ...capabilities, server_update_outcome: { kind: 'switched', request: 42 } } })
     expect(container.querySelector('[data-testid="settings-device-restarting"]')).toBeNull()
   })
 

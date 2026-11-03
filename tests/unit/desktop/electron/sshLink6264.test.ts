@@ -21,7 +21,7 @@ import {
   LINK_READY_MARK,
   parseLinkHello,
 } from '../../../../apps/desktop/electron/session/main/core/pty/attach/attach-protocol'
-import { linkRefusal, parseLinkArgs, readLinkAck, runLink, watchDir } from '../../../../apps/desktop/electron/server/link-cli'
+import { linkRefusal, parseLinkArgs, pollServer, readLinkAck, runLink } from '../../../../apps/desktop/electron/server/link-cli'
 import { asBroadcast, createDeviceLinkHost } from '../../../../apps/desktop/electron/server/device-link-host'
 import {
   afterReadyMark,
@@ -176,7 +176,7 @@ describe('那台机器上:gugu-server link', () => {
   })
 
   // 账号进程正在重起(换版 / 崩了被守护进程拉起):❌ 当场退 3 让桌面按退避重开,等它的套接字出现当场接上。
-  it('账号进程没在听 → 等套接字所在目录变化再连,接上照常;变化落在一次连接途中也不漏', async () => {
+  it('账号进程没在听 → 按拍再连,接上照常;连接途中的一拍也不漏', async () => {
     const sockets: net.Socket[] = []
     const fake = () => {
       const socket = new PassThrough() as unknown as net.Socket
@@ -192,7 +192,7 @@ describe('那台机器上:gugu-server link', () => {
     const run = runLink(['--account', ACCOUNT], { stdin: new PassThrough(), stdout, stderr: new PassThrough() }, {
       accounts: () => [account(dir)],
       connect: fake,
-      watch: (_dir, cb) => {
+      retryWhileWaiting: (_dir, cb) => {
         onChange = cb
         return () => {
           watchStopped = true
@@ -216,18 +216,19 @@ describe('那台机器上:gugu-server link', () => {
     expect(await run).toBe(0)
   })
 
-  // 复核 146:目录监听出错 ❌ 让进程崩成退出码 1(桌面归成「连不上」);当成一次变化,再连一次。
-  it('目录监听出错 → 当成一次变化去再连,❌ 抛出', () => {
-    const watcher = Object.assign(new EventEmitter(), { close: vi.fn() })
-    const watch = vi.spyOn(fs, 'watch').mockReturnValue(watcher as unknown as fs.FSWatcher)
-    const changes: string[] = []
-    const stop = watchDir(dir, () => changes.push('change'))
-    // 没挂 'error' 的 EventEmitter emit('error') 会直接抛:这一条就是在钉「挂上了」。
-    expect(() => watcher.emit('error', new Error('EPERM'))).not.toThrow()
-    expect(changes).toEqual(['change'])
-    stop()
-    expect(watcher.close).toHaveBeenCalled()
-    watch.mockRestore()
+  it('rechecks readiness even when filesystem events are unavailable and stops after cancellation', () => {
+    vi.useFakeTimers()
+    const watch = vi.spyOn(fs, 'watch').mockImplementation(() => { throw new Error('delayed filesystem events') })
+    const retry = vi.fn()
+    const stop = pollServer(dir, retry)
+    try {
+      vi.advanceTimersByTime(600)
+      expect(retry).toHaveBeenCalledTimes(3)
+      stop()
+      vi.advanceTimersByTime(600)
+      expect(retry).toHaveBeenCalledTimes(3)
+      expect(watch).not.toHaveBeenCalled()
+    } finally { stop(); watch.mockRestore(); vi.useRealTimers() }
   })
 
   it('等满了账号进程还是没起来 → 退出码 3(没在跑),说清等了多久', async () => {
@@ -239,7 +240,7 @@ describe('那台机器上:gugu-server link', () => {
     const run = runLink(['--account', ACCOUNT], { stdin: new PassThrough(), stdout: new PassThrough(), stderr }, {
       accounts: () => [account(dir)],
       connect: () => dead,
-      watch: () => () => undefined,
+      retryWhileWaiting: () => () => undefined,
       waitMs: 20,
     })
     dead.emit('error', Object.assign(new Error('gone'), { code: 'ENOENT' }))
