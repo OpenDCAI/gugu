@@ -71,6 +71,15 @@ describe('an open chat does not grow an unread badge', () => {
     expect(reads.write).not.toHaveBeenCalled()
   })
 
+  it('keeps the badge while the open chat is showing history instead of following the tail', () => {
+    const incoming = chat({ id: 'open-history', kind: 'group', unread_count: 1, last_read_seq: 4, next_message_seq: 6 })
+    const result = acknowledgeOnScreenChatRows([incoming], {
+      onScreen: () => true, canAcknowledge: () => false, patchChat: vi.fn(),
+    })
+    expect(result).toEqual([incoming])
+    expect(reads.write).not.toHaveBeenCalled()
+  })
+
   it('restores the unread tuple if acknowledging the open chat fails', async () => {
     let fail!: (error: Error) => void
     reads.write.mockReturnValueOnce(new Promise((_, reject) => { fail = reject }))

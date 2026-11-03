@@ -97,13 +97,14 @@ export function acknowledgeOnScreenChatRows(
   context: {
     current?: readonly ChatItem[]
     onScreen: (chatId: string) => boolean
+    canAcknowledge?: (chatId: string) => boolean
     patchChat: PatchChat
     deferPersist?: (persist: () => void) => void
   },
 ): ChatItem[] {
   const currentById = new Map(context.current?.map((chat) => [chat.id, chat]) ?? [])
   return rows.map((chat) => {
-    if (!context.onScreen(chat.id) || chat.unread_count <= 0 || chat.is_marked_unread) return chat
+    if (!context.onScreen(chat.id) || context.canAcknowledge?.(chat.id) === false || chat.unread_count <= 0 || chat.is_marked_unread) return chat
     if (chat.unread_locator && chat.unread_locator.stream_kind !== 'main') return chat
     const seq = Math.max(chat.last_read_seq, chat.next_message_seq - 1)
     const current = currentById.get(chat.id)
@@ -130,12 +131,13 @@ export function useChatProjectionBinding(deps: {
   activeChatIdRef: MutableRefObject<string | null>
   requestSeqRef: MutableRefObject<number>
   notifications: { chatMessages: boolean; sound: boolean }
+  canAcknowledge: (chatId: string) => boolean
   patchChat: PatchChat
   setChats: (rows: ChatItem[]) => void
   /** 当前选中被权威地撤销了 —— store 自己决定怎么清空那一侧的状态。 */
   onActiveRevoked: (chatId: string) => void
 }) {
-  const { ledger, repositoryRef, getRepository, chatsRef, activeChatIdRef, requestSeqRef, setChats, onActiveRevoked, patchChat } = deps
+  const { ledger, repositoryRef, getRepository, chatsRef, activeChatIdRef, requestSeqRef, setChats, onActiveRevoked, canAcknowledge, patchChat } = deps
   const ownerRef = useRef<{ accountId: string; owner: ChatProjection } | null>(null)
 
   const ownerFor = useCallback((accountId: string): ChatProjection => {
@@ -160,13 +162,14 @@ export function useChatProjectionBinding(deps: {
     ledger.recordProjected(fetched, options.requestSeq)
     const pendingReads: Array<() => void> = []
     const acknowledged = acknowledgeOnScreenChatRows(fetched, {
-      current: chatsRef.current, onScreen: isChatOnScreen, patchChat, deferPersist: (persist) => pendingReads.push(persist),
+      current: chatsRef.current, onScreen: isChatOnScreen, canAcknowledge, patchChat,
+      deferPersist: (persist) => pendingReads.push(persist),
     })
     setChats(await applyFetchedChatList(ledger, await getRepository(), { fetched: acknowledged, identities },
       { currentChats: chatsRef.current, activeChatId, revokeMissingActive, isConversationDeleted }))
     for (const persist of pendingReads) persist()
     if (revokeMissingActive && activeChatId) onActiveRevoked(activeChatId)
-  }, [ledger, activeChatIdRef, chatsRef, getRepository, onActiveRevoked, patchChat, setChats])
+  }, [ledger, activeChatIdRef, canAcknowledge, chatsRef, getRepository, onActiveRevoked, patchChat, setChats])
 
   /** 冷启快照:一次「哪些会话属于我」的读 + 与增量同一套族读 ⇒ 2 波(spec I7,没有第二条拉取路)。 */
   const hydrate = useCallback((accountId: string) => ownerFor(accountId)
