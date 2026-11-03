@@ -19,8 +19,8 @@ vi.mock('@/components/markdown/Markdown', () => ({ Markdown: () => null }))
 vi.mock('@/components/chat/DocumentPreviewContent', () => ({ DocumentPreviewContent: () => null }))
 
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { installShellSlots(); harness = createReactHarness() })
-afterEach(() => harness.cleanup())
+beforeEach(() => { vi.stubGlobal('CSS', { escape: (id: string) => id }); installShellSlots(); harness = createReactHarness() })
+afterEach(() => { harness.cleanup(); vi.unstubAllGlobals() })
 const slots = () => [...harness.container.querySelectorAll('[data-chat-tab-slot]')].map((element) => element.getAttribute('data-chat-tab-slot'))
 const Panels = observer(function Panels({ chatId }: { chatId: string }) {
   return <>{chatLayoutOf(chatId).groups.map(group => <PaneContext.Provider key={group.paneId} value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>)}</>

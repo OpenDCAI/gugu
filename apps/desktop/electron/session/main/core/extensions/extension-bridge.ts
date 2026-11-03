@@ -1011,7 +1011,7 @@ export function updateExtensionSurfaceLayout(
   if (!metrics.visible && binding.embedderId !== null) {
     const guest = webContents.fromId(webContentsId);
     const embedder = webContents.fromId(binding.embedderId);
-    if (guest?.isFocused?.() && guest.hostWebContents?.id === binding.embedderId && embedder && !embedder.isDestroyed()) embedder.focus();
+    if (guest && !guest.isDestroyed() && guest.isFocused?.() && guest.hostWebContents?.id === binding.embedderId && embedder && !embedder.isDestroyed()) embedder.focus();
   }
   const unchanged =
     binding.metrics.visible === metrics.visible &&
