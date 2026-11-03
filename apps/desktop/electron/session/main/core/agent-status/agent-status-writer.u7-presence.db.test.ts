@@ -5,6 +5,7 @@ import type { PresenceWatchFs } from '../agent-hooks/presence-interrupt';
 import type { AppDb } from '@main/db/client';
 import { makeTmuxSessionName } from '@main/core/pty/tmux-session-name';
 import { makePtySessionId } from '@shared/core/pty/ptySessionId';
+import { statusWritesSettled } from './_support/status-writes-settled';
 
 const mocks = vi.hoisted(() => ({ db: undefined as AppDb | undefined, presence: undefined as HarnessPresenceFile | undefined }));
 
@@ -76,9 +77,10 @@ describe('U7 boot presence reconciliation through the real SQLite writer and def
   };
   const presence = (id: string, state: string, pid = 42, filename = pid) =>
     files.set(`/fixture/.claude/sessions/${filename}.json`, JSON.stringify({ pid, sessionId: id, status: state }));
-  const boot = async (ids: string[]) => {
+  const boot = async (ids: string[], afterSettle?: () => void) => {
     const names = new Set(ids.map(tmuxName));
     await agentStatusWriter.settleAfterRestart(names, 'update');
+    afterSettle?.();
     // The exact parent has only the existing settle step. Its absence of F1 is
     // exercised as that real boot behaviour, not a missing-export exception.
     const reconcile = Reflect.get(presenceModule, 'reconcileSurvivorsWithPresence') as Reconcile | undefined;
@@ -144,6 +146,41 @@ describe('U7 boot presence reconciliation through the real SQLite writer and def
       .filter(([, detail]) => (detail as { sessionId?: string } | undefined)?.sessionId === 'survivor');
     expect(entries).toHaveLength(1);
     expect(interruptedTurnKeys()).toEqual([]);
+  });
+  it('R1: continues boot without changing status when the presence scan cannot read the database', async () => {
+    seed('survivor', 'working', 'parked'); presence('survivor', 'idle');
+    const before = status('survivor');
+    let readAttempts = 0, restoreSelect = () => {};
+    try {
+      await expect(boot(['survivor'], () => {
+        const select = vi.spyOn(fixture.db, 'select').mockImplementationOnce(() => {
+          readAttempts++; throw new Error('presence database unavailable');
+        });
+        restoreSelect = () => { select.mockRestore(); };
+      })).resolves.toBeUndefined();
+      expect(readAttempts).toBe(1);
+      expect(status('survivor')).toEqual(before);
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('host continue'), expect.objectContaining({ operation: 'presence-reconcile' }));
+    } finally { restoreSelect(); }
+  });
+  it.each(['waiting', 'busy', 'shell'])('R2: leaves the complete current reading and publication untouched for matching %s presence', async value => {
+    seed('survivor', value === 'waiting' ? 'idle' : 'working', value === 'waiting' ? 'plain' : value === 'shell' ? 'parked' : 'running');
+    if (value === 'waiting') {
+      agentStatusWriter.reportProviderReviewGate({ sessionId: 'survivor', gate: 'mcp' });
+    } else {
+      agentHookService.emitAgentEvent({ type: 'background', providerId: 'claude', projectId: 'p1', sessionId: 'survivor', timestamp: 1000,
+        payload: { backgroundTasks: 3, scheduledTasks: 2 } });
+    }
+    await statusWritesSettled(agentStatusWriter, 'survivor');
+    presence('survivor', value);
+    const before = agentStatusWriter.currentReading('survivor'), beforeRow = status('survivor');
+    const changes: unknown[] = [], stop = agentStatusWriter.on('agent:status', change => { changes.push(change); });
+    try {
+      await boot(['survivor']);
+      expect(agentStatusWriter.currentReading('survivor')).toEqual(before);
+      expect(status('survivor')).toEqual(beforeRow);
+      expect(changes).toEqual([]);
+    } finally { stop(); }
   });
   it.each([['busy', 'working', 'running', 1], ['waiting', 'needs_user', 'approval', 0]] as const)('U4: corrects stored idle from live %s presence', async (value, result, detail, seen) => {
     seed('survivor', 'idle'); presence('survivor', value);

@@ -330,7 +330,14 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
   reconcilePresence(params: StatusWriteParams & { status: HarnessPresenceStatus }): Promise<void> {
     const sessionId = params.sessionId;
     return this.inOrder(sessionId, () => this.apply(sessionId, ctx => {
-      if (params.status === 'idle' && this.currentReading(sessionId)?.status === 'idle') return [];
+      const current = this.currentReading(sessionId);
+      const target: Pick<AgentStatusReading, 'status' | 'detail'> = params.status === 'busy'
+        ? { status: 'working', detail: 'running' }
+        : params.status === 'shell' ? { status: 'working', detail: 'parked' }
+          : params.status === 'waiting' ? { status: 'needs_user', detail: current?.status === 'needs_user' ? current.detail : 'approval' }
+            : { status: 'idle', detail: current?.status === 'idle' ? current.detail : 'done' };
+      // A matching snapshot cannot replace existing waits, background counts or read state.
+      if (current?.status === target.status && current.detail === target.detail) return [];
       const events: AgentStatusEvent[] = [{ kind: 'Started', sessionId }];
       if (params.status === 'idle' || params.status === 'shell') {
         events.push({ kind: 'Stopped', sessionId, outcome: 'done',

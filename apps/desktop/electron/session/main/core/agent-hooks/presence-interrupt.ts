@@ -6,6 +6,7 @@ import type { AgentStatusView } from '@gugu/core/shared/agentStatus';
 import type { HarnessPresenceFile, HarnessPresenceStatus, HooksDescriptor } from '@gugu/session-core/agents/plugins';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import { log } from '@main/lib/logger';
+import { sessionBootTasks } from '../boot-tasks';
 import { isProcessAlive } from '../../../../server/process-alive';
 import { agentHookService } from './agent-hook-service';
 import { harnessConfigRootOf } from './harness-config-roots';
@@ -240,36 +241,38 @@ export async function reconcileSurvivorsWithPresence(tmuxSessionNames: ReadonlyS
   isAlive?: (pid: number) => boolean;
   spawnEnv?: (providerId: string) => Promise<Record<string, string | undefined>>;
 } = {}): Promise<void> {
-  const [{ db }, { sessions }, { sessionsAliveInTmux }, { getPlugin }] = await Promise.all([
-    import('@main/db/client'), import('@main/db/schema'),
-    import('@main/core/sessions/session-process'), import('@main/core/agents/plugin-registry'),
-  ]);
-  const alive = sessionsAliveInTmux(tmuxSessionNames);
-  const rows = await db.select({ id: sessions.id, runtime: sessions.runtime,
-    provider: sessions.provider, providerSessionId: sessions.providerSessionId }).from(sessions);
-  const fs = options.fs ?? nodeFs, isAlive = options.isAlive ?? isProcessAlive;
-  const spawnEnv = options.spawnEnv ?? (async (providerId: string) =>
-    (await import('@main/core/agents/agent-run-context')).resolveLocalAgentSpawnEnv(providerId));
-  for (const row of rows) {
-    if (row.runtime !== 'pty' || !alive.has(row.id)) continue;
-    try {
-      if (!row.provider) throw new Error('session has no provider');
-      const plugin = getPlugin(row.provider), hooks = plugin.capabilities.hooks;
-      const presence = plugin.behavior.hooks?.presence;
-      if (hooks.kind !== 'config' || !('presence' in hooks) || !hooks.presence || !presence)
-        throw new Error('harness does not provide a declared presence reader');
-      const sessionId = row.providerSessionId || row.id;
-      const roots = presenceConfigRoots(presence, row.id, await spawnEnv(row.provider));
-      const found = await findBySession(presence, roots, sessionId, fs, isAlive);
-      if (!found) throw new Error('no presence file for a live harness process');
-      const record = presence.parse(await fs.readFile(join(found.directory, `${found.pid}.json`)));
-      if (record.pid !== found.pid || record.sessionId !== sessionId || !isAlive(record.pid))
-        throw new Error('presence no longer belongs to this live harness process');
-      await agentStatusWriter.reconcilePresence({ sessionId: row.id, status: record.status });
-    } catch (error) {
-      log.warn('PresenceInterrupt: keeping the stored survivor status because boot presence cannot be read', {
-        sessionId: row.id, providerId: row.provider, reason: String(error),
-      });
+  await sessionBootTasks.run('presence-reconcile', '', async () => {
+    const [{ db }, { sessions }, { sessionsAliveInTmux }, { getPlugin }] = await Promise.all([
+      import('@main/db/client'), import('@main/db/schema'),
+      import('@main/core/sessions/session-process'), import('@main/core/agents/plugin-registry'),
+    ]);
+    const alive = sessionsAliveInTmux(tmuxSessionNames);
+    const rows = await db.select({ id: sessions.id, runtime: sessions.runtime,
+      provider: sessions.provider, providerSessionId: sessions.providerSessionId }).from(sessions);
+    const fs = options.fs ?? nodeFs, isAlive = options.isAlive ?? isProcessAlive;
+    const spawnEnv = options.spawnEnv ?? (async (providerId: string) =>
+      (await import('@main/core/agents/agent-run-context')).resolveLocalAgentSpawnEnv(providerId));
+    for (const row of rows) {
+      if (row.runtime !== 'pty' || !alive.has(row.id)) continue;
+      try {
+        if (!row.provider) throw new Error('session has no provider');
+        const plugin = getPlugin(row.provider), hooks = plugin.capabilities.hooks;
+        const presence = plugin.behavior.hooks?.presence;
+        if (hooks.kind !== 'config' || !('presence' in hooks) || !hooks.presence || !presence)
+          throw new Error('harness does not provide a declared presence reader');
+        const sessionId = row.providerSessionId || row.id;
+        const roots = presenceConfigRoots(presence, row.id, await spawnEnv(row.provider));
+        const found = await findBySession(presence, roots, sessionId, fs, isAlive);
+        if (!found) throw new Error('no presence file for a live harness process');
+        const record = presence.parse(await fs.readFile(join(found.directory, `${found.pid}.json`)));
+        if (record.pid !== found.pid || record.sessionId !== sessionId || !isAlive(record.pid))
+          throw new Error('presence no longer belongs to this live harness process');
+        await agentStatusWriter.reconcilePresence({ sessionId: row.id, status: record.status });
+      } catch (error) {
+        log.warn('PresenceInterrupt: keeping the stored survivor status because boot presence cannot be read', {
+          sessionId: row.id, providerId: row.provider, reason: String(error),
+        });
+      }
     }
-  }
+  });
 }
