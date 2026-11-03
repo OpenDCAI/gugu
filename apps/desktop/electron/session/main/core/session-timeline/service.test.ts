@@ -1109,9 +1109,9 @@ describe('session timeline service', () => {
       value: { admission: 'accepted', clientMessageId: 'input' } });
   });
 
-  it('confirms prior custody after a lost ACK instead of refusing an already owned input', async () => {
+  it.each(['ordinary-message', 'session-direct'])('confirms prior %s custody after a lost ACK instead of refusing an already owned input', async kind => {
     state.rows[0]!.session.provider = '';
-    state.acceptedMessage.mockReturnValue({ id: 'input', sessionId: 'conv-1', sender: 'user', content: 'hello', metadata: JSON.stringify({ kind: 'ordinary-message' }) });
+    state.acceptedMessage.mockReturnValue({ id: 'input', sessionId: 'conv-1', sender: 'user', content: 'hello', metadata: JSON.stringify({ kind }) });
     expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: true, value: { admission: 'accepted', clientMessageId: 'input' } });
     expect(state.deliverText).not.toHaveBeenCalled();
     expect(await service.send('conv-1', 'changed text', 'input')).toMatchObject({ ok: false, error: { admission: 'uncertain' } });

@@ -1432,6 +1432,14 @@ async function sendOnce({ conversationId, text, clientMessageId, files, attachme
   if (attachments !== undefined && !promptAttachmentSchema.array().safeParse(attachments).success) return rejected('invalid_request', '附件引用无效');
   if (clientMessageId !== undefined && (!clientMessageId.trim() || clientMessageId.length > 256)) return rejected('invalid_request', '消息标识无效');
   if (!text.trim() && !files?.length && !attachments?.length) return rejected('empty_text', '消息是空的');
+  // Confirm custody before re-reading a provider or resolving files whose permissions may have changed.
+  try {
+    const prior = priorInputAdmission({ conversationId, text, clientMessageId, files, attachments });
+    if (prior === 'accepted') return { ok: true, value: { accepted: 'queued', admission: 'accepted', clientMessageId } };
+    if (prior === 'uncertain') return { ok: false, error: { code: 'input_conflict', message: '原消息的接管记录尚无法确认', admission: 'uncertain' } };
+  } catch (error) {
+    return { ok: false, error: { code: 'send_failed', message: (error as Error)?.message ?? String(error), admission: 'uncertain' } };
+  }
   // A side chat has no session row: its custody send lands in its fork entry's queue.
   if (runtimeFork(conversationId)) {
     try {

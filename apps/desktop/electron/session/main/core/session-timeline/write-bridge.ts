@@ -159,6 +159,7 @@ export async function deliverSessionText(
       sessionId: target.id,
       clientMessageId: clientMessageId ?? crypto.randomUUID(),
       text: body,
+      sourceInput: { text: text.trim(), ...(files?.length ? { files } : {}) },
       kind: 'session-direct' as const,
     };
     // 冷着的终端腿(app 重启后没起、被停过)由 session-direct 的路由自己唤醒再投(#6546),

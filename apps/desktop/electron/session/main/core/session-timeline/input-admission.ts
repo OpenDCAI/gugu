@@ -28,7 +28,7 @@ export function priorInputAdmission(input: InputAdmissionPayload): 'accepted' | 
   if (!receipt) return null;
   if (receipt.sessionId !== input.conversationId || receipt.sender !== 'user') return 'uncertain';
   const metadata = receipt.metadata ? JSON.parse(receipt.metadata) : null;
-  if (metadata?.kind !== 'ordinary-message') return 'uncertain';
-  return sameInput(input, { ...input, text: receipt.content, files: metadata.delivery?.files,
-    attachments: metadata.delivery?.attachments }) ? 'accepted' : 'uncertain';
+  if (metadata?.kind !== 'ordinary-message' && metadata?.kind !== 'session-direct') return 'uncertain';
+  const original = metadata.sourceInput ?? { text: receipt.content, files: metadata.delivery?.files, attachments: metadata.delivery?.attachments };
+  return sameInput(input, { ...input, ...original }) ? 'accepted' : 'uncertain';
 }
