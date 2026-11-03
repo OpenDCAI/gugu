@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { APP_OPEN_WITH_EVENT } from '@shared/extensions/app-runtime-protocol';
 import { groupPageSlot, type PanelItem } from '@renderer/features/chats/chat-tabs/chat-panel-item';
-import { WorkspaceViewModel } from '@renderer/features/sessions/stores/workspace-view-model';
 import { PaneLayoutStore } from '@renderer/features/tabs/pane-layout-store';
 import { createTabProvider, createTabRegistry } from '@renderer/features/tabs/core/tab-provider-registry';
 
@@ -24,6 +23,7 @@ vi.mock('./extension-surface-store', () => ({
   extensionSurfaceStore: { say: vi.fn() },
 }));
 
+const { WorkspaceViewModel } = await import('@renderer/features/sessions/stores/workspace-view-model');
 const { applyExtensionHostAction } = await import('./host-action-handlers');
 beforeEach(() => { vi.clearAllMocks(); tabs.length = 0; projects.clear(); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
