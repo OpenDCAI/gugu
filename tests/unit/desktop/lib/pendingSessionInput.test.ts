@@ -106,5 +106,7 @@ it('projects every definitive refusal once, separately from automatic sender cus
   ])
   expect(projectSessionPendingInput(null, [a, b, automatic], [], [old])).toMatchObject({ id: automatic.id, delivery: { state: 'sending' } })
   expect(projectSessionPendingInput(projectSessionPendingInput(null, [input()], [], [old]), [a], [], [old])).toBeNull()
+  expect(projectSessionPendingInput(projectSessionPendingInput(null, [input()], [], [old]), [a, { ...automatic, failure: { code: 'host-offline' } }], [], [old]))
+    .toMatchObject({ id: automatic.id, delivery: { state: 'waiting', retryable: false } })
   expect(projectRejectedSessionInputs([], [old])).toEqual([])
 })

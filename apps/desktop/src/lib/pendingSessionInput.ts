@@ -28,7 +28,7 @@ export function sessionInputWaitingReason(failure: SessionInputFailure): string 
 /** One ordinary input follows sender custody, host custody and its native echo without changing its row. */
 export function projectSessionPendingInput(previous: PendingPrompt | null, sender: readonly SessionInput[],
   host: readonly HostPendingRow[], turns: readonly TranscriptTurn[]): PendingPrompt | null {
-  if (sender.some(row => row.id === previous?.id && row.admission === 'rejected')) return null
+  if (sender.some(row => row.id === previous?.id && row.admission === 'rejected')) previous = null
   const input = sender.find(row => row.admission !== 'rejected' && row.queued === false && (!previous?.delivery || row.id === previous.id))
   let prompt: PendingPrompt | null = input ? {
     id: input.id, text: input.text, sentAt: input.createdAt, baselineMessageIds: input.baseline, afterTurnId: input.afterTurnId,
