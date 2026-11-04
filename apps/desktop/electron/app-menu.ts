@@ -1,4 +1,4 @@
-import { Menu, MenuItem, type MenuItemConstructorOptions } from 'electron'
+import { BrowserWindow, Menu, MenuItem, type MenuItemConstructorOptions } from 'electron'
 import { lockedMenuTemplate } from './devtools-lock'
 import { isFileZoomCommand } from '../src/session/shared/preview/file-zoom'
 import { runWindowMenuCommand } from './window-menu-commands'
@@ -58,7 +58,7 @@ export function applyApplicationMenu(options: Parameters<typeof applicationMenuT
     const command = item.role
     return new MenuItem({ label: item.label, accelerator: command === 'zoomIn' ? 'CmdOrCtrl+Plus' : command === 'zoomOut' ? 'CmdOrCtrl+-' : 'CmdOrCtrl+0',
       click: (_item, window) => {
-        if (window) void runWindowMenuCommand(command, { contents: window.webContents, window }).catch(error => log.error({ error }, 'File zoom command failed'))
+        if (window instanceof BrowserWindow) void runWindowMenuCommand(command, { contents: window.webContents, window }).catch(error => log.error({ error }, 'File zoom command failed'))
       },
     })
   }))
