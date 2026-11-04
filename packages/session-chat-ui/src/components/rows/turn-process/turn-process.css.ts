@@ -1,4 +1,5 @@
-import { style } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
+import { userMessageActions } from '../message/user-message.css';
 import { vars } from '@session-chat/styles/theme.css';
 
 /**
@@ -37,4 +38,12 @@ export const turnProcessHeaderSlot = style({
   flex: '1 1 auto',
   minWidth: 0,
   fontVariantNumeric: 'tabular-nums',
+});
+
+
+/** The existing completion control shares the silent label's measured line. */
+export const silentLine = style({ flexWrap: 'nowrap' });
+globalStyle(`${silentLine}:hover ${userMessageActions}, ${silentLine}:focus-within ${userMessageActions}`, {
+  opacity: 1,
+  pointerEvents: 'auto',
 });

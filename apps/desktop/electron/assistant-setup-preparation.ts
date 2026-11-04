@@ -1,15 +1,15 @@
-import type { PrepareLocalHomeInput, PrepareLocalHomeResult, LocalAssistantPreparationState } from '../src/lib/assistantHomeIpc'
+import type { AssistantEngine, PrepareLocalHomeInput, PrepareLocalHomeResult, LocalAssistantPreparationState } from '../src/lib/assistantHomeIpc'
 import type { PreparedAssistantRuntime } from './assistant-runtime-prepare'
 
 /** Main-process ownership makes cancellation and the first active write mutually exclusive. */
 export function createAssistantSetupPreparation(deps: {
-  prepare(id: string, signal: AbortSignal): Promise<PreparedAssistantRuntime>
+  prepare(id: string, signal: AbortSignal, engine: AssistantEngine): Promise<PreparedAssistantRuntime>
   cleanup?(id: string): Promise<void>
   install(input: PrepareLocalHomeInput): Promise<PrepareLocalHomeResult>
   changed(id: string, state: LocalAssistantPreparationState): void
   failed?(id: string, stage: 'prepare' | 'commit', error: unknown): void
 }) {
-  type Attempt = { state: LocalAssistantPreparationState; abort: AbortController; prepared?: PreparedAssistantRuntime; work: Promise<void>; installationStarted?: boolean; installation?: Promise<PrepareLocalHomeResult>; cleanupFailed?: boolean }
+  type Attempt = { engine: AssistantEngine; state: LocalAssistantPreparationState; abort: AbortController; prepared?: PreparedAssistantRuntime; work: Promise<void>; installationStarted?: boolean; installation?: Promise<PrepareLocalHomeResult>; cleanupFailed?: boolean }
   const attempts = new Map<string, Attempt>()
   const requireAttempt = (id: string) => {
     const attempt = attempts.get(id)
@@ -21,11 +21,11 @@ export function createAssistantSetupPreparation(deps: {
     deps.changed(id, state)
   }
   const service = {
-    start(id: string) {
+    start(id: string, engine: AssistantEngine = 'claude') {
       if (attempts.has(id)) throw new Error('This assistant preparation already exists')
-      const attempt: Attempt = { state: { phase: 'preparing' }, abort: new AbortController(), work: Promise.resolve() }
+      const attempt: Attempt = { engine, state: { phase: 'preparing' }, abort: new AbortController(), work: Promise.resolve() }
       attempts.set(id, attempt)
-      attempt.work = deps.prepare(id, attempt.abort.signal).then(prepared => {
+      attempt.work = deps.prepare(id, attempt.abort.signal, engine).then(prepared => {
         attempt.prepared = prepared
         if (!attempt.abort.signal.aborted) set(id, attempt, { phase: 'ready' })
       }).catch(error => {
@@ -53,6 +53,7 @@ export function createAssistantSetupPreparation(deps: {
     async commit(id: string, input: PrepareLocalHomeInput) {
       const attempt = requireAttempt(id)
       if (attempt.abort.signal.aborted || attempt.state.phase !== 'ready') throw new Error('Assistant preparation is not ready to install')
+      if ((input.engine ?? 'claude') !== attempt.engine) throw new Error('Assistant engine changed after preparation')
       // No await between this check and the state change: cancel can no longer
       // succeed before any active launcher or assistant-home write is performed.
       attempt.installationStarted = true

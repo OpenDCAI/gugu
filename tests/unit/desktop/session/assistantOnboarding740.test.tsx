@@ -7,6 +7,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 const f = vi.hoisted(() => ({
   setup: vi.fn<(draft: unknown, device: string, options: { signal?: AbortSignal; onInstalling?: () => void }) => Promise<unknown>>(),
+  claimCloud: vi.fn(), cloudEnabled: false,
   pending: vi.fn(), resume: vi.fn(), writeStep: vi.fn(),
   SetupError: class extends Error {
     constructor(readonly kind: string, message: string) { super(message) }
@@ -20,13 +21,17 @@ vi.mock('@/components/assistant/AssistantServerSetup', () => ({ AssistantServerS
 vi.mock('@/lib/assistantServerSetup', () => ({ pendingServerAssistant: () => null }))
 vi.mock('@/components/settings/CloudComputerSection', () => ({ CloudComputerProvisionPanel: () => null, CloudComputerRefusal: () => null }))
 vi.mock('@/lib/assistantSetup', () => ({ setUpAssistantOnThisComputer: f.setup, pendingLocalAssistant: f.pending, resumeLocalAssistant: f.resume,
-  AssistantSetupError: f.SetupError, draftAvatarUrl: () => '', claimCloudAssistant: vi.fn() }))
+  AssistantSetupError: f.SetupError, draftAvatarUrl: () => '', claimCloudAssistant: f.claimCloud }))
 vi.mock('@/lib/firstRun', () => ({ takeAssistantStartAtHome: () => true, readOccupation: async () => null }))
 vi.mock('@/lib/assistantSetupState', () => ({ offerCustomizeCard: vi.fn(), writeSetupStep: f.writeStep }))
 vi.mock('@/lib/myAssistant', () => ({ reloadMyAssistant: vi.fn() }))
 vi.mock('@/lib/cloudComputerStore', () => ({ refreshCloudComputer: vi.fn() }))
-vi.mock('@/lib/billing/membership', () => ({ getMembership: vi.fn() }))
-vi.mock('@gugu/core/cloud/optionalServices', () => ({ cloudComputerEnabled: () => false }))
+vi.mock('@/lib/billing/membership', () => ({ getMembership: async () => ({ tier: 'pro' }) }))
+vi.mock('@gugu/core/cloud/optionalServices', () => ({ cloudComputerEnabled: () => f.cloudEnabled }))
+vi.mock('@renderer/lib/stores/use-agents', () => ({ useAgent: (id: string) => ({ data: { id }, isPending: false }) }))
+vi.mock('@renderer/lib/components/app-icon', () => ({ AppIcon: () => null }))
+vi.mock('@renderer/features/settings/subscriptions/use-connection-availability', () => ({ useConnectionAvailability: () => ({ state: 'usable' }) }))
+vi.mock('@renderer/features/settings/subscriptions/use-connection-panel', () => ({ useConnectionPanel: () => ({ panel: null }) }))
 vi.mock('@/lib/log', () => ({ rendererLogger: () => ({ error: vi.fn() }) }))
 
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
@@ -35,15 +40,16 @@ let container: HTMLDivElement
 let root: ReturnType<typeof createRoot>
 beforeEach(() => {
   vi.clearAllMocks()
+  f.cloudEnabled = false
   f.setup.mockReset(); f.resume.mockReset()
   f.pending.mockReturnValue(null)
   container = document.createElement('div'); document.body.append(container); root = createRoot(container)
 })
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 const click = async (element: Element | null) => { expect(element).not.toBeNull(); await act(async () => (element as HTMLElement).click()) }
-async function render() {
+async function render(cloudAvailable = false) {
   await act(async () => root.render(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(AssistantOnboarding, {
-    ownerUserId: 'owner', ownerName: 'Owner', snapshot: null, device: null, cloudAvailable: false, localDeviceId: 'local',
+    ownerUserId: 'owner', ownerName: 'Owner', snapshot: null, device: null, cloudAvailable, localDeviceId: 'local',
   }))))
 }
 
@@ -55,10 +61,11 @@ it('restores Back for a fresh preparation after a previous installation failed',
   await render()
   await click(container.querySelector('button'))
   await click(container.querySelector('[data-testid="assistant-setup-install-here"]'))
+  await click(container.querySelector('[data-testid="assistant-engine-continue"]'))
   expect(container.querySelector('[data-testid="assistant-setup-return"]')).toBeNull()
   await click([...container.querySelectorAll('button')].find(button => button.textContent === 'setup.retry') ?? null)
   await click(container.querySelector('[data-testid="assistant-setup-return"]'))
-  expect(container.querySelector('[data-testid="assistant-setup-install-here"]')).not.toBeNull()
+  expect(container.querySelector('[data-testid="assistant-setup-engine"]')).not.toBeNull()
 })
 
 it('keeps Back unavailable while resuming an already committed installation', async () => {
@@ -106,6 +113,7 @@ it('keeps a committed startup failure on its setup page and advances only after 
   await render()
   await click(container.querySelector('button'))
   await click(container.querySelector('[data-testid="assistant-setup-install-here"]'))
+  await click(container.querySelector('[data-testid="assistant-engine-continue"]'))
   expect(container.querySelector('[role="alert"]')?.textContent).toBe('setup.failed')
   expect(f.writeStep).toHaveBeenLastCalledWith('owner', 'shell')
   expect(f.writeStep.mock.calls).not.toContainEqual(['owner', 'connect'])
@@ -133,10 +141,42 @@ it.each([false, true])('shows a localized retry message for launcher errors (ins
   await render()
   await click(container.querySelector('button'))
   await click(container.querySelector('[data-testid="assistant-setup-install-here"]'))
+  await click(container.querySelector('[data-testid="assistant-engine-continue"]'))
   expect(container.querySelector('[role="alert"]')?.textContent).toBe('setup.failed')
   expect(container.textContent).not.toContain('EEXIST')
   expect(container.textContent).not.toContain('private')
-  expect(started
-    ? [...container.querySelectorAll('button')].some(button => button.textContent === 'setup.retry')
-    : container.querySelector('[data-testid="assistant-setup-install-here"]') !== null).toBe(true)
+  expect([...container.querySelectorAll('button')].some(button => button.textContent === 'setup.retry')).toBe(true)
+})
+
+it('asks for the local engine before preparing and passes the selected Codex engine', async () => {
+  f.setup.mockResolvedValue({ agentUserId: 'codex-assistant' })
+  await render()
+  await click(container.querySelector('button'))
+  await click(container.querySelector('[data-testid="assistant-setup-install-here"]'))
+  expect(f.setup).not.toHaveBeenCalled()
+  await click(container.querySelector('[data-testid="assistant-engine-codex"]'))
+  await click(container.querySelector('[data-testid="assistant-engine-continue"]'))
+  expect(f.setup).toHaveBeenCalledWith(expect.anything(), 'local', expect.objectContaining({ engine: 'codex' }))
+})
+
+it('keeps the server flow before engine selection', async () => {
+  await render()
+  await click(container.querySelector('button'))
+  const server = [...container.querySelectorAll('button')].find(button => button.textContent === 'setup.homeServerAction')
+  expect(server).toBeDefined()
+  await click(server!)
+  expect(container.querySelector('[data-testid="assistant-setup-server"]')).not.toBeNull()
+  expect(container.querySelector('[data-testid="assistant-setup-engine"]')).toBeNull()
+  expect(f.setup).not.toHaveBeenCalled()
+})
+
+it('keeps the cloud flow before engine selection', async () => {
+  f.cloudEnabled = true
+  f.claimCloud.mockResolvedValue(undefined)
+  await render(true)
+  await click(container.querySelector('button'))
+  await click(container.querySelector('[data-testid="assistant-setup-claim-cloud"]'))
+  expect(f.claimCloud).toHaveBeenCalledOnce()
+  expect(container.querySelector('[data-testid="assistant-setup-engine"]')).toBeNull()
+  expect(f.setup).not.toHaveBeenCalled()
 })

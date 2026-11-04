@@ -4,7 +4,6 @@
 // 两条都带同一份初始化任务(@gugu/core/shared/assistantPolicy):建好它先开口。界面在 components/assistant/onboarding;手机也用这里。
 import {
   ASSISTANT_CHILD_HARNESS,
-  ASSISTANT_DEFAULT_MODEL,
   ASSISTANT_FIRST_TASK,
   ownerProfileMarkdown,
   type OwnerProfileInput,
@@ -26,10 +25,9 @@ import {
   type ProvisionResumeRecord,
   type SingleProvisionDeps,
 } from './agentProvision'
-import { ASSISTANT_HOME_CHANNELS } from './assistantHomeIpc'
+import { ASSISTANT_HOME_CHANNELS, type AssistantEngine } from './assistantHomeIpc'
 import { prepareLocalAssistantSetup } from './assistantSetupPreparation'
 import { provisionCloudComputer } from './cloudComputerStore'
-import { platformModelsEnabled } from '@gugu/core/cloud/optionalServices'
 import { contactsService } from './contacts'
 import { getCurrentAuthUserId } from './supabase'
 import { cancelTeamProvision } from './teamProvisionSaga'
@@ -99,11 +97,11 @@ export function completedAssistantSetup(result: Awaited<ReturnType<typeof provis
   return completedSingleProvisionSession(result)
 }
 
-async function startDeps(): Promise<SingleProvisionDeps> {
+async function startDeps(engine: AssistantEngine = 'claude'): Promise<SingleProvisionDeps> {
   return {
     resumeStore: assistantResumeStore,
-    model: platformModelsEnabled() ? ASSISTANT_DEFAULT_MODEL : null,
-    assistant: { childHarness: ASSISTANT_CHILD_HARNESS, firstTask: ASSISTANT_FIRST_TASK },
+    model: null,
+    assistant: { childHarness: engine === 'codex' ? 'codex' : ASSISTANT_CHILD_HARNESS, firstTask: ASSISTANT_FIRST_TASK },
   }
 }
 
@@ -122,28 +120,29 @@ function singleFlight(work: () => Promise<CreateAgentOnDeviceResult>): Promise<C
 }
 
 /** 非会员:装在这台电脑上(这台 = `localDeviceId`)。建好返回它是谁、和它的私聊。 */
-export function setUpAssistantOnThisComputer(draft: AssistantSetupDraft, localDeviceId: string, options: { signal?: AbortSignal; onInstalling?: () => void } = {}): Promise<CreateAgentOnDeviceResult> {
+export function setUpAssistantOnThisComputer(draft: AssistantSetupDraft, localDeviceId: string, options: { engine?: AssistantEngine; signal?: AbortSignal; onInstalling?: () => void } = {}): Promise<CreateAgentOnDeviceResult> {
   return singleFlight(() => setUpHere(draft, localDeviceId, options))
 }
 
-async function setUpHere(draft: AssistantSetupDraft, localDeviceId: string, options: { signal?: AbortSignal; onInstalling?: () => void }): Promise<CreateAgentOnDeviceResult> {
+async function setUpHere(draft: AssistantSetupDraft, localDeviceId: string, options: { engine?: AssistantEngine; signal?: AbortSignal; onInstalling?: () => void }): Promise<CreateAgentOnDeviceResult> {
   const ipc = desktopIpc()
   if (!ipc) throw new AssistantSetupError('not-desktop', 'only the desktop app can host the assistant')
   const clean = cleanAssistantSetupDraft(draft)
+  const engine = options.engine ?? 'claude'
   // 开通的是全新的一位:上一位留在这台电脑上的家先清掉(#7350,别处删掉的 / 关到一半的),❌ 带着上一位的记忆和性格。
-  const home = await prepareLocalAssistantSetup(ipc, { ownerProfile: clean.ownerProfile, fresh: true }, options)
+  const home = await prepareLocalAssistantSetup(ipc, { ownerProfile: clean.ownerProfile, fresh: true, ...(engine === 'codex' ? { engine } : {}) }, options)
   const result = await provisionSingleAgent(
     localDeviceId,
     {
       memberKey: 'assistant',
       displayName: clean.name,
-      agentType: 'claude-code',
+      agentType: engine === 'codex' ? 'codex' : 'claude-code',
       projectPath: home.workdir,
       avatar: clean.avatar,
       inheritMemory: false,
       historyImportRequired: false,
     },
-    await startDeps(),
+    await startDeps(engine),
   )
   return completedAssistantSetup(result)
 }
@@ -183,12 +182,13 @@ export function resumeLocalAssistant(record: ProvisionResumeRecord): Promise<Cre
       const { resumeServerAssistantProvision } = await import('./assistantServerSetup')
       return resumeServerAssistantProvision(record)
     }
-    await ipc.invoke(ASSISTANT_HOME_CHANNELS.prepare, {})
-    return completedAssistantSetup(await resumeSingleAgent(record, await startDeps()))
+    const engine = record.blueprint?.members[0]?.agent_type === 'codex' ? 'codex' : 'claude'
+    await ipc.invoke(ASSISTANT_HOME_CHANNELS.prepare, engine === 'codex' ? { engine } : {})
+    return completedAssistantSetup(await resumeSingleAgent(record, await startDeps(engine)))
   })
 }
 
 /** 住在这台电脑上时每次打开 App 刷一遍它的家(说明跟上这一版咕咕;不动记忆)。 */
-export async function refreshLocalAssistantHome(): Promise<void> {
-  await desktopIpc()?.invoke(ASSISTANT_HOME_CHANNELS.prepare, {})
+export async function refreshLocalAssistantHome(engine: AssistantEngine = 'claude'): Promise<void> {
+  await desktopIpc()?.invoke(ASSISTANT_HOME_CHANNELS.prepare, engine === 'codex' ? { engine } : {})
 }
