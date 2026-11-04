@@ -31,14 +31,19 @@ it('counts the same three entries on the memory page', async () => {
   await vi.waitFor(() => expect(harness.container.textContent).toContain('3 条记录'))
   expect(state.native).not.toHaveBeenCalled()
 })
-it('keeps actual projects on the assistant device separate and named after their projects', async () => {
+// #1629: the assistant host is not one of the person's projects (device-level rule, same as the desktop sidebar).
+// Ordinary-device projects stay separate and are named after their projects, never after the device.
+it('hides projects on the assistant host and names ordinary-device projects after their projects', async () => {
   state.assistantHome = true
-  state.read.mockResolvedValue({ fc: [project('first', 'First business'),project('second', 'Second business')] })
+  state.read.mockResolvedValue({ fc: [project('first', 'First business'),project('second', 'Second business')],mac: [project('third', 'Third business'),project('fourth', 'Fourth business')] })
   await renderWithAppProviders(harness, <AssistantProjectsLibrary machine={null} />)
   await vi.waitFor(() => expect(harness.container.querySelectorAll('[data-testid^="assistant-project-"]')).toHaveLength(2))
-  expect(harness.container.textContent).toContain('First business')
-  expect(harness.container.textContent).toContain('Second business')
+  expect(harness.container.textContent).toContain('Third business')
+  expect(harness.container.textContent).toContain('Fourth business')
+  expect(harness.container.textContent).not.toContain('First business')
+  expect(harness.container.textContent).not.toContain('Second business')
   expect(harness.container.textContent).not.toContain('FC验收Mac')
+  expect(harness.container.textContent).not.toContain('apple 的 MacBook')
   expect(state.native).not.toHaveBeenCalled()
 })
 it('explains a cloud directory failure without inventing an empty list or exposing a retry button', async () => {
