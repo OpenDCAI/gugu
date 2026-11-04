@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
+import { createUpdateFlow, type UpdateInfoLike, type UpdateStatusPayload } from '../../../../apps/desktop/electron/update-flow'
+import { createUpdateState } from '../../../../apps/desktop/shared/update-state'
 // 宿主收到下载请求就把状态值改成 'downloading'(main.ts markDownloading / capacitorAppUpdate)。
 // 横幅的「下载中」只认这个状态值,❌ 自己记一份。
 let hostRevision = 0
@@ -95,6 +97,51 @@ describe('#7496 left rail update entry', () => {
 })
 describe('#1342 replacement download and installation state', () => {
   const button = () => harness.container.querySelector<HTMLButtonElement>('button.gg-update-rail')
+
+  it('restores the rail action when an active-agent restart confirmation is cancelled in the actual host flow', async () => {
+    const host = createUpdateState<UpdateStatusPayload>({ success: true, status: 'idle', updateInfo: null })
+    let available!: (info: UpdateInfoLike) => void
+    let downloaded!: () => void
+    const confirmInterrupt = vi.fn(async () => false)
+    const handoff = vi.fn()
+    const checkForUpdates = vi.fn(async () => undefined)
+    const flow = createUpdateFlow({
+      updater: {
+        onUpdateAvailable: listener => { available = listener },
+        onUpdateDownloaded: listener => { downloaded = listener },
+        onUpdateNotAvailable: () => {}, onDownloadProgress: () => {}, onError: () => {},
+        checkForUpdates, downloadUpdate: async () => undefined,
+      },
+      enabled: true, getStatus: () => host.current.status,
+      emit: payload => {
+        const published = host.publish(payload)
+        if (published) window.dispatchEvent(new CustomEvent(UI_EVENTS.updateStatus, { detail: published }))
+      },
+      onReady: () => {}, rejectTarget: () => false,
+      dmg: { applies: () => false, start: () => {} },
+      updateQuit: { installAfterDownload: handoff, downloaded: () => {}, downloadFailed: () => false },
+      busyAgents: () => 2, confirmInterrupt,
+      logInfo: () => {}, logWarn: () => {},
+    })
+    available({ version: '9.0.0' })
+    downloaded()
+    const ready = host.current
+    updateState.mockImplementation(async () => host.current)
+    installUpdate.mockImplementationOnce(flow.install).mockImplementationOnce(flow.install)
+    await harness.render(createElement(UpdateBanner, { placement: 'rail' }))
+    expect(button()?.getAttribute('aria-label')).toBe('立即重启更新')
+    await act(async () => { button()!.click() })
+    expect(confirmInterrupt).toHaveBeenCalledWith(2)
+    expect(button()?.getAttribute('aria-label')).toBe('立即重启更新')
+    expect(button()?.getAttribute('aria-disabled')).not.toBe('true')
+    expect(host.current.status).toBe('downloaded')
+    expect(host.current.updateInfo).toEqual({ version: '9.0.0' })
+    expect(host.current.revision).toBeGreaterThan(ready.revision)
+    await act(async () => { button()!.click() })
+    expect(confirmInterrupt).toHaveBeenCalledTimes(2)
+    expect(handoff).not.toHaveBeenCalled()
+    expect(checkForUpdates).not.toHaveBeenCalled()
+  })
 
   it('does not treat a fulfilled install request as an installation handoff', async () => {
     updateState.mockResolvedValue({ revision: 0, status: 'downloaded' })

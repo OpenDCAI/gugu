@@ -187,9 +187,7 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
 
   deps.updater.onUpdateDownloaded(markDownloaded)
 
-  function markDownloaded(): void {
-    silentDownloadActive = false
-    downloadedVersion = versionOf(lastUpdateInfo)
+  function publishDownloaded(): void {
     deps.emit({
       success: true,
       status: 'downloaded',
@@ -197,6 +195,12 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
       updateInfo: downloadedVersion === null ? null : { version: downloadedVersion },
       messageKey: 'about.updateDownloaded',
     })
+  }
+
+  function markDownloaded(): void {
+    silentDownloadActive = false
+    downloadedVersion = versionOf(lastUpdateInfo)
+    publishDownloaded()
     deps.onReady()
     if (acceptedBusyCount !== undefined) {
       const accepted = acceptedBusyCount
@@ -230,14 +234,20 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
 
   async function finishInstall(accepted: number | null): Promise<void> {
     const current = readBusyAgents()
-    if (accepted !== null && (current === null || current > accepted) && !await deps.confirmInterrupt(current)) return
+    if (accepted !== null && (current === null || current > accepted) && !await deps.confirmInterrupt(current)) {
+      publishDownloaded()
+      return
+    }
     deps.updateQuit.installAfterDownload()
     deps.updateQuit.downloaded({ version: downloadedVersion })
   }
 
   async function requestInstall(): Promise<void> {
     const accepted = readBusyAgents()
-    if ((accepted === null || accepted > 0) && !await deps.confirmInterrupt(accepted)) return
+    if ((accepted === null || accepted > 0) && !await deps.confirmInterrupt(accepted)) {
+      publishDownloaded()
+      return
+    }
     try {
       await deps.updater.checkForUpdates()
     } catch (error) {
