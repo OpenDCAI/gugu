@@ -117,7 +117,7 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
     const notification = item.kind === 'subagent-done-tool-call' || item.kind === 'background-command-done-tool-call';
     if (notification) {
       // Completion is its own observed event, never an inferred reply target.
-      close(hadSegment ? at : turn.startedAt ?? at, item.id);
+      close(!hadSegment && active ? turn.startedAt ?? at : at, item.id);
       blocks.push({ kind: 'input', item });
       pendingInput = true;
       continue;
