@@ -24,7 +24,7 @@ function Entry({ topic }: { topic: string }) {
   })
   useChatOpener(group)
   const preview = useMessageFilePreview({ mobile: false, visible: true, closeRightSurfaces() {}, toast() {} })
-  return createElement('button', { onClick: () => preview.open({ kind: 'file', fileName: 'README.md', mimeType: 'text/markdown', sizeBytes: 100, source: { kind: 'item', itemId: 'shared-file' } }, { id: `message-${topic}`, chat_id: topic } as MessageItem) }, 'Open attachment')
+  return createElement('button', { onClick: () => preview.open({ kind: 'file', fileName: 'README.md', mimeType: 'text/markdown', sizeBytes: 100, source: { kind: 'item', itemId: 'shared-file', version: 1 } }, { id: `message-${topic}`, chat_id: topic } as MessageItem) }, 'Open attachment')
 }
 
 it('carries the actual attachment click through file resolution into the topic/file pair; the latest source wins', async () => {
