@@ -1,3 +1,5 @@
+import { agentSupportsConnectionManagement } from '@shared/core/agents/agent-payload';
+import { useConnectionPanel } from '@renderer/features/settings/subscriptions/use-connection-panel';
 import { isTranscriptDelivery } from '@/lib/pendingSessionDeliveries';
 import { resolveDeliveredAttachment } from '@renderer/lib/chat/delivered-message-presentation';
 import { readNativeOfflineDraft, writeNativeOfflineDraft } from '@/lib/nativeOfflineDraft';
@@ -1715,20 +1717,17 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   // 现在它与其余故障走同一条路:消息列表末尾的一行(spec `session-always-openable`),
   // 所以这里不再需要一个把它从整页覆盖层里摘出来的标志 —— 整页覆盖层本身已经没有了。
 
-  /**
-   * 「去登录」= 跳资源库 → 智能体 → 这一家的抽屉,那里有「账号」一行(#6100)。
-   *
-   * ❌ 不在这里弹登录终端。与隔壁 `harness_not_installed` 那一颗同形(都是把人送到那一页),
-   * 也让登录终端只有一个主人 —— 从前 composer、这里、强制登录弹窗各弹一个,而设置页对登录
-   * 零表达(B-ui §4.8)。
-   *
-   * 「我已登录」照旧留在这一行(`store.retry()`):登没登成只有 harness 知道,那一颗是**再问一次**,
-   * ❌ 不能被「去登录」顶替(#4900)。
-   */
-  const openAgentAccount = useCallback(() => {
+  /** Claude/Codex 就地配置连接，不换路由或代发消息；「我已登录」仍只重试原会话。 */
+  const connections = useConnectionPanel();
+  const machine = store ? machineRegistry.machineOf(store.projectId) : null;
+  const openAgentAccount = useCallback((anchor?: HTMLElement) => {
     if (!providerId || !cliAuthMethod) return;
+    if (agent && agentSupportsConnectionManagement(agent)) {
+      connections.show(agent, machine, anchor);
+      return;
+    }
     navigate('library', { tab: 'agents', agentId: providerId });
-  }, [cliAuthMethod, navigate, providerId]);
+  }, [cliAuthMethod, navigate, providerId, agent, machine, connections.show]);
 
   /**
    * #6264「登录已失效」:最近一轮因这家的登录不能用了而失败,且这台电脑上它此刻仍标着失效。
@@ -1737,16 +1736,19 @@ export const AcpChatPanel = observer(function AcpChatPanel({
    */
   const lastTurnSignIn = useLastTurnSignInRequired(store?.chatState.transcript);
   // #6264 会话在别的机器上:登录读数与重新登录都在那台机器上(与资源库「账号」一行同一条路)。
-  const machine = store ? machineRegistry.machineOf(store.projectId) : null;
   const { auth: harnessAuth } = useAgentAuthStatus(providerId, undefined, { probe: false, machine });
   const signInExpired = lastTurnSignIn && isAuthExpired(harnessAuth);
   // 同一个信号(这一轮因凭据不能用而失败),而这家在这台电脑上压根没登录过(MiMo 没 key 时):说「还没登录」。
   const signInMissing = lastTurnSignIn && !signInExpired && harnessAuth?.status?.kind === 'unauthenticated';
   const showSignIn = useShowModal('agentSignInModal');
   const queryClient = useQueryClient();
-  /** 「重新登录」直接起这台电脑上那一家的登录窗口(与资源库「账号」一行同一个窗口、同一台发动机)。 */
-  const signInAgain = useCallback(() => {
+  /** 声明连接管理能力的适配器进入共享面板；其他适配器沿用既有登录方式与所属机器。 */
+  const signInAgain = useCallback((anchor?: HTMLElement) => {
     if (!providerId || !cliAuthMethod) return;
+    if (agent && agentSupportsConnectionManagement(agent)) {
+      connections.show(agent, machine, anchor);
+      return;
+    }
     const refresh = () => {
       void forceRefreshHarnessModelCatalog(queryClient, providerId, 'acp');
       void queryClient.invalidateQueries({ queryKey: harnessModelCredentialKey(providerId) });
@@ -1776,7 +1778,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       onSuccess: refresh,
       onClose: refresh,
     });
-  }, [agent?.name, agent?.command, cliAuthMethod, machine, providerId, queryClient, showSignIn]);
+  }, [agent?.name, agent?.command, cliAuthMethod, machine, providerId, queryClient, showSignIn, agent, connections.show]);
 
   // #4900 登录 ❌ 不自动发起。owner 2026-09-04:「我不登录也行啊」——自动弹登录终端会
   // 连带跑起厂商的 `<cli> login`,浏览器随即弹出授权页,这就是「强登」本身。
@@ -2280,6 +2282,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       {/* Same z-index as the composer layer: placed after the transcript so it paints above it. */}
       <FindBar {...findBar} />
       {outputMenu.menu}
+      {connections.panel}
 
       {/* 加载态。⚠️ **只在没东西可看时**才盖 —— 库里那份历史是先画出来的(#5381),
           已经有内容还盖一层不透明底,等于把用户自己说过的话藏起来

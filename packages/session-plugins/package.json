@@ -9,6 +9,7 @@
   "sideEffects": false,
   "exports": {
     "./agents/types": "./src/agents/types.ts",
+    "./agents/connection-capabilities": "./src/agents/connection-capabilities.ts",
     "./integrations": "./src/integrations/index.ts",
     "./package.json": "./package.json",
     "./agents": "./src/agents/registry.ts",

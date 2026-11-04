@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { ChevronDown, MoreHorizontal, Plus } from '@/lib/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { HarnessConnection } from '@gugu/session-core/workspace-server/agent-config';
@@ -55,14 +55,23 @@ export type SwitchNotice = {
 };
 
 /** `onError` 把切换失败的原因交给行去摆(整行宽度);这里只管菜单与按钮,❌ 在窄的操作列里画长句。 */
-export function SubscriptionConnections({ agent, machine, onError }: {
+export function SubscriptionConnections({ agent, machine, onError, trigger, label, open: requestedOpen, onOpenChange, anchor, addDirectly = false }: {
+  addDirectly?: boolean;
+  trigger?: ReactElement | null;
+  label?: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  anchor?: { getBoundingClientRect(): DOMRect };
   agent: AgentPayload;
   machine: string | null;
   onError?: (notice: SwitchNotice | null) => void;
 }) {
   const { translate } = useSessionMessages();
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = requestedOpen ?? localOpen;
+  const setOpen = useCallback((value: boolean) => { setLocalOpen(value); onOpenChange?.(value); }, [onOpenChange]);
   const [adding, setAdding] = useState(false);
+  const changeOpen = (next: boolean) => { if (next && addDirectly) setAdding(true); else setOpen(next); };
   const queryClient = useQueryClient();
   const showSignIn = useShowModal('agentSignInModal');
   const host = useLibraryHost();
@@ -144,18 +153,23 @@ export function SubscriptionConnections({ agent, machine, onError }: {
   };
   return (
     <>
-      <DropdownMenu open={open} onOpenChange={setOpen}>
-        <DropdownMenuTrigger render={<Button variant="ghost" size="xs" disabled={action.isPending} data-testid={`subscription-switch-${agent.id}`} />}>
-          {translate('subscriptions.connections.switch')}
-          <ChevronDown className="ml-1 size-3" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="subscription-connection-menu">
+      <DropdownMenu open={open} onOpenChange={changeOpen}>
+        {trigger !== null && <DropdownMenuTrigger render={trigger ?? <Button variant="ghost" size="xs" disabled={action.isPending} data-testid={`subscription-switch-${agent.id}`} />}>
+          {label ?? <>{translate('subscriptions.connections.switch')}<ChevronDown className="ml-1 size-3" /></>}
+        </DropdownMenuTrigger>}
+        <DropdownMenuContent align="end" anchor={anchor} className="subscription-connection-menu">
+          {!onError && failure && (
+            <p className={tone === 'error' ? 'subscription-error p-2' : 'subscription-note p-2'} role={tone === 'error' ? 'alert' : 'status'}>
+              {failure}
+            </p>
+          )}
           {connections.isPending && <p className="p-2 text-xs">{translate('subscriptions.checking')}</p>}
           {connections.error && <p className="subscription-error p-2" role="alert">{errorText(connections.error)}</p>}
           <DropdownMenuRadioGroup value={connections.data?.find(c => c.current)?.id ?? ''} onValueChange={id => action.mutate({ kind: 'select', id })}>
             {open && connections.data?.map(connection => (
               <ConnectionOption key={connection.id} connection={connection} agent={agent} machine={machine}
                 busy={action.isPending}
+                onSignIn={canSignIn ? () => signIn(connection.id) : undefined}
                 onRemove={() => action.mutate({ kind: 'remove', id: connection.id })} />
             ))}
           </DropdownMenuRadioGroup>
@@ -181,9 +195,10 @@ export function SubscriptionConnections({ agent, machine, onError }: {
   );
 }
 
-function ConnectionOption({ connection, agent, machine, busy, onRemove }: {
+function ConnectionOption({ connection, agent, machine, busy, onRemove, onSignIn }: {
   connection: HarnessConnection; agent: AgentPayload; machine: string | null; busy: boolean;
   onRemove: () => void;
+  onSignIn?: () => void;
 }) {
   const { translate } = useSessionMessages();
   const details = useQuery({
@@ -208,6 +223,7 @@ function ConnectionOption({ connection, agent, machine, busy, onRemove }: {
   const quota = usage.data?.kind === 'windows' ? remainingLine(usage.data.windows, translate) : null;
   const nearlyUsed = usage.data?.kind === 'windows' && usage.data.windows.some((window) => window.usedPercent >= NEARLY_USED_PERCENT);
   const status = details.data?.status;
+  const canSignIn = !!onSignIn && connection.kind === 'account' && status?.kind === 'unauthenticated';
   const name = connection.kind === 'native' ? translate('subscriptions.connections.existing') : connection.name;
   const description = status?.kind === 'authenticated' && status.account ? status.account
     : connection.kind === 'api-key' ? connection.endpoint ? new URL(connection.endpoint).host : translate('subscriptions.connections.officialApi')
@@ -224,10 +240,11 @@ function ConnectionOption({ connection, agent, machine, busy, onRemove }: {
           {details.error && <span className="subscription-error block">{errorText(details.error)}</span>}
         </span>
       </DropdownMenuRadioItem>
-      {connection.kind !== 'native' && !connection.current && <DropdownMenuSub>
+      {connection.kind !== 'native' && (!connection.current || canSignIn) && <DropdownMenuSub>
         <DropdownMenuSubTrigger aria-label={translate('subscriptions.connections.options', { name })} className="subscription-connection-options"><MoreHorizontal className="size-4" /></DropdownMenuSubTrigger>
         <DropdownMenuSubContent>
-          <DropdownMenuItem disabled={busy} variant="destructive" onClick={onRemove}>{translate('subscriptions.connections.remove')}</DropdownMenuItem>
+          {canSignIn && <DropdownMenuItem disabled={busy} onClick={onSignIn}>{translate('subscriptions.connections.signIn')}</DropdownMenuItem>}
+          {!connection.current && <DropdownMenuItem disabled={busy} variant="destructive" onClick={onRemove}>{translate('subscriptions.connections.remove')}</DropdownMenuItem>}
         </DropdownMenuSubContent>
       </DropdownMenuSub>}
     </div>

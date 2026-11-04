@@ -97,7 +97,7 @@ export const sessionConditionUnitDef = defineUnit<SessionConditionItem, { rowH: 
               data-slot="session-condition-action"
               class={boundaryAction}
               disabled={action.pending}
-              onClick={() => action.run()}
+              onClick={event => action.run(event.currentTarget)}
             >
               {action.label}
             </button>

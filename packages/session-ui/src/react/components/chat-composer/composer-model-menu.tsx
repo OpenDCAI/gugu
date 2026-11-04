@@ -261,7 +261,7 @@ export interface ComposerModelMenuProps {
    */
   openRequest?: number;
   modelUnlock?: ComposerModelUnlock | null;
-  onModelUnlock?: () => void;
+  onModelUnlock?: (anchor?: HTMLElement) => void;
   /** 底部「管理模型」:宿主打开设置里的「模型」那一页(#7056)。不给 = 不画。 */
   onManageModels?: () => void;
   /** 底部「升级解锁更多模型」(免费档才有,见 `ComposerModelUpgrade`)。 */
@@ -626,7 +626,7 @@ export function ComposerModelMenu({
                     type="button"
                     className={styles.settingRowUnlock}
                     title={modelUnlock.title}
-                    onClick={() => onModelUnlock?.()}
+                    onClick={event => { onModelUnlock?.(event.currentTarget); setModelPanelOpen(false); }}
                     data-testid="composer-model-unlock"
                   >
                     {modelUnlock.label}
