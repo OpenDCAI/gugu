@@ -107,13 +107,14 @@ it('keeps a held input editable from its first frame, then keeps the sent input 
   expect(harness.container.querySelector('[data-queued-prompt-id]')).toBeNull()
 })
 
-it.each((['accepted', 'failed'] as const).flatMap(result => (['append', 'replace'] as const).map(edit => ({ result, edit }))))('preserves words typed during durable custody ($result / $edit)', async ({ result, edit }) => {
+it.each((['accepted', 'failed'] as const).flatMap(result => (['append', 'replace', 'shared-prefix', 'clear', 'unchanged'] as const).map(edit => ({ result, edit }))))('preserves words typed during durable custody ($result / $edit)', async ({ result, edit }) => {
   await page.viewport(390, 844)
   const timeline = emptyAgentWatchTimeline()
   const own = state()
   own.accountId = 'owner'; own.rows = EMPTY; own.valid = () => true
-  const submitted = 'queued original'
-  const live = edit === 'append' ? `${submitted} appended words` : 'new draft'
+  const submitted = edit === 'shared-prefix' ? 'Hi' : 'queued original'
+  const live = edit === 'append' ? `${submitted} appended words` : edit === 'shared-prefix' ? 'Hi again'
+    : edit === 'clear' ? '' : edit === 'unchanged' ? submitted : 'new draft'
   let commit!: () => void
   const durable = new Promise<void>(resolve => { commit = resolve })
   const send = vi.fn(async (text: string) => {
@@ -132,16 +133,11 @@ it.each((['accepted', 'failed'] as const).flatMap(result => (['append', 'replace
   await until('durable custody has started', () => send.mock.calls.length === 1)
   expect(page.getByTestId('prompt-editor').element().textContent).toBe(submitted)
   await page.getByTestId('prompt-editor').fill(live)
-  await act(async () => { commit(); await durable })
-  const expected = result === 'accepted' ? edit === 'append' ? ' appended words' : live : live
-  await until('the live draft settles without losing new words', () => page.getByTestId('prompt-editor').element().textContent?.includes(expected.trim()) === true)
+  await act(async () => { commit(); await send.mock.results[0].value.catch(() => {}) })
+  const expected = result === 'accepted' && live === submitted ? '' : live
   const current = page.getByTestId('prompt-editor').element().textContent!
-  if (result === 'accepted') expect(current).toBe(expected)
-  else {
-    expect(current).toContain(submitted)
-    expect(current.match(/queued original/g)).toHaveLength(1)
-    expect(own.rows).toHaveLength(0)
-  }
+  expect(current).toBe(expected)
+  if (result === 'failed') expect(own.rows).toHaveLength(0)
   expect(send).toHaveBeenCalledTimes(1)
 })
 
@@ -183,4 +179,44 @@ it('applies viewport geometry through CSS without rerendering the retained page'
   await page.viewport(390, 844)
   await until('CSS restores the full viewport', () => shell.getBoundingClientRect().height === 844)
   expect(renders).toBe(initialRenders)
+})
+
+
+it.each((['accepted', 'failed'] as const).flatMap(result => (['unchanged', 'shared-prefix', 'append', 'clear', 'closed'] as const).map(edit => ({ result, edit }))))('settles the shared draft across composer mounts ($result / $edit)', async ({ result, edit }) => {
+  await page.viewport(390, 844)
+  const own = state()
+  own.accountId = 'owner'; own.rows = EMPTY; own.valid = () => true
+  const drafts: Record<string, string> = {}
+  const setDraft = (key: string, update: string | ((text: string) => string)) => { drafts[key] = typeof update === 'function' ? update(drafts[key] ?? '') : update }
+  let commit!: () => void
+  const durable = new Promise<void>(resolve => { commit = resolve })
+  const send = vi.fn(async (text: string) => {
+    await durable
+    if (result === 'failed') throw Error('storage unavailable')
+    own.rows = [{ id: 'remount', accountId: 'owner', deviceId: 'host', sessionId: 'session', text, createdAt: 1, queued: true, sendQueue: { order: 1 } }]
+    changed()
+  })
+  harness = createReactHarness()
+  harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
+  const render = (epoch: number | null) => renderWithAppProviders(harness, epoch === null ? null : <SessionConversation key={epoch} timeline={emptyAgentWatchTimeline()} deviceId="host" sessionId="session" agentName="Agent" nativeRecord
+    sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={send} pendingSends={[]} sending={false} agentWorking
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {}, chat: { drafts, setDraft } })
+  await render(1)
+  await page.getByTestId('prompt-editor').fill('Hi')
+  await page.getByRole('button', { name: translateSessionMessage('composer.sendMessage'), exact: true }).click()
+  await until('the original composer awaits durable custody', () => send.mock.calls.length === 1)
+  await render(null)
+  expect(drafts['session:host/session']).toBe('Hi')
+  const live = edit === 'shared-prefix' ? 'Hi again' : edit === 'append' ? 'Hi appended' : edit === 'clear' ? '' : 'Hi'
+  if (edit !== 'closed') {
+    await render(2)
+    expect(page.getByTestId('prompt-editor').element().textContent).toBe('Hi')
+    await page.getByTestId('prompt-editor').fill(live)
+  }
+  await act(async () => { commit(); await send.mock.results[0].value.catch(() => {}) })
+  await render(2)
+  if (result === 'accepted') await until('the committed input is visible after reopening', () => !!harness.container.querySelector('[data-queued-prompt-id="remount"]'))
+  else expect(own.rows).toHaveLength(0)
+  expect(page.getByTestId('prompt-editor').element().textContent).toBe(result === 'accepted' && live === 'Hi' ? '' : live)
+  expect(send).toHaveBeenCalledTimes(1)
 })

@@ -96,7 +96,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const sendTarget = useRef({ deviceId, sessionId, onSend, onBeforeSend })
   sendTarget.current = { deviceId, sessionId, onSend, onBeforeSend }
   const mobile = useMobileShell()
-  const composerDraft = useSessionConversationDraft(deviceId, sessionId, !mobile && nativeRecord && !local && !phoneHost)
+  const composerDraft = useSessionConversationDraft(deviceId, sessionId, !mobile && nativeRecord && !local && !phoneHost, editor)
   const { text: draftText, setText: setDraftText } = composerDraft
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const [attachmentWaiting, setAttachmentWaiting] = useState(false)
@@ -197,18 +197,12 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       try {
         await currentSendTarget().onSend(text, files)
         if (getRendererSession()?.user.id !== ownerId) return
-        const live = editor.current?.getText() ?? value
-        const remaining = live.startsWith(value) ? live.slice(value.length) : live
-        composerDraft.setText(remaining); composerDraft.flush(); editor.current?.setText(remaining)
+        composerDraft.committed(value)
         setAttachments(current => current.filter(file => !sentAttachments.some(sent => sent.id === file.id)))
         view.current?.setScrollMode({ kind: 'tail' })
         for (const file of sentAttachments) uploads.forget(file.id)
       } catch (error) {
         if (getRendererSession()?.user.id !== ownerId) return
-        const live = editor.current?.getText() ?? value
-        const restored = live.startsWith(value) ? live : appendToDraft(value, live)
-        composerDraft.setText(restored); editor.current?.setText(restored)
-        setAttachments(current => [...sentAttachments.filter(file => !current.some(kept => kept.id === file.id)), ...current])
         toast({ title: translateSessionMessage('acpFailure.sendMessage'), description: messageForUser(error), variant: 'destructive' })
       }
     } finally {
