@@ -35,14 +35,20 @@ export function watchPhoneSessionSendQueues(accountId: string): () => void {
     let closed = false
     let subscribed = false
     let connected = true
+    let queuedIds = ''
+    const queueIds = (prompts: { id: string }[] | undefined) => JSON.stringify((prompts ?? []).map(prompt => prompt.id))
     const stopEvents = client.subscribeSessionEvents(deviceId, subscriptionId, result => {
       // Streaming text does not change whether the foreground has completed.
-      if (!result.ok || result.batch.turns.some(turn => turn.outcome)) changed()
+      const nextQueue = result.ok ? queueIds(result.batch.queuedPrompts) : ''
+      const queueChanged = nextQueue !== queuedIds
+      queuedIds = nextQueue
+      if (!result.ok || queueChanged || result.batch.turns.some(turn => turn.outcome)) changed()
     })
-    const stopErrors = client.subscribeSessionErrors?.(deviceId, subscriptionId, error => { connected = false; report(error) })
+    const stopErrors = client.subscribeSessionErrors?.(deviceId, subscriptionId, error => { connected = false; report(error); changed() })
     const stopLink = client.onLinkChange(deviceId, open => {
       connected = open
-      if (open) { subscribed = false; changed() }
+      if (open) subscribed = false
+      changed()
     })
     const stopLife = phone ? () => {} : remote.onMachineEvent(deviceId, sessionLifeViewChannel, view => {
       if (view.sessionId === sessionId) changed()
@@ -51,9 +57,10 @@ export function watchPhoneSessionSendQueues(accountId: string): () => void {
       async read() {
         if (closed || !connected || !current()) return { ready: false, turns: [] }
         const life = phone ? null : await remote.machineRpc(deviceId).sessions.lifeView(sessionId)
-        if (life && (life.kind !== 'ready' || life.hold !== null)) return { ready: false, turns: [] }
+        if (!phone && (!life || life.kind !== 'ready' || life.hold !== null)) return { ready: false, turns: [] }
         const snapshot = await client.fetchSnapshot(deviceId, sessionId, 100)
         if (closed || !current()) return { ready: false, turns: [] }
+        queuedIds = queueIds(snapshot.queuedPrompts)
         if (!subscribed) {
           await client.subscribeSession(deviceId, sessionId, subscriptionId, snapshot.cursor)
           if (closed || !current()) {
@@ -62,7 +69,7 @@ export function watchPhoneSessionSendQueues(accountId: string): () => void {
           }
           subscribed = true
         }
-        return { ready: connected && !snapshot.liveReply, turns: snapshot.turns }
+        return { ready: connected && !snapshot.liveReply && !snapshot.queuedPrompts?.length, turns: snapshot.turns }
       },
       dispose() {
         closed = true; stopEvents(); stopErrors?.(); stopLink(); stopLife()
@@ -91,6 +98,6 @@ export function watchPhoneSessionSendQueues(accountId: string): () => void {
       document.addEventListener('visibilitychange', visible)
       return () => { stopInputs(); stopDirectory(); stopDevices(); window.removeEventListener('online', listener); document.removeEventListener('visibilitychange', visible) }
     },
-    release: (sessionId, turns) => releaseQueuedSessionInput(sessionId, turns),
+    release: (sessionId, turns, canRelease) => releaseQueuedSessionInput(sessionId, turns, undefined, false, canRelease),
   })
 }

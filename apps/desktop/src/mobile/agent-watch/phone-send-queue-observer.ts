@@ -10,7 +10,7 @@ export type PhoneQueueObserverDependencies = {
   retainDirectory(): () => void
   available(input: SessionInput): boolean
   observe(input: SessionInput, changed: () => void): PhoneQueueSource
-  release(sessionId: string, turns: readonly TranscriptTurn[]): Promise<unknown>
+  release(sessionId: string, turns: readonly TranscriptTurn[], canRelease: () => boolean): Promise<unknown>
   report(error: unknown): void
 }
 
@@ -48,7 +48,8 @@ export function startPhoneSendQueueObserver(accountId: string, deps: PhoneQueueO
               const snapshot = await watch.source.read()
               if (!valid() || watch.closed || !deps.available(input)) return
               if (watch.again) continue
-              if (canReleasePhoneInput(snapshot.ready, false, false, snapshot.turns)) await deps.release(input.sessionId, snapshot.turns)
+              if (canReleasePhoneInput(snapshot.ready, false, false, snapshot.turns)) await deps.release(input.sessionId, snapshot.turns,
+                () => valid() && !watch.closed && !watch.again && deps.available(input))
             } while (watch.again && valid() && !watch.closed)
           } catch (error) { if (valid() && !watch.closed) deps.report(error) }
           finally { watch.checking = false }

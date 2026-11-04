@@ -24,7 +24,7 @@ vi.mock('@/mobile/agent-watch/sessionpage-rpc', async original => ({
   ...(await original<object>()), fetchSessionOptions: vi.fn(() => new Promise(() => {})),
   machineRpc: vi.fn(() => ({})), fetchBackgroundTasks: vi.fn(async () => []),
 }))
-vi.mock('@/mobile/agent-watch/useSessionLifeView', () => ({ useSessionLifeView: () => ({ view: life.view, error: null }) }))
+vi.mock('@/mobile/agent-watch/useSessionLifeView', () => ({ useSessionLifeView: () => ({ view: life.view, error: null, current: () => life.view }) }))
 
 let harness: ReturnType<typeof createReactHarness>
 afterEach(() => {

@@ -7,17 +7,23 @@ import { deleteQueuedSessionInput, editQueuedSessionInput, releaseQueuedSessionI
 import type { SessionInput } from '@/lib/sessionInputOutbox'
 import { messageForUser } from '@/lib/userFacingError'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
-import { phoneTimelineClient } from '../local-agent/phoneTimelineClient'
+import { sendPhoneQueuedInputNow } from './send-phone-queued-input-now'
 import { canReleasePhoneInput, phoneManualHostPrompts, phoneQueuedPrompts } from './phone-input-queue'
 
 /** Keep queue editing and its main-composer reservation shared; only the queue's owner handles a mutation. */
 export function usePhoneInputQueue(target: ConversationQueueTarget, inputs: readonly SessionInput[],
   hosted: Parameters<typeof phoneManualHostPrompts>[0], turns: readonly TranscriptTurn[],
-  working: boolean, stopping: boolean, ready: boolean, steers: boolean) {
+  working: boolean, stopping: boolean, ready: boolean, steers: boolean, authorizeRelease: () => boolean = () => true) {
   const [error, setError] = useState<{ key: string; text: string } | null>(null)
   const key = `${target.deviceId}/${target.sessionId}`
   const current = useRef(key)
   current.current = key
+  const [retry, setRetry] = useState(0)
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+  const hostedCount = hosted.length
+  const releaseState = useRef({ ready, working, stopping, turns, inputs, hostedCount, authorizeRelease })
+  releaseState.current = { ready, working, stopping, turns, inputs, hostedCount, authorizeRelease }
   const releasing = useRef(new Set<string>())
   const local = phoneQueuedPrompts(inputs)
   const remote = phoneManualHostPrompts(hosted)
@@ -34,22 +40,30 @@ export function usePhoneInputQueue(target: ConversationQueueTarget, inputs: read
     } else if (action.kind === 'delete') {
       await deleteQueuedSessionInput(action.id)
     } else {
+      if (target.phoneHost) return sendPhoneQueuedInputNow(target, turns, action.id, action.steers)
       if (working && !action.steers) {
-        const client = target.phoneHost ? phoneTimelineClient : assistantTimelineClient(target.local)
+        const client = assistantTimelineClient(target.local)
         await client.cancelSessionTurn(target.deviceId, target.sessionId)
       }
-      await releaseQueuedSessionInput(target.sessionId, turns, action.id)
+      await releaseQueuedSessionInput(target.sessionId, turns, action.id, action.steers)
     }
   }
   const queue = useConversationQueue(target, [...remote, ...local], working, steers, write)
   useEffect(() => {
-    if (!local.length || releasing.current.has(key) || !canReleasePhoneInput(ready, working, stopping, turns)) return
+    if (!local.length || hostedCount || releasing.current.has(key) || !canReleasePhoneInput(ready, working, stopping, turns)) return
     releasing.current.add(key)
-    void releaseQueuedSessionInput(target.sessionId, turns).then(() => {
+    void releaseQueuedSessionInput(target.sessionId, turns, undefined, false, () => {
+      const latest = releaseState.current
+      return mounted.current && current.current === key && latest.authorizeRelease() && !latest.hostedCount && latest.turns === turns && canReleasePhoneInput(latest.ready, latest.working, latest.stopping, latest.turns)
+    }).then(() => {
       if (current.current === key) setError(null)
     }, cause => {
       if (current.current === key) setError({ key, text: messageForUser(cause) })
-    }).finally(() => { releasing.current.delete(key) })
-  }, [inputs, turns, ready, working, stopping, target.sessionId, key, local.length])
+    }).finally(() => {
+      releasing.current.delete(key)
+      const latest = releaseState.current
+      if (mounted.current && current.current === key && (latest.inputs !== inputs || latest.turns !== turns || latest.ready !== ready || latest.working !== working || latest.stopping !== stopping || latest.hostedCount !== hostedCount)) setRetry(value => value + 1)
+    })
+  }, [inputs, turns, ready, working, stopping, target.sessionId, key, local.length, hostedCount, retry])
   return { ...queue, error: queue.error ?? (error?.key === key ? error.text : null) }
 }

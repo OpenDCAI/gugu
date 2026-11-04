@@ -122,7 +122,8 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     senderInputs, timeline.queuedPrompts, timeline.turns) : []
   localQueue.current = { key: localQueueKey, inputs: localInputs }
   const queue = usePhoneInputQueue({ deviceId, sessionId, local, phoneHost }, senderInputs, timeline.queuedPrompts,
-    timeline.turns, agentWorking, stopping, phoneQueueReady(queueReady, phoneHost, life.view), options.steers)
+    timeline.turns, agentWorking, stopping, phoneQueueReady(queueReady, phoneHost, life.view), options.steers,
+    () => phoneQueueReady(queueReady, phoneHost, life.current()))
   const quotes = usePhoneSessionQuotes({ deviceId, sessionId, timeline, draftText, setDraftText, queue: queue.props, onLoadOlder, editor, view })
   const editorState = useRef({ text: draftText, edit: quotes.composer.queuedPromptEdit })
   editorState.current = { text: draftText, edit: quotes.composer.queuedPromptEdit }

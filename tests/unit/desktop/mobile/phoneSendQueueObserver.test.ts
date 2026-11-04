@@ -84,3 +84,17 @@ it('rereads after a newer event arrives during an idle lookup instead of releasi
   expect(deps.release).not.toHaveBeenCalled()
   stop()
 })
+
+it('invalidates a release waiting for persistence when a stop arrives after the idle read', async () => {
+  inputs = [held()]; snapshot = { ready: true, turns: [turn(true)] }
+  let write!: () => void
+  const gate = new Promise<void>(done => { write = done })
+  const persisted = vi.fn()
+  deps.release = vi.fn(async (_session, _turns, canRelease) => { await gate; if (canRelease()) persisted() })
+  const stop = startPhoneSendQueueObserver('owner', deps)
+  await vi.waitFor(() => expect(deps.release).toHaveBeenCalledTimes(1))
+  snapshot = { ready: false, turns: [turn(true)] }; targetChanged()
+  write(); await gate; await Promise.resolve()
+  expect(persisted).not.toHaveBeenCalled()
+  stop()
+})
