@@ -19,7 +19,7 @@ env:
 jobs:
   # Decides which packaging jobs a pull request needs. Test jobs never depend on this: they run on
   # every event (scripts/ci/ci-spec-coverage.mts rejects conditions on any job that runs a test runner).
-  # Manual diagnostic runs always build everything; merges do not repeat PR CI.
+  # Manual diagnostic runs always build everything; ci-dev-mac.yml covers the merged dev tree.
   changes:
     name: Detect changed areas
     runs-on: ubuntu-24.04
@@ -69,10 +69,10 @@ jobs:
                   android=true
                   ;;
               esac
-              # The macOS build differs from the Linux one (which runs on every PR) only in the
-              # vendoring, native-rebuild and build scripts and their inputs.
+              # Other source/build-script changes are compiled on macOS after merging to dev.
+              # PRs still check macOS dependency and native-module inputs before merging.
               case "$file" in
-                scripts/*|vite.config.mts|electron-builder.cjs|build-resources/*|apps/desktop/native/*|apps/desktop/session-tooling/node-deps/*)
+                apps/desktop/native/*|apps/desktop/session-tooling/node-deps/*)
                   desktop_mac=true
                   ;;
               esac
@@ -201,9 +201,9 @@ jobs:
       - uses: ./.github/actions/setup-community
       - run: pnpm build:app:ci
       - run: pnpm rebuild:native
-  # The slowest job (~10 min on the 3-core / 7 GB macOS runner). On a pull request it runs only
-  # when something the macOS build depends on beyond the Linux build changed (see `changes`);
-  # pushes to dev and main always run it.
+  # PRs compile on macOS for dependency, toolchain, native-module or CI input changes (see `changes`).
+  # The exact integration branch and manual diagnostics retain full builds. After merging, the
+  # dedicated ci-dev-mac.yml workflow compiles every dev push; main does not trigger this job.
   desktop-build-mac:
     name: Desktop app build (macos-15)
     needs: changes
@@ -340,7 +340,7 @@ jobs:
           go vet -tags 'browser helper' ./...
           export GUGU_PROJECTION_FFMPEG
           GUGU_PROJECTION_FFMPEG=$(command -v ffmpeg)
-          for round in 1 2 3; do
+          for _ in 1 2 3; do
             node --test node/*.node-test.mjs
           done
   session-browser:
