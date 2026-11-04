@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
 import { act, createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chat, clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
+
+const topicsCss = readFileSync('apps/desktop/src/components/chat/pinned-topics.css', 'utf8')
 
 const io = vi.hoisted(() => ({ rows: new Map<string, Record<string, unknown>>(), failRead: false, failWrite: false, listeners: [] as (() => void)[] }))
 vi.mock('@/lib/supabase', async (original) => {
@@ -44,6 +47,45 @@ beforeEach(() => {
 afterEach(() => { harness.cleanup(); queryClient.clear() })
 
 describe('rich Topics menu', () => {
+  it('leaves no permanent pin-width padding on a topic with no unread messages', async () => {
+    save(['old'])
+    await renderWithAppProviders(harness, topicMenu(), { ...options(), chat: { activeChatId: 'g', chats: topics.map(topic => ({ ...topic, unread_count: 0 })) } })
+    await clickElement(document.querySelector<HTMLElement>('[data-testid="group-menu-topics"]')!)
+    await vi.waitFor(() => expect(document.querySelectorAll('[data-testid="group-menu-topic"]')).toHaveLength(2))
+    const row = document.querySelector<HTMLElement>('[data-topic-id="new"] [data-testid="group-menu-topic"]')!
+    expect(row.querySelector('.gg-chip')).toBeNull()
+    expect(row.style.paddingInlineEnd, 'no reserved pin column in the resting row').toBe('')
+  })
+
+  it('replaces the unread chip with the existing pin action when the row takes keyboard focus', async () => {
+    const style = document.createElement('style'); style.textContent = topicsCss; document.head.append(style)
+    try {
+      save(['old'])
+      await renderWithAppProviders(harness, topicMenu(), options())
+      await clickElement(document.querySelector<HTMLElement>('[data-testid="group-menu-topics"]')!)
+      await vi.waitFor(() => expect(document.querySelectorAll('[data-testid="group-menu-topic"]')).toHaveLength(2))
+      const open = document.querySelector<HTMLElement>('[data-topic-id="new"] [data-testid="group-menu-topic"]')!
+      const chip = open.closest<HTMLElement>('[data-topic-id]')!.querySelector<HTMLElement>('.gg-chip')!
+      const displayed = () => {
+        for (let node: HTMLElement | null = chip; node; node = node.parentElement) {
+          if (getComputedStyle(node).display === 'none') return false
+        }
+        return true
+      }
+      const pin = document.querySelector<HTMLElement>('[data-topic-id="new"] [data-testid="group-topic-pin"]')!
+      expect(chip.textContent).toBe('4')
+      expect(displayed()).toBe(true)
+      await act(async () => open.focus())
+      expect(document.activeElement).toBe(open)
+      expect(displayed(), 'the count and action share the trailing space').toBe(false)
+      expect(getComputedStyle(pin).display).not.toBe('none')
+      expect(document.querySelector('[data-topic-id="old"] .gg-topic-name svg')).not.toBeNull()
+      await clickElement(pin)
+      await vi.waitFor(() => expect(savedPins()).toEqual(['old', 'new']))
+      expect(drainTopicSplitRequest('g')).toBeNull()
+    } finally { style.remove() }
+  })
+
   it('renders distinct pin and unpin icons inside their action buttons', async () => {
     save(['old'])
     await renderWithAppProviders(harness, topicMenu(), options())
@@ -69,8 +111,8 @@ describe('rich Topics menu', () => {
     await vi.waitFor(() => expect([...document.querySelectorAll('[data-testid="group-menu-topic"]')].map((row) => row.querySelector('.gg-topic-name')?.textContent)).toEqual(['Older topic', 'Recent topic']))
     const rows = [...document.querySelectorAll('[data-testid="group-menu-topic"]')]
     expect(rows.map((row) => row.querySelector('.gg-topic-name')?.textContent)).toEqual(['Older topic', 'Recent topic'])
-    expect(rows[0]?.querySelector('.gg-chip')?.textContent).toBe('99+')
-    expect(rows[0]?.querySelector('.gg-chip')?.getAttribute('data-tone')).toBeNull()
+    expect(rows[0]?.closest('[data-topic-id]')?.querySelector('.gg-chip')?.textContent).toBe('99+')
+    expect(rows[0]?.closest('[data-topic-id]')?.querySelector('.gg-chip')?.getAttribute('data-tone')).toBeNull()
     expect(rows[1]?.querySelector('.gg-topic-preview')?.textContent).toContain('Alex: Latest update')
     expect(rows[1]?.querySelector('.gg-topic-time')?.textContent).toBeTruthy()
     const popup = document.querySelector<HTMLElement>('[data-testid="group-topics-popup"]')!
