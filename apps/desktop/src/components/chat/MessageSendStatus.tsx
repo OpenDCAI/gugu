@@ -38,7 +38,7 @@ function MessageTransportStatus({ state, messageId, reason, retryable = true }: 
   if (state === 'unknown') return <span data-send-state="unknown" title={t('message.sendStatus.unknownHint')}
     className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">{t('message.sendStatus.unknown')}</span>
 
-  // queued = 已经落库、它叫醒的助理还没接走:同一个发送中,悬停说明在等助理就绪。
+  // queued = 已经发送、助理尚未接收；同一位置的三点不增加状态文字或高度。
   if (state === 'queued') return <MessageReceivingIndicator label={t('message.sendStatus.queued')} />
   if (state === 'sending') {
     const label = t('message.sendStatus.sending')

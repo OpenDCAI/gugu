@@ -2,10 +2,45 @@ import { describe, expect, it } from 'vitest'
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
 import { openSessionInputStorage, SessionInputOutbox } from '@/lib/sessionInputOutbox'
+import { SessionInputAdmissionError } from '@gugu/core/shared/sessionInputAdmission'
 
 const target = { deviceId: 'remote', sessionId: 'session', queued: true, sendQueue: { order: 0 }, text: '好' }
 
 describe('composer-owned durable send queue', () => {
+  it('does not make a definitive refusal hold later independent composer submissions', async () => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    const queue = new SessionInputOutbox('owner', storage, async () => { throw new SessionInputAdmissionError('refused', 'rejected') }, () => true)
+    const first = await queue.enqueue({ ...target, queued: false, sendQueue: undefined })
+    const held = await queue.enqueue({ ...target, sendQueue: { order: 0, afterInputId: first.id } })
+    await queue.flush()
+    expect(await queue.releaseQueued('session', {}, new Set())).toMatchObject({ id: held.id })
+    await queue.flush()
+    const next = await queue.enqueue({ ...target, queued: false, sendQueue: undefined, composer: true })
+    expect(next.sendQueue).toBeUndefined()
+  })
+
+  it('discards a rejected predecessor without stranding its held follower after reopening', async () => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    const send = async () => { throw new SessionInputAdmissionError('refused', 'rejected') }
+    const queue = new SessionInputOutbox('owner', storage, send, () => true)
+    const first = await queue.enqueue({ ...target, queued: false, sendQueue: undefined })
+    const held = await queue.enqueue({ ...target, sendQueue: { order: 0, afterInputId: first.id } })
+    await queue.flush()
+    await queue.discard(first.id)
+    const reopened = new SessionInputOutbox('owner', storage, send, () => true)
+    expect(await reopened.releaseQueued('session', {}, new Set())).toMatchObject({ id: held.id })
+  })
+
+  it('checks the latest host permission inside the persistence lane before releasing', async () => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    const queue = new SessionInputOutbox('owner', storage, async () => {}, () => true)
+    const input = await queue.enqueue(target)
+    let idle = true
+    const release = queue.releaseQueued('session', {}, new Set(), undefined, false, () => idle)
+    idle = false
+    expect(await release).toBeNull()
+    expect(await queue.list()).toMatchObject([{ id: input.id, sendQueue: expect.any(Object) }])
+  })
   it('classifies two same-frame composer submissions under the persistence lock', async () => {
     const storage = await openSessionInputStorage(new IDBFactory())
     const sent: string[] = []

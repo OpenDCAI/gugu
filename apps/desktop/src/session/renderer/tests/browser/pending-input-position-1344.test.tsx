@@ -91,7 +91,7 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
 
   const busy = name.startsWith('B-');
   const direct = name.startsWith('direct-');
-  const foreground = turn('foreground-A', 'foreground-A:user');
+  const foreground = turn('foreground-A', 'foreground-A:user', busy ? sameText : '先前的工作');
   const firstSame = { ...turn('previous-same', 'previous-same:user', sameText), endedAt: Date.now() - 14_000, outcome: { kind: 'done' as const } };
   let historyTurns: TranscriptTurn[] = [];
   const readyState = { lifecycle: 'ready', activeTurnId: null, queuedPrompts: [], pendingPermissions: [], isGenerating: false,
@@ -101,6 +101,7 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
     sessionState: replica({ ...readyState, ...(busy ? { lifecycle: 'working', activeTurnId: foreground.id, isGenerating: true } : {}) }),
     agents: replica([]), config: replica({}), plan: replica(null), terminals: replica([]), draft: replica(null),
     canSyncDraft: () => true, onDraftSyncReady: () => () => {}, cancelTurn: vi.fn(async () => ({ success: true, data: undefined })),
+    setPromptDraft: async () => ({ success: true, data: undefined }),
     getHistory: async () => ({ success: true, data: { turns: historyTurns, count: historyTurns.length,
       nextCursor: null, cursor: { epoch: 'fixture', seq: 0 }, reset: false } }), dispose() {},
   };
@@ -115,9 +116,8 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
   const storage = await openSessionInputStorage();
   const accountId = `frames-account-${crypto.randomUUID()}`;
   let refresh: Promise<void> = Promise.resolve();
-  let queue!: SessionInputOutbox;
   const publishRows = () => { refresh = queue.list().then(rows => { if (!current) return; own.rows = rows; changed(); }); };
-  queue = new SessionInputOutbox(accountId, storage, async input => {
+  const queue = new SessionInputOutbox(accountId, storage, async input => {
     received.push(input);
     // Transport boundary only: held composer entries must never reach this callback.
     const result = await rpcOn(input.deviceId).sessionTimeline.sessionSend({ conversationId: input.sessionId,
@@ -245,7 +245,7 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
   async function queueEvent() {
     eventLabel = 'runtime-queue-inject';
     session.sessionState.set({ ...session.sessionState.current(), lifecycle: 'working', activeTurnId: foreground.id, isGenerating: true,
-      queuedPrompts: [{ id: runtimeQueueId, clientMessageId: q!.id, text: sameText, origin: 'manual', createdAt: Date.now(), updatedAt: Date.now(), attachments: [] }] } as never);
+      queuedPrompts: [{ id: runtimeQueueId, clientMessageId: q!.id, text: q!.text, origin: 'manual', createdAt: Date.now(), updatedAt: Date.now(), attachments: [] }] } as never);
     await paint('runtime-queue-Q');
   }
   async function activeA() { eventLabel = 'active-A-inject'; session.activeTurn.set(foreground); await paint('active-A'); }
@@ -350,6 +350,7 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
     await accept(); await lifeRow('accepted'); await nativeQ();
   }
   recording = false; cancelAnimationFrame(rafToken);
+  console.info('1344_FRAME_TRACE', JSON.stringify({ case: name, prelude, trace }));
   const preStart = trace.filter(frame => !frame.qStarted && frame.qId);
   const violations = busy ? [] : preStart.slice(preStart.findIndex(frame => frame.bodyQ === 1)).filter(frame => frame.bodyQ !== 1 || frame.queueQ !== 0);
   expect(trace.at(-1)?.bodyQ, 'one native message after Q starts').toBe(1);

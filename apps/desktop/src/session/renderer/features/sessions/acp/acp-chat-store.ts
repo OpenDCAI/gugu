@@ -2330,7 +2330,8 @@ export class AcpChatStore {
         if (!stopped.success) { this._toastError('acpFailure.stop', stopped.error); return; }
       }
       const transcript = this.chatState.transcript.state;
-      await releaseQueuedSessionInput(this.runtimeSessionId, transcript.committedTurns, id, steers);
+      await releaseQueuedSessionInput(this.runtimeSessionId,
+        [...transcript.committedTurns, ...(transcript.activeTurnSnapshot ? [transcript.activeTurnSnapshot] : [])], id, steers);
       return;
     }
     const session = this._requireSession('acpFailure.sendMessage');
@@ -2456,6 +2457,7 @@ export class AcpChatStore {
           const removedManual = this._lastQueuedPrompts.find(
             (prompt) =>
               prompt.origin === 'manual'
+              && !prompt.clientMessageId
               && !next.queuedPrompts.some((current) => current.id === prompt.id)
           );
           const active = session.activeTurn.current();
