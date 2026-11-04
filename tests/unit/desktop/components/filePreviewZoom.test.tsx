@@ -4,6 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { MessageFilePreviewPanel } from '../../../../apps/desktop/src/components/chat/MessageFilePreviewPanel'
 import { HtmlPreviewSurface } from '../../../../apps/desktop/src/components/preview/HtmlPreviewSurface'
+import { ImageRenderer } from '../../../../apps/desktop/src/session/renderer/lib/editor/image-renderer'
+import { DocumentPreviewContent } from '../../../../apps/desktop/src/components/chat/DocumentPreviewContent'
 import { runWindowMenuCommand, type WindowMenuCommandTarget } from '../../../../apps/desktop/electron/window-menu-commands'
 
 let harness: ReturnType<typeof createReactHarness>
@@ -18,6 +20,41 @@ const native = () => {
   const contents = { executeJavaScript: vi.fn(async (source: string) => Function('document', 'CustomEvent', `return ${source}`)(document, CustomEvent)), getZoomLevel: () => level, setZoomLevel: vi.fn((value: number) => { level = value }) }
   return { contents, target: { contents, window: {} } as unknown as WindowMenuCommandTarget }
 }
+
+it('zooms the actual workspace image using its fitted geometry and retains the image preference', async () => {
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000)
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600)
+  const draw = async (path: string) => {
+    await harness.render(createElement(ImageRenderer, { file: { path, content: `data:image/png,${path}` } }))
+    const image = harness.container.querySelector('img')!
+    Object.defineProperties(image, { naturalWidth: { configurable: true, value: 2000 }, naturalHeight: { configurable: true, value: 1000 } })
+    await act(async () => image.dispatchEvent(new Event('load')))
+    return image
+  }
+  const image = await draw('first.png')
+  const viewport = harness.container.firstElementChild as HTMLElement
+  viewport.tabIndex = -1; viewport.focus()
+  const before = parseFloat(image.style.width)
+  const n = native()
+  await act(async () => runWindowMenuCommand('zoomIn', n.target))
+  expect(parseFloat(image.style.width)).toBeGreaterThan(before)
+  expect(n.contents.setZoomLevel).not.toHaveBeenCalled()
+  expect(parseFloat((await draw('second.png')).style.width)).toBeCloseTo(before * 1.2)
+})
+
+it('keeps PDF zoom on its existing content control and leaves its toolbar unscaled', async () => {
+  // Rendering is deliberately pending: zoom ownership must already work before the PDF library answers.
+  vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({ GlobalWorkerOptions: {}, getDocument: () => ({ promise: new Promise(() => {}), destroy() {} }) }))
+  await harness.render(createElement(DocumentPreviewContent, { kind: 'pdf', content: new ArrayBuffer(0), title: 'report.pdf' }))
+  const viewport = harness.container.querySelector<HTMLElement>('.document-preview-pdf-viewport')!
+  viewport.tabIndex = -1; viewport.focus()
+  const n = native()
+  await act(async () => runWindowMenuCommand('zoomIn', n.target))
+  expect(harness.container.querySelector('.document-preview-zoom')!.textContent).toBe('120%')
+  expect((harness.container.querySelector('.document-preview-toolbar') as HTMLElement).style.zoom).toBe('')
+  expect(n.contents.setZoomLevel).not.toHaveBeenCalled()
+  vi.doUnmock('pdfjs-dist/legacy/build/pdf.mjs')
+})
 
 it.each(['markdown', 'text'] as const)('native zoom changes %s content while the host window stays at its original scale; reset and reopen retain the type preference', async kind => {
   await harness.render(preview(kind))
