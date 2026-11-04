@@ -5,7 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { extensionViewStore, residentPageKey, residentPlace } from './extension-view-store';
 import { ExtensionPage } from './extension-view-layer';
 
-vi.mock('@renderer/lib/ipc', () => ({ rpc: { extensions: { activate: async () => ({ success: true, data: { partition: 'test', entryUrl: 'about:blank' } }) } } }));
+const focusHost = vi.hoisted(() => vi.fn(async () => ({ success: true })));
+vi.mock('@renderer/lib/ipc', () => ({ rpc: { browser: { focusHost }, extensions: { activate: async () => ({ success: true, data: { partition: 'test', entryUrl: 'about:blank' } }) } } }));
 vi.mock('./installed-extensions-store', () => ({ installedExtensionsStore: { manifestFor: () => undefined } }));
 vi.mock('./extension-surface-store', () => ({ extensionSurfaceStore: { setWebContentsId() {}, forgetShared() {} } }));
 vi.mock('./app-settings-page', () => ({ AppSettingsPage: () => null }));
@@ -17,6 +18,7 @@ const kind = 'workspace.main';
 const target = { sessionId: 'root-focus', tabId: 'folder' };
 let token: number;
 beforeEach(() => {
+  focusHost.mockClear();
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   vi.stubGlobal('requestAnimationFrame', () => 0);
   vi.stubGlobal('cancelAnimationFrame', () => {});
@@ -43,9 +45,10 @@ it('releases focus from the real root resident guest when its folder claim is re
   expect(guest.isConnected).toBe(true);
   expect(host.querySelector<HTMLElement>('[data-extension-view]')!.style.visibility).toBe('hidden');
   expect(document.activeElement).toBe(document.body);
+  expect(focusHost).toHaveBeenCalledOnce();
 });
 it('does not blur another host input while the resident folder is hidden', async () => {
   await mount(); const input = document.createElement('input'); document.body.appendChild(input); input.focus();
-  try { await act(async () => extensionViewStore.release(kind, token)); expect(document.activeElement).toBe(input); }
+  try { await act(async () => extensionViewStore.release(kind, token)); expect(document.activeElement).toBe(input); expect(focusHost).not.toHaveBeenCalled(); }
   finally { input.remove(); }
 });

@@ -69,7 +69,7 @@ beforeEach(() => {
   layout = new PaneLayoutStore(createTabRegistry([
     createTabProvider({ ...base, kind, TabContent: Folder }),
     createTabProvider({ ...base, kind: 'file', TabContent: () => <div data-file-page="" tabIndex={-1} /> }),
-  ]), { viewId: 'resident-key-cycles', placementMemory: { read: () => undefined, write() {} } });
+  ]), { viewId: 'resident-key-cycles' }, undefined, { placementMemory: { read: () => undefined, write() {} } });
   removeGlobal = commandRegistry.register({ scopeId: 'app', getCommands: () => [
     { id: 'app.navigateBack', execute: globalBack }, { id: 'app.navigateForward', execute: globalForward },
   ] });
@@ -154,4 +154,31 @@ it('ignores a retained unfocused pane even when the command context still points
     expect(current.pane.entries.get(id)?.state).toEqual({ id: 'current-a' });
     expect(previous.pane.entries.get(oldId)?.state).toEqual({ id: 'old-b' });
   } finally { old.dispose(); }
+});
+
+it('rejects a closed guest source and distinguishes fresh navigation from saved separate placement', async () => {
+  const saved = new Map<string, 'separate' | 'beside'>();
+  const remembered = new PaneLayoutStore(layout.focusedPane.registry, { viewId: 'close-placement' }, undefined, {
+    placementMemory: { read: key => saved.get(key), write: (key, value) => { saved.set(key, value); } },
+  });
+  try {
+    const closed = remembered.open(kind, { id: 'folder' }, { from: null, intent: 'newTab' })!;
+    remembered.open('file', { id: 'f02.txt' }, { from: closed, intent: 'navigate' });
+    expect(remembered.focusedPane.tabOrder).toEqual([closed]);
+    await remembered.focusedPane.go(closed, -1);
+    remembered.focusedPane.closeTab(closed);
+    const folder = remembered.open(kind, { id: 'folder' }, { from: null, intent: 'newTab' })!;
+    expect(remembered.open('file', { id: 'stale.txt' }, { from: closed, intent: 'navigate' })).toBeUndefined();
+    const before = [...remembered.focusedPane.tabOrder];
+    // Closing the single pane's history records separate for its resources.
+    // A saved placement intentionally overrides navigation; this is distinct
+    // from an old guest directing a request through a no-longer-live tab id.
+    const file = remembered.open('file', { id: 'f02.txt' }, { from: folder, intent: 'navigate' })!;
+    expect(file).not.toBe(folder);
+    expect(remembered.focusedPane.tabOrder).toEqual([...before, file]);
+    remembered.focusedPane.setActiveTab(folder);
+    const fresh = remembered.open('file', { id: 'fresh.txt' }, { from: folder, intent: 'navigate' });
+    expect(fresh).toBe(folder);
+    expect(remembered.focusedPane.entries.get(folder)?.state).toMatchObject({ id: 'fresh.txt' });
+  } finally { remembered.dispose(); }
 });

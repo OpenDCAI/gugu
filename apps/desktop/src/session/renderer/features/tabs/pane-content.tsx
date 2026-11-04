@@ -34,7 +34,7 @@ export const PaneContent = observer(function PaneContent({
   const shellRef = useRef<HTMLDivElement | null>(null);
   useCommandProvider(useMemo(() => ({
     scopeId: 'session-sub' as const,
-    isActive: (element: HTMLElement | null) => !!element && !!shellRef.current?.contains(element) || isFocusedPane && document.activeElement === document.body,
+    isActive: (element: HTMLElement | null) => isFocusedPane && (!!element && !!shellRef.current?.contains(element) || document.activeElement === document.body),
     getCommands: () => ([-1, 1] as const).map((delta) => ({
       id: delta === -1 ? 'app.navigateBack' as const : 'app.navigateForward' as const,
       hideFromPalette: true,
@@ -87,7 +87,7 @@ export const PaneContent = observer(function PaneContent({
         void pane.go(id, event.button === 3 ? -1 : 1);
       }}>
       {pane.resolvedTabs.length > 0 && !hideTabBar && <TabBar leadingSlot={tabLeadingSlot} tabTrailingSlot={tabTrailingSlot} actionsSlot={actionsSlot} reserveShellRestoreLane={reserveShellRestoreLane} leadingReservePx={leadingReservePx} />}
-      <div ref={setContentRef} tabIndex={-1} className="relative min-h-0 min-w-0 flex-1 bg-tab-face">
+      <div ref={setContentRef} data-pane-content="" tabIndex={-1} className="relative min-h-0 min-w-0 flex-1 bg-tab-face">
         <PaneDimensionProvider sink={pane}>
           {isOver && <div className="pointer-events-none absolute inset-0 z-20 bg-foreground/10" />}
           {pane.registry.all().filter((provider) => retained.has(provider.kind)).map((provider) => {
