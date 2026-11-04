@@ -38,6 +38,7 @@ import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
 import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
 import { errorDetail, isDeepEqual } from '@gugu/session-shared';
 import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
+import { flushSync } from 'react-dom';
 import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, lifeHoldIsFailure, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
@@ -847,9 +848,27 @@ export class AcpChatStore {
       this._attachWhenReady = false;
       void this._open();
     }
-    const session = this.chatState.session;
     const sender = queuedSessionInputs(this.runtimeSessionId);
-    if (!isDeepEqual(this._senderInputs, sender)) runInAction(() => { this._senderInputs = sender; });
+    const released = this._senderInputs.some(input => input.sendQueue
+      && sender.some(next => next.id === input.id && !next.sendQueue));
+    const publish = () => {
+      if (!isDeepEqual(this._senderInputs, sender)) runInAction(() => { this._senderInputs = sender; });
+    };
+    if (!released) publish();
+    try {
+      this._projectLifeHead(view, sender);
+    } finally {
+      if (released) {
+        // One paint transaction: project the body first, remove its composer
+        // owner, then settle the body's final viewport/rows synchronously.
+        flushSync(publish);
+        this._view?.reconcileNow?.();
+      }
+    }
+  }
+
+  private _projectLifeHead(view: LifeView | null, sender: readonly SessionInput[]): void {
+    const session = this.chatState.session;
     const prior = session.state.pendingPrompt;
     const replacingTerminal = (prior?.delivery?.state === 'failed' || prior?.delivery?.state === 'unknown')
       && sender.some(input => !input.sendQueue && input.queued === false && input.id !== prior.id);

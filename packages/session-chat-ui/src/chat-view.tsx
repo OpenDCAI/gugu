@@ -108,6 +108,8 @@ export type ChatView = {
   readonly contentOverlay: HTMLElement | null;
   /** Replace command callbacks without remounting. */
   setCommands(commands: ChatCommands): void;
+  /** Settle a host compositor ownership change before the browser can paint it. */
+  reconcileNow?(): void;
   /** Scroll to the top of the transcript. */
   scrollToTop(opts?: { behavior?: ScrollBehavior }): void;
   /** Scroll to the bottom of the transcript. */
@@ -216,6 +218,9 @@ export function createChatView(opts: ChatViewOptions): ChatView {
     },
     setCommands(c) {
       setCommandsSignal(c);
+    },
+    reconcileNow() {
+      controls.reconcileNow?.();
     },
     scrollToTop(o) {
       controls.scrollToTop(o);

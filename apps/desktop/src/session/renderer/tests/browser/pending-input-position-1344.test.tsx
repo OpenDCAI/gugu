@@ -148,6 +148,8 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
   host.style.cssText = 'position:fixed;inset:0;width:1000px;height:800px'; document.body.append(host);
   const view = createChatView({ parent: host, context: store.chatContext, state: store.chatState,
     composer: 'slot', stickToBottom: true, pinUserMessages: true });
+  store.bindView(view);
+  cleanup.push(() => store.bindView(null));
   store.chatContext.setLayout({ preset: 'double', userGutter: 0, agentConversation: true });
   cleanup.push(() => { view.dispose(); host.remove(); });
   const composerRoot = createRoot(view.composerSlot!);
@@ -180,7 +182,6 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
   let qStarted = false;
   let nativeUserId = 'native-Q-user';
   let phase = direct ? 'first-same-text-input' : 'main';
-  let prelude: Array<Record<string, unknown>> = [];
   let frameSerial = 0;
   const runtimeQueueId = 'runtime-Q';
   function visible(element: Element): boolean {
@@ -280,7 +281,7 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
     for (const [channel, listeners] of events) if (channel.includes('life')) for (const listener of listeners) listener(life);
     await paint('first-input-released');
     await queue.flush();
-    prelude = trace.splice(0); received.length = 0; q = undefined; qStarted = false;
+    trace.length = 0; received.length = 0; q = undefined; qStarted = false;
     phase = 'second-same-text-input'; nativeUserId = 'native-Q-user';
   }
   await send();
@@ -331,7 +332,6 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
       expect(hostRpc.toast.mock.calls.length).toBe(toasts);
       expect(received).toEqual([]);
       recording = false; cancelAnimationFrame(rafToken);
-      console.info('1344_FRAME_TRACE', JSON.stringify({ case: name, prelude, trace }));
       return;
     }
     let sentNow = false;
@@ -385,8 +385,12 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
     await accept(); await lifeRow('accepted'); await nativeQ();
   }
   recording = false; cancelAnimationFrame(rafToken);
-  console.info('1344_FRAME_TRACE', JSON.stringify({ case: name, prelude, trace }));
   const preStart = trace.filter(frame => !frame.qStarted && frame.qId);
+  if (busy) {
+    const first = trace.findIndex(frame => frame.queueQ === 1);
+    expect(trace.slice(first).every(frame => Number(frame.bodyQ) + Number(frame.queueQ) === 1),
+      'composer release and transcript mount have one visible owner on every frame').toBe(true);
+  }
   const violations = busy ? [] : preStart.slice(preStart.findIndex(frame => frame.bodyQ === 1)).filter(frame => frame.bodyQ !== 1 || frame.queueQ !== 0);
   expect(trace.at(-1)?.bodyQ, 'one native message after Q starts').toBe(1);
   expect(trace.at(-1)?.queueQ, 'no queue copy after Q starts').toBe(0);

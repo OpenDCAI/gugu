@@ -212,6 +212,7 @@ export type EngineControls = {
    * Wired by onMount; safe to call from outside the Solid reactive context.
    */
   setScrollMode?(mode: ScrollMode): void;
+  reconcileNow?(): void;
   /** Move the library-owned composer slot between supported placements. */
   setComposerPlacement?(placement: ComposerPlacement, opts?: ComposerPlacementOptions): void;
   /**
@@ -1858,6 +1859,13 @@ export function ChatRoot(props: ChatRootProps) {
       props.controls.heroSlot = heroSlotEl ?? null;
       props.controls.contentOverlay = contentOverlaySlotEl ?? null;
       props.controls.setComposerPlacement = setComposerPlacement;
+      props.controls.reconcileNow = () => {
+        // The host just changed the React composer in this same task. Read its
+        // final size and mount/place the Solid rows before either side paints.
+        updateSlotPadBottom();
+        readPhase();
+        writePhase();
+      };
       // Declarative scroll intent: host sets intent; ChatRoot projects it.
       // A new intent supersedes a smooth scroll still in flight: left armed, the above-compensation would re-aim it
       // at its old target and slide the view there, until the settle window let the projection jump back.
