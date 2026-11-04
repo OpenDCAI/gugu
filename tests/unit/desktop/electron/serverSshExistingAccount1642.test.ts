@@ -15,7 +15,7 @@ const account = { userId: 'user-a', email: 'alice@example.test', signedIn: true,
 const status = (accounts = [account], migrationRequired = false) => formatStatusJson({ version: '1149', supervisorVersion: '1149', accounts, migrationRequired })
 const identity = (accounts = [account], id: string | null = machineId) => `${EXISTING_IDENTITY_BEGIN}\n${status(accounts)}\n${id === null ? 'identity_missing=1' : `machine_id=${id}`}\n${EXISTING_IDENTITY_END}\n`
 
-function fixture(options: { accounts?: typeof account[]; id?: string | null; statusOutput?: string; identityCode?: number; running?: boolean } = {}) {
+function fixture(options: { accounts?: typeof account[]; id?: string | null; statusOutput?: string; identityCode?: number; identityErrorOutput?: string; running?: boolean } = {}) {
   const seen: string[] = []
   const mintGrant = vi.fn(async () => ({ deviceCode: 'device-code-not-to-consume' }))
   const existingDevice = vi.fn(async () => 'device-a')
@@ -31,9 +31,9 @@ function fixture(options: { accounts?: typeof account[]; id?: string | null; sta
       let stdout: string
       if (script.includes(PROBE_BEGIN)) stdout = `${PROBE_BEGIN}\nos=Linux\narch=x86_64\nuser=linux-user\nhostname=box\nlibc=glibc 2.35\ninstalled=1149\ngrant=1\nprotocol=${REMOTE_PROTOCOL_VERSION}\nstatus_exit=0\n${options.statusOutput ?? status((options.accounts ?? [account]).map(a => ({ ...a, running: options.running ?? a.running })))}\n${PROBE_END}\n`
       else if (script.includes(EXISTING_IDENTITY_BEGIN)) {
-        stdout = readIdentity()
+        stdout = options.identityErrorOutput ?? readIdentity()
         onStdout?.(stdout.slice(0, 70)); onStdout?.(stdout.slice(70))
-        return { code: options.identityCode ?? 0, stdout, stderr: options.identityCode ? 'Permission denied' : '' }
+        return { code: options.identityCode ?? 0, stdout, stderr: options.identityCode && !options.identityErrorOutput ? 'Permission denied' : '' }
       } else if (script.includes('service install')) stdout = 'service started\n'
       else if (script.includes('login --grant-stdin')) {
         return { code: 1, stdout: 'This server is already signed in as alice@example.test. Run gugu-server logout first.', stderr: '' }
@@ -91,6 +91,12 @@ describe('#1642 existing account attachment', () => {
   it('preserves a real SSH query error instead of requesting a new login', async () => {
     const f = fixture({ identityCode: 1 })
     expect((await f.start()).failure?.detail).toContain('Permission denied')
+    expect(f.mintGrant).not.toHaveBeenCalled()
+  })
+
+  it('preserves a failed status command explanation written on stdout', async () => {
+    const f = fixture({ identityCode: 1, identityErrorOutput: 'Could not read account metadata: IO failure' })
+    expect((await f.start()).failure?.detail).toContain('Could not read account metadata: IO failure')
     expect(f.mintGrant).not.toHaveBeenCalled()
   })
 

@@ -511,7 +511,7 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
     if (found.accounts.some(account => account.userId === userId)) {
       const readIdentity = async () => {
         const reply = await ssh(existingIdentityScript(), { limit: { kind: 'total', ms: timeouts.step }, timeoutReason: 'timeout', sensitiveOutput: true })
-        if (reply.code !== 0) throw new StepFailure('loginFailed', `Could not read the existing server identity (exit ${reply.code}): ${lastLines(reply.stderr)}`)
+        if (reply.code !== 0) throw new StepFailure('loginFailed', `Could not read the existing server identity (exit ${reply.code}): ${lastLines(`${reply.stdout}\n${reply.stderr}`)}`)
         return parseExistingIdentity(reply.stdout, userId)
       }
       const identity = await readIdentity()
