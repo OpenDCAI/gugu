@@ -504,7 +504,16 @@ export function ChatRoot(props: ChatRootProps) {
   // Identity changes only once per new turn, not for every streamed update.
   const latestTurnId = createMemo(() => latestVisibleTurnId(state().transcript.state.activeTurnSnapshot,
     state().transcript.state.committedTurns, state().session.state.pendingPrompt, state().session.state.pendingMessages));
-  const segmentCtx = (active = false) => segmentCtxFor(props.context, state(), caches(), active, latestTurnId());
+  // Only an empty acknowledgement's visibility depends on which turn is latest.
+  // An ordinary pending input must not rebuild/re-measure every committed bubble.
+  // Keep a stable non-matching id while none of those acknowledgements is latest;
+  // undefined would make flattenTier fall back to the committed tail instead.
+  const committedLatestTurnId = createMemo(() => {
+    const id = latestTurnId();
+    return projectedCommitted().some(turn => turn.id === id && isEmptyAgentTurn(turn)) ? id : '';
+  });
+  const segmentCtx = (active = false) => segmentCtxFor(props.context, state(), caches(), active,
+    active ? latestTurnId() : committedLatestTurnId());
 
   let committedUnitsArr: ReturnType<typeof flattenTier> = [];
   // O(1) lookup: itemId -> index of the FIRST unit for that item in the
