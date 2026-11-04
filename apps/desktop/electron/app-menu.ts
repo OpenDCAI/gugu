@@ -64,7 +64,7 @@ export function routeFileZoomTemplate(menu: Menu, onZoom: FileZoomClick): MenuTe
     const command = zoomRoleOf(item.role)
     if (command) return { label: item.label, accelerator: ZOOM_ACCELERATORS[command], click: (_item, window) => onZoom(command, window) }
     if (!item.submenu || !hasZoomRole(item.submenu)) return item
-    return { ...(item.role ? { role: item.role } : {}), label: item.label, submenu: routeFileZoomTemplate(item.submenu, onZoom) }
+    return { ...(item.role ? { role: item.role } : {}), label: item.label, submenu: Menu.buildFromTemplate(routeFileZoomTemplate(item.submenu, onZoom)) }
   })
 }
 

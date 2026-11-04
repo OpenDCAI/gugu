@@ -26,7 +26,7 @@ function buildFromTemplate(template: Array<MenuItemConstructorOptions | FakeItem
       const children = Array.isArray(options.submenu) ? options.submenu
         : options.role === 'viewMenu' ? DEFAULT_VIEW.map((role) => role === 'separator' ? { type: 'separator' as const } : { role: role as MenuItemConstructorOptions['role'] })
           : undefined
-      const submenu = children ? buildFromTemplate(children) : undefined
+      const submenu = options.submenu && !Array.isArray(options.submenu) ? options.submenu as unknown as FakeMenu : children ? buildFromTemplate(children) : undefined
       const item = { role: options.role, label: options.label ?? NATIVE_LABELS[options.role ?? ''] ?? options.type ?? '', accelerator: options.accelerator as string | undefined, click: options.click as FakeItem['click'] }
       Object.defineProperty(item, 'submenu', { value: submenu, enumerable: true, writable: false })
       fakeItems.add(Object.freeze(item))

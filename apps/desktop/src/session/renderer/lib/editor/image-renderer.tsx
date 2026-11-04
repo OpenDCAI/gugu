@@ -38,7 +38,8 @@ export function ImageRenderer({ file }: ImageRendererProps) {
   const [loaded, setLoaded] = useState<{ src: string; size: Size } | null>(null);
   const { zoom, setZoom } = useFileZoom('image', viewportRef, command => {
     const viewport = viewportRef.current;
-    if (viewport) zoomTo(clampZoom(fitScale * zoomForCommand(zoom, command), fitScale, maxScale), { x: viewport.clientWidth / 2, y: viewport.clientHeight / 2 });
+    // From the ratio on screen, not the stored one: a preference above this image's cap would otherwise make zoom-out a no-op.
+    if (viewport) zoomTo(clampZoom(fitScale * zoomForCommand(scale / fitScale, command), fitScale, maxScale), { x: viewport.clientWidth / 2, y: viewport.clientHeight / 2 });
   });
   const anchorRef = useRef<ZoomAnchor | null>(null);
 

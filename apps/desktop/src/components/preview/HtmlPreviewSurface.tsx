@@ -7,8 +7,13 @@ import { useFileZoom, zoomForCommand } from './file-content-zoom';
 /** Keep the last page painted until its replacement has loaded and restored its scroll. */
 export function HtmlPreviewSurface({ fileName, url, onLink, scrollPosition }: { fileName: string; url: string; onLink: (href: string) => void; scrollPosition?: { x: number; y: number } }) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const { zoom, setZoom } = useFileZoom('html', rootRef);
   const [visible, setVisible] = useState(url);
+  // Pages whose injected script has answered. A page CSP can block it; then nothing would apply the zoom, so the window zooms.
+  const scripted = useRef(new Set<string>());
+  const { zoom, setZoom } = useFileZoom('html', rootRef, command => {
+    if (!scripted.current.has(visible)) return false;
+    setZoom(value => clampZoom(zoomForCommand(value, command), DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM));
+  });
   const [loaded, setLoaded] = useState<{ frame: HTMLIFrameElement }>();
   const frames = useRef(new Map<string, HTMLIFrameElement>());
   const localScroll = useRef({ x: 0, y: 0 });
@@ -27,6 +32,7 @@ export function HtmlPreviewSurface({ fileName, url, onLink, scrollPosition }: { 
       const source = [...frames.current].find(([, frame]) => frame.contentWindow === event.source)?.[0];
       if (!source) return;
       const data = event.data as { type?: string; href?: string; x?: number; y?: number; deltaY?: number; command?: unknown } | null;
+      if (data?.type === PREVIEW_RESTORED_MESSAGE_TYPE || data?.type === PREVIEW_SCROLL_MESSAGE_TYPE || data?.type === PREVIEW_ZOOM_MESSAGE_TYPE) scripted.current.add(source);
       if (data?.type === PREVIEW_LINK_MESSAGE_TYPE && source === visible && typeof data.href === 'string') onLink(data.href);
       if (data?.type === PREVIEW_ZOOM_MESSAGE_TYPE && source === visible) {
         if (typeof data.deltaY === 'number' && Number.isFinite(data.deltaY)) setZoom(value => pinchZoom(value, data.deltaY!, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM));
@@ -51,7 +57,7 @@ export function HtmlPreviewSurface({ fileName, url, onLink, scrollPosition }: { 
       {[...new Set([visible, url])].map(source => (
         <iframe
           key={source}
-          ref={frame => { if (frame) frames.current.set(source, frame); else frames.current.delete(source); }}
+          ref={frame => { if (frame) frames.current.set(source, frame); else { frames.current.delete(source); scripted.current.delete(source); } }}
           title={fileName}
           src={source}
           // Keep the existing opaque sandbox; scroll/link messages never grant same-origin access.
@@ -59,6 +65,7 @@ export function HtmlPreviewSurface({ fileName, url, onLink, scrollPosition }: { 
           className={`absolute inset-0 h-full w-full border-0 bg-[var(--bg-primary)] ${source === visible ? 'visible' : 'invisible'}`}
           onLoad={(event) => {
             if (source !== url) return;
+            scripted.current.delete(source);
             frames.current.get(source)?.contentWindow?.postMessage({ type: PREVIEW_SET_ZOOM_MESSAGE_TYPE, zoom }, '*');
             frames.current.get(source)?.contentWindow?.postMessage({ type: PREVIEW_RESTORE_MESSAGE_TYPE, ...scroll }, '*');
             // A page's own CSP can block the injected script. Still reveal that page after load.

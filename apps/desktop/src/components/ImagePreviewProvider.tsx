@@ -149,7 +149,8 @@ function viewerOptions(request: ImageViewerRequest, mobile: boolean, errorMsg: s
   }
 }
 
-function wireViewer(pswp: PhotoSwipe, dialogLabel: string, onFileError: (item: ImageViewerItem, error: unknown) => void): void {
+/** The viewer's image reading zoom: applied per slide from the shared preference, written back on a real zoom, menu commands while focused. */
+export function wireReadingZoom(pswp: PhotoSwipe): () => void {
   let applyingZoom = false
   let initialized = false
   const applyReadingZoom = () => {
@@ -160,21 +161,32 @@ function wireViewer(pswp: PhotoSwipe, dialogLabel: string, onFileError: (item: I
     applyingZoom = true
     try { slide.zoomTo(next, undefined, 0) } finally { applyingZoom = false }
   }
+  // A ratio held at this image's cap must not lower a larger preference that a bigger image or the workspace viewer can honour.
   pswp.on('zoomPanUpdate', ({ slide }) => {
-    if (initialized && !applyingZoom && slide === pswp.currSlide && slide.zoomLevels.initial > 0) writeFileZoom('image', Math.max(1, slide.currZoomLevel / slide.zoomLevels.initial))
+    if (!initialized || applyingZoom || slide !== pswp.currSlide || !(slide.zoomLevels.initial > 0)) return
+    const ratio = Math.max(1, slide.currZoomLevel / slide.zoomLevels.initial)
+    if (slide.currZoomLevel >= slide.zoomLevels.max - 0.000001 && readFileZoom('image') >= ratio) return
+    writeFileZoom('image', ratio)
   })
   pswp.on('afterInit', () => {
     initialized = true
     applyReadingZoom()
     if (!pswp.element) return
     const offCommand = bindFileZoom(pswp.element, command => {
-      writeFileZoom('image', Math.max(1, zoomForCommand(readFileZoom('image'), command)))
+      const slide = pswp.currSlide
+      const shown = slide && slide.zoomLevels.initial > 0 ? slide.currZoomLevel / slide.zoomLevels.initial : readFileZoom('image')
+      writeFileZoom('image', Math.max(1, zoomForCommand(shown, command)))
       applyReadingZoom()
     })
     const offPreference = subscribeFileZoom(applyReadingZoom)
     pswp.on('destroy', () => { offCommand(); offPreference() })
   })
   pswp.on('change', applyReadingZoom)
+  return applyReadingZoom
+}
+
+function wireViewer(pswp: PhotoSwipe, dialogLabel: string, onFileError: (item: ImageViewerItem, error: unknown) => void): void {
+  const applyReadingZoom = wireReadingZoom(pswp)
   // 缩略图打开的那几张:翻到哪张,取哪张的原图,换上(取不到就留着缩略图;item.full 自己记着结果,不重复下)。
   const upgrade = (index: number) => {
     const slides = pswp.options.dataSource
