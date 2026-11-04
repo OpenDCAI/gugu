@@ -167,3 +167,26 @@ it('a scripted HTML page keeps Cmd+ after re-renders, also when it never scrolls
   expect(Number(localStorage.getItem('gugu.file-content-zoom.html'))).toBeCloseTo(1.44)
   expect(n.contents.setZoomLevel).not.toHaveBeenCalled()
 })
+
+it('Ctrl+0 inside a focused code editor resets the content before capture-phase app hotkeys see it', () => {
+  writeFileZoom('text-code', 1.5)
+  const container = document.body.appendChild(document.createElement('div'))
+  const input = container.appendChild(document.createElement('textarea'))
+  const editor = { updateOptions: vi.fn() }
+  const off = bindEditorFileZoom(container, editor, 13)
+  // Like MonacoKeyboardBridge / captured commands: a document capture listener that claims Mod+0 (Focus Sidebar).
+  const appHotkey = vi.fn((event: KeyboardEvent) => { event.preventDefault(); event.stopPropagation() })
+  document.addEventListener('keydown', appHotkey, true)
+  input.focus()
+  const reset = new KeyboardEvent('keydown', { key: '0', ctrlKey: true, bubbles: true, cancelable: true })
+  input.dispatchEvent(reset)
+  expect(readFileZoom('text-code')).toBe(1)
+  expect(editor.updateOptions).toHaveBeenLastCalledWith({ fontSize: 13 })
+  expect(appHotkey).not.toHaveBeenCalled()
+  // Outside the viewer the app hotkey keeps Ctrl+0.
+  const outside = document.body.appendChild(document.createElement('button'))
+  outside.dispatchEvent(new KeyboardEvent('keydown', { key: '0', ctrlKey: true, bubbles: true, cancelable: true }))
+  expect(appHotkey).toHaveBeenCalledTimes(1)
+  document.removeEventListener('keydown', appHotkey, true)
+  off(); container.remove(); outside.remove()
+})

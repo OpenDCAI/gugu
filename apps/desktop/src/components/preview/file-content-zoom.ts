@@ -32,6 +32,7 @@ export function bindFileZoom(element: HTMLElement, apply: (command: FileZoomComm
     detail.handled = apply(detail.command) !== false;
   };
   const key = (event: KeyboardEvent) => {
+    if (!element.contains(event.target as Node | null)) return;
     if (event.defaultPrevented || event.isComposing || !(event.metaKey || event.ctrlKey) || event.altKey) return;
     const command = event.key === '0' ? 'resetZoom' : event.key === '+' || event.key === '=' ? 'zoomIn' : event.key === '-' ? 'zoomOut' : null;
     if (!command || apply(command) === false) return;
@@ -45,11 +46,13 @@ export function bindFileZoom(element: HTMLElement, apply: (command: FileZoomComm
   const oldTabIndex = element.getAttribute('tabindex');
   if (oldTabIndex === null) element.tabIndex = -1;
   element.addEventListener(FILE_ZOOM_EVENT, command);
-  element.addEventListener('keydown', key, true);
+  // Window capture: the focused viewer owns its zoom keys before app hotkeys, which also listen in capture (Monaco bridge, captured commands).
+  const view = element.ownerDocument.defaultView ?? window;
+  view.addEventListener('keydown', key, true);
   element.addEventListener('pointerdown', focus);
   return () => {
     element.removeEventListener(FILE_ZOOM_EVENT, command);
-    element.removeEventListener('keydown', key, true);
+    view.removeEventListener('keydown', key, true);
     element.removeEventListener('pointerdown', focus);
     element.removeAttribute(FILE_ZOOM_ATTRIBUTE);
     if (oldTabIndex === null) element.removeAttribute('tabindex');
