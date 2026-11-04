@@ -11,7 +11,7 @@ import { startPhoneSendQueueObserver, type PhoneQueueSource } from './phone-send
 import type { SessionpageTimelineClient } from './use-timeline-session'
 
 /** Mobile custody observes only held queues, using the phone's existing authenticated timeline transport. */
-export function watchPhoneSessionSendQueues(accountId: string): () => void {
+export function watchPhoneSessionSendQueues(accountId: string, options?: { phoneHostsOnly: true }): () => void {
   const deviceOf = (input: SessionInput) => directoryDevices().find(device => device.device_id === input.deviceId)
   const current = () => state().valid() && state().accountId === accountId
   let retryPending = false
@@ -22,6 +22,7 @@ export function watchPhoneSessionSendQueues(accountId: string): () => void {
   const available = (input: SessionInput) => {
     const device = deviceOf(input)
     if (!device || device.is_online === false) return false
+    if (options?.phoneHostsOnly && !isPhoneDevice(device)) return false
     if (!isPhoneDevice(device)) return true
     const directory = liveDeviceSessions()[device.device_id]
     return isAgentHostDevice(device) && directory?.cached === false && directory.connected === true

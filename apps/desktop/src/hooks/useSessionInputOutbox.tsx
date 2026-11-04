@@ -97,9 +97,13 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
       if (own.accountId === accountId) { own.accountId = null; own.queue = null; own.rows = EMPTY; changed() }
     }
   }, [accountId])
-  useEffect(() => platform.kind === 'electron'
-    ? watchSessionSendQueues(accountId, () => hosts.current.find(device => device.is_current_device)?.device_id)
-    : watchPhoneSessionSendQueues(accountId), [accountId])
+  useEffect(() => {
+    if (platform.kind !== 'electron') return watchPhoneSessionSendQueues(accountId)
+    const stopNative = watchSessionSendQueues(accountId, () => hosts.current.find(device => device.is_current_device)?.device_id,
+      input => { const device = hosts.current.find(device => device.device_id === input.deviceId); return !device || !isPhoneDevice(device) })
+    const stopPhone = watchPhoneSessionSendQueues(accountId, { phoneHostsOnly: true })
+    return () => { stopNative(); stopPhone() }
+  }, [accountId])
   useEffect(() => { void state().queue?.then(queue => queue.flush()).catch(() => undefined) }, [devices, phones])
   return <><ChatSummariesHost /><NativeConversationReadHost /></>
 }
