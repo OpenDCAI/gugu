@@ -88,8 +88,11 @@ async function render() {
 async function readyGuest() {
   const guest = [...mount.querySelectorAll<HTMLElement>('webview')].find(el => el.closest<HTMLElement>('[data-extension-view]')!.style.visibility === 'visible')!;
   expect(guest).toBeDefined(); guest.tabIndex = 0;
-  Object.defineProperty(guest, 'getWebContentsId', { configurable: true, value: () => nextGuestId++ });
-  await act(async () => guest.dispatchEvent(new Event('dom-ready')));
+  if (!('getWebContentsId' in guest)) {
+    const id = nextGuestId++;
+    Object.defineProperty(guest, 'getWebContentsId', { configurable: true, value: () => id });
+    await act(async () => guest.dispatchEvent(new Event('dom-ready')));
+  }
   return guest;
 }
 async function clickFile(guest: HTMLElement, tabId: string) {
@@ -121,6 +124,7 @@ it('keeps host key routing, tab identity and forward history through four keys a
   await clickFile(guest, tabId);
   for (const key of ['[', ']', '[', ']'] as const) await press(key, tabId, key === '[' ? kind : 'file');
   await press('[', tabId, kind);
+  guest = await readyGuest();
   native.guest = guest; guest.focus();
   expect(document.activeElement, 'the visible folder guest before closing').toBe(guest);
   expect(extensionViewStore.claims.size, 'one visible folder claim before closing').toBe(1);
