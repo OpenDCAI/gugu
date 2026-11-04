@@ -1,7 +1,13 @@
 # Reusable only: callers remain unchanged until a reviewed immutable revision is admitted.
 name: Reusable macOS session checks
 on:
-  workflow_call: null
+  workflow_call:
+    inputs:
+      tests-required:
+        description: Original changes decision; never grants runner access.
+        required: false
+        default: 'true'
+        type: string
 permissions:
   contents: read
 env:
@@ -15,9 +21,51 @@ env:
   LC_ALL: en_US.UTF-8
   TZ: UTC
 jobs:
+  route:
+    name: Route
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      runner: ${{ steps.select.outputs.runner }}
+    steps:
+      - id: select
+        name: Select execution environment from the original event
+        shell: bash
+        env:
+          CALLER_EVENT_NAME: ${{ github.event_name }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_REPOSITORY_ID: ${{ github.repository_id }}
+          CALLER_REF: ${{ github.ref }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |-
+          node <<'NODE'
+          const fs = require('node:fs');
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          const canonical = 'GUYI-AI/gugu';
+          const canonicalId = 1428236928;
+          const pr = event.pull_request;
+          const number = pr?.number;
+          const mergeRef = 'refs/pull/' + number + '/merge';
+          const sameRepository = repo => repo?.full_name === canonical && repo?.id === canonicalId && repo?.fork === false;
+          const trusted = process.env.CALLER_EVENT_NAME === 'pull_request'
+            && process.env.CALLER_REPOSITORY === canonical
+            && process.env.CALLER_REPOSITORY_ID === String(canonicalId)
+            && ['opened', 'reopened', 'synchronize', 'ready_for_review'].includes(event.action)
+            && Number.isSafeInteger(number) && number > 0 && event.number === number
+            && sameRepository(event.repository)
+            && sameRepository(pr?.head?.repo) && sameRepository(pr?.base?.repo)
+            && typeof pr?.head?.ref === 'string' && pr.head.ref.length > 0
+            && ['dev', 'main'].includes(pr?.base?.ref)
+            && process.env.CALLER_REF === mergeRef
+            && process.env.CALLER_WORKFLOW_REF === canonical + '/.github/workflows/ci.yml@' + mergeRef;
+          const runner = trusted ? ['self-hosted', 'macOS', 'gugu-public-ci'] : ['macos-15'];
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'runner=' + JSON.stringify(runner) + '\n');
+          NODE
   session:
+    if: ${{ inputs.tests-required == 'true' }}
     name: Session database, chat UI browser and tooling
-    runs-on: macos-15
+    needs: route
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
     timeout-minutes: 30
     steps:
       - name: Bind isolated application paths
@@ -30,6 +78,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: ./.github/actions/setup-community
         with:
           save-cache: 'true'
