@@ -110,6 +110,23 @@ describe('each actual pane owns its content', () => {
     } finally { input.remove(); layout.dispose(); }
   });
 
+  it('does not take focus while a same-tab navigation is waiting for close confirmation', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 0; });
+    let finish!: (allowed: boolean) => void;
+    const confirm = new Promise<boolean>((resolve) => { finish = resolve; });
+    const guarded = createTabProvider({ ...provider, onBeforeClose: () => confirm });
+    const layout = new PaneLayoutStore(createTabRegistry([guarded]), { viewId: 'confirm-before-focus' });
+    const tabId = layout.open('page', { id: 'current' }, { from: null, intent: 'newTab' })!;
+    const focus = vi.fn(); layout.focusedPane.setContentFocuser(focus);
+    try {
+      layout.open('page', { id: 'next' }, { from: tabId, intent: 'navigate' });
+      expect(focus).not.toHaveBeenCalled();
+      finish(false); await confirm;
+      expect(focus).not.toHaveBeenCalled();
+      expect(layout.focusedPane.entries.get(tabId)?.state).toEqual({ id: 'current' });
+    } finally { finish(false); layout.dispose(); }
+  });
+
   it('dispatches the existing back/forward commands only into the pane that owns the focused element', async () => {
     const layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'pane-history-keys' });
     const a = layout.open('page', { id: 'folder' }, { from: null, intent: 'newTab' })!;
