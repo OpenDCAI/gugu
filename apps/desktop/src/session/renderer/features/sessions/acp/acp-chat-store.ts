@@ -41,9 +41,11 @@ import { action, computed, makeObservable, observable, reaction, runInAction, wh
 import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, lifeHoldIsFailure, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
+import { sendHeldInputNow } from './send-held-input-now';
 import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
-import { changeRejectedSessionInput, deleteQueuedSessionInput, editQueuedSessionInput, queuedSessionInputs, releaseQueuedSessionInput, reorderQueuedSessionInputs, retrySessionInputs, subscribeSessionInputs } from '@/lib/sessionInputOutboxBridge';
+import { changeRejectedSessionInput, deleteQueuedSessionInput, editQueuedSessionInput, queuedSessionInputs, reorderQueuedSessionInputs, retrySessionInputs, subscribeSessionInputs } from '@/lib/sessionInputOutboxBridge';
 import type { SessionInput } from '@/lib/sessionInputOutbox';
+import { sessionSendQueueOrder } from '@/lib/sessionSendQueueOrder';
 import { projectSessionPendingInput } from '@/lib/pendingSessionInput';
 import { isTranscriptDelivery, loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries';
 import { batch } from 'solid-js';
@@ -1646,10 +1648,14 @@ export class AcpChatStore {
   }
 
   reorderQueuedPrompts(ids: string[]): void {
-    if (ids.every(id => this._senderInputs.some(input => input.id === id && input.sendQueue))) {
-      void reorderQueuedSessionInputs(this.runtimeSessionId, ids).catch(error => this._toastError('acpFailure.editQueued', error));
-      return;
+    const local = this._senderInputs.filter(input => input.sendQueue).sort((a, b) => a.sendQueue!.order - b.sendQueue!.order).map(input => input.id);
+    const order = sessionSendQueueOrder(this.queuedPrompts.map(prompt => prompt.id), new Set(local), ids);
+    if (!order) return;
+    if (!isDeepEqual(local, order.local)) {
+      void reorderQueuedSessionInputs(this.runtimeSessionId, order.local).catch(error => this._toastError('acpFailure.editQueued', error));
     }
+    ids = order.host;
+    if (isDeepEqual(ids, this.session?.sessionState.current().queuedPrompts.filter(isVisibleQueuedPrompt).map(prompt => prompt.id) ?? [])) return;
     const session = this._requireSession('acpFailure.editQueued');
     if (!session) return;
     const current = session.sessionState.current().queuedPrompts;
@@ -2325,13 +2331,7 @@ export class AcpChatStore {
 
   private async _sendQueuedPromptNow(id: string, steers: boolean): Promise<void> {
     if (this._senderInputs.some(input => input.id === id && input.sendQueue)) {
-      if (!steers && this.session && this.affordances.isWorking) {
-        const stopped = await this.session.cancelTurn();
-        if (!stopped.success) { this._toastError('acpFailure.stop', stopped.error); return; }
-      }
-      const transcript = this.chatState.transcript.state;
-      await releaseQueuedSessionInput(this.runtimeSessionId,
-        [...transcript.committedTurns, ...(transcript.activeTurnSnapshot ? [transcript.activeTurnSnapshot] : [])], id, steers);
+      await sendHeldInputNow(this, id, steers);
       return;
     }
     const session = this._requireSession('acpFailure.sendMessage');

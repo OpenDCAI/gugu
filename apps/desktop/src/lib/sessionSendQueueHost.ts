@@ -36,7 +36,7 @@ export function watchSessionSendQueues(accountId: string, currentDeviceId: () =>
               if (closed || watch.closed || !own.valid() || own.accountId !== accountId) return
               const snapshot = watch.replica!.current()
               // A background child does not hold the composer's foreground queue. A retained native turn does.
-              if (snapshot.lifecycle !== 'ready' || snapshot.activeTurnId !== null || snapshot.lastTurnOutcome !== 'none') return
+              if (snapshot.lifecycle !== 'ready' || snapshot.activeTurnId !== null || snapshot.lastTurnOutcome !== 'none' || snapshot.queuedPrompts.length) return
               const life = await rpcOn(machine).sessions.lifeView(input.sessionId)
               if (life.kind !== 'ready' || life.hold !== null) return
               const history = await client.getHistory({ sessionId: input.sessionId, limit: 100 })
@@ -44,11 +44,11 @@ export function watchSessionSendQueues(accountId: string, currentDeviceId: () =>
               if (closed || watch.closed || !own.valid() || own.accountId !== accountId) return
               if (watch.again) continue
               const latest = watch.replica!.current()
-              if (latest.lifecycle !== 'ready' || latest.activeTurnId !== null || latest.lastTurnOutcome !== 'none') return
+              if (latest.lifecycle !== 'ready' || latest.activeTurnId !== null || latest.lastTurnOutcome !== 'none' || latest.queuedPrompts.length) return
               await releaseQueuedSessionInput(input.sessionId, history.data.turns, undefined, false, () => {
                 const current = watch.replica!.current()
                 return !closed && !watch.closed && !watch.again && own.valid() && own.accountId === accountId
-                  && current.lifecycle === 'ready' && current.activeTurnId === null && current.lastTurnOutcome === 'none'
+                  && current.lifecycle === 'ready' && current.activeTurnId === null && current.lastTurnOutcome === 'none' && !current.queuedPrompts.length
               })
             } while (watch.again)
           } catch (error) { report(error) }

@@ -29,7 +29,7 @@ import '@/styles/tokens.css';
 import '@renderer/index.css';
 import '@/i18n/registerMessagingCatalog';
 
-const hostRpc = vi.hoisted(() => ({ invoke: vi.fn(), eventOn: vi.fn() }));
+const hostRpc = vi.hoisted(() => ({ invoke: vi.fn(), eventOn: vi.fn(), toast: vi.fn() }));
 vi.mock('@renderer/lib/machine-clients', () => ({
   machineClient: () => ({ api: { invoke: hostRpc.invoke, eventOn: hostRpc.eventOn, eventSend() {} } }),
   machineLinkState: () => 'open', machineLinkHandingOff: () => false,
@@ -37,7 +37,7 @@ vi.mock('@renderer/lib/machine-clients', () => ({
   onEachMachine: () => () => {}, closeMachineClient() {}, reconnectMachine() {}, machineLabel: () => 'fixture-remote',
   machineWireTransport: () => { throw new Error('Runtime replicas are controlled at the service boundary'); },
 }));
-vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
+vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: (value: unknown) => hostRpc.toast(value) }));
 Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
   invoke: (...args: unknown[]) => hostRpc.invoke(...args), eventOn: (...args: unknown[]) => hostRpc.eventOn(...args),
   eventSend() {}, getPathForFile: () => '',
@@ -59,7 +59,7 @@ function turn(id: string, itemId: string, text = '先前的工作'): TranscriptT
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 const sameText = '好';
-const cases = ['A-queue-first', 'A-active-first', 'B-life-first', 'B-active-first', 'direct-ack-first', 'direct-echo-first'] as const;
+const cases = ['A-queue-first', 'A-active-first', 'B-life-first', 'B-active-first', 'direct-ack-first', 'direct-echo-first', 'B-mixed-legacy'] as const;
 
 it.each(cases)('%s: record each actual paint boundary before Q starts', async (name) => {
   await page.viewport(1000, 800);
@@ -102,6 +102,11 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
     agents: replica([]), config: replica({}), plan: replica(null), terminals: replica([]), draft: replica(null),
     canSyncDraft: () => true, onDraftSyncReady: () => () => {}, cancelTurn: vi.fn(async () => ({ success: true, data: undefined })),
     setPromptDraft: async () => ({ success: true, data: undefined }),
+    changeQueuePromptOrder: vi.fn(async (ids: string[]): Promise<{ success: true; data: undefined }> => {
+      const current = session.sessionState.current();
+      session.sessionState.set({ ...current, queuedPrompts: ids.map(id => current.queuedPrompts.find(input => (input as { id: string }).id === id)) } as never);
+      return { success: true, data: undefined };
+    }),
     getHistory: async () => ({ success: true, data: { turns: historyTurns, count: historyTurns.length,
       nextCursor: null, cursor: { epoch: 'fixture', seq: 0 }, reset: false } }), dispose() {},
   };
@@ -299,6 +304,34 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
     expect(heldFrames.every(frame => frame.bodyQ === 0 && frame.queueQ === 1)).toBe(true);
     expect(heldFrames.every(frame => (frame.band as Array<{ rect: { y: number } }>)[0].rect.y === firstQueueRect.y)).toBe(true);
     expect(received).toEqual([]);
+    if (name === 'B-mixed-legacy') {
+      phase = 'legacy-upgrade-order';
+      session.sessionState.set({ ...session.sessionState.current(), queuedPrompts: ['legacy-1', 'legacy-2'].map(id => ({
+        id, text: id, origin: 'manual', createdAt: 1, updatedAt: 1, attachments: [],
+      })) } as never);
+      const editor = page.getByTestId('prompt-editor');
+      await editor.fill('another local input'); await userEvent.keyboard('{Enter}');
+      await until('second held input is visible', () => own.rows.length === 2 && store.queuedPrompts.length === 4);
+      const second = own.rows.find(input => input.id !== q!.id)!;
+      const queueRow = (id: string) => host.querySelector<HTMLElement>(`[data-queued-prompt-id="${id}"]`)!;
+      const drag = async (from: string, to: string) => userEvent.dragAndDrop(queueRow(from).querySelector<HTMLButtonElement>('button[draggable]')!, queueRow(to));
+      await drag('legacy-2', 'legacy-1');
+      await until('legacy reorder reaches its original host API', () => session.changeQueuePromptOrder.mock.calls.length === 1);
+      expect(session.changeQueuePromptOrder).toHaveBeenCalledWith(['legacy-2', 'legacy-1']);
+      await drag(second.id, q!.id);
+      const expected = ['legacy-2', 'legacy-1', second.id, q!.id];
+      await until('local reorder persists alongside legacy rows', () => store.queuedPrompts.map(input => input.id).join() === expected.join());
+      expect(session.changeQueuePromptOrder).toHaveBeenCalledTimes(1);
+      const toasts = hostRpc.toast.mock.calls.length;
+      await drag(q!.id, 'legacy-1'); await paint('cross-owner-drop-returns-to-original-slot');
+      expect(store.queuedPrompts.map(input => input.id)).toEqual(expected);
+      expect(session.changeQueuePromptOrder).toHaveBeenCalledTimes(1);
+      expect(hostRpc.toast.mock.calls.length).toBe(toasts);
+      expect(received).toEqual([]);
+      recording = false; cancelAnimationFrame(rafToken);
+      console.info('1344_FRAME_TRACE', JSON.stringify({ case: name, prelude, trace }));
+      return;
+    }
     let sentNow = false;
     if (name === 'B-life-first') {
       phase = 'queue-actions';
