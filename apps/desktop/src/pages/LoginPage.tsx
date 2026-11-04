@@ -109,7 +109,7 @@ export function LoginPage() {
     <section className="gugu-auth-shell" aria-labelledby={googleEnabled === null ? undefined : "gugu-auth-title"} aria-busy={googleEnabled === null}>
       <aside className="gugu-auth-brand" aria-label={t('brand.name')}>
         <AuthBrandMotion />
-        <div>
+        <div className="gugu-auth-brand-copy">
           <p className="gugu-auth-brand-line"><Trans i18nKey="auth.headline" ns="main" components={{ break: <br /> }} /></p>
           <p className="gugu-auth-brand-sub">{t('auth.brandSubtitle')}</p>
         </div>
