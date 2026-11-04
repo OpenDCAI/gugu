@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+import { buildChatTheme } from '@session-chat/core/config';
+import { ThemeContext } from '@session-chat/components/contexts/ThemeContext';
 import { useTheme } from '@session-chat/components/contexts/ThemeContext';
 import { HEADER_ROW_EXTRA_H } from '@session-chat/components/engine/row-metrics';
 import { BlockStackView } from '@session-chat/components/primitives/BlockStackView';
@@ -37,11 +39,16 @@ const THINKING_VARS: ThinkingVars = {
 };
 
 function thinkingHeaderH(ctx: MeasureCtx): number {
-  return ctx.theme.fonts.body.lineHeight + HEADER_ROW_EXTRA_H;
+  return ctx.theme.layout.agentConversation ? 32 : ctx.theme.fonts.body.lineHeight + HEADER_ROW_EXTRA_H;
 }
 
 function layoutThinkingBody(blocks: Block[], ctx: MeasureCtx, padY: number) {
-  return layoutBlockStack(blocks, ctx, { padY });
+  if (!ctx.theme.layout.agentConversation) return layoutBlockStack(blocks, ctx, { padY });
+  const config = ctx.theme.config;
+  const theme = buildChatTheme({ ...config, roles: { ...config.roles,
+    body: { ...config.roles.body, size: 12, lineHeight: 18, weight: 400 },
+  } }, ctx.theme.layout);
+  return layoutBlockStack(blocks, { ...ctx, theme, width: Math.max(1, ctx.width - 20) }, { padY: 4 });
 }
 
 /**
@@ -50,11 +57,17 @@ function layoutThinkingBody(blocks: Block[], ctx: MeasureCtx, padY: number) {
  */
 function thinkingBlocks(item: ChatThinking, ctx: MeasureCtx): Block[] {
   const text = item.text ?? '';
-  return flattenBlockHeadings(
+  const blocks = flattenBlockHeadings(
     item.status === 'thinking'
       ? ctx.caches.parseBlocksStreaming(item.id, text)
       : ctx.caches.parseBlocks(item.id, text)
   );
+  if (!ctx.theme.layout.agentConversation) return blocks;
+  return blocks.map(block => block.kind !== 'html' ? block : { ...block,
+    html: block.html.replace(/<(\/?)(?:strong|b)(?:\s[^>]*)?>/gi, '<$1span>')
+      .replace(/<h[1-6](?:\s[^>]*)?>/gi, '<p>').replace(/<\/h[1-6]>/gi, '</p>')
+      .replace(/<p>/g, '<p style="margin:0 0 4px;line-height:18px;font-weight:400">'),
+  });
 }
 
 function ThinkingHeader(props: {
@@ -64,6 +77,7 @@ function ThinkingHeader(props: {
   headerH: number;
 }) {
   const translate = useChatTranslator();
+  const theme = useTheme();
 
   /**
    * 行头文案。**只经 translator 取字**——这是 [[session-chat-ui]] spec body 的
@@ -105,6 +119,7 @@ function ThinkingHeader(props: {
 
   return (
     <CollapseHeader
+      leadingIcon={theme().layout.agentConversation ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 4c-3-4-8-1-7 3-4 0-4 6-1 7-2 4 3 8 8 5V4Zm0 0c3-4 8-1 7 3 4 0 4 6 1 7 2 4-3 8-8 5" /></svg> : undefined}
       id={props.item.id}
       collapsible={props.collapsible}
       expanded={props.expanded}
@@ -130,7 +145,7 @@ function thinkingMeasure(item: ChatThinking, ctx: MeasureCtx, vars: ThinkingVars
   const headerH = thinkingHeaderH(ctx);
   const isExpanded = ctx.expanded(item.id);
 
-  if (!isExpanded && item.status !== 'thinking') return headerH;
+  if (!isExpanded && (ctx.theme.layout.agentConversation || item.status !== 'thinking')) return headerH;
 
   const body = layoutThinkingBody(thinkingBlocks(item, ctx), ctx, vars.padY);
 
@@ -144,7 +159,7 @@ function ThinkingUnitRender(props: { data: ChatThinking; ctx: RenderCtx; vars: T
   // Inverted semantics: stored "collapsed" bool = "expanded".
   const isExpanded = () => props.ctx.viewState.isCollapsed(props.data.id);
 
-  const headerH = () => theme().fonts.body.lineHeight + HEADER_ROW_EXTRA_H;
+  const headerH = () => theme().layout.agentConversation ? 32 : theme().fonts.body.lineHeight + HEADER_ROW_EXTRA_H;
 
   const blocks = createMemo(() => {
     const ctx = mCtx();
@@ -172,7 +187,7 @@ function ThinkingUnitRender(props: { data: ChatThinking; ctx: RenderCtx; vars: T
    */
   const collapsible = createMemo(() => {
     if (blocks().length === 0) return false;
-    if (props.data.status === 'thinking') return (body()?.height ?? 0) > props.vars.windowH;
+    if (props.data.status === 'thinking' && !theme().layout.agentConversation) return (body()?.height ?? 0) > props.vars.windowH;
     return true;
   });
 
@@ -182,7 +197,7 @@ function ThinkingUnitRender(props: { data: ChatThinking; ctx: RenderCtx; vars: T
     return thinkingMeasure(props.data, ctx, props.vars);
   });
 
-  const showBody = () => isExpanded() || props.data.status === 'thinking';
+  const showBody = () => isExpanded() || (!theme().layout.agentConversation && props.data.status === 'thinking');
   const bodyH = () => body()?.height ?? 0;
 
   const styleVars = (): ThinkingStyleVars => ({ height: totalH() });
@@ -209,11 +224,15 @@ function ThinkingUnitRender(props: { data: ChatThinking; ctx: RenderCtx; vars: T
               autoScrollBottom={props.data.status === 'thinking'}
               contentHeight={() => bodyH()}
             >
-              <Show when={body()}>{(b) => <BlockStackView node={b()} />}</Show>
+              <Show when={body()}>{(b) => <div style={{ 'padding-left': theme().layout.agentConversation ? '20px' : undefined }}>
+                <ThemeContext.Provider value={() => theme().layout.agentConversation ? buildChatTheme({ ...theme().config, roles: { ...theme().config.roles, body: { ...theme().config.roles.body, size: 12, lineHeight: 18, weight: 400 } } }, theme().layout) : theme()}><BlockStackView node={b()} /></ThemeContext.Provider>
+              </div>}</Show>
             </PreviewWindow>
           }
         >
-          <Show when={body()}>{(b) => <BlockStackView node={b()} />}</Show>
+          <Show when={body()}>{(b) => <div style={{ 'padding-left': theme().layout.agentConversation ? '20px' : undefined }}>
+                <ThemeContext.Provider value={() => theme().layout.agentConversation ? buildChatTheme({ ...theme().config, roles: { ...theme().config.roles, body: { ...theme().config.roles.body, size: 12, lineHeight: 18, weight: 400 } } }, theme().layout) : theme()}><BlockStackView node={b()} /></ThemeContext.Provider>
+              </div>}</Show>
         </Show>
       </Show>
     </div>
@@ -230,7 +249,7 @@ export const thinkingUnitDef = defineUnit<ChatThinking, ThinkingVars>({
     const isExpanded = ctx.expanded(item.id);
 
     if (!isExpanded) {
-      if (item.status === 'thinking') return headerH + vars.windowH;
+      if (item.status === 'thinking' && !ctx.theme.layout.agentConversation) return headerH + vars.windowH;
       return headerH;
     }
 

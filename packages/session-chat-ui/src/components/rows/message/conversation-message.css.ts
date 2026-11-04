@@ -72,3 +72,5 @@ globalStyle(`${conversationRoot}[data-side="left"] ${cardFadeOverlay}`, {
 });
 
 export const conversationDestination = style({ display: 'block', marginTop: 4, height: 18, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
+
+globalStyle(`[data-slot="conversation-process-steps"] ${collapseHeader}, [data-slot="conversation-process-steps"] ${toolName}, [data-slot="conversation-process-steps"] ${summaryChip}`, { fontSize: 12, lineHeight: '18px' });

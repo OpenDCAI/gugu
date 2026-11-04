@@ -4,7 +4,7 @@ import { defineUnit } from '@session-chat/core/units';
 import type { MeasureCtx } from '@session-chat/core/define';
 import type { ChatMessage, ToolNode } from '@session-chat/model';
 import type { ChatTranslator } from '@session-chat/localization';
-import { IconCheck, IconX } from '@session-chat/components/primitives/icons';
+import { IconCheck, IconX, IconSquareTerminal } from '@session-chat/components/primitives/icons';
 import * as styles from './conversation-step.css';
 import { tallyToolRun, toolRunLabel } from '@session-chat/state/tool-run';
 import { toolStepDetail as stepDetail } from '@session-chat/lib/tool-step-detail';
@@ -56,7 +56,7 @@ export const conversationStepUnitDef = defineUnit<ConversationStepData, Record<s
     return <div class={styles.row} data-conversation-step={props.data.id}>
       <button type="button" class={styles.step} data-collapse-id={expandable() ? conversationTextKey(props.data.id) : undefined}
         data-collapse-anchor={props.data.id} aria-expanded={expandable() ? expanded() : undefined} disabled={!expandable()}>
-      <span class={styles.slot} aria-hidden="true"><Show when={notice() || failed()}><Show when={!failed()} fallback={<IconX />}><IconCheck /></Show></Show></span>
+      <span class={styles.slot} data-process-disclosure-icon aria-hidden="true"><Show when={!notice() && !failed()}><IconSquareTerminal /><Show when={expandable()}><span data-process-disclosure-chevron style={{ transform: expanded() ? 'rotate(90deg)' : undefined }}>›</span></Show></Show><Show when={notice() || failed()}><Show when={!failed()} fallback={<IconX />}><IconCheck /></Show></Show></span>
       <Show when={!notice()} fallback={<span class={styles.noticeSummary}>{summary()}</span>}>
         <span class={styles.name}>{props.data.actionLabel}</span><Show when={detail()}>{value => <code class={styles.detail} title={value()}>{value()}</code>}</Show>
         <Show when={props.data.stateLabel}>{value => <span class={styles.status}>{value()}</span>}</Show>

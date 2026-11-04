@@ -4,7 +4,7 @@ import { defaultChatTranslator } from '@session-chat/localization';
 import type { ChatItem, ChatMessage, TranscriptTurn } from '@session-chat/model';
 import { flattenTier as flattenTierWithViewports } from './flatten';
 // Assert chronological leaves independently of their bounded viewport wrapper.
-const flattenTier = (...args: Parameters<typeof flattenTierWithViewports>) => flattenTierWithViewports(...args).flatMap(row => row.children ?? [row]);
+const flattenTier = (...args: Parameters<typeof flattenTierWithViewports>) => flattenTierWithViewports(...args).flatMap(row => row.children ?? [row]).map(row => ({ ...row, itemId: row.itemId.replace('@completed', '') }));
 import { conversationOutput } from './conversation-process';
 import { conversationBackgroundOwner } from './conversation-background';
 import { planConversationSegments } from './conversation-segments';
@@ -20,7 +20,7 @@ const segmenters = Object.fromEntries(['day-separator', 'message', 'turn-process
 const context = (active: boolean, toggles: string[] = []): SegmentCtx => ({ caches: {}, expanded: () => false, active,
   foldTurnProcess: true, agentConversation: true, translate: defaultChatTranslator, plan: () => null,
   pendingToolCallIds: () => new Set(), terminalSnapshot: () => null,
-  isTurnProcessExpanded: (id: string) => toggles.includes(id),
+  isTurnProcessExpanded: (id: string) => toggles.includes(id.replace('@completed', '')),
 } as unknown as SegmentCtx);
 
 describe('replay conversation segment boundaries', () => {
@@ -53,8 +53,8 @@ describe('replay conversation segment boundaries', () => {
     const blocks = planConversationSegments(turn([message('u', 'user', 1000), call('one'), message('before', 'assistant', 3000), hook, call('two'), message('after', 'assistant', 7000)]), false);
     const segments = blocks.filter(block => block.kind === 'segment');
     expect(segments).toHaveLength(2);
-    expect(segments[0]).toMatchObject({ id: 't:process', startedAt: 1000, endedAt: 3000 });
-    expect(segments[1]).toMatchObject({ id: 't:process@stop', startedAt: 4000, endedAt: 9000 });
+    expect(segments[0]).toMatchObject({ id: 't:process@completed', startedAt: 1000, endedAt: 3000 });
+    expect(segments[1]).toMatchObject({ id: 't:process@stop@completed', startedAt: 4000, endedAt: 9000 });
     expect(segments.map(segment => conversationOutput(segment.items).reply?.id)).toEqual(['before', 'after']);
     expect(segments[1].items.map(item => item.id)).toEqual(['stop', 'two', 'after']);
   });
@@ -62,7 +62,7 @@ describe('replay conversation segment boundaries', () => {
   it('keeps the latest live words in a bubble and earlier words in the process', () => {
     const record = turn([message('u', 'user'), call('one'), message('first', 'assistant'), call('two'), message('latest', 'assistant')]);
     const rows = flattenTier([record], context(true), segmenters);
-    expect(rows.map(row => row.itemId)).toEqual(['t:day', 'u', 't:process:head', 't:run:one', 'first', 't:run:two', 'latest']);
+    expect(rows.map(row => row.itemId)).toEqual(['t:day', 'u', 't:process:head', 'one', 'first', 'two', 'latest']);
     expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationNarration).toBeUndefined();
     expect(rows.find(row => row.itemId === 'latest')!.data).not.toHaveProperty('conversationCaret');
     expect((rows.find(row => row.itemId === 'first')!.data as ChatMessage).conversationNarration).toBe(true);
@@ -140,7 +140,7 @@ describe('replay conversation segment boundaries', () => {
     const record = turn([message('u', 'user'), call('one'), message('a', 'assistant'), call('two'), message('b', 'assistant'), call('three'), message('latest', 'assistant'), { ...message('silent', 'assistant'), text: '[NO_REPLY]' }]);
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.map(row => row.itemId)).not.toContain('t:process:earlier');
-    expect(rows.map(row => row.itemId)).toContain('t:run:one');
+    expect(rows.map(row => row.itemId)).toContain('one');
     expect(rows.map(row => row.itemId)).toContain('a');
     expect(rows.map(row => row.itemId)).not.toContain('silent');
     expect(rows.filter(row => row.itemId === 'latest')).toHaveLength(1);
@@ -181,7 +181,7 @@ describe('replay conversation segment boundaries', () => {
     const head = rows.find(row => row.itemId === 't:process@wake:head')!.data as ChatMessage;
     expect(head.conversationReply).toBeUndefined();
     expect(rows.filter(row => row.itemId === 'wake')).toHaveLength(1);
-    expect(rows.findIndex(row => row.itemId === 'wake')).toBeLessThan(rows.findIndex(row => row.itemId === head.id));
+    expect(rows.findIndex(row => row.itemId === 'wake')).toBeLessThan(rows.findIndex(row => row.itemId === head.id.replace('@completed', '')));
     expect(head.conversationProcess).not.toHaveProperty('trigger');
   });
 
@@ -198,7 +198,7 @@ describe('replay conversation segment boundaries', () => {
       const head = rows.find(row => (row.data as ChatMessage).conversationPart === 'head')!.data as ChatMessage;
       expect(head.conversationReply).toBeUndefined();
       expect(rows.find(row => row.itemId === 'wake')?.data).toEqual(source);
-      expect(rows.findIndex(row => row.itemId === 'wake')).toBeLessThan(rows.findIndex(row => row.itemId === head.id));
+      expect(rows.findIndex(row => row.itemId === 'wake')).toBeLessThan(rows.findIndex(row => row.itemId === head.id.replace('@completed', '')));
     }
   });
 
@@ -245,8 +245,32 @@ describe('replay conversation segment boundaries', () => {
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.some(row => row.kind === 'agent-send')).toBe(false);
     expect(rows.filter(row => (row.data as ChatMessage).conversationPart === 'head')).toHaveLength(1);
-    expect(rows.find(row => row.itemId === 't:run:pending')?.data).toMatchObject({ kind: 'tool-run', stepCount: 1, label: 'Called 1 MCP tool' });
-    expect(rows.some(row => row.kind === 'mcp-tool-call')).toBe(false);
+    expect(rows.find(row => row.itemId === 'pending')?.data).toMatchObject({ kind: 'mcp-tool-call', status });
+    expect(rows.some(row => row.kind === 'tool-run')).toBe(false);
     expect(rows.filter(row => (row.data as ChatMessage).conversationPart === 'body').map(row => row.itemId)).toEqual(['ready']);
   });
+});
+
+it('separates a running disclosure choice from the completed process', () => {
+  const record = turn([message('u', 'user'), call('one'), message('reply', 'assistant')]);
+  const live = planConversationSegments(record, true).find(block => block.kind === 'segment')!;
+  const done = planConversationSegments(record, false).find(block => block.kind === 'segment')!;
+  expect(live.id).toBe('t:process');
+  expect(done.id).toBe('t:process@completed');
+  const rows = flattenTierWithViewports([record], { ...context(false), isTurnProcessExpanded: id => id === live.id }, segmenters);
+  expect(rows.some(row => row.kind === 'conversation-process-steps')).toBe(false);
+  expect(rows.some(row => row.itemId === 'reply')).toBe(true);
+});
+
+it('hides a completed silent segment including its clock, even with internal reasoning', () => {
+ const record = turn([message('u', 'user'), { kind: 'thinking', id: 'thought', text: 'internal', status: 'done' },
+  { ...message('silent', 'assistant'), text: '[NO_REPLY]' }] as ChatItem[]);
+ const rows = flattenTierWithViewports([record], context(false), segmenters);
+ expect(rows.some(row => row.kind === 'turn-process' || row.kind === 'conversation-process-steps')).toBe(false);
+ expect(rows.some(row => row.itemId === 'u')).toBe(true);
+});
+it('retains actual tool work when a completed segment chooses silence', () => {
+ const record = turn([message('u', 'user'), call('work'), { ...message('silent', 'assistant'), text: '[NO_REPLY]' }]);
+ const rows = flattenTierWithViewports([record], context(false), segmenters);
+ expect(rows.some(row => row.kind === 'turn-process')).toBe(true);
 });

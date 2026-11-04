@@ -56,17 +56,11 @@ describe('observable conversation process', () => {
     expect(v.host.textContent).not.toContain(nativeName);
   });
 
-  it('summarizes a single pending call and does not expose raw rows through stored disclosure state', async () => {
+  it('shows a single call directly without a redundant group disclosure', async () => {
     const v = mount([pending]);
     await until('process appears', () => !!v.host.querySelector('[data-conversation-process]'));
     await v.settle();
-    const run = v.host.querySelector('[data-slot="tool-run"]');
-    expect(run).not.toBeNull();
-    expect(run!.getAttribute('data-step-count')).toBe('1');
-    expect(run!.textContent).toContain('Called 1 MCP tool');
-    v.state.viewState.setCollapsed('live:run:send', true);
-    await v.settle();
-    expect(v.host.textContent).not.toContain(nativeName);
-    expect(v.host.querySelector('[data-row-kind="mcp-tool-call"]')).toBeNull();
+    expect(v.host.querySelector('[data-slot="tool-run"]')).toBeNull();
+    expect(v.host.querySelector('[data-process-step][data-item-id="send"]')).not.toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import { style } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
 import { sx } from '@session-chat/styles/sprinkles.css';
 import { vars } from '@session-chat/styles/theme.css';
 
@@ -85,3 +85,10 @@ export const collapseHeaderLabel = style({
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 });
+
+// A stable slot swaps the semantic icon for disclosure only while interacting.
+globalStyle('[data-process-disclosure-icon]', { position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, flexShrink: 0, order: -1 });
+globalStyle('[data-process-disclosure-icon] > svg', { width: 14, height: 14 });
+globalStyle('[data-process-disclosure-chevron]', { position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', opacity: 0, fontSize: 10, lineHeight: '14px' });
+globalStyle('[data-collapse-id]:hover > [data-process-disclosure-icon] > svg, [data-collapse-id]:focus-within > [data-process-disclosure-icon] > svg', { opacity: 0 });
+globalStyle('[data-collapse-id]:hover > [data-process-disclosure-icon] > [data-process-disclosure-chevron], [data-collapse-id]:focus-within > [data-process-disclosure-icon] > [data-process-disclosure-chevron]', { opacity: 1 });

@@ -211,7 +211,7 @@ export function flattenTier(
     stampGroupRoles(group);
     if (group.length === 0) return;
     if (owner) for (const u of group) u.conversationProcessOwner = owner;
-    if (ctx.revealAllFolds && folds) for (const u of group) u.folds = folds;
+    if ((ctx.revealAllFolds || ctx.agentConversation) && folds) for (const u of group) u.folds = folds;
 
     // Copy chrome from the segmenter onto each unit (allows UnitRow to read it
     // without looking up the segmenter). The chrome value is stable (segmenter
@@ -252,7 +252,7 @@ export function flattenTier(
    * ❌ 气泡先画、步骤挂在气泡底下。这一轮每条输出(message_send 发出去的也是)各自一个气泡,同一个名字下面排着。
    */
   const emitConversationReply = (reply: ChatMessage, sent: readonly ChatMessage[], steps: () => void): void => {
-    const head = `${reply.conversationProcess?.id ?? reply.id}:head`;
+    const head = `${(reply.conversationProcess?.id ?? reply.id).replace(/@completed$/, '')}:head`;
     // 头不带正文:话只在气泡里画一次(找、复制、计数都只见一份)。
     processItem({ ...reply, id: head, text: '', attachments: undefined, conversationPart: 'head' });
     steps();
@@ -276,8 +276,8 @@ export function flattenTier(
     const ops: EmitOp[] = [];
     let run: ChatItem[] = [];
     const flush = (): void => {
-      // Conversation steps stay semantic in every segment, including a lone call after a hook.
-      if (run.length === 1 && !ctx.agentConversation) ops.push({ kind: 'row', item: run[0] });
+      // The approved replay shows a lone call directly; only multiple calls form a disclosure.
+      if (run.length === 1) ops.push({ kind: 'row', item: run[0] });
       else if (run.length > 0) ops.push({ kind: 'run', rows: run });
       run = [];
     };
@@ -410,6 +410,10 @@ export function flattenTier(
       for (const block of planConversationSegments(turn, ctx.active && turnIndex === turns.length - 1)) {
         if (block.kind === 'input') { resultOwner = undefined; processItem(block.item); continue; }
         const output = conversationOutput(block.items, block.live);
+        // A settled silence with no observable action has no transcript surface.
+        // Reasoning alone is internal work; errors and terminal Stop reasons remain visible.
+        if (!block.live && output.silent && !output.reply && !output.stopReason
+          && output.steps.length === 0 && output.rest.every(item => item.kind === 'thinking')) continue;
         const ops = planRows(outsideProcess(output.rest));
         const process = { id: block.id, ...(block.live ? { live: true } : {}),
           startedAt: block.startedAt, endedAt: block.endedAt, ...(block.idleMs && !block.live ? { idleMs: block.idleMs } : {}), ...(block.live && ctx.pendingStarting?.() ? { starting: ctx.pendingStarting?.() } : {}), steps: output.steps.length,
@@ -433,7 +437,7 @@ export function flattenTier(
             lastKind = 'conversation-process-steps';
           }
         };
-        conversationOwner = output.reply ? `${block.id}:head` : block.id;
+        conversationOwner = output.reply ? `${block.id.replace(/@completed$/, '')}:head` : block.id;
         resultOwner = conversationOwner;
         if (output.reply) {
           const reply = { ...output.reply, conversationProcess: process,

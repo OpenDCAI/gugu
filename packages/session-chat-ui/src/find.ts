@@ -261,12 +261,15 @@ export function createChatFind(deps: {
     return go(matches.length === 0 ? -1 : Math.max(0, matches.findIndex((m) => m.entry.order >= topOrder)));
   };
 
-  const openItem = (itemId: string): boolean => {
+  const openItem = (itemId: string, options?: { preserveProcess?: boolean }): boolean => {
     const unit = allUnits().units.find(unit => unit.itemId === itemId);
     if (!unit) return false;
     const state = deps.state();
     batch(() => {
-      for (const gate of unit.folds ?? []) state.viewState.setCollapsed(gate.id, gate.stored);
+      for (const gate of unit.folds ?? []) {
+        if (options?.preserveProcess && gate.id.includes(":process")) continue;
+        state.viewState.setCollapsed(gate.id, gate.stored);
+      }
       if (unit.kind === 'message' && (unit.data as ChatMessage).conversationNarration) {
         state.viewState.setCollapsed(`${itemId}:conversation-text`, true);
       }

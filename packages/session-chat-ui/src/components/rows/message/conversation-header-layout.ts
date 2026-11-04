@@ -6,6 +6,7 @@ import { processButtonLayout, processRowHeight, backgroundPillLayout } from './p
 
 const speaker = (key: string | undefined, ctx: MeasureCtx) => key === '$owner' && ctx.selfIdentity?.userId ? `user:${ctx.selfIdentity.userId}` : key;
 export function conversationShowsName(item: ChatMessage, ctx: MeasureCtx): boolean {
+  if (ctx.theme.layout.agentConversation && item.role === 'assistant') return false;
   const current = speaker(conversationSpeaker(item), ctx), previous = speaker(item.conversationPreviousSpeaker, ctx);
   return !current || !previous || current !== previous;
 }
@@ -13,10 +14,14 @@ export function conversationShowsName(item: ChatMessage, ctx: MeasureCtx): boole
 /** Hover only changes paint. The inline metadata has the same measured geometry at rest. */
 export function conversationHeaderLayout(item: ChatMessage, ctx: MeasureCtx, senderName: string) {
   const showName = conversationShowsName(item, ctx);
-  const quote = Boolean(messageReplyReference(item));
+  const reference = messageReplyReference(item);
+  const quote = Boolean(reference);
+  const replyName = reference?.self ? ctx.commands?.conversationAgentName?.() : reference?.from;
+  const replyLabel = item.role === 'assistant' && replyName ? readableLabel(replyName, ctx, Math.min(120, ctx.width * .3), 12, 18) : null;
+  const referenceWidth = 18 + (replyLabel ? Math.min(120, ctx.width * .3, replyLabel.width) + 4 : 0);
   const process = item.role === 'assistant' ? item.conversationProcess : undefined;
   const separator = quote && process;
-  const metadataWidth = (quote ? 18 : 0) + (separator ? 4 : 0);
+  const metadataWidth = (quote ? referenceWidth : 0) + (separator ? 4 : 0);
   // Reserve the full process row, including its background controls, before the name.
   const naturalCtx = { ...ctx, width: Number.MAX_SAFE_INTEGER };
   const naturalButton = process && processButtonLayout(process, naturalCtx);
@@ -36,6 +41,6 @@ export function conversationHeaderLayout(item: ChatMessage, ctx: MeasureCtx, sen
   const background = process && backgroundPillLayout(item.id, processCtx);
   const processWidth = button ? Math.min(processCtx.width, button.width + (background ? background.width + 19 : 0)) : 0;
   const processHeight = process ? processRowHeight(item.id, process, processCtx) : 0;
-  return { name, nameWidth, gap, processCtx, processWidth, referenceInFooter,
+  return { name, nameWidth, replyName, referenceWidth, gap, processCtx, processWidth, referenceInFooter,
     height: name || process ? Math.max(name?.height ?? 0, processHeight, quote ? 18 : 0) + 6 : 0 };
 }
