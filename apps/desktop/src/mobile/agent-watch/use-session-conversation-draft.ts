@@ -12,7 +12,7 @@ export function useSessionConversationDraft(deviceId: string, sessionId: string,
   const { text: chatText, setText: setChatText, flush: flushChat } = chat
   const account = useSessionInputAccount()
   const key = `${account}/${deviceId}/${sessionId}`
-  const [kept, setKept] = useState(() => ({ key, text: nativeOffline ? readNativeOfflineDraft(deviceId, sessionId) : '' }))
+  const [kept, setKept] = useState(() => ({ key, text: nativeOffline && account ? readNativeOfflineDraft(deviceId, sessionId) : '' }))
   const current = useRef(kept)
   useLayoutEffect(() => {
     if (!nativeOffline || !account) return
@@ -32,7 +32,7 @@ export function useSessionConversationDraft(deviceId: string, sessionId: string,
     writeNativeOfflineDraft(deviceId, sessionId, text)
     current.current = { key, text }; setKept(current.current)
   }, [key, deviceId, sessionId])
-  return nativeOffline ? {
+  return nativeOffline && account ? {
     text: kept.key === key ? kept.text : readNativeOfflineDraft(deviceId, sessionId),
     setText,
     // Native text is persisted synchronously by the existing nativeOfflineDraft writer.

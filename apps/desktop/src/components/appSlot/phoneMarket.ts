@@ -1,4 +1,4 @@
-import { compatOf, pickForHost, type CloudMarketEntry, type MarketCodeSource, type MarketHost, type MarketIndex, type MarketIndexVersion, type MarketUpdatesSummary, type MarketVersionHistoryEntry } from '../../session/shared/extensions/market'
+import { compatOf, marketCompatText, pickForHost, type CloudMarketEntry, type MarketCodeSource, type MarketHost, type MarketIndex, type MarketIndexVersion, type MarketUpdatesSummary, type MarketVersionHistoryEntry } from '../../session/shared/extensions/market'
 import { marketEntriesFrom, marketHistoryFrom, marketListingFrom, marketMetaPath, marketUpdatesFrom, type MarketListing } from '../../session/shared/extensions/market-entries'
 import { marketSnapshotSource, type MarketRefreshed, type MarketSnapshotStore } from '../../session/shared/extensions/market-snapshot'
 import { appPlatformDeclarationProblems, requireAppPlatform } from '../../session/shared/extensions/app-platforms'
@@ -52,8 +52,8 @@ export function phoneMarket(
   const index = async (fresh: boolean): Promise<MarketIndex> => (await (fresh ? snapshot.fresh() : snapshot.current())).index
   return {
     entries: async (fresh = false) => {
-      const apps = (await index(fresh)).apps
-      return marketEntriesFrom(apps, host(), urlOf).extensions
+      const snapshot = await index(fresh)
+      return marketEntriesFrom(snapshot.apps, host(), urlOf, snapshot.hostApi).extensions
     },
     listing: async (extensionId, version) =>
       marketListingFrom(new TextDecoder().decode(await read(marketMetaPath(extensionId, version))), extensionId, version, urlOf),
@@ -61,26 +61,26 @@ export function phoneMarket(
       if (!relativePath.startsWith('media/')) throw new Error(`Not a market media path: ${relativePath}`)
       return read(relativePath)
     },
-    history: async (extensionId) => marketHistoryFrom((await index(false)).apps.find((app) => app.id === extensionId) ?? null, host()),
+    history: async (extensionId) => {
+      const snapshot = await index(false)
+      return marketHistoryFrom(snapshot.apps.find((app) => app.id === extensionId) ?? null, host(), snapshot.hostApi)
+    },
     updatesFor: async (installed) => marketUpdatesFrom(await index(false), host(), installed, new Date().toISOString()),
     refresh: () => snapshot.refresh(),
     onRefreshed: (listener) => snapshot.onRefreshed(listener),
     fetch: async (extensionId, version) => {
-      const app = (await index(true)).apps.find((entry) => entry.id === extensionId)
+      const snapshot = await index(true)
+      const app = snapshot.apps.find((entry) => entry.id === extensionId)
       if (!app) throw new Error(`The market has no App "${extensionId}"`)
       const row: MarketIndexVersion | null = version
         ? (app.versions.find((entry) => entry.version === version) ?? null)
-        : pickForHost(app.versions.filter((entry) => appPlatformDeclarationProblems(entry.manifest, 'phone').length === 0), host()).chosen
+        : pickForHost(app.versions.filter((entry) => appPlatformDeclarationProblems(entry.manifest, 'phone').length === 0), host(), snapshot.hostApi).chosen
       if (!row) throw new Error(`${extensionId}${version ? `@${version}` : ''} is no longer available in the market`)
       if (row.yanked) throw new Error(`${extensionId}@${row.version} was withdrawn: ${row.yanked.reason}`)
       requireAppPlatform(row.manifest, 'phone')
-      const compat = compatOf(row, host())
+      const compat = compatOf(row, host(), snapshot.hostApi)
       if (compat) {
-        throw new Error(
-          compat.reason === 'needs-newer-app'
-            ? `${extensionId}@${row.version} needs gugu ${compat.minAppVersion} or newer`
-            : `${extensionId}@${row.version} is written for an App interface this gugu no longer runs`,
-        )
+        throw new Error(`${extensionId}@${row.version} ${marketCompatText(compat)}`)
       }
       // No more than the row says it is: the shell stops a bigger one while it comes (it is held in memory whole, twice).
       const bytes = await read(row.bundle, row.bytes)

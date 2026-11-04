@@ -17,6 +17,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, renameSync, statSync, wri
 import { join } from 'node:path'
 import { Writable } from 'node:stream'
 import pino, { multistream, type Logger as PinoLogger } from 'pino'
+import { writeLogSync } from '@gugu/session-shared/logger/node'
 
 /** 单文件上限,超了就轮转;保留 KEEP 份历史。日志是给人发回来看的,别让它无限长。 */
 const MAX_BYTES = 5 * 1024 * 1024
@@ -160,11 +161,7 @@ let stdoutEnabled = process.env.GUGU_LOG_STDOUT === '1' || process.env.GUGU_LOG_
 
 function writeStdout(line: string): void {
   if (!stdoutEnabled) return
-  try {
-    writeSync(1, line)
-  } catch {
-    /* stdout 关了/满了都不该让日志把调用方拖垮 */
-  }
+  writeLogSync(1, line)
 }
 
 /** 给人看的一行:`12:34:56 INFO  [scope] 消息 {额外字段}`。❌ 不起 worker(见文件头纪律①)。 */

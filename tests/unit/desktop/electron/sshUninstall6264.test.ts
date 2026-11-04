@@ -76,7 +76,7 @@ describe('#6264 从这台机器上卸载咕咕 server:远端脚本', () => {
     } finally { fs.rmSync(home, { recursive: true, force: true }) }
   })
 
-  it('回收的 PID 属于另一份安装时保留那个进程及其锁,不委托旧版 stop', async () => {
+  it.each(['legacy', 'fixed'])('回收的 PID 属于另一份安装时保留那个进程及其锁,不委托旧版 stop: %s', async layout => {
     const home = tmp(), other = tmp()
     const foreign = spawn(process.execPath, ['-e', `
       const fs = require('node:fs');
@@ -87,10 +87,11 @@ describe('#6264 从这台机器上卸载咕咕 server:远端脚本', () => {
     try {
       await once(foreign.stdout, 'data')
       const serverHome = fakeInstall(home)
+      if (layout === 'fixed') fs.renameSync(path.join(serverHome, 'accounts', ME), path.join(serverHome, 'account'))
       const nodeDir = path.join(serverHome, 'current/node/bin')
       fs.mkdirSync(nodeDir, { recursive: true })
       fs.symlinkSync(process.execPath, path.join(nodeDir, 'node'))
-      fs.writeFileSync(path.join(serverHome, 'accounts', ME, 'data/server.lock'), String(foreign.pid))
+      fs.writeFileSync(path.join(serverHome, layout === 'fixed' ? 'account' : `accounts/${ME}`, 'data/server.lock'), String(foreign.pid))
       fs.mkdirSync(path.join(serverHome, 'data'))
       fs.writeFileSync(path.join(serverHome, 'data/server.lock'), `${foreign.pid}\n`)
       fs.writeFileSync(path.join(serverHome, 'data/keeper.pid'), String(foreign.pid))
@@ -109,17 +110,51 @@ describe('#6264 从这台机器上卸载咕咕 server:远端脚本', () => {
     }
   })
 
-  it('无法运行安装内的核验程序时拒绝删除安装和锁', () => {
+  it.each(['legacy', 'fixed'])('无法运行安装内的核验程序时拒绝删除安装和锁: %s', layout => {
     const home = tmp()
     try {
       const serverHome = fakeInstall(home)
-      const file = path.join(serverHome, 'accounts', ME, 'data/server.lock')
+      if (layout === 'fixed') fs.renameSync(path.join(serverHome, 'accounts', ME), path.join(serverHome, 'account'))
+      const file = path.join(serverHome, layout === 'fixed' ? 'account' : `accounts/${ME}`, 'data/server.lock')
       fs.writeFileSync(file, String(process.pid))
       expect(() => runSh(home, uninstallScript())).toThrow()
       expect(fs.readFileSync(file, 'utf8')).toBe(String(process.pid))
     } finally { fs.rmSync(home, { recursive: true, force: true }) }
   })
 
+  it('fails closed for an invalid fixed-account lock even without a legacy accounts directory', () => {
+    const home = tmp()
+    try {
+      const root = fakeInstall(home)
+      fs.renameSync(path.join(root, 'accounts', ME), path.join(root, 'account'))
+      fs.rmSync(path.join(root, 'accounts'), { recursive: true })
+      const nodeDir = path.join(root, 'current/node/bin')
+      fs.mkdirSync(nodeDir, { recursive: true })
+      fs.symlinkSync(process.execPath, path.join(nodeDir, 'node'))
+      const file = path.join(root, 'account/data/server.lock')
+      fs.writeFileSync(file, '')
+      expect(() => runSh(home, uninstallScript())).toThrow('Cannot verify account lock ownership')
+      expect(fs.readFileSync(file, 'utf8')).toBe('')
+      expect(fs.existsSync(path.join(root, 'data/stopped'))).toBe(false)
+    } finally { fs.rmSync(home, { recursive: true, force: true }) }
+  })
+
+  it('reads the fixed account and retained history once, skipping rollback aliases', () => {
+    const home = tmp()
+    try {
+      const root = fakeInstall(home)
+      fs.renameSync(path.join(root, 'accounts', ME), path.join(root, 'account'))
+      fs.symlinkSync('../account', path.join(root, 'accounts', ME))
+      fs.mkdirSync(path.join(root, 'retired'))
+      fs.renameSync(path.join(root, 'accounts', OTHER), path.join(root, 'retired', OTHER))
+      const parsed = parseInspectOutput(runSh(home, inspectScript()))!
+      expect(parsed.accounts).toHaveLength(2)
+      expect(parsed.accounts.filter(account => account.userId === ME)).toEqual([{ userId: ME, email: 'me@example.test', signedIn: true }])
+      expect(runSh(home, uninstallScript())).toContain(UNINSTALLED_MARK)
+      expect(fs.existsSync(root)).toBe(false)
+      expect(fs.existsSync(path.join(home, 'projects/app'))).toBe(true)
+    } finally { fs.rmSync(home, { recursive: true, force: true }) }
+  })
   it('看一眼:报出版本与每个账号(有没有登录态、邮箱)', () => {
     const home = tmp()
     try {
@@ -162,7 +197,7 @@ describe('#6264 从这台机器上卸载咕咕 server:远端脚本', () => {
       const bin = path.join(home, '.local', 'bin', 'gugu-server')
       fs.rmSync(bin)
       fs.writeFileSync(bin, binLauncher(path.join(home, 'elsewhere')), { mode: 0o755 })
-      runSh(home, uninstallScript())
+      expect(() => runSh(home, uninstallScript())).toThrow()
       expect(fs.existsSync(bin)).toBe(true)
       fs.mkdirSync(serverHome, { recursive: true })
       fs.writeFileSync(bin, binLauncher(serverHome), { mode: 0o755 })

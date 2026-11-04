@@ -1,6 +1,9 @@
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FileHandle } from '@gugu/core/shared/fileResolver';
+import { createAppFiles } from '@shared/extensions/app-files-core';
+import { FileSyncRelay } from '@shared/extensions/file-sync-core';
 
 // Chats are named by their id (编号 18: placeOf refuses anything else).
 const BOARD_CHAT = '0c4a7e10-0000-4000-8000-00000000b0a2';
@@ -120,6 +123,61 @@ beforeEach(() => {
 });
 
 describe('an App program as a caller of its App (F16)', () => {
+  it.each([null, 'files:read', 'files:write'] as const)('ending one call preserves another agent\'s pending stored read (grant %s)', async needs => {
+    const relay = new FileSyncRelay({ serviceUrl: () => '', token: async () => null, connect: vi.fn(), hasCapability: () => true, warn: vi.fn() });
+    fileSync.attachPort.mockImplementationOnce((id, extensionId, port) => relay.attachPage(id, extensionId, { ...port, close: () => {} }));
+    fileSync.revoke.mockImplementationOnce((id, reason, predicate) => relay.revoke(id, reason, predicate));
+    fileSync.revoke.mockImplementationOnce((id, reason, predicate) => relay.revoke(id, reason, predicate));
+    const program = attachProgramSurface('board', fakeChild() as unknown as ChildProcess);
+    const x = '44444444-4444-4444-8444-444444444444', y = '55555555-5555-4555-8555-555555555555';
+    const releaseA = program.hand('range-a', 'agent-a', [{ itemId: x, chatId: BOARD_CHAT, agentUserId: 'agent-a' }]);
+    const releaseB = program.hand('range-b', 'agent-b', [{ itemId: y, chatId: BOARD_CHAT, agentUserId: 'agent-b' }]);
+    const started = Promise.withResolvers<void>(), finish = Promise.withResolvers<Uint8Array<ArrayBuffer>>();
+    const disposed: string[] = [];
+    const files = createAppFiles({
+      account: async () => ({ token: 'synthetic', userId: 'person' }), hasCapability: (_id, cap) => cap === needs,
+      identities: async () => [], faces: async () => ({}), filesUrl: () => '', warn: vi.fn(),
+      sync: { ensureFor: () => {}, pageFor: () => relay.page(program.pageId)!, grant: () => {}, ungrant: () => {},
+        revoke: (id, reason, predicate) => { void relay.revoke(id, reason, predicate); }, onPageRelease: listener => relay.onPageRelease(listener) },
+      resolveFile: async (ref, actor, options) => {
+        if (!('id' in ref)) throw new Error('The fixture expects a file id');
+        return {
+          status: 'ready', purpose: 'file', reader: { accountId: 'person', actorId: actor ?? 'person' },
+          revision: { source: 'local', item_id: ref.id, version: options.version, chat_id: BOARD_CHAT, size_bytes: 2, file_name: 'data.bin', content_type: 'application/octet-stream', sha256: null },
+          read: async () => { if (ref.id === y) { started.resolve(); return finish.promise; } return new Uint8Array([1, 2]); },
+          stream: async function* () { yield new Uint8Array([1, 2]); },
+          dispose: async () => { disposed.push(ref.id); },
+        } satisfies FileHandle;
+      },
+    });
+    const a = { pageId: program.pageId, extensionId: 'board', itemId: needs === null ? x : null, asAgent: 'agent-a' };
+    const b = { pageId: program.pageId, extensionId: 'board', itemId: y, asAgent: 'agent-b' };
+    await files.read(a, { ref: { id: x, version: 1 }, offset: 0, length: 2 });
+    const outcome = files.read(b, { ref: { id: y, version: 1 }, offset: 0, length: 2 }).then(value => ({ value }), error => ({ error }));
+    await started.promise;
+    await releaseA();
+    finish.resolve(new Uint8Array([3, 4]));
+    try {
+      expect(await outcome).toMatchObject({ value: { data: new Uint8Array([3, 4]) } });
+      expect(files.readHandleCount()).toBe(1);
+      expect(disposed).toEqual([x]);
+      await releaseB();
+      expect(files.readHandleCount()).toBe(0);
+      const readBoth = () => Promise.all([
+        files.read(a, { ref: { id: x, version: 1 }, offset: 0, length: 2 }),
+        files.read(b, { ref: { id: y, version: 1 }, offset: 0, length: 2 }),
+      ]);
+      await readBoth();
+      expect(files.readHandleCount()).toBe(2);
+      await relay.revoke(program.pageId, 'removed-from-group');
+      expect(files.readHandleCount()).toBe(0);
+      await readBoth();
+      expect(files.readHandleCount()).toBe(2);
+      relay.pageGone(program.pageId);
+      expect(files.readHandleCount()).toBe(0);
+    } finally { relay.pageGone(program.pageId); await program.close(); }
+  });
+
   it('a person\'s stamped page call keeps person membership for files, chats and messages', async () => {
     granted.add('files:read');
     granted.add('chat:read');
@@ -235,7 +293,7 @@ describe('an App program as a caller of its App (F16)', () => {
     const child = fakeChild();
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
     const release = surface.hand('topic-call', 'agent-1', [], [{ chatId: TOPIC, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
-    const page = { pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1' };
+    const page = { pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1', callId: expect.any(String), signal: expect.any(AbortSignal) };
     expect(await call(child, 801, 'filesList', { place: { chat: TOPIC } }, 'topic-call')).toMatchObject({ ok: true });
     expect(listAppFiles).toHaveBeenLastCalledWith(page, { place: { chat: TOPIC } });
     expect(await call(child, 802, 'filesOpen', { ref: { chat: FOLDER_CHAT, id: 'source-file' } }, 'topic-call')).toMatchObject({ ok: true });
@@ -262,7 +320,7 @@ describe('an App program as a caller of its App (F16)', () => {
     const result = await call(child, 1, 'filesOpen', { ref: { id: 'item-board' } }, 'call-1');
     expect(result).toEqual({ m: APP_FRAME_MARKER, t: 'result', id: 1, ok: true, value: { docName: 'd@1' } });
     expect(openAppFile).toHaveBeenCalledWith(
-      { pageId: surface.pageId, extensionId: 'board', handed: { chat: BOARD_CHAT, id: 'item-board' }, asAgent: 'agent-1' },
+      { pageId: surface.pageId, extensionId: 'board', handed: { chat: BOARD_CHAT, id: 'item-board' }, asAgent: 'agent-1', callId: expect.any(String), signal: expect.any(AbortSignal) },
       { ref: { id: 'item-board' } },
     );
     // The call ends: what was opened on being handed alone goes with it.
@@ -305,7 +363,7 @@ describe('an App program as a caller of its App (F16)', () => {
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
     const first = surface.hand('call-a', 'agent-1', [HANDED]);
     const second = surface.hand('call-b', 'agent-2', [{ ...HANDED, agentUserId: 'agent-2' }]);
-    const asAgent = (agent: string) => ({ pageId: surface.pageId, extensionId: 'board', handed: { chat: BOARD_CHAT, id: 'item-board' }, asAgent: agent });
+    const asAgent = (agent: string) => ({ pageId: surface.pageId, extensionId: 'board', handed: { chat: BOARD_CHAT, id: 'item-board' }, asAgent: agent, callId: expect.any(String), signal: expect.any(AbortSignal) });
     expect(await call(child, 40, 'filesOpen', { ref: { id: 'item-board' } }, 'call-b')).toMatchObject({ ok: true });
     expect(openAppFile).toHaveBeenLastCalledWith(asAgent('agent-2'), { ref: { id: 'item-board' } });
     expect(await call(child, 41, 'filesOpen', { ref: { id: 'item-board' } }, 'call-a')).toMatchObject({ ok: true });
@@ -354,7 +412,7 @@ describe('an App program as a caller of its App (F16)', () => {
     // A session's working copy is no chat's: in an agent's call it stays the capability's, never refused here.
     const local = { ref: { workspace: 'session:session-1', name: 'notes.md' } };
     expect(await call(child, 54, 'filesOpen', local, 'call-1')).toMatchObject({ ok: true });
-    expect(openAppFile).toHaveBeenLastCalledWith({ pageId: surface.pageId, extensionId: 'board', handed: null }, local);
+    expect(openAppFile).toHaveBeenLastCalledWith({ pageId: surface.pageId, extensionId: 'board', handed: null, callId: expect.any(String), signal: expect.any(AbortSignal) }, local);
     // So is a project's folder (L1, 170 10-19): no membership to check a folder against — the capability's, as a session's.
     const project = { ref: { workspace: 'project:project-1', name: 'docs/plan.md' } };
     expect(await call(child, 55, 'filesOpen', project, 'call-2')).toMatchObject({ ok: true });
@@ -465,7 +523,7 @@ describe('an App program as a caller of its App (F16)', () => {
     const child = fakeChild();
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
     const release = surface.hand('call-1', 'agent-1', [], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
-    const asAgent = { pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1' };
+    const asAgent = { pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1', callId: expect.any(String), signal: expect.any(AbortSignal) };
     const asPerson = { pageId: surface.pageId, extensionId: 'board', handed: null };
     expect(await call(child, 50, 'filesList', { place: { chat: FOLDER_CHAT } }, 'call-1')).toMatchObject({ ok: true });
     expect(listAppFiles).toHaveBeenLastCalledWith(asAgent, { place: { chat: FOLDER_CHAT } });
@@ -496,7 +554,7 @@ describe('an App program as a caller of its App (F16)', () => {
     const release = surface.hand('call-1', 'agent-1', [], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
     const ref = { ref: { chat: FOLDER_CHAT, id: 'item-notes' } };
     expect(await call(child, 70, 'filesOpen', ref, 'call-1')).toMatchObject({ ok: true });
-    expect(openAppFile).toHaveBeenLastCalledWith({ pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1' }, ref);
+    expect(openAppFile).toHaveBeenLastCalledWith({ pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1', callId: expect.any(String), signal: expect.any(AbortSignal) }, ref);
     await release();
     expect(fileSync.revoke).toHaveBeenCalledTimes(1);
     const which = fileSync.revoke.mock.calls[0]![2] as (grant: { itemId: string; needs: string | null; asAgent?: string }) => boolean;
@@ -530,7 +588,7 @@ describe('an App program as a caller of its App (F16)', () => {
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
     const first = surface.hand('call-a', 'agent-1', [], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
     const second = surface.hand('call-b', 'agent-2', [{ itemId: 'item-folder', chatId: FOLDER_CHAT, agentUserId: 'agent-2' }]);
-    const asAgent = (agent: string) => ({ pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: agent });
+    const asAgent = (agent: string) => ({ pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: agent, callId: expect.any(String), signal: expect.any(AbortSignal) });
     expect(await call(child, 60, 'filesList', { place: { chat: FOLDER_CHAT } }, 'call-b')).toMatchObject({ ok: true });
     expect(listAppFiles).toHaveBeenLastCalledWith(asAgent('agent-2'), { place: { chat: FOLDER_CHAT } });
     expect(await call(child, 61, 'filesList', { place: { chat: FOLDER_CHAT } }, 'call-a')).toMatchObject({ ok: true });
@@ -591,5 +649,45 @@ describe('an App program as a caller of its App (F16)', () => {
     expect(fileSync.pageGone).toHaveBeenCalledWith(surface.pageId);
     child.emit('message', { m: APP_FRAME_MARKER, t: 'sync', data: bytes });
     expect(fileSync.fromPort).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('R3 scoped file reads follow the program call lifetime', () => {
+  it('k1 release aborts its own page signal without cancelling another call', async () => {
+    const child = fakeChild(), surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    let page: { signal?: AbortSignal; callId?: string } | undefined;
+    openAppFile.mockImplementationOnce(async (...args: unknown[]) => { page = args[0] as typeof page; return { docName: 'd@1' }; });
+    const release = surface.hand('cancelled', 'agent-1', [HANDED]);
+    surface.hand('other', 'agent-1', [HANDED]);
+    await call(child, 9001, 'filesOpen', { ref: { id: HANDED.itemId } }, 'cancelled');
+    const signal = page?.signal;
+    expect(page?.callId).toBe('cancelled');
+    openAppFile.mockImplementationOnce(async (...args: unknown[]) => { page = args[0] as typeof page; return { docName: 'd@1' }; });
+    await call(child, 9002, 'filesOpen', { ref: { id: HANDED.itemId } }, 'other');
+    const other = page?.signal;
+    expect(page?.callId).toBe('other');
+    await release();
+    const otherWasLive = other !== undefined && !other.aborted;
+    await surface.close();
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBe(true);
+    expect(otherWasLive).toBe(true);
+  });
+  it('k1 close aborts every active call signal and unscoped verbs have none', async () => {
+    granted.add('files:read');
+    const child = fakeChild(), surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    const pages: { signal?: AbortSignal }[] = [];
+    openAppFile.mockImplementation(async (...args: unknown[]) => { pages.push(args[0] as { signal?: AbortSignal }); return { docName: 'd@1' }; });
+    try {
+      for (const [i, id] of ['a', 'b'].entries()) {
+        surface.hand(id, 'agent-1', [HANDED]);
+        await call(child, 9010 + i, 'filesOpen', { ref: { id: HANDED.itemId } }, id);
+      }
+      await call(child, 9012, 'filesOpen', { ref: { chat: BOARD_CHAT, id: HANDED.itemId } });
+      await surface.close();
+      expect(pages.slice(0, 2).map(page => page.signal?.aborted)).toEqual([true, true]);
+      expect(pages[2]).not.toHaveProperty('signal');
+      expect(pages[2]).not.toHaveProperty('callId');
+    } finally { openAppFile.mockImplementation(async () => ({ docName: 'd@1' })); await surface.close(); }
   });
 });

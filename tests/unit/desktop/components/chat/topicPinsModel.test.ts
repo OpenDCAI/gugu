@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
+import { updateUserSettingsConfig } from '@gugu/core/cloud/userSettings'
+import { versionedSettingsClient } from '../../../../support/versionedSettingsTestDouble'
 
 const io = vi.hoisted(() => ({ rows: new Map<string, Record<string, unknown>>(), failWrite: false }))
 vi.mock('@/lib/supabase', async () => {
@@ -10,7 +12,6 @@ vi.mock('@/lib/realtimeChannel', () => ({ subscribePrivateUserEventBus: vi.fn(),
 vi.mock('@/platform', () => ({ platform: { subscribeAppForeground: () => () => {} } }))
 
 const { readChatTopicPins, setChatTopicPin } = await import('@/lib/chatTopicPins')
-const { readChatAppPins, setChatAppPin } = await import('@/lib/chatAppPins')
 const { topicPinGroups, topicUnreadTotal } = await import('@/components/chat/topicPinsModel')
 function topic(id: string, activity: string, overrides: Partial<ChatItem> = {}): ChatItem {
   return { id, kind: 'topic', status: 'active', name: id, source_chat_id: 'g', created_at: activity,
@@ -19,13 +20,12 @@ function topic(id: string, activity: string, overrides: Partial<ChatItem> = {}):
 beforeEach(() => { io.rows.clear(); io.failWrite = false })
 
 describe('personal topic preferences', () => {
-  it.each([false, true])('retains both devices edits when topic/App writes start together (App first=%s)', async (appFirst) => {
+  it.each([false, true])('retains both devices edits when topic/workspace writes start together (workspace first=%s)', async (workspaceFirst) => {
     io.rows.set('u/chat:g', { scope: 'chat:g', config: { pinnedTopicIds: ['not-synced-here'], workspace: { layout: 'list' } }, updated_at: '2026-10-29T00:00:00.000Z' })
-    const actions = [() => setChatTopicPin('u', 'g', 'live', true, ['live']), () => setChatAppPin('u', 'g', 'board', true)]
-    await Promise.all((appFirst ? actions.toReversed() : actions).map((write) => write()))
+    const actions = [() => setChatTopicPin('u', 'g', 'live', true, ['live']), () => updateUserSettingsConfig(versionedSettingsClient(io), 'u', 'chat:g', (config) => ({ ...config, workspace: { ...(config.workspace as Record<string, unknown>), show_app_data: true } }))]
+    await Promise.all((workspaceFirst ? actions.toReversed() : actions).map((write) => write()))
     expect(await readChatTopicPins('u', 'g')).toEqual(['not-synced-here', 'live'])
-    expect(await readChatAppPins('u', 'g')).toEqual(['board'])
-    expect(io.rows.get('u/chat:g')?.config).toEqual({ pinnedTopicIds: ['not-synced-here', 'live'], pinnedAppIds: ['board'], workspace: { layout: 'list' } })
+    expect(io.rows.get('u/chat:g')?.config).toEqual({ pinnedTopicIds: ['not-synced-here', 'live'], workspace: { layout: 'list', show_app_data: true } })
   })
 
   it('keeps account/group isolation and unrelated chat preferences while maintaining pin order', async () => {

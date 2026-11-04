@@ -193,6 +193,29 @@ describe('#5856 topic_ 域:agent 直接操作话题', () => {
     expect(calls.rpcs).toHaveLength(0)
   })
 
+  test.each([
+    ['agent', PEER, true], ['human', OWNER_ID, true],
+    ['departed', PEER, false], ['self', AGENT_ID, true],
+  ] as const)('topic_open leaves %s author enrollment to create_topic and reports its member result', async (_kind, author, present) => {
+    // Membership is a backend result fixture, not a client implementation of admission.
+    const joined = [...new Set(present ? [AGENT_ID, author] : [AGENT_ID])]
+    const { deps, calls } = topicHarness({
+      members: { [SOURCE_CHAT]: present ? [AGENT_ID, OWNER_ID, PEER] : [AGENT_ID, OWNER_ID], [TOPIC_CHAT]: joined },
+      rpc: () => CREATED_TOPIC,
+    })
+    const result = JSON.parse(String(await callTool('topic_open', {
+      chat_id: SOURCE_CHAT, source_message_id: `msg:${SOURCE_MESSAGE}`,
+    }, deps)))
+    expect(calls.rpcs).toEqual([
+      ['chat_facts', { p_chat_id: SOURCE_CHAT, p_as_user_id: AGENT_ID }],
+      ['create_topic', { p_source_chat_id: SOURCE_CHAT, p_source_message_id: SOURCE_MESSAGE,
+        p_name: null, p_member_user_ids: null, p_as_user_id: AGENT_ID }],
+      ['list_member_ids', { p_chat_id: TOPIC_CHAT, p_as_user_id: AGENT_ID }],
+    ])
+    expect(result.member_user_ids).toEqual(joined.map((id) => `user:${id}`))
+    expect(calls.inserts).toEqual([])
+  })
+
   test('topic_open 的 to_user_ids 走 resolveRecipientAddresses:咕咕号解析成裸 uuid 再进 RPC', async () => {
     const { deps, calls } = topicHarness({
       rpc: (name) => (name === 'search_users'

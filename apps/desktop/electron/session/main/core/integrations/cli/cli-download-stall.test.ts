@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -76,7 +76,7 @@ it('resumes from where it broke off when the server takes a Range', async () => 
   const reports: Array<{ receivedBytes: number; totalBytes?: number }> = [];
   const done = downloadTo('https://example.test/tool.tgz', file, 'sha256', 'hex', (progress) => reports.push(progress as never), { retryDelayMs: 1 });
   first.push([1, 2, 3]);
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  while ((await stat(file).catch(() => null))?.size !== 3) await new Promise((resolve) => setTimeout(resolve, 5));
   first.drop();
   await expect(done).resolves.toBe(sha256([1, 2, 3, 4, 5]));
   expect(fetch).toHaveBeenCalledTimes(2);
@@ -95,7 +95,7 @@ it('downloads again from the start when the server does not take a Range', async
   const file = path.join(dir, 'tool.tgz');
   const done = downloadTo('https://example.test/tool.tgz', file, 'sha256', 'hex', () => undefined, { retryDelayMs: 1 });
   first.push([1, 2, 3]);
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  while ((await stat(file).catch(() => null))?.size !== 3) await new Promise((resolve) => setTimeout(resolve, 5));
   first.drop();
   await expect(done).resolves.toBe(sha256([1, 2, 3, 4, 5]));
   expect([...await readFile(file)]).toEqual([1, 2, 3, 4, 5]);

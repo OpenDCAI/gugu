@@ -19,19 +19,21 @@ import {
  * 挑它能装的最新一版、详情页有版本历史、可装任意一版、可撤回某一版、可弃用整个扩展。
  */
 
-/** 宿主关于自己的三个数:市场用它们回答「这一版这台机器装不装得了」。 */
+/** 宿主的平台、版本与发布通道:市场据此判断兼容性与更新提示。 */
 export interface MarketHost {
   platform: AppPlatform;
   /** 咕咕自己的版本(可带 `-beta.3` 之类后缀;比较只看 x.y.z)。 */
   appVersion: string;
   apiVersionMin: number;
   apiVersionMax: number;
+  channel?: 'beta' | 'stable';
 }
 
 export function currentMarketHost(appVersion: string, platform: AppPlatform): MarketHost {
   return {
     platform,
     appVersion,
+    channel: appVersion.includes('-beta.') ? 'beta' : 'stable',
     apiVersionMin: EXTENSION_API_VERSION_MIN_SUPPORTED,
     apiVersionMax: EXTENSION_API_VERSION,
   };
@@ -45,8 +47,42 @@ export function currentMarketHost(appVersion: string, platform: AppPlatform): Ma
  */
 export type MarketCompat =
   | null
-  | { reason: 'needs-newer-app'; minAppVersion: string }
+  | { reason: 'needs-newer-app'; gate: 'api'; apiVersion: number; firstRelease: string | null }
+  | { reason: 'needs-newer-app'; gate: 'app'; minAppVersion: string }
   | { reason: 'needs-author-update'; apiVersion: number };
+
+/** Every market surface uses the same reason and interpolation values, including log-only hosts. */
+export function marketCompatText(
+  compat: NonNullable<MarketCompat>,
+  translate?: (key: 'extensions.needsNewerApp' | 'extensions.needsAppApi' | 'extensions.needsAuthorUpdate' | 'extensions.tileNeedsApp', values?: Readonly<Record<string, string | number>>) => string,
+  short = false
+): string {
+  if (compat.reason === 'needs-author-update') return translate ? translate('extensions.needsAuthorUpdate') : `targets apiVersion ${compat.apiVersion}, which this gugu no longer runs; its author has to update it`;
+  if (short) return translate ? translate('extensions.tileNeedsApp') : 'needs a newer gugu';
+  if (compat.gate === 'api' && compat.firstRelease === null) {
+    return translate ? translate('extensions.needsAppApi', { apiVersion: compat.apiVersion }) : `needs a gugu version that supports App API ${compat.apiVersion}`;
+  }
+  const version = compat.gate === 'api' ? compat.firstRelease! : compat.minAppVersion;
+  return translate ? translate('extensions.needsNewerApp', { version }) : `needs gugu ${version} or newer`;
+}
+
+/** Optional release metadata: an absent or damaged table changes copy, never list/install eligibility. */
+const hostReleaseVersion = z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
+const hostApiSchema = z.array(z.object({
+  apiVersion: z.number().int().positive(),
+  firstRelease: z.object({
+    beta: hostReleaseVersion.optional(),
+    stable: hostReleaseVersion.optional(),
+  }),
+}));
+
+export function firstReleaseFor(hostApi: unknown, apiVersion: number, channel: 'beta' | 'stable'): string | null {
+  const parsed = hostApiSchema.safeParse(hostApi);
+  if (!parsed.success) return null;
+  const first = parsed.data.filter(entry => entry.apiVersion >= apiVersion && entry.firstRelease[channel])
+    .sort((a, b) => a.apiVersion - b.apiVersion)[0];
+  return first?.firstRelease[channel] ?? null;
+}
 
 /** 市场清单上的一条:某个扩展当前给这台机器的那一版。 */
 export interface CloudMarketEntry {
@@ -104,6 +140,7 @@ const marketPath = z.string().regex(/^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*$/);
  * 下架的 App 不在这份目录里。客户端只读下载站,❌ 直连 GitHub。
  */
 export const marketIndexSchema = z.object({
+  hostApi: hostApiSchema.optional().catch(undefined),
   apps: z.array(
     z.object({
       id: z.string(),
@@ -229,16 +266,17 @@ export function appSatisfies(minAppVersion: string, appVersion: string): boolean
 /** 一行版本对这台机器的兼容结论。先看协议号(硬门),再看最低咕咕版本。 */
 export function compatOf(
   row: { apiVersion: number; minAppVersion: string },
-  host: MarketHost
+  host: MarketHost,
+  hostApi?: MarketIndex['hostApi']
 ): MarketCompat {
   if (row.apiVersion > host.apiVersionMax) {
-    return { reason: 'needs-newer-app', minAppVersion: row.minAppVersion };
+    return { reason: 'needs-newer-app', gate: 'api', apiVersion: row.apiVersion, firstRelease: firstReleaseFor(hostApi, row.apiVersion, host.channel ?? (host.appVersion.includes('-beta.') ? 'beta' : 'stable')) };
   }
   if (row.apiVersion < host.apiVersionMin) {
     return { reason: 'needs-author-update', apiVersion: row.apiVersion };
   }
   if (!appSatisfies(row.minAppVersion, host.appVersion)) {
-    return { reason: 'needs-newer-app', minAppVersion: row.minAppVersion };
+    return { reason: 'needs-newer-app', gate: 'app', minAppVersion: row.minAppVersion };
   }
   return null;
 }
@@ -252,17 +290,18 @@ export function compatOf(
  */
 export function pickForHost<T extends { version: string; apiVersion: number; minAppVersion: string; yanked?: unknown }>(
   rows: readonly T[],
-  host: MarketHost
+  host: MarketHost,
+  hostApi?: MarketIndex['hostApi']
 ): { chosen: (T & { compat: MarketCompat }) | null; newerNeedsApp: string | null } {
   const live = rows
     .filter((row) => !row.yanked)
     .slice()
     .sort((a, b) => compareExtensionVersions(b.version, a.version));
   if (live.length === 0) return { chosen: null, newerNeedsApp: null };
-  const installable = live.find((row) => compatOf(row, host) === null);
+  const installable = live.find((row) => compatOf(row, host, hostApi) === null);
   if (!installable) {
     const newest = live[0]!;
-    return { chosen: { ...newest, compat: compatOf(newest, host) }, newerNeedsApp: null };
+    return { chosen: { ...newest, compat: compatOf(newest, host, hostApi) }, newerNeedsApp: null };
   }
   const newest = live[0]!;
   return {

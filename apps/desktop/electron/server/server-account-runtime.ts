@@ -2,7 +2,19 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { accountLockHolder, type AccountLockDeps } from './server-account-lock'
-import { runningVersionOf } from './server-version-match'
+
+/** 从 /proc/<pid>/environ 读 GUGU_TASK_HOST_VERSION(启动器 export 的),读不到退回命令行里的 versions/<版本>/。 */
+export function runningVersionOf(pid: number, read: (file: string) => string | null): string | null {
+  const environ = read(`/proc/${pid}/environ`)
+  if (environ) {
+    for (const entry of environ.split('\0')) {
+      if (entry.startsWith('GUGU_TASK_HOST_VERSION=')) return entry.slice('GUGU_TASK_HOST_VERSION='.length) || null
+    }
+  }
+  const cmdline = read(`/proc/${pid}/cmdline`)?.replace(/\0/g, ' ') ?? null
+  return cmdline?.match(/\/versions\/([^/\s]+)\/(?:node|app)\//)?.[1] ?? null
+}
+
 
 const readText = (file: string): string | null => {
   try { return fs.readFileSync(file, 'utf8') } catch { return null }

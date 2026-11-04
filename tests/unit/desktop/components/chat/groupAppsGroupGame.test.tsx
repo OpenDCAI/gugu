@@ -43,9 +43,8 @@ afterEach(() => {
   runInAction(() => { installedExtensionsStore.manifests = []; installedExtensionsStore.disabled = []; installedExtensionsStore.isLoaded = false })
 })
 
-const pins = { ids: [], ready: true, saving: false, error: null, set: vi.fn(), retry: vi.fn() } as never
 async function picker(chatId = 'g1') {
-  await renderWithAppProviders(harness, createNode(GroupAppsPicker, { chatId, pins, mobile: true, anchor: createRef<HTMLButtonElement>(), onClose: vi.fn() }))
+  await renderWithAppProviders(harness, createNode(GroupAppsPicker, { chatId, mobile: true, anchor: createRef<HTMLButtonElement>(), onClose: vi.fn() }))
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
   return [...document.querySelectorAll<HTMLElement>('[data-app-id]')].map((row) => row.dataset.appId)
 }

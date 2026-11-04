@@ -65,7 +65,7 @@ const files = createAppFiles({
     return verifiedFileHandle(new Uint8Array([1, 2, 3]), { item_id: ITEM, version: options.version ?? row.version as number, file_name: String(row.filename), content_type: 'application/pdf' });
   },
   hasCapability: () => true,
-  sync: { ensureFor: () => undefined,} as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}) } as never,
   identities: async (_token, ids) => ids.map((id) => ({ id, name: id, avatar: null, kind: 'human' as const })),
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',
@@ -96,7 +96,7 @@ function cloudBackedFiles(body = new Uint8Array([1, 2, 3]), hostFetch: typeof fe
       if (!('id' in ref)) throw Error('This fixture expects an item reference');
       return resolve({ item_id: ref.id, version: options.version ?? Number(row.version) }, { accountId: ME, actorId: actor ?? ME });
     },
-    hasCapability: () => true, sync: { ensureFor: () => undefined,} as never,
+    hasCapability: () => true, sync: { ensureFor: () => undefined, pageFor: () => ({}) } as never,
     identities: async (_token, ids) => ids.map(id => ({ id, name: id, avatar: null, kind: 'human' as const })),
     faces: async () => ({}), filesUrl: () => 'http://files.invalid', warn: () => undefined,
   });
@@ -136,8 +136,13 @@ describe('gugu.files on a file whose bytes are in OSS (#7290)', () => {
   it('a version signed once is not signed again while its link holds; another version, or another reader, is (10-25)', async () => {
     row = { ...row, id: '55555555-5555-4555-8555-555555555555', version: 7 };
     const cached = cloudBackedFiles();
-    const open = (extra?: Record<string, unknown>) => cached.open(surface(extra), { ref: { id: row.id as string } });
-    expect(new Uint8Array((await open()).bytes!)).toEqual(new Uint8Array([1, 2, 3]));
+    const open = async (extra?: Record<string, unknown>) => {
+      const opened = await cached.open(surface(extra), { ref: { id: row.id as string } });
+      expect(opened.chunked).toBe(true); expect(opened).not.toHaveProperty('bytes');
+      const range = await cached.read(surface(extra), { ref: { id: row.id as string, version: opened.entry.version! }, offset: 0, length: 3 });
+      return range.data;
+    };
+    expect(await open()).toEqual(new Uint8Array([1, 2, 3]));
     await open();
     expect(signedRefs).toEqual([{ refs: [{ item_id: row.id, version: 7 }], as: ME }]);
     row = { ...row, version: 8 };
@@ -153,7 +158,10 @@ describe('gugu.files on a file whose bytes are in OSS (#7290)', () => {
       return new Response(new Uint8Array([4, 5]));
     });
     row = { ...row, id: '66666666-6666-4666-8666-666666666666' };
-    expect(new Uint8Array((await own.open(surface(), { ref: { id: row.id as string } })).bytes!)).toEqual(new Uint8Array([4, 5]));
+    const opened = await own.open(surface(), { ref: { id: row.id as string } });
+    expect(fetched).toEqual([]);
+    const range = await own.read(surface(), { ref: { id: row.id as string, version: opened.entry.version! }, offset: 0, length: 2 });
+    expect([...range.data]).toEqual([4, 5]);
     expect(fetched).toEqual([CDN]);
   });
 

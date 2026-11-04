@@ -1,8 +1,6 @@
 name: CI
 on:
   pull_request:
-  push:
-    branches: [main, dev]
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,7 +19,7 @@ env:
 jobs:
   # Decides which packaging jobs a pull request needs. Test jobs never depend on this: they run on
   # every event (scripts/ci/ci-spec-coverage.mts rejects conditions on any job that runs a test runner).
-  # Push to dev/main and manual runs always build everything.
+  # Manual diagnostic runs always build everything; merges do not repeat PR CI.
   changes:
     name: Detect changed areas
     runs-on: ubuntu-24.04
@@ -41,11 +39,18 @@ jobs:
       - id: classify
         env:
           EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           build=true
           desktop_mac=true
           android=true
-          if [ "$EVENT_NAME" = pull_request ]; then
+          # Only this repository's exact integration branch bypasses the PR path filters.
+          if [ "$EVENT_NAME" = pull_request ] && {
+            [ "$GITHUB_REPOSITORY" != GUYI-AI/gugu ] ||
+              [ "$PR_HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ] ||
+              [ "$PR_HEAD_REF" != integration/beta-20261103 ]
+          }; then
             build=false
             desktop_mac=false
             android=false
@@ -130,7 +135,7 @@ jobs:
           exit "$failed"
       - run: node scripts/checks/ui-state-debt-check.mjs --root apps/desktop/src
       - run: pnpm typecheck
-      - run: pnpm lint
+      - run: pnpm lint:source
       - name: Verify e2e and integration spec execution coverage
         run: |
           args=()

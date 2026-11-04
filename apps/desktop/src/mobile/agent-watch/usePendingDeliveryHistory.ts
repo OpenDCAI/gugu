@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import { pendingPromptLanded, type PendingPrompt } from '@session-chat/state/pending-prompt'
 import { loadPendingDeliveryHistory } from '@/lib/pendingSessionDeliveries'
@@ -41,6 +41,7 @@ export function usePendingDeliveryHistory({ deviceId, sessionId, local, enabled,
       .then(result => finish(result.turns, null), (error: unknown) => finish([], messageForUser(error)))
     return () => { alive = false }
   }, [key, deviceId, sessionId, local, enabled, ready, unknownKey])
-  return { turns: merged, error: own.error, visible: (input: PendingPrompt) => input.delivery?.state !== 'unknown'
-    || (ready && (own.resolved.includes(input.id) || pendingPromptLanded(input, merged))) }
+  const visible = useCallback((input: PendingPrompt) => input.delivery?.state !== 'unknown'
+    || (ready && (own.resolved.includes(input.id) || pendingPromptLanded(input, merged))), [ready, own.resolved, merged])
+  return { turns: merged, error: own.error, visible }
 }

@@ -562,7 +562,7 @@ export class SessionCell {
       if (request?.prompt.origin === 'communication' && event.error && isInvalidToken(event.error)) {
         // A refused token needs the next foreground/token boundary, not another immediate steer.
         const { queueTiming: _timing, ...retry } = request.prompt;
-        const queued = this.dispatch({ type: 'QueuePrompt', prompt: retry });
+        const queued = this.dispatch({ type: 'QueuePrompt', prompt: retry, retainIdentity: true });
         if (queued.success && !request.steered) this.requeuedAfterTokenBoundary = true;
       }
       if (event.error && request && !request.steered && request.cycle === this.activeTurnCompletion
@@ -1979,6 +1979,7 @@ export class SessionCell {
         role: 'user',
         messageId,
         text: prompt.text,
+        ...(prompt.clientMessageId ? { _meta: { guguClientMessageId: prompt.clientMessageId } } : {}),
         ...(prompt.files?.length ? { files: prompt.files.map(({ itemId, version, name, mimeType, sizeBytes }) => ({ itemId, version, name, mimeType, sizeBytes })) } : {}),
         content: [{ type: 'text', text: prompt.text }],
         contentMode: 'replace',
@@ -2108,7 +2109,7 @@ export class SessionCell {
       const promptMeta = this.deps.historyRecovery?.promptMeta?.(promptRequest.prompt);
       if (promptMeta) {
         // Bind the exact native bytes to our original prompt, without putting any marker on the wire.
-        submittedMessage._meta = promptMeta;
+        submittedMessage._meta = { ...submittedMessage._meta, ...promptMeta };
         if (!nativeSteer) this.push({ ...submittedMessage, steering: true, trigger: undefined });
       }
       this.rawLog.record({

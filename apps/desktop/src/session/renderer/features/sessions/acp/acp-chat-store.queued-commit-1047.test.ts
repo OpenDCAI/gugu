@@ -44,6 +44,8 @@ it('loads A while queued B is still running, preserves B during the history requ
   const activeTurn = replica<TranscriptTurn | null>(a);
   const pending: Array<(page: { success: true; data: HistoryPage }) => void> = [];
   const session = {
+    canSyncDraft: () => true,
+    onDraftSyncReady: () => () => {},
     activeTurn,
     sessionState: replica({ lifecycle: 'working', activeTurnId: a.id, isGenerating: true, queuedPrompts: [], pendingPermissions: [] }),
     agents: replica([]), config: replica({}), plan: replica(null), terminals: replica([]), draft: replica(null),

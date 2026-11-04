@@ -3,7 +3,7 @@
 // 三处说同一件事,❌ 各写一套。纯函数(翻译函数注入),每条判据都有单测。
 import { formatBytes, type ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth';
 import { cloudComputerFailureKindOf } from '@gugu/core/cloud/cloudComputer';
-import type { CloudComputerPresence } from '@gugu/core/shared/types/deviceHost';
+import type { CloudComputerPresence, DeviceServerUpdate } from '@gugu/core/shared/types/deviceHost';
 import type { DirectTerminalReason } from '@shared/direct-terminal-link';
 import { secondsUntilRetry, type ReconnectPhase } from '@shared/remote-reconnect';
 import type { SessionMessageValues } from '@renderer/localization/locale-store';
@@ -227,7 +227,7 @@ export const GONE_CODES = new Set(['record_not_found', 'not_found', 'conversatio
 
 /** 一次失败会不会自己好:太旧、会话没了都不会(重试只是把同一句错话说很多遍)。 */
 export function isRetryableRemoteError(code: string | null): boolean {
-  return !(code && (TOO_OLD_CODES.has(code) || GONE_CODES.has(code)));
+  return !(code && (code === 'client_outdated' || TOO_OLD_CODES.has(code) || GONE_CODES.has(code)));
 }
 
 export type ChatLinkRow = {
@@ -291,6 +291,7 @@ export function chatLinkRow(input: {
       };
     case 'gave-up': {
       const code = input.errorCode;
+      if (code === 'client_outdated') return { label: translate('remoteHost.notice.desktopTooOld', { device }), action: null };
       const label =
         code && TOO_OLD_CODES.has(code)
           ? translate('remoteHost.condition.tooOld', { device })
@@ -313,8 +314,15 @@ export function machineNoticeLabel(
   notices: readonly ServerMachineNotice[] | undefined,
   device: string,
   translate: Translate,
-  options: { protocolOnly?: boolean } = {}
+  options: { protocolOnly?: boolean; serverUpdate?: DeviceServerUpdate } = {}
 ): string | null {
+  if (notices?.some(notice => notice.kind === 'desktop-too-old')) return translate('remoteHost.notice.desktopTooOld', { device });
+  const update = options.serverUpdate;
+  if (update) {
+    if (update.state === 'ready') return translate('remoteHost.notice.updateReady', { device, version: update.version });
+    if (update.state === 'downloading') return translate('remoteHost.status.updating', { device });
+    if (update.state === 'failed') return translate('remoteHost.status.updateFailed', { device });
+  }
   for (const notice of notices ?? []) {
     if (options.protocolOnly && (notice.kind === 'disk-low' || notice.kind === 'rolled-back')) continue;
     switch (notice.kind) {

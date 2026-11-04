@@ -1,7 +1,7 @@
 import { Combobox as ComboboxPrimitive } from '@base-ui/react';
 import { Button } from '@session-ui/react/primitives/button';
 import { InputGroup } from '@session-ui/react/primitives/input-group';
-import { useUiPortalContainer } from '@session-ui/react/lib/portal-container';
+import { useUiPortalContainer, useUiPopupZIndex } from '@session-ui/react/lib/portal-container';
 import { ScrollContainer } from '@session-ui/react/primitives/scroll-container';
 import { cx } from '@session-ui/styles/utilities/cx';
 import { CheckIcon, XIcon } from '../../../icons'
@@ -108,6 +108,7 @@ function ComboboxContent({
     positionerStyle?: React.CSSProperties;
   }) {
   const portalContainer = useUiPortalContainer();
+  const zIndex = useUiPopupZIndex();
   return (
     <ComboboxPrimitive.Portal container={portalContainer}>
       <ComboboxPrimitive.Positioner
@@ -118,7 +119,7 @@ function ComboboxContent({
         anchor={anchor}
         collisionAvoidance={collisionAvoidance}
         className={styles.positioner}
-        style={positionerStyle}
+        style={{ zIndex, ...positionerStyle }}
       >
         <ComboboxPrimitive.Popup
           data-slot="combobox-content"

@@ -5,7 +5,7 @@ import accountLockProbeSource from './server-account-lock-probe.cjs?raw'
 export function verifiedUninstallProcessesScript(): string {
   return [
     'need_node=',
-    'for f in "$H/data/keeper.pid" "$H/data/server.lock" "$H"/accounts/*/data/server.lock; do [ ! -f "$f" ] || need_node=1; done',
+    'for f in "$H/data/keeper.pid" "$H/data/server.lock" "$H/account/data/server.lock" "$H"/accounts/*/data/server.lock; do [ -L "${f%/data/server.lock}" ] && continue; [ ! -f "$f" ] || need_node=1; done',
     'if [ -n "$need_node" ]; then',
     '  N="$H/current/node/bin/node"',
     '  if [ ! -x "$N" ]; then echo "无法核实运行进程:安装内的 Node 不可用" >&2; exit 1; fi',
@@ -72,8 +72,14 @@ function controls() {
   });
 }
 function accountDirs() {
-  try { return fs.readdirSync(path.join(home, 'accounts')).map(id => path.join(home, 'accounts', id, 'data')); }
-  catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+  const dirs = [path.join(home, 'account')];
+  try { dirs.push(...fs.readdirSync(path.join(home, 'accounts'), { withFileTypes: true })
+    .filter(entry => entry.isDirectory()).map(entry => path.join(home, 'accounts', entry.name))); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  return dirs.filter(dir => {
+    try { return fs.lstatSync(dir).isDirectory(); }
+    catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  }).map(dir => path.join(dir, 'data'));
 }
 function signal(pid, value) { try { process.kill(pid, value); } catch (error) { if (error.code !== 'ESRCH') throw error; } }
 function signalControls(value) {

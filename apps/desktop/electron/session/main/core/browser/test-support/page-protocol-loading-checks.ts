@@ -7,6 +7,7 @@ import { BrowserWindow } from 'electron';
 import { createPageProtocol } from '../page-protocol';
 import { isSupportedBrowserNavigationUrl } from '../browser-navigation';
 import { withinDeadline } from './page-protocol-deadline';
+import { navigateHistoryFromScript } from './page-protocol-history-script';
 
 type Check = (name: string, body: () => Promise<void>) => Promise<void>;
 
@@ -101,9 +102,7 @@ export async function pageProtocolLoadingChecks(url: string, check: Check) {
       const lease = createPageProtocol(contents);
       try {
         await lease.send('Runtime.enable');
-        const loadedAfter = once(contents, 'did-finish-load');
-        await lease.send('Runtime.evaluate', { expression: 'history.go(1)' });
-        await withinDeadline(loadedAfter, 'ordinary forward navigation');
+        await navigateHistoryFromScript(contents, lease, 1);
         assert.equal(contents.getURL(), url + 'forward-after');
         assert.ok(history.getAllEntries().every(entry => isSupportedBrowserNavigationUrl(entry.url)));
       } finally { lease.close(); }

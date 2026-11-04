@@ -336,7 +336,7 @@ export type TimelineSnapshot = {
    * 已发出、还排着没被 agent 接走的输入 —— 与桌面「Queued prompts」同一份（ACP 腿：宿主运行时的队列）。
    * 每次都是此刻的全集；缺省 = 宿主太旧，不报队列。终端腿不投影（owner 2026-10-04）。
    */
-  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>[];
+  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit' | 'clientMessageId'>[];
   /** Actual in-flight reply stage; absent on older hosts, null when no live reply is present. */
   liveReply?: SessionLiveReply | null;
   /** Live presentation only; not serialized into the native-record archive. */
@@ -382,7 +382,7 @@ export type TimelineBatch = {
   /** Newest known tool-action timestamp, including actions outside the window. */
   lastActionAt?: number | null;
   /** 同快照的 `queuedPrompts`：每一批都带此刻的全集。 */
-  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>[];
+  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit' | 'clientMessageId'>[];
   /** Actual in-flight reply stage; absent on older hosts, null when no live reply is present. */
   liveReply?: SessionLiveReply | null;
   /** Live presentation only; not serialized into the native-record archive. */
@@ -464,7 +464,7 @@ export interface SessionTimeline {
   /**
    * 宿主把**活运行时**里这条会话的排队提示（`session.state` 的 `queuedPrompts`）整份同步进来（ACP 腿）。
    */
-  syncQueuedPrompts(prompts: readonly Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>[]): void;
+  syncQueuedPrompts(prompts: readonly Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit' | 'clientMessageId'>[]): void;
   syncLiveReply(reply: SessionLiveReply | null): void;
   syncTerminals(terminals: readonly TerminalState[]): void;
 
@@ -528,6 +528,8 @@ export type RemoteSessionCaller = {
    * 可选:旧版本的发起方不带,收方按没配处理。
    */
   childHarness?: string | null;
+  /** 调用方项目的跨设备身份;旧调用方或任务工作区不带。 */
+  groupChatId?: string;
   transport: 'acp' | 'pty';
   /** 发起方跑的 harness 自家模型;没有 = null。 */
   model: string | null;
@@ -650,10 +652,18 @@ export type SessionpageSessionSummary = {
   cwd?: string;
   /** The host preserves clientMessageId on raw session inputs. Absent on older hosts. */
   nativeInputVersion?: 1 | 2;
+  /** Client identity survives host queue admission and provider transcript IDs. */
+  nativeInputIdentity?: true;
   /** Live native activity, not a second IM row. Offline heartbeat digests carry no message text. */
   nativeLastMessage?: { text: string; at: string } | null;
   /** Raw personal conversation replies. IM deliveries keep their existing unread counter. */
   nativeUnreadKeys?: string[];
+  /** Only deliberate owner notifications contribute a numeric notification badge. */
+  nativeOwnerNotificationUnreadCount?: number;
+  /** Last committed notification sequence; -1 when none remains, absent on older hosts. */
+  nativeOwnerNotificationSeq?: number;
+  /** Increases when history is reverted, so reused sequences cannot retain an old notification cursor. */
+  nativeOwnerNotificationEpoch?: number;
   nativeUnreadAliases?: Record<string, string>;
   conversationId: string;
   projectId: string;
@@ -1214,6 +1224,7 @@ export type SessionpageQueueAction =
 
 /** ACP clients read the same durable commits and live turn as the desktop task page. */
 export type NativeSessionRecord = {
+  nativeOwnerNotificationEpoch?: number;
   latestStoredSeq: number;
   hasNewer: boolean;
   turns: TranscriptTurn[];

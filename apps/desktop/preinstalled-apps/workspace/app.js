@@ -32,7 +32,7 @@ const STRINGS = {
     newFolderName: '新建文件夹',
     attachments: '附件',
     machineOf: '{owner} 的机器',
-    storedOnMine: '保存在 {machine} 上，有人打开时才上传。按你在「设置 › 设备 › 文件存储与读取」里的设置。',
+    storedOnMine: '保存在 {machine} 上，有人打开时才上传。按你在「设置 › 文件存储」里的设置。',
     storedOnOther: '保存在 {owner} 的机器上，有人打开时才上传。按 {owner} 的文件存储设置。',
     up: '上一级',
     move: '移动到…',
@@ -149,8 +149,8 @@ const STRINGS = {
     clearsAt: '{time} 清除云端副本',
     keep: '保留方式',
     keepTemporary: '临时',
-    keepPermanent: '一直保留',
-    keepTip: '临时：到期清除云端副本，期限按上传者在「设置 › 设备 › 文件存储」里的设置，从改的这一刻算起。一直保留：直到有人删除。',
+    keepPermanent: '持续保存',
+    keepTip: '临时：到期清除云端副本，期限按上传者在「设置 › 文件存储」里的设置，从改的这一刻算起。持续保存：不按时间删除；没人打开的大文件会从云端清掉，规则见「设置 › 文件存储」。',
     keepNotMine: '只有上传这份文件的人能改它保留多久。',
     keepNone: '这份文件没有云端副本。',
     showInChat: '在聊天中定位',
@@ -165,7 +165,7 @@ const STRINGS = {
     anyone: '全部',
     cloud: '云端',
     keep_temporary: '临时',
-    keep_kept: '一直保留',
+    keep_kept: '持续保存',
     keep_soon: '7 天内清除',
     clearFilters: '清除筛选',
     noFiltered: '没有符合条件的文件。',
@@ -194,7 +194,7 @@ const STRINGS = {
     pickForward: '转发',
     pickDownload: '下载',
     pickTemporary: '设为临时',
-    pickPermanent: '一直保留',
+    pickPermanent: '设为持续保存',
     pickLocate: '在聊天中定位',
     pickLocateAt: '{i}/{n}',
     pickPrev: '上一条',
@@ -219,7 +219,7 @@ const STRINGS = {
     newFolderName: 'New folder',
     attachments: 'Attachments',
     machineOf: '{owner}’s machine',
-    storedOnMine: 'Kept on {machine}; uploaded only when someone opens it. Follows your Settings › Devices › File storage.',
+    storedOnMine: 'Kept on {machine}; uploaded only when someone opens it. Follows your Settings › File storage.',
     storedOnOther: 'Kept on {owner}’s machine; uploaded only when someone opens it. Follows {owner}’s file storage settings.',
     up: 'Up',
     move: 'Move to…',
@@ -336,8 +336,8 @@ const STRINGS = {
     clearsAt: 'Cloud copy cleared {time}',
     keep: 'Keep',
     keepTemporary: 'Temporary',
-    keepPermanent: 'Until deleted',
-    keepTip: 'Temporary: the cloud copy is cleared after the uploader\'s period in Settings › Devices › File storage, counted from now. Until deleted: kept until someone deletes it.',
+    keepPermanent: 'Kept',
+    keepTip: 'Temporary: the cloud copy is cleared after the uploader\'s period in Settings › File storage, counted from now. Kept: not deleted on a schedule; large files nobody opens are cleared from the cloud, see Settings › File storage.',
     keepNotMine: 'Only the person who uploaded this file can change how long it is kept.',
     keepNone: 'This file has no cloud copy.',
     showInChat: 'Show in chat',
@@ -352,7 +352,7 @@ const STRINGS = {
     anyone: 'Any',
     cloud: 'Cloud',
     keep_temporary: 'Temporary',
-    keep_kept: 'Until deleted',
+    keep_kept: 'Kept',
     keep_soon: 'Cleared within 7 days',
     clearFilters: 'Clear filters',
     noFiltered: 'No file matches these filters.',
@@ -381,7 +381,7 @@ const STRINGS = {
     pickForward: 'Forward',
     pickDownload: 'Download',
     pickTemporary: 'Make temporary',
-    pickPermanent: 'Keep until deleted',
+    pickPermanent: 'Keep',
     pickLocate: 'Show in chat',
     pickLocateAt: '{i}/{n}',
     pickPrev: 'Previous',
@@ -2205,6 +2205,10 @@ function scheduleBlockHandleHide() {
   handleHideTimer = setTimeout(hideBlockHandle, 150)
 }
 
+function scheduleBlockHandleHideUnlessHovered() {
+  if (!$('preview').matches(':hover') && !$('block-controls').matches(':hover')) scheduleBlockHandleHide()
+}
+
 function hideBlockHandle(force = false) {
   cancelBlockHandleHide()
   if (!force && $('block-controls').contains(document.activeElement)) return
@@ -3009,7 +3013,7 @@ function closeMenu() {
   state.menuAnchor?.setAttribute('aria-expanded', 'false')
   state.menuAnchor = null
   $('menu').hidden = true
-  if (blockControls && !$('preview').matches(':hover') && !$('block-controls').matches(':hover')) scheduleBlockHandleHide()
+  if (blockControls) scheduleBlockHandleHideUnlessHovered()
 }
 
 // ─── start ──────────────────────────────────────────────────────────────────
@@ -3107,7 +3111,7 @@ function start() {
   $('preview').addEventListener('scroll', () => hideBlockHandle(true))
   $('block-controls').addEventListener('pointerenter', cancelBlockHandleHide)
   $('block-controls').addEventListener('pointerleave', scheduleBlockHandleHide)
-  $('block-controls').addEventListener('focusout', scheduleBlockHandleHide)
+  $('block-controls').addEventListener('focusout', scheduleBlockHandleHideUnlessHovered)
   $('block-insert').onclick = (event) => openBlockMenu(event, insertMenu)
   $('block-handle').onclick = (event) => openBlockMenu(event, blockMenu)
   $('preview').addEventListener('change', tickTask)

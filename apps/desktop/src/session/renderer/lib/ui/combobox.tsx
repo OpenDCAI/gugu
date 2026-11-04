@@ -1,7 +1,7 @@
 import { Combobox as ComboboxPrimitive } from '@base-ui/react';
 import { CheckIcon, XIcon } from '@/lib/icons'
 import * as React from 'react';
-import { useUiPortalContainer } from '@gugu/session-ui/react/primitives';
+import { useUiPortalContainer, useUiPopupZIndex } from '@gugu/session-ui/react/primitives';
 import { Button } from '@renderer/lib/ui/button';
 import {
   InputGroup,
@@ -115,6 +115,7 @@ function ComboboxContent({
         anchor={anchor}
         collisionAvoidance={collisionAvoidance}
         className="isolate z-50"
+        style={{ zIndex: useUiPopupZIndex() }}
       >
         <ComboboxPrimitive.Popup
           data-slot="combobox-content"

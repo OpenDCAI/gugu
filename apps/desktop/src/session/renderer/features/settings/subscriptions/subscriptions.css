@@ -18,6 +18,7 @@ article.subscription-service {
 .subscription-quota-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; }
 .subscription-quota { min-width: 0; }
 .subscription-quota-label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: var(--muted-fg); font-size: var(--font-body); }
+.subscription-wallet-label { justify-content: flex-start; flex-wrap: wrap; }
 .subscription-quota-label strong { color: var(--fg); font-size: 20px; font-weight: 550; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .subscription-quota-label small { color: var(--muted-fg); font-size: var(--font-caption); font-weight: 400; }
 .subscription-quota p { margin: 7px 0 0; font-size: var(--font-body); line-height: 1.6; color: var(--muted-fg); }

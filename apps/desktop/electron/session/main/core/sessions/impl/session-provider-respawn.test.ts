@@ -85,6 +85,7 @@ vi.mock('@main/core/dependencies/host-dependency-store', () => ({
 
 vi.mock('@main/core/agent-status/agent-status-writer', () => ({
   agentStatusWriter: {
+    currentReading: vi.fn(() => null),
     on: vi.fn(() => () => {}),
     settleSessionExited: vi.fn(async () => undefined),
     reportProviderReviewGate: vi.fn(),

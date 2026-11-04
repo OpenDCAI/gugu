@@ -7,7 +7,9 @@
  *       cp tooling/fixtures/baseline.db tooling/fixtures/pre-XXXX.db
  *     Commit this snapshot file together with your migration.
  *
- *  2. Write your migration (`pnpm run db:generate` after editing schema.ts).
+ *  2. Edit schema.ts and generate a migration from electron/session with
+ *     `pnpm exec drizzle-kit generate`. For hand-written SQL and journal entries,
+ *     run `pnpm session:db:snapshot` at the repo root afterward.
  *
  *  3. Write a test here using `openFixture('pre-XXXX')`. The fixture already
  *     has data up to the previous migration; openFixture() will apply your new

@@ -13,6 +13,15 @@ pnpm test:unit
 pnpm build:renderer
 ```
 
+CI 在 PR 合并前执行完整门，合入 `dev` / `main` 不再触发第二轮。
+手动 `workflow_dispatch` 保留用于诊断；必需检查仍为 `Typecheck, lint, and test`。
+`pnpm lint` 保留全部检查；CI 将源检查与带 PR 差异参数的覆盖检查分开执行，避免重复扫描。
+
+使用 `scripts/ci/check-verdict.mts --sha <完整PR头> --pr <编号> --watch` 核对合前证据。
+对没有 push 订阅的版本，显式 `--push` 返回 `INCOMPLETE` / exit 2 并立即说明缺口，
+不等待不会产生的合后 run，也不把没有检查当成 `GREEN`。发布时保留已审 PR 的完整头、
+实际合入提交与树/构建来源映射；合入分支位置本身不是新增 CI 结果。
+
 启动桌面开发版：
 
 ```bash

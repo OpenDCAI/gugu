@@ -13,6 +13,30 @@ import { AGENT_STATUSES, AGENT_STATUS_DETAILS } from '../../../../packages/core/
 const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ title: `Session ${i + 1}` }))
 const titleOf = { namesOf: (row: { title: string }) => [row.title] }
 
+describe('status filters respect host reachability', () => {
+  it.each(['working', 'needs_user', 'error'])('excludes offline %s without altering the row', status => {
+    const offline = { status, detail: null, host_online: false }
+    expect(matchesAgentStatus(offline, status)).toBe(false)
+    expect(matchesAgentStatus({ ...offline, host_online: true }, status)).toBe(true)
+    expect(matchesAgentStatus({ status, detail: null }, status)).toBe(true)
+    expect(matchesAgentStatus(offline, undefined)).toBe(true)
+    expect(offline.status).toBe(status)
+  })
+
+  it('lists only the online worker while preserving totals and pagination', () => {
+    const members = [
+      { name: 'online', status: 'working', host_online: true },
+      { name: 'offline', status: 'working', host_online: false },
+    ]
+    const result = windowList(members, { status: 'working' }, {
+      namesOf: row => [row.name], statusFilter: true,
+      keep: (row, args) => matchesAgentStatus(row, args.status as string),
+    })
+    expect(result.total).toBe(1)
+    expect(result.items.map(row => row.name)).toEqual(['online'])
+  })
+})
+
 describe('rows: a count or a 1-based inclusive range, like line numbers', () => {
   it('reads the default, a count, a range, and a bare number', () => {
     expect(parseRows(undefined)).toEqual({ from: 1, to: LIST_DEFAULT_ROWS })

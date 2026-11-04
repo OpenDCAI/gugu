@@ -3,6 +3,7 @@ import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation'
 import { useAssistantWorkTasks, openAssistantPanelTask } from '@/components/assistant/assistant-panel-tasks'
 import {useAuth} from '@/store/auth'
 import { useTranslation } from 'react-i18next'
+import { formatCalendarDate } from '@/i18n/format'
 import { Button } from '@/components/ui/Button'
 import { Clock } from '@/lib/icons'
 import { groupByDay } from '@/session/renderer/features/assistant/assistant-lineage'
@@ -60,7 +61,7 @@ function Routines(props: PhonePageProps) {
   const { t, i18n } = useTranslation('assistant')
   const { read, routines, directory } = usePhoneRoutines(props)
   const formatAt = (at: number) =>
-    new Intl.DateTimeFormat(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(at)
+    formatCalendarDate(at, i18n.language)
   return (
       <PhoneRoutineRead read={read} directory={directory}>
         {() =>

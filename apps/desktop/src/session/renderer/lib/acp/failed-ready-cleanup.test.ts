@@ -42,6 +42,7 @@ vi.mock('@gugu/session-wire', async (importOriginal) => {
 vi.mock('../machine-routing', () => ({ machineRegistry: { machineOf: () => null } }));
 vi.mock('./runtime-client', () => ({
   getAcpRuntimeClient: async () => ({
+    connection: { onDisconnect: () => () => {} },
     session: { state: (_key: unknown, name: string) => ({ topic: `session.${name}` }) },
   }),
 }));

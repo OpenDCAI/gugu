@@ -87,7 +87,7 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
       const beforeSilence = blocks.at(-2);
       if (segment?.items.length && segment.items.every(part => part.kind === 'message' && part.role === 'assistant'
         && (!part.text.trim() || isGuguSilence(part.text))) && beforeSilence?.kind === 'segment'
-        && beforeSilence.items.some(part => part.kind === 'message' && part.id.includes(':sent:'))) {
+        && beforeSilence.items.some(part => part.kind === 'message' && (part.id.includes(':sent:') || part.ownerNotification))) {
         beforeSilence.items.push(...segment.items);
         blocks.pop();
         segment = beforeSilence;
@@ -135,7 +135,7 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
     current.endedAt = 'completedAt' in item ? item.completedAt ?? at : at;
     previousAt = at;
     pendingInput = false;
-    if (item.kind === 'message' && item.id.includes(':sent:')) close(at, item.id);
+    if (item.kind === 'message' && (item.id.includes(':sent:') || item.ownerNotification)) close(at, item.id);
   }
   finishStop();
   if (segment) {

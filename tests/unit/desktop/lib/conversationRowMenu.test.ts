@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { chatsInReadScope, conversationRowMenu, hasUnreadInRows } from '../../../../apps/desktop/src/session/shared/conversation-row-menu'
+import { chatsInReadScope, conversationCanDelete, conversationRowMenu, hasUnreadInRows } from '../../../../apps/desktop/src/session/shared/conversation-row-menu'
 
 describe('conversation row actions', () => {
+  it('keeps owned agent DM deletion and uses distinct server authority for groups and topics', () => {
+    expect(conversationCanDelete('dm', null, true)).toBe(true)
+    expect(conversationCanDelete('dm', { can_dissolve: true })).toBe(false)
+    expect(conversationCanDelete('ai', { can_dissolve: true }, true)).toBe(false)
+    expect(conversationCanDelete('group', null)).toBe(false)
+    expect(conversationCanDelete('group', { can_archive_topic: true })).toBe(false)
+    expect(conversationCanDelete('group', { can_dissolve: true })).toBe(true)
+    expect(conversationCanDelete('topic', { can_dissolve: true })).toBe(false)
+    expect(conversationCanDelete('topic', { can_archive_topic: true })).toBe(true)
+  })
   it('puts the same scoped read action first, followed only by the row type’s own actions', () => {
     const chat = conversationRowMenu({ kind: 'chat', canDelete: true, hasUnread: true, hasAnyUnread: true })
     const project = conversationRowMenu({ kind: 'project', hasUnread: true })

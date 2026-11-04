@@ -648,6 +648,8 @@ export function parseAgentSessionRequest(
       agentUserId: text('agentUserId'),
       name: text('name'),
       harness: text('harness'),
+      childHarness: text('childHarness'),
+      ...(text('groupChatId') ? { groupChatId: text('groupChatId')! } : {}),
       transport: caller.transport,
       model: text('model'),
       platformModel: text('platformModel'),
