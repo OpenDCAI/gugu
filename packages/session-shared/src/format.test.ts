@@ -123,12 +123,13 @@ describe('Intl formatter caching', () => {
     }
   });
 
-  it('the date cache takes the zone name through a cheap probe, not Intl per call', () => {
-    formatDate(nowMs, undefined, 'zh-CN'); // 热身:探针与 formatter 都建好
+  it('reuses an explicitly zoned date formatter without constructing more instances', () => {
+    const options = { timeZone: 'UTC' };
+    formatDate(nowMs, options, 'zh-CN');
     const dateTime = vi.spyOn(Intl, 'DateTimeFormat');
     try {
-      for (let i = 0; i < 50; i += 1) formatDate(nowMs + i, undefined, 'zh-CN');
-      expect(dateTime, '缓存命中不该再有构造(探针 ≈1µs,不再每次问 Intl)').not.toHaveBeenCalled();
+      for (let i = 0; i < 50; i += 1) formatDate(nowMs + i, options, 'zh-CN');
+      expect(dateTime).not.toHaveBeenCalled();
     } finally {
       dateTime.mockRestore();
     }

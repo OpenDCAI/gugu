@@ -8,11 +8,26 @@ export function formatNumber(value: number, options: Intl.NumberFormatOptions | 
   return cachedNumberFormat(locale, options ?? {}).format(value);
 }
 
+// JSON only represents plain enumerable data. Let Intl itself read inherited, hidden or dynamic options.
+function optionsCacheKey(options: object): string | null {
+  const prototype = Object.getPrototypeOf(options);
+  if (prototype !== Object.prototype && prototype !== null) return null;
+  for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(options))) {
+    if (!descriptor.enumerable || !('value' in descriptor)) return null;
+    const value: unknown = descriptor.value;
+    if (value !== null && !['string', 'number', 'boolean', 'undefined'].includes(typeof value)) return null;
+    if (typeof value === 'number' && !Number.isFinite(value)) return null;
+  }
+  return JSON.stringify(options);
+}
+
 // Number/RelativeTime formatters are cached for the same reason as the date ones below: message rows and
 // relative-time labels format on a clock, and rebuilding an Intl formatter per call was measurable.
 const numberFormats = new Map<string, Intl.NumberFormat>();
 function cachedNumberFormat(locale: string, options: Intl.NumberFormatOptions): Intl.NumberFormat {
-  const key = `${locale}|${JSON.stringify(options)}`;
+  const optionsKey = optionsCacheKey(options);
+  if (optionsKey === null) return new Intl.NumberFormat(locale, options);
+  const key = JSON.stringify([locale, optionsKey]);
   let format = numberFormats.get(key);
   if (!format) numberFormats.set(key, format = new Intl.NumberFormat(locale, options));
   return format;
@@ -20,40 +35,25 @@ function cachedNumberFormat(locale: string, options: Intl.NumberFormatOptions): 
 
 const relativeTimeFormats = new Map<string, Intl.RelativeTimeFormat>();
 function cachedRelativeTimeFormat(locale: string, options: Intl.RelativeTimeFormatOptions): Intl.RelativeTimeFormat {
-  const key = `${locale}|${JSON.stringify(options)}`;
+  const optionsKey = optionsCacheKey(options);
+  if (optionsKey === null) return new Intl.RelativeTimeFormat(locale, options);
+  const key = JSON.stringify([locale, optionsKey]);
   let format = relativeTimeFormats.get(key);
   if (!format) relativeTimeFormats.set(key, format = new Intl.RelativeTimeFormat(locale, options));
   return format;
 }
 
-// One formatter per locale, options and time zone: every message row formats its time, and building an
-// Intl.DateTimeFormat per call was a measurable part of switching chats. A formatter fixes the zone it was built in,
-// so the key carries the zone NAME and the current UTC offset: 只带 offset 不够 —— 利马与纽约同时刻 offset 相同、
-// 规则不同(评审:7 月 4 日会被画成 7 月 3 日)。时区名本身经由下面的探针取 —— 每次调用都问 Intl 太贵。
+// A formatter fixes its zone at construction. Read the actual default on each call: offset/name probes can
+// collide for zones with different summer rules. Pin construction to that zone so no miss poisons another key.
 const dateFormats = new Map<string, Intl.DateTimeFormat>();
 
-// 每次调用都去问 Intl 要时区名(≈55µs)的话,这份缓存就白做了(评审)。用 Date.toString() 里的时区段 + offset
-// 当探针(≈1µs):探针变了(切时区、夏令时)立刻换一份;探针看不出来的两个时区(纽约/坎昆这种同段同 offset)
-// 最多 5 秒后再确认一次。
-const ZONE_RECHECK_MS = 5_000;
-let zoneMemo: { probe: string; name: string; at: number } | null = null;
-
-function timeZoneName(now: number): string {
-  const date = new Date(now);
-  const raw = date.toString();
-  const open = raw.indexOf('(');
-  const probe = `${open < 0 ? 'local' : raw.slice(open + 1, -1)}|${date.getTimezoneOffset()}`;
-  if (!zoneMemo || zoneMemo.probe !== probe || now - zoneMemo.at >= ZONE_RECHECK_MS) {
-    zoneMemo = { probe, at: now, name: Intl.DateTimeFormat().resolvedOptions().timeZone };
-  }
-  return zoneMemo.name;
-}
-
 export function formatDate(value: DateValue, options: Intl.DateTimeFormatOptions | undefined, locale: string): string {
-  const now = Date.now();
-  const key = `${locale}|${timeZoneName(now)}|${new Date(now).getTimezoneOffset()}|${JSON.stringify(options ?? {})}`;
+  const optionsKey = optionsCacheKey(options ?? {});
+  if (optionsKey === null) return new Intl.DateTimeFormat(locale, options).format(value instanceof Date ? value : new Date(value));
+  const timeZone = options?.timeZone === undefined ? new Intl.DateTimeFormat().resolvedOptions().timeZone : options.timeZone;
+  const key = JSON.stringify([locale, timeZone, optionsKey]);
   let format = dateFormats.get(key);
-  if (!format) dateFormats.set(key, format = new Intl.DateTimeFormat(locale, options));
+  if (!format) dateFormats.set(key, format = new Intl.DateTimeFormat(locale, { ...options, timeZone }));
   return format.format(value instanceof Date ? value : new Date(value));
 }
 
