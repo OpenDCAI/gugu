@@ -518,6 +518,8 @@ export type TurnProcessItem = {
   turnId: string;
   /** This segment explicitly chose silence; a status label, never an assistant reply. */
   silent?: boolean;
+  /** Existing completion copy content, shown inline only for explicit silence. */
+  silentCopyText?: string;
   /** A retained acknowledgement with no expandable agent activity. */
   empty?: boolean;
   /**

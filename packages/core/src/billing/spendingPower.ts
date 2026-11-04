@@ -1,4 +1,5 @@
 import { quotaSpendWindows, type QuotaWindows, type SpendWindow } from './quotaWindows'
+import { addCreditAmounts, compareCreditAmounts, maxCreditAmount, requireCreditAmount, subtractCreditAmounts, type CreditAmount } from './creditAmount'
 
 // 「还能不能花」的唯一判定。
 //
@@ -22,13 +23,13 @@ export type SpendBlockReason = 'exhausted'
 
 export interface SpendingPower {
   /** 本期周期额度还剩多少。周期结束归零,不结转。 */
-  periodCredits: number
+  periodCredits: CreditAmount
   /** 不过期积分:加量包买来的 + 一次性赠送的。 */
-  walletCredits: number
+  walletCredits: CreditAmount
   /** 已发出、尚未结算的预留。从**合计**里扣一次,❌ 不在两个池子里各扣一遍。 */
-  held: number
+  held: CreditAmount
   /** 此刻真正花得出去的 = max(0, 周期额度余量 + 不过期积分 − 预留)。 */
-  spendable: number
+  spendable: CreditAmount
   /** 花不出去时是谁挡的;还能花时为 null。 */
   blockedBy: SpendBlockReason | null
   /**
@@ -63,26 +64,24 @@ export const LOW_BALANCE_CREDITS = 1
  * 恰好为 0 不算:那是已经被服务端挡住的耗尽态,由发起时的报错负责说,不该再弹一条
  * 「建议充值以免被中断」—— 已经中断了。
  */
-export function isLowBalance(spendable: number): boolean {
-  return spendable > 0 && spendable < LOW_BALANCE_CREDITS
+export function isLowBalance(spendable: CreditAmount): boolean {
+  return compareCreditAmounts(spendable, 0) > 0 && compareCreditAmounts(spendable, LOW_BALANCE_CREDITS) < 0
 }
 
 export function deriveSpendingPower(
-  balance: number,
+  balance: CreditAmount,
   windows: QuotaWindows,
 ): SpendingPower {
-  if (typeof balance !== 'number' || !Number.isFinite(balance)) {
-    throw new Error(`积分余额不可用：${String(balance)} 不是有效数值`)
-  }
+  requireCreditAmount(balance, 'balance')
   const { period } = quotaSpendWindows(windows)
   const held = windows.outstanding_credits
   // 池子本身不减预留 —— 减在合计上,一次。period.remaining 已经替进度条扣过一遍,
   // 拿它来加会把同一笔在途用量算作两次占用。
-  const periodCredits = Math.max(0, period.limit - period.used)
-  const walletCredits = Math.max(0, balance)
-  const spendable = Math.max(0, periodCredits + walletCredits - Math.max(0, held))
+  const periodCredits = maxCreditAmount(0, subtractCreditAmounts(period.limit, period.used))
+  const walletCredits = maxCreditAmount(0, balance)
+  const spendable = maxCreditAmount(0, subtractCreditAmounts(addCreditAmounts(periodCredits, walletCredits), maxCreditAmount(0, held)))
 
-  if (spendable > 0) {
+  if (compareCreditAmounts(spendable, 0) > 0) {
     return {
       periodCredits, walletCredits, held,
       spendable, blockedBy: null, recoversAt: null, period,

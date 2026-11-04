@@ -122,6 +122,8 @@ export const deliveryFactsToggle = style({
   selectors: {
     '&:hover, &:focus-visible, &[aria-expanded="true"]': { color: vars.fg },
     '&:not(button)': { cursor: 'default' },
+    // Use the same layout gate as the right-aligned user bubble.
+    '[data-chat-layout="double"] &:not(button)': { justifyContent: 'flex-end' },
     '&:is(button)': { width: 12, flexWrap: 'nowrap' },
   },
 });

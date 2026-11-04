@@ -16,3 +16,4 @@ export {
   type SpendBlockReason,
   type SpendingPower,
 } from './spendingPower'
+export type { CreditAmount, CreditDecimal } from './creditAmount'

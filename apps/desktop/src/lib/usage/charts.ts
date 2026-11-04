@@ -1,13 +1,16 @@
+import { addCreditAmounts, compareCreditAmounts, type CreditAmount } from '@gugu/core/billing/creditAmount'
 // 用量页图表的取数:把「天 × 模型 × 量」摊成 VChart 吃的扁平点列。纯函数,单测覆盖。
 import type { CreditUsageDay, UsageDay } from '@gugu/core/shared/usage/dailyUsage'
 import { DEVICE_ROW_ENGINE } from '@gugu/core/shared/usage/dailyUsage'
 import { addDays, parseDay, type DayRange } from './derive'
 
-export type ModelAmount = { day: string; model: string | null; value: number }
-export type ChartPoint = { time: string; model: string; value: number }
-export type ModelTotal = { model: string; value: number }
+export type ModelAmount<A extends CreditAmount = number> = { day: string; model: string | null; value: A }
+export type ChartPoint<A extends CreditAmount = number> = { time: string; model: string; value: A }
+export type ModelTotal<A extends CreditAmount = number> = { model: string; value: A }
 
-export function creditAmounts(rows: readonly CreditUsageDay[], field: 'credits' | 'requests'): ModelAmount[] {
+export function creditAmounts(rows: readonly CreditUsageDay[], field: 'credits'): ModelAmount<CreditAmount>[]
+export function creditAmounts(rows: readonly CreditUsageDay[], field: 'requests'): ModelAmount[]
+export function creditAmounts(rows: readonly CreditUsageDay[], field: 'credits' | 'requests'): ModelAmount<CreditAmount>[] {
   return rows.map((row) => ({ day: row.day, model: row.model, value: row[field] }))
 }
 
@@ -25,18 +28,20 @@ export function tokenAmounts(days: readonly UsageDay[], source: 'gugu' | 'byok' 
 const inRange = (day: string, range: { from: string; to: string }) => day >= range.from && day <= range.to
 
 /** 按模型合计、降序;第 limit 名以后(以及没有模型名的)并成 otherLabel 一项,放在最后。 */
-export function rankModels(amounts: readonly ModelAmount[], range: { from: string; to: string }, limit: number, otherLabel: string): ModelTotal[] {
-  const byModel = new Map<string, number>()
-  let unnamed = 0
+export function rankModels(amounts: readonly ModelAmount[], range: { from: string; to: string }, limit: number, otherLabel: string): ModelTotal[]
+export function rankModels(amounts: readonly ModelAmount<CreditAmount>[], range: { from: string; to: string }, limit: number, otherLabel: string): ModelTotal<CreditAmount>[]
+export function rankModels(amounts: readonly ModelAmount<CreditAmount>[], range: { from: string; to: string }, limit: number, otherLabel: string): ModelTotal<CreditAmount>[] {
+  const byModel = new Map<string, CreditAmount>()
+  let unnamed: CreditAmount = 0
   for (const a of amounts) {
-    if (!inRange(a.day, range) || a.value <= 0) continue
-    if (a.model) byModel.set(a.model, (byModel.get(a.model) ?? 0) + a.value)
-    else unnamed += a.value
+    if (!inRange(a.day, range) || compareCreditAmounts(a.value, 0) <= 0) continue
+    if (a.model) byModel.set(a.model, addCreditAmounts(byModel.get(a.model) ?? 0, a.value))
+    else unnamed = addCreditAmounts(unnamed, a.value)
   }
-  const sorted = [...byModel].sort((x, y) => y[1] - x[1]).map(([model, value]) => ({ model, value }))
+  const sorted = [...byModel].sort((x, y) => -compareCreditAmounts(x[1], y[1])).map(([model, value]) => ({ model, value }))
   const head = sorted.slice(0, limit)
-  const rest = sorted.slice(limit).reduce((sum, m) => sum + m.value, 0) + unnamed
-  return rest > 0 ? [...head, { model: otherLabel, value: rest }] : head
+  const rest = sorted.slice(limit).reduce<CreditAmount>((sum, m) => addCreditAmounts(sum, m.value), unnamed)
+  return compareCreditAmounts(rest, 0) > 0 ? [...head, { model: otherLabel, value: rest }] : head
 }
 
 /** 一年档按周成桶(一根柱子一周),其余按天。label 是桶起始日的「MM-DD」。 */
@@ -55,25 +60,28 @@ export function buckets(range: DayRange): { start: string; end: string; label: s
  * 堆叠图的点列:每个桶 × 每个系列都有一点(没有量记 0),空桶也留着柱位 —— 否则 x 轴会把
  * 没用过的日子吞掉,一周只用了两天看起来像连着的两天。domain 是图例顺序(量大的在前,「其他」垫底)。
  */
-export function stackedPoints(amounts: readonly ModelAmount[], range: DayRange, limit: number, otherLabel: string): { points: ChartPoint[]; domain: string[]; total: number } {
+type StackedAmounts<A extends CreditAmount> = { points: ChartPoint<A>[]; domain: string[]; total: A }
+export function stackedPoints(amounts: readonly ModelAmount[], range: DayRange, limit: number, otherLabel: string): StackedAmounts<number>
+export function stackedPoints(amounts: readonly ModelAmount<CreditAmount>[], range: DayRange, limit: number, otherLabel: string): StackedAmounts<CreditAmount>
+export function stackedPoints(amounts: readonly ModelAmount<CreditAmount>[], range: DayRange, limit: number, otherLabel: string): StackedAmounts<CreditAmount> {
   const ranked = rankModels(amounts, range, limit, otherLabel)
   const domain = ranked.map((m) => m.model)
   const named = new Set(domain.filter((m) => m !== otherLabel))
   const bs = buckets(range)
-  const grid = bs.map(() => new Map<string, number>())
+  const grid = bs.map(() => new Map<string, CreditAmount>())
   for (const a of amounts) {
-    if (!inRange(a.day, range) || a.value <= 0) continue
+    if (!inRange(a.day, range) || compareCreditAmounts(a.value, 0) <= 0) continue
     const index = bs.findIndex((b) => a.day >= b.start && a.day <= b.end)
     if (index < 0) continue
     const key = a.model && named.has(a.model) ? a.model : otherLabel
-    grid[index].set(key, (grid[index].get(key) ?? 0) + a.value)
+    grid[index].set(key, addCreditAmounts(grid[index].get(key) ?? 0, a.value))
   }
-  const points: ChartPoint[] = []
+  const points: ChartPoint<CreditAmount>[] = []
   bs.forEach((b, i) => {
     if (domain.length === 0) points.push({ time: b.label, model: otherLabel, value: 0 })
     for (const model of domain) points.push({ time: b.label, model, value: grid[i].get(model) ?? 0 })
   })
-  return { points, domain, total: ranked.reduce((sum, m) => sum + m.value, 0) }
+  return { points, domain, total: ranked.reduce<CreditAmount>((sum, m) => addCreditAmounts(sum, m.value), 0) }
 }
 
 /** 平均每分钟:区间内的总量 ÷ 区间分钟数(今天只算到此刻)。统计条的 RPM/TPM 口径。 */

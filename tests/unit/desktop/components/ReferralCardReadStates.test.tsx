@@ -6,6 +6,9 @@ import { createReactHarness, clickElement, renderWithAppProviders, waitForCondit
 const rig = vi.hoisted(() => ({ stats: vi.fn(), identities: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/billing', async original => ({ ...(await original<object>()), getReferralStats: rig.stats }))
 vi.mock('../../../../apps/desktop/src/lib/identityReadAdapter', async original => ({ ...(await original<object>()), readDisplayIdentities: rig.identities }))
+// This suite owns invitation identity/retry promises. Account transitions are covered with the real
+// shared store in ReferralConfirmationTransitions; no unrelated auth read should consume these promises.
+vi.mock('../../../../apps/desktop/src/lib/billing/v2/runtime', () => ({ readCreditV2Account: vi.fn(() => new Promise(() => {})) }))
 let h: ReturnType<typeof createReactHarness>
 beforeEach(() => { h = createReactHarness(); vi.stubEnv('VITE_GUGU_WEB_URL', 'https://invites.example.test'); rig.stats.mockReset().mockResolvedValue({ invitedCount: 2, creditsEarned: 10 }); rig.identities.mockReset().mockResolvedValue([{ id: 'u1', gugu_number: 1001 }]) })
 afterEach(() => { h.cleanup(); vi.unstubAllEnvs() })

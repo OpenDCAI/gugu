@@ -109,6 +109,13 @@ export default {
     }
   },
   "credits": {
+    "v2": {
+      "not-active": "当前环境尚未启用新版积分计价。",
+      "unknown": "暂时无法确认当前积分版本或账户余额。",
+      "account-changed": "登录账户已变化，请刷新后读取当前账户的积分。",
+      "not-installed": "当前环境尚未安装新版积分读取接口。",
+      "inconsistent": "积分版本信息缺失或不一致，请刷新后重试。"
+    },
     "activity": "动态",
     "activityEmpty": "还没有用量记录。",
     "activityError": "用量记录暂时取不到：{{error}}",

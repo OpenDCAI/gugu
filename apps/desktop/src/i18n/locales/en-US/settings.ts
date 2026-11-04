@@ -109,6 +109,13 @@ export default {
     }
   },
   "credits": {
+    "v2": {
+      "not-active": "The new credit pricing is not active in this environment yet.",
+      "unknown": "The current credit version or account balance could not be confirmed.",
+      "account-changed": "The signed-in account changed. Refresh to read its credits.",
+      "not-installed": "This environment does not have the new credit read interface installed.",
+      "inconsistent": "Credit version information is missing or inconsistent. Refresh and try again."
+    },
     "activity": "Activity",
     "activityEmpty": "No usage activity yet.",
     "activityError": "Usage activity is unavailable: {{error}}",

@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+@import '../../styles/tailwind.css';
 @import 'tw-animate-css';
 @import '@xterm/xterm/css/xterm.css';
 
@@ -1361,7 +1361,7 @@
    样式边界才不会伤到咕咕。拆掉 shadow(见 EmdashSessionFrame)后它们会作用到**整个文档**,
    于是逐条收窄到挂载容器 `.gugu-skin`。逐条与咕咕 tokens.css:490-536 的同类规则对照过:
 
-     · `* { @apply border-border }`  咕咕没有等价规则 → 会把咕咕全站默认边框色改掉,必须收窄。
+     · `* { @apply border-border }`  宿主已有语义默认色;此处继续只给会话容器使用会话 token。
      · `body { bg-background text-foreground }`  咕咕的 body 是 `background: transparent`
        (窗口背景由 Electron 侧给),被这条盖住会让整窗底色变成会话页的白,必须收窄。
      · `::selection`  咕咕未定义 → 会改全局选中色,收窄。

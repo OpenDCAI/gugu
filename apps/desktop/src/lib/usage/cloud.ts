@@ -7,6 +7,8 @@ import type { CreditUsageDay, UsageDay } from '@gugu/core/shared/usage/dailyUsag
 import type { UsageDailyRow } from './rows'
 import { replaceUsageDeviceRows } from '@gugu/core/cloud/usageDaily'
 import { dataClient } from '../supabase'
+import { activeCreditV2, creditV2, creditV2Read } from '../billing/v2/runtime'
+import { CreditReadContractError } from '../billing/v2/contract'
 import type { UsageActivityRow } from '../billing/usage'
 import type { DayRange } from './derive'
 
@@ -67,23 +69,11 @@ export async function fetchUsageDevices(): Promise<UsageDevice[]> {
 export async function fetchCreditDays(from: string, to: string, timeZone: string): Promise<CreditUsageDay[]> {
   const [fy, fm, fd] = from.split('-').map(Number)
   const [ty, tm, td] = to.split('-').map(Number)
-  const { data, error } = await dataClient.schema('billing').rpc('my_daily_credit_usage', {
-    p_from: new Date(fy, fm - 1, fd).toISOString(),
-    p_to: new Date(ty, tm - 1, td + 1).toISOString(),
-    p_tz: timeZone,
-  })
-  if (error) fail(error)
-  return (Array.isArray(data) ? data : []).map((raw) => {
-    const row = raw as Record<string, unknown>
-    return {
-      day: String(row.day),
-      model: row.model == null ? null : String(row.model),
-      credits: num(row.credits),
-      inputTokens: num(row.inputTokens),
-      outputTokens: num(row.outputTokens),
-      requests: num(row.requests),
-    }
-  })
+  const { rows } = await creditV2Read(() => activeCreditV2.rows(() => creditV2.dailyUsage({
+    from: new Date(fy, fm - 1, fd).toISOString(),
+    to: new Date(ty, tm - 1, td + 1).toISOString(), timeZone,
+  })))
+  return rows
 }
 
 /** 使用日志的一行:网关记的输入 / 输出之外,再带缓存读 / 写(gugu#6660)。扣费按四者算,只看输入对不上。 */
@@ -94,31 +84,23 @@ export type LedgerRow = UsageActivityRow & { cache_read_tokens: number; cache_cr
  * 模型名称是包含匹配,大小写不敏感。
  */
 export async function fetchLedgerPage(options: { page: number; pageSize: number; model: string | null; range: Pick<DayRange, 'from' | 'to'> }): Promise<{ rows: LedgerRow[]; total: number }> {
-  const from = (options.page - 1) * options.pageSize
-  const [fy, fm, fd] = options.range.from.split('-').map(Number)
-  const [ty, tm, td] = options.range.to.split('-').map(Number)
-  let query = dataClient
-    .schema('billing')
-    .from('usage_events')
-    .select('id, model, agent_user_id, credits_charged, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, created_at', { count: 'exact' })
-    .gte('created_at', new Date(fy, fm - 1, fd).toISOString())
-    .lt('created_at', new Date(ty, tm - 1, td + 1).toISOString())
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .range(from, from + options.pageSize - 1)
-  const model = options.model?.trim()
-  if (model) query = query.ilike('model', `%${model.replace(/[%_\\]/g, (c) => `\\${c}`)}%`)
-  const { data, error, count } = await query
-  if (error) fail(error)
-  const rows = (data ?? []).map((row) => ({
-    ...row,
-    credits_charged: num(row.credits_charged),
-    input_tokens: num(row.input_tokens),
-    output_tokens: num(row.output_tokens),
-    cache_read_tokens: num(row.cache_read_tokens),
-    cache_creation_tokens: num(row.cache_creation_tokens),
-  })) as LedgerRow[]
-  return { rows, total: count ?? rows.length }
+  return creditV2Read(async () => {
+    const [fy, fm, fd] = options.range.from.split('-').map(Number)
+    const [ty, tm, td] = options.range.to.split('-').map(Number)
+    const result = await activeCreditV2.table(() => creditV2.ledger({
+      page: options.page, pageSize: options.pageSize, model: options.model,
+      from: new Date(fy, fm - 1, fd).toISOString(), to: new Date(ty, tm - 1, td + 1).toISOString(),
+    }))
+    if (result.total === null) throw new CreditReadContractError('exact ledger count')
+    return {
+      total: result.total,
+      rows: result.rows.map((row) => ({
+        id: row.id, model: row.model, agent_user_id: row.agentUserId, credits_charged: row.creditsCharged,
+        input_tokens: row.inputTokens, output_tokens: row.outputTokens, cache_read_tokens: row.cacheReadTokens,
+        cache_creation_tokens: row.cacheCreationTokens, created_at: row.createdAt,
+      })),
+    }
+  })
 }
 
 // ── 写:本机汇总 → 云端这台设备的那几行 ──

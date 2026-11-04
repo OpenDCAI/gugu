@@ -23,11 +23,14 @@ export const ASSISTANT_HOME_CHANNELS = {
   wipe: 'assistant-home:wipe',
 } as const
 
+export type AssistantEngine = 'claude' | 'codex'
+
 export type LocalAssistantPreparationState =
   | { phase: 'preparing' | 'ready' | 'committing' | 'committed' | 'cancelled' }
   | { phase: 'failed'; error: string; installationStarted?: true }
 
 export type PrepareLocalHomeInput = {
+  engine?: AssistantEngine
   /** 只问家在哪个目录,什么都不建不写(搬家预览 / 读旧家用)。 */
   dryRun?: boolean
   /** 引导里主人写的「称呼和基本信息」(markdown 正文);不带 = 不动记忆。 */

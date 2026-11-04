@@ -4,6 +4,8 @@
 // 其中还有一种是不成立的 —— 余额 30 而窗口还剩 200 时报「还剩 200 积分」。
 // 现在句子只有这一处,数只来自 core 的 deriveSpendingPower(它取两道闸里小的那个)。
 import type { SpendingPower } from '@gugu/core/billing'
+import { compareCreditAmounts, creditUnits, type CreditAmount } from '@gugu/core/billing/creditAmount'
+import { formatCreditDecimal } from './v2/decimal'
 import { quotaWindowLabel } from './quota'
 import { formatNumber, getLocaleSnapshot, i18n, type SupportedLocale } from '@/i18n'
 
@@ -15,8 +17,7 @@ const SMALLEST_SHOWN_CREDITS = 0.01
 /**
  * 积分显示到**小数点后两位**(owner 2026-08-17 定)。
  *
- * 为什么不再是整数:一个积分等于一美元牌价用量(官方计价口径),于是单笔调用普遍在
- * 0.0x 量级 —— 只显示整数的话,整张用量流水会清一色是同一个占位符,等于什么都没说。
+ * 单笔调用可能在 0.0x 量级 —— 只显示整数的话,整张用量流水会清一色是同一个占位符,等于什么都没说。
  *
  * 尾随的 0 不补:余额 1200 就写 1,200,不写 1,200.00。「支持两位小数」是**能写得下**,
  * 不是每个数都要拖两位。
@@ -25,9 +26,10 @@ const SMALLEST_SHOWN_CREDITS = 0.01
  * (整数 + `<1`)继承来的,当时就已经踩过:把一笔真花掉的钱印成 0,用户对不上账。
  */
 export function formatCredits(
-  credits: number,
+  credits: CreditAmount,
   locale: SpendingPowerLocale = getLocaleSnapshot().resolvedLocale,
 ): string {
+  if (typeof credits === 'string') return formatCreditDecimal(credits, locale)
   if (credits > 0 && credits < SMALLEST_SHOWN_CREDITS) {
     return `<${formatNumber(SMALLEST_SHOWN_CREDITS, {
       minimumFractionDigits: 2, maximumFractionDigits: 2,
@@ -43,13 +45,18 @@ export function formatCredits(
  * 英文单复数(credit / credits)按**写出来的那个数**取:0.999 显示成「1」,拿原值去选就成了「1 credits」。
  * `<0.01` 那一档四舍五入成 0,照样选复数。
  */
-export function creditCount(credits: number): number {
+export function creditCount(credits: CreditAmount): number {
+  // This is a plural selector, not an amount conversion. English only needs abs(displayed)==1.
+  if (typeof credits === 'string') {
+    const value = creditUnits(credits), magnitude = value < 0n ? -value : value
+    return (magnitude + 500_000n) / 1_000_000n === 100n ? 1 : 0
+  }
   return Math.round(credits * 100) / 100
 }
 
 /** 流水与余额同一把尺:同一个数在两处不该长得不一样。 */
 export function formatUsageCredits(
-  credits: number,
+  credits: CreditAmount,
   locale: SpendingPowerLocale = getLocaleSnapshot().resolvedLocale,
 ): string {
   return formatCredits(credits, locale)
@@ -116,7 +123,7 @@ function describeRate(power: SpendingPower, now: Date, locale: SpendingPowerLoca
     case 'exhausted':
       // 两条出路都成立,一起说:周期额度会自己回来,充值加量包则立刻可用。
       // ❌ 只说其中一条 —— 只说「去充值」会让人白花钱,只说「等刷新」会让人干等。
-      return power.held > 0
+      return compareCreditAmounts(power.held, 0) > 0
         ? t('credits.spending.exhaustedHeld', {
           credits: formatCredits(power.held, locale),
           available: formatUntil(power.period.freesAt, now, locale),
