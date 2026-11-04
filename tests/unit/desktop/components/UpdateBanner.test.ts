@@ -121,7 +121,7 @@ describe('#1342 replacement download and installation state', () => {
       },
       onReady: () => {}, rejectTarget: () => false,
       dmg: { applies: () => false, start: () => {} },
-      updateQuit: { installAfterDownload: handoff, downloaded: () => {}, downloadFailed: () => false },
+      updateQuit: { installAfterDownload: handoff, downloaded: () => false, downloadFailed: () => false },
       busyAgents: () => 2, confirmInterrupt,
       logInfo: () => {}, logWarn: () => {},
     })
