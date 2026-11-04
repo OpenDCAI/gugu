@@ -1,7 +1,7 @@
 import type { TranscriptTurn } from '@gugu/session-core/acp/client';
 
 /** Keep the runtime identity when display ids are renumbered for storage. */
-function rewriteTurnId(value: string, previous: string, next: string): string {
+export function rewriteTurnId(value: string, previous: string, next: string): string {
   if (value === previous) return next;
   return value.startsWith(previous + ':') ? next + value.slice(previous.length) : value;
 }
