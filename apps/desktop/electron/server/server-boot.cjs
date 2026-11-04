@@ -285,16 +285,17 @@ function readPendingVerify(home) {
   }
 }
 function writePendingVerify(home, value) { writeJson(file(home, 'pending-verify.json'), validatePending(value)) }
-function writeVersionOutcome(home, record) {
-  writeJson(file(home, 'server-update.json'), record)
+function writeVersionPin(home, record) {
   writeJson(file(home, 'server-version.json'), { version: record.version, previous: record.previous ?? null, at: record.at })
 }
 function markServerReady(home, now = Date.now()) {
   const pending = readPendingVerify(home)
   if (!pending || process.env.GUGU_TASK_HOST_VERSION !== pending.to) return
-  writeVersionOutcome(home, { state: 'idle', version: pending.to, previous: pending.from, at: now,
+  const record = { state: 'idle', version: pending.to, previous: pending.from, at: now,
     lastOutcome: { kind: 'switched', target: pending.to, at: now,
-      ...(pending.request !== undefined ? { request: pending.request } : {}) } })
+      ...(pending.request !== undefined ? { request: pending.request } : {}) } }
+  writeJson(file(home, 'server-update.json'), record)
+  writeVersionPin(home, record)
   fs.rmSync(file(home, 'pending-verify.json'), { force: true })
 }
 function readBadVersions(home) {
@@ -331,12 +332,21 @@ function checkPendingBoot(home) {
   const badFile = file(home, 'bad-versions.json')
   const bad = fs.existsSync(badFile) ? readJson(badFile) : {}
   if (!bad || typeof bad !== 'object' || Array.isArray(bad)) throw new Error('Invalid bad versions record')
-  pointCurrent(home, previous)
   const at = Date.now()
-  writeJson(badFile, { ...bad, [pending.to]: at })
-  writeVersionOutcome(home, { state: 'idle', version: pending.from, at,
+  const record = { state: 'idle', version: pending.from, at,
     lastOutcome: { kind: 'rolledBack', bad: pending.to, back: pending.from, at,
-      ...(pending.request !== undefined ? { request: pending.request } : {}) } })
+      ...(pending.request !== undefined ? { request: pending.request } : {}) } }
+  const current = fs.realpathSync(path.join(home, 'current'))
+  pointCurrent(home, previous)
+  // Retain this package's retry path: an older rollback package cannot repair our pin.
+  try { writeVersionPin(home, record) }
+  catch (error) {
+    pointCurrent(home, current)
+    process.stderr.write(`[server] Could not publish rollback version; retaining pending verification for restart: ${error.message}\n`)
+    return true
+  }
+  writeJson(badFile, { ...bad, [pending.to]: at })
+  writeJson(file(home, 'server-update.json'), record)
   fs.rmSync(file(home, 'pending-verify.json'))
   return true
 }
