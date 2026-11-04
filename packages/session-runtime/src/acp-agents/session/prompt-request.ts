@@ -5,6 +5,12 @@ import type { SessionPromptResult } from './cell-deps';
 
 export type PromptResult = Result<SessionPromptResult, AcpSendPromptError>;
 
+/** Owned teardown, not a provider-authored failure. Retains the cancelled request's identity. */
+export function cancelledPromptResult(sessionId: string, requestId?: string): PromptResult {
+  return acpErr.promptFailed({ name: 'AcpPromptCancelled', code: 'CANCELLED', message: 'ACP session stopped',
+    data: { reason: 'session-stop', sessionId, ...(requestId ? { requestId } : {}) } });
+}
+
 /** A dispatch is admitted independently of the foreground cycle that owns its native echo. */
 export type PromptRequest = {
   messageId: string;
@@ -27,7 +33,8 @@ export function acceptPromptMessage(request: PromptRequest, messageId: string, t
   push(inserted);
 }
 
-export function settleAcceptedRequests(requests: Map<string, PromptRequest>, transcript: AcpTranscriptParser): void {
+export function settleAcceptedRequests(requests: Map<string, PromptRequest>, transcript: AcpTranscriptParser,
+  cancelled?: (requestId: string) => PromptResult): void {
   for (const [id, request] of requests) {
     if (!request.accepted) continue;
     const owner = transcript.entityOwner({ ...request.submitted, messageId: request.messageId });
@@ -35,7 +42,7 @@ export function settleAcceptedRequests(requests: Map<string, PromptRequest>, tra
     if (!outcome) continue;
     request.completion.resolve(outcome.kind === 'error'
       ? acpErr.promptFailed({ name: 'ForegroundError', message: outcome.detail ?? outcome.reason ?? 'Foreground failed' })
-      : ok({ queued: false }));
+      : outcome.kind === 'cancelled' && cancelled ? cancelled(id) : ok({ queued: false }));
     requests.delete(id);
   }
 }
