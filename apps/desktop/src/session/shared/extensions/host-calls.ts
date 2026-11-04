@@ -29,6 +29,7 @@ export const HOST_CALLS = {
   'surfaces.post': { verb: 'appSurfacePost' },
   'pages.acquire': { verb: 'taskPageAcquire' },
   'pages.send': { verb: 'taskPageSend' },
+  'pages.maintain': { verb: 'taskPageMaintain' },
   'pages.release': { verb: 'taskPageRelease' },
   'pages.mount': { verb: 'taskPageMount' },
   'pages.unmount': { verb: 'taskPageUnmount' },

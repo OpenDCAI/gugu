@@ -2,6 +2,7 @@ import type { WebContents } from 'electron';
 import { isSupportedBrowserNavigationUrl } from './browser-navigation';
 import { pageNetworkEvent } from './page-network-events';
 import { pageNavigationAccess } from './page-navigation-access';
+import { pageProtocolMaintenance, pageTreeHasFrame } from './page-protocol-maintenance';
 
 type PageEvent = (method: string, params: Record<string, unknown>, sessionId?: string) => void;
 type PageProtocolOptions = {
@@ -39,6 +40,7 @@ const PAGE_METHODS = new Set(`
 export interface PageProtocol {
   readonly attached: boolean;
   send(method: string, params?: Record<string, unknown>, sessionId?: string, signal?: AbortSignal): Promise<unknown>;
+  maintain?(method: string, params?: Record<string, unknown>, sessionId?: string, signal?: AbortSignal): Promise<unknown>;
   onMessage(listener: PageEvent): () => void;
   onClose(listener: (reason: string) => void): () => void;
   close(reason?: string): void;
@@ -138,8 +140,16 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
   if (options.signal?.aborted) onAbort();
   else options.signal?.addEventListener('abort', onAbort, { once: true });
 
-  return {
+  const protocol: PageProtocol = {
     get attached() { return attached; },
+    async maintain(method, params = {}, sessionId, signal) {
+      if (!pageProtocolMaintenance(method, params)) throw new Error('This command is not connection maintenance');
+      if (method === 'Page.createIsolatedWorld') {
+        const result = await protocol.send('Page.getFrameTree', {}, sessionId, signal) as { frameTree?: unknown };
+        if (!pageTreeHasFrame(result?.frameTree, params.frameId)) throw new Error('Unknown frame in this page connection');
+      }
+      return protocol.send(method, params, sessionId, signal);
+    },
     async send(method, params = {}, sessionId, signal) {
       signal?.throwIfAborted();
       assertLive();
@@ -193,4 +203,5 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
     },
     close,
   };
+  return protocol;
 }

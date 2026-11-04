@@ -12,6 +12,7 @@ export function leasePageProtocol(contents: WebContents, options: { ready: Promi
   let closing: Promise<void> | undefined;
   const protocol: PageProtocol = { ...raw, get attached() { return raw.attached; },
     send: (method, params, sessionId, signal) => raw.send(method, params, sessionId, anySignal([signal, commands.signal])),
+    maintain: (method, params, sessionId, signal) => raw.maintain!(method, params, sessionId, anySignal([signal, commands.signal])),
   };
   return { protocol, cleanup() {
     if (closing) return closing;

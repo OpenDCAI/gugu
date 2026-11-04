@@ -446,7 +446,14 @@ API 30 shared task resources (desktop, \`agents:tools\`):
   Main selects the calling task's real page, never an App-supplied contents ID or partition. Adapt your own driver with
   \`lease.send(method, params?, cdpSessionId?)\`, \`lease.onMessage(fn)\` and \`lease.onClose(fn)\` (both return unsubscribe).
   Commands need a live call of that task. Protocol methods, navigation and child sessions remain host-restricted.
+  Local file inputs (DOM.setFileInputFiles) are unavailable.
+  Call cancellation ends its acquisition/commands, not the shared connection or other calls.
   Closing releases this lease's held keys/buttons and control, not the person's page or login. Task stop closes its old leases. A host without a desktop says unavailable.
+- Protocol events carry no tool-call authority. \`lease.maintain(method, params?, cdpSessionId?)\` is App/program/task-owned initialization:
+  Page.enable/getFrameTree, Log/Runtime/Network.enable, Runtime.runIfWaitingForDebugger, lifecycle enabled:true,
+  empty-source named worlds (frame checked natively), fixed autoAttach/waitForDebuggerOnStart/flatten:true, screen media preferences, known-child detach.
+  Main checks exact parameters; input/navigation/scripts/files/browser-wide commands are refused. Task stop, revocation or exit ends maintenance.
+  Route it separately from live-call send; never borrow another call.
 - Task page: \`await gugu.pages.mount(element, id, {error?})\` returns \`{ close }\`; mount only a lease of this App/task.
   Main clips its native page to the host-measured App viewport; native clicks go to the real page. Failed layout reports error and unmounts.
 - Program: \`await gugu.surfaces.open({ entry, bounds:{x,y,width,height}, data?, visible?, relativeTo? })\` returns

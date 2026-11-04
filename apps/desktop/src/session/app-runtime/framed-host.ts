@@ -53,7 +53,7 @@ const IN_SESSION: ReadonlySet<HostMember> = new Set<HostMember>(['callProgram', 
 const PROGRAM: ReadonlySet<HostMember> = new Set<HostMember>([
   'showTaskPages',
   'surfaces.open', 'surfaces.screen', 'surfaces.update', 'surfaces.close', 'onSurface',
-  'pages.acquire', 'pages.send', 'pages.release', 'onTaskPage',
+  'pages.acquire', 'pages.send', 'pages.maintain', 'pages.release', 'onTaskPage',
   'projection.create', 'projection.publish', 'projection.close', 'projection.closed', 'projection.inputResult', 'onProjectionSource',
   'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'messages.history', 'messages.search',
   'chats.list', 'chats.members', 'projects.list', 'linkTo',

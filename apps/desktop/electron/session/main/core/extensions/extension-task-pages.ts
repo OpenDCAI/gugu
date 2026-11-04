@@ -8,6 +8,7 @@ import type { BridgeCaller } from './extension-bridge';
 import { ownProgramResource } from './program-resource-lifetime';
 import { workspaceSession } from '@shared/extensions/app-runtime-protocol';
 import { ownAppPageResource } from './app-page-resources';
+import { pageProtocolMaintenance } from '../browser/page-protocol-maintenance';
 
 export type TaskPageRect = { x: number; y: number; width: number; height: number };
 
@@ -55,10 +56,17 @@ export class ExtensionTaskPages {
   }
 
   private own(caller: BridgeCaller, id: unknown): RecordOfPage {
-    const from = this.caller(caller);
+    this.caller(caller);
+    return this.resource(caller, id);
+  }
+
+  private resource(caller: BridgeCaller, id: unknown): RecordOfPage {
+    if (caller.kind !== 'program') throw new Error('Only the owning App program may maintain a page');
+    caller.signal?.throwIfAborted();
+    this.authorize(caller.extensionId);
     const page = typeof id === 'string' ? this.pages.get(id) : undefined;
     if (!page || page.closed || page.owner !== caller.pageId || page.extensionId !== caller.extensionId
-      || page.sessionId !== from.sessionId) throw new Error('This task page is not owned by this call');
+      || caller.callingSession && page.sessionId !== caller.callingSession) throw new Error('This task page is not owned by this call');
     page.access.signal.throwIfAborted();
     return page;
   }
@@ -90,7 +98,10 @@ export class ExtensionTaskPages {
     void pending.promise.catch(this.report);
     let cleanupFailure: unknown;
     const epoch = this.taskEpochs.get(from.sessionId) ?? 0;
-    const access = openExtensionProgramAccess(caller.extensionId, caller.interruption, from.sessionId);
+    // A returned connection is the App/task's resource, not the acquiring call's.
+    // Individual acquisition/commands still take that call's signal; stopping the
+    // task revokes this independent resource scope without cancelling concurrent B when only A ends.
+    const access = openExtensionProgramAccess(caller.extensionId, undefined, from.sessionId);
     const signal = anySignal([from.signal, access.signal, owner.controller.signal]);
     let native: TaskPageNative | undefined;
     let admitted: RecordOfPage | undefined;
@@ -155,6 +166,9 @@ export class ExtensionTaskPages {
     if (typeof args.method !== 'string' || !args.method || args.method.length > 128
       || args.params !== undefined && (!args.params || typeof args.params !== 'object' || Array.isArray(args.params))
       || args.sessionId !== undefined && typeof args.sessionId !== 'string') throw new Error('Invalid task page command');
+    // The raw internal protocol also serves trusted host code. Lending a page to
+    // a tools App does not lend native local-file authority with it.
+    if (args.method === 'DOM.setFileInputFiles') throw new Error('Task page tools cannot attach local files');
     page.active++;
     try {
       page.listen();
@@ -165,6 +179,20 @@ export class ExtensionTaskPages {
       page.active--;
       if (!page.closed && page.active === 0) page.native.setActive(false);
     }
+  }
+
+  async maintain(caller: BridgeCaller, args: Record<string, unknown>): Promise<unknown> {
+    const page = this.resource(caller, args.id);
+    if (typeof args.method !== 'string' || !args.method || args.method.length > 128
+      || args.params !== undefined && (!args.params || typeof args.params !== 'object' || Array.isArray(args.params))
+      || args.sessionId !== undefined && typeof args.sessionId !== 'string') throw new Error('Invalid task page maintenance');
+    if (!pageProtocolMaintenance(args.method, args.params as Record<string, unknown> | undefined ?? {})) {
+      throw new Error('This command is not connection maintenance');
+    }
+    if (!page.native.protocol.maintain) throw new Error('This host cannot maintain a task page connection');
+    page.listen();
+    return page.native.protocol.maintain(args.method, args.params as Record<string, unknown> | undefined,
+      args.sessionId as string | undefined, page.access.signal);
   }
 
   release(caller: BridgeCaller, id: unknown): Promise<void> {

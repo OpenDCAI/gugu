@@ -36,6 +36,11 @@ export function taskPagesApi(host: TaskPageHost) {
             if (page.closed) return Promise.reject(new Error(page.closed));
             return host.pages!.send({ id: leased.id, method, params, sessionId });
           },
+          maintain(method: string, params?: Record<string, unknown>, sessionId?: string) {
+            if (page.closed) return Promise.reject(new Error(page.closed));
+            if (!host.pages!.maintain) return Promise.reject(new Error('This host cannot maintain a task page connection'));
+            return host.pages!.maintain({ id: leased.id, method, params, sessionId });
+          },
           onMessage(listener: Message) {
             if (!page.closed) page.messages.add(listener);
             return () => { page.messages.delete(listener); };

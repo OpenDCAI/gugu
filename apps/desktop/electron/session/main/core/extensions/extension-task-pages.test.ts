@@ -68,6 +68,23 @@ it('keeps the person page leased across tool completion but revokes it on App pe
   revokeExtensionProgramAccess('revoked-page-app');
   expect(page.value.release).toHaveBeenCalledTimes(1);
 });
+it('starts event delivery before resource-owned initialization without borrowing a tool call', async () => {
+  const page = native();
+  page.value.protocol.maintain = vi.fn(async () => {
+    for (const receive of page.messages) receive('Target.attachedToTarget', { sessionId: 'child' });
+    return {};
+  });
+  const { pages } = setup(async () => page.value);
+  const { from } = caller();
+  const lease = await pages.acquire(from, { watchId: 'maintenance-events' });
+  const background = { ...from, signal: undefined, callingSession: undefined };
+  await pages.maintain(background, { id: lease.id, method: 'Runtime.enable' });
+  expect(from.hear).toHaveBeenCalledWith({ type: 'taskPage', event: {
+    watchId: 'maintenance-events', type: 'message', method: 'Target.attachedToTarget', params: { sessionId: 'child' },
+  } });
+  await expect(pages.maintain(background, { id: lease.id, method: 'Runtime.evaluate' })).rejects.toThrow('not connection maintenance');
+  expect(page.value.protocol.maintain).toHaveBeenCalledTimes(1);
+});
 it('releases a late acquisition after task cancellation, without publishing a usable handle', async () => {
   const late = Promise.withResolvers<TaskPageNative>();
   const page = native();
@@ -151,13 +168,14 @@ it('task stop closes already returned leases without revoking another task’s A
   await expect(pages.send(b.from, { id: other.id, method: 'Runtime.enable' })).resolves.toEqual({ result: 1 });
 });
 
-it('actual MCP interruption closes its lease, while normal completion leaves the page for a later call', async () => {
+it('an individual MCP interruption keeps the returned lease until the task itself stops', async () => {
   const page = native(), stop = new AbortController(), completed = new AbortController();
   const { pages } = setup(async () => page.value);
   const from = { ...caller().from, signal: completed.signal, interruption: stop.signal };
   await pages.acquire(from, { watchId: 'watch' });
   completed.abort(); expect(page.value.release).not.toHaveBeenCalled();
-  stop.abort(); expect(page.value.release).toHaveBeenCalledTimes(1);
+  stop.abort(); expect(page.value.release).not.toHaveBeenCalled();
+  cancelExtensionSessionCalls('task-a'); expect(page.value.release).toHaveBeenCalledTimes(1);
 });
 
 it('program exit observes failed late cleanup and still releases the other late page', async () => {

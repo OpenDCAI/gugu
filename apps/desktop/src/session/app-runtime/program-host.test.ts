@@ -34,6 +34,31 @@ async function program() {
 }
 
 describe('gugu in a program', () => {
+  it('page protocol events never inherit another active call; maintenance carries only its resource identity', async () => {
+    const { gugu, sent, deliver, nextCall } = await program();
+    const { programCall } = await import('./program-call');
+    type Lease = { onMessage(fn: () => void): void; maintain(method: string): Promise<unknown>; send(method: string): Promise<unknown> };
+    const api = gugu.pages as { acquire(): Promise<Lease> };
+    const opening = programCall.run('acquire-a', () => api.acquire());
+    const request = await nextCall(0);
+    const watchId = (request as unknown as { args: { watchId: string } }).args.watchId;
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: request.id, ok: true, value: { id: 'page-a', title: 'A', url: 'https://example.test' } });
+    const lease = await opening;
+    let maintenance: Promise<unknown> | undefined, operation: Promise<unknown> | undefined;
+    lease.onMessage(() => { maintenance = lease.maintain('Runtime.enable'); operation = lease.send('Runtime.evaluate'); });
+    const before = sent.length;
+    programCall.run('unrelated-b', () => deliver({ m: APP_FRAME_MARKER, t: 'event',
+      event: { type: 'taskPage', event: { type: 'message', watchId, method: 'Target.attachedToTarget', params: {} } } }));
+    const maintain = await nextCall(before);
+    expect(maintain).toMatchObject({ method: 'taskPageMaintain', args: { id: 'page-a' } });
+    expect(maintain).not.toHaveProperty('call');
+    const send = sent.slice(before).find(message => message.method === 'taskPageSend')!;
+    expect(send).not.toHaveProperty('call');
+    const denied = expect(operation).rejects.toThrow('current task call');
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: maintain.id, ok: true, value: {} });
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: send.id, ok: false, code: 'denied', message: 'A current task call is required' });
+    await maintenance; await denied;
+  });
   it('custom MCP adapters enter their own stamped call without leaking it to another invocation', async () => {
     const { gugu, sent, deliver, nextCall } = await program();
     const withCall = gugu.withCall as <T>(meta: Record<string, unknown> | undefined, work: () => T) => T;
