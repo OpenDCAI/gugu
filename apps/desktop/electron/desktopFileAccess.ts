@@ -52,7 +52,7 @@ export function createDesktopFileAccess(deps: {
     return row?.status === 'ready' ? row : null
   }
   const read = createProjectFileReader({ identity, root, env: deps.env, later })
-  const metadata = createFileMetadataLoader(async (context, refs) => attachmentRequest(await endpoint(context), 'file-resolve', { refs, as: context.actor.actorId }))
+  const metadata = createFileMetadataLoader(async (context, refs) => attachmentRequest(await endpoint(context), 'file-resolve', { refs, as: context.actor.actorId }, context.signal))
   const providers = { ...cloudFileProviders({ endpoint, metadata, cache: createFileChunkCache(deps.tempRoot), sink: size => createFileSink(deps.tempRoot, size) }),
     local: localProjectFileProvider({ identity, read, tempRoot: deps.tempRoot, env: deps.env, later }),
     ssh: async (...args: Parameters<ReturnType<typeof ownSshFileProvider>>) => {
@@ -70,7 +70,7 @@ export function createDesktopFileAccess(deps: {
     }
     const fileRef: FileRef = 'id' in ref ? { item_id: ref.id, ...(options?.version ? { version: options.version } : {}) } : ref
     const reader = { accountId, actorId: actor ?? accountId }
-    return options?.localOnly ? resolve(fileRef, reader, { localOnly: true }) : resolve(fileRef, reader)
+    return resolve(fileRef, reader, { ...(options?.localOnly ? { localOnly: true } : {}), ...(options?.signal ? { signal: options.signal } : {}) })
   }
   const sshHandlers: DeviceRpcHandlers = { [PROJECT_FILE_READ]: async (payload, ctx) => ({ result: await read(payload as Parameters<typeof read>[0], ctx.request.user_id) }) }
   const publish = createProjectFilePublisher({ identity, root, rpc: deps.rpc, env: deps.env,

@@ -1,5 +1,5 @@
 /**
- * `gugu-server open-url [--account <账号 id>] [--] <网址或文件>`(#6264):这台机器上的程序要「打开网页」时,
+ * `gugu-server open-url [--] <网址或文件>`(#6264):这台机器上的程序要「打开网页」时,
  * `$BROWSER` / xdg-open 的助手脚本调它(脚本见 ../session/main/core/pty/server-browser-env.ts)。
  *
  * 照 VS Code 远端的 `$BROWSER`(server.cli.ts 的 openExternal):把网址经本机套接字交给这个账号的进程,
@@ -12,8 +12,8 @@
  * ⚠️ 只在 CLI 里跑:不碰 electron、不加载主进程,起得快。
  */
 import { ATTACH_EXIT, OPEN_EXTERNAL_CALL } from '../session/main/core/pty/attach/attach-protocol'
-import { callAccountProcess, pickAttachAccount } from './account-call'
-import { listAccounts } from './server-layout'
+import { callAccountProcess, accountRequestError } from './account-call'
+import { readServerAccount } from './server-layout'
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/
 
@@ -35,7 +35,7 @@ export function parseOpenUrlArgs(
   const fromEnv = env.GUGU_SERVER_ACCOUNT?.trim()
   if (account === null && fromEnv && ID.test(fromEnv)) account = fromEnv
   const target = rest[0]?.trim() ?? ''
-  if (!target) return { error: '用法:gugu-server open-url [--account <账号 id>] <网址或文件>' }
+  if (!target) return { error: '用法:gugu-server open-url <网址或文件>' }
   return { account, target }
 }
 
@@ -47,7 +47,7 @@ export async function runOpenUrl(
   deps: {
     env?: NodeJS.ProcessEnv
     cwd?: () => string
-    accounts?: typeof listAccounts
+    account?: typeof readServerAccount
     call?: typeof callAccountProcess
   } = {},
 ): Promise<number> {
@@ -60,8 +60,9 @@ export async function runOpenUrl(
   const fallback = (why: string) => {
     io.stderr.write(`${why}\n  ${parsed.target}\n`)
   }
-  const account = pickAttachAccount((deps.accounts ?? listAccounts)(), parsed.account)
-  if ('error' in account) {
+  const account = (deps.account ?? readServerAccount)()
+  const accountError = accountRequestError(account, parsed.account)
+  if (accountError || !account) {
     fallback('咕咕:没能转到你的电脑上打开,请手动打开这个地址 / Gugu could not open this on your computer; open it yourself:')
     return ATTACH_EXIT.notSignedIn
   }

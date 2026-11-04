@@ -68,6 +68,7 @@ out="$RUNNER_TEMP/gugu-server-smoke"
 rm -rf "$out" && mkdir -p "$out"
 "$DOCKER" cp "$GUGU_LINUX_CONTAINER:/work/release/server/." "$out/"
 cp "$here/smoke-app-tools.mts" "$out/"   # 预装 App 的 tools/list(见下)
+cp "$here/smoke-legacy-account.mts" "$out/"
 chmod -R a+rX "$out"   # 同上:冒烟容器以只读挂载读这些包
 for arch in x64 arm64; do
   platform=$([ "$arch" = x64 ] && echo linux/amd64 || echo linux/arm64)
@@ -103,9 +104,11 @@ for arch in x64 arm64; do
       got=$(su smoke -c "/home/smoke/.local/bin/gugu-server status" | sed -n "s/^数据目录:\(.*\)\$/\1/p")
       [ "$got" = "$legacy" ] || { echo "::error::$PKG lost its legacy installation home: $got"; exit 1; }
     ;; esac
+    # Exercise the old supervisor contract before any current CLI prepares the account home.
+    su smoke -c "$d/node/bin/node /pkg/smoke-legacy-account.mts $d/bin/gugu-server"
     su smoke -c "$d/bin/gugu-server run > /tmp/run.log 2>&1 &"
-    for i in $(seq 1 60); do grep -qs "咕咕 server 已启动" /tmp/run.log && break; sleep 1; done
-    grep -q "咕咕 server 已启动" /tmp/run.log || { cat /tmp/run.log; echo "::error::$PKG 起不来"; exit 1; }
+    for i in $(seq 1 60); do grep -qs "Not signed in; waiting for login" /tmp/run.log && break; sleep 1; done
+    grep -q "Not signed in; waiting for login" /tmp/run.log || { cat /tmp/run.log; echo "::error::$PKG 未进入等待登录"; exit 1; }
     case "$PKG" in *-beta.*)
       [ "$(readlink "$home")" = "$legacy" ] || { echo "::error::$PKG did not preserve its channel home"; exit 1; }
       su smoke -c "/home/smoke/.local/bin/gugu-server-beta status" | grep -q "数据目录:$legacy" || exit 1

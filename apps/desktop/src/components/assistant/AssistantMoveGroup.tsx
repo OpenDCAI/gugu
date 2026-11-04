@@ -107,7 +107,7 @@ export function AssistantMoveGroup({ ownerUserId, assistantId, assistantName, ho
       {home.kind === 'cloud' && member === false ? (
         <SettingsRow
           title={t('move.expiredTitle', { name: assistantName })}
-          description={t('move.expiredBody')}
+          description={t('move.expiredBody', { name: assistantName })}
           control={
             <Button size="sm" onClick={openMembership} data-testid="assistant-move-renew">
               {t('move.renew')}

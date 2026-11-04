@@ -9,6 +9,7 @@ import { isChatOnScreen } from '../lib/onScreenChat'
 import { rendererLogger } from '../lib/log'
 import { chatPreviewText } from '../lib/agentTurnFailure'
 import type { AccountImRepository } from '../lib/imRepository'
+import type { PersonalConversationDeletion } from '../lib/deleteListedConversation'
 import { patchChatRows, prepareProjectedReadWatermark, type PatchChat } from './chatRealtimeMutations'
 import { currentAuthSessionSignal } from '../lib/authSessionLoss'
 import {
@@ -44,6 +45,11 @@ export function createChatListProjectionLedger() {
     rememberOptimistic(chat: ChatItem) { optimistic.set(chat.id, chat) },
     /** 权威地离场(删会话/退群/确证失去访问权):乐观行与「最后一次看见它」的水位一起丢弃 —— 之后它若以同一 id 回来,对它的沉默不再有资格撤销 (#4314)。 */
     forgetChat(chatId: string) { optimistic.delete(chatId); lastSeenSeq.delete(chatId) },
+    forgetDeleted(isDeleted: (id: string) => boolean) {
+      for (const id of new Set([...lastSeenSeq.keys(), ...optimistic.keys()])) {
+        if (isDeleted(id)) { optimistic.delete(id); lastSeenSeq.delete(id) }
+      }
+    },
     retireProjected(chatIds: Iterable<string>) { for (const id of chatIds) optimistic.delete(id) },
     missingFrom: (merged: readonly ChatItem[]) => [...optimistic.values()].filter((r) => !merged.some((c) => c.id === r.id)),
   }
@@ -54,20 +60,24 @@ export async function applyFetchedChatList(
   ledger: ChatListProjectionLedger,
   repository: AccountImRepository,
   snapshot: { fetched: readonly ChatItem[]; identities: readonly unknown[] },
-  into: { currentChats: readonly ChatItem[]; activeChatId: string | null; revokeMissingActive: boolean },
+  into: { currentChats: readonly ChatItem[]; activeChatId: string | null; revokeMissingActive: boolean; isConversationDeleted?: (id: string) => boolean },
 ): Promise<ChatItem[]> {
-  const { fetched, identities } = snapshot
-  const { currentChats, activeChatId, revokeMissingActive } = into
+  const { identities } = snapshot
+  const { currentChats, activeChatId, revokeMissingActive, isConversationDeleted } = into
+  const fetched = snapshot.fetched.filter(chat => !isConversationDeleted?.(chat.id))
+  if (isConversationDeleted) ledger.forgetDeleted(isConversationDeleted)
   const ids = new Set(fetched.map((chat) => chat.id))
   ledger.retireProjected(ids)
   if (revokeMissingActive && activeChatId) ledger.forgetChat(activeChatId)
-  const merged = mergeFetchedChatsPreservingActiveLocal([...fetched], [...currentChats], activeChatId,
+  const merged = mergeFetchedChatsPreservingActiveLocal([...fetched], currentChats.filter(chat => !isConversationDeleted?.(chat.id)), activeChatId,
     { preserveMissingActive: !revokeMissingActive })
-  await publishChatSnapshot(repository, merged.filter((chat) => ids.has(chat.id)), identities)
-  const missing = ledger.missingFrom(merged)
+  await publishChatSnapshot(repository, merged.filter((chat) => ids.has(chat.id)), identities, isConversationDeleted)
+  if (isConversationDeleted) ledger.forgetDeleted(isConversationDeleted)
+  const visible = merged.filter(chat => !isConversationDeleted?.(chat.id))
+  const missing = ledger.missingFrom(visible)
   // 结构共享:没变的会话行沿用内存里那一版对象。投影每批都重拼全部行,不共享的话一条新消息
   // 就让当前会话 activeChat 换身份,聊天面板里以它为依赖的派生全部重算、每条气泡的 memo 随之失效。
-  return replaceEqualDeep(currentChats as ChatItem[], missing.length > 0 ? [...missing, ...merged] : merged)
+  return replaceEqualDeep(currentChats as ChatItem[], missing.length > 0 ? [...missing, ...visible] : visible)
 }
 
 /** 刷新带回的新消息通知扇出：与列表状态机无关的纯副作用（#1757 逐域抽取）。 */
@@ -161,7 +171,8 @@ export function useChatProjectionBinding(deps: {
     options: { requestSeq: number; notify: boolean; preserveMissingActive?: boolean; revokedMembership?: (chatId: string) => boolean },
   ): Promise<void> => {
     const activeChatId = activeChatIdRef.current
-    const revokeMissingActive = ledger.shouldRevokeActive({
+    const isConversationDeleted = ownerRef.current?.owner.isConversationDeleted
+    const revokeMissingActive = !!activeChatId && !!isConversationDeleted?.(activeChatId) || ledger.shouldRevokeActive({
       activeChatId, fetched, requestSeq: options.requestSeq, preserveMissingActive: options.preserveMissingActive,
     }) && (!options.revokedMembership || options.revokedMembership(activeChatId!))
     ledger.recordProjected(fetched, options.requestSeq)
@@ -175,7 +186,7 @@ export function useChatProjectionBinding(deps: {
       deferPersist: (persist) => pendingReads.push(persist),
     })
     setChats(await applyFetchedChatList(ledger, await getRepository(), { fetched: acknowledged, identities },
-      { currentChats: chatsRef.current, activeChatId, revokeMissingActive }))
+      { currentChats: chatsRef.current, activeChatId, revokeMissingActive, isConversationDeleted }))
     for (const persist of pendingReads) persist()
     if (revokeMissingActive && activeChatId) onActiveRevoked(activeChatId)
   }, [ledger, activeChatIdRef, canAcknowledge, visibleSeqOf, chatsRef, getRepository, notifyMessages, notifySound, onActiveRevoked, patchChat, setChats])
@@ -184,7 +195,21 @@ export function useChatProjectionBinding(deps: {
   const hydrate = useCallback((accountId: string) => ownerFor(accountId)
     .hydrate(readProjectionCursor(repositoryRef.current), currentAuthSessionSignal()), [ownerFor, repositoryRef])
 
+  const hasDeletedConversation = useCallback((accountId: string, chats: readonly ChatItem[]) =>
+    chats.some(chat => ownerFor(accountId).isConversationDeleted(chat.id)), [ownerFor])
+
   const identities = useCallback((accountId: string) => ownerFor(accountId).identities(), [ownerFor])
+
+  const confirmPersonalDeletion = useCallback(async (accountId: string, receipt: PersonalConversationDeletion): Promise<boolean> => {
+    const binding = ownerRef.current
+    if (!binding || binding.accountId !== accountId) return false
+    binding.owner.confirmPersonalDeletion(receipt) // Synchronous, before any older result can publish.
+    ledger.forgetChat(receipt.chat_id)
+    const repository = await getRepository()
+    if (ownerRef.current !== binding || repository.accountId !== accountId) return false
+    await repository.transaction(transaction => transaction.delete('chat', [accountId, receipt.chat_id]))
+    return ownerRef.current === binding
+  }, [getRepository, ledger])
 
   const attach = useCallback((accountId: string, subscribe: ChatProjectionAttachment['subscribe']) => {
     const owner = ownerFor(accountId)
@@ -201,5 +226,5 @@ export function useChatProjectionBinding(deps: {
 
   // ⚠️ 必须**稳定**:返回新字面量 ⇒ 依赖它的 effect 与 useCallback 每渲染都重建 ⇒ 订阅/渲染循环
   // (实测:第一版返回字面量,chatSelectionIntent4314 直接跑到 heap OOM)。
-  return useMemo(() => ({ hydrate, identities, publish, attach }), [hydrate, identities, publish, attach])
+  return useMemo(() => ({ hydrate, identities, publish, attach, hasDeletedConversation, confirmPersonalDeletion }), [hydrate, identities, publish, attach, hasDeletedConversation, confirmPersonalDeletion])
 }

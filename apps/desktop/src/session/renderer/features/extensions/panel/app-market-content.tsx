@@ -11,7 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { cn } from '@renderer/utils/utils';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { localizedManifestText, marketCategoryOf, type MarketCategory } from '@shared/extensions/catalog';
-import type { MarketListItem, MarketCompat } from '@shared/extensions/market';
+import { marketCompatText, type MarketListItem, type MarketCompat } from '@shared/extensions/market';
 import type { MarketHome } from '@shared/extensions/market-home';
 import type { ResourceContext } from '@shared/resource-actions';
 
@@ -61,7 +61,7 @@ export function AppMarketContent({ shelf, query, hostKey, api, lifecycleOf, pend
   onChipChange: (chip: 'all' | MarketCategory) => void;
 }) {
   const { translate, locale } = useSessionMessages();
-  const compatText = (compat: NonNullable<MarketCompat>) => compat.reason === 'needs-newer-app' ? translate('extensions.needsNewerApp', { version: compat.minAppVersion }) : translate('extensions.needsAuthorUpdate');
+  const compatText = (compat: NonNullable<MarketCompat>) => marketCompatText(compat, translate);
   // 市场那一侧的筛选在服务端,这里拿到的已经是结果;次序也是那边排好的(先按类别,再按名字)。
   const marketRows = shelf.items;
   // 类别那一排只列取到的清单里有的类(次序同清单:先按类别再按名字);选中的那类没了(搜别的了)就当「全部」。
@@ -125,7 +125,7 @@ export function AppMarketContent({ shelf, query, hostKey, api, lifecycleOf, pend
         : compat
           ? {
               kind: 'word',
-              text: translate(compat.reason === 'needs-newer-app' ? 'extensions.tileNeedsApp' : 'extensions.needsAuthorUpdate'),
+              text: marketCompatText(compat, translate, true),
               title: compatText(compat),
             }
           : undefined;

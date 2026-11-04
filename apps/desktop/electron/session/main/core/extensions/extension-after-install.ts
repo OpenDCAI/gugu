@@ -21,7 +21,7 @@ import { log } from '@main/lib/logger';
  * background page — its tools answered "no running background page" — and an
  * upgrade an agent installed kept serving the previous version. Refs #6387.
  */
-export function applyInstalledExtension(installed: { manifest: { id: string; apiVersion?: number }; rootDir: string }): void {
+export function applyInstalledExtension(installed: { manifest: { id: string; apiVersion?: number; permissions?: { network?: readonly string[] } }; rootDir: string }): void {
   const id = installed.manifest.id;
   // An upgrade replaces the files under a session that is already serving
   // them. Without this, a tab that is open right now keeps enforcing the
@@ -34,6 +34,7 @@ export function applyInstalledExtension(installed: { manifest: { id: string; api
       apiVersion: installed.manifest.apiVersion,
       rootDir: installed.rootDir,
       networkHosts: extensionsService().grantedHosts(id),
+      declaredHosts: installed.manifest.permissions?.network ?? [],
     });
     // Same reason as a revoke, plus one more: the files behind the surface
     // were just replaced, so what it is running is the previous version.

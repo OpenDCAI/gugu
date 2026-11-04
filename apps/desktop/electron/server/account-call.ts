@@ -16,16 +16,11 @@ import {
 } from '../session/main/core/pty/attach/attach-protocol'
 import type { ServerAccount } from './server-layout'
 
-/** 找哪个账号的进程:写了就必须是这台机器上登着的那个;没写且只登着一个人就是他。 */
-export function pickAttachAccount(accounts: readonly ServerAccount[], requested: string | null): ServerAccount | { error: string } {
-  const signedIn = accounts.filter((account) => account.signedIn)
-  if (requested) {
-    const found = signedIn.find((account) => account.userId === requested)
-    return found ?? { error: `这台机器上没有登录账号 ${requested}。请在桌面「设置 → 设备」里重新添加。` }
-  }
-  if (signedIn.length === 1) return signedIn[0]!
-  if (signedIn.length === 0) return { error: '这台机器上还没有登录咕咕账号。' }
-  return { error: `这台机器上登录了好几个人,请用 --account 指定:${signedIn.map((a) => a.userId).join('、')}` }
+/** Released CLI callers may name the current identity, but cannot select a directory. */
+export function accountRequestError(account: ServerAccount | null, requested: string | null): string | null {
+  if (!account?.signedIn) return '这台机器上还没有登录咕咕账号。'
+  if (requested && requested !== account.userId) return `当前账号是 ${account.email ?? account.userId}，与请求的账号 ${requested} 不符。`
+  return null
 }
 
 /** 连不上套接字时的人话:进程没在跑 / 太旧(还没有这个套接字)。 */

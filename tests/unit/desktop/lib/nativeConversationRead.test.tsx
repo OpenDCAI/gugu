@@ -38,8 +38,8 @@ it('publishes the native tail only with a settled visible-item report and drops 
   expect([...entries.values()]).toEqual([expect.objectContaining({ sessionId: 'other', atTail: false })])
 })
 
-it('opens at the first unread provider identity and acknowledges only visible replies, without scrolling', async () => {
-  updateDeviceSessions('host', { sessions: [{ conversationId: 's', nativeInputVersion: 1, nativeUnreadKeys: ['msg_first', 'msg_covered'] } as never] })
+it.each([1, 2])('acknowledges only visible replies on native input version %s, without scrolling', async version => {
+  updateDeviceSessions('host', { sessions: [{ conversationId: 's', nativeInputVersion: version, nativeUnreadKeys: ['msg_first', 'msg_covered'] } as never] })
   const turns = [{ id: 's:turn:s4', items: ['first', 'covered'].map(name => ({ id: `s:turn:s4:message:msg_${name}`, kind: 'message', role: 'assistant', text: name })) }] as TranscriptTurn[]
   const openItem = vi.fn(() => true)
   let controls!: ReturnType<typeof useNativeConversationRead>

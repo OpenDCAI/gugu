@@ -295,7 +295,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       // (它会原样交回同一份行)。刚建号/刚建会话时成员行**晚一点**提交,命名它的是 journal 的
       // 那条 operation(服务端义务 O1),路径是 wake → advance,不是一次定时轮询。
       const data = await chatProjection.hydrate(userId)
-      if (data.length > 0 || chatsRef.current.length === 0 || options.acceptEmpty === true) {
+      if (data.length > 0 || chatsRef.current.length === 0 || options.acceptEmpty === true || chatProjection.hasDeletedConversation(userId, chatsRef.current)) {
         // 选中一条会话是**用户的意图**,不是列表刷新的投影 —— 什么时候才算「它没了」由账本判(#4314)。
         await chatProjection.publish(data, chatProjection.identities(userId), {
           requestSeq, notify: !isFirstLoad, preserveMissingActive: options.preserveMissingActive,
@@ -825,14 +825,14 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }, [userId])
 
   const deleteChat = useCallback(async (chatId: string, persist = false) => {
-    if (persist) await (chatsRef.current.find((chat) => chat.id === chatId)?.kind === 'topic' ? topicService.archiveTopic(chatId) : chatService.archiveChat(chatId))
+    if (persist) { const receipt = await (chatsRef.current.find((chat) => chat.id === chatId)?.kind === 'topic' ? topicService.archiveTopic(chatId) : chatService.archiveChat(chatId)); if (imRepositoryScope.disposed || receipt && !await chatProjection.confirmPersonalDeletion(userId!, receipt)) return }
     projectionRef.current.forgetChat(chatId) // 显式删除是权威动作:乐观行与投影水位一起出列 (#4314)
     setChats((prev) => prev.filter((c) => c.id !== chatId))
     dropTextDraft(chatId)
     dropDraftAttachments(chatId) // @@@draft-attachment (#1872) - drop queued attachments alongside the draft
     cache.delete(chatId)
     if (activeChatIdRef.current === chatId) setActiveChatId(null)
-  }, [cache, setActiveChatId, dropDraftAttachments, dropTextDraft])
+  }, [cache, setActiveChatId, dropDraftAttachments, dropTextDraft, imRepositoryScope, chatProjection, userId])
   // #901 退出群聊：共同 RPC 确认移除本人席位后，再本地清理。
   const leaveGroup = useCallback(async (chatId: string) => {
     if (!userId) throw new Error('Not authenticated')

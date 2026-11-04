@@ -2,16 +2,15 @@
 // electron/session/main/host-ws/device-session-host.ts)。线挑哪条(远程 SSH → SSH link,远程隧道 → 咕咕云)
 // 在 deviceRpc.ts 里,这里不分叉。
 //
-// 手机走的也是这一条(手机不报 `desktop`:咕咕 server 按桌面的版本挑跑哪一版,手机不算)。
+// 手机与桌面使用同一个协议入口，不报告桌面版本。
 //
 // 版本错位:那台机器不认 `taskhost.open`,或开窗口的应答里报的协议低于 MIN_SERVER_PROTOCOL,开线失败并带
 // SessionHostTooOldError,界面据此把这台机器标成「版本太旧」,❌ 退回别的界面。
 import { unwrapPayload } from '@gugu/core/cloud/payload'
-import { desktopReportId, helloProtocol, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
-import type { DesktopHello } from '@gugu/core/cloud/serverDesktopVersions'
+import { helloProtocol, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { DeviceRpcChannelError, DeviceRpcTimeoutError } from '@gugu/core/cloud/deviceRpcRequester'
 import { callDeviceRpc, subscribeDeviceRpcEvents } from './deviceRpc'
-import { desktopMatchVersion, isSshMachine, requestSshServerUpgrade, usesDeviceLink, waitForTunnel } from './sshLinkChannel'
+import { isSshMachine, requestSshServerUpgrade, usesDeviceLink, waitForTunnel } from './sshLinkChannel'
 import { rendererLogger } from './log'
 import type { SessionHostPipe, SessionHostPipeOpener } from '../session/shared/lib/ipc/session-host-client'
 import {
@@ -66,52 +65,10 @@ export type DeviceRpcDeps = {
   isSshMachine: (deviceId: string) => boolean
   requestUpgrade: (deviceId: string) => Promise<boolean>
   requestCloudUpgrade?: (deviceId: string) => Promise<boolean>
-  /** 开窗口时报给那台机器的「这台桌面是哪一版」(那台咕咕 server 据此让这个账号跑匹配的版本);拿不到 = 不报。 */
-  desktop?: (deviceId: string) => Promise<DesktopHello | null>
+  /** Use the deployed peer's compatible protocol without reporting a desktop version. */
+  protocol?: (deviceId: string) => Promise<number>
   waitForTunnel?: (deviceId: string) => Promise<void>
   usesDeviceLink?: (deviceId: string) => boolean
-}
-
-declare const __APP_VERSION__: string | undefined
-
-let selfId: Promise<string | null> | null = null
-
-/** 主进程给的本机设备 id:要等它看过一轮当前账号(开机时 0.7–1.8 s,mac1 实测),所以只在没有上次那份时等。 */
-function liveSelfId(): Promise<string | null> {
-  // 按需加载:平台层一加载就碰渲染层全局,这里只在真开窗口时才要它。
-  selfId ??= import('../platform')
-    .then(({ platform }) => platform.getLocalDeviceSelfSnapshot?.() ?? null)
-    .then((self) => self?.device_id ?? null, () => null)
-  return selfId.then((id) => {
-    if (!id) selfId = null
-    return id
-  })
-}
-
-/**
- * 上次那份机器列表(devicesCache,按账号记)里标着「本机」的那一行:一台桌面一个设备 id,换版本不变,换账号才换 ——
- * 所以只在缓存属于此刻这个账号时用它。开线不再为它等主进程那一轮(冷启动实测:开线一律卡到它回来,晚 0.3–1.4 s)。
- */
-async function cachedSelfId(): Promise<string | null> {
-  const [{ sessionCoordinator }, { cachedDevicesAccount, readCachedDevices }] = await Promise.all([
-    import('./sessionCoordinator'),
-    import('../store/devicesCache'),
-  ])
-  const owner = await sessionCoordinator.waitForDecidedOwner(0)
-  if (!owner.userId || cachedDevicesAccount() !== owner.userId) return null
-  return readCachedDevices().find((device) => device.is_current_device === true)?.device_id ?? null
-}
-
-/**
- * 这台桌面:设备 id(一台桌面一个,换版本不变)+ 自己的版本 + 说的协议。
- * 那台机器比这台低一档(心跳报的 remote_protocol):照它的报 —— 老宿主见到更高的号会要求当场换版(serverMachineHealth.helloProtocol)。
- */
-async function thisDesktop(deviceId: string): Promise<DesktopHello | null> {
-  const asked = await desktopMatchVersion()
-  const version = asked === undefined ? (typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '') : asked
-  if (!version) return null
-  const id = (await cachedSelfId().catch(() => null)) ?? (await liveSelfId())
-  return id ? { id: desktopReportId(id, version), version, protocol: helloProtocol(await cachedRemoteProtocol(deviceId).catch(() => null)) } : null
 }
 
 /** 上次那份机器列表里那台机器报的协议(心跳的 remote_protocol);不是这个账号的缓存 / 没报 = null。 */
@@ -132,7 +89,7 @@ const defaultDeps: DeviceRpcDeps = {
   isSshMachine,
   requestUpgrade: (deviceId) => requestSshServerUpgrade(deviceId),
   requestCloudUpgrade: async deviceId => (await import('./cloudVersionMatch')).requestCloudVersionMatch(deviceId),
-  desktop: thisDesktop,
+  protocol: async deviceId => helloProtocol(await cachedRemoteProtocol(deviceId).catch(() => null)),
   waitForTunnel,
   usesDeviceLink,
 }
@@ -156,9 +113,9 @@ function isBatchFor(body: Partial<SessionHostFrameBatch> & { type?: unknown }, c
   )
 }
 
-/** 手机开的窗口:❌ 报 `desktop`(没有 Electron 桥时 thisDesktop 会拿手机自己的设备 id 冒充一台桌面)。 */
+/** Phone windows share the same protocol handshake. */
 export function openPhoneSessionHostPipe(deviceId: string): SessionHostPipeOpener {
-  return openRemoteSessionHostPipe(deviceId, { ...defaultDeps, desktop: undefined })
+  return openRemoteSessionHostPipe(deviceId, defaultDeps)
 }
 
 /** 桌面连别的机器开的窗口:心跳兼探活(#156),那台机器没了几秒内就发现。 */
@@ -229,8 +186,8 @@ export function openRemoteSessionHostPipe(
     let opened
     let request: ReturnType<DeviceRpcDeps['call']> | null = null
     try {
-      const desktop = await deps.desktop?.(deviceId).catch(() => null)
-      request = deps.call(deviceId, SESSION_HOST_RPC.open, { client, protocol: REMOTE_PROTOCOL_VERSION, ...(desktop ? { desktop } : {}) }, { timeoutMs: OPEN_TIMEOUT_MS })
+      const protocol = await deps.protocol?.(deviceId).catch(() => REMOTE_PROTOCOL_VERSION) ?? REMOTE_PROTOCOL_VERSION
+      request = deps.call(deviceId, SESSION_HOST_RPC.open, { client, protocol }, { timeoutMs: OPEN_TIMEOUT_MS })
       opened = await Promise.race([request, new Promise<never>((_, reject) => { abandonOpen = reject })])
     } catch (error) {
       closed = true
@@ -239,8 +196,7 @@ export function openRemoteSessionHostPipe(
       void request?.then((late) => {
         if (!late.error) void deps.call(deviceId, SESSION_HOST_RPC.close, { client }, { timeoutMs: FRAME_TIMEOUT_MS }).catch(() => undefined)
       }, () => undefined)
-      // The device attach can refuse the protocol before taskhost.open reaches
-      // its desktop report. Use the same SSH match-version path in that case.
+      // The attach can refuse the protocol before taskhost.open. Use the same installation upgrade path.
       if ((error as { code?: unknown } | null)?.code === 'server_outdated') {
         if (deps.isSshMachine(deviceId)) void deps.requestUpgrade(deviceId)
         else void deps.requestCloudUpgrade?.(deviceId)

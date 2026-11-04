@@ -2,10 +2,10 @@ import { readDocumentText, ChatFolderReadError } from './chat-folder-text';
 import { FILE_KEEPS, type FileKeep } from '@gugu/core/shared/fileStorage';
 import { AttachmentsError, configuredEndpoint, placeAttachment, uploadAttachmentBytes } from '@gugu/core/cloud/attachmentsApi';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { fileBlob, type FileHandle, type ResolvedFile } from '@gugu/core/shared/fileResolver';
+import { FILE_CHUNK_BYTES, MissingFileObjectError, fileBlob, type FileHandle, type ResolvedFile } from '@gugu/core/shared/fileResolver';
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
 import { mimeTypeFromName } from '@gugu/core/shared/imageMime.mjs';
-import { workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
+import { WORKSPACE_TEXT_MAX_BYTES, workspaceStoredText, workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
 import type { ErrorDetail, ExtensionChat } from './bridge-protocol';
 import type { Grant, PageSync } from './file-sync-core';
 import {
@@ -17,6 +17,7 @@ import {
   savedFileName,
   typedFileName,
   type AppFileClaimant,
+  type AppFileChunk,
   type AppFileEntry,
   type AppFileRef,
   type AppFileSearch,
@@ -59,7 +60,7 @@ import { readUserSettingsConfig, updateUserSettingsConfig, type VersionedSetting
 /** A refusal of `gugu.files`: `code` and `detail` are what an App branches on (bridge-protocol.ts `ErrorDetail`), the message is for people. */
 export class AppFileError extends Error {
   constructor(
-    readonly code: 'denied' | 'invalid' | 'failed' | 'not-found' | 'ambiguous' | 'too-large' | 'content-changed' | 'name-taken' | 'unavailable',
+    readonly code: 'denied' | 'invalid' | 'failed' | 'not-found' | 'ambiguous' | 'too-large' | 'content-changed' | 'name-taken' | 'unavailable' | 'stale-version',
     message: string,
     readonly detail?: ErrorDetail,
   ) {
@@ -80,6 +81,9 @@ export interface FileSurface {
    * relay's connection acting as the agent, so the service stamps what the program writes as the agent's.
    */
   asAgent?: string | null;
+  /** A program's existing host-stamped call owns its cancellable read snapshots. */
+  callId?: string;
+  signal?: AbortSignal;
 }
 
 export interface FilesPlatform {
@@ -90,7 +94,7 @@ export interface FilesPlatform {
   publishFile?(chatId: string, file: AppFileUpload, parentId: string | null, actor: string, store?: () => Promise<ItemRow>,
     options?: { next?: { itemId: string; expectedVersion: number } }): Promise<ItemRow | null>;
   /** Delegates to the one file resolver; localOnly performs no cloud lookup or byte read. */
-  resolveFile?(ref: ChatFileRef, actorId: string | null, options: { localOnly?: boolean; version?: number }): Promise<ResolvedFile | null>;
+  resolveFile?(ref: ChatFileRef, actorId: string | null, options: { localOnly?: boolean; version?: number; signal?: AbortSignal }): Promise<ResolvedFile | null>;
   /** The signed-in account; throw `AppFileError('failed', …)` when there is none. */
   account(): Promise<{ token: string; userId: string }>;
   hasCapability(extensionId: string, capability: 'files:read' | 'files:write'): boolean;
@@ -100,6 +104,8 @@ export interface FilesPlatform {
     grant(page: PageSync, grant: Grant): void;
     ungrant(pageId: number, docName: string): void;
     revoke(pageId: number, reason: SyncRevokeReason | null, docNames?: (grant: Grant) => boolean): void;
+    /** Stored snapshots end with the same page/revocation lifecycle as collaborative files. */
+    onPageRelease?(listener: (pageId: number, docNames?: (grant: Grant) => boolean) => void): () => void;
   };
   /**
    * Which App opens a file of this kind here, and by which claimed suffix (摩擦单 F39): the host knows what is
@@ -652,13 +658,56 @@ async function versionPointers(token: string, row: ItemRow, actor: string): Prom
 
 
 export function createAppFiles(platform: FilesPlatform) {
+  type ReadSnapshot = { pageId: number; extensionId: string; itemId: string; needs: Grant['needs']; actor: string | null; leases: number; active: number; file?: Promise<FileHandle>; timer?: ReturnType<typeof setTimeout> };
+  const snapshots = new Map<string, ReadSnapshot>();
+  const snapshotKey = (surface: FileSurface, itemId: string, version: number) => JSON.stringify([surface.pageId, surface.extensionId, surface.asAgent ?? null, surface.callId ?? null, itemId, version]);
+  const staleVersion = () => new AppFileError('stale-version', 'This file version is no longer available. Open the file again to read its current version.');
+  const disposeSnapshot = (key: string, entry: ReadSnapshot): Promise<void> => {
+    clearTimeout(entry.timer);
+    const file = entry.file;
+    entry.file = undefined;
+    if (entry.leases === 0 && snapshots.get(key) === entry) snapshots.delete(key);
+    return file?.then(handle => handle.dispose()).catch(error => platform.warn('File read snapshot could not be released', { error: String(error) })) ?? Promise.resolve();
+  };
+  const touch = (key: string, entry: ReadSnapshot): void => {
+    clearTimeout(entry.timer);
+    if (entry.active) return;
+    entry.timer = setTimeout(() => disposeSnapshot(key, entry), 5 * 60_000);
+    entry.timer.unref?.();
+  };
+  const snapshot = (surface: FileSurface, itemId: string, version: number): ReadSnapshot => {
+    surface.signal?.throwIfAborted();
+    const key = snapshotKey(surface, itemId, version);
+    let entry = snapshots.get(key);
+    if (!entry) {
+      // This registers the existing port's navigation/destruction lifecycle, not another byte transport.
+      platform.sync.pageFor(surface.pageId, surface.extensionId);
+      entry = { pageId: surface.pageId, extensionId: surface.extensionId, itemId, needs: null, actor: surface.asAgent ?? null, leases: 0, active: 0 };
+      snapshots.set(key, entry);
+      const held = entry;
+      surface.signal?.addEventListener('abort', () => { held.leases = 0; void disposeSnapshot(key, held); }, { once: true });
+    }
+    entry.needs = itemId === surface.itemId ? null : has(surface.extensionId, 'files:read') ? 'files:read' : 'files:write';
+    touch(key, entry);
+    return entry;
+  };
+  const releasePage = (pageId: number, docNames?: (grant: Grant) => boolean): void => {
+    for (const [key, entry] of snapshots) {
+      if (entry.pageId !== pageId) continue;
+      if (docNames && !docNames({ docName: '', itemId: entry.itemId, access: 'ro', needs: entry.needs, ...(entry.actor ? { asAgent: entry.actor } : {}) })) continue;
+      entry.leases = 0;
+      disposeSnapshot(key, entry);
+    }
+  };
+  platform.sync.onPageRelease?.(releasePage);
+
   async function localRevision(itemId: string) {
     const local = await platform.resolveFile?.({ id: itemId }, null, { localOnly: true });
     if (local?.status !== 'ready') return null;
     try { return local.revision; } finally { await local.dispose(); }
   }
   async function fileFor(surface: FileSurface, ref: ChatFileRef, version?: number, localOnly = false): Promise<FileHandle | null> {
-    const file = await platform.resolveFile?.(ref, surface.asAgent ?? null, { version, localOnly });
+    const file = await platform.resolveFile?.(ref, surface.asAgent ?? null, { version, localOnly, ...(surface.signal ? { signal: surface.signal } : {}) });
     if (!file && localOnly) return null;
     if (!file) throw new AppFileError('failed', 'Verified file resolver is not installed');
     if (file.status !== 'ready') throw new AppFileError('not-found', `The file has no bytes${version === undefined ? '' : ` for version ${version}`}`);
@@ -677,6 +726,62 @@ export function createAppFiles(platform: FilesPlatform) {
     return { file, entry: entryOf(row, platform.claimant), self: { userId: personId(file.reader.actorId), name: selfNames.get(file.reader.actorId) ?? '' } };
   }
   const bytesOf = async (file: FileHandle) => (await fileBlob(file)).arrayBuffer();
+  const storedOpen = async (surface: FileSurface, entry: AppFileEntry, access: Grant['access'], self: AppFileOpened['self'], local?: FileHandle): Promise<AppFileOpened> => {
+    // Empty input asks the canonical filename/MIME predicate without reading any file bytes.
+    const smallText = entry.size !== null && entry.size <= WORKSPACE_TEXT_MAX_BYTES && workspaceStoredText(entry.name, entry.contentType, new Uint8Array()) !== null;
+    if (smallText) return { entry, docName: '', access, self, bytes: await bytesOf(local ?? (await fileFor(surface, { id: entry.id }, entry.version ?? undefined))!) };
+    if (entry.version === null) { await local?.dispose(); throw staleVersion(); }
+    const file = local ?? (await fileFor(surface, { id: entry.id }, entry.version))!;
+    if (file.revision.version !== entry.version) { await file.dispose(); throw staleVersion(); }
+    let held: ReadSnapshot;
+    try { held = snapshot(surface, entry.id, entry.version); }
+    catch (error) { await file.dispose(); throw error; }
+    held.leases++;
+    if (!held.file) held.file = Promise.resolve(file);
+    else await file.dispose();
+    return { entry, docName: '', access, self, chunked: true };
+  };
+
+  async function read(surface: FileSurface, args: { ref: ChatFileRef & { version?: number }; offset: number; length: number }): Promise<AppFileChunk> {
+    const { ref, offset, length } = args;
+    if (!('id' in ref) || !Number.isSafeInteger(ref.version) || ref.version! < 1 || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 0 || length > FILE_CHUNK_BYTES) {
+      throw new AppFileError('invalid', 'A file range needs its opened version, a non-negative offset, and at most 512 KiB.');
+    }
+    if (ref.id !== surface.itemId && !has(surface.extensionId, 'files:read') && !has(surface.extensionId, 'files:write')) {
+      throw new AppFileError('denied', 'Reading this file needs "files:read" or "files:write"');
+    }
+    const held = snapshot(surface, ref.id, ref.version!);
+    const key = snapshotKey(surface, ref.id, ref.version!);
+    held.active++;
+    clearTimeout(held.timer);
+    const pending = held.file ??= fileFor(surface, { id: ref.id, ...(ref.chat ? { chat: ref.chat } : {}) }, ref.version).then(async file => {
+      if (!file || file.revision.version !== ref.version) { await file?.dispose(); throw staleVersion(); }
+      return file;
+    });
+    try {
+      const file = await pending;
+      if (held.file !== pending) throw new AppFileError('failed', 'This file read was closed.');
+      const account = await platform.account();
+      if (file.reader.accountId !== account.userId || file.reader.actorId !== (surface.asAgent ?? account.userId)) {
+        held.leases = 0; disposeSnapshot(key, held);
+        throw new AppFileError('denied', 'The account reading this file changed. Open it again.');
+      }
+      if (ref.chat !== undefined && ref.chat !== file.revision.chat_id) throw new AppFileError('invalid', 'The file is in another chat');
+      const size = file.revision.size_bytes;
+      const at = Math.min(offset, size);
+      const bytes = await file.read(at, Math.min(length, size - at));
+      if (held.file !== pending) throw new AppFileError('failed', 'This file read was closed.');
+      // Own only this range: a resolver may return a view into a larger or pooled backing buffer.
+      return { size, offset: at, data: new Uint8Array(bytes) };
+    } catch (error) {
+      if (held.file === pending) disposeSnapshot(key, held);
+      if (error instanceof MissingFileObjectError || error instanceof AppFileError && error.code === 'not-found') throw staleVersion();
+      throw error;
+    } finally {
+      held.active--;
+      if (held.file !== undefined && snapshots.get(key) === held) touch(key, held);
+    }
+  }
 
   /** Found rows as entries, each with its chat's name — a private chat goes by the other one in it, as its panel says. */
   async function found(token: string, rows: readonly FoundRow[], viewerId: string): Promise<AppFileEntry[]> {
@@ -722,7 +827,7 @@ export function createAppFiles(platform: FilesPlatform) {
 
   async function open(surface: FileSurface, args: { ref: ChatFileRef; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }, opening?: PreparedChatFile): Promise<AppFileOpened> {
     const local = await localFile(surface, args.ref);
-    if (local) return { entry: local.entry, docName: '', access: 'ro', self: local.self, bytes: await bytesOf(local.file) };
+    if (local) return storedOpen(surface, local.entry, 'ro', local.self, local.file);
     const { token, userId } = await platform.account();
     const actor = surface.asAgent ?? userId;
     const usable = opening && opening.expiresAt > Date.now() && opening.actor === actor && surface.itemId === opening.entry.id && 'id' in args.ref && args.ref.id === opening.entry.id && (args.ref.chat === undefined || args.ref.chat === opening.entry.chat) && (args.expectedVersion === undefined || args.expectedVersion === opening.entry.version);
@@ -749,7 +854,7 @@ export function createAppFiles(platform: FilesPlatform) {
       throw new AppFileError('denied', 'Not permitted: opening a file other than the one this page was opened for needs "files:read" or "files:write"');
     }
     const self = { userId: personId(actor), name: await selfName(token, actor) };
-    if (stored) return { entry: await entryOne(token, row!, actor), docName: '', access, self, bytes: await bytesOf((await fileFor(surface, { id: row!.id }, row!.version))!) };
+    if (stored) return storedOpen(surface, await entryOne(token, row!, actor), access, self);
     const epoch = usable ? opening.epoch : row!.epoch;
     if (typeof epoch !== 'number') throw new AppFileError('failed', `${entry.name}: the server did not say which version of the file is open`);
     const docName = `${entry.id}@${epoch}`;
@@ -831,6 +936,9 @@ export function createAppFiles(platform: FilesPlatform) {
   return {
     open,
     self,
+    read,
+    /** Diagnostic only; no bridge capability exposes this counter. */
+    readHandleCount: () => [...snapshots.values()].filter(entry => entry.file !== undefined).length,
 
     async resourceChat(chatId: string, as: { asAgent?: string | null } = {}): Promise<string> {
       const { token, userId } = await platform.account();
@@ -845,8 +953,13 @@ export function createAppFiles(platform: FilesPlatform) {
       return opened;
     },
 
-    close(surface: FileSurface, args: { docName: string }): void {
-      platform.sync.ungrant(surface.pageId, String(args.docName));
+    async close(surface: FileSurface, args: { docName?: string; ref?: ChatFileRef & { version?: number } }): Promise<void> {
+      if (args.ref && 'id' in args.ref && typeof args.ref.version === 'number') {
+        const key = snapshotKey(surface, args.ref.id, args.ref.version);
+        const held = snapshots.get(key);
+        if (held) { held.leases = Math.max(0, held.leases - 1); if (!held.leases) await disposeSnapshot(key, held); }
+      }
+      if (args.docName) platform.sync.ungrant(surface.pageId, args.docName);
     },
 
     /** The chat a file is in, as this person sees it: a file handed to a program by its id says (F16). */

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import type { MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
 import { PhoneChatTabs } from '@/mobile/chat/PhoneChatTabs'
 import { useChatPinSettings } from './useChatPinSettings'
-import { TopicPinsError } from './GroupTopicsMenuItem'
+import { TopicPinsError } from './GroupTopicsRows'
 
 /** One account preference feeds the existing topic strip on both phone and desktop. */
 export function PinnedTopicTabs({ chatId, topics, messages, current, mobile, onPick }: {

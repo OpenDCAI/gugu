@@ -1,6 +1,6 @@
 import cronstrue from 'cronstrue';
 import 'cronstrue/locales/zh_CN';
-import { differenceInCalendarDays, formatDate } from '@/i18n/format';
+import { differenceInCalendarDays, formatClock } from '@/i18n/format';
 import { formatAbsoluteTime } from '@renderer/lib/ui/absolute-time-format';
 import type { SessionMessageLookupKey } from '@renderer/localization/messages';
 import type { SessionMessageValues } from '@renderer/localization/locale-store';
@@ -15,7 +15,7 @@ const SOON_MS = 60 * 60 * 1000;
 export function formatScheduleWhen(at: number, locale: string, translate: Translate, now = Date.now()): string {
   const date = new Date(at);
   const days = differenceInCalendarDays(date, now);
-  const time = formatDate(date, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }, locale);
+  const time = formatClock(date, locale);
   const when =
     days === 0
       ? translate('sessionSchedule.today', { time })

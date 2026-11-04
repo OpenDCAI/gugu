@@ -5,6 +5,7 @@ import { APP_FRAME_MARKER, fileRefOf, isWorkspace, placeOf, type FrameToHost, ty
 import { currentAccountAccessToken } from '@main/core/extensions/account-token';
 import { log } from '@main/lib/logger';
 import type { BridgeCaller } from './extension-bridge';
+import type { DesktopFilePage } from './app-files';
 import { fileSync } from './file-sync';
 import { resourceChatIdOf } from '@shared/extensions/app-files-core';
 import { extensionProjections } from './extension-projection-bridge';
@@ -61,7 +62,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   /** Each call running now, by its id: whose it is, and what it handed. */
   let closing: Promise<void> | undefined;
   let withdrawn = false;
-  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[]; sessionId?: string; callerKind: 'agent' | 'person' }>();
+  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[]; sessionId?: string; callerKind: 'agent' | 'person'; controller: AbortController }>();
   const post = (frame: HostToFrame) => {
     if (child.connected) child.send(frame);
   };
@@ -75,40 +76,46 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   // is the agent's doing. In a chat that call handed it (A1), or the chat of a file it handed it (G5), what it lists,
   // makes, renames and removes is that agent's too, judged by the agent's membership. Anything else — and every verb made
   // in no call: as a page, by the capability words.
-  const filePage = (args: Record<string, unknown>, callId: string | undefined, resource: boolean) => {
-    const call = callId === undefined ? undefined : calls.get(callId);
+  const filePage = (args: Record<string, unknown>, callId: string | undefined, resource: boolean, call = callId === undefined ? undefined : calls.get(callId)): DesktopFilePage => {
+    const scope = { pageId, extensionId, ...(call ? { callId, signal: call.controller.signal } : {}) };
     const ref = args.ref === undefined ? null : fileRefOf(args.ref);
     if (call && ref && 'id' in ref && !isWorkspace(ref)) {
       const given = call.files.find((file) => file.itemId === ref.id);
-      if (given) return { pageId, extensionId, handed: { chat: given.chatId, id: given.itemId }, asAgent: given.agentUserId };
+      if (given) return { ...scope, handed: { chat: given.chatId, id: given.itemId }, asAgent: given.agentUserId };
     }
     const place = !ref && args.place && typeof args.place === 'object' ? (args.place as { chat?: unknown }) : null;
     const chat = ref && 'chat' in ref ? ref.chat : place?.chat;
     const given = call && typeof chat === 'string' ? call.files.find((handed) => handed.chatId === chat)
       ?? call.chats.find((handed) => (resource ? handed.resourceChatId : handed.chatId) === chat) : undefined;
-    return given ? { pageId, extensionId, handed: null, asAgent: given.agentUserId } : { pageId, extensionId, handed: null };
+    return given ? { ...scope, handed: null, asAgent: given.agentUserId } : { ...scope, handed: null };
   };
-  const callerFor = (callId: string | undefined): BridgeCaller => ({
-    extensionId,
-    kind: 'program',
-    binding: null,
-    pageId,
-    filePage: (args, resource = false) => filePage(args, callId, resource),
-    async resourcePage(args) {
-      const ref = args.ref === undefined ? null : fileRefOf(args.ref);
-      const place = args.place === undefined ? null : placeOf(args.place);
-      const named = ref ?? place;
-      if (!named || !('chat' in named) || named.chat === undefined) return filePage(args, callId, true);
-      const actor = (callId === undefined ? undefined : calls.get(callId)?.agent) ?? filePage(args, callId, true).asAgent ?? null;
-      const { resourceChatOf } = await import('./app-files');
-      const chat = await resourceChatOf(named.chat, { asAgent: actor });
-      return filePage(ref ? { ...args, ref: { ...ref, chat } } : { ...args, place: { chat } }, callId, true);
-    },
-    hear: (event) => post({ m: APP_FRAME_MARKER, t: 'event', event }),
-    // Each host-stamped call has an id; a person's page has a task but no calling agent.
-    ...(callId === undefined || calls.get(callId)?.callerKind === 'person' ? {} : { callingAgent: calls.get(callId)?.agent ?? null }),
-    ...(callId === undefined || !calls.get(callId)?.sessionId ? {} : { callingSession: calls.get(callId)!.sessionId }),
-  });
+  const callerFor = (callId: string | undefined): BridgeCaller => {
+    // This operation keeps its existing controller across resource lookup; watches still read the live map.
+    const call = callId === undefined ? undefined : calls.get(callId);
+    return {
+      extensionId,
+      kind: 'program',
+      binding: null,
+      pageId,
+      filePage: (args, resource = false) => filePage(args, callId, resource),
+      async resourcePage(args) {
+        call?.controller.signal.throwIfAborted();
+        const ref = args.ref === undefined ? null : fileRefOf(args.ref);
+        const place = args.place === undefined ? null : placeOf(args.place);
+        const named = ref ?? place;
+        if (!named || !('chat' in named) || named.chat === undefined) return filePage(args, callId, true, call);
+        const actor = call?.agent ?? filePage(args, callId, true, call).asAgent ?? null;
+        const { resourceChatOf } = await import('./app-files');
+        const chat = await resourceChatOf(named.chat, { asAgent: actor });
+        call?.controller.signal.throwIfAborted();
+        return filePage(ref ? { ...args, ref: { ...ref, chat } } : { ...args, place: { chat } }, callId, true, call);
+      },
+      hear: (event) => post({ m: APP_FRAME_MARKER, t: 'event', event }),
+      // Each host-stamped call has an id; a person's page has a task but no calling agent.
+      ...(callId === undefined || call?.callerKind === 'person' ? {} : { callingAgent: call?.agent ?? null }),
+      ...(callId === undefined || !call?.sessionId ? {} : { callingSession: call.sessionId }),
+    };
+  };
 
   const onMessage = (message: unknown) => {
     const frame = message as FrameToHost | null;
@@ -120,8 +127,9 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
     }
     if (frame.t !== 'call') return;
     // Imported when called: the bridge reaches the programs (`extensionPrograms`), which reach this file.
+    const caller = callerFor(typeof frame.call === 'string' ? frame.call : undefined);
     void import('./extension-bridge')
-      .then(({ answerCall }) => answerCall(callerFor(typeof frame.call === 'string' ? frame.call : undefined), frame.method, (frame.args ?? {}) as Record<string, unknown>))
+      .then(({ answerCall }) => answerCall(caller, frame.method, (frame.args ?? {}) as Record<string, unknown>))
       .then((answer) =>
         post(
           answer.ok
@@ -135,8 +143,10 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   return {
     pageId,
     hand(callId, agent, files, chats = [], sessionId, callerKind = 'agent') {
-      calls.set(callId, { agent, files, chats, sessionId, callerKind });
+      const controller = new AbortController();
+      calls.set(callId, { agent, files, chats, sessionId, callerKind, controller });
       return async () => {
+        controller.abort();
         calls.delete(callId);
         // The call is over: whatever the program opened as its agent goes too — the program closes it itself, its last
         // writes first (F106). A file it was handed, unless another call running now hands it as the same agent; one it
@@ -159,6 +169,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
       if (processGone) extensionProjections.closePage(pageId);
       if (closing) return closing;
       withdrawn = true;
+      for (const call of calls.values()) call.controller.abort();
       calls.clear();
       fileSync.pageGone(pageId);
       void import('./extension-bridge').then(({ stopPageWatches }) => stopPageWatches(pageId));

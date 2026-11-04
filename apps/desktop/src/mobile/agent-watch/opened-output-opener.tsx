@@ -243,9 +243,10 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote, readFileCh
     </Sheet>
   )
 
+  const openFile = useCallback((path: string, source?: FileOpenSource) => openOutput({ kind: 'file', path }, { source }), [openOutput])
   return {
     handlers,
-    openFile: (path, source) => openOutput({ kind: 'file', path }, { source }),
+    openFile,
     panel: (
       <>
         {sheet}

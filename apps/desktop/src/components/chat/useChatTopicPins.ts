@@ -9,6 +9,6 @@ export function useChatTopicPins(chatId: string | null, enabled = true) {
   const groups = useMemo(() => topicPinGroups(chats, chatId, pins.topicIds), [chats, chatId, pins.topicIds])
   return {
     ...pins, ...groups,
-    set: (topicId: string, pinned: boolean) => pins.set('pinnedTopicIds', topicId, pinned),
+    set: (topicId: string, pinned: boolean) => pins.set(topicId, pinned),
   }
 }

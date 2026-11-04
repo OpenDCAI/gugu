@@ -301,7 +301,8 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
     const isCancelled = () => props.data.outcome.kind === 'cancelled';
     // 为插话停下的一轮:下一轮就是接着干(那条消息),所以❌ 没有「继续 / 丢弃」可言。
     const isUserStopped = () =>
-      props.data.outcome.kind === 'cancelled' && props.data.outcome.reason !== 'interrupted_for_message';
+      props.data.outcome.kind === 'cancelled' && props.data.outcome.reason !== 'interrupted_for_message'
+      && commands().isLatestTurn?.(props.data.turnId) !== false;
     // #7103 咕咕拒了这一轮的票:原因那一截与那颗按钮都由宿主按原因表给。
     const refusal = () => {
       const outcome = props.data.outcome;

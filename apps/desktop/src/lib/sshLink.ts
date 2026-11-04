@@ -5,6 +5,7 @@
 // (deviceRpc.ts)对远程 SSH 的机器把「频道」换成它。主进程只搬字节,请求 / 应答配对、推送分发都在渲染层那一份里。
 
 import type { SshPrompt } from '../session/shared/ssh-prompt'
+import type { DeviceCapabilities } from '@gugu/core/shared/types/chat'
 
 export const SSH_LINK_CHANNELS = {
   /** 开(或复用)这台机器的设备连接(invoke,设备 id → SshLinkOpenResult)。 */
@@ -33,8 +34,6 @@ export const SSH_LINK_CHANNELS = {
   upgrade: 'ssh-link:upgrade',
   /** 主进程 → 渲染层:替它升级走到哪了(event,SshUpgradeEvent)。 */
   upgradeState: 'ssh-link:upgrade-state',
-  /** #6264 这台桌面报给咕咕 server 的版本(invoke → string | null;测试可覆盖,见 core reportedDesktopVersion)。 */
-  desktopVersion: 'ssh-link:desktop-version',
 } as const
 
 /**
@@ -73,7 +72,7 @@ export type SshLinkState = 'signInRequired' | 'unreachable' | 'outdated' | 'upda
  * via = 'tunnel':这条设备连接开在远程隧道上(这台电脑没有它的 SSH 映射)。连不上的原因由远程隧道自己报
  * (tunnelMachines.ts),❌ 记成远程 SSH 的「要先登录」;主进程当场标,渲染层 ❌ 靠清单加载先后去猜。
  */
-export type SshLinkOpenResult = { ok: true } | { ok: false; reason: SshLinkFailure; detail?: string; via?: 'tunnel' }
+export type SshLinkOpenResult = { ok: true } | { ok: false; reason: SshLinkFailure; detail?: string; via?: 'tunnel'; controlOnly?: true }
 
 export type SshLinkMessageEvent = { deviceId: string; message: unknown }
 export type SshLinkClosedEvent = { deviceId: string; reason: SshLinkFailure; via?: 'tunnel' }
@@ -86,10 +85,14 @@ export type SshLinkAnswer = { deviceId: string; promptId: string; value: string 
 export type SshUpgradeEvent = {
   deviceId: string
   /** waitingIdle:那台机器上这个账号有 agent 在跑,装好了、等它空闲再换(人可以点「现在重启更新」)。 */
-  phase: 'updating' | 'done' | 'failed' | 'desktopTooOld' | 'waitingIdle'
+  phase: 'updating' | 'done' | 'failed' | 'desktopTooOld' | 'waitingIdle' | 'unconfirmed'
   percent?: number | null
   /** 没升成,因为那台机器上的 server 老到没法自动更新:请人在那台机器上跑的安装命令。 */
   reinstall?: string
+  /** A click's bounded observer ended; the host's A7 request remains authoritative. */
+  request?: number
+  reportedVersion?: string | null
+  update?: DeviceCapabilities['server_update'] | null
 }
 
 /** 设备 RPC 调用在设备连接上失败时抛的错误码(调用方按码说人话,见 remoteFailureKind)。 */

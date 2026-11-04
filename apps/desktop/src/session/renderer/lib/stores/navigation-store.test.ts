@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SidebarStore } from '@renderer/features/sidebar/sidebar-store';
 
 vi.mock('@renderer/lib/modal/modal-store', () => ({
   modalStore: { closeModal: vi.fn() },
@@ -170,33 +171,24 @@ describe('NavigationStore transient params vs. history', () => {
   });
 });
 
-// 侧栏只在「导航到了一条会话」时展开它所在的项目:开机恢复不是导航。
-describe('NavigationStore tells the sidebar about session arrivals', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  function storeWithSession() {
-    const store = buildStore();
-    store.registerView('session');
-    return store;
-  }
-
-  it('reports navigating to a session, and leaving for a real view', () => {
-    const store = storeWithSession();
-    store.navigate('session', { projectId: 'p1', sessionId: 's1' });
-    expect(appState.sidebar.revealActiveSession).toHaveBeenLastCalledWith({ projectId: 'p1', sessionId: 's1' });
-
-    store.navigate('home');
-    expect(appState.sidebar.revealActiveSession).toHaveBeenLastCalledWith(null);
-  });
-
-  it('does not report the view restored at boot', () => {
-    const store = storeWithSession();
-    store.restoreSnapshot({
-      currentViewId: 'session',
-      viewParams: { session: { projectId: 'p1', sessionId: 's1' } },
-    });
-    expect(appState.sidebar.revealActiveSession).not.toHaveBeenCalled();
+describe('NavigationStore preserves manual sidebar disclosure', () => {
+  it('keeps collapsed and expanded choices through session/project navigation and restoration', () => {
+    const original = appState.sidebar;
+    const sidebar = new SidebarStore({ projects: new Map() } as never);
+    Object.assign(appState, { sidebar });
+    try {
+      sidebar.toggleProjectExpanded('open-project');
+      sidebar.toggleSessionExpanded('open-parent');
+      const before = structuredClone(sidebar.snapshot);
+      const store = buildStore();
+      store.registerView('session');
+      for (const projectId of ['folded-project', 'open-project']) {
+        store.navigate('session', { projectId, sessionId: 'parent' });
+        store.navigate('project', { projectId });
+        store.navigate('home');
+        store.restoreSnapshot({ currentViewId: 'session', viewParams: { session: { projectId, sessionId: 'child' } } });
+        expect(sidebar.snapshot).toEqual(before);
+      }
+    } finally { Object.assign(appState, { sidebar: original }); }
   });
 });

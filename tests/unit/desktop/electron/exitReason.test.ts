@@ -14,21 +14,22 @@ describe('exit reason', () => {
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
 
   it('nothing left = unclean; a restart is read once', () => {
-    expect(takeLastExit(dir)).toBe('unclean')
+    expect(takeLastExit(dir)).toEqual({ reason: 'unclean', at: null })
     noteExitReason(dir, 'restart')
-    expect(takeLastExit(dir)).toBe('restart')
-    expect(takeLastExit(dir)).toBe('unclean')
+    const written = JSON.parse(fs.readFileSync(path.join(dir, 'last-exit.json'), 'utf8'))
+    expect(takeLastExit(dir)).toEqual({ reason: 'restart', at: written.at })
+    expect(takeLastExit(dir)).toEqual({ reason: 'unclean', at: null })
   })
 
   it('the supervisor said update before ending it: the process own restart note does not overwrite it', () => {
     noteExitReason(dir, 'update')
     noteExitReason(dir, 'restart')
-    expect(takeLastExit(dir)).toBe('update')
+    expect(takeLastExit(dir)).toEqual({ reason: 'update', at: expect.any(Number) })
   })
 
   it('an unreadable or missing directory never throws on the way out', () => {
     expect(() => noteExitReason(path.join(dir, 'missing', 'deeper'), 'restart')).not.toThrow()
     fs.writeFileSync(path.join(dir, 'last-exit.json'), 'not json')
-    expect(takeLastExit(dir)).toBe('unclean')
+    expect(takeLastExit(dir)).toEqual({ reason: 'unclean', at: null })
   })
 })

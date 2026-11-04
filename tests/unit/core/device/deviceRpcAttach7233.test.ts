@@ -1,7 +1,7 @@
 // #7233 设备 RPC 在咕咕云上「一个发问端一条线」,发问端这一侧(@gugu/core/cloud/deviceRpcAttach)。
 // 替身只换掉「订上一条 topic」那一步(join):每条 topic 记下发出去的、能往里推帧、能说「断过又订上」。
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { REMOTE_PROTOCOL_VERSION } from '../../../../packages/core/src/cloud/serverMachineHealth'
+import { REMOTE_PROTOCOL_VERSION, SERVER_UPDATE_CONTROL_RPCS } from '../../../../packages/core/src/cloud/serverMachineHealth'
 import { openAttachedDeviceRpcPipe } from '../../../../packages/core/src/cloud/deviceRpcAttach'
 import { DeviceRpcChannelError, DeviceRpcRefused } from '../../../../packages/core/src/cloud/deviceRpcRequester'
 import type { DeviceTopicHandlers } from '../../../../packages/core/src/cloud/deviceRpcAttach'
@@ -94,6 +94,22 @@ describe('发问端报到,之后只在自己那条上问', () => {
         code: 'server_outdated', message: '请更新那台机器上的咕咕',
       } })
       expect(cloud.sentOn(MINE)).toEqual([])
+    } finally {
+      pipe.close()
+    }
+  })
+
+  it.each([...SERVER_UPDATE_CONTROL_RPCS])('keeps %s reachable after an ordinary request was refused on an old host', async type => {
+    const cloud = fakeCloud({ answerProtocol: 15 })
+    const { pipe } = await openPipe(cloud)
+    try {
+      await expect(pipe.send(request(1))).rejects.toMatchObject({ error: { code: 'server_outdated' } })
+      const update = request(2)
+      update.payload.type = type
+      await pipe.send(update)
+      expect(cloud.sentOn(MINE).map(message => message.type)).toEqual([type])
+      await expect(pipe.send(request(3))).rejects.toMatchObject({ error: { code: 'server_outdated' } })
+      expect(cloud.sentOn(SHARED).filter(message => message.type === 'taskhost.attach')).toHaveLength(1)
     } finally {
       pipe.close()
     }

@@ -1,27 +1,14 @@
-/**
- * #6264 远程 SSH 的机器上咕咕 server 太旧、这台桌面连不上它:当场替它升级,升完自动连上。
- *
- * 照 VS Code Remote-SSH:客户端连上去发现 server 对不上,就装一份对得上的 —— ❌ 等那台机器「空闲时自己升」。
- * 旧到连不上的 server 上不可能有这台桌面能用的会话,等空闲没有要保护的东西;这台桌面够得着它(SSH),
- * 也就没有理由让人干等。远程隧道的机器够不着,维持空闲时自动更新(product spec 第 5 条)。
- *
- * 升级 = 同一条 SSH 装机流程的 upgrade 模式(runner.ts):报这台桌面的版本、请那台机器当场换、等它换过去;
- * 不登录、不问人(BatchMode)。装那一版的只有那台机器上的守护进程(server-account-converge.ts),桌面 ❌ 经 SSH 再装一份;
- * 那台机器上不了网时,桌面只把包的字节传过去。
- * 发起它的只有版本信号(ssh-link.ts classifyLinkExit / remoteSessionHost.ts unknown_method),连不上 ❌ 发起。
- * 一台机器同时只升一次;升失败了冷却一阵再自己试(免得每次重连都重下一遍包),人点「重试」不看冷却。
- *
- * #6264 升降都算:换的是「这个账号」到和桌面匹配的那一版(同一账号几台桌面取最新,
- * 可能比装着的旧 —— 降级),只重启这一个账号;目标就是在跑的那一版(同账号另一台桌面更新)= 这台桌面太旧,
- * 报 desktopTooOld,由它自己显示「请更新这台电脑上的咕咕」,❌ 算升级失败。
- */
+/** SSH upgrades reuse prepared server controls, or the existing whole-installation installer. */
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { ServerSshInstallState } from '../../../src/lib/serverSshInstall'
 import type { SshUpgradeEvent } from '../../../src/lib/sshLink'
-import { compareServerVersions } from '@gugu/core/cloud/serverDesktopVersions'
+import { VERSION_RESTART_RPC, VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC, serverSupportsConfirmedRestart } from '@gugu/core/cloud/serverMachineHealth'
+import type { DeviceCapabilities } from '@gugu/core/shared/types/chat'
+import type { DeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
+import { canRestartServerUpdate } from '../../../src/lib/deviceRowModel'
 import { serverDownloadBase } from '../server-download'
 import { downloadServerOnDesktop } from './desktop-download'
 import { SHARED_CONTROL_PERSIST, type SshTarget } from './logic'
@@ -42,7 +29,7 @@ export type RunUpgrade = (
   deviceId: string,
   onState: (state: ServerSshInstallState) => void,
   options?: { now?: boolean },
-) => Promise<ServerSshInstallState | null>
+) => Promise<(ServerSshInstallState & { unconfirmed?: { request: number; reportedVersion: string | null; update: DeviceCapabilities['server_update'] | null } }) | null>
 
 /** 下载那一步此刻的百分比(不知道总量 = null)。纯函数。 */
 export function upgradePercent(state: ServerSshInstallState): number | null {
@@ -54,8 +41,6 @@ export function upgradePercent(state: ServerSshInstallState): number | null {
 export function createSshAutoUpgrader(options: {
   run: RunUpgrade
   emit: (event: SshUpgradeEvent) => void
-  /** 这台桌面自己的版本(分清「那边旧」与「这台桌面旧」)。 */
-  desktopVersion?: string | null
   now?: () => number
   cooldownMs?: number
   log?: (message: string, fields?: Record<string, unknown>) => void
@@ -66,7 +51,7 @@ export function createSshAutoUpgrader(options: {
   const cooldown = options.cooldownMs ?? UPGRADE_RETRY_COOLDOWN_MS
   const log = options.log ?? (() => undefined)
 
-  const start = (deviceId: string, desktopTooOld: boolean, applyNow: boolean) => {
+  const start = (deviceId: string, applyNow: boolean) => {
     running.add(deviceId)
     options.emit({ deviceId, phase: 'updating', percent: null })
     let lastPercent: number | null = null
@@ -83,21 +68,17 @@ export function createSshAutoUpgrader(options: {
       })
       .then((final) => {
         running.delete(deviceId)
+        if (final?.unconfirmed) {
+          // Stop this click's observer without inventing a terminal host outcome or reconnecting.
+          failedAt.set(deviceId, now())
+          log('ssh restart remains unconfirmed', { deviceId, ...final.unconfirmed })
+          options.emit({ deviceId, phase: 'unconfirmed', ...final.unconfirmed })
+          return
+        }
         // 升好 = 下载装了新的,或装着的已够新、把在跑的旧进程当场切了过去(service 那一步真的换了)。
         // 「装着的并不旧、在跑的也就是它」(什么也没装、什么也没换)算没升成:否则重连 → 又说太旧 → 又「升好了」,转圈。
         const finishedClean = !!final && final.finished && !final.failure
-        // 什么也没换,而且是这台桌面旧(同账号另一台更新的桌面要的就是在跑的这一版,或由「这台电脑太旧」发起):
-        // 不算升级失败,由这台电脑自己显示「请更新这台电脑上的咕咕」。
-        const match = finishedClean ? (final.match ?? null) : null
-        const stepDone = (id: string) => finishedClean && final.steps.find((s) => s.id === id)?.status === 'done'
-        const nothingChanged = finishedClean && (!match || match.target === match.running) && !stepDone('download') && !stepDone('service')
-        const serverIsNewer = !!match && !!options.desktopVersion && compareServerVersions(match.target, options.desktopVersion) > 0
-        if (nothingChanged && (desktopTooOld || serverIsNewer)) {
-          failedAt.set(deviceId, now())
-          log('ssh upgrade: desktop is the older side', { deviceId, target: match?.target ?? null, desktop: options.desktopVersion ?? null })
-          options.emit({ deviceId, phase: 'desktopTooOld' })
-          return
-        }
+        const stepDone = (id: string) => finishedClean && final.steps.find(s => s.id === id)?.status === 'done'
         // 那个账号有 agent 在跑:那台机器装好了、等它空闲再换(到时自己换,不用这台桌面再来)。问人「现在重启更新 / 稍后」;
         // 记进冷却,❌ 每次重连都再请一遍。
         if (final?.failure?.reason === 'agentsRunning') {
@@ -107,7 +88,7 @@ export function createSshAutoUpgrader(options: {
           return
         }
         const downloaded = stepDone('download')
-        // 「换了」是 match-version 亲眼看到这个账号跑上了那一版,不会是空转。
+        // Prepared switches finish only after their request-correlated heartbeat result.
         const ok = downloaded || stepDone('service')
         if (ok) {
           failedAt.delete(deviceId)
@@ -125,7 +106,7 @@ export function createSshAutoUpgrader(options: {
             detail: final?.failure?.detail ?? null,
           })
         }
-        // 那台机器上的 server 老到不认得 match-version:没法自动更新,把重装命令带给界面(runner.ts)。
+        // Preserve installer failure details for the existing prompt.
         const reinstall = final?.failure?.reason === 'serverTooOld' ? final.failure.detail : undefined
         options.emit({ deviceId, phase: ok ? 'done' : 'failed', ...(reinstall ? { reinstall } : {}) })
       })
@@ -133,10 +114,11 @@ export function createSshAutoUpgrader(options: {
 
   return {
     request(deviceId, requestOptions) {
+      if (requestOptions?.desktopTooOld) { options.emit({ deviceId, phase: 'desktopTooOld' }); return false }
       if (running.has(deviceId)) return true
       const failed = failedAt.get(deviceId)
       if (!requestOptions?.force && failed !== undefined && now() - failed < cooldown) return false
-      start(deviceId, requestOptions?.desktopTooOld === true, requestOptions?.now === true)
+      start(deviceId, requestOptions?.now === true)
       return true
     },
     upgrading: (deviceId) => running.has(deviceId),
@@ -149,8 +131,11 @@ export function createSshAutoUpgrader(options: {
  */
 export function sshServerUpgradeRunner(options: {
   targetFor: (deviceId: string) => Promise<SshTarget | null>
-  /** #6264 那台机器上是哪个账号、这台桌面是哪一版(换成匹配的那一版要用);拿不到就报错,❌ 整台升级。 */
-  matchFor?: (deviceId: string) => Promise<NonNullable<Parameters<typeof runSshInstall>[2]['match']> | null>
+  currentUserId: () => Promise<string | null>
+  readCapabilities: (deviceId: string) => Promise<DeviceCapabilities | null>
+  call: DeviceRpcRequester['call']
+  now?: () => number
+  sleep?: (ms: number) => Promise<void>
   controlPath: () => string | null
   channel: 'stable' | 'beta'
   spawnSsh: SpawnSsh
@@ -158,10 +143,50 @@ export function sshServerUpgradeRunner(options: {
   return async (deviceId, onState, runOptions) => {
     const target = await options.targetFor(deviceId)
     if (!target) return null
-    const match = (await options.matchFor?.(deviceId).catch(() => null)) ?? null
+    const run = new InstallRun(crypto.randomUUID(), target.display, onState)
+    const capabilities = await options.readCapabilities(deviceId)
+    const update = capabilities?.server_update
+    if (update?.state === 'ready') {
+      const fail = (reason: 'agentsRunning' | 'serviceFailed', detail: string) => {
+        run.setStep('service', { status: 'failed' })
+        run.update(draft => { draft.failure = { step: 'service', reason, detail }; draft.finished = true })
+        return run.snapshot()
+      }
+      const confirmed = runOptions?.now === true
+      if (confirmed && !canRestartServerUpdate(update, capabilities!)) return fail('agentsRunning', 'This server must wait for idle before updating')
+      const modern = serverSupportsConfirmedRestart(capabilities)
+      const reply = await options.call(deviceId,
+        confirmed ? modern ? VERSION_RESTART_RPC : LEGACY_VERSION_RETRY_RPC : VERSION_RETRY_RPC,
+        confirmed && modern ? { version: update.version, confirmed: true } : {}, { timeoutMs: 15_000 })
+      const receipt = reply.result as { requested?: unknown; at?: unknown } | undefined
+      if (reply.error || receipt?.requested !== true) return fail('serviceFailed', reply.error?.message ?? 'Server did not acknowledge the update request')
+      if (!confirmed || !modern) {
+        return fail('agentsRunning', 'The server was asked to update when idle; no confirmed restart receipt was issued')
+      }
+      if (typeof receipt.at !== 'number' || !Number.isFinite(receipt.at)) return fail('serviceFailed', 'Server did not provide a restart receipt')
+      // Use the same request-correlated heartbeat result as the device page. An RPC acknowledgement is not a switch.
+      run.setStep('service', { status: 'running', version: update.version })
+      const now = options.now ?? Date.now
+      const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)))
+      const deadline = now() + 10 * 60_000
+      let reported: DeviceCapabilities | null = capabilities
+      while (now() < deadline) {
+        reported = await options.readCapabilities(deviceId).catch(() => null)
+        const outcome = reported?.server_update_outcome ?? reported?.server_update?.lastOutcome
+        if (outcome?.request === receipt.at && outcome.kind !== 'waiting') {
+          if (outcome.kind !== 'switched') return fail('serviceFailed', `Server update ${outcome.kind}`)
+          run.setStep('download', { status: 'skipped', skippedBecause: 'alreadyInstalled', version: update.version })
+          run.setStep('service', { status: 'done', version: update.version })
+          run.setStep('login', { status: 'skipped', skippedBecause: 'alreadySignedIn' })
+          run.update(draft => { draft.finished = true })
+          return run.snapshot()
+        }
+        await sleep(2_000)
+      }
+      return { ...run.snapshot(), unconfirmed: { request: receipt.at, reportedVersion: reported?.app_version ?? null, update: reported?.server_update ?? null } }
+    }
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gugu-server-upgrade-'))
     const controlPath = options.controlPath()
-    const run = new InstallRun(crypto.randomUUID(), target.display, onState)
     try {
       return await runSshInstall(target, run, {
         mode: 'upgrade',
@@ -169,14 +194,13 @@ export function sshServerUpgradeRunner(options: {
         // upgrade 模式不登录,用不到凭证。
         mintGrant: async () => ({ error: 'grantFailed' }),
         desktopDownload: (request) => downloadServerOnDesktop({ ...request, dir }),
-        currentUserId: async () => null,
+        currentUserId: options.currentUserId,
         controlPath,
         ...(controlPath ? { controlPersist: SHARED_CONTROL_PERSIST } : {}),
         downloadBase: serverDownloadBase(),
         customDownloadBase: Boolean(process.env.GUGU_SERVER_DOWNLOAD_BASE?.trim()),
         channel: options.channel,
         signal: new AbortController().signal,
-        ...(match ? { match } : {}),
         ...(runOptions?.now ? { now: true } : {}),
       })
     } finally {

@@ -36,4 +36,48 @@ describe('tab full screen: Esc', () => {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     expect(tabFullscreen.isOn(pane)).toBe(false);
   });
+
+  it('Esc on the page exits with the persistent Chats list mounted', () => {
+    add('<div role="listbox" aria-label="Chats"><div role="option">Chat</div></div>');
+    const pane = { entries: new Set(['t']), resolvedActiveTabId: 't' };
+    tabFullscreen.toggle(pane, 't');
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(escape);
+    expect(tabFullscreen.isOn(pane)).toBe(false);
+    expect(escape.defaultPrevented).toBe(true);
+  });
+
+  it('an open menu owns page Escape without leaving full screen or swallowing the key', () => {
+    add('<div role="menu"><button role="menuitem">Open</button></div>');
+    const pane = { entries: new Set(['t']), resolvedActiveTabId: 't' };
+    tabFullscreen.toggle(pane, 't');
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(escape);
+    expect(tabFullscreen.isOn(pane, 't')).toBe(true);
+    expect(escape.defaultPrevented).toBe(false);
+  });
+
+  it('a popup listbox owns page Escape, including a popup controlled by an expanded trigger', () => {
+    const popup = add('<div role="listbox" data-open><div role="option">Option</div></div>');
+    expect(escapeIsFree(document.body)).toBe(false);
+    popup.removeAttribute('data-open');
+    popup.id = 'popup';
+    const trigger = add('<button aria-expanded="true" aria-controls="other popup">Choose</button>');
+    expect(escapeIsFree(document.body)).toBe(false);
+    trigger.setAttribute('aria-expanded', 'false');
+    expect(escapeIsFree(document.body)).toBe(true);
+    expect(escapeIsFree(popup.firstElementChild)).toBe(false);
+  });
+
+  it.each([
+    '<div hidden><div role="dialog"></div></div>',
+    '<div style="display: none"><div role="menu"></div></div>',
+    '<div role="menu" style="visibility: hidden"></div>',
+    '<div inert><div role="dialog"></div></div>',
+    '<div aria-hidden="true"><div role="menu"></div></div>',
+    '<div role="listbox" data-open data-closed></div>',
+  ])('hidden or closed overlays do not own page Escape: %s', (html) => {
+    add(html);
+    expect(escapeIsFree(document.body)).toBe(true);
+  });
 });

@@ -713,7 +713,7 @@ describe('the Apps as app_search reads them (10-19)', () => {
       entry('agent-notes', { publishedAt: '2026-10-12T00:00:00Z' }),
       entry('turtle-soup', {}, { name: '海龟汤' }),
       entry('paper-club', {}, { permissions: { capabilities: ['chat:read'], network: ['arxiv.org'] } } as Partial<ExtensionManifest>),
-      entry('future', { compat: { reason: 'needs-newer-app', minAppVersion: '9.0.0' } }),
+      entry('future', { compat: { reason: 'needs-newer-app', gate: 'app', minAppVersion: '9.0.0' } }),
       entry('old', { deprecated: { note: null, replacedBy: null } }),
     ]
     const { apps } = await catalogWith(async () => offered).apps('s1', true)

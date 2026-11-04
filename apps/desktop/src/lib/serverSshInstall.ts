@@ -182,11 +182,6 @@ export type ServerSshInstallState = {
    * working = 正在装;其余是结果。没勾 = 没有这一项。
    */
   keyInstall?: ServerSshKeyInstall | null
-  /**
-   * #6264 后台替它换成和这台桌面匹配的那一版时(upgrade 模式,那台机器认得 match-version):这个账号该跑的目标版本、
-   * 当时在跑的版本。两者相同 = 什么也不用换(这台桌面比同账号另一台旧 —— 它自己去显示「请更新这台电脑上的咕咕」)。
-   */
-  match?: { target: string; running: string | null } | null
   /** 连接与安装的原始日志(ssh 的详细输出 + 那台机器上脚本的输出),给「查看详情」。只留最后若干行。 */
   log: string[]
 }
