@@ -40,6 +40,7 @@ import {
 } from './apps/desktop/electron/sessionpage/sessionpage-main-build.mjs'
 import { LAZY_LANG_MODULES } from './packages/session-chat-ui/src/core/highlight/lazy-langs'
 import { appPaletteCss } from './apps/desktop/src/session/app-runtime/ui/app-palette.mjs'
+import { startupFirstFrame } from './scripts/build/startup-first-frame.mts'
 
 const require = createRequire(import.meta.url)
 
@@ -671,6 +672,7 @@ export default defineConfig(({ command }) => ({
     ),
   },
   plugins: [
+    startupFirstFrame(isElectronTarget),
     deterministicModuleSideEffects(),
     guguEntryReachabilityPlugin(reachability, isGuguEntry),
     monacoWorkerSingleBundlePlugin(),

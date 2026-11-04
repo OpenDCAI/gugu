@@ -33,6 +33,7 @@ import './i18n/registerAgentsCatalog'
 import './i18n/registerAssistantCatalog'
 import './styles/sora.css'
 import './styles/tokens.css'
+import { StartupMotionBoundary } from './components/StartupMotionBoundary'
 import '@gugu/session-shared/animation-visibility.css'
 import { isAnimationWindowVisible } from '@gugu/session-shared/animation-visibility'
 import { installPerfCounterResponder } from './lib/perfCounterResponder'
@@ -94,13 +95,13 @@ renderEntryRoot(
   'desktop',
   document.getElementById('root') as HTMLElement,
   <React.StrictMode>
-    <>
+    <StartupMotionBoundary>
       <AppErrorBoundary>
         <LocalizationProvider>
           <App />
           <BuildTagBadge />
         </LocalizationProvider>
       </AppErrorBoundary>
-    </>
+    </StartupMotionBoundary>
   </React.StrictMode>
 )

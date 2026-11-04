@@ -8,6 +8,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <link rel="icon" href="/assets/app/gugu-icon-512.png" />
     <title>咕咕</title>
+    <style>
+      html, body { margin: 0; }
+      [data-gugu-boot] { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; overflow: hidden; pointer-events: none; background: #fff; color: #1a1c1f; }
+      [data-theme="dark"] [data-gugu-boot] { background: #181818; color: #f0f0f2; }
+      [data-gugu-boot] > svg { position: absolute; width: min(355.2px, calc(100vw - 48px)); height: auto; }
+      [data-gugu-boot] [data-startup-poster-settled] { display: none; }
+      [data-gugu-boot] > iframe { width: 640px; max-width: none; height: 100vh; border: 0; transform: scale(.6); opacity: 0; }
+      @media (prefers-reduced-motion: reduce) {
+        [data-gugu-boot] [data-startup-poster-enter] { display: none; }
+        [data-gugu-boot] [data-startup-poster-settled] { display: inline; }
+      }
+    </style>
     <!-- @@@5293 首帧之前把偏好解析成真值,避免闪一下再改。规则必须与
          `src/session/renderer/lib/theme/host-theme.ts` 里那份逐字一致:
          存的是**偏好**(light / dark / system),明暗真值仍是 light / dark;
@@ -37,7 +49,9 @@
     </script>
   </head>
   <body>
+    <div data-gugu-boot aria-hidden="true"><!--gugu-startup-poster--></div>
     <div id="root"></div>
+    <script type="module" src="/src/lib/startup-motion-bootstrap.ts"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

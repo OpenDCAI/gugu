@@ -1,11 +1,21 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { claimStartupBrand, hasStartupMotion, hasStartupVisual, subscribeStartupMotion } from '../../lib/startup-motion'
 import motionDocument from './brand-motion.html?raw'
 
 /** The approved D v2.3 bird/wordmark animation, isolated from the authentication document. */
 export function AuthBrandMotion() {
   const host = useRef<HTMLDivElement>(null)
+  const [claimedStartup, setClaimedStartup] = useState(hasStartupMotion)
+  const startupVisual = useSyncExternalStore(subscribeStartupMotion, hasStartupVisual, () => false)
+  const continuingStartup = claimedStartup && startupVisual
   const [document, setDocument] = useState('')
+  useLayoutEffect(() => {
+    const release = claimStartupBrand(host.current!)
+    setClaimedStartup(Boolean(release))
+    return release ?? undefined
+  }, [])
   useEffect(() => {
+    if (continuingStartup) return
     const element = host.current!
     let visible = false
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
@@ -21,8 +31,8 @@ export function AuthBrandMotion() {
     theme.observe(window.document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     reducedMotion.addEventListener('change', mount)
     return () => { intersection.disconnect(); theme.disconnect(); reducedMotion.removeEventListener('change', mount) }
-  }, [])
+  }, [continuingStartup])
   return <div ref={host} className="gugu-auth-motion" aria-hidden="true">
-    {document && <iframe key={document} title="gugu" tabIndex={-1} sandbox="allow-scripts" srcDoc={document} />}
+    {!continuingStartup && document && <iframe key={document} title="gugu" tabIndex={-1} sandbox="allow-scripts" srcDoc={document} />}
   </div>
 }
