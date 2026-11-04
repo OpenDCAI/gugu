@@ -396,7 +396,7 @@ can tell any of the person's agents. A sheet pick needs no capability.
   person uninstalls you.
 `;
 
-export const EXTENSION_GUIDE_PROJECTION = `# Local App picture and input resources
+export const EXTENSION_GUIDE_PROJECTION = `# App picture and input resources
 
 Needs \`agents:tools\`
 
@@ -419,9 +419,10 @@ API 22 — scoped local previews and human input (desktop, \`agents:tools\`):
   \`driver.disconnect(viewer)\` releases that viewer's held keys/buttons before another viewer's input; \`driver.close()\` stops capture
   and input, and resolves after cleanup. Only one viewer drives at a time; others can still watch. App revocation,
   task archive/deletion, project deletion or withdrawn App access closes resources. An active task keeps its resources even without viewers.
-- In the same App's task page, \`gugu.projection.mount(element, id, { state?, error? })\` returns \`{ close, pendingText, discardPendingText }\`.
+- In the same App's task page, \`gugu.projection.mount(element, id, { state?, error?, painted? })\` returns \`{ close, pendingText, discardPendingText }\`.
   It draws the picture and accepts input there, with no extra text form. State is \`connecting\`, \`live\`, \`input-paused\`, or \`closed\`;
-  input is disabled until a fresh picture paints. Disconnects discard queued input; reconnects require a new generation.
+  The \`painted\` callback gives the actually painted \`{sequence,width,height}\`, or null when invalidated; match App decorations by sequence.
+  Input is disabled until a fresh picture paints. Disconnects discard queued input; reconnects require a new generation.
   For the local preview feed, only one unacknowledged picture and the newest pending picture are retained.
   Focus loss invalidates the old input generation and releases its held input before fresh input is admitted.
   Rejection drops that operation and leaves the viewer usable. Unknown outcomes require a fresh generation.
@@ -431,7 +432,37 @@ API 22 — scoped local previews and human input (desktop, \`agents:tools\`):
   Your App decides where to mount a mirror; original local Browser pages already receive native input.
   Pictures never travel through App-wide program notifications or replayable tool calls.
   This bitmap feed is local only. A page on another computer requires the shared media transport; there is no
-  bitmap-over-network, tool-result, cloud-notification or relay fallback.
+  bitmap-over-network, tool-result, cloud-notification or relay fallback. API 30 connects a remote task page through
+  the authenticated direct media transport, using the same mount() call and input outcomes. Only a fresh decoded frame
+  enables input; a sent control packet is not proof of execution. Main retains every proof and control key.
+
+API 30 shared task resources (desktop, \`agents:tools\`):
+- Program: \`showTaskPages()\` opens this App's declared perSession tabs beside its calling task, preserving the person's current tab.
+  No task argument; needs a live task call. Returns tab kinds. Your App chooses first-use/retry policy; the host never reopens on its own.
+- Custom stdio MCP adapters enter \`gugu.withCall(request.params._meta, () => work())\` in their tool handler;
+  tools modules already enter it. Main checks the random call ID against this program's live calls, never tool arguments.
+  Tools modules also receive \`call.agentName\`, \`call.taskTitle\` and \`call.callId\` when stamped.
+- Program: \`gugu.pages.acquire({ url? })\` returns \`{ id, title, url, send, onMessage, onClose, close }\`.
+  Main selects the calling task's real page, never an App-supplied contents ID or partition. Adapt your own driver with
+  \`lease.send(method, params?, cdpSessionId?)\`, \`lease.onMessage(fn)\` and \`lease.onClose(fn)\` (both return unsubscribe).
+  Commands need a live call of that task. Protocol methods, navigation and child sessions remain host-restricted.
+  Closing releases this lease's held keys/buttons and control, not the person's page or login. Task stop closes its old leases. A host without a desktop says unavailable.
+- Task page: \`await gugu.pages.mount(element, id, {error?})\` returns \`{ close }\`; mount only a lease of this App/task.
+  Main clips its native page to the host-measured App viewport; native clicks go to the real page. Failed layout reports error and unmounts.
+- Program: \`await gugu.surfaces.open({ entry, bounds:{x,y,width,height}, data?, visible?, relativeTo? })\` returns
+  \`{ id, shown:false, update, close, onEvent }\` immediately, before native loading/display. \`entry\` is a bundle HTML file;
+  bounds are screen DIP. \`surface.update({ bounds?, data?, visible?, relativeTo? })\`, \`surface.close()\`, \`surface.onEvent(fn)\` returns unsubscribe.
+  Use \`visible:false\` to prepare a hidden handle; show it later. \`relativeTo:{windowId:string}\` places it directly
+  above that native window, not permanently above unrelated Apps; null removes the relation.
+  \`gugu.surfaces.screen({bounds,space:'screen-dip'|'windows-screen-pixels'})\` returns DIP \`{bounds,workArea,scaleFactor}\`.
+  Windows pixel conversion uses native screenToDipRect; other hosts reject that pixel space. The App selects its window and placement.
+  Events: \`{id,type:'display',shown,reason?}\`, \`{id,type:'message',message}\`, \`{id,type:'closed',reason}\`.
+  Display failure is informational, never permission to reject, delay or authorize an action.
+- Surface HTML uses its ordinary sandbox/grants; \`getContext().surface\` has \`{id,data}\`, refreshed with
+  \`onContextChanged\`. Its buttons call \`gugu.surfaces.post(message)\` to its owning program.
+  The App owns content, targets, pause and Stop/Continue rules; the host supplies non-activation, capture protection and teardown.
+  An owned display can update outside a tool call. Normal tool completion does not cancel loading; actual interruption does.
+  Revocation, program exit, task archive or project deletion closes it. Late native results are released.
 
 Use \`resource.close()\` to release the source and \`view.close()\` to remove the mounted viewer.
 `;
@@ -470,17 +501,18 @@ export const follow = {
   Files: gugu.files + files:read/write. Network: granted permissions.network hosts.
   No IPs/listeners/subprocesses/addons/WASI/inspector/sqlite/eval workers; bundle workers inherit limits.
   Not an OS sandbox. Older tools/commands retain full rights.
-  Other owners must install the App to give their agents tools; never store agent ids.
+  Owners install for their agents; never store agent IDs.
 - Another language, or an existing MCP server: \`{ "name", "command", "args"? }\`, MCP over stdio.
   \`command\` \`node\` runs on gugu's own runtime; \`./x\` is a program in your bundle; anything else
   is found on PATH (\`npx\`, \`uvx\`, \`python3\`). An argument naming a file in your bundle is passed
-  as its absolute path; the install sheet shows the command verbatim. Answer every request with its
-  \`id\`, errors too: an error reply without one fails every call in flight. Each call's \`_meta\`
-  carries the same stamp: \`gugu/agent\`, \`gugu/sessionId\`, \`gugu/conversation\` (its private chat with you), \`gugu/workspaceRoot\`, \`gugu/model\`, \`gugu/modelLabel\`. A long tool reports progress on the
-  call's \`progressToken\` at least every 60 seconds, or Claude aborts it at 300 seconds.
+  as an absolute path; installation shows the command verbatim. Every reply, including errors, needs its request's
+  \`id\`; omitting it fails all in-flight calls. Host-stamped \`_meta\`: \`gugu/agent\`, \`gugu/sessionId\`,
+  \`gugu/conversation\` (its private chat), \`gugu/workspaceRoot\`, \`gugu/model\`, \`gugu/modelLabel\`,
+  optional \`gugu/agentName\` / \`gugu/taskTitle\` (real name/title). Task stop cancels that task's calls;
+  honor the signal and finish input cleanup. Report progress on \`progressToken\` every 60 seconds or Claude aborts at 300.
 - Either way the working directory is your bundle, with \`GUGU_EXTENSION_ID\` and
-  \`GUGU_EXTENSION_DATA_DIR\` — the folder your pages reach with \`readData\`/\`writeData\`. One copy
-  serves every session; gugu starts it on first use and stops it when idle (never while it holds a chat file open).
+  \`GUGU_EXTENSION_DATA_DIR\` — the folder pages use via \`readData\`/\`writeData\`. One process serves all sessions;
+  starts on use; open files and host resources prevent idle reclaim.
   A program on \`node\` has the global \`gugu\` — a page's, but for the page's own verbs; a \`worker_threads\`
   worker has none (relay through the main thread yourself). It opens a chat file it
   is handed by its id, \`{ id }\`, and \`gugu.dispatch(text, { to: { chat, member }, refs })\` whispers in that file's chat.
