@@ -13,6 +13,8 @@ export type SessionInput = {
   admission?: Exclude<SessionInputAdmission, 'accepted'>
   /** Presentation only: an explicitly queued input remains in the composer queue. */
   queued?: boolean
+  /** Composer-owned, not yet sent. Legacy/mobile `queued` alone is only presentation. */
+  sendQueue?: { order: number; afterInputId?: string; edit?: { draftText: string; originalDraftText: string } }
   baseline?: string[]
   afterTurnId?: string
 }
@@ -89,13 +91,15 @@ export class SessionInputOutbox {
     private readonly changed: () => void = () => {},
     private readonly beforeEnqueue: (input: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments'>) => void = () => {}) {}
 
-  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId'>): Promise<SessionInput> {
+  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId' | 'sendQueue'>): Promise<SessionInput> {
     if (!this.current()) throw new Error('Session input account changed')
     const written = this.writing.catch(() => undefined).then(async () => {
       if (!this.current()) throw new Error('Session input account changed')
       this.beforeEnqueue(target)
       const last = Math.max(0, ...(await this.list()).map(input => input.createdAt))
-      const input: SessionInput = { ...target, accountId: this.accountId, id: crypto.randomUUID(), createdAt: Math.max(Date.now(), last + 1) }
+      const at = Math.max(Date.now(), last + 1)
+      const input: SessionInput = { ...target, ...(target.sendQueue ? { sendQueue: { ...target.sendQueue, order: at } } : {}),
+        accountId: this.accountId, id: crypto.randomUUID(), createdAt: at }
       await this.storage.put(input)
       this.changed()
       return input
@@ -138,6 +142,64 @@ export class SessionInputOutbox {
     await written
   }
 
+  /** Queue edits and release share the enqueue lane: a deleted/edited input cannot race into send. */
+  private write<T>(operation: () => Promise<T>): Promise<T> {
+    const written = this.writing.catch(() => undefined).then(async () => {
+      if (!this.current()) throw new Error('Session input account changed')
+      return operation()
+    })
+    this.writing = written
+    return written
+  }
+
+  changeQueued(id: string, change: { text: string; edit?: { draftText: string; originalDraftText: string } | null } | 'delete'): Promise<boolean> {
+    return this.write(async () => {
+      const input = (await this.list()).find(row => row.id === id && row.sendQueue)
+      if (!input) return false
+      if (change === 'delete') await this.storage.remove(this.accountId, id)
+      else await this.storage.put({ ...input, text: change.text, sendQueue: { ...input.sendQueue!,
+        ...(change.edit === undefined ? {} : { edit: change.edit ?? undefined }) } })
+      this.changed()
+      return true
+    })
+  }
+
+  reorderQueued(sessionId: string, ids: readonly string[]): Promise<void> {
+    return this.write(async () => {
+      const inputs = (await this.list()).filter(row => row.sessionId === sessionId && row.sendQueue)
+        .sort((a, b) => a.sendQueue!.order - b.sendQueue!.order)
+      if (ids.length !== inputs.length || new Set(ids).size !== ids.length || ids.some(id => !inputs.some(input => input.id === id))) {
+        throw new Error('Send queue identities changed; reload its order')
+      }
+      for (let index = 0; index < ids.length; index++) {
+        const input = inputs.find(row => row.id === ids[index])!
+        await this.storage.put({ ...input, sendQueue: { ...input.sendQueue!, order: inputs[index]!.sendQueue!.order } })
+      }
+      this.changed()
+    })
+  }
+
+  /** One foreground completion releases one input, never all of a session's queue. */
+  releaseQueued(sessionId: string, baseline: Pick<SessionInput, 'baseline' | 'afterTurnId'>,
+    completed: ReadonlySet<string>, nowId?: string): Promise<SessionInput | null> {
+    return this.write(async () => {
+      const rows = (await this.list()).filter(row => row.sessionId === sessionId)
+      if (!nowId && rows.some(row => !row.sendQueue)) return null
+      const queued = rows.filter(row => row.sendQueue).sort((a, b) => a.sendQueue!.order - b.sendQueue!.order)
+      const input = nowId ? queued.find(row => row.id === nowId) : queued[0]
+      if (!input || input.sendQueue!.edit || (!nowId && input.sendQueue!.afterInputId && !completed.has(input.sendQueue!.afterInputId!))) return null
+      // Remaining entries wait for this exact input to finish, including across a shell restart.
+      for (const following of queued) if (following.id !== input.id) {
+        await this.storage.put({ ...following, sendQueue: { ...following.sendQueue!, afterInputId: input.id } })
+      }
+      const { sendQueue: _queue, ...released } = input
+      const sent: SessionInput = { ...released, ...baseline, queued: false }
+      await this.storage.put(sent)
+      this.changed()
+      return sent
+    })
+  }
+
   flush(retryFailures = false): Promise<void> {
     this.retryFailures ||= retryFailures
     if (this.flushing) { this.again = true; return this.flushing }
@@ -159,6 +221,7 @@ export class SessionInputOutbox {
     const rows = (await this.list()).sort((a, b) => a.createdAt - b.createdAt)
     for (const input of rows) {
       if (!this.current()) return
+      if (input.sendQueue) continue
       const target = `${input.deviceId ?? 'local'}/${input.sessionId}`
       // A definitive refusal belongs to the person, including after reopening the application.
       // It does not prevent independent, later inputs for this target from being admitted.
@@ -167,7 +230,7 @@ export class SessionInputOutbox {
       const prepared = this.writing.catch(() => undefined).then(async () => {
         if (!this.current()) return null
         const live = (await this.list()).find(row => row.id === input.id)
-        if (!live || live.admission === 'rejected') return null
+        if (!live || live.sendQueue || live.admission === 'rejected') return null
         if (live.failure && retryFailures) {
           delete live.failure
           await this.storage.put(live)
