@@ -106,7 +106,7 @@ export function latestVisibleTurnId(active: TranscriptTurn | null, committed: re
 
 /** Incoming deliveries occupy their native position after the current turn's already visible items. */
 export function activeTurnWithInputs(turn: TranscriptTurn | null, prompt: PendingPrompt | null, incoming: readonly PendingPrompt[], committed: readonly TranscriptTurn[] = []): TranscriptTurn | null {
-  const waiting = incoming.filter(input => !pendingPromptLanded(input, turn ? [turn] : []));
+  const waiting = incoming.filter(input => input.id !== prompt?.id && !pendingPromptLanded(input, turn ? [turn] : []));
   const active = activeTurnWithPending(turn, prompt, committed);
   if (!active) return waiting.length ? { ...pendingPromptTurn(waiting[0]!), items: waiting.flatMap(input => pendingPromptTurn(input).items) } : null;
   if (!waiting.length) return active;

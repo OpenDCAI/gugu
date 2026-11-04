@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries'
+import { projectSessionPendingInput } from '@/lib/pendingSessionInput'
+import type { SessionInput } from '@/lib/sessionInputOutbox'
 import { activeTurnWithInputs, projectPendingMessages, type PendingMessageProjectionCache } from '@session-chat/state/pending-prompt'
 import type { LifeView } from '@/session/shared/core/sessions/session-life'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
@@ -9,6 +11,37 @@ const envelope = (id: string, content = 'hello') => renderDeliveryEnvelope({ rou
 const row = (id: string, seq: number, state: LifeView['pending']['items'][number]['state'] = 'queued') => ({ seq, messageId: id, text: envelope(id), preview: 'hello', kind: 'session-direct' as const, state, failure: null, sentAt: 10000 })
 const view = (items: LifeView['pending']['items']): LifeView => ({ sessionId: 's', version: 1, kind: 'ready', stage: null, pending: { count: items.length, items }, hold: null, failure: null, lastExit: null, nativeSession: null })
 const turn = (id: string, text: string): TranscriptTurn => ({ id, seq: 1, initiator: 'agent', startedAt: 5000, items: [{ kind: 'message', id: `${id}:native-user`, seq: 0, role: 'user', text }] })
+
+describe('side-window sender and host custody overlap', () => {
+  it.each(['queued', 'dispatching', 'accepted'] as const)('draws one ordinary input while its host receipt is %s', state => {
+    const receipt = { ...row('same-client-id', 1, state), text: 'ordinary side-window input' }
+    const sender: SessionInput = { id: receipt.messageId, text: receipt.text, accountId: 'owner', sessionId: 's',
+      deviceId: null, createdAt: 10000, queued: false, baseline: [] }
+    const life = view([receipt])
+    const own = projectSessionPendingInput(null, [sender], life.pending.items, [])
+    const received = projectSessionPendingDeliveries([], life, [])
+    const incoming = projectPendingMessages([], null, received).waiting
+    const drawn = activeTurnWithInputs(null, own, incoming)
+    expect(drawn?.items.filter(item => item.kind === 'message' && item.role === 'user')).toHaveLength(1)
+    expect(drawn?.items[0]).toMatchObject({ id: sender.id, text: sender.text })
+
+    // Releasing sender custody before native echo must not expose a second host bubble.
+    const retained = projectSessionPendingInput(own, [], life.pending.items, [])
+    expect(activeTurnWithInputs(null, retained, incoming)?.items).toHaveLength(1)
+    expect(activeTurnWithInputs(null, null, incoming)?.items).toHaveLength(1)
+  })
+
+  it('keeps a distinct client input even when its text is identical', () => {
+    const receipt = { ...row('same-client-id', 1), text: 'same words' }
+    const sender: SessionInput = { id: receipt.messageId, text: receipt.text, accountId: 'owner', sessionId: 's',
+      deviceId: null, createdAt: 10000, queued: false, baseline: [] }
+    const life = view([receipt, { ...receipt, messageId: 'different-client-id', seq: 2 }])
+    const own = projectSessionPendingInput(null, [sender], life.pending.items, [])
+    const received = projectSessionPendingDeliveries([], life, [])
+    expect(activeTurnWithInputs(null, own, projectPendingMessages([], null, received).waiting)?.items.map(item => item.id))
+      .toEqual(['same-client-id', 'different-client-id'])
+  })
+})
 
 describe('incoming delivery custody', () => {
   it('orders host messages by queue sequence, preserves the envelope, and leaves manual queue inputs alone', () => {
