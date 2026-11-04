@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComputerControlHooks, FamilyDeps } from '../../../../apps/desktop/electron/device-actions/catalog'
 import { createComputerControl } from '../../../../apps/desktop/electron/device-actions/computer-control'
 import { COMPUTER_TOOLS, createAppDirectory, createComputerFamily, cuaOutcome, parseTreeRows, sessionOf } from '../../../../apps/desktop/electron/device-actions/families/computer'
+import { createScreenFamily } from '../../../../apps/desktop/electron/device-actions/families/screen'
 import { createDeviceActionGrantsStore } from '../../../../apps/desktop/electron/device-actions/grants-store'
 import type { CuaToolResult } from '../../../../apps/desktop/electron/device-actions/native/cua-client'
 import { NativeCallError } from '../../../../apps/desktop/electron/device-actions/native/mac-helper-client'
@@ -73,7 +74,7 @@ function setup(options: { callTool?: CallTool; control?: ComputerControlHooks; h
   const store = createDeviceActionGrantsStore(path.join(dir, `grants-${++stores}.json`))
   store.setGroup('computer', true)
   store.setGroup('screen', true)
-  const p = createDeviceActionsProvider({ store, families: [createComputerFamily(dir)], deps })
+  const p = createDeviceActionsProvider({ store, families: [createComputerFamily(dir), createScreenFamily()], deps })
   const invoke = async (action: string, args: Record<string, unknown>, caller?: { agent_user_id?: string; name?: string; task_title?: string }) => {
     const permit = await p.provider.permit(action)
     if (!permit.ok) return permit
@@ -383,12 +384,6 @@ describe('屏幕(Mac,走 cua 读前台窗口)', () => {
     return { content: [] }
   }
 
-  it('screen.get:前台 App、窗口标题、文字;不截图', async () => {
-    const { invoke, callTool } = setup({ callTool: desk })
-    expect(await invoke('screen.get', {})).toMatchObject({ ok: true, data: { app_name: 'Calculator', bundle_id: 'com.apple.calculator', window_title: '计算器', texts: ['9,240'], interactive_elements: 3, ax_coverage: 'full' } })
-    expect(callTool).toHaveBeenCalledWith('get_window_state', expect.objectContaining({ pid: 77, window_id: 9, include_screenshot: false }), expect.anything())
-  })
-
   it('screen.elements.find:按文字找,给出 computer.click 认的 element_token', async () => {
     const { invoke } = setup({ callTool: desk })
     expect(await invoke('screen.elements.find', { query: 'seven' })).toMatchObject({ ok: true, data: { pid: 77, window_id: 9, elements: [{ role: 'AXButton', label: '7', identifier: 'Seven', element_token: 's3:5' }], total_matches: 1 } })
@@ -396,7 +391,7 @@ describe('屏幕(Mac,走 cua 读前台窗口)', () => {
 
   it('前台是咕咕自己:不读', async () => {
     const { invoke } = setup({ callTool: async (name) => (name === 'list_apps' ? { structuredContent: { apps: [{ name: '咕咕', pid: GUGU_PID, active: true }] } } : { content: [] }) })
-    expect(await invoke('screen.get', {})).toMatchObject({ ok: false, code: 'invalid_args', message: expect.stringContaining('咕咕 itself') })
+    expect(await invoke('screen.elements.find', { query: 'anything' })).toMatchObject({ ok: false, code: 'invalid_args', message: expect.stringContaining('咕咕 itself') })
   })
 })
 
