@@ -64,6 +64,20 @@ describe('avatar boundary follows visible dock cards, independently of the reser
     expect(dock.textContent).toBe('input')
   })
 
+  it('uses one height observation for both dock boundaries', async () => {
+    await harness.render(createElement('div', { 'data-column': '' },
+      createElement(ChatBottomDock, { reserve: false, children: createElement('div', null, 'input') })))
+    const column = harness.container.querySelector<HTMLElement>('[data-column]')!
+    const dock = column.querySelector<HTMLElement>('[data-chat-bottom-dock]')!
+    Object.defineProperty(dock.lastElementChild, 'offsetTop', { get: () => 42 })
+    const height = vi.fn().mockReturnValueOnce(124).mockReturnValue(200)
+    Object.defineProperty(dock, 'offsetHeight', { get: height })
+    await act(async () => observers[0].report())
+    expect(column.style.getPropertyValue('--chat-dock-h')).toBe('124px')
+    expect(column.style.getPropertyValue('--chat-dock-avatar-h')).toBe('82px')
+    expect(height).toHaveBeenCalledOnce()
+  })
+
   it('observes the running content when switching from a human DM to a group without remounting the dock', async () => {
     const render = (group: boolean) => harness.render(createElement(ChatBottomDock, { reserve: false,
       above: group && createElement(RunningBarSlot, { children: null }), children: createElement('div', null, 'input') }))

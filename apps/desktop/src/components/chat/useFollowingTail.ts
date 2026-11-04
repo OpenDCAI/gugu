@@ -82,19 +82,21 @@ export function useTailPinning({ resetKey, messages, enabled, messageWindow, scr
     baselineRef.current = true
   }
 
-  const clampToTrueBottom = useCallback(() => {
+  const scrollToBottom = useCallback(() => {
+    const list = listRef.current
+    if (list) { list.autoscrollToBottom(); return }
+    // Keep the pre-mount pin when the viewport exists before the list handle.
     const el = scrollerRef.current
     if (!el || isPreservingPosition() || !isAtBottomRef.current) return
     el.scrollTop = el.scrollHeight
-  }, [scrollerRef, isPreservingPosition, isAtBottomRef])
+  }, [listRef, scrollerRef, isPreservingPosition, isAtBottomRef])
 
   const pinToBottom = useCallback(() => {
     forgetSavedPosition()
     if (messageWindow?.hasNewer) { if (messageWindow.loading !== 'latest') void returnToLatest().catch(onError); return }
     isAtBottomRef.current = true
-    listRef.current?.autoscrollToBottom()
-    clampToTrueBottom()
-  }, [listRef, clampToTrueBottom, messageWindow?.hasNewer, messageWindow?.loading, returnToLatest, onError, forgetSavedPosition, isAtBottomRef])
+    scrollToBottom()
+  }, [scrollToBottom, messageWindow?.hasNewer, messageWindow?.loading, returnToLatest, onError, forgetSavedPosition, isAtBottomRef])
 
   useEffect(() => {
     const scroller = scrollerRef.current; if (!scroller) return
@@ -104,14 +106,13 @@ export function useTailPinning({ resetKey, messages, enabled, messageWindow, scr
       if (h !== prevH) {
         prevH = h
         if (!isPreservingPosition() && isAtBottomRef.current) {
-          listRef.current?.autoscrollToBottom()
-          clampToTrueBottom()
+          scrollToBottom()
         }
       }
     })
     ro.observe(scroller)
     return () => ro.disconnect()
-  }, [scrollerEl, scrollerRef, clampToTrueBottom, isPreservingPosition, isAtBottomRef, listRef])
+  }, [scrollerEl, scrollerRef, scrollToBottom, isPreservingPosition, isAtBottomRef])
 
   useEffect(() => {
     if (!enabled) return
