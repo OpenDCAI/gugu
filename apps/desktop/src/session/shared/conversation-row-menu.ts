@@ -4,7 +4,7 @@ export type ConversationRowAction = 'mark-read' | 'pin' | 'notifications' | 'mar
 export function conversationCanDelete(kind: string | null, authority?: { can_dissolve?: boolean; can_archive_topic?: boolean } | null, ownedAgentDm = false): boolean {
   return (kind === 'dm' && ownedAgentDm) || (kind === 'group' && authority?.can_dissolve === true) || (kind === 'topic' && authority?.can_archive_topic === true)
 }
-export type ConversationRowMenuState = ({ kind: 'chat'; canDelete: boolean } | { kind: 'project' }) & {
+export type ConversationRowMenuState = ({ kind: 'chat'; canDelete: boolean } | { kind: 'project' } | { kind: 'topic' }) & {
   hasUnread: boolean
   hasAnyUnread?: boolean
   pinned?: boolean
@@ -21,6 +21,7 @@ type RowMenuItem = {
 
 export function conversationRowMenu(state: ConversationRowMenuState): RowMenuItem[] {
   const common: RowMenuItem[] = [{ id: 'mark-read', label: 'markRead', icon: 'read', disabled: !state.hasUnread }]
+  if (state.kind === 'topic') return [...common, { id: 'mark-all-read', label: 'markAllRead', icon: 'read', disabled: !state.hasAnyUnread }]
   return state.kind === 'project'
     ? [...common, { id: 'remove-project', label: 'removeProject', icon: 'trash', danger: true }]
     : [...common,
@@ -33,8 +34,8 @@ export function conversationRowMenu(state: ConversationRowMenuState): RowMenuIte
 
 type ChatScopeRow = { id: string; kind: string | null; source_chat_id?: string | null }
 
-/** Include the selected conversation and its topic descendants, never its siblings or ancestors. */
-export function chatsInReadScope<T extends ChatScopeRow>(chats: readonly T[], rootId: string): T[] {
+/** Include the selected conversations and their topic descendants, never their siblings or ancestors. */
+export function chatsInReadScope<T extends ChatScopeRow>(chats: readonly T[], rootId: string | readonly string[]): T[] {
   const children = new Map<string, T[]>()
   for (const chat of chats) {
     if (chat.kind !== 'topic' || !chat.source_chat_id) continue
@@ -42,7 +43,7 @@ export function chatsInReadScope<T extends ChatScopeRow>(chats: readonly T[], ro
     siblings.push(chat)
     children.set(chat.source_chat_id, siblings)
   }
-  const ids = new Set([rootId])
+  const ids = new Set(typeof rootId === 'string' ? [rootId] : rootId)
   for (const id of ids) for (const child of children.get(id) ?? []) ids.add(child.id)
   return chats.filter((chat) => ids.has(chat.id))
 }

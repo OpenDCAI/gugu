@@ -40,6 +40,7 @@ import {
 } from './chatProjectionAlgebra'
 import { ACCOUNT_REVISION_CURSOR_KEY, type AccountRevisionOperation } from './accountRevisionRuntime'
 import {
+  readMemberRosterRevision,
   readRevisionResourceKey,
   type AccountRevisionEvent,
   type AccountRevisionListener,
@@ -139,7 +140,8 @@ const ENTITY_ID_FIELDS = ['entity_id', 'user_id', 'agent_user_id', 'contact_user
 export function toProjectionOperations(operations: readonly AccountRevisionOperation[]): ProjectionOperation[] {
   return operations.map(({ revision, event, payload }) => {
     if (CHAT_SCOPED.has(event)) {
-      return { revision, event, ...readRevisionResourceKey(payload, event as AccountRevisionEvent) }
+      const own = event === 'chat_members_changed' && readMemberRosterRevision(payload).own
+      return { revision, event, ...readRevisionResourceKey(payload, event as AccountRevisionEvent), ...(own ? { own } : {}) }
     }
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error(`${event} revision payload is malformed`)
     const raw = payload as Record<string, unknown>
