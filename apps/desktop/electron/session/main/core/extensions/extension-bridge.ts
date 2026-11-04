@@ -2264,6 +2264,15 @@ export function registerExtensionBridge(): void {
       if (extensionBackgroundWebContentsId(extensionId) === event.sender.id) {
         return await answerCall(backgroundCaller(extensionId, event.sender.id), method, args);
       }
+      // A person's task shortcut belongs to the binding at admission. Runtime startup
+      // calls may wait below; a click must never borrow a task bound after it arrived.
+      if (method === 'taskMessage') {
+        const atClick = bindings.get(event.sender.id);
+        if (!atClick || atClick.extensionId !== extensionId || bindingChanges.has(event.sender.id)) {
+          return denied('A task message needs a page bound when the click arrives');
+        }
+        return await answerCall(pageCaller({ ...atClick }, event.sender.id, request.gesture === true), method, args);
+      }
       // 还没绑上就先等一等 —— 扩展启动时调的动词跑在绑定之前是常态,不是错误。
       // 见 `waitForBinding` 上面那段:等待有上限,等不到照旧响亮失败。
       if (!bindings.has(event.sender.id)) await waitForBinding(event.sender.id);

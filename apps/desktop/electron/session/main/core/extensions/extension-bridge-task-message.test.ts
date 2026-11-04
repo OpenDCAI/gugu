@@ -16,7 +16,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({ extensionsService: () 
   get: () => { if (!state.installed) throw new Error('App is no longer installed'); return { manifest: { name: 'Task App' } }; },
 }) }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
-const { bindExtensionSurface, registerExtensionBridge, setExtensionBridgeHost } = await import('./extension-bridge');
+const { bindExtensionSurface, unbindExtensionSurface, registerExtensionBridge, setExtensionBridgeHost } = await import('./extension-bridge');
 const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-protocol');
 registerExtensionBridge();
 const deliver = vi.fn(async (_origin: unknown, _action: unknown) => undefined);
@@ -39,6 +39,24 @@ it('does not send without a host gesture or with an App-supplied target or text'
   for (const extra of [{ sessionId: 'other-task' }, { text: 'arbitrary' }]) {
     expect(await call({ intent: 'continue', ...extra })).toMatchObject({ ok: false, code: 'invalid' });
   }
+  expect(deliver).not.toHaveBeenCalled();
+});
+
+it('refuses an unbound click at IPC admission instead of lending a later task B binding to it', async () => {
+  unbindExtensionSurface(7);
+  const oldClick = call({ intent: 'pause' });
+  await bindExtensionSurface({ webContentsId: 7, extensionId: 'task-app', tabId: 'task-b-tab', tabKind: 'task-app.task', workspace: sessionWorkspace('task-b') });
+  expect(await oldClick).toMatchObject({ ok: false, code: 'denied' });
+  expect(deliver).not.toHaveBeenCalled();
+  expect(await call({ intent: 'continue' })).toMatchObject({ ok: true });
+  expect(deliver).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'task-b' }), { kind: 'taskMessage', text: '请继续。' });
+});
+
+it('does not admit a task shortcut while the host is rebinding the page', async () => {
+  const rebinding = bindExtensionSurface({ webContentsId: 7, extensionId: 'task-app', tabId: 'task-b-tab', tabKind: 'task-app.task', workspace: sessionWorkspace('task-b') });
+  const oldClick = call({ intent: 'pause' });
+  await rebinding;
+  expect(await oldClick).toMatchObject({ ok: false, code: 'denied' });
   expect(deliver).not.toHaveBeenCalled();
 });
 
