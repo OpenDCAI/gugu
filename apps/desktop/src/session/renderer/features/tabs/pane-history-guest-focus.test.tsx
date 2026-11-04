@@ -56,6 +56,7 @@ const Guests = observer(() => <>{[...extensionViewStore.residentPages.values()].
 
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
   frames = []; nextGuestId = 40; native.guest = null;
   native.focusHost.mockReset().mockImplementation(async () => { native.guest = null; return { success: true }; });
   globalBack.mockReset(); globalForward.mockReset();
