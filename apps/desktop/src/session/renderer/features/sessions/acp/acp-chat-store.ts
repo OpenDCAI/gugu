@@ -1668,6 +1668,12 @@ export class AcpChatStore {
 
   reorderQueuedPrompts(ids: string[]): void {
     const local = this._senderInputs.filter(input => input.sendQueue).sort((a, b) => a.sendQueue!.order - b.sendQueue!.order).map(input => input.id);
+    // Local unsent entries remain editable without an attached native session.
+    // A host-owned reorder still needs that session, including stale/unknown ids.
+    if (!this.session && (!local.length || ids.some(id => !local.includes(id)))) {
+      this._requireSession('acpFailure.editQueued');
+      return;
+    }
     const order = sessionSendQueueOrder(this.queuedPrompts.map(prompt => prompt.id), new Set(local), ids);
     if (!order) return;
     if (!isDeepEqual(local, order.local)) {
