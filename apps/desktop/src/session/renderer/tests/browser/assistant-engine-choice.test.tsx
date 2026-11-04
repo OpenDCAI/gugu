@@ -129,6 +129,20 @@ it.each([1440, 390])('keeps both 74px cards, the frame and single action fixed t
   expect(initial[0].width).toBeGreaterThan(300);
   // 8px of the actual main panel plus 24px of the engine step's top inset.
   expect(initial[0].y - host.getBoundingClientRect().y).toBe(32);
+  expect(initial[2].y - initial[1].y - initial[1].height).toBe(16);
+  const brandNames = [...host.querySelectorAll('.ta-engine-name')];
+  expect(brandNames).toHaveLength(2);
+  for (const name of brandNames) {
+    expect(getComputedStyle(name).fontSize).toBe('20px');
+  }
+  if (width === 390) {
+    expect(initial[1].x - host.getBoundingClientRect().x).toBe(16);
+    expect(initial[1].width).toBe(358);
+    const frameStyle = getComputedStyle(page.getByTestId('engine-frame').element());
+    expect(frameStyle.padding).toBe('0px');
+    expect(frameStyle.borderWidth).toBe('0px');
+    expect(frameStyle.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+  }
   for (const box of initial.slice(1, 3)) { expect(box.height).toBe(74); expect(box.width).toBeGreaterThan(200); }
   for (const id of ['claude', 'codex']) {
     await userEvent.click(page.getByTestId(`assistant-engine-${id}`));
@@ -150,7 +164,7 @@ it.each([1440, 390])('keeps both 74px cards, the frame and single action fixed t
     await expect.element(page.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
     expect(boxes()).toEqual(initial);
   }
-  console.info('ENGINE_GEOMETRY_JSON', JSON.stringify({ width, initial, samples }));
+  console.info('ENGINE_GEOMETRY_JSON', JSON.stringify({ width, initial, samples, cardGap: initial[2].y - initial[1].y - initial[1].height, brandFontSizes: brandNames.map(name => getComputedStyle(name).fontSize), framePadding: getComputedStyle(page.getByTestId('engine-frame').element()).padding, frameBorder: getComputedStyle(page.getByTestId('engine-frame').element()).borderWidth }));
 });
 
 it.each(['claude', 'codex'])('continues with usable %s API credentials without an account subscription', async id => {
