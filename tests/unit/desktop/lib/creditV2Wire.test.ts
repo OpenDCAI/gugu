@@ -173,7 +173,7 @@ describe('actual PostgREST request builders', () => {
       unrelated: [],
     })
     expect(await h.reader.balance()).toBe(0.001)
-    expect(await h.reader.referralRewards()).toEqual([{ id: 1, creditsEach: 0.01 }])
+    expect(await h.reader.referralRewards()).toEqual([{ creditsEach: 0.01 }])
     const ledger = await h.reader.ledger({ page: 2, pageSize: 10, from, to, model: 'a%_\\b' })
     expect(ledger.rows[0].creditsCharged).toBe(0.0001)
     expect(ledger.total).toBe(1)
@@ -229,9 +229,29 @@ describe('no-fallback active v2 reads', () => {
     const h = harness({ 'rpc/current_membership_v2': [{ ...membership, ...active }], 'rpc/current_quota_windows_v2': [{ ...quota, ...active }] })
     const result = await createActiveCreditV2Reader(h.reader, async () => 'current-user').account()
     expect(result.balance).toBe('9007199254740993.00000001')
-    expect(result.windows.period_credits).toBe('7.5')
+    expect(result.windows?.period_credits).toBe('7.5')
     expect(result.meta.active_credit_unit_version).toBe(2)
     expect(h.calls).toHaveLength(2)
+  })
+
+  it.each(['membership', 'quota'] as const)('keeps the other fresh v2 pool explicit when %s is denied', async source => {
+    const h = harness({ 'rpc/current_membership_v2': [{ ...membership, ...active }], 'rpc/current_quota_windows_v2': [{ ...quota, ...active }] })
+    const denied = new Error(`${source} permission denied`, { cause: { code: '42501' } })
+    const reader = { ...h.reader, [source]: async () => { throw denied } }
+    const result = await createActiveCreditV2Reader(reader, async () => 'current-user').account()
+    if (source === 'membership') {
+      expect(result.balance).toBeNull()
+      expect(result.plan).toBeNull()
+      expect(result.balanceError).toBe(denied)
+      expect(result.windows?.period_credits).toBe('7.5')
+      expect(result.windowsError).toBeNull()
+    } else {
+      expect(result.balance).toBe('9007199254740993.00000001')
+      expect(result.balanceError).toBeNull()
+      expect(result.windows).toBeNull()
+      expect(result.windowsError).toBe(denied)
+    }
+    expect(result.meta.active_credit_unit_version).toBe(2)
   })
 
   it('rejects account rows across different price versions', async () => {

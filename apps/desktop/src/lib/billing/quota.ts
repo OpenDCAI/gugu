@@ -2,10 +2,9 @@
 // @gugu/core/billing —— 这里不重算,只把领域结果加上进度条需要的比例。
 import { periodUsdFor, quotaSpendWindows, type QuotaWindows, type SpendWindow } from '@gugu/core/billing'
 import { creditRatio } from './creditGeometry'
-import { dataClient } from '../supabase'
+import { activeCreditV2, creditV2, creditV2Read } from './v2/runtime'
+import { CreditV2StateError, quotaProjection } from './v2/active'
 import { getLocaleSnapshot, i18n, type SupportedLocale } from '@/i18n'
-import enUS from '@/i18n/locales/en-US/settings'
-import zhCN from '@/i18n/locales/zh-CN/settings'
 
 export type { QuotaWindows }
 // 「这一档合多少美元」的推导住在领域层:推导,从不存储。
@@ -18,42 +17,11 @@ export { periodUsdFor }
  * 用 auth.uid 自读,取代了那个带任意 UUID 参数、无 fence 的 SECURITY DEFINER 版本。
  */
 export async function getQuotaWindows(): Promise<QuotaWindows> {
-  const { data, error } = await dataClient.schema('billing').rpc('current_quota_windows')
-  if (error) throw new Error(error.message)
-  const windows = (Array.isArray(data) ? data[0] : data) as QuotaWindows | null
-  if (!windows) throw new Error(quotaMessage().quotaUnavailable)
-  return {
-    ...windows,
-    period_credits: numeric(windows.period_credits, 'period_credits'),
-    period_used: numeric(windows.period_used, 'period_used'),
-    outstanding_credits: numeric(windows.outstanding_credits, 'outstanding_credits'),
-    // 刻度是**除数**(面板拿它把周期积分折成美元),所以校验比其余字段严一档:非正数一律当没有。
-    // 0 也是有限数,`numeric` 会放它过去,除出来是 Infinity —— 界面上是一个荒谬的金额。
-    // ❌ 不拿服务端那条 CHECK 约束替客户端校验背书:值经过一整条网络与序列化才到这里。
-    //
-    // 但**不为此抛错**:服务端配置缺失时这一列本来就是 NULL,而进度条不需要它。
-    // 把一句文案的缺失升级成「整个额度面板报错」,是拿用户看得见的东西去赌一个装饰性字段。
-    credits_per_usd: optionalPositive(windows.credits_per_usd),
-  }
-}
-
-function numeric(value: unknown, field: string): number {
-  const number = Number(value)
-  if (!Number.isFinite(number)) {
-    // 字段名走 cause 不进 message,见 usage.ts 同处注释 (#4891)
-    throw new Error(quotaMessage().quotaInvalidNumber, { cause: { field, value } })
-  }
-  return number
-}
-
-function optionalPositive(value: unknown): number | null {
-  if (value === null || value === undefined) return null
-  const number = Number(value)
-  return Number.isFinite(number) && number > 0 ? number : null
-}
-
-function quotaMessage(locale: SupportedLocale = getLocaleSnapshot().resolvedLocale) {
-  return (locale === 'zh-CN' ? zhCN : enUS).credits
+  return creditV2Read(async () => {
+    const { rows } = await activeCreditV2.rows(() => creditV2.quota())
+    if (!rows[0]) throw new CreditV2StateError('unknown')
+    return quotaProjection(rows[0])
+  })
 }
 
 /**

@@ -53,12 +53,22 @@ export function createActiveCreditV2Reader(reader: ReturnType<typeof createCredi
 
   async function account() {
     const read = await rows(async () => {
-      const [membership, quota] = await Promise.all([reader.membership(), reader.quota()])
-      const meta = sameCreditMeta([membership, quota])
-      const plan = membership.rows[0], window = quota.rows[0]
-      if (!plan || !window) throw new CreditV2StateError('unknown')
-      if (plan.planId !== window.planId) throw new CreditReadContractError('account plan')
-      return { rows: [{ balance: plan.balanceCredits, windows: quotaProjection(window) }], meta }
+      const [membership, quota] = await Promise.allSettled([reader.membership(), reader.quota()])
+      if (membership.status === 'rejected' && quota.status === 'rejected') throw membership.reason
+      const meta = sameCreditMeta([
+        ...(membership.status === 'fulfilled' ? [membership.value] : []),
+        ...(quota.status === 'fulfilled' ? [quota.value] : []),
+      ])
+      const plan = membership.status === 'fulfilled' ? membership.value.rows[0] ?? null : null
+      const window = quota.status === 'fulfilled' ? quota.value.rows[0] ?? null : null
+      if (!plan && !window) throw new CreditV2StateError('unknown')
+      if (plan && window && plan.planId !== window.planId) throw new CreditReadContractError('account plan')
+      // Publish only this batch's confirmed data. A failed pool stays unknown, never cached/zero.
+      return { rows: [{
+        balance: plan?.balanceCredits ?? null, windows: window ? quotaProjection(window) : null, plan,
+        balanceError: membership.status === 'rejected' ? membership.reason as unknown : plan ? null : new CreditV2StateError('unknown'),
+        windowsError: quota.status === 'rejected' ? quota.reason as unknown : window ? null : new CreditV2StateError('unknown'),
+      }], meta }
     })
     return { ...read.rows[0], meta: read.meta! }
   }

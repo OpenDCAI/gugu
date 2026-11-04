@@ -5,7 +5,9 @@
 //
 // 档位名称不入库:后端只给 tier_key(free/plus/pro/max),界面用它查本地化文案。
 // 这样改文案不用跑迁移,加语言也不用动数据库。
-import { dataClient } from '../supabase'
+import type { CreditAmount } from '@gugu/core/billing/creditAmount'
+import { activeCreditV2, creditV2, creditV2Read } from './v2/runtime'
+import type { MembershipV2 } from './v2/readers'
 import { i18n } from '@/i18n'
 
 export type MembershipTier = 'free' | 'plus' | 'pro' | 'max'
@@ -16,17 +18,17 @@ export interface Membership {
   planId: string
   tier: MembershipTier
   /** 该档月价(元)。免费档为 0。 */
-  monthlyPriceCny: number
+  monthlyPriceCny: CreditAmount
   /** 该档一个订阅周期的额度 —— 只有这一个池子,没有窗中窗。 */
-  periodCredits: number
+  periodCredits: CreditAmount
   /** 周期时长(小时)。与订阅周期同长,所以 30 天里不会出现「第 5 个周」。 */
   periodHours: number
   /** 订阅到期时刻;免费档 / 未订阅为 null。 */
   expiresAt: Date | null
   /** 不过期积分余额(加量包与一次性赠送)。 */
-  balanceCredits: number
+  balanceCredits: CreditAmount
   /** 加量包换算:每人民币元多少积分。 */
-  topupCreditsPerCny: number
+  topupCreditsPerCny: CreditAmount
 }
 
 /** 档位解析。 */
@@ -40,30 +42,20 @@ export function toTier(value: unknown, field: string): MembershipTier {
   return value as MembershipTier
 }
 
-function numeric(value: unknown, field: string): number {
-  const n = Number(value)
-  if (!Number.isFinite(n)) {
-    // 字段名走 cause 不进 message,见 usage.ts 同处注释 (#4891)
-    throw new Error(i18n.t('membership.invalidNumber', { ns: 'settings' }), { cause: { field, value } })
-  }
-  return n
-}
-
 /** 当前用户的档位与订阅状态。未登录时后端返回空集 → null。 */
 export async function getMembership(): Promise<Membership | null> {
-  const { data, error } = await dataClient.schema('billing').rpc('current_membership')
-  if (error) throw new Error(error.message)
-  const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null
-  if (!row) return null
+  return creditV2Read(async () => {
+    const { rows } = await activeCreditV2.rows(() => creditV2.membership())
+    return rows[0] ? membershipProjection(rows[0]) : null
+  })
+}
+
+export function membershipProjection(row: MembershipV2): Membership {
   return {
-    planId: String(row.plan_id),
-    tier: toTier(row.tier_key, 'tier_key'),
-    monthlyPriceCny: numeric(row.monthly_price_cny, 'monthly_price_cny'),
-    periodCredits: numeric(row.period_credits, 'period_credits'),
-    periodHours: numeric(row.period_hours, 'period_hours'),
-    expiresAt: row.subscription_expires_at ? new Date(String(row.subscription_expires_at)) : null,
-    balanceCredits: numeric(row.balance_credits, 'balance_credits'),
-    topupCreditsPerCny: numeric(row.topup_credits_per_cny, 'topup_credits_per_cny'),
+    planId: row.planId, tier: toTier(row.tierKey, 'tier_key'),
+    monthlyPriceCny: row.monthlyPriceCny, periodCredits: row.periodCredits, periodHours: row.periodHours,
+    expiresAt: row.expiresAt === null ? null : new Date(row.expiresAt),
+    balanceCredits: row.balanceCredits, topupCreditsPerCny: row.topupCreditsPerCny,
   }
 }
 

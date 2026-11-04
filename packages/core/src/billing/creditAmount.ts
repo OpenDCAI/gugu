@@ -1,4 +1,4 @@
-/** Exact NUMERIC(30,8) text from the billing RPC boundary. */
+/** Exact decimal text. RPC ingress enforces NUMERIC(30,8); derived sums may be larger. */
 export type CreditDecimal = string & { readonly __creditDecimal: unique symbol }
 /** Number is retained for table JSON and existing non-RPC callers; RPC text stays text. */
 export type CreditAmount = number | CreditDecimal
@@ -28,7 +28,9 @@ function numberText(value: number): string {
 }
 
 export function creditUnits(value: CreditAmount): bigint {
-  const text = creditDecimal(typeof value === 'number' ? numberText(value) : value)
+  const text = typeof value === 'number' ? numberText(value) : value
+  // Derived sums may exceed an individual NUMERIC(30,8) row. The RPC boundary alone enforces 30 digits.
+  if (!/^-?\d+(?:\.\d{1,8})?$/.test(text)) throw new TypeError('Invalid decimal amount')
   const [whole, fraction = ''] = text.replace(/^-/, '').split('.')
   const magnitude = BigInt(whole) * SCALE + BigInt(fraction.padEnd(8, '0'))
   return text.startsWith('-') ? -magnitude : magnitude
@@ -36,7 +38,8 @@ export function creditUnits(value: CreditAmount): bigint {
 
 export function creditFromUnits(value: bigint): CreditDecimal {
   const magnitude = value < 0n ? -value : value
-  return creditDecimal(`${value < 0n ? '-' : ''}${magnitude / SCALE}.${String(magnitude % SCALE).padStart(8, '0')}`)
+  const tail = String(magnitude % SCALE).padStart(8, '0').replace(/0+$/, '')
+  return `${value < 0n ? '-' : ''}${magnitude / SCALE}${tail ? `.${tail}` : ''}` as CreditDecimal
 }
 
 export function addCreditDecimals(left: CreditDecimal, right: CreditDecimal): CreditDecimal {

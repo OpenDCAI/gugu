@@ -68,14 +68,13 @@ function single<T>(read: CreditRead<T>): CreditRead<T> {
 }
 
 /**
- * Opt-in transport only. The production v1 callers remain in place until the rollout/fallback
- * policy is chosen. All requests reuse the caller's coordinated user token; the version header
+ * Strict v2 transport. All requests reuse the caller's coordinated user token; the version header
  * belongs to this request builder, never the shared Supabase client.
  */
 export function createCreditV2Reader(client: Pick<SupabaseClient, 'schema'>, currentUserId: () => Promise<string>) {
   return {
     async pricingMetadata(): Promise<CreditRead<null>> {
-      const { data, error } = await client.schema('public').rpc('public_pricing_v2').setHeader(VERSION_HEADER, '2')
+      const { data, error } = await client.schema('public').rpc('public_pricing_v2', {}).setHeader(VERSION_HEADER, '2')
       throwReadError(error)
       return rpcRows(data, () => null)
     },
@@ -88,12 +87,12 @@ export function createCreditV2Reader(client: Pick<SupabaseClient, 'schema'>, cur
     },
 
     /** Return rows, not a binary-float accounting sum of rewards. */
-    async referralRewards(): Promise<{ id: number; creditsEach: number }[]> {
+    async referralRewards(): Promise<{ creditsEach: number }[]> {
       const uid = text(await currentUserId(), 'current user')
       const { data, error } = await client.schema('billing').from('referral_rewards')
-        .select('id,credits_each,credit_unit_version').eq('referrer_user_id', uid).setHeader(VERSION_HEADER, '2')
+        .select('credits_each,credit_unit_version').eq('referrer_user_id', uid).setHeader(VERSION_HEADER, '2')
       throwReadError(error)
-      return array(data).map((row) => ({ id: count(row.id, 'id'), creditsEach: tableAmount(row, 'credits_each') }))
+      return array(data).map((row) => ({ creditsEach: tableAmount(row, 'credits_each') }))
     },
 
     async ledger(options: { page: number; pageSize: number; from: string; to: string; model: string | null }) {
@@ -126,7 +125,7 @@ export function createCreditV2Reader(client: Pick<SupabaseClient, 'schema'>, cur
     },
 
     async membership(): Promise<CreditRead<MembershipV2>> {
-      const { data, error } = await client.schema('billing').rpc('current_membership_v2').setHeader(VERSION_HEADER, '2')
+      const { data, error } = await client.schema('billing').rpc('current_membership_v2', {}).setHeader(VERSION_HEADER, '2')
       throwReadError(error)
       return single(rpcRows(data, (row) => ({
         planId: text(row.plan_id, 'plan_id'), tierKey: text(row.tier_key, 'tier_key'),
@@ -139,7 +138,7 @@ export function createCreditV2Reader(client: Pick<SupabaseClient, 'schema'>, cur
     },
 
     async quota(): Promise<CreditRead<QuotaWindowsV2>> {
-      const { data, error } = await client.schema('billing').rpc('current_quota_windows_v2').setHeader(VERSION_HEADER, '2')
+      const { data, error } = await client.schema('billing').rpc('current_quota_windows_v2', {}).setHeader(VERSION_HEADER, '2')
       throwReadError(error)
       return single(rpcRows(data, (row) => ({
         planId: text(row.plan_id, 'plan_id'), periodCredits: decimal(row.period_credits, 'period_credits'),

@@ -3,20 +3,16 @@
 // billing.pricing_settings 定,下单见 purchase.ts;客户端不持有任何换算常量。
 // 读取走 RLS(owner-select 只见自己行)。无 billing 后端时(未部署 edge fn / 未配密钥)调用会
 // 报错 → 调用方显式提示,不静默。
-import { getCurrentAuthUserId, dataClient } from '../supabase'
-import { i18n } from '@/i18n'
+import { activeCreditV2, creditV2, creditV2Read } from './v2/runtime'
+import { CreditV2StateError } from './v2/active'
 
-// 读当前用户积分余额。无 user_credits 行(从未充值/未开通云)→ 0。RLS 保证只读自己行。
+// Read the projected JSON-number balance for display. Missing rows remain unknown; RLS is authoritative.
 export async function getCreditsBalance(): Promise<number> {
-  const { data, error } = await dataClient
-    .schema('billing')
-    .from('user_credits')
-    .select('balance_credits')
-    .maybeSingle()
-  if (error) throw new Error(error.message)
-  const balance = Number(data?.balance_credits ?? 0)
-  if (!Number.isFinite(balance)) throw new Error(i18n.t('credits.invalidBalance', { ns: 'settings' }))
-  return balance
+  return creditV2Read(async () => {
+    const balance = await activeCreditV2.table(() => creditV2.balance())
+    if (balance === null) throw new CreditV2StateError('unknown')
+    return balance
+  })
 }
 
 // @@@1511 邀请返利统计:读「我作为邀请人」的 referral_rewards 行 → 已邀请人数 + 已获得积分(sum credits_each)。
@@ -27,17 +23,9 @@ export interface ReferralStats {
 }
 
 export async function getReferralStats(): Promise<ReferralStats> {
-  const uid = await getCurrentAuthUserId().catch(() => null)
-  if (!uid) return { invitedCount: 0, creditsEarned: 0 }
-  const { data, error } = await dataClient
-    .schema('billing')
-    .from('referral_rewards')
-    .select('credits_each')
-    .eq('referrer_user_id', uid)
-  if (error) throw new Error(error.message)
-  const rows = data ?? []
-  return {
-    invitedCount: rows.length,
-    creditsEarned: rows.reduce((sum, r) => sum + (Number(r.credits_each) || 0), 0),
-  }
+  return creditV2Read(async () => {
+    const rows = await activeCreditV2.table(() => creditV2.referralRewards())
+    // JSON-number rewards support this two-decimal display statistic, not exact accounting.
+    return { invitedCount: rows.length, creditsEarned: rows.reduce((sum, row) => sum + row.creditsEach, 0) }
+  })
 }

@@ -17,8 +17,7 @@ import '@renderer/index.css';
 // This suite checks settings-shell composition without either a host or a cloud account.
 // Subscription details have their own connected-data suite; no Supabase client is constructed here.
 vi.mock('@/lib/billing', () => ({
-  getMembership: async () => null,
-  useSpendingPower: () => ({ power: null, windows: null, balanceError: null, windowsError: null, activityRevision: 0 }),
+  useSpendingPower: () => ({ membership: null, power: null, windows: null, balanceError: null, windowsError: null, activityRevision: 0 }),
   formatCredits: (value: number) => String(value),
   quotaWindowViews: vi.fn(),
   periodUsdFor: vi.fn(),
