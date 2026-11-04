@@ -26,6 +26,7 @@ export type UpdateStatus =
   | 'not-available'
   | 'downloaded'
   | 'downloaded-manual'
+  | 'installing'
   | 'disabled'
   | 'error'
 
@@ -54,7 +55,8 @@ export interface UpdateFlowDeps {
   updater: UpdaterLike
   /** 这个包追不追更新(updaterPolicy.enabled)。 */
   enabled: boolean
-  getStatus: () => UpdateStatus
+  /** The host's current snapshot, including downloads started while a confirmation is open. */
+  getState: () => UpdateStatusPayload
   emit: (payload: UpdateStatusPayload) => void
   /** 下好了:界面那边的「可以装了」推送。 */
   onReady: () => void
@@ -109,7 +111,7 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
 
   function settleDownloadFailure(error: unknown): void {
     // 已经结清过(同一次下载被调了两次,两个 Promise 都会被拒):第一个说了算。
-    if (deps.getStatus() !== 'downloading') return
+    if (deps.getState().status !== 'downloading') return
     const message = error instanceof Error ? error.message : String(error)
     // 按过「重启更新」之后的那次下载是用户要的:照实报错(横幅出「更新失败 + 重试」),
     // 「下好就装」随之作废 —— 以后某次静默下载下好时 ❌ 突然退出去装(装不装由用户定)。
@@ -209,7 +211,7 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
   deps.updater.onError((error) => {
     // 正在下载时来的 'error' 要么属于这次下载(它的失败由 downloadUpdate 被拒那一处结清),要么是一次
     // 周期检查失败 —— 两种都 ❌ 碰下载与安装的状态。
-    if (deps.getStatus() === 'downloading') return
+    if (deps.getState().status === 'downloading') return
     deps.emit({ success: false, status: 'error', updateInfo: null, message: error.message })
   })
 
@@ -229,14 +231,20 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
 
   async function finishInstall(accepted: number | null): Promise<void> {
     const current = readBusyAgents()
-    if (accepted !== null && (current === null || current > accepted) && !await deps.confirmInterrupt(current)) return
+    if (accepted !== null && (current === null || current > accepted) && !await deps.confirmInterrupt(current)) {
+      deps.emit(deps.getState())
+      return
+    }
     deps.updateQuit.installAfterDownload()
     deps.updateQuit.downloaded({ version: downloadedVersion })
   }
 
   async function requestInstall(): Promise<void> {
     const accepted = readBusyAgents()
-    if ((accepted === null || accepted > 0) && !await deps.confirmInterrupt(accepted)) return
+    if ((accepted === null || accepted > 0) && !await deps.confirmInterrupt(accepted)) {
+      deps.emit(deps.getState())
+      return
+    }
     try {
       await deps.updater.checkForUpdates()
     } catch (error) {
@@ -244,7 +252,7 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
     }
     // 查到更新的一版时,update-available → startSilentDownload 已经把状态置成 downloading;
     // 它下好时由 update-downloaded 接着装。
-    if (deps.getStatus() === 'downloading') {
+    if (deps.getState().status === 'downloading') {
       acceptedBusyCount = accepted
       deps.logInfo('[updater] 按下安装时 feed 上有更新的一版,先下它,下好就装', { staged: downloadedVersion })
       return

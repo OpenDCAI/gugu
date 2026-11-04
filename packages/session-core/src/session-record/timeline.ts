@@ -1021,6 +1021,9 @@ function sameImage(ref: RecordImageRef, data: string): boolean {
 
 function outcomeOf(boundary: RecordBoundary): TranscriptTurnOutcome {
   if (boundary.kind === 'turn_aborted') return { kind: 'cancelled', reason: 'cancelled' };
-  if (boundary.kind === 'turn_failed') return { kind: 'error', reason: 'prompt_failed' };
+  if (boundary.kind === 'turn_failed') return {
+    kind: 'error', reason: 'prompt_failed',
+    ...(boundary.creditExhausted ? { detail: '{"error":{"code":"credits_exhausted","message":"Gugu credits"}}' } : {}),
+  };
   return { kind: 'done', reason: boundary.stopReason ?? 'end_turn' };
 }

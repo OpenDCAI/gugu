@@ -22,6 +22,7 @@
  * callbacks do not go stale after React re-renders.
  */
 
+import { openCreditSettings } from '@/lib/billing/settingsDestination';
 import type {
   ChatCommands,
   ChatContext,
@@ -34,6 +35,8 @@ import type {
 import { createElement, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Hint } from '@/components/ui/Tooltip';
+import { FailedSendStatus } from '@/components/chat/FailedSendStatus';
+import { safeFailureLine } from '@renderer/features/sessions/gugu-reason';
 import { ConversationSourcePopover } from './conversation-source-popover';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';
@@ -113,6 +116,12 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
     return () => setTooltips(current => current.filter(entry => entry !== target));
   }, []);
 
+  const [inputFailures, setInputFailures] = useState<Parameters<NonNullable<ChatCommands['onInputSendFailureMount']>>[0][]>([]);
+  const onInputSendFailureMount = useCallback<NonNullable<ChatCommands['onInputSendFailureMount']>>(target => {
+    setInputFailures(current => [...current, target]);
+    return () => setInputFailures(current => current.filter(entry => entry !== target));
+  }, []);
+
   // 模块已经加载过(`loadChatUi`)就在 layout effect 里同步建视图:**第一次绘制之前**就有正文。❌ passive effect / 每次 import():
   // 先画一帧空容器、过几百 ms 才长出正文 —— 手机把它嵌在思考行里,一进页那一行先 0 高再撑开,
   // 整条线程跟着再跳一次(owner 10-12「进去就颤两下」,WebView 113 实测 +27px)。
@@ -147,7 +156,7 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
         pinUserMessages: p.pinUserMessages,
         class: p.class,
         contentClass: p.contentClass,
-        commands: { onCopyError, onTooltipMount, ...p.commands, writeClipboardText },
+        commands: { onCopyError, onTooltipMount, onInputSendFailureMount, onRechargeCredits: openCreditSettings, ...p.commands, writeClipboardText },
         padTop: p.padTop,
         embedded: p.embedded,
         // Thread stable wrappers that read from propsRef at call time — never stale.
@@ -189,7 +198,7 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
 
   // Push command callbacks reactively so inline functions are never stale.
   useEffect(() => {
-    viewRef.current?.setCommands({ onCopyError, onTooltipMount, ...props.commands, writeClipboardText });
+    viewRef.current?.setCommands({ onCopyError, onTooltipMount, onInputSendFailureMount, onRechargeCredits: openCreditSettings, ...props.commands, writeClipboardText });
   }, [props.commands]);
 
   // Layout lives on the process-long context (measurement-coupled), not on the
@@ -208,7 +217,13 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
   }), tooltips.map((entry, index) => createPortal(entry.onOpenOriginal ? createElement(ConversationSourcePopover,
     { text: entry.text, label: entry.originalLabel ?? entry.text, onOpenOriginal: entry.onOpenOriginal }) : createElement(Hint, { label: entry.text, side: 'top', children:
     createElement('span', { style: { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' } }, entry.text),
-  }), entry.root, String(index))));
+  }), entry.root, String(index))), inputFailures.map(entry => createPortal(createElement(FailedSendStatus, {
+    reason: entry.error,
+    label: [translateSessionMessage('transcript.sendFailed'), safeFailureLine(entry.reason ?? entry.error ?? '').slice(0, 64)].filter(Boolean).join(' · '),
+    onRetry: () => propsRef.current.commands?.onRetrySend?.(entry.itemId),
+    onDiscard: () => propsRef.current.commands?.onDiscardSend?.(entry.itemId),
+  }), entry.root, entry.itemId)));
+
 }
 
 // Re-export imperative types so consumers don't need to import from @gugu/session-chat-ui directly.

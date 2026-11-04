@@ -5,6 +5,7 @@ import { ChatComposer } from '@gugu/session-ui/react/components';
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChatTranscript, type ChatTranscriptProps } from './chat-transcript';
+import { ConversationCreditNotice } from '@/components/chat/ConversationCreditNotice';
 
 /** Every agent conversation uses the project page's transcript and composer. Hosts own data and navigation. */
 export type AgentConversationViewProps = ChatTranscriptProps & {
@@ -126,5 +127,5 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
 }
 
 export function AgentConversationComposer(props: ComponentProps<typeof ChatComposer>) {
-  return <ChatComposer hideLockedAgent agentLocked {...props} />;
+  return <><ConversationCreditNotice modelOptionId={props.selectedModel} /><ChatComposer hideLockedAgent agentLocked {...props} /></>;
 }
