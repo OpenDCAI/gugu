@@ -114,7 +114,7 @@ function chatTabOf(layout: ChatLayout): string | undefined {
 
 /** Resource ownership stays with the group; pairing follows the message's topic while that topic is still open. */
 function conversationTabOf(layout: ChatLayout, item?: PanelItem): string | undefined {
-  const source = item?.message?.chat_id;
+  const source = item?.message?.chat_id ?? item?.topicChatId;
   const pane = paneOf(layout);
   return (source && pane.tabOrder.find((id) => {
     const entry = pane.entries.get(id);
@@ -195,8 +195,12 @@ export const openPanelItem = action(function openPanelItem(
 ): string | undefined {
   const layout = chatLayoutOf(chatId);
   if (opts?.restore) keepRestore(chatId, item, opts.restore);
+  // A link carries no message: the topic it was clicked in is the one focused (pane-content focuses on pointer down).
+  const focused = paneOf(layout).activeEntry;
+  if (item.itemId && !item.message && focused?.kind === CHAT_TOPIC_TAB_KIND) item = { ...item, topicChatId: (focused.state as ChatTopicState).topicChatId };
+  // Only a topic is a 上一页 of its own: what the group opens beside itself has none (owner 10-24).
   const source = conversationTabOf(layout, item);
-  const returnTo = opts?.returnTo ?? source;
+  const returnTo = opts?.returnTo ?? (source !== chatTabOf(layout) ? source : undefined);
   layout.open(CHAT_PANEL_TAB_KIND, item, { beside: true, overrideState: true, ...(returnTo ? { returnTo: { tabId: returnTo } } : {}) });
   const pane = paneOf(layout);
   return pane.findSingleMountEntry(CHAT_PANEL_TAB_KIND, panelItemKey(item))?.tabId;

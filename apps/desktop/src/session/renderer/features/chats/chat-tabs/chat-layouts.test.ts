@@ -237,6 +237,24 @@ describe('a file beside the conversation that opened it', () => {
     expect(chatLayoutOf(id).groups).toHaveLength(1);
   });
 
+  it('pairs a group file link clicked in the topic with that topic: a link carries no message', () => {
+    const id = 'topic-file-link';
+    const topic = setup(id);
+    const main = pane(id).tabOrder[0]!;
+    pane(id).setActiveTab(topic);
+    const tab = openPanelItem(id, file('linked'))!;
+    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
+    expect(topicTabOf(id)?.tabId).toBe(topic);
+    expect(returnToOf(id, tab)).toBe(topic);
+    setPanelFull(id, tab, true);
+    setPanelFull(id, tab, false);
+    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
+    expect(panelFull(id, tab)).toBe(false);
+    pane(id).setActiveTab(main);
+    expect(openPanelItem(id, file('linked'))).toBe(tab);
+    expect(pane(id).livePair).toMatchObject({ anchor: main, side: tab });
+  });
+
   it('restores beside the topic after expanding, including a narrow block', () => {
     const id = 'topic-file-full';
     const topic = setup(id);
