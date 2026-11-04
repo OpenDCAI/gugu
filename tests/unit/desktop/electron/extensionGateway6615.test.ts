@@ -567,6 +567,24 @@ describe('who called, and the files a call hands its program (F16)', () => {
       expect(calls.map((call) => call.arguments)).toEqual([{ board: ITEM, card: '17' }])
     })
 
+    it('preserves the trusted file-card version alongside normalized program arguments', async () => {
+      toolList = [followDoubts]
+      visibleTo.set(AGENT, new Map([[ITEM, CHAT]]))
+      await run({ board: `gugu-file://${ITEM}?v=2#page=3`, card: '17' })
+      expect(handedPerCall).toEqual([[{ itemId: ITEM, chatId: CHAT, agentUserId: AGENT, versions: [2] }]])
+      expect(calls.map(call => call.arguments)).toEqual([{ board: ITEM, card: '17' }])
+    })
+
+    it('retains every explicitly handed version when an array names one card more than once', async () => {
+      toolList = [{ name: 'upload', inputSchema: { type: 'object', properties: {
+        files: { type: 'array', items: { type: 'string', format: 'gugu-file' } },
+      } } }]
+      visibleTo.set(AGENT, new Map([[ITEM, CHAT]]))
+      await run({ files: [`gugu-file://${ITEM}?v=1`, `gugu-file://${ITEM}?v=2`, `gugu-file://${ITEM}?v=2`] })
+      expect(handedPerCall).toEqual([[{ itemId: ITEM, chatId: CHAT, agentUserId: AGENT, versions: [1, 2] }]])
+      expect(calls[0]!.arguments).toEqual({ files: [ITEM, ITEM, ITEM] })
+    })
+
     it('a link that names no file: handed as written, so refused, and the program never called', async () => {
       toolList = [followDoubts]
       visibleTo.set(AGENT, new Map([[ITEM, CHAT]]))

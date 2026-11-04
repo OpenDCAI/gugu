@@ -32,6 +32,7 @@ export const HOST_CALLS = {
   'pages.send': { verb: 'taskPageSend' },
   'pages.maintain': { verb: 'taskPageMaintain' },
   'pages.presentation': { verb: 'taskPagePresentation' },
+  'pages.filePayloads': { verb: 'taskPageFilePayloads' },
   'pages.release': { verb: 'taskPageRelease' },
   'pages.mount': { verb: 'taskPageMount' },
   'pages.unmount': { verb: 'taskPageUnmount' },

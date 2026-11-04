@@ -107,6 +107,21 @@ describe('gugu in a program', () => {
     deliver({ m: APP_FRAME_MARKER, t: 'result', id: call.id, ok: true, value: [{ id: 'item-1', name: 'a.md' }] });
     await expect(listing).resolves.toEqual([{ id: 'item-1', name: 'a.md' }]);
   });
+  it('stamps file-payload requests with their exact live tool call and own page lease', async () => {
+    const { gugu, sent, deliver, nextCall } = await program();
+    const { programCall } = await import('./program-call');
+    const pages = gugu.pages as { acquire(): Promise<{ filePayloads(refs: unknown[]): Promise<unknown> }> };
+    const acquiring = programCall.run('upload-owner', () => pages.acquire());
+    const open = await nextCall(0);
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: open.id, ok: true, value: { id: 'own-page', title: '', url: '' } });
+    const lease = await acquiring, start = sent.length;
+    const payload = programCall.run('upload-b', () => lease.filePayloads([{ file: 'card' }]));
+    const request = await nextCall(start);
+    expect(request).toMatchObject({ method: 'taskPageFilePayloads', call: 'upload-b', args: { id: 'own-page', refs: [{ file: 'card' }] } });
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: request.id, ok: true, value: [] });
+    await expect(payload).resolves.toEqual([]);
+  });
+
   it('surface buttons update their owned display outside another active tool caller', async () => {
     const { gugu, sent, deliver, nextCall } = await program();
     const { programCall } = await import('./program-call');

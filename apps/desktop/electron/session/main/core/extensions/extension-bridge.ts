@@ -1669,6 +1669,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     if (method === 'taskPageSend') return await extensionTaskPages.send(caller, args);
     if (method === 'taskPageMaintain') return await extensionTaskPages.maintain(caller, args);
     if (method === 'taskPagePresentation') return extensionTaskPages.presentation(caller, args);
+    if (method === 'taskPageFilePayloads') return await extensionTaskPages.filePayloads(caller, args);
     if (method === 'taskPageRelease') return extensionTaskPages.release(caller, args.id);
     if (method === 'taskPageMount') return extensionTaskPages.mount(caller, args);
     if (method === 'taskPageUnmount') return extensionTaskPages.unmount(caller, args.id);

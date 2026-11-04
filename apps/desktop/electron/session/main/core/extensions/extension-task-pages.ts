@@ -9,6 +9,7 @@ import { ownProgramResource } from './program-resource-lifetime';
 import { workspaceSession } from '@shared/extensions/app-runtime-protocol';
 import { ownAppPageResource } from './app-page-resources';
 import { pageProtocolMaintenance } from '../browser/page-protocol-maintenance';
+import type { TaskPageFilePayload } from '@shared/extensions/task-page-files';
 
 export type TaskPageRect = { x: number; y: number; width: number; height: number };
 
@@ -46,7 +47,8 @@ export class ExtensionTaskPages {
 
   constructor(private readonly authorize: (extensionId: string) => void,
     private readonly select: (input: { sessionId: string; url?: string; signal: AbortSignal; lifetime: AbortSignal }) => Promise<TaskPageNative>,
-    private readonly report: (error: unknown) => void = console.error) {}
+    private readonly report: (error: unknown) => void = console.error,
+    private readonly files?: (caller: BridgeCaller, refs: unknown, signal: AbortSignal) => Promise<TaskPageFilePayload[]>) {}
 
   private caller(caller: BridgeCaller): { sessionId: string; signal: AbortSignal } {
     if (caller.kind !== 'program' || !caller.callingSession || !caller.signal) {
@@ -211,6 +213,17 @@ export class ExtensionTaskPages {
     const page = this.resource(caller, args.id);
     if (!page.native.presentation) throw new Error('This host cannot measure a task page presentation');
     return page.native.presentation();
+  }
+
+  async filePayloads(caller: BridgeCaller, args: Record<string, unknown>): Promise<TaskPageFilePayload[]> {
+    const page = this.own(caller, args.id);
+    if (Object.keys(args).length !== 2 || !Object.hasOwn(args, 'id') || !Object.hasOwn(args, 'refs')) throw new Error('File payloads take only a page lease and file cards');
+    if (!this.files) throw new Error('This host cannot read task file payloads');
+    const signal = anySignal([caller.signal, page.access.signal]);
+    signal.throwIfAborted();
+    const payloads = await this.files(caller, args.refs, signal);
+    signal.throwIfAborted(); this.own(caller, args.id);
+    return payloads;
   }
 
   release(caller: BridgeCaller, id: unknown): Promise<void> {

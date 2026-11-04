@@ -35,6 +35,8 @@ export interface ExtensionHandedFile {
   itemId: string;
   chatId: string;
   agentUserId: string;
+  /** Explicit file-card versions in the gateway's original arguments, before links become item IDs. */
+  versions?: readonly number[];
 }
 
 /** A1 A chat an agent handed a program in one call (`format: "gugu-chat"`): the agent is in it, checked at the gateway. */
@@ -83,7 +85,8 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
     const ref = args.ref === undefined ? null : fileRefOf(args.ref);
     if (call && ref && 'id' in ref && !isWorkspace(ref)) {
       const given = call.files.find((file) => file.itemId === ref.id);
-      if (given) return { ...scope, handed: { chat: given.chatId, id: given.itemId }, asAgent: given.agentUserId };
+      if (given) return { ...scope, handed: { chat: given.chatId, id: given.itemId }, asAgent: given.agentUserId,
+        ...(given.versions ? { handedVersions: given.versions } : {}) };
     }
     const place = !ref && args.place && typeof args.place === 'object' ? (args.place as { chat?: unknown }) : null;
     const chat = ref && 'chat' in ref ? ref.chat : place?.chat;

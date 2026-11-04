@@ -3,6 +3,19 @@ import { mountTaskPage, taskPagesApi } from './task-pages';
 import type { TaskPageEvent, TaskPageHost, TaskPagePresentation } from '@shared/extensions/task-page-protocol';
 
 afterEach(() => { vi.unstubAllGlobals(); });
+it('forwards file cards through its own lease only and rejects a late payload after close', async () => {
+  let receive: (event: TaskPageEvent) => void = () => {}, watch = '';
+  const pending = Promise.withResolvers<[]>(), filePayloads = vi.fn(() => pending.promise);
+  const host: TaskPageHost = { onTaskPage: fn => { receive = fn; return () => {}; }, pages: {
+    acquire: async ({ watchId }) => { watch = watchId; return { id: 'own-lease', title: '', url: '' }; },
+    filePayloads, send: vi.fn(), release: vi.fn(), mount: vi.fn(), unmount: vi.fn(),
+  } };
+  const lease = await taskPagesApi(host).acquire(), refs = [{ file: 'card-id', expectedVersion: 2 }];
+  const work = lease.filePayloads(refs), rejected = expect(work).rejects.toThrow('task stopped');
+  expect(filePayloads).toHaveBeenCalledExactlyOnceWith({ id: 'own-lease', refs });
+  receive({ watchId: watch, type: 'closed', reason: 'task stopped' }); pending.resolve([]); await rejected;
+  await expect(lease.filePayloads(refs)).rejects.toThrow('task stopped'); expect(filePayloads).toHaveBeenCalledTimes(1);
+});
 it('preserves an early close and forbids further input without losing the close reason', async () => {
   let receive: (event: TaskPageEvent) => void = () => {};
   const host: TaskPageHost = { onTaskPage: fn => { receive = fn; return () => {}; }, pages: {

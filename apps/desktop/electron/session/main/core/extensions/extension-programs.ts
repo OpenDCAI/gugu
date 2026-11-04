@@ -161,6 +161,22 @@ export function handedIds(tool: Tool | undefined, args: Record<string, unknown> 
   return [...new Set(ids)];
 }
 
+/** Preserve explicit versions before F16 normalizes each file link to its item ID. */
+function handedFileVersions(tool: Tool | undefined, args: Record<string, unknown> | undefined): Map<string, number[]> {
+  const versions = new Map<string, number[]>();
+  for (const [key, schema] of Object.entries((tool?.inputSchema.properties ?? {}) as FormatSchema)) {
+    const value = args?.[key];
+    const files = schema?.format === HANDED_FILE_FORMAT ? [value]
+      : schema?.items?.format === HANDED_FILE_FORMAT && Array.isArray(value) ? value : [];
+    for (const file of files) {
+      const link = typeof file === 'string' ? parseGroupFileLink(file) : null;
+      if (link?.version === undefined) continue;
+      versions.set(link.itemId, [...new Set([...(versions.get(link.itemId) ?? []), link.version])]);
+    }
+  }
+  return versions;
+}
+
 /**
  * The arguments as the program gets them, each handed thing as the id it was checked as: a chat named by the number people
  * see reaches the program as the chat it is, a file named by its gugu-file:// link as its id.
@@ -264,7 +280,9 @@ export async function handedAs(
   const chatIds = handedIds(tool, args, HANDED_CHAT_FORMAT);
   if (ids.length === 0 && chatIds.length === 0) return { handed: [], handedChats: [], args };
   if (!agent) throw new Error(`${name} is handed a group ${ids.length > 0 ? 'file' : 'chat'}, and only an agent of that group can hand one`);
-  const handed = ids.length > 0 ? await programs.handedFiles(agent, ids) : [];
+  const versions = handedFileVersions(tool, args);
+  const handed = (ids.length > 0 ? await programs.handedFiles(agent, ids) : []).map(file => ({ ...file,
+    ...(versions.has(file.itemId.toLowerCase()) ? { versions: versions.get(file.itemId.toLowerCase()) } : {}) }));
   const handedChats = chatIds.length > 0 ? await programs.handedChats(agent, chatIds) : [];
   return { handed, handedChats, args: withHandedIds(tool, args, new Map(chatIds.map((id, index) => [id, handedChats[index]!.chatId]))) };
 }

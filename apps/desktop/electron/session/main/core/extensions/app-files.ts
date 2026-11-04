@@ -110,6 +110,8 @@ export interface DesktopFilePage {
   pageId: number;
   extensionId: string;
   handed: (AppFileRef & { id: string }) | null;
+  /** Gateway-stamped versions of the cards handed to this exact call. */
+  handedVersions?: readonly number[];
   asAgent?: string | null;
   /** A page's own chat, as it was bound: already its resource container (`surfaceResourceChat`). */
   boundChat?: string | null;
@@ -469,6 +471,11 @@ export async function readAppFileVersion(page: DesktopFilePage, args: { ref?: un
   const ref = fileRefOf(args.ref);
   if (!isChat(ref)) throw new AppFileError('invalid', "A working copy's file keeps no versions here: its history is the working copy's own");
   return files.readVersion(chatSurface(page), { ref, n: Number(args.n) });
+}
+
+/** Internal upload metadata; the page-lease layer first requires the exact live call's handed-file proof. */
+export async function appFilePayloadMetadata(page: DesktopFilePage, args: { ref: ChatFileRef }) {
+  return files.payloadMetadata(chatSurface(page), args);
 }
 
 /** Into a chat's workspace or a session's working copy, as the call names it. */

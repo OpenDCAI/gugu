@@ -11,6 +11,7 @@ import { extensionPagePresentation } from './extension-bridge';
 import { log } from '@main/lib/logger';
 import type { TaskPageRect } from './extension-task-pages';
 import { taskPageViewport } from '@shared/extensions/task-page-viewport';
+import { readTaskFilePayloads, taskFilePayloadSource } from './task-file-payloads';
 
 /** The host chooses one task page. Apps never supply contents IDs or partitions. */
 export const extensionTaskPages = new ExtensionTaskPages(extensionId => {
@@ -59,7 +60,8 @@ export const extensionTaskPages = new ExtensionTaskPages(extensionId => {
       },
       setActive: (active: boolean) => page.setActive(active), release: () => page.dispose() };
   } catch (error) { page.dispose(); throw error; }
-}, error => log.warn('Task page cleanup failed', { error: String(error) }));
+}, error => log.warn('Task page cleanup failed', { error: String(error) }),
+async (caller, refs, signal) => readTaskFilePayloads(caller, refs, signal, await taskFilePayloadSource()));
 
 sessionEvents.on('session:archived', sessionId => extensionTaskPages.closeScope({ sessionId }));
 projectEvents.on('project:deleted', projectId => extensionTaskPages.closeScope({ projectId }));

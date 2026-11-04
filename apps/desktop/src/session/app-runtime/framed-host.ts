@@ -52,6 +52,7 @@ const IN_SESSION: ReadonlySet<HostMember> = new Set<HostMember>(['callProgram', 
 /** What main answers an App's MCP program (F16): its files and messages, an agent's word — no page, no data folder of a page. */
 const PROGRAM: ReadonlySet<HostMember> = new Set<HostMember>([
   'pages.presentation',
+  'pages.filePayloads',
   'showTaskPages',
   'surfaces.open', 'surfaces.screen', 'surfaces.update', 'surfaces.close', 'onSurface',
   'pages.acquire', 'pages.send', 'pages.maintain', 'pages.release', 'onTaskPage',

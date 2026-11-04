@@ -1,3 +1,5 @@
+import type { TaskPageFileRef, TaskPageFilePayload } from './task-page-files';
+
 /** Native page geometry, measured by the host. CSS page points scale by zoomFactor into bounds. */
 export type TaskPagePresentation = {
   space: 'screen-dip';
@@ -18,6 +20,7 @@ export interface TaskPageHost {
     send(args: { id: string; method: string; params?: Record<string, unknown>; sessionId?: string }): Promise<unknown>;
     maintain?(args: { id: string; method: string; params?: Record<string, unknown>; sessionId?: string }): Promise<unknown>;
     presentation?(args: { id: string }): Promise<TaskPagePresentation | null>;
+    filePayloads?(args: { id: string; refs: readonly TaskPageFileRef[] }): Promise<TaskPageFilePayload[]>;
     release(args: { id: string }): Promise<void>;
     mount(args: { id: string; rect: { x: number; y: number; width: number; height: number } }): Promise<void>;
     unmount(args: { id: string }): Promise<void>;

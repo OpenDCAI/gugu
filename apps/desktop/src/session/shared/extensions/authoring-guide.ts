@@ -2,6 +2,7 @@ import { WIDGET_HEIGHT_MIN, WIDGET_HEIGHT_MAX } from '@gugu/core/shared/ui/widge
 import { EXTENSION_API_VERSION, EXTENSION_TOOL_CONFINEMENT_API_VERSION } from './bridge-protocol';
 import { TASK_MESSAGE_GUIDE } from './task-message-guide';
 import { TASK_PAGE_PRESENTATION_GUIDE } from './task-page-presentation-guide';
+import { TASK_PAGE_FILES_GUIDE } from './task-page-files-guide';
 
 /**
  * 交给 agent 的「怎么写一个 tab 扩展」简报。
@@ -1169,6 +1170,11 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     topic: 'apps-page-presentation',
     about: 'Host-measured placement, clipping, zoom and visibility of an App’s own task page lease, without native-window enumeration.',
     text: TASK_PAGE_PRESENTATION_GUIDE,
+  },
+  {
+    topic: 'apps-page-files',
+    about: 'Only the file cards handed to a live task call, as bounded in-memory upload payloads; never local paths.',
+    text: TASK_PAGE_FILES_GUIDE,
   },
   {
     topic: 'apps-files',

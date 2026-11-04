@@ -1,4 +1,5 @@
 import type { TaskPageEvent, TaskPageHost, TaskPagePresentation } from '@shared/extensions/task-page-protocol';
+import type { TaskPageFileRef } from '@shared/extensions/task-page-files';
 
 type Message = (method: string, params: Record<string, unknown>, sessionId?: string) => void;
 type Lease = { id?: string; closed?: string; messages: Set<Message>; closures: Set<(reason: string) => void>;
@@ -59,6 +60,13 @@ export function taskPagesApi(host: TaskPageHost) {
             if (page.closed) throw new Error(page.closed);
             // An event received while this snapshot was in flight is newer than its reply.
             return page.presentationVersion !== version ? page.presentation ?? null : value;
+          },
+          async filePayloads(refs: readonly TaskPageFileRef[]) {
+            if (page.closed) throw new Error(page.closed);
+            if (!host.pages!.filePayloads) throw new Error('This host cannot read task file payloads');
+            const value = await host.pages!.filePayloads({ id: leased.id, refs });
+            if (page.closed) throw new Error(page.closed);
+            return value;
           },
           onPresentation(listener: (value: TaskPagePresentation | null) => void) {
             if (!page.closed) page.presentations.add(listener);
