@@ -17,10 +17,12 @@ import type { CreditAmount } from '@gugu/core/billing/creditAmount'
 import type { QuotaWindows } from './quota'
 import { membershipProjection, type Membership } from './membership'
 import { readCreditV2Account } from './v2/runtime'
+import { failedCreditConfirmation, type CreditConfirmation } from './v2/confirmation'
 
 export interface SpendingSnapshot {
   membership: Membership | null
   creditVersion: string | null
+  creditConfirmation: CreditConfirmation
   /** null = 还没取到或取不到,**不是** 0。 */
   balance: CreditAmount | null
   balanceError: string | null
@@ -37,6 +39,7 @@ export interface SpendingSnapshot {
 const EMPTY: SpendingSnapshot = {
   membership: null,
   creditVersion: null,
+  creditConfirmation: { state: 'unconfirmed', revision: 0 },
   balance: null,
   balanceError: null,
   windows: null,
@@ -82,12 +85,14 @@ async function refreshAccount(): Promise<void> {
     const membership = account.plan ? membershipProjection(account.plan) : null
     publish({ balance: account.balance, windows: account.windows, membership,
       creditVersion: JSON.stringify(account.meta),
+      creditConfirmation: { state: 'active2', revision: snapshot.creditConfirmation.revision + 1 },
       balanceError: account.balanceError === null ? null : message(account.balanceError),
       windowsError: account.windowsError === null ? null : message(account.windowsError) })
   } catch (error) {
     if (activeUserId !== userId || accountRequestedRevision !== requestRevision) return
     if (isLifecycleCancellation(error)) return
     publish({ balance: null, windows: null, membership: null, creditVersion: null,
+      creditConfirmation: failedCreditConfirmation(error, snapshot.creditConfirmation.revision + 1),
       balanceError: message(error), windowsError: message(error) })
   } finally {
     if (accountInFlight === request) {

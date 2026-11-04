@@ -94,3 +94,26 @@ it('refreshes referral statistics when active metadata changes and on the shared
     expect(harness.container.querySelector('[data-testid="settings-quota-credits-earned"]')?.textContent).toContain('9.5')
   } finally { harness.cleanup(); vi.clearAllMocks() }
 })
+
+it('review: an initial not-active account result must invalidate an earlier referral request even while creditVersion stays null', async () => {
+  const harness = createReactHarness()
+  try {
+    let rejectAccount!: (reason: Error) => void
+    let resolveOldStats!: (value: { invitedCount: number; creditsEarned: number }) => void
+    vi.mocked(readCreditV2Account).mockReturnValue(new Promise((_, reject) => { rejectAccount = reject }))
+    vi.mocked(getReferralStats).mockReturnValueOnce(new Promise(resolve => { resolveOldStats = resolve }))
+    const inactive = new CreditV2StateError('not-active')
+    vi.mocked(getReferralStats).mockRejectedValue(inactive)
+    await renderWithAppProviders(harness, createElement('div', null, createElement(Probe), createElement(ReferralCard)), { auth: user })
+    await flush()
+    expect(vi.mocked(getReferralStats).mock.calls.length).toBeGreaterThan(0)
+    await act(async () => { rejectAccount(inactive) }); await flush()
+    await act(async () => { resolveOldStats({ invitedCount: 1, creditsEarned: 7.5 }) }); await flush()
+    const account = JSON.parse(harness.container.querySelector('#review-state')!.textContent!)
+    const earned = harness.container.querySelector('[data-testid="settings-quota-credits-earned"]')?.textContent
+    expect(account.creditVersion).toBeNull()
+    expect(account.balanceError).toContain('not-active')
+    expect(earned ?? '').not.toContain('7.5')
+    expect(harness.container.querySelector('[role="alert"]')?.textContent).toContain('邀请信息加载失败')
+  } finally { harness.cleanup(); vi.clearAllMocks() }
+})
