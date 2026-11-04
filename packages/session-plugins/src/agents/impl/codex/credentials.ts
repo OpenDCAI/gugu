@@ -10,7 +10,16 @@ import { readJsonObject } from '../../helpers/subscription';
 export async function readCodexCredentials(ctx: AgentAuthContext): Promise<Record<string, unknown> | null> {
   if (ctx.env.CODEX_HOME?.trim() && !ctx.fsFollowsConfigRoot) throw new Error('无法读取所选 CODEX_HOME 的登录凭据。');
   const configRaw = await ctx.fs.read('.codex/config.toml');
-  const config = configRaw ? parseTOML(configRaw) : {};
+  // 解析不了不能按「没写」继续 —— 那会退回 file 存储,把旧 auth.json 里的账户当成当前凭据,
+  // 还把「配的凭据存储是哪个」静默盖掉(评审 P1)。照实报出来,由上层提示。
+  let config: Record<string, unknown> = {};
+  if (configRaw) {
+    try {
+      config = parseTOML(configRaw) as Record<string, unknown>;
+    } catch (error) {
+      throw new Error(`Codex 的 config.toml 无法解析,无法确定凭据存储:${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   const store = config.cli_auth_credentials_store ?? 'file';
   if (store === 'ephemeral') return null;
   if (store === 'file') return readJsonObject(ctx, '.codex/auth.json');
