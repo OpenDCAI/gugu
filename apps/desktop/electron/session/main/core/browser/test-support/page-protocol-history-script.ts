@@ -10,11 +10,12 @@ export async function navigateHistoryFromScript(contents: WebContents, lease: Pa
   let requested!: (response: ServerResponse) => void;
   const request = new Promise<ServerResponse>(resolve => { requested = resolve; });
   const server = createServer((_request, response) => { requested(response); });
+  const failure = new Promise<never>((_resolve, reject) => { server.on('error', reject); });
   let loaded!: () => void;
   const navigation = new Promise<void>(resolve => { loaded = resolve; });
   contents.once('did-finish-load', loaded);
   try {
-    await withinDeadline((async () => {
+    await withinDeadline(Promise.race([failure, (async () => {
       const listening = once(server, 'listening');
       server.listen(0, '127.0.0.1');
       await listening;
@@ -26,7 +27,7 @@ export async function navigateHistoryFromScript(contents: WebContents, lease: Pa
       response.setHeader('Content-Type', 'application/javascript');
       response.end(`history.go(${delta})`);
       await navigation;
-    })(), 'history script');
+    })()]), 'history script');
   } finally {
     contents.removeListener('did-finish-load', loaded);
     server.closeAllConnections();
