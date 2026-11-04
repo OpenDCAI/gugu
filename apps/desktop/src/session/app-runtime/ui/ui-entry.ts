@@ -7,7 +7,7 @@ import { ICONS, ICON_SVG_ATTRIBUTES, timePhrase } from './ui-core';
  * ui.css. Only what plain HTML cannot do, or what needs the host's data:
  *
  *   <gugu-icon name="bell">                  gugu's own Solar icons, named as lucide names them (bell, users, trash-2…)
- *   <gugu-avatar user="user:…" name>         a member's face (with `name`: and their name); an agent's carries ⚡
+ *   <gugu-avatar user="user:…" name>         a member's face (with `name`: and their name)
  *   <gugu-time datetime="2026-10-05T08:30">  「刚刚 / 3 分钟前 / 08:20 / 昨天 14:20 / 10月3日」, kept current
  *   <gugu-empty icon="archive">…</gugu-empty> an empty state around the App's own words and button
  *
@@ -16,7 +16,7 @@ import { ICONS, ICON_SVG_ATTRIBUTES, timePhrase } from './ui-core';
  *
  * Insides are drawn in shadow DOM: an App's `render()` (the template's patching redraw) sees only the empty element
  * and never strips the icon or the face as a child it did not write. ui.css sizes and places the elements (the App can
- * change that); `::part(svg | face | img | badge | name | icon)` reach inside.
+ * change that); `::part(svg | face | img | name | icon)` reach inside.
  */
 
 type Context = Partial<Pick<ExtensionHostContext, 'locale' | 'themeMode' | 'chat'>>;
@@ -123,13 +123,7 @@ const avatarSheet = sheet(`
 .sm { width: var(--em-avatar-sm); height: var(--em-avatar-sm); }
 .md { width: var(--em-avatar-md); height: var(--em-avatar-md); }
 .lg { width: var(--em-avatar-lg); height: var(--em-avatar-lg); }
-.badge { position: absolute; right: -2px; bottom: -2px; width: 30%; height: 30%; min-width: 12px; min-height: 12px; display: grid; place-items: center;
-  border-radius: 50%; background: var(--em-background); color: var(--em-foreground); }
-.badge svg { width: 78%; height: 78%; }
-.xs .badge { display: none; }
 .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bolt { flex: none; width: 12px; height: 12px; margin-inline-start: -4px; color: currentColor; }
-.bolt svg { display: block; width: 100%; height: 100%; }
 `);
 const avatars = new Set<GuguAvatar>();
 export class GuguAvatar extends HTMLElement {
@@ -161,8 +155,8 @@ export class GuguAvatar extends HTMLElement {
     const face = member?.avatar ? `<img part="img" src="${esc(member.avatar)}" alt="">` : svgOf('user');
     const showName = this.hasAttribute('name');
     root.innerHTML =
-      `<span part="face" class="face ${size}">${face}${agent ? `<span class="badge" part="badge">${svgOf('zap')}</span>` : ''}</span>` +
-      (showName ? `<span part="name" class="name">${esc(name)}</span>${agent ? `<span class="bolt">${svgOf('zap')}</span>` : ''}` : '');
+      `<span part="face" class="face ${size}">${face}</span>` +
+      (showName ? `<span part="name" class="name">${esc(name)}</span>` : '');
     if (showName) {
       this.removeAttribute('role');
       this.removeAttribute('aria-label');

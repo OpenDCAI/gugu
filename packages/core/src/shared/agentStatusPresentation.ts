@@ -60,10 +60,13 @@ export interface AgentStatusPresentation {
   emphasis: boolean
 }
 
-/** 被动「需要你」列表与项目计数:等待人操作或任务失败。系统通知另按等待状态判定(#1165)。 */
-export function isNeedsYou(presentation: AgentStatusPresentation | null | undefined, hostOnline = true): boolean {
-  // Offline waits and errors remain visible on the row, but do not request attention in totals or filters.
-  return hostOnline && presentationAttention(presentation) !== null
+/**
+ * 被动「需要你」列表与计数(铃铛、侧栏分组、项目点、手机项目页):等待人操作,或还没看过的失败。
+ * 失败一旦看过(宿主的已读位),就只是那一行上的红色状态,不再要人 —— ❌ 一个月前的旧失败堆进计数。
+ * 已读位缺失(旧宿主)按看过算。
+ */
+export function isNeedsYou(presentation: AgentStatusPresentation | null | undefined, unseen: boolean): boolean {
+  return presentation?.tone === 'needs_user' || (presentation?.tone === 'error' && unseen)
 }
 
 /** 要人来处理:需要你或出错(与 `mostUrgentAttention` 同一个词)。行尾、头像角标这类提醒标记读它。 */

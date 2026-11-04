@@ -21,6 +21,7 @@ vi.mock('@/session/renderer/features/remote-hosts/machine-session-list', () => (
 let harness: ReturnType<typeof createReactHarness>
 function Probe() { const { tasks, attention } = useNeedsYouTasks(); return <output data-attention={attention} data-phone-hosts={tasks.filter(task => task.phoneHost).map(task => task.deviceId).join(',')}>{tasks.map(task => `${task.deviceId}:${task.session.conversationId}`).join(',')}</output> }
 const pending = (id: string) => ({ conversationId: id, agentStatus: 'needs_approval', status: { status: 'needs_user', detail: 'approval' } })
+const failure = (id: string, extra: object = {}) => ({ ...pending(id), status: { status: 'error', detail: null }, unseen: true, ...extra })
 beforeEach(() => {
   vi.clearAllMocks()
   state.host = true
@@ -59,7 +60,7 @@ it('drops the prior account and stops its list subscription on logout', async ()
 })
 
 it('lists failures, adds a real wait, and keeps the failure after that wait is answered (#1165)', async () => {
-  state.directory = { server: { cached: false, error: null, sessions: [{ ...pending('failed'), status: { status: 'error', detail: null } }] } }
+  state.directory = { server: { cached: false, error: null, sessions: [failure('failed')] } }
   await renderWithAppProviders(harness, <Probe />)
   expect(harness.container.querySelector('output')?.dataset.attention).toBe('error')
   expect(harness.container.textContent).toBe('server:failed')
@@ -81,14 +82,14 @@ it('preserves native phone host identity from the existing device directory', as
   expect(sync).not.toHaveBeenCalled()
 })
 
-it('acknowledged errors leave attention without changing their error status or other wait types', async () => {
+it('acknowledged errors (and errors from hosts without a read bit) leave attention; waits stay whatever their read bit', async () => {
   state.directory = { server: { cached: false, error: null, sessions: [
     { ...pending('read-failure'), status: { status: 'error', detail: null }, unseen: false },
     { ...pending('unknown-read-failure'), status: { status: 'error', detail: null } },
     { ...pending('approval'), unseen: false },
   ] } }
   await renderWithAppProviders(harness, <Probe />)
-  expect(harness.container.textContent).toBe('server:unknown-read-failure,server:approval')
+  expect(harness.container.textContent).toBe('server:approval')
   expect(harness.container.querySelector('output')?.dataset.attention).toBe('needs_user')
   state.directory = { server: { cached: false, error: null, sessions: [{ ...pending('read-failure'), status: { status: 'error', detail: null }, unseen: false }] } }
   await renderWithAppProviders(harness, <Probe />)
@@ -108,4 +109,17 @@ it('uses the phone host route and propagates its error without acknowledging a t
   await expect(markNeedsYouTaskSeen({ deviceId: 'phone', machine: 'Phone', local: false, phoneHost: true, session: { conversationId: 'failure' } } as never)).rejects.toThrow('unknown_method')
   expect(invokePhoneHost).toHaveBeenCalledExactlyOnceWith('phone', 'sessions.markSessionSeen', ['failure'])
   expect(markSeen).not.toHaveBeenCalled()
+})
+
+it('a month of read failures does not inflate the count; unread ones list newest first', async () => {
+  const day = (n: number) => new Date(Date.UTC(2026, 9, n)).toISOString()
+  const old = Array.from({ length: 40 }, (_, i) => failure(`old-${i}`, { unseen: false, lastInteractedAt: day(1 + (i % 28)) }))
+  state.directory = { server: { cached: false, error: null, sessions: [
+    ...old,
+    failure('older-unread', { lastInteractedAt: day(2) }),
+    { ...pending('newest-wait'), lastInteractedAt: day(30) },
+    failure('newer-unread', { lastInteractedAt: day(20) }),
+  ] } }
+  await renderWithAppProviders(harness, <Probe />)
+  expect(harness.container.textContent).toBe('server:newest-wait,server:newer-unread,server:older-unread')
 })

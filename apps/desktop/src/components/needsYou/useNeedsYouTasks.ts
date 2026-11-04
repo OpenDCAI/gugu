@@ -61,12 +61,11 @@ export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; attention: AgentAtt
     for (const session of sessions) {
       // 列出的只有连得上的宿主;有身份的 agent 读共享 presence,与侧栏同一个判据。
       const presentation = sessionPresentation(session, true)
-      // Missing on older hosts means unknown, not read. A later failure sets the same host bit again.
-      if (presentation?.tone === 'error' && session.unseen === false) continue
+      if (!isNeedsYou(presentation, session.unseen === true)) continue
       statuses.push(presentationAttention(presentation))
-      if (!isNeedsYou(presentation)) continue
       tasks.push({ deviceId: device.device_id, machine: device.label, local: here, phoneHost: isPhoneDevice(device), session })
     }
   }
+  tasks.sort((a, b) => (Date.parse(b.session.lastInteractedAt ?? '') || 0) - (Date.parse(a.session.lastInteractedAt ?? '') || 0))
   return { tasks, attention: mostUrgentAttention(statuses), error: localId ? error : null }
 }
