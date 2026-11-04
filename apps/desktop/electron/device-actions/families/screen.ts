@@ -7,14 +7,14 @@ function captureFailure(error: unknown): Outcome {
 }
 
 /** Looking at the screen is a host capability, independent of the Computer Use App and its driver. */
-export function createScreenFamily(): ActionFamily {
+export function createScreenFamily(platform: NodeJS.Platform = process.platform): ActionFamily {
   const capture = (ctx: FamilyContext, maxEdge: number) => ctx.deps.captureScreen?.({ maxEdge })
   return {
     groups: [{
       id: 'screen',
       platforms: ['darwin', 'win32', 'linux'],
       iconApp: '/System/Applications/Utilities/Screenshot.app',
-      ...(process.platform === 'darwin' ? {
+      ...(platform === 'darwin' ? {
         settingsUrl: MAC_PRIVACY('Privacy_ScreenCapture'),
         osPermission: '系统设置 → 隐私与安全性 → 屏幕录制 → 打开咕咕',
       } : {}),

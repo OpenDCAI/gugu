@@ -593,6 +593,10 @@ function screenElementActions(): ActionDef[] {
       additionalProperties: false,
     },
     validate: (args) => (str(args, 'query') ? null : 'query is required'),
+    unsupportedReason: (deps) => {
+      const available = deps.cua().available()
+      return available.ok ? null : available.message
+    },
     async run(args, ctx) {
       const missing = cuaMissing(ctx)
       if (missing) return missing
@@ -661,7 +665,6 @@ export function createComputerFamily(nativeDir: string | null): ActionFamily {
           : {}),
         probe: probeComputer,
       },
-
     ],
     actions: [...TOOLS.map((t) => computerAction(t, specs.get(t.cua), broken, apps)), ...screenElementActions()],
   }

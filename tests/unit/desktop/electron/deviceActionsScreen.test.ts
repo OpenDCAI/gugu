@@ -20,11 +20,11 @@ function setup(platform: NodeJS.Platform = 'darwin') {
     platform, nativeDir: null, now: () => new Date(), homedir: () => '/unused',
     clipboardRead: () => '', clipboardWrite: vi.fn(), notify: vi.fn(async () => ({ shown: true })),
     openExternal: vi.fn(), trashItem: vi.fn(), jxa: vi.fn(), exec: vi.fn(),
-    macHelper: () => ({ available: () => ({ ok: true }), call: helperCall as never, dispose: vi.fn() }),
+    macHelper: () => ({ available: () => ({ ok: true as const }), call: helperCall as never, dispose: vi.fn() }),
     captureScreen, cua,
   }
   const provider = createDeviceActionsProvider({ store, deps,
-    families: [createComputerFamily(null), createScreenFamily()],
+    families: [createComputerFamily(null), createScreenFamily(platform)],
     managedBy: group => group === 'computer' ? { on: false, offMessage: 'Computer Use is off' } : null })
   const invoke = async () => {
     const permit = await provider.provider.permit('screen.get')
@@ -70,7 +70,7 @@ describe('generic screen actions', () => {
   it('does not mark the screen connected or capture when the person denies Screen Recording', async () => {
     const { provider, helperCall, captureScreen, store } = setup()
     helperCall.mockResolvedValue({ status: 'denied' })
-    expect(await provider.connect('screen')).toMatchObject({ ok: false, code: 'os_permission', restart: true })
+    expect(await provider.connect('screen')).toMatchObject({ ok: false, code: 'os_permission', restart: true, settingsUrl: expect.stringContaining('Privacy_ScreenCapture') })
     expect(captureScreen).not.toHaveBeenCalled()
     expect(store.setGroup).not.toHaveBeenCalled()
   })
@@ -78,7 +78,7 @@ describe('generic screen actions', () => {
   it('checks the real Electron capture even if the helper reports permission granted', async () => {
     const { provider, captureScreen, store } = setup()
     captureScreen.mockRejectedValue(new NativeCallError('os_permission', 'Electron lacks Screen Recording'))
-    expect(await provider.connect('screen')).toMatchObject({ ok: false, code: 'os_permission', restart: true })
+    expect(await provider.connect('screen')).toMatchObject({ ok: false, code: 'os_permission', restart: true, settingsUrl: expect.stringContaining('Privacy_ScreenCapture') })
     expect(store.setGroup).not.toHaveBeenCalled()
   })
 
@@ -94,8 +94,19 @@ describe('generic screen actions', () => {
     const { provider, invoke, deps, cua } = setup()
     delete deps.captureScreen
     expect(await invoke()).toMatchObject({ ok: false, code: 'unsupported' })
-    expect(await provider.connect('screen')).toMatchObject({ ok: false, code: 'unsupported' })
+    // Connect maps non-permission probe failures to execution_failed; action discovery is unsupported.
+    expect(await provider.connect('screen')).toMatchObject({ ok: false, code: 'execution_failed' })
     expect(cua).not.toHaveBeenCalled()
+  })
+
+  it('marks the remaining AX lookup unavailable without disabling generic capture', async () => {
+    const { invoke, provider, deps } = setup()
+    const cua = vi.fn(() => ({ available: () => ({ ok: false as const, message: 'CUA absent' }), callTool: vi.fn(), stop: vi.fn(), dispose: vi.fn() }))
+    deps.cua = cua
+    expect(await provider.provider.permit('screen.elements.find')).toMatchObject({ ok: false, code: 'unsupported', message: 'CUA absent' })
+    expect(cua).toHaveBeenCalledTimes(1)
+    expect(await invoke()).toMatchObject({ ok: true })
+    expect(cua).toHaveBeenCalledTimes(1)
   })
 
   it('propagates an actual capture failure without fabricating an image', async () => {

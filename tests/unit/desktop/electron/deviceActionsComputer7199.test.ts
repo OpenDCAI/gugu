@@ -376,7 +376,7 @@ describe('电脑控制:结果', () => {
   })
 })
 
-describe('屏幕(Mac,走 cua 读前台窗口)', () => {
+describe('辅助功能树查找(Mac,通用截屏已独立)', () => {
   const desk: CallTool = async (name) => {
     if (name === 'list_apps') return { structuredContent: { apps: [{ name: 'Calculator', bundle_id: 'com.apple.calculator', pid: 77, active: true }, { name: 'Chrome', pid: 5, active: false }] } }
     if (name === 'list_windows') return { structuredContent: { windows: [{ window_id: 9, title: '计算器', layer: 0, is_on_screen: true }] } }
