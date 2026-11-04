@@ -10,9 +10,11 @@ const toasts = vi.hoisted(() => [] as unknown[]);
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: (value: unknown) => toasts.push(value) }));
 const listeners = new Map<string, Set<(data: unknown) => void>>();
 const read = vi.fn();
+const tail = vi.fn();
 Object.defineProperty(document, 'fonts', { configurable: true, value: { load: async () => [] } });
 Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
-  invoke: (channel: string, ...args: unknown[]) => channel.includes('getStoredSettledTurn') ? read(...args) : Promise.resolve([]),
+  invoke: (channel: string, ...args: unknown[]) => channel.includes('getStoredSettledTurn') ? read(...args)
+    : channel.includes('getStoredHistory') ? tail(...args) : Promise.resolve([]),
   eventSend: () => {}, getPathForFile: () => '',
   eventOn: (channel: string, callback: (data: unknown) => void) => {
     const set = listeners.get(channel) ?? new Set(); listeners.set(channel, set); set.add(callback);
@@ -58,7 +60,8 @@ function attached(id = 'A') {
 function receipt(sessionId = 'A', referenceId = live.referenceId) {
   for (const callback of listeners.get('session:turn-settled') ?? []) callback({ sessionId, referenceId, status: 'persisted' });
 }
-beforeEach(() => { toasts.length = 0; read.mockReset(); read.mockResolvedValue(stored); });
+beforeEach(() => { toasts.length = 0; read.mockReset(); read.mockResolvedValue(stored);
+  tail.mockReset(); tail.mockResolvedValue({ turns: [stored.turn], originTurnIds: [live.id], nextCursor: null }); });
 afterEach(() => { for (const store of stores.splice(0)) store.dispose(); });
 
 it.each(['closed-first', 'active-null-first'] as const)('consumes the actual terminal history when %s', async order => {
@@ -179,4 +182,17 @@ it('ignores a read completing after the view has been disposed', async () => {
   store.dispose(); stores.splice(stores.indexOf(store), 1);
   finish(stored); await Promise.resolve(); await Promise.resolve();
   expect(store.chatState.transcript.state.committedTurns).toHaveLength(0);
+});
+
+it('keeps earlier visible runtime turns before the newly persisted final turn', async () => {
+  const previous: TranscriptTurn = { ...live, id: 'runtime:previous', referenceId: 'source:previous', seq: -1,
+    items: [{ kind: 'message', id: 'previous:user', seq: 0, role: 'user', text: 'Earlier prompt' }], outcome: { kind: 'done' } };
+  const previousStored = { ...previous, id: 'A:turn:s6', seq: 6 };
+  tail.mockResolvedValue({ turns: [previousStored, stored.turn], originTurnIds: [previous.id, live.id], nextCursor: null });
+  const { store, close } = attached();
+  (store as unknown as { _runtimeTurns: TranscriptTurn[] })._runtimeTurns = [previous];
+  store.chatState.transcript.history.seed([previous]); store.chatState.transcript.activeTurn.set(live);
+  close();
+  await vi.waitFor(() => expect(store.chatState.transcript.state.activeTurnSnapshot).toBeNull());
+  expect(store.chatState.transcript.state.committedTurns.map(turn => turn.referenceId)).toEqual([previous.referenceId, live.referenceId]);
 });
