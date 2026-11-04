@@ -1,4 +1,3 @@
-import { useUiPortalContainer } from '@gugu/session-ui/react/primitives';
 import { useCallback, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { ChevronDown, MoreHorizontal, Plus } from '@/lib/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -75,7 +74,6 @@ export function SubscriptionConnections({ agent, machine, onError, trigger, labe
   const changeOpen = (next: boolean) => { if (next && addDirectly) setAdding(true); else setOpen(next); };
   const queryClient = useQueryClient();
   const showSignIn = useShowModal('agentSignInModal');
-  const portalContainer = useUiPortalContainer();
   const host = useLibraryHost();
   const connections = useSubscriptionConnections(machine, agent.id);
   const method = resolveSignInMethod(agent.capabilities);
@@ -147,7 +145,7 @@ export function SubscriptionConnections({ agent, machine, onError, trigger, labe
     setOpen(false);
     const finished = () => action.mutate({ kind: 'refresh', id: connectionId });
     showSignIn({
-      providerId: agent.id, providerName: agent.name, connectionId, portalContainer,
+      providerId: agent.id, providerName: agent.name, connectionId,
       steps: [{ methodId: method.id }],
       ...(machine ? { remote: { deviceId: machine, deviceLabel: host.remote?.deviceLabel ?? '', headless: true, command: agent.id } } : {}),
       onSuccess: finished, onClose: finished,

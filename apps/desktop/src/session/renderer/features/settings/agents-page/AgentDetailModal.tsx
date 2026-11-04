@@ -1,6 +1,4 @@
 import { observer } from 'mobx-react-lite';
-import { useState } from 'react';
-import { UiPortalContainerProvider } from '@gugu/session-ui/react/primitives';
 import { useLibraryHost } from '@renderer/features/library/library-host';
 import { useManagementAgent } from '@renderer/lib/stores/use-agents';
 import { Dialog, DialogContent, DialogContentArea, DialogHeader } from '@renderer/lib/ui/dialog';
@@ -37,7 +35,6 @@ const AgentDetailModalContent = observer(function AgentDetailModalContent({
 }) {
   const { data: agentPayload } = useManagementAgent(agentId);
   const compact = agentId === 'claude' || agentId === 'codex';
-  const [layer, setLayer] = useState<HTMLDivElement | null>(null);
   /**
    * 资源库看的是一台离线的机器(#6264):照旧画它上次的样子,但一个动作都做不了 —— 那台机器此刻收不到。
    * 用一个 disabled 的 fieldset 把整块面板里的按钮、输入框一次关掉,❌ 每个控件各判一遍(总会漏一个)。
@@ -53,36 +50,31 @@ const AgentDetailModalContent = observer(function AgentDetailModalContent({
    */
   const dimmed = agentPayload ? agentPayload.reading === 'not-detected' : false;
 
-  return (
-    <ModalLayout
-      header={
-        <DialogHeader>
-          {agentPayload && <AgentModalHeaderSection agent={agentPayload} dimmed={dimmed} compact={compact} />}
-        </DialogHeader>
-      }
-      footer={null}
-    >
-      <DialogContentArea className={cn('gap-0', CONTENT_MAX_HEIGHT)}>
-        {agentPayload && (
-          /* Claude/Codex 默认只问能否使用、怎么配置；安装来源收进高级。 */
-          <UiPortalContainerProvider value={layer}>
-            <fieldset disabled={readOnly} className="contents" data-read-only={readOnly || undefined}>
-              {compact && <AgentAccountSection agent={agentPayload} />}
-              <InstallSection
-                advancedOnly={compact}
-                agentId={agentId}
-                agentPayload={agentPayload}
-                installOptions={agentPayload.installOptions}
-                installDocs={agentPayload.installDocs}
-                accountSlot={compact ? undefined : <AgentAccountSection agent={agentPayload} />}
-              />
-              <div ref={setLayer} className="fixed left-0 top-0 z-10 h-0 w-0" />
-            </fieldset>
-          </UiPortalContainerProvider>
-        )}
-      </DialogContentArea>
-    </ModalLayout>
+  const header = (
+    <DialogHeader>
+      {agentPayload && <AgentModalHeaderSection agent={agentPayload} dimmed={dimmed} compact={compact} />}
+    </DialogHeader>
   );
+  const content = (
+    <DialogContentArea className={cn('gap-0', CONTENT_MAX_HEIGHT)}>
+      {agentPayload && (
+        /* Claude/Codex 默认只问能否使用、怎么配置；安装来源收进高级。 */
+        <fieldset disabled={readOnly} className="contents" data-read-only={readOnly || undefined}>
+          {compact && <AgentAccountSection agent={agentPayload} />}
+          <InstallSection
+            advancedOnly={compact}
+            agentId={agentId}
+            agentPayload={agentPayload}
+            installOptions={agentPayload.installOptions}
+            installDocs={agentPayload.installDocs}
+            accountSlot={compact ? undefined : <AgentAccountSection agent={agentPayload} />}
+          />
+        </fieldset>
+      )}
+    </DialogContentArea>
+  );
+  // Fixed credential rows do not use the installation content's height animation.
+  return compact ? <>{header}{content}</> : <ModalLayout header={header} footer={null}>{content}</ModalLayout>;
 });
 
 /**

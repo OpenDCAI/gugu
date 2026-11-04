@@ -115,6 +115,7 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
   const connections = useSubscriptionConnections(machine, agent.id);
   const manageable = agent.id === 'claude' || agent.id === 'codex';
   const currentConnection = connections.data?.find((connection) => connection.current);
+  const hasNoConnections = connections.isSuccess && connections.data.length === 0;
   const connectionId = currentConnection?.id;
   const ready = !manageable || !!currentConnection;
   const plan = useSubscriptionPlan(machine, agent.id, connectionId, ready);
@@ -156,8 +157,8 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
           : translate('subscriptions.connections.device')
       }
       action={manageable ? <SubscriptionConnections agent={agent} machine={machine} onError={setSwitchNotice}
-        addDirectly={auth?.status.kind === 'unauthenticated'}
-        label={auth?.status.kind === 'unauthenticated' ? translate('subscriptions.connections.add') : undefined}
+        addDirectly={hasNoConnections}
+        label={hasNoConnections ? translate('subscriptions.connections.add') : undefined}
       /> : undefined}
       notice={switchNotice ? <SwitchNoticeLine notice={switchNotice} /> : undefined}
     >

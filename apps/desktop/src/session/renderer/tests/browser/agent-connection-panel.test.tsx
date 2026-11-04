@@ -12,6 +12,7 @@ import { subscriptionKey } from '@renderer/features/settings/subscriptions/subsc
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
 import { setLocalePreference } from '@/i18n';
 import { modalStore } from '@renderer/lib/modal/modal-store';
+import { ModalRenderer } from '@renderer/lib/modal/modal-renderer';
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import '@/styles/tokens.css';
 import '@renderer/index.css';
@@ -83,6 +84,13 @@ vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
   }),
 }));
 
+vi.mock('@renderer/lib/acp/auth-login-binding', () => ({
+  AcpAuthLoginBinding: { create: async () => ({
+    sendInput: () => {}, resize: () => {}, markUrlHandled: () => {}, dispose: () => {},
+    status: { current: () => ({ status: { kind: 'unauthenticated' }, login: null }) },
+  }) },
+}));
+
 let root: Root;
 let host: HTMLDivElement;
 let client: QueryClient;
@@ -107,7 +115,7 @@ const box = (element: Element) => {
   return { x, y, width, height };
 };
 
-it.each([1440, 390])('nested connection fields remain in the detail accessible tree at %ipx', async width => {
+it.each([1440, 390])('connection fields remain accessible above the detail at %ipx', async width => {
   await page.viewport(width, 900);
   render(<AgentDetailModal agentId="codex" onClose={vi.fn()} />);
   await userEvent.click(page.getByRole('button', { name: 'Configure', exact: true }));
@@ -122,7 +130,7 @@ it.each([1440, 390])('nested connection fields remain in the detail accessible t
   await expect.element(page.getByRole('button', { name: 'Save connection', exact: true })).toBeVisible();
   const form = document.querySelector('.subscription-connection-form')!;
   expect(form.closest('[aria-hidden="true"], [inert]')).toBeNull();
-  expect(form.closest('[role="dialog"]')?.parentElement?.closest('[role="dialog"]')).not.toBeNull();
+  expect(form.closest('[role="dialog"]')?.parentElement?.closest('[role="dialog"]')).toBeNull();
 });
 
 it.each([1440, 390])('detail geometry stays fixed across credential states at %ipx', async width => {
@@ -202,19 +210,32 @@ it('a rejected task connection remains visible with its cause and keeps the orig
   expect((host.querySelector('input') as HTMLInputElement).value).toBe('Original draft');
 });
 
-it('an unsigned saved account keeps its real login action while native does not offer one', async () => {
+it.each([1440, 1024, 800, 390])('an unsigned saved account keeps its real login action while native does not offer one at %ipx', async width => {
+  await page.viewport(width, 900);
   control.connections.push({ id: 'saved-account', kind: 'account', name: 'Saved account', current: false });
   render(<AgentDetailModal agentId="codex" onClose={vi.fn()} />);
+  const detail = page.getByRole('dialog', { name: 'Codex', exact: true });
+  const configure = detail.getByRole('button', { name: 'Configure', exact: true });
+  await expect.element(configure).toBeVisible();
+  await untilStable('the complete detail content settles', () => box(detail.element()));
+  const bounds = detail.element().getBoundingClientRect();
+  const buttonBounds = configure.element().getBoundingClientRect();
+  expect(buttonBounds.top).toBeGreaterThanOrEqual(bounds.top);
+  expect(buttonBounds.bottom).toBeLessThanOrEqual(bounds.bottom);
   await userEvent.click(page.getByRole('button', { name: 'Configure', exact: true }));
   await until('native status is read', () => !!document.querySelector('[data-testid="connection-native"]'));
   expect(document.querySelector('[data-testid="connection-native"] [aria-haspopup="menu"]')).toBeNull();
   await userEvent.click(page.getByRole('menuitem', { name: 'Options for Saved account', exact: true }));
+  const signIn = page.getByRole('menuitem', { name: 'Sign in', exact: true });
+  await expect.element(signIn).toBeVisible();
+  const item = signIn.element();
+  await untilStable('the sign-in item settles', () => box(item));
+  const rect = item.getBoundingClientRect();
+  expect(item.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))).toBe(true);
   await userEvent.click(page.getByRole('menuitem', { name: 'Sign in', exact: true }));
   expect(modalStore.activeModalId).toBe('agentSignInModal');
   expect(modalStore.activeModalArgs).toMatchObject({ providerId: 'codex', connectionId: 'saved-account', steps: [{ methodId: 'codex-login' }] });
-  const container = modalStore.activeModalArgs?.portalContainer as HTMLElement;
-  expect(container.closest('[role="dialog"]')).not.toBeNull();
-  expect(container.closest('[aria-hidden="true"], [inert]')).toBeNull();
+  expect(modalStore.activeModalArgs).not.toHaveProperty('portalContainer');
 });
 
 it('working sessions refuse a task connection switch with a calm status and keep the native connection', async () => {
@@ -229,4 +250,24 @@ it('working sessions refuse a task connection switch with a calm status and keep
   expect(document.querySelector('[role="alert"]')).toBeNull();
   expect(document.querySelector('[role="status"]')?.classList.contains('subscription-error')).toBe(false);
   expect(control.connections.find(c => c.current)?.id).toBe('native');
+});
+
+it.each([800, 1440])('the real global sign-in terminal remains accessible and clickable above the detail at %ipx', async width => {
+  await page.viewport(width, 900);
+  control.connections.push({ id: 'saved-account', kind: 'account', name: 'Saved account', current: false });
+  render(<><AgentDetailModal agentId="codex" onClose={vi.fn()} /><ModalRenderer /></>);
+  await userEvent.click(page.getByRole('button', { name: 'Configure', exact: true }));
+  await userEvent.click(page.getByRole('menuitem', { name: 'Options for Saved account', exact: true }));
+  await userEvent.click(page.getByRole('menuitem', { name: 'Sign in', exact: true }));
+  const login = page.getByRole('dialog', { name: 'Sign in to Codex', exact: true });
+  await expect.element(login).toBeVisible();
+  const dialog = login.element();
+  expect(dialog.closest('[aria-hidden="true"], [inert]')).toBeNull();
+  const cancel = login.getByRole('button', { name: 'Cancel sign-in', exact: true });
+  await untilStable('the actual sign-in footer settles', () => box(cancel.element()));
+  const rect = cancel.element().getBoundingClientRect();
+  expect(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest('button')).toBe(cancel.element());
+  await userEvent.click(cancel);
+  await until('the real login has closed', () => !modalStore.isOpen);
+  await expect.element(page.getByRole('dialog', { name: 'Codex', exact: true })).toBeVisible();
 });
