@@ -563,7 +563,7 @@ export default {
         "serverTooOld": "那台机器上的咕咕 server 版本太旧，不支持从桌面登录。",
         "versionCheckFailed": "读不出那台机器上咕咕 server 的版本，已停止。请查看详情。",
         "loginFailed": "登录未完成，请重试。",
-        "accountMismatch": "这台机器登录的是 {{server}}，和你当前的账号 {{current}} 不一致。要添加它，先在那台机器上退出咕咕，或换一个系统用户。",
+        "accountMismatch": "这台机器登录的是账号 {{server}}，和你当前的账号 {{current}} 不一致。要添加它，先在那台机器上退出咕咕，或换一个系统用户。",
         "accountMismatchUnknownCurrent": "这台机器登录的是另一个账号 {{server}}。要添加它，先在那台机器上退出咕咕，或换一个系统用户。",
         "cloudUnreachable": "那台机器连不上咕咕。请放行外网 HTTPS 或配置代理后重试。",
         "machineLimit": "已达机器上限。",
