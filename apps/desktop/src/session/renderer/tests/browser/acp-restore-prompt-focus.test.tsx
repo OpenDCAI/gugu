@@ -26,7 +26,9 @@ vi.mock('@renderer/lib/stores/use-agents', () => ({
 
 Object.defineProperty(window, 'electronAPI', {
   configurable: true,
-  value: { invoke: async () => [], eventOn: () => () => {}, eventSend: () => {}, getPathForFile: () => '' },
+  value: { invoke: async () => [], eventOn: () => () => {}, eventSend: () => {}, getPathForFile: () => '',
+    subscribeAppActive: (listener: (active: boolean) => void) => { listener(true); return () => {} },
+  },
 })
 const { AcpChatStore } = await import('@renderer/features/sessions/acp/acp-chat-store')
 const { AcpChatPanel } = await import('@renderer/features/sessions/acp/acp-chat-panel')
