@@ -1707,8 +1707,9 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   );
   const { data: agents } = useAgents();
   const providerId = sessionStore?.data.providerId ?? null;
-  // 上一轮被宿主的退出打断(开机收残记下的):还是 `error` 时在消息列表末尾说是什么打断的;下一轮开工就不是了。
-  const interruptedBy = sessionStore?.status === 'error' ? (sessionStore.data.interruptedBy ?? null) : null;
+  // 上一轮被宿主的退出打断(开机收残记下的):停着时说明原因;兼容旧 error 记录,下一轮开工就不是了。
+  const interruptedBy = sessionStore?.status === 'idle' || sessionStore?.status === 'error'
+    ? (sessionStore.data.interruptedBy ?? null) : null;
   const agent = agents?.find((candidate) => candidate.id === providerId) ?? null;
   const startupNotice = agent?.capabilities.acp.startup?.noticeKey;
   const startupNoticeKey = declaredMessageKey(startupNotice);

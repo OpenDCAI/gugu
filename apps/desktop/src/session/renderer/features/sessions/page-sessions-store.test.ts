@@ -143,7 +143,7 @@ describe('PageSessionsStore four-state status projection', () => {
     store.dispose();
   });
 
-  it('reconciles the host status and interruption reason after reconnect', () => {
+  it.each(['idle', 'error'] as const)('reconciles the %s host status and interruption reason after reconnect', status => {
     const store = makeStore();
     const conv = store.sessions.get('c1')!;
     const data = conv.data;
@@ -152,19 +152,19 @@ describe('PageSessionsStore four-state status projection', () => {
 
     store.reconcile([{
       ...data,
-      agentStatus: 'error',
-      agentStatusDetail: null,
-      agentStatusSeen: false,
+      agentStatus: status,
+      agentStatusDetail: status === 'idle' ? 'plain' : null,
+      agentStatusSeen: status === 'idle',
       interruptedBy: 'update',
     }]);
 
     expect(store.sessions.get('c1')).toBe(conv);
     expect(conv.data).toBe(data);
-    expect(conv.status).toBe('error');
-    expect(conv.detail).toBeNull();
-    expect(conv.seen).toBe(false);
-    expect(conv.groupStatus).toBe('error');
-    expect(conv.indicatorStatus).toBe('error');
+    expect(conv.status).toBe(status);
+    expect(conv.detail).toBe(status === 'idle' ? 'plain' : null);
+    expect(conv.seen).toBe(status === 'idle');
+    expect(conv.groupStatus).toBe(status === 'idle' ? null : 'error');
+    expect(conv.indicatorStatus).toBe(status === 'idle' ? null : 'error');
     expect(conv.data.interruptedBy).toBe('update');
     expect(conv.statusSourceFault).toBe('retained fault');
     store.dispose();
