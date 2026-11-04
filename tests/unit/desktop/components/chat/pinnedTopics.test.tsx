@@ -63,13 +63,19 @@ describe('rich Topics menu', () => {
       await clickElement(document.querySelector<HTMLElement>('[data-testid="group-menu-topics"]')!)
       await vi.waitFor(() => expect(document.querySelectorAll('[data-testid="group-menu-topic"]')).toHaveLength(2))
       const open = document.querySelector<HTMLElement>('[data-topic-id="new"] [data-testid="group-menu-topic"]')!
-      const chip = open.querySelector<HTMLElement>('.gg-chip')!
+      const chip = open.closest<HTMLElement>('[data-topic-id]')!.querySelector<HTMLElement>('.gg-chip')!
+      const displayed = () => {
+        for (let node: HTMLElement | null = chip; node; node = node.parentElement) {
+          if (getComputedStyle(node).display === 'none') return false
+        }
+        return true
+      }
       const pin = document.querySelector<HTMLElement>('[data-topic-id="new"] [data-testid="group-topic-pin"]')!
       expect(chip.textContent).toBe('4')
-      expect(getComputedStyle(chip).display).not.toBe('none')
+      expect(displayed()).toBe(true)
       await act(async () => open.focus())
       expect(document.activeElement).toBe(open)
-      expect(getComputedStyle(chip).display, 'the count and action share the trailing space').toBe('none')
+      expect(displayed(), 'the count and action share the trailing space').toBe(false)
       expect(getComputedStyle(pin).opacity).toBe('1')
       expect(document.querySelector('[data-topic-id="old"] .gg-topic-name svg')).not.toBeNull()
       await clickElement(pin)
@@ -103,8 +109,8 @@ describe('rich Topics menu', () => {
     await vi.waitFor(() => expect([...document.querySelectorAll('[data-testid="group-menu-topic"]')].map((row) => row.querySelector('.gg-topic-name')?.textContent)).toEqual(['Older topic', 'Recent topic']))
     const rows = [...document.querySelectorAll('[data-testid="group-menu-topic"]')]
     expect(rows.map((row) => row.querySelector('.gg-topic-name')?.textContent)).toEqual(['Older topic', 'Recent topic'])
-    expect(rows[0]?.querySelector('.gg-chip')?.textContent).toBe('99+')
-    expect(rows[0]?.querySelector('.gg-chip')?.getAttribute('data-tone')).toBeNull()
+    expect(rows[0]?.closest('[data-topic-id]')?.querySelector('.gg-chip')?.textContent).toBe('99+')
+    expect(rows[0]?.closest('[data-topic-id]')?.querySelector('.gg-chip')?.getAttribute('data-tone')).toBeNull()
     expect(rows[1]?.querySelector('.gg-topic-preview')?.textContent).toContain('Alex: Latest update')
     expect(rows[1]?.querySelector('.gg-topic-time')?.textContent).toBeTruthy()
     const popup = document.querySelector<HTMLElement>('[data-testid="group-topics-popup"]')!
