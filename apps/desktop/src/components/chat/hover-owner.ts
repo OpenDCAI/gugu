@@ -6,7 +6,7 @@
  */
 export type HoverElements = { trigger: HTMLElement | null; popup: HTMLElement | null }
 type HoverPoint = { x: number; y: number }
-export type HoverOwner = { id: symbol; locked: boolean; elements?: HoverElements } | null
+export type HoverOwner = { id: symbol; locked: boolean; elements?: HoverElements; point?: HoverPoint } | null
 let hoverOwner: HoverOwner = null
 const hoverOwnerListeners = new Set<() => void>()
 export const readHoverOwner = (): HoverOwner => hoverOwner
@@ -20,10 +20,20 @@ export function setHoverOwner(next: HoverOwner): void {
   for (const listener of hoverOwnerListeners) listener()
 }
 /** The corridor narrows from the row edge to the popup's actual far edge, including flipped/shifted placements. */
-function inHoverCorridor(point: HoverPoint, elements?: HoverElements): boolean {
+function inHoverCorridor(point: HoverPoint, elements?: HoverElements, nextTrigger?: HTMLElement | null, origin?: HoverPoint): boolean {
   if (!elements?.trigger || !elements.popup) return false
   const row = elements.trigger.getBoundingClientRect()
   const popup = elements.popup.getBoundingClientRect()
+  const next = nextTrigger?.getBoundingClientRect()
+  if (next && point.x >= next.left && point.x <= next.right && point.y >= next.top && point.y <= next.bottom
+    && (point.x < popup.left || point.x > popup.right)) {
+    // A straight move into another bubble yields; a diagonal aimed into the popup still owns its travel corridor.
+    const edge = point.x < popup.left ? popup.left : popup.right
+    const dx = origin ? point.x - origin.x : 0
+    const toward = (point.x < popup.left && dx > 0) || (point.x > popup.right && dx < 0)
+    const crossingY = origin && toward ? origin.y + (edge - origin.x) * (point.y - origin.y) / dx : NaN
+    if (!(crossingY >= popup.top && crossingY <= popup.bottom)) return false
+  }
   const above = popup.top + popup.height / 2 < row.top + row.height / 2
   const from = above ? row.top : row.bottom
   const to = above ? popup.top : popup.bottom
@@ -36,8 +46,8 @@ function inHoverCorridor(point: HoverPoint, elements?: HoverElements): boolean {
 
 /** Keep menu locks and travel to the current popup; elsewhere, hand over without a delay. */
 export function claimHoverOwner(id: symbol, locked = false, elements?: HoverElements, point?: HoverPoint): boolean {
-  if (hoverOwner && hoverOwner.id !== id && (hoverOwner.locked || (!locked && point && inHoverCorridor(point, hoverOwner.elements)))) return false
-  setHoverOwner(hoverOwner?.id === id && hoverOwner.locked === locked ? hoverOwner : { id, locked, elements })
+  if (hoverOwner && hoverOwner.id !== id && (hoverOwner.locked || (!locked && point && inHoverCorridor(point, hoverOwner.elements, elements?.trigger, hoverOwner.point)))) return false
+  setHoverOwner(hoverOwner?.id === id && hoverOwner.locked === locked ? hoverOwner : { id, locked, elements, point })
   return true
 }
 export function releaseHoverOwner(id: symbol): void {

@@ -53,7 +53,7 @@ export {
 
 // ── Utility / recipe re-exports ───────────────────────────────────────────────
 // 弹层落在哪一层浮层容器,由宿主按树声明(默认 = Base UI 的 document.body)。见 lib/portal-container。
-export { UiPortalContainerProvider, useUiPortalContainer } from '../lib/portal-container';
+export { UiPortalContainerProvider, useUiPortalContainer, useUiPopupZIndex } from '../lib/portal-container';
 export { resolveFileIconClass } from '@gugu/session-chat-ui/file-icons';
 export { controlVariants, type ControlVariantProps } from '@session-ui/styles/recipes/control';
 export { inputVariants, type InputVariantProps } from '@session-ui/styles/recipes/input';

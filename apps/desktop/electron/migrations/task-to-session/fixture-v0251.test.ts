@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -45,6 +46,8 @@ describe('v0.2.51 夹具:段 1 + 段 2 之后守恒', () => {
   let tmuxNames: Set<string>
   let summary: TaskToSessionSummary
   let backup: string | null
+  let attachmentHashes: string[]
+  let migratedAttachmentHashes: string[]
 
   beforeEach(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-t2s-v0251-'))
@@ -72,8 +75,13 @@ describe('v0.2.51 夹具:段 1 + 段 2 之后守恒', () => {
     )
     tmuxNames = new Set(fs.readFileSync(path.join(userData, 'tmux-sessions.txt'), 'utf8').split('\n').filter(Boolean))
 
+    const hashes = () => before.attachments
+      .filter((a) => a.stored_path.startsWith(path.join(userData, 'task-attachments') + path.sep))
+      .map((a) => createHash('sha256').update(fs.readFileSync(a.stored_path)).digest('hex'))
+    attachmentHashes = hashes()
     backup = await backupBeforeTaskToSession(db, dbPath)
     await initializeDatabase(db)
+    migratedAttachmentHashes = hashes()
     const env = { ...process.env, GUGU_HOME: path.join(userData, 'gugu-home') }
     const live = tmuxNames
     summary = (await runTaskToSessionOnce({
@@ -120,6 +128,11 @@ describe('v0.2.51 夹具:段 1 + 段 2 之后守恒', () => {
     expect(openWith.some((k) => k.startsWith('group:'))).toBe(true)
   })
 
+  it('preserves legacy attachment bytes through all SQL migrations', () => {
+    expect(attachmentHashes.length).toBeGreaterThan(0)
+    expect(migratedAttachmentHashes).toEqual(attachmentHashes)
+  })
+
   it('会话数不变,每条会话都有工作区,而且是它原来那个 task 的工作区', () => {
     const after = db.prepare('SELECT id, workspace_id FROM sessions').all() as Array<{ id: string; workspace_id: string | null }>
     expect(after.map((c) => c.id).sort()).toEqual(before.conversations.map((c) => c.id).sort())
@@ -130,16 +143,10 @@ describe('v0.2.51 夹具:段 1 + 段 2 之后守恒', () => {
     }
   })
 
-  it('附件都能打开:有会话的那些归给代表会话、路径不变;无主的自有文件挪进迁移目录,内容不变', () => {
-    const rows = db.prepare('SELECT id, session_id, stored_path FROM session_attachments').all() as Array<{ id: string; session_id: string; stored_path: string }>
+  it('附件文件仍能打开,旧表已删除;无主自有文件挪进迁移目录,内容不变', () => {
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'session_attachments'").all()).toEqual([])
     const owned = before.attachments.filter((a) => !orphanTaskIds().has(a.task_id))
-    expect(rows.map((r) => r.id).sort()).toEqual(owned.map((a) => a.id).sort())
-    for (const row of rows) {
-      const was = owned.find((a) => a.id === row.id)!
-      expect(row.session_id).toBe(scopeOwner.get(was.task_id))
-      expect(row.stored_path).toBe(was.stored_path)
-      expect(fs.readFileSync(row.stored_path).length).toBeGreaterThan(0)
-    }
+    for (const attachment of owned) expect(fs.readFileSync(attachment.stored_path).length).toBeGreaterThan(0)
     const orphans = before.attachments.filter((a) => orphanTaskIds().has(a.task_id))
     expect(summary.orphans.attachments.map((a) => a.id).sort()).toEqual(orphans.map((a) => a.id).sort())
     for (const entry of summary.orphans.attachments) {

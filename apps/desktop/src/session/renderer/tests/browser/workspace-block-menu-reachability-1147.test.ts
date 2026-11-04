@@ -107,7 +107,12 @@ beforeEach(async () => {
   editor().dispatch({ changes: { from: 0, to: editor().state.doc.length, insert: text } });
   await userEvent.keyboard('{Escape}');
   await userEvent.click(byId('mode-preview'));
-  byId('preview').scrollTop = 0;
+  const preview = byId('preview');
+  if (preview.scrollTop !== 0) {
+    const settled = new Promise<Event>((resolve) => preview.addEventListener('scroll', resolve, { once: true }));
+    preview.scrollTop = 0;
+    await settled;
+  }
   await until('the original reading is redrawn', () => renders > before && !!byId('preview').querySelector('p[data-line="5-5"]') && !byId('preview').querySelector('table'));
   upload.mockClear();
   copied.length = 0;
@@ -119,7 +124,6 @@ beforeEach(async () => {
 afterAll(() => {
   const editor = document.querySelector<HTMLElement>('.cm-editor');
   if (editor) view.EditorView.findFromDOM(editor)?.destroy();
-  document.body.replaceChildren();
   ownStyle.remove();
   ydoc.destroy();
 });
@@ -174,7 +178,14 @@ it('keeps the block through left padding, opens its menu, and changes only on an
     expect(controls().hidden).toBe(false);
   }
   await openHandle('block-handle');
-  await userEvent.keyboard('{Escape}');
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    await userEvent.keyboard('{Escape}');
+    vi.runOnlyPendingTimers();
+  } finally {
+    vi.useRealTimers();
+  }
+  expect(controls().hidden, 'Escape keeps the handle under the resting pointer').toBe(false);
   await openHandle();
   const title = byId('doc-title').getBoundingClientRect();
   await pointer(title.left + 10, title.top + 5);

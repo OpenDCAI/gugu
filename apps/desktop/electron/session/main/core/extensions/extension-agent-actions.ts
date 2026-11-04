@@ -38,7 +38,8 @@ import { readExtensionSkills } from '../../../../extension-session-mcp';
 import { appLine, skillLine, skillUseLine } from '../../../../extension-agent-lines';
 import { EXTENSION_ARCHIVE_MIME, EXTENSION_ARCHIVE_SUFFIX, packExtensionArchive, packInstalledExtension, unpackExtensionArchive } from './extension-archive';
 import type { CloudExtensionMarket, CloudMarketListing } from './market-catalog';
-import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS, APP_MANAGE_ARGS, manifestFragmentSchema } from '@shared/extensions/app-tool-args';
+import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS, APP_MANAGE_ARGS, manifestFragmentSchema, appCheckTargetError } from '@shared/extensions/app-tool-args';
+import { WIDGET_CHECK_SCHEMA } from '@shared/extensions/extension-check';
 import { handedConsentSchema, type HandedConsent } from '@shared/extensions/install-consent-flow';
 import { TEMPLATE_AUTHOR_FILES, TEMPLATE_LOOK, extensionTemplate, templateFileSuffix } from './extension-templates';
 import {
@@ -108,7 +109,7 @@ const agentActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('pack_installed'), id: z.string().min(1) }),
   // D-31 Built by the host for `app_install { device }`: the other machine handed back its ask, asked here as this agent's.
   z.object({ action: z.literal('ask_install'), request: z.custom<ExtensionInstallConsentRequest>((value) => typeof value === 'object' && value !== null) }),
-  z.object({ action: z.literal('check'), ...APP_CHECK_ARGS }),
+  z.object({ action: z.literal('check'), ...APP_CHECK_ARGS, widget: WIDGET_CHECK_SCHEMA.optional() }),
 ]);
 
 /**
@@ -378,6 +379,7 @@ const kept = (report: ExtensionCheckReport) =>
   report.page ? `The page stays as it is now: app_check again with page "${report.page}" and more steps goes on from here (it closes ${EXTENSION_CHECK_PAGE_IDLE_MS / 60_000} min after, or when you app_install again). ` : '';
 
 export function checkResult(report: ExtensionCheckReport, now = Date.now()) {
+  const widget = report.widget ? { rendered: report.rendered, widget: report.widget, text: report.text, locale: report.locale, themeMode: report.themeMode, note: report.note } : {};
   // What the page threw also comes through the runtime's reportError (摩擦单 F63), as "<message> (<file>:<line>)": said
   // once, by the console's copy, which carries the line of source (F75).
   const thrown = new Set(report.errors.filter((error) => error.kind !== 'reportError' && error.source).map((error) => `${error.message} (${error.source})`));
@@ -420,6 +422,8 @@ export function checkResult(report: ExtensionCheckReport, now = Date.now()) {
     : '';
   return {
     ok,
+    ...widget,
+    ...(report.reason ? { reason: report.reason } : {}),
     loaded: report.loaded,
     ...(report.loadError ? { load_error: report.loadError } : {}),
     ...(report.stuck ? { stuck: report.stuck } : {}),
@@ -433,7 +437,7 @@ export function checkResult(report: ExtensionCheckReport, now = Date.now()) {
     ...(report.pictures?.length ? { pictures: report.pictures } : {}),
     ...(report.page ? { page: report.page } : {}),
     elapsed_ms: report.elapsedMs,
-    next: ok
+    next: report.rendered === false ? report.text! : ok
       ? `It loaded without errors.${heard} ${stepWords}${host}${busy}${report.tools?.length ? `Its tools for agents: ${report.tools.join(', ')}. ` : ''}Read snapshot too: it is what the person sees — if it says something is missing (no file bound, nothing to show), that is still a bug. ${look}${kept(report)}Tell the person it is done only when it works and looks right.`
       : `It does not work yet: ${why}${stepWords}fix what load_error, errors and console say, app_install again, and app_check again.${heard} ${host}${busy}${look}${kept(report)}Do not tell the person it is done until a check comes back ok.`,
   };
@@ -628,6 +632,7 @@ async function installFromMarketForAgent(
   return withWindowNote(result.announced, {
     installed: true,
     outcome: 'confirmed',
+    asked: result.asked,
     id: result.id,
     name: result.name,
     version: result.version,
@@ -725,6 +730,7 @@ async function installFolder(
   return withWindowNote(done.announced, {
     installed: true,
     outcome: 'confirmed' as const,
+    asked: done.asked,
     id: installed.manifest.id,
     name: installed.manifest.name,
     version: installed.manifest.version,
@@ -934,29 +940,34 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
     }
     case 'check': {
       if (dependencies.headless) throw new Error(HEADLESS_EXTENSION_CHECK_REFUSAL);
-      const kind = parseExtensionTabKind(action.tab_kind);
+      if (!action.widget) {
+        const error = appCheckTargetError(action);
+        if (error) throw new Error(error);
+        if (action.message_id !== undefined || action.widget_id !== undefined) throw new Error('app_check: the host must resolve the widget message first');
+      }
+      const kind = parseExtensionTabKind(action.tab_kind ?? '');
       if (!kind) {
         throw new Error(`app_check: "${action.tab_kind}" is not a tab_kind (<App id>.<tab name>) — take it from app_install or app_search`);
       }
       const service = extensionsService();
       const entry = service.list().extensions.find((candidate) => candidate.manifest.id === kind.extensionId);
-      if (!entry) {
+      if (!entry && !action.widget) {
         throw new Error(`app_check: ${kind.extensionId} is not installed — app_install it first (app_search shows what is)`);
       }
-      if (!service.isEnabled(kind.extensionId)) {
+      if (!action.widget && !service.isEnabled(kind.extensionId)) {
         throw new Error(`app_check: ${kind.extensionId} is switched off; the person switches it back on in Apps`);
       }
-      const tabs = entry.manifest.contributes.tabs;
+      const tabs = entry?.manifest.contributes.tabs ?? [];
       const tab = tabs.find((candidate) => candidate.name === kind.tabName);
-      if (!tab) {
+      if (!tab && !action.widget) {
         throw new Error(`app_check: ${kind.extensionId} has no tab "${kind.tabName}"; its tab_kinds: ${tabs.map((candidate) => extensionTabKind(kind.extensionId, candidate.name)).join(', ')}`);
       }
       // The tool is listed only where it works (F14); a host without it answering anyway is a build that got here by accident.
       if (!dependencies.checkSurface) throw new Error('app_check is not available in this build of gugu');
-      if (action.page !== undefined && [action.chat_id, action.item_id, action.file_path, action.phone].some((given) => given !== undefined)) {
+      if (action.page !== undefined && [action.widget ? undefined : action.chat_id, action.item_id, action.file_path, action.phone].some((given) => given !== undefined)) {
         throw new Error('app_check: a page goes on where it opened, at its size — give page with tab_kind and steps alone');
       }
-      if (action.phone !== undefined && !action.steps) throw new Error('app_check: phone is the size steps run at — give it with steps');
+      if (action.phone !== undefined && !action.steps && !action.widget) throw new Error('app_check: phone is the size steps run at — give it with steps');
       const badKey = action.steps?.findIndex((step) => 'press' in step && !isExtensionStepKey(step.press)) ?? -1;
       if (badKey >= 0) {
         const { press } = action.steps![badKey] as { press: string };
@@ -967,20 +978,22 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       // App's own page, a tab of the caller's session as it opens there.
       const session = action.file_path !== undefined
         ? await sessionFileOf(action.file_path, action, dependencies.callerWorkspaceRoot, caller)
-        : !action.chat_id && caller && declaredContexts(tab).length === 0 ? { sessionId: caller } : null;
+        : !action.chat_id && caller && tab && declaredContexts(tab).length === 0 ? { sessionId: caller } : null;
       // Owner 10-14: the page is worked by the agent that asks — what it does there is done in that agent's name; with no
       // agent asking, nobody works it (the person never sees it), so there is no check.
       const agent = caller ? await dependencies.callerAgent?.() : undefined;
       if (!caller || !agent) throw new Error('app_check: the page is worked by the agent that asks, and none asks here');
       const report = await dependencies.checkSurface({
         extensionId: kind.extensionId,
-        tabName: tab.name,
+        tabName: kind.tabName,
         ...(action.chat_id ? { chatId: action.chat_id } : {}),
         ...(action.item_id ? { itemId: action.item_id } : {}),
         ...(session ?? {}),
         timeoutMs: EXTENSION_CHECK_TIMEOUT_MS,
         ...(action.steps ? { steps: action.steps } : {}),
         ...(action.phone ? { phone: true } : {}),
+        ...(action.look === undefined ? {} : { look: action.look }),
+        ...(action.widget ? { widget: action.widget } : {}),
         caller,
         operator: { kind: 'agent', id: agent },
         ...(action.page ? { page: action.page } : {}),

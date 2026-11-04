@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { serverMachineNotices } from '@gugu/core/cloud/serverMachineHealth'
+import { serverMachineNotices, serverSupportsConfirmedRestart } from '@gugu/core/cloud/serverMachineHealth'
 import { X } from '../lib/icons'
-import { retryServerVersionMatch } from '../lib/serverVersionRetry'
+import { readServerVersionSwitchBusyAgents, restartServerVersionNow, retryServerVersionMatch } from '../lib/serverVersionRetry'
 import type { SshLinkFailure } from '../lib/sshLink'
 import { pickSshLinkNotice, type SshLinkNotice } from '../lib/sshLinkNotice'
 import {
@@ -13,15 +13,20 @@ import {
   sshReinstallCommand,
   subscribeSshLinkProblems,
   subscribeSshSignInPrompts,
+  subscribeSshUpgradeEvents,
 } from '../lib/sshLinkChannel'
 import type { SshPrompt } from '../session/shared/ssh-prompt'
 import { useDevicesStore } from '../store/devicesContext'
+import { canRestartServerUpdate } from '../lib/deviceRowModel'
+import { useSessionMessages } from '../session/renderer/localization/use-session-messages'
 import { IconButton } from './ui/IconButton'
 import { SshPromptCard, SshPromptFrame } from './settings/addServer/SshPromptCard'
 import { Button } from './ui/Button'
 import { InlineAction } from './settings/addServer/InlineAction'
 import { CommandBlock } from './settings/addServer/CommandBlock'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
+import { useToast } from './toastContext'
+import { messageForUser } from '@/lib/userFacingError'
 
 // #6264 远程 SSH 的机器:这台电脑与它之间只走 SSH(product spec「两种连法，处处能用」)。
 // 连不上时 ❌ 退回咕咕云,各个模块照常报「问不到」;「怎么修」只在这一处说 —— 一张浮在窗口顶部中间的卡片
@@ -32,19 +37,28 @@ import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 //  · 指纹变了 / 被拒绝 / 没登这个账号 / 没装:如实说(被拒绝 ❌ 当成太旧去升级 —— 升级只因为版本)。
 // 后台开的连接从不自己弹问(BatchMode),所以人不点就不会被突然问密码;收起之后同一台同一种原因不再出现。
 //  · 版本对不上、那台机器上有 agent 在跑(它在等空闲再换):问人「现在重启更新」,收起 = 稍后。远程隧道的机器也在这里问
-//    (它的心跳报「装好了、等空闲」+ 协议太旧),点了走设备行「重试」那条设备 RPC —— 只有人点的请求才不等空闲。
+//    (它的心跳报「装好了、等空闲」+ 协议太旧),可确认时走设备行的显式目标重启,只有人点的请求才不等空闲。
 
 export function SshLinkSignIn() {
   const { t } = useTranslation('settings')
+  const { translate } = useSessionMessages()
   const { devices } = useDevicesStore()
+  const { toast } = useToast()
   const [problems, setProblems] = useState<ReadonlyMap<string, SshLinkFailure>>(() => new Map())
   const [dismissed, setDismissed] = useState<ReadonlyMap<string, SshLinkFailure>>(() => new Map())
   const [signingIn, setSigningIn] = useState<string | null>(null)
   const [prompt, setPrompt] = useState<{ deviceId: string; prompt: SshPrompt } | null>(null)
   const [answered, setAnswered] = useState(false)
-  const [confirmRestart, setConfirmRestart] = useState<string | null>(null)
+  const [confirmRestart, setConfirmRestart] = useState<{ deviceId: string; busyAgents?: number | null } | null>(null)
 
   useEffect(() => subscribeSshLinkProblems(setProblems), [])
+  useEffect(() => subscribeSshUpgradeEvents(event => {
+    if (event.phase !== 'unconfirmed') return
+    toast(t('devices.update.restartUnconfirmed', {
+      name: devices.find(device => device.device_id === event.deviceId)?.label ?? event.deviceId,
+      version: event.reportedVersion ?? t('devices.versionUnknown'),
+    }), 'info')
+  }), [devices, t, toast])
   useEffect(
     () =>
       subscribeSshSignInPrompts((event) => {
@@ -60,6 +74,7 @@ export function SshLinkSignIn() {
       devices.find(
         (d) =>
           !isSshMachine(d.device_id) &&
+          d.is_online &&
           dismissed.get(d.device_id) !== 'waitingIdle' &&
           d.capabilities?.server_update?.state === 'ready' &&
           serverMachineNotices(d.capabilities).some((n) => n.kind === 'server-too-old'),
@@ -71,7 +86,11 @@ export function SshLinkSignIn() {
   const shown: SshLinkNotice | null = signingMachine
     ? { deviceId: signingMachine.device_id, name: signingMachine.label, reason: 'signInRequired' }
     : (notice ?? (tunnelWaiting ? { deviceId: tunnelWaiting.device_id, name: tunnelWaiting.label, reason: 'waitingIdle' } : null))
+  if (confirmRestart && (shown?.reason !== 'waitingIdle' || shown.deviceId !== confirmRestart.deviceId)) setConfirmRestart(null)
   if (!shown) return null
+  const tunnelUpdate = !notice ? tunnelWaiting?.capabilities.server_update : undefined
+  const confirmableUpdate = tunnelUpdate?.state === 'ready' && tunnelWaiting
+    && canRestartServerUpdate(tunnelUpdate, tunnelWaiting.capabilities) ? tunnelUpdate : null
 
   const startSignIn = () => {
     const deviceId = shown.deviceId
@@ -83,13 +102,26 @@ export function SshLinkSignIn() {
     })
   }
   const dismiss = () => setDismissed((prev) => new Map(prev).set(shown.deviceId, shown.reason))
-  // 人点了「现在重启更新」又确认了:远程 SSH 的这台电脑替它当场换(--now);远程隧道 / 云电脑走设备行「重试」那条设备 RPC。只有人点的才不等空闲。
-  const restartNow = () => {
+  const askRestart = () => {
+    const question = { deviceId: shown.deviceId, busyAgents: null }
+    setConfirmRestart(question)
+    void readServerVersionSwitchBusyAgents(shown.deviceId).then(busyAgents => {
+      setConfirmRestart(current => current === question ? { ...question, busyAgents } : current)
+    })
+  }
+  // Keep the SSH upgrader; restartable cloud targets use the device row's explicit confirmation.
+  const restartNow = async () => {
     const deviceId = shown.deviceId
-    if (isSshMachine(deviceId)) void requestSshServerUpgrade(deviceId, { force: true, now: true })
-    else void retryServerVersionMatch(deviceId)
     setConfirmRestart(null)
-    setDismissed((prev) => new Map(prev).set(deviceId, 'waitingIdle'))
+    const failed = (error?: unknown) => toast(t('devices.update.restartFailed', { name: shown.name }), 'error', error ? messageForUser(error) : undefined)
+    try {
+      let requested = true
+      if (isSshMachine(deviceId)) await requestSshServerUpgrade(deviceId, { force: true, now: true })
+      else if (confirmableUpdate && tunnelWaiting) requested = (await restartServerVersionNow(deviceId, confirmableUpdate.version, serverSupportsConfirmedRestart(tunnelWaiting.capabilities))).requested
+      else requested = await retryServerVersionMatch(deviceId)
+      if (!requested) { failed(); return }
+      setDismissed((prev) => new Map(prev).set(deviceId, 'waitingIdle'))
+    } catch (error) { failed(error) }
   }
   const activePrompt = prompt && prompt.deviceId === shown.deviceId ? prompt.prompt : null
   const canSignIn = shown.reason === 'signInRequired' || shown.reason === 'hostKeyChanged'
@@ -105,23 +137,27 @@ export function SshLinkSignIn() {
           // 版本对不上、那台机器在等 agent 空闲:与 SSH 提问同一副卡(机器名一行 + 一句 + 底行按钮),「现在」先当面确认一次。
           <SshPromptFrame
             context={{ name: shown.name }}
-            testId={confirmRestart === shown.deviceId ? 'ssh-link-update-confirm' : 'ssh-link-update-ask'}
+            testId={confirmRestart?.deviceId === shown.deviceId ? 'ssh-link-update-confirm' : 'ssh-link-update-ask'}
             actions={
-              confirmRestart === shown.deviceId ? (
+              confirmRestart?.deviceId === shown.deviceId ? (
                 <>
                   <Button size="sm" onClick={() => setConfirmRestart(null)} data-testid="ssh-link-update-cancel">{t('devices.cancel')}</Button>
-                  <Button size="sm" variant="primary" autoFocus onClick={restartNow} data-testid="ssh-link-update-confirm-now">{t('devices.link.confirmRestart')}</Button>
+                  <Button size="sm" variant="primary" autoFocus disabled={confirmRestart.busyAgents === null} onClick={restartNow} data-testid="ssh-link-update-confirm-now">{t('devices.link.confirmRestart')}</Button>
                 </>
               ) : (
                 <>
                   <Button size="sm" onClick={dismiss} data-testid="ssh-link-update-later">{t('devices.link.later')}</Button>
-                  <Button size="sm" variant="primary" autoFocus onClick={() => setConfirmRestart(shown.deviceId)} data-testid="ssh-link-update-now">{t('devices.link.updateNow')}</Button>
+                  <Button size="sm" variant="primary" autoFocus onClick={askRestart} data-testid="ssh-link-update-now">{t('devices.link.updateNow')}</Button>
                 </>
               )
             }
           >
             <p className="m-0 text-[length:var(--font-body)] leading-[1.5]">
-              {t(confirmRestart === shown.deviceId ? 'devices.link.updateNowConfirm' : 'devices.link.waitingIdle', { name: shown.name })}
+              {confirmRestart?.deviceId === shown.deviceId
+                ? t(typeof confirmRestart.busyAgents === 'number' ? 'devices.update.updateNowConfirmCount' : 'devices.update.updateNowConfirm', { name: shown.name, count: confirmRestart.busyAgents ?? undefined })
+                : confirmableUpdate
+                  ? translate('remoteHost.notice.updateReady', { device: shown.name, version: confirmableUpdate.version })
+                  : t('devices.link.waitingIdle', { name: shown.name })}
             </p>
           </SshPromptFrame>
         ) : activePrompt ? (

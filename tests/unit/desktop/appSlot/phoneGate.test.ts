@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { startGate } from '../../../../apps/desktop/src/session/app-runtime/gate'
 import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { messageHost } from '../../../../apps/desktop/src/session/app-runtime/framed-host'
 
 /**
  * The phone's gate (gate.ts): what the gugu page hears from an App goes through it, and the one thing it changes is the
@@ -70,6 +71,20 @@ describe("a call's gesture is the gate's reading, never the App's word", () => {
 })
 
 describe('the gate listens to its App and to the gugu page, nobody else', () => {
+  it('carries a binary range through the gate and framed host without JSON conversion', async () => {
+    let deliver!: (message: unknown) => void
+    let request!: { id: number }
+    const host = messageHost({ post: message => { request = message as { id: number } }, listen: listener => { deliver = listener } }, { framed: true })
+    const pending = host.appFiles.read({ ref: { id: 'file', version: 1 }, offset: 0, length: 3 })
+    toApp.mockImplementation(message => deliver(structuredClone(message)))
+    window.dispatchEvent(new MessageEvent('message', { source: window, origin: 'https://localhost', data: structuredClone({ m: APP_FRAME_MARKER, t: 'result', id: request.id, ok: true, value: { size: 3, offset: 0, data: new Uint8Array([0, 255, 128]) } }) }))
+    const reply = await pending
+    // Node's structuredClone in jsdom returns its own realm's typed arrays, as a real receiving window does.
+    expect(reply.data).toBeInstanceOf(structuredClone(new Uint8Array()).constructor)
+    expect([...reply.data]).toEqual([0, 255, 128])
+    expect(reply.data.buffer.byteLength).toBe(3)
+  })
+
   it('a message from another window, or from the App\'s window in another origin, is dropped', () => {
     const other = document.createElement('iframe')
     document.body.append(other)

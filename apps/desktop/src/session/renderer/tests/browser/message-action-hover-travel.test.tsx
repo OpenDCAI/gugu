@@ -39,16 +39,19 @@ async function move(x: number, y: number) {
   await sweep([{ x, y }]);
 }
 
-/**
- * A moving mouse reports every frame. Base UI's safe polygon keeps the popup open across the row-to-popup gap only while
- * moves keep coming (it closes after 40 ms without one, safePolygon.mjs), so the crossing is sent as one stream of moves
- * instead of one awaited CDP round trip per step — on a loaded machine those round trips alone exceed 40 ms.
- */
+/** CDP uses top-page coordinates; map through every test frame's scale and border while keeping one stream of moves. */
 async function sweep(points: readonly { x: number; y: number }[]) {
-  const frame = (window.frameElement as HTMLElement | null)?.getBoundingClientRect() ?? { left: 0, top: 0 };
   const session = cdp() as unknown as { send: (method: string, params: object) => Promise<unknown> };
   await act(async () => {
-    await Promise.all(points.map((point) => session.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: frame.left + point.x, y: frame.top + point.y })));
+    await Promise.all(points.map(({ x, y }) => {
+      for (let current: Window = window; current.frameElement; current = current.parent) {
+        const frame = current.frameElement as HTMLElement, box = frame.getBoundingClientRect();
+        const scale = box.width / frame.offsetWidth;
+        x = box.left + (frame.clientLeft + x) * scale;
+        y = box.top + (frame.clientTop + y) * scale;
+      }
+      return session.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    }));
   });
 }
 
@@ -102,6 +105,68 @@ it.each([false, true].flatMap((topClamp) => [false, true].flatMap((isMine) => [f
   expect(replies).toEqual(['target']);
   await move(5, 500);
   await until('leaving the row and popup closes the pill', () => !pill.isConnected);
+});
+
+it.each([false, true])('hands the pill to the previous bubble before the old close timer runs (isMine: %s)', async (isMine) => {
+  const lower = await mount(true, false, false, isMine);
+  await userEvent.hover(lower);
+  await until('the lower pill opens', () => targetPillOpen(lower));
+  const pill = pills()[0];
+  await until('the lower pill finishes entering', () => !pill.hasAttribute('data-starting-style') && pill.getAnimations().every((animation) => animation.playState === 'finished'));
+  const previous = harness.container.querySelector<HTMLElement>('[data-testid="message-bubble-action-target"]')!;
+  const rect = previous.getBoundingClientRect();
+  // Enter the previous bubble from below; its centre can already be beyond the old travel corridor.
+  const point = { x: rect.left + rect.width / 2, y: rect.bottom - 1 };
+  const popup = pill.getBoundingClientRect();
+  expect(point.x < popup.left || point.x > popup.right, 'the pointer is on the other bubble, away from the popup buttons').toBe(true);
+  expect(previous.contains(document.elementFromPoint(point.x, point.y)), 'the pointer actually hits the previous bubble').toBe(true);
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    await move(point.x, point.y);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(readHoverOwner()?.elements?.trigger, 'ownership moves without waiting for the old close timer').toBe(previous.closest('[data-message-bubble-row]'));
+    expect(targetPillOpen(previous), 'only the previous bubble pill is visible').toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it.each([false, true])('records horizontal travel on the owned row before vertical reverse entry (isMine: %s)', async (isMine) => {
+  const lower = await mount(true, false, false, isMine);
+  const box = lower.getBoundingClientRect();
+  await move(isMine ? box.right - 10 : box.left + 10, box.top + box.height / 2);
+  await until('the lower pill opens from its edge', () => targetPillOpen(lower));
+  const pill = pills()[0];
+  await until('the lower pill finishes entering', () => !pill.hasAttribute('data-starting-style') && pill.getAnimations().every((animation) => animation.playState === 'finished'));
+  const previous = harness.container.querySelector<HTMLElement>('[data-testid="message-bubble-action-target"]')!;
+  const rect = previous.getBoundingClientRect();
+  const point = { x: rect.left + rect.width / 2, y: rect.bottom - 1 };
+  const horizontal = { x: point.x, y: box.top + box.height / 2 };
+  expect(lower.contains(document.elementFromPoint(horizontal.x, horizontal.y)), 'horizontal movement stays on the owned bubble').toBe(true);
+  const owner = readHoverOwner();
+  const handovers: unknown[] = [];
+  const off = subscribeHoverOwner(() => handovers.push(readHoverOwner()));
+  // Compare with the actual pointer event after CDP's scaled-frame conversion, not its unrounded input.
+  const moves: { x: number; y: number }[] = [];
+  const record = (event: PointerEvent) => moves.push({ x: event.clientX, y: event.clientY });
+  lower.addEventListener('pointermove', record);
+  await move(horizontal.x, horizontal.y);
+  lower.removeEventListener('pointermove', record);
+  off();
+  expect(moves).toHaveLength(1);
+  expect.soft(readHoverOwner()?.point, 'the open row updates its last pointer position').toEqual(moves[0]);
+  expect(readHoverOwner()).toBe(owner);
+  expect(handovers).toEqual([]);
+  expect(previous.contains(document.elementFromPoint(point.x, point.y)), 'vertical entry hits the previous bubble').toBe(true);
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    await move(point.x, point.y);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(readHoverOwner()?.elements?.trigger, 'vertical entry takes ownership without the old close timer').toBe(previous.closest('[data-message-bubble-row]'));
+    expect(targetPillOpen(previous)).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('keeps mouse hover disabled on the phone', async () => {

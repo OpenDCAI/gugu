@@ -28,6 +28,7 @@ export interface ProjectAgentOps {
   attach(id: string, path: string): Promise<Answer<ProjectFolder, AttachProjectFolderError>>
   detach(id: string, folderId: string): Promise<Answer<void>>
   bindings(): Promise<Answer<Array<{ projectId: string; chatId: string }>>>
+  localProjectOfGroup(chatId: string): Promise<Answer<string | undefined>>
   ensureGroup(id: string): Promise<Answer<{ chatId: string }>>
   bind(id: string, chatId: string, expectedChatId?: string | null): Promise<Answer<unknown>>
   unbind(id: string): Promise<Answer<{ expectedChatId: string | null }>>
@@ -49,7 +50,8 @@ async function localOps(): Promise<ProjectAgentOps> {
     list: getProjects, get: getProjectById,
     create: (name, path, id) => createProject({ id, type: 'local', name, path, allowNonGit: true, initGitRepository: false, createDirectory: false }),
     folders: folders.listProjectFolders, attach: folders.attachProjectFolder, detach: folders.detachProjectFolder,
-    bindings: groups.listProjectGroupBindings, ensureGroup: groups.ensureProjectGroup, bind: groups.bindProjectToGroup, unbind: groups.unbindProjectGroupForAgent,
+    bindings: groups.listProjectGroupBindings, localProjectOfGroup: groups.localProjectOfGroup,
+    ensureGroup: groups.ensureProjectGroup, bind: groups.bindProjectToGroup, unbind: groups.unbindProjectGroupForAgent,
     inspect: (path) => inspectProjectPath({ type: 'local', path }), delete: deleteProject,
     sessionCount: async (id) => (await db.select({ id: sessions.id }).from(sessions).where(and(eq(sessions.projectId, id), isNull(sessions.archivedAt)))).length,
   }
@@ -158,13 +160,12 @@ async function attachExistingProjectRoot(
 }
 
 async function bindFolder(action: Extract<ProjectAgentAction, { action: 'project_bind_folder' }>, api: ProjectAgentOps): Promise<unknown> {
-  const bindings = value(await api.bindings())
-  const member = bindings.find((b) => b.chatId === action.chat_id)
-  if (member) {
-    const already = value(await api.folders(member.projectId)).find((f) => sameFolder(f.path, action.path))
-    if (already) return { project_id: member.projectId, folder_id: already.workspaceId, path: already.path, chat_id: action.chat_id, already_attached: true }
-    const folder = value(await api.attach(member.projectId, action.path))
-    return { project_id: member.projectId, folder_id: folder.workspaceId, path: folder.path, chat_id: action.chat_id, group_notice: notice(action.chat_id, `把这台设备上的 ${folder.path} 挂进了项目「${action.name}」。`), undo: { tool: 'project_remove_folder', project_id: member.projectId, folder_id: folder.workspaceId } }
+  const projectId = value(await api.localProjectOfGroup(action.chat_id))
+  if (projectId) {
+    const already = value(await api.folders(projectId)).find((f) => sameFolder(f.path, action.path))
+    if (already) return { project_id: projectId, folder_id: already.workspaceId, path: already.path, chat_id: action.chat_id, already_attached: true }
+    const folder = value(await api.attach(projectId, action.path))
+    return { project_id: projectId, folder_id: folder.workspaceId, path: folder.path, chat_id: action.chat_id, group_notice: notice(action.chat_id, `把这台设备上的 ${folder.path} 挂进了项目「${action.name}」。`), undo: { tool: 'project_remove_folder', project_id: projectId, folder_id: folder.workspaceId } }
   }
   const existing = (await api.inspect(action.path)).existingProject
   if (existing && !sameFolder(existing.path, action.path)) throw new Error(`Folder already belongs to project ${existing.name}`)

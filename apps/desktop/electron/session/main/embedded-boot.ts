@@ -1,4 +1,5 @@
 import { sessionBootTasks } from './core/boot-tasks'
+import { hasAgentInstallsInProgress } from './core/agents/install-progress-ledger'
 // @@@sessionpage — the session backend's EMBEDDED-MODULE entry. The session backend is a cohesive
 // submodule (owner #43), NOT a set of gugu subsystems: it exposes exactly ONE boot entry here, and gugu
 // (the host) invokes it + bridges IPC — the host never reaches into the session backend's DB / pty /
@@ -17,6 +18,7 @@ import { sessionBootTasks } from './core/boot-tasks'
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
 import { takeLastExit } from '../../lib/exit-reason'
+import { resumeHostUpdate } from './core/agent-status/resume-host-update'
 import type { BirthGroup } from '@shared/core/sessions/create-session';
 export { readCurrentActivityInput,readCurrentAssistantWorkInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
@@ -113,6 +115,7 @@ import { tmuxBackendStartupSweepSettled } from '../../sessionpage/tmux-backend'
 import { sessions, projects as projectsTable, workspaces as workspacesTable } from '@main/db/schema'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer'
+import { reconcileSurvivorsWithPresence } from '@main/core/agent-hooks/presence-interrupt'
 import {
   closeInterruptedRunIntervals,
   installRunIntervalRecorder,
@@ -372,6 +375,7 @@ import {
 import { log } from '@main/lib/logger'
 import { events } from '@main/lib/events'
 import { installSessionLife, sessionLife } from '@main/core/sessions/session-life'
+import { hydrateLife, shouldStartOnHydrate } from '@gugu/core/local/session-life/step'
 import { admitCreationTurns, bindIdentityThenCreate, claimIdentityCreation } from '@main/core/sessions/session-life-creation'
 import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-agent'
 import { isLifeSession, lifeSessions, lifeStore } from '@main/core/sessions/session-pending'
@@ -598,6 +602,9 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   const occupancy = dataDirHeldByAnotherHost(dataDir)
   // Terminal records to read once at boot; the persisted facts are read here, before the sweep settles their status.
   let ptyRecordResume: string[] = []
+  let updateInterrupted: string[] = []
+  let lastExit: ReturnType<typeof takeLastExit> = { reason: 'unclean', at: null }
+  let presenceReconciliation = Promise.resolve()
   // 先宣告再收残:占用判定明确排除本进程的 pid,所以宣告不会让自己跳过自己的收残;
   // 而先宣告能把「两个宿主几乎同时开机、都读到『没人占』」的窗口收窄到写文件那一瞬。
   // (❌ 不为此上文件级互斥锁:那一瞬撞上的后果 = 退回今天的行为,不是新的损坏。)
@@ -621,7 +628,9 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     })
     ptyRecordResume = ptyRecordResumeSet()
     // 上一次是怎么退出的(更新 / 重启 / 没正常退出):被打断的那几条会话据此说清原因。读一次就删。
-    await sessionBootTasks.run('status-sweep', '', () => agentStatusWriter.settleAfterRestart(tmuxSessionNames, takeLastExit(dataDir)))
+    lastExit = takeLastExit(dataDir)
+    updateInterrupted = await sessionBootTasks.run('status-sweep', '', () => agentStatusWriter.settleAfterRestart(tmuxSessionNames, lastExit.reason)) ?? []
+    presenceReconciliation = reconcileSurvivorsWithPresence(tmuxSessionNames)
     // 上一个进程投到一半就没了的消息：现在认领为「结果未知」终态（不能重投，只能如实说）。
     // 必须在任何人看见会话之前做完 —— 正常在途不经过这里，所以新建会话不会闪这条提示。
     sessionBootTasks.runSync('dispatch-sweep', '', claimInterruptedDispatches)
@@ -739,7 +748,11 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // agent_status 列的对账(补上不经过那条事件的状态写入:出生即 working、restart)。
   installRunIntervalRecorder({ agentStatus: agentStatusWriter, sessionEvents })
   // 附带(defer:推迟到对方下次进入运行中时再送):同一条输出的又一个订阅者 —— 会话进入运行中那一刻,把挂着的附带按普通发送投出去。
-  installDeferredMessageDelivery(agentStatusWriter)
+  // RPC and the first usable host path do not wait for presence I/O. Only deferred delivery
+  // must read the corrected snapshot (or the retained stored reading after the scan's deadline).
+  void presenceReconciliation.then(() => {
+    sessionBootTasks.runSync('deferred-install', '', () => installDeferredMessageDelivery(agentStatusWriter))
+  })
   // spec idle-reclaim:同一条输出的第三个订阅者 —— 空闲满 10 分钟、不在屏上的会话停掉进程,任务放回重启后的样子。
   installIdleReclaim({ agentStatus: agentStatusWriter })
   // @@@4068 — same funnel, second consumer: tell extension surfaces that an agent moved.
@@ -789,6 +802,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // profile 上那把钥匙其实没有任何东西要解)。改由 githubController.getAccountState 惰性触发
   // 且只跑一次 —— renderer 的 GithubContext 在 mount 时就查这个 RPC,功能没有损失。
   // ❌ 别把 reconcile 挪回开机。
+
+  await resumeHostUpdate(updateInterrupted, lastExit, app.getVersion())
 
 }
 
@@ -2406,6 +2421,8 @@ export { captureSessionpageProjectionViewer } from './core/extensions/extension-
  */
 export function sessionpageSessionDigest(): Array<{
   nativeInputVersion?: 1 | 2
+  /** Client identity survives host queue admission and provider transcript IDs. */
+  nativeInputIdentity?: true
   runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string
@@ -2430,6 +2447,7 @@ export function sessionpageSessionDigest(): Array<{
     .sort((a, b) => (b.lastInteractedAt ?? '').localeCompare(a.lastInteractedAt ?? ''))
     .map((session) => ({
       nativeInputVersion: session.nativeInputVersion,
+      ...(session.nativeInputIdentity ? { nativeInputIdentity: true as const } : {}),
       runtime: session.runtime,
       conversationId: session.conversationId,
       projectId: session.projectId,
@@ -2473,7 +2491,7 @@ function refreshDigestAgents(): void {
 /**
  * #6264 server 换版时这台机器(这个账号)算不算忙 —— 写进 activity.json 的 busy,守护进程据此决定现在换还是等空闲。
  * 只数账号进程一重启就会被打断的会话(`busyForVersionSwitch`,「会不会被打断」读 `sessionProcess(id).home`);
- * tmux 里的终端会话换版后照名字接回,不拦换版。未结束的集成授权同样会被重启打断,也计入 activity.json。
+ * tmux 里的终端会话换版后照名字接回,不拦换版。未结束的集成授权和可自动恢复的待投递工作同样计入。
  * 本机读数,❌ 进云端摘要。
  */
 export function sessionpageBusyForVersionSwitch(): boolean {
@@ -2499,14 +2517,17 @@ export function sessionpageBootFailures() {
 }
 
 export function sessionpageVersionSwitchActivity(): { busy: boolean; busyAgents: number } {
-  const busyAgents = listSessionStates().sessions.filter((session) =>
-    busyForVersionSwitch(
-      parseAgentStatusView(session.status ?? null),
-      session.runtime,
-      sessionProcess(session.conversationId)?.home ?? null,
-    ),
-  ).length
-  return { busy: integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
+  const sessions = new Map(listSessionStates().sessions.map(session => [session.conversationId, session]))
+  const life = new Set(lifeSessions())
+  const busyAgents = [...new Set([...sessions.keys(), ...life])].filter(sessionId => {
+    const session = sessions.get(sessionId)
+    if (session && busyForVersionSwitch(parseAgentStatusView(session.status ?? null), session.runtime, sessionProcess(sessionId)?.home ?? null)) return true
+    if (!life.has(sessionId)) return false
+    const pending = lifeStore.pending(sessionId)
+    return pending.dispatching.length > 0 || (pending.queued.length > 0
+      && shouldStartOnHydrate(hydrateLife(lifeStore.read(sessionId)), pending))
+  }).length
+  return { busy: hasAgentInstallsInProgress() || integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
 }
 
 /** Refresh the account heartbeat at authorization boundaries, without waiting

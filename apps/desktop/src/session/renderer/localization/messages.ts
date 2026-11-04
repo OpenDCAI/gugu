@@ -5,6 +5,7 @@ import { enUSRemoteHostMessages, zhCNRemoteHostMessages } from './messages-remot
 import { enUSRemotePortMessages, zhCNRemotePortMessages } from './messages-remote-ports';
 import { enUSSubscriptionMessages, zhCNSubscriptionMessages } from './messages-subscriptions';
 import { enUSSessionWorkflowMessages, zhCNSessionWorkflowMessages } from './messages-session-workflows';
+import { enUSLegacyDmMessages, zhCNLegacyDmMessages } from './messages-legacy-dm';
 import { enUSSessionScheduleMessages, zhCNSessionScheduleMessages } from './messages-session-schedules';
 import { enUSAgentStatusMessages, zhCNAgentStatusMessages } from './messages-agent-status';
 import { enUSAppSettingsMessages, zhCNAppSettingsMessages } from './messages-app-settings';
@@ -49,6 +50,10 @@ const enUSCoreMessages = {
   'sidebar.expandChildSessions': 'Expand child sessions',
   'sidebar.collapseChildSessions': 'Collapse child sessions',
   'sidebar.sessionTreeNeedsAttention': 'Session tree needs attention',
+  'sidebar.sessionBranchCount': '{count} descendant sessions',
+  'sidebar.sessionBranchMoreLevels': '{count} more levels · View branch',
+  'sidebar.sessionBranchNavigation': 'Session branch',
+  'sidebar.allProjectSessions': 'All sessions',
   'sidebar.collapseProjects': 'Collapse projects',
   'sidebar.sortProjects': 'Sort projects',
   'sidebar.sortBy': 'Sort by',
@@ -92,6 +97,7 @@ const enUSCoreMessages = {
   'globalSearch.task': 'Task',
   'globalSearch.agent': 'Agent',
   'globalSearch.you': 'You',
+  'globalSearch.system': 'System',
   'globalSearch.unknownChat': 'Conversation',
   'globalSearch.introWhat': 'Search the words in every chat and task you can see.',
   'globalSearch.introWhatChats': 'Search the words in every chat you can see.',
@@ -371,6 +377,7 @@ const enUSCoreMessages = {
   'extensions.downloading': 'Downloading {percent}%',
   'extensions.compatExplain': 'Why this version cannot be installed here',
   'extensions.needsNewerApp': 'Needs gugu {version} or newer',
+  'extensions.needsAppApi': 'Needs a gugu version that supports App API {apiVersion}',
   'extensions.needsAuthorUpdate': 'Needs an update from the author',
   'extensions.deprecated': 'No longer maintained',
   'extensions.deprecatedUseReplacement': 'Use {name}',
@@ -1121,6 +1128,10 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'sidebar.expandChildSessions': '展开子任务',
   'sidebar.collapseChildSessions': '收起子任务',
   'sidebar.sessionTreeNeedsAttention': '子任务里有需要你处理的',
+  'sidebar.sessionBranchCount': '{count} 个子会话（不含自身）',
+  'sidebar.sessionBranchMoreLevels': '下级还有 {count} 层 · 查看分支',
+  'sidebar.sessionBranchNavigation': '会话分支',
+  'sidebar.allProjectSessions': '全部会话',
   'sidebar.collapseProjects': '收起项目',
   'sidebar.sortProjects': '项目排序',
   'sidebar.sortBy': '排序方式',
@@ -1163,6 +1174,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'globalSearch.task': '任务',
   'globalSearch.agent': 'Agent',
   'globalSearch.you': '你',
+  'globalSearch.system': '系统消息',
   'globalSearch.unknownChat': '会话',
   'globalSearch.introWhat': '搜你能看到的所有聊天和任务里的文字。',
   'globalSearch.introWhatChats': '搜你能看到的所有聊天里的文字。',
@@ -1406,6 +1418,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'extensions.downloading': '下载中 {percent}%',
   'extensions.compatExplain': '为什么这一版装不上',
   'extensions.needsNewerApp': '需要更新咕咕(≥ {version})',
+  'extensions.needsAppApi': '需要支持 App API {apiVersion} 的咕咕版本',
   'extensions.needsAuthorUpdate': '需要作者更新',
   'extensions.deprecated': '已停止维护',
   'extensions.deprecatedUseReplacement': '改用 {name}',
@@ -2087,6 +2100,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
 export const enUSMessages = {
   ...enUSCoreMessages,
   ...enUSSessionWorkflowMessages,
+  ...enUSLegacyDmMessages,
   ...enUSProjectMessages,
   ...enUSCapabilityMessages,
   ...enUSSharedMessages,
@@ -2109,6 +2123,7 @@ export type SessionMessageLookupKey<Key extends string = SessionMessageKey> =
 export const zhCNMessages: Record<SessionMessageKey, string> = {
   ...zhCNCoreMessages,
   ...zhCNSessionWorkflowMessages,
+  ...zhCNLegacyDmMessages,
   ...zhCNProjectMessages,
   ...zhCNCapabilityMessages,
   ...zhCNSharedMessages,

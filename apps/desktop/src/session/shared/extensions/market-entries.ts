@@ -31,12 +31,13 @@ export interface InvalidMarketRow {
 export function marketEntriesFrom(
   apps: readonly MarketIndexApp[],
   host: MarketHost,
-  urlOf: (relativePath: string) => string
+  urlOf: (relativePath: string) => string,
+  hostApi?: MarketIndex['hostApi']
 ): { extensions: CloudMarketEntry[]; invalid: InvalidMarketRow[] } {
   const extensions: CloudMarketEntry[] = [];
   const invalid: InvalidMarketRow[] = [];
   for (const app of apps) {
-    const picked = pickForHost(app.versions.filter((version) => appPlatformDeclarationProblems(version.manifest, host.platform).length === 0), host);
+    const picked = pickForHost(app.versions.filter((version) => appPlatformDeclarationProblems(version.manifest, host.platform).length === 0), host, hostApi);
     if (!picked.chosen) {
       const live = app.versions.filter((version) => !version.yanked);
       if (live.length && live.every((version) => appPlatformDeclarationProblems(version.manifest).length > 0)) {
@@ -130,7 +131,7 @@ export function marketUpdatesFrom(
   const summary: MarketUpdatesSummary & { gone: string[] } = { checkedAt, updates: {}, yanked: {}, deprecated: {}, gone: [] };
   const ids = new Set(installed.map((entry) => entry.id));
   const apps = index.apps.filter((app) => ids.has(app.id));
-  const { extensions } = marketEntriesFrom(apps, host, (relativePath) => relativePath);
+  const { extensions } = marketEntriesFrom(apps, host, (relativePath) => relativePath, index.hostApi);
   const offeredById = new Map(extensions.map((entry) => [entry.manifest.id, entry]));
   for (const { id, version, fromMarket, forkBase } of installed) {
     const app = apps.find((entry) => entry.id === id);
@@ -162,7 +163,7 @@ export function marketUpdatesFrom(
 }
 
 /** 一个 App 的全部版本,最新的在前;每一版带这台机器装不装得了、撤回没有(产品页的版本历史、手机的「其他版本」)。 */
-export function marketHistoryFrom(app: MarketIndexApp | null, host: MarketHost): MarketVersionHistoryEntry[] {
+export function marketHistoryFrom(app: MarketIndexApp | null, host: MarketHost, hostApi?: MarketIndex['hostApi']): MarketVersionHistoryEntry[] {
   return (app?.versions ?? [])
     .slice()
     .sort((a, b) => compareExtensionVersions(b.version, a.version))
@@ -173,7 +174,7 @@ export function marketHistoryFrom(app: MarketIndexApp | null, host: MarketHost):
       apiVersion: version.apiVersion,
       minAppVersion: version.minAppVersion,
       yanked: version.yanked,
-      compat: compatOf(version, host),
+      compat: compatOf(version, host, hostApi),
       platformRefusal: appPlatformDeclarationProblems(version.manifest, host.platform).join('; ') || null,
     }));
 }

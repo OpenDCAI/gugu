@@ -113,6 +113,14 @@ describe('#7290 a card in the group folder, installed by its message', () => {
 });
 
 describe('installing an extension package from chat (#6646)', () => {
+  it('reports the consent that confirmed a package with network access', async () => {
+    await sendInChat('share', { network: ['api.example.com'] });
+    const requestInstallConsent = vi.fn().mockResolvedValue({ outcome: 'confirmed' });
+    await expect(installExtensionFromAttachment({ messageId: 'm-alice' }, { ...quiet, requestInstallConsent }))
+      .resolves.toMatchObject({ installed: true, outcome: 'confirmed', asked: true });
+    expect(requestInstallConsent).toHaveBeenCalledOnce();
+  });
+
   it('an update asks only when it asks for more, and only about that (摩擦单 F21)', async () => {
     // The version installed came from a card: its uploader is on record as the publisher (摩擦单 F66).
     await sendInChat('share');
@@ -126,7 +134,7 @@ describe('installing an extension package from chat (#6646)', () => {
     await sendInChat('share');
     const again = vi.fn();
     await expect(installExtensionFromAttachment({ messageId: 'm-alice' }, { ...quiet, requestInstallConsent: again }))
-      .resolves.toMatchObject({ installed: true });
+      .resolves.toMatchObject({ installed: true, asked: false });
     expect(again).not.toHaveBeenCalled();
   });
 

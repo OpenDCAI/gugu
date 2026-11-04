@@ -1,9 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
-import { runInAction } from 'mobx';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpcOn } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
-import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { log } from '@renderer/utils/logger';
 import { SESSION_PARENT_CYCLE } from '@shared/core/sessions/sessions';
@@ -26,13 +24,12 @@ function setSessionParent(child: { projectId: string; sessionId: string }, paren
 /**
  * 人在侧栏挪一条会话(spec session-page「把会话拖成 child」):拖到另一条会话的行上 = 挂到它下面(`parent`),
  * 拖回它自己那一行(项目行 /「任务」分区头)= 回到根(`parent` = null)。
- * 挂上去时父会话那一行展开,这条当场看得见;提示里给一次「撤销」= 挂回原来那里(`previousParentId`,原来是根就回到根)。
+ * 保留父会话的折叠状态;提示里给一次「撤销」= 挂回原来那里(`previousParentId`,原来是根就回到根)。
  * fail-loud:没挪成就说出来(见 nestFailed),❌ 松手没反应。
  */
 export function moveSessionUnder(child: SessionRef, parent: SessionRef | null, previousParentId: string | null): void {
   setSessionParent(child, parent?.sessionId ?? null).then(
     ({ not_reached }) => {
-      if (parent) runInAction(() => sidebarStore.expandedSessionIds.add(parent.sessionId));
       let undone = false;
       toast({
         title: parent

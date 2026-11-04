@@ -12,10 +12,10 @@ import type { SearchChip, SearchFacet } from './search-session'
 /** One page per source: the counts beside the filters are these rows, shown as "100+" when a source returns a full page. */
 export const SEARCH_LIMIT = 100
 
-type MessageRow = { id: string; chat_id: string; sender_user_id: string | null; sender_name: string; content: string | null; created_at: string; file_item_id: string | null }
+type MessageRow = { id: string; chat_id: string; sender_user_id: string | null; sender_name: string; content_type: string; content: string | null; created_at: string; file_item_id: string | null }
 
 export type SearchHit =
-  | { kind: 'message'; id: string; group: string; chatId: string; messageId: string; senderId: string | null; sender: string; text: string; at: string; file: boolean }
+  | { kind: 'message'; id: string; group: string; chatId: string; messageId: string; senderId: string | null; sender: string | null; text: string; at: string; file: boolean }
   | { kind: 'task'; id: string; group: string; taskId: string; projectId: string; title: string; itemId: string; role: 'user' | 'assistant'; text: string; at: string }
 
 export interface SearchView {
@@ -99,9 +99,9 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
   })
 
   const messageHits: SearchHit[] = inTask ? [] : (messages.data ?? [])
-    .filter((row) => !from || row.sender_user_id === from.userId)
+    .filter((row) => row.content_type !== 'system' && (!from || row.sender_user_id === from.userId))
     .map((row) => ({ kind: 'message', id: `m:${row.id}`, group: row.chat_id, chatId: row.chat_id, messageId: row.id, senderId: row.sender_user_id,
-      sender: row.sender_name, text: excerpt(row.content ?? '', query), at: row.created_at, file: row.file_item_id !== null }))
+      sender: row.sender_user_id === null ? null : row.sender_name, text: excerpt(row.content ?? '', query), at: row.created_at, file: row.file_item_id !== null }))
   const taskHits: SearchHit[] = !tasks || inChat || from ? [] : (turns.data?.hits ?? [])
     .filter((hit) => !inTask || hit.sessionId === inTask.taskId)
     .map((hit) => ({ kind: 'task', id: `t:${hit.sessionId}:${hit.itemId}`, group: `task:${hit.sessionId}`, taskId: hit.sessionId, projectId: hit.projectId,

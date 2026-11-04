@@ -1,0 +1,4 @@
+.gg-phone-viewport-shell {
+  height: var(--phone-viewport-height, 100dvh);
+  top: var(--phone-viewport-top, 0px);
+}

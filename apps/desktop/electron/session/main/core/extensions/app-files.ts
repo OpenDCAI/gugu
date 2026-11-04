@@ -17,6 +17,8 @@ import {
 } from '@shared/extensions/app-files-core';
 import {
   APP_FILE_MAX_BYTES,
+  workspaceAppFileChunk,
+  type AppFileChunk,
   fileRefOf,
   fileSearchOf,
   folderOf,
@@ -111,6 +113,9 @@ export interface DesktopFilePage {
   asAgent?: string | null;
   /** A page's own chat, as it was bound: already its resource container (`surfaceResourceChat`). */
   boundChat?: string | null;
+  /** The active program call stamped by the host; pages have no call. */
+  callId?: string;
+  signal?: AbortSignal;
 }
 
 
@@ -227,6 +232,8 @@ function chatSurface(page: DesktopFilePage): FileSurface {
     extensionId: page.extensionId,
     itemId: page.handed && 'chat' in page.handed ? page.handed.id : null,
     asAgent: page.asAgent ?? null,
+    ...(page.callId ? { callId: page.callId } : {}),
+    ...(page.signal ? { signal: page.signal } : {}),
   };
 }
 
@@ -287,8 +294,8 @@ export async function reopenAppFile(page: DesktopFilePage, args: { ref?: unknown
 }
 
 /** Let go of an open file: the grant goes, wherever the file lives. */
-export function closeAppFile(page: DesktopFilePage, args: { docName: string }): void {
-  files.close(chatSurface(page), args);
+export function closeAppFile(page: DesktopFilePage, args: { docName?: string; ref?: ChatFileRef & { version?: number } }): Promise<void> {
+  return files.close(chatSurface(page), args);
 }
 
 /**
@@ -309,16 +316,16 @@ export async function listAppFiles(page: DesktopFilePage, args: { place?: unknow
   return listWorkingCopy(place, folder, page.pageId);
 }
 
-/** `f.read(offset, length)`: up to 512 KB of a working copy's file, read on the machine its working copy is on. */
-export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; offset?: unknown; length?: unknown }): Promise<{ size: number; offset: number; data: string }> {
+/** `f.read(offset, length)`: a pinned chat snapshot or a working copy, through the same range packet. */
+export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; offset?: unknown; length?: unknown }): Promise<AppFileChunk> {
   const ref = fileRefOf(args.ref);
-  if (isChat(ref)) throw new AppFileError('invalid', "A chat's file is opened whole: files.open");
-  const offset = Number(args.offset) || 0;
-  const length = Number(args.length) || 0;
+  const offset = Number(args.offset ?? 0);
+  const length = Number(args.length ?? 0);
+  if (isChat(ref)) return files.read(chatSurface(page), { ref: { ...ref, version: (args.ref as { version?: number })?.version }, offset, length });
   const there = await onItsMachine(page, ref, 'filesRead', { ref, offset, length });
-  if (there.there) return there.value as { size: number; offset: number; data: string };
+  if (there.there) return workspaceAppFileChunk(there.value as { size: number; offset: number; data: string });
   const { readWorkingCopy } = await import('./working-copy-files');
-  return readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, offset, length);
+  return workspaceAppFileChunk(await readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, offset, length));
 }
 
 /**
@@ -604,7 +611,7 @@ async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<
     const pieces: Buffer[] = [];
     for (let offset = 0, size = Infinity; offset < size;) {
       const chunk = await readAppFile(page, { ref, offset, length: REMOTE_WORKSPACE_CHUNK_BYTES });
-      const bytes = Buffer.from(chunk.data, 'base64');
+      const bytes = Buffer.from(chunk.data);
       size = chunk.size;
       if (bytes.byteLength === 0) break;
       pieces.push(bytes);

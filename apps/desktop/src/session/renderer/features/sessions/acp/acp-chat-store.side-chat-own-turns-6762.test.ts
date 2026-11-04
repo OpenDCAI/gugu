@@ -23,6 +23,13 @@ import { runInAction, when } from 'mobx';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 
 let nextSession: unknown = null;
+vi.mock('@renderer/lib/acp/acp-session-attachment', () => ({
+  attachAcpSessionWhenReady: async (id: string, signal: AbortSignal) => {
+    signal.throwIfAborted();
+    return (await import('@renderer/lib/acp/acp-live-session')).AcpLiveSession.create(id);
+  },
+}));
+
 vi.mock('@renderer/lib/acp/acp-live-session', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@renderer/lib/acp/acp-live-session')>()),
   AcpLiveSession: {
@@ -56,6 +63,7 @@ function replica<T>(initial: T) {
   return {
     current: () => initial,
     onChange: () => () => {},
+    onGone: () => () => {},
     ready: Promise.resolve(),
   };
 }
@@ -88,6 +96,8 @@ function sessionWithHistory(turns: TranscriptTurn[]) {
     activeTurn: replica(null),
     plan: replica(null),
     draft: replica(null),
+    canSyncDraft: () => true,
+    onDraftSyncReady: () => () => {},
     terminals: replica([] as unknown[]),
     config: replica({}),
     getHistory: vi.fn(async () => ({ success: true as const, data: { turns, nextCursor: null } })),
@@ -109,7 +119,8 @@ async function attachSideChat(turns: TranscriptTurn[]) {
   });
   store.reattachAfterHostReload();
   // 挂上路径走完 = 句柄落到 store 上(session 是 mobx 观察值):等它,后面的读数才算数。
-  await when(() => store.session !== null);
+  await when(() => store.session !== null && !store.historyLoading);
+  expect(store.loadError).toBeNull();
   return store;
 }
 

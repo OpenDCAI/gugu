@@ -2,6 +2,8 @@ import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
 import { startServerUsageSync } from './server/usage-sync'
 import { noteExitReason } from './lib/exit-reason'
+import { killAllWorkersSync } from '@gugu/session-wire/worker'
+import { killServerDescendantsSync } from './server/server-processes'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
 import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assistantWorkAvailability'
@@ -62,6 +64,7 @@ import {
   RENDERER_LOG_CHANNEL,
 } from './lib/logger'
 import { autoApproveFromPermissionMode } from '@gugu/session-core/acp'
+import { signalProcessDescendantsSync } from '@gugu/session-core/acp/node'
 import { classifyFatal, recordFatalSync } from './lib/fatal-triage'
 import { pathToFileURL } from 'node:url'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
@@ -484,7 +487,10 @@ import {
 import { createPushedRuntimeAuthProvider, type PushedRuntimeAuth } from './runtime-auth-provider'
 import { createServerAuthProvider, type ServerAuthProvider } from './server/server-auth'
 import { ensureUtf8Locale } from './server/server-locale'
-import { killAccountTmuxServer } from './server/server-layout'
+import { killAccountTmuxServer, SESSION_FILE } from './server/server-layout'
+import { EXIT_CONFIG, EXIT_RESTART, EXIT_SIGNED_OUT, isSingleServerRun } from './server/server-exit'
+import { singleServerUpdater, serverUpdateRpcHandlers, callServerUpdate } from './server/server-updater'
+import { markStopped } from './server/server-keeper'
 import { registerServerSshInstallIpc } from './server/ssh-install/ipc'
 import { registerServerSshUninstallIpc } from './server/ssh-uninstall-ipc'
 import { registerSshLinkIpc } from './server/ssh-link-ipc'
@@ -553,7 +559,7 @@ import {
   formatBadgeCount,
   paintBadgeOnBitmap,
 } from './tray-badge'
-import { HOST_SYSTEM_LANGUAGES_CHANNEL, hostCatalog, type HostCatalog } from '../shared/host-localization'
+import { HOST_SYSTEM_LANGUAGES_CHANNEL, hostCatalog, updateRestartCopy, type HostCatalog } from '../shared/host-localization'
 
 // ── Dual-instance support ────────────────────────────────────────────────────
 // CLI arg (preferred): --user-data-dir=/path/to/dir ; env fallback: GUGU_USER_DATA_DIR=/path/to/dir
@@ -1691,7 +1697,7 @@ function createPrimaryDeviceRpcHandlers(io?: { openTopicPublisher: OpenTopicPubl
   const base = projectionDeviceRuntime.track(bridge.createSessionpageSessionDeviceRpcHandlers(io
     ? { preview: messagePreviewHostDeps(io), projection: projectionDeviceRuntime.options } : undefined))
   // #7199 第二步:别的机器上的 agent 调这台电脑的单个动作(请执行 / 结果收到)。
-  return { ...base, handlers: { ...base.handlers, ...assistantWorkDeliveryHost().rpcHandlers(), ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
+  return { ...base, handlers: { ...base.handlers, ...serverUpdateRpcHandlers(), ...assistantWorkDeliveryHost().rpcHandlers(), ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
 }
 
 let assistantWorkOutbox: AssistantWorkOutboxHost | null = null
@@ -2401,7 +2407,7 @@ ipcMain.handle('auth:take-callbacks', (event) => {
 const remoteFileTempRoot = join(app.getPath('userData'), 'cache', 'remote-files')
 const remoteFileOpenDirectories = new Set<string>()
 const desktopFiles = createDesktopFileAccess({ auth: () => desktopAuthProvider().getAuth(), tempRoot: remoteFileTempRoot,
-  rpc: async (name, args) => { const auth = await desktopAuthProvider().getAuth(); if (!auth) throw new Error('File reader is not signed in'); const { data, error } = await makeChatClient(auth.accessToken).rpc(name, args); if (error) throw error; return data },
+  rpc: async (name, args) => { const auth = await desktopAuthProvider().getAuth(); if (!auth) throw new Error('File reader is not signed in'); const { data, error } = await makeChatClient(auth.accessToken).rpc(name, args); if (error) throw Object.assign(new Error(error.message, { cause: error }), { code: error.code, details: error.details, hint: error.hint }); return data },
   downloads: join(resolveGuguHome(process.env), 'attachments'), fetch: electronFetch, links: () => sshLinks,
   root: async projectId => { const bridge = loadEmdashBridge(); if (!bridge) throw new Error('Project registry is unavailable'); return bridge.emdashProjectRoot(projectId) },
   deviceStore: join(resolveGuguHome(process.env), 'project-files'), identityDb: makeIdentityClient,
@@ -2876,8 +2882,16 @@ if (sshMachineStore) {
     log: (message, fields) => createLogger('server/ssh-link').info(fields ?? {}, message),
     // 那台机器的 server 太旧、连不上:当场替它升级(与添加时装同一条通道);#6264 换成和这台桌面(按设备 id 报)匹配的那一版。
     upgradeChannel: serverChannel,
-    published: parseBuildDistribution(__GUGU_BUILD_DISTRIBUTION__) === 'published',
-    desktopId: async () => (await getLocalDeviceSelfSnapshot())?.device_id ?? null,
+    readCapabilities: async deviceId => {
+      const auth = await desktopAuthProvider().getAuth()
+      if (!auth?.userId || !auth.accessToken) throw new Error('This desktop is not signed in')
+      return (await listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId, { deviceIds: [deviceId] }))[0]?.capabilities ?? null
+    },
+    callUpdate: (...args) => {
+      crossMachine()
+      if (!crossMachineRequester) throw new Error('The shared device requester is unavailable')
+      return crossMachineRequester.call(...args)
+    },
     ...(tunnelMachines ? { tunnels: tunnelMachines } : {}),
   })
   sshLinks = links
@@ -3148,6 +3162,23 @@ const updateFlow = createUpdateFlow({
     start: startMacDmgDownload,
   },
   updateQuit,
+  busyAgents: () => loadEmdashBridge()?.sessionpageVersionSwitchActivity().busyAgents ?? null,
+  confirmInterrupt: async (count) => {
+    focusMainWindow()
+    const copy = updateRestartCopy(currentHostCatalog(), count)
+    const options = {
+      type: 'question' as const,
+      message: copy.title,
+      detail: copy.detail,
+      buttons: [copy.restart, copy.later],
+      defaultId: 1,
+      cancelId: 1,
+    }
+    const { response } = await (mainWindow && !mainWindow.isDestroyed()
+      ? dialog.showMessageBox(mainWindow, options)
+      : dialog.showMessageBox(options))
+    return response === 0
+  },
   logInfo: (message, detail) => updaterLogger.info(detail ?? {}, message),
   logWarn: (message, detail) => updaterLogger.warn(detail ?? {}, message),
 })
@@ -3338,6 +3369,8 @@ const killEnginesOnCrash = (label: string): void => {
     appendFileSync(join(logDir, 'reap-probe.log'), `${new Date().toISOString()} reap-begin label=${label}\n`)
   } catch { /* 探针不许反噬关停 */ }
   shutdownLogger.info({ label }, 'native leg reap: begin')
+  reap('host-processes', () => killAllWorkersSync(pids => SERVER_MODE
+    ? killServerDescendantsSync(pids) : signalProcessDescendantsSync(pids, 'SIGKILL')))
   reap('codex-app-server', killAllCodexAppServerProcessGroupsSync)
   reap('opencode-serve-attach', () => opencodeServeAttachSessionDelivery.disposeSync())
   reap('droid-daemon', () => droidDaemonSessionDelivery.disposeSync())
@@ -3356,7 +3389,14 @@ const killEnginesOnCrash = (label: string): void => {
 // 有上限(停不下来照样退);再来一个信号 = 不等了。桌面上信号仍是立即终止(正常退出走 before-quit)。
 const SERVER_SIGNAL_STOP_TIMEOUT_MS = 5_000
 let signalStopping = false
-const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
+let stopServerActivity = (): void => {}
+let startServerActivity = (): void => {}
+const exitOnSignal = (label: 'SIGINT' | 'SIGTERM' | 'SIGUSR2', code: number): void => {
+  stopServerActivity()
+  if (isSingleServerRun()) {
+    if (code === 143 && !existsSync(join(app.getPath('userData'), SESSION_FILE))) code = EXIT_SIGNED_OUT
+    if (code !== EXIT_RESTART && !['systemd', 'launchd'].includes(process.env.GUGU_SERVER_SUPERVISED ?? '')) markStopped(process.env.GUGU_SERVER_HOME!)
+  }
   // 有人要它停(stop / systemd / 守护进程收账号进程):留一句,开机收残据此说「重启打断了这一轮」(守护进程换版时先写了 update,不改)。
   noteExitReason(app.getPath('userData'), 'restart')
   const finish = (): void => {
@@ -3372,6 +3412,18 @@ const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
 }
 process.on('SIGINT', () => exitOnSignal('SIGINT', 130)) // 128 + SIGINT(2)
 process.on('SIGTERM', () => exitOnSignal('SIGTERM', 143)) // 128 + SIGTERM(15)
+if (SERVER_MODE) process.on('SIGUSR2', () => exitOnSignal('SIGUSR2', EXIT_RESTART))
+const serverVersionSwitchActivity = () => loadEmdashBridge()?.sessionpageVersionSwitchActivity?.()
+if (isSingleServerRun()) singleServerUpdater()?.bindRuntime({
+  // A5 includes work pending hydration and authorization; do not sample activity.json.
+  isBusy: () => serverVersionSwitchActivity()?.busy ?? true,
+  versionSwitchActivity: serverVersionSwitchActivity,
+  beforeSwitch: () => { stopServerActivity(); return () => startServerActivity() },
+  shutdown: () => {
+    noteExitReason(app.getPath('userData'), 'update')
+    exitOnSignal('SIGTERM', EXIT_RESTART)
+  },
+})
 process.on('SIGCONT', () => {
   // Node timers resume with wall-clock debt after SIGSTOP. Provider turn
   // completion waiters must not consume that debt as a lost turn.
@@ -4835,6 +4887,18 @@ app.whenReady().then(async () => {
         return emdash.runSessionAction(context, action as SessionAction, signal)
       }
       let record = action as Record<string, unknown>
+      if (record.action === 'owner-notify') {
+        const input = record as unknown as Parameters<typeof emdash.commitOwnerNotification>[1]
+        const verify = async () => {
+          if (!authProvider) throw new Error('owner notification runtime auth is unavailable')
+          const current = await requireRuntimeAuth(authProvider, 'owner notification commit')
+          if (current.userId !== auth.userId) throw new Error('owner notification account changed')
+          const binding = await senderBinding(context, auth.userId)
+          if (binding.guguAgentUserId !== input.agent_user_id) throw new Error('owner notification sender is not bound to this native session')
+        }
+        await verify()
+        return emdash.commitOwnerNotification(context, input, verify, signal)
+      }
       const projectResult = (result: unknown) => typeof record.action === 'string' && record.action.startsWith('project_')
         ? prepareProjectAgentNotice(result, {
           agentUserId: () => senderBinding(context, auth.userId).then((binding) => binding.guguAgentUserId),
@@ -6259,7 +6323,7 @@ app.whenReady().then(async () => {
             // #7199 心跳随行报「隧道最近一次有流量」(会话页宿主的心跳不算):云电脑的管家据此判闲置。
             onActivity: () => noteTunnelActivity(),
           })
-          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link,
+          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link, serverUpdate: callServerUpdate,
             timeZone: context => applyOwnerTimeZoneContext(context), resume: since => {
             if (since !== undefined) recordDeviceSleep({ since, until: Date.now(), source: 'fc-confirmed' })
             resumeAccountMessaging('controller')
@@ -6549,12 +6613,20 @@ app.whenReady().then(async () => {
         : usageLog.info({ result }, 'Usage sync completed'),
     }))
     loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
-    // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
+    // Status and legacy readers retain this activity projection; the updater reads live session activity directly.
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
     const activityFile = join(app.getPath('userData'), 'activity.json')
-    // #6264 同一份读数也是升级看门狗判「新版本站稳了没有」的依据(server-upgrade-guard.ts):带上自己的版本与起始时刻。
+    const { markServerReady, ownsHomeLock } = await import('./server/server-startup')
+    // Already shipped watchdogs still read this PID-bound version and start time during the transition.
     const activityStartedAt = Date.now()
+    let activityStopped = false
     const reportActivity = (): void => {
+      if (activityStopped || signalStopping) return
+      if (isSingleServerRun() && ownsHomeLock(process.env.GUGU_SERVER_HOME!) === false) {
+        createLogger('server').error('Installation lock ownership was lost; stopping this server.')
+        killEnginesOnCrash('lock-lost')
+        process.exit(EXIT_CONFIG)
+      }
       const activity = loadEmdashBridge()?.sessionpageVersionSwitchActivity?.()
       try {
         writeFileSync(activityFile, JSON.stringify({
@@ -6566,13 +6638,28 @@ app.whenReady().then(async () => {
           pid: process.pid,
           startedAt: activityStartedAt,
         }))
+        if (isSingleServerRun()) markServerReady(process.env.GUGU_SERVER_HOME!)
       } catch (error) {
         createLogger('server').warn({ err: error }, '忙闲写不进去')
       }
     }
-    loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
-    reportActivity()
-    setInterval(reportActivity, 10_000).unref()
+    let unsubscribeActivity: (() => void) | undefined
+    let activityTimer: ReturnType<typeof setInterval> | undefined
+    stopServerActivity = () => {
+      activityStopped = true
+      if (activityTimer) clearInterval(activityTimer)
+      activityTimer = undefined
+      unsubscribeActivity?.(); unsubscribeActivity = undefined
+    }
+    startServerActivity = () => {
+      if (signalStopping || activityTimer) return
+      activityStopped = false
+      unsubscribeActivity = loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
+      activityTimer = setInterval(reportActivity, 10_000)
+      activityTimer.unref()
+      reportActivity()
+    }
+    startServerActivity()
     return
   }
   tray = new Tray(loadTrayIcon())

@@ -22,7 +22,7 @@ import {
   upsertSshMachine,
   type SshMachine,
 } from '../../../../apps/desktop/electron/server/ssh-machines'
-import { describeConnectError, pickAttachAccount } from '../../../../apps/desktop/electron/server/account-call'
+import { describeConnectError, accountRequestError } from '../../../../apps/desktop/electron/server/account-call'
 import type { ServerAccount } from '../../../../apps/desktop/electron/server/server-layout'
 
 const UID = '0f8b7c1e-6a3d-4c2b-9e1f-2a3b4c5d6e7f'
@@ -213,13 +213,12 @@ describe('经本机套接字找账号进程(link / open-url / match-version 共�
     userId: UID, email: 'a@b.c', addedAt: null, dir: '/x', dataDir: '/x/data', homeDir: '/x/home', signedIn: true, signedOut: null, ...over,
   })
 
-  it('挑账号:写了就必须是登着的那个;没写且只登着一个就是他;好几个就要写', () => {
-    const other = account({ userId: '11111111-2222-4333-8444-555555555555', email: 'o@p.q' })
-    expect(pickAttachAccount([account(), other], UID)).toMatchObject({ userId: UID })
-    expect(pickAttachAccount([account({ signedIn: false })], UID)).toHaveProperty('error')
-    expect(pickAttachAccount([account()], null)).toMatchObject({ userId: UID })
-    expect(pickAttachAccount([account(), other], null)).toHaveProperty('error')
-    expect(pickAttachAccount([], null)).toHaveProperty('error')
+  it('checks only the current identity and never selects another directory', () => {
+    expect(accountRequestError(account(), UID)).toBeNull()
+    expect(accountRequestError(account(), null)).toBeNull()
+    expect(accountRequestError(account({ signedIn: false }), UID)).toContain('还没有登录')
+    expect(accountRequestError(account(), 'other')).toContain('a@b.c')
+    expect(accountRequestError(null, null)).toContain('还没有登录')
   })
 
   it('进程没在跑(套接字不在):人话', () => {

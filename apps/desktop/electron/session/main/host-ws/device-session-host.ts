@@ -20,17 +20,8 @@ import {
   type SessionHostPiece,
 } from '@shared/lib/ipc/session-host-device-frames';
 import type { DeviceRpcAskerContext, DeviceRpcHandlers, PublishDeviceRpcEvent } from '@gugu/core/cloud/deviceRpcResponder';
-import {
-  DESKTOP_REPORT_REFRESH_MS,
-  noteDesktopHello,
-  parseDesktopHello,
-  requestVersionRetry,
-  requestConfirmedVersionRestart,
-  VERSION_RESTART_RPC,
-  VERSION_RETRY_RPC,
-  type DesktopHello,
-} from '@gugu/core/cloud/serverDesktopVersions';
-import { LEGACY_VERSION_RETRY_RPC, MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth';
+import { parseDesktopHello, type DesktopHello } from '@gugu/core/cloud/serverDesktopVersions';
+import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth';
 import { SESSIONPAGE_PLATFORM_CATALOG_CHANNEL, SESSIONPAGE_PLATFORM_RETRY_CHANNEL } from '@shared/core/agents/platform-model';
 import { SESSIONPAGE_SESSION_RELOAD_CHANNEL } from '@shared/core/agents/session-reload';
 import { SESSION_SHELL_CHANNELS } from '@shared/lib/ipc/shell-port';
@@ -146,30 +137,6 @@ type ClientLink = {
 };
 
 /**
- * #6264 桌面开窗口时报「我是哪一版」(咕咕 server 上记进这个账号的数据目录,守护进程据此让这个账号跑匹配的版本,
- * 见 core/cloud/serverDesktopVersions.ts)。窗口开着时每小时续报一次:一直连着的桌面 ❌ 因为报告过期被当成不在了。
- * 桌面自己(非 server)什么也不记。记不下来 ❌ 挡开窗口 —— 那只影响「跑哪一版」,不影响这次连接。
- */
-function reportDesktop(hello: DesktopHello | null): () => void {
-  if (!hello) return () => undefined;
-  const note = () => {
-    try {
-      const noted = noteDesktopHello(process.env, hello);
-      if (noted.switchRequested) log.info('[session-host-device] desktop protocol outside window, version switch requested', { desktop: hello.id, version: hello.version, protocol: hello.protocol });
-    } catch (error) {
-      log.warn('[session-host-device] desktop version not recorded', { error: String(error) });
-    }
-  };
-  note();
-  let last = Date.now();
-  return () => {
-    if (Date.now() - last < DESKTOP_REPORT_REFRESH_MS) return;
-    last = Date.now();
-    note();
-  };
-}
-
-/**
  * 每条设备 RPC 频道一份(与 createSessionpageSessionDeviceRpcHandlers 同一条「按频道建、按频道拆」):
  * 频道没了,经它开的窗口一起收掉。
  */
@@ -189,7 +156,6 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     callerId: string | undefined,
   ): void => {
     clients.get(client)?.close('replaced');
-    const refreshReport = reportDesktop(desktop);
     let frameCb: ((frame: string | Uint8Array) => void) | null = null;
     let closeCb: (() => void) | null = null;
     let closed = false;
@@ -234,7 +200,6 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     const stopWatchingAsker = asker?.onDetached(() => shut('asker detached'));
     const link: ClientLink = {
       receive: (seq, pieces) => {
-        refreshReport();
         order(seq, pieces);
       },
       close: shut,
@@ -262,14 +227,10 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
       const frameHost = host();
       if (!frameHost) return { error: { code: 'unavailable', message: 'session host is not running on this machine' } };
       const desktop = parseDesktopHello((payload as { desktop?: unknown }).desktop);
-      // 开窗口的一方说的协议:手机与桌面都报 `protocol`;只有桌面另报 `desktop`(咕咕 server 据此挑跑哪一版,手机不算)。
+      // Released peers may still carry protocol inside desktop; do not retain or select its version.
       const said = (payload as { protocol?: unknown }).protocol;
       const protocol = typeof said === 'number' ? said : desktop?.protocol;
-      // 比 MIN_CLIENT_PROTOCOL 旧的一方开窗口,只会在某个动作上半截失败:当场拒并说清。
-      // 咕咕 server 上照样先记下桌面的版本 —— 守护进程据此换成匹配的那一版,换完它就开得了。不报协议的不下结论。
-      // 它会一遍遍来开:记着的已是同一件事就不再写(noteDesktopHello)。
       if (protocol != null && protocol < MIN_CLIENT_PROTOCOL) {
-        reportDesktop(desktop);
         return {
           error: {
             code: 'client_outdated',
@@ -307,21 +268,6 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
         return { error: { code: failed.code ?? 'call_failed', message: failed.message } };
       }
     },
-    // #6264 设备行「更新没成功 · 重试」:请守护进程不看冷却、再试一次换成和桌面匹配的那一版。
-    [VERSION_RESTART_RPC]: (payload) => {
-      const request = payload as { version?: unknown; confirmed?: unknown } | null;
-      return requestConfirmedVersionRestart(process.env, request?.version, request?.confirmed)
-        ? { result: { requested: true } }
-        : { error: { code: 'invalid_payload', message: 'A confirmed target version is required' } };
-    },
-    [VERSION_RETRY_RPC]: () =>
-      requestVersionRetry(process.env)
-        ? { result: { requested: true } }
-        : { error: { code: 'unavailable', message: 'not a gugu server' } },
-    [LEGACY_VERSION_RETRY_RPC]: () =>
-      requestVersionRetry(process.env)
-        ? { result: { requested: true } }
-        : { error: { code: 'unavailable', message: 'not a gugu server' } },
     [SESSION_HOST_RPC.close]: (payload) => {
       const client = readClient(payload);
       if (client) clients.get(client)?.close();

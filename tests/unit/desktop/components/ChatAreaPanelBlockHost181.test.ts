@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // gugu-dev#181 群聊画在会话页一块里(blockHost):块的页签条就是头 —— 这里不画群聊头,头上那排图标画进页签条右端那一格,
-// 对话的头像和名字画进页签那一格,人数挂在成员按钮上。不给 blockHost(对话页、手机、网页)时头栏照旧:每条带这个阳性对照。
+// The title slot keeps the conversation name; the shared members action owns its count in every layout.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
@@ -170,14 +170,16 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     expect(header(), 'chat page / phone / web: the header row is still there').not.toBeNull()
     expect(header()?.textContent).toContain('设计评审')
     expect(membersButtonIn(header()!)).not.toBeNull()
-    expect(harness.container.querySelector('[data-member-count]'), 'the count stays after the title, not on the button').toBeNull()
+    expect(membersButtonIn(header()!)?.textContent, 'the existing roster feeds the header member action').toContain('2')
+    expect(header()?.textContent, 'the title no longer duplicates the member count').not.toContain('(2)')
   })
 
   it('in a block draws no header; the icons go to the tab strip slot and the name to the tab slot', async () => {
     await renderPanel({ actions, title, tabs: null })
     expect(header(), 'the block tab strip is the header').toBeNull()
     expect(membersButtonIn(actions), 'the action icons are painted into the tab strip').not.toBeNull()
-    expect(actions.querySelector('[data-member-count]')?.textContent).toBe('2')
+    expect(membersButtonIn(actions)?.textContent, 'the block uses the same roster-backed member action').toContain('2')
+    expect(title.textContent, 'the block title contains only the conversation name').not.toContain('(2)')
     expect(title.textContent).toContain('设计评审')
   })
 

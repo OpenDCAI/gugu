@@ -9,9 +9,14 @@ import { describe, expect, it, vi } from 'vitest';
  */
 
 const navigation = observable({ currentViewId: 'new-session' as string, viewParamsStore: {} as Record<string, unknown> });
+const expandedProjectIds = observable.set<string>();
 vi.mock('@renderer/lib/stores/app-state', () => ({
   appState: { navigation },
-  sidebarStore: { navChain: [{ kind: 'new-session' }, { kind: 'project', projectId: 'design' }] },
+  sidebarStore: {
+    navChain: [{ kind: 'new-session' }, { kind: 'project', projectId: 'design' }],
+    expandedProjectIds,
+    ensureProjectExpanded: (id: string) => expandedProjectIds.add(id),
+  },
 }));
 
 const { sessionKeyboardNav } = await import('./session-keyboard-nav');
@@ -25,6 +30,24 @@ const litRows = () => [
 ].filter(Boolean);
 
 describe('the sidebar top rows: exactly one is lit, the one the main area shows', () => {
+  it('focuses a project composer without unfolding it; only the explicit right-arrow action unfolds', () => {
+    const composer = document.createElement('div');
+    composer.dataset.region = 'composer';
+    composer.innerHTML = '<textarea></textarea>';
+    document.body.append(composer);
+    try {
+      runInAction(() => {
+        expandedProjectIds.clear();
+        navigation.viewParamsStore = { project: { projectId: 'design' } };
+        navigation.currentViewId = 'project';
+      });
+      expect(sessionKeyboardNav.handOffToComposer()).toBe(true);
+      expect(document.activeElement).toBe(composer.firstElementChild);
+      expect(expandedProjectIds.has('design')).toBe(false);
+      expect(sessionKeyboardNav.expandProjectOrFocusComposer()).toBe(true);
+      expect(expandedProjectIds.has('design')).toBe(true);
+    } finally { composer.remove(); }
+  });
   it('clicking New task, then Task history, then Scheduled, then New task again', () => {
     const click = (view: string) => runInAction(() => {
       if (view === 'new-session') sessionKeyboardNav.syncCursorFromPointer({ kind: 'new-session' });

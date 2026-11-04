@@ -18,7 +18,8 @@ export function marketHome<T extends HomeEntry>(entries: readonly T[], scores: R
       throw new Error(`Market App ${entry.manifest.id} has no first publication date`);
     }
   }
-  const eligible = entries.filter((entry) => !entry.deprecated && !entry.compat);
+  const eligibleForHome = (entry: T) => !entry.deprecated && entry.compat?.reason !== 'needs-author-update';
+  const eligible = entries.filter(eligibleForHome);
   const scoreOf = (entry: T) => scores?.get(entry.manifest.id) ?? 0;
   const ranked = eligible
     .filter((entry) => scoreOf(entry) > 0)
@@ -37,7 +38,7 @@ export function marketHome<T extends HomeEntry>(entries: readonly T[], scores: R
   const featuredIds = new Set(featured.map((entry) => entry.manifest.id));
   return {
     featured,
-    remaining: newest.filter((entry) => !entry.deprecated && !entry.compat && !featuredIds.has(entry.manifest.id)),
+    remaining: newest.filter((entry) => eligibleForHome(entry) && !featuredIds.has(entry.manifest.id)),
     newest,
     popular: scores === null ? null : ranked,
   };

@@ -15,6 +15,7 @@ import type {
   SessionHistoryRow,
 } from '@shared/core/session-history/session-history';
 import { SESSION_HOME_SECTION_KEY } from '@shared/core/session-history/session-history';
+import { isMacHost } from '@shared/host-os';
 import '@renderer/index.css';
 
 vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: {} }) }));
@@ -344,6 +345,7 @@ describe('会话历史(按目录分节)核心合同', () => {
   });
 
   it('k4/k5 routes find by focus while the real history SearchInput stays mounted', async () => {
+    const findShortcut = isMacHost() ? '{Meta>}f{/Meta}' : '{Control>}f{/Control}';
     render(<><CommandShortcutBinder /><TranscriptFindControl /></>);
     await expect.element(screen.getByTestId('session-history-search')).toBeVisible();
     const history = screen.getByTestId('session-history-search').element();
@@ -351,12 +353,12 @@ describe('会话历史(按目录分节)核心合同', () => {
     await screen.getByTestId('session-history-search').click();
     await userEvent.keyboard('{Tab}');
     expect(document.activeElement).toBe(filter);
-    await userEvent.keyboard('{Control>}f{/Control}');
+    await userEvent.keyboard(findShortcut);
     await vi.waitFor(() => expect(document.activeElement).toBe(history));
     const transcript = screen.getByTestId('transcript-find-focus').element() as HTMLElement;
     await screen.getByTestId('transcript-find-focus').click();
     expect(document.activeElement).toBe(transcript);
-    await userEvent.keyboard('{Control>}f{/Control}');
+    await userEvent.keyboard(findShortcut);
     await vi.waitFor(() => expect(document.activeElement?.getAttribute('placeholder')).toMatch(/Find|查找/));
     expect(document.activeElement).not.toBe(history);
     expect(screen.getByTestId('session-history-search').all()).toHaveLength(1);
@@ -388,9 +390,9 @@ describe('会话历史(按目录分节)核心合同', () => {
       'archived', 'active', 'not-imported', 'not-imported',
     ]);
     expect(list.getByText('派出 2 个子任务', { exact: false }).all()).toHaveLength(0);
-    // 第二行是模板写法的绝对时间(「2026年8月20日，19:46」)。
+    // 第二行是绝对时间,年份总写(「2026年8月20日 19:46」,与界面其它日期同一种写法)。
     expect(screen.getByTestId('session-history-row').first().element().querySelector('time')?.textContent).toMatch(
-      /^\d{4}年\d{1,2}月\d{1,2}日，\d{1,2}:\d{2}$/
+      /^\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}$/
     );
     // 状态不另贴标签(动作钮就是状态),行上也没有勾选框。
     expect(list.getByText('已归档', { exact: true }).all()).toHaveLength(0);

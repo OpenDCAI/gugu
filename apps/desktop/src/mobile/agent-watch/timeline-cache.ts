@@ -222,6 +222,9 @@ export async function hydrateCachedNativeRecord(key: TimelineCacheKey): Promise<
   if (known) return known
   try {
     const row = await (await getAgentWatchStore()).read('timeline', id)
+    // A live read can already have replaced this persisted snapshot, including with an empty reverted record.
+    const current = nativeMemory.get(id)
+    if (current) return current
     const record = row?.record as NativeSessionRecord | undefined
     if (!record || !Array.isArray(record.turns)) return null
     nativeMemory.set(id, record)
@@ -232,7 +235,6 @@ export async function hydrateCachedNativeRecord(key: TimelineCacheKey): Promise<
 }
 
 export function writeCachedNativeRecord(key: TimelineCacheKey, record: NativeSessionRecord): void {
-  if (record.turns.length === 0 && !record.activeTurn) return
   const id = nativeKeyOf(key)
   let bytes: number
   try { bytes = JSON.stringify(record).length } catch { return }

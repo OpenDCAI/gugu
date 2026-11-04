@@ -1119,6 +1119,181 @@ test('RPC connectivity cannot publish ready before the initial heartbeat and sta
   try { assert.equal(fx.host.state().ready, true) } finally { await fx.close() }
 })
 
+const inboxAgentB = '74521d22-4a6e-4909-81d9-e9c62bf43205'
+const seedInboxAgents = async ({ root, users }, ids = [agentId, inboxAgentB]) => {
+  const store = await openPhoneAgentStore(root, ownerId)
+  for (const id of ids) {
+    if (!users.some(user => user.id === id)) users.push({ ...users[0], id })
+    store.state.agents[id] = { agentUserId: id, ownerId, deviceId, sessionId: randomUUID(), displayName: 'Inbox fixture', chatId, modelId: 'free', status: 'idle' }
+  }
+  await store.save()
+}
+const flushInbox = () => new Promise(resolve => setImmediate(resolve))
+const advanceInbox = async (t, ms) => {
+  t.mock.timers.tick(ms)
+  await flushInbox()
+  await flushInbox()
+}
+const inboxCalls = fx => fx.calls.filter(([name]) => name === 'pull_agent_inbox_v2').map(([, args]) => args.p_agent_user_id)
+
+for (const failFirst of [false, true]) test(`startup scans each agent once before any retry (first scan fails: ${failFirst})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, {
+    prepare: async args => {
+      await seedInboxAgents(args)
+      const rpc = args.cloud.rpc
+      let fail = failFirst
+      args.cloud.rpc = async (schema, name, input) => {
+        if (name === 'pull_agent_inbox_v2' && input.p_agent_user_id === agentId && fail) {
+          fail = false
+          args.calls.push([name, input])
+          throw new Error('initial scan unavailable')
+        }
+        return rpc(schema, name, input)
+      }
+    },
+    onRpcStart: ({ onConnectivity }) => onConnectivity(true),
+  })
+  try {
+    await flushInbox(); await flushInbox()
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    await advanceInbox(t, 1_000)
+    assert.deepEqual(inboxCalls(fx), failFirst ? [agentId, inboxAgentB, agentId] : [agentId, inboxAgentB])
+  } finally { await fx.close() }
+})
+
+test('phone inbox fallback waits five minutes while command reconciliation still runs every thirty seconds', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  t.mock.method(performance, 'now', () => Date.now())
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, { prepare: seedInboxAgents })
+  try {
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    const ticks = fx.calls.filter(([name]) => name === 'fetch_fair_pending_device_commands').length
+    for (let i = 0; i < 9; i++) await advanceInbox(t, 30_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    assert.equal(fx.calls.filter(([name]) => name === 'fetch_fair_pending_device_commands').length, ticks + 9)
+    await advanceInbox(t, 30_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB])
+  } finally { await fx.close() }
+})
+
+test('a successful delivery scan extends only that agent fallback deadline', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  t.mock.method(performance, 'now', () => Date.now())
+  let nudge
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, { prepare: seedInboxAgents, onRpcStart: ({ onCommand }) => { nudge = onCommand } })
+  try {
+    for (let i = 0; i < 5; i++) await advanceInbox(t, 30_000)
+    fx.commands.push({ id: randomUUID(), type: 'agent.deliver', status: 'pending', created_at: new Date().toISOString(), payload: { agent_user_id: agentId } })
+    await nudge()
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId])
+    for (let i = 0; i < 5; i++) await advanceInbox(t, 30_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB])
+    for (let i = 0; i < 5; i++) await advanceInbox(t, 30_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB, agentId])
+  } finally { await fx.close() }
+})
+
+test('reconnect scans each agent immediately; one failure and its shared retry cannot clear another agent coverage', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'], now: Date.now() })
+  t.mock.method(performance, 'now', () => Date.now())
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, { prepare: seedInboxAgents })
+  const rpc = fx.cloud.rpc
+  let failB = true
+  fx.cloud.rpc = async (schema, name, args) => {
+    if (name === 'pull_agent_inbox_v2' && args.p_agent_user_id === inboxAgentB && failB) {
+      failB = false
+      fx.calls.push([name, args])
+      throw new Error('one agent scan failed')
+    }
+    return rpc(schema, name, args)
+  }
+  try {
+    fx.connectivityChanged(false)
+    fx.connectivityChanged(true)
+    await flushInbox(); await flushInbox()
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB])
+    fx.connectivityChanged(true)
+    await flushInbox()
+    assert.equal(inboxCalls(fx).length, 4)
+    await advanceInbox(t, 1_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB, inboxAgentB])
+    await advanceInbox(t, 29_000)
+    assert.equal(inboxCalls(fx).length, 5, 'successful shared retry must postpone that agent deadline too')
+    assert.equal(fx.events.some(event => event.type === 'host_log' && event.message.includes('one agent scan failed')), true)
+  } finally { await fx.close() }
+})
+
+test('failed sign-out preserves a disconnect and reconciles each agent once on reconnect', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  t.mock.method(performance, 'now', () => Date.now())
+  let rejectSignOut, signingOut = false
+  const signOut = new Promise((resolve, reject) => { rejectSignOut = reject })
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, {
+    prepare: async args => {
+      await seedInboxAgents(args)
+      args.cloud.signOut = () => { signingOut = true; return signOut }
+    },
+  })
+  try {
+    assert.equal(fx.host.state().ready, true)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    const pending = fx.host.handle({ type: 'auth_request', action: 'sign_out', id: randomUUID() })
+    await flushInbox()
+    assert.equal(signingOut, true)
+    assert.equal(fx.host.state().ready, false)
+    fx.connectivityChanged(false)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    rejectSignOut(new Error('sign-out network unavailable'))
+    await pending
+    assert.equal(fx.host.state().ready, false)
+    assert.match(fx.host.state().error, /手机宿主连接已断开/)
+    fx.connectivityChanged(true)
+    await flushInbox(); await flushInbox()
+    assert.equal(fx.host.state().ready, true)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB])
+    fx.connectivityChanged(true)
+    await advanceInbox(t, 30_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB])
+  } finally { rejectSignOut(new Error('test cleanup')); await fx.close() }
+})
+
+test('a disconnect during a scan remains uncovered until a later connected full scan; stopped callbacks cannot scan', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  t.mock.method(performance, 'now', () => Date.now())
+  let nudge, release
+  const gate = new Promise(resolve => { release = resolve })
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, { prepare: args => seedInboxAgents(args, [agentId]), onRpcStart: ({ onCommand }) => { nudge = onCommand } })
+  const rpc = fx.cloud.rpc
+  let hold = true
+  fx.cloud.rpc = async (schema, name, args) => {
+    if (name === 'pull_agent_inbox_v2' && hold) { hold = false; await gate }
+    return rpc(schema, name, args)
+  }
+  try {
+    fx.commands.push({ id: randomUUID(), type: 'agent.deliver', status: 'pending', created_at: new Date().toISOString(), payload: { agent_user_id: agentId } })
+    const pending = nudge()
+    await flushInbox()
+    assert.equal(hold, false)
+    fx.connectivityChanged(false)
+    release()
+    await pending
+    const beforeReconnect = inboxCalls(fx).length
+    fx.connectivityChanged(true)
+    await flushInbox(); await flushInbox()
+    assert.equal(inboxCalls(fx).length, beforeReconnect + 1)
+    fx.connectivityChanged(true)
+    await advanceInbox(t, 30_000)
+    assert.equal(inboxCalls(fx).length, beforeReconnect + 1)
+    await fx.host.close()
+    fx.connectivityChanged(false)
+    fx.connectivityChanged(true)
+    await advanceInbox(t, 300_000)
+    assert.equal(inboxCalls(fx).length, beforeReconnect + 1)
+    await assert.rejects(fx.host.handle({ type: 'configure', config: { ...fx.config, ownerId: randomUUID() } }), /不能.*切换账号/)
+  } finally { release(); await fx.close() }
+})
+
 test('queued tasks resume after RPC and auth recover without another message or admission', async () => {
   let release
   const gate = new Promise((resolve) => { release = resolve })

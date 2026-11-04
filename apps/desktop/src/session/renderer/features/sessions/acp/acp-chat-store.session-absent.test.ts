@@ -200,11 +200,12 @@ describe('#3507 会话不在时的其余副作用', () => {
       data: { turns: typeof oldTurn[]; nextCursor: null };
     }) => void;
     store.session = {
+      activeTurn: { current: () => newTurn },
       getHistory: () =>
         new Promise((resolve) => {
           resolveHistory = resolve;
         }),
-      // test double for the one raced method
+      // The source already has the newer live turn when history reconciliation resolves.
     } as any;
     store.chatState.transcript.activeTurn.set(oldTurn);
 

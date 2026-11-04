@@ -5,6 +5,7 @@ import { rendererLogger } from '@/lib/log';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { formatCalendarDate } from '@/i18n/format';
 import { ArrowUpToLine, File, Folder, FolderPlus, MoreHorizontal, Sparkles, SquarePen, Trash2 } from '@/lib/icons';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
@@ -26,7 +27,7 @@ import { reportAssistantAppChange } from '@/components/assistant/assistant-app-c
 function useTimeFormat() {
   const { i18n } = useTranslation();
   return (iso: string | null) =>
-    iso ? new Intl.DateTimeFormat(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso)) : '';
+    iso ? formatCalendarDate(new Date(iso), i18n.language) : '';
 }
 
 function kindLabel(kind: MemoryKind, t: (key: string, options?: Record<string, unknown>) => string, name: string): string {

@@ -156,7 +156,7 @@ const BROWSER_CASE_CAP_MS = 60_000
 // 既彼此唯一、又不能和外层 project 同名 —— 统一加 `-chromium` 后缀。
 const browserOptions = (name: string) => ({
   enabled: true as const,
-  provider: playwright(),
+  provider: playwright({ contextOptions: { locale: 'en-US' } }),
   headless: true,
   instances: [{ browser: 'chromium' as const, name: `${name}-chromium` }],
 })
@@ -413,6 +413,7 @@ export default defineConfig({
           // 字元格尺寸与 resize 时序 —— 旁边只要有个吃 CPU 的组件测试文件,它们就整片超时。
           fileParallelism: false,
           browser: browserOptions('session-browser'),
+          setupFiles: ['tests/support/browser-locale-reset.ts'],
           include: ['apps/desktop/src/session/renderer/tests/browser/**/*.test.{ts,tsx}'],
         },
       },

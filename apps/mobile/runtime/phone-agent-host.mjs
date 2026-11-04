@@ -71,6 +71,8 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   let heartbeatHealthy = false
   let heartbeating = null
   let startupComplete = false
+  let inboxGap = 0
+  const inboxScans = new Map()
   let closing = null
   let deliveringFailures = null
   const healthErrors = { auth: null, rpc: null, heartbeat: null }
@@ -120,7 +122,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     if (!agent) throw Object.assign(new Error('session not found on this machine'), { code: 'SESSION_NOT_FOUND' })
     return agent
   }
-  const reporter = createAgentRuntimeStateReporter(cloud.identity, { onGoneAgent: async (id) => { delete store.state.agents[id]; await store.save(); publish() } })
+  const reporter = createAgentRuntimeStateReporter(cloud.identity, { onGoneAgent: async (id) => { delete store.state.agents[id]; inboxScans.delete(id); await store.save(); publish() } })
   const report = (agent, online = true) => agent.removedIdentity ? Promise.resolve() : reporter({ agentUserId: agent.agentUserId, runtimeStatus: online ? 'online' : 'offline', activityStatus: agent.status === 'working' ? 'running' : 'idle', agentStatus: agent.status, agentStatusDetail: agent.status === 'working' ? 'running' : agent.status === 'needs_user' ? 'question' : agent.status === 'error' ? null : 'plain', runtimeKind: 'gugu', runtimeLabel: config.deviceRow?.label ?? config.deviceInfo?.model ?? 'Android', recentActions: agent.recentActions ?? null, lastActionAt: agent.lastActionAt ?? null })
   const verifyAgent = async (agentUserId) => {
     const { data, error } = await cloud.identity.from('active_users').select('id,type,owner_user_id,device_id,display_name,gugu_number,desired_status').eq('id', uuid(agentUserId)).maybeSingle()
@@ -179,11 +181,17 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   const inbox = async (agentUserId) => {
     const agent = agents().find((row) => row.agentUserId === agentUserId)
     if (!agent || stopped || signingOut) return { pulled: 0, injected: 0 }
+    const scanGap = inboxGap
     await verifyAgent(agentUserId)
     const rowsById = new Map()
     return pullAgentInbox(agentUserId, {
       accessToken: await cloud.token(), ownerUserId: ownerId, env,
       recipientIsRegistered: (id) => agents().some((row) => row.agentUserId === id),
+      onScanComplete: () => {
+        if (stopped || signingOut || !agents().includes(agent)) return
+        const previous = inboxScans.get(agentUserId)
+        inboxScans.set(agentUserId, { nextAt: performance.now() + 300_000, gap: rpcConnected && scanGap === inboxGap ? scanGap : previous?.gap ?? -1 })
+      },
       deliveryTiming: () => 'idle-only', deliveryContextKey: () => agent.sessionId,
       resolveGuguIds: resolveIdentities,
       fetchUnread: async (input) => {
@@ -203,6 +211,14 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
         return 'accepted'
       },
     })
+  }
+  const reconcileInboxes = async () => {
+    for (const agent of agents()) {
+      const scan = inboxScans.get(agent.agentUserId)
+      if (!scan || performance.now() >= scan.nextAt || (rpcConnected && scan.gap !== inboxGap)) {
+        await inbox(agent.agentUserId).catch((error) => warn(error.message))
+      }
+    }
   }
   const createFromCommand = async (command, signal) => {
     const result = await handleAgentCreateDeviceCommand(command.payload ?? {}, {
@@ -255,6 +271,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     await cancel(agent)
     await draining
     archiveAgentRecord(agent)
+    inboxScans.delete(agent.agentUserId)
     await store.save(); publish()
     return true
   }
@@ -689,6 +706,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   const close = () => {
     if (closing) return closing
     stopped = true; ready = false; abort.abort(new Error('手机宿主已停止'))
+    inboxScans.clear()
     clearInterval(heartbeatTimer); clearInterval(reconciliationTimer); workPump?.close()
     if (activeJob) cancelTurn(store.state.agents[activeJob.agentUserId]?.sessionId)
     // host_stop and native pipe EOF can arrive while the first cleanup is awaiting I/O.
@@ -753,9 +771,13 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     }
     let reportedConnectivity = false
     rpcHost = await rpcFactory({ cloud, ownerId, deviceId, invoke, provider, onCommand: tick, warn, onConnectivity: (connected) => {
+      if (stopped) return
+      const reconnected = connected && !rpcConnected
+      if (!connected && (rpcConnected || !reportedConnectivity)) inboxGap++
       reportedConnectivity = true; rpcConnected = connected
       healthErrors.rpc = connected ? null : { message: '手机宿主连接已断开，正在重新连接' }
       updateReadiness()
+      if (startupComplete && reconnected && !signingOut) void reconcileInboxes()
     } })
     if (!reportedConnectivity) rpcConnected = true
     await heartbeat(); publish()
@@ -772,7 +794,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       void drain().catch((error) => warn(error.message)) // Also settles expired waits while offline.
       void tick().then(async () => {
         void flushFailureNotices().catch(() => warn('手机任务失败交代恢复失败'))
-        for (const agent of agents()) await inbox(agent.agentUserId)
+        await reconcileInboxes()
         for (const message of Object.values(store.state.outbox)) if (message.status === 'pending') await deliverPhoneOutbox(cloud, store, message.id, authorizeReply)
       }).catch((error) => warn(error.message))
     }, 30_000)

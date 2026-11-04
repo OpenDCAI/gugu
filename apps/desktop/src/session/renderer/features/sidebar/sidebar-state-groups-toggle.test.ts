@@ -78,6 +78,27 @@ function session(
 // behavior session-page「会话列表与状态」: 二级分类(agent 状态分组)是一个可关的层。
 // 关掉 = 不出组头,会话按最后交互时间平铺成一条列表。
 describe('sidebar state groups toggle', () => {
+  it('keeps offline wait/error marks without counting them in Needs you', () => {
+    for (const status of ['needs_user', 'error'] as const) {
+      const presentation = presentAgentStatus({ reading: { status, detail: null }, hostOnline: false });
+      expect(presentation?.tone).toBe(status);
+      expect(sidebarStateGroup(presentation)).toBe('needs-you');
+    }
+    for (const online of [false, true]) {
+      const projectId = 'remote-attention-project';
+      const store = new SidebarStore(projectManagerWith(projectId, 'remote-host'));
+      store.machines = {
+        machineOf: () => 'remote-host', label: () => 'remote-host', homeDir: () => '/work',
+        connected: () => online,
+        sessionsOf: () => ({ live: online, sessions: ['needs_user', 'error'].map(status => ({
+          conversationId: status, projectId, title: status, runtime: 'acp', harness: 'codex',
+          agentStatus: status, status: { status, detail: null }, supported: true, lastInteractedAt: null,
+        })) }),
+      };
+      expect(store.needsYouCountForProject(projectId)).toBe(online ? 2 : 0);
+      expect(store.placement.entries.get(projectId)?.map(entry => entry.group)).toEqual(['needs-you', 'needs-you']);
+    }
+  });
   it('counts failures and waits together in the project Needs you badge (#1165)', () => {
     expect(sidebarStateGroup(presentAgentStatus({ reading: { status: 'error', detail: null } }))).toBe('needs-you');
     expect(sidebarStateGroup(presentAgentStatus({ reading: { status: 'needs_user', detail: 'approval' } }))).toBe('needs-you');

@@ -82,7 +82,11 @@ export function MessageHoverRegion({ enabled, forceOpen, style, children, action
 export function MessageHoverTrigger(props: ComponentProps<typeof PreviewCard.Trigger>) {
   const elements = useContext(HoverElementsContext)
   const ref = useCallback((node: HTMLElement | null) => { if (elements) elements.trigger = node }, [elements])
-  return <PreviewCard.Trigger {...props} ref={ref} render={<div />} delay={0} />
+  return <PreviewCard.Trigger {...props} ref={ref} onPointerMove={(event) => {
+    props.onPointerMove?.(event)
+    const owner = readHoverOwner()
+    if (owner?.elements?.trigger === event.currentTarget) owner.point = { x: event.clientX, y: event.clientY }
+  }} render={<div />} delay={0} />
 }
 
 export function HoverActionBar({ isMine, isRetracted, anchorRef, reactButtonRef, moreButtonRef, onReact, onReply, onMore }: {
