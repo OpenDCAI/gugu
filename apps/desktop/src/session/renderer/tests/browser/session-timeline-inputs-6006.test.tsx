@@ -170,7 +170,7 @@ describe('#6006 live minimap inputs', () => {
     await until('historical sender is requested', () => ensureIdentity.mock.calls.some(([ids]) => ids.includes('coordinator')));
     expect(ticks()).toHaveLength(1);
     const identity: DisplayIdentity = {
-      id: 'coordinator', type: 'human', display_name: 'Coordinator', avatar: null, gugu_number: null,
+      id: 'coordinator', type: 'human', display_name: 'Coordinator', nameSerial: null, avatar: null, gugu_number: null,
       bio: null, owner_user_id: null, agent_public: null, desired_status: null, device_id: null,
       category: null, is_official: null, local_path: null, created_at: null, updated_at: null,
     };

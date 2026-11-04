@@ -5,6 +5,8 @@ import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
 import { LocalizationProvider } from '@/i18n'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
+import { ChatComposer, MessageProvider } from '@gugu/session-ui/react/components'
+import { ThemeProvider } from '@gugu/session-ui/react/primitives'
 import '@/i18n/registerMessagingCatalog'
 import '@/styles/tokens.css'
 import '@/mobile/phone-shell.css'
@@ -14,7 +16,7 @@ let root: Root | null = null
 let host: HTMLDivElement | null = null
 afterEach(() => { root?.unmount(); host?.remove(); root = null; host = null })
 
-it('390px phone composer blurs on submission, while Enter keeps editing', async () => {
+it.each(['pointer', 'programmatic'] as const)('390px phone composer keeps focus after a %s send, while Enter keeps editing', async (method) => {
   await page.viewport(390, 844)
   const onSend = vi.fn(async () => {})
   host = document.body.appendChild(document.createElement('div'))
@@ -29,12 +31,34 @@ it('390px phone composer blurs on submission, while Enter keeps editing', async 
   expect(onSend).not.toHaveBeenCalled()
   expect(document.activeElement).toBe(editor)
   const blurred = vi.fn()
+  const focused = vi.fn()
   editor.addEventListener('blur', blurred)
-  host.querySelector<HTMLButtonElement>(`button[aria-label="${translateSessionMessage('composer.sendMessage')}"]`)!.click()
+  editor.addEventListener('focus', focused)
+  const button = page.getByRole('button', { name: translateSessionMessage('composer.sendMessage') })
+  if (method === 'pointer') await button.click()
+  else host.querySelector<HTMLButtonElement>(`button[aria-label="${translateSessionMessage('composer.sendMessage')}"]`)!.click()
   await until('send reached chat host', () => onSend.mock.calls.length === 1)
-  expect(blurred).toHaveBeenCalledTimes(1)
-  expect(document.activeElement).toBe(document.body)
+  expect(blurred).not.toHaveBeenCalled()
+  expect(document.activeElement).toBe(editor)
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-  expect(document.activeElement).toBe(document.body)
+  expect(document.activeElement).toBe(editor)
+  expect(focused).not.toHaveBeenCalled()
   expect(editor.textContent).toBe('')
+})
+
+it('desktop pointer sends retain the native button-focus behavior', async () => {
+  await page.viewport(1000, 844)
+  const submit = vi.fn()
+  host = document.body.appendChild(document.createElement('div'))
+  root = createRoot(host)
+  root.render(<ThemeProvider><MessageProvider locale="en-US" translate={translateSessionMessage}>
+    <ChatComposer onSubmit={submit} />
+  </MessageProvider></ThemeProvider>)
+  await until('desktop editor mounted', () => !!host?.querySelector('[contenteditable]'))
+  await page.getByTestId('prompt-editor').fill('Desktop focus check')
+  const name = translateSessionMessage('composer.sendMessage')
+  const button = host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!
+  await page.getByRole('button', { name }).click()
+  expect(submit).toHaveBeenCalledExactlyOnceWith('Desktop focus check')
+  expect(document.activeElement).toBe(button)
 })

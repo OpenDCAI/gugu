@@ -1,5 +1,7 @@
 import { promptAttachmentSchema, turnFileRefSchema } from '@gugu/session-core/acp/client';
+import { SessionInputAdmissionError, sessionInputAdmission, type SessionInputAdmission } from '@gugu/core/shared/sessionInputAdmission';
 import { createNativeRecordReader } from './native-record';
+import { priorInputAdmission, sameInput, type InputAdmissionPayload } from './input-admission';
 import { ask, withdrawAll } from '../asks';
 import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondAskQuestion } from '../asks/ask';
 import { askSourceSpec } from '../asks/sources';
@@ -120,7 +122,7 @@ import {
 
 const IDLE_DISPOSE_MS = 60_000;
 
-export type SessionTimelineFailure = { code: string; message: string };
+export type SessionTimelineFailure = { code: string; message: string; admission?: SessionInputAdmission };
 export type SessionTimelineResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: SessionTimelineFailure };
@@ -1399,38 +1401,79 @@ function writeTargetFrom(row: SessionRow): SessionWriteTarget {
   return mapSessionRowToSession(row);
 }
 
+type InputAdmissionResult = SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string; admission: 'accepted' }>;
+const admittingInputs = new Map<string, { input: InputAdmissionPayload; result: Promise<InputAdmissionResult> }>();
+
 export async function send(
   conversationId: string,
   text: string,
   clientMessageId?: string,
   files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files'],
   attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]
-): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string }>> {
-  if (files !== undefined && !turnFileRefSchema.array().safeParse(files).success) return fail('invalid_request', '附件引用无效');
-  if (attachments !== undefined && !promptAttachmentSchema.array().safeParse(attachments).success) return fail('invalid_request', '附件引用无效');
-  if (clientMessageId !== undefined && (!clientMessageId.trim() || clientMessageId.length > 256)) return fail('invalid_request', '消息标识无效');
+): Promise<InputAdmissionResult> {
+  const input = { conversationId, text, clientMessageId, files, attachments };
+  if (!clientMessageId) return sendOnce(input);
+  const key = JSON.stringify([conversationId, clientMessageId]);
+  const pending = admittingInputs.get(key);
+  if (pending) return sameInput(input, pending.input) ? pending.result : {
+    ok: false, error: { code: 'invalid_request', message: '原消息尚在确认，不能更换内容', admission: 'uncertain' },
+  };
+  const result = sendOnce(input);
+  admittingInputs.set(key, { input, result });
+  try { return await result; }
+  finally { admittingInputs.delete(key); }
+}
+
+async function sendOnce({ conversationId, text, clientMessageId, files, attachments }: InputAdmissionPayload): Promise<InputAdmissionResult> {
+  const rejected = (code: string, message: string): InputAdmissionResult => {
+    try {
+      const prior = priorInputAdmission({ conversationId, text, clientMessageId, files, attachments });
+      return prior === 'accepted'
+        ? { ok: true, value: { accepted: 'queued', admission: 'accepted', clientMessageId } }
+        : { ok: false, error: { code, message, admission: prior ?? 'rejected' } };
+    } catch (error) {
+      return { ok: false, error: { code: 'send_failed', message: (error as Error)?.message ?? String(error), admission: 'uncertain' } };
+    }
+  };
+  if (files !== undefined && !turnFileRefSchema.array().safeParse(files).success) return rejected('invalid_request', '附件引用无效');
+  if (attachments !== undefined && !promptAttachmentSchema.array().safeParse(attachments).success) return rejected('invalid_request', '附件引用无效');
+  if (clientMessageId !== undefined && (!clientMessageId.trim() || clientMessageId.length > 256)) return rejected('invalid_request', '消息标识无效');
+  if (!text.trim() && !files?.length && !attachments?.length) return rejected('empty_text', '消息是空的');
+  // Confirm custody before re-reading a provider or resolving files whose permissions may have changed.
+  try {
+    const prior = priorInputAdmission({ conversationId, text, clientMessageId, files, attachments });
+    if (prior === 'accepted') return { ok: true, value: { accepted: 'queued', admission: 'accepted', clientMessageId } };
+    if (prior === 'uncertain') return { ok: false, error: { code: 'input_conflict', message: '原消息的接管记录尚无法确认', admission: 'uncertain' } };
+  } catch (error) {
+    return { ok: false, error: { code: 'send_failed', message: (error as Error)?.message ?? String(error), admission: 'uncertain' } };
+  }
   // A side chat has no session row: its custody send lands in its fork entry's queue.
   if (runtimeFork(conversationId)) {
-    if (!text.trim() && !files?.length && !attachments?.length) return fail('empty_text', '消息是空的');
-    sessionLife().enqueue({ sessionId: conversationId, messageId: clientMessageId ?? crypto.randomUUID(), text: text.trim(), kind: 'ordinary',
-      delivery: { queue: true, origin: 'manual', ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) } });
-    return { ok: true, value: { accepted: 'queued', ...(clientMessageId ? { clientMessageId } : {}) } };
+    try {
+      sessionLife().enqueue({ sessionId: conversationId, messageId: clientMessageId ?? crypto.randomUUID(), text: text.trim(), kind: 'ordinary',
+        delivery: { queue: true, origin: 'manual', ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) } });
+      return { ok: true, value: { accepted: 'queued', admission: 'accepted', ...(clientMessageId ? { clientMessageId } : {}) } };
+    } catch (error) {
+      return { ok: false, error: { code: error instanceof SessionInputAdmissionError ? error.code ?? 'send_failed' : 'send_failed',
+        message: (error as Error)?.message ?? String(error), admission: sessionInputAdmission(error) } };
+    }
   }
   const row = readSessionRow(conversationId);
-  if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
+  if (!row) return rejected('session_not_found', '这台机器上已没有这条任务');
   // provider 为空 = 这一行没记下是哪家引擎；再往下走只会在插件表里抛一句认不出来的话。
   if (!row.provider?.trim()) {
-    return fail('provider_unknown', `会话 ${conversationId} 没有记下 provider，投不出去`);
+    return rejected('provider_unknown', '任务没有记下 provider，投不出去');
   }
   // 还没开起来的会话(建的时候 agent 没起来,#6264):先按「再试一次」同一条路把它起来 —— 第一句话随之投递 ——
   // 再发这一句。❌ 直接唤醒:唤醒不带第一句,agent 会只看到后来这一句。
   // A never-started session is ACP only (neverStarted), and its delivery itself starts it (session-life row 1).
   try {
     const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, files, attachments);
-    return { ok: true, value: { ...accepted, ...(clientMessageId ? { clientMessageId } : {}) } };
+    return { ok: true, value: { ...accepted, admission: 'accepted', ...(clientMessageId ? { clientMessageId } : {}) } };
   } catch (error) {
-    if (error instanceof SessionWriteError) return fail(error.code, error.message);
-    return fail('send_failed', (error as Error)?.message ?? String(error));
+    if (sessionInputAdmission(error) === 'rejected') return rejected(error instanceof SessionWriteError || error instanceof SessionInputAdmissionError ? error.code ?? 'send_failed' : 'send_failed', (error as Error)?.message ?? String(error));
+    return { ok: false, error: { code: error instanceof SessionWriteError || error instanceof SessionInputAdmissionError ? error.code ?? 'send_failed' : 'send_failed',
+      message: (error as Error)?.message ?? String(error), admission: sessionInputAdmission(error) } };
   }
 }
 

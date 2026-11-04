@@ -369,8 +369,6 @@ export interface ChatComposerProps {
   onCommand?: (item: CommandItem) => void;
   /** Session-state notice shown flush above the input (e.g. ACP stop reasons). */
   notice?: ComposerNotice | null;
-  /** Host band connected to this composer, below queued prompts and above permission/notice. */
-  bandAbove?: React.ReactNode;
   /**
    * Pending ACP permission request to show in the band above the input.
    * When present, the notice band is replaced by the permission band.
@@ -467,7 +465,6 @@ export function ChatComposer({
   onViewAttachment,
   onRetryAttachment,
   notice,
-  bandAbove,
   permissionRequest,
   permissionQueueCount = 1,
   onResolvePermission,
@@ -574,9 +571,6 @@ export function ChatComposer({
     if (phoneActions) { phoneSubmittingRef.current = true; setPhoneSubmitting(true); }
     try {
       const committed = submit(text);
-      // Settle focus synchronously; a deferred refocus reopens the keyboard.
-      const active = rootRef.current?.ownerDocument.activeElement;
-      if (active instanceof HTMLElement && rootRef.current?.contains(active)) active.blur();
       if (phoneActions) await committed;
     } finally {
       if (phoneActions) { phoneSubmittingRef.current = false; setPhoneSubmitting(false); }
@@ -732,7 +726,7 @@ export function ChatComposer({
     !!onReorderQueuedPrompts &&
     !!onSendQueuedPromptNow;
   // The permission band takes priority over the notice band.
-  const hasBand = !!bandAbove || !!(permissionRequest ?? notice);
+  const hasBand = !!(permissionRequest ?? notice);
   const receiveEditor = React.useCallback((handle: PromptEditorRef | null) => {
     editorRef.current = handle;
     if (typeof editorApiRef === 'function') editorApiRef(handle);
@@ -768,7 +762,7 @@ export function ChatComposer({
   );
 
   return (
-    <div ref={rootRef} data-slot="composer" data-band-above={!!bandAbove || undefined} data-mobile={mobile || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
+    <div ref={rootRef} data-slot="composer" data-mobile={mobile || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
       if (queueEdit && event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing && event.keyCode !== 229) {
         event.preventDefault(); finishQueueEdit(null);
       }
@@ -785,8 +779,6 @@ export function ChatComposer({
         />
       )}
 
-      <div data-composer-stack="" className={styles.composerStack({ tone })}>
-        {bandAbove}
         {/* Permission band — shown when the agent is awaiting user approval. */}
         {permissionRequest && onResolvePermission && (
           <PermissionBand
@@ -816,7 +808,7 @@ export function ChatComposer({
         <div
           data-slot="composer-bar"
           data-drag-active={dragActive || undefined}
-          className={styles.composerShell({ hasBand: !!hasBand, dragActive })}
+        className={styles.composerShell({ hasBand: !!hasBand, dragActive, tone })}
           onPaste={queueEdit ? undefined : handlePaste}
           onDragOver={queueEdit ? undefined : handleDragOver}
           onDragLeave={handleDragLeave}
@@ -1032,6 +1024,7 @@ export function ChatComposer({
                     size="base"
                     icon
                     className={cx(styles.sendButtonRound, styles.sendButtonInk)}
+                    onPointerDown={mobile ? (event) => event.preventDefault() : undefined}
                     onClick={() => handleSubmit(editorRef.current?.getText() ?? '')}
                     disabled={disabled || !canSubmit}
                     aria-label={translate('composer.sendMessage')}
@@ -1044,6 +1037,5 @@ export function ChatComposer({
           </div>
         </div>
       </div>
-    </div>
   );
 }

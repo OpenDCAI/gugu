@@ -141,7 +141,7 @@ export type RecordBoundary = { messageId?: string } & (
   /** 被打断（用户 ESC、进程被杀）。 */
   | { kind: 'turn_aborted' }
   /** 没做完：harness 自己记下的报错（claude 的 `isApiErrorMessage` 行）。 */
-  | { kind: 'turn_failed' });
+  | { kind: 'turn_failed'; creditExhausted?: true });
 
 /**
  * 一条解码后的记录。`key` 是跨来源身份键：同一件事从两个来源各报一次也只算一次。

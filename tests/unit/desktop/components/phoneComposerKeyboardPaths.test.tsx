@@ -9,7 +9,7 @@ import { startPhoneNewTask } from '@/mobile/chat/PhoneNewTask'
 import * as tasks from '@/mobile/agent-watch/createTaskInGroup'
 import * as rpc from '@/mobile/agent-watch/sessionpage-rpc'
 import { clickElement, createReactHarness, device, renderWithAppProviders } from '../../../support/testHarness'
-import { writeComposer } from '../../../support/composerEditor'
+import { readComposer, writeComposer } from '../../../support/composerEditor'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 
 let harness: ReturnType<typeof createReactHarness>
@@ -91,10 +91,16 @@ describe('phone keyboard across the real composer hosts', () => {
       }
       expect(kind === 'task' ? created : delivered).toHaveBeenCalledTimes(1)
       if (method === 'attachment' && kind !== 'agent' && kind !== 'task') expect(attached).toHaveBeenCalledTimes(1)
-      expect(blurred).toHaveBeenCalledTimes(1)
-      expect(document.activeElement).toBe(document.body)
+      expect(blurred).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(input())
       await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)) })
-      expect(document.activeElement).toBe(document.body)
+      expect(document.activeElement).toBe(input())
+      // Keep the same focused editor usable after the send commits, including attachments.
+      await act(async () => { writeComposer(input(), 'continue typing') })
+      expect(readComposer(input())).toBe('continue typing')
+      expect(document.activeElement).toBe(input())
+      expect(blurred).not.toHaveBeenCalled()
+      expect(kind === 'task' ? created : delivered).toHaveBeenCalledTimes(1)
     })
   }
 })

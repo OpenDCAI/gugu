@@ -6,8 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders, waitForCondition } from '../../../support/testHarness'
 import { readComposer, writeComposer } from '../../../support/composerEditor'
 import { stubVisibleIntersection } from '../../../support/visibleIntersection'
+import { EMPTY, state as outboxState } from '../../../../apps/desktop/src/lib/sessionInputOutboxBridge'
+import type { SessionInputOutbox } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 
-const transcript = vi.hoisted(() => ({ commands: undefined as ChatCommands | undefined }))
+const transcript = vi.hoisted(() => ({ commands: undefined as ChatCommands | undefined, pendingMessages: undefined as unknown }))
 const auth = vi.hoisted(() => ({ owner: 'draft-owner-a' }))
 const rpc = vi.hoisted(() => ({ invoke: vi.fn(() => new Promise(() => undefined)) }))
 vi.mock('../../../../apps/desktop/src/lib/supabase', async (original) => ({ ...await original<typeof import('../../../../apps/desktop/src/lib/supabase')>(), getCurrentAuthUserId: async () => auth.owner }))
@@ -17,7 +19,7 @@ vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () =>
   fetchSessionOptions: vi.fn(() => new Promise(() => undefined)), setSessionOption: vi.fn(),
 }))
 
-vi.mock('../../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { composerContent: import('react').ReactNode; commands: ChatCommands }) => { transcript.commands = props.commands; return createElement('div', {}, props.composerContent) } }))
+vi.mock('../../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { composerContent: import('react').ReactNode; commands: ChatCommands; pendingMessages: unknown }) => { transcript.commands = props.commands; transcript.pendingMessages = props.pendingMessages; return createElement('div', {}, props.composerContent) } }))
 
 import { SessionConversation } from '../../../../apps/desktop/src/mobile/agent-watch/SessionConversation'
 import { emptyAgentWatchTimeline } from '../../../../apps/desktop/src/mobile/agent-watch/agent-watch-store'
@@ -46,7 +48,41 @@ beforeEach(() => {
   localStorage.clear(); auth.owner = 'draft-owner-a'; rpc.invoke.mockReset(); rpc.invoke.mockImplementation(() => new Promise(() => undefined)); harness = createReactHarness()
   Element.prototype.scrollTo = () => undefined
 })
-afterEach(() => { harness.cleanup(); Element.prototype.scrollTo = oldScroll; vi.unstubAllGlobals() })
+afterEach(() => {
+  harness.cleanup(); Element.prototype.scrollTo = oldScroll; vi.unstubAllGlobals()
+  Object.assign(outboxState(), { accountId: null, queue: null, rows: EMPTY, valid: () => false })
+})
+
+it.each([false, true])('keeps phone history stable while typing with rejected input %s, preserving retry and edit actions', async rejected => {
+  const retry = vi.fn().mockResolvedValue(undefined)
+  const flush = vi.fn().mockResolvedValue(undefined)
+  Object.assign(outboxState(), { accountId: auth.owner, valid: () => true,
+    queue: Promise.resolve({ retry, flush } as unknown as SessionInputOutbox),
+    rows: rejected ? [{ id: 'refused', accountId: auth.owner, deviceId: 'phone-draft', sessionId: 'task-draft',
+      text: '原消息', createdAt: 1, admission: 'rejected', failure: { code: 'send-failed', message: 'Archived task' } }] : EMPTY })
+  await show()
+  await waitForCondition(() => !!input(), 'actual composer mounted')
+  const commands = transcript.commands
+  const pendingMessages = transcript.pendingMessages
+  await act(async () => { writeComposer(input(), '继续写新的内容') })
+  expect(draft()).toBe('继续写新的内容')
+  expect(transcript.commands).toBe(commands)
+  expect(transcript.pendingMessages).toBe(pendingMessages)
+  await act(async () => { transcript.commands?.onRetrySend?.(rejected ? 'refused' : 'ordinary-failure') })
+  if (rejected) {
+    expect(retry).toHaveBeenCalledExactlyOnceWith('refused')
+    expect(flush).not.toHaveBeenCalled()
+    await act(async () => { transcript.commands?.onEditMessage?.({ itemId: 'refused' }) })
+    expect(transcript.commands?.editingMessage?.text).toBe('原消息')
+    await act(async () => { transcript.commands?.editingMessage?.onChange('修改后的原消息') })
+    expect(transcript.commands?.editingMessage?.text).toBe('修改后的原消息')
+    await act(async () => { transcript.commands?.editingMessage?.onCancel() })
+    expect(transcript.commands?.editingMessage).toBeUndefined()
+  } else {
+    expect(flush).toHaveBeenCalledExactlyOnceWith(true)
+    expect(retry).not.toHaveBeenCalled()
+  }
+})
 
 describe('the existing phone task composer recovers an unacknowledged send', () => {
   it('restores the actual empty input without replay, then an explicit retry keeps the original id', async () => {

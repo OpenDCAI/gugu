@@ -206,6 +206,10 @@ describe('更新说明 — 按端取,地址与页面同源推导', () => {
 describe('updateStateAdvances', () => {
   it.each([
     ['downloaded', 'downloading', true],
+    ['downloaded', 'installing', true],
+    ['installing', 'downloaded', true],
+    ['installing', 'not-available', false],
+    ['installing', 'error', true],
     ['downloaded', 'downloaded', true],
     ['downloaded', 'available', false],
     ['downloaded', 'not-available', false],
@@ -243,4 +247,3 @@ describe('setFeedURL 的 provider 配置 —— 差分下载一段一个请求',
     expect(updateFeedOptions('none', 'darwin')).toBeNull()
   })
 })
-

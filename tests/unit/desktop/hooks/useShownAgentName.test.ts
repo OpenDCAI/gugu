@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useShownAgentName } from '../../../../apps/desktop/src/hooks/useShownAgentName'
 import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
 import { createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
+import { ChatClashNames } from '../../../../apps/desktop/src/components/chat/ChatClashNames'
 
 let harness: ReturnType<typeof createReactHarness>
 const createdAt = '2026-11-02T08:00:00.000Z'
@@ -48,4 +49,19 @@ it('expires grouped labels in creation order while preserving explicit names', a
   expect(harness.container.textContent).toBe('Codex 5 / 正在起名… / Research assistant')
   await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
   expect(harness.container.textContent).toBe('Codex 5 / Claude 8 / Research assistant')
+})
+
+it('adds a chat suffix only to an identified member in that chat, leaving task labels plain', async () => {
+  function Labels() {
+    return useShownAgentName([
+      { id: 'a', chatId: 'chat', name: 'Fix login', createdAt: undefined },
+      { id: 'a', chatId: 'other', name: 'Fix login', createdAt: undefined },
+      { name: 'Fix login', createdAt: undefined },
+    ]).join(' / ')
+  }
+  const names = new Map([['a', 'Fix login #93']])
+  await renderWithAppProviders(harness, createElement(ChatClashNames.Provider, { value: { chatId: 'chat', names } }, createElement(Labels)))
+  expect(harness.container.textContent).toBe('Fix login #93 / Fix login / Fix login')
+  await renderWithAppProviders(harness, createElement(ChatClashNames.Provider, { value: { chatId: 'chat', names: new Map() } }, createElement(Labels)))
+  expect(harness.container.textContent).toBe('Fix login / Fix login / Fix login')
 })

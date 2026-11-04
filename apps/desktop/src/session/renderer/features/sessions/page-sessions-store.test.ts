@@ -143,7 +143,7 @@ describe('PageSessionsStore four-state status projection', () => {
     store.dispose();
   });
 
-  it('reconciles the host status and interruption reason after reconnect', () => {
+  it.each(['idle', 'error'] as const)('reconciles the %s host status and interruption reason after reconnect', status => {
     const store = makeStore();
     const conv = store.sessions.get('c1')!;
     const data = conv.data;
@@ -152,21 +152,63 @@ describe('PageSessionsStore four-state status projection', () => {
 
     store.reconcile([{
       ...data,
-      agentStatus: 'error',
-      agentStatusDetail: null,
-      agentStatusSeen: false,
+      agentStatus: status,
+      agentStatusDetail: status === 'idle' ? 'plain' : null,
+      agentStatusSeen: status === 'idle',
       interruptedBy: 'update',
     }]);
 
     expect(store.sessions.get('c1')).toBe(conv);
     expect(conv.data).toBe(data);
-    expect(conv.status).toBe('error');
-    expect(conv.detail).toBeNull();
-    expect(conv.seen).toBe(false);
-    expect(conv.groupStatus).toBe('error');
-    expect(conv.indicatorStatus).toBe('error');
+    expect(conv.status).toBe(status);
+    expect(conv.detail).toBe(status === 'idle' ? 'plain' : null);
+    expect(conv.seen).toBe(status === 'idle');
+    expect(conv.groupStatus).toBe(status === 'idle' ? null : 'error');
+    expect(conv.indicatorStatus).toBe(status === 'idle' ? null : 'error');
     expect(conv.data.interruptedBy).toBe('update');
     expect(conv.statusSourceFault).toBe('retained fault');
+    store.dispose();
+  });
+
+  it.each(['restart', 'update', 'unclean'] as const)('clears the %s interruption when work starts and keeps it cleared after completion', interruptedBy => {
+    const store = makeStore();
+    const conv = store.sessions.get('c1')!;
+    store.reconcile([{
+      ...conv.data,
+      agentStatus: 'idle',
+      agentStatusDetail: 'plain',
+      interruptedBy,
+    }]);
+    expect(conv.data.interruptedBy).toBe(interruptedBy);
+
+    conv.applyStatus({ reading: { status: 'working', detail: 'running' }, unseen: false, statusSourceFault: null });
+    expect(conv.data.interruptedBy).toBeUndefined();
+
+    conv.applyStatus({ reading: { status: 'idle', detail: 'done' }, unseen: false, statusSourceFault: null });
+    expect(conv.status).toBe('idle');
+    expect(conv.data.interruptedBy).toBeUndefined();
+    store.dispose();
+  });
+
+  it.each(['restart', 'update', 'unclean'] as const)('removes the cached %s interruption when the complete host snapshot omits it', interruptedBy => {
+    const store = makeStore();
+    const conv = store.sessions.get('c1')!;
+    store.reconcile([{
+      ...conv.data,
+      agentStatus: 'idle',
+      agentStatusDetail: 'plain',
+      interruptedBy,
+    }]);
+    const data = conv.data;
+    const snapshot = { ...data };
+    delete snapshot.interruptedBy;
+
+    store.reconcile([snapshot]);
+
+    expect(store.sessions.get('c1')).toBe(conv);
+    expect(conv.data).toBe(data);
+    expect(conv.status).toBe('idle');
+    expect(conv.data).not.toHaveProperty('interruptedBy');
     store.dispose();
   });
 

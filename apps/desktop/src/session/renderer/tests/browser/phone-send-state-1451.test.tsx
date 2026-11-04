@@ -30,18 +30,24 @@ it('a running phone composer sends once and becomes Stop only after local commit
   </MessageProvider></ThemeProvider>)
   await until('empty working composer shows Stop', () => !!host?.querySelector('[data-composer-action="stop"]'))
   await page.getByTestId('prompt-editor').fill('queued while working')
+  const editor = host.querySelector<HTMLElement>('[contenteditable]')!
+  const blurred = vi.fn()
+  editor.addEventListener('blur', blurred)
   const name = translateSessionMessage('composer.sendMessage')
   await page.getByRole('button', { name }).click()
   await until('one local submission started', () => submit.mock.calls.length === 1)
   expect(host.querySelector('[data-composer-action="stop"]')).toBeNull()
   const pending = host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!
   expect(pending.disabled).toBe(true)
+  expect(document.activeElement).toBe(editor)
   pending.click(); pending.click()
   expect(submit).toHaveBeenCalledTimes(1)
   expect(stop).not.toHaveBeenCalled()
   commit()
   await until('local commit allows Stop', () => !!host?.querySelector('[data-composer-action="stop"]'))
   expect(stop).not.toHaveBeenCalled()
+  expect(document.activeElement).toBe(editor)
+  expect(blurred).not.toHaveBeenCalled()
 })
 
 

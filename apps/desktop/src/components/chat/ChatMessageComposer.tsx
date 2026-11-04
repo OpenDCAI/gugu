@@ -94,7 +94,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   }, [members, renderSessionMentionIcon])
   const localProvider = useMemo(() => createLocalSessionMentionProvider({ creationToolsByEngine: byEngine }), [byEngine])
   const decorate = useCallback((item: MentionItem): MentionItem => ({ ...item,
-    annotation: isGroupChat && !members.some((member) => `aid:${member.id}` === item.label) ? t('composer.notInGroup') : undefined,
+    annotation: isGroupChat && !members.some((member) => `aid:${member.id}` === item.label) ? t('composer.notInGroup') : item.annotation,
   }), [isGroupChat, members, t])
   const mentionProvider = useMemo(() => ({
     allowSpaces: true,
@@ -105,7 +105,8 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       return rankMentionCandidates(members, query, { chatId, currentUserId, messages, participantIds, projectMemberIds,
         replyToMessageId: quoteContent?.messageId, now: Date.now() }).map((member): MentionItem => ({
         id: member.type === 'all' ? MENTION_ALL_USER_ID : member.id,
-        label: member.name, name: member.name, kind: 'custom', role: member.type === 'all' ? undefined : member.type,
+        label: member.rawName ? `aid:${member.id}` : member.name, name: member.rawName ?? member.name, kind: 'custom', role: member.type === 'all' ? undefined : member.type,
+        annotation: member.rawName ? member.name.slice(member.rawName.length).trim() : undefined,
         optionLabel: <span {...mentionOptionStatusProps(member, agentStatuses)}><AgentMentionOptionLabel member={member} status={agentStatuses[member.id]} /></span>,
       }))
     },
@@ -114,7 +115,8 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       if (file) return { id: target, label: target, name: label, kind: 'file',
         description: file.version === undefined ? label : `${label} · ${t('filePill.picked', { version: file.version })}` }
       if (!target.startsWith('aid:')) return null
-      return decorate({ id: target, label: target, name: label, role: 'agent', kind: 'custom' })
+      const member = members.find(candidate => `aid:${candidate.id}` === target)
+      return decorate({ id: target, label: target, name: member?.rawName ?? member?.name ?? label, role: member?.type === 'human' ? 'human' : 'agent', kind: 'custom', annotation: member?.rawName ? member.name.slice(member.rawName.length).trim() : undefined })
     },
     async resolveSession(id: string) {
       const item = await localProvider.resolveSession(id)
@@ -131,9 +133,10 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   useLayoutEffect(() => registerDraftEditor(chatId ?? null, () => editorApiRef.current), [chatId, registerDraftEditor])
   useEffect(() => {
     if (!mentionToInsert) return
-    editorApiRef.current?.insertMention({ id: mentionToInsert.id, label: mentionToInsert.name, name: mentionToInsert.name, kind: 'custom' })
+    const member = members.find(candidate => candidate.id === mentionToInsert.id)
+    editorApiRef.current?.insertMention({ id: mentionToInsert.id, label: member?.rawName ? `aid:${mentionToInsert.id}` : mentionToInsert.name, name: member?.rawName ?? member?.name ?? mentionToInsert.name, kind: 'custom' })
     onMentionInserted?.()
-  }, [mentionToInsert, onMentionInserted])
+  }, [mentionToInsert, onMentionInserted, members])
   useEffect(() => {
     // Automatic selection quotes leave the browser's handles and Copy toolbar in charge of focus.
     if (quoteContent && !(mobile && quoteContent.selectionId)) scheduleComposerFocus('quote-attached', { target: () => inputRef.current })

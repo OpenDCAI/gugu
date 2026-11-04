@@ -13,7 +13,6 @@ import { useChatTopicPins } from './useChatTopicPins'
 import './pinned-topics.css'
 
 const topicPinStyle = { padding: 0, minHeight: 0 }
-const topicOpenStyle = { paddingInlineEnd: 'calc(var(--control-h-touch) + 8px)' }
 
 export function TopicUnreadChip({ count, muted = false }: { count: number; muted?: boolean }) {
   return count > 0 ? <Chip tone={muted ? 'default' : 'accent'} shape="count">{count > 99 ? '99+' : count}</Chip> : null
@@ -42,9 +41,10 @@ function TopicMenuRow({ topic, pinned, pins }: { topic: SourceTopic; pinned: boo
   const { t } = useTranslation('messaging')
   const pinLabel = t(pinned ? 'topic.pins.unpin' : 'topic.pins.pin', { name: topic.name })
   return <div className="gg-topic-menu-row" data-topic-id={topic.id} data-pinned={pinned || undefined}>
-    <MenuItem data-testid="group-menu-topic" className="gg-topic-menu-open" style={topicOpenStyle} onClick={() => openPinnedTopic(topic)}>
-      <span className="gg-topic-menu-line"><span className="gg-topic-name" data-unread={topic.unread_count > 0 || undefined}>{pinned && <Pin size={12} aria-hidden />}<span className="truncate">{topic.name}</span></span><span className="gg-topic-time">{formatCalendarDay(chatActivityAt(topic))}</span></span>
-      <span className="gg-topic-menu-line gg-topic-preview"><span className="truncate">{chatPreviewText(topic)}</span><TopicUnreadChip count={topic.unread_count} muted={topic.is_muted} /></span>
+    <MenuItem data-testid="group-menu-topic" className="gg-topic-menu-open" onClick={() => openPinnedTopic(topic)}>
+      <span className="gg-topic-menu-body"><span className="gg-topic-menu-line"><span className="gg-topic-name" data-unread={topic.unread_count > 0 || undefined}>{pinned && <Pin size={12} aria-hidden />}<span className="truncate">{topic.name}</span></span><span className="gg-topic-time">{formatCalendarDay(chatActivityAt(topic))}</span></span>
+      <span className="gg-topic-menu-line gg-topic-preview"><span className="truncate">{chatPreviewText(topic)}</span></span></span>
+      {topic.unread_count > 0 && <span className="gg-topic-menu-unread"><TopicUnreadChip count={topic.unread_count} muted={topic.is_muted} /></span>}
     </MenuItem>
     <MenuItem render={<IconButton size="sm" aria-label={pinLabel}>{pinned ? <PinOff size={14} /> : <Pin size={14} />}</IconButton>} nativeButton title={pinLabel} data-testid="group-topic-pin" className="gg-topic-menu-pin"
       style={topicPinStyle} closeOnClick={false} disabled={!pins.ready || pins.saving} onClick={() => pins.set(topic.id, !pinned)}>

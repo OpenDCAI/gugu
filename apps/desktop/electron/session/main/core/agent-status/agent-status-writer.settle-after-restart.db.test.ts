@@ -97,20 +97,25 @@ describe('settling after a restart leaves sessions whose engine survived in tmux
 
     expect(status('in-tmux').status).toBe('working');
     expect(status('in-tmux-asking').status).toBe('needs_user');
-    expect(status('pty-gone')).toEqual({ status: 'error', detail: null });
-    expect(status('acp')).toEqual({ status: 'error', detail: null });
+    expect(status('pty-gone')).toEqual({ status: 'idle', detail: 'plain' });
+    expect(status('acp')).toEqual({ status: 'idle', detail: 'plain' });
+    expect(readInterruptedTurn('in-tmux')).toBeNull();
+    expect(readInterruptedTurn('in-tmux-asking')).toBeNull();
     expect(status('idle').status).toBe('idle');
   });
 
-  it('an interrupted turn is an error the person has not seen, with why the host stopped; the next start clears the why', async () => {
-    await agentStatusWriter.settleAfterRestart(new Set(), 'update');
+  it.each(['restart', 'update', 'unclean'] as const)('settles %s interruptions as plain idle, retaining the reason until the next actual start', async reason => {
+    const turnCount = () => fixture.sqlite.prepare('SELECT count(*) AS count FROM session_turns').get();
+    const historyBefore = turnCount();
+    await agentStatusWriter.settleAfterRestart(new Set(), reason);
 
     const seen = fixture.sqlite.prepare(`SELECT agent_status_seen AS seen FROM sessions WHERE id = 'acp'`).get() as { seen: number };
-    expect(seen.seen).toBe(0);
-    expect(readInterruptedTurn('acp')).toBe('update');
+    expect(seen.seen).toBe(1);
+    expect(readInterruptedTurn('acp')).toBe(reason);
     expect(readInterruptedTurn('idle')).toBeNull();
     const row = await fixture.db.query.sessions.findFirst({ where: (t, { eq }) => eq(t.id, 'acp') });
-    expect(mapSessionRowToSession(row!)).toMatchObject({ agentStatus: 'error', interruptedBy: 'update' });
+    expect(mapSessionRowToSession(row!)).toMatchObject({ agentStatus: 'idle', agentStatusDetail: 'plain', interruptedBy: reason });
+    expect(turnCount()).toEqual(historyBefore);
 
     await agentStatusWriter.restart({ sessionId: 'acp', projectId: 'p1' });
     expect(status('acp').status).toBe('working');
@@ -126,15 +131,27 @@ describe('settling after a restart leaves sessions whose engine survived in tmux
     await agentStatusWriter.settleAfterRestart(new Set());
 
     for (const id of ['in-tmux', 'in-tmux-asking', 'pty-gone', 'acp']) {
-      expect(status(id)).toEqual({ status: 'error', detail: null });
+      expect(status(id)).toEqual({ status: 'idle', detail: 'plain' });
     }
   });
   it('records one task update refusal and continues restart recovery for the other tasks', async () => {
     fixture.sqlite.exec(`CREATE TRIGGER refuse_one_status BEFORE UPDATE ON sessions WHEN OLD.id='pty-gone' BEGIN SELECT RAISE(ABORT,'status fixture refusal'); END;`);
     await expect(agentStatusWriter.settleAfterRestart(new Set())).resolves.not.toContain('pty-gone');
     expect(status('pty-gone').status).toBe('working');
-    expect(status('acp').status).toBe('error');
+    expect(status('acp')).toEqual({ status: 'idle', detail: 'plain' });
     expect(sessionBootTasks.snapshot()).toContainEqual(expect.objectContaining({ operation: 'status-recovery', taskId: 'pty-gone' }));
+  });
+
+  it('preserves a genuine pre-existing failure and does not attach an interruption reason to it', async () => {
+    seed('failed', 'acp', 'error');
+    fixture.sqlite.prepare('UPDATE sessions SET agent_status_seen=0 WHERE id=?').run('failed');
+    const before = fixture.sqlite.prepare('SELECT * FROM sessions WHERE id=?').get('failed');
+
+    const settled = await agentStatusWriter.settleAfterRestart(new Set(), 'restart');
+
+    expect(settled).not.toContain('failed');
+    expect(fixture.sqlite.prepare('SELECT * FROM sessions WHERE id=?').get('failed')).toEqual(before);
+    expect(readInterruptedTurn('failed')).toBeNull();
   });
 
 });

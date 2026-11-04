@@ -1,3 +1,4 @@
+import { useRejectedSessionInputCommands } from '@/hooks/useRejectedSessionInputCommands'
 import { registerNativeComposer } from '@/lib/nativeComposerHandoff'
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead'
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility'
@@ -43,10 +44,10 @@ import { nativeUserAttachmentCommands } from './native-user-attachments'
 import { usePhoneSessionQuotes } from './use-phone-session-quotes'
 import { EngineIcon } from '@/components/AgentHarnessIdentity'
 import { engineLabel } from '@/lib/usage/engineLabel'
-import { useQueuedSessionInputs, useSessionInputAccount, retrySessionInputs } from '@/lib/sessionInputOutboxBridge'
+import { useQueuedSessionInputs, useSessionInputAccount } from '@/lib/sessionInputOutboxBridge'
 import { localQueuedInputs } from './local-queued-inputs'
 import type { SessionInput } from '@/lib/sessionInputOutbox'
-import { projectSessionPendingInput } from '@/lib/pendingSessionInput'
+import { projectRejectedSessionInputs, projectSessionPendingInput } from '@/lib/pendingSessionInput'
 import { projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { useSessionLifeView } from './useSessionLifeView'
@@ -233,7 +234,9 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const turns = receiptHistory.turns
   const settledInputs = useMemo(() => receivedInputs.filter(input => input.delivery?.state !== 'accepted' || !pendingPromptLanded(input, turns)), [receivedInputs, turns])
   received.current = { key: receivedKey, inputs: settledInputs }
-  const pendingMessages = useMemo(() => settledInputs.filter(receiptHistory.visible), [settledInputs, receiptHistory.visible])
+  const pendingMessages = useMemo(() => [...settledInputs.filter(receiptHistory.visible), ...projectRejectedSessionInputs(senderInputs, nativeTurns)],
+    [settledInputs, receiptHistory.visible, senderInputs, nativeTurns])
+  const rejectedInputCommands = useRejectedSessionInputCommands(sessionId)
   const attachmentTurns = useRef(turns)
   attachmentTurns.current = turns
   const userAttachments = useMemo(() => nativeUserAttachmentCommands({
@@ -256,7 +259,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   // Publishing new commands remeasures every Solid transcript row. Editing a
   // phone draft must not rebuild the history before its outbox commit can run.
   const commands = useMemo<ChatCommands>(() => ({
-    onRetrySend: () => { void retrySessionInputs().catch(error => toast({ title: translateSessionMessage('acpFailure.sendMessage'), description: messageForUser(error), variant: 'destructive' })) },
+    ...rejectedInputCommands,
     ...(nativeRecord && !phoneHost ? userAttachments : {}),
     classifyLink: classifyFileLink, onOpenLink: followConversationLink, onOpenSender: openMessageSender,
     onOpenFile: ({ path, source }) => openFile(path, source),
@@ -269,7 +272,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       setBackgroundError(null)
       void (localClient?.stopBackgroundTask ?? stopBackgroundTask)(deviceId, sessionId, stopId).catch(error => setBackgroundError(messageForUser(error)))
     },
-  }), [nativeRecord, phoneHost, userAttachments, openFile, outputHandlers, sessionId, agentUserId, quotes.commands, deviceId, local, localClient, agentName, onStop])
+  }), [rejectedInputCommands, nativeRecord, phoneHost, userAttachments, openFile, outputHandlers, sessionId, agentUserId, quotes.commands, deviceId, local, localClient, agentName, onStop])
   const composer = <>
     <ConversationSettlements sessionId={sessionId} settlements={timeline.settlements} runtime={sessionRuntime} mobile machine={machineLabel} busyItemId={respondingItemId} respond={onRespond} />
     {footerNotice}
