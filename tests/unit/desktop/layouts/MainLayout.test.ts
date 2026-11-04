@@ -818,14 +818,14 @@ describe('MainLayout', () => {
     expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-assistant-tab"]')).toBeNull()
   })
-  it.each(['error', 'needs_user', null] as const)('keeps the attention list slot with no assistant (attention=%s, #1165)', async attention => {
+  it.each(['error', 'needs_user', null] as const)('keeps global notifications independent of the assistant without prepending attention rows (attention=%s)', async attention => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
     const read = vi.spyOn(needsYouTasks, 'useNeedsYouTasks').mockReturnValue({ tasks: [], attention, error: null })
     try {
       await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
-      const slot = harness.container.querySelector('[data-mobile-tab-page="chats"] [data-needs-you-list-slot]')
-      expect(slot !== null).toBe(attention !== null)
+      expect(read).toHaveBeenCalled()
+      expect(harness.container.querySelector('[data-mobile-tab-page="chats"] [data-needs-you-list-slot]')).toBeNull()
       expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
     } finally { read.mockRestore() }
   })
