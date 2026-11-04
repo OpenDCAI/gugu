@@ -196,3 +196,27 @@ it('keeps earlier visible runtime turns before the newly persisted final turn', 
   await vi.waitFor(() => expect(store.chatState.transcript.state.activeTurnSnapshot).toBeNull());
   expect(store.chatState.transcript.state.committedTurns.map(turn => turn.referenceId)).toEqual([previous.referenceId, live.referenceId]);
 });
+
+it('does not hide a new run whose runtime id was used by a different stored reference', async () => {
+  const { store, close } = attached();
+  const earlier = { ...stored.turn, id: 'A:turn:s6', seq: 6, referenceId: 'source:earlier-run', outcome: { kind: 'done' as const } };
+  const internal = store as unknown as { _storedHistoryTurns: TranscriptTurn[]; _storedOrigins: string[]; _persistedRuntimeTurnIds: Set<string>; _storedBaseSeq: number };
+  internal._storedHistoryTurns = [earlier]; internal._storedOrigins = [live.id];
+  internal._persistedRuntimeTurnIds = new Set([live.id]); internal._storedBaseSeq = 6;
+  store.chatState.transcript.history.seed([earlier]); store.chatState.transcript.activeTurn.set(live);
+  close();
+  await vi.waitFor(() => expect(store.chatState.transcript.state.activeTurnSnapshot).toBeNull());
+  expect(store.chatState.transcript.state.committedTurns.map(turn => turn.referenceId)).toEqual([earlier.referenceId, live.referenceId]);
+});
+
+it('revises an already visible stored slot without adding a runtime twin', async () => {
+  const { store, close } = attached();
+  const internal = store as unknown as { _storedHistoryTurns: TranscriptTurn[]; _storedOrigins: string[]; _persistedRuntimeTurnIds: Set<string> };
+  internal._storedHistoryTurns = [{ ...stored.turn, outcome: undefined }]; internal._storedOrigins = [live.id];
+  internal._persistedRuntimeTurnIds = new Set([live.id]);
+  store.chatState.transcript.history.seed(internal._storedHistoryTurns); store.chatState.transcript.activeTurn.set(live);
+  close();
+  await vi.waitFor(() => expect(store.chatState.transcript.state.activeTurnSnapshot).toBeNull());
+  expect(store.chatState.transcript.state.committedTurns).toHaveLength(1);
+  expect(store.chatState.transcript.state.committedTurns[0]).toMatchObject({ id: stored.turn.id, seq: stored.turn.seq, outcome: stored.turn.outcome });
+});
