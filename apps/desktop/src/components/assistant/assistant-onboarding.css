@@ -100,6 +100,9 @@
 .ta-server-target[aria-pressed='true'] { background: var(--muted); border-color: var(--border-strong); }
 .ta-server-target-name { font-size: var(--font-body); line-height: var(--lh-body); }
 
+/* The shell centers earlier onboarding steps; only the engine step fills its height. */
+.ta-centered:has(.ta-onb-slot-engine) { align-items: stretch; }
+
 /* Local engine choice: the approved v6b geometry is stable across auth states. */
 .ta-onb-slot-engine { align-self: stretch; align-items: flex-start; height: 100%; padding-top: 24px; }
 .ta-onb-engine { width: min(560px, 100%); align-items: stretch; padding: 16px; border-radius: 24px; }
