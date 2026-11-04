@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createServerUpdateStateWriter } from '../../../../apps/desktop/electron/server/server-update-state'
-import { createServerVersionLifecycle, pointCurrent } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
+import { activateServerPackage, createServerVersionLifecycle, pointCurrent } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
 import { markServerReady, readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
 
 let home: string
@@ -69,19 +69,55 @@ describe('one installation version lifecycle', () => {
     markServerReady(home, now)
     expect(lifecycle.reclaim()).not.toContain('4.0.0')
   })
-  it('persists launch verification before switching and completes it on readiness', async () => {
+  it.each(['automatic', 'controller'])('synchronizes a stale pin only on verified readiness after %s activation', async activation => {
     const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => undefined, layout: layout() })
     const next = { from: '3.0.0', to: '4.0.0', fromDir: path.join(home, 'versions', '3.0.0'), toDir: path.join(home, 'versions', '4.0.0'), switchedAt: now }
-    await lifecycle.stage('4.0.0', async () => {})
-    lifecycle.switchSupervisor(next, () => {
+    const pin = path.join(home, 'data/server-version.json')
+    const oldPin = JSON.stringify({ version: '1.0.0', previous: null, at: 1 })
+    fs.mkdirSync(path.dirname(pin), { recursive: true }); fs.writeFileSync(pin, oldPin)
+    const beforeSwitch = () => {
       expect(readPendingVerify(home)).toEqual({ from: '3.0.0', to: '4.0.0', attempts: 0 })
       expect(fs.realpathSync(path.join(home, 'current'))).toBe(next.fromDir)
-    })
+    }
+    if (activation === 'automatic') {
+      await lifecycle.stage('4.0.0', async () => {})
+      lifecycle.switchSupervisor(next, beforeSwitch)
+    } else await activateServerPackage(home, next.toDir, { verifyBoot: async () => {}, isBusy: () => false, beforeSwitch })
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(next.toDir)
+    vi.stubEnv('GUGU_TASK_HOST_VERSION', '3.0.0')
+    markServerReady(home, now)
+    expect(fs.readFileSync(pin, 'utf8')).toBe(oldPin)
+    expect(readPendingVerify(home)?.to).toBe('4.0.0')
     vi.stubEnv('GUGU_TASK_HOST_VERSION', '4.0.0')
     markServerReady(home, now)
     expect(readPendingVerify(home)).toBeNull()
     expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8'))).toMatchObject({ state: 'idle', lastOutcome: { kind: 'switched', target: '4.0.0' } })
+    expect(JSON.parse(fs.readFileSync(pin, 'utf8'))).toEqual({ version: '4.0.0', previous: '3.0.0', at: now })
+    markServerReady(home, now + 1)
+    expect(JSON.parse(fs.readFileSync(pin, 'utf8')).at).toBe(now)
+  })
+  it('retains pending verification and the old pin when its atomic projection fails, then retries readiness', async () => {
+    const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => {}, layout: layout() })
+    await lifecycle.stage('4.0.0', async () => {})
+    lifecycle.switchSupervisor({ from: '3.0.0', to: '4.0.0', fromDir: path.join(home, 'versions/3.0.0'),
+      toDir: path.join(home, 'versions/4.0.0'), switchedAt: now }, () => {})
+    const pin = path.join(home, 'data/server-version.json')
+    const oldPin = JSON.stringify({ version: '1.0.0', previous: null, at: 1 })
+    fs.writeFileSync(pin, oldPin)
+    vi.stubEnv('GUGU_TASK_HOST_VERSION', '4.0.0')
+    const rename = fs.renameSync
+    const fault = vi.spyOn(fs, 'renameSync').mockImplementation((source, target) => {
+      if (target === pin) throw new Error('pin projection refused')
+      return rename(source, target)
+    })
+    try {
+      expect(() => markServerReady(home, now)).toThrow('pin projection refused')
+      expect(fs.readFileSync(pin, 'utf8')).toBe(oldPin)
+      expect(readPendingVerify(home)?.to).toBe('4.0.0')
+    } finally { fault.mockRestore() }
+    markServerReady(home, now)
+    expect(JSON.parse(fs.readFileSync(pin, 'utf8'))).toEqual({ version: '4.0.0', previous: '3.0.0', at: now })
+    expect(readPendingVerify(home)).toBeNull()
   })
   it('keeps the pending rollback package throughout a slow startup', () => {
     createServerUpdateStateWriter(home).set('idle', '3.0.0', undefined, { previous: '2.0.0' })

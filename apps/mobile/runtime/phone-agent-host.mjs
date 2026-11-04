@@ -157,6 +157,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   }
   const summary = async (agent) => {
     const row = { conversationId: agent.sessionId, projectId, title: agent.displayName, harness: 'pi', runtime: 'acp', agentStatus: agent.status, status: { status: agent.status, detail: agent.status === 'working' ? 'running' : agent.status === 'needs_user' ? 'question' : agent.status === 'error' ? null : 'plain' }, lastInteractedAt: agent.lastActiveAt ?? null, supported: false, agent: { userId: agent.agentUserId }, chatId: agent.chatId, isPinned: false, parentConversationId: agent.caller?.sessionId ?? null, spawnedByConversationId: agent.caller?.sessionId ?? null }
+    row.unseen = agent.agentStatusSeen !== 1
     try { await timelines.snapshot(agent, { limit: 1, trim: true }); return { ...row, supported: true } }
     catch (error) { return { ...row, unsupportedReason: error.message } }
   }
@@ -349,7 +350,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     const agent = agents().find((row) => row.agentUserId === job.agentUserId)
     if (!agent) { job.status = 'failed'; job.error = '这台手机已不再持有该 Agent'; await store.save(); return }
     const waitExpired = phonePreparationExpired(job, preparationNow())
-    job.status = 'running'; job.phase = 'preparing'; job.startedAt ??= new Date().toISOString(); agent.status = 'working'; agent.lastError = null; agent.lastActiveAt = job.startedAt
+    job.status = 'running'; job.phase = 'preparing'; job.startedAt ??= new Date().toISOString(); agent.status = 'working'; agent.agentStatusSeen = 1; agent.lastError = null; agent.lastActiveAt = job.startedAt
     await store.save(); publish()
     let lease
     const controller = new AbortController()
@@ -458,7 +459,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       if (result.status !== 'done') throw Object.assign(new Error(result.error ?? (result.status === 'cancelled' ? '任务已取消' : '手机 Agent 运行失败')), { cancelled: result.status === 'cancelled' })
       if (job.route?.kind === 'task') await authorizeReply(job.usedGroups ?? [], { sessionId: agent.sessionId, permissionRequirements: job.permissionRequirements })
       if (job.route?.kind !== 'task' && !job.sent?.length && !job.waitingConfirmation && job.text.trim() !== '[NO_REPLY]') throw new Error('执行结束了，但 Agent 尚未通过咕咕消息工具交付回复')
-      job.status = 'done'; agent.status = Object.values(store.state.confirmations ?? {}).some((item) => item.agentUserId === agent.agentUserId && item.status === 'pending' && Date.parse(item.expiresAt) > Date.now()) ? 'needs_user' : 'idle'
+      job.status = 'done'; agent.agentStatusSeen = 0; agent.status = Object.values(store.state.confirmations ?? {}).some((item) => item.agentUserId === agent.agentUserId && item.status === 'pending' && Date.parse(item.expiresAt) > Date.now()) ? 'needs_user' : 'idle'
     } catch (error) {
       if (!error.cancelled && deferPhonePreparation(store.state, job, error, preparationNow(), preparationOptions.random)) {
         agent.status = 'working'; agent.lastError = null
@@ -467,7 +468,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       }
       const explanation = error.cancelled ? null : phonePreparationFailureText(error)
       job.status = error.cancelled ? 'cancelled' : error.interrupted ? 'interrupted' : 'failed'; job.error = explanation ?? error.message; job.errorCode = error.code ?? null
-      agent.status = error.cancelled ? 'idle' : 'error'; agent.lastError = error.cancelled && error.code !== 'execution_unknown' ? null : job.error
+      agent.status = error.cancelled ? 'idle' : 'error'; agent.agentStatusSeen = error.cancelled ? 1 : 0; agent.lastError = error.cancelled && error.code !== 'execution_unknown' ? null : job.error
       emit({ type: 'turn_failed', ownerId, sessionId: agent.sessionId, agentUserId: agent.agentUserId, status: job.status, code: job.errorCode, error: job.error })
       const failureText = explanation ?? `手机任务${error.cancelled ? '已取消' : error.interrupted ? '已中断' : '执行失败'}${!error.cancelled || error.code === 'execution_unknown' ? `：${error.message}` : ''}`
       // A failed chat turn is said in its chat the way the desktop says it (agentInboxReader's notice): the reason's fixed text,

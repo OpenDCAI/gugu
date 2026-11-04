@@ -1,5 +1,5 @@
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import { ChatComposer, type PromptEditorRef } from '@gugu/session-ui/react/components'
@@ -22,7 +22,6 @@ import '@gugu/session-ui/styles/base.css'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
 
-vi.mock('@/components/needsYou/NeedsYouSlot', () => ({ NeedsYouSlot: () => null }))
 
 /**
  * gugu-dev#181 核对 21:会话页、新建会话页的输入框和格子里的群框是同一个框 —— 一样高,文字、底排在同一个位置。

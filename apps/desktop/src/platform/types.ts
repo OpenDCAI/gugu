@@ -79,6 +79,16 @@ export interface AppPlatform {
   kind: 'electron' | 'capacitor' | 'web'
   documentTitle: string
   capabilities: PlatformCapabilities
+  /** Login callbacks arrive before the authenticated navigation tree exists. */
+  authCallbacks?: {
+    redirectTo: () => Promise<string>
+    ready: () => Promise<void>
+    subscribe: (listener: (url: string) => void, onError: (error: unknown) => void) => () => void
+  }
+  oauthBrowser?: {
+    openBrowser: (url: string) => Promise<void>
+    subscribeBrowserFinished?: (listener: () => void, onError: (error: unknown) => void) => Promise<() => void>
+  }
   /**
    * 这个宿主**读得到系统真值**的权限,顺序 = 「权限」页上的行序(product spec)。
    * 空数组 = 这台机器上一行都读不到,「权限」这一项连同整页都不出现。
@@ -164,7 +174,7 @@ export interface AppPlatform {
   /** 别的 App 分享进来的内容;订阅前收到的那一份在订阅时补发。只有安卓壳有这个口。 */
   subscribeIncomingShares?: (listener: (share: IncomingShare) => void) => () => void
   /** 系统交给 App 打开的 https 链接(安卓 App Links);拉起 App 的那一条在第一次订阅时补发。只有安卓壳有这个口。 */
-  subscribeOpenedLinks?: (listener: (url: string) => void) => () => void
+  subscribeOpenedLinks?: (listener: (url: string) => void, onError: (error: unknown) => void) => () => void
   /** 用户点了咕咕发的系统通知;拉起 App 的那一次在首次订阅时补发。只有安卓壳有此口,桌面走 notificationClicked。 */
   subscribeNotificationClicks?: (listener: (click: { chatId: string | null }) => void) => () => void
   writeHumanAuthSession: (session: HumanAuthSession) => Promise<void>

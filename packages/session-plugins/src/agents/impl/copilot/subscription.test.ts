@@ -108,3 +108,14 @@ describe('GitHub Copilot 订阅读数', () => {
     await expect(readCopilotUsage(c, plan)).resolves.toMatchObject({ kind: 'unavailable', reason: 'error' });
   });
 });
+
+describe('每次读数各自复用自己的那一份', () => {
+  it('两条连接共用一个进程:窗口期内的第二次读数仍然各问各的 gh', async () => {
+    const exec = vi.fn(ghAnswers(FREE_USER));
+    const first = ctx(exec);
+    const second = ctx(exec);
+    await expect(readCopilotPlan(first)).resolves.toEqual({ payer: 'subscription', plan: 'Copilot Free' });
+    await expect(readCopilotPlan(second)).resolves.toEqual({ payer: 'subscription', plan: 'Copilot Free' });
+    expect(exec.mock.calls.filter(([command]) => command === 'gh')).toHaveLength(2);
+  });
+});

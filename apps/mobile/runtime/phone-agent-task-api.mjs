@@ -53,6 +53,16 @@ export function createPhoneTaskApi({ ownerId, store, models, timelines, actions,
         liveSetting: { channel: 'acp-config-option', ack: 'ack-read-back', busy: 'reject', reloadRequired: false, recovery: 'none' } } }
   }
   return async (channel, args, requestId, source = { kind: 'device-rpc' }) => {
+    if (channel === 'sessions.markSessionSeen') {
+      const agent = findSession(args[0])
+      await verifyAgent(agent.agentUserId)
+      const previous = agent.agentStatusSeen
+      agent.agentStatusSeen = 1
+      try { await store.save() }
+      catch (error) { if (agent.agentStatusSeen === 1) agent.agentStatusSeen = previous; throw error }
+      publish()
+      return { value: undefined }
+    }
     const method = channel.replace(/^sessionTimeline\./, '')
     if (!channel.startsWith('sessionTimeline.') || !methods.has(method)) return null
     const input = args[0]

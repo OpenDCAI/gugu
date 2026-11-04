@@ -2,6 +2,7 @@ import type { PermissionState } from '@capacitor/core'
 import { BackgroundMode } from '@anuradev/capacitor-background-mode'
 import { BarcodeFormat, BarcodeScanner } from '@capacitor-mlkit/barcode-scanning'
 import { App } from '@capacitor/app'
+import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink'
 import { Clipboard } from '@capacitor/clipboard'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { AndroidSettings, IOSSettings, NativeSettings } from 'capacitor-native-settings'
@@ -13,8 +14,10 @@ import { checkForUpdates, downloadUpdate, installUpdate, updateState } from './c
 import { openInApps, saveToDevice, shareToApps, subscribeIncomingShares } from './capacitorShare'
 import { PlatformError } from './errors'
 import { nativeAudioPermissions } from './capacitorMicrophone'
+import { nativeOpenedLinksReady, subscribeNativeOpenedLinks } from './capacitorOpenedLinks'
 
 const base = createUnsupportedPlatform('capacitor', 'Capacitor')
+declare const __GUGU_TIER__: string
 let resolvedLocale: SupportedLocale = 'zh-CN'
 
 // @@@scan (#537-A) - native QR scan via ML Kit's startScan, which uses the *bundled* barcode model
@@ -182,6 +185,11 @@ let notificationSeq = Math.floor(Date.now() / 1000) % 1_000_000_000
 
 export const capacitorPlatform: AppPlatform = {
   ...base,
+  authCallbacks: {
+    redirectTo: async () => `${guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })}://auth/callback`,
+    ready: nativeOpenedLinksReady,
+    subscribe: (listener, onError) => subscribeNativeOpenedLinks('auth', listener, onError),
+  },
   capabilities: { ...base.capabilities, clipboard: true, barcodeScan: true, notifications: true, backgroundWatch: true, appUpdates: true, shareToApps: true, externalFileOpen: true },
   async writeClipboardText(value) {
     await Clipboard.write({ string: value })
@@ -208,23 +216,8 @@ export const capacitorPlatform: AppPlatform = {
       if (handle) void handle.remove().catch(onError)
     }
   },
-  subscribeOpenedLinks(listener) {
-    let active = true
-    let handle: { remove: () => Promise<void> } | null = null
-    // Android BridgeActivity.load sends the initial intent through onNewIntent too. AppPlugin retains
-    // appUrlOpen until subscription: this one stream carries cold and hot URLs, including before login.
-    void App.addListener('appUrlOpen', (event) => { if (active) listener(event.url) }).then(
-      (registered) => {
-        handle = registered
-        if (!active) void registered.remove().catch(() => undefined)
-      },
-      () => undefined,
-    )
-    return () => {
-      if (!active) return
-      active = false
-      if (handle) void handle.remove().catch(() => undefined)
-    }
+  subscribeOpenedLinks(listener, onError) {
+    return subscribeNativeOpenedLinks('navigation', listener, onError)
   },
   subscribeNotificationClicks(listener) {
     let active = true
