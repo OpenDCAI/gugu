@@ -6,6 +6,7 @@ import { assistantTimelineClient, changeConversationQueue } from '@/components/a
 import { deleteQueuedSessionInput, editQueuedSessionInput, releaseQueuedSessionInput, reorderQueuedSessionInputs } from '@/lib/sessionInputOutboxBridge'
 import type { SessionInput } from '@/lib/sessionInputOutbox'
 import { messageForUser } from '@/lib/userFacingError'
+import { sessionSendQueueOrder } from '@/lib/sessionSendQueueOrder'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { sendPhoneQueuedInputNow } from './send-phone-queued-input-now'
 import { canReleasePhoneInput, phoneManualHostPrompts, phoneQueuedPrompts } from './phone-input-queue'
@@ -29,10 +30,10 @@ export function usePhoneInputQueue(target: ConversationQueueTarget, inputs: read
   const remote = phoneManualHostPrompts(hosted)
   const write = async (action: SessionpageQueueAction) => {
     if (action.kind === 'reorder') {
-      const localIds = action.ids.filter(id => local.some(prompt => prompt.id === id))
-      const remoteIds = action.ids.filter(id => remote.some(prompt => prompt.id === id))
-      if (localIds.length) await reorderQueuedSessionInputs(target.sessionId, localIds)
-      if (remoteIds.length) await changeConversationQueue(target.local, target.deviceId, target.sessionId, { ...action, ids: remoteIds }, target.phoneHost)
+      const order = sessionSendQueueOrder([...remote, ...local].map(prompt => prompt.id), new Set(local.map(prompt => prompt.id)), action.ids)
+      if (!order) return
+      if (order.local.length) await reorderQueuedSessionInputs(target.sessionId, order.local)
+      if (order.host.length) await changeConversationQueue(target.local, target.deviceId, target.sessionId, { ...action, ids: order.host }, target.phoneHost)
     } else if (!local.some(prompt => prompt.id === action.id)) {
       await changeConversationQueue(target.local, target.deviceId, target.sessionId, action, target.phoneHost)
     } else if (action.kind === 'edit') {
@@ -40,7 +41,7 @@ export function usePhoneInputQueue(target: ConversationQueueTarget, inputs: read
     } else if (action.kind === 'delete') {
       await deleteQueuedSessionInput(action.id)
     } else {
-      if (target.phoneHost) return sendPhoneQueuedInputNow(target, turns, action.id, action.steers)
+      if (target.phoneHost || (!action.steers && remote.length)) return sendPhoneQueuedInputNow(target, turns, action.id, action.steers)
       if (working && !action.steers) {
         const client = assistantTimelineClient(target.local)
         await client.cancelSessionTurn(target.deviceId, target.sessionId)

@@ -9,8 +9,15 @@ import { usePhoneInputQueue } from '@/mobile/agent-watch/use-phone-input-queue'
 import { phoneQueueReady } from '@/mobile/agent-watch/phone-input-queue'
 
 const { cancel, remote, snapshot } = vi.hoisted(() => ({ cancel: vi.fn(async () => ({ cancelled: true })), remote: vi.fn(async () => null), snapshot: vi.fn() }))
-vi.mock('@/components/assistant/assistantTimelineClient', () => ({ assistantTimelineClient: () => ({ cancelSessionTurn: cancel }), changeConversationQueue: remote }))
-vi.mock('@/mobile/local-agent/phoneTimelineClient', () => ({ phoneTimelineClient: { cancelSessionTurn: cancel, fetchSnapshot: snapshot } }))
+const timeline = vi.hoisted(() => ({ changed: () => {}, unsubscribe: vi.fn(async () => {}) }))
+vi.mock('@/components/assistant/assistantTimelineClient', () => ({ assistantTimelineClient: () => ({ cancelSessionTurn: cancel, fetchSnapshot: snapshot,
+  subscribeSession: vi.fn(async () => {}), unsubscribeSession: timeline.unsubscribe,
+  subscribeSessionEvents: (_d: string, _id: string, fn: () => void) => { timeline.changed = fn; return () => {} }, onLinkChange: () => () => {},
+}), changeConversationQueue: remote }))
+vi.mock('@/mobile/local-agent/phoneTimelineClient', () => ({ phoneTimelineClient: { cancelSessionTurn: cancel, fetchSnapshot: snapshot,
+  subscribeSession: vi.fn(async () => {}), unsubscribeSession: timeline.unsubscribe,
+  subscribeSessionEvents: (_d: string, _id: string, fn: () => void) => { timeline.changed = fn; return () => {} }, onLinkChange: () => () => {},
+} }))
 vi.mock('@renderer/features/sessions/acp/send-queued-prompt-now-flow', () => ({ requestSendQueuedPromptNow: ({ send }: { send(): void }) => send() }))
 
 const target = { deviceId: 'host', sessionId: 'session', local: false }
@@ -43,7 +50,7 @@ beforeEach(() => {
   publish()
 })
 afterEach(() => {
-  harness.cleanup(); vi.useRealTimers(); cancel.mockReset(); cancel.mockResolvedValue({ cancelled: true }); remote.mockClear(); snapshot.mockReset()
+  harness.cleanup(); vi.useRealTimers(); cancel.mockReset(); cancel.mockResolvedValue({ cancelled: true }); remote.mockClear(); snapshot.mockReset(); timeline.unsubscribe.mockClear()
   Object.assign(state(), { accountId: null, valid: () => false, queue: null, rows: EMPTY }); changed()
 })
 
@@ -180,4 +187,37 @@ it('keeps an unsupported insertion held instead of silently sending it as an ord
   await vi.waitFor(() => expect(queue.error).not.toBeNull())
   expect(read('second').sendQueue).toBeDefined()
   expect(deliver).not.toHaveBeenCalled(); expect(cancel).not.toHaveBeenCalled()
+})
+
+it('bounces a cross-owner drag and reorders each owner only within its execution slots', async () => {
+  await render({ hosted: [{ id: 'host-a', text: 'old a' }, { id: 'host-b', text: 'old b' }] })
+  await act(async () => { queue.props.onReorderQueuedPrompts(['first', 'host-b', 'host-a', 'second']) })
+  expect(remote).not.toHaveBeenCalled()
+  expect(queue.props.queuedPrompts.map(prompt => prompt.id)).toEqual(['host-a', 'host-b', 'first', 'second'])
+  await act(async () => { queue.props.onReorderQueuedPrompts(['host-b', 'host-a', 'second', 'first']) })
+  expect(remote).toHaveBeenCalledWith(false, 'host', 'session', { kind: 'reorder', ids: ['host-b', 'host-a'] }, false)
+  expect(read('second').sendQueue!.order).toBeLessThan(read('first').sendQueue!.order)
+})
+
+it('waits for the exact late host admission before prioritizing a mixed non-Pi queue', async () => {
+  snapshot.mockResolvedValue({ queuedPrompts: [{ id: 'old', text: 'same' }], turns: [] })
+  await render({ hosted: [{ id: 'old', text: 'same' }] })
+  await act(async () => { queue.props.onSendQueuedPromptNow('second') })
+  await vi.waitFor(() => expect(snapshot).toHaveBeenCalledTimes(1))
+  expect(cancel).not.toHaveBeenCalled(); expect(remote).not.toHaveBeenCalled()
+  snapshot.mockResolvedValue({ queuedPrompts: [{ id: 'old', text: 'same' }, { id: 'runtime-second', text: 'second', clientMessageId: 'second' }], turns: [] })
+  await act(async () => { timeline.changed() })
+  await vi.waitFor(() => expect(remote).toHaveBeenCalledTimes(1))
+  expect(remote).toHaveBeenCalledWith(false, 'host', 'session', { kind: 'send-now', id: 'runtime-second', steers: false }, false)
+  expect(timeline.unsubscribe).toHaveBeenCalledTimes(1)
+})
+
+it('unbinds a waiting immediate-send handoff when the account changes', async () => {
+  snapshot.mockResolvedValue({ queuedPrompts: [], turns: [] })
+  await render({ phoneHost: true })
+  await act(async () => { queue.props.onSendQueuedPromptNow('second') })
+  await vi.waitFor(() => expect(snapshot).toHaveBeenCalledTimes(1))
+  await act(async () => { state().accountId = 'another'; timeline.changed() })
+  await vi.waitFor(() => expect(timeline.unsubscribe).toHaveBeenCalledTimes(1))
+  expect(remote).not.toHaveBeenCalled(); expect(cancel).not.toHaveBeenCalled()
 })
