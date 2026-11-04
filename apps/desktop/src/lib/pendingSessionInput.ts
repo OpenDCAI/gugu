@@ -45,7 +45,7 @@ export function projectSessionPendingInput(previous: PendingPrompt | null, sende
   if (receipt?.state === 'failed' || receipt?.state === 'unknown') {
     prompt = { ...prompt, delivery: { state: receipt.state, retryable: false, error: receipt.failure ? messageForUser(receipt.failure)
       : i18n.t('message.sendStatus.unknownNotResent', { ns: 'messaging' }) } }
-  } else if (receipt || !input) {
+  } else if (!input || receipt?.state === 'accepted' || (receipt && !input.failure)) {
     prompt = { ...prompt, delivery: { state: 'receiving' } }
   }
   return pendingPromptLanded(prompt, turns) ? null : prompt
