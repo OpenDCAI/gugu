@@ -9,12 +9,14 @@
 // 桥只由壳装(AssistantShellHost 挂上时);会话页 bundle 只读写 window 上那一个对象,❌ 自己装(会装上一个永远空的副本)。
 import type { CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
 import type { AssistantHomePlace } from './assistantHome'
+import type { AgentType } from '@gugu/core/agentTypes'
 
 export type AssistantShellAssistant = {
   id: string
   display_name: string
   avatar: string | null
   created_at: string | null
+  agent_type?: AgentType | null
 }
 
 /**

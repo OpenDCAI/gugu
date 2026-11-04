@@ -112,6 +112,13 @@ export default {
     "unavailable": "这里还开通不了咕咕。"
   },
   "setup": {
+    "engineTitle": "选择助理引擎",
+    "engineChecking": "正在检查…",
+    "engineRetry": "重新检查",
+    "engineConfigure": "配置 {{name}}",
+    "engineUnusable": "不能用",
+    "engineReadFailed": "读不出",
+
     "identityTitle": "给它一个名字和形象",
     "customizeLook": "换形象",
     "nameTitle": "给它起个名字",
