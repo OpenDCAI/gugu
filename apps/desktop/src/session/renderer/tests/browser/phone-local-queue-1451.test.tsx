@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, useLayoutEffect, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
 import { SessionConversation } from '@/mobile/agent-watch/SessionConversation'
@@ -12,6 +12,12 @@ import type { SessionInputOutbox } from '@/lib/sessionInputOutbox'
 import { PhoneViewportShell } from '@/mobile/PhoneViewportShell'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
+import { readComposer, writeComposer } from '../../../../../../../tests/support/composerEditor'
+import type { LifeView } from '@shared/core/sessions/session-life'
+
+const life = vi.hoisted(() => ({ view: null as LifeView | null }))
+const release = vi.hoisted(() => vi.fn(async () => null))
+vi.mock('@/lib/sessionInputOutboxBridge', async original => ({ ...(await original<object>()), releaseQueuedSessionInput: release }))
 
 vi.mock('@gugu/core/cloud/config', async original => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }))
 vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: { chatView: 'double' } }) }))
@@ -19,16 +25,41 @@ vi.mock('@/mobile/agent-watch/sessionpage-rpc', async original => ({
   ...(await original<object>()), fetchSessionOptions: vi.fn(() => new Promise(() => {})),
   machineRpc: vi.fn(() => ({})), fetchBackgroundTasks: vi.fn(async () => []),
 }))
-vi.mock('@/mobile/agent-watch/useSessionLifeView', () => ({ useSessionLifeView: () => ({ view: null, error: null }) }))
+vi.mock('@/mobile/agent-watch/useSessionLifeView', () => ({ useSessionLifeView: () => ({ view: life.view, error: null, current: () => life.view }) }))
 
 let harness: ReturnType<typeof createReactHarness>
 afterEach(() => {
   harness?.cleanup()
   const own = state()
   own.accountId = null; own.queue = null; own.rows = EMPTY; own.valid = () => false; changed()
+  life.view = null; release.mockClear()
 })
 
-it('shows a running input after durable commit without waiting for a host queue response, then hands off its id', async () => {
+it('holds an opened queue until the authoritative life view arrives after history, including a late user stop', async () => {
+  await page.viewport(390, 844)
+  const timeline = emptyAgentWatchTimeline()
+  timeline.turns = [{ id: 'completed-history', seq: 1, initiator: 'user', items: [], outcome: { kind: 'done' } }]
+  Object.assign(state(), { accountId: 'owner', valid: () => true, rows: [
+    { id: 'held', accountId: 'owner', deviceId: 'host', sessionId: 'session', text: 'stay held', createdAt: 1, queued: true, sendQueue: { order: 1 } },
+  ] })
+  harness = createReactHarness()
+  harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
+  const render = () => renderWithAppProviders(harness, <SessionConversation timeline={timeline} deviceId="host" sessionId="session" agentName="Agent" nativeRecord
+    queueReady sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking={false}
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} })
+  await render()
+  await until('held row is rendered while life is loading', () => !!harness.container.querySelector('[data-queued-prompt-id="held"]'))
+  expect(release).not.toHaveBeenCalled()
+  life.view = { sessionId: 'session', version: 1, kind: 'ready', stage: null, hold: 'user-stop', failure: null, lastExit: null, nativeSession: null,
+    pending: { count: 0, items: [] } }
+  await render()
+  expect(release).not.toHaveBeenCalled()
+  life.view = { ...life.view, hold: null }
+  await render()
+  await until('a confirmed ready foreground permits release', () => release.mock.calls.length === 1)
+})
+
+it('keeps a held input editable from its first frame, then keeps the sent input in the transcript', async () => {
   await page.viewport(390, 844)
   const timeline = emptyAgentWatchTimeline()
   const own = state()
@@ -37,7 +68,7 @@ it('shows a running input after durable commit without waiting for a host queue 
   const durable = new Promise<void>(resolve => { commit = resolve })
   const send = vi.fn(async (text: string) => {
     await durable
-    own.rows = [{ id: 'local', accountId: 'owner', deviceId: 'host', sessionId: 'session', text, createdAt: 1, queued: true }]
+    own.rows = [{ id: 'local', accountId: 'owner', deviceId: 'host', sessionId: 'session', text, createdAt: 1, queued: true, sendQueue: { order: 1 } }]
     changed()
   })
   harness = createReactHarness()
@@ -52,24 +83,63 @@ it('shows a running input after durable commit without waiting for a host queue 
   await page.getByRole('button', { name: translateSessionMessage('composer.sendMessage'), exact: true }).click()
   await until('submission has started', () => send.mock.calls.length === 1)
   expect(harness.container.querySelector('[data-queued-prompt-id="local"]')).toBeNull()
+  expect(page.getByTestId('prompt-editor').element().textContent).toBe('local queue appears now')
   await act(async () => { commit(); await durable })
   await until('durable local queue is visible before the host responds', () => !!harness.container.querySelector('[data-queued-prompt-id="local"]'))
+  await until('the committed input is handed off from the editor', () => page.getByTestId('prompt-editor').element().textContent === '')
   expect(harness.container.querySelector('[data-queued-prompt-id="local"]')?.textContent).toContain('local queue appears now')
   expect(harness.container.querySelector('[data-native-input-id="local"]')).toBeNull()
-  expect(harness.container.querySelector('[data-queued-prompt-id="local"] [data-locked="true"]')).not.toBeNull()
-  await act(async () => { own.rows = EMPTY; changed() })
-  expect(harness.container.querySelectorAll('[data-queued-prompt-id="local"]')).toHaveLength(1)
+  expect(harness.container.querySelector('[data-queued-prompt-id="local"] [data-locked="true"]')).toBeNull()
+  expect(harness.container.querySelector('[data-user-card="local"]')).toBeNull()
+  await page.screenshot({ path: '__screenshots__/1344-phone-held.png' })
+  await act(async () => { own.rows = own.rows.map(input => ({ ...input, queued: false, sendQueue: undefined })); changed() })
+  await until('explicit release puts the now-sent input in the transcript', () => !!harness.container.querySelector('[data-user-card="local"]') && !!harness.container.querySelector('[data-send-state="sending"]'))
   timeline.queuedPrompts = [{ id: 'runtime-local', clientMessageId: 'local', text: 'local queue appears now' }]
+  await act(async () => { own.rows = EMPTY; changed() })
   await render()
   expect(harness.container.querySelector('[data-queued-prompt-id="local"]')).toBeNull()
-  expect(harness.container.querySelectorAll('[data-queued-prompt-id="runtime-local"]')).toHaveLength(1)
-  expect(harness.container.querySelector('[data-queued-prompt-id="runtime-local"] [data-locked="true"]')).toBeNull()
+  expect(harness.container.querySelector('[data-queued-prompt-id="runtime-local"]')).toBeNull()
+  await until('host custody stays on the same sent input with receiving dots', () => !!harness.container.querySelector('[data-user-card="local"]') && !!harness.container.querySelector('[data-send-state="receiving"]'))
   timeline.queuedPrompts = []
   timeline.turns = [{ id: 'provider-turn', seq: 1, initiator: 'user', outcome: { kind: 'done' }, items: [
     { kind: 'message', role: 'user', id: 'provider-local', seq: 0, text: 'local queue appears now', _meta: { guguClientMessageId: 'local' } },
   ] }]
   await render()
   expect(harness.container.querySelector('[data-queued-prompt-id]')).toBeNull()
+})
+
+it.each((['accepted', 'failed'] as const).flatMap(result => (['append', 'replace', 'shared-prefix', 'clear', 'unchanged'] as const).map(edit => ({ result, edit }))))('preserves words typed during durable custody ($result / $edit)', async ({ result, edit }) => {
+  await page.viewport(390, 844)
+  const timeline = emptyAgentWatchTimeline()
+  const own = state()
+  own.accountId = 'owner'; own.rows = EMPTY; own.valid = () => true
+  const submitted = edit === 'shared-prefix' ? 'Hi' : 'queued original'
+  const live = edit === 'append' ? `${submitted} appended words` : edit === 'shared-prefix' ? 'Hi again'
+    : edit === 'clear' ? '' : edit === 'unchanged' ? submitted : 'new draft'
+  let commit!: () => void
+  const durable = new Promise<void>(resolve => { commit = resolve })
+  const send = vi.fn(async (text: string) => {
+    await durable
+    if (result === 'failed') throw Error('storage unavailable')
+    own.rows = [{ id: 'local', accountId: 'owner', deviceId: 'host', sessionId: 'session', text, createdAt: 1, queued: true, sendQueue: { order: 1 } }]
+    changed()
+  })
+  harness = createReactHarness()
+  harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
+  await renderWithAppProviders(harness, <SessionConversation timeline={timeline} deviceId="host" sessionId="session" agentName="Agent" nativeRecord
+    sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={send} pendingSends={[]} sending={false} agentWorking
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} })
+  await page.getByTestId('prompt-editor').fill(submitted)
+  await page.getByRole('button', { name: translateSessionMessage('composer.sendMessage'), exact: true }).click()
+  await until('durable custody has started', () => send.mock.calls.length === 1)
+  expect(page.getByTestId('prompt-editor').element().textContent).toBe(submitted)
+  await page.getByTestId('prompt-editor').fill(live)
+  await act(async () => { commit(); await send.mock.results[0].value.catch(() => {}) })
+  const expected = result === 'accepted' && live === submitted ? '' : live
+  const current = page.getByTestId('prompt-editor').element().textContent!
+  expect(current).toBe(expected)
+  if (result === 'failed') expect(own.rows).toHaveLength(0)
+  expect(send).toHaveBeenCalledTimes(1)
 })
 
 it('shows and retries an online host refusal outside the normal locked queue', async () => {
@@ -110,4 +180,76 @@ it('applies viewport geometry through CSS without rerendering the retained page'
   await page.viewport(390, 844)
   await until('CSS restores the full viewport', () => shell.getBoundingClientRect().height === 844)
   expect(renders).toBe(initialRenders)
+})
+
+
+it.each((['accepted', 'failed'] as const).flatMap(result => (['unchanged', 'shared-prefix', 'append', 'clear', 'closed'] as const).map(edit => ({ result, edit }))))('settles the shared draft across composer mounts ($result / $edit)', async ({ result, edit }) => {
+  await page.viewport(390, 844)
+  const own = state()
+  own.accountId = 'owner'; own.rows = EMPTY; own.valid = () => true
+  const drafts: Record<string, string> = {}
+  const setDraft = (key: string, update: string | ((text: string) => string)) => { drafts[key] = typeof update === 'function' ? update(drafts[key] ?? '') : update }
+  let commit!: () => void
+  const durable = new Promise<void>(resolve => { commit = resolve })
+  const send = vi.fn(async (text: string) => {
+    await durable
+    if (result === 'failed') throw Error('storage unavailable')
+    own.rows = [{ id: 'remount', accountId: 'owner', deviceId: 'host', sessionId: 'session', text, createdAt: 1, queued: true, sendQueue: { order: 1 } }]
+    changed()
+  })
+  harness = createReactHarness()
+  harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
+  const render = (epoch: number | null) => renderWithAppProviders(harness, epoch === null ? null : <SessionConversation key={epoch} timeline={emptyAgentWatchTimeline()} deviceId="host" sessionId="session" agentName="Agent" nativeRecord
+    sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={send} pendingSends={[]} sending={false} agentWorking
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {}, chat: { drafts, setDraft } })
+  await render(1)
+  await page.getByTestId('prompt-editor').fill('Hi')
+  await page.getByRole('button', { name: translateSessionMessage('composer.sendMessage'), exact: true }).click()
+  await until('the original composer awaits durable custody', () => send.mock.calls.length === 1)
+  await render(null)
+  expect(drafts['session:host/session']).toBe('Hi')
+  const live = edit === 'shared-prefix' ? 'Hi again' : edit === 'append' ? 'Hi appended' : edit === 'clear' ? '' : 'Hi'
+  if (edit !== 'closed') {
+    await render(2)
+    expect(page.getByTestId('prompt-editor').element().textContent).toBe('Hi')
+    await page.getByTestId('prompt-editor').fill(live)
+  }
+  await act(async () => { commit(); await send.mock.results[0].value.catch(() => {}) })
+  await render(2)
+  if (result === 'accepted') await until('the committed input is visible after reopening', () => !!harness.container.querySelector('[data-queued-prompt-id="remount"]'))
+  else expect(own.rows).toHaveLength(0)
+  expect(page.getByTestId('prompt-editor').element().textContent).toBe(result === 'accepted' && live === 'Hi' ? '' : live)
+  expect(send).toHaveBeenCalledTimes(1)
+})
+
+
+it.each((['phone', 'native'] as const).flatMap(mode => ['', 'Hi again', 'Hi appended'].map(text => ({ mode, text }))))('keeps input that advances before draft hydration ($mode / $text)', async ({ mode, text }) => {
+  await page.viewport(mode === 'phone' ? 390 : 1000, 844)
+  localStorage.removeItem('gugu.native-offline-draft:owner/host/hydrate')
+  let pulse!: () => void
+  function AfterInput({ active }: { active: boolean }) {
+    useLayoutEffect(() => {
+      if (active) {
+        const editor = document.querySelector('[data-testid="prompt-editor"]')!
+        writeComposer(editor, text)
+        expect(readComposer(editor)).toBe(text)
+        expect(editor.textContent).toBe(text)
+      }
+    }, [active])
+    return null
+  }
+  function Fixture() {
+    const [active, setActive] = useState(false)
+    pulse = () => setActive(true)
+    return <><SessionConversation timeline={emptyAgentWatchTimeline()} deviceId="host" sessionId="hydrate" agentName="Agent" nativeRecord
+      sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking
+      onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} /><AfterInput active={active} /></>
+  }
+  Object.assign(state(), { accountId: 'owner', rows: EMPTY, valid: () => true })
+  harness = createReactHarness()
+  harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
+  await renderWithAppProviders(harness, <Fixture />, { contacts: {} })
+  await page.getByTestId('prompt-editor').fill('different')
+  await act(async () => { writeComposer(page.getByTestId('prompt-editor').element(), 'Hi'); pulse() })
+  expect(page.getByTestId('prompt-editor').element().textContent).toBe(text)
 })
