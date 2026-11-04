@@ -8,10 +8,12 @@ import { nativeMessageKey } from '@gugu/session-core/session-record/native-read'
 import { nativeItemId, writeRead, type NativeItemId } from '@/lib/readWriter'
 import { useConversationSessionSummary } from './useConversationSessionSummary'
 import { rendererLogger } from '@/lib/log'
+import { useOwnerNotificationRead } from './useOwnerNotificationRead'
 
-/** The same host journal supplies the desktop and phone; only readable bubbles enter it. */
+/** Desktop and phone share one journal; explicit owner notifications also acknowledge the opening snapshot. */
 export function useNativeConversationRead(deviceId: string | null, sessionId: string | undefined, shown: boolean, turns: () => readonly TranscriptTurn[]) {
   const summary = useConversationSessionSummary(sessionId, deviceId)
+  useOwnerNotificationRead(deviceId, sessionId, shown, summary?.nativeOwnerNotificationUnreadCount !== undefined)
   const readTurns = useRef(turns)
   readTurns.current = turns
   const key = useRef(crypto.randomUUID())
