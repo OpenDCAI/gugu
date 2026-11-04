@@ -662,7 +662,7 @@ export function ChatRoot(props: ChatRootProps) {
         if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
         return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
       }
-      const activeTurn = activeTurnWithInputs(at, pendingPrompt, pendingMessages)!;
+      const activeTurn = activeTurnWithInputs(at, pendingPrompt, pendingMessages, state().transcript.state.committedTurns)!;
       // Reserve the same process row from send to startup: adding it at acknowledgement scrolls a long transcript.
       const pending = [...(pendingPrompt ? [pendingPrompt] : []), ...pendingMessages];
       const failedPending = !at && pending.length > 0 && pending.every(input => input.stopped || input.delivery?.state === 'waiting' || input.delivery?.state === 'failed' || input.delivery?.state === 'unknown');
@@ -976,7 +976,7 @@ export function ChatRoot(props: ChatRootProps) {
       const s = state();
       const pending = s.session.state.pendingPrompt;
       const active =
-        activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting);
+        activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting, s.transcript.state.committedTurns);
       if (!active) return userTurns();
       const base = committedUnitsArr.length;
       const inActive = collectUserTurnUnits(
@@ -1010,7 +1010,7 @@ export function ChatRoot(props: ChatRootProps) {
       committedUnitsVersion();
       const s = state();
       const pending = s.session.state.pendingPrompt;
-      const active = activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting);
+      const active = activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting, s.transcript.state.committedTurns);
       const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
       const base = committedUnitsArr.length;
       const ends = active

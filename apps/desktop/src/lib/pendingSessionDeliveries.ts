@@ -14,7 +14,8 @@ export function isTranscriptDelivery(input: Pick<LifeView['pending']['items'][nu
 /** The receiver's host queue and native transcript share one incoming-delivery projection on every surface. */
 export function projectSessionPendingDeliveries(previous: readonly PendingPrompt[], view: LifeView | null,
   turns: readonly TranscriptTurn[], starting?: PendingPrompt['starting']): PendingPrompt[] {
-  if (!view) return previous.filter(input => input.delivery?.state !== 'accepted' || (!input.nativeEcho && !pendingPromptLanded(input, turns)));
+  if (!view) return previous.filter(input => (input.delivery?.state !== 'accepted' && input.delivery?.state !== 'receiving')
+    || (!input.nativeEcho && !pendingPromptLanded(input, turns)));
   const rows = view?.pending.items.filter(isTranscriptDelivery) ?? []
   const ids = new Set([...previous.map(input => input.id), ...rows.map(row => row.messageId)])
   return [...ids].flatMap(id => {

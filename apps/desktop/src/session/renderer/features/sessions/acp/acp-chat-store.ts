@@ -849,8 +849,10 @@ export class AcpChatStore {
     const sender = queuedSessionInputs(this.runtimeSessionId);
     if (!isDeepEqual(this._senderInputs, sender)) runInAction(() => { this._senderInputs = sender; });
     const prior = session.state.pendingPrompt;
+    const replacingTerminal = (prior?.delivery?.state === 'failed' || prior?.delivery?.state === 'unknown')
+      && sender.some(input => !input.sendQueue && input.queued === false && input.id !== prior.id);
     const ordinaryIds = new Set([...sender.filter(input => !input.sendQueue && input.queued === false).map(input => input.id),
-      ...(prior?.delivery ? [prior.id] : [])]);
+      ...(prior?.delivery && !replacingTerminal ? [prior.id] : [])]);
     const runtimeWaiting = this.session?.sessionState.current().queuedPrompts.filter(input => input.clientMessageId) ?? [];
     const projectionView: LifeView | null = runtimeWaiting.length ? {
       ...(view ?? { sessionId: this.runtimeSessionId, version: 0, kind: 'ready', stage: null, hold: null, failure: null, lastExit: null, nativeSession: null }),

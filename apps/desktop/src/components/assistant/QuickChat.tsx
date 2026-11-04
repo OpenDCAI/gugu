@@ -197,7 +197,7 @@ function QuickMessage({ message, held, senderName }: { message: MessageItem; hel
     <div className="qc-msg" data-mine={message.is_mine || undefined} data-sending={held?.wait === 'queued' ? 'queued' : message.local_send_state ?? undefined}
       title={held?.wait === 'queued' ? t('message.sendStatus.queued', { ns: 'messaging' }) : undefined} data-testid={`quick-chat-message-${message.id}`}>
       {body}
-      {held?.wait === 'queued' ? <MessageReceivingIndicator label={t('message.sendStatus.queued', { ns: 'messaging' })} /> : null}
+      {held?.wait === 'queued' ? <span style={{ position: 'absolute', left: -19, bottom: 6 }}><MessageReceivingIndicator label={t('message.sendStatus.queued', { ns: 'messaging' })} /></span> : null}
       {message.local_send_state === 'failed' ? <span className="qc-error" title={message.local_send_error ? messageForUser(message.local_send_error) : undefined}>{t('quickChat.notSent')}</span> : null}
       {held?.wait === 'undelivered' ? <span className="qc-error" title={t('agent.turnFailure.undelivered', { ns: 'messaging' })}>{t('message.sendStatus.undelivered', { ns: 'messaging' })}</span> : null}
     </div>

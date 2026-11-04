@@ -15,14 +15,14 @@ describe('incoming delivery custody', () => {
     const a = row('a', 1), b = row('b', 2)
     const result = projectSessionPendingDeliveries([], view([b, { ...row('manual', 0), kind: 'ordinary' }, a]), [])
     expect(result.map(input => input.id)).toEqual(['a', 'b'])
-    expect(result[0]).toMatchObject({ text: a.text, received: true, delivery: { state: 'sending' } })
+    expect(result[0]).toMatchObject({ text: a.text, received: true, delivery: { state: 'receiving' } })
     expect(activeTurnWithInputs(null, null, result)?.items).toMatchObject([{ text: a.text }, { text: b.text }])
   })
 
   it('holds accepted-before-echo through a history prepend and replaces only the matching receipt', () => {
     const initial = projectSessionPendingDeliveries([], view([row('a', 1), row('b', 2)]), [])
     const accepted = projectSessionPendingDeliveries(initial, view([]), [turn('older', envelope('unrelated'))])
-    expect(accepted.map(input => input.delivery?.state)).toEqual(['accepted', 'accepted'])
+    expect(accepted.map(input => input.delivery?.state)).toEqual(['receiving', 'receiving'])
     const history = [turn('old', 'old input'), turn('first', envelope('a'))]
     expect(projectSessionPendingDeliveries(accepted, view([]), history).map(input => input.id)).toEqual(['b'])
     expect(projectSessionPendingDeliveries(accepted, view([]), [...history, turn('second', envelope('b'))])).toEqual([])
@@ -161,10 +161,10 @@ it('ends the supplemental read at its UI deadline without waiting for a slow hos
 })
 
 
-it('leaves plain human session-direct sends and manual queues out of the incoming projection', () => {
+it('keeps already-sent human inputs in the transcript while their receiver retains them', () => {
   const human = { ...row('human', 1), text: 'human input', kind: 'session-direct' as const }
-  expect(projectSessionPendingDeliveries([], view([human]), [])).toEqual([])
-  expect(projectSessionPendingDeliveries([], view([{ ...human, state: 'accepted' }]), [])).toEqual([])
+  expect(projectSessionPendingDeliveries([], view([human]), [])[0]).toMatchObject({ id: 'human', received: false, delivery: { state: 'receiving' } })
+  expect(projectSessionPendingDeliveries([], view([{ ...human, state: 'accepted' }]), [])[0]).toMatchObject({ id: 'human', received: false, delivery: { state: 'receiving' } })
   expect(projectSessionPendingDeliveries([], view([{ ...human, state: 'unknown' }]), [])[0]).toMatchObject({ received: false, delivery: { state: 'unknown' } })
 })
 
