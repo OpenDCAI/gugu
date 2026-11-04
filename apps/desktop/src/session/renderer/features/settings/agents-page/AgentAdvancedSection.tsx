@@ -27,6 +27,8 @@ type EnvEntry = { key: string; value: string };
 
 export interface AgentAdvancedSectionProps {
   agentId: string;
+  children?: React.ReactNode;
+  compact?: boolean;
   /** 各下载源(含版本读数)。空数组 = 这一家只有一个下载点,那一项就不摆。 */
   registries: RegistryRow[];
   /** 用户手动指定的下载源;undefined = 自动(主进程按测速选源)。 */
@@ -60,6 +62,8 @@ function makeDefaultValues(cfg: ProviderCustomConfig | undefined) {
  */
 export const AgentAdvancedSection = observer(function AgentAdvancedSection({
   agentId,
+  children,
+  compact = false,
   registries,
   registry,
   onRegistryChange,
@@ -127,7 +131,7 @@ export const AgentAdvancedSection = observer(function AgentAdvancedSection({
           className="flex w-full items-center justify-between rounded-md py-2 text-sm font-medium text-foreground-muted hover:text-foreground"
         >
           <span className="flex h-6 items-center gap-1.5">
-            <Label>{translate('agentsPage.advancedSettings')}</Label>
+            <Label>{translate(compact ? 'agentsPage.advanced' : 'agentsPage.advancedSettings')}</Label>
             <ChevronRight
               className={cn('size-3.5', 'transition-transform', open ? 'rotate-90' : '')}
             />
@@ -150,6 +154,7 @@ export const AgentAdvancedSection = observer(function AgentAdvancedSection({
         </CollapsibleTrigger>
 
         <CollapsibleContent>
+          {children}
           <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-start gap-x-4 gap-y-4 pt-2 pb-3">
             {/* 下载源。默认「自动」—— 主进程按测速自己挑(spec:下载源不让用户选,这里是覆盖口)。 */}
             {registries.length > 0 && (

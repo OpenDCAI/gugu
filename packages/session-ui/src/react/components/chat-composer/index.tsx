@@ -253,7 +253,7 @@ export interface ChatComposerProps {
    */
   modelUnlock?: ComposerModelUnlock | null;
   /** 点了那枚标签。宿主决定这一步做什么;composer 只知道「这一行的点击不是选中」。 */
-  onModelUnlock?: () => void;
+  onModelUnlock?: (anchor?: HTMLElement) => void;
   /** 模型面板底部「管理模型」—— 宿主打开设置里的「模型」那一页(#7056)。不给 = 不画。 */
   onManageModels?: () => void;
   /** 模型面板底部「升级解锁更多模型」(免费档才有,见 `ComposerModelUpgrade`)。 */

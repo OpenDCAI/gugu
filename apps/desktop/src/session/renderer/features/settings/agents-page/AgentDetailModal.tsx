@@ -1,3 +1,4 @@
+import { agentSupportsConnectionManagement } from '@shared/core/agents/agent-payload';
 import { observer } from 'mobx-react-lite';
 import { useLibraryHost } from '@renderer/features/library/library-host';
 import { useManagementAgent } from '@renderer/lib/stores/use-agents';
@@ -34,6 +35,7 @@ const AgentDetailModalContent = observer(function AgentDetailModalContent({
   onClose: () => void;
 }) {
   const { data: agentPayload } = useManagementAgent(agentId);
+  const compact = agentSupportsConnectionManagement(agentPayload);
   /**
    * 资源库看的是一台离线的机器(#6264):照旧画它上次的样子,但一个动作都做不了 —— 那台机器此刻收不到。
    * 用一个 disabled 的 fieldset 把整块面板里的按钮、输入框一次关掉,❌ 每个控件各判一遍(总会漏一个)。
@@ -49,32 +51,31 @@ const AgentDetailModalContent = observer(function AgentDetailModalContent({
    */
   const dimmed = agentPayload ? agentPayload.reading === 'not-detected' : false;
 
-  return (
-    <ModalLayout
-      header={
-        <DialogHeader>
-          {agentPayload && <AgentModalHeaderSection agent={agentPayload} dimmed={dimmed} />}
-        </DialogHeader>
-      }
-      footer={null}
-    >
-      <DialogContentArea className={cn('gap-0', CONTENT_MAX_HEIGHT)}>
-        {agentPayload && (
-          /* 顺序 = 用户要回答的问题的顺序:装没装(状态 + 三个按钮)→ 登没登(账号)→ 高级。
-             段与段之间一条细线,❌ 不再给每段套一个框(从前是框里套框,安装那个框下半截还是空的)。 */
-          <fieldset disabled={readOnly} className="contents" data-read-only={readOnly || undefined}>
-            <InstallSection
-              agentId={agentId}
-              agentPayload={agentPayload}
-              installOptions={agentPayload.installOptions}
-              installDocs={agentPayload.installDocs}
-              accountSlot={<AgentAccountSection agent={agentPayload} />}
-            />
-          </fieldset>
-        )}
-      </DialogContentArea>
-    </ModalLayout>
+  const header = (
+    <DialogHeader>
+      {agentPayload && <AgentModalHeaderSection agent={agentPayload} dimmed={dimmed} compact={compact} />}
+    </DialogHeader>
   );
+  const content = (
+    <DialogContentArea className={cn('gap-0', CONTENT_MAX_HEIGHT)}>
+      {agentPayload && (
+        /* Claude/Codex 默认只问能否使用、怎么配置；安装来源收进高级。 */
+        <fieldset disabled={readOnly} className="contents" data-read-only={readOnly || undefined}>
+          {compact && <AgentAccountSection agent={agentPayload} />}
+          <InstallSection
+            advancedOnly={compact}
+            agentId={agentId}
+            agentPayload={agentPayload}
+            installOptions={agentPayload.installOptions}
+            installDocs={agentPayload.installDocs}
+            accountSlot={compact ? undefined : <AgentAccountSection agent={agentPayload} />}
+          />
+        </fieldset>
+      )}
+    </DialogContentArea>
+  );
+  // Fixed credential rows do not use the installation content's height animation.
+  return compact ? <>{header}{content}</> : <ModalLayout header={header} footer={null}>{content}</ModalLayout>;
 });
 
 /**

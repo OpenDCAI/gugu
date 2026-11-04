@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { AuthStatusModelState } from '@gugu/session-core/workspace-server/agent-config';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
@@ -57,15 +58,19 @@ vi.mock('@renderer/features/sessions/session-config/platform-model-catalog', () 
 vi.mock('@renderer/lib/stores/use-harness-model-credential', () => ({
   harnessModelCredentialKey: (providerId: string) => ['agents', 'modelCredential', providerId],
 }));
-vi.mock('@renderer/features/settings/subscriptions/subscription-queries', () => ({
+vi.mock('@renderer/features/settings/subscriptions/subscription-queries', async importOriginal => ({
+  ...(await importOriginal<typeof import('@renderer/features/settings/subscriptions/subscription-queries')>()),
   subscriptionKey: (machine: string | null, agentId?: string) => ['subscriptions', machine ?? 'local', ...(agentId ? [agentId] : [])],
   useSubscriptionPlan: (machine: string | null, agentId: string) => {
     mocks.planCalls.push([machine, agentId]);
     return { data: mocks.plan };
   },
 }));
-vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ invalidateQueries: mocks.invalidate }),
+vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
+  getAgentConfigRuntimeClient: async () => ({
+    refreshAuthStatus: async () => ({ success: true, data: mocks.auth?.status ?? { kind: 'unknown' } }),
+    listConnections: async () => ({ success: true, data: [{ id: 'native', kind: 'native', name: 'CLI', current: true }] }),
+  }),
 }));
 vi.mock('@renderer/lib/modal/modal-provider', () => ({ useShowModal: () => mocks.signIn }));
 vi.mock('@renderer/localization/use-session-messages', () => ({
@@ -104,8 +109,8 @@ const ACP_AUTH: AgentCapabilities['auth'] = {
 
 const agent = (auth: AgentCapabilities['auth'], status: AgentPayload['status'] = 'available') =>
   ({
-    id: 'claude',
-    name: 'Claude Code',
+    id: 'test-cli',
+    name: 'Test CLI',
     status,
     capabilities: { auth } as AgentCapabilities,
   }) as unknown as AgentPayload;
@@ -114,11 +119,12 @@ describe('AgentAccountSection', () => {
   let dom: JSDOM;
   let root: Root;
   let container: HTMLDivElement;
+  let client: QueryClient;
 
   const render = async (payload: AgentPayload, host?: LibraryHost) => {
     await act(async () => {
       const section = React.createElement(AgentAccountSection, { agent: payload });
-      root.render(host ? React.createElement(LibraryHostProvider, { value: host }, section) : section);
+      root.render(React.createElement(QueryClientProvider, { client }, host ? React.createElement(LibraryHostProvider, { value: host }, section) : section));
     });
   };
 
@@ -130,6 +136,8 @@ describe('AgentAccountSection', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     container = dom.window.document.getElementById('root') as HTMLDivElement;
     root = createRoot(container);
+    client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    vi.spyOn(client, 'invalidateQueries').mockImplementation(mocks.invalidate);
     mocks.auth = null;
     mocks.authByProgram = {};
     mocks.statusCalls = [];
@@ -145,6 +153,7 @@ describe('AgentAccountSection', () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    client.clear();
     vi.unstubAllGlobals();
   });
 
@@ -170,6 +179,16 @@ describe('AgentAccountSection', () => {
     mocks.auth = { status: { kind: 'unauthenticated' }, login: null };
     await render(agent({ kind: 'none' }));
     expect(container.textContent).toBe('');
+  });
+
+  it.each([{ provider: 'claude', declared: false }, { provider: 'claude', declared: true }, { provider: 'codex', declared: false }, { provider: 'codex', declared: true }])('$provider declared=$declared: native 未登录时提供配置入口，不把用户送进会被拒绝的 native 登录', async ({ provider, declared }) => {
+    mocks.auth = { status: { kind: 'unauthenticated' }, login: null };
+    await render({ ...agent({ ...CLI_LOGIN, ...(declared ? { connections: { kind: 'managed' as const } } : {}) }), id: provider, name: provider });
+    await act(async () => {
+      await vi.waitFor(() => expect(container.querySelector('[data-testid="agent-account-configure"]')).not.toBeNull());
+    });
+    expect(container.querySelector('[data-testid="agent-account-sign-in"]')).toBeNull();
+    expect(mocks.signIn).not.toHaveBeenCalled();
   });
 
   it('声明了 cli-login 的家:未登录 + 可点的登录按钮(上面三条的阳控)', async () => {
@@ -212,7 +231,7 @@ describe('AgentAccountSection', () => {
     mocks.plan = { payer: 'subscription', plan: 'Claude Max 20x' };
     await render(agent(CLI_LOGIN));
     expect(planLine()).toBe('subscriptions.payer.subscription · Claude Max 20x');
-    expect(mocks.planCalls.at(-1)).toEqual([null, 'claude']);
+    expect(mocks.planCalls.at(-1)).toEqual([null, 'test-cli']);
 
     mocks.plan = { payer: 'api-key', plan: 'MiMo 按量付费' };
     await render(agent(CLI_LOGIN));
@@ -277,8 +296,8 @@ describe('AgentAccountSection', () => {
     expect(mocks.signIn).toHaveBeenCalledTimes(1);
     const args = mocks.signIn.mock.calls[0]?.[0] as SignInArgs;
     expect(args).toMatchObject({
-      providerId: 'claude',
-      providerName: 'Claude Code',
+      providerId: 'test-cli',
+      providerName: 'Test CLI',
       steps: [{ methodId: 'claude-login', transport: 'terminal' }],
     });
     // 单程序的家:一步、不带 program(与从前发出去的请求逐字节一致)
@@ -290,12 +309,12 @@ describe('AgentAccountSection', () => {
     await act(async () => args.onSuccess());
     expect(mocks.refreshAuth).toHaveBeenCalledTimes(1);
     expect(mocks.refreshCatalog).toHaveBeenCalledTimes(1);
-    expect(mocks.refreshCatalog.mock.calls[0]?.[1]).toBe('claude');
+    expect(mocks.refreshCatalog.mock.calls[0]?.[1]).toBe('test-cli');
     expect(mocks.invalidate).toHaveBeenCalledWith({
-      queryKey: ['agents', 'modelCredential', 'claude'],
+      queryKey: ['agents', 'modelCredential', 'test-cli'],
     });
     // 套餐跟着登录走:登完连同「订阅」页那份一起重问。
-    expect(mocks.invalidate).toHaveBeenCalledWith({ queryKey: ['subscriptions', 'local', 'claude'] });
+    expect(mocks.invalidate).toHaveBeenCalledWith({ queryKey: ['subscriptions', 'local', 'test-cli'] });
 
     // 关窗同样要重问:登录成没成只有 harness 知道(见 login-success.ts)。
     await act(async () => args.onClose());
@@ -319,15 +338,15 @@ describe('AgentAccountSection', () => {
       (container.querySelector('[data-testid="agent-account-sign-in"]') as HTMLButtonElement).click();
     });
     const args = mocks.signIn.mock.calls[0]?.[0] as SignInArgs & { remote: Record<string, unknown> };
-    expect(args.remote).toMatchObject({ deviceId: 'd22', deviceLabel: 'Linux 1', command: 'claude auth login' });
+    expect(args.remote).toMatchObject({ deviceId: 'd22', deviceLabel: 'Linux 1', command: 'test-cli auth login' });
     await act(async () => args.onSuccess());
     // 登完重问那台机器上这一家的读数(账号、模型目录)。
     expect(mocks.refreshAuth).toHaveBeenCalledTimes(1);
     expect(mocks.invalidate).toHaveBeenCalledWith({ queryKey: ['agents'] });
-    expect(mocks.invalidate).toHaveBeenCalledWith({ queryKey: ['subscriptions', 'd22', 'claude'] });
+    expect(mocks.invalidate).toHaveBeenCalledWith({ queryKey: ['subscriptions', 'd22', 'test-cli'] });
     expect(mocks.refreshCatalog).not.toHaveBeenCalled();
     // 套餐问的也是那台机器。
-    expect(mocks.planCalls.at(-1)).toEqual(['d22', 'claude']);
+    expect(mocks.planCalls.at(-1)).toEqual(['d22', 'test-cli']);
   });
 
   describe('一家两个程序(#6335,owner 定:一行、一颗按钮)', () => {

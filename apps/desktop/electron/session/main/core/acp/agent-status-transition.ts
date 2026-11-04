@@ -95,6 +95,18 @@ export function deriveAcpAgentStatusActions(
   }
 
   if (next.lifecycle === 'lost') {
+    // Losing an idle adapter is a transport fact, not a failed task. Keep the recorded successful
+    // turn and its unread/done bit. Failed turns/startups and any unfinished work still require attention.
+    const quiescent = (summary: SessionSummary): boolean => !busy(summary)
+      && summary.pendingPermissionCount === 0 && summary.pendingPermissionWaits.length === 0
+      && backgroundWork(summary) === 0;
+    if (next.failure?.kind === 'adapter-exit'
+      && next.lastTurnOutcome === 'stopped'
+      && next.lastStopReason !== null && normalStopReasons.has(next.lastStopReason)
+      && quiescent(next)
+      && (!previous || (previous.lifecycle === 'ready' || previous.lifecycle === 'lost') && quiescent(previous))) {
+      return [];
+    }
     return [
       {
         kind: 'event',

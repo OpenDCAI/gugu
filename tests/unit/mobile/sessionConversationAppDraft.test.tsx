@@ -54,6 +54,8 @@ it('puts each App draft in the real task composer once, preserving human edits a
 })
 
 it('keeps the running task Send action until its local outbox commit resolves', async () => {
+  // A successful local commit belongs to the active sender account.
+  Object.assign(state(), { accountId: 'owner', valid: () => true })
   let commit!: () => void
   const onSend = vi.fn(() => new Promise<void>(resolve => { commit = resolve }))
   const onStop = vi.fn()
@@ -71,11 +73,13 @@ it('keeps the running task Send action until its local outbox commit resolves', 
   expect(send()?.disabled).toBe(false)
   await act(async () => { send()!.click(); send()!.click(); send()!.click() })
   await waitForCondition(() => onSend.mock.calls.length === 1, 'task reaches local outbox')
-  expect(readComposer(field())).toBe('')
+  // The draft retains custody until onSend confirms the durable outbox commit.
+  expect(readComposer(field())).toBe('one queued intent')
   expect(send()?.disabled).toBe(true)
   expect(stop()).toBeNull()
   expect(onStop).not.toHaveBeenCalled()
   await act(async () => commit())
+  expect(readComposer(field())).toBe('')
   expect(stop()).not.toBeNull()
   expect(onStop).not.toHaveBeenCalled()
 })
