@@ -98,21 +98,23 @@ describe('#7496 left rail update entry', () => {
 describe('#1342 replacement download and installation state', () => {
   const button = () => harness.container.querySelector<HTMLButtonElement>('button.gg-update-rail')
 
-  it('restores the rail action when an active-agent restart confirmation is cancelled in the actual host flow', async () => {
+  it.each([false, true])('restores the actual host state after restart confirmation cancellation (new download during confirmation: %s)', async (replacement) => {
     const host = createUpdateState<UpdateStatusPayload>({ success: true, status: 'idle', updateInfo: null })
     let available!: (info: UpdateInfoLike) => void
     let downloaded!: () => void
-    const confirmInterrupt = vi.fn(async () => false)
+    let cancel!: (accepted: boolean) => void
+    let progress!: (value: { percent: number }) => void
+    const confirmInterrupt = vi.fn(() => replacement ? new Promise<boolean>(resolve => { cancel = resolve }) : Promise.resolve(false))
     const handoff = vi.fn()
     const checkForUpdates = vi.fn(async () => undefined)
     const flow = createUpdateFlow({
       updater: {
         onUpdateAvailable: listener => { available = listener },
         onUpdateDownloaded: listener => { downloaded = listener },
-        onUpdateNotAvailable: () => {}, onDownloadProgress: () => {}, onError: () => {},
+        onUpdateNotAvailable: () => {}, onDownloadProgress: listener => { progress = listener }, onError: () => {},
         checkForUpdates, downloadUpdate: async () => undefined,
       },
-      enabled: true, getStatus: () => host.current.status,
+      enabled: true, getState: () => host.current,
       emit: payload => {
         const published = host.publish(payload)
         if (published) window.dispatchEvent(new CustomEvent(UI_EVENTS.updateStatus, { detail: published }))
@@ -132,6 +134,19 @@ describe('#1342 replacement download and installation state', () => {
     expect(button()?.getAttribute('aria-label')).toBe('立即重启更新')
     await act(async () => { button()!.click() })
     expect(confirmInterrupt).toHaveBeenCalledWith(2)
+    if (replacement) {
+      await act(async () => {
+        available({ version: '9.0.1' })
+        progress({ percent: 27 })
+        cancel(false)
+      })
+      expect(host.current).toMatchObject({ status: 'downloading', updateInfo: { version: '9.0.1' }, percent: 27 })
+      expect(host.current.revision).toBeGreaterThan(ready.revision)
+      expect(button()?.getAttribute('aria-label')).toBe('下载新版本中… 27%')
+      expect(handoff).not.toHaveBeenCalled()
+      expect(checkForUpdates).not.toHaveBeenCalled()
+      return
+    }
     expect(button()?.getAttribute('aria-label')).toBe('立即重启更新')
     expect(button()?.getAttribute('aria-disabled')).not.toBe('true')
     expect(host.current.status).toBe('downloaded')

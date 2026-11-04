@@ -3126,7 +3126,7 @@ const updateFlow = createUpdateFlow({
     downloadUpdate: () => autoUpdater.downloadUpdate(),
   },
   enabled: updaterPolicy.enabled,
-  getStatus: () => updaterState.current.status,
+  getState: () => updaterState.current,
   emit: emitUpdateStatus,
   onReady: () => sendUiEvent(MAIN_UI_EVENTS.updateReady),
   rejectTarget: (info) => rejectPrereleaseTarget(info, 'update-available'),
