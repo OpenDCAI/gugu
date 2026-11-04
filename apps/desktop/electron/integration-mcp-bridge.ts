@@ -91,9 +91,18 @@ export function createIntegrationMcpHost(persistence?: GuguMcpHostPersistence): 
       )
       server.server.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
         const signal = anySignal([grantSignal, extra.signal])
+        // entries() precedes the tracked upstream work; retain that metric boundary and its original error.
+        const entries = await getContext().entries().catch((error: unknown) => {
+          const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined
+          log.warn({ errorType: error instanceof Error ? error.name : 'unknown',
+            errorCode: typeof code === 'number' ? code : undefined,
+            mcpSessionId: extra.sessionId, requestId: extra.requestId }, 'connected app entries unavailable')
+          throw error
+        })
         return trackRequest(
-          listConnectedTools(await getContext().entries(), signal).then((tools) => ({ tools })),
+          listConnectedTools(entries, signal, extra).then((tools) => ({ tools })),
           'tools/list',
+          extra.requestId,
         )
       })
       server.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -108,6 +117,7 @@ export function createIntegrationMcpHost(persistence?: GuguMcpHostPersistence): 
             ? upstream.tools.call(params.name, params.arguments ?? {}, signal)
             : withUpstream(upstream, signal, (client) => client.callTool(params)),
           request.params.name,
+          extra.requestId,
         )
       })
       return server
@@ -126,7 +136,8 @@ export interface IntegrationBridgeEntry {
   upstream: IntegrationUpstream
 }
 
-async function listConnectedTools(entries: readonly IntegrationBridgeEntry[], signal: AbortSignal): Promise<Tool[]> {
+async function listConnectedTools(entries: readonly IntegrationBridgeEntry[], signal: AbortSignal,
+  request: { sessionId?: string; requestId: string | number }): Promise<Tool[]> {
   const tools: Tool[] = []
   const unavailable: string[] = []
   for (const { integrationId, upstream } of entries) {
@@ -149,7 +160,10 @@ async function listConnectedTools(entries: readonly IntegrationBridgeEntry[], si
     } catch (error) {
       signal.throwIfAborted()
       unavailable.push(integrationId)
-      log.warn({ integrationId, errorType: error instanceof Error ? error.name : 'unknown' }, 'connected app tools unavailable')
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined
+      log.warn({ integrationId, errorType: error instanceof Error ? error.name : 'unknown',
+        errorCode: typeof code === 'number' ? code : undefined,
+        mcpSessionId: request.sessionId, requestId: request.requestId }, 'connected app tools unavailable')
     }
   }
   if (unavailable.length && tools.length === 0) throw new Error(`Connected app tools are unavailable: ${unavailable.join(', ')}. Check their connections.`)
