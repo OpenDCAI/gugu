@@ -17,10 +17,6 @@ export function activeSessionResource(pane: PaneStore): SessionTabResource | und
   return pane.activeResourceOfKind<SessionTabResource>('session');
 }
 
-/** @deprecated Use activeSessionResource */
-export const activeSession = (pane: PaneStore, _sessions?: unknown) =>
-  activeSessionResource(pane)?.store;
-
 /**
  * 这个 pane 此刻显示的那条会话 —— 不论它是 pty 页签('conversation')还是 ACP 页签('acp-chat')。
  *

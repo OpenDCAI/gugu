@@ -356,10 +356,11 @@ export async function replaceChatRowsAndIdentities(
   chats: ChatItem[],
   identities: readonly unknown[],
   isConversationDeleted?: (id: string) => boolean,
+  readChats?: () => ChatItem[],
 ): Promise<void> {
   await repository.transaction((transaction) => {
     // Evaluate inside the serialized write: an older queued snapshot cannot undo a confirmed deletion.
-    const published = chats.filter(chat => !isConversationDeleted?.(chat.id))
+    const published = (readChats ? readChats() : chats).filter(chat => !isConversationDeleted?.(chat.id))
     assertIdentityClosure('conversation list', published.flatMap((chat) => [chat.peer_user_id, ...(chat.member_user_ids ?? [])]), identities)
     writeChatRows(repository, transaction, published)
     for (const identity of identities) transaction.putIdentity(identity)

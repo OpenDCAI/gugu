@@ -160,8 +160,8 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   // spec session-fork-share: fork 自谁 = 父会话此刻的名字,从父会话自己的 store 读(❌ 存一份副本);
   // 父会话没挂上就不写名字。名字可能很长 → tooltip 里截断,否则在窄侧栏竖成一条。
   const forkedFromLabel =
-    forkedFromTitle && forkedFromTitle.length > 20
-      ? `${forkedFromTitle.slice(0, 20)}…`
+    forkedFromTitle && [...forkedFromTitle].length > 20
+      ? `${[...forkedFromTitle].slice(0, 20).join('')}…`
       : forkedFromTitle;
 
   const launchedByAssistant = sidebarStore.launchedByAssistant(projectId, sessionId);

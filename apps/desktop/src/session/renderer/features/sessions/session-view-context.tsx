@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import type { PageSessionsStore } from '@renderer/features/sessions/page-sessions-store';
 import {
   getPageSessions,
@@ -33,8 +33,17 @@ export const SessionViewWrapper = observer(function SessionViewWrapper({
   sessionId: string;
 }) {
   const workspaceId = getSessionPageStore(projectId, sessionId)?.workspaceId ?? null;
+  // The value must keep its identity across re-renders: every consumer of this context re-renders
+  // when the value changes, and this provider sits above the whole session view — whose contents
+  // change constantly (a streaming turn, a refreshed file tree, a recomputed diff). A fresh object
+  // per render re-rendered all of them for nothing — most only read `projectId` / `sessionId`,
+  // which never change. The three inputs are the whole value.
+  const value = useMemo(
+    () => ({ projectId, sessionId, workspaceId }),
+    [projectId, sessionId, workspaceId],
+  );
   return (
-    <SessionViewContext.Provider value={{ projectId, sessionId, workspaceId }}>
+    <SessionViewContext.Provider value={value}>
       {children}
       {/* 任务在咕咕 server 上、它的浏览器开始干活:Browser Use 页签替人加到页签条上一次(不切过去)。 */}
     </SessionViewContext.Provider>

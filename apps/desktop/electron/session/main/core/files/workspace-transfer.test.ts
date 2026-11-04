@@ -108,3 +108,12 @@ describe('按块写,按「打开时那一版」核对', () => {
     ).rejects.toMatchObject({ code: 'upload_lost' });
   });
 });
+
+describe('工作区里以 `..` 开头的文件名', () => {
+  it('是工作区里的合法文件,不按越界拒', async () => {
+    writeFileSync(path.join(root, '..notes.md'), 'kept');
+    const chunk = await readWorkspaceChunk(root, { path: '..notes.md', offset: 0, length: 10 });
+    expect(Buffer.from(chunk.data, 'base64').toString()).toBe('kept');
+    expect(chunk.size).toBe(4);
+  });
+});

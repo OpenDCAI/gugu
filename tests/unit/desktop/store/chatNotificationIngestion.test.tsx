@@ -75,8 +75,10 @@ function Owner({ notificationsEnabled = true }: { notificationsEnabled?: boolean
   const requestSeqRef = useRef(0)
   const getRepository = useCallback(async () => repository, [])
   const onActiveRevoked = useCallback(() => undefined, [])
+  const canAcknowledge = useCallback(() => false, [])
+  const visibleSeqOf = useCallback(() => 0, [])
   binding = useChatProjectionBinding({ ledger: ledger.current, repositoryRef, getRepository, chatsRef,
-    activeChatIdRef, requestSeqRef, setChats: setRows, onActiveRevoked,
+    activeChatIdRef, requestSeqRef, setChats: setRows, onActiveRevoked, canAcknowledge, visibleSeqOf,
     notifications: { chatMessages: notificationsEnabled, sound: false } })
   return null
 }

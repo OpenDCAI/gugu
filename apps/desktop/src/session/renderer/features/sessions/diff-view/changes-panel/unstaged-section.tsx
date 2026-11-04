@@ -2,7 +2,7 @@ import type { GitChange } from '@gugu/session-core/git';
 import { Plus, Undo2 } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { toast } from 'sonner';
-import { activeDiffEntry } from '@renderer/features/sessions/diff-view/pane-selectors';
+import { activeDiffResource } from '@renderer/features/sessions/diff-view/pane-selectors';
 import {
   useSessionViewContext,
   useWorkspace,
@@ -38,7 +38,7 @@ export const UnstagedSection = observer(function UnstagedSection() {
   const hasChanges = changes.length > 0;
   const hasStagedChanges = git.stagedFileChanges.length > 0;
 
-  const _activeDiff = activeDiffEntry(sessionView.activePane);
+  const _activeDiff = activeDiffResource(sessionView.activePane);
   const activePath = _activeDiff?.diffGroup === 'disk' ? _activeDiff.path : undefined;
 
   const prefetch = usePrefetchDiffModels(projectId, workspaceId, 'disk', HEAD_REF);
