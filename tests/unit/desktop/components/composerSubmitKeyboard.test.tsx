@@ -20,7 +20,7 @@ async function render(props: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
 }
 
 describe('shared composer submission focus', () => {
-  it.each(['button', 'focused button', 'attachment'] as const)('preserves the existing phone focus for an accepted %s send', async (method) => {
+  it.each(['button', 'focused button', 'attachment'] as const)('dismisses phone focus for an accepted %s send', async (method) => {
     const onSubmit = await render(method === 'attachment' ? { attachments: [{ id: 'file', name: 'notes.txt', kind: 'file' }] } : {})
     await act(async () => {
       if (method !== 'attachment') writeComposer(editor(), 'hello')
@@ -32,10 +32,9 @@ describe('shared composer submission focus', () => {
       send().click()
     })
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith(method === 'attachment' ? '' : 'hello')
-    const focused = method === 'focused button' ? send() : editor()
-    expect(document.activeElement).toBe(focused)
+    expect(document.activeElement).toBe(document.body)
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)) })
-    expect(document.activeElement).toBe(focused)
+    expect(document.activeElement).toBe(document.body)
   })
 
   it('keeps the phone keyboard open when Enter inserts a newline', async () => {
