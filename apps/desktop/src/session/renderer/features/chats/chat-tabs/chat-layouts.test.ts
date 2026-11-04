@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
+import type { MessageItem } from '@gugu/core/shared/types/chat';
 import { folderItem, type PanelItem } from './chat-panel-item';
 import {
   askChat,
@@ -28,6 +29,7 @@ import {
   takeChatAsk,
   topicTabOf,
   updateFileNames,
+  yieldChatAuxiliary,
 } from './chat-layouts';
 import { CHAT_TAB_KIND } from './chat-tab-providers';
 import { tabFullscreen } from '../../tabs/tab-fullscreen';
@@ -208,6 +210,83 @@ describe('the topic beside its group', () => {
     hideTopicTab('topic-1');
     expect(topicTabOf('topic-1'), 'put away (its row clicked again): off the screen and the strip').toBeNull();
     expect(kinds('topic-1')).toEqual(['kanban.board']);
+  });
+});
+
+describe('a file beside the conversation that opened it', () => {
+  const from = (id: string, chatId: string): PanelItem => ({ ...file(id), message: { id: `message-${chatId}`, chat_id: chatId } as MessageItem });
+  const setup = (id: string) => {
+    openTopicTab(id, { topicChatId: `${id}-topic`, name: 'Topic' });
+    return topicTabOf(id)!.tabId;
+  };
+
+  it('pairs a topic attachment with its topic, and reuses the same file for the latest conversation', () => {
+    const id = 'topic-file-source';
+    const topic = setup(id);
+    const main = pane(id).tabOrder[0]!;
+    const tab = openPanelItem(id, from('shared', `${id}-topic`))!;
+    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
+    expect(pane(id).shownTabIds).toEqual([topic, tab]);
+    expect(returnToOf(id, tab)).toBe(topic);
+    expect(openPanelItem(id, from('shared', id))).toBe(tab);
+    expect(pane(id).livePair).toMatchObject({ anchor: main, side: tab });
+    expect(openPanelItem(id, from('shared', `${id}-topic`))).toBe(tab);
+    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
+    expect(panelTabsOf(id)).toHaveLength(1);
+    expect(chatLayoutOf(id).groups).toHaveLength(1);
+  });
+
+  it('restores beside the topic after expanding, including a narrow block', () => {
+    const id = 'topic-file-full';
+    const topic = setup(id);
+    const tab = openPanelItem(id, from('readme', `${id}-topic`))!;
+    expect(panelFull(id, tab)).toBe(false);
+    pane(id).setDimensions(200, 900);
+    expect(panelFull(id, tab)).toBe(false);
+    setPanelFull(id, tab, true);
+    expect(panelFull(id, tab)).toBe(true);
+    setPanelFull(id, tab, false);
+    pane(id).setDimensions(1600, 900);
+    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
+    expect(panelFull(id, tab)).toBe(false);
+  });
+
+  it('remembers separate for the file kind, leaving topics eligible to pair', () => {
+    const id = 'topic-file-separate';
+    const topic = setup(id);
+    const tab = openPanelItem(id, from('readme', `${id}-topic`))!;
+    pane(id).separatePair();
+    expect([...pane(id).splitDeclinedKinds]).toEqual(['chat-panel']);
+    openPanelItem(id, from('another', `${id}-topic`));
+    expect(pane(id).livePair).toBeNull();
+    setPanelFull(id, tab, false);
+    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
+  });
+
+  it('reveals a yielded topic/file pair and closes back to its source once', () => {
+    const id = 'topic-file-reveal';
+    const topic = setup(id);
+    const restore = vi.fn();
+    const tab = openPanelItem(id, from('readme', `${id}-topic`), { restore })!;
+    yieldChatAuxiliary(id);
+    showChatTab(id, tab);
+    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
+    closeChatTab(id, tab);
+    expect(pane(id).resolvedActiveTabId).toBe(topic);
+    expect(restore).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not attach an old answer to a different topic, or revive a closed source', () => {
+    const id = 'topic-file-closed';
+    setup(id);
+    openTopicTab(id, { topicChatId: 'new-topic', name: 'New topic' });
+    const tab = openPanelItem(id, from('readme', `${id}-topic`))!;
+    expect(pane(id).livePair).toMatchObject({ anchor: pane(id).tabOrder[0], side: tab });
+    closeTopicTab(id);
+    setPanelFull(id, tab, true);
+    setPanelFull(id, tab, false);
+    expect(topicTabOf(id)).toBeNull();
+    expect(panelFull(id, tab)).toBe(false);
   });
 });
 
