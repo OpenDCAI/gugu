@@ -2,18 +2,19 @@
 // 主题真值只有 `<html data-theme>`(host-theme.ts 是唯一写入者),壳问不到 ⇒ 这里观察属性、开机同步一次、每次变了再告诉它,
 // 和桌面告诉主进程窗口色调(@@@window-tone)同一个形状。
 import { Capacitor, registerPlugin } from '@capacitor/core'
-import { readEffectiveHostTheme, subscribeToHostTheme } from '../session/renderer/lib/theme/host-theme'
+import { readEffectiveHostTheme, readThemePreference, subscribeToHostTheme, subscribeToThemePreference } from '../session/renderer/lib/theme/host-theme'
 import { rendererLogger } from '../lib/log'
 
 const log = rendererLogger('mobile/shell-chrome')
-const shellChrome = registerPlugin<{ syncTone(options: { tone: 'light' | 'dark' }): Promise<void> }>('GuguShellChrome')
+const shellChrome = registerPlugin<{ syncTone(options: { tone: 'light' | 'dark'; preference: 'light' | 'dark' | 'system' }): Promise<void> }>('GuguShellChrome')
 
 export function startShellChromeTone(): void {
   if (!Capacitor.isNativePlatform()) return
   const sync = () => {
     const tone = readEffectiveHostTheme()
-    shellChrome.syncTone({ tone }).catch((error: unknown) => log.error({ tone, error: String(error) }, 'the system bars did not take the page tone'))
+    shellChrome.syncTone({ tone, preference: readThemePreference() }).catch((error: unknown) => log.error({ tone, error: String(error) }, 'the system bars did not take the page tone'))
   }
   sync()
   subscribeToHostTheme(sync)
+  subscribeToThemePreference(sync)
 }

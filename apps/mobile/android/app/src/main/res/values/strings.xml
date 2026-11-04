@@ -4,7 +4,14 @@
          (@@@tier-build-android):正式版「咕咕」、beta「咕咕 Beta」。两处都写会资源重复,AGP 直接报错。 -->
     <string name="package_name">app.gugu.chat</string>
     <string name="custom_url_scheme">app.gugu.chat</string>
+    <string name="startup_error_title">Gugu could not start</string>
+    <string name="startup_error_body">The app could not display its first screen. Retry, or close and reopen it.</string>
+    <string name="startup_retry">Retry</string>
+    <string name="startup_close">Close</string>
     <!-- #7199 健康:Health Connect 授权页「隐私权政策」点进来的那一页(HealthRationaleActivity)。 -->
     <string name="health_rationale_title">咕咕怎么用你的健康数据</string>
     <string name="health_rationale_body">这台手机上的任务 Agent 按你的需要读取已授权的健康数据，授权可随时撤销。</string>
+    <string name="startup_compat">Compatibility startup</string>
+    <string name="startup_restore">Restore startup animation</string>
+    <string name="startup_policy_failed">The startup setting could not be saved. Your previous setting is still active.</string>
 </resources>
