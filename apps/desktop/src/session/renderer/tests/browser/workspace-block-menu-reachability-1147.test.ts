@@ -129,7 +129,6 @@ beforeEach(async () => {
 afterAll(() => {
   const editor = document.querySelector<HTMLElement>('.cm-editor');
   if (editor) view.EditorView.findFromDOM(editor)?.destroy();
-  document.body.replaceChildren();
   ownStyle.remove();
   ydoc.destroy();
 });
@@ -184,7 +183,14 @@ it('keeps the block through left padding, opens its menu, and changes only on an
     expect(controls().hidden).toBe(false);
   }
   await openHandle('block-handle');
-  await userEvent.keyboard('{Escape}');
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    await userEvent.keyboard('{Escape}');
+    vi.runOnlyPendingTimers();
+  } finally {
+    vi.useRealTimers();
+  }
+  expect(controls().hidden, 'Escape keeps the handle under the resting pointer').toBe(false);
   await openHandle();
   const title = byId('doc-title').getBoundingClientRect();
   await pointer(title.left + 10, title.top + 5);

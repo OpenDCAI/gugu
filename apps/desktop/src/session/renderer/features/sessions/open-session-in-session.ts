@@ -7,6 +7,7 @@ import { offlineSessionInputTarget } from './offline-session-input-target';
 import { sessionRegistry } from './stores/session-registry';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { rememberTask } from '@renderer/features/command-palette/recent-tasks';
 
 interface OpenSessionInSessionOptions {
   projectId: string;
@@ -46,6 +47,7 @@ export function openSessionInSessionWhenReady({
   onReady,
 }: OpenSessionInSessionOptions): () => void {
   const kind = sessionViewKind(getSessionPageStore(projectId, sessionId), projectId);
+  if (!onlyIfNoTabs && kind !== 'archived' && kind !== 'missing') rememberTask(sessionId);
   if (offlineSessionInputTarget(projectId, kind)) {
     // Navigation (including a beside block) reaches SessionContentGate without a remote workspace.
     onReady?.();

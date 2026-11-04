@@ -241,7 +241,7 @@ it('adds a third-party API and explicitly switches the connection without openin
 });
 
 
-it.each([390, 720])('Gugu credits fit a %s px settings container with a prominent total and compact recharge action', async width => {
+it.each([390, 720, 1120])('Gugu credits fit a %s px settings container with a prominent total and compact recharge action', async width => {
   host.style.cssText = `width: ${width}px; container: gg-settings / inline-size`;
   root.render(<GuguSubscriptionRow />);
   await until('the Gugu balances render', () => host.querySelector('[data-testid="subscription-credits-balance"]')?.textContent?.includes('8.2') ?? false);
@@ -250,6 +250,13 @@ it.each([390, 720])('Gugu credits fit a %s px settings container with a prominen
   await untilStable('the credit layout is measured', () => quotas.map(q => q.getBoundingClientRect().top).join(','));
   const period = quotas[0].getBoundingClientRect();
   const wallet = quotas[1].getBoundingClientRect();
+  const walletLabel = quotas[1].querySelector('span')!;
+  const walletCredits = quotas[1].querySelector('strong')!;
+  expect(walletLabel.textContent).toMatch(/^(不过期积分|Non-expiring credits)$/);
+  const labelRect = walletLabel.getBoundingClientRect();
+  const creditsRect = walletCredits.getBoundingClientRect();
+  expect(creditsRect.left - labelRect.right).toBeCloseTo(8, 0);
+  expect(Math.abs(creditsRect.top - labelRect.top)).toBeLessThan(8);
   const total = row.querySelector<HTMLElement>('[data-testid="subscription-credits-balance"]')!;
   expect(parseFloat(getComputedStyle(total).fontSize)).toBeGreaterThan(parseFloat(getComputedStyle(quotas[0].querySelector('strong')!).fontSize));
   expect(total.getBoundingClientRect().bottom).toBeLessThanOrEqual(period.top);

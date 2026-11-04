@@ -2266,6 +2266,10 @@ function scheduleBlockHandleHide() {
   handleHideTimer = setTimeout(hideBlockHandle, 150)
 }
 
+function scheduleBlockHandleHideUnlessHovered() {
+  if (!$('preview').matches(':hover') && !$('block-controls').matches(':hover')) scheduleBlockHandleHide()
+}
+
 function hideBlockHandle(force = false) {
   cancelBlockHandleHide()
   if (!force && $('block-controls').contains(document.activeElement)) return
@@ -3071,7 +3075,7 @@ function closeMenu() {
   state.menuAnchor?.setAttribute('aria-expanded', 'false')
   state.menuAnchor = null
   $('menu').hidden = true
-  if (blockControls && !$('preview').matches(':hover') && !$('block-controls').matches(':hover')) scheduleBlockHandleHide()
+  if (blockControls) scheduleBlockHandleHideUnlessHovered()
 }
 
 // ─── start ──────────────────────────────────────────────────────────────────
@@ -3181,7 +3185,7 @@ function start() {
   $('preview').addEventListener('scroll', () => hideBlockHandle(true))
   $('block-controls').addEventListener('pointerenter', cancelBlockHandleHide)
   $('block-controls').addEventListener('pointerleave', scheduleBlockHandleHide)
-  $('block-controls').addEventListener('focusout', scheduleBlockHandleHide)
+  $('block-controls').addEventListener('focusout', scheduleBlockHandleHideUnlessHovered)
   $('block-insert').onclick = (event) => openBlockMenu(event, insertMenu)
   $('block-handle').onclick = (event) => openBlockMenu(event, blockMenu)
   $('preview').addEventListener('change', tickTask)
