@@ -22,6 +22,8 @@ import { AssistantSetupCleanupError } from '../../lib/assistantSetupPreparation'
 import { readOccupation, takeAssistantStartAtHome } from '../../lib/firstRun'
 import { AssistantIntro } from './AssistantIntro'
 import { AssistantHomeChoice } from './AssistantHomeChoice'
+import { AssistantEngineChoice } from './AssistantEngineChoice'
+import type { AssistantEngine } from '@/lib/assistantHomeIpc'
 import { AssistantServerSetup } from './AssistantServerSetup'
 import { pendingServerAssistant } from '../../lib/assistantServerSetup'
 import { clearAssistantOnboardingNavigation, readAssistantOnboardingNavigation, saveAssistantOnboardingNavigation } from '../../lib/assistantOnboardingNavigation'
@@ -37,7 +39,7 @@ import { CloudComputerProvisionPanel, type CloudComputerActionFailure } from '..
 
 const log = rendererLogger('assistant/onboarding')
 
-type Step = 'intro' | 'name' | 'home' | 'server'
+type Step = 'intro' | 'name' | 'home' | 'engine' | 'server'
 type Busy = null | 'cloud' | 'computer' | 'resume'
 
 /** 引导页根上的主题色相(一个数,见 assistant-today.css 的 --ta-tint-h)。 */
@@ -88,6 +90,7 @@ export function AssistantOnboarding({
     const label = occupation ? (occupation.key === 'other' ? occupation.text : tMain(`firstRun.occupation.${occupation.key}`)) : ''
     return { ...draft, owner: { preferredName: ownerName?.trim() ?? '', about: label ? t('setup.ownerOccupation', { occupation: label }) : '' } }
   }, [draft, ownerName, ownerUserId, t, tMain])
+  const [engine, setEngine] = useState<AssistantEngine>('claude')
   const [busy, setBusy] = useState<Busy>(null)
   const localAttempt = useRef<AbortController | null>(null)
   const localInstallationStarted = useRef(false)
@@ -196,7 +199,7 @@ export function AssistantOnboarding({
       if (pending) {
         onInstalling()
         await resumeLocalAssistant(pending)
-      } else await setUpAssistantOnThisComputer(await setupDraft(), localDeviceId, { signal: attempt.signal, onInstalling })
+      } else await setUpAssistantOnThisComputer(await setupDraft(), localDeviceId, { signal: attempt.signal, onInstalling, engine })
       writeSetupStep(ownerUserId, 'connect')
       reloadMyAssistant(ownerUserId)
     } catch (e) {
@@ -213,7 +216,7 @@ export function AssistantOnboarding({
       setCancelling(false)
       setBusy(keepBusy ? 'computer' : null)
     }
-  }, [setupDraft, localDeviceId, ownerUserId])
+  }, [setupDraft, localDeviceId, ownerUserId, engine])
 
   // 管家正在云上给它开家(会员一键领取之后,或上一次开到一半):进度由现成的开通面板说。
   if (cloudEnabled && (snapshot?.state === 'provisioning' || snapshot?.state === 'error')) {
@@ -234,10 +237,11 @@ export function AssistantOnboarding({
     )
   }
 
+  const choosingEngine = step === 'engine' && !busy
   const working = busy === 'computer' || busy === 'resume'
   return (
-    <div className="ta-onb-slot" data-ta-scope style={tintStyle(hue)}>
-      <div className="ta-onb" data-testid={`assistant-setup-${step}`}>
+    <div className={`ta-onb-slot${choosingEngine ? ' ta-onb-slot-engine' : ''}`} data-ta-scope style={tintStyle(hue)}>
+      <div className={`ta-onb${choosingEngine ? ' ta-onb-engine' : ''}`} data-testid={`assistant-setup-${step}`}>
         {working ? (
           <>
             <AgentAvatar name={displayName} look={draft} id="assistant-draft" size={96} />
@@ -271,6 +275,9 @@ export function AssistantOnboarding({
           <AssistantIntro primaryLabel={t('setup.introStart')} onPrimary={() => setStep('name')} look={draft} />
         ) : step === 'name' ? (
           <AssistantSetupIdentity draft={draft} onChange={setDraft} onBack={() => setStep('intro')} onContinue={() => setStep('home')} />
+        ) : step === 'engine' ? (
+          <AssistantEngineChoice engine={engine} onEngineChange={value => { setEngine(value); setError(null) }} draft={draft} setupFailed={!!error}
+            onContinue={() => void installHere()} onBack={() => setStep('home')} />
         ) : step === 'server' ? (
           <AssistantServerSetup key={ownerUserId} ownerUserId={ownerUserId} name={displayName} createDraft={setupDraft} onBack={() => setStep('home')}
             onAddServer={() => saveAssistantOnboardingNavigation(ownerUserId, draft)} />
@@ -291,7 +298,7 @@ export function AssistantOnboarding({
             cloudFailure={cloudFailure}
             onCloud={() => void claimCloud()}
             onServer={() => setStep('server')}
-            onComputer={() => void installHere()}
+            onComputer={() => setStep('engine')}
             onUpgrade={openMembership}
             onBack={() => setStep('name')}
             draftAvatar={draftAvatarUrl(draft)}

@@ -104,8 +104,8 @@ export async function prepareLocalAssistantHome(
   await mkdir(workdir, { recursive: true })
   await mkdir(paths.resourcesDir, { recursive: true })
   await mkdir(paths.memoryDir, { recursive: true })
-  await linkClaudeMemory(paths.claudeMemoryDir, paths.memoryDir)
-  await refreshAssistantContext(workdir, env.guguHome ?? resolveGuguHome(), 'computer', home)
+  if (input.engine !== 'codex') await linkClaudeMemory(paths.claudeMemoryDir, paths.memoryDir)
+  await refreshAssistantContext(workdir, env.guguHome ?? resolveGuguHome(), 'computer', home, input.engine)
   const profile = input.ownerProfile?.trim()
   if (profile) {
     await writeAtomic(join(paths.memoryDir, OWNER_PROFILE_MEMORY_FILE), ownerProfileMemoryFile(profile))

@@ -6,25 +6,26 @@ import {
   ASSISTANT_COMPUTER_WORKDIR_NAME, assistantBrief, assistantGuide,
   assistantHomePaths, upsertAssistantGuide, withDeniedTools, type AssistantHomeKind,
 } from '@gugu/core/shared/assistantPolicy'
+import type { AssistantEngine } from '../../src/lib/assistantHomeIpc'
 
 const refreshes = new Map<string, Promise<void>>()
 
 /** Role was checked by the caller. Only managed instructions change; memory and custom text stay. */
-export async function refreshAssistantContext(cwd: string, guguHome: string, kind: AssistantHomeKind, home = homedir()): Promise<void> {
+export async function refreshAssistantContext(cwd: string, guguHome: string, kind: AssistantHomeKind, home = homedir(), engine: AssistantEngine = 'claude'): Promise<void> {
   if (kind === 'computer' && resolve(cwd) !== resolve(guguHome, ASSISTANT_COMPUTER_WORKDIR_NAME)) return
   const key = assistantHomePaths(home, cwd, kind).instructions
   const previous = refreshes.get(key)
   const gate = Promise.withResolvers<void>()
   refreshes.set(key, gate.promise)
   if (previous) await previous
-  try { await writeAssistantContext(cwd, kind, home) }
+  try { await writeAssistantContext(cwd, kind, home, engine) }
   finally {
     gate.resolve()
     if (refreshes.get(key) === gate.promise) refreshes.delete(key)
   }
 }
 
-async function writeAssistantContext(cwd: string, kind: AssistantHomeKind, home: string) {
+async function writeAssistantContext(cwd: string, kind: AssistantHomeKind, home: string, engine: AssistantEngine) {
   const referenceName = '.gugu-assistant-reference.md'
   const reference = join(cwd, referenceName)
   const full = assistantGuide(kind)
@@ -35,7 +36,7 @@ async function writeAssistantContext(cwd: string, kind: AssistantHomeKind, home:
     if (error.code === 'ENOENT') return ''
     throw error
   })
-  const settings = kind === 'computer' ? [[paths.settings, await localAssistantSettings(paths.settings, cwd)]] : []
+  const settings = kind === 'computer' && engine === 'claude' ? [[paths.settings, await localAssistantSettings(paths.settings, cwd)]] : []
   // Install the complete reference first, so the brief never points to an absent file.
   for (const [path, content] of [[reference, full], [instructions, upsertAssistantGuide(current, brief)], ...settings]) {
     const old = path === instructions ? current : await readFile(path, 'utf8').catch((error: NodeJS.ErrnoException) => {
