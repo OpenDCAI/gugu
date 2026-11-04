@@ -226,7 +226,8 @@ describe('a file beside the conversation that opened it', () => {
     const main = pane(id).tabOrder[0]!;
     const tab = openPanelItem(id, from('shared', `${id}-topic`))!;
     expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
-    expect(pane(id).shownTabIds).toEqual([topic, tab]);
+    // The topic was the right half of group/topic: pairWith preserves its side when replacing the group.
+    expect(pane(id).shownTabIds).toEqual([tab, topic]);
     expect(returnToOf(id, tab)).toBe(topic);
     expect(openPanelItem(id, from('shared', id))).toBe(tab);
     expect(pane(id).livePair).toMatchObject({ anchor: main, side: tab });
