@@ -25,7 +25,7 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import { isAssistantSession, launchedByAssistant } from '@renderer/features/assistant/assistant-lineage';
 import { taskPresentation } from '@/lib/taskAgentStatus';
 import type { AgentStatusView } from '@gugu/core/shared/agentStatus';
-import { isNeedsYou, type AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
+import type { AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
 import { sessionPresentation } from '@/mobile/agent-watch/watch-status';
 import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import {
@@ -36,6 +36,7 @@ import {
 } from '@renderer/features/projects/stores/project-group-layout';
 import {
   SIDEBAR_STATE_GROUP_ORDER,
+  needsYouCount,
   sidebarStateGroup,
   type SidebarStateGroup,
 } from './session-groups';
@@ -876,7 +877,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
    */
   needsYouCountForProject(projectId: string): number {
     const entries = this.placement.entries.get(projectId) ?? [];
-    return entries.filter((e) => isNeedsYou(e.presentation, e.unseen) && e.hostOnline !== false).length;
+    return needsYouCount(entries);
   }
 
   toggleIdleExpanded(foldKey: string): void {

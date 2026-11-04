@@ -4,9 +4,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentDisplayStatus, GroupChatSettings } from '@gugu/core/shared/types/chat'
 import { chatService } from '../../../apps/desktop/src/lib/chat'
 import { ChatListPanel, TopicSubRow } from '../../../apps/desktop/src/components/ChatListPanel'
+import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
+import { SidebarStore } from '@renderer/features/sidebar/sidebar-store'
 import { chat, clickElement, createNode, createReactHarness, renderWithAppProviders, typeInto } from '../../support/testHarness'
 
-const state = vi.hoisted(() => ({ canDissolve: true, statuses: {} as Record<string, AgentDisplayStatus>, read: vi.fn(async (_input: { chats: { id: string }[] }) => ({ failedChats: 0 })), select: vi.fn(), open: vi.fn(async () => {}) }))
+const state = vi.hoisted(() => ({ canDissolve: true, sessions: [] as SessionpageSessionSummary[], statuses: {} as Record<string, AgentDisplayStatus>, read: vi.fn(async (_input: { chats: { id: string }[] }) => ({ failedChats: 0 })), select: vi.fn(), open: vi.fn(async () => {}) }))
 vi.mock('../../../apps/desktop/src/lib/chatUnreadLocator', async original => ({ ...await original<typeof import('../../../apps/desktop/src/lib/chatUnreadLocator')>(), markChatsReadAndRefresh: state.read }))
 vi.mock('../../../apps/desktop/src/platform', () => import('../../support/capacitorPlatformTestDouble'))
 vi.mock('../../../apps/desktop/src/hooks/useAgentDisplayStatus', async () => ({
@@ -14,12 +16,17 @@ vi.mock('../../../apps/desktop/src/hooks/useAgentDisplayStatus', async () => ({
   useAgentDisplayStatuses: () => state.statuses,
 }))
 vi.mock('../../../apps/desktop/src/store/devicesContext', () => ({
-  useDevicesStore: () => ({ devices: [{ device_id: 'mac', projects: [{ localProjectId: 'local', name: 'Planning', createdAt: '2026-10-01', chatId: 'group', folders: [] }] }] }),
+  useDevicesStore: () => ({ devices: [{ device_id: 'mac', is_online: true, projects: [{ localProjectId: 'local', name: 'Planning', createdAt: '2026-10-01', chatId: 'group', folders: [] }] }] }),
 }))
+vi.mock('../../../apps/desktop/src/session/shared/remote-sessions/session-directory', async original => ({
+  ...await original<typeof import('../../../apps/desktop/src/session/shared/remote-sessions/session-directory')>(),
+  useLiveDeviceSessions: () => ({ mac: { projects: [], sessions: state.sessions, cached: false, loading: false, error: null } }),
+}))
+vi.mock('@renderer/lib/ipc', () => ({ events: { on: vi.fn() }, rpc: {}, onMachineEvent: () => () => undefined }))
 
 let h: ReturnType<typeof createReactHarness>
 beforeEach(() => {
-  h = createReactHarness(); state.statuses = {}; state.canDissolve = true; vi.clearAllMocks()
+  h = createReactHarness(); state.statuses = {}; state.sessions = []; state.canDissolve = true; vi.clearAllMocks()
   vi.spyOn(chatService, 'getGroupChatSettings').mockImplementation(async id => ({
     id, creator_user_id: 'user-1', name: 'Planning', status: 'active', group_prompt: null,
     default_agent_type: null, description: null, max_members: 100, allow_member_invite: false,
@@ -61,14 +68,34 @@ it('desktop keeps the indented topic and separate unread counts', async () => {
   expect(row().textContent).not.toContain('10')
 })
 
-it('the phone project folder shows attention only when an agent needs input, with no marker on desktop', async () => {
+const task = (id: string, status: 'needs_user' | 'error' | 'working' | 'idle', unseen: boolean, projectId = 'local'): SessionpageSessionSummary => ({
+  conversationId: id, projectId, title: id, harness: 'codex', runtime: 'acp', supported: true, unseen, lastInteractedAt: null,
+  agentStatus: status, status: { status, detail: status === 'needs_user' ? 'approval' : null },
+} as SessionpageSessionSummary)
+/** The desktop project dot for the same host listing (SidebarStore's remote route). */
+function desktopDot(sessions: readonly SessionpageSessionSummary[]): number {
+  const project = { id: 'local', createdAt: '2026-10-01T00:00:00.000Z', mountedProject: { sessionManager: { sessions: new Map() } } }
+  const store = new SidebarStore({ projects: new Map([['local', project]]) } as unknown as ConstructorParameters<typeof SidebarStore>[0])
+  store.machines = { machineOf: () => 'mac', label: () => 'mac', homeDir: () => '/work', connected: () => true, sessionsOf: () => ({ live: true, sessions }) }
+  return store.needsYouCountForProject('local')
+}
+
+it.each([
+  ['an unread failure', true, [task('f', 'error', true)]],
+  ['a wait', true, [task('w', 'needs_user', false)]],
+  ['only read failures, working and idle', false, [...Array.from({ length: 40 }, (_, i) => task(`old-${i}`, 'error', false)), task('run', 'working', true), task('rest', 'idle', true)]],
+  ['attention in another project only', false, [task('elsewhere', 'needs_user', true, 'other')]],
+] as const)('the phone project avatar badge and the desktop project dot agree: %s', async (_name, shown, sessions) => {
+  state.sessions = [...sessions]
+  // The agent's live status says nothing here: the badge reads the tasks, as the desktop dot does.
   state.statuses = { 'task-agent': 'needs_user' }
   await render(true)
-  expect(row().querySelector('[data-testid="phone-project-waiting"]')).not.toBeNull()
-  state.statuses = { 'task-agent': 'working' }
-  await render(true)
-  expect(row().querySelector('[data-testid="phone-project-waiting"]')).toBeNull()
-  state.statuses = { 'task-agent': 'needs_user' }
+  const badge = row().querySelector('[data-testid="phone-project-waiting"]') !== null
+  expect(desktopDot(sessions) > 0).toBe(shown)
+  expect(badge).toBe(shown)
+})
+it('desktop chat rows carry no phone project badge', async () => {
+  state.sessions = [task('w', 'needs_user', true)]
   await render(false)
   expect(row().querySelector('[data-testid="phone-project-waiting"]')).toBeNull()
 })

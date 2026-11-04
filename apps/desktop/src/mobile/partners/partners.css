@@ -167,8 +167,6 @@
 .gg-partners .gg-partners-picker > [role='dialog'] { flex: 1; height: auto; max-height: none; }
 
 .gg-phone-project-attention { width: 8px; height: 8px; border-radius: var(--radius-capsule); }
-.gg-phone-project-attention[data-attention='needs_user'] { background: var(--agent-tone-needs-user); }
-.gg-phone-project-attention[data-attention='error'] { background: var(--agent-tone-error); }
 .gg-project-avatar {
   flex: none;
   display: block;

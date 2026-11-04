@@ -1,4 +1,4 @@
-import { presentationAttention, type AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
+import { isNeedsYou, presentationAttention, type AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
 
 // @@@sessionpage otty-state — sidebar status groups (spec session-page「会话列表与状态」): conversations
 // hang directly under their project, bucketed by the same presentation as the agent avatar.
@@ -35,4 +35,15 @@ export function sidebarStateGroup(presentation: AgentStatusPresentation | null):
     default:
       return null;
   }
+}
+
+/** One conversation as the project needs-you count reads it. */
+export type NeedsYouCountEntry = { presentation?: AgentStatusPresentation | null; unseen: boolean; hostOnline?: boolean };
+
+/**
+ * A project's needs-you count: the desktop project dot and the phone project-group avatar badge read this one rule —
+ * waits and unread failures (isNeedsYou) on hosts that are reachable.
+ */
+export function needsYouCount(entries: readonly NeedsYouCountEntry[]): number {
+  return entries.filter((entry) => isNeedsYou(entry.presentation, entry.unseen) && entry.hostOnline !== false).length;
 }
