@@ -1,3 +1,4 @@
+import { useChatListState } from './chatListState'
 import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
 import type { UnreadLocatorCommit } from '../lib/chatUnreadLocatorWindow'
 import { topicService } from '../lib/topics'
@@ -61,7 +62,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const { toast } = useToast()
   const userId = user?.id ?? null
   const notificationSettings = useNotificationSettings()
-  const [chats, setChats] = useState<ChatItem[]>([])
+  const [chats, setChats, chatsRef] = useChatListState()
   const [identitiesById, setIdentitiesById] = useState<ReturnType<typeof imSelectors.identitiesById>>({})
   const [activeChatId, setActiveChatIdState] = useActiveChatTransitionState()
   const [chatsLoad, setChatsLoad] = useState<'unread' | 'idle' | 'loading' | 'failed'>('unread') // unread = 这个号的列表还没读成过;failed = 最近一次读失败了(#2118:空着不是「没有」)
@@ -94,16 +95,12 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const messagesRef = useRef<MessageItem[]>([])
   const hasMoreOlderRef = useRef(false)
   const loadingMessagesRef = useRef<boolean>(false)
-  // chatsRef: mirror of chats so loadChats can read length synchronously to
-  // decide whether to flip loadingChats=true (only when list is empty / first load).
-  const chatsRef = useRef<ChatItem[]>([])
   // #4314 列表投影账本：谁被哪一发看见过、哪些乐观行还没被投影出来。规则在 chatListProjection.ts。
   const projectionRef = useRef(createChatListProjectionLedger())
   const listRequestSeqRef = useRef(0)
 
   // Sync refs synchronously with state so debug bridge reads consistent values.
   useLayoutEffect(() => { activeChatIdRef.current = activeChatId }, [activeChatId])
-  useLayoutEffect(() => { chatsRef.current = chats }, [chats])
 
   const healCycleCountRef = useRef(0)
   // Install global debug bridge once. Closure captures refs (live values).
@@ -232,7 +229,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const outboxDepsRef = useRef<{
     setMessagesAndCache: (updater: (prev: MessageItem[]) => MessageItem[], chatId: string) => void
     setThreadMessages: (updater: SetStateAction<MessageItem[]>, chatId: string) => void
-    patchChat: (chatId: string, partial: Partial<ChatItem>) => void
+    patchChat: PatchChat
     toast: (message: string, type?: ToastType) => void
     appendMessage: (message: MessageItem) => void
   } | null>(null)
@@ -249,7 +246,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       activeThreadRootId: (chatId) => chatId ? cache.view(chatId).activeThreadRootId : activeThreadRootIdRef.current,
       setMessagesAndCache: (updater, chatId) => outboxDepsRef.current?.setMessagesAndCache(updater, chatId),
       setThreadMessages: (updater, chatId) => outboxDepsRef.current?.setThreadMessages(updater, chatId),
-      patchChat: (chatId, partial) => outboxDepsRef.current?.patchChat(chatId, partial),
+      patchChat: (chatId, partial, expectedVersion) => outboxDepsRef.current?.patchChat(chatId, partial, expectedVersion),
       toast: (message, type) => outboxDepsRef.current?.toast(message, type),
       appendMessage: (message) => outboxDepsRef.current?.appendMessage(message),
     })

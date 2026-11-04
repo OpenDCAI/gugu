@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { mergeFetchedChatsPreservingActiveLocal } from '@gugu/core/shared/ui/chatModels'
-import { act, useLayoutEffect, useRef, useState } from 'react'
+import { act, useRef, type Dispatch, type SetStateAction } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { chat, createReactHarness } from '../../../support/testHarness'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
+import { useChatListState } from '../../../../apps/desktop/src/store/chatListState'
 import { createChatListProjectionLedger, useChatProjectionBinding } from '../../../../apps/desktop/src/store/chatListProjection'
 
 const boundary = vi.hoisted(() => ({ visible: 'reviewer-tuple', write: vi.fn() }))
@@ -27,16 +28,14 @@ let repository: AccountImRepository
 let harness: ReturnType<typeof createReactHarness>
 let binding: ReturnType<typeof useChatProjectionBinding>
 let shown: ChatItem[]
-let liveRef: { current: ChatItem[] }
+let updateRows: Dispatch<SetStateAction<ChatItem[]>>
 
 beforeEach(async () => {
   boundary.visible = 'reviewer-tuple'; boundary.write.mockReset().mockResolvedValue(undefined)
   const memory = createMemoryLocalSyncDb()
   repository = await openImRepository('reviewer-tuple-account', { adapter: memory })
   function Owner() {
-    const [rows, setRows] = useState<ChatItem[]>([tuple()]); shown = rows
-    const chatsRef = useRef(rows); liveRef = chatsRef
-    useLayoutEffect(() => { chatsRef.current = rows }, [rows])
+    const [rows, setRows, chatsRef] = useChatListState([tuple()]); shown = rows; updateRows = setRows
     const ledger = useRef(createChatListProjectionLedger())
     const repositoryRef = useRef(repository), activeChatIdRef = useRef<string | null>('reviewer-tuple'), requestSeqRef = useRef(0)
     binding = useChatProjectionBinding({ ledger: ledger.current, repositoryRef, chatsRef, activeChatIdRef, requestSeqRef,
@@ -51,11 +50,11 @@ afterEach(async () => {
   harness.cleanup(); repository.close(); vi.restoreAllMocks()
 })
 
-it('accepts publications synchronously even when a render-owned ref is still stale', async () => {
+it('accepts publications and functional list writes without an asynchronous act batch', async () => {
   const newer = tuple(10, 4, 1, 7)
   // Deliberately leave both completions outside an asynchronous act batch.
   await binding.publish([newer], [], { requestSeq: 1, notify: false })
-  liveRef.current = [tuple()]
+  updateRows(previous => [...previous])
   await binding.publish([tuple()], [], { requestSeq: 2, notify: false })
   await act(async () => { await Promise.resolve() })
   expect(shown[0]).toMatchObject({ unread_count: 1, last_read_seq: 5, read_state_version: 11, unread_locator: newer.unread_locator })

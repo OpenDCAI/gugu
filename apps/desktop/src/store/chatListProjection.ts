@@ -57,7 +57,7 @@ export async function applyFetchedChatList(
   ledger: ChatListProjectionLedger,
   repository: AccountImRepository,
   snapshot: { fetched: readonly ChatItem[]; identities: readonly unknown[] },
-  into: { currentChats: readonly ChatItem[]; activeChatId: string | null; revokeMissingActive: boolean; isConversationDeleted?: (id: string) => boolean },
+  into: { currentChats: readonly ChatItem[]; activeChatId: string | null; revokeMissingActive: boolean; isConversationDeleted?: (id: string) => boolean; liveChats?: () => readonly ChatItem[] },
 ): Promise<ChatItem[]> {
   const { identities } = snapshot
   const { currentChats, activeChatId, revokeMissingActive, isConversationDeleted } = into
@@ -68,7 +68,11 @@ export async function applyFetchedChatList(
   if (revokeMissingActive && activeChatId) ledger.forgetChat(activeChatId)
   const merged = mergeFetchedChatsPreservingActiveLocal([...fetched], currentChats.filter(chat => !isConversationDeleted?.(chat.id)), activeChatId,
     { preserveMissingActive: !revokeMissingActive })
-  await publishChatSnapshot(repository, merged.filter((chat) => ids.has(chat.id)), identities, isConversationDeleted)
+  // Select from the same live owner inside the repository transaction. A delayed
+  // snapshot must not persist an optimistic tuple that was already rolled back.
+  await publishChatSnapshot(repository, merged.filter((chat) => ids.has(chat.id)), identities, isConversationDeleted,
+    into.liveChats ? () => mergeFetchedChatsPreservingActiveLocal([...fetched], [...into.liveChats!()], activeChatId,
+      { preserveMissingActive: !revokeMissingActive }).filter(chat => ids.has(chat.id)) : undefined)
   if (isConversationDeleted) ledger.forgetDeleted(isConversationDeleted)
   const visible = merged.filter(chat => !isConversationDeleted?.(chat.id))
   const missing = ledger.missingFrom(visible)
@@ -153,22 +157,17 @@ export function useChatProjectionBinding(deps: {
 }) {
   const { ledger, repositoryRef, getRepository, chatsRef, activeChatIdRef, requestSeqRef, setChats, onActiveRevoked, canAcknowledge, visibleSeqOf } = deps
   const ownerRef = useRef<{ accountId: string; owner: ChatProjection } | null>(null)
-  // React may batch several publications before layout effects refresh chatsRef. Keep
-  // the accepted tuples at the publication boundary, independently of render timing.
-  const acceptedRef = useRef<{ accountId: string; rows: ChatItem[] } | null>(null)
-  const currentRows = useCallback((accountId: string) => mergeFetchedChatsPreservingActiveLocal(
-    chatsRef.current, acceptedRef.current?.accountId === accountId ? acceptedRef.current.rows : [],
-    activeChatIdRef.current, { preserveMissingActive: false }), [chatsRef, activeChatIdRef])
+  // All list writers share chatsRef's owner; React is its subscribed view.
+  // The ref must advance synchronously, including legitimate lower-version rollback.
   const acceptRows = useCallback((accountId: string, rows: ChatItem[]) => {
     if (repositoryRef.current?.accountId !== accountId) return
-    acceptedRef.current = { accountId, rows }
-    chatsRef.current = rows
     setChats(rows)
+    chatsRef.current = rows
   }, [repositoryRef, chatsRef, setChats])
   const patchChatFor = useCallback((accountId: string): PatchChat => (chatId, partial, expectedReadStateVersion) => {
     if (repositoryRef.current?.accountId !== accountId) return
-    acceptRows(accountId, patchChatRows(currentRows(accountId), chatId, partial, expectedReadStateVersion))
-  }, [repositoryRef, acceptRows, currentRows])
+    acceptRows(accountId, patchChatRows(chatsRef.current, chatId, partial, expectedReadStateVersion))
+  }, [repositoryRef, acceptRows, chatsRef])
 
   const ownerFor = useCallback((accountId: string): ChatProjection => {
     if (ownerRef.current?.accountId !== accountId) {
@@ -195,22 +194,32 @@ export function useChatProjectionBinding(deps: {
     }) && (!options.revokedMembership || options.revokedMembership(activeChatId!))
     ledger.recordProjected(fetched, options.requestSeq)
     const published = await applyFetchedChatList(ledger, repository, { fetched, identities },
-      { currentChats: currentRows(accountId), activeChatId, revokeMissingActive, isConversationDeleted })
+      { currentChats: chatsRef.current, activeChatId, revokeMissingActive, isConversationDeleted,
+        liveChats: () => repositoryRef.current?.accountId === accountId ? chatsRef.current : [] })
     if (repositoryRef.current?.accountId !== accountId) return
     // Rejoin external updates delivered during the repository wait, including a
     // complete tuple accepted before React has committed either publication.
-    const current = currentRows(accountId)
-    const merged = mergeFetchedChatsPreservingActiveLocal(published, current, activeChatIdRef.current,
+    const current = chatsRef.current
+    // published may contain a local optimistic tuple copied before the await.
+    // Rebase on the actual service rows and current owner, not that captured merge:
+    // a legitimate rollback during the write must not become an old "server" row.
+    const serviceById = new Map(fetched.map(row => [row.id, row]))
+    const currentById = new Map(current.map(row => [row.id, row]))
+    const rebased = published.flatMap(row => {
+      const source = serviceById.get(row.id) ?? currentById.get(row.id)
+      return source ? [source] : []
+    })
+    const merged = mergeFetchedChatsPreservingActiveLocal(rebased, current, activeChatIdRef.current,
       { preserveMissingActive: false })
     const pendingReads: Array<() => void> = []
     const acknowledged = acknowledgeOnScreenChatRows(merged, {
       current, onScreen: isChatOnScreen, canAcknowledge, visibleSeqOf, patchChat: patchChatFor(accountId),
       deferPersist: (persist) => pendingReads.push(persist),
     })
-    acceptRows(accountId, acknowledged)
+    acceptRows(accountId, replaceEqualDeep(current, acknowledged))
     for (const persist of pendingReads) persist()
     if (revokeMissingActive && activeChatId) onActiveRevoked(activeChatId)
-  }, [ledger, activeChatIdRef, canAcknowledge, visibleSeqOf, currentRows, getRepository, onActiveRevoked, patchChatFor, acceptRows, repositoryRef])
+  }, [ledger, activeChatIdRef, canAcknowledge, visibleSeqOf, chatsRef, getRepository, onActiveRevoked, patchChatFor, acceptRows, repositoryRef])
 
   /** 冷启快照:一次「哪些会话属于我」的读 + 与增量同一套族读 ⇒ 2 波(spec I7,没有第二条拉取路)。 */
   const hydrate = useCallback((accountId: string) => ownerFor(accountId)
