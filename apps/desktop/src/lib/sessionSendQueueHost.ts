@@ -5,6 +5,7 @@ import { releaseQueuedSessionInput, state, subscribeSessionInputs } from './sess
 import { rendererLogger } from './log'
 import { onMachineEvent, rpcOn } from '@/session/renderer/lib/ipc'
 import { sessionLifeViewChannel } from '@/session/shared/core/sessions/sessionEvents'
+import type { SessionInput } from './sessionInputOutbox'
 
 function foregroundQueueReady(snapshot: SessionState): boolean {
   const completed = snapshot.lastTurnOutcome === 'none'
@@ -13,7 +14,8 @@ function foregroundQueueReady(snapshot: SessionState): boolean {
 }
 
 /** Observe only sessions with composer-owned inputs; no engine is started by this observer. */
-export function watchSessionSendQueues(accountId: string, currentDeviceId: () => string | undefined): () => void {
+export function watchSessionSendQueues(accountId: string, currentDeviceId: () => string | undefined,
+  includeInput: (input: SessionInput) => boolean = () => true): () => void {
   type Watch = { closed: boolean; replica?: ReplicaState<SessionState>; checking: boolean; again: boolean; check?: () => Promise<void>; stopLife?: () => void }
   const watches = new Map<string, Watch>()
   let closed = false
@@ -21,7 +23,7 @@ export function watchSessionSendQueues(accountId: string, currentDeviceId: () =>
   const refresh = () => {
     const own = state()
     if (closed || !own.valid() || own.accountId !== accountId) return
-    const targets = new Map(own.rows.filter(input => input.accountId === accountId && input.sendQueue)
+    const targets = new Map(own.rows.filter(input => input.accountId === accountId && input.sendQueue && includeInput(input))
       .map(input => [`${input.deviceId ?? 'local'}/${input.sessionId}`, input]))
     for (const [key, watch] of watches) if (!targets.has(key)) {
       watch.closed = true; watch.stopLife?.(); void watch.replica?.dispose(); watches.delete(key)
