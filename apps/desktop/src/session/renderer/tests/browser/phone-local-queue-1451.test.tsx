@@ -1,6 +1,6 @@
 import { act, useLayoutEffect, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { page } from 'vitest/browser'
+import { page, userEvent } from 'vitest/browser'
 import { SessionConversation } from '@/mobile/agent-watch/SessionConversation'
 import { emptyAgentWatchTimeline } from '@/mobile/agent-watch/agent-watch-store'
 import { state, changed, EMPTY } from '@/lib/sessionInputOutboxBridge'
@@ -212,7 +212,17 @@ it.each((['accepted', 'failed'] as const).flatMap(result => (['unchanged', 'shar
   if (edit !== 'closed') {
     await render(2)
     expect(page.getByTestId('prompt-editor').element().textContent).toBe('Hi')
-    await page.getByTestId('prompt-editor').fill(live)
+    if (edit === 'clear') {
+      // fill('') uses separate DOM selection/delete commands; use the real editor keymap.
+      // The same AllSelection path is exercised in input-area-hidden-empty.test.tsx.
+      await page.getByTestId('prompt-editor').click()
+      const modifier = /Mac/.test(navigator.platform) ? 'Meta' : 'Control'
+      await userEvent.keyboard(`{${modifier}>}a{/${modifier}}{Backspace}`)
+    } else await page.getByTestId('prompt-editor').fill(live)
+    await until('the edit reaches both the real document and DOM before settling the send', () => {
+      const editor = page.getByTestId('prompt-editor').element()
+      return readComposer(editor) === live && editor.textContent === live
+    })
   }
   await act(async () => { commit(); await send.mock.results[0].value.catch(() => {}) })
   await render(2)

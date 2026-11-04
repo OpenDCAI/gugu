@@ -40,7 +40,7 @@ it('keeps the same native task composer when the phone is cold and offline, with
   expect(harness.container.textContent).not.toContain('Host unreachable')
   expect(harness.container.querySelector('[data-testid="agent-watch-session-status"]')).toBeNull()
   await act(async () => { harness.container.querySelector<HTMLButtonElement>('[data-cold-native-composer]')!.click() })
-  expect(scope.enqueue).toHaveBeenCalledWith({ deviceId: 'host', sessionId: 'session', text: 'Cold native input', queued: false, baseline: [], afterTurnId: undefined })
+  expect(scope.enqueue).toHaveBeenCalledWith({ deviceId: 'host', sessionId: 'session', text: 'Cold native input', composer: true, queued: false, baseline: [], afterTurnId: undefined })
 })
 
 it.each(['queue', 'transcript'] as const)('does not show a lost-acknowledgement failure when the host %s already owns that id', async location => {
