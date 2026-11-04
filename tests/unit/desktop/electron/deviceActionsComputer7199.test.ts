@@ -47,7 +47,7 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-type CallTool = (name: string, args: Record<string, unknown>) => Promise<CuaToolResult>
+type CallTool = (name: string, args: Record<string, unknown>, options?: { signal?: AbortSignal }) => Promise<CuaToolResult>
 
 function setup(options: { callTool?: CallTool; control?: ComputerControlHooks; helper?: (method: string, params?: unknown) => Promise<unknown>; platform?: NodeJS.Platform; exec?: FamilyDeps['exec'] } = {}) {
   const callTool = vi.fn(options.callTool ?? (async () => ({ content: [{ type: 'text', text: 'ok' }], structuredContent: { summary: 'done' } })))
@@ -112,6 +112,60 @@ describe('电脑控制:登记', () => {
     expect(begin).toHaveBeenLastCalledWith({ pid: 77, windowId: 501, callerName: 'Agent A' })
     await invoke('computer.click', { target: { pid: 77, window_id: 502 }, x: 1, y: 1 }, { name: 'Agent A' })
     expect(begin).toHaveBeenLastCalledWith({ pid: 77, windowId: 502, callerName: 'Agent A' })
+  })
+
+  it('learns a launched App name only in its caller lane and preserves explicit target precedence', () => {
+    const apps = createAppDirectory()
+    apps.learn('a', { pid: 77, app_name: 'Calculator' }, { app: 'com.apple.calculator' })
+    expect(apps.pidOf('a', { app: 'calculator' })).toBe(77)
+    expect(apps.pidOf('a', { app: 'com.apple.calculator' })).toBe(77)
+    expect(apps.pidOf('b', { app: 'Calculator' })).toBeUndefined()
+    expect(apps.pidOf('a', { app: 'Calculator', pid: 88 })).toBe(88)
+    apps.learn('a', { pid: 0, app_name: 'Not running' })
+    expect(apps.pidOf('a', { app: 'Not running' })).toBeUndefined()
+  })
+
+  it('keeps protected-host refusal after resolving an App alias learned from a read-only result', async () => {
+    const { invoke, callTool } = setup({ callTool: async () => ({ structuredContent: { windows: [{ pid: GUGU_PID, app_name: 'Host alias' }] } }) })
+    await invoke('computer.list_windows', {})
+    callTool.mockClear()
+    expect(await invoke('computer.click', { app: 'Host alias', role: 'button', name: 'Open' })).toMatchObject({ code: 'invalid_args', message: expect.stringContaining('咕咕 itself') })
+    expect(callTool).not.toHaveBeenCalled()
+  })
+
+  it('does not let cold launch bypass a person’s existing global Stop', async () => {
+    const control = createComputerControl({ view: { show: vi.fn(), hide: vi.fn() } })
+    const prior = control.begin({})
+    control.stop()
+    if ('end' in prior) prior.end()
+    const { invoke, callTool } = setup({ control })
+    expect(await invoke('computer.launch_app', { name: 'Calculator' })).toMatchObject({ code: 'revoked' })
+    expect(callTool).not.toHaveBeenCalled()
+    control.dispose()
+  })
+
+  it('keeps a cold launch cancellable while its window attachment is deferred', async () => {
+    const show = vi.fn()
+    const control = createComputerControl({ view: { show, hide: vi.fn() } })
+    const prior = control.begin({})
+    const { invoke } = setup({ control, callTool: async () => {
+      control.stop()
+      return { structuredContent: { pid: 77, name: 'Calculator' } }
+    } })
+    expect(await invoke('computer.launch_app', { name: 'Calculator' })).toMatchObject({ code: 'revoked' })
+    expect(show.mock.calls.filter(([view]) => view.app?.pid === 77)).toHaveLength(0)
+    if ('end' in prior) prior.end()
+    control.dispose()
+  })
+
+  it('resolves app-name input against live windows when the launched process has changed', async () => {
+    const begin = vi.fn(() => ({ signal: new AbortController().signal, ready: Promise.resolve(true), end: vi.fn() }))
+    const { invoke } = setup({ control: { begin }, callTool: async name => name === 'launch_app'
+      ? { structuredContent: { pid: 77, name: 'Calculator' } }
+      : { structuredContent: { windows: [{ pid: 88, window_id: 6, app_name: 'Calculator', is_on_screen: true, layer: 0, bounds: { x: 0, y: 0, width: 300, height: 400 } }] } } })
+    await invoke('computer.launch_app', { name: 'Calculator' })
+    expect(await invoke('computer.click', { app: 'Calculator', role: 'button', name: '1' })).toHaveProperty('ok', true)
+    expect(begin).toHaveBeenLastCalledWith(expect.objectContaining({ pid: 88, windowId: 6 }))
   })
 
   it.each([
@@ -188,23 +242,23 @@ describe('电脑控制:咕咕的规矩', () => {
     expect(callTool).not.toHaveBeenCalled()
   })
 
-  it('不动人的真鼠标:整个桌面当目标、或不指定窗口的点 / 输 → 拒;只动 agent 鼠标(move_cursor 不带目标)、截整个屏幕照常', async () => {
+  it('保留显式桌面目标限制;裸输入与批次原样交给驱动,不依赖小条附着', async () => {
     const { invoke, callTool } = setup()
     for (const [action, args] of [
       ['computer.click', { target: { kind: 'desktop', display_id: 'primary' }, x: 10, y: 10 }],
-      ['computer.click', { x: 10, y: 10 }],
-      ['computer.type_text', { text: 'hi' }],
       ['computer.move_cursor', { x: 1, y: 1, target: { kind: 'desktop' } }],
-      ['computer.run_steps', { steps: [{ click: { window: '设置', role: 'button', name: 'OK' } }] }],
     ] as const) {
       expect(await invoke(action, { ...args }), `${action} ${JSON.stringify(args)}`).toMatchObject({ ok: false, code: 'invalid_args' })
     }
     expect(callTool).not.toHaveBeenCalled()
+    expect(await invoke('computer.click', { x: 10, y: 10 })).toMatchObject({ ok: true })
+    expect(await invoke('computer.type_text', { text: 'hi' })).toMatchObject({ ok: true })
+    expect(await invoke('computer.run_steps', { steps: [{ click: { window: '设置', role: 'button', name: 'OK' } }] })).toMatchObject({ ok: true })
     expect(await invoke('computer.move_cursor', { x: 100, y: 120 })).toMatchObject({ ok: true })
     expect(await invoke('computer.get_desktop_state', {})).toMatchObject({ ok: true })
     expect(await invoke('computer.click', { pid: 77, window_id: 5, element_token: 's1:5' })).toMatchObject({ ok: true })
     expect(await invoke('computer.run_steps', { app: 'Calculator', steps: [{ click: { role: 'button', name: '7' } }] })).toMatchObject({ ok: true })
-    expect(callTool.mock.calls.map((c) => c[0])).toEqual(['move_cursor', 'get_desktop_state', 'click', 'run_steps'])
+    expect(callTool.mock.calls.map((c) => c[0])).toEqual(['click', 'type_text', 'run_steps', 'move_cursor', 'get_desktop_state', 'click', 'run_steps'])
   })
 
   it('抢焦点前先问:foreground 投递 / foreground_fallback → needs_confirmation;带 confirmed 才发,confirmed 不转给 cua', async () => {
@@ -327,6 +381,92 @@ describe('电脑控制:人接管那个 App(停止只停它)', () => {
     expect(exec.mock.calls.filter(([, a]) => a.join(' ').includes('-Id 31 '))).toHaveLength(1)
   })
 
+  it.each(['same-app windows', 'mixed apps', 'known and unresolved'] as const)('cannot bypass a paused App with a %s batch, even when no indicator attaches', async shape => {
+    const control = createComputerControl({ view: { show: vi.fn(async () => false), hide: vi.fn() } })
+    const prior = control.begin({ pid: 77, windowId: 5, appName: 'Calculator' })
+    control.stop()
+    if ('end' in prior) prior.end()
+    const { invoke, callTool } = setup({ control, callTool: okResult })
+    const args = shape === 'same-app windows'
+      ? { pid: 77, steps: [5, 6].map(window_id => ({ tool: 'click', args: { window_id, x: 1, y: 2 } })) }
+      : shape === 'mixed apps'
+        ? { steps: [88, 77].map(pid => ({ click: { pid, window_id: 5, x: 1, y: 2 } })) }
+        : { steps: [{ click: { x: 1, y: 2 } }, { click: { pid: 77, window_id: 5, x: 1, y: 2 } }] }
+    expect(await invoke('computer.run_steps', args)).toMatchObject({ code: 'revoked' })
+    expect(callTool.mock.calls.filter(([name]) => name === 'run_steps')).toHaveLength(0)
+    expect(control.stoppedFor(77)).not.toBeNull()
+    control.resume()
+    expect(await invoke('computer.run_steps', args)).toHaveProperty('ok', true)
+    expect(callTool.mock.calls.filter(([name]) => name === 'run_steps')).toHaveLength(1)
+    expect(callTool).toHaveBeenLastCalledWith('run_steps', expect.objectContaining(args), expect.anything())
+    control.dispose()
+  })
+
+  it('forwards a participating App Stop to an already running mixed-App native batch', async () => {
+    let running = false
+    const control = createComputerControl({ view: { show: vi.fn(async () => false), hide: vi.fn() } })
+    const { invoke, callTool } = setup({ control, callTool: async (name, _args, opts) => {
+      if (name !== 'run_steps') return okResult()
+      return new Promise<CuaToolResult>((_, reject) => {
+        opts?.signal?.addEventListener('abort', () => reject(new NativeCallError('execution_failed', 'cancelled')), { once: true })
+        running = true
+      })
+    } })
+    const pending = invoke('computer.run_steps', { steps: [77, 88].map(pid => ({ click: { pid, window_id: 5, x: 1, y: 2 } })) })
+    await vi.waitFor(() => expect(running).toBe(true))
+    const other = control.begin({ pid: 88, windowId: 5, appName: 'Notes' })
+    control.stop()
+    expect(await pending).toMatchObject({ code: 'revoked', message: expect.stringContaining('Notes') })
+    expect(callTool.mock.calls.filter(([name]) => name === 'run_steps')).toHaveLength(1)
+    if ('end' in other) other.end()
+    control.dispose()
+  })
+
+  it('preserves a known App Stop during a lookup outage without using its cached PID as an input target', async () => {
+    let outage = false
+    const control = createComputerControl({ view: { show: vi.fn(async () => false), hide: vi.fn() } })
+    const { invoke, callTool } = setup({ control, callTool: async name => {
+      if (name === 'list_apps' && !outage) return { structuredContent: { apps: [{ pid: 77, name: 'Calculator' }] } }
+      if (name === 'list_windows' || name === 'list_apps') throw new NativeCallError('execution_failed', 'lookup unavailable')
+      return okResult()
+    } })
+    await invoke('computer.list_apps', {})
+    const prior = control.begin({ pid: 77, windowId: 5, appName: 'Calculator' })
+    control.stop()
+    if ('end' in prior) prior.end()
+    outage = true
+    expect(await invoke('computer.click', { app: 'Calculator', role: 'button', name: '1' })).toMatchObject({ code: 'revoked' })
+    expect(callTool.mock.calls.filter(([name]) => name === 'click')).toHaveLength(0)
+    control.resume()
+    expect(await invoke('computer.click', { app: 'Calculator', role: 'button', name: '2' })).toHaveProperty('ok', true)
+    expect(callTool).toHaveBeenLastCalledWith('click', expect.objectContaining({ app: 'Calculator', role: 'button', name: '2' }), expect.anything())
+    expect((forwarded(callTool, callTool.mock.calls.length - 1))[1]).not.toHaveProperty('pid')
+    control.dispose()
+  })
+
+  it('rechecks a named App pause against live process identity when window lookup times out', async () => {
+    let livePid = 77
+    const control = createComputerControl({ view: { show: vi.fn(async () => false), hide: vi.fn() } })
+    const { invoke, callTool } = setup({ control, callTool: async (name, args) => {
+      if (name === 'list_apps') return { structuredContent: { apps: [{ pid: livePid, name: 'Calculator', bundle_id: 'com.apple.calculator' }] } }
+      if (name === 'list_windows' && args.app) throw new NativeCallError('execution_failed', 'window query timed out')
+      if (name === 'list_windows') return { structuredContent: { windows: [] } }
+      return okResult()
+    } })
+    await invoke('computer.list_apps', {}) // Learn the old PID first.
+    const prior = control.begin({ pid: 77, windowId: 5, appName: 'Calculator' })
+    control.stop()
+    if ('end' in prior) prior.end()
+    expect(await invoke('computer.click', { app: 'Calculator', role: 'button', name: '1' })).toMatchObject({ code: 'revoked' })
+    expect(callTool.mock.calls.filter(([name]) => name === 'click')).toHaveLength(0)
+    livePid = 88 // The app restarted; do not use the stale cached PID.
+    expect(await invoke('computer.click', { app: 'Calculator', role: 'button', name: '2' })).toHaveProperty('ok', true)
+    expect(callTool.mock.calls.filter(([name]) => name === 'click')).toHaveLength(1)
+    expect(control.stoppedFor(77)).not.toBeNull()
+    expect(control.stoppedFor(88)).toBeNull()
+    control.dispose()
+  })
+
   it('人按停止:计算器上在途的那一下回 revoked(❌ 当成执行失败),之后不再发给 cua;备忘录照常;「让它继续」后恢复', async () => {
     let inFlight: (() => void) | null = null
     const { invoke, callTool, control } = withControl((name, args, opts) => {
@@ -363,6 +503,19 @@ describe('电脑控制:结果', () => {
     expect(cuaOutcome('x', { isError: true, content: [{ type: 'text', text: 'Accessibility is not trusted for this process' }] })).toMatchObject({ code: 'os_permission', message: expect.stringContaining('Accessibility') })
     expect(cuaOutcome('x', { isError: true, structuredContent: { refusal: { code: 'facility_unavailable', message: 'overlay unavailable' } } })).toMatchObject({ code: 'unsupported' })
     expect(cuaOutcome('x', { isError: true, content: [{ type: 'text', text: 'ambiguous_window_target' }] })).toMatchObject({ code: 'execution_failed', message: 'x: ambiguous_window_target' })
+  })
+
+  it('turns only the native missing-window click error into recovery steps after dispatch', async () => {
+    const nativeMessage = 'click: x,y given with no pid/window_id, but scope is "window". Screen-absolute clicks require desktop scope. Pass scope="desktop" (and use get_desktop_state with scope="desktop" to read true screen pixels) first.'
+    const native = { isError: true, content: [{ type: 'text' as const, text: nativeMessage }], structuredContent: { code: 'desktop_scope_disabled', scope: 'window', suggestion: 'pass scope="desktop"' } }
+    const { invoke, callTool } = setup({ callTool: async () => native })
+    expect(await invoke('computer.click', { x: 1, y: 2 })).toEqual({ ok: false, code: 'execution_failed', message: 'computer.click: Clicking needs a target window. First use computer.launch_app or computer.list_windows to get the target app and window, then retry computer.click with pid and window_id, or an element_token from computer.get_window_state.' })
+    expect(callTool).toHaveBeenCalledExactlyOnceWith('click', expect.objectContaining({ x: 1, y: 2 }), expect.anything())
+    // No rewrite for another tool, a different native error, or a successful call.
+    expect(cuaOutcome('computer.type_text', native)).toMatchObject({ message: `computer.type_text: ${nativeMessage}` })
+    expect(cuaOutcome('computer.click', { ...native, structuredContent: { code: 'invalid_arguments' } })).toMatchObject({ message: `computer.click: ${nativeMessage}` })
+    expect(cuaOutcome('computer.click', { structuredContent: { code: 'desktop_scope_disabled', clicked: true } })).toEqual({ ok: true, data: { code: 'desktop_scope_disabled', clicked: true } })
+    expect(cuaOutcome('computer.click', { ...native, content: [{ type: 'text', text: 'Accessibility is not trusted for this process' }] })).toHaveProperty('code', 'os_permission')
   })
 
   it('读 get_window_state 的树:编号行、静态文字、id', () => {

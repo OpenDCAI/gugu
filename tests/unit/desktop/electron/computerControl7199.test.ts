@@ -138,6 +138,33 @@ describe('停止只停这个 App', () => {
     begun(control.begin(calc)).end()
   })
 
+  it('checks every batch App independently of the displayed window and retains the paused App identity', () => {
+    const show = vi.fn()
+    const control = createComputerControl({ view: { show, hide: vi.fn() } })
+    begun(control.begin({ ...calc, windowId: 501 })).end()
+    control.stop()
+    expect(control.begin({ ...notes, windowId: 601, targetPids: [77, 88] })).toEqual({ refused: appStopped('计算器') })
+    expect(show).toHaveBeenLastCalledWith({ state: 'paused', callerName: notes.callerName, app: { pid: 77, name: '计算器', windowId: 501 } })
+    control.dispose()
+  })
+
+  it('cancels a running multi-App batch when the person stops either participating App', () => {
+    const { control } = setup()
+    const batch = begun(control.begin({ targetPids: [77, 88] }))
+    const other = begun(control.begin({ pid: 99 }))
+    const inCalc = begun(control.begin(calc))
+    control.stop()
+    expect(batch.signal.reason).toBe(appStopped('计算器'))
+    expect(inCalc.signal.aborted).toBe(true)
+    expect(other.signal.aborted).toBe(false)
+    batch.end()
+    inCalc.end()
+    other.end()
+    control.resume()
+    begun(control.begin({ targetPids: [77, 88] })).end()
+    control.dispose()
+  })
+
   it('停计算器不撤备忘录上在途的动作', () => {
     const { control } = setup()
     const inNotes = begun(control.begin(notes))
