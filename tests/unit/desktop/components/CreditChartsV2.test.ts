@@ -10,7 +10,11 @@ import { QuotaMeter } from '../../../../apps/desktop/src/components/credits/Quot
 import { quotaWindowViews } from '../../../../apps/desktop/src/lib/billing/quota'
 import { CreditStackedChart, StackedChart } from '../../../../apps/desktop/src/components/usage/UsageCharts'
 const chart = vi.hoisted(() => ({ spec: null as unknown }))
-vi.mock('@visactor/react-vchart', () => ({ VChart: (props: { spec: unknown }) => { chart.spec = props.spec; return null } }))
+// Only the canvas renderer is replaced: these assertions exercise the real chart's
+// mapping, exact amounts and tooltip configuration. VChart belongs to the desktop
+// workspace, so the mock must resolve there too; a root-only mock misses it in a
+// clean pnpm layout and loads the dependency's Node-incompatible ESM entry.
+vi.mock('../../../../apps/desktop/node_modules/@visactor/react-vchart', () => ({ VChart: (props: { spec: unknown }) => { chart.spec = props.spec; return null } }))
 const range = { from: '2026-11-01', to: '2026-11-02', days: 2 }
 const format = (value: CreditAmount) => typeof value === 'string' ? formatCreditDecimal(value, 'en-US') : String(value)
 const data = [
