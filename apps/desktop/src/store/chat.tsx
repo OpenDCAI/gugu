@@ -277,15 +277,12 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (activeChatIdRef.current !== chatId) return
     setActiveChatIdState(null)
   }, [cache, invalidateMessageSnapshots, setActiveChatIdState])
-  const canAcknowledgeOpenChat = useCallback((id: string) => cache.isFollowingTail(id) && !unreadNavigationRef.current?.ownsChat(id), [cache])
-  // 屏幕上真正可见的进度 = 窗口里已落地消息的最大 seq;确认不得越过它(评审:尾消息没加载就别预支)。
-  const visibleSeqOfChat = useCallback((id: string) => maxMainlineSeq(cache.rows(id)), [cache])
+  const canAcknowledgeOpenChat = useCallback((id: string) => cache.isFollowingTail(id) && !unreadNavigationRef.current?.ownsChat(id), [cache]), visibleSeqOfChat = useCallback((id: string) => maxMainlineSeq(cache.rows(id)), [cache])
   // @@@chat-projection — 会话列表的每一发云端取数都经投影(spec I7 唯一属主):按键取数、按戳 join,
   // 一条通知的代价与账号里有多少会话无关。绑定的三件事在 chatProjectionBinding.ts。
   const chatProjection = useChatProjectionBinding({
     ledger: projectionRef.current, repositoryRef: imRepositoryRef, getRepository: getImRepository,
-    chatsRef, activeChatIdRef, requestSeqRef: listRequestSeqRef, setChats, onActiveRevoked, canAcknowledge: canAcknowledgeOpenChat,
-    visibleSeqOf: visibleSeqOfChat,
+    chatsRef, activeChatIdRef, requestSeqRef: listRequestSeqRef, setChats, onActiveRevoked, canAcknowledge: canAcknowledgeOpenChat, visibleSeqOf: visibleSeqOfChat,
     notifications: { chatMessages: notificationSettings.chatMessages, sound: notificationSettings.sound },
   })
 
