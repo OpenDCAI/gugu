@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import topicsCss from '@/components/chat/pinned-topics.css?inline'
 import { act, createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chat, clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
@@ -44,6 +45,39 @@ beforeEach(() => {
 afterEach(() => { harness.cleanup(); queryClient.clear() })
 
 describe('rich Topics menu', () => {
+  it('leaves no permanent pin-width padding on a topic with no unread messages', async () => {
+    save(['old'])
+    await renderWithAppProviders(harness, topicMenu(), { ...options(), chat: { activeChatId: 'g', chats: topics.map(topic => ({ ...topic, unread_count: 0 })) } })
+    await clickElement(document.querySelector<HTMLElement>('[data-testid="group-menu-topics"]')!)
+    await vi.waitFor(() => expect(document.querySelectorAll('[data-testid="group-menu-topic"]')).toHaveLength(2))
+    const row = document.querySelector<HTMLElement>('[data-topic-id="new"] [data-testid="group-menu-topic"]')!
+    expect(row.querySelector('.gg-chip')).toBeNull()
+    expect(row.style.paddingInlineEnd, 'no reserved pin column in the resting row').toBe('')
+  })
+
+  it('replaces the unread chip with the existing pin action when the row takes keyboard focus', async () => {
+    const style = document.createElement('style'); style.textContent = topicsCss; document.head.append(style)
+    try {
+      save(['old'])
+      await renderWithAppProviders(harness, topicMenu(), options())
+      await clickElement(document.querySelector<HTMLElement>('[data-testid="group-menu-topics"]')!)
+      await vi.waitFor(() => expect(document.querySelectorAll('[data-testid="group-menu-topic"]')).toHaveLength(2))
+      const open = document.querySelector<HTMLElement>('[data-topic-id="new"] [data-testid="group-menu-topic"]')!
+      const chip = open.querySelector<HTMLElement>('.gg-chip')!
+      const pin = document.querySelector<HTMLElement>('[data-topic-id="new"] [data-testid="group-topic-pin"]')!
+      expect(chip.textContent).toBe('4')
+      expect(getComputedStyle(chip).display).not.toBe('none')
+      await act(async () => open.focus())
+      expect(document.activeElement).toBe(open)
+      expect(getComputedStyle(chip).display, 'the count and action share the trailing space').toBe('none')
+      expect(getComputedStyle(pin).opacity).toBe('1')
+      expect(document.querySelector('[data-topic-id="old"] .gg-topic-name svg')).not.toBeNull()
+      await clickElement(pin)
+      await vi.waitFor(() => expect(savedPins()).toEqual(['old', 'new']))
+      expect(drainTopicSplitRequest('g')).toBeNull()
+    } finally { style.remove() }
+  })
+
   it('renders distinct pin and unpin icons inside their action buttons', async () => {
     save(['old'])
     await renderWithAppProviders(harness, topicMenu(), options())
