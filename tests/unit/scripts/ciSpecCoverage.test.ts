@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import { afterEach, describe, expect, it } from 'vitest'
 import YAML from 'yaml'
@@ -737,6 +738,35 @@ describe('immutable reusable workflow coverage', () => {
     source.jobs.tests.steps[0].run = 'pnpm exec vitest run tests/integration/poisoned.test.ts'
     writeFileSync(path.join(root, child), YAML.stringify(source))
     const commands = collectAutomaticRunnerCommands({ workflows: loadCoverageWorkflowInventory(root), changedPaths: [], packageScripts: {} })
+    expect(commands.map(command => command.args)).toEqual([['tests/integration/pinned.test.ts']])
+  })
+  it.each(['policy', 'session-db'])('fetches the immutable callee into a shallow checkout for %s without moving the PR base', (job) => {
+    const workflow = YAML.parse(readFileSync('.github/workflows/ci.yml', 'utf8'))
+    const commandsBeforeTests = workflow.jobs[job].steps.map((step: { run?: string }) => step.run ?? '').join('\n')
+    const fetch = commandsBeforeTests.split('\n').find((line: string) => line.includes('git fetch') && line.includes('--no-write-fetch-head'))
+    const admittedSha = workflow.jobs['desktop-build-mac'].uses.split('@')[1]
+    expect(fetch).toMatch(new RegExp(` ${admittedSha}$`))
+
+    const origin = fixtureRoot()
+    const shallow = fixtureRoot()
+    const git = (root: string, ...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
+    git(origin, 'init', '-q'); git(origin, 'config', 'user.name', 'Fixture'); git(origin, 'config', 'user.email', 'fixture@gugu.test')
+    mkdirSync(path.join(origin, '.github/workflows'), { recursive: true })
+    const child = '.github/workflows/ci-mac-build.yml'
+    writeFileSync(path.join(origin, child), YAML.stringify({ on: { workflow_call: null }, jobs: { tests: { steps: [{ run: 'pnpm exec vitest run tests/integration/pinned.test.ts' }] } } }))
+    git(origin, 'add', '.'); git(origin, 'commit', '-qm', 'immutable child')
+    const sha = git(origin, 'rev-parse', 'HEAD')
+    writeFileSync(path.join(origin, '.github/workflows/ci.yml'), YAML.stringify({ on: { pull_request: null }, jobs: { delegate: { uses: `GUYI-AI/gugu/${child}@${sha}` } } }))
+    git(origin, 'add', '.'); git(origin, 'commit', '-qm', 'caller')
+    git(shallow, 'init', '-q'); git(shallow, 'remote', 'add', 'origin', pathToFileURL(origin).href)
+    git(shallow, 'fetch', '--quiet', '--no-tags', '--depth=1', 'origin', 'HEAD')
+    git(shallow, 'checkout', '-q', '--detach', 'FETCH_HEAD')
+    const base = git(shallow, 'rev-parse', 'FETCH_HEAD')
+    expect(() => loadCoverageWorkflowInventory(shallow)).toThrow()
+
+    execFileSync('bash', ['-e', '-c', fetch.replace(admittedSha, sha)], { cwd: shallow })
+    expect(git(shallow, 'rev-parse', 'FETCH_HEAD')).toBe(base)
+    const commands = collectAutomaticRunnerCommands({ workflows: loadCoverageWorkflowInventory(shallow), changedPaths: [], packageScripts: {} })
     expect(commands.map(command => command.args)).toEqual([['tests/integration/pinned.test.ts']])
   })
 })

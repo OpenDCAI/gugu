@@ -138,6 +138,8 @@ jobs:
       - run: pnpm lint:source
       - name: Verify e2e and integration spec execution coverage
         run: |
+          # The immutable callee must be readable in a shallow checkout without changing the PR base.
+          git fetch --no-tags --no-write-fetch-head --depth=1 origin 499a1ee16cb7650190e8a7869bec59e4f4ee9f22
           args=()
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
@@ -250,6 +252,8 @@ jobs:
       - uses: ./.github/actions/setup-community
         with:
           save-cache: 'true'
+      - name: Fetch immutable workflow source for tooling
+        run: git fetch --no-tags --no-write-fetch-head --depth=1 origin 499a1ee16cb7650190e8a7869bec59e4f4ee9f22
       - run: pnpm exec vitest run --project session-main-db --project session-migrations --project tooling
       # The unit shards run on Linux. These files hold the unit cases whose result depends on macOS
       # (darwin-only cases, JXA/osacompile, keychain, FSEvents subscription semantics); they were
