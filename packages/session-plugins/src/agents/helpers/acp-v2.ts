@@ -32,8 +32,12 @@ export function connectStdioAcpV2(
     Writable.toWeb(io.stdin) as WritableStream<Uint8Array>,
     nodeReadableToWeb(io.stdout),
   );
-  const deliver = (sessionId: string, update: v2.SessionUpdate) =>
-    client.sessionEvent({ sessionId, event: decode(update), trace: update });
+  const admissions = new Set<{ sessionId: string; observe(event: NormalizedEvent): void; cancel(): void }>();
+  const deliver = (sessionId: string, update: v2.SessionUpdate) => {
+    const event = decode(update);
+    for (const admission of admissions) if (admission.sessionId === sessionId) admission.observe(event);
+    client.sessionEvent({ sessionId, event, trace: update });
+  };
 
   const app = v2
     .client({ name: 'gugu' })
@@ -84,15 +88,61 @@ export function connectStdioAcpV2(
       const request = agent.request(v2.methods.agent.session.prompt, params as v2.PromptRequest);
       const timeoutMs = dispatch?.admissionTimeoutMs;
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const receipt = await (timeoutMs === undefined ? request : Promise.race([request, new Promise<never>((_resolve, reject) => {
+      let compactionId: string | null = null;
+      let sawCompaction = false;
+      let sawUserEcho = false;
+      let fail!: (error: Error) => void;
+      const deadline = new Promise<never>((_resolve, reject) => { fail = reject; });
+      const arm = () => {
+        clearTimeout(timer);
         timer = setTimeout(() => {
           void agent.notify(v2.methods.agent.session.cancel, { sessionId: params.sessionId }).catch(() => undefined);
-          reject(Object.assign(new Error(`Native prompt admission timed out after ${timeoutMs}ms`), { code: 'prompt_admission_timeout' }));
+          fail(Object.assign(new Error(`Native prompt admission timed out after ${timeoutMs}ms`), { code: 'prompt_admission_timeout' }));
         }, timeoutMs);
-      })]).finally(() => clearTimeout(timer)));
-      return { status: 'accepted', requestId: dispatch?.requestId ?? crypto.randomUUID(), ...receipt };
+      };
+      const admission = {
+        sessionId: params.sessionId,
+        observe(event: NormalizedEvent) {
+          if (event.kind === 'message' && event.role === 'user') sawUserEcho = true;
+          if (event.kind === 'compaction') {
+            if (event.status === 'in_progress' && compactionId === null) {
+              compactionId = event.compactionId;
+              sawCompaction = true;
+              clearTimeout(timer);
+            } else if ((event.status === 'completed' || event.status === 'failed') && compactionId === event.compactionId) {
+              compactionId = null;
+              arm();
+            }
+          } else if (compactionId !== null && event.kind === 'agent_state' && event.state === 'idle') {
+            compactionId = null;
+            // The native echo and its correlated RPC receipt may precede/follow idle independently.
+            // An observed echo is not admission; it leaves that decision to the original receipt.
+            if (sawUserEcho) arm();
+            else {
+              clearTimeout(timer);
+              fail(Object.assign(new Error(event.error?.message ?? 'Native turn ended before prompt acceptance'),
+                event.error ?? { code: -32603 }));
+            }
+          }
+        },
+        cancel() {
+          if (sawCompaction) fail(new v2.RequestError(-32800, 'Request cancelled before acceptance'));
+        },
+      };
+      if (timeoutMs !== undefined) { admissions.add(admission); arm(); }
+      try {
+        // A native compaction suspends this same deadline; only its receipt accepts the input.
+        const receipt = await (timeoutMs === undefined ? request : Promise.race([request, deadline]));
+        return { status: 'accepted', requestId: dispatch?.requestId ?? crypto.randomUUID(), ...receipt };
+      } finally {
+        clearTimeout(timer);
+        admissions.delete(admission);
+      }
     },
-    cancel: (params) => agent.notify(v2.methods.agent.session.cancel, params),
+    cancel(params) {
+      for (const admission of admissions) if (admission.sessionId === params.sessionId) admission.cancel();
+      return agent.notify(v2.methods.agent.session.cancel, params);
+    },
     async steer(params) {
       const response = await agent.request<Record<string, unknown>>('_session/steering', {
         ...params, _meta: { steering: { idleBehavior: 'promptRequired', delivery: 'next' } },
