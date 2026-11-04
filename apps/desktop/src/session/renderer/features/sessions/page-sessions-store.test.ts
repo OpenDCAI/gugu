@@ -170,6 +170,48 @@ describe('PageSessionsStore four-state status projection', () => {
     store.dispose();
   });
 
+  it.each(['restart', 'update', 'unclean'] as const)('clears the %s interruption when work starts and keeps it cleared after completion', interruptedBy => {
+    const store = makeStore();
+    const conv = store.sessions.get('c1')!;
+    store.reconcile([{
+      ...conv.data,
+      agentStatus: 'idle',
+      agentStatusDetail: 'plain',
+      interruptedBy,
+    }]);
+    expect(conv.data.interruptedBy).toBe(interruptedBy);
+
+    conv.applyStatus({ reading: { status: 'working', detail: 'running' }, unseen: false, statusSourceFault: null });
+    expect(conv.data.interruptedBy).toBeUndefined();
+
+    conv.applyStatus({ reading: { status: 'idle', detail: 'done' }, unseen: false, statusSourceFault: null });
+    expect(conv.status).toBe('idle');
+    expect(conv.data.interruptedBy).toBeUndefined();
+    store.dispose();
+  });
+
+  it.each(['restart', 'update', 'unclean'] as const)('removes the cached %s interruption when the complete host snapshot omits it', interruptedBy => {
+    const store = makeStore();
+    const conv = store.sessions.get('c1')!;
+    store.reconcile([{
+      ...conv.data,
+      agentStatus: 'idle',
+      agentStatusDetail: 'plain',
+      interruptedBy,
+    }]);
+    const data = conv.data;
+    const snapshot = { ...data };
+    delete snapshot.interruptedBy;
+
+    store.reconcile([snapshot]);
+
+    expect(store.sessions.get('c1')).toBe(conv);
+    expect(conv.data).toBe(data);
+    expect(conv.status).toBe('idle');
+    expect(conv.data).not.toHaveProperty('interruptedBy');
+    store.dispose();
+  });
+
   it('needs_user outranks idle in the task rollup', () => {
     const store = new PageSessionsStore('project-1', 'session-1', [
       { id: 'c1', projectId: 'project-1', providerId: 'codex', title: 'A', lastInteractedAt: null },
