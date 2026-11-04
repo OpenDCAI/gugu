@@ -7,7 +7,7 @@
    either stack emits rules; otherwise session-ui's reset layer is discovered after utilities and
    its heading reset wins over typography utilities. */
 @layer reset, tokens, theme, base, components, recipes, utilities;
-@import 'tailwindcss';
+@import './tailwind.css';
 /* 动效层:官方 assistant-ui 的入场/退场(animate-in / fade-in / slide-in-from-*)靠这组工具类,
    它们不在 Tailwind 内置里。相对路径是因为 pnpm 严格布局下 apps/desktop 里没有这个包的软链;
    位置必须紧跟 tailwindcss —— @import 排在其它语句之后会被 PostCSS 直接判错。 */
