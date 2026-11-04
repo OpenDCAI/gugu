@@ -13,9 +13,6 @@ export type AccountRevisionOperation = {
   revision: string
   event: string
   payload: unknown
-  /** Set locally at ingestion; never trusted from the network. */
-  notify?: boolean
-  messageCommitted?: boolean
 }
 
 export type AccountRevisionPage = {

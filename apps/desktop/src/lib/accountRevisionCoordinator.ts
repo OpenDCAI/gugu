@@ -37,7 +37,8 @@ export const ACCOUNT_REVISION_EVENTS = [
 ] as const
 
 export type AccountRevisionEvent = typeof ACCOUNT_REVISION_EVENTS[number]
-export type AccountRevisionListener = (operations: readonly AccountRevisionOperation[]) => void | Promise<void>
+type InboxOperation = AccountRevisionOperation & { notify?: boolean; messageCommitted?: boolean }
+export type AccountRevisionListener = (operations: readonly InboxOperation[]) => void | Promise<void>
 
 export function readRevisionResourceKey(
   payload: unknown,
@@ -171,7 +172,7 @@ export type AccountRevisionCoordinator = {
 
 type PendingOperation = {
   key: string
-  operation: AccountRevisionOperation
+  operation: InboxOperation
 }
 
 export function createAccountRevisionCoordinator(
@@ -465,11 +466,11 @@ function operationKey(revision: string): string {
   return `${OPERATION_VIEW_PREFIX}${revision}`
 }
 
-function parsePendingOperation(value: unknown): AccountRevisionOperation {
+function parsePendingOperation(value: unknown): InboxOperation {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('account revision operation inbox is malformed')
   }
-  const operation = value as Partial<AccountRevisionOperation>
+  const operation = value as Partial<InboxOperation>
   if (typeof operation.revision !== 'string' || !/^[1-9]\d*$/.test(operation.revision)
     || typeof operation.event !== 'string' || !operation.event) {
     throw new Error('account revision operation inbox is malformed')

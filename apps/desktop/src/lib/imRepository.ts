@@ -408,17 +408,14 @@ export function ingestAccountMessage(repository: AccountImRepository, transactio
   const versionKey = `message-revision:${message.id}`
   const version = transaction.readView(versionKey) as { revision: string; deleted?: boolean } | undefined
   if (version && (version.deleted || BigInt(version.revision) >= BigInt(revision))) return { won: false }
-  const streamId = messageStreamId(message)
-  const previous = snapshot.message.filter(row => row.streamId === streamId).map(row => row.value)
-  const merged = mergeMessagesById(previous, [message], message.chat_id).slice(-MAX_WINDOW)
-  const incoming = merged.find(row => row.id === message.id)
-  if (incoming) transaction.putMessage(incoming)
-  for (const row of previous) if (!merged.some(next => next.id === row.id)) transaction.delete('message', [repository.accountId, row.id])
+  const previous = snapshot.message.find(row => row.id === message.id && row.streamId === messageStreamId(message))?.value
+  transaction.putMessage(mergeMessagesById(previous ? [previous] : [], [message], message.chat_id)[0]!)
   transaction.putView(versionKey, { revision })
   if (!message.thread_root_id) {
     const key = `message-window:${message.chat_id}`
     const cursor = imSelectors.view(key)(snapshot) as Omit<CachedMessageWindow, 'messages'> | undefined
-    transaction.putView(key, { oldestSeq: merged[0]?.seq ?? 0, maxSeq: merged.at(-1)?.seq ?? 0,
+    // Final ranges and retention are derived once, from all writes in the page.
+    transaction.putView(key, { oldestSeq: 0, maxSeq: 0,
       hasMoreOlder: cursor?.hasMoreOlder ?? message.seq > 1,
       sparse: !cursor || cursor.sparse === true || message.seq > cursor.maxSeq + 1 })
   }
@@ -716,59 +713,47 @@ function applyOperations(
       effective.push(operation)
     }
   }
-  // Incremental rows and window replacement may share one transaction. Derive
-  // ranges from its final rows, never from a caller's pre-transaction snapshot.
-  if (changed.has('message')) {
+  // One final stream index serves retention and the persisted window bounds.
+  // In particular, a whole revision page is bounded once, after all its writes.
+  if (changed.has('message') || boundArrivals) {
+    const streams = new Map<string, LocalImRow[]>()
+    for (const row of rowsOf('message').values()) {
+      const stream = streams.get(row.streamId as string) ?? []
+      stream.push(row)
+      streams.set(row.streamId as string, stream)
+    }
     if (boundArrivals) {
-      const touchedStreams = new Set(operations.flatMap(operation => operation.type === 'put' && operation.store === 'message'
+      const touched = new Set(operations.flatMap(operation => operation.type === 'put' && operation.store === 'message'
         ? [operation.value.streamId as string] : []))
-      const streams = new Map<string, LocalImRow[]>()
-      for (const row of rowsOf('message').values()) {
-        if (!touchedStreams.has(row.streamId as string)) continue
-        const rows = streams.get(row.streamId as string) ?? []
-        rows.push(row); streams.set(row.streamId as string, rows)
-      }
-      for (const rows of streams.values()) {
-        rows.sort((a, b) => (b.seq as number) - (a.seq as number))
-        for (const row of rows.slice(MAX_WINDOW)) {
+      for (const streamId of touched) {
+        const stream = streams.get(streamId) ?? []
+        stream.sort((a, b) => (b.seq as number) - (a.seq as number))
+        for (const row of stream.splice(MAX_WINDOW)) {
           const key = [accountId, row.id as string]
           rowsOf('message').delete(JSON.stringify(key))
           effective.push({ type: 'delete', store: 'message', key })
         }
       }
     }
-    const affected = new Set<string>()
     const previousById = new Map(snapshot.message.map(row => [row.id, row]))
-    for (const operation of operations) {
-      if (operation.type === 'put' && operation.store === 'message') affected.add(operation.value.chatId as string)
-      if (operation.type === 'delete' && operation.store === 'message' && Array.isArray(operation.key)) {
-        const previous = previousById.get(operation.key[1] as string)
-        if (previous) affected.add(previous.chatId)
-      }
-    }
-    const seqsByChat = new Map<string, number[]>()
-    for (const message of rowsOf('message').values()) {
-      const chatId = message.chatId as string
-      if (!affected.has(chatId) || message.streamId !== `main:${chatId}`) continue
-      const seqs = seqsByChat.get(chatId) ?? []
-      seqs.push(message.seq as number); seqsByChat.set(chatId, seqs)
-    }
+    const affected = new Set(operations.flatMap(operation => {
+      if (operation.type === 'put' && operation.store === 'message') return [operation.value.chatId as string]
+      const previous = operation.type === 'delete' && operation.store === 'message' && Array.isArray(operation.key)
+        ? previousById.get(operation.key[1] as string) : undefined
+      return previous ? [previous.chatId] : []
+    }))
     for (const chatId of affected) {
       const key = `message-window:${chatId}`
       const row = rowsOf('view').get(JSON.stringify([accountId, key]))
       if (!row) continue
-      const seqs = seqsByChat.get(chatId) ?? []
+      const seqs = (streams.get(`main:${chatId}`) ?? []).map(row => row.seq as number)
       const value = { ...(row.value as object), oldestSeq: seqs.length ? Math.min(...seqs) : 0,
         maxSeq: seqs.length ? Math.max(...seqs) : 0 }
       if (JSON.stringify(value) === JSON.stringify(row.value)) continue
-      let pending: Extract<LocalImDbOperation, { type: 'put' }> | undefined
-      for (let index = effective.length - 1; index >= 0; index -= 1) {
-        const operation = effective[index]!
-        if (operation.type === 'put' && operation.store === 'view' && operation.value.key === key) { pending = operation; break }
-      }
       const nextRow = { ...row, value }
       rowsOf('view').set(JSON.stringify([accountId, key]), nextRow)
       changed.add('view')
+      const pending = effective.findLast(operation => operation.type === 'put' && operation.store === 'view' && operation.value.key === key)
       if (pending?.type === 'put') pending.value = nextRow
       else effective.push({ type: 'put', store: 'view', value: nextRow })
     }

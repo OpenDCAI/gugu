@@ -21,8 +21,7 @@ import {
 } from '../lib/imRepository'
 import { closeImRepository, publishMessageWindow, subscribeIdentities } from '../lib/chatMessageWindowPublication'
 import { readCompleteCachedChats } from '../lib/chatSnapshotPublication'
-import { createChatListProjectionLedger, useChatProjectionBinding } from './chatListProjection'
-import { getChatRevisionCoordinator, createChatMessageNotification, chatMessageRecoverySeq } from './chatAccountRevision'
+import { createChatListProjectionLedger, useChatProjectionBinding, notifyForIngestedMessage } from './chatListProjection'
 import { adoptOptimisticChatRow } from '../lib/optimisticChatIdentity'
 import { bindRepositoryMessageCache } from './chatDiskWindow'
 import { applyMessageWindowRevalidation } from '../lib/chatMessageRevalidation'
@@ -31,7 +30,7 @@ import { bindOutboxActions, createOutboxWiring, type OutboxWiring } from './chat
 import { markLatestThreadRead, markManualUnreadAndRefresh } from '../lib/chatUnreadLocator'
 import { useChatUnreadStreamNavigation } from '../lib/chatUnreadStreamNavigation'
 import { ChatStoreProvider, type SendMessageOptions, type SendAttachmentOptions, useDraftAttachmentsStore, useDraftMentionsStore, useTextDraftStore, useDraftQuotesStore, type RefreshChatsOptions } from './chatContext'
-import { advanceReadWatermark, applyThreadSnapshot, fetchOpenThreadSnapshot, patchChatRows, reconcileMemberReadSeqs, type PatchChat } from './chatRealtimeMutations'; import { subscribeChatLineRevisions } from '../lib/accountRevisionListeners'; import { chatOnScreen } from '../lib/onScreenChat'
+import { advanceReadWatermark, applyThreadSnapshot, fetchOpenThreadSnapshot, patchChatRows, reconcileMemberReadSeqs, type PatchChat } from './chatRealtimeMutations'; import { subscribeChatLineRevisions } from '../lib/accountRevisionListeners'; import { chatOnScreen, isChatOnScreen } from '../lib/onScreenChat'
 import { useMessageReadFailures, useMessageSnapshotEpochs } from './chatMessageReads'
 import { useChatConversation, type ChatConversationAccess } from './useChatConversation'
 import { useActiveChatTransitionState } from './activeChatTransition'; import { fetchChatHistoryPage, restoreChatHistoryAnchor, openCachedChatWindow, useChatWindowCache, type WindowObserver } from './chatWindowPublication'
@@ -45,10 +44,12 @@ import { commitHealedMessages } from './chatHealCommit'
 import { seedCacheFromDisk } from './chatDiskWindow'
 import type { ChatItem, MessageItem, NotificationLevel } from '@gugu/core/shared/types/chat'
 import {
+  createAccountRevisionCoordinator,
   type AccountRevisionCoordinator,
   type AccountRevisionEvent,
   type AccountRevisionListener,
 } from '../lib/accountRevisionCoordinator'
+import { createSupabaseAccountRevisionSource } from '../lib/supabaseAccountRevisionSource'
 import { initializeAccountSync } from '../lib/accountSyncSnapshot'
 import { subscribeAgentPresenceRevisions } from '../lib/agentPresenceStore'
 import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'
@@ -157,10 +158,31 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     return repository
   }, [cache, imRepositoryScope, userId])
 
-  const getRevisionCoordinator = useCallback(() => getChatRevisionCoordinator({
-    userId, scope: imRepositoryScope, getRepository: getImRepository,
-    coordinatorRef: revisionCoordinatorRef, promiseRef: revisionCoordinatorPromiseRef, notificationRef: messageNotificationRef,
-  }), [getImRepository, imRepositoryScope, userId])
+  const getRevisionCoordinator = useCallback(async (): Promise<AccountRevisionCoordinator> => {
+    if (revisionCoordinatorRef.current) return revisionCoordinatorRef.current
+    if (revisionCoordinatorPromiseRef.current) return revisionCoordinatorPromiseRef.current
+    const promise = getImRepository().then((repository) => {
+      if (!userId || imRepositoryScope.disposed) throw new Error('Account revision scope disposed before start')
+      const coordinator = createAccountRevisionCoordinator(
+        userId,
+        repository,
+        createSupabaseAccountRevisionSource(),
+        {
+          recover: messageId => chatService.getMessageById(messageId, userId),
+          notify: message => messageNotificationRef.current(repository, message),
+        },
+      )
+      revisionCoordinatorRef.current = coordinator
+      coordinator.start()
+      return coordinator
+    })
+    revisionCoordinatorPromiseRef.current = promise
+    try {
+      return await promise
+    } finally {
+      if (revisionCoordinatorPromiseRef.current === promise) revisionCoordinatorPromiseRef.current = null
+    }
+  }, [getImRepository, imRepositoryScope, userId])
 
   const subscribeAccountRevision = useCallback((
     events: AccountRevisionEvent | readonly AccountRevisionEvent[],
@@ -292,9 +314,18 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     }
   }, [chatProjection, userId])
 
-  messageNotificationRef.current = createChatMessageNotification({
-    userId, scope: imRepositoryScope, chatsRef, loadChats, notificationSettings,
-  })
+  messageNotificationRef.current = async (repository, message) => {
+    if (imRepositoryScope.disposed || repository.accountId !== userId) return
+    let chat = chatsRef.current.find(row => row.id === message.chat_id)
+      ?? repository.snapshot().chat.find(row => row.id === message.chat_id)?.value
+    if (!chat) {
+      await loadChats({ throwOnError: true })
+      chat = repository.snapshot().chat.find(row => row.id === message.chat_id)?.value
+    }
+    if (!chat || imRepositoryScope.disposed || repository.accountId !== userId) return
+    await notifyForIngestedMessage(userId, chat, message, { onScreen: isChatOnScreen,
+      notificationsEnabled: notificationSettings.chatMessages, soundEnabled: notificationSettings.sound })
+  }
 
   const patchChat: PatchChat = useCallback((chatId, partial, expectedReadStateVersion) => {
     setChats((prev) => patchChatRows(prev, chatId, partial, expectedReadStateVersion))
@@ -406,7 +437,10 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const healMessageGap = useCallback(
     async (chatId: string, throwOnError = false) => {
       if (!userId) return
-      const maxSeq = chatMessageRecoverySeq(imRepositoryRef.current, chatId, maxSeqOf)
+      // A sparse event cache is paintable, not a verified pagination cursor.
+      // Reuse the bounded delta and existing full-page degrade from the start.
+      const sparse = imRepositoryRef.current && readMessageWindow(imRepositoryRef.current, chatId)?.sparse
+      const maxSeq = sparse ? 0 : maxSeqOf(chatId)
       const epoch = getMessageSnapshotEpoch(chatId)
       revalidateInFlightRef.current.add(chatId)
       try {
