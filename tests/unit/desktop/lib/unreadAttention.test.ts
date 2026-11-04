@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
 import type { ChatItem, ChatUnreadLocator } from '@gugu/core/shared/types/chat'
-import { chatAttention } from '@gugu/core/shared/ui/chatModels'
+import { chatAttention, mergeFetchedChatsPreservingActiveLocal } from '@gugu/core/shared/ui/chatModels'
 import { mergeUnreadRows } from '../../../../apps/desktop/src/lib/chatProjection'
 import { LocalImCacheError, openLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { sidebarChatSignals } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
@@ -203,17 +203,80 @@ describe('open-chat 的确认不会越过可见进度与手工未读', () => {
     expect(reads.write).not.toHaveBeenCalled()
   })
 
-  it('尾消息还没加载时只确认到真正可见的 seq,未读只减已确认的', () => {
+  it('a partial window advances only the visible cursor and awaits authoritative unread counts', () => {
     const fetched = chat({ id: 'tail-pending', kind: 'group', unread_count: 5, last_read_seq: 2, next_message_seq: 8, read_state_version: 7,
       unread_locator: { ...locator(5, 2), stream_id: 'main:tail-pending', message_seq: 3 } })
     const [shown] = acknowledgeOnScreenChatRows([fetched], {
       onScreen: () => true, visibleSeqOf: () => 5, patchChat: vi.fn(),
     })
     expect(shown.last_read_seq).toBe(5)
-    // 5-2=3 条确认掉:6、7 还在下面没上屏,未读数与定位只减这三条(评审:不能整片清零)。
-    expect(shown.unread_count).toBe(2)
-    expect(shown.unread_locator).toMatchObject({ stream_id: 'main:tail-pending', message_id: null, message_seq: 6, unread_count: 2, addressed_count: 2 })
+    // The list row has no per-message unread set; seq 3..5 need not be three unread messages.
+    expect(shown.unread_count).toBe(5)
+    expect(shown.unread_locator).toEqual(fetched.unread_locator)
     expect(reads.write).toHaveBeenCalledWith({ kind: 'main', chatId: fetched.id, seq: 5 })
+  })
+
+  it('sparse seq: leaves unread messages 6 and 7 intact when only seq 5 is visible', () => {
+    const fetched = chat({ id: 'sparse-tail', kind: 'group', unread_count: 2, last_read_seq: 2, next_message_seq: 8, read_state_version: 7,
+      unread_locator: { ...locator(2, 1), stream_id: 'main:sparse-tail', message_seq: 6 } })
+    const [shown] = acknowledgeOnScreenChatRows([fetched], {
+      onScreen: () => true, visibleSeqOf: () => 5, patchChat: vi.fn(),
+    })
+    expect(shown.last_read_seq).toBe(5)
+    expect(shown.unread_count).toBe(2)
+    expect(shown.unread_locator).toEqual(fetched.unread_locator)
+    expect(reads.write).toHaveBeenCalledWith({ kind: 'main', chatId: fetched.id, seq: 5 })
+  })
+
+  it('accepts the exact unread tuple from the read revision instead of a seq estimate', () => {
+    const fetched = chat({ id: 'authority', kind: 'group', unread_count: 5, last_read_seq: 2, next_message_seq: 8, read_state_version: 7,
+      unread_locator: { ...locator(5, 2), stream_id: 'main:authority', message_seq: 3 } })
+    const [shown] = acknowledgeOnScreenChatRows([fetched], {
+      onScreen: () => true, visibleSeqOf: () => 5, patchChat: vi.fn(),
+    })
+    const [replayed] = acknowledgeOnScreenChatRows([fetched], {
+      current: [shown], onScreen: () => true, visibleSeqOf: () => 5, patchChat: vi.fn(),
+    })
+    expect(replayed).toEqual(shown)
+    expect(reads.write).toHaveBeenCalledOnce()
+
+    const exact = mergeUnreadRows([{ ...row('main:authority', 2, 1), chat_id: fetched.id,
+      message_id: 'unread-6', message_seq: 6, cursor_seq: 5, version: 8 }]).get(fetched.id)!
+    const authoritative = { ...fetched, last_read_seq: 5, read_state_version: 8, unread_count: exact.unread_count, unread_locator: exact }
+    const [merged] = mergeFetchedChatsPreservingActiveLocal([authoritative], [shown], fetched.id)
+    expect(merged).toMatchObject({ last_read_seq: 5, unread_count: 2,
+      unread_locator: { message_id: 'unread-6', message_seq: 6, unread_count: 2, addressed_count: 1 } })
+    const [stillUnread] = acknowledgeOnScreenChatRows([merged], {
+      current: [merged], onScreen: () => true, visibleSeqOf: () => 5, patchChat: vi.fn(),
+    })
+    expect(stillUnread).toEqual(merged)
+    expect(reads.write).toHaveBeenCalledOnce()
+  })
+
+  it('does not invent a partial unread count when the locator is absent', () => {
+    const fetched = chat({ id: 'no-locator', kind: 'group', unread_count: 2, unread_locator: null,
+      last_read_seq: 2, next_message_seq: 8, read_state_version: 7 })
+    const patches: Array<Partial<ChatItem>> = []
+    advanceReadWatermark([fetched], fetched.id, 5, (_id, partial) => { patches.push(partial) })
+    expect({ ...fetched, ...patches[0] }).toMatchObject({ last_read_seq: 5, unread_count: 2, unread_locator: null })
+    expect(reads.write).toHaveBeenCalledWith({ kind: 'main', chatId: fetched.id, seq: 5 })
+  })
+
+  it('restores a partially confirmed cursor and its exact unread tuple after a failed write', async () => {
+    let fail!: (error: Error) => void
+    reads.write.mockReturnValueOnce(new Promise((_, reject) => { fail = reject }))
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const fetched = chat({ id: 'partial-failure', kind: 'group', unread_count: 2, last_read_seq: 2, next_message_seq: 8,
+      read_state_version: 7, unread_locator: { ...locator(2, 1), message_seq: 6 } })
+    const patches: Array<{ partial: Partial<ChatItem>; expected?: number }> = []
+    const [shown] = acknowledgeOnScreenChatRows([fetched], { onScreen: () => true, visibleSeqOf: () => 5,
+      patchChat: (_id, partial, expected) => { patches.push({ partial, expected }) } })
+    expect(shown).toMatchObject({ last_read_seq: 5, unread_count: 2, unread_locator: fetched.unread_locator })
+    fail(new Error('offline'))
+    await Promise.resolve(); await Promise.resolve()
+    expect(patches.at(-1)).toEqual({ partial: { unread_count: 2, unread_locator: fetched.unread_locator,
+      last_read_seq: 2, is_marked_unread: false, read_state_version: 7 }, expected: 8 })
+    quiet.mockRestore()
   })
 
   it('可见进度没有前进时不凭空推进水位', () => {
