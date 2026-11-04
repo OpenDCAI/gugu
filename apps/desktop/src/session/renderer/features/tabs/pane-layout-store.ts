@@ -537,9 +537,9 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     if (config.activate ?? true) {
       this.activePaneId = target.paneId;
       target.pane.setActiveTab(replace);
-      // A resident source guest lives outside the pane DOM. Same-tab navigation
-      // must hand input to the new page through the existing content focuser.
-      if (from?.tabId === replace) target.pane.focusActiveContent();
+      // A resident source guest lives outside the pane DOM. Hand input to its
+      // replacement after navigation, never while close confirmation is pending.
+      if (from?.tabId === replace && target.pane.entries.get(replace) !== from) target.pane.focusActiveContent();
     }
     return replace;
   }
