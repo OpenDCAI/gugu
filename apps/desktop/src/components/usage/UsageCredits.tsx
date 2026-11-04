@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CreditUsageDay } from '@gugu/core/shared/usage/dailyUsage'
 import { formatNumber } from '@/i18n'
-import { formatUsageCredits } from '../../lib/billing'
+import { formatUsageCredits, useSpendingPower } from '../../lib/billing'
+import { useAuth } from '../../store/auth'
 import { type DayRange } from '../../lib/usage/derive'
 import { creditAmounts } from '../../lib/usage/charts'
 import { fetchLedgerPage, type LedgerRow } from '../../lib/usage/cloud'
@@ -29,7 +30,7 @@ export function UsageCredits({ credits, range }: {
   return (
     <section className="gg-usage-section" data-testid="usage-credits">
       {credits.status === 'loading' && <div className="gg-usage-skeleton gg-usage-bars" data-testid="usage-credits-loading" />}
-      {credits.status === 'error' && <span className="gg-usage-muted" data-testid="usage-credit-bars-error" title={credits.error}>{t('usage.loadError')}</span>}
+      {credits.status === 'error' && <span className="gg-usage-muted" data-testid="usage-credit-bars-error" title={credits.error}>{t('credits.activityError', { error: credits.error })}</span>}
       {credits.status === 'ready' && (
         <>
           <ConsumptionCard amounts={creditValues} range={range} format={formatUsageCredits} testId="usage-consumption" />
@@ -55,6 +56,12 @@ const DEFAULT_PAGE_SIZE = 20
  * (❌ 一路往下滚的长列表)。总数是库里精确计数,翻页按页码取。
  */
 function Ledger({ range }: { range: DayRange }) {
+  const { user } = useAuth()
+  const { creditVersion, activityRevision } = useSpendingPower(user)
+  return user ? <LedgerRows key={JSON.stringify([user.id, creditVersion])} range={range} revision={activityRevision} /> : null
+}
+
+function LedgerRows({ range, revision }: { range: DayRange; revision: number }) {
   const { t } = useTranslation('settings')
   const [draft, setDraft] = useState('')
   const [model, setModel] = useState<string | null>(null)
@@ -85,7 +92,7 @@ function Ledger({ range }: { range: DayRange }) {
       .catch((e: unknown) => { if (alive) setError(message(e)) })
       .finally(() => { if (alive) setBusy(false) })
     return () => { alive = false }
-  }, [page, pageSize, model, range.from, range.to])
+  }, [page, pageSize, model, range.from, range.to, revision])
 
   const search = () => { setModel(draft.trim() || null); setPage(1) }
   const reset = () => { setDraft(''); setModel(null); setPage(1) }

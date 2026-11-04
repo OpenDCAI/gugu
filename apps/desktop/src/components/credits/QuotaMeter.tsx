@@ -1,6 +1,7 @@
 import type { QuotaWindowView } from '../../lib/billing'
 import { formatCredits, quotaWindowLabel } from '../../lib/billing'
 import { useTranslation } from 'react-i18next'
+import { compareCreditAmounts } from '@gugu/core/billing/creditAmount'
 
 // 一个额度窗口的刻度:一根条。侧栏那圈环随「左栏只放 App」(#7046)拿掉了,积分只在用量页。
 //
@@ -30,15 +31,15 @@ export function QuotaMeter({
   const { t } = useTranslation('settings')
   const label = quotaWindowLabel(view.hours)
   // 用尽时把刻度染成警示色 —— 唯一一处用非中性色,克制地只在真的用尽时出现。
-  const exhausted = view.remaining <= 0
+  const exhausted = compareCreditAmounts(view.remaining, 0) <= 0
   const fill = exhausted ? 'var(--danger)' : 'var(--primary)'
   const meter = {
     'data-testid': testId,
     role: 'meter',
     'aria-label': t('credits.meterLabel', { window: label }),
-    'aria-valuenow': view.used,
+    'aria-valuenow': view.usedRatio,
     'aria-valuemin': 0,
-    'aria-valuemax': view.limit,
+    'aria-valuemax': 1,
     'aria-valuetext': t('credits.meterValue', {
       window: label,
       used: formatCredits(view.used),

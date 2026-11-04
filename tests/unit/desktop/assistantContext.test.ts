@@ -15,6 +15,30 @@ it('keeps the resident coordination policy within 1300 characters', () => {
   expect(ASSISTANT_CONTEXT_CORE.join('\n').length).toBeLessThanOrEqual(1_300)
 })
 
+it('gives Codex the assistant inventory and DM contract while retaining its native MCP and permissions', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'codex-assistant-context-'))
+  const cwd = join(root, 'assistant')
+  try {
+    await mkdir(cwd)
+    const loaded: Materialization = { report: {} as Materialization['report'], sessionPrompt: GUGU_PLATFORM_BLOCK,
+      spawnEnv: { SECRET: 'credential-sentinel' }, sessionNewPatch: { mcpServers: [], meta: { guguCodex: { permissionProfile: 'full-access' } } } }
+    const context = await preparePersonalAssistantContext(loaded, cwd, root, 'computer', {
+      accountId: async () => 'owner', run: async () => [],
+    }, root, 'codex')
+    expect(context.sessionPrompt).toContain('gugu_resource_index')
+    expect(context.sessionPrompt).toContain('answered with `message_send`')
+    expect(context.sessionPrompt).not.toContain('credential-sentinel')
+    expect(context.sessionNewPatch?.mcpServers).toBe(loaded.sessionNewPatch?.mcpServers)
+    expect(context.sessionNewPatch?.meta?.guguCodex).toEqual({ permissionProfile: 'full-access' })
+    expect(context.sessionNewPatch?.meta?.claudeCode).toBeUndefined()
+    expect(context.sessionPrompt).toContain(join(cwd, 'CLAUDE.md'))
+    expect(context.sessionPrompt).toContain('.gugu-assistant-reference.md')
+    await expect(readFile(join(cwd, 'AGENTS.md'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(join(cwd, 'CLAUDE.md'), 'utf8')).toContain('.gugu-assistant-reference.md')
+    await (await openingAssistantIndex(root, cwd, 'computer', { accountId: async () => 'owner', run: async () => [] })).refreshed
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 function fixture(): Materialization {
   return {
     report: {} as Materialization['report'],

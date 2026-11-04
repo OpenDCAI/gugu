@@ -1,3 +1,4 @@
+import { compareCreditAmounts, type CreditAmount } from '@gugu/core/billing/creditAmount'
 import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AreaChart, BarChart3, Clock, PieChart, TrendingUp, WalletCards } from '@/lib/icons'
@@ -10,6 +11,7 @@ import { heightPx } from './format'
 // 图本体在 UsageCharts.tsx,懒加载。
 
 const StackedChart = lazy(() => import('./UsageCharts').then((m) => ({ default: m.StackedChart })))
+const CreditStackedChart = lazy(() => import('./UsageCharts').then((m) => ({ default: m.CreditStackedChart })))
 const ShareChart = lazy(() => import('./UsageCharts').then((m) => ({ default: m.ShareChart })))
 const RankChart = lazy(() => import('./UsageCharts').then((m) => ({ default: m.RankChart })))
 const HourChart = lazy(() => import('./UsageCharts').then((m) => ({ default: m.HourChart })))
@@ -20,7 +22,7 @@ function ChartSlot({ empty, children }: { empty: boolean; children: ReactNode })
   return <Suspense fallback={<div className="gg-usage-skeleton" style={heightPx(360)} />}>{children}</Suspense>
 }
 
-export function ConsumptionCard({ amounts, range, format, testId }: { amounts: ModelAmount[]; range: DayRange; format: (n: number) => string; testId?: string }) {
+export function ConsumptionCard({ amounts, range, format, testId }: { amounts: ModelAmount<CreditAmount>[]; range: DayRange; format: (n: CreditAmount) => string; testId?: string }) {
   const { t } = useTranslation('settings')
   const [mode, setMode] = useState<'bar' | 'area'>('bar')
   const other = t('usage.na.other')
@@ -31,8 +33,8 @@ export function ConsumptionCard({ amounts, range, format, testId }: { amounts: M
         { value: 'bar', label: t('usage.na.bar'), icon: <BarChart3 />, testId: 'usage-consumption-bar' },
         { value: 'area', label: t('usage.na.area'), icon: <AreaChart />, testId: 'usage-consumption-area' },
       ]} />}>
-      <ChartSlot empty={total === 0}>
-        <StackedChart mode={mode} points={points} domain={domain} format={format} totalLabel={t('usage.na.total')} otherLabel={other} />
+      <ChartSlot empty={compareCreditAmounts(total, 0) === 0}>
+        <CreditStackedChart mode={mode} points={points} domain={domain} format={format} totalLabel={t('usage.na.total')} otherLabel={other} />
       </ChartSlot>
     </ChartCard>
   )

@@ -233,7 +233,15 @@ export const SEGMENTERS: Record<string, ItemSegmenter> = {
   'context-reset': nativePassthrough<ChatItem>('context-reset', (item) => item, COMPOSITE_CHROME),
   'session-notice': nativePassthrough<ChatItem>('session-notice', (item) => item, COMPOSITE_CHROME),
   'session-condition': nativePassthrough<ChatItem>('session-condition', (item) => item, COMPOSITE_CHROME),
-  'background-tasks': nativePassthrough<ChatItem>('background-tasks', (item) => item, COMPOSITE_CHROME),
+  'background-tasks': {
+    kind: 'background-tasks',
+    segment: (item, ctx) => {
+      const row = unit('background-tasks', item, item, { key: 'self' });
+      // Standalone conversation metadata shares the body/process edge.
+      row.chrome = ctx.agentConversation ? MESSAGE_CHROME : COMPOSITE_CHROME;
+      return [row];
+    },
+  },
   tool: nativePassthrough<ChatItem>('tool', (item) => item, COMPOSITE_CHROME),
   'file-op': nativePassthrough<ChatItem>('file-op', (item) => item, COMPOSITE_CHROME),
   execute: nativePassthrough<ChatItem>('execute', (item) => item, COMPOSITE_CHROME),
