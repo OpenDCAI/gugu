@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import topicsCss from '@/components/chat/pinned-topics.css?inline'
+import { readFileSync } from 'node:fs'
 import { act, createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chat, clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
+
+const topicsCss = readFileSync('apps/desktop/src/components/chat/pinned-topics.css', 'utf8')
 
 const io = vi.hoisted(() => ({ rows: new Map<string, Record<string, unknown>>(), failRead: false, failWrite: false, listeners: [] as (() => void)[] }))
 vi.mock('@/lib/supabase', async (original) => {
