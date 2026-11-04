@@ -185,7 +185,9 @@ export function subscribeMachineLink(deviceId: string, listener: () => void): ()
  * 旧窗口上落空的问要重来,虽然对外一直说「通着」。
  */
 export function onMachineReconnected(deviceId: string, cb: () => void): () => void {
-  const windowOpen = () => machineLinkState(deviceId) === 'open' && !machineLinkHandingOff(deviceId);
+  // 「真的重连了」= 客户端这一层的连通从断到通。tooOld 的置位/放锁只是「这次问不通、还能再试」,
+  // ❌ 借用这一下当重连(评审):连续失败会连着触发假重连,等待中的页面白白重开一遍。
+  const windowOpen = () => entries.get(deviceId)?.client.state() === 'open';
   let open = windowOpen();
   return subscribeMachineLink(deviceId, () => {
     const now = windowOpen();
