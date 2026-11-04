@@ -1,0 +1,85 @@
+# Reusable only: callers remain unchanged until a reviewed immutable revision is admitted.
+name: Reusable macOS build
+on:
+  workflow_call: null
+permissions:
+  contents: read
+env:
+  CI: true
+  GUGU_SUPABASE_URL: http://127.0.0.1:54321
+  VITE_SUPABASE_URL: http://127.0.0.1:54321
+  GUGU_SUPABASE_ANON_KEY: community-build-placeholder
+  VITE_SUPABASE_ANON_KEY: community-build-placeholder
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:b0ab6f3cb99aa7803adbc14d9027ec1785fc6e433b97e134e0f8fe61683b6b53
+  LANG: en_US.UTF-8
+  LC_ALL: en_US.UTF-8
+  TZ: UTC
+jobs:
+  route:
+    name: Route
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      runner: ${{ steps.select.outputs.runner }}
+    steps:
+      - id: select
+        name: Select execution environment from the original event
+        shell: bash
+        env:
+          CALLER_EVENT_NAME: ${{ github.event_name }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_REPOSITORY_ID: ${{ github.repository_id }}
+          CALLER_REF: ${{ github.ref }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |-
+          node <<'NODE'
+          const fs = require('node:fs');
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          const canonical = 'GUYI-AI/gugu';
+          const canonicalId = 1428236928;
+          const pr = event.pull_request;
+          const number = pr?.number;
+          const mergeRef = 'refs/pull/' + number + '/merge';
+          const sameRepository = repo => repo?.full_name === canonical && repo?.id === canonicalId && repo?.fork === false;
+          const trusted = process.env.CALLER_EVENT_NAME === 'pull_request'
+            && process.env.CALLER_REPOSITORY === canonical
+            && process.env.CALLER_REPOSITORY_ID === String(canonicalId)
+            && ['opened', 'reopened', 'synchronize', 'ready_for_review'].includes(event.action)
+            && Number.isSafeInteger(number) && number > 0 && event.number === number
+            && sameRepository(event.repository)
+            && sameRepository(pr?.head?.repo) && sameRepository(pr?.base?.repo)
+            && typeof pr?.head?.ref === 'string' && pr.head.ref.length > 0
+            && ['dev', 'main'].includes(pr?.base?.ref)
+            && process.env.CALLER_REF === mergeRef
+            && process.env.CALLER_WORKFLOW_REF === canonical + '/.github/workflows/ci.yml@' + mergeRef;
+          const runner = trusted ? ['self-hosted', 'macOS', 'gugu-public-ci'] : ['macos-15'];
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'runner=' + JSON.stringify(runner) + '\n');
+          NODE
+  build:
+    name: Desktop app build (macos-15)
+    needs: route
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 45
+    env:
+      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - name: Bind isolated application paths
+        shell: bash
+        run: |
+          profile="$RUNNER_TEMP/gugu-build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$profile/home" "$profile/user-data"
+          chmod 700 "$profile" "$profile/home" "$profile/user-data"
+          printf '%s\n' "GUGU_HOME=$profile/home" "GUGU_USER_DATA_DIR=$profile/user-data" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: command -v tmux || brew install tmux
+      - uses: ./.github/actions/setup-community
+      - run: pnpm build:app:ci
+        env:
+          GUGU_BUILD_SERIAL: '1'
+      - run: pnpm rebuild:native
