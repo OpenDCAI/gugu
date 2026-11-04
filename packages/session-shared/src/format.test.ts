@@ -3,6 +3,7 @@ import {
   differenceInCalendarDays,
   formatCalendarDay,
   formatCalendarDate,
+  formatDate,
   formatRelativeTime,
   formatRelativeTimeParts,
   toLocalDateTimeInput,
@@ -119,6 +120,33 @@ describe('Intl formatter caching', () => {
     } finally {
       relative.mockRestore();
       numbers.mockRestore();
+    }
+  });
+
+  it('the date cache takes the zone name through a cheap probe, not Intl per call', () => {
+    formatDate(nowMs, undefined, 'zh-CN'); // 热身:探针与 formatter 都建好
+    const dateTime = vi.spyOn(Intl, 'DateTimeFormat');
+    try {
+      for (let i = 0; i < 50; i += 1) formatDate(nowMs + i, undefined, 'zh-CN');
+      expect(dateTime, '缓存命中不该再有构造(探针 ≈1µs,不再每次问 Intl)').not.toHaveBeenCalled();
+    } finally {
+      dateTime.mockRestore();
+    }
+  });
+
+  it('a zone change swaps the formatter even when the current offset matches', () => {
+    const previous = process.env.TZ;
+    try {
+      const instant = Date.UTC(2026, 6, 4, 4, 30); // 利马 7 月 3 日 23:30、纽约 7 月 4 日 00:30
+      process.env.TZ = 'America/Lima';
+      const lima = formatDate(instant, { dateStyle: 'short' }, 'en-US');
+      process.env.TZ = 'America/New_York';
+      const newYork = formatDate(instant, { dateStyle: 'short' }, 'en-US');
+      expect(lima).toBe('7/3/26');
+      expect(newYork).toBe('7/4/26');
+    } finally {
+      if (previous === undefined) delete process.env.TZ;
+      else process.env.TZ = previous;
     }
   });
 });

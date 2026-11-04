@@ -29,11 +29,29 @@ function cachedRelativeTimeFormat(locale: string, options: Intl.RelativeTimeForm
 // One formatter per locale, options and time zone: every message row formats its time, and building an
 // Intl.DateTimeFormat per call was a measurable part of switching chats. A formatter fixes the zone it was built in,
 // so the key carries the zone NAME and the current UTC offset: 只带 offset 不够 —— 利马与纽约同时刻 offset 相同、
-// 规则不同(评审:7 月 4 日会被画成 7 月 3 日);夏令时切换同样靠 offset 换一份。
+// 规则不同(评审:7 月 4 日会被画成 7 月 3 日)。时区名本身经由下面的探针取 —— 每次调用都问 Intl 太贵。
 const dateFormats = new Map<string, Intl.DateTimeFormat>();
 
+// 每次调用都去问 Intl 要时区名(≈55µs)的话,这份缓存就白做了(评审)。用 Date.toString() 里的时区段 + offset
+// 当探针(≈1µs):探针变了(切时区、夏令时)立刻换一份;探针看不出来的两个时区(纽约/坎昆这种同段同 offset)
+// 最多 5 秒后再确认一次。
+const ZONE_RECHECK_MS = 5_000;
+let zoneMemo: { probe: string; name: string; at: number } | null = null;
+
+function timeZoneName(now: number): string {
+  const date = new Date(now);
+  const raw = date.toString();
+  const open = raw.indexOf('(');
+  const probe = `${open < 0 ? 'local' : raw.slice(open + 1, -1)}|${date.getTimezoneOffset()}`;
+  if (!zoneMemo || zoneMemo.probe !== probe || now - zoneMemo.at >= ZONE_RECHECK_MS) {
+    zoneMemo = { probe, at: now, name: Intl.DateTimeFormat().resolvedOptions().timeZone };
+  }
+  return zoneMemo.name;
+}
+
 export function formatDate(value: DateValue, options: Intl.DateTimeFormatOptions | undefined, locale: string): string {
-  const key = `${locale}|${Intl.DateTimeFormat().resolvedOptions().timeZone}|${new Date().getTimezoneOffset()}|${JSON.stringify(options ?? {})}`;
+  const now = Date.now();
+  const key = `${locale}|${timeZoneName(now)}|${new Date(now).getTimezoneOffset()}|${JSON.stringify(options ?? {})}`;
   let format = dateFormats.get(key);
   if (!format) dateFormats.set(key, format = new Intl.DateTimeFormat(locale, options));
   return format.format(value instanceof Date ? value : new Date(value));
