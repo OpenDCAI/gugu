@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { page } from 'vitest/browser'
+import { page, userEvent } from 'vitest/browser'
 import { MemberProfileCard, type MemberProfileCardModel } from '@/components/MemberProfileCard'
 import { i18n } from '@/i18n'
 import '@/i18n/registerContactsCatalog'
@@ -90,7 +90,7 @@ it('keeps the alias editor and the normal message action operational', async () 
   await i18n.changeLanguage('en-US')
   await renderWithAppProviders(h, <MemberProfileCard member={member} onOpenChat={onOpenChat} aliasControls={{ alias: 'Old alias', onSave }} />, { contacts: {} })
   await page.getByPlaceholder('Not set', { exact: true }).fill('New alias')
-  await page.getByPlaceholder('Not set', { exact: true }).press('Enter')
+  await userEvent.keyboard('{Enter}')
   expect(onSave).toHaveBeenCalledExactlyOnceWith('New alias')
   await page.getByTestId('member-profile-send-message-button').click()
   expect(onOpenChat).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: member.id, type: 'human' }))
