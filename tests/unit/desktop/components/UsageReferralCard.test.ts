@@ -26,6 +26,15 @@ let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup(); vi.clearAllMocks() })
 describe('#1511 slice3 邀请卡统计', () => {
+  it.each([[0.0001, '<0.01'], [0.01, '0.01'], [1.234, '1.23'], [-12.345, '-12.35']] as const)(
+    'formats earned credits %s with the same precision as balances', async (creditsEarned, expected) => {
+      vi.mocked(getReferralStats).mockResolvedValue({ invitedCount: 2, creditsEarned })
+      await renderWithAppProviders(harness, createNode(ReferralCard), { auth })
+      await flush()
+      expect(harness.container.querySelector('[data-testid="settings-quota-credits-earned"]')?.textContent).toBe(`已获得 ${expected} 积分`)
+    },
+  )
+
   it('已邀请/已获得 显真实聚合值', async () => {
     vi.mocked(getReferralStats).mockResolvedValue({ invitedCount: 2, creditsEarned: 600 })
     await renderWithAppProviders(harness, createNode(ReferralCard), { auth })

@@ -32,7 +32,7 @@ export function UsageCredits({ credits, range }: {
       {credits.status === 'error' && <span className="gg-usage-muted" data-testid="usage-credit-bars-error" title={credits.error}>{t('usage.loadError')}</span>}
       {credits.status === 'ready' && (
         <>
-          <ConsumptionCard amounts={creditValues} range={range} format={(n: number) => plain(n, 2)} testId="usage-consumption" />
+          <ConsumptionCard amounts={creditValues} range={range} format={formatUsageCredits} testId="usage-consumption" />
           <ModelAnalysisCard amounts={requestValues} range={range} kind="calls" format={(n: number) => plain(n)} testId="usage-model-calls" />
         </>
       )}
