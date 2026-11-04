@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-const fixture = vi.hoisted(() => ({ release: vi.fn(), valid: true, own: { accountId: 'owner', queue: Promise.resolve(), valid: () => true } }))
+const fixture = vi.hoisted(() => ({ release: vi.fn(), valid: true, own: { accountId: 'owner', queue: Promise.resolve(), valid: (): boolean => true } }))
 vi.mock('@/lib/sessionInputOutboxBridge', () => ({ state: () => fixture.own, releaseQueuedSessionInput: (...args: unknown[]) => fixture.release(...args) }))
 import { sendHeldInputNow } from '@/session/renderer/features/sessions/acp/send-held-input-now'
 

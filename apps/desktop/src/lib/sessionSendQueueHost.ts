@@ -40,7 +40,7 @@ export function watchSessionSendQueues(accountId: string, currentDeviceId: () =>
               const life = await rpcOn(machine).sessions.lifeView(input.sessionId)
               if (life.kind !== 'ready' || life.hold !== null) return
               const history = await client.getHistory({ sessionId: input.sessionId, limit: 100 })
-              if (!history.success) throw new Error(history.error.type)
+              if (!history.success) throw new Error('Session history is not available')
               if (closed || watch.closed || !own.valid() || own.accountId !== accountId) return
               if (watch.again) continue
               const latest = watch.replica!.current()
