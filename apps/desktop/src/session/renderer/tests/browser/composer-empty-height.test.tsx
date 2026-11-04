@@ -7,8 +7,8 @@ import { SessionLocalizationProvider } from '@renderer/localization/localization
 import { ComposerTray } from '@renderer/features/sessions/composer-tray'
 import { LOCAL_LIBRARY_HOST } from '@renderer/features/library/library-host'
 import {
-  sessionComposerBandClassName,
-  sessionComposerBandStyle,
+  sessionComposerFrameLiftClassName,
+  sessionComposerTrayStyle,
   sessionComposerBox,
   sessionComposerCardClassName,
   sessionComposerEmptyHeightPx,
@@ -75,77 +75,38 @@ describe('the session composer\'s box', () => {
     expect(trayStyle.backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
     expect(parseFloat(getComputedStyle(card()).borderTopLeftRadius)).toBeGreaterThan(0)
     expect(parseFloat(getComputedStyle(card()).borderTopRightRadius)).toBeGreaterThan(0)
-    expect(container!.querySelector('[data-composer-stack]')!.contains(tray())).toBe(false)
+    expect(container!.querySelector('[data-composer-stack]')).toBeNull()
   })
 
-  it.each(['permission', 'notice', 'queue'] as const)('keeps the scheduled band flush with the card stack when %s is present', async (kind) => {
+  it.each(['permission', 'notice', 'queue'] as const)('keeps the scheduled tray separate from the input when %s is present', async (kind) => {
     root!.render(
       <SessionLocalizationProvider>
-        <div data-testid="tray-composer">
-          <ChatComposer
-            bandAbove={<div className={sessionComposerBandClassName} style={sessionComposerBandStyle}>Scheduled task</div>}
-            permissionRequest={kind === 'permission' ? { requestId: 'stack-geometry', title: 'Read', options: [] } : undefined}
-            onResolvePermission={() => {}}
-            notice={kind === 'notice' ? { variant: 'info', message: 'Notice' } : undefined}
-            queuedPrompts={kind === 'queue' ? [{ id: 'queued', text: 'Queued message', origin: 'manual' }] : []}
-            onEditQueuedPrompt={() => {}}
-            onDeleteQueuedPrompt={() => {}}
-            onReorderQueuedPrompts={() => {}}
-            onSendQueuedPromptNow={() => {}}
-            onSubmit={() => {}}
-          />
-        </div>
-      </SessionLocalizationProvider>
-    )
-    const fixture = () => container!.querySelector<HTMLElement>('[data-testid="tray-composer"]')
-    const tray = () => fixture()!.getElementsByClassName(sessionComposerBandClassName)[0] as HTMLElement
-    const card = () => fixture()!.querySelector<HTMLElement>('[data-slot="composer-bar"]')!
-    const next = () => kind === 'queue' ? card() : fixture()!.querySelector<HTMLElement>(`[data-slot="composer-${kind === 'permission' ? 'permission-request' : 'notice'}"]`)!
-    await until('stack has layout', () => !!fixture() && !!next() && next().getBoundingClientRect().height > 0 && next().parentElement!.getAnimations().length === 0)
-    expect(tray().getBoundingClientRect().bottom).toBe(next().getBoundingClientRect().top)
-    expect(getComputedStyle(tray()).borderTopLeftRadius).toBe(getComputedStyle(container!.querySelector<HTMLElement>('[data-slot="composer"]')!).getPropertyValue('--radius-thread').trim())
-    for (const element of [next(), card()]) {
-      expect(getComputedStyle(element).borderTopLeftRadius).toBe('0px')
-      expect(getComputedStyle(element).borderTopRightRadius).toBe('0px')
-    }
-    if (kind === 'queue') {
-      const queued = fixture()!.querySelector<HTMLElement>('[data-slot="composer-queued-prompts"]')!
-      expect(queued.getBoundingClientRect().bottom).toBeLessThanOrEqual(tray().getBoundingClientRect().top)
-    } else {
-      expect(getComputedStyle(next()).borderTopWidth).toBe('0px')
-      expect(next().getBoundingClientRect().bottom).toBe(card().getBoundingClientRect().top)
-    }
-  })
-
-  it.each(['scheduled', 'permission', 'notice'] as const)('keeps the task outline around the whole %s stack', async (kind) => {
-    root!.render(
-      <SessionLocalizationProvider>
+        <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>Scheduled task</div>
         <ChatComposer
-          bandAbove={<div className={sessionComposerBandClassName} style={sessionComposerBandStyle}>Scheduled task</div>}
-          tone="task"
-          permissionRequest={kind === 'permission' ? { requestId: 'task-outline', title: 'Read', options: [] } : undefined}
+          className={sessionComposerFrameLiftClassName}
+          permissionRequest={kind === 'permission' ? { requestId: 'tray-geometry', title: 'Read', options: [] } : undefined}
           onResolvePermission={() => {}}
-          notice={kind === 'notice' ? { variant: 'warning', message: 'Notice' } : undefined}
+          notice={kind === 'notice' ? { variant: 'info', message: 'Notice' } : undefined}
+          queuedPrompts={kind === 'queue' ? [{ id: 'queued', text: 'Queued message', origin: 'manual' }] : []}
+          onEditQueuedPrompt={() => {}}
+          onDeleteQueuedPrompt={() => {}}
+          onReorderQueuedPrompts={() => {}}
+          onSendQueuedPromptNow={() => {}}
           onSubmit={() => {}}
         />
       </SessionLocalizationProvider>
     )
-    const tray = () => container!.getElementsByClassName(sessionComposerBandClassName)[0] as HTMLElement
+    const tray = () => container!.getElementsByClassName(sessionComposerTrayClassName)[0] as HTMLElement
     const card = () => container!.querySelector<HTMLElement>('[data-slot="composer-bar"]')!
-    // The card eases its border-color into the outline; compare the settled colors, not a frame of that transition.
-    await until('task outline has settled', () => !!tray() && !!card() && card().getBoundingClientRect().height > 0 && card().getAnimations().length === 0)
-    expect(getComputedStyle(tray()).borderRightColor).toBe(getComputedStyle(card()).borderRightColor)
-    expect(getComputedStyle(card()).boxShadow).toBe('none')
-    const stack = container!.querySelector<HTMLElement>('[data-composer-stack]')!
-    expect(stack).not.toBeNull()
-    expect(stack.getBoundingClientRect().top).toBe(tray().getBoundingClientRect().top)
-    expect(stack.getBoundingClientRect().bottom).toBe(card().getBoundingClientRect().bottom)
-    expect(stack.getBoundingClientRect().left).toBe(card().getBoundingClientRect().left)
-    expect(stack.getBoundingClientRect().right).toBe(card().getBoundingClientRect().right)
-    expect(getComputedStyle(stack).boxShadow).not.toBe('none')
-    if (kind !== 'scheduled') {
+    await until('scheduled tray and input have layout', () => !!card() && card().getBoundingClientRect().height > 0)
+    expect(tray().getBoundingClientRect().left - card().getBoundingClientRect().left).toBe(13)
+    expect(card().getBoundingClientRect().right - tray().getBoundingClientRect().right).toBe(13)
+    expect(getComputedStyle(tray()).borderTopWidth).toBe('0px')
+    expect(container!.querySelector('[data-slot="composer"]')!.contains(tray())).toBe(false)
+    if (kind !== 'queue') {
       const band = container!.querySelector<HTMLElement>(`[data-slot="composer-${kind === 'permission' ? 'permission-request' : 'notice'}"]`)!
-      expect(getComputedStyle(band).borderRightColor).toBe(getComputedStyle(card()).borderRightColor)
+      expect(parseFloat(getComputedStyle(band).borderTopLeftRadius)).toBeGreaterThan(0)
+      expect(getComputedStyle(band).borderTopWidth).toBe('1px')
     }
   })
 

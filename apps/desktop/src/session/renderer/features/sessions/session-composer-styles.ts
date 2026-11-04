@@ -30,8 +30,19 @@ export const sessionComposerEmptyHeightPx =
   sessionComposerBox.editorMinHeightPx + sessionComposerBox.toolbarControlPx + sessionComposerBox.toolbarInsetPx + 2;
 
 // ── Context tray ──────────────────────────────────────────────────────────────
-// The project/device/folder tray sits behind the input: inset 13px on each side,
-// borderless, with its lower 10px covered by the composer's rounded card.
+// A full-width band behind the composer carrying 仓库 · 环境 · 分支, replacing the
+// single-item tab. Geometry measured off Codex at its ORIGINAL capture resolution
+// (3236px wide) and then scaled by the ratio of the two trays' widths — measuring on a
+// 4.4×-downscaled copy is what produced the earlier wrong number (56px): downscaling
+// smears the card's soft top shadow into the tray, so the boundary lands ~24px late.
+//
+// Codex, normalised to our 646px tray:
+//   exposed strip 33px   ·   text 12.5px, sitting 12.5px below the tray's top edge
+//   card 92px tall, 1.037× the tray's width (i.e. the 13px-per-side inset)
+// The card pulls up 10px (sessionComposerFrameLiftClassName) to create the overlap, so
+// exposed = tray height − 10, and pb must stay > 10 or the card clips the tray's text.
+//
+// ❌ 不给托盘描边:Codex 那条是纯填充,加了 border 会和卡片的 border 在接缝处叠成双线。
 //
 // ⚠️ 颜色必须走 --em-* 且用 arbitrary value,不能写 bg-background-secondary /
 // text-foreground-muted 这类 color key。实测(CDP 读 computed style):嵌进 gugu 会话页的
@@ -41,10 +52,6 @@ export const sessionComposerEmptyHeightPx =
 // 改任何颜色后都得回真 app 读一次 computed style,别信截图。
 export const sessionComposerTrayClassName =
   'mx-[13px] flex items-center gap-4 rounded-t-lg px-4 pt-1.5 pb-3 text-xs text-[var(--em-foreground-muted)]';
-
-// Scheduled content stays in the input's connected permission/notice band stack.
-export const sessionComposerBandClassName =
-  'flex w-full items-center gap-4 rounded-t-[var(--radius-thread)] border border-solid border-[var(--em-border)] border-b-0 px-4 py-1.5 text-xs text-[var(--em-foreground-muted)]';
 
 /**
  * 托盘填充 —— 走 inline style,不走 Tailwind。
@@ -69,14 +76,6 @@ export const sessionComposerTrayStyle = {
     'color-mix(in srgb, var(--em-surface-base) 60%, var(--em-surface-base-hover) 40%)',
 } as const;
 
-export const sessionComposerBandStyle = {
-  ...sessionComposerTrayStyle,
-  borderColor: 'var(--composer-outline-border, var(--em-border))',
-} as const;
-
-/** Covers the lower edge of the inset context tray with the input card. */
-export const sessionComposerFrameLiftClassName = 'relative z-10 -mt-2.5';
-
 /** Read-only chip inside the tray (环境 / 分支) — not interactive, so no hover affordance. */
 export const sessionComposerTrayChipClassName =
   'inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap';
@@ -87,6 +86,9 @@ export const sessionComposerTrayTriggerClassName =
   'inline-flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-row-hover active:bg-row-press data-popup-open:bg-row-selected hover:text-[var(--em-foreground)]';
 // @@@state-ladder-mix 「开着」这一档必须有:它按下即开弹层,真机上 `:active` 几乎立刻被
 // data-popup-open 接管 —— 只写 active: 的话按下去看着像没反应(实测就是这样)。
+
+/** Lifts the composer card over the tray so the tray only shows its top strip. */
+export const sessionComposerFrameLiftClassName = 'relative z-10 -mt-2.5';
 
 /**
  * 输入卡外面的这层 wrapper **不画任何东西**:描边、底色、投影、focus 变色全在里面那张卡
