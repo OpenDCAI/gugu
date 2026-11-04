@@ -2467,7 +2467,7 @@ export class AcpChatStore {
       sessionId: this.runtimeSessionId,
       turn: () => lastTurn,
       subscribe: accept => onMachineEvent(machine, sessionTurnSettledChannel, accept),
-      read: referenceId => rpcOn(machine).sessions.getStoredSettledTurn({ sessionId: this.runtimeSessionId, referenceId }),
+      read: (referenceId, originTurnId) => rpcOn(machine).sessions.getStoredSettledTurn({ sessionId: this.runtimeSessionId, referenceId, originTurnId }),
       apply: row => {
         if (historyFailure && this.loadError === historyFailure) runInAction(() => { this.loadError = null; this._reopenOnRetry = false; });
         this._applyClosedSettledTurn(row);

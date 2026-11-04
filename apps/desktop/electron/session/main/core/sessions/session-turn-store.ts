@@ -273,10 +273,10 @@ export async function getStoredToolImage(params: {
 }
 
 /** Read one immutable live origin, even after its runtime record was removed. No provider is contacted. */
-export async function getStoredSettledTurn(params: { sessionId: string; referenceId: string }): Promise<StoredSettledTurn | null> {
+export async function getStoredSettledTurn(params: { sessionId: string; referenceId: string; originTurnId: string }): Promise<StoredSettledTurn | null> {
   await persistenceTails.get(params.sessionId);
   const [row] = await db.select({ data: sessionTurns.data, originTurnId: sessionTurns.turnId })
-    .from(sessionTurns).where(and(eq(sessionTurns.sessionId, params.sessionId),
+    .from(sessionTurns).where(and(eq(sessionTurns.sessionId, params.sessionId), eq(sessionTurns.turnId, params.originTurnId),
       sql`json_extract(${sessionTurns.data}, '$.referenceId') = ${params.referenceId}`))
     .orderBy(desc(sessionTurns.seq)).limit(1);
   if (!row) return null;

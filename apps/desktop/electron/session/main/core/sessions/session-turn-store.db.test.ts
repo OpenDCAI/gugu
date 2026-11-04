@@ -69,9 +69,9 @@ describe('conversation-turn-store', () => {
     const second: TranscriptTurn = { ...turn('runtime:turn:0', 'second run'), referenceId: 'source:second', outcome: { kind: 'done' } };
     await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: first });
     await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: second });
-    expect((await getStoredSettledTurn({ sessionId: 'c1', referenceId: 'source:first' }))?.turn).toMatchObject({ referenceId: 'source:first', outcome: first.outcome });
-    expect((await getStoredSettledTurn({ sessionId: 'c1', referenceId: 'source:second' }))?.turn).toMatchObject({ referenceId: 'source:second', outcome: second.outcome });
-    expect(await getStoredSettledTurn({ sessionId: 'another-session', referenceId: 'source:first' })).toBeNull();
+    expect((await getStoredSettledTurn({ sessionId: 'c1', referenceId: 'source:first', originTurnId: first.id }))?.turn).toMatchObject({ referenceId: 'source:first', outcome: first.outcome });
+    expect((await getStoredSettledTurn({ sessionId: 'c1', referenceId: 'source:second', originTurnId: second.id }))?.turn).toMatchObject({ referenceId: 'source:second', outcome: second.outcome });
+    expect(await getStoredSettledTurn({ sessionId: 'another-session', referenceId: 'source:first', originTurnId: first.id })).toBeNull();
   });
 
   it('#1679 waits behind a late durable write before reading its terminal outcome', async () => {
@@ -82,7 +82,7 @@ describe('conversation-turn-store', () => {
     const terminal: TranscriptTurn = { ...turn('runtime:turn:0', 'keep'), referenceId: 'source:late', outcome: { kind: 'cancelled', reason: 'cancelled' } };
     const write = persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: terminal });
     let completed = false;
-    const read = getStoredSettledTurn({ sessionId: 'c1', referenceId: terminal.referenceId! }).then(row => { completed = true; return row; });
+    const read = getStoredSettledTurn({ sessionId: 'c1', referenceId: terminal.referenceId!, originTurnId: terminal.id }).then(row => { completed = true; return row; });
     await Promise.resolve();
     expect(completed).toBe(false);
     expect(vi.mocked(events.emit).mock.calls.some(([channel]) => channel.name === 'session:turn-settled')).toBe(false);

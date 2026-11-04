@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import { runInAction } from 'mobx';
 import { createChatView, type TranscriptTurn } from '@gugu/session-chat-ui';
-import { i18n } from '@/i18n';
+import { i18n, setLocalePreference } from '@/i18n';
 import { registerSessionLocaleResources } from '@renderer/localization/locale-store';
 import { renumberStoredTurn } from '@main/core/sessions/session-turn-identity';
 import { until } from '../../../../../../../tests/support/awaitCondition';
@@ -39,7 +39,7 @@ function replica<T>(initial: T) {
 
 it.each(['closed-first', 'active-null-first', 'late-persistence'] as const)('%s: the real store and transcript replace working with one factual Stopped', async order => {
   await page.viewport(1000, 800);
-  await i18n.changeLanguage('en-US'); registerSessionLocaleResources();
+  setLocalePreference('en-US'); await i18n.changeLanguage('en-US'); registerSessionLocaleResources();
   const id = 'browser-close-' + crypto.randomUUID();
   const live: TranscriptTurn = { id: id + ':turn:0', referenceId: 'source:' + crypto.randomUUID(), seq: 0,
     initiator: 'user', startedAt: Date.now() - 2000, items: [
@@ -61,6 +61,7 @@ it.each(['closed-first', 'active-null-first', 'late-persistence'] as const)('%s:
   const host = document.createElement('div'); host.className = 'gugu-skin emlight';
   host.style.cssText = 'position:fixed;inset:0;width:1000px;height:800px'; document.body.append(host);
   const view = createChatView({ parent: host, context: store.chatContext, state: store.chatState, composer: 'slot' });
+  store.chatContext.setLayout({ preset: 'double', userGutter: 0, agentConversation: true });
   cleanup.push(() => { view.dispose(); host.remove(); });
   await until('the actual working process is visible', () => host.textContent?.includes('Thinking and working') === true);
   const finish = () => {
