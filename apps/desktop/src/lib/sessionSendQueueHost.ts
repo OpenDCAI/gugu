@@ -6,6 +6,12 @@ import { rendererLogger } from './log'
 import { onMachineEvent, rpcOn } from '@/session/renderer/lib/ipc'
 import { sessionLifeViewChannel } from '@/session/shared/core/sessions/sessionEvents'
 
+function foregroundQueueReady(snapshot: SessionState): boolean {
+  const completed = snapshot.lastTurnOutcome === 'none'
+    || (snapshot.lastTurnOutcome === 'stopped' && snapshot.lastStopReason === 'end_turn')
+  return snapshot.lifecycle === 'ready' && snapshot.activeTurnId === null && !snapshot.queuedPrompts.length && completed
+}
+
 /** Observe only sessions with composer-owned inputs; no engine is started by this observer. */
 export function watchSessionSendQueues(accountId: string, currentDeviceId: () => string | undefined): () => void {
   type Watch = { closed: boolean; replica?: ReplicaState<SessionState>; checking: boolean; again: boolean; check?: () => Promise<void>; stopLife?: () => void }
@@ -36,7 +42,7 @@ export function watchSessionSendQueues(accountId: string, currentDeviceId: () =>
               if (closed || watch.closed || !own.valid() || own.accountId !== accountId) return
               const snapshot = watch.replica!.current()
               // A background child does not hold the composer's foreground queue. A retained native turn does.
-              if (snapshot.lifecycle !== 'ready' || snapshot.activeTurnId !== null || snapshot.lastTurnOutcome !== 'none' || snapshot.queuedPrompts.length) return
+              if (!foregroundQueueReady(snapshot)) return
               const life = await rpcOn(machine).sessions.lifeView(input.sessionId)
               if (life.kind !== 'ready' || life.hold !== null) return
               const history = await client.getHistory({ sessionId: input.sessionId, limit: 100 })
@@ -44,11 +50,11 @@ export function watchSessionSendQueues(accountId: string, currentDeviceId: () =>
               if (closed || watch.closed || !own.valid() || own.accountId !== accountId) return
               if (watch.again) continue
               const latest = watch.replica!.current()
-              if (latest.lifecycle !== 'ready' || latest.activeTurnId !== null || latest.lastTurnOutcome !== 'none' || latest.queuedPrompts.length) return
+              if (!foregroundQueueReady(latest)) return
               await releaseQueuedSessionInput(input.sessionId, history.data.turns, undefined, false, () => {
                 const current = watch.replica!.current()
                 return !closed && !watch.closed && !watch.again && own.valid() && own.accountId === accountId
-                  && current.lifecycle === 'ready' && current.activeTurnId === null && current.lastTurnOutcome === 'none' && !current.queuedPrompts.length
+                  && foregroundQueueReady(current)
               })
             } while (watch.again)
           } catch (error) { report(error) }

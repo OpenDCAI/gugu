@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import 'fake-indexeddb/auto'
+import { IDBFactory } from 'fake-indexeddb'
+import { openSessionInputStorage, SessionInputOutbox } from '@/lib/sessionInputOutbox'
+import { SessionMachine } from '../../../../packages/session-runtime/src/acp-agents/machine/machine'
 
 const fixture = vi.hoisted(() => ({
   rows: [] as Array<{ id: string; accountId: string; deviceId: string | null; sessionId: string; sendQueue: { order: number } }>,
   valid: true, accountId: 'owner', lifecycle: 'ready', activeTurnId: null as string | null, lastTurnOutcome: 'none', queuedPrompts: [] as unknown[],
+  snapshot: null as import('@gugu/session-core/acp/client').SessionState | null,
   hold: null as string | null, lifeKind: 'ready', history: vi.fn(), release: vi.fn(), dispose: vi.fn(), stopLife: vi.fn(),
   rowListeners: new Set<() => void>(), changes: new Set<() => void>(),
   gone: undefined as undefined | ((error: unknown) => void), lifeEvent: undefined as undefined | ((view: { sessionId: string }) => void),
@@ -14,7 +19,7 @@ vi.mock('@/lib/sessionInputOutboxBridge', () => ({
 }))
 vi.mock('@gugu/session-wire', async importOriginal => ({ ...await importOriginal<typeof import('@gugu/session-wire')>(), ReplicaState: class {
   ready = Promise.resolve()
-  current() { return { lifecycle: fixture.lifecycle, activeTurnId: fixture.activeTurnId, lastTurnOutcome: fixture.lastTurnOutcome, queuedPrompts: fixture.queuedPrompts } }
+  current() { return fixture.snapshot ?? { lifecycle: fixture.lifecycle, activeTurnId: fixture.activeTurnId, lastTurnOutcome: fixture.lastTurnOutcome, queuedPrompts: fixture.queuedPrompts } }
   onChange(listener: () => void) { fixture.changes.add(listener) }
   onGone(listener: (error: unknown) => void) { fixture.gone = listener }
   dispose() { fixture.dispose(); fixture.changes.clear() }
@@ -35,11 +40,61 @@ beforeEach(() => {
   vi.clearAllMocks()
   Object.assign(fixture, { valid: true, accountId: 'owner', lifecycle: 'ready', activeTurnId: null, lastTurnOutcome: 'none', hold: null, lifeKind: 'ready', gone: undefined, lifeEvent: undefined })
   fixture.rows = [{ id: 'held', accountId: 'owner', deviceId: null, sessionId: 'session', sendQueue: { order: 1 } }]
+  fixture.snapshot = null
   fixture.queuedPrompts = []
   fixture.history.mockResolvedValue({ success: true, data: { turns: [] } })
   fixture.release.mockResolvedValue(null)
 })
 afterEach(() => { close?.(); close = undefined; fixture.rowListeners.clear(); fixture.changes.clear() })
+
+it.each([0, 1])('actually sends a busy queued input after a real normal WorkEnded snapshot (background agents=%s)', async background => {
+  const machine = new SessionMachine('session')
+  machine.apply({ type: 'SessionReady' })
+  machine.apply({ type: 'WorkStarted' })
+  machine.apply({ type: 'AgentsChanged', runningCount: background })
+  fixture.snapshot = machine.sessionState('foreground')
+  const storage = await openSessionInputStorage(new IDBFactory())
+  const sent: string[] = []
+  const queue = new SessionInputOutbox('owner', storage, async input => { sent.push(input.id) }, () => true)
+  const input = await queue.enqueue({ sessionId: 'session', deviceId: null, text: 'queued while busy', queued: true, sendQueue: { order: 1 } })
+  fixture.rows = [{ ...input, sendQueue: input.sendQueue! }]
+  fixture.release.mockImplementation(async (sessionId: string, _turns: unknown, _id: unknown, _steer: unknown, allowed: () => boolean) => {
+    const released = await queue.releaseQueued(sessionId, {}, new Set(), undefined, false, allowed)
+    await queue.flush()
+    return released
+  })
+  close = watchSessionSendQueues('owner', () => undefined)
+  await expect.poll(() => !!fixture.lifeEvent).toBe(true)
+  expect(sent).toEqual([])
+  machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' } })
+  fixture.snapshot = machine.sessionState(null)
+  expect(fixture.snapshot).toMatchObject({ lifecycle: 'ready', activeTurnId: null, lastTurnOutcome: 'stopped', lastStopReason: 'end_turn' })
+  for (const change of fixture.changes) change()
+  await expect.poll(() => sent).toEqual([input.id])
+  expect(await queue.list()).toEqual([])
+})
+
+it.each(['cancelled', 'errored'] as const)('retains the held input after a real %s WorkEnded snapshot', async reason => {
+  const machine = new SessionMachine('session')
+  machine.apply({ type: 'SessionReady' }); machine.apply({ type: 'WorkStarted' })
+  machine.apply({ type: 'WorkEnded', outcome: reason === 'errored' ? { kind: 'errored' } : { kind: 'stopped', stopReason: 'cancelled' } })
+  fixture.snapshot = machine.sessionState(null)
+  close = watchSessionSendQueues('owner', () => undefined)
+  await expect.poll(() => !!fixture.lifeEvent).toBe(true)
+  expect(fixture.history).not.toHaveBeenCalled()
+  expect(fixture.release).not.toHaveBeenCalled()
+})
+
+it.each(['user-stop', 'start-failed'])('keeps Life hold %s authoritative over a real normal completion', async hold => {
+  const machine = new SessionMachine('session')
+  machine.apply({ type: 'SessionReady' }); machine.apply({ type: 'WorkStarted' })
+  machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' } })
+  fixture.snapshot = machine.sessionState(null); fixture.hold = hold
+  close = watchSessionSendQueues('owner', () => undefined)
+  await expect.poll(() => !!fixture.lifeEvent).toBe(true)
+  expect(fixture.history).not.toHaveBeenCalled()
+  expect(fixture.release).not.toHaveBeenCalled()
+})
 
 it('releases in the signed-in shell without any conversation page mounted, then disposes when queue is empty', async () => {
   close = watchSessionSendQueues('owner', () => 'local')
