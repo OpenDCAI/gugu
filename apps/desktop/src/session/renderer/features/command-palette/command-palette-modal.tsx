@@ -29,6 +29,9 @@ import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import { isAssistantSession } from '@renderer/features/assistant/assistant-lineage';
 import { paletteTasks } from './palette-tasks';
+import { recentTaskIds } from './recent-tasks';
+import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
+import { machineRegistry } from '@renderer/lib/machine-routing';
 
 interface CommandPaletteProps {
   initialQuery?: string;
@@ -72,12 +75,21 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
     , search, ({ title, description }) => [title, description]));
   // 本机索引负责召回(短查询的 LIKE 没有分数);排序与 @ 选人同一套,同分保留索引给的顺序。
   const ranked = rankPaletteMatches(results, search, (item) => [item.title], { recallOnly: true });
-  const tasks = useObserver(() => paletteTasks(results.filter(item => {
-    const binding = sessionAgentBindings.bindingFor(item.id);
-    return !isAssistantSession({ agent: binding ? { userId: binding.agentUserId } : null }, sidebarStore.assistantAgentId);
-  }), remoteHostsStore.allListedSessions().map(item => ({
-    ...item, deviceLabel: remoteHostsStore.device(item.deviceId)!.label,
-  })), search, sidebarStore.assistantAgentId));
+  const tasks = useObserver(() => {
+    const recent = commandsMode || search ? [] : recentTaskIds();
+    // Recall opened local tasks beyond the search RPC's newest ten, from existing task rows only.
+    const remembered = recent.flatMap(id => {
+      const data = sessionRegistry.get(id)?.sessions.get(id)?.data;
+      return data && !data.archivedAt && !data.automationRunId && !machineRegistry.machineOf(data.projectId)
+        ? [{ kind: 'session' as const, id, projectId: data.projectId, title: data.title, subtitle: '', score: 0, lastInteractedAt: data.lastInteractedAt }] : [];
+    });
+    return paletteTasks([...results, ...remembered].filter(item => {
+      const binding = sessionAgentBindings.bindingFor(item.id);
+      return !isAssistantSession({ agent: binding ? { userId: binding.agentUserId } : null }, sidebarStore.assistantAgentId);
+    }), remoteHostsStore.allListedSessions().map(item => ({
+      ...item, deviceLabel: remoteHostsStore.device(item.deviceId)!.label,
+    })), search, sidebarStore.assistantAgentId, recent);
+  });
   const projects = ranked.filter((item) => item.kind === 'project');
 
   return (

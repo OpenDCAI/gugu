@@ -68,7 +68,7 @@ function agentPair(opts: {
   const send = (u: unknown) =>
     context.notify(v2.methods.client.session.update, { sessionId: 's1', update: u as v2.SessionUpdate });
   const kinds = () => updates.map(({ event }) => event.kind);
-  return { api, updates, permissions, configRequests, initializeRequests, cancels, resumeRequests, kinds, send, agent: () => context };
+  return { api, updates, permissions, configRequests, initializeRequests, cancels, resumeRequests, kinds, send, agent: () => context, end: () => toClient.end() };
 }
 
 const initialize = (api: ReturnType<typeof agentPair>['api']) =>
@@ -210,158 +210,185 @@ describe('connectStdioAcpV2', () => {
     await expect(pair.api.prompt({ sessionId: 's1', prompt: [] })).rejects.toMatchObject({ code: -32800 });
   });
 
-  it('reports silent admission once, keeps the provider alive and accepts the original late receipt', async () => {
+  it('cancels and rejects a native receipt that misses its admission deadline (prompt_admission_timeout)', async () => {
+    const pair = agentPair({ prompt: () => new Promise(() => {}) });
+    await initialize(pair.api);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
+      });
+      const rejected = expect(receipt).rejects.toMatchObject({ code: 'prompt_admission_timeout' });
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+    } finally { vi.useRealTimers(); }
+    await vi.waitFor(() => expect(pair.cancels).toEqual([{ sessionId: 's1' }]));
+  });
+
+  it('pauses admission through a 90-second compaction without treating progress as a receipt', async () => {
     const native = Promise.withResolvers<v2.PromptResponse>();
     const pair = agentPair({ prompt: () => native.promise });
     await initialize(pair.api);
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
-      const uncertain = vi.fn();
+      const settled = vi.fn();
       const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
         requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
-        onAdmissionUncertain: uncertain,
       });
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(uncertain).toHaveBeenCalledTimes(1);
+      void receipt.then(settled, settled);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      await vi.advanceTimersByTimeAsync(45_000);
+      await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      await vi.advanceTimersByTimeAsync(45_000);
+      expect(settled).not.toHaveBeenCalled();
       expect(pair.cancels).toEqual([]);
-      await vi.advanceTimersByTimeAsync(120_000);
-      expect(uncertain).toHaveBeenCalledTimes(1);
-      native.resolve({ messageId: 'native' });
-      await expect(receipt).resolves.toMatchObject({ status: 'accepted', messageId: 'native' });
+      await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'completed' });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      native.resolve({ messageId: 'durable-user-message' });
+      await expect(receipt).resolves.toMatchObject({ status: 'accepted', messageId: 'durable-user-message' });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(pair.cancels).toEqual([]);
     } finally { vi.useRealTimers(); }
   });
 
-  it('refreshes inactivity on session progress and pauses for the entire native compaction operation', async () => {
-    const native = Promise.withResolvers<v2.PromptResponse>();
-    const pair = agentPair({ prompt: () => native.promise });
+  it('starts one new deadline on completion and ignores duplicate completed notifications', async () => {
+    const pair = agentPair({ prompt: () => new Promise(() => {}) });
     await initialize(pair.api);
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
-      const uncertain = vi.fn();
       const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
-        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' },
-        admissionTimeoutMs: 60_000, onAdmissionUncertain: uncertain,
+        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
       });
-      void receipt.catch(() => undefined); // Keep the baseline rejection observed before checking it below.
-      await vi.advanceTimersByTimeAsync(59_000);
-      await pair.send({ sessionUpdate: 'state_update', state: 'running' });
-      await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(59_000);
-      expect(uncertain).not.toHaveBeenCalled();
+      const settled = vi.fn();
+      void receipt.then(settled, settled);
+      const rejected = expect(receipt).rejects.toMatchObject({ code: 'prompt_admission_timeout' });
       await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' });
-      await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(180_000);
-      expect(uncertain).not.toHaveBeenCalled();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      await vi.advanceTimersByTimeAsync(90_000);
       await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'completed' });
-      await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(59_999);
-      expect(uncertain).not.toHaveBeenCalled();
-      native.resolve({ messageId: 'native' });
-      await expect(receipt).resolves.toMatchObject({ messageId: 'native' });
-      await vi.advanceTimersByTimeAsync(120_000);
-      expect(uncertain).not.toHaveBeenCalled();
-      expect(pair.cancels).toEqual([]);
-    } finally { native.resolve({ messageId: 'native' }); vi.useRealTimers(); }
-  });
-
-  it('honors compaction already in progress when a prompt starts, then reports complete silence', async () => {
-    const native = Promise.withResolvers<v2.PromptResponse>();
-    const pair = agentPair({ prompt: () => native.promise });
-    await initialize(pair.api);
-    await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' });
-    await vi.waitFor(() => expect(pair.updates).toHaveLength(1));
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      const uncertain = vi.fn();
-      const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
-        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' },
-        admissionTimeoutMs: 60_000, onAdmissionUncertain: uncertain,
-      });
-      await vi.advanceTimersByTimeAsync(180_000);
-      expect(uncertain).not.toHaveBeenCalled();
-      await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'failed' });
-      await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(uncertain).toHaveBeenCalledTimes(1);
-      native.resolve({ messageId: 'native' });
-      await expect(receipt).resolves.toMatchObject({ messageId: 'native' });
-      expect(pair.cancels).toEqual([]);
-    } finally { native.resolve({ messageId: 'native' }); vi.useRealTimers(); }
-  });
-
-  it('keeps watching progress when an overlapping unwatched request completes', async () => {
-    const manual = Promise.withResolvers<v2.PromptResponse>();
-    const native = Promise.withResolvers<v2.PromptResponse>();
-    let calls = 0;
-    const pair = agentPair({ prompt: () => ++calls === 1 ? manual.promise : native.promise });
-    await initialize(pair.api);
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      const first = pair.api.prompt({ sessionId: 's1', prompt: [] });
-      const uncertain = vi.fn();
-      const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
-        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' },
-        admissionTimeoutMs: 60_000, onAdmissionUncertain: uncertain,
-      });
-      await vi.advanceTimersByTimeAsync(59_000);
-      manual.resolve({ messageId: 'manual' }); await first;
-      await pair.send({ sessionUpdate: 'state_update', state: 'running' });
-      await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(59_000);
-      expect(uncertain).not.toHaveBeenCalled();
-      native.resolve({ messageId: 'native' }); await receipt;
-    } finally { manual.resolve({ messageId: 'manual' }); native.resolve({ messageId: 'native' }); vi.useRealTimers(); }
-  });
-
-  it.each(['completed', 'failed'] as const)('ends the pause at real tool compaction %s and does not reopen it for metadata-only updates', async status => {
-    const native = Promise.withResolvers<v2.PromptResponse>();
-    const pair = agentPair({ prompt: () => native.promise });
-    await initialize(pair.api);
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      const uncertain = vi.fn();
-      const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
-        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' },
-        admissionTimeoutMs: 60_000, onAdmissionUncertain: uncertain,
-      });
-      await pair.send({ sessionUpdate: 'tool_call', toolCallId: 'compact', title: 'Compact conversation', kind: 'think', status: 'in_progress',
-        _meta: { contextCompaction: { trigger: 'automatic', preTokens: 100 } } });
-      await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(180_000);
-      expect(uncertain).not.toHaveBeenCalled();
-      await pair.send({ sessionUpdate: 'tool_call_update', toolCallId: 'compact', status,
-        _meta: { contextCompaction: { trigger: 'automatic', durationMs: 180_000 } } });
-      await vi.advanceTimersByTimeAsync(0);
-      await pair.send({ sessionUpdate: 'tool_call_update', toolCallId: 'compact',
-        _meta: { contextCompaction: { postTokens: 20 } } });
-      await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(59_999);
-      expect(uncertain).not.toHaveBeenCalled();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      await vi.advanceTimersByTimeAsync(30_000);
+      await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'completed' });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(settled).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
-      expect(uncertain).toHaveBeenCalledTimes(1);
-      native.resolve({ messageId: 'native' }); await receipt;
-      expect(pair.cancels).toEqual([]);
-    } finally { native.resolve({ messageId: 'native' }); vi.useRealTimers(); }
+      await rejected;
+    } finally { vi.useRealTimers(); }
+    await vi.waitFor(() => expect(pair.cancels).toEqual([{ sessionId: 's1' }]));
   });
 
-  it('does not count a different session as life for the outstanding admission', async () => {
-    const native = Promise.withResolvers<v2.PromptResponse>();
-    const pair = agentPair({ prompt: () => native.promise });
+  it('does not pause for another session or extend the deadline for ordinary updates', async () => {
+    const pair = agentPair({ prompt: () => new Promise(() => {}) });
     await initialize(pair.api);
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
-      const uncertain = vi.fn();
       const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
-        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' },
-        admissionTimeoutMs: 60_000, onAdmissionUncertain: uncertain,
+        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
       });
-      await vi.advanceTimersByTimeAsync(59_000);
-      await pair.agent().notify(v2.methods.client.session.update, { sessionId: 'other', update: { sessionUpdate: 'state_update', state: 'running' } });
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(uncertain).toHaveBeenCalledTimes(1);
-      native.resolve({ messageId: 'native' });
-      await receipt;
-    } finally { native.resolve({ messageId: 'native' }); vi.useRealTimers(); }
+      const rejected = expect(receipt).rejects.toMatchObject({ code: 'prompt_admission_timeout' });
+      await vi.advanceTimersByTimeAsync(30_000);
+      await pair.agent().notify(v2.methods.client.session.update, {
+        sessionId: 's2', update: { sessionUpdate: 'compaction_update', compactionId: 'other', status: 'in_progress' },
+      });
+      await pair.send({ sessionUpdate: 'state_update', state: 'running' });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      await vi.advanceTimersByTimeAsync(30_000);
+      await rejected;
+    } finally { vi.useRealTimers(); }
+    await vi.waitFor(() => expect(pair.cancels).toEqual([{ sessionId: 's1' }]));
+  });
+
+  it.each(['end_turn', 'error', 'cancelled'])('rejects an unaccepted input when compaction ends with native idle (%s)', async stopReason => {
+    const pair = agentPair({ prompt: () => new Promise(() => {}) });
+    await initialize(pair.api);
+    const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+      requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
+    });
+    const rejected = expect(receipt).rejects.toMatchObject({ code: -32603 });
+    await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' });
+    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason });
+    await rejected;
+    expect(pair.cancels).toEqual([]);
+  });
+
+  it('settles a compacting input when its process closes, without waiting for a deadline', async () => {
+    const pair = agentPair({ prompt: () => new Promise(() => {}) });
+    await initialize(pair.api);
+    const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+      requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
+    });
+    const rejected = expect(receipt).rejects.toThrow();
+    await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    pair.end();
+    await rejected;
+    expect(pair.cancels).toEqual([]);
+  });
+
+  it('settles user cancellation during compaction through the existing cancellation error', async () => {
+    const pair = agentPair({ prompt: () => new Promise(() => {}) });
+    await initialize(pair.api);
+    const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+      requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
+    });
+    const rejected = expect(receipt).rejects.toMatchObject({ code: -32800 });
+    await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    await pair.api.cancel({ sessionId: 's1' });
+    await rejected;
+  });
+
+  it.each([false, true])('preserves a delayed receipt after idle when an echo arrived or compaction completed (%s)', async completed => {
+    const native = Promise.withResolvers<v2.PromptResponse>();
+    const pair = agentPair({ prompt: () => native.promise });
+    await initialize(pair.api);
+    const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+      requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
+    });
+    await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' });
+    if (completed) await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'completed' });
+    else await pair.send({ sessionUpdate: 'user_message', messageId: 'native', content: [{ type: 'text', text: 'hi' }] });
+    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    native.resolve({ messageId: 'native' });
+    await expect(receipt).resolves.toMatchObject({ status: 'accepted', messageId: 'native' });
+    expect(pair.cancels).toEqual([]);
+  });
+
+  it('does not count a user echo observed before this admission was registered', async () => {
+    const pair = agentPair({ prompt: () => new Promise(() => {}) });
+    await initialize(pair.api);
+    await pair.send({ sessionUpdate: 'user_message', messageId: 'older', content: [{ type: 'text', text: 'previous' }] });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+      requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
+    });
+    const rejected = expect(receipt).rejects.toMatchObject({ code: -32603 });
+    await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' });
+    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
+    await rejected;
+  });
+
+  it('an unrelated same-session echo only restores the existing deadline, never acceptance', async () => {
+    const pair = agentPair({ prompt: () => new Promise(() => {}) });
+    await initialize(pair.api);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
+      });
+      const rejected = expect(receipt).rejects.toMatchObject({ code: 'prompt_admission_timeout' });
+      await pair.send({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'in_progress' });
+      await pair.send({ sessionUpdate: 'user_message', messageId: 'unrelated', content: [{ type: 'text', text: 'another client' }] });
+      await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+    } finally { vi.useRealTimers(); }
   });
 
   it('preserves terminal bytes and references without projecting tool text', async () => {

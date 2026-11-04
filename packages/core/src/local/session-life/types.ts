@@ -92,7 +92,7 @@ export type Receipt =
   | Readonly<{ state: 'dispatching'; attempt: Attempt }>
   | Readonly<{ state: 'accepted'; nativeReceiptId: string | null }>
   | Readonly<{ state: 'failed'; cause: SerializedError }>
-  | Readonly<{ state: 'unknown'; cause?: SerializedError }>
+  | Readonly<{ state: 'unknown' }>
 
 export type Interrupt = 'user-stop' | 'archive' | 'delete' | 'sign-out' | 'version-switch' | 'idle-reap' | 'reconfigure'
 export type InterruptEvent =
@@ -105,7 +105,6 @@ export type ReceiptEvent = Readonly<{ k: 'receipt'; gen: Gen; seq: Seq }> & (
   | Readonly<{ result: 'channel-lost'; nativeReceiptId: null; cause: SerializedError }>
 )
 export type Event =
-  | Readonly<{ k: 'admission-uncertain'; gen: Gen; seq: Seq; cause: SerializedError }>
   | Readonly<{ k: 'deliver'; seq: Seq }>
   | Readonly<{ k: 'start'; origin: 'user-open' | 'retry' | 'reconfigure' }>
   | Readonly<{ k: 'stage-ok'; gen: Gen; out: StageResult }>

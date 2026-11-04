@@ -30,25 +30,12 @@ vi.mock('../../../../apps/desktop/src/mobile/local-agent/phoneHostRpc', () => ({
 } }))
 // This computer's own session list sync is another subject; these cases read only what the outbox sends.
 vi.mock('../../../../apps/desktop/src/hooks/useLocalSessionDirectory', () => ({ useLocalSessionDirectory: () => undefined }))
-vi.mock('../../../../apps/desktop/src/session/renderer/localization/locale-store', () => ({ translateSessionMessage: (key: string, values?: { count: number }) => key === 'transcript.waitingNativeReceipt' ? 'Unconfirmed · No response yet' : key === 'composer.attachmentHostUpdateRequired' ? 'Update the task host to send attachments' : key === 'composer.attachmentsNotSent' ? `(${values!.count} attachments could not be included after the upgrade. Please send them again.)` : 'Waiting for host; sends automatically' }))
+vi.mock('../../../../apps/desktop/src/session/renderer/localization/locale-store', () => ({ translateSessionMessage: (key: string, values?: { count: number }) => key === 'composer.attachmentHostUpdateRequired' ? 'Update the task host to send attachments' : key === 'composer.attachmentsNotSent' ? `(${values!.count} attachments could not be included after the upgrade. Please send them again.)` : 'Waiting for host; sends automatically' }))
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { toast.mockClear(); harness = createReactHarness() })
 afterEach(() => { harness.cleanup(); scope.owner = 'account-a'; scope.platform = 'electron'; scope.phones = []; scope.devices = [{ device_id: 'host-a', is_online: false, capabilities: {} }]; scope.received.clear(); scope.send.mockReset(); scope.machines = [] })
 
 describe('native input shell lifecycle', () => {
-  it('shows the native uncertainty reason in the existing waiting bubble until the late receipt', async () => {
-    const row: LifeView['pending']['items'][number] = { seq: 1, messageId: 'original-input', state: 'unknown',
-      preview: 'hello', text: 'hello', kind: 'ordinary', failure: 'No native activity', awaitingReceipt: true };
-    const life: LifeView = { sessionId: 'native-wait', version: 1, kind: 'ready', stage: null, hold: null, failure: null,
-      lastExit: null, nativeSession: null, pending: { count: 1, items: [row] } };
-    await harness.render(<SessionInputQueue sessionId="native-wait" waitingForConnection={false} life={life} />);
-    expect(harness.container.querySelector('[data-send-state="waiting"]')?.textContent).toContain('Unconfirmed · No response yet');
-    expect(harness.container.querySelector('button')).toBeNull();
-    await harness.render(<SessionInputQueue sessionId="native-wait" waitingForConnection={false}
-      life={{ ...life, pending: { count: 0, items: [{ ...row, state: 'accepted', awaitingReceipt: undefined }] } }} />);
-    expect(harness.container.querySelector('[data-native-input-id="original-input"]')).toBeNull();
-  });
-
   it('leaves every transcript-owned failed input out of the tray while preserving ordinary host failures', async () => {
     const item = (seq: number, messageId: string, state: 'queued' | 'failed'): LifeView['pending']['items'][number] =>
       ({ seq, messageId, state, preview: messageId, text: messageId, kind: 'ordinary', failure: state === 'failed' ? 'host refusal' : null });

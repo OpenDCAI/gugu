@@ -29,7 +29,7 @@ import type {
   QueuedPromptEdit,
   ResumeResult,
 } from '@gugu/session-core/acp';
-import { errorDetail, ok, type Result, type SerializedError } from '@gugu/session-shared';
+import { errorDetail, ok, type Result } from '@gugu/session-shared';
 import { randomUUID } from 'node:crypto';
 import { blobSourceFromBytes, type WireFile } from '@gugu/session-wire';
 import type { AcpRuntime } from '../runtime/runtime';
@@ -38,11 +38,7 @@ import type { LiveSettingApplyResult } from '../session/cell-deps';
 export type StartSessionInput = AcpRuntimeStartInput;
 
 export function createAcpProcedures(runtime: AcpRuntime) {
-  const detachedPrompts = new Map<string, {
-    sessionId: string;
-    admission: Promise<Result<{ queued: boolean }, AcpSendPromptError>>;
-    completion: Promise<Result<{ queued: boolean }, AcpSendPromptError>>;
-  }>();
+  const detachedPrompts = new Map<string, Promise<Result<{ queued: boolean }, AcpSendPromptError>>>();
   const errorMessage = (error: AcpSendPromptError): string => {
     if (error.message) return error.message;
     // A JSON-RPC cause keeps the provider's sentence in `data.details` (qwen: message "Internal error",
@@ -79,7 +75,7 @@ export function createAcpProcedures(runtime: AcpRuntime) {
       sessionId: string;
       prompt: PromptInput;
       steerIfBusy?: boolean;
-    }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean; missing?: true; uncertain?: SerializedError }> {
+    }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean; missing?: true }> {
       const started = runtime.promptDetached(input.sessionId, input.prompt, input.steerIfBusy ? { steerIfBusy: true } : undefined);
       if (!started.success) {
         if (started.error.type === 'session_busy' || started.error.type === 'conversation_not_found') {
@@ -87,21 +83,16 @@ export function createAcpProcedures(runtime: AcpRuntime) {
         }
         throw new Error(started.error.message);
       }
-      const completion = started.data.completion;
+      const completion = started.data.completion.then(async result => {
+        if (!result.success && 'cause' in result.error && result.error.cause?.code === 'prompt_admission_timeout') {
+          // A silent request still owns its transport. Stop it before a later prompt can reuse it;
+          // stop_pending remains closing and can be retried, rather than claiming the process exited.
+          await runtime.stopSession(input.sessionId);
+        }
+        return result;
+      });
       void completion.catch(() => undefined);
-      const first = await Promise.race([
-        started.data.admission.then(admission => ({ kind: 'receipt' as const, admission })),
-        started.data.uncertain.then(() => ({ kind: 'uncertain' as const })),
-      ]);
-      if (first.kind === 'uncertain') {
-        const requestId = randomUUID();
-        detachedPrompts.set(requestId, { sessionId: input.sessionId, admission: started.data.admission, completion });
-        return { requestId, queued: false, declined: false, uncertain: {
-          name: 'AdmissionUncertain', code: 'prompt_admission_timeout',
-          message: 'No native activity for 60 seconds; admission has not been confirmed',
-        } };
-      }
-      const admission = first.admission;
+      const admission = await started.data.admission;
       if (!admission.success) {
         if (admission.error.type === 'conversation_not_found') {
           const stopped = await runtime.stopSession(input.sessionId);
@@ -119,7 +110,7 @@ export function createAcpProcedures(runtime: AcpRuntime) {
       const requestId = randomUUID();
       // The completion has been observed since creation; wait is a separate RPC that can arrive
       // after the provider has already failed.
-      detachedPrompts.set(requestId, { sessionId: input.sessionId, admission: started.data.admission, completion });
+      detachedPrompts.set(requestId, completion);
       return {
         requestId,
         queued: admission.data.queued,
@@ -127,21 +118,12 @@ export function createAcpProcedures(runtime: AcpRuntime) {
         declined: false,
       };
     },
-    async waitPromptDetached(input: { requestId: string; admissionOnly?: boolean }): Promise<{ queued: boolean; declined?: true; missing?: true }> {
-      const pending = detachedPrompts.get(input.requestId);
-      if (!pending) throw new Error(`detached prompt ${input.requestId} was not found`);
-      if (!input.admissionOnly) detachedPrompts.delete(input.requestId);
-      const result = await (input.admissionOnly ? pending.admission : pending.completion);
-      if (!result.success) {
-        detachedPrompts.delete(input.requestId);
-        if (input.admissionOnly && result.error.type === 'conversation_not_found') {
-          // Preserve #552's typed refusal/recovery boundary even when the refusal arrives after uncertainty.
-          const stopped = await runtime.stopSession(pending.sessionId);
-          if (!stopped.success && !runtime.adapterProvenance(pending.sessionId)?.closing) throw new Error(stopped.error.message ?? 'Provider session teardown did not complete');
-          return { queued: false, declined: true, missing: true };
-        }
-        throw new Error(errorMessage(result.error));
-      }
+    async waitPromptDetached(input: { requestId: string }): Promise<{ queued: boolean }> {
+      const completion = detachedPrompts.get(input.requestId);
+      if (!completion) throw new Error(`detached prompt ${input.requestId} was not found`);
+      detachedPrompts.delete(input.requestId);
+      const result = await completion;
+      if (!result.success) throw new Error(errorMessage(result.error));
       return result.data;
     },
     async queuePrompt(input: {

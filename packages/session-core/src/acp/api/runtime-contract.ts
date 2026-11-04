@@ -6,7 +6,6 @@ import { terminalStateSchema } from '../models/terminals';
 import { promptInputSchema } from '../models/prompt';
 import { sessionNoticeCodeSchema, transcriptTurnSchema } from '../models/turns';
 import { acpApiContract, acpSessionLifecycleProcedures } from './contract';
-import { serializedErrorSchema } from './errors';
 
 /**
  * Process-level platform credentials for an ACP adapter.
@@ -126,10 +125,8 @@ const detachedPromptResponseSchema = z.object({
   steered: z.boolean().optional(),
   declined: z.boolean(),
   missing: z.literal(true).optional(),
-  /** Status only: native admission is still outstanding and can be joined with admissionOnly. */
-  uncertain: serializedErrorSchema.optional(),
 });
-const detachedPromptWaitInputSchema = z.object({ requestId: z.string(), admissionOnly: z.boolean().optional() });
+const detachedPromptWaitInputSchema = z.object({ requestId: z.string() });
 
 /** Internal ACP process contract. The Electron renderer is exposed acpApiContract, never this one. */
 export const acpRuntimeApiContract = defineContract({
@@ -271,7 +268,7 @@ export const acpRuntimeApiContract = defineContract({
   }),
   waitPromptDetached: procedure({
     input: detachedPromptWaitInputSchema,
-    output: z.object({ queued: z.boolean(), declined: z.literal(true).optional(), missing: z.literal(true).optional() }),
+    output: z.object({ queued: z.boolean() }),
   }),
 });
 

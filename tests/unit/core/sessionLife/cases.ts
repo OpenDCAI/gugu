@@ -68,15 +68,6 @@ const rejected: Extract<ReceiptEvent, { result: 'rejected-before-admission' }> =
 const lost: Extract<ReceiptEvent, { result: 'channel-lost' }> = { k: 'receipt', gen: G, seq: seq(10), result: 'channel-lost', nativeReceiptId: null, cause: CAUSE }
 
 export const transitionCases: readonly { row: number; name: string; run: () => void }[] = [
-  { row: 31, name: 'a real exit reports an uncertain admission to its sources once', run() {
-    const state = ready('next-tool-call', 'awaiting');
-    const uncertain = decide(state, { k: 'admission-uncertain', gen: G, seq: seq(10), cause: CAUSE }, pending([], [10]));
-    assert.equal(uncertain[1].some(e => e.e === 'report-failure'), false);
-    const exited = decide(uncertain[0], { k: 'exit', gen: G, exit: EXIT }, pending());
-    effect(exited, { e: 'report-failure', seqs: [seq(10)], cause: OUTCOME_UNKNOWN });
-    kind(exited, 'dormant');
-    noChange(exited[0], { k: 'exit', gen: G, exit: EXIT });
-  } },
   { row: 1, name: 'dormant delivery starts identity once', run() { kind(decide(dormant(), deliver, pending([20])), 'starting'); effect(decide(dormant(), deliver), { e: 'run-stage', gen: NEXT, at: 'identity', have: {} }) } },
   { row: 2, name: 'new delivery withdraws a user stop', run() { const r = decide(dormant(STOP), deliver, pending([20])); kind(r, 'starting'); effect(r, { e: 'write-hold', hold: null }) } },
   { row: 3, name: 'signed-out delivery stays queued', run() { noChange(dormant(OUT), deliver, pending([20])) } },
@@ -117,7 +108,7 @@ export const transitionCases: readonly { row: number; name: string; run: () => v
   } },
   { row: 26, name: '#552: a channel lost before admission puts the head back and restarts for it, tearing down first', run() { const s = ready('next-tool-call', 'awaiting'); const r = decide(s, lost, pending([20], [10])); kind(r, 'starting'); assert.deepEqual(r[1].map(e => e.e), ['write-receipt', 'teardown', 'run-stage']); effect(r, { e: 'write-receipt', seq: seq(10), receipt: { state: 'queued', channelLost: CAUSE } }); assert.equal(r[1].some(e => e.e === 'report-failure'), false) } },
   { row: 43, name: '#552: during teardown a lost channel only puts the row back; settle decides by destination', run() { const s = stopping('user-stop'); const r = decide(s, lost); assert.equal(r[0], s); assert.deepEqual(r[1], [{ e: 'write-receipt', seq: seq(10), receipt: { state: 'queued', channelLost: CAUSE } }]) } },
-  { row: 31, name: 'exit makes the in-flight row unknown and tears down before a next attempt', run() { const s = ready('next-tool-call', 'awaiting'); const r = decide(s, { k: 'exit', gen: G, exit: EXIT }, pending([20], [10])); kind(r, 'starting'); assert.deepEqual(r[1].map(e => e.e), ['write-receipt', 'report-failure', 'abort', 'teardown', 'run-stage']); effect(r, { e: 'write-receipt', seq: seq(10), receipt: { state: 'unknown' } }); effect(r, { e: 'report-failure', seqs: [seq(10)], cause: OUTCOME_UNKNOWN }); assert.ok(s.kind === 'ready'); effect(r, { e: 'teardown', gen: G, have: s.have }); const empty = decide(ready(), { k: 'exit', gen: G, exit: EXIT }); const dormantState = kind(empty, 'dormant'); assert.ok(dormantState.kind === 'dormant'); assert.deepEqual(dormantState.lastExit, EXIT); assert.deepEqual(empty[1].map(e => e.e), ['abort', 'teardown']) } },
+  { row: 31, name: 'exit makes the in-flight row unknown and tears down before a next attempt', run() { const s = ready('next-tool-call', 'awaiting'); const r = decide(s, { k: 'exit', gen: G, exit: EXIT }, pending([20], [10])); kind(r, 'starting'); assert.deepEqual(r[1].map(e => e.e), ['write-receipt', 'report-failure', 'teardown', 'run-stage']); effect(r, { e: 'write-receipt', seq: seq(10), receipt: { state: 'unknown' } }); effect(r, { e: 'report-failure', seqs: [seq(10)], cause: OUTCOME_UNKNOWN }); assert.ok(s.kind === 'ready'); effect(r, { e: 'teardown', gen: G, have: s.have }); const empty = decide(ready(), { k: 'exit', gen: G, exit: EXIT }); const dormantState = kind(empty, 'dormant'); assert.ok(dormantState.kind === 'dormant'); assert.deepEqual(dormantState.lastExit, EXIT); assert.deepEqual(empty[1].map(e => e.e), ['teardown']) } },
   { row: 32, name: 'a genuinely free empty session may be reaped', run() { kind(decide(ready(), interrupt('idle-reap')), 'stopping') } },
   { row: 33, name: 'stale reaper observations are explicit no-ops', run() { noChange(ready(), interrupt('idle-reap'), pending([20])); for (const a of ['awaiting', 'busy'] as const) noChange(ready('idle-only', a), interrupt('idle-reap')) } },
   { row: 34, name: 'ready interruptions retain the complete teardown lease', run() { const s = ready(); const r = decide(s, interrupt('archive')); kind(r, 'stopping'); assert.ok(s.kind === 'ready'); effect(r, { e: 'teardown', gen: G, have: s.have }) } },

@@ -141,7 +141,5 @@ export interface SessionPromptResult {
 /** Admission is returned to host scheduling before the provider turn settles. */
 export interface DetachedPromptResult {
   admission: Promise<Result<{ queued: boolean; steered?: boolean }, AcpSendPromptError>>;
-  /** A bounded status report; it never settles the real admission or foreground completion. */
-  uncertain: Promise<void>;
   completion: Promise<Result<SessionPromptResult, AcpSendPromptError>>;
 }

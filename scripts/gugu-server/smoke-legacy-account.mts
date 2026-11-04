@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Released 1126/1131 supervisors create this skeleton before run-account, without prepare-install.
 // Keep this compatibility probe independent of the current checkAccountBoot's installation preparation.
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -11,16 +11,28 @@ const binary = process.argv[2]
 if (!binary || !path.isAbsolute(binary)) throw new Error('An absolute packaged server binary is required')
 const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-legacy-boot-'))
 if (!fixture.startsWith(path.join(os.tmpdir(), 'gugu-legacy-boot-'))) throw new Error('Unexpected fixture path')
-// Runtime caches (including Rosetta before Node starts) belong to the OS user's home,
-// not the never-used server installation whose empty-account contract this probes.
-const home = path.join(fixture, 'server')
-const userHome = path.join(fixture, 'user')
-fs.mkdirSync(userHome, { mode: 0o700 })
+// Keep OS caches (including Rosetta's) outside the installation, as in a real user home.
+const home = path.join(fixture, '.gugu-server')
 const userId = randomUUID()
 const account = path.join(home, 'accounts', userId)
 const data = path.join(account, 'data')
 fs.mkdirSync(data, { recursive: true, mode: 0o700 })
 fs.writeFileSync(path.join(account, 'account.json'), '{}', { mode: 0o600 })
+const env = { ...process.env, GUGU_SERVER_HOME: home, GUGU_HOME: path.join(account, 'home'),
+  GUGU_TASK_HOST_USER_DATA: data, GUGU_USER_DATA_DIR: data,
+  GUGU_SERVER_ACCOUNT: userId, GUGU_SERVER_WAIT_PID: '', HOME: fixture, USERPROFILE: fixture }
+// Real account data without a verifiable source must still fail, with the exact migration error.
+const existing = path.join(data, 'existing-account-state')
+fs.writeFileSync(existing, 'existing account state', { mode: 0o600 })
+const refused = spawnSync(binary, ['run-account', userId], { env, encoding: 'utf8', timeout: 45_000 })
+const refusal = '[server] Error: Existing account environment cannot be verified; explicit migration is required'
+if (refused.status !== 1 || !refused.stderr.split('\n').includes(refusal)
+  || fs.existsSync(path.join(home, 'current')) || fs.existsSync(path.join(home, 'installation.json'))
+  || fs.readFileSync(existing, 'utf8') !== 'existing account state') {
+  throw new Error(`Legacy account migration refusal changed (${refused.status})\n${refused.stderr}`)
+}
+console.log(`legacy account data refused: ${refusal}`)
+fs.unlinkSync(existing)
 const ready = Promise.withResolvers<void>()
 const startedAt = Date.now()
 const checkReady = () => {
@@ -32,9 +44,7 @@ const checkReady = () => {
 }
 const child = spawn(binary, ['run-account', userId], {
   stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...process.env, GUGU_SERVER_HOME: home, GUGU_HOME: path.join(account, 'home'),
-    GUGU_TASK_HOST_USER_DATA: data, GUGU_USER_DATA_DIR: data,
-    GUGU_SERVER_ACCOUNT: userId, GUGU_SERVER_WAIT_PID: '', HOME: userHome, USERPROFILE: userHome },
+  env,
 })
 console.log(`legacy boot probe launched: pid=${child.pid}`)
 let output = Buffer.alloc(0)

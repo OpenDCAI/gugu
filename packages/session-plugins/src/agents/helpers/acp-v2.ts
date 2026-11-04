@@ -9,7 +9,7 @@ import * as v2 from '@agentclientprotocol/sdk/experimental/v2';
 import type { AcpAgentApi, AcpClientFactory, AcpProcessIo } from '@gugu/session-core/agents/plugins';
 import { nodeReadableToWeb } from './acp-stdio';
 import { cooperativeAcpMessages } from './acp-work-slice';
-import { AdmissionWatchdog, decodePermissionRequest, decodeV2SessionUpdate, decodeConfigOptions, type NormalizedEvent } from '@gugu/session-core/acp';
+import { decodePermissionRequest, decodeV2SessionUpdate, decodeConfigOptions, type NormalizedEvent } from '@gugu/session-core/acp';
 
 /**
  * ACP v2 over stdio, behind the same `AcpAgentApi` the host drives every adapter through.
@@ -32,18 +32,10 @@ export function connectStdioAcpV2(
     Writable.toWeb(io.stdin) as WritableStream<Uint8Array>,
     nodeReadableToWeb(io.stdout),
   );
-  const watchdogs = new Map<string, Set<AdmissionWatchdog>>();
-  const compactions = new Map<string, Map<string, Extract<NormalizedEvent, { kind: 'compaction' }>>>();
+  const admissions = new Set<{ sessionId: string; observe(event: NormalizedEvent): void; cancel(): void }>();
   const deliver = (sessionId: string, update: v2.SessionUpdate) => {
     const event = decode(update);
-    if (event.kind === 'compaction' && event.status) {
-      const active = compactions.get(sessionId) ?? new Map();
-      if (event.status === 'in_progress') active.set(event.compactionId, event);
-      else active.delete(event.compactionId);
-      if (active.size) compactions.set(sessionId, active);
-      else compactions.delete(sessionId);
-    }
-    for (const watchdog of watchdogs.get(sessionId) ?? []) watchdog.observe(event);
+    for (const admission of admissions) if (admission.sessionId === sessionId) admission.observe(event);
     client.sessionEvent({ sessionId, event, trace: update });
   };
 
@@ -53,10 +45,9 @@ export function connectStdioAcpV2(
       const { sessionId, update } = params;
       deliver(sessionId, update);
     })
-    .onRequest(v2.methods.client.session.requestPermission, async ({ params }) => {
-      for (const watchdog of watchdogs.get(params.sessionId) ?? []) watchdog.activity();
-      return client.requestPermission(decodePermissionRequest(params));
-    });
+    .onRequest(v2.methods.client.session.requestPermission, async ({ params }) =>
+      client.requestPermission(decodePermissionRequest(params)),
+    );
   const connection = app.connect({ ...stream, readable: cooperativeAcpMessages(stream.readable) });
   const agent = connection.agent;
 
@@ -96,20 +87,62 @@ export function connectStdioAcpV2(
     async prompt(params, dispatch) {
       const request = agent.request(v2.methods.agent.session.prompt, params as v2.PromptRequest);
       const timeoutMs = dispatch?.admissionTimeoutMs;
-      const watchdog = timeoutMs === undefined ? null : new AdmissionWatchdog(timeoutMs, () => dispatch?.onAdmissionUncertain?.());
-      const watching = watchdogs.get(params.sessionId) ?? new Set<AdmissionWatchdog>();
-      if (watchdog) {
-        for (const event of compactions.get(params.sessionId)?.values() ?? []) watchdog.observe(event);
-        watching.add(watchdog); watchdogs.set(params.sessionId, watching);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let compactionId: string | null = null;
+      let sawCompaction = false;
+      let sawUserEcho = false;
+      let fail!: (error: Error) => void;
+      const deadline = new Promise<never>((_resolve, reject) => { fail = reject; });
+      const arm = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          void agent.notify(v2.methods.agent.session.cancel, { sessionId: params.sessionId }).catch(() => undefined);
+          fail(Object.assign(new Error(`Native prompt admission timed out after ${timeoutMs}ms`), { code: 'prompt_admission_timeout' }));
+        }, timeoutMs);
+      };
+      const admission = {
+        sessionId: params.sessionId,
+        observe(event: NormalizedEvent) {
+          if (event.kind === 'message' && event.role === 'user') sawUserEcho = true;
+          if (event.kind === 'compaction') {
+            if (event.status === 'in_progress' && compactionId === null) {
+              compactionId = event.compactionId;
+              sawCompaction = true;
+              clearTimeout(timer);
+            } else if ((event.status === 'completed' || event.status === 'failed') && compactionId === event.compactionId) {
+              compactionId = null;
+              arm();
+            }
+          } else if (compactionId !== null && event.kind === 'agent_state' && event.state === 'idle') {
+            compactionId = null;
+            // The native echo and its correlated RPC receipt may precede/follow idle independently.
+            // An observed echo is not admission; it leaves that decision to the original receipt.
+            if (sawUserEcho) arm();
+            else {
+              clearTimeout(timer);
+              fail(Object.assign(new Error(event.error?.message ?? 'Native turn ended before prompt acceptance'),
+                event.error ?? { code: -32603 }));
+            }
+          }
+        },
+        cancel() {
+          if (sawCompaction) fail(new v2.RequestError(-32800, 'Request cancelled before acceptance'));
+        },
+      };
+      if (timeoutMs !== undefined) { admissions.add(admission); arm(); }
+      try {
+        // A native compaction suspends this same deadline; only its receipt accepts the input.
+        const receipt = await (timeoutMs === undefined ? request : Promise.race([request, deadline]));
+        return { status: 'accepted', requestId: dispatch?.requestId ?? crypto.randomUUID(), ...receipt };
+      } finally {
+        clearTimeout(timer);
+        admissions.delete(admission);
       }
-      const receipt = await request.finally(() => {
-        watchdog?.close();
-        if (watchdog) watching.delete(watchdog);
-        if (watchdog && watching.size === 0) watchdogs.delete(params.sessionId);
-      });
-      return { status: 'accepted', requestId: dispatch?.requestId ?? crypto.randomUUID(), ...receipt };
     },
-    cancel: (params) => agent.notify(v2.methods.agent.session.cancel, params),
+    cancel(params) {
+      for (const admission of admissions) if (admission.sessionId === params.sessionId) admission.cancel();
+      return agent.notify(v2.methods.agent.session.cancel, params);
+    },
     async steer(params) {
       const response = await agent.request<Record<string, unknown>>('_session/steering', {
         ...params, _meta: { steering: { idleBehavior: 'promptRequired', delivery: 'next' } },

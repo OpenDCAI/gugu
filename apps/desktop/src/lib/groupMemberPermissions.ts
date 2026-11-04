@@ -39,3 +39,13 @@ export function canInviteHumansToGroup(settings: {
 export function isProjectGroupChat(chatId: string): boolean {
   return projectGroupsStore.projectOfChat(chatId) !== undefined
 }
+
+/** Every member can invite an owned Agent; project groups never invite humans. */
+export function groupInviteAccess(chatId: string, kind: 'group' | 'topic', settings: Parameters<typeof canInviteHumansToGroup>[0]) {
+  const projectGroup = isProjectGroupChat(chatId)
+  return {
+    projectGroup,
+    showInvite: kind === 'group' && Boolean(settings?.my_role),
+    canInviteHumans: kind === 'group' && !projectGroup && canInviteHumansToGroup(settings),
+  }
+}

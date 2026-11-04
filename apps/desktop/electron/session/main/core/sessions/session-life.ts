@@ -1,7 +1,7 @@
 import { hydrateLife, OUTCOME_UNKNOWN, shouldStartOnHydrate, step } from '@gugu/core/local/session-life/step';
 import { STAGES } from '@gugu/core/local/session-life/types';
 import { isSqliteBusy } from '@gugu/core/shared/sqliteBusy';
-import { toSerializedError, withAbort } from '@gugu/session-shared/result';
+import { toSerializedError } from '@gugu/session-shared/result';
 import type {
   Attempt, AuthEpoch, Effect, Event, Gen, Hold, InterruptEvent, Life,
   PendingView, RunStageEffect, Seq, SerializedError, StageResult,
@@ -391,12 +391,30 @@ export class SessionLife {
             cause: { name: 'AdmissionCancelled', message: 'The session stopped before dispatch' } });
           return;
         }
-        // The native attempt still owns its receipt. An explicit lifecycle abort only releases this IO lane,
-        // so teardown can close the provider even when it never acknowledges that attempt.
-        const dispatch = this.dispatch(sessionId, run, effect.seq, entry.life.have);
-        void dispatch.catch(error => { if (run.abort.signal.aborted) this.ports.failed(sessionId, error); });
-        try { await withAbort(dispatch, run.abort.signal); }
-        catch (error) { if (!run.abort.signal.aborted) throw error; }
+        let result: Awaited<ReturnType<LegAdapter['dispatch']>>;
+        try {
+          result = await run.adapter.dispatch(entry.life.have, this.ports.store(sessionId).row(sessionId, effect.seq), { gen: run.gen, signal: run.abort.signal });
+        } catch (error) {
+          // @@@dispatch-throw - bytes may have left: the channel is no longer a proven admission path.
+          // Exit records this row as unknown (never replayed) and restarts only for the rows behind it.
+          this.send(sessionId, { k: 'exit', gen: run.gen, exit: { cause: toSerializedError(error), code: null, signal: null } });
+          return;
+        }
+        switch (result.result) {
+          case 'accepted':
+            this.send(sessionId, { k: 'receipt', gen: run.gen, seq: effect.seq, result: 'accepted', nativeReceiptId: result.nativeReceiptId });
+            return;
+          case 'rejected-before-admission':
+            this.send(sessionId, { k: 'receipt', gen: run.gen, seq: effect.seq, result: result.result, cause: result.cause, nativeReceiptId: null });
+            return;
+          case 'channel-lost': {
+            // #552: one redelivery per row. A row that already lost a channel once fails on the second loss.
+            const lostBefore = this.ports.store(sessionId).row(sessionId, effect.seq).failure !== null;
+            this.send(sessionId, { k: 'receipt', gen: run.gen, seq: effect.seq, nativeReceiptId: null,
+              result: lostBefore ? 'rejected-before-admission' : 'channel-lost', cause: result.cause });
+            return;
+          }
+        }
         return;
       }
       case 'teardown':
@@ -418,42 +436,6 @@ export class SessionLife {
     }
   }
 
-  private async dispatch(sessionId: string, run: Run, seq: Seq, have: Parameters<LegAdapter['dispatch']>[0]): Promise<void> {
-    const row = this.ports.store(sessionId).row(sessionId, seq);
-    // At dispatch, a retained failure is a proven earlier channel loss (#552). A later uncertain
-    // status can replace that diagnostic, so keep this recovery fact separate for this native attempt.
-    const channelLostBeforeDispatch = row.failure !== null;
-    let result: Awaited<ReturnType<LegAdapter['dispatch']>>;
-    try {
-      result = await run.adapter.dispatch(have, row, {
-        gen: run.gen, signal: run.abort.signal,
-        onUncertain: cause => this.send(sessionId, { k: 'admission-uncertain', gen: run.gen, seq, cause }),
-      });
-    } catch (error) {
-      if (run.abort.signal.aborted) return;
-      // @@@dispatch-throw - bytes may have left: the channel is no longer a proven admission path.
-      // Exit records this row as unknown (never replayed) and restarts only for the rows behind it.
-      this.send(sessionId, { k: 'exit', gen: run.gen, exit: { cause: toSerializedError(error), code: null, signal: null } });
-      return;
-    }
-    if (!this.entries.has(sessionId)) return;
-    switch (result.result) {
-      case 'accepted':
-        this.send(sessionId, { k: 'receipt', gen: run.gen, seq, result: 'accepted', nativeReceiptId: result.nativeReceiptId });
-        return;
-      case 'rejected-before-admission':
-        this.send(sessionId, { k: 'receipt', gen: run.gen, seq, result: result.result, cause: result.cause, nativeReceiptId: null });
-        return;
-      case 'channel-lost': {
-        // #552: one redelivery per row. A row that already lost a channel once fails on the second loss.
-        this.send(sessionId, { k: 'receipt', gen: run.gen, seq, nativeReceiptId: null,
-          result: channelLostBeforeDispatch ? 'rejected-before-admission' : 'channel-lost', cause: result.cause });
-        return;
-      }
-    }
-    return;
-  }
-
   /** A failed read marker leaves an accepted, unsettled row: a later cloud nudge reconciles it without dispatch. */
   reconcileRead(sessionId: string, seq: Seq): void {
     const row = this.ports.store(sessionId).row(sessionId, seq);
@@ -468,11 +450,9 @@ export class SessionLife {
     const hold = life.kind === 'dormant' || life.kind === 'failed' ? life.hold : life.kind === 'stopping' && life.destination.kind === 'held' ? life.destination.hold : null;
     return { sessionId, version: entry.version, kind: life.kind,
       stage: stageOf(entry),
-      pending: { count: rows.filter(row => row.state === 'queued' || row.state === 'dispatching' ||
-        (row.state === 'unknown' && life.kind === 'ready' && life.admission.kind === 'awaiting' && life.admission.seq === row.seq)).length,
+      pending: { count: rows.filter(row => row.state === 'queued' || row.state === 'dispatching').length,
         items: rows.map(row => ({ seq: row.seq, messageId: row.message.id, preview: row.message.text.slice(0, 160), text: row.message.text, kind: row.kind, sentAt: row.sentAt, discardable: discardable(row),
-          state: row.state, failure: row.state === 'failed' || row.state === 'unknown' ? row.failure?.message ?? null : null,
-          ...(row.state === 'unknown' && life.kind === 'ready' && life.admission.kind === 'awaiting' && life.admission.seq === row.seq ? { awaitingReceipt: true } : {}) })) },
+          state: row.state, failure: row.state === 'failed' ? row.failure?.message ?? null : null })) },
       hold: hold?.reason ?? null,
       failure: life.kind === 'failed' ? { at: life.hold.reason === 'start-failed' ? life.hold.stage : null, message: life.hold.cause.message, cause: life.hold.cause } : null,
       lastExit: life.kind === 'dormant' ? life.lastExit?.cause.message ?? null : null,

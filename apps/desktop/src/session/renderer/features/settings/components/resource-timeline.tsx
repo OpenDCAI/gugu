@@ -1,4 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
+import { formatClock } from '@/i18n/format';
 import { observer } from 'mobx-react-lite';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { rpc } from '@renderer/lib/ipc';
@@ -111,7 +112,7 @@ export const ResourceTimeline = observer(function ResourceTimeline({ compact = f
         <div className="text-foreground-muted">{tiles.find((tile) => tile.key === metric)?.label}</div>
         {chart(metric, 96)}
       </div>) : <p className="text-foreground-muted">{t('resourceMonitor.empty')}</p>}
-      <p className="text-foreground-muted">{t('resourceMonitor.stored', { count: history?.count ?? 0, bytes: formatBytes(history?.bytes ?? 0), time: last ? new Date(last.timestamp).toLocaleTimeString() : '–' })} {t('resourceMonitor.retention')}</p>
+      <p className="text-foreground-muted">{t('resourceMonitor.stored', { count: history?.count ?? 0, bytes: formatBytes(history?.bytes ?? 0), time: last ? formatClock(last.timestamp) : '–' })} {t('resourceMonitor.retention')}</p>
     </div>
     {(error || snapshot?.recordingError) && <p role="alert">{error || t('resourceMonitor.writeFailed')} <Button size="sm" variant="ghost" onClick={() => setRevision((n) => n + 1)}>{t('resourceMonitor.retry')}</Button></p>}
     {selected || live
@@ -166,7 +167,7 @@ function TimelineChart({ data, metric, compact, select, labels }: { data: ChartD
     line: { style: { stroke, lineWidth: compact ? 1.5 : 2 } }, point: { visible: false }, legends: { visible: false },
     crosshair: { xField: { visible: !compact, line: { type: 'line', style: { lineWidth: 1 } } } },
     tooltip: { visible: !compact, mark: { visible: false }, dimension: {
-      title: { value: (d: ResourcePoint) => new Date(d.timestamp).toLocaleTimeString() },
+      title: { value: (d: ResourcePoint) => formatClock(d.timestamp) },
       content: [{ key: labels.cpu, value: (d: ResourcePoint) => cpuText(d.cpu) }, { key: labels.memory, value: (d: ResourcePoint) => memoryText(d.memory) }],
     } },
   }), [theme, stroke, compact, metric, labels.cpu, labels.memory]);

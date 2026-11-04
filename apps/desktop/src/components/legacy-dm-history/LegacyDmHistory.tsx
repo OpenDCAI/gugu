@@ -9,7 +9,7 @@ import { rendererLogger } from '@/lib/log';
 import { ChevronLeft, X } from '@/lib/icons';
 import { rpc } from '@/session/renderer/lib/ipc';
 import { useSessionMessages } from '@/session/renderer/localization/use-session-messages';
-import { formatDateTime } from '@/session/renderer/features/session-history/session-history-row';
+import { formatCalendarDate } from '@/i18n/format';
 import { Sheet } from '../ui/Sheet';
 import { PaneHeader } from '../ui/Pane';
 import { Button } from '../ui/Button';
@@ -96,7 +96,7 @@ function LegacyDmReader({ scope: owner, sessionId, mobile, onClose }: {
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         {unbound && <PaneEmptyState caption={translate('legacyDm.unbound')} />}
         {rows.map(row => <ListRow key={row.id} title={row.name ?? translate('legacyDm.chatNumber', { number: row.publicId })}
-          subtitle={<time dateTime={row.updatedAt}>{formatDateTime(Date.parse(row.updatedAt), locale)}</time>}
+          subtitle={<time dateTime={row.updatedAt}>{formatCalendarDate(Date.parse(row.updatedAt), locale)}</time>}
           trailing={<Button size="sm" variant="secondary" onClick={() => setSelected(row)}>{translate('sessionHistory.open')}</Button>} />)}
         {!loading && !unbound && !error && rows.length === 0 && !after && <PaneEmptyState caption={translate('legacyDm.empty')} />}
         {error != null && <><PaneEmptyState caption={translate('legacyDm.failed')} hint={messageForUser(error)} /><Button variant="ghost" onClick={() => setRetry(value => value + 1)}>{translate('common.retry')}</Button></>}
@@ -152,7 +152,7 @@ function LegacyDmTranscript({ scope, chat, mobile }: { scope: LegacyDmScope; cha
         body={legacyMessageBody(message, t('message.retracted'))}
         sender={message.is_mine ? { display_name: owner?.display_name ?? '', avatar: owner?.avatar, type: 'human' }
           : chat.agent && message.sender_user_id === chat.agent.id ? chat.agent : { display_name: translate('legacyDm.unknownSender') }}
-        timestamp={<time dateTime={message.created_at}> · {formatDateTime(Date.parse(message.created_at), locale)}</time>}
+        timestamp={<time dateTime={message.created_at}> · {formatCalendarDate(Date.parse(message.created_at), locale)}</time>}
         onOpenFile={file => preview.open(file, message)} />)}
       {loading && <LoadingIndicator size="panel" ariaLabel={translate('sessionImport.previewLoading')} />}
       {error != null && <><PaneEmptyState caption={translate('legacyDm.failed')} hint={messageForUser(error)} /><Button variant="ghost" onClick={() => setRetry(value => value + 1)}>{translate('common.retry')}</Button></>}

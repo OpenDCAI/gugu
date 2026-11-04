@@ -33,7 +33,7 @@ export interface LegAdapter {
   readonly timing: Timing;
   /** A stage that fails with `awaitsPerson: true` on its error says only the person can resolve it (see StartFailedHold). */
   run<K extends StageName>(at: K, have: Have<K>, ctx: { gen: Gen; signal: AbortSignal }): Promise<StageOut[K]>;
-  dispatch(have: StageOut, row: PendingRow, ctx: { gen: Gen; signal: AbortSignal; onUncertain?: (cause: SerializedError) => void }): Promise<
+  dispatch(have: StageOut, row: PendingRow, ctx: { gen: Gen; signal: AbortSignal }): Promise<
     | { result: 'accepted'; nativeReceiptId: string | null }
     | { result: 'rejected-before-admission'; cause: SerializedError }
     /** The channel was gone before it took a byte: the row goes back to the queue for a fresh run (once). */

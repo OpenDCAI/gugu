@@ -183,75 +183,23 @@ describe('bounded native admission', () => {
     } finally { finish.resolve({ stopReason: 'end_turn' }); vi.useRealTimers(); }
   });
 
-  it('reports a silent first prompt as uncertain without losing its late receipt or provider', async () => {
+  it('ends a silent first prompt once, reports timeout, and tears down its provider before another turn', async () => {
     const { h, rt, api } = await setup(true);
     const child = h.lastChild;
-    const receipt = Promise.withResolvers<{ status: 'accepted'; requestId: string; messageId: string }>();
-    h.agent.prompt.mockImplementationOnce(() => receipt.promise);
-    vi.useFakeTimers();
-    try {
-      const pending = api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'hi', origin: 'communication' } });
-      await vi.advanceTimersByTimeAsync(60_001);
-      const status = await pending;
-      expect(status.uncertain).toMatchObject({ name: 'AdmissionUncertain', code: 'prompt_admission_timeout' });
-      expect(h.agent.cancel).not.toHaveBeenCalled();
-      expect(child.kill).not.toHaveBeenCalled();
-      expect(rt.sessionLiveModels('conv-1')).not.toBeNull();
-      const late = api.waitPromptDetached({ requestId: status.requestId, admissionOnly: true });
-      receipt.resolve({ status: 'accepted', requestId: 'r', messageId: 'native' });
-      await expect(late).resolves.toMatchObject({ queued: false });
-      expect(h.agent.prompt).toHaveBeenCalledTimes(1);
-    } finally { vi.useRealTimers(); }
-  });
-
-  it('preserves uncertain status and late admission through the validated worker wire', async () => {
-    const { h, api } = await setup(true);
-    const native = Promise.withResolvers<{ status: 'accepted'; requestId: string; messageId: string }>();
-    h.agent.prompt.mockImplementationOnce(() => native.promise);
-    const wire = createTestWire(defineContract({
-      promptDetached: acpRuntimeApiContract.promptDetached,
-      waitPromptDetached: acpRuntimeApiContract.waitPromptDetached,
-    }), { promptDetached: api.promptDetached, waitPromptDetached: api.waitPromptDetached }, { validate: 'full' });
-    vi.useFakeTimers();
-    try {
-      const first = wire.client.promptDetached({ sessionId: 'conv-1', prompt: { text: 'original', origin: 'communication' } });
-      await vi.advanceTimersByTimeAsync(60_001);
-      const status = await first;
-      expect(status.uncertain).toMatchObject({ code: 'prompt_admission_timeout' });
-      const admitted = wire.client.waitPromptDetached({ requestId: status.requestId, admissionOnly: true });
-      native.resolve({ status: 'accepted', requestId: 'r', messageId: 'native' });
-      await expect(admitted).resolves.toEqual({ queued: false });
-      expect(h.agent.prompt).toHaveBeenCalledTimes(1);
-      expect(h.agent.cancel).not.toHaveBeenCalled();
-    } finally { wire.dispose(); native.resolve({ status: 'accepted', requestId: 'r', messageId: 'native' }); vi.useRealTimers(); }
-  });
-
-  it('still lets an explicit stop settle a silent request after its uncertain status', async () => {
-    const { h, rt, api } = await setup(true);
     h.agent.prompt.mockImplementationOnce(() => new Promise(() => {}));
     vi.useFakeTimers();
     try {
-      const first = api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'original', origin: 'communication' } });
+      let settled = false;
+      const pending = api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'hi', origin: 'communication' } });
+      void pending.then(() => { settled = true; }, () => { settled = true; });
       await vi.advanceTimersByTimeAsync(60_001);
-      const status = await first;
-      const waiting = expect(api.waitPromptDetached({ requestId: status.requestId, admissionOnly: true })).rejects.toThrow();
-      expect((await rt.stopSession('conv-1')).success).toBe(true);
-      await waiting;
-    } finally { vi.useRealTimers(); }
-  });
-
-  it('preserves the typed missing-session refusal after an uncertain admission', async () => {
-    const { h, api } = await setup(true);
-    const native = Promise.withResolvers<never>();
-    h.agent.prompt.mockImplementationOnce(() => native.promise);
-    vi.useFakeTimers();
-    try {
-      const first = api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'original', origin: 'communication' } });
-      await vi.advanceTimersByTimeAsync(60_001);
-      const status = await first;
-      const late = api.waitPromptDetached({ requestId: status.requestId, admissionOnly: true });
-      native.reject(Object.assign(new Error('Internal error'), { code: -32603, data: { details: 'Session not found' } }));
-      await expect(late).resolves.toEqual({ queued: false, declined: true, missing: true });
+      expect(settled, 'a silent native prompt cannot hold the inbox admission forever').toBe(true);
+      // No native receipt: never admitted, so the delivery is not consumed and can be sent again after teardown.
+      await expect(pending).rejects.toThrow('timed out');
+      await vi.waitFor(() => expect(child.kill).toHaveBeenCalledWith('SIGTERM'));
+      expect(h.agent.cancel).toHaveBeenCalledTimes(1);
+      expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(rt.sessionLiveModels('conv-1')).toBeNull();
     } finally { vi.useRealTimers(); }
   });
 });

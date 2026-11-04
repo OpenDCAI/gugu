@@ -8,8 +8,7 @@
 // 上(sessionpageResidualRequireGate),CI 的 build:app 每个 PR 都真跑一遍。这里只验闸本身的
 // 可判假性:fixture 是**合成**的,❌ 不读真实产物 —— 真实产物被修好后,读它的断言会退化成
 // 平凡真(棘轮元测试读活 baseline 栽过的形状)。
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -60,39 +59,5 @@ describe('electron-main residual-require gate (tooling gate for #4587)', () => {
       'try { binding = require("./crypto/build/Release/sshcrypto.node"); } catch (err) {}\n',
     );
     expect(() => assertNoResidualRelativeRequires(ok)).not.toThrow();
-  });
-
-  it.each([
-    'C:\\actions-runner-gugu\\_work\\gugu-dev\\gugu-dev\\apps\\desktop\\electron\\server\\server-boot.cjs',
-    'C:/actions-runner-gugu/_work/gugu-dev/gugu-dev/apps/desktop/electron/server/server-boot.cjs',
-    '/work/apps/desktop/electron/server/server-boot.cjs',
-  ])('writes a reachable preload for the native external ID %s', async (externalId) => {
-    const { build } = await import('vite');
-    const { serverBootOutputPath, sessionpageResidualRequireGate } = await import(
-      '../../../apps/desktop/electron/sessionpage/sessionpage-main-build.mjs'
-    );
-    const output = mkdtempSync(join(outDir, 'preload-'));
-    const preload = 'exports.marker = "actual-preload";\n';
-    const entry = join(output, 'entry.js');
-    writeFileSync(entry, 'export { marker } from "./server-boot.cjs";');
-    await build({
-      configFile: false, logLevel: 'silent',
-      plugins: [{
-        name: 'native-preload-fixture',
-        resolveId(id) {
-          if (id === './server-boot.cjs') return { id: externalId, external: true };
-        },
-        generateBundle() { this.emitFile({ type: 'asset', fileName: 'server-boot.cjs', source: preload }); },
-      }, sessionpageResidualRequireGate()],
-      build: {
-        outDir: output, emptyOutDir: false, minify: false,
-        lib: { entry, formats: ['cjs'], fileName: () => 'server.js' },
-        rollupOptions: { output: { paths: serverBootOutputPath } },
-      },
-    });
-    expect(readFileSync(join(output, 'server-boot.cjs'), 'utf8')).toBe(preload);
-    expect(readFileSync(join(output, 'server.js'), 'utf8')).not.toContain('C:');
-    expect(createRequire(join(output, 'consumer.cjs'))('./server.js').marker).toBe('actual-preload');
-    expect(serverBootOutputPath('other/server-boot.cjs.map')).toBe('other/server-boot.cjs.map');
   });
 });

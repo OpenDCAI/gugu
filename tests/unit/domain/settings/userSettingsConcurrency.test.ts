@@ -3,15 +3,15 @@ import { updateUserSettingsConfig } from '@gugu/core/cloud/userSettings'
 import { versionedSettingsClient } from '../../../support/versionedSettingsTestDouble'
 
 describe('conditional preference updates across devices', () => {
-  it.each([false, true])('preserves simultaneous App/topic edits and unrelated keys (existing row=%s)', async (existing) => {
+  it.each([false, true])('preserves simultaneous workspace/topic edits and unrelated keys (existing row=%s)', async (existing) => {
     const state = { rows: new Map<string, Record<string, unknown>>(), failWrite: false, conflicts: 0 }
     if (existing) state.rows.set('u/chat:g', { scope: 'chat:g', config: { workspace: { show_app_data: true } }, updated_at: '2026-10-29T00:00:00.000Z' })
     const client = versionedSettingsClient(state)
     await Promise.all([
-      updateUserSettingsConfig(client, 'u', 'chat:g', (config) => ({ ...config, pinnedAppIds: ['board'] })),
+      updateUserSettingsConfig(client, 'u', 'chat:g', (config) => ({ ...config, workspace: { ...(config.workspace as Record<string, unknown>), layout: 'list' } })),
       updateUserSettingsConfig(client, 'u', 'chat:g', (config) => ({ ...config, pinnedTopicIds: ['topic'] })),
     ])
-    expect(state.rows.get('u/chat:g')?.config).toEqual({ ...(existing ? { workspace: { show_app_data: true } } : {}), pinnedAppIds: ['board'], pinnedTopicIds: ['topic'] })
+    expect(state.rows.get('u/chat:g')?.config).toEqual({ workspace: { ...(existing ? { show_app_data: true } : {}), layout: 'list' }, pinnedTopicIds: ['topic'] })
     if (existing) expect(state.conflicts).toBe(1)
   })
 

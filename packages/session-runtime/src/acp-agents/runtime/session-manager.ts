@@ -1132,7 +1132,6 @@ export class SessionManager implements InboundRouter {
   /** Internal host path: resolve admission without waiting for the provider turn. */
   promptDetached(input: SendPromptInput): Result<{
     admission: Promise<Result<{ queued: boolean; steered?: boolean }, AcpSendPromptError>>;
-    uncertain: Promise<void>;
     completion: Promise<Result<{ queued: boolean }, AcpSendPromptError>>;
   }, AcpSendPromptError> {
     const record = this.cells.get(input.sessionId);
@@ -1146,7 +1145,6 @@ export class SessionManager implements InboundRouter {
     const detached = record.cell.promptDetached(input.prompt, input.steerIfBusy ? { steerIfBusy: true } : undefined);
     return ok({
       admission: detached.admission,
-      uncertain: detached.uncertain,
       completion: detached.completion,
     });
   }

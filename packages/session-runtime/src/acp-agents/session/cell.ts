@@ -677,7 +677,6 @@ export class SessionCell {
     input: PromptInput,
     opts?: { steerIfBusy?: boolean; overtakeQueue?: boolean },
   ): DetachedPromptResult {
-    const uncertain = Promise.withResolvers<void>();
     let admitted = false;
     let resolveAdmission!: (result: Result<{ queued: boolean; steered?: boolean }, AcpSendPromptError>) => void;
     const admission = new Promise<Result<{ queued: boolean; steered?: boolean }, AcpSendPromptError>>((resolve) => {
@@ -695,7 +694,6 @@ export class SessionCell {
         admitted = true;
         resolveAdmission(result);
       },
-      onAdmissionUncertain: () => uncertain.resolve(),
     }).then((result) => {
       if (!admitted) {
         resolveAdmission(result.success ? ok({ queued: result.data.queued }) : result);
@@ -707,7 +705,7 @@ export class SessionCell {
       }
       throw error;
     });
-    return { admission, completion, uncertain: uncertain.promise };
+    return { admission, completion };
   }
 
   queuePrompt(input: PromptInput): Result<void, InvalidStateError> {
@@ -1851,7 +1849,6 @@ export class SessionCell {
       overtakeQueue?: boolean;
       skipAdmission?: boolean;
       onAdmission?: (result: Result<{ queued: boolean; steered?: boolean }, AcpSendPromptError>) => void;
-      onAdmissionUncertain?: () => void;
     },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
     if (this.closeRequested) return acpErr.sessionBusy('Session is closing; resume it after teardown');
@@ -2150,7 +2147,6 @@ export class SessionCell {
           const retried = await this.sendPromptInternal(prompt, {
             fromQueue: opts?.fromQueue,
             onAdmission: opts?.skipAdmission ? undefined : opts?.onAdmission,
-            onAdmissionUncertain: opts?.onAdmissionUncertain,
           });
           // 「立即发送」的那句仍在排队 ⇒ 排在队首,与 steerQueuedPrompt 没有在干的活时同一个去处。
           if (opts?.fromQueue && retried.success && retried.data.queued) {
@@ -2176,10 +2172,12 @@ export class SessionCell {
       }
 
       const agent = this.agent;
-      // Report a silent provider without cancelling work or discarding a possible late native receipt.
+      // B: a communication prompt must not block the inbox on a native receipt that never comes. The
+      // transport cancels it and fails it as prompt_admission_timeout; the procedure owner then stops
+      // the session (procedures.promptDetached). v1 has no native receipt, so no deadline, as on dev.
       const watched = started && prompt.origin === 'communication' && opts?.onAdmission !== undefined;
       const receiptOrTimeout = agent.prompt(promptRequest, { requestId, message: submittedMessage,
-        ...(watched ? { admissionTimeoutMs: PROMPT_ADMISSION_TIMEOUT_MS, onAdmissionUncertain: opts?.onAdmissionUncertain } : {}) });
+        ...(watched ? { admissionTimeoutMs: PROMPT_ADMISSION_TIMEOUT_MS } : {}) });
       if (steered) this.deps.callbacks?.onPromptSteered?.();
       // Prepared context is consumed by the model only when its turn completes; a failure, or a cancelled turn
       // that ends without acting on what it carried (#881), releases it for the next turn.
@@ -2689,7 +2687,7 @@ function machineOutcome(
   return { kind: 'stopped', stopReason: toStopReason(outcome.reason) };
 }
 
-/** A communication request with no native activity reports uncertainty, retaining its real receipt. */
+/** dev 已有的接纳看门狗:communication 的原生 receipt 这么久不来 ⇒ 传输层 cancel,以 prompt_admission_timeout 失败。 */
 const PROMPT_ADMISSION_TIMEOUT_MS = 60_000;
 
 /** 「一个字都没回就正常结束」时,等 stderr 那行失败说明的最长时间。 */

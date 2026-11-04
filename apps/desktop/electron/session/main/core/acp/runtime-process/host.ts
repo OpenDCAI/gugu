@@ -1,5 +1,4 @@
 import { join } from 'node:path';
-import type { SerializedError } from '@gugu/session-shared/result';
 import {
   acpApiContract,
   acpErr,
@@ -192,8 +191,8 @@ export type AcpRuntimeClient = ContractClient<AcpApiContract> & {
     sessionId: string;
     prompt: PromptInput;
     steerIfBusy?: boolean;
-  }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean; missing?: true; uncertain?: SerializedError }>;
-  waitPromptDetached(input: { requestId: string; admissionOnly?: boolean }): Promise<{ queued: boolean; declined?: true; missing?: true }>;
+  }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean; missing?: true }>;
+  waitPromptDetached(input: { requestId: string }): Promise<{ queued: boolean }>;
   /**
    * #6396 告诉一条会话一件事:转录里一行 / agent 下一轮的开头(见 SessionManager.announce)。
    * 这条会话正在起 ⇒ 等它起完再送(宿主这一侧的事实往往就是在它起的那一秒里得出的)。
@@ -208,8 +207,8 @@ type AcpRuntimeProcessClient = ContractClient<AcpRuntimeApiContract> & {
     sessionId: string;
     prompt: PromptInput;
     steerIfBusy?: boolean;
-  }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean; missing?: true; uncertain?: SerializedError }>;
-  waitPromptDetached(input: { requestId: string; admissionOnly?: boolean }): Promise<{ queued: boolean; declined?: true; missing?: true }>;
+  }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean; missing?: true }>;
+  waitPromptDetached(input: { requestId: string }): Promise<{ queued: boolean }>;
   /**
    * #6396 告诉一条会话一件事:转录里一行 / agent 下一轮的开头(见 SessionManager.announce)。
    * 这条会话正在起 ⇒ 等它起完再送(宿主这一侧的事实往往就是在它起的那一秒里得出的)。

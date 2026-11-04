@@ -8,7 +8,7 @@
 import { EventEmitter } from 'node:events';
 import type { PromptRequest } from '@agentclientprotocol/sdk';
 import { PassThrough } from 'node:stream';
-import { AdmissionWatchdog, createRequestActivity } from '@gugu/session-core/acp';
+import { createRequestActivity } from '@gugu/session-core/acp';
 import type { AcpClient } from '@gugu/session-core/agents/plugins';
 import type { ProviderPermissionModeMap, QueuedPrompt, SessionSummary } from '@gugu/session-core/acp';
 import type {
@@ -143,8 +143,7 @@ export class FakeAcpAgent implements AcpAgentApi {
     connect: (_io, toClient) => {
       if (this.nativeState) {
         const observed = this.observed();
-        const watchers = new Map<string, Set<AdmissionWatchdog>>();
-        // Use the production inactivity policy while the fixture owns its native receipt.
+        // As connectStdioAcpV2: a native receipt that misses its admission deadline is cancelled and rejected.
         const api = new Proxy(observed, { get: (target, property) => property === 'steer'
           // As connectStdioAcpV2: native steering is the negotiated `_session/steering` request.
           ? async (params: PromptRequest) => (await target.extMethod!('_session/steering', { ...params,
@@ -154,16 +153,15 @@ export class FakeAcpAgent implements AcpAgentApi {
             const receipt = target.prompt(params, dispatch);
             const timeoutMs = dispatch?.admissionTimeoutMs;
             if (timeoutMs === undefined) return receipt;
-            const watcher = new AdmissionWatchdog(timeoutMs, () => dispatch?.onAdmissionUncertain?.());
-            const watching = watchers.get(params.sessionId) ?? new Set<AdmissionWatchdog>();
-            watching.add(watcher); watchers.set(params.sessionId, watching);
-            return receipt.finally(() => { watcher.close(); watching.delete(watcher); });
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            return Promise.race([receipt, new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => {
+                void target.cancel({ sessionId: params.sessionId });
+                reject(Object.assign(new Error(`Native prompt admission timed out after ${timeoutMs}ms`), { code: 'prompt_admission_timeout' }));
+              }, timeoutMs);
+            })]).finally(() => clearTimeout(timer));
           } });
-        const client = toClient(api);
-        this.capturedClient = { ...client, sessionEvent: params => {
-          for (const watcher of watchers.get(params.sessionId) ?? []) watcher.observe(params.event);
-          client.sessionEvent(params);
-        } };
+        this.capturedClient = toClient(api);
         return api;
       }
       const boundary = createRequestActivity(this.observed() as never, params => client.sessionEvent(params));

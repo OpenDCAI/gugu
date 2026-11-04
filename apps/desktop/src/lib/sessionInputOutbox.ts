@@ -30,8 +30,8 @@ export type SessionInputBubble = { id: string; text: string; from?: string | nul
   | { state: 'sending' }
   /** The person stopped the session before it went: it goes with their next message. */
   | { state: 'stopped' }
-  /** Its custodian retains the input while delivery or the original native receipt remains pending. */
-  | { state: 'waiting'; failure: SessionInputFailure; awaitingReceipt?: true }
+  /** The durable sender still owns this input and will automatically retry it. */
+  | { state: 'waiting'; failure: SessionInputFailure }
   /** A host-owned row failed, in the host's words. */
   | { state: 'failed'; failure: SessionInputFailure | null; hostReason: string | null }
   | { state: 'unknown' })
@@ -53,7 +53,7 @@ export function sessionInputBubbles(sender: readonly SessionInput[], host: reado
           if (hold === 'user-stop') return [{ ...base, state: 'stopped' }]
           return [lifeHoldIsFailure(hold) ? { ...base, state: 'failed', failure: null, hostReason: null } : { ...base, state: 'sending' }]
         case 'failed': return [{ ...base, state: 'failed', failure: null, hostReason: row.failure }]
-        case 'unknown': return [row.awaitingReceipt ? { ...base, state: 'waiting', failure: { code: 'no-acknowledgement' }, awaitingReceipt: true } : { ...base, state: 'unknown' }]
+        case 'unknown': return [{ ...base, state: 'unknown' }]
       }
     }),
     ...[...sender].filter(input => !hosted.has(input.id)).sort((a, b) => a.createdAt - b.createdAt)

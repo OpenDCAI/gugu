@@ -21,5 +21,4 @@ export {
 export { runningBackgroundCommands, type RunningBackgroundCommand } from './background-commands';
 export { ACP_AUTH_REQUIRED_CODE, isSignInFailure } from './sign-in-failure';
 export { createRequestActivity, type RequestActivityAgent } from './transport/request-activity';
-export { AdmissionWatchdog } from './transport/admission-watchdog';
 export { providerRejectedMissingSession } from './transport/missing-session';

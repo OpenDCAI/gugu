@@ -64,7 +64,7 @@ jobs:
               build=true
               # Toolchain, dependencies and CI itself can break any platform build.
               case "$file" in
-                .github/workflows/ci.yml|.github/workflows/ci-mac-build.yml|.github/actions/*|.node-version|.npmrc|package.json|*/package.json|pnpm-lock.yaml|pnpm-workspace.yaml|patches/*)
+                .github/workflows/ci.yml|.github/actions/*|.node-version|.npmrc|package.json|*/package.json|pnpm-lock.yaml|pnpm-workspace.yaml|patches/*)
                   desktop_mac=true
                   android=true
                   ;;
@@ -207,9 +207,24 @@ jobs:
   desktop-build-mac:
     name: Desktop app build (macos-15)
     needs: changes
-    uses: GUYI-AI/gugu/.github/workflows/ci-mac-build.yml@e808d794e81bf5ad2cffe439a48a61c7d5a1bb96
-    with:
-      build-required: ${{ needs.changes.outputs.desktop-mac }}
+    if: needs.changes.outputs.desktop-mac == 'true'
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+      - run: command -v tmux || brew install tmux
+      - uses: ./.github/actions/setup-community
+      - run: pnpm build:app:ci
+        env:
+          GUGU_BUILD_SERIAL: '1'
+      - run: pnpm rebuild:native
   android-build:
     name: Android debug build
     needs: changes

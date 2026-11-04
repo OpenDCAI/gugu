@@ -70,7 +70,7 @@ export function createDesktopFileAccess(deps: {
     }
     const fileRef: FileRef = 'id' in ref ? { item_id: ref.id, ...(options?.version ? { version: options.version } : {}) } : ref
     const reader = { accountId, actorId: actor ?? accountId }
-    return options?.localOnly ? resolve(fileRef, reader, { localOnly: true }) : resolve(fileRef, reader)
+    return resolve(fileRef, reader, { ...(options?.localOnly ? { localOnly: true } : {}), ...(options?.signal ? { signal: options.signal } : {}) })
   }
   const sshHandlers: DeviceRpcHandlers = { [PROJECT_FILE_READ]: async (payload, ctx) => ({ result: await read(payload as Parameters<typeof read>[0], ctx.request.user_id) }) }
   const publish = createProjectFilePublisher({ identity, root, rpc: deps.rpc, env: deps.env,

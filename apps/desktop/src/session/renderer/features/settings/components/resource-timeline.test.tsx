@@ -2,6 +2,7 @@
 import { act, type ReactNode } from 'react';
 import { CartesianTimeAxis } from '@visactor/vchart/cjs/component/axis/cartesian/time-axis';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { getLocaleSnapshot, setLocalePreference } from '@/i18n';
 import type { ResourcePoint, ResourceSnapshot } from '@shared/resource-monitor';
 import type { ResourceSamplingFailure } from '@shared/events/resourceEvents';
 import { createReactHarness, deferred } from '../../../../../../../../tests/support/testHarness';
@@ -34,21 +35,27 @@ const cpu = () => rig.charts.filter((p) => p.spec.yField === 'cpu').at(-1)!;
 const memory = () => rig.charts.filter((p) => p.spec.yField === 'mem').at(-1)!;
 const clickAt = (id: number) => cpu().onDimensionClick({ dimensionInfo: [{ data: [{ datum: [{ id }] }] }] });
 let harness: ReturnType<typeof createReactHarness>;
+let previousLocale: ReturnType<typeof getLocaleSnapshot>['preference'];
 beforeEach(() => {
+  previousLocale = getLocaleSnapshot().preference;
   vi.clearAllMocks(); rig.charts.length = 0; rig.snapshot = snapshot(1); rig.failure = null;
   document.documentElement.dataset.theme = 'light';
   rig.history.mockResolvedValue(history(points)); rig.point.mockResolvedValue({ success: true, data: snapshot(2000) });
   harness = createReactHarness();
 });
-afterEach(() => { harness.cleanup(); delete document.documentElement.dataset.theme; });
+afterEach(() => { harness.cleanup(); setLocalePreference(previousLocale); delete document.documentElement.dataset.theme; });
 const render = async (compact = false) => { await harness.render(<ResourceTimeline compact={compact} live />); await act(async () => { await vi.dynamicImportSettled(); }); };
 
-it.each([false, true])('labels old values stale with a timed process-list error in page and popup (compact=%s)', async (compact) => {
-  rig.failure = { timestamp: 2000, reason: 'process-list-read-failed' };
+it.each([
+  [false, 'en-US', '05:06 PM'], [true, 'en-US', '05:06 PM'],
+  [false, 'zh-CN', '17:06'], [true, 'zh-CN', '17:06'],
+] as const)('labels stale samples with the locale clock (compact=%s, locale=%s)', async (compact, locale, clock) => {
+  setLocalePreference(locale);
+  rig.failure = { timestamp: new Date(2026, 10, 3, 17, 6, 2).getTime(), reason: 'process-list-read-failed' };
   await render(compact);
   const alert = harness.container.querySelector('[role="alert"]');
   expect(alert?.textContent).toContain('resourceMonitor.processListFailed');
-  expect(alert?.textContent).toContain(new Date(2000).toLocaleTimeString());
+  expect(alert?.textContent).toContain(clock);
   expect(alert?.textContent).toContain('resourceMonitor.staleData');
   rig.failure = null;
   await render(compact);

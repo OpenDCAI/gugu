@@ -46,7 +46,7 @@ export function SessionInputQueue({ sessionId, waitingForConnection, life = null
       {queuedFailures.has(bubble.id) ? <div className="flex items-center gap-2 text-xs text-[var(--danger-fg)]" role="alert" data-send-state="failed">
         <span>{t('message.sendStatus.failed')} · {sessionInputFailureText(queuedFailures.get(bubble.id)!)}</span>
         <Button type="button" variant="ghost" size="sm" className="shrink-0 text-[var(--danger-fg)]" onClick={retry}>{translateSessionMessage('transcript.retrySend')}</Button>
-      </div> : bubble.state === 'waiting' ? <div className="text-xs text-foreground-muted" role="status" data-send-state="waiting" title={sessionInputFailureText(bubble.failure)}>{translateSessionMessage('transcript.waitingToSend')} · {bubble.awaitingReceipt ? translateSessionMessage('transcript.waitingNativeReceipt') : sessionInputWaitingReason(bubble.failure)}</div> : null}
+      </div> : bubble.state === 'waiting' ? <div className="text-xs text-foreground-muted" role="status" data-send-state="waiting" title={sessionInputFailureText(bubble.failure)}>{translateSessionMessage('transcript.waitingToSend')} · {sessionInputWaitingReason(bubble.failure)}</div> : null}
       {bubble.state === 'stopped' ? <div className="text-xs text-foreground-muted" role="status" data-send-state="stopped">{t('message.sendStatus.stopped')}</div> : null}
       {bubble.state === 'failed' ? <div className="flex items-center gap-2 text-sm">
         <span role="alert">{bubble.hostReason ? messageForUser(bubble.hostReason) : t('message.sendStatus.failed')}</span>
