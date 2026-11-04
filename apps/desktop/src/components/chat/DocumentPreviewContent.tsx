@@ -164,12 +164,13 @@ function DocxPreview({ data, onOpenExternally }: { data: ArrayBuffer; onOpenExte
 
 function PdfPreview({ data }: { data: ArrayBuffer }) {
   const { t } = useTranslation('messaging')
+  const rootRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textLayerRef = useRef<HTMLDivElement>(null)
   const [document, setDocument] = useState<PDFDocumentProxy>()
   const [pageNumber, setPageNumber] = useState(1)
-  const { zoom, setZoom } = useFileZoom('pdf', viewportRef)
+  const { zoom, setZoom } = useFileZoom('pdf', rootRef)
   const [availableWidth, setAvailableWidth] = useState(0)
   const [error, setError] = useState<string>()
 
@@ -259,7 +260,7 @@ function PdfPreview({ data }: { data: ArrayBuffer }) {
 
   const pageCount = document?.numPages ?? 0
   return (
-    <div className="document-preview-pdf">
+    <div ref={rootRef} className="document-preview-pdf">
       <div className="document-preview-toolbar" role="toolbar" aria-label={t('chatArea.filePreview.pdfControls')}>
         <Button variant="ghost" size="icon" aria-label={t('chatArea.filePreview.previousPage')} title={t('chatArea.filePreview.previousPage')} disabled={pageNumber <= 1} onClick={() => setPageNumber((page) => Math.max(1, page - 1))}><ChevronLeft size={17} /></Button>
         <span className="document-preview-page-count">{pageCount ? `${pageNumber} / ${pageCount}` : '–'}</span>
