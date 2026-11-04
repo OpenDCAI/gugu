@@ -95,3 +95,11 @@ it('keeps the alias editor and the normal message action operational', async () 
   await page.getByTestId('member-profile-send-message-button').click()
   expect(onOpenChat).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: member.id, type: 'human' }))
 })
+
+it('adapts the common value-column start when the rendered labels change language', async () => {
+  await draw('en-US', 'light')
+  const start = () => h.container.querySelector('[data-profile-field="role"]')!.getBoundingClientRect().left
+  const english = start()
+  await draw('zh-CN', 'light')
+  expect(english).toBeGreaterThan(start())
+})
