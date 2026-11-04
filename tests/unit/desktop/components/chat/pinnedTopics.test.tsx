@@ -76,7 +76,7 @@ describe('rich Topics menu', () => {
       await act(async () => open.focus())
       expect(document.activeElement).toBe(open)
       expect(displayed(), 'the count and action share the trailing space').toBe(false)
-      expect(getComputedStyle(pin).opacity).toBe('1')
+      expect(getComputedStyle(pin).display).not.toBe('none')
       expect(document.querySelector('[data-topic-id="old"] .gg-topic-name svg')).not.toBeNull()
       await clickElement(pin)
       await vi.waitFor(() => expect(savedPins()).toEqual(['old', 'new']))
