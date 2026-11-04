@@ -908,6 +908,8 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * 亮起这一对里的任一枚 = 那一边拿到焦点,并排照旧。用户拆开过的那一类不顶替,自己占满这一格(这一对留着)。
    */
   setActiveTab(id: string): void {
+    // Picking another tab ends a solo first: the pair is drawn again, and the rule below applies to it.
+    if (this.soloTabId !== id) this.soloTabId = null;
     const pair = this.livePair;
     if (pair && id !== pair.anchor && id !== pair.side && this.pairShown && !this.splitDeclinedFor(id) && this._canPair(pair.anchor, id)) {
       this._replaceSide(pair, id);

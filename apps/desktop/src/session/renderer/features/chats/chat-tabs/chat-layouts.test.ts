@@ -241,6 +241,14 @@ describe('layout scenarios', () => {
     showChatTab('s8', tab);
     expect(groupParticipantPanes.placements.has('s8')).toBe(false);
     expect(pane('s8').shownTabIds).toEqual([topic, tab]);
+    // A tab outside the pair picked while yielded: it takes the pair's other half, as it would with nothing yielded.
+    const other = openPanelItem('s8', from('b', 's8'))!;
+    showChatTab('s8', tab);
+    const [main] = pane('s8').shownTabIds;
+    expect(pane('s8').shownTabIds).toEqual([main, tab]);
+    runInAction(() => groupParticipantPanes.placements.set('s8', { source: { kind: 'chat', chatId: 's8' }, target: { kind: 'chat', chatId: 'agent' } }));
+    showChatTab('s8', other);
+    expect(pane('s8').shownTabIds).toEqual([main, other]);
   });
 
   it('S9a separated by the person: that kind opens as a tab of its own, until they pair it again', () => {
