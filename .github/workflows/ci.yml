@@ -207,24 +207,9 @@ jobs:
   desktop-build-mac:
     name: Desktop app build (macos-15)
     needs: changes
-    if: needs.changes.outputs.desktop-mac == 'true'
-    runs-on: macos-15
-    timeout-minutes: 45
-    env:
-      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
-      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
-      GUGU_PLATFORM_MODELS_ENABLED: 'false'
-      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
-      # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
-      NODE_OPTIONS: --max-old-space-size=6144
-    steps:
-      - uses: actions/checkout@v4
-      - run: command -v tmux || brew install tmux
-      - uses: ./.github/actions/setup-community
-      - run: pnpm build:app:ci
-        env:
-          GUGU_BUILD_SERIAL: '1'
-      - run: pnpm rebuild:native
+    uses: GUYI-AI/gugu/.github/workflows/ci-mac-build.yml@499a1ee16cb7650190e8a7869bec59e4f4ee9f22
+    with:
+      build-required: ${{ needs.changes.outputs.desktop-mac }}
   android-build:
     name: Android debug build
     needs: changes

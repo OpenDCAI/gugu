@@ -11,6 +11,7 @@ import {
   auditCoverage,
   NO_NEW_E2E,
   collectAutomaticRunnerCommands,
+  loadCoverageWorkflowInventory,
   collectRunnerFiles,
   declaresTestCase,
   parsePlaywrightList,
@@ -110,7 +111,7 @@ describe('CI e2e/integration spec coverage', () => {
     expect(gateRun).toContain('[ "${{ needs.web-smoke.result }}" != "success" ]')
 
     const commands = collectAutomaticRunnerCommands({
-      workflows: [{ path: '.github/workflows/ci.yml', workflow }],
+      workflows: [{ ...loadCoverageWorkflowInventory(process.cwd()).find(entry => entry.path === '.github/workflows/ci.yml'), path: '.github/workflows/ci.yml', workflow }],
       changedPaths: ['tests/e2e/ci/local/search-field-consistency.spec.ts'],
       packageScripts: {},
     }).filter((command) => command.job === 'web-smoke')
@@ -144,7 +145,7 @@ describe('CI e2e/integration spec coverage', () => {
     const relativeSpec = path.relative(root, spec).replaceAll(path.sep, '/')
     const workflow = YAML.parse(readFileSync('.github/workflows/ci.yml', 'utf8'))
     const commands = collectAutomaticRunnerCommands({
-      workflows: [{ path: '.github/workflows/ci.yml', workflow }],
+      workflows: [{ ...loadCoverageWorkflowInventory(process.cwd()).find(entry => entry.path === '.github/workflows/ci.yml'), path: '.github/workflows/ci.yml', workflow }],
       changedPaths: [relativeSpec],
       packageScripts: {},
     }).filter((command) => command.job === 'web-smoke' && command.env.GUGU_E2E_CI_PROJECT === 'local')
@@ -668,5 +669,74 @@ describe('CI e2e/integration spec coverage', () => {
     }
     const files = parsePlaywrightList('/repo', noise + JSON.stringify(report))
     expect(files, '前缀里的 JSON 对象不得被当成报告').toEqual(['tests/e2e/sample.spec.ts'])
+  })
+})
+
+
+describe('immutable reusable workflow coverage', () => {
+  const use = 'GUYI-AI/gugu/.github/workflows/check.yml@' + 'a'.repeat(40)
+  function inventory() {
+    const child = { path: '.github/workflows/check.yml', workflow: {
+      on: { workflow_call: null }, env: { LANG: 'en_US.UTF-8' },
+      jobs: { tests: { steps: [{ run: 'pnpm exec vitest run --project tooling' }] } }
+    } }
+    return { path: '.github/workflows/ci.yml', workflow: {
+      on: { pull_request: null }, env: { LANG: 'caller-must-not-leak' }, jobs: { delegate: { uses: use } }
+    }, reusableWorkflows: { [use]: child } }
+  }
+  function collect(entry: ReturnType<typeof inventory>) {
+    return collectAutomaticRunnerCommands({ workflows: [entry], changedPaths: [], packageScripts: {} })
+  }
+  it('follows direct callee tests and their own environment', () => {
+    expect(collect(inventory())).toEqual([{
+      runner: 'vitest', args: ['--project', 'tooling'], workflow: '.github/workflows/check.yml',
+      job: 'delegate/tests', env: { LANG: 'en_US.UTF-8' }
+    }])
+  })
+  it('rejects a missing fixed source or mismatched workflow path', () => {
+    const entry = inventory()
+    expect(() => collect({ ...entry, reusableWorkflows: {} })).toThrow('missing exact pinned')
+    entry.reusableWorkflows[use].path = '.github/workflows/different.yml'
+    expect(() => collect(entry)).toThrow('missing exact pinned')
+  })
+  it('rejects mutable refs and different repository identities', () => {
+    for (const wrong of [use.replace(/@[a-f0-9]+$/, '@dev'), use.replace('GUYI-AI/gugu', 'other/gugu')]) {
+      const entry = inventory(); entry.workflow.jobs.delegate.uses = wrong
+      expect(() => collect(entry)).toThrow('exact canonical SHA')
+    }
+  })
+  it('rejects test execution hidden behind a conditional caller', () => {
+    const entry = inventory()
+    Object.assign(entry.workflow.jobs.delegate, { if: "github.event_name == 'pull_request'" })
+    expect(() => collect(entry)).toThrow('condition prevents reliable execution')
+  })
+  it('rejects conditional tests inside the immutable child', () => {
+    const entry = inventory()
+    Object.assign(entry.reusableWorkflows[use].workflow.jobs.tests.steps[0], { if: 'false' })
+    expect(() => collect(entry)).toThrow('condition prevents reliable execution')
+  })
+  it('rejects a non-callable child and recursive call graph', () => {
+    const entry = inventory()
+    Object.assign(entry.reusableWorkflows[use].workflow, { on: { push: null } })
+    expect(() => collect(entry)).toThrow('not callable')
+    const cycle = inventory()
+    Object.assign(cycle.reusableWorkflows[use].workflow.jobs.tests, { uses: use })
+    expect(() => collect(cycle)).toThrow('cyclic')
+  })
+  it('loads pinned bytes from Git even when the working copy changes', () => {
+    const root = fixtureRoot()
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
+    git('init', '-q'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@gugu.test')
+    mkdirSync(path.join(root, '.github/workflows'), { recursive: true })
+    const child = '.github/workflows/check.yml'
+    const source = { on: { workflow_call: null }, jobs: { tests: { steps: [{ run: 'pnpm exec vitest run tests/integration/pinned.test.ts' }] } } }
+    writeFileSync(path.join(root, child), YAML.stringify(source)); git('add', '.'); git('commit', '-qm', 'immutable child')
+    const sha = git('rev-parse', 'HEAD')
+    writeFileSync(path.join(root, '.github/workflows/ci.yml'), YAML.stringify({ on: { pull_request: null }, jobs: { delegate: { uses: `GUYI-AI/gugu/${child}@${sha}` } } }))
+    git('add', '.'); git('commit', '-qm', 'caller')
+    source.jobs.tests.steps[0].run = 'pnpm exec vitest run tests/integration/poisoned.test.ts'
+    writeFileSync(path.join(root, child), YAML.stringify(source))
+    const commands = collectAutomaticRunnerCommands({ workflows: loadCoverageWorkflowInventory(root), changedPaths: [], packageScripts: {} })
+    expect(commands.map(command => command.args)).toEqual([['tests/integration/pinned.test.ts']])
   })
 })

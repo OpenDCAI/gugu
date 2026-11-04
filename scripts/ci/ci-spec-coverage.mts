@@ -10,6 +10,7 @@ import { parseArgs } from 'node:util'
 
 import picomatch from 'picomatch'
 import ts from 'typescript'
+import { pinnedWorkflow } from './check-verdict.mts'
 
 /** Parsed workflow YAML / manifest / reporter JSON: untyped input, validated where each field is read. */
 type Parsed = ReturnType<typeof JSON.parse>
@@ -42,6 +43,7 @@ export interface CoverageAuditResult {
 export interface WorkflowEntry {
   path: string
   workflow: Parsed
+  reusableWorkflows?: Record<string, WorkflowEntry>
 }
 
 export interface RunnerCommand {
@@ -430,7 +432,7 @@ export function collectAutomaticRunnerCommands({
   changedPaths,
   packageScripts,
   baseRef = 'dev',
-  eventAction = 'synchronize',
+  eventAction = 'synchronize'
 }: {
   workflows: WorkflowEntry[]
   changedPaths: string[]
@@ -439,20 +441,43 @@ export function collectAutomaticRunnerCommands({
   eventAction?: string
 }): RunnerCommand[] {
   const commands: RunnerCommand[] = []
-  for (const entry of workflows) {
-    if (!workflowRunsForPullRequest(entry.workflow, changedPaths, baseRef, eventAction)) continue
-    for (const [jobId, job] of Object.entries<Parsed>(entry.workflow.jobs ?? {})) {
-      for (const [stepIndex, step] of (job.steps ?? []).entries() as IterableIterator<[number, Parsed]>) {
+  const visit = (
+    entry: WorkflowEntry,
+    prefix = '',
+    ancestors: string[] = [],
+    conditional = false
+  ): void => {
+    for (const [id, job] of Object.entries<Parsed>(entry.workflow.jobs ?? {})) {
+      const jobId = prefix + id
+      if (job.uses !== undefined) {
+        const pin = pinnedWorkflow(job.uses, `${entry.path} job ${jobId}`)
+        if (ancestors.includes(job.uses) || ancestors.length >= 8)
+          throw new Error('cyclic or excessive reusable coverage inventory')
+        const child = entry.reusableWorkflows?.[job.uses]
+        if (!child || child.path !== pin.path)
+          throw new Error(`missing exact pinned coverage workflow ${job.uses}`)
+        const triggers = child.workflow.on
+        const callable =
+          triggers === 'workflow_call' ||
+          (Array.isArray(triggers) && triggers.includes('workflow_call')) ||
+          (triggers && typeof triggers === 'object' && Object.hasOwn(triggers, 'workflow_call'))
+        if (!callable) throw new Error(`${job.uses} is not callable`)
+        visit(child, `${jobId}/`, [...ancestors, job.uses], conditional || job.if !== undefined)
+      }
+      for (const [stepIndex, step] of (job.steps ?? []).entries() as IterableIterator<
+        [number, Parsed]
+      >) {
         if (typeof step.run !== 'string') continue
         const rawCommands = extractRunnerCommands(step.run, packageScripts)
         if (rawCommands.length === 0) continue
         const label = `${entry.path} job ${jobId} step ${stepIndex + 1}`
-        if (job.if !== undefined || step.if !== undefined) {
+        if (conditional || job.if !== undefined || step.if !== undefined) {
           throw new Error(`${label} condition prevents reliable execution derivation`)
         }
-        const workingDirectory = step['working-directory']
-          ?? job.defaults?.run?.['working-directory']
-          ?? entry.workflow.defaults?.run?.['working-directory']
+        const workingDirectory =
+          step['working-directory'] ??
+          job.defaults?.run?.['working-directory'] ??
+          entry.workflow.defaults?.run?.['working-directory']
         if (workingDirectory !== undefined) {
           throw new Error(`${label} working-directory prevents reliable execution derivation`)
         }
@@ -460,24 +485,34 @@ export function collectAutomaticRunnerCommands({
           const expandedRun = applyMatrix(step.run, assignment, label)
           for (const command of extractRunnerCommands(expandedRun, packageScripts)) {
             if (command.args.some((argument) => /\$(?:\{?[A-Za-z_]|\()/.test(argument))) {
-              throw new Error(`${label} has dynamic runner arguments that cannot be collected reliably`)
+              throw new Error(
+                `${label} has dynamic runner arguments that cannot be collected reliably`
+              )
             }
             commands.push({
               ...command,
               workflow: entry.path,
               job: jobId,
-              env: resolvedEnvironment(assignment, label, entry.workflow.env, job.env, step.env),
+              env: resolvedEnvironment(assignment, label, entry.workflow.env, job.env, step.env)
             })
           }
         }
       }
     }
   }
+  for (const entry of workflows) {
+    if (workflowRunsForPullRequest(entry.workflow, changedPaths, baseRef, eventAction)) visit(entry)
+  }
   return commands.filter((command, index, all) => {
     const key = `${command.runner}\0${command.args.join('\0')}\0${JSON.stringify(command.env)}`
-    return all.findIndex((candidate) => {
-      return `${candidate.runner}\0${candidate.args.join('\0')}\0${JSON.stringify(candidate.env)}` === key
-    }) === index
+    return (
+      all.findIndex((candidate) => {
+        return (
+          `${candidate.runner}\0${candidate.args.join('\0')}\0${JSON.stringify(candidate.env)}` ===
+          key
+        )
+      }) === index
+    )
   })
 }
 
@@ -648,13 +683,38 @@ function internalCollectOne(): void {
   }
 }
 
-function readWorkflows(root: string): WorkflowEntry[] {
-  const output = execFileSync('git', ['ls-files', '-z', '--', '.github/workflows/*.yml', '.github/workflows/*.yaml'], { cwd: root })
+export function loadCoverageWorkflowInventory(root: string): WorkflowEntry[] {
+  const output = execFileSync(
+    'git',
+    ['ls-files', '-z', '--', '.github/workflows/*.yml', '.github/workflows/*.yaml'],
+    { cwd: root }
+  )
   const YAML = createRequire(import.meta.url)('yaml')
-  return output.toString('utf8').split('\0').filter(Boolean).map((workflowPath) => ({
-    path: workflowPath,
-    workflow: YAML.parse(readFileSync(path.join(root, workflowPath), 'utf8')),
-  }))
+  const read = (workflowPath: string, source: string, ancestors: string[] = []): WorkflowEntry => {
+    const workflow = YAML.parse(source)
+    const reusableWorkflows: Record<string, WorkflowEntry> = {}
+    for (const [id, job] of Object.entries<Parsed>(workflow.jobs ?? {})) {
+      if (job?.uses === undefined) continue
+      const pin = pinnedWorkflow(job.uses, `${workflowPath} job ${id}`)
+      if (ancestors.includes(job.uses) || ancestors.length >= 8)
+        throw new Error('cyclic or excessive reusable coverage inventory')
+      const bytes = execFileSync('git', ['show', `${pin.sha}:${pin.path}`], {
+        cwd: root,
+        encoding: 'utf8'
+      })
+      reusableWorkflows[job.uses] = read(pin.path, bytes, [...ancestors, job.uses])
+    }
+    return {
+      path: workflowPath,
+      workflow,
+      ...(Object.keys(reusableWorkflows).length ? { reusableWorkflows } : {})
+    }
+  }
+  return output
+    .toString('utf8')
+    .split('\0')
+    .filter(Boolean)
+    .map((workflowPath) => read(workflowPath, readFileSync(path.join(root, workflowPath), 'utf8')))
 }
 
 export function auditChangedSpecExecution({
@@ -664,7 +724,7 @@ export function auditChangedSpecExecution({
   baseRef = 'dev',
   eventAction = 'synchronize',
   changedPaths = listChangedPaths(root, base!, head!),
-  workflows = readWorkflows(root),
+  workflows = loadCoverageWorkflowInventory(root),
   packageScripts = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).scripts ?? {},
   collectFiles = collectRunnerFiles,
 }: {
