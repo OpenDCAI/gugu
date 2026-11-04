@@ -997,21 +997,22 @@ export function ChatListPanel({
       />
       )}</HeaderSearch>
 
-      {!mobile && !notificationsOpen && (
-        <SearchField
-          ref={searchInputRef}
-          className="mx-3 mb-2 mt-1.5 w-auto shrink-0"
-          data-testid={AUTOMATION_TEST_IDS.chatListSearchInput}
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder={t('chatList.search')}
-          clearLabel={t('chatList.clearSearch')}
-          onClear={() => setSearchQuery('')}
-        />
-      )}
-
       <div className="relative flex min-h-0 flex-1 flex-col">
-        <div data-notification-original-list="" className="flex min-h-0 flex-1 flex-col" style={notificationsOpen ? RETAINED_SURFACE_HIDDEN_STYLE : undefined}>{list}</div>
+        <div data-notification-original-list="" className="flex min-h-0 flex-1 flex-col" style={notificationsOpen ? RETAINED_SURFACE_HIDDEN_STYLE : undefined}>
+          {!mobile && (
+            <SearchField
+              ref={searchInputRef}
+              className="mx-3 mb-2 mt-1.5 w-auto shrink-0"
+              data-testid={AUTOMATION_TEST_IDS.chatListSearchInput}
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder={t('chatList.search')}
+              clearLabel={t('chatList.clearSearch')}
+              onClear={() => setSearchQuery('')}
+            />
+          )}
+          {list}
+        </div>
         <NotificationSlot part="list" active={notificationsOpen && chatsShown && !hidden} />
       </div>
       {dialogs}

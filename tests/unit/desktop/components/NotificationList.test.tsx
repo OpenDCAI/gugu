@@ -151,6 +151,24 @@ it('a hidden phone list does not mount notification rows or acknowledge errors',
   await mount(true); await open(); await mount(true, true)
   expect(list()).toBeNull(); expect(markSeen).not.toHaveBeenCalled()
 })
+it('an error visible in a hidden document waits until the document becomes visible', async () => {
+  state.sessions = [task('error-a', 'error')]
+  let visibility = 'hidden'
+  vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility as DocumentVisibilityState)
+  try {
+    await mount(); await open(); await see('error-a')
+    expect(markSeen).not.toHaveBeenCalled()
+    visibility = 'visible'
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')))
+    expect(markSeen).toHaveBeenCalledExactlyOnceWith('error-a')
+  } finally { vi.restoreAllMocks() }
+})
+it.each(['Enter', ' '])('keyboard %s opens the exact task without changing its pending permission', async key => {
+  await mount(); await open()
+  await act(async () => rows()[1].dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
+  expect(followLink).toHaveBeenCalledExactlyOnceWith({ kind: 'session', sessionId: 'agent-b', deviceId: 'server' })
+  expect(markSeen).not.toHaveBeenCalled()
+})
 it.each([false, true])('clicking a global item opens its exact host task (phone=%s)', async mobile => {
   await mount(mobile); await open()
   await act(async () => rows()[1].click())
