@@ -123,6 +123,65 @@ describe('到那台机器的线:计划内换线', () => {
 });
 
 describe('换版请求失败时 tooOld 放锁', () => {
+  it.each(['false', 'reject'] as const)('a late %s from the previous connection cannot release the current match', async (outcome) => {
+    windows.length = 0;
+    const first = Promise.withResolvers<boolean>();
+    const second = Promise.withResolvers<boolean>();
+    matchServerVersion.mockReset();
+    matchServerVersion.mockResolvedValue(true).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    try {
+      await machineClient('d22')!.connect();
+      reportMachineOutdated('d22');
+      windows[0].onClose('channel switching transport', { handoff: true });
+      await flush();
+      expect(windows).toHaveLength(2);
+      expect(machineLinkState('d22')).toBe('open');
+      reportMachineOutdated('d22');
+      expect(matchServerVersion).toHaveBeenCalledTimes(2);
+      expect(machineLinkState('d22')).toBe('tooOld');
+
+      if (outcome === 'false') first.resolve(false);
+      else first.reject(new Error('old version request failed'));
+      await flush();
+      const stateAfterOldResult = machineLinkState('d22');
+      reportMachineOutdated('d22');
+      expect({ stateAfterOldResult, matchRequests: matchServerVersion.mock.calls.length })
+        .toEqual({ stateAfterOldResult: 'tooOld', matchRequests: 2 });
+    } finally {
+      first.resolve(false);
+      second.resolve(false);
+      await flush();
+      closeMachineClient('d22');
+    }
+  });
+
+  it.each(['false', 'reject'] as const)('a late %s cannot clear an outdated hello from the replacement connection', async (outcome) => {
+    windows.length = 0;
+    const first = Promise.withResolvers<boolean>();
+    matchServerVersion.mockReset();
+    matchServerVersion.mockReturnValueOnce(first.promise);
+    try {
+      await machineClient('d22')!.connect();
+      reportMachineOutdated('d22');
+      peerProtocol.value = 3;
+      windows[0].onClose('channel switching transport', { handoff: true });
+      await flush();
+      expect(windows).toHaveLength(2);
+      expect(machineLinkState('d22')).toBe('tooOld');
+
+      if (outcome === 'false') first.resolve(false);
+      else first.reject(new Error('old version request failed'));
+      await flush();
+      expect(machineLinkState('d22')).toBe('tooOld');
+      expect(matchServerVersion).toHaveBeenCalledOnce();
+    } finally {
+      first.resolve(false);
+      await flush();
+      closeMachineClient('d22');
+      peerProtocol.value = null;
+    }
+  });
+
   it('match 说不是旧版 / 请求被拒:状态回到 open,这条路径还能再问', async () => {
     windows.length = 0;
     try {

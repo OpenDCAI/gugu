@@ -22,6 +22,7 @@ export type MachineLinkState = Exclude<SessionHostConnectionState, 'switching'> 
 type Entry = {
   client: SessionHostClient;
   tooOld: boolean;
+  versionMatchOwner: symbol | null;
   listeners: Set<() => void>;
 };
 
@@ -58,6 +59,7 @@ export function machineClient(deviceId: string): SessionHostClient | null {
   );
   const entry: Entry = {
     tooOld: false,
+    versionMatchOwner: null,
     listeners: new Set(),
     client: createSessionHostClient(openWhenReachable, {
       isReachable: () => {
@@ -83,6 +85,7 @@ export function machineClient(deviceId: string): SessionHostClient | null {
       },
       warn: (message, detail) => log.warn(`[machine:${deviceId.slice(0, 8)}] ${message}`, detail),
       onOpenFailed: (error) => {
+        entry.versionMatchOwner = null;
         const tooOld = (error as { code?: unknown } | null)?.code === 'server_outdated';
         if (tooOld !== entry.tooOld) {
           entry.tooOld = tooOld;
@@ -92,6 +95,8 @@ export function machineClient(deviceId: string): SessionHostClient | null {
     }),
   };
   entry.client.onStateChange(() => {
+    // A new transport state owns its version observation; an old match cannot release it.
+    entry.versionMatchOwner = null;
     const hello = entry.client.hello();
     if (entry.client.state() === 'open') entry.tooOld = !!hello && hello.protocol < HOST_WS_PROTOCOL_VERSION;
     notify(entry);
@@ -142,12 +147,16 @@ export function reportMachineOutdated(deviceId: string): void {
   const entry = entries.get(deviceId);
   // 同一批挂载的页面可能一起撞见这个缺口；第一份观察负责唯一一次换版请求，其余页面读共享的机器状态。
   if (!entry || entry.tooOld) return;
+  const owner = Symbol('version-match');
+  entry.versionMatchOwner = owner;
   entry.tooOld = true;
   notify(entry);
   // 换版请求失败(没有桥 / 匹配说「不是旧版」/ 请求被拒)时必须把锁放掉:连接稳着的时候
   // `onMachineReconnected` 永远不来,锁死 = 这条路径再也不问、界面也不恢复(评审 P2)。
   // 放掉之后沿用既有的失败-重试节奏:下一次真实失败会再走一遍这里。
   const releaseLock = (): void => {
+    if (entries.get(deviceId) !== entry || entry.versionMatchOwner !== owner) return;
+    entry.versionMatchOwner = null;
     if (entry.tooOld) {
       entry.tooOld = false;
       notify(entry);
