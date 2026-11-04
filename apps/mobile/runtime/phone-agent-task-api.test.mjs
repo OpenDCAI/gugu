@@ -21,7 +21,6 @@ test('admission retains raw caption and files without resolving bytes, permits r
   assert.deepEqual(Object.keys(first.value).sort(), ['accepted', 'admission', 'messageId'])
   assert.equal(inputs[0].prompt, 'original caption')
   assert.deepEqual(inputs[0].files, input.files)
-  assert.equal(inputs[0].clientMessageId, input.clientRequestId)
   assert.deepEqual(await api('sessionTimeline.sessionSend', [input], randomUUID()), first)
   assert.equal(resolutions, 0)
   await api('sessionTimeline.sessionSend', [{ conversationId: agent.sessionId, text: 'following text', clientRequestId: randomUUID() }], randomUUID())
@@ -101,13 +100,4 @@ test('a lost admission ACK retains custody after permission revocation and a dup
   assert.equal(Object.keys(store.state.jobs).length, 1)
   await assert.rejects(api('sessionTimeline.sessionSend', [{ ...input, text: 'different input' }], randomUUID()), { admission: 'uncertain' })
   await assert.rejects(api('sessionTimeline.sessionSend', [{ ...input, clientRequestId: randomUUID() }], randomUUID()), { admission: 'rejected' })
-})
-
-test('unsupported steering is rejected before admission instead of becoming an ordinary queued task', async () => {
-  const store = { state: { jobs: {} } }, agent = { sessionId: randomUUID(), agentUserId: randomUUID() }
-  let admissions = 0
-  const api = createPhoneTaskApi({ ownerId: randomUUID(), store, findSession: () => agent, verifyAgent: async () => {}, admit: async () => { admissions++ } })
-  await assert.rejects(api('sessionTimeline.sessionSend', [{ conversationId: agent.sessionId, text: 'steer now', steerIfBusy: true, clientRequestId: randomUUID() }], randomUUID()), error => error.code === 'unsupported')
-  assert.equal(admissions, 0)
-  assert.deepEqual(store.state.jobs, {})
 })

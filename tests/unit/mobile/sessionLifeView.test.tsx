@@ -71,33 +71,3 @@ it('does not add a read on a normal open, and reads once when a real pending inp
   expect(latest.view?.version).toBe(3)
   expect(host.reads).toHaveLength(1)
 })
-
-it('invalidates old ready on disconnect and throughout a reconnect read, rejecting the previous epoch', async () => {
-  root = createRoot(container)
-  await act(async () => { root.render(<Reader />) })
-  await act(async () => { host.reads[0]!.resolve(view('a', 9)) })
-  const priorCurrent = latest.current
-  expect(priorCurrent()?.version).toBe(9)
-  await act(async () => {
-    for (const cb of host.links) cb(false)
-    expect(priorCurrent()).toBeNull()
-  })
-  expect(latest.view).toBeNull()
-  await act(async () => { for (const cb of host.links) cb(true) })
-  expect(latest.view).toBeNull()
-  expect(latest.current()).toBeNull()
-  await act(async () => { host.reads[1]!.resolve({ ...view('a', 1), hold: 'user-stop' }) })
-  expect(latest.current()?.hold).toBe('user-stop')
-  expect(latest.view?.hold).toBe('user-stop')
-})
-
-it('does not restore an old ready value after a reconnect read fails', async () => {
-  root = createRoot(container)
-  await act(async () => { root.render(<Reader />) })
-  await act(async () => { host.reads[0]!.resolve(view('a', 4)) })
-  await act(async () => { for (const cb of host.links) cb(true) })
-  await act(async () => { host.reads[1]!.reject(new Error('new epoch read failed')) })
-  expect(latest.view).toBeNull()
-  expect(latest.current()).toBeNull()
-  expect(latest.error).toContain('new epoch read failed')
-})

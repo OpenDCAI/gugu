@@ -428,19 +428,11 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       checkCancelled()
       const result = await runTurn({ sessionId: agent.sessionId, jobId: job.id, contextEpoch: agent.contextEpoch, agentUserId: agent.agentUserId, prompt, phoneTools: 'catalog', cancelled: job.cancelRequested === true, ...lease.model }, { emit: (event) => {
         if (event.type === 'pi_live') {
-          if (event.kind === 'committed' && event.id === `phone-input:${job.id}`) {
-            job.inputRecordId ??= event.recordId
-            if (job.inputRecordId === event.recordId) {
-              if (job.clientMessageId) {
-                if (agent.inputIdentities?.epoch !== agent.contextEpoch) agent.inputIdentities = { epoch: agent.contextEpoch, records: {} }
-                agent.inputIdentities.records[event.recordId] = job.clientMessageId
-              }
-              if (job.files?.length) {
-                agent.fileInputs ??= {}
-                agent.fileInputs[event.recordId] = { text: job.prompt, files: job.files.map(({ itemId, version, name, mimeType, sizeBytes }) => ({ itemId, version, name, mimeType, sizeBytes })) }
-              }
-              void store.save().catch(error => warn(error.message))
-            }
+          if (event.kind === 'committed' && event.id === `phone-input:${job.id}` && job.files?.length) {
+            job.inputRecordId = event.recordId
+            agent.fileInputs ??= {}
+            agent.fileInputs[event.recordId] = { text: job.prompt, files: job.files.map(({ itemId, version, name, mimeType, sizeBytes }) => ({ itemId, version, name, mimeType, sizeBytes })) }
+            void store.save().catch(error => warn(error.message))
           }
           if (event.kind === 'phase' && ['model', 'tool'].includes(event.phase)) { job.phase = event.phase; publish() }
           timelines.live(agent, job, event)

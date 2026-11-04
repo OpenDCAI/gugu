@@ -217,8 +217,8 @@ export function unsubscribeSession(deviceId: string, subscriptionId: string): Pr
   return rpc(deviceId).sessionTimeline.sessionUnsubscribe({ subscriptionId })
 }
 
-export async function sendSessionText(deviceId: string, sessionId: string, text: string, clientMessageId?: string, files?: import('@gugu/session-core/session-record/contract').TurnFileRef[], attachments?: import('@gugu/session-core/acp/client').PromptAttachment[], steerIfBusy?: true) {
-  const result = await rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text, ...(clientMessageId ? { clientMessageId } : {}), ...(steerIfBusy ? { steerIfBusy } : {}), ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) })
+export async function sendSessionText(deviceId: string, sessionId: string, text: string, clientMessageId?: string, files?: import('@gugu/session-core/session-record/contract').TurnFileRef[], attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]) {
+  const result = await rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text, ...(clientMessageId ? { clientMessageId } : {}), ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) })
   if (!result.ok) throw new SessionInputAdmissionError(result.error.message, sessionInputAdmission(result.error), result.error.code)
   const receipt = result.value
   if (clientMessageId && receipt.clientMessageId !== clientMessageId) throw new Error('会话尚未确认接收这条消息，稍后自动重试')

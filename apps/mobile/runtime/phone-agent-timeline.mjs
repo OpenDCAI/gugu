@@ -5,7 +5,6 @@ import { createSessionTimeline } from '../../../packages/session-core/src/sessio
 import { findToolImage } from '../../../packages/session-core/src/session-record/tool-image.ts'
 import { trimAfterResultForTransport, trimOlderForTransport, trimSnapshotForTransport } from '../../../packages/session-core/src/session-record/transport-trim.ts'
 import { createPhoneLiveProjection } from './phone-agent-live.mjs'
-import { phoneInputIdentity } from './phone-input-identity.mjs'
 
 const failure = (code, message) => Object.assign(new Error(message), { code })
 const terminal = new Set(['done', 'failed', 'cancelled', 'interrupted'])
@@ -135,7 +134,7 @@ export function createPhoneTimelineRuntime({ root, store, authorize, confirmatio
     cached.timeline.syncPendingRequests(pending.map(asRequest))
     for (const settlement of pending) if (settlement.state === 'resolved') cached.settle(settlement)
     cached.timeline.syncPendingRequests(pending.filter((settlement) => settlement.state !== 'cancelled').map(asRequest))
-    cached.timeline.syncQueuedPrompts(Object.values(store.state.jobs).filter((job) => job.agentUserId === agent.agentUserId && job.status === 'queued' && (!job.contextEpoch || job.contextEpoch === agent.contextEpoch)).map((job) => ({ id: job.id, text: job.prompt, ...(job.clientMessageId ? { clientMessageId: job.clientMessageId } : {}), ...(job.files?.length ? { files: job.files } : {}), ...(job.queueEdit ? { queueEdit: job.queueEdit } : {}) })))
+    cached.timeline.syncQueuedPrompts(Object.values(store.state.jobs).filter((job) => job.agentUserId === agent.agentUserId && job.status === 'queued' && (!job.contextEpoch || job.contextEpoch === agent.contextEpoch)).map((job) => ({ id: job.id, text: job.prompt, ...(job.files?.length ? { files: job.files } : {}), ...(job.queueEdit ? { queueEdit: job.queueEdit } : {}) })))
     return cached.timeline
   }
   const serialized = async (agent, work) => {
@@ -172,11 +171,7 @@ export function createPhoneTimelineRuntime({ root, store, authorize, confirmatio
   })
   const deliver = async (agent, read) => {
     const epoch = agent.contextEpoch
-    const raw = read(await timeline(agent))
-    const identify = turns => phoneInputIdentity(turns, jobsOf(agent), agent.inputIdentities?.epoch === agent.contextEpoch ? agent.inputIdentities.records : undefined)
-    const value = Array.isArray(raw.turns) ? { ...raw, turns: identify(raw.turns) }
-      : raw.ok === true && raw.batch ? { ...raw, batch: { ...raw.batch, turns: identify(raw.batch.turns) } }
-      : raw.ok === false && raw.snapshot ? { ...raw, snapshot: { ...raw.snapshot, turns: identify(raw.snapshot.turns) } } : raw
+    const value = read(await timeline(agent))
     // File IO can overlap revocation or a new permission epoch. The check before opening a
     // record alone cannot authorize handing its contents back after those asynchronous reads.
     await checkAuthorization(agent)

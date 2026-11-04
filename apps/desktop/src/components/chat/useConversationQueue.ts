@@ -5,12 +5,11 @@ import type { ComposerQueuedPrompt } from '@gugu/session-ui/react/components'
 import { changeConversationQueue } from '../assistant/assistantTimelineClient'
 import { requestSendQueuedPromptNow } from '@renderer/features/sessions/acp/send-queued-prompt-now-flow'
 
-export type ConversationQueueTarget = { deviceId: string; sessionId: string; local: boolean; phoneHost?: boolean }
+type Target = { deviceId: string; sessionId: string; local: boolean; phoneHost?: boolean }
 type Editing = { id: string; text: string; originalDraftText: string }
 
-export function useConversationQueue(target: ConversationQueueTarget | null,
-  prompts: readonly { id: string; text: string; locked?: boolean; queueEdit?: { draftText: string; originalDraftText: string } }[], working: boolean, steers = false,
-  writeQueue?: (action: SessionpageQueueAction) => Promise<unknown>) {
+export function useConversationQueue(target: Target | null,
+  prompts: readonly { id: string; text: string; queueEdit?: { draftText: string; originalDraftText: string } }[], working: boolean, steers = false) {
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<Editing | null>(null)
   const [pending, setPending] = useState(false)
@@ -31,8 +30,7 @@ export function useConversationQueue(target: ConversationQueueTarget | null,
     if (blocking && mounted.current) setPending(true)
     const result = sequence.current.then(async () => {
       if (!target) throw new Error('This conversation has no authorized runtime queue')
-      if (writeQueue) await writeQueue(action)
-      else await changeConversationQueue(target.local, target.deviceId, target.sessionId, action, target.phoneHost)
+      await changeConversationQueue(target.local, target.deviceId, target.sessionId, action, target.phoneHost)
     }).then(() => {
       if (mounted.current) setError(null)
       return true

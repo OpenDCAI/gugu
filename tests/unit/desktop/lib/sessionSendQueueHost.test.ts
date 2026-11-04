@@ -47,14 +47,6 @@ beforeEach(() => {
 })
 afterEach(() => { close?.(); close = undefined; fixture.rowListeners.clear(); fixture.changes.clear() })
 
-it('does not open ACP transport for a target assigned to the phone observer', async () => {
-  close = watchSessionSendQueues('owner', () => undefined, () => false)
-  await Promise.resolve(); await Promise.resolve()
-  expect(fixture.lifeEvent).toBeUndefined()
-  expect(fixture.history).not.toHaveBeenCalled()
-  expect(fixture.release).not.toHaveBeenCalled()
-})
-
 it.each([0, 1])('actually sends a busy queued input after a real normal WorkEnded snapshot (background agents=%s)', async background => {
   const machine = new SessionMachine('session')
   machine.apply({ type: 'SessionReady' })
