@@ -453,10 +453,10 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    */
   separatePair({ remember = true }: { remember?: boolean } = {}): void {
     const pair = this.pair;
+    const anchorTab = remember && pair ? (this._layoutSplitter?.pairAnchorTab?.() ?? null) : null;
     this.pair = null;
     if (!remember || !pair) return;
     // 记的是并排在对话旁边的那几类;对话那一枚(锚)本身不算一类「不想并排」的页签。
-    const anchorTab = this._layoutSplitter?.pairAnchorTab?.() ?? null;
     for (const id of [pair.anchor, pair.side]) {
       const kind = id === anchorTab ? undefined : this.entries.get(id)?.kind;
       if (kind) this.splitDeclinedKinds.add(kind);

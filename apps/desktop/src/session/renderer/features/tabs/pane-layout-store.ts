@@ -1,7 +1,7 @@
 import { action, computed, makeObservable, observable, reaction } from 'mobx';
 import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX, PaneStore } from '@renderer/features/tabs/pane-store';
 import type { TabGroupsSnapshot, TabManagerSnapshot } from '@shared/view-state';
-import type { OpenTarget, TabViewContext } from './core/tab-provider';
+import type { OpenTarget, TabEntry, TabViewContext } from './core/tab-provider';
 import type {
   AnyTabProvider,
   KindOf,
@@ -262,9 +262,9 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
    * 「开在对话旁边」(`beside`)认哪一枚是对话:会话页那一侧知道(这条会话自己的对话页签),由它挂上来;
    * 没挂(测试、新建任务页)或这会儿没有对话 = 照常开。
    */
-  pairAnchor: (() => PairAnchor | null) | null = null;
+  pairAnchor: ((tab?: Pick<TabEntry, 'kind' | 'state'>) => PairAnchor | null) | null = null;
 
-  setPairAnchor(finder: (() => PairAnchor | null) | null): void {
+  setPairAnchor(finder: ((tab?: Pick<TabEntry, 'kind' | 'state'>) => PairAnchor | null) | null): void {
     this.pairAnchor = finder;
   }
 
@@ -275,14 +275,14 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
    * 返回认没认出来这一枚;没有对话可并排 = false,调用方照它原来的办法切过去。
    */
   showBeside(tabId: string, opts?: { reveal?: boolean }): boolean {
-    const anchor = this.pairAnchor?.() ?? null;
+    const group = this.groups.find((g) => g.pane.entries.has(tabId));
+    const anchor = this.pairAnchor?.(group?.pane.entries.get(tabId)) ?? null;
     if (!anchor) return false;
     for (const windowPane of this.windowPanes.values()) {
       if (!windowPane.pane.entries.has(tabId)) continue;
       this.windowRevealer?.(windowPane.paneId);
       return true;
     }
-    const group = this.groups.find((g) => g.pane.entries.has(tabId));
     if (!group) return false;
     if (group.paneId !== anchor.paneId) {
       group.pane.setActiveTab(tabId);
@@ -580,7 +580,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
 
     // 开在对话旁边(spec session-page「并排」):对话那一格、那一枚。没有对话 = 照常开;
     // 用户拆开过这一类 = 不再自动并排,也照常开 —— agent 打开的不切走,人点开的切过去(和普通浏览器一样)。
-    const foundAnchor = config?.beside ? (this.pairAnchor?.() ?? null) : null;
+    const foundAnchor = config?.beside ? (this.pairAnchor?.({ kind, state: initialState }) ?? null) : null;
     const declinedGroup = foundAnchor
       ? this.groups.find((g) => g.paneId === foundAnchor.paneId && g.pane.splitDeclinedKinds.has(kind as string))
       : undefined;

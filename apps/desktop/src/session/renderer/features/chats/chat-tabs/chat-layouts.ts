@@ -69,9 +69,14 @@ export function chatLayoutOf(chatId: string): ChatLayout {
     layout.setViewActive(true);
     if (persisted) layout.startPersistence();
   });
-  layout.setPairAnchor(() => {
+  layout.setPairAnchor((tab) => {
     const pane = layout.groups[0]!;
-    const tabId = chatTabOf(layout);
+    // Opening/revealing a file follows the conversation whose message it came from. Separating an existing pair
+    // exempts that conversation's kind from the file placement preference.
+    const pair = pane.pane.livePair;
+    const tabId = tab
+      ? conversationTabOf(layout, tab.kind === CHAT_PANEL_TAB_KIND ? tab.state as PanelItem : undefined)
+      : (pair && [pair.anchor, pair.side].find((id) => [CHAT_TAB_KIND, CHAT_TOPIC_TAB_KIND].includes(pane.pane.entries.get(id)?.kind ?? ''))) || chatTabOf(layout);
     return tabId ? { paneId: pane.paneId, tabId } : null;
   });
   reaction(() => layout.groups[0]!.pane.tabOrder, () => keepChatFirst(layout));
@@ -82,7 +87,7 @@ export function chatLayoutOf(chatId: string): ChatLayout {
     const hidden = groupParticipantPanes.hide(chatId);
     // A topic yielded to an agent remains a tab. Selecting it gives the auxiliary place back.
     if (yieldedAuxiliary.delete(chatId) || hidden) {
-      const chatTab = chatTabOf(layout);
+      const chatTab = conversationTabOf(layout, kind === CHAT_PANEL_TAB_KIND ? pane.entries.get(tabId)!.state as PanelItem : undefined);
       if (chatTab && !pane.livePair) pane.pairWith(chatTab, tabId);
     }
     if (hidden) returnToScreen();
@@ -105,6 +110,16 @@ const paneOf = (layout: ChatLayout): PaneStore => layout.groups[0]!.pane;
 function chatTabOf(layout: ChatLayout): string | undefined {
   const pane = paneOf(layout);
   return pane.tabOrder.find((id) => pane.entries.get(id)?.kind === CHAT_TAB_KIND);
+}
+
+/** Resource ownership stays with the group; pairing follows the message's topic while that topic is still open. */
+function conversationTabOf(layout: ChatLayout, item?: PanelItem): string | undefined {
+  const source = item?.message?.chat_id;
+  const pane = paneOf(layout);
+  return (source && pane.tabOrder.find((id) => {
+    const entry = pane.entries.get(id);
+    return entry?.kind === CHAT_TOPIC_TAB_KIND && (entry.state as ChatTopicState).topicChatId === source;
+  })) || chatTabOf(layout);
 }
 
 export interface ChatPanelTab {
@@ -180,7 +195,9 @@ export const openPanelItem = action(function openPanelItem(
 ): string | undefined {
   const layout = chatLayoutOf(chatId);
   if (opts?.restore) keepRestore(chatId, item, opts.restore);
-  layout.open(CHAT_PANEL_TAB_KIND, item, { beside: true, overrideState: true, ...(opts?.returnTo ? { returnTo: { tabId: opts.returnTo } } : {}) });
+  const source = conversationTabOf(layout, item);
+  const returnTo = opts?.returnTo ?? source;
+  layout.open(CHAT_PANEL_TAB_KIND, item, { beside: true, overrideState: true, ...(returnTo ? { returnTo: { tabId: returnTo } } : {}) });
   const pane = paneOf(layout);
   return pane.findSingleMountEntry(CHAT_PANEL_TAB_KIND, panelItemKey(item))?.tabId;
 });
@@ -230,7 +247,7 @@ export const showChatOnly = action(function showChatOnly(chatId: string): void {
 export const setPanelFull = action(function setPanelFull(chatId: string, tabId: string, full: boolean): void {
   const layout = chatLayoutOf(chatId);
   const pane = paneOf(layout);
-  const chatTab = chatTabOf(layout);
+  const chatTab = conversationTabOf(layout, pane.entries.get(tabId)?.state as PanelItem | undefined);
   if (!pane.entries.has(tabId) || !chatTab) return;
   if (full) {
     // 程序为让位拆开(会话浮在页上),不是用户对这一类说「不并排」:❌ 记下来(owner 10-28)。
@@ -248,7 +265,7 @@ export const setPanelFull = action(function setPanelFull(chatId: string, tabId: 
 export function panelFull(chatId: string, tabId: string): boolean {
   const layout = chatLayoutOf(chatId);
   const pane = paneOf(layout);
-  const chatTab = chatTabOf(layout);
+  const chatTab = conversationTabOf(layout, pane.entries.get(tabId)?.state as PanelItem | undefined);
   const pair = pane.livePair;
   const pairedWithChat = pair && (
     (pair.anchor === chatTab && pair.side === tabId) ||
