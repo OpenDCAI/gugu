@@ -106,7 +106,6 @@ export function LoginPage() {
   }
 
   return <main className="gugu-auth-page">
-    <div className="gugu-auth-window-drag" aria-hidden="true" />
     <section className="gugu-auth-shell" aria-labelledby={googleEnabled === null ? undefined : "gugu-auth-title"} aria-busy={googleEnabled === null}>
       <aside className="gugu-auth-brand" aria-label={t('brand.name')}>
         <AuthBrandMotion />
@@ -161,5 +160,6 @@ export function LoginPage() {
         }} /></p>
       </div>}</div>
     </section>
+    <div className="gugu-auth-window-drag" aria-hidden="true" />
   </main>
 }

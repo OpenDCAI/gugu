@@ -80,6 +80,11 @@ for (const theme of ['light', 'dark']) it(`keeps the real login controls mounted
     expect(getComputedStyle(host.querySelector('.gugu-auth-brand')!).display === 'none').toBe(width < 720)
     const button = rect(host.querySelector('.gugu-auth-google')!)
     const drag = host.querySelector('.gugu-auth-window-drag')!
+    // Electron composes drag/no-drag rectangles in document order, independently of z-index.
+    // The two no-drag content columns must precede the title strip, or they subtract all of it.
+    const shell = host.querySelector('.gugu-auth-shell')!
+    expect(shell.compareDocumentPosition(drag) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    expect(drag.parentElement).toBe(shell.parentElement)
     expect(getComputedStyle(drag).display === 'none').toBe(width < 720)
     if (width >= 720) {
       const strip = rect(drag)
