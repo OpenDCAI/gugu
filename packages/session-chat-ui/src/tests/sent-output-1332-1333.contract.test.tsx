@@ -71,6 +71,11 @@ for (const active of [true, false]) {
         server: 'plugin_gugu-product_gugu', status: failed ? 'error' : 'done',
         rawOutput: JSON.stringify([{ type: 'text', text: outputText }]), outputText };
       const { host } = await mount(true, [relay], active);
+      if (failed && active) {
+        const disclosure = () => host.querySelector<HTMLButtonElement>('[data-conversation-process][aria-expanded="false"]');
+        await expect.poll(disclosure).not.toBeNull();
+        disclosure()!.click();
+      }
       await expect.poll(() => host.textContent).toContain(failed ? 'MCP' : 'Native relay words');
       await expect.poll(() => host.querySelectorAll('[data-slot="sent-to"]').length).toBe(failed ? 0 : 1);
       if (!failed) {
