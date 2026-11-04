@@ -1499,7 +1499,7 @@ export class AcpChatStore {
   }
 
   async setModel(model: string): Promise<LiveSettingOutcome> {
-    if (!this.session && this.starting) return this._chooseAtStartup('model', model, 'acpFailure.changeModel');
+    if (!this.session && this.starting) return this._chooseAtStartup('model', model, 'acpFailure.changeSetting');
     // 没有活会话(起不来、或已经停了):换模型不需要它 —— 这一维只能按记录重开,交给调用方那条
     // 「宿主先写记录、再停、再起」的重开路。❌ 不拿「not connected」拦:记着的模型下架后会话正是因此
     // 起不来,拦下就等于这条会话永远换不走(2026-10-02 生产实撞)。
