@@ -4,6 +4,7 @@ import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { SessionInputOutboxHost } from '../../../../apps/desktop/src/hooks/useSessionInputOutbox'
+import { SessionInputOutbox } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 import { enqueueSessionInput, state } from '../../../../apps/desktop/src/lib/sessionInputOutboxBridge'
 import { SessionInputQueue } from '../../../../apps/desktop/src/components/chat/SessionInputQueue'
 import { updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
@@ -38,6 +39,24 @@ beforeEach(() => { toast.mockClear(); harness = createReactHarness() })
 afterEach(() => { harness.cleanup(); scope.owner = 'account-a'; scope.platform = 'electron'; scope.phones = []; scope.devices = [{ device_id: 'host-a', is_online: false, capabilities: {} }]; scope.received.clear(); scope.send.mockReset(); scope.machines = [] })
 
 describe('native input shell lifecycle', () => {
+  it('publishes the durable queue before enqueue resolves and rejects a late older refresh', async () => {
+    scope.owner = 'durable-first-frame-owner'
+    let finishOldRead!: (rows: []) => void
+    const oldRead = new Promise<[]>(resolve => { finishOldRead = resolve })
+    const read = vi.spyOn(SessionInputOutbox.prototype, 'list').mockImplementationOnce(() => oldRead)
+    try {
+      await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+      await act(async () => {
+        const input = await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'held-task', text: 'keep visible', queued: true, sendQueue: { order: 0 } })
+        expect(state().rows).toMatchObject([{ id: input.id, text: input.text, sendQueue: expect.any(Object) }])
+        finishOldRead([])
+        await oldRead
+        expect(state().rows).toMatchObject([{ id: input.id }])
+        expect(await (await state().queue)!.list()).toMatchObject([{ id: input.id }])
+      })
+      expect(scope.send).not.toHaveBeenCalled()
+    } finally { finishOldRead([]); read.mockRestore() }
+  })
   it('keeps a released insertion intact when a reconnecting host no longer advertises steering', async () => {
     scope.owner = 'steer-reconnect-owner'
     scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]

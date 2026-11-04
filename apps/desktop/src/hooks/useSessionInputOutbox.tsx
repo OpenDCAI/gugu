@@ -38,9 +38,11 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
       return native === 1
     }
     let queue: SessionInputOutbox | null = null
-    const refresh = async () => {
-      const rows = await queue?.list()
-      if (valid() && rows) { own.rows = rows; changed() }
+    let refreshRevision = 0
+    const refresh = async (persisted?: readonly SessionInput[]) => {
+      const revision = ++refreshRevision
+      const rows = persisted ?? await queue?.list()
+      if (revision === refreshRevision && valid() && rows) { own.rows = rows; changed() }
     }
     own.queue = openSessionInputStorage().then(storage => {
       queue = new SessionInputOutbox(accountId, storage, async input => {
@@ -75,7 +77,7 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
           if (!input.deviceId) throw new Error('Remote session input has no device')
           await sendSessionText(input.deviceId, input.sessionId, input.text, input.id, input.files, input.attachments)
         }
-      }, valid, () => { void refresh().catch(report) }, input => {
+      }, valid, persisted => { void refresh(persisted).catch(report) }, input => {
         if (oldAttachmentHost(input)) throw new Error(translateSessionMessage('composer.attachmentHostUpdateRequired'))
       })
       void refresh().catch(report)

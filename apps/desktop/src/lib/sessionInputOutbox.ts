@@ -91,7 +91,7 @@ export class SessionInputOutbox {
   private readonly generations = new Map<string, object>()
   constructor(readonly accountId: string, private readonly storage: SessionInputStorage,
     private readonly send: (input: SessionInput) => Promise<void>, private readonly current: () => boolean,
-    private readonly changed: () => void = () => {},
+    private readonly changed: (persisted?: readonly SessionInput[]) => void = () => {},
     private readonly beforeEnqueue: (input: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments'>) => void = () => {}) {}
 
   async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId' | 'sendQueue'> & { composer?: true }): Promise<SessionInput> {
@@ -109,7 +109,9 @@ export class SessionInputOutbox {
       const input: SessionInput = { ...body, ...(sendQueue ? { queued: true, sendQueue: { ...sendQueue, order: at } } : {}),
         accountId: this.accountId, id: crypto.randomUUID(), createdAt: at }
       await this.storage.put(input)
-      this.changed()
+      // Publish the committed snapshot before the composer relinquishes its draft.
+      // A second asynchronous read would leave neither draft nor queue on screen.
+      this.changed([...rows, input])
       return input
     })
     this.writing = written

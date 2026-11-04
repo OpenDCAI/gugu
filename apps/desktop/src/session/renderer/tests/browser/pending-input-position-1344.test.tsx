@@ -3,12 +3,14 @@
 // Life mirror/_drawLifeHead, connectSession, transcript view and both queue components.
 // Controlled boundaries: host RPC, host Life events, and runtime live replicas.
 import { createRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
+import { createRef } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { observable, reaction, runInAction } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import { createChatView, type TranscriptTurn } from '@gugu/session-chat-ui';
-import { ChatComposer, MessageProvider } from '@gugu/session-ui/react/components';
+import { ChatComposer, MessageProvider, type PromptEditorRef } from '@gugu/session-ui/react/components';
 import type { LifeView } from '@shared/core/sessions/session-life';
 import { i18n } from '@/i18n';
 import { registerSessionLocaleResources } from '@renderer/localization/locale-store';
@@ -59,7 +61,7 @@ function turn(id: string, itemId: string, text = '先前的工作'): TranscriptT
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 const sameText = '好';
-const cases = ['A-queue-first', 'A-active-first', 'B-life-first', 'B-active-first', 'direct-ack-first', 'direct-echo-first', 'B-mixed-legacy'] as const;
+const cases = ['A-queue-first', 'A-active-first', 'B-life-first', 'B-active-first', 'direct-ack-first', 'direct-echo-first', 'B-mixed-legacy', 'B-durable-first-frame'] as const;
 
 it.each(cases)('%s: record each actual paint boundary before Q starts', async (name) => {
   await page.viewport(1000, 800);
@@ -118,10 +120,18 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
 
   let current = true;
   const own = outboxState();
-  const storage = await openSessionInputStorage();
+  const durable = await openSessionInputStorage();
+  let releasePersistence!: () => void;
+  const persistenceGate = new Promise<void>(resolve => { releasePersistence = resolve; });
+  if (name !== 'B-durable-first-frame') releasePersistence();
+  const storage = { ...durable, put: async (input: SessionInput) => { await persistenceGate; await durable.put(input); } };
   const accountId = `frames-account-${crypto.randomUUID()}`;
   let refresh: Promise<void> = Promise.resolve();
-  const publishRows = () => { refresh = queue.list().then(rows => { if (!current) return; own.rows = rows; changed(); }); };
+  let refreshRevision = 0;
+  const publishRows = (persisted?: readonly SessionInput[]) => {
+    const revision = ++refreshRevision;
+    refresh = (async () => { const rows = persisted ?? await queue.list(); if (!current || revision !== refreshRevision) return; own.rows = rows; changed(); })();
+  };
   const queue = new SessionInputOutbox(accountId, storage, async input => {
     received.push(input);
     // Transport boundary only: held composer entries must never reach this callback.
@@ -133,6 +143,7 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
   own.accountId = accountId; own.queue = Promise.resolve(queue); own.rows = []; own.valid = () => current;
   cleanup.push(async () => {
     current = false;
+    releasePersistence();
     for (const pending of held.splice(0)) pending.accept();
     await queue.flush();
     for (const row of await queue.list()) await storage.remove(accountId, row.id);
@@ -153,15 +164,20 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
   store.chatContext.setLayout({ preset: 'double', userGutter: 0, agentConversation: true });
   cleanup.push(() => { view.dispose(); host.remove(); });
   const composerRoot = createRoot(view.composerSlot!);
+  const editorApiRef = createRef<PromptEditorRef>();
   cleanup.push(() => composerRoot.unmount());
   const Compose = observer(() => {
     const currentLife = sessionLifeView(sessionId);
     const t = i18n.getFixedT('zh-CN', 'session');
-    const submit = (text: string) => store.submitPrompt(text);
+    const submit = async (text: string) => {
+      await store.submitPrompt(text);
+      flushSync(() => { if (editorApiRef.current?.getText() === text) editorApiRef.current.clear(); });
+    };
     return <MessageProvider locale="zh-CN" translate={(key, values) => t(key, { ...values, interpolation: { prefix: '{', suffix: '}' } })}>
       <SessionInputQueue sessionId={sessionId} waitingForConnection life={currentLife}
         inTranscript={[...(store.transcriptPendingId ? [store.transcriptPendingId] : []), ...currentLife?.pending.items.filter(isTranscriptDelivery).map(row => row.messageId) ?? []]} />
       <ChatComposer isWorking={store.affordances.isWorking} canSubmit queuedPrompts={store.queuedPrompts}
+        editorApiRef={editorApiRef} editorOptions={{ clearOnSubmit: false }}
         onSubmit={submit} onSubmitWhileWorking={submit} onStop={() => store.stop()}
         onInputChange={text => store.setDraftText(text)}
         queuedPromptEdit={store.queuedPromptEdit}
@@ -228,6 +244,13 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
     eventLabel = 'editor-submit';
     const input = page.getByTestId('prompt-editor');
     await input.click(); await input.fill(sameText); await userEvent.keyboard('{Enter}');
+    if (name === 'B-durable-first-frame') {
+      await paint('persistence-not-committed');
+      expect(own.rows).toEqual([]);
+      expect(editorApiRef.current?.getText(), 'the draft stays visible while its durable row is not committed').toBe(sameText);
+      expect(received).toEqual([]);
+      releasePersistence();
+    }
     await until('production outbox persists the input', () => own.rows.some(row => row.sessionId === sessionId));
     q = own.rows[0]; await refresh;
     if (!busy) await until('ordinary input reaches host RPC', () => received.length === 1);

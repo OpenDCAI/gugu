@@ -47,7 +47,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState, type Ref
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
 import { useMarkSeenWhenShown } from '@renderer/features/sessions/hooks/use-mark-seen-when-shown';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { IntegrationIcon } from '@renderer/features/integrations/integration-icon';
@@ -395,9 +395,11 @@ const ComposerForStore = observer(function ComposerForStore({
         const text = value.trim();
         if (!text && files.length === 0) return;
         try { await deliver(text, files); } catch { editorApiRef.current?.setText(value); return; }
-        setAttachments([]);
-        fileUploads.clear();
-        editorApiRef.current?.clear();
+        flushSync(() => {
+          setAttachments([]);
+          fileUploads.clear();
+          if (editorApiRef.current?.getText() === value) editorApiRef.current.clear();
+        });
         // 滚到哪由 store 定(发出即把这一句钉到顶):这里再滚一次到旧的底,会和那一钉抢,视图先滑回上一轮再跳回来。
       } finally {
         sendingRef.current = false;
@@ -412,7 +414,6 @@ const ComposerForStore = observer(function ComposerForStore({
     [store, sendWhenReady]
   );
 
-  // While a turn runs the host queues the input behind it: the same custody path, nothing page-side.
   const handleSubmitWhileWorking = handleSubmit;
 
   const handleStop = useCallback(() => {
@@ -1469,6 +1470,7 @@ const ComposerForStore = observer(function ComposerForStore({
           && sendHold !== 'waiting' && !membershipLockedModel}
         placeholder={startupPlaceholderKeyValue ? translate(startupPlaceholderKeyValue) : undefined}
         onSubmit={handleSubmit}
+        editorOptions={{ clearOnSubmit: false }}
         onInputChange={(text) => store.setDraftText(text)}
         onSubmitWhileWorking={handleSubmitWhileWorking}
         onStop={a.isWorking ? handleStop : undefined}
