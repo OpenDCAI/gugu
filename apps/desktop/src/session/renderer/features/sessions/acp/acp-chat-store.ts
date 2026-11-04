@@ -2461,7 +2461,8 @@ export class AcpChatStore {
     this._unsubs.splice(0).forEach((unsub) => unsub());
     let lastTurn = session.activeTurn.current();
     const machine = machineRegistry.machineOf(this.runtimeSessionId);
-    const finalHistory = observeClosedTurnHistory({
+    // Runtime-only forks have no durable record by contract; their original live-history path stays separate.
+    const finalHistory = this.isTransient ? null : observeClosedTurnHistory({
       sessionId: this.runtimeSessionId,
       reference: () => lastTurn?.referenceId,
       subscribe: accept => onMachineEvent(machine, sessionTurnSettledChannel, accept),
@@ -2470,7 +2471,8 @@ export class AcpChatStore {
       failed: error => this._toastError('acpFailure.refreshHistory', error),
     });
     this._closedHistory = finalHistory;
-    this._unsubs.push(finalHistory.dispose, session.activeTurn.onChange(turn => { if (turn) lastTurn = turn; }));
+    if (finalHistory) this._unsubs.push(finalHistory.dispose);
+    this._unsubs.push(session.activeTurn.onChange(turn => { if (turn) lastTurn = turn; }));
     // 挂上了:停着时盯会话表的那一格交还 —— 之后它停没停由这条会话自己的状态说(`_onSessionClosedByHost`)。
     this._setParkWatch(null);
     const initialState = session.sessionState.current();
@@ -2961,7 +2963,7 @@ export class AcpChatStore {
     this._closedHistory = null;
     this._unsubs.splice(0).forEach((unsub) => { if (unsub !== finalHistory?.dispose) unsub(); });
     this.session = null;
-    const generation = ++this._historyGeneration;
+    const generation = finalHistory ? ++this._historyGeneration : this._historyGeneration;
     if (finalHistory) this._unsubs.push(finalHistory.dispose);
     this._unsubs.push(
       // 等它起完(重放过往回合)再挂:挂在 starting / replaying 上,读到的引擎历史缺一截,补上来的回合会再画一遍。
