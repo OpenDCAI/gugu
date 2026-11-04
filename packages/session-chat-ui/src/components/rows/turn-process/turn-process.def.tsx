@@ -31,6 +31,8 @@ import type { TurnProcessItem } from '@session-chat/model';
 import { turnProcessExpanded, turnProcessLabel } from '@session-chat/state/turn-fold';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { conversationHeader, conversationName, conversationTime } from '../message/conversation-message.css';
+import { UserMessageActions } from '../message/UserMessageActions';
+import { CONVERSATION_FOOTER_H } from '../message/conversation-body';
 import { processRowHeight } from '../message/process-row-layout';
 import { ConversationProcess } from '../message/ConversationProcess';
 import { ProcessBackgroundList, ProcessBackgroundPill, backgroundHeight } from '../message/ConversationMessage';
@@ -38,7 +40,7 @@ import { conversationHeaderLayout } from '../message/conversation-header-layout'
 import { SenderName } from '../message/SenderName';
 import { conversationAgentTarget } from '@session-chat/lib/sender-target';
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
-import { turnProcessHeaderSlot, turnProcessLine, turnProcessRow } from './turn-process.css';
+import { turnProcessHeaderSlot, turnProcessLine, turnProcessRow, silentLine } from './turn-process.css';
 
 function headerLayout(data: TurnProcessItem, ctx: MeasureCtx) {
   return conversationHeaderLayout({ kind: 'message', role: 'assistant', text: '', id: data.id,
@@ -123,7 +125,14 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
           </div>
         </Show>
         <Show when={theme().layout.agentConversation}><ProcessBackgroundList ownerId={props.data.id} ctx={props.ctx} /></Show>
-        <Show when={theme().layout.agentConversation && props.data.silent}><div class={conversationTime} style={{ height: `${silentLayout(props.ctx.measureCtx!()).height}px`, 'white-space': 'pre-wrap', 'line-height': '22px' }}>{silentLayout(props.ctx.measureCtx!()).text}</div></Show>
+        <Show when={theme().layout.agentConversation && props.data.silent}>
+          <div data-slot="turn-silence" class={`${conversationTime} ${silentLine}`} style={{ height: `${silentLayout(props.ctx.measureCtx!()).height}px`, 'white-space': 'pre-wrap', 'line-height': '22px' }}>
+            <span>{silentLayout(props.ctx.measureCtx!()).text}</span>
+            <Show when={props.data.silentCopyText !== undefined}>
+              <UserMessageActions itemId={props.data.id} text={props.data.silentCopyText!} generating={false} readOnly vars={{ footerH: CONVERSATION_FOOTER_H }} />
+            </Show>
+          </div>
+        </Show>
       </div>
     );
   },
