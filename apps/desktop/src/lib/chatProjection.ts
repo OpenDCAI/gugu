@@ -16,6 +16,7 @@ import { isPendingDelivery, turnFailureReason } from '@gugu/core/shared/ui/syste
 import {
   assemble,
   assertRevision,
+  compareStamp,
   entityKey,
   foldBatch,
   EMPTY_PLANNER,
@@ -449,6 +450,9 @@ export function createChatProjection(viewerId: string): ChatProjection {
         return null
       }
       const spent = await runWaves(batch.head, batchSignal, { trigger, from: batch.from, requests: keysetRequests })
+      // A newer queued batch owns these unread keys. Publishing this older snapshot
+      // would mistake an unobserved conversation for a removed one.
+      if ([...planner.dirty.values()].some((stamp) => compareStamp(stamp, batch.head) > 0)) return null
       // 快照成功 ⇒ 这个游标上有了完整快照;失败时 runWaves 已经抛出,这行不会执行(戳不前进)。
       if (isSnapshot) snapshotAt = batch.head
       return isSnapshot || spent > 0 ? republish() : null
@@ -475,7 +479,9 @@ export function createChatProjection(viewerId: string): ChatProjection {
         log.info({ trigger: ['hydrate'], head: cursor }, 'chat projection snapshot covered')
         return rows
       }
-      const next = await schedule({ head: cursor, from: cursor, trigger: ['hydrate'] }, true, signal)
+      let next = await schedule({ head: cursor, from: cursor, trigger: ['hydrate'] }, true, signal)
+      // Reuse the queued revision work; do not return a partial cold list or start a retry.
+      while (next === null && inflight) next = await inflight
       return next ?? rows
     },
 

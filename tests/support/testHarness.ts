@@ -178,7 +178,7 @@ export function chat(overrides: Partial<ChatItem>): ChatItem {
 
 export function displayIdentity(id: string, overrides: Partial<DisplayIdentity> = {}): DisplayIdentity {
   return {
-    id, type: 'human', display_name: id, avatar: null, gugu_number: null, bio: null,
+    id, type: 'human', display_name: id, nameSerial: null, avatar: null, gugu_number: null, bio: null,
     owner_user_id: null, agent_public: null, desired_status: null, device_id: null,
     category: null, is_official: null, local_path: null, created_at: null, updated_at: null,
     ...overrides,

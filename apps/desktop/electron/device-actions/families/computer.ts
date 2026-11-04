@@ -7,8 +7,8 @@
  *
  * 咕咕在 cua-driver 之上多管四件事(它自己不管):
  * 1. **不碰咕咕自己**:目标是咕咕本身(pid、bundle id、App 名)的一律拒 —— 否则 agent 能自己点开设置给自己加权限。
- * 2. **不动人的真鼠标**:把整个桌面当目标的输入(scope / target = desktop,或不指定窗口的点、输、按键)会挪人的真鼠标、
- *    落到人正在用的窗口上 —— 拒;只动 agent 自己画的那个鼠标(move_cursor 不带目标)照常。
+ * 2. **不动人的真鼠标**:显式把整个桌面当目标的输入(scope / target = desktop)仍拒绝;
+ *    未指定目标的调用原样交给驱动校验,小条是否附着不决定动作能否执行。
  * 3. **抢焦点前先问**:delivery_mode = foreground / foreground_fallback 会短暂把目标切到前台,前台 HID 鼠标输入还会移动人的真实指针;
  *    bring_to_front 会把目标一直留在前台,
  *    Windows 上普通启动的 App 可能自己跳到前台(start_minimized 除外),都先回 needs_confirmation。
@@ -43,6 +43,7 @@ import type { DeviceActionPermit } from '@gugu/core/cloud/deviceActionHost'
 import type { CuaClient, CuaToolResult } from '../native/cua-client'
 import { cursorOnWindow } from '../native/cua-window-cursor'
 import { anySignal } from '@gugu/core/shared/anySignal'
+import { resolveComputerWindow } from '../computer-control-placement'
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
@@ -69,12 +70,12 @@ interface CuaTool {
   question?(args: Args): string
   /** 接在 cua 自己的说明后面的那句。 */
   note?: string
-  /** 输入类:目标必须是一个窗口(pid / window target / element_token)。 */
+  /** 输入类:补充窗口目标与独立权限规则。 */
   windowInput?: true
   timeoutMs?(args: Args): number
 }
 
-const WINDOW_ONLY = 'Target one window (pid with window_id, a window target, or an element_token from computer.get_window_state). Desktop-wide input (scope or target "desktop", or no window at all) moves the person\'s real pointer and is refused by 咕咕.'
+const WINDOW_ONLY = 'Prefer a window target (pid with window_id, or an element_token from computer.get_window_state). Calls without a target are passed to the driver for its normal validation. Explicit desktop-wide input (scope or target "desktop") moves the person\'s real pointer and is refused by 咕咕.'
 const FOREGROUND = 'delivery_mode "foreground" briefly brings the target to the front and interrupts the person: 咕咕 asks them first (needs_confirmation, then call again with confirmed: true). Foreground HID mouse input moves the person\'s real pointer, including across displays. The person and agent share the pointer and keyboard focus; simultaneous input can interfere with clicks. Coordinate foreground work with the person; standing authorization does not isolate their concurrent desktop use.'
 const NOT_GUGU = 'Operating 咕咕 itself is refused.'
 const MENU_FOCUS = 'Some native menus need the app to remain active across calls. A foreground click immediately restores the previous app and can dismiss such a menu. After the person has authorized foreground work, record the previous active app with list_apps, use bring_to_front to keep the target active, read the menu and choose its item, then restore the previous app. Check fresh pixels and list_windows filtered by pid; a successful dispatch alone does not prove that a menu opened.'
@@ -144,7 +145,7 @@ const TOOLS: readonly CuaTool[] = [
     titleEn: 'Run steps',
     kind: 'act',
     confirm: 'on_conflict',
-    note: 'Every step must name its window (pid, or app — a window title alone is not enough); the same 咕咕 rules apply to each step.',
+    note: 'Targets may be supplied on each step. The same 咕咕 protection and foreground-consent rules apply to each step; Stop indicator placement does not change batch admission.',
     timeoutMs: () => 75_000,
   },
 ]
@@ -220,13 +221,6 @@ function refusal(tool: string, args: Args, self: SelfApp, inherited: { pid?: num
   }
   if (!INPUT_TOOLS.has(tool)) return null
   if (isDesktop(args)) return 'Desktop-wide input moves the person\'s real pointer / acts on whatever they are using: 咕咕 refuses it. Target one window (pid and window_id, or an element_token).'
-  if (tool === 'move_cursor') return null
-  const hasWindow = pid !== undefined || typeof args.element_token === 'string' || (inherited.app ?? str(args, 'app')) !== ''
-  if (!hasWindow) {
-    return typeof args.window === 'string'
-      ? 'Name the app too (app or pid): a window title alone could match 咕咕 or a window the person is using.'
-      : 'Name the window to act on (pid and window_id, or an element_token from computer.get_window_state): input without a window would land on whatever the person is using.'
-  }
   return null
 }
 
@@ -350,6 +344,9 @@ export function cuaOutcome(name: string, result: CuaToolResult): Outcome {
     if (/screen recording/i.test(message) && /not (granted|allowed|authorized)|denied|permission/i.test(message)) return fail('os_permission', SCREEN_MESSAGE)
     if (/accessibility/i.test(message) && /not (granted|allowed|trusted|authorized)|denied|permission|disabled/i.test(message)) return fail('os_permission', AX_MESSAGE)
     if (refusalInfo?.code === 'facility_unavailable') return fail('unsupported', `${name}: ${message}`)
+    if (name === 'computer.click' && structured?.code === 'desktop_scope_disabled') {
+      return fail('execution_failed', `${name}: Clicking needs a target window. First use computer.launch_app or computer.list_windows to get the target app and window, then retry computer.click with pid and window_id, or an element_token from computer.get_window_state.`)
+    }
     return fail('execution_failed', `${name}: ${message}`)
   }
   const data = structured ?? (text ? { text } : {})
@@ -396,6 +393,7 @@ export function createAppDirectory() {
   const fileNames = new Map<number, string>()
   const listed = new Map<number, string>()
   const snapshots = new Map<string, { pid: number; windowId?: number }>()
+  const appPids = new Map<string, number>()
   const askedWindows = new Set<number>()
   const askedDescription = new Set<number>()
   const isFileName = (name: string) => /\.exe$/i.test(name)
@@ -416,7 +414,7 @@ export function createAppDirectory() {
       if (pid !== undefined) return pid
       const token = typeof args.element_token === 'string' ? args.element_token : ''
       const snapshot = token.includes(':') ? token.slice(0, token.lastIndexOf(':')) : ''
-      return snapshot ? snapshots.get(`${session}|${snapshot}`)?.pid : undefined
+      return snapshot ? snapshots.get(`${session}|${snapshot}`)?.pid : appPids.get(`${session}|${lower(args.app)}`)
     },
     windowOf(session: string, args: Args): number | undefined {
       const target = isRecord(args.target) ? args.target : args
@@ -440,6 +438,14 @@ export function createAppDirectory() {
       const target = isRecord(args.target) ? args.target : args
       const windowId = isNum(data.window_id) ? data.window_id : isNum(target.window_id) ? target.window_id : undefined
       if (pid !== undefined && typeof data.snapshot_id === 'string') snapshots.set(`${session}|${data.snapshot_id}`, { pid, ...(windowId !== undefined ? { windowId } : {}) })
+      const remember = (entry: unknown, aliases: unknown[] = []) => {
+        if (!isRecord(entry) || !isNum(entry.pid) || entry.pid <= 0) return
+        for (const name of [entry.app_name, entry.name, entry.bundle_id, ...aliases]) {
+          if (lower(name)) appPids.set(`${session}|${lower(name)}`, entry.pid)
+        }
+      }
+      remember(data, [args.app])
+      for (const list of [data.windows, data.apps]) if (Array.isArray(list)) list.forEach(entry => remember(entry))
       learnOne(data)
       for (const list of [data.windows, data.apps]) if (Array.isArray(list)) list.forEach(learnOne)
     },
@@ -501,27 +507,119 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
       const session = sessionOf(ctx)
       // Inspection must not open or refresh either activity indicator.
       const control = t.kind === 'act' ? ctx.deps.computerControl : undefined
-      const pid = apps.pidOf(session, forward)
-      const windowId = apps.windowOf(session, forward)
+      const launching = t.cua === 'launch_app'
+      type Target = { pid?: number; windowId?: number; stopped?: string }
+      const namedTargets = new Map<string, Promise<Target>>()
+      const targetOf = async (args: Args): Promise<Target> => {
+        if (!launching && control && str(args, 'app') && targetPid(args) === undefined && typeof args.element_token !== 'string') {
+          // App-name actions resolve afresh: a previously launched PID may have
+          // exited, while the driver will operate the app that is running now.
+          const key = JSON.stringify([args.app, args.window])
+          let pending = namedTargets.get(key)
+          if (!pending) {
+            pending = (async () => {
+              try {
+                const listed = await ctx.deps.cua().callTool('list_windows', { app: args.app, on_screen_only: true }, { signal: ctx.signal, timeoutMs: 5_000, lane: session })
+                const raw = listed.structuredContent
+                if (!listed.isError && isRecord(raw) && Array.isArray(raw.windows)) {
+                  const data = { ...raw, windows: raw.windows.filter(w => !str(args, 'window') || (isRecord(w) && lower(w.title).includes(lower(args.window)))) }
+                  const pids = new Set(data.windows.flatMap(w => isRecord(w) && isNum(w.pid) && w.pid > 0 ? [w.pid] : []))
+                  if (pids.size === 1) {
+                    const pid = [...pids][0]!
+                    apps.learn(session, data, args)
+                    const window = resolveComputerWindow(data, { pid, ...(isNum(args.window_id) ? { windowId: args.window_id } : {}) })
+                    return { pid, ...(window ? { windowId: window.windowId } : {}) }
+                  }
+                }
+              } catch { /* Window placement may fail while the App is still running. */ }
+              try {
+                // Reprove the App identity independently of window placement.
+                // A cached name→PID can refer to an exited or reused process.
+                const listed = await ctx.deps.cua().callTool('list_apps', {}, { signal: ctx.signal, timeoutMs: 5_000, lane: session })
+                const raw = listed.structuredContent
+                if (!listed.isError && isRecord(raw) && Array.isArray(raw.apps)) {
+                  const matched = raw.apps.filter(app => isRecord(app) && [app.name, app.app_name, app.bundle_id].some(name => lower(name) === lower(args.app)))
+                  const pids = new Set(matched.flatMap(app => isRecord(app) && isNum(app.pid) && app.pid > 0 ? [app.pid] : []))
+                  if (pids.size === 1) {
+                    const pid = [...pids][0]!
+                    apps.learn(session, { ...raw, pid, apps: matched }, args)
+                    return { pid }
+                  }
+                }
+              } catch { /* Unknown placement/identity never becomes an attachment gate. */ }
+              // A lookup outage cannot erase a known user Stop. Only consult
+              // the cached PID's pause state; never use it to address input or
+              // place the indicator without fresh process evidence.
+              const known = apps.pidOf(session, args)
+              const stopped = known !== undefined ? control.stoppedFor?.(known) : null
+              if (stopped) return { stopped }
+              return {}
+            })()
+            namedTargets.set(key, pending)
+          }
+          return pending
+        }
+        return { pid: apps.pidOf(session, args), windowId: apps.windowOf(session, args) }
+      }
+      // The driver's batch accepts targets on each step. Use the actual step
+      // targets for the indicator too, instead of treating the batch as desktop input.
+      const targets = t.cua === 'run_steps'
+        ? await Promise.all(stepsOf(forward).map(step => {
+            const ownsTarget = ['target', 'pid', 'app', 'element_token'].some(key => step.args[key] !== undefined)
+            const args = ownsTarget ? step.args : { ...forward, ...step.args }
+            return targetOf(args)
+          }))
+        : [await targetOf(forward)]
+      const stoppedTarget = targets.find(target => target.stopped)
+      if (stoppedTarget) return fail('revoked', stoppedTarget.stopped!)
+      const first = targets[0]
+      const appTarget = first && targets.every(other => other.pid === first.pid) ? first : undefined
+      const pid = appTarget?.pid ?? (launching ? apps.pidOf(session, { app: forward.name ?? forward.bundle_id }) : undefined)
+      const windowId = appTarget && targets.every(other => other.windowId === appTarget.windowId) ? appTarget.windowId : undefined
+      const targetPids = [...new Set(targets.flatMap(target => target.pid !== undefined ? [target.pid] : []))]
+      const protectedTarget = [...targets, { pid }].find(target => target.pid !== undefined && self.pids.has(target.pid))
+      if (t.kind === 'act' && protectedTarget) {
+        return fail('invalid_args', refusal(t.cua, { pid: protectedTarget.pid }, self)!)
+      }
       const appName = control && pid !== undefined ? await appNameOf(ctx, apps, pid) : undefined
-      const handle = control?.begin({
+      const identity = {
         ...(ctx.caller?.name ? { callerName: ctx.caller.name } : {}),
         ...(ctx.caller?.task_title ? { taskTitle: ctx.caller.task_title } : {}),
+      }
+      // A cold launch has no window to attach to yet. Do not query the
+      // foreground or start its indicator until the driver returns the app.
+      const initial = control?.begin({
+        ...identity,
+        ...(launching ? { deferAttachment: true } : {}),
         ...(pid !== undefined ? { pid } : {}),
+        ...(targetPids.some(target => target !== pid) ? { targetPids } : {}),
         ...(windowId !== undefined ? { windowId } : {}),
         ...(appName ? { appName } : {}),
       })
-      if (handle && 'refused' in handle) return fail('revoked', handle.refused)
+      if (initial && 'refused' in initial) return fail('revoked', initial.refused)
+      let handle = initial
       const signal = anySignal([ctx.signal, handle?.signal])
       // 人按了停止:这个 App 上在途的这一下被撤,报错其实是「人接过去了」。
       const stopped = () => (handle?.signal.aborted ? fail('revoked', String(handle.signal.reason)) : null)
       try {
-        // An unresolved input must have an attached Stop button before it runs.
-        if (pid === undefined && handle?.ready && !await handle.ready) {
-          return stopped() ?? fail('execution_failed', 'Computer Use could not attach its Stop control to a foreground window. Open a visible app window and try again.')
-        }
+        // Attachment is best effort, never an admission condition. The native
+        // driver still validates the original call and its permissions.
         const outcome = await callCua(ctx, name, t.cua, takesSession ? { ...forward, session } : forward, t.timeoutMs?.(args), signal)
-        if (outcome.ok) apps.learn(session, outcome.data, forward)
+        if (outcome.ok) {
+          apps.learn(session, outcome.data, launching ? { ...forward, app: forward.name ?? forward.bundle_id ?? forward.app } : forward)
+          if (launching && control && isRecord(outcome.data)) {
+            const cancelled = stopped()
+            if (cancelled) return cancelled
+            const launchedPid = apps.pidOf(session, outcome.data)
+            if (launchedPid !== undefined) {
+              const launchedWindow = resolveComputerWindow(outcome.data, { pid: launchedPid })
+              handle?.end()
+              const attached = control.begin({ ...identity, pid: launchedPid, ...(launchedWindow ? { windowId: launchedWindow.windowId } : {}) })
+              if ('refused' in attached) return fail('revoked', attached.refused)
+              handle = attached
+            }
+          }
+        }
         return stopped() ?? outcome
       } catch (error) {
         const byPerson = stopped()
