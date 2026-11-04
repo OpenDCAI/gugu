@@ -100,6 +100,7 @@ export class ExtensionAppSurfaces {
     if (caller.kind !== 'page' || !workspaceSession(caller.binding)) throw new Error('Only an App surface page can post to its owner');
     const surface = [...this.surfaces.values()].find(one => one.native?.pageId === caller.pageId);
     if (!surface || surface.closed || surface.sessionId !== workspaceSession(caller.binding) || surface.caller.extensionId !== caller.extensionId) throw new Error('This App surface is closed');
+    if (surface.options.decorative) throw new Error('A decorative surface cannot post input to its App');
     this.authorize(caller.extensionId); surface.access.signal.throwIfAborted();
     this.emit(surface, { id: surface.id, type: 'message', message });
   }

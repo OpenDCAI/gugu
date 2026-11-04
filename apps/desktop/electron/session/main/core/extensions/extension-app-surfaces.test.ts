@@ -3,12 +3,37 @@ import type { BridgeCaller } from './extension-bridge';
 import { ExtensionAppSurfaces, type AppSurfaceNative } from './extension-app-surfaces';
 import { closeProgramResources } from './program-resource-lifetime';
 import { revokeExtensionProgramAccess } from './extension-program-access';
+import { appSurfaceOptionsSchema, appSurfaceUpdateSchema } from '@shared/extensions/app-surface';
+import { callRefusal } from '@shared/extensions/bridge-protocol';
 
 const options = { entry: 'controls.html', bounds: { x: 10, y: 20, width: 200, height: 40 }, data: { paused: false } };
 const caller = (app = 'surface-app', task = 'task-a') => ({ kind: 'program', pageId: -700, extensionId: app,
   callingSession: task, signal: new AbortController().signal, hear: vi.fn() }) as unknown as BridgeCaller;
 const native = (): AppSurfaceNative => ({ pageId: 800, shown: () => true, update: vi.fn(), close: vi.fn() });
 afterEach(async () => { await closeProgramResources(-700); });
+
+it('fixes decorative mode at creation and refuses updates, input handlers and focus requests', async () => {
+  expect(appSurfaceOptionsSchema.parse(options)).toMatchObject({ decorative: false });
+  const from = caller(), view = native(), create = vi.fn(async () => view);
+  const surfaces = new ExtensionAppSurfaces(() => {}, async () => 'project-a', create, vi.fn());
+  const result = surfaces.open(from, { ...options, decorative: true });
+  await new Promise(resolve => setImmediate(resolve));
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ decorative: true }) }));
+  for (const change of [{ decorative: false }, { decorative: true }, { mousePassthrough: false }, { focus: true }, { onInput: 'callback' }]) {
+    expect(() => appSurfaceUpdateSchema.parse(change)).toThrow();
+    expect(() => surfaces.update(from, result.id, change)).toThrow();
+  }
+  for (const extra of [{ focus: true }, { keyboard: true }, { onInput: 'callback' }]) {
+    expect(() => surfaces.open(from, { ...options, decorative: true, ...extra })).toThrow();
+  }
+  const page = { kind: 'page', pageId: 800, extensionId: from.extensionId, binding: { workspace: 'session:task-a' } } as BridgeCaller;
+  expect(() => surfaces.post(page, { action: 'forged-input' })).toThrow('decorative');
+  const authority = { kind: 'page' as const, gesture: true, has: () => true, widget: false, decorative: true };
+  for (const method of ['appSurfacePost', 'modalOpen', 'modalKey', 'projectionSend', 'taskMessage', 'showSession', 'openLink']) {
+    expect(callRefusal(method, {}, authority), method).toMatchObject({ code: 'denied' });
+  }
+  expect(callRefusal('getContext', {}, authority)).toBeNull();
+});
 
 it('returns before native display, including an indefinitely pending display', async () => {
   const pending = Promise.withResolvers<AppSurfaceNative>(), entered = Promise.withResolvers<void>();

@@ -184,7 +184,7 @@ export interface ExtensionHostContext {
   /** A host modal's initial data, under the opener's context and existing grants. */
   modal?: { data?: unknown };
   /** An App-owned, non-activating native surface; content and control rules belong to the App. */
-  surface?: { id: string; data?: unknown };
+  surface?: { id: string; data?: unknown; decorative?: boolean };
   /**
    * The conversation this surface is in (its panel, 「在本群打开」, a session's tab): a group, a topic or a private chat, with who is in
    * it — changes arrive by `onContextChanged`. Absent is a real answer: not in a chat. ❌ No `placement` field: an App
@@ -972,7 +972,7 @@ export const CALLER_WORDS = { page: 'a page', background: 'the background page',
  * document, the App frame's parent in an origin of its own (gate.ts). Every host reads it there and hands it here.
  */
 export type CallRefusalCaller =
-  | { kind: 'page'; has: (capability: ExtensionCapability) => boolean; gesture: boolean; widget: boolean }
+  | { kind: 'page'; has: (capability: ExtensionCapability) => boolean; gesture: boolean; widget: boolean; decorative?: boolean }
   | { kind: 'background' | 'program'; has: (capability: ExtensionCapability) => boolean };
 
 /**
@@ -992,6 +992,10 @@ export function callRefusal(
   // Named so the author can see which declaration is missing (or was taken back) instead of guessing why a call stopped working.
   const needs = capabilityNeeded(facts, args);
   if (needs !== null && !caller.has(needs)) return { code: 'denied', message: `Not permitted: this App does not have "${needs}"` };
+  if (caller.kind === 'page' && caller.decorative
+    && (needsGesture(method, args) || ['appSurfacePost', 'modalOpen', 'modalKey', 'projectionSend', 'openLink'].includes(method))) {
+    return { code: 'denied', message: 'A decorative surface cannot receive input, request focus or forward a person’s actions' };
+  }
   // Only a page has a gesture: the background page and a program never make a call that needs one.
   if ((caller.kind !== 'page' || !caller.gesture)
     && (needsGesture(method, args) || (caller.kind === 'page' && caller.widget && method === 'dispatch'))) return gestureRefusal(method);

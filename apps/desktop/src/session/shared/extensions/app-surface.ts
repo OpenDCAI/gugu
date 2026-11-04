@@ -12,6 +12,8 @@ export const appSurfaceOptionsSchema = z.strictObject({
   entry: bundlePathSchema.refine(entry => !/[?#:%]/.test(entry), 'entry must name a bundle file'),
   bounds: surfaceBoundsSchema, data: z.unknown().optional(),
   visible: z.boolean().default(true),
+  /** Creation-only: native input passthrough; never an interactive surface. */
+  decorative: z.boolean().default(false),
   relativeTo: relativeWindowSchema.nullable().optional(),
 });
 export const appSurfaceUpdateSchema = z.strictObject({ bounds: surfaceBoundsSchema.optional(), data: z.unknown().optional(),

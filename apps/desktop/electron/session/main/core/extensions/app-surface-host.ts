@@ -58,6 +58,12 @@ async ({ id, extensionId, sessionId, options, signal, closed }) => {
   try {
     const bridge = await import('./extension-bridge');
     signal.throwIfAborted();
+    if (options.decorative) {
+      // The window is still hidden and contains no App script. Failure closes it, never a blocking fallback.
+      win.setIgnoreMouseEvents(true);
+      win.setFocusable(false);
+      contents.on('before-input-event', event => event.preventDefault());
+    }
     win.setContentProtection(true);
     // NSPanel's native level must be reset explicitly even if Electron reports false.
     win.setAlwaysOnTop(false);
@@ -68,11 +74,11 @@ async ({ id, extensionId, sessionId, options, signal, closed }) => {
     contents.once('render-process-gone', () => { close(); closed('App surface renderer exited'); });
     // Main owns both identity and task binding, before the App's first script can run.
     await bridge.bindExtensionSurface({ webContentsId: pageId, extensionId, tabId: id, tabKind: `${extensionId}.surface`,
-      workspace: `session:${sessionId}`, surface: { id, data: options.data } });
+      workspace: `session:${sessionId}`, surface: { id, data: options.data, decorative: options.decorative } });
     signal.throwIfAborted();
     await win.loadURL(extensionResourceUrl(extensionId, options.entry));
     signal.throwIfAborted();
-    let presentation = { visible: options.visible, relativeTo: options.relativeTo }, failure: string | undefined;
+    let presentation = { visible: options.visible, relativeTo: options.relativeTo, decorative: options.decorative }, failure: string | undefined;
     const present = () => {
       const result = presentAppSurface(win, presentation); failure = result.reason;
       if (failure) log.warn('App surface presentation failed', { error: String(result.error) });

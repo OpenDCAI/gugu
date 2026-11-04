@@ -34,6 +34,17 @@ it('passes a fixed ordinary message and the host-bound task through the real bri
     { kind: 'taskMessage', text: '请暂停。' });
 });
 
+it('does not lend a decorative native document a gesture, input channel or focus request', async () => {
+  await bindExtensionSurface({ webContentsId: 7, extensionId: 'task-app', tabId: 'decoration', tabKind: 'task-app.surface',
+    workspace: sessionWorkspace('bound-task'), surface: { id: 'decoration', decorative: true } });
+  for (const [method, args] of [['taskMessage', { intent: 'pause' }], ['modalOpen', { entry: 'focus.html' }],
+    ['appSurfacePost', { message: { click: true } }], ['projectionSend', { id: 'fake', input: {} }]] as const) {
+    expect(await handlers.get(EXTENSION_BRIDGE_CHANNEL)!({ sender: { id: 7, session: {} } },
+      { method, args, gesture: true, decorative: false })).toMatchObject({ ok: false, code: 'denied' });
+  }
+  expect(deliver).not.toHaveBeenCalled();
+});
+
 it('does not send without a host gesture or with an App-supplied target or text', async () => {
   expect(await call({ intent: 'pause', gesture: true }, false)).toMatchObject({ ok: false, code: 'denied' });
   for (const extra of [{ sessionId: 'other-task' }, { text: 'arbitrary' }]) {

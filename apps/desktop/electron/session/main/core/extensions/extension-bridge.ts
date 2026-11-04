@@ -116,7 +116,7 @@ interface SurfaceBinding {
   operator: ExtensionOperator;
   metrics: ExtensionSurfaceMetrics;
   modal?: { id: string; data?: unknown };
-  surface?: { id: string; data?: unknown };
+  surface?: { id: string; data?: unknown; decorative?: boolean };
   /**
    * The theme this page is shown in, when it is not the host's: only a page an agent works (`app_check`'s), which takes
    * its pictures in light and dark (`showAgentPageInTheme`). Null for every surface a person sees — those follow the host.
@@ -587,7 +587,7 @@ export async function bindExtensionSurface(input: {
   /** Who works it: the person unless main binds it for an agent (`app_check`); never the renderer's to say. */
   operator?: ExtensionOperator;
   modal?: { id: string; data?: unknown };
-  surface?: { id: string; data?: unknown };
+  surface?: { id: string; data?: unknown; decorative?: boolean };
 } & Partial<AppWhere>): Promise<void> {
   const contents = webContents.fromId(input.webContentsId);
   if (!contents) throw new Error(`No such webContents: ${input.webContentsId}`);
@@ -1290,7 +1290,7 @@ function contextFor(binding: SurfaceBinding, workspace: ExtensionWorkspace | und
     apiVersion: EXTENSION_API_VERSION,
     tabId: binding.tabId,
     ...(binding.modal ? { modal: { data: binding.modal.data } } : {}),
-    ...(binding.surface ? { surface: { id: binding.surface.id, data: binding.surface.data } } : {}),
+    ...(binding.surface ? { surface: { id: binding.surface.id, data: binding.surface.data, decorative: binding.surface.decorative } } : {}),
     ...(drawnIn?.chat ? { chat: { ...drawnIn.chat, ...(contextHasMembers(binding) ? { members: drawnIn.members } : {}) } } : {}),
     ...(workspace ? { workspace } : {}),
     // Absent stays absent: a tab opened from the entry rail has no file.
@@ -1577,7 +1577,8 @@ export async function answerCall(caller: BridgeCaller, method: string, args: Rec
   }
   const has: CallRefusalCaller['has'] = (capability) => extensionsService().hasCapability(caller.extensionId, capability);
   // A page's gesture was read in its preload's world and came with the call (`pageCaller`); a program has none.
-  const refusal = callRefusal(method, args, caller.kind === 'page' ? { kind: 'page', has, gesture: caller.gesture === true, widget: Boolean(caller.binding?.widget) } : { kind: caller.kind, has });
+  const refusal = callRefusal(method, args, caller.kind === 'page' ? { kind: 'page', has, gesture: caller.gesture === true,
+    widget: Boolean(caller.binding?.widget), decorative: caller.binding?.surface?.decorative === true } : { kind: caller.kind, has });
   if (refusal) return { ok: false, ...refusal };
   const facts = verbFacts(method)!;
   // A page an agent works (owner 10-14): what would reach the person's screen is handed back to the agent instead — after

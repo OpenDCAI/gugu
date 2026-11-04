@@ -3,6 +3,7 @@ import { EXTENSION_API_VERSION, EXTENSION_TOOL_CONFINEMENT_API_VERSION } from '.
 import { TASK_MESSAGE_GUIDE } from './task-message-guide';
 import { TASK_PAGE_PRESENTATION_GUIDE } from './task-page-presentation-guide';
 import { TASK_PAGE_FILES_GUIDE } from './task-page-files-guide';
+import { APP_SURFACE_DECORATIVE_GUIDE } from './app-surface-decorative-guide';
 
 /**
  * 交给 agent 的「怎么写一个 tab 扩展」简报。
@@ -470,7 +471,7 @@ API 30 shared task resources (desktop, \`agents:tools\`):
   Display failure is informational, never permission to reject, delay or authorize an action.
 - Surface HTML uses its ordinary sandbox/grants; \`getContext().surface\` has \`{id,data}\`, refreshed with
   \`onContextChanged\`. Its buttons call \`gugu.surfaces.post(message)\` to its owning program.
-  The App owns content, targets, pause and Stop/Continue rules; the host supplies non-activation, capture protection and teardown.
+  App: content, targets and Stop/Continue. Host: non-activation, capture protection and teardown. Decorations: \`apps-surface-decoration\`.
   An owned display can update outside a tool call. Normal tool completion does not cancel loading; actual interruption does.
   Revocation, program exit, task archive or project deletion closes it. Late native results are released.
 
@@ -1175,6 +1176,11 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     topic: 'apps-page-files',
     about: 'Only the file cards handed to a live task call, as bounded in-memory upload payloads; never local paths.',
     text: TASK_PAGE_FILES_GUIDE,
+  },
+  {
+    topic: 'apps-surface-decoration',
+    about: 'Creation-only decorative native surfaces: mouse passthrough, no focus or input forwarding, and hidden-on-failure behavior.',
+    text: APP_SURFACE_DECORATIVE_GUIDE,
   },
   {
     topic: 'apps-files',

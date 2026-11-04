@@ -3,8 +3,20 @@ import { presentAppSurface } from './app-surface-presentation';
 function window() {
   let visible = false;
   return { isVisible: () => visible, showInactive: vi.fn(() => { visible = true; }),
-    hide: vi.fn(() => { visible = false; }), moveAbove: vi.fn() };
+    hide: vi.fn(() => { visible = false; }), moveAbove: vi.fn(), setIgnoreMouseEvents: vi.fn(), setFocusable: vi.fn() };
 }
+it('configures native passthrough without forwarding and focus before showing a decorative window', () => {
+  const win = window();
+  expect(presentAppSurface(win, { visible: true, decorative: true })).toEqual({ shown: true });
+  expect(win.setIgnoreMouseEvents).toHaveBeenCalledExactlyOnceWith(true);
+  expect(win.setFocusable).toHaveBeenCalledExactlyOnceWith(false);
+  expect(win.setIgnoreMouseEvents.mock.invocationCallOrder[0]).toBeLessThan(win.showInactive.mock.invocationCallOrder[0]!);
+});
+it('does not show or retain a blocking fallback if native passthrough cannot be set', () => {
+  const win = window(); win.setIgnoreMouseEvents.mockImplementation(() => { throw new Error('not supported'); });
+  expect(presentAppSurface(win, { visible: true, decorative: true })).toMatchObject({ shown: false, reason: 'display-unavailable' });
+  expect(win.showInactive).not.toHaveBeenCalled(); expect(win.isVisible()).toBe(false);
+});
 it('permits a hidden pre-created surface to be shown later relative to the App-selected native window', () => {
   const win = window();
   expect(presentAppSurface(win, { visible: false })).toEqual({ shown: false });
