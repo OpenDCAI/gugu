@@ -38,6 +38,7 @@ import { chatActivityTool } from './chat-activity.mjs'
 import { createLogger } from '../lib/logger'
 import { effectiveGroupRules, groupRulesLedgerAt, groupRulesVersion } from '../../../../packages/core/src/local/agent/groupRulesDelivery'
 import { anySignal } from '@gugu/core/shared/anySignal'
+import { clashSuffixes } from '@gugu/core/shared/clashSuffix'
 
 const log = createLogger('gugu-mcp-host')
 
@@ -1749,15 +1750,18 @@ async function handleConv(args, deps) {
     // identity 富化(与 history/@ 校验同一路数),空名单零额外查询。
     if (!rows.length) return { items: rows }
     const users = await restGetInBatches(rows.map((r) => r.user_id), (batch) => deps.restGet(
-      `users?id=in.(${batch.map(enc).join(',')})&select=id,display_name,type,gugu_number`,
+      `users?id=in.(${batch.map(enc).join(',')})&select=id,display_name,type,gugu_number,name_serial`,
       'identity',
     ))
     const byId = new Map(users.map((u) => [u.id, u]))
+    const suffixes = clashSuffixes(rows.map((r) => ({ id: r.user_id, type: byId.get(r.user_id)?.type,
+      displayName: byId.get(r.user_id)?.display_name ?? '', nameSerial: byId.get(r.user_id)?.name_serial ?? null })))
     const members = rows.map((r) => {
       const u = byId.get(r.user_id)
       return {
         ...r,
-        display_name: u?.display_name ?? null,
+        display_name: u?.display_name ? `${u.display_name}${suffixes.has(r.user_id) ? ` ${suffixes.get(r.user_id)}` : ''}` : null,
+        name_serial: u?.name_serial ?? null,
         type: u?.type ?? null,
         gugu_number: u?.gugu_number ?? null,
         is_self: r.user_id === deps.context.agentId,
@@ -2418,7 +2422,8 @@ const MEMBER_ROWS = {
   key: 'items',
   statusFilter: true,
   namesOf: (row) => [row.display_name],
-  keep: (row, args) => (!args.type || row.type === args.type) && matchesAgentStatus(row, args.status),
+  keep: (row, args) => (!args.type || row.type === args.type) && matchesAgentStatus(row, args.status)
+    && (!/(?:^|\s)#\d+$/.test(args.name?.trim() ?? '') || String(row.display_name ?? '').trim().toLowerCase().endsWith(args.name.trim().toLowerCase())),
 }
 
 /** def.writer 的写类工具注册 permissive schema,让 harness 常见错误形状先到纠错 preflight、不认识的键点名报回去。集合从 TOOL_DEFS 派生。 */
