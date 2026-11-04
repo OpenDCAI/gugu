@@ -28,7 +28,7 @@ export type PendingPrompt = {
   baselineMessageIds?: readonly string[];
   afterTurnId?: string;
   /** Native position visible when this incoming message first appeared; streaming cannot move it. */
-  position?: { turnId?: string; afterItemId?: string; withinTurn?: boolean };
+  position?: { turnId?: string; afterItemId?: string; withinTurn?: boolean; turnStartedAt?: number; referenceId?: string };
   /** Host-owned incoming delivery, with its original envelope and sender. */
   received?: boolean;
   hostSequence?: number;
@@ -49,7 +49,28 @@ export function pendingInputPosition(turn: TranscriptTurn | undefined): NonNulla
       if (leaf) return leaf;
     }
   };
-  return { turnId: turn?.id, afterItemId: turn ? last(turn.items)?.id : undefined, withinTurn: !!turn && !turn.outcome };
+  return { turnId: turn?.id, afterItemId: turn ? last(turn.items)?.id : undefined, withinTurn: !!turn && !turn.outcome, turnStartedAt: turn?.startedAt, referenceId: turn?.referenceId };
+}
+
+/** Storage changes display ids, not the immutable live origin or the item suffixes. */
+function positionInTurn(position: PendingPrompt['position'], turn: TranscriptTurn): PendingPrompt['position'] {
+  if (!position || position.turnId === turn.id) return position;
+  if (!position.turnId) return undefined;
+  const original = position.turnId;
+  const anchor = position.afterItemId;
+  const mapped = anchor?.startsWith(original + ':') ? turn.id + anchor.slice(original.length) : anchor;
+  if (position.referenceId) {
+    if (turn.referenceId !== position.referenceId) return undefined;
+  } else {
+    // Older/replayed turns lack referenceId. Require the same session, original clock and existing
+    // rewritten anchor; the caller rejects ambiguous matches rather than guessing a store sequence.
+    const marker = original.lastIndexOf(':turn:');
+    const session = marker < 0 ? undefined : original.slice(0, marker + 6);
+    const has = (items: readonly ChatItem[]): boolean => items.some(item => item.id === mapped || (item.kind === 'tool-group' && has(item.children)));
+    if (!session || !turn.id.startsWith(session) || !/^s\d+$/.test(turn.id.slice(session.length))
+      || position.turnStartedAt === undefined || position.turnStartedAt !== turn.startedAt || (mapped && !has(turn.items))) return undefined;
+  }
+  return { ...position, turnId: turn.id, afterItemId: mapped };
 }
 
 /** A growing tool group can straddle the boundary; retain both groups and every native child id. */
@@ -127,8 +148,9 @@ export function activeTurnWithInputs(turn: TranscriptTurn | null, prompt: Pendin
   const inserted = new Map<string, string>();
   for (const input of waiting) {
     const boundary = input.position && `${input.position.turnId ?? ''}\0${input.position.afterItemId ?? ''}`;
-    const anchor = boundary !== undefined ? inserted.get(boundary) ?? input.position?.afterItemId : undefined;
-    const offset = input.position ? (anchor ? items.findIndex(item => item.id === anchor) + 1 : 0) : items.length;
+    const position = positionInTurn(input.position, active);
+    const anchor = boundary !== undefined ? inserted.get(boundary) ?? position?.afterItemId : undefined;
+    const offset = position ? (anchor ? items.findIndex(item => item.id === anchor) + 1 : 0) : items.length;
     const groupIndex = anchor && offset === 0 ? items.findIndex(item => item.kind === 'tool-group'
       && splitTools(item.children, anchor, input.id)) : -1;
     const group = items[groupIndex];
@@ -178,7 +200,8 @@ export function projectPendingMessages(committed: readonly TranscriptTurn[], act
   // when it moves into the committed tier, rather than returning all its tools to the old head.
   const inserted = new Map<TranscriptTurn, PendingPrompt[]>();
   const remaining = waiting.filter(input => {
-    const target = input.position?.withinTurn && committed.find(turn => turn.id === input.position?.turnId);
+    const matches = input.position?.withinTurn ? committed.filter(turn => positionInTurn(input.position, turn)) : [];
+    const target = matches.find(turn => turn.id === input.position?.turnId) ?? (matches.length === 1 ? matches[0] : undefined);
     if (!target) return true;
     inserted.set(target, [...(inserted.get(target) ?? []), input]);
     return false;

@@ -1,3 +1,4 @@
+import { renumberStoredTurn } from '../../../../apps/desktop/electron/session/main/core/sessions/session-turn-identity'
 import { describe, expect, it, vi } from 'vitest'
 import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries'
@@ -44,6 +45,34 @@ describe('incoming delivery custody', () => {
     const closed = planConversationSegments(settled.committed[0]!, false).filter(block => block.kind === 'segment')
     expect(closed.map(segment => conversationOutput(segment.items).steps.length)).toEqual([5, 3])
     expect(closed[0]).toMatchObject({ endedAt: 4000, live: false })
+  })
+
+  it.each([true, false])('keeps the boundary after production storage renumbers turn/items (referenceId=%s)', withReference => {
+    const id = 's:turn:6'
+    const group = { kind: 'tool-group' as const, id: `${id}:group`, seq: 1, label: 'work', groupKind: 'read-batch' as const,
+      status: 'running' as const, children: Array.from({ length: 5 }, (_, i) => work(`${id}:tool:before-${i}`, 2000 + i * 100)) }
+    const first: TranscriptTurn = { ...turn(id, 'question'), ...(withReference ? { referenceId: 'source:this-run' } : {}), startedAt: 1000, items: [group] }
+    const delivery = { ...row('inserted', 1), sentAt: 4000 }
+    const inputs = projectSessionPendingDeliveries([], view([delivery]), [first])
+    const later: TranscriptTurn = { ...first, endedAt: 9000, outcome: { kind: 'done' }, items: [{ ...group,
+      children: [...group.children, ...Array.from({ length: 3 }, (_, i) => work(`${id}:tool:after-${i}`, 5000 + i * 100))] }] }
+    // Store sequence differs from the runtime sequence; deleting an "s" prefix is insufficient.
+    const stored = renumberStoredTurn(later, 's', 42)
+    expect(stored.id).toBe('s:turn:s42')
+    expect(stored.referenceId).toBe(first.referenceId)
+    const refreshed = projectSessionPendingDeliveries(inputs, view([delivery]), [stored])
+    const result = projectPendingMessages([stored], null, refreshed)
+    expect(result.waiting).toEqual([])
+    const closed = planConversationSegments(result.committed[0]!, false).filter(block => block.kind === 'segment')
+    expect(closed.map(segment => conversationOutput(segment.items).steps.length)).toEqual([5, 3])
+    expect(closed[0]).toMatchObject({ endedAt: 4000, live: false })
+    expect(closed[1]).toMatchObject({ startedAt: 4000, endedAt: 9000, live: false })
+    // A prior runtime used the same counter. Its persisted identity must not steal this boundary.
+    const older = renumberStoredTurn({ ...later, ...(withReference ? { referenceId: 'source:older-run' } : {}), startedAt: 100 }, 's', 3)
+    const withOlder = projectPendingMessages([older, stored], null, refreshed)
+    expect(withOlder.committed[0]).toBe(older)
+    expect(withOlder.waiting).toEqual([])
+    expect(withOlder.committed[1]).toEqual(result.committed[0])
   })
 
   it('keeps simultaneous deliveries in queue order at the same captured boundary', () => {
