@@ -433,7 +433,7 @@ describe('useProjectFolders', () => {
   });
 
   it('keeps a pending remote-only scope unknown when the same row already has local folders', async () => {
-    const mapping = vi.spyOn(machineRegistry, 'machineOf').mockImplementation((id) => id === 'p-cloud-mixed' ? 'cloud-device' : undefined);
+    const mapping = vi.spyOn(machineRegistry, 'machineOf').mockImplementation((id) => id === 'p-cloud-mixed' ? 'cloud-device' : null);
     try {
       mocks.connections.set('cloud-device', 'asleep');
       mocks.list.mockImplementation(async (id: string) => ({ success: true, data: id === 'p-local-mixed' ? [ROOT] : [] }));
