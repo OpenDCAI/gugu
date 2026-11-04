@@ -162,6 +162,32 @@ describe('group mention recall through the real composer and send path', () => {
     expect(hint()?.textContent).toBe('@Alpha')
   })
 
+  it('keeps a late successful submission in its original account and group after switching or signing out', async () => {
+    let finish!: () => void
+    await mount(vi.fn(() => new Promise<void>((resolve) => { finish = resolve })))
+    await type('@Alpha hi'); await send()
+    await act(async () => update({ currentUserId: 'account-b', chatId: 'other' }))
+    await act(async () => { finish() })
+    expect(hint()).toBeNull()
+    await act(async () => update({ currentUserId: null, chatId: 'room' }))
+    expect(hint()).toBeNull()
+    await act(async () => update({ currentUserId: 'account-b' }))
+    expect(hint()).toBeNull()
+    await act(async () => update({ currentUserId: 'account-a' }))
+    expect(hint()?.textContent).toBe('@Alpha')
+  })
+
+  it('does not treat quoted mentions or a whisper as a new public group target', async () => {
+    await mount(); await type('@Alpha hi'); await send()
+    await act(async () => update({ quoteContent: { senderName: 'Beta', content: '@Beta quoted' } }))
+    await type('ordinary reply'); await send()
+    expect(hint()?.textContent).toBe('@Alpha')
+    await act(async () => update({ quoteContent: null, whisperTarget: { userId: 'beta', displayName: 'Beta' } }))
+    await type('@Beta private'); await send()
+    await act(async () => update({ whisperTarget: null }))
+    expect(hint()?.textContent).toBe('@Alpha')
+  })
+
   it.each([{ isGroupChat: false }, { disabled: true }, { hidden: true }, { whisperTarget: { userId: 'beta', displayName: 'Beta' } }])('does not expose an inactive/private composer hint: %j', async (props) => {
     await mount(); await type('@Alpha hi'); await send()
     await act(async () => update(props))
