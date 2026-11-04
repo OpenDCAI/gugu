@@ -71,3 +71,19 @@ describe('window menu commands(#6597)', () => {
     expect(f.fullScreen()).toBe(false)
   })
 })
+
+describe('file content zoom before window zoom (#1625)', () => {
+  it('a focused file viewer that takes the command keeps the window zoom', async () => {
+    const f = fakeTarget(1)
+    f.contents.executeJavaScript.mockResolvedValue(true)
+    await runWindowMenuCommand('zoomIn', f.target)
+    expect(f.zoom()).toBe(1)
+  })
+
+  it('a renderer that cannot run the probe (navigating, crashed) still zooms the window', async () => {
+    const f = fakeTarget(1)
+    f.contents.executeJavaScript.mockRejectedValue(new Error('Script failed to execute'))
+    await runWindowMenuCommand('zoomOut', f.target)
+    expect(f.zoom()).toBe(0.5)
+  })
+})

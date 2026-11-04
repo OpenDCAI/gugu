@@ -1,6 +1,6 @@
-import { BrowserWindow, Menu, MenuItem, type MenuItemConstructorOptions } from 'electron'
+import { BrowserWindow, Menu, type BaseWindow, type MenuItem, type MenuItemConstructorOptions } from 'electron'
 import { lockedMenuTemplate } from './devtools-lock'
-import { isFileZoomCommand } from '../src/session/shared/preview/file-zoom'
+import type { FileZoomCommand } from '../src/session/shared/preview/file-zoom'
 import { runWindowMenuCommand } from './window-menu-commands'
 import { createLogger } from './lib/logger'
 
@@ -48,19 +48,31 @@ export function applicationMenuTemplate(
   ]
 }
 
+type MenuTemplate = Array<MenuItemConstructorOptions | MenuItem>
+type FileZoomClick = (command: FileZoomCommand, window: BaseWindow | undefined) => void
+const ZOOM_ACCELERATORS: Record<FileZoomCommand, string> = { zoomIn: 'CmdOrCtrl+Plus', zoomOut: 'CmdOrCtrl+-', resetZoom: 'CmdOrCtrl+0' }
+const zoomRoleOf = (role: string | undefined): FileZoomCommand | null =>
+  role?.toLowerCase() === 'zoomin' ? 'zoomIn' : role?.toLowerCase() === 'zoomout' ? 'zoomOut' : role?.toLowerCase() === 'resetzoom' ? 'resetZoom' : null
+const hasZoomRole = (menu: Menu): boolean => menu.items.some(item => zoomRoleOf(item.role) !== null || (item.submenu ? hasZoomRole(item.submenu) : false))
+
+/**
+ * Electron 先把 role 展开成带原生标签的菜单,再按那份菜单写一份新模板:缩放三项换成走文件缩放的普通项,
+ * 装着它们的那几栏换成新模板项,其余 MenuItem 原样放回。❌ 改已建好的 MenuItem —— 它的 submenu 只读,赋值即抛。
+ */
+export function routeFileZoomTemplate(menu: Menu, onZoom: FileZoomClick): MenuTemplate {
+  return menu.items.map((item): MenuItemConstructorOptions | MenuItem => {
+    const command = zoomRoleOf(item.role)
+    if (command) return { label: item.label, accelerator: ZOOM_ACCELERATORS[command], click: (_item, window) => onZoom(command, window) }
+    if (!item.submenu || !hasZoomRole(item.submenu)) return item
+    return { ...(item.role ? { role: item.role } : {}), label: item.label, submenu: routeFileZoomTemplate(item.submenu, onZoom) }
+  })
+}
+
 /** 装上(或换语言后重装)应用菜单。要在 app ready **之后**调 —— 菜单是原生资源,ready 前设在部分平台无效。 */
 export function applyApplicationMenu(options: Parameters<typeof applicationMenuTemplate>[1]): void {
   const log = createLogger('app-menu')
-  // Expand Electron's roles first so native labels and all unrelated menu items stay intact.
-  const routeZoom = (menu: Menu): Menu => Menu.buildFromTemplate(menu.items.map(item => {
-    if (item.submenu) item.submenu = routeZoom(item.submenu)
-    if (!isFileZoomCommand(item.role)) return item
-    const command = item.role
-    return new MenuItem({ label: item.label, accelerator: command === 'zoomIn' ? 'CmdOrCtrl+Plus' : command === 'zoomOut' ? 'CmdOrCtrl+-' : 'CmdOrCtrl+0',
-      click: (_item, window) => {
-        if (window instanceof BrowserWindow) void runWindowMenuCommand(command, { contents: window.webContents, window }).catch(error => log.error({ error }, 'File zoom command failed'))
-      },
-    })
-  }))
-  Menu.setApplicationMenu(routeZoom(Menu.buildFromTemplate(applicationMenuTemplate(process.platform, options))))
+  const native = Menu.buildFromTemplate(applicationMenuTemplate(process.platform, options))
+  Menu.setApplicationMenu(Menu.buildFromTemplate(routeFileZoomTemplate(native, (command, window) => {
+    if (window instanceof BrowserWindow) void runWindowMenuCommand(command, { contents: window.webContents, window }).catch(error => log.error({ error }, 'File zoom command failed'))
+  })))
 }

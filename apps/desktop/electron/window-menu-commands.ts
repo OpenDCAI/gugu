@@ -1,6 +1,6 @@
 import type { BrowserWindow, WebContents } from 'electron'
 import type { WindowMenuCommand } from '../shared/window-menu-commands'
-import { fileZoomScript, isFileZoomCommand } from '../src/session/shared/preview/file-zoom'
+import { fileZoomScript, isFileZoomCommand, type FileZoomCommand } from '../src/session/shared/preview/file-zoom'
 
 /**
  * @@@win-titlebar-row — 执行 Windows 标题栏「编辑 / 视图」菜单的命令(清单在 shared/window-menu-commands.ts)。
@@ -19,7 +19,7 @@ export type WindowMenuCommandTarget = {
 }
 
 export async function runWindowMenuCommand(command: WindowMenuCommand, { contents, window }: WindowMenuCommandTarget): Promise<void> {
-  if (isFileZoomCommand(command) && await contents.executeJavaScript(fileZoomScript(command))) return
+  if (isFileZoomCommand(command) && await fileViewerTookZoom(contents, command)) return
   switch (command) {
     case 'undo': contents.undo(); return
     case 'redo': contents.redo(); return
@@ -31,5 +31,14 @@ export async function runWindowMenuCommand(command: WindowMenuCommand, { content
     case 'zoomOut': contents.setZoomLevel(contents.getZoomLevel() - WINDOW_ZOOM_STEP); return
     case 'resetZoom': contents.setZoomLevel(0); return
     case 'toggleFullScreen': window.setFullScreen(!window.isFullScreen()); return
+  }
+}
+
+/** 页面正在导航或已崩时 executeJavaScript 会拒绝:当作没有文件查看器接手,退回整窗缩放。 */
+async function fileViewerTookZoom(contents: WindowMenuCommandTarget['contents'], command: FileZoomCommand): Promise<boolean> {
+  try {
+    return await contents.executeJavaScript(fileZoomScript(command)) === true
+  } catch {
+    return false
   }
 }
