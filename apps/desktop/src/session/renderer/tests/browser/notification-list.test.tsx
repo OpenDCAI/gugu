@@ -15,7 +15,10 @@ import '@/mobile/phone-shell.css'
 
 const state = vi.hoisted(() => ({ mobile: false }))
 vi.mock('@gugu/core/cloud/config', async original => ({ ...await original<object>(), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }))
-vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => state.mobile }))
+vi.mock('@/platform', async original => {
+  const module = await original<typeof import('@/platform')>()
+  return { ...module, platform: { ...module.platform, get kind() { return state.mobile ? 'capacitor' : 'electron' } } }
+})
 vi.mock('@/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: [] }) }))
 vi.mock('@/hooks/useAgentDisplayStatus', async original => ({ ...await original<object>(), useAgentDisplayStatuses: () => ({}) }))
 vi.mock('@/components/AddFriendSearch', () => ({ AddFriendSearch: () => null }))

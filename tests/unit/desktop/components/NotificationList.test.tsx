@@ -11,7 +11,9 @@ import { ShellSidebarToggle } from '@renderer/lib/components/titlebar/shell-titl
 import { installShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
 import { chat, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 
-const state = vi.hoisted(() => ({ sessions: [] as SessionpageSessionSummary[], mobile: false, readError: null as Error | null, sidebar: undefined as any }))
+const state = vi.hoisted(() => ({ sessions: [] as SessionpageSessionSummary[], mobile: false, readError: null as Error | null, sidebar: undefined as unknown as {
+  listLayout: string; listPage: string; setListLayout(value: string): void; setListPage(value: string): void
+} }))
 const followLink = vi.hoisted(() => vi.fn())
 const markSeen = vi.hoisted(() => vi.fn(async (_id: string) => { if (state.readError) throw state.readError }))
 vi.mock('@/lib/guguLinks', () => ({ followLink }))
