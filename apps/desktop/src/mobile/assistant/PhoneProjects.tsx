@@ -1,38 +1,24 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { Device } from '@gugu/core/shared/types/chat'
-import type { DeviceProject } from '@gugu/core/shared/types/deviceProject'
 import { listMyDeviceProjects } from '@/lib/deviceProjects'
 import { Folder } from '@/lib/icons'
 import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/store/auth'
 import { useDevicesStore } from '@/store/devicesContext'
-import { EMPTY_MACHINE_HOME_LAYOUT } from '@/session/renderer/features/remote-hosts/machine-home'
-import { projectGroupLayout, foldProjectGroups } from '@/session/renderer/features/projects/stores/project-group-layout'
-import { isImplicitSessionHomeProjectId } from '@/session/shared/core/projects/session-home-project'
 import { AssistantEmpty, AssistantRow, AssistantSection, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { ReadView } from './PhoneMachineView'
+import { phoneProjectRows, type PhoneProjectEntry } from './phoneProjectRows'
 import { usePhoneRead } from './usePhoneRead'
-
-type Entry = DeviceProject & { id: string; deviceId: string; label: string }
-/** The same project-chat grouping as the sidebar, using already published account metadata. */
-function projectRows(records: Record<string, DeviceProject[]>, devices: readonly Device[]): Entry[] {
-  const rows = Object.entries(records).flatMap(([deviceId,projects]) => projects.filter(project => !isImplicitSessionHomeProjectId(project.localProjectId)).map(project => ({ ...project,deviceId,id: `${deviceId}/${project.localProjectId}` })))
-  const byId = new Map(rows.map(row => [row.id,row])), byDevice = new Map(devices.map(device => [device.device_id,device]))
-  const groups = projectGroupLayout(rows.map(row => { const device = byDevice.get(row.deviceId); return { id: row.id,machine: device?.is_current_device ? null : row.deviceId,online: device?.is_online === true,createdAt: row.createdAt } }),id => byId.get(id)?.chatId ?? undefined)
-  const layout = foldProjectGroups(EMPTY_MACHINE_HOME_LAYOUT,groups)
-  return rows.filter(row => !layout.rowOf.has(row.id)).map(row => ({ ...row,
-    label: row.name,
-    folders: [row,...rows.filter(other => layout.rowOf.get(other.id) === row.id)].flatMap(member => member.folders),
-  }))
-}
 
 export function PhoneProjects({ detail = false,onOpen }: { detail?: boolean; onOpen?: () => void; machine?: unknown }) {
   const { t } = useTranslation('assistant')
   const owner = useAuth().user?.id ?? null
-  const { devices } = useDevicesStore()
+  const { devices,cloudComputer } = useDevicesStore()
+  // The assistant's cloud host, same source as usePhoneAssistant / useMachineLabel (not where the assistant lives:
+  // an assistant living on the person's own computer must not hide that computer's projects).
+  const cloudDeviceId = cloudComputer?.snapshot?.deviceId ?? devices.find(device => device.cloud_computer)?.device_id ?? null
   const read = usePhoneRead(owner ? `account-projects|${owner}` : null,listMyDeviceProjects,'read account project directory',() => 30_000)
-  const projects = useMemo(() => projectRows(read.state === 'ok' ? read.data : {},devices),[read,devices])
+  const projects = useMemo(() => phoneProjectRows(read.state === 'ok' ? read.data : {},devices,cloudDeviceId),[read,devices,cloudDeviceId])
   const [selected, setSelected] = useState<string | null>(null)
   const current = selected ? projects.find(project => project.id === selected) : null
   if (!detail) return <AssistantRow leading={<Folder />} title={t('library.workspace')} testId="assistant-library-workspace" onClick={onOpen}
@@ -48,7 +34,7 @@ export function PhoneProjects({ detail = false,onOpen }: { detail?: boolean; onO
 }
 
 /** Folder identity is part of device_projects; opening a project performs no device request. */
-function PhoneProjectIndex({ project,onBack }: { project: Entry; onBack: () => void }) {
+function PhoneProjectIndex({ project,onBack }: { project: PhoneProjectEntry; onBack: () => void }) {
   const { t } = useTranslation('assistant')
   return <div className="ta-page" data-testid="assistant-project-cloud-index">
     <PageHead title={project.label} action={<Button variant="ghost" onClick={onBack}>{t('library.backToIndex')}</Button>} />
