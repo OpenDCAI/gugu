@@ -20,6 +20,8 @@ import { NodeViewWrapper, type NodeViewProps } from '@tiptap/react';
 import { File, X } from '../../../icons'
 import type { MentionKind, MentionRole } from './types';
 import * as styles from './mention-pill.css';
+import { useContext } from 'react';
+import { MentionDisplayContext } from './mention-display-context';
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -29,8 +31,11 @@ export function MentionPill({
 }: NodeViewProps) {
   const label = (node.attrs.label as string | null) ?? (node.attrs.id as string | null) ?? '';
   const rawName = (node.attrs.name as string | null) ?? null;
-  const name = rawName ?? label;
   const kind = ((node.attrs.kind as string | null) ?? 'custom') as MentionKind;
+  const resolve = useContext(MentionDisplayContext);
+  const live = kind === 'custom' ? resolve?.(label, rawName ?? label) : null;
+  const name = live?.name ?? rawName ?? label;
+  const annotation = live ? live.annotation : node.attrs.annotation;
   const role = (node.attrs.role as MentionRole | null) ?? null;
   const engine = (node.attrs.engine as string | null)?.trim() || null;
   const isParticipant = role !== null;
@@ -88,7 +93,7 @@ export function MentionPill({
         )}
         {/* Display name */}
         <span className={styles.pillName}>{isParticipant || kind === 'custom' ? '@' : ''}{name}</span>
-        {node.attrs.annotation && <small data-mention-annotation="" className={styles.pillAnnotation}>{String(node.attrs.annotation)}</small>}
+        {annotation && <small data-mention-annotation="" className={styles.pillAnnotation}>{String(annotation)}</small>}
       </span>
     </NodeViewWrapper>
   );
