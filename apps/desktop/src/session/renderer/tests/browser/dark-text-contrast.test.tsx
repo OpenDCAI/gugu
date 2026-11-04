@@ -4,6 +4,7 @@ import { page } from 'vitest/browser';
 import type { GroupCollabSnapshot } from '@gugu/core/shared/types/chat';
 import { chat, contact, createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../../../../../../tests/support/testHarness';
 import { i18n } from '@/i18n';
+import { AUTOMATION_TEST_IDS } from '@/lib/automationDom';
 import '@/i18n/registerMessagingCatalog';
 import '@/i18n/registerContactsCatalog';
 import '@/i18n/registerMainCatalog';
@@ -125,12 +126,20 @@ describe('dark informational text contrast (#916)', () => {
   it('gives the header member count a text colour without brightening its icon', async () => {
     await renderWithAppProviders(harness, createNode(ChatHeaderActions, {
       isGroupChat: false, isRoomChat: true, searchMode: false, folderShown: false,
-      infoShown: false, showHeaderMenu: false, memberCount: 4, moreButtonRef: createRef<HTMLButtonElement>(),
+      infoShown: false, showHeaderMenu: false, moreButtonRef: createRef<HTMLButtonElement>(),
+      room: { snapshot: {
+        scheduler: { chat_id: 'group', paused: false, queue_count: 0, blocked_count: 0, summary: null, updated_at: '2026-10-29T10:00:00Z' },
+        humans: ['one', 'two', 'three', 'four'].map(id => ({ id, role: 'member' as const, type: 'human' as const, account_status: null })),
+        agents: [], tasks: [],
+      }, settings: null, onReload: vi.fn(async () => {}) },
       onEnterSearchMode: vi.fn(), onOpenFolder: vi.fn(), onCloseWorkspacePanel: vi.fn(),
       onOpenInfo: vi.fn(), onCloseInfo: vi.fn(), onToggleHeaderMenu: vi.fn(), onCloseHeaderMenu: vi.fn(),
     }));
-    await readable('[data-member-count]');
-    const icon = harness.container.querySelector('[data-member-count]')!.parentElement!.querySelector('svg')!;
+    const selector = `[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMembersButton}"]`;
+    await readable(selector);
+    const members = harness.container.querySelector(selector)!;
+    expect(members.textContent).toContain('4');
+    const icon = members.querySelector('svg')!;
     expect(getComputedStyle(icon).color).toBe(token('--faint-fg'));
   });
 

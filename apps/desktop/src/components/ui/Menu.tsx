@@ -16,6 +16,7 @@ import { ChevronRight } from '@/lib/icons'
 import { popupMotion } from './variants'
 import { useBackLayer } from './sheetStack'
 import { useUiPortalContainer } from '@gugu/session-ui/react/primitives'
+import { Switch } from './Switch'
 
 // @@@menu-variants - 菜单样式的唯一真相。`gg-menu*` 类名保留但不再承载样式:
 // Sidebar.css 的 `.gg-sidebar-profile-actions .gg-menu-item-icon > svg` 按这些名字定位,
@@ -201,6 +202,21 @@ export function MenuItem({ icon, danger, disabled, title, className, style, 'dat
       )}
     </MenuPrimitive.Item>
   )
+}
+
+/** Checkbox menu semantics own input; the inert Switch reuses the existing visual only. */
+export function MenuSwitchItem({ label, checked, onCheckedChange, disabled, 'data-testid': testId }: {
+  label: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+  disabled?: boolean
+  'data-testid'?: string
+}) {
+  return <MenuPrimitive.CheckboxItem checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} closeOnClick={false}
+    className={cn('group/menu-item', menuItem)} style={{ padding: menuRowPadding }} data-testid={testId}>
+    <span className={menuItemLabel}>{label}</span>
+    <Switch checked={checked} onCheckedChange={() => undefined} disabled={disabled} aria-hidden inert tabIndex={-1} className="pointer-events-none" />
+  </MenuPrimitive.CheckboxItem>
 }
 
 const submenuRowStyle: CSSProperties = { padding: menuRowPadding }
