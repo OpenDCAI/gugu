@@ -23,7 +23,6 @@ import {
 import {
   onSshMachineSignedIn,
   openSshLink,
-  refreshSshMachines,
   sshMachinesReady,
   subscribeSshMachineIds,
   subscribeTunnelState,
@@ -510,8 +509,7 @@ observeRealtimeAuth(({ event, session }) => {
   const nextUserId = session?.user.id ?? null
   if (event === 'SIGNED_OUT' || (event === 'SIGNED_IN' && nextUserId !== lastAuthUserId)) {
     resetDeviceRpcChannels()
-    // 远程 SSH 的机器清单是按账号的:换了人就重取(新管道开之前先等它,见 openPipe)。
-    void refreshSshMachines()
+    // The coordinator refreshes SSH mappings after main acknowledges the owner mirror; publication is too early.
   }
   lastAuthUserId = nextUserId
 })

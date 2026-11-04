@@ -10,6 +10,7 @@ import type { ValidatePolicy } from '../../api/with-validation';
 import type { WireInstrumentation } from '../../observability';
 import type { ManagedProcess, ProcessHost, ProcessSpec } from '../../process/types';
 import { createScope, type Scope } from '../scope';
+import { createIpcPressureSender } from './ipc-pressure';
 
 const RUNTIME_SIGNAL_KIND = 'wire-runtime-signal';
 /** Shared child-runtime readiness budget; ACP initialize uses the same no-ready-signal semantics. */
@@ -62,6 +63,8 @@ export type ProcessRuntimePort = {
 export type ServeWorkerProcessOptions = ServeOptions & {
   logger?: Logger;
   failOnCleanupError?: boolean;
+  /** Pause worker-owned output sources while parent IPC is congested. */
+  onOutputPressure?: (paused: boolean) => void;
   /**
    * Test seam for running the child-side helper without a real Node fork or
    * Electron utility process.
@@ -181,10 +184,14 @@ export async function serveWorkerProcess(
   const port =
     options.port ??
     resolveParentPort((error) => {
+      if (process.connected === false || (error as NodeJS.ErrnoException).code === 'ERR_IPC_CHANNEL_CLOSED') {
+        exit(0);
+        return;
+      }
       logger.error('worker process failed to post a message to its parent', {
         error: error.message,
       });
-    });
+    }, options.onOutputPressure);
   let exiting = false;
 
   const transport = createRuntimeTransport(port);
@@ -206,13 +213,13 @@ export async function serveWorkerProcess(
     exit(code);
   };
 
-  // @@@unhandled-error-event (#4942) — `shutdown` 是 async 且**真的会 reject**:它内部 `await
-  // port.sendAndWait(RUNTIME_SHUTDOWN_COMPLETE_SIGNAL)`,而这一步失败的典型时机恰好就是父进程已经没了 ——
-  // 也正是下面 onDisconnect 触发的那一刻。原来两处写的是裸 `void shutdown(0)`:promise 一 reject 就是
-  // 未处理拒绝,Node 15+ 默认把它抛成未捕获异常,worker 于是**崩着退出**而不是干净收尾,父进程读到的是
-  // 一个看不懂的非零退出码。❌ 不是吞:错误照旧记到日志,再按失败码退出。
+  // A closed parent cannot receive a shutdown report or read our stderr.
   const shutdownOrCrash = (code: number): void => {
     void shutdown(code).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ERR_IPC_CHANNEL_CLOSED') {
+        exit(0);
+        return;
+      }
       logger.error('worker process shutdown failed', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -225,7 +232,7 @@ export async function serveWorkerProcess(
       if (isRuntimeSignal(message, 'shutdown')) shutdownOrCrash(0);
     })
   );
-  scope.add(port.onDisconnect(() => shutdownOrCrash(0)));
+  scope.add(port.onDisconnect(() => exit(0)));
 
   // 传了 port 说明是测试替身(见上面 options.port 的注释),那时别去动真 process 的全局钩子。
   if (!options.port) {
@@ -424,7 +431,7 @@ function isRuntimeSignal(
   return record.kind === RUNTIME_SIGNAL_KIND && record.event === event;
 }
 
-function resolveParentPort(onSendError: (error: Error) => void): ProcessRuntimePort {
+function resolveParentPort(onSendError: (error: Error) => void, onPressure?: (paused: boolean) => void): ProcessRuntimePort {
   if (typeof process === 'undefined') {
     throw new Error('serveWorkerProcess requires an IPC channel to the parent process');
   }
@@ -466,18 +473,14 @@ function resolveParentPort(onSendError: (error: Error) => void): ProcessRuntimeP
     throw new Error('serveWorkerProcess requires an IPC channel to the parent process');
   }
 
+  const sender = onPressure ? createIpcPressureSender(
+    (message, callback) => currentProcess.send!(message as Parameters<NonNullable<NodeJS.Process['send']>>[0], callback),
+    onSendError, onPressure
+  ) : { send: (message: unknown) => {
+    currentProcess.send!(message as Parameters<NonNullable<NodeJS.Process['send']>>[0], (error: Error | null) => { if (error) onSendError(error); });
+  } };
   return {
-    // @@@unhandled-error-event (#4942) — `process.send()` 不带回调时,发送失败(管道已关 = 父进程没了)
-    // 由 Node **异步地**变成 process 上的 'error' 事件;零监听者就是未捕获异常。带上回调就把这条失败
-    // 收进正常返回值里 —— ❌ 不是吞错:调用方本来就把这次发送当作 best-effort(要等确认的走 sendAndWait)。
-    send(message) {
-      currentProcess.send?.(
-        message as Parameters<NonNullable<NodeJS.Process['send']>>[0],
-        (error: Error | null) => {
-          if (error) onSendError(error);
-        }
-      );
-    },
+    send: (message) => sender.send(message),
     sendAndWait(message) {
       return new Promise<void>((resolve, reject) => {
         const send = currentProcess.send as (

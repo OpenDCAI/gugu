@@ -59,6 +59,7 @@ export default {
     },
     "turnFailure": {
       "card": {
+        "deliveryRejected": "Message not delivered",
         "generic": "Reply not completed",
         "authentication": "Model authorization refused",
         "network": "Cannot reach the model service",
@@ -87,6 +88,7 @@ export default {
       "changeModel": "Change model",
       "close": "Close",
       "generic": "This Agent could not complete the reply",
+      "deliveryRejected": "This message was not delivered. Resend to try again.",
       "notAdmitted": "Messages retained. Your assistant will reply when ready.",
       "outcomeUnknown": "Delivery result unknown: the message may have reached your assistant, and it was not resent.",
       "undelivered": "Not delivered yet: no running Gugu instance holds this Agent. It will read the message once that instance is open.",
@@ -661,12 +663,14 @@ export default {
     }
   },
   "header": {
-    "groupApps": "Group Apps",
-    "personalPins": "Only you",
-    "pinGroupApp": "Pin {{name}} to this group header",
-    "unpinGroupApp": "Remove {{name}} from this group header",
-    "appPinsLoadFailed": "Could not load pinned Apps.",
-    "appPinsSaveFailed": "Could not save pinned Apps.",
+    "groupApps": "Apps",
+    "members_one": "{{count}} member",
+    "members_other": "{{count}} members",
+    "invite": "Invite",
+    "mute": "Mute notifications",
+    "pinConversation": "Pin conversation",
+    "searchHistory": "Search chat history",
+    "groupInfoAndSettings": "Group info and settings",
     "noGroupApps": "No Apps available on this device.",
     "announcement": "Group announcement",
     "groupInfo": "Group info",
@@ -770,7 +774,6 @@ export default {
       "queued": "Sending. Your assistant will reply when ready.",
       "undelivered": "instance not running, not delivered",
       "sending": "Sending",
-      "held": "Waiting for retry",
       "stopped": "Stopped. Sends with your next message.",
       "unknownNotResent": "Result unknown; not resent",
       "failure": {
@@ -814,9 +817,13 @@ export default {
     "whisperBoth": "Whisper · only visible to you both",
     "whisperOnlyYou": "Whisper · only visible to you",
     "whisperTo": "Whisper to {{name}} · only visible to you both",
-    "widget": "[Widget]"
+    "widget": "[Widget]",
+    "widgetUnavailable": { "missing": "App is not installed.", "disabled": "App is switched off.", "view": "This App view is unavailable.", "platform": "This App cannot run here." }
   },
   "outbox": {
+    "selectFileAgain": "Upload interrupted. Select the file again.",
+    "sourceNotSent": "The original message was not sent. Retry it before forwarding again.",
+    "sourceDiscarded": "The original message was discarded before it was sent",
     "deliveryTimeout": "Delivery timed out after {{seconds}}s because the network stopped responding",
     "discarded": "Discarded",
     "offscreenFailure": "A message was not delivered. Return to its chat to retry or discard it.",

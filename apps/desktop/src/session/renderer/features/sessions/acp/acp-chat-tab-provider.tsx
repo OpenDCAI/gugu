@@ -1,3 +1,4 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { observer } from 'mobx-react-lite';
 import type { ResolvedTab, TabBarItemProps, TabCloseRequest, TabEntry, TabHandle, TabProvider, TabViewContext } from '@renderer/features/tabs/core/tab-provider';
 import { createTabProvider } from '@renderer/features/tabs/core/tab-provider-registry';
@@ -7,7 +8,6 @@ import { GenericTabDragPreview, GenericTabItem } from '@renderer/features/tabs/t
 import { AgentStatusIndicator } from '@renderer/lib/components/agent-status-indicator';
 import { MAX_SESSION_TITLE_LENGTH } from '@shared/core/sessions/sessions';
 import { SessionAgentIcon } from '../session-agent-icon';
-import { formatSessionTitleForDisplay } from '../session-title-utils';
 import { sessionRegistry } from '../stores/session-registry';
 import { acpChatResources } from './acp-chat-resources';
 import { confirmCloseSessionTab } from '../close-session-tab-flow';
@@ -35,9 +35,7 @@ export const AcpChatTabBarItem = observer(function AcpChatTabBarItem({
     ?.sessions.get(store.sessionId);
   const providerId = session?.data.providerId ?? '';
   const rawTitle = session?.data.title ?? '';
-  const label = session
-    ? formatSessionTitleForDisplay(session.data.providerId, session.data.title)
-    : 'ACP Chat';
+  const label = useShownAgentName({ name: session?.data.title ?? 'ACP Chat', agentType: session?.data.providerId, createdAt: session?.data.createdAt });
   // 会话的名字在这枚页签上,它的动作(置顶 / 重命名 / 重启 / 换展示 / 归档)就在它的右键里(#7052)。
   const sessionCommands = useSessionTabCommands(store.sessionId, () => host.requestRename(tab.tabId));
 
@@ -82,9 +80,7 @@ export const AcpChatTabBarItemDragPreview = observer(function AcpChatTabBarItemD
     .get(store.sessionId)
     ?.sessions.get(store.sessionId);
   const providerId = session?.data.providerId ?? '';
-  const label = session
-    ? formatSessionTitleForDisplay(session.data.providerId, session.data.title)
-    : 'ACP Chat';
+  const label = useShownAgentName({ name: session?.data.title ?? 'ACP Chat', agentType: session?.data.providerId, createdAt: session?.data.createdAt });
 
   return (
     <GenericTabDragPreview

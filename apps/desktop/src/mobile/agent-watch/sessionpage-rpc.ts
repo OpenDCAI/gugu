@@ -9,7 +9,8 @@ import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { appCallWaitMs, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction } from '@gugu/session-core/session-record/contract'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { callDeviceRpc } from '@/lib/deviceRpc'
-import { openPhoneSessionHostPipe } from '@/lib/remoteSessionHost'
+import { openMachineSessionHostPipe, openPhoneSessionHostPipe } from '@/lib/remoteSessionHost'
+import { desktopIpc } from '@/platform/desktopIpc'
 import { SESSION_HOST_RPC } from '@/session/shared/lib/ipc/session-host-device-frames'
 import { createRPCClient } from '@/session/shared/lib/ipc/rpc'
 import { rpcOn } from '@/session/renderer/lib/ipc'
@@ -73,7 +74,7 @@ function reachable(deviceId: string): boolean {
 function host(deviceId: string): SessionHostClient {
   let client = hosts.get(deviceId)
   if (!client) {
-    client = createSessionHostClient(openPhoneSessionHostPipe(deviceId), {
+    client = createSessionHostClient(desktopIpc() ? openMachineSessionHostPipe(deviceId) : openPhoneSessionHostPipe(deviceId), {
       isReachable: () => reachable(deviceId),
       peerVersion: () => readCachedDevices().find(device => device.device_id === deviceId)?.capabilities?.app_version ?? null,
       subscribeReachability: (listener) => {

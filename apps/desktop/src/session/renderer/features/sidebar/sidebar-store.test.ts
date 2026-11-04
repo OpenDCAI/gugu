@@ -4,8 +4,6 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@renderer/features/sessions/session-home-project-constants';
-import { events } from '@renderer/lib/ipc';
-import { sessionCreatedChannel } from '@shared/core/sessions/sessionEvents';
 import { blockKey } from '@/lib/sidebarJoinedGroups';
 import { SidebarStore } from './sidebar-store';
 
@@ -88,7 +86,74 @@ function projectManagerWithSessions(
   } as unknown as SidebarProjectManager;
 }
 
+describe('SidebarStore project branch browsing', () => {
+  function family(projectId: string) {
+    const ids = ['branch-root', 'branch-child', 'branch-third', 'branch-fourth', 'branch-fifth'];
+    const pages = ids.map((id) => `page-${id}`);
+    ids.forEach((id, index) => sessionRegistry.acquire(pages[index], projectId, [{
+      id, projectId, providerId: 'codex', title: id, runtime: 'acp',
+      parentSessionId: index ? ids[index - 1] : null,
+      lastInteractedAt: '2026-01-01T00:00:00.000Z',
+    }] as never));
+    const store = new SidebarStore(projectManagerWithSessions([
+      { id: projectId, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: pages },
+    ]));
+    ids.forEach((id) => store.toggleSessionExpanded(id));
+    return { store, ids, release: () => pages.forEach((page) => sessionRegistry.release(page)) };
+  }
+
+  it('re-roots the visible project branch and restores its expanded family when returning', () => {
+    const { store, ids, release } = family('branch-project');
+    try {
+      store.toggleProjectExpanded('branch-project');
+      const sessionIds = () => store.sidebarRows.flatMap((row) => row.kind === 'conversation' ? [row.sessionId] : []);
+      expect(sessionIds()).toEqual(ids.slice(0, 3));
+      expect(store.sessionBranchSummaries.get(ids[0])?.total).toBe(4);
+      store.showSessionBranch(ids[2]);
+      expect(sessionIds()).toEqual(ids.slice(2));
+      expect(store.sessionBranchTrail.map((entry) => entry.id)).toEqual(ids.slice(0, 3));
+      store.showSessionBranch(null);
+      expect(sessionIds()).toEqual(ids.slice(0, 3));
+      expect([...store.expandedSessionIds]).toEqual(ids);
+    } finally { release(); }
+  });
+
+  it('preserves collapsed choices when browsing a branch and returning', () => {
+    const { store, ids, release } = family('branch-manual');
+    try {
+      store.toggleSessionExpanded(ids[2]);
+      const before = structuredClone(store.snapshot);
+      store.showSessionBranch(ids[2]);
+      expect(store.sidebarRows.filter((row) => row.kind === 'conversation').map((row) => row.sessionId))
+        .toEqual([ids[2]]);
+      expect(store.snapshot).toEqual(before);
+      store.showSessionBranch(ids[0]);
+      store.showSessionBranch(null);
+      expect(store.snapshot).toEqual(before);
+    } finally { release(); }
+  });
+
+  it('keeps the Tasks section fully expanded beyond the project depth limit', () => {
+    const { store, ids, release } = family(IMPLICIT_SESSION_HOME_PROJECT_ID);
+    try {
+      expect(store.standaloneSessionEntries.map((entry) => entry.sessionId)).toEqual(ids);
+      expect(store.standaloneSessionEntries.map((entry) => entry.depth)).toEqual([0, 1, 2, 3, 4]);
+      expect(store.standaloneSessionEntries.every((entry) => !entry.tree)).toBe(true);
+    } finally { release(); }
+  });
+});
+
 describe('SidebarStore project ordering', () => {
+  it('keeps the raw title and creation time for component display without rewriting addressing data', () => {
+    const createdAt = '2026-11-02T08:00:00.000Z';
+    const page = { ...sessionFixture('fresh', createdAt), data: { ...sessionFixture('fresh', createdAt).data, title: 'Codex 5', providerId: 'codex', runtime: 'acp', lastInteractedAt: createdAt } };
+    const manager = { projects: new Map([['project', { id: 'project', createdAt, mountedProject: { sessionManager: { sessions: new Map([['fresh', page]]) } } }]]) } as unknown as SidebarProjectManager;
+    sessionRegistry.acquire('fresh', 'project', [{ ...page.data, projectId: 'project', runtime: 'acp', agentStatus: null }]);
+    try {
+      const store = new SidebarStore(manager);
+      expect(store.placement.entries.get('project')).toEqual([expect.objectContaining({ title: 'Codex 5', createdAt })]);
+    } finally { sessionRegistry.release('fresh'); }
+  });
   it('counts a projectless child once when its workspace is also folded into a project group (#574)', () => {
     const home = IMPLICIT_SESSION_HOME_PROJECT_ID;
     const row = 'hydration-project';
@@ -387,7 +452,6 @@ describe('SidebarStore project ordering', () => {
   });
 
   it('keeps a needs-you child visible in its working parent tree and propagates attention', () => {
-    vi.mocked(events.on).mockClear();
     sessionRegistry.acquire('task-status', 'project-status', [
       {
         id: 'working-parent',
@@ -420,15 +484,11 @@ describe('SidebarStore project ordering', () => {
     );
     store.ensureProjectExpanded('project-status');
     expect(store.expandedSessionIds.has('working-parent')).toBe(false);
-    const createdListener = vi
-      .mocked(events.on)
-      .mock.calls.filter(([channel]) => channel === sessionCreatedChannel)
-      .at(-1)?.[1] as
-      | ((payload: { session: { parentSessionId?: string | null } }) => void)
-      | undefined;
-    expect(createdListener).toBeTypeOf('function');
-    createdListener?.({ session: { parentSessionId: 'working-parent' } });
-    expect(store.expandedSessionIds.has('working-parent')).toBe(true);
+    // Activity and attention update the summary, never the user's disclosure choice.
+    expect(store.sidebarRows.filter((row) => row.kind === 'conversation').map((row) => row.sessionId))
+      .toEqual(['working-parent']);
+    expect(store.expandedSessionIds.has('working-parent')).toBe(false);
+    store.toggleSessionExpanded('working-parent');
 
     expect(
       store.sidebarRows
@@ -501,7 +561,7 @@ describe('SidebarStore project ordering', () => {
     sessionRegistry.release('home-task');
   });
 
-  it('keeps executors in the Sessions section when the assistant home project row is hidden', () => {
+  it('keeps task-workspace executors in Tasks without an assistant-project hiding exception', () => {
     const home = 'assistant-home';
     const record = (id: string, parentSessionId?: string) => ({
       id, projectId: home, providerId: 'codex', title: id, runtime: 'acp' as const,
@@ -517,19 +577,23 @@ describe('SidebarStore project ordering', () => {
         { id: home, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: records.map((r) => r.id) },
         { id: 'business', createdAt: '2026-01-01T00:00:00.000Z', sessionIds: [] },
       ]);
+      (manager.projects.get(home) as unknown as { data: { kind?: string } }).data = { kind: 'workspace' };
       const store = new SidebarStore(manager);
       store.setAssistantAgentId('assistant');
-      store.setAssistantHomeProjectId(home);
+      store.expandedSessionIds.add('own');
       store.expandedSessionIds.add('executor');
       expect(store.orderedProjects.map((p) => p.id)).toEqual(['business']);
       expect(store.standaloneSessionEntries.map((r) => [r.sessionId, r.depth])).toEqual([
-        ['executor', 0], ['grandchild', 1], ['other', 0],
+        ['own', 0], ['executor', 1], ['grandchild', 2], ['other', 0],
       ]);
       expect(store.rowOfSession(home, 'executor')).toBeNull();
       expect(store.navChain.some((r) => r.kind === 'conversation' && r.sessionId === 'executor')).toBe(true);
       // With the project visible again its sessions return to the project, without duplicates.
-      store.setAssistantHomeProjectId(null);
-      expect(store.standaloneSessionEntries).toEqual([]);
+      (manager.projects.get(home) as unknown as { data: { kind?: string } }).data = {};
+      const userProjectStore = new SidebarStore(manager);
+      userProjectStore.setAssistantAgentId('assistant');
+      expect(userProjectStore.orderedProjects.map((p) => p.id)).toContain(home);
+      expect(userProjectStore.standaloneSessionEntries).toEqual([]);
       expect(manager.projects.size).toBe(2);
     } finally {
       identity.mockRestore();
@@ -538,7 +602,6 @@ describe('SidebarStore project ordering', () => {
   });
 
   it('keeps task-home child sessions folded under their standalone parent', () => {
-    vi.mocked(events.on).mockClear();
     sessionRegistry.acquire('task-home-session', IMPLICIT_SESSION_HOME_PROJECT_ID, [
       {
         id: 'task-home-parent',
@@ -571,13 +634,8 @@ describe('SidebarStore project ordering', () => {
     );
     // 二级分类默认关(owner 2026-09-06),这一条测的是分组开着时的形状,所以显式打开。
     store.setStateGroupsEnabled(true);
-    const createdListener = vi
-      .mocked(events.on)
-      .mock.calls.filter(([channel]) => channel === sessionCreatedChannel)
-      .at(-1)?.[1] as
-      | ((payload: { session: { parentSessionId?: string | null } }) => void)
-      | undefined;
-    createdListener?.({ session: { parentSessionId: 'task-home-parent' } });
+    expect(store.standaloneSessionEntries.map((row) => row.sessionId)).toEqual(['task-home-parent']);
+    store.toggleSessionExpanded('task-home-parent');
 
     expect(store.standaloneSessionGroups).toEqual([
       {
@@ -670,7 +728,7 @@ describe('SidebarStore keyboard navigation chain', () => {
     sessionRegistry.release('task-nav');
   });
 
-  it('reports the idle overflow that hides the next station, so ↓ can walk past "Show more"', () => {
+  it('includes idle overflow in keyboard navigation only after explicitly opening it', () => {
     const ids = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'];
     sessionRegistry.acquire(
       'task-nav',
@@ -692,14 +750,9 @@ describe('SidebarStore keyboard navigation chain', () => {
 
     const visible = store.navChain.filter((node) => node.kind === 'conversation');
     expect(visible).toHaveLength(5);
-    const last = visible[visible.length - 1];
-    expect(store.idleOverflowProjectAfter(last)).toBe('project-nav');
-    // Negative control: a station that is not the last visible one has nothing hidden after it.
-    expect(store.idleOverflowProjectAfter(visible[0])).toBeNull();
-
-    store.ensureIdleExpanded('project-nav');
+    expect(store.idleExpandedProjectIds.size).toBe(0);
+    store.toggleIdleExpanded('project-nav');
     expect(store.navChain.filter((node) => node.kind === 'conversation')).toHaveLength(6);
-    expect(store.idleOverflowProjectAfter(last)).toBeNull();
 
     sessionRegistry.release('task-nav');
   });
@@ -818,7 +871,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       ])
     );
     store.machines = machines;
-    store.expandAllProjects();
+    store.sidebarProjects.forEach((project) => store.ensureProjectExpanded(project.id));
 
     expect(store.orderedProjects).toEqual([]);
     expect(store.standaloneSessionEntries.map((e) => e.sessionId).sort()).toEqual(['lc-mine', 'rc-home', 'rc-old']);
@@ -856,15 +909,16 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     store.machines = { ...machines, isAssistantHome: () => true, label: () => 'Renamed assistant',
       sessionsOf: () => ({ sessions: [...listed.values()], live }) };
     store.setAssistantAgentId('assistant-id');
+    store.expandedSessionIds.add('rc-assistant');
     store.expandedSessionIds.add('rc-executor');
-    store.expandAllProjects();
+    store.sidebarProjects.forEach((project) => store.ensureProjectExpanded(project.id));
     try {
       expect(store.orderedProjects.map((p) => p.id).sort()).toEqual(['d22-business', 'local-business']);
       expect(store.projectCount).toBe(2);
       expect(store.projectLabel('d22-home')).toBeNull();
       expect(store.projectLabel('d22-business')).toBe('Business');
       expect(store.standaloneSessionEntries.map((e) => [e.sessionId, e.depth])).toEqual([
-        ['rc-executor', 0], ['rc-grandchild', 1],
+        ['rc-assistant', 0], ['rc-executor', 1], ['rc-grandchild', 2],
       ]);
       expect(store.rowOfSession('d22-home', 'rc-executor')).toBeNull();
       expect(store.navChain.some((r) => r.kind === 'conversation' && r.sessionId === 'rc-executor')).toBe(true);
@@ -886,7 +940,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       ]);
     const store = new SidebarStore(manager());
     store.machines = { ...machines, projectGroupOf: (id: string) => (id.endsWith('-gugu') ? 'chat-gugu' : undefined) };
-    store.expandAllProjects();
+    store.sidebarProjects.forEach((project) => store.ensureProjectExpanded(project.id));
 
     expect(store.orderedProjects.map((p) => p.id)).toEqual(['local-gugu']);
     expect(store.rowProjectIdOf('d22-gugu')).toBe('local-gugu');
@@ -907,7 +961,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     sessionRegistry.release('rt-g');
   });
 
-  it('#7199 个人助理自己的会话不进任务区;它派的照常在、成了根,并认得出是它派的', () => {
+  it('keeps the assistant and its child tasks visible after moving them to the task workspace', () => {
     acquire('rt-asst', REMOTE_SESSION_HOME, 'rc-asst');
     acquire('rt-kid', REMOTE_SESSION_HOME, 'rc-kid', 'rc-asst');
     acquire('rt-other', REMOTE_SESSION_HOME, 'rc-other');
@@ -925,12 +979,12 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     expect(store.launchedByAssistant(REMOTE_SESSION_HOME, 'rc-kid')).toBe(false);
 
     store.setAssistantAgentId('u-asst');
-    expect(shown()).toEqual(['rc-kid@0', 'rc-other@0']);
+    expect(shown()).toEqual(['rc-asst@0', 'rc-kid@1', 'rc-other@0']);
     expect(store.launchedByAssistant(REMOTE_SESSION_HOME, 'rc-kid')).toBe(true);
     expect(store.launchedByAssistant(REMOTE_SESSION_HOME, 'rc-other')).toBe(false);
-    // 认的是 agent 身份:换成别人的 id,它那条就回来。
+    // 身份只供派生关系判断使用，不再把个人助理从任务中滤掉。
     store.setAssistantAgentId('u-kid');
-    expect(shown()).toEqual(['rc-asst@0', 'rc-other@0']);
+    expect(shown()).toEqual(['rc-asst@0', 'rc-kid@1', 'rc-other@0']);
     for (const id of ['rt-asst', 'rt-kid', 'rt-other']) sessionRegistry.release(id);
   });
 
@@ -949,7 +1003,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       ])
     );
     store.machines = machines;
-    store.expandAllProjects();
+    store.sidebarProjects.forEach((project) => store.ensureProjectExpanded(project.id));
     store.toggleSessionExpanded('lc-parent');
     store.toggleSessionExpanded('rc-root');
 
@@ -984,7 +1038,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       ])
     );
     store.machines = machines;
-    store.expandAllProjects();
+    store.sidebarProjects.forEach((project) => store.ensureProjectExpanded(project.id));
     store.toggleSessionExpanded('c-parent');
 
     const sessions = store.sidebarRows.filter((row) => row.kind === 'conversation');
@@ -1009,7 +1063,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       managerWithPaths([{ id: 'd22-app', path: '/root/app', sessionIds: ['rt-app'] }])
     );
     store.machines = machines;
-    store.expandAllProjects();
+    store.sidebarProjects.forEach((project) => store.ensureProjectExpanded(project.id));
 
     expect(store.sidebarRows.some((row) => row.kind === 'conversation' && row.sessionId === 'rc-app')).toBe(true);
     expect(store.standaloneSessionEntries).toEqual([]);
@@ -1025,7 +1079,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       ]),
     } as unknown as SidebarProjectManager);
     store.machines = machines;
-    store.expandAllProjects();
+    store.sidebarProjects.forEach((project) => store.ensureProjectExpanded(project.id));
     expect(store.sidebarRows.filter((row) => row.kind === 'conversation')).toEqual([
       expect.objectContaining({ sessionId: 'rc-listed', projectId: 'd22-app' }),
     ]);
@@ -1045,7 +1099,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     let live = true;
     const store = new SidebarStore(managerWithPaths([{ id: 'd22-app', path: '/root/app', sessionIds: [] }]));
     store.machines = { ...machines, sessionsOf: () => ({ sessions: [...listed.values()], live }) };
-    store.expandAllProjects();
+    store.sidebarProjects.forEach((project) => store.ensureProjectExpanded(project.id));
     store.setStateGroupsEnabled(true);
     const groups = () =>
       Object.fromEntries(
@@ -1067,7 +1121,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       ])
     );
     store.machines = machines;
-    store.expandAllProjects();
+    store.sidebarProjects.forEach((project) => store.ensureProjectExpanded(project.id));
 
     expect(store.orderedProjects.map((p) => p.id)).toEqual(['mine']);
     expect(store.homeLayout.homeRows.size).toBe(0);
@@ -1076,7 +1130,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
   });
 });
 
-// 用户折叠的项目 / 分区只在导航到另一项任务时才会被打开;置顶会话不算,分区折叠跨重启保留。
+// Only explicit disclosure controls change persisted project, session and section choices.
 describe('SidebarStore keeps what the user folded folded', () => {
   function session(id: string, extra: Record<string, unknown> = {}) {
     return {
@@ -1099,37 +1153,48 @@ describe('SidebarStore keeps what the user folded folded', () => {
     );
   }
 
-  it('opens the project of a task it arrives at, once per arrival', () => {
-    const store = twoProjects();
-    store.revealActiveSession({ projectId: 'project-a', sessionId: 'task-a1' });
-    expect(store.expandedProjectIds.has('project-a')).toBe(true);
-
-    // The user folds it while staying on that task; a repeated report of the same task is no arrival.
-    store.toggleProjectExpanded('project-a');
-    store.revealActiveSession({ projectId: 'project-a', sessionId: 'task-a1' });
-    expect(store.expandedProjectIds.has('project-a')).toBe(false);
-
-    // Going somewhere else and coming back is an arrival again.
-    store.revealActiveSession(null);
-    store.revealActiveSession({ projectId: 'project-a', sessionId: 'task-a1' });
-    expect(store.expandedProjectIds.has('project-a')).toBe(true);
+  it('persists manual project, conversation and overflow choices across a restart', () => {
+    const source = twoProjects();
+    source.toggleProjectExpanded('project-a');
+    source.toggleSessionExpanded('expanded-parent');
+    source.toggleSessionExpanded('collapsed-parent');
+    source.toggleSessionExpanded('collapsed-parent');
+    source.toggleIdleExpanded('project-a');
+    const saved = structuredClone(source.snapshot);
+    const restored = twoProjects();
+    restored.restoreSnapshot(saved);
+    expect([...restored.expandedProjectIds]).toEqual(['project-a']);
+    expect([...restored.expandedSessionIds]).toEqual(['expanded-parent']);
+    expect([...restored.idleExpandedProjectIds]).toEqual(['project-a']);
+    expect(restored.expandedProjectIds.has('project-b')).toBe(false);
+    expect(restored.expandedSessionIds.has('collapsed-parent')).toBe(false);
   });
 
-  it('does not open a project for a task whose session sits in Pinned', () => {
-    sessionRegistry.acquire('task-a1', 'project-a', [
-      session('pinned-a1', { isPinned: true }),
-    ] as never);
-    sessionRegistry.acquire('task-a2', 'project-a', [session('plain-a2')] as never);
-    const store = twoProjects();
-    store.revealActiveSession({ projectId: 'project-a', sessionId: 'task-a1' });
-    expect(store.expandedProjectIds.has('project-a')).toBe(false);
-
-    // Control: an unpinned session of the same project does open it.
-    store.revealActiveSession({ projectId: 'project-a', sessionId: 'task-a2' });
-    expect(store.expandedProjectIds.has('project-a')).toBe(true);
-
-    sessionRegistry.release('task-a1');
-    sessionRegistry.release('task-a2');
+  it('does not open a parent or project when new descendants or activity arrive', () => {
+    const page = 'task-manual';
+    const manager = projectManagerWithSessions([
+      { id: 'project-a', createdAt: '2026-01-01T00:00:00.000Z', sessionIds: [page] },
+    ]);
+    const store = new SidebarStore(manager);
+    const parent = session('manual-parent');
+    try {
+      sessionRegistry.acquire(page, 'project-a', [parent] as never);
+      store.toggleProjectExpanded('project-a');
+      store.toggleSessionExpanded(parent.id);
+      store.toggleProjectExpanded('project-a');
+      store.toggleSessionExpanded(parent.id);
+      const saved = structuredClone(store.snapshot);
+      for (const status of ['working', 'needs_user', null]) {
+        sessionRegistry.release(page);
+        sessionRegistry.acquire(page, 'project-a', [
+          { ...parent, agentStatus: status, lastInteractedAt: '2026-11-03T05:00:00.000Z' },
+          session('new-child', { parentSessionId: parent.id, agentStatus: status }),
+        ] as never);
+        expect(store.sessionBranchSummaries.get(parent.id)?.total).toBe(1);
+        expect(store.sidebarRows.filter((row) => row.kind === 'conversation')).toEqual([]);
+        expect(store.snapshot).toEqual(saved);
+      }
+    } finally { sessionRegistry.release(page); }
   });
 
   it('persists folded section headers across a restart', () => {
@@ -1202,7 +1267,7 @@ describe('拼在一屏的几条:左边合成一个框(spec session-page「拼在
         { id: HOME, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: pages },
       ])
     );
-    store.expandAllProjects();
+    store.sidebarProjects.forEach((project) => store.ensureProjectExpanded(project.id));
     const release = () => {
       sessionRegistry.release('page-p1');
       for (const page of pages) sessionRegistry.release(page);
@@ -1212,6 +1277,51 @@ describe('拼在一屏的几条:左边合成一个框(spec session-page「拼在
   const projectConversations = (store: SidebarStore) =>
     store.sidebarRows.flatMap((row) => (row.kind === 'conversation' ? [row.sessionId] : []));
   const tasks = (store: SidebarStore) => store.standaloneSessionEntries.map((e) => `${e.sessionId}${e.join ? `:${e.join.pos}` : ''}`);
+
+  it('indexes joined cross-project and unmounted remote families before pruning pinned subtrees', () => {
+    const a = 'joined-a', b = 'joined-b', remote = 'joined-remote';
+    const localA = [conv(a, 'project-a', 50),
+      { ...conv('a-child', 'project-a', 49), parentSessionId: a },
+      { ...conv('pinned', 'project-a', 48), parentSessionId: a, isPinned: true },
+      { ...conv('pinned-child', 'project-a', 47), parentSessionId: 'pinned' }];
+    const localB = [conv(b, 'project-b', 40), { ...conv('b-child', 'project-b', 39), parentSessionId: b }];
+    sessionRegistry.acquire('joined-page-a', 'project-a', localA as never);
+    sessionRegistry.acquire('joined-page-b', 'project-b', localB as never);
+    const manager = projectManagerWithSessions([
+      { id: 'project-a', createdAt: '2026-01-01T00:00:00.000Z', sessionIds: ['joined-page-a'] },
+      { id: 'project-b', createdAt: '2026-01-02T00:00:00.000Z', sessionIds: ['joined-page-b'] },
+    ]);
+    const remoteProject = projectManager([{ id: 'remote-project', createdAt: '2026-01-03T00:00:00.000Z' }]).projects.get('remote-project')!;
+    manager.projects.set('remote-project', remoteProject);
+    const listed: SessionpageSessionSummary[] = [remote, 'remote-child'].map((id, index) => ({
+      conversationId: id, projectId: 'remote-project', title: id, harness: 'codex', runtime: 'acp',
+      agentStatus: null, lastInteractedAt: '2026-01-01T00:00:30.000Z', supported: true,
+      parentConversationId: index ? remote : null,
+    }));
+    const store = new SidebarStore(manager);
+    store.machines = {
+      machineOf: (id) => id === 'remote-project' ? 'other-machine' : null,
+      label: () => 'Other machine', homeDir: () => null,
+      sessionsOf: () => ({ sessions: listed, live: true }),
+    };
+    store.projectOrder = ['project-a', 'project-b', 'remote-project'];
+    store.sidebarProjects.forEach((project) => store.ensureProjectExpanded(project.id));
+    for (const id of [a, b, remote, 'pinned']) store.toggleSessionExpanded(id);
+    store.setJoinedGroups([group([b, 'stale-member', remote, a], true)]);
+    try {
+      expect(remoteProject.mountedProject).toBeNull();
+      const rows = store.sidebarRows.flatMap((row) => row.kind === 'conversation' ? [row] : []);
+      expect(rows.map((row) => row.sessionId)).toEqual([b, 'b-child', remote, 'remote-child', a, 'a-child']);
+      expect(rows.map((row) => row.tree?.summary.total)).toEqual([1, 0, 1, 0, 3, 0]);
+      expect(rows.every((row) => store.placement.nodeById.has(row.sessionId))).toBe(true);
+      expect(rows.every((row) => store.sessionBranchSummaries.has(row.sessionId))).toBe(true);
+      expect(store.pinnedSessionEntries.map((row) => row.sessionId)).toEqual(['pinned', 'pinned-child']);
+      expect(store.sessionBranchSummaries.get('pinned')?.total).toBe(1);
+    } finally {
+      sessionRegistry.release('joined-page-a');
+      sessionRegistry.release('joined-page-b');
+    }
+  });
 
   it('组员从原位置挪进最靠前那一条那里(别的项目的也挪过来),按屏上次序叠着;每行记着自己是框的哪一段', () => {
     const { store, release } = setup();

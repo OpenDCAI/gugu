@@ -115,6 +115,7 @@ export type MembershipValue = {
   updated_at: string
   joined_at: string
   inbox_published: boolean
+  conversation_deleted_at?: string | null
   role: GroupMemberRole | null
 }
 
@@ -483,7 +484,7 @@ export function assemble(cache: ProjectionCache, viewerId: string): ChatItem[] {
     const own = memberships.get(membershipId(chat.id, viewerId))
     // inbox publication 是独立事实,不是 membership 副作用(conversation-data):
     // 没发布的会话不进列表。
-    if (!own || !own.inbox_published) continue
+    if (!own || !own.inbox_published || own.conversation_deleted_at) continue
     const isPeerChat = chat.kind === 'dm' || chat.kind === 'ai'
     const peers = (membersByChat.get(chat.id) ?? []).filter((member) => member.user_id !== viewerId)
     const peerUserId = isPeerChat ? (peers[0]?.user_id ?? null) : null

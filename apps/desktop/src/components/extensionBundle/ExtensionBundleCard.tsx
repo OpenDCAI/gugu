@@ -1,3 +1,4 @@
+import { marketCompatText } from '@shared/extensions/market'
 import { comparer, reaction } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { useEffect, useState, useSyncExternalStore } from 'react'
@@ -276,7 +277,7 @@ export function ExtensionBundleCard({ meta, card, isMine, senderName, chatId }: 
       {!summary && <span className={`text-[var(--font-caption)] ${muted}`}>{t('extensions.bundleCardReading')}</span>}
       {summary && !summary.ok && (
         <span data-testid="extension-bundle-card-problem" className="text-[var(--font-body)] text-[var(--text-error)]">
-          {summary.needsApp ? t('extensions.needsNewerApp', { version: summary.needsApp }) : t('extensions.bundleCardUnreadable')}
+          {summary.compat ? marketCompatText(summary.compat, t) : t('extensions.bundleCardUnreadable')}
         </span>
       )}
       {manifest && summary?.ok && (

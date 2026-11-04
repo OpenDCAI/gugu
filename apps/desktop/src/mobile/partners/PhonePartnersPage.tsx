@@ -130,7 +130,7 @@ export function PhonePartnersPage({
   const projects = useMemo(() => partnerProjects(machines), [machines])
   const sessionsOf = useCallback((deviceId: string) => {
     const device = machines.find((row) => row.device_id === deviceId)
-    return device ? deviceSessionsOf(device, liveSessions).sessions : []
+    return device ? deviceSessionsOf(device, liveSessions) : { sessions: [], hostOnline: false }
   }, [machines, liveSessions])
   const friends = useMemo(() => partnerFriends(contacts), [contacts])
   const groupAgents = useMemo(() => partnerGroupAgents(contacts, sharedGroupAgents, user.id), [contacts, sharedGroupAgents, user.id])
@@ -178,7 +178,7 @@ export function PhonePartnersPage({
       // 刚建的项目:账号上那一份还没刷到,先照建的时候知道的画。
       ?? (created ? { key: page.key, chatId: created.chatId, name: created.name, createdAt: created.createdAt, coverId: created.localProjectId, members: [{ deviceId: created.deviceId, localProjectId: created.localProjectId }] } : null)
     if (!project) return null
-    const sessions = projectSessions(project, sessionsOf)
+    const sessions = projectSessions(project, id => sessionsOf(id).sessions, id => sessionsOf(id).hostOnline)
     return (
       <PhoneProjectContacts
         project={project}
@@ -255,7 +255,7 @@ export function PhonePartnersPage({
                 const open = () => push({ kind: 'project', key: project.key })
                 return (
                   <ListRow key={project.key} mobile role="button" tabIndex={0} data-testid="phone-partners-project"
-                    leading={<ProjectFolderAvatar coverId={project.coverId} running={runningCount(projectSessions(project, sessionsOf))} />}
+                    leading={<ProjectFolderAvatar coverId={project.coverId} running={runningCount(projectSessions(project, id => sessionsOf(id).sessions, id => sessionsOf(id).hostOnline))} />}
                     title={project.name} onClick={open} onKeyDown={rowKeyActivate(open)} />
                 )
               })}

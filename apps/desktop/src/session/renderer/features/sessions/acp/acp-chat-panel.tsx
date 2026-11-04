@@ -1,3 +1,5 @@
+import { isTranscriptDelivery } from '@/lib/pendingSessionDeliveries';
+import { resolveDeliveredAttachment } from '@renderer/lib/chat/delivered-message-presentation';
 import { readNativeOfflineDraft, writeNativeOfflineDraft } from '@/lib/nativeOfflineDraft';
 import { useSessionInputAccount } from '@/lib/sessionInputOutboxBridge';
 import { appendToDraft } from '@/store/chatContext';
@@ -6,6 +8,8 @@ import { useSearchedTaskReveal, useSessionSourceMessage } from './use-session-so
 import { canQueueNativeInput } from './queue-native-input';
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
+import { useRememberNativeTail } from './use-remember-native-tail';
+import { useOwnerNotifications } from './use-owner-notifications';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { sessionLifeView } from '../stores/session-life-views';
 import { lifeIsStarting } from '@shared/core/sessions/session-life';
@@ -96,11 +100,12 @@ import { droppedDirectoryMention } from '@renderer/lib/drag-files';
 import { pathAttachmentTarget } from '@gugu/session-chat-ui/markdown-attachment-mentions';
 import { readMermaidTheme } from '@gugu/session-chat-ui/mermaid';
 import { SessionScheduleChip } from '../session-schedule-chip';
-import { sessionComposerFrameLiftClassName, sessionComposerTrayClassName, sessionComposerTrayStyle } from '../session-composer-styles';
+import { sessionComposerTrayClassName, sessionComposerTrayStyle } from '../session-composer-styles';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
 import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
+import { registerPastedScreenshot, screenshotQuality } from '@/lib/pastedScreenshot';
 import { useComposerFileUploads } from './use-composer-file-uploads';
 import { shellPort } from '@renderer/lib/shell-port';
 import { getRendererSession } from '@/lib/sessionPublication';
@@ -173,6 +178,7 @@ import { harnessModelCredentialKey } from '@renderer/lib/stores/use-harness-mode
 import { useQueryClient } from '@tanstack/react-query';
 import { filterSlashCommands } from './slash-command-matching';
 import { startupPlaceholderKey } from './startup-placeholder';
+import { canStartFreshSession } from '@shared/core/sessions/session-recovery';
 import { FindBar } from '@renderer/lib/ui/find-bar';
 import { useFindBar, type FindBackend } from '@renderer/lib/ui/use-find-bar';
 import { enUSMessages, type SessionMessageKey } from '@renderer/localization/messages';
@@ -238,6 +244,7 @@ function readFileAsDataUrl(file: File): Promise<string | undefined> {
 }
 
 function resolveAttachmentDataUrl(store: AcpChatStore, id: string): Promise<string | null> {
+  if (id.startsWith('gugu-message-file://')) return resolveDeliveredAttachment(id);
   const fixtureDataUrl = resolveVisualEvidenceAttachmentDataUrl(store, id);
   if (fixtureDataUrl) return Promise.resolve(fixtureDataUrl);
   // 旧消息正文里那条绝对路径投影出来的附件(#5269):字节在盘上,不在 agent 的附件仓里 —— 照那条路径读。
@@ -332,6 +339,7 @@ const ComposerForStore = observer(function ComposerForStore({
   }, []);
   // 图片与文件同一条:贴上来就放进这个 agent 私聊的文件夹,进度在 chip 上,这一轮带着引用发出去(P3)。
   const fileUploads = useComposerFileUploads({
+    resumable: true,
     to: async () => {
       const owner = getRendererSession()?.user.id;
       if (!owner) throw new Error('attachments: not signed in');
@@ -485,7 +493,7 @@ const ComposerForStore = observer(function ComposerForStore({
   }, []);
 
   /** 拖 / 粘 / 选进来的文件(图片也是):各上一枚 chip,当场开始放进私聊文件夹。 */
-  const attachFiles = useCallback(async (files: File[]) => {
+  const attachFiles = useCallback(async (files: File[], source?: 'paste' | 'drop') => {
     for (const file of files) {
       // 用户读的名字是 `file.name`,❌ 不从盘上的路径反推 —— 从前正是这一步把 `gugu-drop-<uuid>-` 漏到了用户脸上。
       const isImage = file.type.toLowerCase().startsWith('image/');
@@ -495,20 +503,20 @@ const ComposerForStore = observer(function ComposerForStore({
         kind: isImage ? 'image' : 'file',
         mimeType: file.type,
       };
-      if (isImage) {
+      if (source === 'paste') registerPastedScreenshot(file);
+      void fileUploads.add(chip, file);
+      if (isImage && !screenshotQuality(file)) {
         const previewUrl = await readFileAsDataUrl(file);
-        if (previewUrl) chip.previewUrl = previewUrl;
-      } else {
+        if (previewUrl) setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewUrl } : att));
+      } else if (!isImage) {
         // 文本类附件的内容在入列时读一份,chip 点开看的就是它(#5269)。
         const preview = await readAttachmentPreviewText(file);
         if (preview) {
-          chip.previewText = preview.text;
-          chip.previewTruncated = preview.truncated;
+          setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewText: preview.text, previewTruncated: preview.truncated } : att));
         }
       }
-      void fileUploads.add(chip, file);
     }
-  }, [fileUploads]);
+  }, [fileUploads, setAttachments]);
 
   /**
    * 拖进来的文件夹。本机会话:落成正文里一条路径 pill(文件夹就在这台电脑上,agent 就地读)。
@@ -1421,16 +1429,11 @@ const ComposerForStore = observer(function ComposerForStore({
         granularity={mcpPanel?.granularity ?? 'per-server'}
         onApply={applyMcpSelection}
       />
-      {schedules.length > 0 ? (
-        <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
-          <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
-        </div>
-      ) : null}
       <NeedsYouSlot />
       {/* This task's agent's failed deliveries (the shell draws the same bar a chat's composer shows). */}
       {agentUserId ? <AgentFailureSlot agentUserId={agentUserId} /> : null}
       {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. */}
-      {life && lifeIsStarting(life) && !store.transcriptPendingId ? (
+      {life && lifeIsStarting(life) && !store.transcriptPendingId && !store.chatState.session.state.pendingMessages.length ? (
         <div className="flex justify-center px-3 py-1 text-xs text-foreground-muted" data-life-stage={life.stage?.at}>
           <LoadingIndicator ariaLabel={translate('transcript.starting')} label={translate('transcript.starting')} />
         </div>
@@ -1441,11 +1444,17 @@ const ComposerForStore = observer(function ComposerForStore({
         </div>
       ) : null}
       {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
-      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life} inTranscript={store.transcriptPendingId ?? store.stoppedRowId} />
+      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life}
+        inTranscript={[store.transcriptPendingId, store.stoppedRowId, ...store.failedRowIds, ...life?.pending.items.filter(input => isTranscriptDelivery(input)).map(input => input.messageId) ?? []].filter((id): id is string => id !== null)} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
-        className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
-        hideLockedAgent
+        bandAbove={schedules.length > 0 ? (
+          <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
+            <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
+          </div>
+        ) : null}
+        // 会话页的标签头不显示 harness,锁着的那颗 agent 标留在模型左边(私聊照旧藏)。
+        hideLockedAgent={false}
         isWorking={a.isWorking}
         attachmentStatus={sendHold === 'waiting' ? translate('composer.attachmentWaiting') : undefined}
         notice={
@@ -1497,6 +1506,7 @@ const ComposerForStore = observer(function ComposerForStore({
         permissionModeOptions={localizePermissionModeOptions(
           sessionPermissionOptions,
           translate,
+          agents?.find((agent) => agent.id === providerId)?.name ?? providerId ?? '',
           providerPermissionModeMap
         )}
         selectedPermissionMode={selectedPermissionModeId(
@@ -1531,14 +1541,16 @@ const ComposerForStore = observer(function ComposerForStore({
         attachments={attachments}
         onAttachmentsChange={handleAttachmentsChange}
         onAttach={handleAttach}
-        onImageFilesDropped={(files) => {
-          attachFiles(files).catch((error: unknown) => log.error('Failed to attach dropped files', { error }));
+        onImageFilesDropped={(files, source) => {
+          attachFiles(files, source).catch((error: unknown) => log.error('Failed to attach dropped files', { error }));
         }}
         onFilesDropped={(files) => {
           attachFiles(files).catch((error: unknown) => log.error('Failed to attach dropped files', { error }));
         }}
         onDirectoriesDropped={attachDirectories}
         onRetryAttachment={fileUploads.retry}
+        onAttachmentQualityChange={id => { if (!sendingRef.current) fileUploads.toggleQuality(id); }}
+        attachmentQualityLocked={sendHold === 'waiting'}
         dataDropTypes={dataDropTypes}
         onDataDropped={onDataDropped}
         onViewAttachment={onViewAttachment}
@@ -1579,6 +1591,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const store = activeTab ? (activeTab.resource as AcpChatTabResource).store : null;
 
   const visibility = useConversationVisibility(useContext(PageShownContext));
+  useRememberNativeTail(store?.projectId, store?.runtimeSessionId, store?.affordances.isBusy ?? false, visibility.shown);
+  useOwnerNotifications(store, visibility.shown);
   const rootRef = visibility.ref;
   const reading = useNativeConversationRead(store ? machineRegistry.machineOf(store.runtimeSessionId) : null, store?.runtimeSessionId, visibility.shown, () => {
     const transcript = store?.chatState.transcript.state;
@@ -1792,7 +1806,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   useEffect(() => {
     if (!store) return;
     // 有没有可重来的首轮,**进这一行之前就知道**(同 ProviderSessionMissingView 的判据)。
-    const canRestartSession = Boolean(
+    const canRestartSession = canStartFreshSession('provider_session_missing',
       sessionRegistry.get(store.sessionId)?.sessions.get(store.sessionId)?.data
         .firstUtterance
     );
@@ -2072,6 +2086,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       // 被它掩护着看不出来。⇒ 这里补上；同时 UserMessageCard 改成没接回调就不渲染。
       canRevertMessage: (itemId) => historyActionsEnabled && (store?.canRevertMessage(itemId) ?? false),
       onEditMessage: ({ itemId }) => store?.beginMessageEdit(itemId),
+      onRetrySend: () => store?.retryPendingInput(),
       editingMessage: messageEdit ? {
         ...messageEdit,
         pending: messageEditPending,
@@ -2090,7 +2105,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       onRestorePrompt: quotes.restorePrompt,
       onContinueTurn: () => {
         // A message stopped before it went has nothing to continue from: it just goes now.
-        if (store?.stoppedRowId) store.continueStoppedRow();
+        if (store?.stoppedRowId || store?.chatState.session.state.pendingMessages.some(input => input.stopped)) store.continueStoppedRow();
         else continueSessionTurn(store, translate('transcript.continueTurnPrompt'));
       },
       onDiscardTurn: ({ turnId }) => store?.discardStoppedTurn(turnId),

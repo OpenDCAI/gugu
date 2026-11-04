@@ -1,5 +1,6 @@
 import { hydrateLife, OUTCOME_UNKNOWN, shouldStartOnHydrate, step } from '@gugu/core/local/session-life/step';
 import { STAGES } from '@gugu/core/local/session-life/types';
+import { isSqliteBusy } from '@gugu/core/shared/sqliteBusy';
 import { toSerializedError } from '@gugu/session-shared/result';
 import type {
   Attempt, AuthEpoch, Effect, Event, Gen, Hold, InterruptEvent, Life,
@@ -8,6 +9,7 @@ import type {
 import type { LifeStatus, LifeView } from '@shared/core/sessions/session-life';
 import type { LegAdapter, PendingRow } from './session-life-adapter';
 import type { EnqueuePending } from './session-pending';
+import { LifeEvents, UncommittedLifeEvent } from './session-life-events';
 
 export interface LifeStore {
   read(sessionId: string): { archived: boolean; hold: Hold | null };
@@ -54,6 +56,7 @@ interface Run {
 }
 
 interface Entry {
+  events: LifeEvents;
   life: Life;
   /** The current attempt was started by a reconfigure (its LifeView reports preserved/replaced). */
   reconfigured: boolean;
@@ -95,7 +98,9 @@ export class SessionLife {
   private entry(sessionId: string): Entry {
     const existing = this.entries.get(sessionId);
     if (existing) return existing;
-    const entry: Entry = { life: hydrateLife(this.ports.store(sessionId).read(sessionId)), reconfigured: false, attempt: 0,
+    const entry: Entry = { events: new LifeEvents(event => this.apply(sessionId, entry, event),
+      () => this.entries.get(sessionId) === entry, error => this.ports.failed(sessionId, error)),
+      life: hydrateLife(this.ports.store(sessionId).read(sessionId)), reconfigured: false, attempt: 0,
       version: 0, since: this.ports.now(), run: null, effects: this.draining.get(sessionId) ?? Promise.resolve() };
     this.entries.set(sessionId, entry);
     return entry;
@@ -213,6 +218,12 @@ export class SessionLife {
     return { seq: result.seq, state: result.state };
   }
 
+  /** A reader-rejected item stays visible as failed and never enters provider admission. */
+  rejectInbox(input: Extract<EnqueuePending, { kind: 'inbox-batch' }>, cause: unknown): void {
+    this.ports.store(input.sessionId).enqueue({ ...input, failure: toSerializedError(cause) });
+    this.publish(input.sessionId, this.entry(input.sessionId));
+  }
+
   private deliver(sessionId: string, seq: Seq): void {
     const refused = this.account === null ? 'no account is signed in' : this.leaving ? 'sign-out is in progress' : null;
     if (refused) {
@@ -259,7 +270,7 @@ export class SessionLife {
     return { kind: entry.life.kind, stage: stageOf(entry) };
   }
 
-  private known(sessionId: string): Entry {
+  private known(sessionId: string): Omit<Entry, 'events'> {
     return this.entries.get(sessionId) ?? { life: hydrateLife(this.ports.store(sessionId).read(sessionId)), reconfigured: false, attempt: 0,
       version: 0, since: this.ports.now(), run: null, effects: Promise.resolve() };
   }
@@ -279,6 +290,7 @@ export class SessionLife {
     for (;;) {
       const pending = entry.effects;
       await pending;
+      await entry.events.drain();
       if (entry.effects === pending) return;
     }
   }
@@ -286,12 +298,21 @@ export class SessionLife {
   private send(sessionId: string, event: Event): void {
     if ('gen' in event && !this.entries.has(sessionId)) return;
     const entry = this.entry(sessionId);
+    entry.events.send(event);
+  }
+
+  private apply(sessionId: string, entry: Entry, event: Event): void {
     const previous = entry.life;
     const oldRun = entry.run;
     const next: Gen = { auth: this.epoch as AuthEpoch, attempt: (entry.attempt + 1) as Attempt };
     const [life, effects] = step(previous, event, this.ports.store(sessionId).pending(sessionId), { next });
-    this.ports.store(sessionId).commit(sessionId, [...effects, ...effects.flatMap((effect): Effect[] => effect.e === 'dispatch'
-      ? [{ e: 'write-receipt', seq: effect.seq, receipt: { state: 'dispatching', attempt: effect.gen.attempt } }] : [])]);
+    try {
+      this.ports.store(sessionId).commit(sessionId, [...effects, ...effects.flatMap((effect): Effect[] => effect.e === 'dispatch'
+        ? [{ e: 'write-receipt', seq: effect.seq, receipt: { state: 'dispatching', attempt: effect.gen.attempt } }] : [])]);
+    } catch (error) {
+      if (isSqliteBusy(error)) throw new UncommittedLifeEvent(error);
+      throw error;
+    }
     entry.life = life;
     if (life.kind === 'starting' && (!oldRun || !same(life.gen, oldRun.gen))) {
       entry.reconfigured = event.k === 'start' && event.origin === 'reconfigure';
@@ -323,22 +344,25 @@ export class SessionLife {
           if (this.entries.get(sessionId) !== entry) return; // removed by delete: nothing left to step
           const life = entry.life;
           const run = life.kind === 'starting' || life.kind === 'ready' || life.kind === 'stopping' ? life.gen : null;
-          this.send(sessionId, { k: 'fault', run, cause: toSerializedError(error),
-            unreleased: effect.e === 'teardown' ? { gen: effect.gen, have: effect.have } : null });
+          try {
+            this.send(sessionId, { k: 'fault', run, cause: toSerializedError(error),
+              unreleased: effect.e === 'teardown' ? { gen: effect.gen, have: effect.have } : null });
+          } catch (faultError) { this.ports.failed(sessionId, faultError); }
           return;
         }
       }
-    });
+    }).catch(error => { this.ports.failed(sessionId, error); });
     entry.effects = current;
     if (removed) {
       this.draining.set(sessionId, current);
-      void current.then(() => { if (this.draining.get(sessionId) === current) this.draining.delete(sessionId); });
+      void current.then(() => { if (this.draining.get(sessionId) === current) this.draining.delete(sessionId); })
+        .catch(error => this.ports.failed(sessionId, error));
     }
     void current.then(() => {
       if (this.entries.get(sessionId) === entry && entry.effects === current && entry.life.kind === 'stopping') {
         this.send(sessionId, { k: 'settled', gen: entry.life.gen });
       }
-    });
+    }).catch(error => this.ports.failed(sessionId, error));
   }
 
   private async effect(sessionId: string, entry: Entry, run: Run | null, effect: Effect): Promise<void> {
@@ -416,10 +440,11 @@ export class SessionLife {
   reconcileRead(sessionId: string, seq: Seq): void {
     const row = this.ports.store(sessionId).row(sessionId, seq);
     if (row.state !== 'accepted') return;
-    void this.ports.markRead(row).then(() => this.ports.store(sessionId).settleRead(sessionId, seq), error => this.ports.failed(sessionId, error));
+    void this.ports.markRead(row).then(() => this.ports.store(sessionId).settleRead(sessionId, seq))
+      .catch(error => this.ports.failed(sessionId, error));
   }
 
-  private view(sessionId: string, entry: Entry): LifeView {
+  private view(sessionId: string, entry: Omit<Entry, 'events'>): LifeView {
     const life = entry.life;
     const rows = this.ports.store(sessionId).unaccepted(sessionId);
     const hold = life.kind === 'dormant' || life.kind === 'failed' ? life.hold : life.kind === 'stopping' && life.destination.kind === 'held' ? life.destination.hold : null;
@@ -448,7 +473,7 @@ export function sessionLife(): SessionLife {
   return installed;
 }
 
-function stageOf(entry: Entry): LifeView['stage'] {
+function stageOf(entry: Pick<Entry, 'life' | 'since'>): LifeView['stage'] {
   const life = entry.life;
   return life.kind === 'starting' ? { at: life.progress.at, index: STAGES.indexOf(life.progress.at) + 1, total: 7, since: entry.since } : null;
 }

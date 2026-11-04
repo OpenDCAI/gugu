@@ -5,12 +5,10 @@ import { spawnSync, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assertPackageEnvironment, assertRuntimeBackend, controllerOwnsUpdates, packageBackend, prepareInstallation, readInstallation, SERVER_INSTALLATION } from '../../../../apps/desktop/electron/server/server-package-environment.mts'
-import { activateServerPackage, createServerVersionLifecycle, pointCurrent, readUpgradeMarker } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
-import { rollbackUpgrade } from '../../../../apps/desktop/electron/server/server-upgrade-guard'
+import { activateServerPackage, createServerVersionLifecycle, pointCurrent } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
+import { readPendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
 import { guardReplacement, installServiceWith } from '../../../../apps/desktop/electron/server/server-service'
 import { startServerUpdater } from '../../../../apps/desktop/electron/server/server-updater'
-import { createAccountDriver } from '../../../../apps/desktop/electron/server/server-account-driver'
-import { INITIAL_ACCOUNT_STATE, writeAccountState } from '../../../../apps/desktop/electron/server/server-account-machine'
 
 const A = 'https://backend-a.example.test'
 const B = 'https://backend-b.example.test'
@@ -29,6 +27,22 @@ function candidate(version: string, backend = A, legacy = false): string {
   return directory
 }
 
+/** Execute the shipped preload before deliberately broken application code. */
+function failPendingBoots(): void {
+  const pending = readPendingVerify(home)!
+  const script = path.join(home, 'versions', pending.to, 'app/dist-electron/server.js')
+  fs.writeFileSync(script, "throw new Error('fixture failed before readiness')")
+  const codes: Array<number | null> = []
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const result = spawnSync(process.execPath, ['--require', path.resolve('apps/desktop/electron/server/server-boot.cjs'), script, 'run'], {
+      env: { ...process.env, GUGU_TASK_HOST_VERSION: pending.to, GUGU_SERVER_HOME: home, GUGU_SERVER_SUPERVISED: 'systemd' }, encoding: 'utf8',
+    })
+    codes.push(result.status)
+    if (attempt < 3) expect(result.stderr).toContain('fixture failed before readiness')
+  }
+  expect(codes).toEqual([1, 1, 1, 75])
+}
+
 beforeEach(() => {
   environment = { ...process.env }
   home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-installation1286-')))
@@ -42,6 +56,50 @@ afterEach(() => {
 })
 
 describe('installation backend and package ownership', () => {
+  it('publishes a lease before another process can see an installed version, even without keep-current', () => {
+    const version = '1.0.0'
+    const source = path.join(home, 'source', `gugu-server-${version}`)
+    fs.mkdirSync(path.join(source, 'bin'), { recursive: true })
+    fs.writeFileSync(path.join(source, 'bin/gugu-server'), `#!/bin/sh\ncase "$1" in\nhelp) echo selftest;;\nselftest) test -f "$GUGU_SERVER_HOME/versions/.prepared/${version}";;\nesac\n`, { mode: 0o755 })
+    const archive = path.join(home, 'package.tar.gz')
+    execFileSync('tar', ['-czf', archive, '-C', path.dirname(source), path.basename(source)])
+    const sha = createHash('sha256').update(fs.readFileSync(archive)).digest('hex')
+    const installation = path.join(home, 'installation')
+    const result = spawnSync('sh', [path.resolve('scripts/gugu-server/install.sh'), '--package', archive,
+      '--version', version, '--sha256', sha, '--no-service', '--no-login'], {
+      env: { ...process.env, HOME: path.join(home, 'user'), GUGU_SERVER_HOME: installation }, encoding: 'utf8',
+    })
+    expect(result.status, result.stderr).toBe(0)
+    expect(fs.existsSync(path.join(installation, 'versions/.prepared', version))).toBe(true)
+    expect(fs.realpathSync(path.join(installation, 'current'))).toBe(path.join(installation, 'versions', version))
+  })
+
+  it.each(['server', 'controller'] as const)('initializes a never-used whole home created by an older account boot checker (%s)', updateOwner => {
+    for (const id of ['first', 'second']) {
+      const directory = path.join(home, 'accounts', id)
+      fs.mkdirSync(path.join(directory, 'data'), { recursive: true })
+      fs.writeFileSync(path.join(directory, 'account.json'), '{}')
+    }
+    expect(prepareInstallation(home, identity(), { updateOwner })).toEqual({ ...identity(), updateOwner })
+  })
+
+  it.each(['home entry', 'another account data', 'account entry', 'account metadata'])('keeps rejecting an unverified installation with a skeleton and %s', extra => {
+    const directory = path.join(home, 'accounts', 'unused')
+    fs.mkdirSync(path.join(directory, 'data'), { recursive: true })
+    fs.writeFileSync(path.join(directory, 'account.json'), '{}')
+    if (extra === 'home entry') fs.writeFileSync(path.join(home, 'channel'), 'beta')
+    if (extra === 'another account data') {
+      const data = path.join(home, 'accounts', 'existing', 'data')
+      fs.mkdirSync(data, { recursive: true })
+      fs.writeFileSync(path.join(home, 'accounts', 'existing', 'account.json'), '{}')
+      fs.writeFileSync(path.join(data, 'sessions.db'), 'existing account state')
+    }
+    if (extra === 'account entry') fs.writeFileSync(path.join(directory, 'name'), 'existing name')
+    if (extra === 'account metadata') fs.writeFileSync(path.join(directory, 'account.json'), '{"addedAt":"existing"}')
+    expect(() => prepareInstallation(home, identity())).toThrow('Existing account environment cannot be verified')
+    expect(readInstallation(home)).toBeNull()
+  })
+
   it('keeps standalone historical first installation while refusing an unverifiable existing or managed installation', () => {
     const source = path.join(home, 'archive', 'gugu-server-1.0.0')
     fs.mkdirSync(path.join(source, 'bin'), { recursive: true })
@@ -66,25 +124,22 @@ describe('installation backend and package ownership', () => {
     expect(fs.existsSync(path.join(managed, 'current'))).toBe(false)
   })
 
-  it.each([A, B])('checks the actual account rollback executable against the installation (%s)', async backend => {
+  it.each([A, B])('checks the actual rollback package against the installation (%s)', backend => {
     candidate('2.0.0')
-    const old = candidate('1.0.0', backend, true)
+    candidate('1.0.0', backend, true)
     prepareInstallation(home, identity(), { updateOwner: 'controller' })
-    const userId = '00000000-0000-4000-8000-000000000001'
-    const dir = path.join(home, 'accounts', userId), dataDir = path.join(dir, 'data')
-    fs.mkdirSync(dataDir, { recursive: true })
-    fs.writeFileSync(path.join(dataDir, 'server-session.enc'), 'original credentials')
-    writeAccountState(dataDir, { ...INITIAL_ACCOUNT_STATE, version: '2.0.0', previous: '1.0.0',
-      phase: { kind: 'booting', since: 1, quickExits: 0 } }, 1)
-    const account = { userId, dir, dataDir, homeDir: path.join(dir, 'home'), email: null, addedAt: null, signedIn: true, signedOut: null }
-    const driver = createAccountDriver({ layout: { home, versions: path.join(home, 'versions'), version: '2.0.0' },
-      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '2.0.0' }, verifyBoot: async () => { throw new Error('new package failed to boot') } }),
-      followSupervisor: true, log: { info: vi.fn(), warn: vi.fn() }, child: () => undefined, started: () => false, restart: vi.fn(), now: () => 2 })
-    for (let i = 0; i < 3; i++) driver.childExited(account, true)
-    driver.tick([account])
-    await driver.settled()
-    expect(driver.binaryFor(userId)).toEqual(backend === A ? { binary: path.join(old, 'bin', 'gugu-server'), version: '1.0.0' } : 'none')
-    expect(fs.readFileSync(path.join(dataDir, 'server-session.enc'), 'utf8')).toBe('original credentials')
+    const data = path.join(home, 'accounts/original/data')
+    fs.mkdirSync(data, { recursive: true })
+    fs.writeFileSync(path.join(data, 'server-session.enc'), 'original credentials')
+    const replace = () => guardReplacement(home, { pid: 1, version: '1.0.0', supervisedBy: 'systemd' }, '2.0.0')
+    if (backend === A) {
+      expect(replace).not.toThrow()
+      expect(readPendingVerify(home)).toMatchObject({ from: '1.0.0', to: '2.0.0' })
+    } else {
+      expect(replace).toThrow('another backend')
+      expect(readPendingVerify(home)).toBeNull()
+    }
+    expect(fs.readFileSync(path.join(data, 'server-session.enc'), 'utf8')).toBe('original credentials')
   })
 
   it('preserves a verified legacy rollback source before service replacement, including when the replacement cannot start', async () => {
@@ -94,7 +149,7 @@ describe('installation backend and package ownership', () => {
     fs.symlinkSync(wrong, path.join(home, 'current'))
     prepareInstallation(home, identity(), { updateOwner: 'controller', migrateFrom: '1.0.0' })
     const guard = vi.fn(() => {
-      expect(readUpgradeMarker(home)?.fromDir).toBe(original)
+      expect(readPendingVerify(home)?.from).toBe('1.0.0')
       expect(fs.realpathSync(path.join(home, 'current'))).toBe(wrong)
     })
     await activateServerPackage(home, target, { migrateFrom: '1.0.0', verifyBoot: async () => {}, isBusy: () => false, beforeSwitch: guard })
@@ -103,17 +158,15 @@ describe('installation backend and package ownership', () => {
     // Service install must retain the controller's verified original, rather than overwrite
     // it with the old process's already-wrong backend version.
     guardReplacement(home, { pid: 1, version: '2.0.0', supervisedBy: 'systemd' }, '3.0.0')
-    expect(readUpgradeMarker(home)?.fromDir).toBe(original)
+    expect(readPendingVerify(home)?.from).toBe('1.0.0')
     let clock = 0
     const started = await installServiceWith(() => {}, { mode: 'systemd', targetVersion: '3.0.0', running: () => null,
-      isAlive: () => false, isBusy: () => false, requireIdle: true, stop: vi.fn(),
+      isAlive: () => false, isBusy: () => false, requireIdle: true, stop: vi.fn(), restart: vi.fn(),
       registerSystemd: vi.fn(), registerLaunchd: vi.fn(), registerCron: () => true, startDetached: vi.fn(),
       logHint: 'isolated test', user: 'test', sleep: async ms => { clock += ms }, now: () => clock })
     expect(started).toBe(false)
-    const marker = readUpgradeMarker(home)!
-    expect(marker.from).toBe('1.0.0')
-    expect(await rollbackUpgrade(home, marker, { now: () => clock, lockHolder: () => null, kill: vi.fn(), isAlive: () => false,
-      sleep: async () => {}, restartsAutomatically: () => true, startKeeper: vi.fn(), log: vi.fn() })).toBe(true)
+    failPendingBoots()
+    expect(readPendingVerify(home)).toBeNull()
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(original)
   })
 
@@ -126,7 +179,8 @@ describe('installation backend and package ownership', () => {
     await expect(activateServerPackage(home, target, { verifyBoot: async () => { busy = true }, isBusy: () => busy, beforeSwitch }))
       .rejects.toThrow('no longer idle')
     expect(beforeSwitch).not.toHaveBeenCalled()
-    expect(readUpgradeMarker(home)).toBeNull()
+    expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8'))).toMatchObject({ state: 'ready', version: '2.0.0' })
+    expect(readPendingVerify(home)).toBeNull()
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(original)
   })
 
@@ -137,12 +191,11 @@ describe('installation backend and package ownership', () => {
     const verifyBoot = vi.fn(async () => {}), beforeSwitch = vi.fn()
     const options = { verifyBoot, beforeSwitch, isBusy: () => false }
     await activateServerPackage(home, rejected, options)
-    expect(await rollbackUpgrade(home, readUpgradeMarker(home)!, { now: () => 123, lockHolder: () => null, kill: vi.fn(), isAlive: () => false,
-      sleep: async () => {}, restartsAutomatically: () => true, startKeeper: vi.fn(), log: vi.fn() })).toBe(true)
+    failPendingBoots()
     await expect(activateServerPackage(home, rejected, options)).rejects.toThrow('previously failed')
     expect(verifyBoot).toHaveBeenCalledOnce()
     expect(beforeSwitch).toHaveBeenCalledOnce()
-    expect(readUpgradeMarker(home)).toBeNull()
+    expect(readPendingVerify(home)).toBeNull()
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(original)
     await activateServerPackage(home, next, options)
     expect(beforeSwitch).toHaveBeenCalledTimes(2)
@@ -258,6 +311,6 @@ describe('one package selector for a managed installation', () => {
     await vi.advanceTimersByTimeAsync(61 * 60_000)
     expect(fetch).not.toHaveBeenCalled()
     expect(stateWriter.clear).not.toHaveBeenCalled()
-    stop()
+    stop.dispose()
   })
 })

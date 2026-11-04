@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
+import * as attachmentRecovery from '../../../../apps/desktop/src/lib/attachmentSendRecovery'
+import * as attachmentEndpoint from '../../../../apps/desktop/src/lib/attachmentsEndpoint'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
 import { chatService } from '../../../../apps/desktop/src/lib/chat'
+import { topicService } from '../../../../apps/desktop/src/lib/topics'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
-import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
+import { openImRepository, putOutboxRecord, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import {
+  bindOutboxActions,
   createOutboxWiring,
   resolveOutboxRecipients,
   type OutboxWiringIo,
@@ -75,6 +79,7 @@ function wiringHarness(messageId: string) {
     appendMessage,
   }
   return {
+    repository,
     wiring: createOutboxWiring(io),
     messages: () => messages,
     patchChat,
@@ -112,6 +117,28 @@ afterEach(() => {
   vi.clearAllTimers()
   vi.useRealTimers()
   vi.restoreAllMocks()
+})
+
+it('queues the source and explicit recipients through the existing topic service', async () => {
+  const sourceMessageId = 'topic-source'
+  const created = { chat_id: 'created-topic', public_id: null, name: 'Source contract',
+    source_chat_id: 'chat-1', source_message_id: sourceMessageId, creator_user_id: 'owner-1' }
+  const create = vi.spyOn(topicService, 'createTopic').mockResolvedValue(created)
+  const send = vi.spyOn(chatService, 'sendMessage').mockRejectedValue(new Error('Topics must use create_topic'))
+  const f = wiringHarness(sourceMessageId)
+  try {
+    const actions = bindOutboxActions({ current: f.wiring }, 'owner-1')
+    expect(await actions.createTopic({ sourceChatId: 'chat-1', sourceMessageId, name: 'Source contract', memberUserIds: ['explicit-peer'] }))
+      .toEqual(created)
+    expect(create).toHaveBeenCalledExactlyOnceWith({ sourceChatId: 'chat-1', sourceMessageId,
+      name: 'Source contract', memberUserIds: ['explicit-peer'], topicId: expect.any(String) })
+    expect(send).not.toHaveBeenCalled()
+    expect((await f.repository).snapshot().outbox).toEqual([])
+  } finally {
+    f.wiring.dispose()
+    const repository = await f.repository
+    repository.close()
+  }
 })
 
 describe('committed outbound reconciliation', () => {
@@ -278,4 +305,60 @@ describe('resolveOutboxRecipients (C2)', () => {
     expect(resolved.payload).toMatchObject({ toUserIds: ['peer-1'], resolveDmPeer: false })
     await expect(resolveOutboxRecipients(pending, async () => { throw new Error('network down') })).rejects.toThrow('network down')
   })
+})
+
+it('reconciles a restored native commit before asking the user to select bytes again', async () => {
+  const f = wiringHarness('native-restart')
+  const persisted = { ...persistedMessage('native-restart'), content_type: 'attachment' as const }
+  const read = vi.spyOn(chatService, 'getMessageById').mockResolvedValue(persisted)
+  const now = new Date().toISOString()
+  await putOutboxRecord(await f.repository, { clientMessageId: persisted.id, chatId: 'chat-1', senderUserId: 'owner-1',
+    payload: { content: 'native.txt', contentType: 'attachment', toUserIds: [], replyToMessageId: null, threadRootId: null, isThreadRoot: false, isWhisper: false },
+    operation: { kind: 'nativeAttachment', commit: { message_id: persisted.id, chat_id: 'chat-1', sender_user_id: 'owner-1', file_name: 'native.txt', to_user_ids: [] } },
+    state: 'sending', attempts: 0, lastError: null, enqueuedAt: now, updatedAt: now })
+  const stop = f.wiring.restoreAndWatch()
+  await vi.waitFor(() => expect(f.appendMessage).toHaveBeenCalledWith(expect.objectContaining(persisted)))
+  expect(read).toHaveBeenCalledWith(persisted.id, 'owner-1')
+  expect((await f.repository).snapshot().outbox).toEqual([])
+  stop()
+  f.wiring.dispose()
+})
+
+it('publishes a native file outside the lane so later text can finish first', async () => {
+  const f = wiringHarness('native-slow')
+  const publication = deferred<MessageItem | null>()
+  const publish = vi.spyOn(attachmentRecovery, 'settleAttachmentSend').mockReturnValue(publication.promise)
+  vi.spyOn(attachmentEndpoint, 'attachmentsEndpoint').mockResolvedValue({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token' })
+  const send = vi.spyOn(chatService, 'sendMessage').mockImplementation(async (_chat, _sender, _content, id) => persistedMessage(id!))
+  const native = { ...optimisticMessage('native-slow'), content_type: 'attachment' as const }
+  await f.wiring.stageAttachment(native)
+  const committing = f.wiring.commitAttachment(native, { local: new File(['bytes'], 'large.txt') }, {
+    message_id: native.id, chat_id: native.chat_id, sender_user_id: 'owner-1', file_name: 'large.txt', to_user_ids: [] })
+  await f.wiring.enqueue(enqueueInput('later-text'))
+  await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
+  expect(publish).toHaveBeenCalledOnce()
+  expect((await f.repository).snapshot().outbox.map(row => row.value)).toEqual([expect.objectContaining({ clientMessageId: 'native-slow', state: 'uploading' })])
+  publication.resolve({ ...persistedMessage(native.id), content_type: 'attachment' })
+  await committing
+  await vi.waitFor(() => expect((f.messages()).find(row => row.id === native.id)?.seq).toBe(42))
+  expect((await f.repository).snapshot().outbox).toEqual([])
+  f.wiring.dispose()
+})
+it('does not publish a native reply discarded while waiting for its source', async () => {
+  const f = wiringHarness('native-waiting')
+  const publish = vi.spyOn(attachmentRecovery, 'settleAttachmentSend').mockResolvedValue({ ...persistedMessage('native-waiting'), content_type: 'attachment' })
+  const source = { ...optimisticMessage('uploading-source'), content_type: 'attachment' as const }
+  const native = { ...optimisticMessage('native-waiting'), reply_to_message_id: source.id, content_type: 'attachment' as const }
+  await f.wiring.stageAttachment(source)
+  await f.wiring.stageAttachment(native)
+  const committing = f.wiring.commitAttachment(native, { local: new File(['bytes'], 'reply.txt') }, {
+    message_id: native.id, chat_id: native.chat_id, sender_user_id: 'owner-1', file_name: 'reply.txt', to_user_ids: [], reply_to_message_id: source.id })
+  await flushMicrotasks(30)
+  expect(publish).not.toHaveBeenCalled()
+  await f.wiring.outbox.discard(native.id)
+  await f.wiring.outbox.confirm(source.id, { ...persistedMessage(source.id), content_type: 'attachment' })
+  await committing
+  expect(publish).not.toHaveBeenCalled()
+  expect((await f.repository).snapshot().outbox).toEqual([])
+  f.wiring.dispose()
 })

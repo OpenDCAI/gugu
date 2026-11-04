@@ -5,8 +5,8 @@ import { readableLabel, rowTranslator } from '../readable-label';
 
 export const DESTINATION_HEIGHT = 22;
 export function conversationDestinationLayout(item: ChatMessage, ctx: MeasureCtx, width = ctx.width - 120) {
-  if (!item.sentTo || !ctx.theme.layout.agentConversation) return null;
-  const text = agentSendLabel(item.sentTo, rowTranslator(ctx), ctx.chatName ?? (() => null));
+  if (!item.sentTo || (!ctx.theme.layout.agentConversation && !item.sentAttachment && !item.sentAttachments)) return null;
+  const text = agentSendLabel(item.sentTo, rowTranslator(ctx), ctx.chatName ?? (() => null), ctx.selfIdentity);
   const natural = readableLabel(text, ctx, Number.MAX_SAFE_INTEGER, 12, 18);
   return { text, width: Math.max(1, Math.min(180, width, natural.width)), height: DESTINATION_HEIGHT };
 }

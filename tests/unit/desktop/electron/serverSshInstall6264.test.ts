@@ -55,6 +55,18 @@ import { parseSshMachines } from '../../../../apps/desktop/electron/server/ssh-m
 import type { ServerSshInstallState } from '../../../../apps/desktop/src/lib/serverSshInstall'
 import { MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '../../../../packages/core/src/cloud/serverMachineHealth'
 
+import { formatStatusJson } from '../../../../apps/desktop/electron/server/server-status'
+
+const statusLines = (fields: string[]): string[] => {
+  const version = fields.find(line => line.startsWith('installed='))?.slice('installed='.length)
+  if (!version) return []
+  return ['status_exit=0', formatStatusJson({ version, supervisorVersion: fields.includes('running=1') ? version : null,
+    accounts: fields.filter(line => line.startsWith('account=')).map(line => {
+      const [userId, ...email] = line.slice('account='.length).split(' ')
+      return { userId: userId!, email: email.join(' ').trim() || null, signedIn: true, running: fields.includes('running=1'), signedOut: null }
+    }) })]
+}
+
 const INSTALL_SH = path.resolve(__dirname, '../../../../scripts/gugu-server/install.sh')
 
 /** 把脚本写进文件再 `sh 文件` 跑(❌ spawnSync 的 input:macOS 上会间歇性挂死,#3766)。 */
@@ -288,6 +300,11 @@ describe('远端脚本', () => {
       fs.writeFileSync(path.join(account, 'server-session.enc'), 'x')
       fs.writeFileSync(path.join(home, '.gugu-server', 'accounts', 'u-other', 'account.json'), JSON.stringify({ userId: 'u-other', email: 'colleague@lab.edu' }, null, 2))
       fs.mkdirSync(path.join(home, '.gugu-server', 'accounts', 'u-signed-out'), { recursive: true })
+      fs.mkdirSync(path.join(home, '.local/bin'), { recursive: true })
+      fs.mkdirSync(path.join(home, '.gugu-server/current'), { recursive: true })
+      fs.writeFileSync(path.join(home, '.gugu-server/current/version'), '0.2.99')
+      const report = formatStatusJson({ version: '0.2.99', accounts: [{ userId: 'u-other', email: 'colleague@lab.edu', signedIn: true, running: false, signedOut: null }] })
+      fs.writeFileSync(path.join(home, '.local/bin/gugu-server'), `#!/bin/sh\nif [ "$1" = status ]; then printf '%s' ${shQuote(report)}; else echo 2; fi\n`, { mode: 0o755 })
       const out = runScript(probeScript(), { ...process.env, HOME: home, GUGU_SERVER_HOME: '' }).stdout
       const probe = parseProbeOutput(out)!
       expect(probe.os).toBe(os.platform() === 'darwin' ? 'Darwin' : 'Linux')
@@ -319,7 +336,7 @@ describe('远端脚本', () => {
         fs.mkdirSync(path.join(home, '.gugu-server', 'current'), { recursive: true })
         fs.writeFileSync(path.join(home, '.gugu-server', 'current', 'version'), '0.2.160')
         const bin = path.join(home, '.local', 'bin', 'gugu-server')
-        fs.writeFileSync(bin, `#!/bin/sh\nif [ "$1" = help ]; then echo "--grant-stdin"; exit 0; fi\n${body}\n`)
+        fs.writeFileSync(bin, `#!/bin/sh\nif [ "$1" = help ]; then echo "--grant-stdin"; exit 0; fi\nif [ "$1" = status ]; then printf '%s' ${shQuote(formatStatusJson({ version: '0.2.160', accounts: [] }))}; exit 0; fi\n${body}\n`)
         fs.chmodSync(bin, 0o755)
         const probe = parseProbeOutput(runScript(probeScript(), { ...process.env, HOME: home, GUGU_SERVER_HOME: '' }).stdout)!
         expect(probe, body).toMatchObject({ installedVersion: '0.2.160', ...expected })
@@ -561,6 +578,7 @@ describe('重新执行安装命令升级(install.sh --package 真跑)', () => {
       expect(fs.readFileSync(path.join(home, 'calls.log'), 'utf8')).toContain('0.2.112 login')
 
       const failed = install('sh', home, pkg, '0.2.112', null, { FAKE_SERVICE_FAIL: '1' })
+      expect(failed.status).not.toBe(0)
       expect(failed.stdout).toContain('server 未能以 0.2.112 启动')
       expect(failed.stdout).toContain('service install')
     } finally {
@@ -613,14 +631,21 @@ describe('本机下载(那台机器上不了网时)', () => {
 })
 
 describe('读远端输出', () => {
-  const probeLines = (extra: string[]) => `welcome!\nos=Windows\n${PROBE_BEGIN}\nos=Linux\narch=aarch64\nuser=alice\nhostname=ip-172-31-1-2\n${extra.join('\n')}\n${PROBE_END}\n`
+  const probeLines = (extra: string[]) => `welcome!\nos=Windows\n${PROBE_BEGIN}\nos=Linux\narch=aarch64\nuser=alice\nhostname=ip-172-31-1-2\n${[...extra, ...statusLines(extra)].join('\n')}\n${PROBE_END}\n`
+
+  it.each(['missing', 'broken', 'wrong-shape'])('fails closed on %s status output instead of trusting legacy path guesses', kind => {
+    const payload = kind === 'missing' ? '' : `__GUGU_STATUS_BEGIN__\n${kind === 'broken' ? '{broken' : '{"accounts":[{}]}'}\n__GUGU_STATUS_END__`
+    const output = `${PROBE_BEGIN}\ninstalled=0.3.0\nstatus_exit=0\naccount=guessed me@example.test\n${payload}\n${PROBE_END}`
+    expect(parseProbeOutput(output)?.statusError).toContain('Could not determine')
+    expect(parseProbeOutput(output)?.accounts).toEqual([])
+  })
 
   it('parseProbeOutput 只读标记之间,.bashrc 的噪音混不进来', () => {
     const out = probeLines(['distro=Ubuntu 22.04.4 LTS', 'libc=glibc 2.35', 'installed=0.2.49', 'grant=1', 'running=1', 'account=u1 a@b.c', 'account=u2 ', 'fetcher=curl', 'freekb=1048576', 'exec=1'])
     expect(parseProbeOutput(out)).toEqual({
       os: 'Linux', arch: 'aarch64', user: 'alice', hostname: 'ip-172-31-1-2', distro: 'Ubuntu 22.04.4 LTS', libc: 'glibc 2.35',
-      installedVersion: '0.2.49', supportsGrant: true, supportsMatch: false, installedProtocol: null, protocolCheck: 'failed', protocolError: 'exit ?:', running: true, fetcher: 'curl', freeKb: 1048576, writable: true, exec: true,
-      accounts: [{ userId: 'u1', email: 'a@b.c' }, { userId: 'u2', email: null }],
+      installedVersion: '0.2.49', supportsGrant: true, installedProtocol: null, protocolCheck: 'failed', protocolError: 'exit ?:', running: true, fetcher: 'curl', freeKb: 1048576, writable: true, exec: true,
+      accounts: [{ userId: 'u1', email: 'a@b.c' }, { userId: 'u2', email: null }], statusError: null,
     })
     expect(parseProbeOutput('no markers')).toBeNull()
     // 装着的那份说得出协议版本才有数;不认这条命令(打空行)/ 形状不对 = null。
@@ -786,6 +811,7 @@ function fakeSsh(machine: Machine, seen: string[], calls: string[][] = []): Spaw
         `freekb=${machine.freeKb ?? 50_000_000}`, 'exec=1',
         PROBE_END,
       ]
+      lines.splice(lines.length - 1, 0, ...statusLines(lines))
       return { code: 0, stdout: lines.join('\n'), stderr: '' }
     }
     if (text.includes('--package')) {
@@ -871,23 +897,32 @@ describe('runSshInstall', () => {
     expect(alice.final.warnings).not.toContainEqual({ kind: 'runsAsRoot' })
   })
 
-  it('已经装好且在跑(有别人登着):不重装、不重启服务,只加一个账号', async () => {
-    const { final, seen } = await install({
-      installed: true, grant: true, running: true, accounts: ['u9 colleague@lab.edu'],
-      loginOut: '__GUGU_LOGIN_RESULT__{"userId":"u1","email":"me@x.y","others":["colleague@lab.edu"]}\n',
-    })
-    expect(statuses(final)).toEqual({ connect: 'done', detect: 'done', download: 'skipped', service: 'skipped', login: 'done' })
-    expect(final.steps[2]).toMatchObject({ skippedBecause: 'alreadyInstalled', version: '0.2.50' })
-    expect(final.steps[3].skippedBecause).toBe('alreadyRunning')
+  it.each(['install', 'upgrade'] as const)('refuses a second account before changing the installation (%s)', async mode => {
+    const { final, seen } = await install({ installed: true, grant: true, running: true, accounts: ['u9 colleague@lab.edu'] }, { mode })
+    expect(final.failure).toMatchObject({ step: 'detect', reason: 'loginFailed', detail: expect.stringContaining('another Gugu account') })
     expect(final.machine?.others).toEqual(['colleague@lab.edu'])
-    expect(final.result?.others).toEqual(['colleague@lab.edu'])
-    expect(seen.some((stdin) => stdin.includes('service install'))).toBe(false)
-    expect(seen.some((stdin) => stdin.includes('--no-login'))).toBe(false)
+    expect(seen).toHaveLength(1)
+    expect(seen.some(stdin => stdin.includes('service install') || stdin.includes('--no-login') || stdin.includes('login --grant-stdin'))).toBe(false)
   })
 
   it('登录那一步把人填的主机名带给 server 当默认名', async () => {
     const { seen } = await install({ installed: false, grant: false, running: false })
     expect(seen.find((stdin) => stdin.includes('login --grant-stdin'))).toContain("--name 'box'")
+  })
+
+  it('does not label a removed account as already signed in while requesting a fresh grant', async () => {
+    const mintGrant = vi.fn(async () => ({ deviceCode: 'ZGV2aWNlY29kZTEyMzQ1Njc4' }))
+    const report = formatStatusJson({ version: '1136', supervisorVersion: '1136', accounts: [{
+      userId: 'u1', email: 'me@x.y', signedIn: true, running: false,
+      signedOut: { reason: 'removed', at: '2026-11-03T04:02:00Z' },
+    }] })
+    const probeRaw = `${PROBE_BEGIN}\nos=Linux\narch=x86_64\nuser=alice\nhostname=box\nlibc=glibc 2.35\ninstalled=1136\ngrant=1\nprotocol_exit=0\nprotocol=${REMOTE_PROTOCOL_VERSION}\nstatus_exit=0\n${report}\n${PROBE_END}\n`
+    const { final, seen } = await install({ installed: true, grant: true, running: true, probeRaw }, { mintGrant })
+    expect(mintGrant).toHaveBeenCalledTimes(1)
+    expect(seen.filter(script => script.includes('login --grant-stdin'))).toHaveLength(1)
+    expect(final.failure).toBeNull()
+    expect(final.machine?.alreadySignedIn).toBe(false)
+    expect(final.result?.alreadySignedIn).toBe(false)
   })
 
   it('自己本来就登在那台机器上:如实标出「重新接上」', async () => {
@@ -917,11 +952,21 @@ describe('runSshInstall', () => {
     expect(seen.some((stdin) => stdin.includes('service install') || stdin.includes('--no-login'))).toBe(false)
   })
 
-  it('后台升级(upgrade 模式):那台机器上的 server 不认得 match-version ⇒ ❌ 替它整台重装,报「太旧」并带上在那台机器上重装的命令;全程 BatchMode', async () => {
-    const { final, seen, calls } = await install({ installed: true, grant: true, running: true, version: '0.2.131', protocol: null }, { mode: 'upgrade' })
-    expect(final.failure).toMatchObject({ step: 'detect', reason: 'serverTooOld', detail: 'curl -fsSL https://d/install.sh | sh' })
-    expect(seen.some((stdin) => stdin.includes('--no-login') || stdin.includes('--package') || stdin.includes('service install') || stdin.includes('login --grant-stdin'))).toBe(false)
-    expect(calls.every((args) => args.includes('BatchMode=yes'))).toBe(true)
+  it('a version signal alone never activates the fallback installer', async () => {
+    const { final, seen } = await install({ installed: true, grant: true, running: true, version: '0.2.131', protocol: null }, { mode: 'upgrade' })
+    expect(final.failure).toMatchObject({ reason: 'serverTooOld', detail: 'curl -fsSL https://d/install.sh | sh' })
+    expect(seen).toHaveLength(1)
+    expect(seen.some(stdin => stdin.includes('--no-login') || stdin.includes('service install') || stdin.includes('login --grant-stdin'))).toBe(false)
+  })
+
+  it('reuses the whole installer without login when an upgrade has no prepared target', async () => {
+    const { final, seen, calls } = await install({ installed: true, grant: true, running: true, version: '0.2.131', protocol: null }, { mode: 'upgrade', now: true })
+    expect(final.failure).toBeNull()
+    expect(statuses(final)).toMatchObject({ download: 'done', service: 'done', login: 'skipped' })
+    expect(seen.some(stdin => stdin.includes('--no-login'))).toBe(true)
+    expect(seen.some(stdin => stdin.includes('service install'))).toBe(true)
+    expect(seen.some(stdin => stdin.includes('match-version --') || stdin.includes('login --grant-stdin'))).toBe(false)
+    expect(calls.every(args => args.includes('BatchMode=yes'))).toBe(true)
   })
 
   it('问不出装着的版本(protocol 命令崩了):照实报「读不出版本」,❌ 当太旧去重装 —— 装机与后台升级都一样', async () => {

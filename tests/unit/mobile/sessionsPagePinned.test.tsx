@@ -524,8 +524,9 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
     expect(noSessions).not.toBe(noMachines)
   })
 
-  it('点名定位:收起的分区被展开、滚到那一行;没点名时收起照旧', async () => {
+  it('点名定位保留收起的分区和展开显示偏好,滚到所属分区', async () => {
     localStorage.setItem('gugu.agent-watch.collapsed.projects', JSON.stringify(['device-1|p1']))
+    localStorage.setItem('gugu.agent-watch.more.projects', JSON.stringify(['another-project']))
     const scrollIntoView = vi.fn()
     const original = Element.prototype.scrollIntoView
     Element.prototype.scrollIntoView = scrollIntoView
@@ -536,11 +537,57 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
       expect(row(harness.container, 'wanted'), '阳控:收起的分区不画行').toBeNull()
       await renderPage([device()], { reveal: { deviceId: 'device-1', sessionId: 'wanted' } })
       await flush()
-      expect(row(harness.container, 'wanted')).not.toBeNull()
+      expect(row(harness.container, 'wanted')).toBeNull()
+      expect(projectSection()?.getAttribute('data-collapsed')).toBe('true')
+      expect(JSON.parse(localStorage.getItem('gugu.agent-watch.collapsed.projects')!)).toEqual(['device-1|p1'])
+      expect(JSON.parse(localStorage.getItem('gugu.agent-watch.more.projects')!)).toEqual(['another-project'])
       expect(scrollIntoView).toHaveBeenCalled()
-      expect(scrollIntoView.mock.contexts.at(-1)).toBe(row(harness.container, 'wanted'))
+      expect(scrollIntoView.mock.contexts.at(-1)).toBe(projectSection())
     } finally {
       Element.prototype.scrollIntoView = original
     }
+  })
+
+  it('定位子会话保留祖先折叠,定位项目也不改写偏好', async () => {
+    const folded = JSON.stringify(['parent'])
+    const more = JSON.stringify(['another-project'])
+    localStorage.setItem('gugu.agent-watch.collapsed.projects', folded)
+    localStorage.setItem('gugu.agent-watch.more.projects', more)
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      rpc.list = { projects: [repo], sessions: [summary('parent', 1), summary('wanted', 2, { parentConversationId: 'parent' })] }
+      online('device-1', rpc.list.sessions)
+      await renderPage([device()], { reveal: { deviceId: 'device-1', sessionId: 'wanted' } })
+      expect(row(harness.container, 'wanted')).toBeNull()
+      expect(row(harness.container, 'parent')).not.toBeNull()
+      expect(scrollIntoView.mock.contexts.at(-1)).toBe(row(harness.container, 'parent'))
+      await renderPage([device()], { reveal: { projectId: 'p1' } })
+      expect(projectSection()?.getAttribute('data-collapsed')).toBe('false')
+      expect(localStorage.getItem('gugu.agent-watch.collapsed.projects')).toBe(folded)
+      expect(localStorage.getItem('gugu.agent-watch.more.projects')).toBe(more)
+    } finally { Element.prototype.scrollIntoView = original }
+  })
+
+  it('定位收在展开显示里的会话不打开列表,手动展开仍能保存并恢复', async () => {
+    const more = JSON.stringify(['another-project'])
+    localStorage.setItem('gugu.agent-watch.more.projects', more)
+    rpc.list = { projects: [repo], sessions: Array.from({ length: 7 }, (_, index) => summary(`idle-${index}`, index + 1)) }
+    online('device-1', rpc.list.sessions)
+    await renderPage([device()], { reveal: { deviceId: 'device-1', sessionId: 'idle-0' } })
+    expect(row(harness.container, 'idle-0')).toBeNull()
+    const toggle = harness.container.querySelector<HTMLButtonElement>('[data-testid="agent-watch-session-more"]')!
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(localStorage.getItem('gugu.agent-watch.more.projects')).toBe(more)
+    await act(async () => toggle.click())
+    expect(row(harness.container, 'idle-0')).not.toBeNull()
+    const saved = localStorage.getItem('gugu.agent-watch.more.projects')
+    expect(JSON.parse(saved!)).toEqual(['another-project', 'device-1|p1'])
+    harness.cleanup()
+    harness = createReactHarness()
+    await renderPage([device()], { reveal: { projectId: 'p1' } })
+    expect(row(harness.container, 'idle-0')).not.toBeNull()
+    expect(localStorage.getItem('gugu.agent-watch.more.projects')).toBe(saved)
   })
 })

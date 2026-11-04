@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ devices: [] as Array<{ id: string; connectVia?: string; directTerminal?: boolean }>,
   cached: [] as Array<{ device_id: string; is_online?: boolean; capabilities?: { remote_protocol?: number } }>,
-  hello: { protocol: 5 } as { protocol: number } | null, rpc: vi.fn(),
-  files: { writeChunk: vi.fn(), getAbsolutePath: vi.fn(), createEntry: vi.fn() }, upload: vi.fn(), items: [] as Array<{ name: string; done: number; status: string; cancel: () => void }> }))
+  hello: { protocol: 5 } as { protocol: number } | null, rpc: vi.fn(), ssh: true,
+  files: { attachmentUploadBegin: vi.fn(), attachmentUploadStatus: vi.fn(), attachmentUploadWrite: vi.fn(), attachmentUploadCommit: vi.fn(), attachmentUploadAbort: vi.fn(), writeChunk: vi.fn(), getAbsolutePath: vi.fn(), createEntry: vi.fn() }, upload: vi.fn(), items: [] as Array<{ name: string; done: number; status: string; cancel: () => void }> }))
 vi.mock('@/session/shared/remote-hosts', () => ({ findRemoteHostsBridge: () => ({ listDevices: () => mocks.devices }) }))
 vi.mock('@/session/renderer/lib/ipc', () => ({ rpcOn: () => ({ workspace: { files: mocks.files } }) }))
 vi.mock('@/session/renderer/lib/machine-clients', () => ({ machineClient: () => ({ hello: () => mocks.hello }) }))
@@ -11,11 +11,12 @@ vi.mock('@/session/renderer/lib/machine-routing', () => ({ machineCodec: () => (
 vi.mock('@/session/renderer/features/remote-hosts/workspace/remote-transfer-wiring', () => ({ transfersFor: () => ({ upload: mocks.upload, get items() { return mocks.items } }) }))
 vi.mock('@/store/devicesCache', () => ({ readCachedDevices: () => mocks.cached }))
 vi.mock('@/lib/deviceRpc', () => ({ callDeviceRpc: mocks.rpc }))
+vi.mock('@/lib/sshLinkChannel', () => ({ sshMachinesReady: async () => {}, isSshMachine: () => mocks.ssh }))
 
-import { prefetchTaskFiles, pushTaskFiles, taskAttachmentUsesSsh } from '../../../../apps/desktop/src/lib/taskAttachmentTarget'
+import { prefetchTaskFiles, pushTaskFiles, pushTaskAttachment, taskAttachmentUsesSsh } from '../../../../apps/desktop/src/lib/taskAttachmentTarget'
 
 describe('task attachment SSH route', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.devices = []; mocks.items = []; mocks.hello = { protocol: 5 };
+  beforeEach(() => { vi.clearAllMocks(); mocks.devices = []; mocks.items = []; mocks.hello = { protocol: 5 }; mocks.ssh = true;
     mocks.cached = [{ device_id: 'host', is_online: true, capabilities: { remote_protocol: 16 } }] })
   it.each([4, null])('uses attachment capability 16 independently of hello %s', async protocol => {
     mocks.devices = [{ id: 'host', connectVia: 'ssh' }]
@@ -89,5 +90,46 @@ describe('task attachment SSH route', () => {
     await rejected
     expect(cancel).toHaveBeenCalledOnce()
   })
+
+  it('sends a selected screenshot through the existing SSH transfer on a protocol-16 host', async () => {
+    mocks.devices = [{ id: 'host', connectVia: 'ssh' }];
+    const file = { itemId: 'item-12345678', version: 1, name: 'screenshot.webp', mimeType: 'image/webp', sizeBytes: 3 };
+    mocks.files.getAbsolutePath.mockResolvedValue({ success: true, data: { path: '/task-worktree' } });
+    mocks.files.createEntry.mockResolvedValue({ success: true });
+    mocks.upload.mockResolvedValue({ status: 'done', skipped: [] });
+    const context = {};
+    await expect(pushTaskAttachment({ deviceId: 'host', projectId: 'project', workspaceId: 'workspace', chatId: 'chat', owner: 'owner' }, file, new Blob(['abc']), context)).resolves.toBe('.gugu/attachments/item-12345678/screenshot.webp');
+    expect(mocks.upload).toHaveBeenCalledWith('/task-worktree/.gugu/attachments', [expect.objectContaining({ segments: ['item-12345678', 'screenshot.webp'], size: 3 })], file.itemId);
+    const items = mocks.upload.mock.calls[0]![1];
+    expect(new TextDecoder().decode(await items[0].slice(0, 3))).toBe('abc');
+    expect(context).toEqual({});
+    expect(mocks.files.attachmentUploadBegin).not.toHaveBeenCalled(); expect(mocks.files.attachmentUploadWrite).not.toHaveBeenCalled();
+  });
+  it('requires this desktop SSH mapping even when the host advertises an SSH connection', async () => {
+    mocks.devices = [{ id: 'host', connectVia: 'ssh' }]; mocks.cached[0]!.capabilities!.remote_protocol = 17; mocks.ssh = false;
+    const file = { itemId: 'item-12345678', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
+    await expect(pushTaskAttachment({ deviceId: 'host', projectId: 'project', workspaceId: 'workspace', chatId: 'chat', owner: 'owner' }, file, new Blob(['abc']), {})).rejects.toThrow('no SSH');
+    expect(mocks.files.attachmentUploadBegin).not.toHaveBeenCalled(); expect(mocks.upload).not.toHaveBeenCalled();
+  });
+  it('keeps a protocol-17 upload failure visible instead of retrying through the legacy transfer', async () => {
+    mocks.devices = [{ id: 'host', connectVia: 'ssh' }]; mocks.cached[0]!.capabilities!.remote_protocol = 17;
+    mocks.files.attachmentUploadBegin.mockRejectedValue(new Error('SSH disconnected'));
+    const file = { itemId: 'item-12345678', version: 1, name: 'shot.webp', mimeType: 'image/webp', sizeBytes: 3 };
+    await expect(pushTaskAttachment({ deviceId: 'host', projectId: 'project', workspaceId: 'workspace', chatId: 'chat', owner: 'owner' }, file, new Blob(['abc']), {})).rejects.toThrow('SSH disconnected');
+    expect(mocks.upload).not.toHaveBeenCalled();
+  });
+  it('binds durable upload RPCs to the selected project/workspace and forwards confirmed progress', async () => {
+    mocks.devices = [{ id: 'host', connectVia: 'ssh' }]; mocks.cached[0]!.capabilities!.remote_protocol = 17;
+    const file = { itemId: 'item-12345678', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
+    const state = { state: 'uploading', total: 3, received: 0, chunkBytes: 128 * 1024, workspacePath: '.gugu/attachments/item-12345678/brief.txt' };
+    mocks.files.attachmentUploadBegin.mockResolvedValue({ success: true, data: state });
+    mocks.files.attachmentUploadWrite.mockResolvedValue({ success: true, data: { ...state, received: 3 } });
+    mocks.files.attachmentUploadCommit.mockResolvedValue({ success: true, data: { ...state, received: 3, state: 'committed' } });
+    const progress = vi.fn();
+    await expect(pushTaskAttachment({ deviceId: 'host', projectId: 'project', workspaceId: 'workspace', chatId: 'chat', owner: 'owner' }, file, new Blob(['abc']), {}, progress)).resolves.toBe(state.workspacePath);
+    expect(mocks.files.attachmentUploadBegin).toHaveBeenCalledWith('project', 'workspace', expect.objectContaining({ itemId: file.itemId, name: file.name, size: 3 }));
+    expect(mocks.files.attachmentUploadWrite).toHaveBeenCalledWith('project', 'workspace', expect.objectContaining({ offset: 0, data: 'YWJj' }));
+    expect(progress).toHaveBeenLastCalledWith(3, 3); expect(mocks.files.writeChunk).not.toHaveBeenCalled(); expect(mocks.upload).not.toHaveBeenCalled();
+  });
 
 })

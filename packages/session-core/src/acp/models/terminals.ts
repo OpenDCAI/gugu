@@ -3,6 +3,9 @@ import type { TranscriptItem, TranscriptTurn } from './turns/turn';
 
 /** Existing ACP scrollback cap, also the aggregate output budget for a stored turn. */
 export const TERMINAL_OUTPUT_BYTE_LIMIT = 4 * 1024 * 1024;
+/** Declared in the live subscription handshake; old hosts ignore this optional declaration. */
+export const TERMINAL_CHUNK_CAPABILITY = 'terminal-output-chunks-v1';
+export const LEGACY_TERMINAL_OUTPUT_BYTE_LIMIT = 256 * 1024;
 
 export const terminalExitSchema = z.object({
   exitCode: z.number().int().nullable(),
@@ -35,6 +38,10 @@ export const terminalStateSchema = z.object({
    * A stored turn separately bounds its referenced snapshots to the shared cap.
    */
   output: z.string(),
+  /** Incremental live presentation; stable keys avoid replacing the accumulated output over IPC. */
+  outputChunks: z.record(z.string(), z.string()).optional(),
+  /** Total received byte length since reset; bytes outside the live window are discarded. */
+  outputBytes: z.number().int().nonnegative().optional(),
   /** True when output was truncated due to the outputByteLimit cap. */
   truncated: z.boolean(),
   /** Non-null once the command has exited. */
@@ -42,6 +49,13 @@ export const terminalStateSchema = z.object({
 });
 export type TerminalState = z.infer<typeof terminalStateSchema>;
 export type TerminalSnapshot = TerminalState;
+
+/** Materialize the bounded wire window only at the display boundary. */
+export function terminalPresentation(terminal: TerminalState): TerminalState {
+  if (!terminal.outputChunks) return terminal;
+  const { outputChunks, ...state } = terminal;
+  return { ...state, output: Object.values(outputChunks).join('') };
+}
 
 /** Provider ids are only unique within their connection and session. */
 export function terminalEntityId(scope: string, terminalId: string): string {

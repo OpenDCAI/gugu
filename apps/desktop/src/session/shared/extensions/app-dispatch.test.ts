@@ -31,7 +31,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
 
 const { dispatchFromApp } = await import('./app-send-core');
 const { dispatchCallOf, dispatchNeeds, dispatchNeedsGesture, dispatchOffers } = await import('./app-dispatch-core');
-const { EXTENSION_API_VERSION, callRefusal } = await import('./bridge-protocol');
+const { EXTENSION_API_VERSION, callRefusal, gestureRefusal } = await import('./bridge-protocol');
 
 const account = async () => ({ token: 'page-token', userId: OWNER });
 const chat = { id: GROUP, name: 'A群', members: [{ id: `user:${AGENT}`, name: '小咕', kind: 'agent' as const }, { id: `user:${OWNER}`, name: '我', kind: 'human' as const }] };
@@ -54,7 +54,7 @@ const phone = (picked: unknown = null) => {
 };
 
 describe('the verb row: what a call needs', () => {
-  it('this build is 25', () => expect(EXTENSION_API_VERSION).toBe(25));
+  it('supports dispatch from API 27', () => expect(EXTENSION_API_VERSION).toBeGreaterThanOrEqual(27));
 
   it('the person picks, or only a draft goes down: no capability, but their gesture; a named target: what its delivery needed', () => {
     expect(dispatchNeeds({})).toBeNull();
@@ -67,15 +67,25 @@ describe('the verb row: what a call needs', () => {
     expect(dispatchNeedsGesture({ to: { agent: `user:${AGENT}` } })).toBe(false);
   });
 
+  it.each([false, true])('message pages use the same gesture decision on either host: %s', gesture => {
+    const caller = { kind: 'page' as const, has: () => true, gesture, widget: true };
+    for (const args of [{ text: 'draft', draft: true, to: { chat: GROUP } }, { text: 'named', to: { agent: `user:${AGENT}` } }]) {
+      expect(callRefusal('dispatch', args, caller)).toEqual(gesture ? null : gestureRefusal('dispatch'));
+    }
+    for (const method of ['forumPost', 'forumReply', 'forumReact', 'forumAward', 'forumRemove', 'forumBlock', 'forumAssign', 'filesForward']) {
+      expect(callRefusal(method, {}, caller)).toEqual(gesture ? null : gestureRefusal(method));
+    }
+  });
+
   it('at the door: no chat:relay refuses a named member, not the sheet; a program never opens the sheet', () => {
     const has = () => false;
-    expect(callRefusal('dispatch', { to: { chat: GROUP, member: `user:${AGENT}` }, text: 'x' }, { kind: 'page', has, gesture: true })).toMatchObject({ code: 'denied', message: expect.stringContaining('chat:relay') });
-    expect(callRefusal('dispatch', { text: 'x' }, { kind: 'page', has, gesture: true })).toBeNull();
-    expect(callRefusal('dispatch', { text: 'x' }, { kind: 'page', has, gesture: false })).toMatchObject({ code: 'denied', message: expect.stringContaining('gesture') });
+    expect(callRefusal('dispatch', { to: { chat: GROUP, member: `user:${AGENT}` }, text: 'x' }, { kind: 'page', widget: false, has, gesture: true })).toMatchObject({ code: 'denied', message: expect.stringContaining('chat:relay') });
+    expect(callRefusal('dispatch', { text: 'x' }, { kind: 'page', widget: false, has, gesture: true })).toBeNull();
+    expect(callRefusal('dispatch', { text: 'x' }, { kind: 'page', widget: false, has, gesture: false })).toMatchObject({ code: 'denied', message: expect.stringContaining('gesture') });
     expect(callRefusal('dispatch', { text: 'x' }, { kind: 'program', has })).toMatchObject({ code: 'denied' });
     expect(callRefusal('dispatch', { to: { agent: `user:${AGENT}` }, text: 'x' }, { kind: 'program', has: () => true })).toBeNull();
     // The old verbs are not verbs any more.
-    for (const gone of ['compose', 'send', 'messageAgent', 'spawnAgent']) expect(callRefusal(gone, {}, { kind: 'page', has, gesture: true })).toMatchObject({ code: 'invalid' });
+    for (const gone of ['compose', 'send', 'messageAgent', 'spawnAgent']) expect(callRefusal(gone, {}, { kind: 'page', widget: false, has, gesture: true })).toMatchObject({ code: 'invalid' });
   });
 
   it('what goes with which target is said where it does not', () => {
@@ -140,6 +150,18 @@ describe('dispatchFromApp (the shared answer)', () => {
     const before = rpcs.length;
     await expect(dispatchFromApp(platform, 'x', { text: 'hi' }, { chat, preselect: null })).resolves.toEqual({ cancelled: true });
     expect(rpcs.length).toBe(before);
+  });
+
+  it('a lazy roster is read only for the picker, and the person is still excluded', async () => {
+    const { platform, asked } = phone(null);
+    const readMembers = vi.fn(async () => chat.members);
+    const here = { chat: { ...chat, members: [] }, preselect: null, readMembers };
+    await dispatchFromApp(platform, 'x', { text: 'hi' }, here);
+    expect(readMembers).toHaveBeenCalledOnce();
+    expect((asked.at(-1) as { chat: { members: { id: string }[] } }).chat.members.map((member) => member.id)).toEqual([`user:${AGENT}`]);
+    readMembers.mockClear();
+    await dispatchFromApp(platform, 'x', { text: 'hi', to: { chat: GROUP, member: `user:${AGENT}` } }, here);
+    expect(readMembers).not.toHaveBeenCalled();
   });
 
   it('a draft into a chat: the chat shell takes it, nothing is sent', async () => {

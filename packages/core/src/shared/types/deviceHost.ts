@@ -1,4 +1,5 @@
 import type { SessionBootFailure } from '../sessionBootTasks'
+import type { VersionRequestOutcome } from '../serverVersionOutcome'
 // #6264 心跳随行报的「这是台什么机器」(见 packages/core/src/cloud/deviceHostInfo.ts);
 // 设备行上以 DeviceCapabilities 的可选字段出现:老宿主不报 = 不知道(界面退回平台名),❌ 补默认值。
 
@@ -41,15 +42,17 @@ export interface DeviceServerRollback {
  * downloading = 后台正在下新版本;ready = 新版本已下好,等这台机器上没有 agent 在干活时切过去。
  */
 export interface DeviceServerUpdate {
-  /** Only an account update can be restarted by that account's confirmed RPC. Missing on old hosts. */
+  /** Legacy hosts distinguish account/supervisor updates. Single-process hosts report no scope. */
   scope?: 'account' | 'supervisor'
   /** failed:#6264 换成和桌面匹配的那一版没成(下载 / 试跑失败、换过去起不来),设备行给「更新没成功 · 重试」。 */
-  state: 'downloading' | 'ready' | 'failed'
+  state: 'idle' | 'downloading' | 'ready' | 'switching' | 'failed'
   version: string
   /** Fresh count of this account's agents whose work a restart would interrupt. Absent = unknown. */
   busy_agents?: number
   /** boot-failed (failed): it installed but did not start; only the confirmed restart for this version retries it. */
   reason?: 'boot-failed'
+  /** Host result correlated with the confirmed restart acknowledgement. */
+  lastOutcome?: VersionRequestOutcome
 }
 
 export interface DeviceHostInfo {
@@ -65,6 +68,8 @@ export interface DeviceHostInfo {
   server_confirmed_restart?: true
   server_boot_failures?: SessionBootFailure[]
   server_update?: DeviceServerUpdate
+  /** Latest installation request result, also reported when no update is active. */
+  server_update_outcome?: VersionRequestOutcome
   /** 这台咕咕 server 以 root 身份运行(智能体能改整台机器);不是 = 缺席。 */
   runs_as_root?: true
   server_disk?: DeviceServerDisk
@@ -89,4 +94,6 @@ export interface DeviceHostInfo {
    * 设备行一出现就知道,任何时候都 ❌ 把它当一台机器给人看(owner 10-15「用户只知道个人助理」)。不是 / 老宿主 = 缺席。
    */
   assistant_home?: true
+  /** Account process implements durable first assistant setup and remote home cleanup. */
+  assistant_home_setup?: 1
 }

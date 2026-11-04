@@ -104,7 +104,7 @@ export function GuguSubscriptionRow() {
           )}
         </div>
         <div className="subscription-quota" data-testid="subscription-wallet">
-          <div className="subscription-quota-label">
+          <div className="subscription-quota-label subscription-wallet-label">
             <span>{translate('subscriptions.gugu.wallet')}</span>
             <strong data-testid="subscription-wallet-credits">{power ? formatCredits(power.walletCredits) : '—'}</strong>
           </div>

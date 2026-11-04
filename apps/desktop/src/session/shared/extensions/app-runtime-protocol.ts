@@ -16,6 +16,7 @@ import { extensionFromMimeType, mimeTypeFromName, normalizeMimeType } from '@gug
 
 import runtimeVersion from './app-runtime-version.json';
 import type { ErrorDetail, ExtensionHostEvent } from './bridge-protocol';
+import { fromBase64 } from 'lib0/buffer';
 
 /** Every App origin serves the platform runtime under this prefix, from gugu's own files. */
 export const APP_RUNTIME_PREFIX = '/_gugu/';
@@ -85,6 +86,11 @@ export function noPageDialog(name: PageDialog): string {
  */
 export const RUNTIME_SCRIPT_TAG = `<script src="${APP_RUNTIME_ENTRY}"></script>`;
 
+/** The page's declared interface, distinct from the host version reported by gugu.apiVersion. */
+export function appRuntimeScriptTag(apiVersion?: number): string {
+  return apiVersion === undefined ? RUNTIME_SCRIPT_TAG : RUNTIME_SCRIPT_TAG.replace('></script>', ` data-gugu-api-version="${apiVersion}"></script>`);
+}
+
 /**
  * Puts the runtime's script tag into an App document, before any script of the App's own.
  *
@@ -92,12 +98,15 @@ export const RUNTIME_SCRIPT_TAG = `<script src="${APP_RUNTIME_ENTRY}"></script>`
  * into quirks mode. A synchronous classic script so `window.gugu` exists on the App's first
  * line. Idempotent, so a document that is served twice is not given two runtimes.
  */
-export function injectAppRuntime(html: string): string {
-  if (html.includes(RUNTIME_SCRIPT_TAG)) return html;
+export function injectAppRuntime(html: string, apiVersion?: number): string {
+  const tag = appRuntimeScriptTag(apiVersion);
+  const start = html.indexOf(`<script src="${APP_RUNTIME_ENTRY}"`);
+  const end = start < 0 ? -1 : html.indexOf('</script>', start);
+  if (end >= 0) return html.slice(0, start) + tag + html.slice(end + '</script>'.length);
   const doctype = /^(\uFEFF?\s*<!doctype[^>]*>)/i.exec(html);
-  if (!doctype) return RUNTIME_SCRIPT_TAG + html;
+  if (!doctype) return tag + html;
   const head = doctype[1]!;
-  return head + RUNTIME_SCRIPT_TAG + html.slice(head.length);
+  return head + tag + html.slice(head.length);
 }
 
 // ─── the sync port ──────────────────────────────────────────────────────────
@@ -179,9 +188,17 @@ export type WorkspacePlace = { workspace: string };
  * that session's agent) and the working copy it works on (`WorkspacePlace.workspace`) — either, both, or neither (the
  * App's own page). Facts for `getContext()`, never a target a call falls back on.
  */
+export interface AppWidget {
+  messageId: string;
+  data: Record<string, unknown>;
+  senderId: string | null;
+}
+
 export interface AppWhere {
   conversation: string | null;
   workspace: string | null;
+  /** The immutable message this page draws. A message view never moves to another message. */
+  widget?: AppWidget;
 }
 
 /** What a workspace id names: a session's working copy, or a project's root folder. */
@@ -230,6 +247,14 @@ export function workspaceSession(place: { workspace?: string | null } | null | u
 }
 
 const invalidPlace = (message: string) => Object.assign(new Error(message), { code: 'invalid' as const });
+
+/** An explicit opener is validated by the trusted host, including values from untyped page code. */
+export function openWithTabOf(options: Record<string, unknown>): string | undefined {
+  if (!Object.hasOwn(options, 'tab')) return undefined;
+  if (typeof options.tab !== 'string' || !options.tab.trim()) throw invalidPlace('openWith tab must be a non-empty tab name');
+  if (options.ask === true) throw invalidPlace('openWith tab and ask cannot be combined');
+  return options.tab;
+}
 
 /** A chat's id, as getContext() and every entry carry it (`send` takes the same, app-send-core.ts). */
 const CHAT_ID =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -611,6 +636,14 @@ export interface AppForwardFilesDetail {
 export const APP_SHOW_SESSION_EVENT = 'gugu:app-show-session';
 export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string; draft?: { text: string } } | { projectId: string };
 
+/** An App's bounded range reply, carried by the existing structured-clone bridge. */
+export type AppFileChunk = { size: number; offset: number; data: Uint8Array<ArrayBuffer> };
+
+/** The existing cross-machine workspace wire stays JSON/base64; decode only as it reaches the App bridge. */
+export function workspaceAppFileChunk(chunk: { size: number; offset: number; data: string }): AppFileChunk {
+  return { size: chunk.size, offset: chunk.offset, data: new Uint8Array(fromBase64(chunk.data)) };
+}
+
 /** What `files.open` / `files.reopen` answer. */
 export interface AppFileOpened {
   entry: AppFileEntry;
@@ -624,7 +657,7 @@ export interface AppFileOpened {
    */
   bytes?: ArrayBuffer;
   /**
-   * A working copy's file that is not a document: nothing is sent with the answer; the page reads it in pieces
+   * A stored chat file or working copy that is not opened as text: nothing is sent with the answer; it is read in pieces
    * (`filesRead`, 512 KB each) — `f.read(offset, length)`, or `f.blob()` for all of it.
    */
   chunked?: true;

@@ -22,22 +22,40 @@
  * 去回答一个本来就是「按树分」的问题**。宿主传语义 z-index(`popupZIndex`)治不了它:
  * 那个 z-index 被关在 overlay 自己的层叠上下文里,而 `visibility:hidden` 照样继承下来。
  */
-import { createContext, useContext } from 'react';
+import { createContext, createElement, useContext, type ReactNode } from 'react';
 
-const UiPortalContainerContext = createContext<HTMLElement | null>(null);
+const UiPortalContainerContext = createContext<{
+  container: HTMLElement | null;
+  zIndex?: number | string;
+}>({ container: null });
 
 /**
  * Declares the portal layer for everything rendered inside it. Pass the element that carries this
  * surface's theme scope — popups portal into it, so they inherit exactly what their trigger does.
  */
-export const UiPortalContainerProvider = UiPortalContainerContext.Provider;
+export function UiPortalContainerProvider({ value, zIndex, children }: {
+  value?: HTMLElement | null;
+  zIndex?: number | string;
+  children: ReactNode;
+}) {
+  const parent = useContext(UiPortalContainerContext);
+  return createElement(UiPortalContainerContext.Provider, {
+    value: { container: value === undefined ? parent.container : value, zIndex: zIndex ?? parent.zIndex },
+  }, children);
+}
+
+/** A portaled popup stays immediately above its originating surface. */
+export function useUiPopupZIndex(): string | undefined {
+  const { zIndex } = useContext(UiPortalContainerContext);
+  return zIndex === undefined ? undefined : `calc(${zIndex} + 1)`;
+}
 
 /** `undefined` → Base UI's `<Portal>` falls back to `document.body`. */
 export function useUiPortalContainer(): HTMLElement | undefined {
-  return useContext(UiPortalContainerContext) ?? undefined;
+  return useContext(UiPortalContainerContext).container ?? undefined;
 }
 
 /** For raw `createPortal` call sites, which need a concrete element (never `undefined`). */
 export function useUiPortalContainerOrBody(): HTMLElement {
-  return useContext(UiPortalContainerContext) ?? document.body;
+  return useContext(UiPortalContainerContext).container ?? document.body;
 }

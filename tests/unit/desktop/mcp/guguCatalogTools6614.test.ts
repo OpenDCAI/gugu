@@ -108,7 +108,7 @@ describe('catalog_*: 渐进披露 (#6614)', () => {
       ...ACTIVITY_TOOL_DEFS.map((def) => def.name),
       ...SCHEDULE_TOOL_DEFS.map((def) => def.name),
       ...EXTENSION_TOOL_DEFS.map((def) => def.name),
-      'guide_topics', 'guide_read', 'catalog_list', 'catalog_describe', 'catalog_call', 'app_search',
+      'guide_topics', 'guide_read', 'catalog_list', 'catalog_describe', 'catalog_call', 'app_search', 'widget_send',
     ]
     for (const name of listed) expect(GUGU_LISTED_TOOLS.has(name), name).toBe(true)
     for (const name of catalog) expect(GUGU_LISTED_TOOLS.has(name), name).toBe(false)
@@ -117,6 +117,8 @@ describe('catalog_*: 渐进披露 (#6614)', () => {
     // 阳控:一个确定的冷门工具不在清单里、在目录里;一个确定的常用工具反之。
     expect(listed).not.toContain('session_stop')
     expect(catalog).toContain('session_stop')
+    expect(listed).not.toContain('widget_send')
+    expect(catalog).toContain('widget_send')
     expect(listed).not.toContain('group_create')
     expect(catalog).toContain('group_create')
     expect(listed).not.toContain('project_add_device')
@@ -139,7 +141,7 @@ describe('catalog_*: 渐进披露 (#6614)', () => {
     // P6: a row is exactly { call, about } — `call` already starts with the name, so no separate `name` copy.
     expect(items.filter((row) => Object.keys(row).sort().join() !== 'about,call')).toEqual([])
     const rows = items.map((row) => ({ ...row, name: nameOfCall(row.call) }))
-    expect(rows.find((row) => row.name === 'app_check')?.call).toBe('app_check(tab_kind, item_id?, chat_id?, file_path?, steps?, phone?, page?)')
+    expect(rows.find((row) => row.name === 'app_check')?.call).toBe('app_check(tab_kind?, message_id?, widget_id?, item_id?, chat_id?, file_path?, steps?, phone?, look?, page?)')
     expect(rows.find((row) => row.name === 'app_pack')?.call).toBe('app_pack(source_dir, output_path?, chat_id?)')
     // 改父子关系只在目录里(主清单 0 字节,owner 2026-10-02):行上就有它要的两个参数。
     const setParent = rows.find((row) => row.name === 'session_set_parent')

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
+import { SystemMessageNotice } from '../../../../apps/desktop/src/components/chat/SystemMessageNotice'
 import { MessageSendStatus } from '../../../../apps/desktop/src/components/chat/MessageSendStatus'
 import { deriveMessageSendState } from '@gugu/core/shared/ui/messageState'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
@@ -88,4 +89,18 @@ describe('MessageSendStatus', () => {
     expect(ring.getAttribute('class')).toBe('gg-ring-march')
     expect(ring.querySelector('title')?.textContent).toBe('发送中，助理就绪后回复')
   })
+})
+
+it('a queued topic notice exposes the existing failure controls, with no retry after its source was discarded', async () => {
+  const discardSend = vi.fn()
+  await renderWithAppProviders(harness, createNode(SystemMessageNotice, { message: {
+    id: 'topic-request', sender_user_id: 'me', content_type: 'system', content: 'New topic',
+    local_send_state: 'failed', local_send_error: 'Original message was discarded', local_send_retryable: false,
+  } }), { chat: { discardSend } })
+  const trigger = document.body.querySelector('[data-testid="message-send-failed"]') as HTMLElement
+  expect(trigger).not.toBeNull()
+  await clickElement(trigger)
+  expect(document.body.querySelector('[data-testid="message-send-retry"]')).toBeNull()
+  await clickElement(document.body.querySelector('[data-testid="message-send-discard"]') as HTMLElement)
+  expect(discardSend).toHaveBeenCalledWith('topic-request')
 })

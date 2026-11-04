@@ -55,5 +55,6 @@ content twice. The explanation goes in your message around the figure, not insid
   <text x="360" y="75" text-anchor="middle" font-size="14" fill="var(--fg)">Server</text>
 </svg>
 \`\`\`
+For an interactive App view inside a chat message, read guide_read widgets.
 `,
 } as const;

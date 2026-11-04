@@ -79,7 +79,13 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // `store/` listing (app-listing.ts). No earlier manifest runs here any more (EXTENSION_API_VERSION_MIN_SUPPORTED, owner 10-31).
 // 25: `files.canDelete(file | files)`, a page's — whether this person may delete each, asked as a file's menu opens; a listed entry
 // no longer carries `canDelete` (answering it for every file held the whole list).
-export const EXTENSION_API_VERSION = 25;
+// 26: declared App views in messages, with immutable per-message context and bounded viewport lifetimes.
+// 27: pages read members explicitly with chats.members(); context keeps the chat summary without a roster.
+// Pages declaring 26 or earlier retain their initial members and roster context updates.
+// 29: tools modules are host-confined.
+/** Tools modules opt into host confinement from this API. Final numbering follows dev at merge. */
+export const EXTENSION_TOOL_CONFINEMENT_API_VERSION = 29;
+export const EXTENSION_API_VERSION = EXTENSION_TOOL_CONFINEMENT_API_VERSION;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -181,7 +187,8 @@ export interface ExtensionHostContext {
    * it — changes arrive by `onContextChanged`. Absent is a real answer: not in a chat. ❌ No `placement` field: an App
    * decides how to look from which of these facts are present, its capabilities and its layout (L3 评审第 2 条).
    */
-  chat?: ExtensionChat & { members: ExtensionMember[] };
+  /** Apps through API 26 receive members with the first answer; API 27+ reads them through chats.members. */
+  chat?: ExtensionChat & { members?: ExtensionMember[] };
   /**
    * The working copy this surface works on — a session's tab: that session's; a page opened on a project's file: that
    * project's folder. Absent is a real answer: it works on none. A session's tab has both: `chat` is the person's
@@ -194,6 +201,8 @@ export interface ExtensionHostContext {
    * file an App that asked for nothing may open. Absent is a real answer: opened for its own sake.
    */
   file?: AppFileRef & { id: string };
+  /** API26: untrusted, immutable initial data from the sender of a message. */
+  widget?: { messageId: string; data: Record<string, unknown>; sender: string | null };
   /** Who is working this page (`user:<uuid>` for an agent). Absent on a page nobody draws — the background page, a program. */
   operator?: ExtensionOperator;
   /** BCP-47 tag of the interface language the user is reading. */
@@ -817,7 +826,7 @@ export const BRIDGE_VERBS = {
   filesClose: { needs: null },
   filesList: { needs: 'files:read', machine: 'place' },
   /** Up to 512 KB of a working copy's file at an offset (`f.read`): how a file of any size is read, on its own machine. */
-  filesRead: { needs: 'files:read', machine: 'place' },
+  filesRead: { needs: ({ ref }) => ref !== null && typeof ref === 'object' && 'workspace' in ref ? 'files:read' : null, machine: 'place' },
   /**
    * Files across every chat the reader is in (gugu-supabase 20261017002319): found by a piece of their path, and the ones
    * this person opened last. `files:read` already reads any chat they are in, so it is the same consent.
@@ -935,7 +944,7 @@ export const CALLER_WORDS = { page: 'a page', background: 'the background page',
  * document, the App frame's parent in an origin of its own (gate.ts). Every host reads it there and hands it here.
  */
 export type CallRefusalCaller =
-  | { kind: 'page'; has: (capability: ExtensionCapability) => boolean; gesture: boolean }
+  | { kind: 'page'; has: (capability: ExtensionCapability) => boolean; gesture: boolean; widget: boolean }
   | { kind: 'background' | 'program'; has: (capability: ExtensionCapability) => boolean };
 
 /**
@@ -956,7 +965,8 @@ export function callRefusal(
   const needs = capabilityNeeded(facts, args);
   if (needs !== null && !caller.has(needs)) return { code: 'denied', message: `Not permitted: this App does not have "${needs}"` };
   // Only a page has a gesture: the background page and a program never make a call that needs one.
-  if ((caller.kind !== 'page' || !caller.gesture) && needsGesture(method, args)) return gestureRefusal(method);
+  if ((caller.kind !== 'page' || !caller.gesture)
+    && (needsGesture(method, args) || (caller.kind === 'page' && caller.widget && method === 'dispatch'))) return gestureRefusal(method);
   return null;
 }
 
@@ -967,6 +977,7 @@ export function callRefusal(
  * - `not-found` / `ambiguous`: `gugu.files` naming a file that is not there, or not only once.
  * - `too-large`: an upload over the workspace's per-file limit.
  * - `rate-limited`: `dispatch` to a member of a chat over the server's limit (30 a minute per person and App); later ones go through.
+ * - `stale-version`: the pinned version of a range-read file is no longer available.
  * - `content-changed`: `files.replace(…, { expectedVersion })` on a file replaced since that version was read.
  * - `unavailable`: `readAgentHistory` on an agent that is there, whose conversation gugu has no way to read now (not open,
  *   and its engine keeps no record gugu reads) — apart from `not-found`, an agent you cannot see (#7126); and a `machine`
@@ -978,7 +989,7 @@ export function callRefusal(
  */
 export const BRIDGE_ERROR_CODES = [
   'denied', 'invalid', 'failed', 'not-found', 'ambiguous', 'too-large', 'rate-limited', 'content-changed', 'unavailable',
-  'name-taken', 'not-installed', 'version-mismatch',
+  'name-taken', 'not-installed', 'version-mismatch', 'stale-version',
 ] as const;
 export type BridgeErrorCode = (typeof BRIDGE_ERROR_CODES)[number];
 

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -10,10 +10,11 @@ import { takeTaskReveal } from '@/hooks/useSourceMessageReveal'
 import type { TaskTurnHit } from '@shared/core/search'
 import { GlobalSearch } from './global-search'
 import { resetSearchSession, updateSearchSession } from './search-session'
+import { installPhoneImeDismiss } from '@/mobile/usePhoneImeDismiss'
 
-const remote = vi.hoisted(() => ({ opened: [] as unknown[], turns: vi.fn(), messages: vi.fn() }))
+const remote = vi.hoisted(() => ({ opened: [] as unknown[], turns: vi.fn(), indexStatus: vi.fn(), messages: vi.fn() }))
 vi.mock('@/lib/guguLinks', () => ({ followLink: (target: unknown) => { remote.opened.push(target); return true } }))
-vi.mock('@renderer/lib/ipc', () => ({ rpc: { search: { taskTurns: remote.turns } } }))
+vi.mock('@renderer/lib/ipc', () => ({ rpc: { search: { taskTurns: remote.turns, taskTurnIndexStatus: remote.indexStatus } } }))
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: remote.messages } }))
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }))
 
@@ -26,9 +27,10 @@ const NEW = '0b1e7c1a-0000-4000-8000-0000000000aa'
 const OLD = '0b1e7c1a-0000-4000-8000-0000000000bb'
 const turn: TaskTurnHit = { sessionId: 's1', projectId: 'p1', title: '发布排查', archived: false, itemId: 's1:turn:s3:m', role: 'assistant', excerpt: '已经把回滚开关打开了', at: '2026-10-31 08:00:00' }
 const rows = [
-  { id: NEW, chat_id: GROUP, sender_user_id: 'u1', sender_name: '阿威', content: '收到，回滚脚本已经演练过', created_at: '2026-10-31T09:00:00Z', file_item_id: null },
-  { id: OLD, chat_id: OTHER, sender_user_id: 'u2', sender_name: '小林', content: '回滚方案.pdf', created_at: '2026-10-30T09:00:00Z', file_item_id: 'f1' },
+  { id: NEW, chat_id: GROUP, sender_user_id: 'u1', sender_name: '阿威', content_type: 'text', content: '收到，回滚脚本已经演练过', created_at: '2026-10-31T09:00:00Z', file_item_id: null },
+  { id: OLD, chat_id: OTHER, sender_user_id: 'u2', sender_name: '小林', content_type: 'attachment', content: '回滚方案.pdf', created_at: '2026-10-30T09:00:00Z', file_item_id: 'f1' },
 ]
+const systemRow = { ...rows[0]!, id: 'system-row', sender_user_id: null, sender_name: '未知用户', content_type: 'system', content: 'Codex 1 加入了群聊' }
 
 let host: HTMLDivElement
 let root: Root
@@ -38,6 +40,8 @@ beforeEach(() => {
   remote.opened = []
   closed = 0
   remote.turns.mockReset().mockResolvedValue([turn])
+  remote.indexStatus.mockReset().mockResolvedValue({ state: 'ready' })
+  focusManager.setFocused(true)
   remote.messages.mockReset().mockResolvedValue({ data: rows, error: null })
   publishChatSummaries([
     { id: GROUP, kind: 'group', unread_count: 0, name: '搜索测试群甲', last_message_at: '2026-10-31T00:00:00Z' },
@@ -49,6 +53,7 @@ beforeEach(() => {
   root = createRoot(host)
 })
 afterEach(async () => {
+  focusManager.setFocused(undefined)
   await act(async () => root.unmount())
   host.remove()
 })
@@ -66,6 +71,78 @@ const headers = () => [...host.querySelectorAll<HTMLElement>('[role=listbox] > b
 const tab = (key: string) => [...host.querySelectorAll<HTMLElement>('[role=tab]')].find((button) => button.textContent!.startsWith(key))!
 
 describe('global search panel', () => {
+  for (const tasks of [true, false]) {
+    const surface = tasks ? 'desktop' : 'phone chat-only entry'
+    it(`excludes system rows from ${surface} search without losing ordinary messages (U-A)`, async () => {
+      remote.turns.mockResolvedValue([])
+      remote.messages.mockResolvedValue({ data: [systemRow, { ...rows[0]!, content: '收到加入了群聊的通知' }], error: null })
+      await render('加入了群聊', tasks)
+      expect(options()).toHaveLength(1)
+      expect(options()[0]!.textContent).toContain('收到加入了群聊的通知')
+      expect(host.textContent).not.toContain('Codex 1')
+      expect(tab('globalSearch.facet.message').textContent).toBe('globalSearch.facet.message1')
+    })
+
+    it(`shows a neutral system identity for a senderless non-system hit in ${surface} search (U-B)`, async () => {
+      // A cannot hide this case: a senderless text row must pass through the real mapping and rendering.
+      remote.turns.mockResolvedValue([])
+      remote.messages.mockResolvedValue({ data: [{ ...systemRow, content_type: 'text' }], error: null })
+      await render('加入了群聊', tasks)
+      expect(options()).toHaveLength(1)
+      expect(options()[0]!.textContent).toContain('globalSearch.system')
+      expect(host.textContent).not.toContain('未知用户')
+      const avatar = options()[0]!.firstElementChild!
+      expect(avatar.querySelector('svg')).not.toBeNull()
+      expect(avatar.textContent).toBe('')
+    })
+  }
+
+  it('keeps a real-user from chip filtering by sender id (U-from)', async () => {
+    remote.messages.mockResolvedValue({ data: [systemRow, ...rows], error: null })
+    await act(async () => updateSearchSession({ chips: [{ kind: 'from', userId: 'u1', name: '阿威' }] }))
+    await render('回滚')
+    expect(options()).toHaveLength(1)
+    expect(options()[0]!.textContent).toContain('阿威')
+    expect(options()[0]!.textContent).not.toContain('小林')
+    expect(remote.turns).not.toHaveBeenCalled()
+    expect(remote.messages).toHaveBeenCalledWith('message_search_as', { p_chat_id: null, p_query: '回滚', p_limit: 100 })
+  })
+
+  it('the phone IME dismisses after Enter still opens the selected message (#1385)', async () => {
+    const remove = installPhoneImeDismiss(document)
+    try {
+      await render('回滚', false)
+      const input = host.querySelector<HTMLInputElement>('[data-testid=global-search-input]')!
+      input.focus()
+      await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)) })
+      expect(remote.opened).toEqual([conversationLink(GROUP, NEW)])
+      expect(closed).toBe(1)
+      expect(document.activeElement).toBe(document.body)
+    } finally { remove() }
+  })
+  it('searches local task content while indexing and refreshes the same query when ready', async () => {
+    remote.indexStatus.mockResolvedValue({ state: 'preparing', done: 42, total: 100 })
+    await render('回滚')
+    expect(remote.turns).toHaveBeenCalledWith({ query: '回滚', limit: 100 })
+    expect(host.querySelector('[role=status]')?.textContent).toBe('globalSearch.indexingTasksProgress')
+    expect(options()).toHaveLength(3)
+    expect(host.textContent).not.toContain('globalSearch.emptyFor')
+    remote.indexStatus.mockResolvedValue({ state: 'ready' })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 2_200)) })
+    expect(remote.turns).toHaveBeenCalledWith({ query: '回滚', limit: 100 })
+    expect(host.querySelector('[role=status]')).toBeNull()
+    expect(options()).toHaveLength(3)
+  })
+
+  it('reports an indexing failure while still searching local task content', async () => {
+    remote.indexStatus.mockResolvedValue({ state: 'failed' })
+    await render('回滚')
+    expect(options()).toHaveLength(3)
+    expect(host.querySelector('[role=alert]')?.textContent).toBe('globalSearch.indexingTasksFailed')
+    expect(host.textContent).not.toContain('globalSearch.emptyFor')
+    expect(remote.turns).toHaveBeenCalledWith({ query: '回滚', limit: 100 })
+  })
   it('lists chat messages and task content newest first, grouped by where they were said, the whole word highlighted', async () => {
     await render('回滚')
     expect(remote.messages).toHaveBeenCalledWith('message_search_as', { p_chat_id: null, p_query: '回滚', p_limit: 100 })

@@ -1,6 +1,9 @@
 import { isMainThread } from 'node:worker_threads';
 import { startProgramGugu, type ProgramChannel } from './program-host';
 
+// A worker inherits the same preload and restrictions, but never the main thread's gugu IPC surface.
+if (process.env.GUGU_APP_NETWORK_HOSTS) await import('./program-confine');
+
 /**
  * `<runtime>/gugu-program.mjs` — `gugu` in an App's MCP program (F16, 真源 §4): the same global a page has,
  * started by main with `node --import <this>`, before the App's own code. Its host is main, over the child's
@@ -12,7 +15,8 @@ import { startProgramGugu, type ProgramChannel } from './program-host';
  *
  * The main thread's alone: a `worker_threads` worker the program starts inherits `--import` and runs this again, with
  * no channel to main (`process.send` is the main thread's) — so there it installs nothing, and the worker runs as plain
- * Node. A worker that needs `gugu` asks its main thread (表格 10-13: the IronCalc thread died on start, every time).
+ * Node with the same program permissions. A worker that needs `gugu` asks its main thread
+ * (表格 10-13: the IronCalc thread died on start, every time).
  */
 if (isMainThread) {
   Object.defineProperty(globalThis, 'gugu', {

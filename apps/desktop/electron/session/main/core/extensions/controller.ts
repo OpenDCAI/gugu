@@ -58,6 +58,7 @@ import {
   extensionTabKind,
   parseExtensionTabKind,
   type ExtensionManifest,
+  isConfinedToolProgram,
 } from '@shared/extensions/manifest';
 import type { CloudMarketEntry, MarketListItem } from '@shared/extensions/market';
 import {
@@ -219,10 +220,12 @@ export const extensionsController = createRPCController({
       if (extensionOpened(installed.manifest.id)) events.emit(extensionsQuitChangedChannel, { quit: quitExtensions() });
       configureExtensionSession({
         extensionId: installed.manifest.id,
+        apiVersion: installed.manifest.apiVersion,
         rootDir: installed.rootDir,
         // What it may reach, not what it asked for: a host the user took back
         // is enforced away here and mirrored out of the served CSP.
         networkHosts: extensionsService().grantedHosts(installed.manifest.id),
+        declaredHosts: installed.manifest.permissions?.network ?? [],
       });
       return {
         success: true,
@@ -249,6 +252,7 @@ export const extensionsController = createRPCController({
    * can never hand one extension another's grants.
    */
   bindSurface: async (args: {
+    resourceChat?: string;
     opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;
     extensionId: string;
@@ -408,6 +412,7 @@ export const extensionsController = createRPCController({
    * 与 bindSurface 分开:bind 只在这张页第一次出现时做一次;之后每切一次会话走这条。
    */
   retargetSurface: async (args: {
+    resourceChat?: string;
     opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;
     tabId: string;
@@ -787,14 +792,19 @@ export const extensionsController = createRPCController({
     try {
       const service = extensionsService();
       service.setPermissionGranted(args.extensionId, args.permission, args.granted);
-      if (args.permission === 'agents:tools' && !args.granted) {
-        void revokeExtensionPrograms(args.extensionId).catch((error: unknown) => log.warn('App program did not stop after permission withdrawal:', error));
-      }
       const installed = service.get(args.extensionId);
+      if ((!args.granted && args.permission === 'agents:tools') || (
+        installed.manifest.permissions?.network?.includes(args.permission)
+        && installed.manifest.contributes.mcpServers?.some((server) => isConfinedToolProgram(installed.manifest.apiVersion, server))
+      )) {
+        void revokeExtensionPrograms(args.extensionId).catch((error: unknown) => log.warn('App program did not stop after permission change:', error));
+      }
       configureExtensionSession({
         extensionId: installed.manifest.id,
+        apiVersion: installed.manifest.apiVersion,
         rootDir: installed.rootDir,
         networkHosts: service.grantedHosts(installed.manifest.id),
+        declaredHosts: installed.manifest.permissions?.network ?? [],
       });
       // The filter binds at once; the CSP does not — it was stamped when the
       // document loaded. Reloading is what stops an open surface from carrying a

@@ -79,8 +79,12 @@ export type ChatMessage = {
   text: string;
   /** True while the agent is still writing to this message. */
   streaming?: boolean;
+  /** View-only state of an ordinary input before its native echo is available. */
+  sendStatus?: { state: 'sending' | 'waiting' | 'accepted' | 'failed' | 'unknown'; error?: string; reason?: string; retryable?: boolean };
   /** View-only confirmed file send; normalized to the existing attachment card before painting. */
   sentAttachment?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment;
+  sentAttachments?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment[];
+  ownerNotification?: import('@gugu/session-core/acp/client').TranscriptMessage['ownerNotification'];
   /** Image attachments rendered as a thumbnail strip above the text (user messages). */
   attachments?: ChatAttachment[];
   files?: import('@gugu/session-core/session-record/contract').TurnFileRef[];
@@ -119,7 +123,7 @@ export type ChatMessage = {
   /** The `chat_id` that message_send went to — names the group when this row is itself quoted later. */
   sentChat?: string;
   /** View-only disclosure of the completed thinking/execution segment. */
-  conversationProcess?: { live?: boolean; starting?: boolean; id: string; startedAt?: number; endedAt?: number; idleMs?: number; steps?: number; empty?: boolean };
+  conversationProcess?: { live?: boolean; starting?: 'starting' | 'restoring'; id: string; startedAt?: number; endedAt?: number; idleMs?: number; steps?: number; empty?: boolean };
   /**
    * View-only split of one agent-conversation reply (owner 0 号图): `head` draws the name and the
    * process line, each `body` only a bubble. The process steps go between them, so they never land
@@ -535,7 +539,7 @@ export type TurnProcessItem = {
    */
   placeholder?: boolean;
   /** The session is still starting (`PendingPrompt.starting`): the live label says that. */
-  starting?: boolean;
+  starting?: 'starting' | 'restoring';
   /**
    * 这一轮什么时候开始的（`TranscriptTurn.startedAt`）。缺席 = 不知道（回放来的），
    * 那就不写时间 —— 一个会少报的计时器比没有计时器更糟（`turn-process.def.tsx` 头注）。

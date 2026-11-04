@@ -2,6 +2,7 @@ import type { AppWhere, PreparedChatFile } from '@shared/extensions/app-runtime-
 
 /** Where a page is aimed (`AppWhere`), in which tab, for which file. */
 export interface ExtensionGuestTarget extends AppWhere {
+  resourceChat?: string;
   opening?: PreparedChatFile;
   tabId: string;
   itemId?: string;
@@ -43,7 +44,7 @@ export class ExtensionGuestBinding {
       }
       const reply = await (previous ? this.dispatch.retarget : this.dispatch.bind)(guest.webContentsId, target);
       if (this.guest !== guest) return null;
-      if (reply.success) guest.target = { tabId: target.tabId, workspace: target.workspace, conversation: target.conversation, itemId: target.itemId };
+      if (reply.success) guest.target = { tabId: target.tabId, workspace: target.workspace, conversation: target.conversation, itemId: target.itemId, widget: target.widget };
       return { ...reply, webContentsId: guest.webContentsId };
     });
     guest.tail = work.catch(() => undefined);

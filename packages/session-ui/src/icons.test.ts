@@ -1,11 +1,16 @@
 import { cloneElement, createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { ICON_BODIES } from './icon-bodies';
 import { ArrowBigUp, ChevronRight, ChevronRightIcon, GitBranch, SquarePen, SquarePenFilled } from './icons';
 
 const svg = (element: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(element);
 
 describe('shared icon SVG contracts', () => {
+  it('uses different shared glyphs for pin and unpin actions', () => {
+    expect(ICON_BODIES.PinOff).not.toBe(ICON_BODIES.Pin);
+  });
+
   it('retains actual custom stroke widths, absolute widths and upstream classes', () => {
     const modifier = svg(createElement(ArrowBigUp, { size: 11, strokeWidth: 2.25, className: 'modifier' }));
     expect(modifier).toContain('stroke-width="2.25"');

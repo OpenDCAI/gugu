@@ -54,7 +54,6 @@ import type {
   GroupMemberRoleInput,
   GroupMemberRole,
   ChatStatus,
-  MessageContentType,
   UpdateGroupChatSettingsInput,
   GroupSchedulerState,
   GroupTaskItem,
@@ -71,7 +70,6 @@ import {
   type WindowRevalidation,
 } from './chatMessageRevalidation'
 import {
-  forwardCanonicalMessage,
   uploadCanonicalGroupAvatar,
 } from './chatCanonicalStorage'
 import { writeIdempotentChatMessage } from './chatMessageWriter'
@@ -79,12 +77,12 @@ import { readGroupMemberIdentities } from './chatGroupIdentity'
 import { requireThreadCapableChat } from './chatThreadGate'
 import { addGroupAgent, type GroupAgentJoinOutcome, groupJoinError, listMyAgentJoinRequests } from './groupAgentJoinService'
 import { currentGroupAdmin } from './groupAdmin'
+import { deleteListedConversation } from './deleteListedConversation'
 export type {
   MessageOverlay,
   MessageMutationPatch,
   WindowRevalidation,
 } from './chatMessageRevalidation'
-
 
 type GroupCollabMemberRow = {
   user_id: string
@@ -445,6 +443,7 @@ export const chatService = {
       isThreadRoot?: boolean
       // @@@whisper (#820) — true = 定向私密消息（仅 sender + to_user_ids 可见）。DB CHECK 要求 whisper 必定向。
       isWhisper?: boolean
+      forwardedFromMessageId?: string
     } = {}
   ): Promise<MessageItem> {
     if (opts.threadRootId != null || opts.isThreadRoot === true) await requireThreadCapableChat(chatId, 'sendMessage')
@@ -459,6 +458,7 @@ export const chatService = {
       threadRootId: opts.threadRootId ?? null,
       isThreadRoot: opts.isThreadRoot ?? false,
       isWhisper: opts.isWhisper ?? false,
+      forwardedFromMessageId: opts.forwardedFromMessageId,
     })
   },
 
@@ -502,21 +502,6 @@ export const chatService = {
       .eq('chat_id', chatId)
       .eq('user_id', userId)
     if (error) throw new Error(error.message)
-  },
-
-  /** Forward an existing message into another chat using the same insert path. */
-  async forwardMessage(
-    sourceMessageId: string,
-    targetChatId: string,
-    senderId: string
-  ): Promise<{
-    id: string
-    chat_id: string
-    content: string
-    content_type: MessageContentType
-    created_at: string
-  }> {
-    return forwardCanonicalMessage(sourceMessageId, targetChatId, senderId)
   },
 
   async getMessageById(messageId: string, userId: string): Promise<MessageItem | null> {
@@ -894,9 +879,9 @@ export const chatService = {
     return createGroupWithInvitations(chatDb, name, creatorId, await getCurrentAuthUserId(), identities, groupPrompt)
   },
 
-  /** Archive a chat so it disappears from getChats() for every member. */
-  async archiveChat(chatId: string): Promise<void> {
-    await (await currentGroupAdmin()).archive(chatId)
+  /** Delete this owner's DM list entry, or archive a group using its management authority. */
+  async archiveChat(chatId: string) {
+    return deleteListedConversation(chatId)
   },
 
   /**

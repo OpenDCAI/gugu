@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { awaitExit, awaitFact } from '../../../support/awaitFact'
+import { EXIT_CONFIG, EXIT_RESTART, EXIT_SIGNED_OUT } from '../../../../apps/desktop/electron/server/server-exit'
 import {
   keeperPidFile,
   keeperScript,
@@ -61,6 +62,17 @@ async function runKeeper(home: string, options: { waitPid?: number } = {}): Prom
 }
 
 describe('看门人', () => {
+  it.each([0, 143, EXIT_CONFIG, EXIT_SIGNED_OUT])('does not restart after an intentional exit (%s)', async code => {
+    const { home, runs } = fakeInstall([code, SUPERVISOR_EXIT_ALREADY_RUNNING])
+    await runKeeper(home)
+    expect(runs()).toHaveLength(1)
+  })
+
+  it('restarts the selected package after exit 75 and stops after configuration refusal', async () => {
+    const { home, runs } = fakeInstall([EXIT_RESTART, EXIT_RESTART, EXIT_CONFIG])
+    await runKeeper(home)
+    expect(runs()).toHaveLength(3)
+  })
   it('守护进程崩了就再拉起,直到它说「另一个已经在跑」为止', async () => {
     const { home, runs } = fakeInstall([1, 137, SUPERVISOR_EXIT_ALREADY_RUNNING])
     await runKeeper(home, { waitPid: 4242 })
@@ -84,7 +96,7 @@ describe('看门人', () => {
   })
 
   it('第一轮不看 stopped:接班时旧守护进程写下的记号是说给旧看门人听的', async () => {
-    const { home, runs } = fakeInstall([0, SUPERVISOR_EXIT_ALREADY_RUNNING])
+    const { home, runs } = fakeInstall([EXIT_RESTART, SUPERVISOR_EXIT_ALREADY_RUNNING])
     fs.writeFileSync(path.join(home, 'data', 'stopped'), '')
     const bin = path.join(home, 'versions', '1.0.0', 'bin', 'gugu-server')
     // 真守护进程启动时会清掉 stopped(server-supervisor.ts);假的也照做。

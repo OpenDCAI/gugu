@@ -20,7 +20,7 @@ const getMessages = vi.fn<() => Promise<MessageItem[]>>()
 const markRead = vi.hoisted(() => vi.fn<(chatId: string, seq: number) => Promise<unknown>>())
 const sendScopedMessage = vi.fn()
 const actionsOf = vi.fn((id: string | null) => ({ ...topicHistoryStub(id ?? ''), sendMessage: sendScopedMessage }))
-function sendingFixture() { const fixture = chatWindowStub(); fixture.conversations.actions = actionsOf; return fixture }
+function sendingFixture() { const fixture = chatWindowStub(); fixture.conversations.actions = actionsOf; return { ...fixture, createTopic } }
 const onCreateFailed = vi.fn()
 const createTopic = vi.fn()
 let sourceMessages: MessageItem[]
@@ -107,6 +107,7 @@ beforeEach(() => {
   listTopicsOfChat.mockReset().mockResolvedValue([topic()])
   getMessages.mockReset().mockResolvedValue([])
   markRead.mockReset().mockResolvedValue(undefined)
+  onCreateFailed.mockReset()
   actionsOf.mockClear()
   sendScopedMessage.mockReset().mockResolvedValue('client-id')
   harness = createReactHarness()
@@ -250,6 +251,21 @@ it.each(['system', 'attachment'] as const)('keeps server naming for a %s source'
   await mount()
   await act(async () => { await surface!.openTopicFromMessage(source.id) })
   expect(createTopic).toHaveBeenCalledWith({ sourceChatId: 'chat-A', sourceMessageId: source.id, name: null })
+})
+
+it.each([
+  ['agent', 'agent-author'], ['human', 'human-author'],
+  ['departed', 'former-author'], ['self', 'user-1'],
+])('delegates a %s-authored source to the shared topic action without choosing participants', async (kind, author) => {
+  const source = message({ id: `source-${kind}`, sender_user_id: author, content: 'Source contract', is_mine: kind === 'self' })
+  sourceMessages = [source]
+  await mount()
+  await act(async () => { await surface!.openTopicFromMessage(source.id) })
+  expect(createTopic).toHaveBeenCalledExactlyOnceWith({
+    sourceChatId: 'chat-A', sourceMessageId: source.id, name: 'Source contract',
+  })
+  expect(surface?.splitTopic).toEqual({ chatId: 'topic-1', name: 'Projected default' })
+  expect(onCreateFailed).not.toHaveBeenCalled()
 })
 
 it('opens the existing task topic when its card is tapped again without making a second entry', async () => {

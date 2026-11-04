@@ -143,4 +143,14 @@ describe('设备连接开出「太旧」→ 当场替它升级', () => {
     expect(upgradePercent(state((d) => void (d.steps[2].progress = { phase: 'download', done: 9, total: null })))).toBeNull()
     expect(upgradePercent(state(() => undefined))).toBeNull()
   })
+
+  it('an expired click observer yields to host facts without emitting success, failure or a reconnect', async () => {
+    const events: SshUpgradeEvent[] = []
+    const unconfirmed = { request: 42, reportedVersion: '1.0.0', update: null }
+    const upgrader = createSshAutoUpgrader({ run: async () => ({ ...state(() => {}), unconfirmed }), emit: event => events.push(event) })
+    upgrader.request('d22', { now: true })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(events).toEqual([{ deviceId: 'd22', phase: 'updating', percent: null }, { deviceId: 'd22', phase: 'unconfirmed', ...unconfirmed }])
+    expect(upgrader.upgrading('d22')).toBe(false)
+  })
 })

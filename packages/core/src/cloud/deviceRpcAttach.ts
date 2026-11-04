@@ -31,9 +31,10 @@ import {
   deviceRpcFrameType,
   deviceRpcReplyType,
   parseDeviceRpcReply,
+  parseDeviceRpcRequest,
 } from './deviceRpcProtocol'
 import { DeviceRpcChannelError, DeviceRpcRefused, type DeviceRpcPipe, type DeviceRpcPipeHandlers } from './deviceRpcRequester'
-import { MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from './serverMachineHealth'
+import { MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION, SERVER_UPDATE_CONTROL_RPCS } from './serverMachineHealth'
 
 /** 订上一条私有 topic 之后手里的那一条:往上发,关掉(交回的 promise 在这条退完时落定)。 */
 export type DeviceTopic = { send(message: unknown): Promise<void>; close(): void | Promise<void> }
@@ -105,6 +106,7 @@ export async function openAttachedDeviceRpcPipe(options: AttachedDeviceRpcPipeOp
   let watchdogTimer: ReturnType<typeof setInterval> | null = null
   let mine: Promise<DeviceTopic> | null = null
   let attached: Promise<void> | null = null
+  let peerProtocol: number | null = null
   /** 正在等的那一声报到应答:共用 topic 上(旧机器回 unknown_method)和自己那条上(新机器)都认。 */
   let attachWaiter: { requestId: string; settle(reply: ReturnType<typeof parseDeviceRpcReply>): void } | null = null
   const heard = { shared: now(), mine: now() }
@@ -135,6 +137,7 @@ export async function openAttachedDeviceRpcPipe(options: AttachedDeviceRpcPipeOp
   /** 宿主不在自己那条上了(或说不准):下一问之前重新报到。自己那条一并离开 —— 它只在报到着时开着(看门狗才有 alive 可等)。 */
   const detach = () => {
     attached = null
+    peerProtocol = null
     const joining = mine
     mine = null
     if (!joining) return
@@ -234,9 +237,7 @@ export async function openAttachedDeviceRpcPipe(options: AttachedDeviceRpcPipeOp
         })
         if (reply?.error) throw new DeviceRpcRefused(reply.error)
         const protocol = (reply?.result as { protocol?: unknown } | undefined)?.protocol
-        if (typeof protocol !== 'number' || protocol < MIN_SERVER_PROTOCOL) {
-          throw new DeviceRpcRefused({ code: 'server_outdated', message: '请更新那台机器上的咕咕' })
-        }
+        peerProtocol = typeof protocol === 'number' ? protocol : null
       })().then(
         () => {
           clearTimeout(timer)
@@ -288,7 +289,13 @@ export async function openAttachedDeviceRpcPipe(options: AttachedDeviceRpcPipeOp
         if (closed) throw new DeviceRpcChannelError('device channel closed', 'closed')
         await attach()
         const topic = mine
-        if (topic) return (await topic).send(message)
+        if (topic) {
+          if ((peerProtocol === null || peerProtocol < MIN_SERVER_PROTOCOL)
+            && !SERVER_UPDATE_CONTROL_RPCS.has(parseDeviceRpcRequest(message)?.type ?? '')) {
+            throw new DeviceRpcRefused({ code: 'server_outdated', message: '请更新那台机器上的咕咕' })
+          }
+          return (await topic).send(message)
+        }
       }
       throw new DeviceRpcChannelError('detached twice while sending', 'closed')
     },

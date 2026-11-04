@@ -2,6 +2,9 @@
 // (electron/assistant-home.ts)。渲染层 ↔ 主进程的契约,只此一份。
 
 export const ASSISTANT_HOME_CHANNELS = {
+  moveJournalRead: 'assistant-home:move-journal-read',
+  moveJournalWrite: 'assistant-home:move-journal-write',
+  moveJournalClear: 'assistant-home:move-journal-clear',
   preparationStart: 'assistant-home:preparation-start',
   preparationStatus: 'assistant-home:preparation-status',
   preparationCancel: 'assistant-home:preparation-cancel',

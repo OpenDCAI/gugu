@@ -5,17 +5,17 @@ import { readIdentityDirectoryBridge } from '@/lib/identityDirectoryBridge'
 import { chatDb } from '@/lib/supabase'
 import { useDebounce } from '@renderer/lib/hooks/useDebounce'
 import { rpc } from '@renderer/lib/ipc'
-import { excerpt } from '@shared/core/search'
+import { excerpt, type TaskTurnHit, type TaskTurnIndexStatus } from '@shared/core/search'
 import { rankPaletteMatches } from '../command-palette/palette-rank'
 import type { SearchChip, SearchFacet } from './search-session'
 
 /** One page per source: the counts beside the filters are these rows, shown as "100+" when a source returns a full page. */
 export const SEARCH_LIMIT = 100
 
-type MessageRow = { id: string; chat_id: string; sender_user_id: string | null; sender_name: string; content: string | null; created_at: string; file_item_id: string | null }
+type MessageRow = { id: string; chat_id: string; sender_user_id: string | null; sender_name: string; content_type: string; content: string | null; created_at: string; file_item_id: string | null }
 
 export type SearchHit =
-  | { kind: 'message'; id: string; group: string; chatId: string; messageId: string; senderId: string | null; sender: string; text: string; at: string; file: boolean }
+  | { kind: 'message'; id: string; group: string; chatId: string; messageId: string; senderId: string | null; sender: string | null; text: string; at: string; file: boolean }
   | { kind: 'task'; id: string; group: string; taskId: string; projectId: string; title: string; itemId: string; role: 'user' | 'assistant'; text: string; at: string }
 
 export interface SearchView {
@@ -30,6 +30,7 @@ export interface SearchView {
   capped: boolean
   loading: boolean
   error: Error | null
+  taskIndex?: TaskTurnIndexStatus
 }
 
 /** Milliseconds of a hit's time: cloud messages are ISO; local task turns are SQLite CURRENT_TIMESTAMP (UTC, no zone). */
@@ -85,16 +86,23 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
   })
   const turns = useQuery({
     queryKey: ['global-search-task-turns', query],
-    queryFn: () => rpc.search.taskTurns({ query, limit: SEARCH_LIMIT }),
+    queryFn: async (): Promise<{ hits: TaskTurnHit[]; index: TaskTurnIndexStatus }> => {
+      const [index, hits] = await Promise.all([
+        rpc.search.taskTurnIndexStatus(),
+        rpc.search.taskTurns({ query, limit: SEARCH_LIMIT }),
+      ])
+      return { index, hits }
+    },
     enabled: runnable && tasks && !inChat && !from,
     staleTime: 5_000,
+    refetchInterval: (q) => q.state.data?.index.state === 'preparing' ? 2_000 : false,
   })
 
   const messageHits: SearchHit[] = inTask ? [] : (messages.data ?? [])
-    .filter((row) => !from || row.sender_user_id === from.userId)
+    .filter((row) => row.content_type !== 'system' && (!from || row.sender_user_id === from.userId))
     .map((row) => ({ kind: 'message', id: `m:${row.id}`, group: row.chat_id, chatId: row.chat_id, messageId: row.id, senderId: row.sender_user_id,
-      sender: row.sender_name, text: excerpt(row.content ?? '', query), at: row.created_at, file: row.file_item_id !== null }))
-  const taskHits: SearchHit[] = !tasks || inChat || from ? [] : (turns.data ?? [])
+      sender: row.sender_user_id === null ? null : row.sender_name, text: excerpt(row.content ?? '', query), at: row.created_at, file: row.file_item_id !== null }))
+  const taskHits: SearchHit[] = !tasks || inChat || from ? [] : (turns.data?.hits ?? [])
     .filter((hit) => !inTask || hit.sessionId === inTask.taskId)
     .map((hit) => ({ kind: 'task', id: `t:${hit.sessionId}:${hit.itemId}`, group: `task:${hit.sessionId}`, taskId: hit.sessionId, projectId: hit.projectId,
       title: hit.title, itemId: hit.itemId, role: hit.role, text: hit.excerpt, at: hit.at }))
@@ -108,8 +116,9 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
   const shown = facet === 'all' ? all : all.filter((hit) => facet === 'task' ? hit.kind === 'task' : hit.kind === 'message' && (facet === 'message' || hit.file))
   return {
     query, scopes, unresolved, hits: runnable ? shown : [], counts: runnable ? counts : { all: 0, message: 0, task: 0, file: 0 },
-    capped: (messages.data?.length ?? 0) >= SEARCH_LIMIT || (turns.data?.length ?? 0) >= SEARCH_LIMIT,
+    capped: (messages.data?.length ?? 0) >= SEARCH_LIMIT || (turns.data?.hits.length ?? 0) >= SEARCH_LIMIT,
     loading: runnable && (messages.isFetching || turns.isFetching || text !== typed),
     error: (messages.error as Error | null) ?? (turns.error as Error | null),
+    taskIndex: runnable && tasks && !inChat && !from ? turns.data?.index : undefined,
   }
 }

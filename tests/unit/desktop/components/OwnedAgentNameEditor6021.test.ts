@@ -38,6 +38,12 @@ beforeEach(() => {
 })
 afterEach(() => { act(() => root.unmount()); container.remove() })
 describe('owner agent name editor #6021', () => {
+  it('edits the real name even while its display label is the naming placeholder', () => {
+    render({ children: '正在起名…' })
+    expect(container.textContent).toContain('正在起名…')
+    click('重命名')
+    expect(input().value).toBe('Codex 8')
+  })
   it.each([{ ownerUserId: 'other' }, { ownerUserId: null }, { status: 'removed' as const }, { membership: 'removed' }])('never offers rename for non-owned or removed identities: %j', (props) => {
     render(props)
     expect(container.querySelector('button')).toBeNull()

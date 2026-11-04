@@ -9,7 +9,7 @@ import { bindFileViewerMenu } from '@/components/preview/file-viewer-menu'
 import { workspaceFileQuote } from '@/components/preview/quote-preview-file'
 import { MessageFilePreviewPanel } from '@/components/chat/MessageFilePreviewPanel'
 import type { DocumentPreviewKind } from '@/components/chat/documentPreview'
-import type { OpenedOutput } from '@gugu/session-chat-ui'
+import type { ChatCommands, OpenedOutput } from '@gugu/session-chat-ui'
 import { useToast } from '@/components/toastContext'
 import { Menu, MenuItem, MenuSeparator } from '@/components/ui/Menu'
 import { Sheet } from '@/components/ui/Sheet'
@@ -22,6 +22,7 @@ import { OpenedFileChangedError, phoneOpenPlan, readWholeOpenedFile } from './op
 import { readOpenedFileChunk, SessionpageRpcError } from './sessionpage-rpc'
 
 const log = rendererLogger('mobile/opened-output')
+type FileOpenSource = Parameters<NonNullable<ChatCommands['onOpenFile']>>[0]['source']
 
 type Preview = {
   path: string
@@ -46,7 +47,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote, readFileCh
   readFileChunk?: (input: import('@gugu/session-core/session-record/contract').SessionpageOpenedFileReadRequest) => Promise<import('@gugu/session-core/session-record/contract').SessionpageOpenedFileChunk>
 }): {
   handlers: OpenedOutputHandlers
-  openFile: (path: string) => void
+  openFile: (path: string, source?: FileOpenSource) => void
   panel: ReactNode
 } {
   const { t } = useTranslation('main')
@@ -82,9 +83,10 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote, readFileCh
   }, [path, previewKind, onQuote, close, toast])
 
   const describeFailure = useCallback(
-    (error: unknown): string => {
+    (error: unknown, source?: FileOpenSource): string => {
       if (error instanceof OpenedFileChangedError) return t('agentWatch.output.fileChanged')
       if (error instanceof SessionpageRpcError) {
+        if (error.code === 'not_opened') return t(source === 'diff' ? 'agentWatch.output.editedNotOpened' : 'agentWatch.output.notOpened')
         if (error.code === 'file_missing') return t('agentWatch.output.fileMissing')
         if (error.code === 'too_large') return t('agentWatch.output.tooLarge', { limit: formatBytes(OPENED_FILE_MAX_BYTES) })
       }
@@ -95,7 +97,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote, readFileCh
 
   /** 点整行(默认方式)与菜单里的「下载」共用:`download` = 读到就交给下载,不留预览页。 */
   const openOutput = useCallback(
-      (output: OpenedOutput, opts: { download?: boolean } = {}) => {
+      (output: OpenedOutput, opts: { download?: boolean; source?: FileOpenSource } = {}) => {
         const plan = phoneOpenPlan(output)
         if (plan.kind === 'machine-only') return
         if (plan.kind === 'browser') {
@@ -151,7 +153,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote, readFileCh
             if (request.signal.aborted || requestRef.current !== request) return
             requestRef.current = null
             log.warn({ error, path: plan.path }, 'opened file read failed')
-            setPreview({ path: plan.path, file, kind, blob: null, content: null, loading: false, error: describeFailure(error) })
+            setPreview({ path: plan.path, file, kind, blob: null, content: null, loading: false, error: describeFailure(error, opts.source) })
           })
       },
     [deviceId, sessionId, readFileChunk, releaseBlobUrl, describeFailure, t, toast],
@@ -241,9 +243,10 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote, readFileCh
     </Sheet>
   )
 
+  const openFile = useCallback((path: string, source?: FileOpenSource) => openOutput({ kind: 'file', path }, { source }), [openOutput])
   return {
     handlers,
-    openFile: path => openOutput({ kind: 'file', path }),
+    openFile,
     panel: (
       <>
         {sheet}

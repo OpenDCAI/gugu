@@ -117,7 +117,7 @@ export const noticeFooter = style({
  * 卡底的选项 = turn-outcome 的胶囊，只是会话栏窄了能折行（一行仍是 28 = 18 + 2×5）。量高按 `NOTICE_OPTION` 算折行；
  * 字族写明而不靠继承，因为量的就是这个字族。左右内距是胶囊自己的 10。
  */
-export const NOTICE_OPTION = { size: 13, weight: 500, lineH: 18, padX: 10, padY: 5 } as const;
+export const NOTICE_OPTION = { size: 14, weight: 500, lineH: 18, padX: 10, padY: 5 } as const;
 const wraps = {
   height: 'auto',
   maxWidth: '100%',

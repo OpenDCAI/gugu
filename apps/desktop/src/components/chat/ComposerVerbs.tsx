@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
-import { PluginIcon } from '../../session/renderer/lib/components/plugin-icon'
-import { setComposerVerb, useDefaultTaskAgent, type ComposerVerb } from '../../lib/composerVerbBridge'
+import { Zap } from '@/lib/icons'
+import { setComposerVerb, type ComposerVerb } from '../../lib/composerVerbBridge'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { platform } from '../../platform'
 import { useInChatSlot } from '../../lib/shellSlots'
@@ -24,7 +24,6 @@ export function ComposerVerbs({ chatId, isGroupChat, draft, onCarried }: {
   const { t } = useTranslation('messaging')
   const { chats } = useChatStore('chats')
   const inSlot = useInChatSlot()
-  const taskAgent = useDefaultTaskAgent()
   if (!chatId || !platform.capabilities.sessionHost) return null
   const pick = (verb: ComposerVerb) => {
     if (inSlot) {
@@ -41,7 +40,7 @@ export function ComposerVerbs({ chatId, isGroupChat, draft, onCarried }: {
     <span data-composer-verbs="" className={inSlot ? 'flex shrink-0 items-center' : 'flex h-[42px] shrink-0 items-center gap-1'} style={inSlot ? SLOT_VERBS_STYLE : undefined}>
       {(inSlot || isGroupChat) && (
         <Button variant="ghost" size="sm" data-testid="composer-verb-task" aria-label={t('composer.verb.task')} title={t('composer.verb.task')} onClick={() => pick('task')}>
-          {taskAgent ? <PluginIcon id={taskAgent.id} icon={taskAgent.icon} size={14} /> : null}<span>{t('composer.verb.task')}</span>
+          <Zap size={14} /><span>{t('composer.verb.task')}</span>
         </Button>
       )}
     </span>

@@ -19,6 +19,7 @@ import { getSupabaseAnonKey, getSupabaseUrl } from '../../cloud/config'
 import { normalizeAgentType, type AgentType } from '../../agentTypes'
 import type { AgentActivityStatus } from '../../shared/types/chat'
 import type { AgentStatusReading } from '../../shared/agentStatus'
+import { isTransientNetworkError, transientNetworkErrorCode } from '../../shared/networkError'
 import { AGENT_INIT_HELD_TIMEOUT_MS } from '../../shared/enums/deviceModels'
 import { getAgent, listAgents, archiveAgents, removeAgents, updateAgent, cachedProviderSessionId, type LocalAgentRecord } from '../state/agents'
 import { agentOwnerUserId, agentsForOwner } from '../state/agentOwner'
@@ -228,6 +229,8 @@ export interface AgentRuntimeBridge {
    * 明确的通道原子判决)。queued-only admission 必须由注入口响亮失败,不能推进游标。真基础设施错误照旧 THROW。❌ 无 pty 回落。
    */
   injectAgentInbox?(input: AgentInboxInjectionInput): Promise<AgentInboxInjectionResult>
+  rejectAgentInbox?(input: AgentInboxInjectionInput, cause: unknown): Promise<void>
+  queuesAgentInbox?(agentUserId: string): boolean
   /** Local session-direct outbox projected into the common inbox reader. */
   fetchLocalSessionDirectInbox?(agentUserId: string): Promise<AgentInboxUnreadRow[]>
   /** Inbox rows this agent's session queue already holds (see AgentInboxReaderDeps.claimedSources). */
@@ -610,22 +613,6 @@ export async function handleAgentCreateDeviceCommand(
   }
 }
 
-function transientNetworkErrorCode(err: unknown): string | null {
-  const direct = (err as { code?: unknown } | null | undefined)?.code
-  if (typeof direct === 'string' && direct) return direct
-  const cause = (err as { cause?: { code?: unknown } } | null | undefined)?.cause
-  return typeof cause?.code === 'string' && cause.code ? cause.code : null
-}
-
-function isTransientNetworkError(err: unknown): boolean {
-  const code = transientNetworkErrorCode(err)
-  if (code && /^(?:EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|ECONNRESET|ECONNREFUSED|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT)$/i.test(code)) {
-    return true
-  }
-  const message = err instanceof Error ? err.message : String(err ?? '')
-  return /\bfetch failed\b|\bnetwork error\b|\bsocket hang up\b|\bconnection (?:reset|refused|timed out)\b/i.test(message)
-}
-
 // 自命令创建起是否仍在「容许重试」窗口内(held 把命令 requeue 到 pending,created_at 不变 → now-created
 // 随重试增长,超时即不再 held、落终态)。无 created_at 时保守允许重试(由 orphan 回收 + tick 节流兜底)。
 function withinAgentInitHeldWindow(commandCreatedAt: string | undefined, now: number): boolean {
@@ -740,6 +727,8 @@ export function agentInboxDepsFromBridge(input: {
     ...(input.ownerUserId ? { ownerUserId: input.ownerUserId } : {}),
     ...(input.env ? { env: input.env } : {}),
     inject: (injection) => bridge.injectAgentInbox!(injection),
+    ...(bridge.rejectAgentInbox ? { recordFailure: (injection: AgentInboxInjectionInput, cause: unknown) => bridge.rejectAgentInbox!(injection, cause) } : {}),
+    ...(bridge.queuesAgentInbox ? { queuesInbox: (agentUserId: string) => bridge.queuesAgentInbox!(agentUserId) } : {}),
     // 论坛来源:被指派到帖子上的事,与聊天同一个读者、同一批触发。
     fetchForumUnread: (agentUserId: string) => fetchForumUnreadViaRpc(agentUserId, input.accessToken),
     ...(bridge.fetchLocalSessionDirectInbox

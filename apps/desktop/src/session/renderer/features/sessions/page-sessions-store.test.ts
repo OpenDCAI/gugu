@@ -143,6 +143,33 @@ describe('PageSessionsStore four-state status projection', () => {
     store.dispose();
   });
 
+  it('reconciles the host status and interruption reason after reconnect', () => {
+    const store = makeStore();
+    const conv = store.sessions.get('c1')!;
+    const data = conv.data;
+    conv.applyStatus({ reading: { status: 'working', detail: 'running' }, unseen: false, statusSourceFault: 'retained fault' });
+    expect(conv.groupStatus).toBe('working');
+
+    store.reconcile([{
+      ...data,
+      agentStatus: 'error',
+      agentStatusDetail: null,
+      agentStatusSeen: false,
+      interruptedBy: 'update',
+    }]);
+
+    expect(store.sessions.get('c1')).toBe(conv);
+    expect(conv.data).toBe(data);
+    expect(conv.status).toBe('error');
+    expect(conv.detail).toBeNull();
+    expect(conv.seen).toBe(false);
+    expect(conv.groupStatus).toBe('error');
+    expect(conv.indicatorStatus).toBe('error');
+    expect(conv.data.interruptedBy).toBe('update');
+    expect(conv.statusSourceFault).toBe('retained fault');
+    store.dispose();
+  });
+
   it('needs_user outranks idle in the task rollup', () => {
     const store = new PageSessionsStore('project-1', 'session-1', [
       { id: 'c1', projectId: 'project-1', providerId: 'codex', title: 'A', lastInteractedAt: null },

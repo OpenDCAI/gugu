@@ -199,6 +199,8 @@ export default {
     },
     "output": {
       "machineOnly": "只能在那台电脑上打开",
+      "notOpened": "这条会话还没打开过这个文件。",
+      "editedNotOpened": "agent 改过 · 请在电脑上打开",
       "fileMissing": "文件已经不在那台电脑上了。",
       "fileChanged": "读的时候文件被改了，再点一次。",
       "tooLarge": "文件太大，手机上最多看 {{limit}}。",
@@ -480,6 +482,7 @@ export default {
       "account": "我的",
       "preferences": "偏好",
       "work": "工作",
+      "diagnostics": "诊断",
       "about": "关于"
     },
     "nav": {

@@ -1,4 +1,4 @@
-import { FolderClosed, Plus, ShieldAlert, TriangleAlert } from '@/lib/icons'
+import { FolderClosed, ShieldAlert, TriangleAlert, Zap } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import React, { useCallback, useEffect } from 'react';
 import { useConfirmDeleteProject } from '@renderer/features/projects/hooks/use-confirm-delete-project';
@@ -26,7 +26,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/toolti
 import { cn } from '@renderer/utils/utils';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
-import { HOME_PROJECT_LABEL } from '@renderer/features/remote-hosts/machine-home';
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { ProjectNeedsYouDot, ProjectRowTitle } from './project-row-parts';
 import { SidebarUnreadCount } from './sidebar-list-switch';
@@ -112,41 +111,21 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   );
 
   if (!project) return null;
-  // #6264 别的机器上的项目:行上标机器名;没连上时整行灰掉(项目照样列着)。
-  const machine = remoteHostsStore.machineOfProject(projectId);
-  const machineState = machine ? remoteHostsStore.connectionState(machine.id) : null;
-  const singleMachineDown = !!machine && machineState !== 'connected';
-
   const ProjectIcon = FolderClosed;
-  // #6264 别的机器的主目录项目叫「~」(后面挨着机器名);还没有主目录项目时由那台机器的任务工作区代位,
-  // 在这一行上新建 = 去新建页、预选那台机器(没选项目 = 落在它的主目录项目里)。
-  const isHomeRow = sidebarStore.homeLayout.homeRows.has(projectId);
   const deviceIds = [...new Set(sidebarStore.projectMembersOf(projectId).map((id) => machineRegistry.machineOf(id) ?? null))];
-  const machineDown = isHomeRow ? singleMachineDown : deviceIds.every((id) => id !== null && remoteHostsStore.connectionState(id) !== 'connected');
+  const machineDown = deviceIds.every((id) => id !== null && remoteHostsStore.connectionState(id) !== 'connected');
   const deviceLabels = deviceIds.map((id) => id ? remoteHostsStore.device(id)?.label ?? id : translate('task.deviceLocal'));
-  const standInDevice = sidebarStore.homeLayout.standIns.get(projectId) ?? null;
-  // 旧的助理主目录组只保护那一行;同一设备上的真实项目使用正常的打开、新建和移除入口。
-  const assistantGroup = machine?.assistantHome === true && isHomeRow;
-  // #7341 第二步:并在这一行里的、别的机器上的同一个项目所在的机器。
-  const projectLabel = assistantGroup ? machine.label : isHomeRow ? HOME_PROJECT_LABEL : (project.name ?? 'project');
-  // spec session-page-remote: 同名歧义以完整路径作次级文本区分——仅当另有同名的一行时显示,常态零噪音。
-  const hasNameTwin = !isHomeRow && sidebarStore.hasNameTwin(projectId);
-  const openHomeComposer = (deviceId: string) => {
-    remoteHostsStore.requestNewSession(deviceId, null);
-    navigate('new-session');
-  };
+  const projectLabel = project.name ?? 'project';
+  const hasNameTwin = sidebarStore.hasNameTwin(projectId);
   const disambiguationPath = hasNameTwin ? project.data?.path : undefined;
-  // spec session-page 微决策: first click selects the project (home view + expand); clicking the
-  // already-selected project row toggles its collapse — the row is the second collapse affordance
-  // beside the folder/chevron button (why B saw "active project won't collapse": B clicked the row).
+  // Opening a project never changes disclosure; only its arrow or the explicit keyboard action does.
   const openProject = (beside = false) => {
     // behavior session-page「键盘导航」: the project row is a station too, so a click moves the cursor
     // onto it — ↓ afterwards continues from here.
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
     // ⌘ 点 = 项目块拼到正看着那块右边(gugu-dev#181:项目是一块,和会话行同一个手势)。
-    if (beside && isScreenView(appState.navigation.currentViewId) && !standInDevice && !assistantGroup) {
+    if (beside && isScreenView(appState.navigation.currentViewId)) {
       showBesideOnScreen({ kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) });
-      sidebarStore.ensureProjectExpanded(projectId);
       return;
     }
     if (isProjectActive) {
@@ -154,29 +133,20 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
       const chatId = projectGroupsStore.chatIdOf(sidebarStore.rowProjectIdOf(projectId));
       if (chatId && readComposerVerb(chatId) === 'task') {
         if (!composerDrafts.get(projectDraftKey(projectId)).trim()) setComposerVerb(chatId, null);
-        sidebarStore.ensureProjectExpanded(projectId);
         return;
       }
-      sidebarStore.toggleProjectExpanded(projectId);
-      return;
-    }
-    if (standInDevice || assistantGroup) {
-      sidebarStore.toggleProjectExpanded(projectId);
       return;
     }
     navigate('project', { projectId });
-    sidebarStore.ensureProjectExpanded(projectId);
   };
 
   // The project-row action opens the existing project-scoped composer. It must not eagerly
   // create the session page's backing task; that happens only after the user submits the composer.
   const openNewSession = () => {
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
-    if (standInDevice) return openHomeComposer(standInDevice);
     // gugu-dev#181 悬停的「+」= 在这个项目里开新任务。
     prepareProjectTask(projectId);
     if (!isProjectActive) navigate('project', { projectId });
-    sidebarStore.ensureProjectExpanded(projectId);
   };
 
   const projectCursor = sessionKeyboardNav.cursor;
@@ -206,8 +176,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   };
 
   return (
-    // 代位的是那台机器的任务工作区,移除它会让那些会话无处可挂:这一行没有「移除」菜单。
-    <ProjectRowContextMenu disabled={!!standInDevice || assistantGroup} chatId={groupChatId}
+    <ProjectRowContextMenu disabled={false} chatId={groupChatId}
       onRemove={() => {
         void confirmDeleteProject({
           projectId,
@@ -229,7 +198,6 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
           isActive={isProjectActive}
           isCursor={isProjectCursor}
           data-project-row={projectId}
-          data-remote-device={isHomeRow ? machine?.id : undefined}
           data-offline={machineDown || undefined}
           tabIndex={0}
           role="treeitem"
@@ -246,6 +214,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
               但与会话行不同形 —— 同一条侧栏两种折叠惯用法(owner 2026-09-07:「项目行的折叠要统一」)。
               换过来之后文件夹图标常驻不再消失,箭头有自己的位置。 */}
           <SidebarTwistyLane
+            alwaysVisible
             expanded={isExpanded}
             label={translate(isExpanded ? 'sidebar.collapseProject' : 'sidebar.expandProject', { project: projectLabel })}
             onToggle={
@@ -268,7 +237,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
                   'text-foreground-muted'
               )}
             >
-              <ProjectRowTitle name={isHomeRow ? projectLabel : project.name}>
+              <ProjectRowTitle name={project.name}>
                 {disambiguationPath ? (
                   <span title={disambiguationPath} className="text-foreground-muted min-w-0 max-w-[40%] shrink-[3] truncate text-xs">
                     {disambiguationPath}
@@ -292,7 +261,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
                 )}
               </ProjectRowTitle>
             </SidebarMenuAction>
-            {!isHomeRow && deviceIds.length > 1 ? (
+            {deviceIds.length > 1 ? (
               <span className="shrink-0 text-xs font-normal text-foreground-passive" title={deviceLabels.join(' · ')} data-testid="project-device-count">
                 {translate('projects.folders.deviceCount', { count: deviceIds.length })}
               </span>
@@ -300,7 +269,6 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
             {!isExpanded && <ProjectNeedsYouDot count={needsYouCount} />}
           </div>
           <SidebarUnreadCount count={groupUnread} />
-          {assistantGroup ? null : (
             <Tooltip>
               <TooltipTrigger
                 className="h-6"
@@ -318,13 +286,12 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
                     }}
                     disabled={project.state === 'unregistered'}
                   >
-                    <Plus className="h-4 w-4" />
+                    <Zap className="h-4 w-4" />
                   </SidebarItemMiniButton>
                 }
               />
               <TooltipContent>{translate('sidebar.newSession')}</TooltipContent>
             </Tooltip>
-          )}
         </SidebarMenuRow>
     </ProjectRowContextMenu>
   );

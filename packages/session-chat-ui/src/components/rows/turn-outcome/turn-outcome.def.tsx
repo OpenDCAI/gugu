@@ -150,6 +150,7 @@ type CancelledReason = NonNullable<OutcomeOf<'cancelled'>['reason']>;
  * 所以 ACP 新增枚举值时这里会红，而不是把标识符漏给用户。
  */
 const ERROR_REASON_KEY: Record<ErrorReason, ChatTranslationKey> = {
+  send_failed: 'transcript.reasonSendFailed',
   prompt_failed: 'transcript.reasonPromptFailed',
   process_closed: 'transcript.reasonProcessClosed',
   spawn_failed: 'transcript.reasonSpawnFailed',
@@ -227,18 +228,25 @@ function detailBandHeight(detail: string | null): number {
  * 任何 chrome，由 `outcomeBadge` 负责）。停止这一支的原因文案**自己就把两件事都点了名**：
  * 范围（这一轮）与原因（你停的）⇒ 它就是这一行的全部说辞，通用标签在它旁边不增加任何信息。
  *
- * ⚠️ 其余各支**不能照此收掉标签**：`product spec…/task-chat-ui/spec.md` 立的判据是「收尾行不画字形，
+ * send_failed 同样只有一截：「发送失败」自己说明了消息的范围和结果，条件行另说原因与重试。
+ * ⚠️ 其它错误**不能照此收掉标签**：`product spec…/task-chat-ui/spec.md` 立的判据是「收尾行不画字形，
  * 因为它的文案自己点了名——说的是**这一轮**怎么了」。而「配置未能应用」「未能载入已有会话」
  * 这些原因说的是**哪件事**失败，没说这一轮到此为止 ⇒ 收掉「回合失败」就会把那条判据的前提抽走。
- * 于是它们是「说辞 · 原因」两截，只有 cancelled 是一截。
+ * 于是它们是「说辞 · 原因」两截，只有 cancelled 和 send_failed 是一截。
  */
 function badgeParts(
   outcome: TranscriptTurnOutcome,
   translate: ChatTranslator
 ): { label: string; reason: string | null } {
   const reason = reasonText(outcome, translate);
-  if (outcome.kind === 'cancelled' && reason) return { label: reason, reason: null };
+  if ((outcome.kind === 'cancelled' || (outcome.kind === 'error' && outcome.reason === 'send_failed')) && reason) return { label: reason, reason: null };
   return { label: outcomeLabel(outcome, translate), reason };
+}
+
+/** The host still owns an unsent input: restoring it would create a second send. Shared by DOM and measurement. */
+function hasRestorablePrompt(data: TurnOutcomeItem): boolean {
+  return Boolean(data.prompt) && data.outcome.kind !== 'cancelled'
+    && !(data.outcome.kind === 'error' && data.outcome.reason === 'send_failed');
 }
 
 function outcomeLaneLayout(data: TurnOutcomeItem, ctx: import('@session-chat/core/define').MeasureCtx) {
@@ -258,7 +266,7 @@ function outcomeLaneLayout(data: TurnOutcomeItem, ctx: import('@session-chat/cor
   if (outcome.kind === 'cancelled' && outcome.reason !== 'interrupted_for_message') {
     if (commands?.onContinueTurn) actions.push(actionWidth(t('transcript.continueTurn'), true));
     actions.push(actionWidth(t('transcript.discardTurn')));
-  } else if (outcome.kind !== 'cancelled' && !refused?.action && data.prompt && commands?.onRestorePrompt) actions.push(actionWidth(t('transcript.restorePrompt'), true));
+  } else if (hasRestorablePrompt(data) && !refused?.action && commands?.onRestorePrompt) actions.push(actionWidth(t('transcript.restorePrompt'), true));
   const rule = outcome.kind !== 'cancelled' ? [{ width: 8, height: 1 }] : [];
   const wrapped = badgeWidth + actions.reduce((sum, value) => sum + value + 8, 0) + (rule.length ? 16 : 0) > ctx.width;
   const height = wrappedRowHeight([{ width: badgeWidth, height: badgeHeight }, ...rule, ...actions.map(width => ({ width, height: 28 }))], ctx.width, 8, 4);
@@ -293,7 +301,8 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
     const isCancelled = () => props.data.outcome.kind === 'cancelled';
     // 为插话停下的一轮:下一轮就是接着干(那条消息),所以❌ 没有「继续 / 丢弃」可言。
     const isUserStopped = () =>
-      props.data.outcome.kind === 'cancelled' && props.data.outcome.reason !== 'interrupted_for_message';
+      props.data.outcome.kind === 'cancelled' && props.data.outcome.reason !== 'interrupted_for_message'
+      && commands().isLatestTurn?.(props.data.turnId) !== false;
     // #7103 咕咕拒了这一轮的票:原因那一截与那颗按钮都由宿主按原因表给。
     const refusal = () => {
       const outcome = props.data.outcome;
@@ -327,7 +336,7 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
       // ⚠️ 被停止那一支**不出这颗**。上游 stopped-run 的 lane 上只有 Continue 与 Discard，
       // 而「取回指令」是本仓给 error-state 那一族做的东西 —— 把它塞进 stopped-run 的位置，
       // 就是拿自家控件顶掉上游的设计。owner 连下四次「严格遵循人家的设计」，指的正是这里。
-      if (isCancelled() || refusal()?.action) return null;
+      if (!hasRestorablePrompt(props.data) || refusal()?.action) return null;
       const text = props.data.prompt;
       if (!text) return null;
       const restore = commands().onRestorePrompt;

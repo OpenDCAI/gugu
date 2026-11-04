@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
-import { imSelectors, openImRepository as openRawRepository } from '../../../../apps/desktop/src/lib/imRepository'
+import { imSelectors, openImRepository as openRawRepository, type ImRepositoryTransaction } from '../../../../apps/desktop/src/lib/imRepository'
+import { readMessageCreatedRevision } from '../../../../apps/desktop/src/lib/accountRevisionCoordinator'
 import {
   ACCOUNT_REVISION_CURSOR_KEY,
   DRAIN_RETRY_DELAYS_MS,
@@ -10,6 +11,8 @@ import {
   type AccountRevisionPage,
   type AccountRevisionSource,
 } from '../../../../apps/desktop/src/lib/accountRevisionRuntime'
+
+const ACCOUNT_REVISION_SKIPPED_KEY = 'account-revision-skipped'
 
 async function openImRepository(...args: Parameters<typeof openRawRepository>) {
   const repository = await openRawRepository(...args)
@@ -40,7 +43,7 @@ describe('AccountRevisionRuntime', () => {
   let syncSince: ReturnType<typeof vi.fn<AccountRevisionSource['syncSince']>>
   let source: AccountRevisionSource
 
-  afterEach(() => vi.useRealTimers())
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
   beforeEach(() => {
     wake = null
@@ -54,6 +57,124 @@ describe('AccountRevisionRuntime', () => {
         return unsubscribe
       }),
     }
+  })
+
+  it('u1 skips unknown events, remembers their first revision and warns once per runtime', async () => {
+    const repository = await openImRepository('account-a', { adapter: createMemoryLocalSyncDb() })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const operations = [operation(1, 'known'), operation(2, 'future'), operation(3, 'known'), operation(4, 'future'), operation(5, 'future')]
+    syncSince.mockImplementation(async (cursor, limit) => {
+      const remaining = operations.filter((item) => BigInt(item.revision) > BigInt(cursor))
+      return page(remaining.slice(0, limit), remaining.length > limit)
+    })
+    const runtime = createAccountRevisionRuntime('account-a', repository, source, 3)
+    runtime.register('known', (item, transaction) => transaction.putView(`known:${item.revision}`, true))
+    runtime.start()
+    await runtime.whenIdle()
+    expect(repository.snapshot().view.map((row) => row.key)).toEqual(['known:1', 'known:3'])
+    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toEqual({ revision: '5' })
+    expect(imSelectors.syncState(ACCOUNT_REVISION_SKIPPED_KEY)(repository.snapshot())).toEqual({ future: '2' })
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('skipping unknown'), { accountId: 'account-a', event: 'future', revision: '2' })
+    runtime.stop()
+  })
+
+  it('u2 still rejects a known malformed message and rolls back the page', async () => {
+    const repository = await openImRepository('account-a', { adapter: createMemoryLocalSyncDb() })
+    syncSince.mockResolvedValue(page([
+      operation(1, 'message_created', { chat_id: 'chat', entity_id: 'one', message: { id: 'one' } }),
+      operation(2, 'message_created', { chat_id: 'chat', entity_id: 'two', message: { id: 'wrong' } }),
+    ]))
+    const runtime = createAccountRevisionRuntime('account-a', repository, source)
+    runtime.register('message_created', (item, transaction) => transaction.putView(item.revision, readMessageCreatedRevision(item.payload)))
+    runtime.start()
+    await expect(runtime.whenIdle()).rejects.toThrow('message_created revision has malformed message')
+    expect(repository.snapshot().view).toEqual([])
+    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toEqual({ revision: '0' })
+    expect(imSelectors.syncState(ACCOUNT_REVISION_SKIPPED_KEY)(repository.snapshot())).toBeUndefined()
+    runtime.stop()
+  })
+
+  it('u3 replays only newly recognized events across pages on upgrade and removes only their records', async () => {
+    const repository = await openImRepository('account-a', { adapter: createMemoryLocalSyncDb() })
+    const operations = [operation(1, 'known'), operation(2, 'future'), operation(3, 'known'), operation(4, 'later'), operation(5, 'future'), operation(6, 'known')]
+    syncSince.mockImplementation(async (cursor, limit) => {
+      const remaining = operations.filter((item) => BigInt(item.revision) > BigInt(cursor))
+      return page(remaining.slice(0, limit), remaining.length > limit)
+    })
+    const old = createAccountRevisionRuntime('account-a', repository, source, 2)
+    old.register('known', (item, transaction) => transaction.putView(`known:${item.revision}`, true))
+    old.start()
+    await old.whenIdle()
+    old.stop()
+    const known = vi.fn(), future = vi.fn((item: AccountRevisionOperation, transaction: ImRepositoryTransaction) => transaction.putView(`future:${item.revision}`, true))
+    const upgraded = createAccountRevisionRuntime('account-a', repository, source, 2)
+    upgraded.register('known', known)
+    upgraded.register('future', future)
+    upgraded.start()
+    await upgraded.whenIdle()
+    expect(future.mock.calls.map(([item]) => item.revision)).toEqual(['2', '5'])
+    expect(known).not.toHaveBeenCalled()
+    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toEqual({ revision: '6' })
+    expect(imSelectors.syncState(ACCOUNT_REVISION_SKIPPED_KEY)(repository.snapshot())).toEqual({ later: '4' })
+    expect(repository.snapshot().view.map((row) => row.key)).toEqual(['known:1', 'known:3', 'known:6', 'future:2', 'future:5'])
+    upgraded.stop()
+  })
+
+  it('u4 commits skipped positions and the normal cursor atomically', async () => {
+    const adapter = createMemoryLocalSyncDb()
+    const repository = await openImRepository('account-a', { adapter })
+    const commit = vi.spyOn(adapter, 'commit').mockRejectedValueOnce(new Error('commit interrupted'))
+    syncSince.mockResolvedValue(page([operation(1, 'future')]))
+    const runtime = createAccountRevisionRuntime('account-a', repository, source)
+    runtime.start()
+    await expect(runtime.whenIdle()).rejects.toThrow('commit interrupted')
+    expect(commit.mock.calls[0]![0]).toEqual(expect.arrayContaining([
+      { type: 'put', store: 'sync_state', value: { accountId: 'account-a', key: ACCOUNT_REVISION_SKIPPED_KEY, value: { future: '1' } } },
+      { type: 'put', store: 'sync_state', value: { accountId: 'account-a', key: ACCOUNT_REVISION_CURSOR_KEY, value: { revision: '1' } } },
+    ]))
+    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toEqual({ revision: '0' })
+    expect(imSelectors.syncState(ACCOUNT_REVISION_SKIPPED_KEY)(repository.snapshot())).toBeUndefined()
+    expect((await adapter.loadAccount('account-a')).sync_state).toEqual([{ accountId: 'account-a', key: ACCOUNT_REVISION_CURSOR_KEY, value: { revision: '0' } }])
+    runtime.stop()
+  })
+
+  it('u5 keeps IM writes available during replay and retains skipped positions until a failed replay is completed', async () => {
+    const repository = await openImRepository('account-a', { adapter: createMemoryLocalSyncDb() })
+    await repository.transaction((transaction) => {
+      transaction.putSyncState(ACCOUNT_REVISION_CURSOR_KEY, { revision: '4' })
+      transaction.putSyncState(ACCOUNT_REVISION_SKIPPED_KEY, { future: '1' })
+    })
+    const operations = [operation(1, 'future'), operation(2, 'known'), operation(3, 'future'), operation(4, 'known')]
+    const second = deferred<AccountRevisionPage>()
+    syncSince.mockImplementation(async (cursor) => cursor === '0' ? page(operations.slice(0, 2), true) : cursor === '2' ? second.promise : page([]))
+    const runtime = createAccountRevisionRuntime('account-a', repository, source, 2)
+    const future = (item: AccountRevisionOperation, transaction: ImRepositoryTransaction) => transaction.putView(`future:${item.revision}`, true)
+    runtime.register('future', future)
+    runtime.start()
+    await vi.waitFor(() => expect(syncSince).toHaveBeenCalledWith('2', 2, expect.any(AbortSignal)))
+    await repository.transaction((transaction) => transaction.putView('concurrent-write', true))
+    expect(imSelectors.view('concurrent-write')(repository.snapshot())).toBe(true)
+    expect(imSelectors.view('future:1')(repository.snapshot())).toBe(true)
+    expect(imSelectors.syncState(ACCOUNT_REVISION_SKIPPED_KEY)(repository.snapshot())).toEqual({ future: '1' })
+    second.reject(new Error('second replay page unavailable'))
+    await expect(runtime.whenIdle()).rejects.toThrow('second replay page unavailable')
+    runtime.stop()
+    expect(imSelectors.syncState(ACCOUNT_REVISION_SKIPPED_KEY)(repository.snapshot())).toEqual({ future: '1' })
+    syncSince.mockImplementation(async (cursor, limit) => {
+      const remaining = operations.filter((item) => BigInt(item.revision) > BigInt(cursor))
+      return page(remaining.slice(0, limit), remaining.length > limit)
+    })
+    const restarted = createAccountRevisionRuntime('account-a', repository, source, 2)
+    const known = vi.fn()
+    restarted.register('future', future)
+    restarted.register('known', known)
+    restarted.start()
+    await restarted.whenIdle()
+    expect(known).not.toHaveBeenCalled()
+    expect(repository.snapshot().view.map((row) => row.key)).toEqual(['future:1', 'concurrent-write', 'future:3'])
+    expect(imSelectors.syncState(ACCOUNT_REVISION_SKIPPED_KEY)(repository.snapshot())).toEqual({})
+    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toEqual({ revision: '4' })
+    restarted.stop()
   })
 
   it('requires a snapshot before a missing cursor can consume any journal page', async () => {
@@ -72,7 +193,7 @@ describe('AccountRevisionRuntime', () => {
         operation(1, 'chat_changed', { id: 'chat-1', name: 'Chat One' }),
         operation(2, 'message_changed', { id: 'message-1', chatId: 'chat-1' }),
       ], true))
-      .mockResolvedValueOnce(page([operation(3, 'unknown_operation')]))
+      .mockResolvedValueOnce(page([operation(3, 'bad_operation')]))
 
     const runtime = createAccountRevisionRuntime('account-a', repository, source)
     runtime.register('chat_changed', (item, transaction) => {
@@ -84,8 +205,9 @@ describe('AccountRevisionRuntime', () => {
       transaction.putView(`message:${payload.id}`, payload)
     })
 
+    runtime.register('bad_operation', () => { throw new Error('invalid revision payload') })
     runtime.start()
-    await expect(runtime.whenIdle()).rejects.toThrow('unknown account revision event: unknown_operation')
+    await expect(runtime.whenIdle()).rejects.toThrow('invalid revision payload')
 
     expect(repository.snapshot().view.map((row) => row.key)).toEqual(['chat:chat-1', 'message:message-1'])
     expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toEqual({ revision: '2' })
@@ -119,13 +241,16 @@ describe('AccountRevisionRuntime', () => {
   it('accepts a later wake after a failed drain instead of poisoning the owner chain', async () => {
     const repository = await openImRepository('account-a', { adapter: createMemoryLocalSyncDb() })
     syncSince
-      .mockResolvedValueOnce(page([operation(1, 'unknown')]))
+      .mockResolvedValueOnce(page([operation(1, 'changed', { malformed: true })]))
       .mockResolvedValueOnce(page([operation(1, 'changed')]))
     const runtime = createAccountRevisionRuntime('account-a', repository, source)
-    runtime.register('changed', (item, transaction) => transaction.putView('seen', item.revision))
+    runtime.register('changed', (item, transaction) => {
+      if ((item.payload as { malformed?: boolean }).malformed) throw new Error('invalid revision payload')
+      transaction.putView('seen', item.revision)
+    })
 
     runtime.start()
-    await expect(runtime.whenIdle()).rejects.toThrow('unknown account revision event: unknown')
+    await expect(runtime.whenIdle()).rejects.toThrow('invalid revision payload')
     runtime.wake()
     await runtime.whenIdle()
 

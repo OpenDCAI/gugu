@@ -60,9 +60,10 @@ export interface AgentStatusPresentation {
   emphasis: boolean
 }
 
-/** 「需要你」:在等你批准 / 回答 / 看计划 / 处理对话框。侧栏分组与 Needs You 列表只收它;出错留在自己那一行(#1143)。 */
-export function isNeedsYou(presentation: AgentStatusPresentation | null | undefined): boolean {
-  return presentation?.tone === 'needs_user'
+/** 被动「需要你」列表与项目计数:等待人操作或任务失败。系统通知另按等待状态判定(#1165)。 */
+export function isNeedsYou(presentation: AgentStatusPresentation | null | undefined, hostOnline = true): boolean {
+  // Offline waits and errors remain visible on the row, but do not request attention in totals or filters.
+  return hostOnline && presentationAttention(presentation) !== null
 }
 
 /** 要人来处理:需要你或出错(与 `mostUrgentAttention` 同一个词)。行尾、头像角标这类提醒标记读它。 */

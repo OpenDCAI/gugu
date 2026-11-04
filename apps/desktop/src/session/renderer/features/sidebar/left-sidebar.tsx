@@ -1,11 +1,9 @@
-import { Clock, FolderInput, History, SquarePen } from '@/lib/icons'
+import { Clock, FolderInput, History, Zap } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import React from 'react';
 import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { useAssistantShell } from '@renderer/features/assistant/assistant-shell';
-import { localHomeSessions } from '@renderer/features/assistant/assistant-home-sessions';
-import { isAssistantSession } from '@renderer/features/assistant/assistant-lineage';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
 import {
@@ -14,7 +12,6 @@ import {
   useWorkspaceSlots,
 } from '@renderer/lib/layout/navigation-provider';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
-import { log } from '@renderer/utils/logger';
 import { cn } from '@renderer/utils/utils';
 import { SidebarPinnedSessionList } from './pinned-session-list';
 import { ProjectsGroupLabel } from './projects-group-label';
@@ -79,25 +76,6 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
   React.useEffect(() => {
     sidebarStore.setAssistantAgentId(assistantAgentId);
   }, [assistantAgentId]);
-  // 住在这台电脑上:它自己那条会话在哪个项目里(它的工作目录),那一行项目也不单列。读本机会话列表,只在住这台时问。
-  const assistantOnThisComputer = assistantShell?.home?.kind === 'computer' && assistantShell.home.thisDevice;
-  React.useEffect(() => (assistantOnThisComputer ? localHomeSessions.use() : undefined), [assistantOnThisComputer]);
-  const assistantHomeProjectId = assistantOnThisComputer
-    ? localHomeSessions.sessions.find((session) => isAssistantSession(session, assistantAgentId))?.projectId ?? null
-    : null;
-  React.useEffect(() => {
-    sidebarStore.setAssistantHomeProjectId(assistantHomeProjectId);
-  }, [assistantHomeProjectId]);
-  // Its project row is hidden, so expanding a row cannot load these sessions. Open the existing
-  // local project for the session list even when the user has not visited the assistant App yet.
-  const assistantHomeProject = assistantHomeProjectId ? appState.projects.projects.get(assistantHomeProjectId) : null;
-  React.useEffect(() => {
-    if (!assistantHomeProjectId || !assistantHomeProject) return;
-    void appState.projects.ensureMounted(assistantHomeProjectId).catch((error) => {
-      log.warn('[assistant] could not open task sessions in the assistant home', { error: String(error) });
-    });
-  }, [assistantHomeProjectId, assistantHomeProject]);
-
   const agentNameOnHoverEnabled = interfaceSettings?.showLeftSidebarAgentNameOnHover ?? true;
   React.useEffect(() => {
     sidebarStore.setAgentNameOnHoverEnabled(agentNameOnHoverEnabled);
@@ -211,7 +189,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
                 )}
               >
                 <span className={cn('flex min-w-0 items-center gap-2', sidebarRowContentInsetX)}>
-                  <SquarePen className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" />
+                  <Zap className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" />
                   <span className="truncate">{translate('sidebar.newTask')}</span>
                 </span>
               </SidebarMenuButton>

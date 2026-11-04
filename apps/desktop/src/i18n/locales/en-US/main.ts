@@ -205,6 +205,8 @@ export default {
     },
     "output": {
       "machineOnly": "Opens only on that computer",
+      "notOpened": "This session hasn't opened this file yet.",
+      "editedNotOpened": "Edited by agent · Open on computer",
       "fileMissing": "The file is no longer on that computer.",
       "fileChanged": "The file changed while it was being read. Tap again.",
       "tooLarge": "The file is too large. The phone shows files up to {{limit}}.",
@@ -486,6 +488,7 @@ export default {
       "account": "Me",
       "preferences": "Preferences",
       "work": "Work",
+      "diagnostics": "Diagnostics",
       "about": "About"
     },
     "nav": {

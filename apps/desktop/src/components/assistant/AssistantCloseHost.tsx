@@ -29,6 +29,8 @@ import {
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { rendererLogger } from '../../lib/log'
 import { desktopIpc } from '../../platform/desktopIpc'
+import { machineRpc } from '../../mobile/agent-watch/sessionpage-rpc'
+import { clearServerAssistantSetup } from '../../lib/assistantServerSetup'
 import { useAuth } from '../../store/auth'
 import { useContactsStore } from '../../store/contactsContext'
 import { useDevicesStore } from '../../store/devicesContext'
@@ -40,6 +42,7 @@ const text = 'text-[length:var(--font-body)] leading-[1.5]'
 type Open = { assistantId: string; name: string } & (
   | { kind: 'local' }
   | { kind: 'cloud'; deviceId: string }
+  | { kind: 'server'; deviceId: string }
   | { kind: 'elsewhere'; device: string })
 
 export function AssistantCloseHost() {
@@ -62,7 +65,8 @@ export function AssistantCloseHost() {
         setOpen({ ...who, kind: 'cloud', deviceId: home.deviceId })
         return
       }
-      if (home.thisDevice) setOpen({ ...who, kind: 'local' })
+      if (home.hostKind === 'server') setOpen({ ...who, kind: 'server', deviceId: home.deviceId })
+      else if (home.thisDevice) setOpen({ ...who, kind: 'local' })
       else setOpen({ ...who, kind: 'elsewhere', device: home.label ?? t('home.thatComputer') })
     }
     window.addEventListener(UI_EVENTS.closeAssistant, onRequest)
@@ -72,8 +76,17 @@ export function AssistantCloseHost() {
   const localDeps = useMemo<LocalCloseDeps | null>(() => {
     if (!ownerUserId) return null
     const cloud = open?.kind === 'cloud' ? open : null
-    const target = cloud?.deviceId ?? null
+    const server = open?.kind === 'server' ? open : null
+    const target = server?.deviceId ?? cloud?.deviceId ?? null
+    const remote = () => server ? machineRpc(server.deviceId) : rpcOn(target)
     const checkCloud = async () => {
+      if (server) {
+        const row = (await listDevicesOnceIdentified()).find(device => device.device_id === server.deviceId)
+        if (!row?.is_online || row.capabilities.assistant_home_setup !== 1) throw new Error('assistant server is offline or needs updating')
+        const checked = await machineRpc(server.deviceId).assistantHome.checkClose({ ownerUserId, deviceId: server.deviceId, assistantId: server.assistantId })
+        if (!checked.ok) throw new Error(`assistant server close check failed: ${checked.error.code}`)
+        return
+      }
       if (!cloud) return
       const client = rendererCloudComputerClient()
       if (!client) throw new Error('cloud computer is not configured')
@@ -83,15 +96,20 @@ export function AssistantCloseHost() {
     }
     return {
       check: checkCloud,
-      listSessions: async () => (await rpcOn(target).sessionTimeline.sessionsList()).sessions,
-      listAutomations: () => rpcOn(target).automations.listAutomations(),
-      deleteAutomation: (id) => rpcOn(target).automations.deleteAutomation(id),
+      listSessions: async () => (await remote().sessionTimeline.sessionsList()).sessions,
+      listAutomations: () => remote().automations.listAutomations(),
+      deleteAutomation: (id) => remote().automations.deleteAutomation(id),
       removeAgent: (agentUserId) => removeOwnedAgent(agentUserId),
       archiveSession: async (projectId, sessionId) => {
-        const outcome = await rpcOn(target).sessions.archiveSession(projectId, sessionId, { withChildren: false, removeSocialIdentity: false })
+        const outcome = await remote().sessions.archiveSession(projectId, sessionId, { withChildren: false, removeSocialIdentity: false })
         if (outcome.unreached.length > 0) throw new Error(`archive did not reach ${outcome.unreached.length} machine(s)`)
       },
       wipeHome: async () => {
+        if (server) {
+          const result = await machineRpc(server.deviceId).assistantHome.wipe({ ownerUserId, deviceId: server.deviceId, assistantId: server.assistantId })
+          if (!result.ok) throw new Error(`assistant server cleanup failed: ${result.error.code}`)
+          return
+        }
         if (cloud) {
           const client = rendererCloudComputerClient()
           if (!client) throw new Error('cloud computer is not configured')
@@ -105,6 +123,7 @@ export function AssistantCloseHost() {
       },
       resetLocalState: () => {
         writeSetupStep(ownerUserId, null)
+        clearServerAssistantSetup(ownerUserId)
         retireCustomizeCard(ownerUserId)
         for (const record of assistantResumeStore.list(ownerUserId)) assistantResumeStore.forget(ownerUserId, record.operationId)
         moveJournalStore(ownerUserId).clear()

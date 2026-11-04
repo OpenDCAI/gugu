@@ -78,22 +78,57 @@ function session(
 // behavior session-page「会话列表与状态」: 二级分类(agent 状态分组)是一个可关的层。
 // 关掉 = 不出组头,会话按最后交互时间平铺成一条列表。
 describe('sidebar state groups toggle', () => {
-  it('counts only waits as needs-you and leaves errors in their ordinary rows', () => {
-    expect(sidebarStateGroup(presentAgentStatus({ reading: { status: 'error', detail: null } }))).toBeNull();
+  it('keeps offline wait/error marks without counting them in Needs you', () => {
+    for (const status of ['needs_user', 'error'] as const) {
+      const presentation = presentAgentStatus({ reading: { status, detail: null }, hostOnline: false });
+      expect(presentation?.tone).toBe(status);
+      expect(sidebarStateGroup(presentation)).toBe('needs-you');
+    }
+    for (const online of [false, true]) {
+      const projectId = 'remote-attention-project';
+      const store = new SidebarStore(projectManagerWith(projectId, 'remote-host'));
+      store.machines = {
+        machineOf: () => 'remote-host', label: () => 'remote-host', homeDir: () => '/work',
+        connected: () => online,
+        sessionsOf: () => ({ live: online, sessions: ['needs_user', 'error'].map(status => ({
+          conversationId: status, projectId, title: status, runtime: 'acp', harness: 'codex',
+          agentStatus: status, status: { status, detail: null }, supported: true, lastInteractedAt: null,
+        })) }),
+      };
+      expect(store.needsYouCountForProject(projectId)).toBe(online ? 2 : 0);
+      expect(store.placement.entries.get(projectId)?.map(entry => entry.group)).toEqual(['needs-you', 'needs-you']);
+    }
+  });
+  it('counts failures and waits together in the project Needs you badge (#1165)', () => {
+    expect(sidebarStateGroup(presentAgentStatus({ reading: { status: 'error', detail: null } }))).toBe('needs-you');
     expect(sidebarStateGroup(presentAgentStatus({ reading: { status: 'needs_user', detail: 'approval' } }))).toBe('needs-you');
     sessionRegistry.acquire('attention-task', 'attention-project', [
       session('attention-error', 'attention-project', 'error', '01'),
       session('attention-wait', 'attention-project', 'needs_user', '02'),
+      session('attention-running', 'attention-project', 'working', '03'),
+      session('attention-idle', 'attention-project', null, '04'),
     ] as never);
     const store = new SidebarStore(projectManagerWith('attention-project', 'attention-task'));
     try {
       store.ensureProjectExpanded('attention-project');
       store.setStateGroupsEnabled(true);
-      expect(store.needsYouCountForProject('attention-project')).toBe(1);
-      expect(store.projectsNeedYouCount).toBe(1);
+      expect(store.needsYouCountForProject('attention-project')).toBe(2);
+      expect(store.projectsNeedYouCount).toBe(2);
       expect(store.sidebarRows.filter((row) => row.kind === 'conversation').map((row) => row.sessionId))
         .toContain('attention-error');
     } finally { sessionRegistry.release('attention-task'); }
+  });
+
+  it.each([false, true])('counts an error-only project even with grouping=%s', (grouping) => {
+    sessionRegistry.acquire('failed-task', 'failed-project', [
+      session('failed-only', 'failed-project', 'error', '01'),
+    ] as never);
+    const store = new SidebarStore(projectManagerWith('failed-project', 'failed-task'));
+    try {
+      store.setStateGroupsEnabled(grouping);
+      expect(store.needsYouCountForProject('failed-project')).toBe(1);
+      expect(store.projectsNeedYouCount).toBe(1);
+    } finally { sessionRegistry.release('failed-task'); }
   });
 
   it('drops every state header and lists sessions newest-first when turned off', () => {

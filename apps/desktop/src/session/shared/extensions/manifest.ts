@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { EXTENSION_API_VERSION } from './bridge-protocol';
-import { networkHostAllowed } from './partition';
+import { WIDGET_HEIGHT_MIN, WIDGET_HEIGHT_MAX } from '@gugu/core/shared/ui/widgetModels';
+import { EXTENSION_API_VERSION, EXTENSION_TOOL_CONFINEMENT_API_VERSION } from './bridge-protocol';
+import { networkHostAllowed } from './network-host';
 import { APP_PLATFORMS } from './app-platforms';
 import { claimTakes } from './file-openers';
 import { INSTRUCTIONS_MAX_CHARS, SUBTITLE_MAX_CHARS } from './app-listing';
@@ -112,8 +113,8 @@ const tabCommandSchema = z.strictObject({
 /**
  * A local program this extension runs as an MCP server for the agents on this machine
  * (owner 2026-09-24 chose「扩展可以自带一个本机程序当 MCP server」). It runs with the
- * person's full rights — which is why the install sheet shows the exact command and it
- * sits behind its own consent (`agents:tools`), revocable on its own.
+ * person's full rights when it uses command form or an older API. New tools modules
+ * are host-confined; both forms have their own revocable consent (`agents:tools`).
  *
  * `command`: `node` runs on gugu's own runtime (nobody has to install Node); a path
  * starting with `./` is a program inside the bundle; anything else is looked up on PATH
@@ -137,8 +138,9 @@ export const mcpServerContributionSchema = z.union([
   /*
    * 摩擦单 F77 A module of the bundle whose every export is an MCP tool (the Tool's fields plus `run(args, { agent })`):
    * gugu runs it on its own runtime and speaks MCP for it — the App writes its tools, never the protocol, and who called
-   * comes from gugu's gateway alone (app-runtime/tools-host.ts). The same consent as a command: it runs on this computer
-   * with the person's rights. No name (摩擦单 F119): it is the App's, and its tools are `<App id>__<tool>`.
+   * comes from gugu's gateway alone (app-runtime/tools-host.ts). It needs agents:tools consent and runs
+   * under host confinement from EXTENSION_TOOL_CONFINEMENT_API_VERSION. No name (摩擦单 F119):
+   * it is the App's, and its tools are `<App id>__<tool>`.
    */
   z.strictObject({
     tools: z.string().regex(/^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._/-]*\.m?js$/, {
@@ -223,6 +225,8 @@ const tabContributionSchema = z.strictObject({
    * break them all to state something they already state.
    */
   entry: bundlePathSchema.optional(),
+  /** API 26: this tab may also appear in a message, with this default height. */
+  widget: z.strictObject({ height: z.number().int().min(WIDGET_HEIGHT_MIN).max(WIDGET_HEIGHT_MAX) }).optional(),
   /**
    * A host-owned page; no HTML is loaded from the App for this tab.
    * `settings`: the App's configuration / status page, one per App.
@@ -431,7 +435,7 @@ const permissionsSchema = z.strictObject({
     .array(z.enum(EXTENSION_CAPABILITIES))
     .max(12)
     .optional(),
-  /** Hostnames this extension's webview may reach. Anything else is blocked. */
+  /** Hostnames its pages and host-confined tools may reach. Anything else is blocked. */
   network: z
     .array(
       z
@@ -639,6 +643,9 @@ export const extensionManifestSchema = z
         ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'entry'], message: 'an HTML tab needs its entry or the App entry' });
       }
       // A file's tab is already one page per file, and the settings page is one per App: neither has a task of its own.
+      if (tab.widget && (manifest.apiVersion < 26 || tab.hostPage || tab.perSession || tab.opensFiles || tab.chatFile)) {
+        ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'widget'], message: 'widget requires apiVersion 26 and cannot combine with hostPage, perSession, opensFiles or chatFile' });
+      }
       if (tab.perSession && (tab.hostPage === 'settings' || tab.opensFiles)) {
         ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'perSession'], message: 'a page per task cannot be the host settings page or open files' });
       }
@@ -687,7 +694,7 @@ export const extensionManifestSchema = z
     if (extendsAgents && manifest.contributes.instructions === undefined) {
       ctx.addIssue({ code: 'custom', path: ['contributes', 'instructions'], message: `an App that gives agents programs or skills says in one line (≤ ${INSTRUCTIONS_MAX_CHARS} characters) what it gives them: its line in every session's <gugu_apps>` });
     }
-    if (!extendsAgents && manifest.contributes.instructions !== undefined) {
+    if (!extendsAgents && !manifest.contributes.tabs.some(tab => tab.widget) && manifest.contributes.instructions !== undefined) {
       ctx.addIssue({ code: 'custom', path: ['contributes', 'instructions'], message: 'instructions tell agents about the App\'s programs or skills, and there are none' });
     }
     const offersTools = (declared as readonly string[]).includes('agents:tools');
@@ -741,6 +748,11 @@ export const extensionManifestSchema = z
 export type ExtensionManifest = z.infer<typeof extensionManifestSchema>;
 export type ExtensionTabContribution = ExtensionManifest['contributes']['tabs'][number];
 export type ExtensionMcpServerContribution = NonNullable<ExtensionManifest['contributes']['mcpServers']>[number];
+
+/** Shared by process descriptors, install checks and consent: command programs remain unrestricted. */
+export function isConfinedToolProgram(apiVersion: number | undefined, server: { tools: string } | { name: string }): boolean {
+  return apiVersion !== undefined && apiVersion >= EXTENSION_TOOL_CONFINEMENT_API_VERSION && 'tools' in server;
+}
 
 /** A program's name among its App's (F119: a tools module is the App's own, so it is named after the App). */
 export function programName(server: { name: string } | { tools: string }, appId: string): string {

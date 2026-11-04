@@ -20,4 +20,9 @@ describe('turn failure presentation', () => {
   it('offers no retry when no running instance holds the agent: resending lands on the same nobody', () => {
     expect(turnFailurePresentation('undelivered').actions).toEqual([])
   })
+  it('names a terminal pre-admission rejection as not delivered and offers a fresh retry', () => {
+    expect(turnFailurePresentation('deliveryRejected')).toMatchObject({
+      titleKey: 'agent.turnFailure.card.deliveryRejected', bodyKey: 'agent.turnFailure.deliveryRejected', actions: ['retry'],
+    })
+  })
 })

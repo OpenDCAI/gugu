@@ -1,4 +1,5 @@
-import { EXTENSION_API_VERSION } from './bridge-protocol';
+import { WIDGET_HEIGHT_MIN, WIDGET_HEIGHT_MAX } from '@gugu/core/shared/ui/widgetModels';
+import { EXTENSION_API_VERSION, EXTENSION_TOOL_CONFINEMENT_API_VERSION } from './bridge-protocol';
 
 /**
  * 交给 agent 的「怎么写一个 tab 扩展」简报。
@@ -105,7 +106,7 @@ side panel (its ⋯); a tab that claims files opens only for a file. A page belo
 to one place for its whole life — one session or one chat: its \`session\` / \`chat\` never change,
 and another place gets a page of its own. Within its place the host keeps it alive and
 moves it along — switching sessions never reloads it; \`onContextChanged\` brings what changed
-there (\`chat.members\`, \`layout\` …), so repaint from that. A page no one is looking
+there (\`locale\`, \`layout\` …), so repaint from that. A page no one is looking
 at is hidden, still alive (an App keeps its 3 most recent).
 It is made when something first opens your App there, not at install.
 Opened FOR A FILE (a session file you claimed, a chat file opened with your App), it is a new page
@@ -139,9 +140,8 @@ Your page runs on its own origin (\`gugu-ext://<id>/\`) with no Node, no \`requi
 IPC, no nested webview, no new windows, no File System Access API, and no reach into the host's
 DOM or any other tab.
 
-- \`script-src 'self'\`: NO CDN, NO remote fonts, NO remote images — ship everything inside the
-  bundle. Inline \`<script>\` is blocked too: put scripts in .js files beside the page
-  (\`<script src="main.js">\`).
+- \`script-src 'self' 'wasm-unsafe-eval'\`: bundle scripts, fonts and images; no CDN.
+  Inline scripts are blocked: use \`<script src="main.js">\`. Bundled WebAssembly runs in pages and workers.
 - No \`unsafe-eval\`: \`eval\`, \`new Function\` and string-to-code paths do not run.
 - Network is https/wss ONLY, and only to hosts you declared. \`http:\` is refused even for a
   declared host. localhost, \`*.local\`, \`*.internal\` and any IP literal are refused outright.
@@ -202,14 +202,13 @@ The host handles Escape, Tab traversal, Back and focus restoration.
 Free:
 
 - \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, modal?, operator, locale, themeMode, capabilities, layout? }\`.
-  \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members }\` (\`groupId\`: the group; null in a private
-  chat). Topics open Apps in their source chat's shared panel. \`members\`: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`, current through
-  \`onContextChanged\`; \`avatar\`: their face, a \`data:\` image for \`<img src>\`. Pick people and agents from it;
-  never copy it into a file. \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\` — its agent
-  (\`user:<uuid>\`), project, working copy's path (with \`files:*\`); \`deviceId\`: on another computer (no \`root\`). \`file\`: what this page was opened for — \`files.open(ctx.file)\`.
-  \`operator\`: who works the page — \`{ kind: 'person' }\` or \`{ kind: 'agent', id }\`.
-  \`capabilities\` is what you may do RIGHT NOW, after any revocation — not what you asked for.
-- \`onContextChanged(fn)\` → theme, language, visibility, size and members changes. Returns an unsubscribe.
+  \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members? }\`; \`groupId\` is null in DMs. Topics use their source chat.
+  API ≤26 includes \`members\`; API ≥27 omits it: call \`gugu.chats.members({ chat: ctx.chat.id })\` (\`chat:read\`).
+  Members: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`; \`avatar\` is a \`data:\` image. Pick from these; never copy them into files.
+  \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\`; \`agentId\` is \`user:<uuid>\`.
+  Local \`root\` needs \`files:*\`; remote sessions carry \`deviceId\` instead. \`file\`: open with \`files.open(ctx.file)\`.
+  \`operator\`: \`{ kind: 'person' }\` or \`{ kind: 'agent', id }\`. \`capabilities\`: current grants, reflecting revocations.
+- \`onContextChanged(fn)\` → theme, language, visibility and size changes; member changes only through API 26. Returns an unsubscribe.
 - \`onCommand(fn)\` → the person picked one of your declared menu/toolbar entries; you get your own id back.
 - \`showContextMenu({ x, y, items: [{ id, label, enabled? }, { type: "separator" }] })\` (API 18, page): App-local point, shared host menu; returns id or null.
 - \`setTabTitle(title)\` → title (max 48); file tabs use it as a tooltip. Host Back closes the file tab.
@@ -439,7 +438,7 @@ Use \`resource.close()\` to release the source and \`view.close()\` to remove th
 
 export const EXTENSION_GUIDE_PROGRAMS = `# Giving agents your own tools
 
-Local programs/skills. Configuration: \`apps-settings\`; page calls: \`apps-page\`.
+Programs/skills: \`apps-settings\`; pages: \`apps-page\`.
 
 Needs \`agents:tools\`:
 
@@ -460,16 +459,18 @@ export const follow = {
 }
 \`\`\`
 
-  — and the page, when that card changes, \`gugu.dispatch\`es to each follower of it. \`agent\` is the calling
-  agent's \`user:<uuid>\`, stamped by gugu: no agent can fake it, so never ask for it in an argument.
-  \`session\`, \`workspaceRoot\`, \`model\`: the calling session, absolute working-copy path and host-chosen model, stamped
-  like agent; absent if unknown. Keep session for \`showSession\`; \`listAgents\` gives the same model.
+  The page uses \`gugu.dispatch\` for followers when the card changes. gugu stamps \`agent\` (\`user:<uuid>\`),
+  \`session\`, \`workspaceRoot\` (absolute) and \`model\`; unknown fields are absent. Never accept agent ids as arguments.
+  Keep session for \`showSession\`; \`listAgents\` gives the same model.
   API 21: run receives non-enumerable \`signal\` (AbortSignal). Pass it to drivers; abort queued actions, never replay unknown results.
-  Return human steps immediately; the agent asks via existing questions/messages, then retries.
-  run returns a string verbatim or JSON; a throw is the error the agent reads. A non-tool export stops the module,
-  naming it. Keep helpers unexported or in imported bundle files. Node built-ins work; \`node_modules\` does not.
-- Tools run with the person's full rights only where installed. Another owner must install the App to give its agent
-  these tools; never have agents write their ids into your data.
+  Return human steps immediately; the agent asks via questions/messages, then retries.
+  run returns a string verbatim or JSON; a throw is the agent's error. Non-tool exports stop the module and name it.
+  Keep helpers unexported or in bundle imports; \`node_modules\` does not work. Built-ins follow the limits below.
+- API ${EXTENSION_TOOL_CONFINEMENT_API_VERSION} tools read bundle/runtime/data; write only data (TMPDIR=data/.tmp).
+  Files: gugu.files + files:read/write. Network: granted permissions.network hosts.
+  No IPs/listeners/subprocesses/addons/WASI/inspector/sqlite/eval workers; bundle workers inherit limits.
+  Not an OS sandbox. Older tools/commands retain full rights.
+  Other owners must install the App to give their agents tools; never store agent ids.
 - Another language, or an existing MCP server: \`{ "name", "command", "args"? }\`, MCP over stdio.
   \`command\` \`node\` runs on gugu's own runtime; \`./x\` is a program in your bundle; anything else
   is found on PATH (\`npx\`, \`uvx\`, \`python3\`). An argument naming a file in your bundle is passed
@@ -547,38 +548,35 @@ const save = () => gugu.writeData('save.json', JSON.stringify(state))
  */
 export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files
 
-Claim an existing data file's name or suffix and open it live; never copy it into your bundle
-(\`app_install\` data \`{ item_id }\`). Top-level \`await\` needs \`<script type="module">\`.
+Claim a file's name/suffix and open it live; don't bundle data (\`app_install\` data \`{item_id}\`).
+Top-level await needs \`<script type="module">\`.
 
 ## App data
 
-A chat file named exactly as your tab's \`chatFile\` is your App's state: \`entry.appState\` is true and the folder
-view hides it (APIs, agents and links still reach it). A file you claim by suffix is a person's document and shows.
-\`gugu.files.viewPreferences({ chat }, { showAppData: true })\` sets the person's source-chat preference;
-no options: read it.
+A tab's exact \`chatFile\` is hidden App state (\`entry.appState\`); APIs/agents/links still reach it.
+Suffix claims are visible documents. \`gugu.files.viewPreferences({chat}, {showAppData:true})\` sets the person's
+source-chat preference; omit options to read it.
 
 ## Which files you may open
 
 Topic file addresses resolve to their source chat; messages keep the topic's.
 
-Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.file\` as it is; by name,
-\`{ chat | workspace, name }\`. A place: \`{ chat: ctx.chat.id }\` or \`{ workspace: ctx.workspace.id }\` (a project's:
-\`gugu.projects.list()\` → \`{ projects: [{ id, name, workspace }] }\`). A session's tab has both.
+Each call names a file: an entry, \`ctx.file\`, or \`{ chat | workspace, name }\`; or a place:
+\`{ chat: ctx.chat.id }\` / \`{ workspace: ctx.workspace.id }\`. A session tab has both.
+\`gugu.projects.list()\` → \`{ projects: [{ id, name, workspace }] }\`.
 
-- The file you were opened for (\`ctx.file\`) — the host picked your App by its claim
-  (\`opensFiles\`, e.g. \`{ "chat": [".vote.json"] }\`; most specific wins) or picked via "open with".
-  No capability; a session's claims go under \`"session"\`.
-- \`"chatFile": "x.board.json"\` on it (API 14): opened in a chat, \`ctx.file\` is that top-level file, \`{}\` at first: fill it.
-- \`"sideWidth": 480\` (API 16): a tab's px beside a chat; none: half.
-- A name claims that one file (\`"session": ["TODO.md"]\`); a suffix is for a format of your own. Keep what your App
-  does not understand as is. Changing course, remove the topics and files you made, or ask. A session file
-  in a folder the search index skips hears the disk only when written.
+- \`ctx.file\`: no capability. The host picked your claim (\`opensFiles\`, e.g. \`{"chat":[".vote.json"]}\`, most
+  specific wins) or "open with". Session claims: \`"session"\`.
+- \`"chatFile": "x.board.json"\` (API 14): in chat, \`ctx.file\` is this top-level file, initially \`{}\`: fill it.
+- \`"sideWidth": 480\` (API 16): chat-side tab width in px; default: half.
+- A name claims one file (\`"session":["TODO.md"]\`); suffixes: your own format. Preserve unknown data.
+  Changing course, remove your topics/files or ask. Session files in search-skipped folders hear disk changes on write only.
 - Any other file (a chat you are in, a folder here): \`files:write\`, or \`files:read\` (read-only).
 - Another machine's working copy: list and \`f.read\` work; open whole/download need \`files:read:all-machines\`.
-- \`gugu.files.list(place)\` needs \`files:read\`; \`gugu.files.create({ ...place, name }, content)\`,
-  \`gugu.files.rename(entry, name)\` and \`gugu.files.remove(entry)\` need \`files:write\`. JSON: an object at the top.
-- \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): all the reader's chats' files by part of the
-  path, with \`chatName\`; \`gugu.files.recent({ limit })\`: those this person opened last (\`openedAt\`).
+- \`gugu.files.list(place)\`: \`files:read\`; \`gugu.files.create({...place,name},content)\`, \`gugu.files.rename(entry,name)\`,
+  \`gugu.files.remove(entry)\`: \`files:write\`. JSON: objects, not \`JSON.stringify\` strings.
+- \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): path search across the reader's chats, with
+  \`chatName\`. \`gugu.files.recent({ limit })\`: last opened (\`openedAt\`).
 - A chat's subfolders: \`gugu.files.list({ chat, folder })\` lists one (path or id, \`''\` the top; none: all;
   \`'folder'\` entries: list only);
   create and upload take \`folder\` too (made if missing); \`gugu.files.mkdir({ chat, path })\`,
@@ -586,9 +584,12 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
 - A working copy lists one folder: \`gugu.files.list({ workspace, folder })\` (\`''\` top). Non-documents: \`f.read(offset, length)\`, \`f.blob()\`.
 - \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A working copy (\`folder\`: below it only): \`{ kind: 'changes', changes }\` or \`resync\`.
-- \`gugu.files.openWith(entry)\` (a click or key) uses the most specific claim or "always use". \`{ ask: true }\`: they pick among all;
-  \`{ at }\`: a place, the opener's \`link\`. Unclaimed: gugu's preview, or details and download.
-  \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: gone or unreadable.
+- \`gugu.files.openWith(entry)\` (click/key): specific claim or "always use"; \`{ ask: true }\`: pick among all.
+  \`{ at }\`: opener's \`link\` place. Unclaimed: preview, or details/download. \`{ peek: true }\`: beside this page
+  (always for project files). Gone/unreadable: \`not-found\`.
+- \`gugu.files.openWith(entry, { tab: 'explore' })\`: your own tab claiming the chat file in \`opensFiles.chat\`;
+  no picker/default read or write. \`at\`/\`peek\` work. Invalid/empty/missing/unclaimed tab, \`ask\`, workspace/local:
+  \`invalid\`. Gesture/read permissions remain. Old hosts ignore \`tab\` (ordinary opener); no feature detection.
 - \`gugu.files.upload(place)\` (\`files:write\`, a click or key) opens the picker → the new entries (\`[]\`);
   a File: uploaded (≤ 25 MB, else \`too-large\`). \`gugu.files.download(entry)\` (a click or key) asks where
   to save → \`true\` saved; \`gugu.files.forward(entry|[…])\`: the forward page.
@@ -600,42 +601,44 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
   23: \`savedName\`: save name. Authors: \`{id,name,kind:human|agent|system}\` or null.
 - API 19: \`keep: {expiresAt,mine}|null\`; \`gugu.files.keep(entry, 'temporary'|'permanent')\`; 20: [], as download.
 
+## Every opened handle
+
+\`await gugu.files.open(entry)\` returns readable content with \`entry\`, \`type\` (text/json/binary),
+\`readOnly\`, \`size: number|null\`, \`f.bytes(): Promise<Uint8Array>\`, \`f.blob(): Promise<Blob>\`, \`f.close()\`.
+Document bytes are current UTF-8; JSON uses \`JSON.stringify(root, null, 2)\`. Only text/JSON have \`text\`;
+branch on \`type\` or use \`f.bytes()\`, never poll for text.
+
+Stored binary or text >1 MiB shares working-copy \`f.read(offset,length)\`: host packets ≤512 KiB;
+\`f.bytes()\`/\`f.blob()\` read all. Chat ranges pin \`entry.version\`; unavailable old bytes throw \`stale-version\`
+(reopen for current), never mix revisions. \`await f.close()\`, page removal or five idle minutes release the
+snapshot. Remote working-copy size stays null until a range answers. Small stored text and \`readVersion\`
+read whole; beside-document/download/forward stay unchanged. Cross-machine workspace replies retain base64.
+
 ## A text file (markdown)
 
 Its handle — \`f.text\`, \`f.edit(old, new)\`, anchors — and an editor bound to it: \`apps-editors\`.
 
 ## A JSON file
 
-The file keeps every write: frame-by-frame motion belongs in \`f.presence\` (\`apps-together\`),
-results in the file. Agent instructions belong in tools (\`apps-programs\`), never in data.
-Its id is \`f.entry.id\`. Shape changes must read old data, migrate it and raise \`version\`.
+Use \`f.presence\` (\`apps-together\`) for motion, the file for results, tools (\`apps-programs\`) for agent
+instructions. Migrate old data when its shape changes; raise your format's version. File id: \`f.entry.id\`.
 
-\`f.data\` is a live object: read and write it as any object, spread included. An object assigned
-over one merges key by key — the keys you list, all the way down; the keys you saw and left out go —
-and \`= {}\` clears the keys you see: what others add meanwhile stays. Two writing the same plain
-value: the later wins. What many people add to is a map keyed by id, sorted when shown: a vote
-\`f.data.votes[me] = i\`; a form \`f.data.answers[me] = { … }\`; a board
-\`f.data.cards[crypto.randomUUID()] = { title, column }\` (a move writes \`column\`).
-\`f.toJSON()\` is a plain copy; ❌ cloning \`f.data\` (\`structuredClone\` throws). Mid-drag
-others, an agent or git may change the file: drop by id (or content), never by the index it began at.
-Group a frame's writes with \`f.transact(() => { … })\`.
+\`f.data\` is live: read/write/spread it. Assigning an object merges keys: listed keys recurse; keys seen but
+omitted are removed; unseen concurrent additions survive, including with \`= {}\`. Concurrent plain values:
+last write wins. Key collections by id (\`f.data.cards[crypto.randomUUID()] = {title,column}\`); sort only for display.
+\`f.toJSON()\` makes a plain copy; \`structuredClone\` on it throws. Change by id/content, never an old index.
+\`f.transact(() => …)\` groups a frame's writes.
 
-Text people type in together (a title, a note, a slide's body) is created as \`gugu.text('')\` —
-\`f.data.slides[id] = { title: gugu.text('') }\`; in data an agent writes \`{"$text": ""}\`. It reads as a
-string, and a string assigned to it merges letter by letter. To type in it: \`f.textAt(['slides', id,
-'title'])\` is a text handle, as a text file is — \`gugu.bind.text(input, f.textAt([…]))\`. A field made
-as a plain string is one value: the later write wins, and \`textAt\` refuses it.
-Key per-person data by \`f.presence.self.userId\` (\`user:<uuid>\`, server-stamped; \`self.name\`: their
-name) — ❌ never ask the person who they are. ❌ No locks or "being edited by" fields of your own (they lock
-people out and still lose letters): show who edits what with presence.
+Collaborative text: \`f.data.title = gugu.text('')\` (agent JSON: \`{"$text":""}\`). It reads as a string;
+string assignment merges letters. \`f.textAt(['title'])\` returns a text handle for
+\`gugu.bind.text(input, …)\`; plain strings remain single values and refuse textAt.
+Per-person data keys: \`f.presence.self.userId\` (server-stamped \`user:<uuid>\`, \`self.name\`). Do not ask who they
+are or invent locks/"being edited" fields: use presence.
 
-Others' text goes in with \`textContent\` or \`render\` with html\`…\` (it escapes every \${…}), never joined into
-\`innerHTML\` — markup in a title could draw a fake button. On a change, redraw with \`render\`: it patches by
-\`data-key\`; an input showing the file's value goes in it, and the one someone is in stays (focus, half-typed text,
-IME). Drafts not yet submitted and \`gugu.bind.text\` boxes go outside it (\`#controls\`, drawn once): \`render\`
-resets an unfocused input to its markup's value. ❌ \`innerHTML\` or \`replaceChildren\` on a change: the input goes,
-its half value lands in the file. To point at another file, store its entry's \`id\` and open it with
-\`gugu.files.openWith(entry)\`; a name alone is text nobody can open.
+Render others' text with \`textContent\` or \`render\` with html\`…\` (interpolations escaped), never raw innerHTML.
+On changes, \`render\` patches by \`data-key\` and preserves focused inputs/IME. Keep unsubmitted drafts and
+\`gugu.bind.text\` controls outside the rerendered area. Replacing innerHTML/children loses drafts/carets.
+Link another file with its entry id and \`gugu.files.openWith(entry)\`; a name alone is not a link.
 
 ## When things go wrong
 
@@ -814,7 +817,7 @@ program reads as that agent: \`chats.list\` its chats, the rest only a chat it h
 
 - \`gugu.chats.list()\` → \`{ chats: [{ id, name, kind, lastMessageAt }] }\`, all of them, last spoken first: \`kind\`
   \`group\` / \`topic\` / \`dm\` (a private chat's \`name\` is the other one's), \`id\` what every \`chat\` below takes.
-- \`gugu.chats.members({ chat })\` → \`{ members }\`, as \`getContext().chat.members\`: \`{ id, name, kind, avatar? }\`.
+- \`gugu.chats.members({ chat })\` → \`{ members }\`: \`{ id, name, kind, avatar? }\`.
 
 - \`gugu.messages.history({ chat, thread?, before?, limit? })\` → the timeline (\`thread\`: its first message's id, for
   that thread alone), newest first.
@@ -823,7 +826,7 @@ program reads as that agent: \`chats.list\` its chats, the rest only a chat it h
 - Both answer \`{ messages, next }\`: pass \`next\` back as \`before\` for the older page; \`null\`, there is none.
   \`limit\` 1–100 (50). A chat the reader is not in has none.
 - A message: \`{ id, seq, chat, thread, sender: { id, name }, text, contentType, createdAt, refs }\`. \`sender.id\` is
-  \`user:<uuid>\`, as \`chat.members\`; \`null\` for a line gugu wrote (\`system\`: someone joined). \`text\` is as written. \`refs\` is every file link in
+  \`user:<uuid>\`, as \`gugu.chats.members()\`; \`null\` for a line gugu wrote (\`system\`: someone joined). \`text\` is as written. \`refs\` is every file link in
   it, read for you: \`{ file, version?, at? }\` — \`at\` is the place your \`refs\` named.
 
 \`{ file }\` finds every message citing that file, anywhere in it. To count one place, keep the ones whose \`at\` is that
@@ -855,7 +858,7 @@ picture below this text is every piece, each captioned with the markup that draw
 1. Write semantic HTML: it is styled already.
 2. Set no fonts, font sizes, colours or corner radii. Drawing something of your own (a board, a chart): only the tokens below.
 3. Icons are \`<gugu-icon name="…">\`, people are \`<gugu-avatar user="…">\` — never an emoji, an initial or a coloured box.
-4. Read \`gugu.getContext()\` first: \`chat\` is the source group or private chat the page is open in, \`chat.members\` who is in it. Default to that chat; never make the person pick it.
+4. Read \`gugu.getContext()\` first: \`chat\` is the source group or private chat the page is open in. Read its people with \`gugu.chats.members({ chat: ctx.chat.id })\` (declare \`chat:read\`). Default to that chat; never make the person pick it.
 
 ## Elements — one line each
 
@@ -871,7 +874,7 @@ picture below this text is every piece, each captioned with the markup that draw
 ## The host's elements
 
 - \`<gugu-icon name="bell">\` (\`size="md|lg"\`): gugu's icons, named as lucide names them — bell, users, search, settings, plus, x, check, pin, trash-2, chevron-right, refresh, ellipsis… \`customElements.get('gugu-icon').names\` lists them all; a wrong name comes back from \`app_check\` as a hint naming the close ones. \`label="…"\` when it alone says something.
-- \`<gugu-avatar user="user:…">\` (\`size="xs|sm|md|lg"\`, \`name\` to show the name): a member of this chat, with their face; an agent's carries ⚡. Someone not in it: \`label="their name"\`.
+- \`<gugu-avatar user="user:…">\` (\`size="xs|sm|md|lg"\`, \`name\` to show the name): a member of this chat, with their face; an agent's carries ⚡. From API 27, declare \`chat:read\`; the elements share one member read per chat. Someone not in it: \`label="their name"\`.
 - \`<gugu-time datetime="…">\` (ISO or ms): 刚刚 / 3 分钟前 / 08:20 / 昨天 14:20 / 10月3日, kept current, in the person's language.
 - \`<gugu-empty icon="checklist"><strong>No votes yet</strong><small>Start one</small></gugu-empty>\`, with a \`button.primary\` last in it when there is something to do.
 
@@ -971,6 +974,16 @@ programs; \`browser-use\` operates only the calling local session's browser tab;
 \`"host":"computer-use"\` gives agents no tools: they control the computer with gugu's \`device_call\` (\`computer.*\`).
 It gives the App's own pages \`preview_state\`: the page's session's latest frame (a real screenshot) and its recent
 computer actions; \`notifications/computer-use/changed\` says there is a newer one.
+A tab with \`"widget": { "height": 240 }\` (API26; integer ${WIDGET_HEIGHT_MIN}–${WIDGET_HEIGHT_MAX}) can also be sent with \`widget_send\`: read \`guide_read widgets\`.
+It cannot also declare hostPage, perSession, opensFiles or chatFile. \`ctx.widget\` is present in a message and its hidden check:
+\`{ messageId, data, sender }\`. Data is untrusted, immutable input from any chat member; never execute it. Persist personal
+state in App data and shared state in chat files. Every dispatch from a widget requires a gesture in that App, even with a target,
+on both desktop and phones. Forum and file calls retain their ordinary permission and gesture checks.
+Normal App pages keep their existing behavior.
+Check your sent card with \`app_check { message_id: "msg:…" }\` (legacy alias: \`widget_id\`); the host infers its tab
+and binds its original input. Steps are real operations as the calling agent; shared writes change what everyone sees,
+while draft/display handoffs return in \`shown\` without touching the human composer. Deduplicate votes by
+\`ctx.operator.id\`, and label agent votes as such. See guide \`widgets\` for sizes, unavailable cards and continued pages.
 A tab with \`"perSession": true\` has one page in each session, never moved between them — two sessions side by side
 each show their own (not with \`opensFiles\` or \`"hostPage":"settings"\`). A computer-use App's per-session tabs come up beside a
 session's conversation at that session's first computer action, once.

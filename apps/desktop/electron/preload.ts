@@ -129,8 +129,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   notifyDeviceCommandsChanged: (): void => ipcRenderer.send('device-runtime:commands-changed'),
   // 渲染层建 / 改 / 删了定时任务之后说一声(见 main.ts 的同名通道)。
   notifyScheduledTasksChanged: (): void => ipcRenderer.send('device-runtime:scheduled-tasks-changed'),
-  // #6396 —— 渲染层收到 agent_changed(本账号的 agent 有变动)后说一声,主进程据此刷新起名用的号(见 main.ts 同名通道)。
-  notifyOwnedAgentsChanged: (): void => ipcRenderer.send('owned-agents:changed'),
   // @@@2374 — 按域名通用,❌ 不再一域一对方法。原来只有 `auth` 那一对,`extensions` 域
   // 因此在渲染层根本发不出「我准备好了」,主进程于是永远等到超时 —— 扩展的每个宿主动作
   // (改标题/角标、开浏览器 tab、报错、投进对话)都死在这里,而 platform 侧那句

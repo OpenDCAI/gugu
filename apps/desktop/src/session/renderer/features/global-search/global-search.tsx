@@ -1,3 +1,4 @@
+import { IdentityPlaceholder } from '@/components/IdentityPlaceholder'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { FileText, Search, X } from '@/lib/icons'
 import { useChatSummaries } from '@/lib/chatSummariesBridge'
@@ -134,6 +135,14 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
 
       <div ref={listRef} className={cn('flex-1 overflow-y-auto px-2', hasQuery && 'min-h-48 pb-2')} role="listbox" aria-label={translate('globalSearch.results')}>
         {view.error && <div role="alert" className="px-3 py-3 text-sm text-[var(--em-foreground-destructive)]">{messageForUser(view.error)}</div>}
+        {hasQuery && view.taskIndex?.state === 'preparing' && (facet === 'all' || facet === 'task') && (
+          <div role="status" className="px-3 py-3 text-sm text-foreground/50">{view.taskIndex.total
+            ? translate('globalSearch.indexingTasksProgress', { percent: Math.floor(100 * (view.taskIndex.done ?? 0) / view.taskIndex.total) })
+            : translate('globalSearch.indexingTasks')}</div>
+        )}
+        {hasQuery && view.taskIndex?.state === 'failed' && (facet === 'all' || facet === 'task') && (
+          <div role="alert" className="px-3 py-3 text-sm text-[var(--em-foreground-destructive)]">{translate('globalSearch.indexingTasksFailed')}</div>
+        )}
         {!hasQuery && (
           <div className="border-t border-foreground/[0.08] px-3 pb-4 pt-3 text-[length:var(--font-body)] leading-6 text-foreground/50">
             <div>{translate(tasks ? 'globalSearch.introWhat' : 'globalSearch.introWhatChats')}</div>
@@ -160,15 +169,16 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
             </button>}
             {group.hits.map((hit) => {
               const isSelected = hit.id === selected?.id
-              const sender = hit.kind === 'message' ? hit.sender : translate(hit.role === 'assistant' ? 'globalSearch.agent' : 'globalSearch.you')
+              const system = hit.kind === 'message' && hit.sender === null
+              const sender = hit.kind === 'message' ? hit.sender ?? translate('globalSearch.system') : translate(hit.role === 'assistant' ? 'globalSearch.agent' : 'globalSearch.you')
               return (
                 <button type="button" role="option" aria-selected={isSelected} data-selected={isSelected} key={hit.id}
                   onMouseMove={() => { if (!isSelected) updateSearchSession({ selectedId: hit.id }) }}
                   onClick={() => open(hit)}
                   className={cn('flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left outline-none', isSelected && 'bg-foreground/[0.06]')}>
-                  <span className="mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-foreground/[0.07] text-[length:var(--font-caption)] font-medium text-foreground/55">
+                  {system ? <IdentityPlaceholder className="mt-1" /> : <span className="mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-foreground/[0.07] text-[length:var(--font-caption)] font-medium text-foreground/55">
                     {hit.kind === 'message' && hit.file ? <FileText size={11} /> : Array.from(sender)[0]}
-                  </span>
+                  </span>}
                   <span className="min-w-0 flex-1">
                     <span className="line-clamp-2 text-sm leading-5 text-foreground/85"><Highlighted text={hit.text} query={view.query} /></span>
                     <span className="mt-1 flex items-center gap-2 text-xs text-foreground/40">

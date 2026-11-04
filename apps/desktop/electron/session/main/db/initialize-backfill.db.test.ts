@@ -152,11 +152,31 @@ describe('derived-index structure rebuilds are atomic', () => {
 });
 
 describe('post-ready turn-text backfill', () => {
+  it('commits at most one 64-turn chunk before releasing the lock for live writers', async () => {
+    legacy(401);
+    await initialization.initializeDatabase(sqlite());
+    const filling = fill();
+    try {
+      await setImmediate();
+      const saved = value('turn_text_backfill_cursor');
+      expect(saved).toBeDefined();
+      const cursor = JSON.parse(saved!) as [string, number];
+      const committed = sqlite().prepare('SELECT count(*) n FROM session_turns WHERE (session_id,seq) <= (?,?)').get(...cursor);
+      expect(committed).toEqual({ n: 64 });
+      expect(value('turn_text_backfilled')).toBeUndefined();
+      const live = new Database(sqlite().name, { timeout: 0 });
+      try {
+        live.prepare("INSERT INTO kv(key,value,updated_at) VALUES ('inbox-lock-probe','committed',0)").run();
+      } finally { live.close(); }
+    } finally { await filling; }
+    expect(rows()).toEqual(expected());
+  });
+
   it('creates every search table without reading historical messages in initializeDatabase', async () => {
     legacy(401);
     await initialization.initializeDatabase(sqlite());
     expect(rows()).toEqual([]);
-    expect(value('fts_version')).toBe('8');
+    expect(value('fts_version')).toBe('9');
     expect(() => sqlite().prepare("SELECT rowid FROM search_index WHERE search_index MATCH 'historical'").all()).not.toThrow();
     expect(() => sqlite().prepare("SELECT rowid FROM turn_text WHERE turn_text MATCH 'historical'").all()).not.toThrow();
   });
@@ -174,7 +194,7 @@ describe('post-ready turn-text backfill', () => {
     sqlite().exec('DROP TRIGGER interrupt_cursor');
     await fill();
     expect(rows()).toEqual(expected());
-    expect(value('turn_text_backfilled')).toBe('8');
+    expect(value('turn_text_backfilled')).toBe('9');
     expect(value('turn_text_backfill_cursor')).toBeUndefined();
     await fill();
     expect(rows()).toEqual(expected());
@@ -203,7 +223,7 @@ describe('post-ready turn-text backfill', () => {
       expect(value('turn_text_backfill_cursor', restarted)).toBe(cursor);
       await fill(restarted);
       expect(rows(restarted)).toEqual(expected(restarted));
-      expect(value('turn_text_backfilled', restarted)).toBe('8');
+      expect(value('turn_text_backfilled', restarted)).toBe('9');
       expect(value('turn_text_backfill_cursor', restarted)).toBeUndefined();
     } finally { restarted.close(); }
   });
@@ -226,7 +246,7 @@ describe('post-ready turn-text backfill', () => {
       expect(sqlite().prepare("SELECT count(*) n FROM turn_text WHERE turn_text MATCH 'searchable'").get()).toEqual({ n: 2 });
     } finally { await filling; }
     expect(rows()).toEqual(expected());
-    expect(value('turn_text_backfilled')).toBe('8');
+    expect(value('turn_text_backfilled')).toBe('9');
   });
 
   it('invalidates an old completion marker and cursor only when rebuilding structure', async () => {
@@ -239,7 +259,7 @@ describe('post-ready turn-text backfill', () => {
     await fill();
     const before = rows();
     await initialization.initializeDatabase(sqlite());
-    expect(value('turn_text_backfilled')).toBe('8');
+    expect(value('turn_text_backfilled')).toBe('9');
     await fill();
     expect(rows()).toEqual(before);
   });

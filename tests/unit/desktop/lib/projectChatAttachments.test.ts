@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { commitPreparedChatAttachment, prepareChatAttachment, sendFileToChat } from '../../../../apps/desktop/src/lib/attachmentsEndpoint'
+import { commitPreparedChatAttachment, prepareChatAttachment } from '../../../../apps/desktop/src/lib/attachmentsEndpoint'
 import { i18n } from '../../../../apps/desktop/src/i18n'
 const f = vi.hoisted(() => ({ upload: vi.fn(), commit: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererAccessToken: () => 'published-test-token' }))
@@ -27,12 +27,6 @@ describe('project composer attachments use the group-file publisher', () => {
     await expect(commitPreparedChatAttachment(endpoint, prepared, args)).resolves.toEqual(message)
     expect(n.invoke).toHaveBeenLastCalledWith('files:publish', { chatId: 'group', file: { name: 'selected.pdf', path: '/project/actual.pdf', size: 3, contentType: 'application/pdf' }, message: args })
     expect(arrayBuffer).not.toHaveBeenCalled(); expect(f.upload).not.toHaveBeenCalled(); expect(f.commit).not.toHaveBeenCalled()
-  })
-  it('the single-file sender uses the same preparation and atomic commit', async () => {
-    const n = native()
-    n.invoke.mockImplementation(async (_channel, request) => request.file ? { id: 'item', version: 3, message: { ...message, id: (request as { message: typeof args }).message.message_id } } : true)
-    await expect(sendFileToChat(file(), { chatId: 'group', senderId: 'owner', toUserIds: ['agent'] })).resolves.toMatchObject({ file_item_id: 'item', file_version: 3 })
-    expect(n.invoke).toHaveBeenCalledTimes(2); expect(f.upload).not.toHaveBeenCalled(); expect(f.commit).not.toHaveBeenCalled()
   })
   it('keeps one cloud uploader and commit for an ordinary or explicitly cloud-enabled group', async () => {
     const n = native(false), selected = file()

@@ -669,6 +669,13 @@ describe('an App reaches only the sessions its owner gave it to (D-30)', () => {
 // 10-19 owner「想想怎么多维度,分页筛选」: every App, with what this session can do with it and who does the next step — the
 // records app_search filters. Read like the programs, so an App switched off or installed while a session runs is said at its next call.
 describe('the Apps as app_search reads them (10-19)', () => {
+  it('advertises only an enabled App\'s declared widget views to the sending tool', async () => {
+    const widget = { manifest: manifestOf('counter', 'Counter', { contributes: { tabs: [{ name: 'main', title: 'Count', widget: { height: 240 } }] } } as Partial<ExtensionManifest>), enabled: true, givesAgents: false };
+    const catalog = createExtensionCatalog({ programs: () => programs, onProblem: () => {}, apps: () => [widget], market: async () => [] });
+    expect((await catalog.apps('s1', false)).apps[0]).toMatchObject({ state: 'on', widgetViews: [{ view: 'main', height: 240 }] });
+    widget.enabled = false;
+    expect((await catalog.apps('s1', false)).apps[0]?.widgetViews).toBeUndefined();
+  });
   const entry = (id: string, more: Partial<CloudMarketEntry> = {}, manifest: Partial<ExtensionManifest> = {}) =>
     ({ manifest: manifestOf(id, id.toUpperCase(), { subtitle: `${id} does a thing`, ...manifest }), version: '1.0.0', publishedAt: '2026-10-10T00:00:00Z',
       firstPublishedAt: '2026-10-01T00:00:00Z', deprecated: null, compat: null, ...more }) as CloudMarketEntry & { firstPublishedAt: string }
@@ -706,7 +713,7 @@ describe('the Apps as app_search reads them (10-19)', () => {
       entry('agent-notes', { publishedAt: '2026-10-12T00:00:00Z' }),
       entry('turtle-soup', {}, { name: '海龟汤' }),
       entry('paper-club', {}, { permissions: { capabilities: ['chat:read'], network: ['arxiv.org'] } } as Partial<ExtensionManifest>),
-      entry('future', { compat: { reason: 'needs-newer-app', minAppVersion: '9.0.0' } }),
+      entry('future', { compat: { reason: 'needs-newer-app', gate: 'app', minAppVersion: '9.0.0' } }),
       entry('old', { deprecated: { note: null, replacedBy: null } }),
     ]
     const { apps } = await catalogWith(async () => offered).apps('s1', true)

@@ -5,6 +5,7 @@ import type { LegAdapter, PendingRow } from '../../../../apps/desktop/electron/s
 import { STAGES } from '../../../../packages/core/src/local/session-life/types';
 import type { ExitFact, Gen, Hold, Seq, StageName, StageOut } from '../../../../packages/core/src/local/session-life/types';
 import type { LifeView } from '../../../../apps/desktop/src/session/shared/core/sessions/session-life';
+import { hydrateLife, shouldStartOnHydrate } from '../../../../packages/core/src/local/session-life/step';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -51,7 +52,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
       const existing = [...rows.values()].find(row => row.sessionId === input.sessionId && row.message.id === input.messageId);
       if (existing) return { inserted: false, seq: existing.seq, state: existing.state };
       const s = seq(++counter);
-      rows.set(s, { seq: s, sessionId: input.sessionId, sentAt: 0, kind: input.kind, state: 'queued', failure: null, message: { id: input.messageId, text: input.text }, sources: [], turn: input.turn ?? { kind: 'prompt' } });
+      rows.set(s, { seq: s, sessionId: input.sessionId, sentAt: 0, kind: input.kind, state: 'queued', failure: null, message: { id: input.messageId ?? `local-${seq}`, text: input.text }, sources: [], turn: input.turn ?? { kind: 'prompt' } });
       return { inserted: true, seq: s, state: 'queued' };
     },
     commit(id, effects) {
@@ -108,6 +109,23 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
 }
 
 export const ownerCases: readonly { name: string; run: () => Promise<void> }[] = [
+  { name: 'a notice queued before boot sign-in remains startable; archive settles a stranded notice', async run() {
+    const r = rig(); r.session();
+    const notice = r.owner.enqueue({ sessionId: 's', messageId: 'update-notice', text: 'Your work was interrupted; check commands and continue.', kind: 'ordinary' });
+    assert.equal(r.rows.get(notice.seq)!.state, 'queued');
+    assert.match(String(r.failures[0]), /held: no account is signed in/);
+    assert.equal(shouldStartOnHydrate(hydrateLife(r.store.read('s')), r.store.pending('s')), true);
+    await r.owner.signIn('A'); await r.owner.quiescent('s');
+    assert.equal(r.rows.get(notice.seq)!.state, 'accepted');
+    assert.deepEqual(r.store.pending('s'), { queued: [], dispatching: [] });
+    await r.owner.signOut();
+
+    const archived = rig(); archived.session();
+    const stranded = archived.send();
+    await archived.owner.interrupt('s', { k: 'interrupt', reason: 'archive' });
+    assert.equal(archived.rows.get(stranded.seq)!.state, 'failed');
+    assert.deepEqual(archived.store.pending('s'), { queued: [], dispatching: [] });
+  } },
   { name: 'only a person\'s own prompt can be discarded: a delivery has a sender, and a chat-page first turn is what the run needs', async run() {
     const r = rig({ block: 'identity' }); r.session(); const own = r.enqueue();
     await r.owner.signIn('A'); await r.blocked.promise;

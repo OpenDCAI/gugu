@@ -17,7 +17,7 @@ import {
 
 /** 窗口那一个 link manager 里,主进程要用的那几样(ssh-link-ipc.ts 的返回值)。 */
 export type SharedSshLinks = {
-  open(deviceId: string): Promise<{ ok: true } | { ok: false; reason: string; detail: string }>
+  open(deviceId: string): Promise<{ ok: true } | { ok: false; reason: string; detail: string; controlOnly?: true }>
   send(deviceId: string, message: unknown): boolean
   /** 这台机器的连接上收到的、断了的,也告诉这一位;返回取消。 */
   tap(deviceId: string, handlers: { onMessage(message: unknown): void; onClosed(reason: string): void }): () => void
@@ -30,7 +30,7 @@ export async function openSshDeviceRpcPipe(links: SharedSshLinks, deviceId: stri
   const pipe = attachSshDeviceRpcPipe(links, deviceId, handlers)
   try {
     const opened = await links.open(deviceId)
-    if (!opened.ok) throw new DeviceRpcChannelError(`ssh link: ${opened.reason} (${opened.detail})`, opened.reason)
+    if (!opened.ok && !opened.controlOnly) throw new DeviceRpcChannelError(`ssh link: ${opened.reason} (${opened.detail})`, opened.reason)
     return pipe
   } catch (error) { pipe.close(); throw error }
 }

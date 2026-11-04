@@ -5,6 +5,8 @@
 
 import { useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { X } from '@/lib/icons'
 import { agentFailureNeedsModelChoice } from '@gugu/core/shared/agentQuotaReason'
 import { TurnFailureCard } from './chat/TurnFailureCard'
@@ -105,7 +107,7 @@ function AgentFailureNotice({ scope, profiles }: { scope: StoredFailureScope; pr
 
 // #7685 额度/模型类失败 = agent 的状态，不是一条通知：和运行条同一排、同一种 token 形状（头像 + 名 + 状态词），
 // 不流光；点状态去切模型，关闭沿用同一命令版本的 dismissal。下一次投递成功，它也会自然消失。
-export function AgentQuotaStatus({ agentId, displayName, avatar, state, onOpenModel, onDismiss }: {
+export function AgentQuotaStatus({ agentId, displayName: name, avatar, state, onOpenModel, onDismiss }: {
   agentId: string
   displayName: string
   avatar: string | null
@@ -114,6 +116,8 @@ export function AgentQuotaStatus({ agentId, displayName, avatar, state, onOpenMo
   onDismiss?: () => void
 }) {
   const { t } = useTranslation('messaging')
+  const identity = useAvatarIdentity(agentId)
+  const displayName = useShownAgentName({ name, createdAt: identity?.created_at ?? undefined })
   return (
     <div data-testid="agent-quota-status" className="aqs-bar">
       <style>{QUOTA_STYLE}</style>

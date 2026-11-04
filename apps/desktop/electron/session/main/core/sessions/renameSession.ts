@@ -1,7 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { agentNameSerial } from '@gugu/core/shared/agentDefaultName';
-import { normalizeAgentType } from '@gugu/core/agentTypes';
-import { getAgentTypeLabel } from '@gugu/core/shared/enums/agentTypeModels';
+import { isAgentDefaultName } from '@gugu/core/shared/agentDefaultName';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
@@ -49,7 +47,7 @@ export async function adoptLegacyTaskNames(): Promise<number> {
     // 0043 filled an empty old title with the provider or the session id: that is no name. An old
     // title that is itself an engine default is no task name either (and the cloud may have
     // renumbered the identity's default on purpose).
-    if (title === row.provider || title === row.id || isEngineDefault(title, row.provider)) continue;
+    if (title === row.provider || title === row.id || isAgentDefaultName(title, row.provider)) continue;
     if (await renameTask(row.id, title, 'auto')) renamed += 1;
   }
   return renamed;
@@ -59,7 +57,7 @@ export async function adoptLegacyTaskNames(): Promise<number> {
 export function sessionTitleIsFallback(sessionId: string): { fallback: boolean; firstUtterance: string | undefined } {
   const row = readRow(sessionId);
   if (!row) return { fallback: false, firstUtterance: undefined };
-  return { fallback: isEngineDefault(taskName(row), row.provider), firstUtterance: row.config?.firstUtterance };
+  return { fallback: isAgentDefaultName(taskName(row), row.provider), firstUtterance: row.config?.firstUtterance };
 }
 
 async function renameTask(sessionId: string, rawName: string, source: 'manual' | 'auto'): Promise<boolean> {
@@ -72,7 +70,7 @@ async function renameTask(sessionId: string, rawName: string, source: 'manual' |
   if (!row) throw new Error(`Session ${sessionId} not found`);
   const current = taskName(row);
   if (current === name) return false;
-  if (source === 'auto' && !isEngineDefault(current, row.provider)) return false;
+  if (source === 'auto' && !isAgentDefaultName(current, row.provider)) return false;
   const bound = boundTaskName(sessionId);
   if (bound) {
     // The roster write announces the new name (onTaskNamesChanged); publication follows.
@@ -104,10 +102,6 @@ function readRow(sessionId: string) {
 
 function firstUtteranceOf(sessionId: string): string | undefined {
   return readRow(sessionId)?.config?.firstUtterance;
-}
-
-function isEngineDefault(name: string, provider: string | null): boolean {
-  return agentNameSerial(name, getAgentTypeLabel(normalizeAgentType(provider ?? ''))) !== null;
 }
 
 function collapse(text: string): string {

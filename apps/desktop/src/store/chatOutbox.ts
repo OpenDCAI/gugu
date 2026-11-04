@@ -62,6 +62,12 @@ export interface ChatOutbox {
   enqueue(record: OutboxRecord): Promise<void>
   /** failed → pending 重投(手动重试;attempts 归零重新获得自动重试预算)。 */
   retry(clientMessageId: string): Promise<void>
+  /** Upload markers share persistence and dependency waiters, but never enter a lane. */
+  stageUpload(record: OutboxRecord): Promise<void>
+  commitUpload(record: OutboxRecord): Promise<boolean>
+  has(clientMessageId: string): boolean
+  confirm(clientMessageId: string, delivered: unknown): Promise<void>
+  failUpload(clientMessageId: string, error: unknown): Promise<void>
   /** 显式丢弃:删行 + onDiscarded(调用方负责移除乐观行)。 */
   discard(clientMessageId: string): Promise<void>
   /** 网络恢复 kick:全部 failed → pending 自动重投(验收②的自动路径)。 */
@@ -85,22 +91,31 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
   const drainingLanes = new Set<string>()
   let disposed = false
   let epoch = 0
+  let lastEnqueuedAt = 0
   const isActive = (operationEpoch = epoch) => !disposed && operationEpoch === epoch
   // delivered() 的等待者:送达 resolve,终态 failed / 丢弃 reject(供「新建话题 root 必须先落库」类结构性发送)
-  const waiters = new Map<string, { resolve: () => void; reject: (err: Error) => void }>()
+  const waiters = new Map<string, Set<{ resolve: () => void; reject: (err: Error) => void }>>()
   function resolveWaiter(id: string): void {
-    waiters.get(id)?.resolve()
+    for (const waiter of waiters.get(id) ?? []) waiter.resolve()
     waiters.delete(id)
   }
   function rejectWaiter(id: string, reason: string): void {
-    waiters.get(id)?.reject(new Error(reason))
+    for (const waiter of waiters.get(id) ?? []) waiter.reject(new Error(reason))
     waiters.delete(id)
   }
 
   async function persist(record: OutboxRecord, state: OutboxRecord['state'], patch: Partial<OutboxRecord> = {}, operationEpoch = epoch): Promise<OutboxRecord> {
     const next: OutboxRecord = { ...record, ...patch, state, updatedAt: new Date(deps.now?.() ?? Date.now()).toISOString() }
     await deps.save(next)
-    if (isActive(operationEpoch)) records.set(next.clientMessageId, next)
+    if (isActive(operationEpoch)) {
+      const current = records.get(next.clientMessageId)
+      if (current?.dependencyDiscarded && !next.dependencyDiscarded) {
+        await deps.save(current)
+        return current
+      }
+      if (current) records.set(next.clientMessageId, next)
+      else await deps.remove(next.clientMessageId)
+    }
     return next
   }
 
@@ -108,7 +123,21 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
     return new Promise((resolve) => schedule(resolve, ms))
   }
 
+  function sourceDelivered(id: string): Promise<void> {
+    if (disposed) return Promise.reject(new Error('outbox scope disposed'))
+    const source = records.get(id)
+    if (!source) return Promise.resolve()
+    if (source.state === 'failed') return Promise.reject(new Error(source.lastError ?? i18n.t('outbox.sendFailed', { ns: 'messaging' })))
+    return new Promise<void>((resolve, reject) => {
+      const subscribers = waiters.get(id) ?? new Set()
+      subscribers.add({ resolve, reject })
+      waiters.set(id, subscribers)
+    })
+  }
+
   async function deliverWithTimeout(record: OutboxRecord): Promise<unknown> {
+    // Native publication owns its existing observation deadline and late readback.
+    if (record.operation?.kind === 'nativeAttachment') return deps.deliver(record)
     return Promise.race([
       deps.deliver(record),
       sleep(timeoutMs).then(() => {
@@ -125,6 +154,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
     records.delete(record.clientMessageId)
     finishChatSendTiming(record.clientMessageId, true)
     resolveWaiter(record.clientMessageId)
+    kick()
     // onSent 是无超时的网络副作用(摘要刷新等)——不得 await:网关挂起时会把整个
     // drain 队列静默卡死(后续消息永远「发送中」,连 failed 都到不了)。副作用失败由回调自报。
     void Promise.resolve(deps.onSent(record, acknowledged)).catch((err) => {
@@ -142,6 +172,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
         if (!isActive(operationEpoch) || !records.has(record.clientMessageId)) return
         deps.onState(failed)
         rejectWaiter(failed.clientMessageId, failed.lastError ?? i18n.t('outbox.sendFailed', { ns: 'messaging' }))
+        kick()
       } catch (persistError) {
         outboxLog.error({ error: persistError }, 'durable ack failure could not be persisted')
       }
@@ -157,10 +188,26 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       for (;;) {
         const next = [...records.values()].find((r) => r.chatId === chatId && r.state === 'pending')
         if (!next || !isActive(operationEpoch)) return
+        // Keep creation order. Uploading sources are skipped, but a dependency
+        // waiting on one must not claim the lane: its earlier source may become
+        // ready there. Source settlement kicks the same drainer again.
+        const source = next.dependsOn ? records.get(next.dependsOn) : undefined
+        if (source && source.state !== 'failed') return
         let record = await persist(next, 'sending', {}, operationEpoch)
         if (!isActive(operationEpoch)) return
+        if (!records.has(record.clientMessageId) || record.state === 'failed') continue
         deps.onState(record)
         let delivered = false
+        if (record.dependencyDiscarded || source?.state === 'failed') {
+          record = await persist(record, 'failed', {
+            lastError: i18n.t(record.dependencyDiscarded ? 'outbox.sourceDiscarded' : 'outbox.sourceNotSent', { ns: 'messaging' }),
+          }, operationEpoch)
+          if (!isActive(operationEpoch)) return
+          deps.onState(record)
+          rejectWaiter(record.clientMessageId, record.lastError!)
+          kick()
+          continue
+        }
         for (let attempt = 1; attempt <= backoffMs.length + 1; attempt += 1) {
           try {
             if (deps.prepare) {
@@ -200,6 +247,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
           if (!isActive(operationEpoch)) return
           deps.onState(record)
           rejectWaiter(record.clientMessageId, record.lastError ?? i18n.t('outbox.sendFailed', { ns: 'messaging' }))
+          kick()
         }
       }
     } finally {
@@ -232,22 +280,67 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
     async enqueue(record) {
       if (disposed) throw new Error('outbox scope disposed')
       const operationEpoch = epoch
-      const staged: OutboxRecord = { ...record, attempts: 0, state: 'pending', updatedAt: new Date(deps.now?.() ?? Date.now()).toISOString() }
+      // Preserve creation order across durable reload even when clicks share a millisecond.
+      lastEnqueuedAt = Math.max(deps.now?.() ?? Date.now(), lastEnqueuedAt + 1)
+      const staged: OutboxRecord = { ...record, enqueuedAt: new Date(lastEnqueuedAt).toISOString(), attempts: 0, state: record.state === 'uploading' ? 'uploading' : 'pending', updatedAt: new Date(deps.now?.() ?? Date.now()).toISOString() }
       // enqueue 以落盘为提交点,字面执行「先落盘再可投递」:落盘成功前记录不进内存队列,并发中的
       // drain 看不到它——落盘失败即拒绝且内外皆无残留(否则后续任意 kick 会把这条「失败」的消息
       // 连带补投出去,composer 恢复重试 → 文字翻倍;先 set 后 save 还有 save 期间被 drain 抢投的竞态)。
       await deps.save(staged)
       const timing = chatSendTimings.get(staged.clientMessageId); if (timing) timing.enqueue = performance.now()
       if (!isActive(operationEpoch)) return
+      records.delete(staged.clientMessageId)
       records.set(staged.clientMessageId, staged)
       deps.onState(staged)
+      kick()
+    },
+    async stageUpload(record) {
+      await this.enqueue({ ...record, state: 'uploading' })
+    },
+    has(id) { return records.has(id) },
+    async confirm(id, delivered) {
+      const record = records.get(id)
+      if (record && !disposed) settleSentInBackground(record, delivered, epoch)
+    },
+    async commitUpload(record) {
+      const source = records.get(record.clientMessageId)
+      if (disposed || source?.state !== 'uploading') return false
+      const operationEpoch = epoch
+      const ready: OutboxRecord = { ...record, enqueuedAt: source.enqueuedAt, state: record.operation?.kind === 'nativeAttachment' ? 'uploading' : 'pending', attempts: 0, lastError: null }
+      await deps.save(ready)
+      if (!isActive(operationEpoch)) return false
+      // Discard may have happened while persistence was in flight. Never revive it.
+      if (records.get(record.clientMessageId) !== source) {
+        const current = records.get(record.clientMessageId)
+        if (current) await deps.save(current)
+        else await deps.remove(record.clientMessageId)
+        return false
+      }
+      // Creation order is stable: every dependency points backward. Uploading
+      // records are skipped, not moved, so lane and dependency edges cannot form a cycle.
+      records.set(record.clientMessageId, ready)
+      deps.onState(ready)
+      kick()
+      return true
+    },
+    async failUpload(id, error) {
+      const record = records.get(id)
+      if (!record || disposed) return
+      const operationEpoch = epoch
+      outboxLog.error({ error, messageId: id }, 'attachment upload failed')
+      const failed = await persist(record, 'failed', {
+        lastError: i18n.t('outbox.selectFileAgain', { ns: 'messaging' }),
+      }, operationEpoch)
+      if (!isActive(operationEpoch)) return
+      deps.onState(failed)
+      rejectWaiter(id, failed.lastError!)
       kick()
     },
     async retry(clientMessageId) {
       if (disposed) return
       const operationEpoch = epoch
       const record = records.get(clientMessageId)
-      if (!record || record.state !== 'failed') return
+      if (!record || record.state !== 'failed' || record.dependencyDiscarded || (record.operation?.kind === 'upload' || record.operation?.kind === 'nativeAttachment')) return
       const next = await persist(record, 'pending', { attempts: 0, lastError: null }, operationEpoch)
       if (!isActive(operationEpoch)) return
       deps.onState(next)
@@ -259,17 +352,31 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       const operationEpoch = epoch
       const record = records.get(clientMessageId)
       if (!record) return
+      // Fail all dependents synchronously before the first persistence await.
+      // Leaving an absent source while dependents are pending means "delivered".
+      const failedDependents = [...records.values()].filter(row => row.dependsOn === clientMessageId).map(row => ({
+        ...row, state: 'failed' as const, dependencyDiscarded: true,
+        lastError: i18n.t('outbox.sourceDiscarded', { ns: 'messaging' }),
+      }))
+      for (const failed of failedDependents) records.set(failed.clientMessageId, failed)
       records.delete(clientMessageId)
+      for (const dependent of failedDependents) {
+        const failed = await persist(dependent, 'failed', {}, operationEpoch)
+        if (!isActive(operationEpoch)) return
+        deps.onState(failed)
+        rejectWaiter(failed.clientMessageId, failed.lastError!)
+      }
       await deps.remove(clientMessageId)
       if (!isActive(operationEpoch)) return
       rejectWaiter(clientMessageId, i18n.t('outbox.discarded', { ns: 'messaging' }))
       deps.onDiscarded(record)
+      kick()
     },
     async retryAllFailed() {
       if (disposed) return
       const operationEpoch = epoch
       for (const record of records.values()) {
-        if (record.state === 'failed') {
+        if (record.state === 'failed' && !record.dependencyDiscarded && record.operation?.kind !== 'upload' && record.operation?.kind !== 'nativeAttachment') {
           const next = await persist(record, 'pending', { attempts: 0, lastError: null }, operationEpoch)
           if (!isActive(operationEpoch)) return
           deps.onState(next)
@@ -284,9 +391,11 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       if (!isActive(operationEpoch)) return []
       const restored: OutboxRecord[] = []
       for (const row of rows) {
+        lastEnqueuedAt = Math.max(lastEnqueuedAt, Date.parse(row.enqueuedAt))
         // 死在投递中的 'sending' 行视同 pending 重投(幂等键兜底,双发机制性不可能)
-        const state = row.state === 'sending' ? 'pending' : row.state
-        const record: OutboxRecord = { ...row, state }
+        const interrupted = row.state === 'uploading' && row.operation?.kind !== 'nativeAttachment'
+        const state = interrupted ? 'failed' : row.operation?.kind === 'nativeAttachment' && row.state !== 'failed' ? 'uploading' : row.state === 'sending' ? 'pending' : row.state
+        const record: OutboxRecord = { ...row, state, ...(interrupted ? { operation: { kind: 'upload' }, lastError: i18n.t('outbox.selectFileAgain', { ns: 'messaging' }) } : {}) }
         if (state !== row.state) await deps.save(record)
         if (!isActive(operationEpoch)) return []
         records.set(record.clientMessageId, record)
@@ -301,14 +410,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
         (r) => r.chatId === chatId && (r.payload.threadRootId ?? null) === threadRootId,
       )
     },
-    delivered(clientMessageId) {
-      if (disposed) return Promise.reject(new Error('outbox scope disposed'))
-      const record = records.get(clientMessageId)
-      if (!record) return Promise.resolve() // 已送达删行(入队方自持 id,不存在=已 settle)
-      if (record.state === 'failed') return Promise.reject(new Error(record.lastError ?? i18n.t('outbox.sendFailed', { ns: 'messaging' }))) // 终态已定,别挂等待者
-      return new Promise<void>((resolve, reject) => {
-        waiters.set(clientMessageId, { resolve, reject })
-      })
-    },
+    delivered: sourceDelivered,
+
   }
 }

@@ -10,8 +10,9 @@ export function nativeReplyKeys(turn: TranscriptTurn): string[] {
     ? [item.id] : []);
 }
 
-export type NativeReadJournal = Record<string, { read: boolean; aliases: string[] }>;
+export type NativeReadJournal = Record<string, { read: boolean; aliases: string[]; notifyOwner?: true }>;
 export const unreadNativeMessages = (journal: NativeReadJournal): string[] => Object.keys(journal).filter(id => !journal[id]!.read);
+export const unreadOwnerNotifications = (journal: NativeReadJournal): string[] => Object.keys(journal).filter(id => journal[id]!.notifyOwner && !journal[id]!.read);
 export function nativeReadAliases(journal: NativeReadJournal): Record<string, string> {
   const values = new Map<string, string | null>();
   for (const [key, value] of Object.entries(journal)) for (const alias of value.aliases) {
@@ -19,9 +20,9 @@ export function nativeReadAliases(journal: NativeReadJournal): Record<string, st
   }
   return Object.fromEntries([...values].filter((entry): entry is [string, string] => entry[1] !== null));
 }
-export function addNativeReplies(journal: NativeReadJournal, keys: readonly string[], aliases: ReadonlyMap<string, string> = new Map()): NativeReadJournal {
+export function addNativeReplies(journal: NativeReadJournal, keys: readonly string[], aliases: ReadonlyMap<string, string> = new Map(), notifications: ReadonlySet<string> = new Set()): NativeReadJournal {
   const next = { ...journal };
-  for (const key of keys) next[key] = next[key] ?? { read: false, aliases: [...new Set([key, nativeMessageKey(key), aliases.get(key) ?? key])] };
+  for (const key of keys) next[key] = { ...(next[key] ?? { read: false, aliases: [...new Set([key, nativeMessageKey(key), aliases.get(key) ?? key])] }), ...(notifications.has(key) ? { notifyOwner: true as const } : {}) };
   return next;
 }
 export function seeNativeReplies(journal: NativeReadJournal, visible: readonly string[]): NativeReadJournal {

@@ -1,7 +1,9 @@
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import { afterEach, expect, it, vi } from 'vitest';
-import { domPortTransport, serve, type DomPortLike } from '@gugu/session-wire';
+import { domPortTransport, serve, WireError, type DomPortLike } from '@gugu/session-wire';
 import { AcpLiveSession } from './acp-live-session';
+import { attachInCurrentConnection } from './session-attachment';
+import type { LifeView } from '@shared/core/sessions/session-life';
 import { getAcpRuntimeClient, resetAcpRuntimeClient } from './runtime-client';
 
 vi.setConfig({ testTimeout: 5_000 });
@@ -37,7 +39,10 @@ function runtimePorts() {
     usage: null, plan: null, draft: null, agents: [], terminals: [],
   };
   const command = vi.fn(() => new Promise<never>(() => {}));
+  const held = new Map<string, Promise<void>>();
   let opens = 0;
+  let available = true;
+  const reads: Array<{ generation: number; available: boolean }> = [];
   bridge.request.mockImplementation(async () => {
     const { port1, port2 } = new MessageChannel();
     renderer = port1;
@@ -45,7 +50,13 @@ function runtimePorts() {
     const stop = serve(domPortTransport(port2 as unknown as DomPortLike), {
       call: command,
       resolveLive: topic => ({
-        snapshot: () => ({ generation: opens, sequence: 0, timestamp: Date.now(), data: current[topic.split('|')[0].split('.').at(-1)!] }),
+        snapshot: async () => {
+          reads.push({ generation: opens, available });
+          if (!available) throw new WireError('NOT_FOUND', 'No session instance');
+          const name = topic.split('|')[0].split('.').at(-1)!;
+          await held.get(name);
+          return { generation: opens, sequence: 0, timestamp: Date.now(), data: current[name] };
+        },
         subscribe: () => () => {},
       }),
     });
@@ -53,7 +64,14 @@ function runtimePorts() {
     for (const listener of [...listeners]) listener({ data: { kind: 'acp-wire:port' }, ports: [port1] });
   });
   return {
-    command,
+    command, reads,
+    restartWithoutSession() { available = false; renderer!.close(); },
+    restoreSession() { available = true; },
+    hold(name: string) {
+      let release!: () => void;
+      held.set(name, new Promise<void>(resolve => { release = resolve; }));
+      return release;
+    },
     get opens() { return opens; },
     finishWhileDisconnected() {
       current = { ...current, state: { ...current.state as object, lifecycle: 'ready', activeTurnId: null,
@@ -62,6 +80,24 @@ function runtimePorts() {
     },
   };
 }
+
+it.each(['state', 'draft'])('allows draft synchronization only after both reconnect snapshots arrive (%s last)', async last => {
+  const runtime = runtimePorts();
+  const session = await AcpLiveSession.create('draft-connection');
+  cleanup.push(() => session.dispose());
+  expect(session.canSyncDraft()).toBe(true);
+  const ready = vi.fn();
+  session.onDraftSyncReady(ready);
+  const release = runtime.hold(last);
+  runtime.finishWhileDisconnected();
+  await vi.waitFor(() => expect(session.draftConnectionGeneration).toBe(1));
+  await vi.waitFor(() => expect(runtime.opens).toBe(2));
+  expect(session.canSyncDraft()).toBe(false);
+  expect(ready).not.toHaveBeenCalled();
+  release();
+  await vi.waitFor(() => expect(session.canSyncDraft()).toBe(true));
+  expect(ready).toHaveBeenCalledTimes(1);
+});
 
 it('reopens the local state port and replaces both stale streaming messages with the authoritative completed turn', async () => {
   const runtime = runtimePorts();
@@ -95,4 +131,33 @@ it('preserves a real initial runtime-start error instead of converting it into a
   const failure = new Error('Runtime executable could not start');
   bridge.request.mockRejectedValueOnce(failure);
   await expect(getAcpRuntimeClient()).rejects.toBe(failure);
+});
+
+
+it('abandons an initial MessagePort attachment on disconnect and waits for the restarted host ready before any snapshot', async () => {
+  const runtime = runtimePorts();
+  const release = runtime.hold('agents');
+  const client = await getAcpRuntimeClient();
+  let view: LifeView = { sessionId: 'initial-ready', kind: 'ready', version: 9, stage: null,
+    pending: { count: 0, items: [] }, hold: null, failure: null, lastExit: null, nativeSession: null };
+  const listeners = new Set<(value: LifeView) => void>();
+  const readLife = vi.fn(async () => view);
+  const attach = vi.fn(() => AcpLiveSession.create('initial-ready'));
+  const pending = attachInCurrentConnection({ connection: client.connection, readLife,
+    onLife: listener => { listeners.add(listener); return () => listeners.delete(listener); }, attach }, new AbortController().signal);
+  await vi.waitFor(() => expect(runtime.reads.length).toBeGreaterThan(0));
+  view = { ...view, kind: 'starting', version: 1 };
+  runtime.restartWithoutSession();
+  await vi.waitFor(() => expect(readLife).toHaveBeenCalledTimes(2));
+  expect(runtime.opens).toBe(2);
+  expect(runtime.reads.filter(read => read.generation === 2)).toEqual([]);
+  expect(attach).toHaveBeenCalledOnce();
+  runtime.restoreSession(); release();
+  view = { ...view, kind: 'ready', version: 2 };
+  for (const listener of [...listeners]) listener(view);
+  const session = await pending;
+  cleanup.push(() => session.dispose());
+  expect(attach).toHaveBeenCalledTimes(2);
+  expect(runtime.reads.every(read => read.available)).toBe(true);
+  expect(session.canSyncDraft()).toBe(true);
 });

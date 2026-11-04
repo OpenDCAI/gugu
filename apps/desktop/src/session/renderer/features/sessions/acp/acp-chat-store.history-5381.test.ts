@@ -12,6 +12,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import type { HistoryCursor } from '@gugu/session-core/acp/client';
 
+
+vi.mock('@renderer/lib/acp/acp-session-attachment', () => ({
+  attachAcpSessionWhenReady: async (id: string, signal: AbortSignal) => {
+    signal.throwIfAborted();
+    return (await import('@renderer/lib/acp/acp-live-session')).AcpLiveSession.create(id);
+  },
+}));
+
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
 const custody = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => {}));
 vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNativeInput: () => false }));
@@ -152,6 +160,8 @@ describe('#7304 原地回退后的历史对账', () => {
     internals._storedBaseSeq = 0;
     internals._storedBootstrapMaxSeq = 2;
     const session = {
+      canSyncDraft: () => true,
+      activeTurn: { current: () => null },
       setPromptDraft: vi.fn(async () => ({ success: true as const, data: undefined })),
       sessionState: { current: () => ({ lifecycle: 'ready', queuedPrompts: [], pendingPermissions: [], isGenerating: false }) },
       getHistory: vi.fn(async () => ({ success: true as const, data: { turns: turns.slice(0, 1), nextCursor: null, cursor: { epoch: 'runtime', seq: 1 }, reset: false, count: 1 } })),

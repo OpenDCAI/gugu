@@ -84,7 +84,7 @@ export function isDownloadFileOpenResult(
 
 export type Controller = {
   call(path: string, input: unknown, meta?: CallMeta): Promise<unknown>;
-  resolveLive(topic: string): LiveSource | null;
+  resolveLive(topic: string, capabilities?: readonly string[]): LiveSource | null;
   dispose?(): void;
 };
 

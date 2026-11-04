@@ -57,6 +57,8 @@ describe('setupPlanOf —— 每一家在手机上走哪条路', () => {
     expect(plan('dida')).toMatchObject({ kind: 'browser' })
     expect(plan('notion')).toMatchObject({ kind: 'browser' })
     expect(plan('linear')).toMatchObject({ kind: 'browser' })
+    expect(plan('baidu-pan')).toEqual({ kind: 'platform-browser' })
+    expect(plan('baidu-pan', 'web')).toEqual({ kind: 'platform-browser' })
     for (const id of ['qq-mail', 'netease-mail', 'enterprise-mail', 'jira', 'asana', 'gitlab', 'forgejo', 'trello', 'monday', 'plain', 'plane', 'featurebase']) {
       expect(plan(id)).toEqual({ kind: 'form' })
     }

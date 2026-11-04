@@ -4,7 +4,7 @@ import { createAssistantSetupPreparation } from '../../../../apps/desktop/electr
 function fixture() {
   const prepared = { commit: vi.fn(async () => {}), dispose: vi.fn(async () => {}) }
   const deps = { prepare: vi.fn(async (_id: string, _signal: AbortSignal) => prepared),
-    install: vi.fn(async () => ({ home: '/home', workdir: '/home/assistant' })), changed: vi.fn() }
+    install: vi.fn(async () => ({ home: '/home', workdir: '/home/assistant' })), changed: vi.fn(), failed: vi.fn() }
   return { prepared, deps, service: createAssistantSetupPreparation(deps) }
 }
 
@@ -86,4 +86,27 @@ it('keeps the installation boundary visible after an installation failure', asyn
   expect(await f.service.cancel('one')).toBe(false)
   await f.service.release('one')
   expect(() => f.service.status('one')).toThrow('no longer exists')
+})
+
+it('reports the original preparation error for main-process logging', async () => {
+  const f = fixture()
+  const error = Object.assign(new Error('download failed'), { code: 'EACCES' })
+  f.deps.prepare.mockRejectedValueOnce(error)
+  f.service.start('one')
+  await vi.waitFor(() => expect(f.service.status('one').phase).toBe('failed'))
+  expect(f.deps.failed).toHaveBeenCalledWith('one', 'prepare', error)
+})
+
+it('reports the original commit error before cleanup can replace it', async () => {
+  const f = fixture()
+  const error = new Error('publication failed', { cause: new Error('sharing violation') })
+  f.prepared.commit.mockRejectedValueOnce(error)
+  f.prepared.dispose.mockImplementationOnce(async () => {
+    expect(f.deps.failed).toHaveBeenCalledWith('one', 'commit', error)
+    throw new Error('cleanup failed')
+  })
+  f.service.start('one')
+  await vi.waitFor(() => expect(f.service.status('one').phase).toBe('ready'))
+  await expect(f.service.commit('one', {})).rejects.toThrow('cleanup failed')
+  expect(f.deps.failed).toHaveBeenCalledOnce()
 })

@@ -33,6 +33,93 @@ beforeEach(() => { resetAgentInboxReaderStateForTests(); vi.useFakeTimers() })
 afterEach(() => { resetAgentInboxReaderStateForTests(); vi.useRealTimers() })
 
 describe('inbox recovery without another incoming message', () => {
+  it.each([false, true])('keeps desktop delivery and coalescing unchanged (completion observer: %s)', async observe => {
+    resetAgentInboxReaderStateForTests()
+    const { deps, inject } = inbox()
+    const scanned = vi.fn()
+    if (observe) deps.onScanComplete = scanned
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const read = deps.fetchUnread!
+    deps.fetchUnread = vi.fn(async input => { await gate; return read(input) })
+    const first = pullAgentInbox(AGENT, deps)
+    const second = pullAgentInbox(AGENT, deps)
+    expect(second).toBe(first)
+    expect(scanned).not.toHaveBeenCalled()
+    release()
+    expect(await first).toEqual({ pulled: 1, injected: 1, verdict: 'accepted' })
+    expect(await second).toEqual({ pulled: 1, injected: 1, verdict: 'accepted' })
+    expect(deps.fetchUnread).toHaveBeenCalledTimes(2)
+    expect(inject).toHaveBeenCalledTimes(1)
+    expect(inject.mock.calls[0]![0].sourceMessageId).toBe(MESSAGE)
+    expect(deps.markRead).toHaveBeenCalledTimes(1)
+    expect(deps.markRead).toHaveBeenCalledWith({ agentUserId: AGENT, chatId: CHAT, messageId: MESSAGE })
+    expect(scanned).toHaveBeenCalledTimes(observe ? 1 : 0)
+    if (observe) expect(scanned).toHaveBeenCalledWith({ pulled: 1, injected: 1, verdict: 'accepted' })
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(deps.fetchUnread).toHaveBeenCalledTimes(2)
+  })
+
+  it('observes existing automatic retry success once without another external trigger', async () => {
+    const { deps } = inbox()
+    const scanned = vi.fn()
+    deps.onScanComplete = scanned
+    const read = deps.fetchUnread!
+    deps.fetchUnread = vi.fn().mockRejectedValueOnce(new Error('cloud unavailable')).mockImplementation(read)
+    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('cloud unavailable')
+    expect(scanned).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(scanned).toHaveBeenCalledExactlyOnceWith({ pulled: 1, injected: 1, verdict: 'accepted' })
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(scanned).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not report scan completion when a later page fails after the first page was admitted', async () => {
+    const { deps, row } = inbox()
+    const scanned = vi.fn()
+    deps.onScanComplete = scanned
+    const page = Array.from({ length: 80 }, (_, i) => ({ ...row, id: `00000000-0000-4000-8000-${String(i + 10).padStart(12, '0')}`, seq: i + 1, scanFence: 100 }))
+    deps.fetchUnread = vi.fn().mockResolvedValueOnce(page).mockRejectedValueOnce(new Error('second page unavailable'))
+    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('second page unavailable')
+    expect(deps.markRead).toHaveBeenCalledTimes(80)
+    expect(deps.fetchUnread).toHaveBeenLastCalledWith(expect.objectContaining({ scanAfter: { chatId: CHAT, seq: 80 }, scanFence: 100 }))
+    expect(scanned).not.toHaveBeenCalled()
+  })
+
+  it.each(['SQLITE_BUSY', 'SQLITE_BUSY_SNAPSHOT', 'SQLITE_BUSY_TIMEOUT', 'SQLITE_LOCKED'])(
+    'retries %s without a failed receipt, read acknowledgement or source-chat disclosure', async code => {
+      const { deps, inject, postDisclosure } = inbox()
+      const cause = Object.assign(new Error('database is locked'), { code })
+      const error = new Error('admission transaction failed', { cause })
+      inject.mockRejectedValueOnce(error)
+      deps.recordFailure = vi.fn(async () => {})
+      await expect(pullAgentInbox(AGENT, deps)).rejects.toBe(error)
+      expect(deps.recordFailure).not.toHaveBeenCalled()
+      expect(postDisclosure).not.toHaveBeenCalled()
+      expect(deps.markRead).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(inject).toHaveBeenCalledTimes(2)
+      expect(inject.mock.calls.map(([input]) => input.sourceMessageId)).toEqual([MESSAGE, MESSAGE])
+      expect(deps.markRead).toHaveBeenCalledTimes(1)
+      expect(postDisclosure).not.toHaveBeenCalled()
+    },
+  )
+
+  it('does not report a transient storage error from an already admitted completion or resend its input', async () => {
+    const { deps, inject, postDisclosure } = inbox()
+    let fail!: (error: Error) => void
+    inject.mockResolvedValueOnce({ verdict: 'accepted', completion: new Promise<void>((_, reject) => { fail = reject }) })
+    const result = await pullAgentInbox(AGENT, deps)
+    const error = Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' })
+    const completion = expect(result.completion).rejects.toBe(error)
+    fail(error)
+    await completion
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(postDisclosure).not.toHaveBeenCalled()
+    expect(inject).toHaveBeenCalledTimes(1)
+    expect(deps.markRead).toHaveBeenCalledTimes(1)
+  })
+
   it('immediately admits image text and its folder link after one download failure, without a disclosure or second download', async () => {
     const { deps, inject, postDisclosure } = inbox({
       content: '[附件] screen.png (image/png)\n[Size] 3\n[Kind] image\n[Caption]\nPlease explain the screenshot',
@@ -52,32 +139,28 @@ describe('inbox recovery without another incoming message', () => {
     expect(inject).toHaveBeenCalledTimes(1)
   })
 
-  it('retries a failed unread batch with backoff, then stops after acceptance without any new message', async () => {
-    const { deps, inject } = inbox()
-    inject.mockRejectedValueOnce(new Error('provider temporarily unavailable'))
-      .mockRejectedValueOnce(new Error('provider temporarily unavailable'))
-    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('provider temporarily unavailable')
+  it('discloses and consumes a rejected item once rather than retrying it forever', async () => {
+    const { deps, inject, postDisclosure } = inbox()
+    inject.mockRejectedValueOnce(new Error('invalid input'))
+    const recordFailure = vi.fn(async () => {})
+    deps.recordFailure = recordFailure
+    deps.claimedSources = (_agent, ids) => new Map(ids.filter(id => recordFailure.mock.calls.length > 0 && id === MESSAGE).map(id => [id, false]))
+    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('invalid input')
+    expect(recordFailure).toHaveBeenCalledTimes(1)
+    expect(postDisclosure).toHaveBeenCalledWith(expect.objectContaining({ reason: 'deliveryRejected', key: expect.stringMatching(/^delivery-rejected:/) }))
     expect(deps.markRead).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(999)
-    expect(inject).toHaveBeenCalledTimes(1)
-    await vi.advanceTimersByTimeAsync(1)
-    expect(inject).toHaveBeenCalledTimes(2)
-    await vi.advanceTimersByTimeAsync(1999)
-    expect(inject).toHaveBeenCalledTimes(2)
-    await vi.advanceTimersByTimeAsync(1)
-    expect(inject).toHaveBeenCalledTimes(3)
-    expect(deps.markRead).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(120_000)
-    expect(inject).toHaveBeenCalledTimes(3)
+    expect(inject).toHaveBeenCalledTimes(1)
   })
 
-  it('cancels a pending retry after an external pull succeeds', async () => {
+  it('cancels an infrastructure retry after an external pull succeeds', async () => {
     const { deps, inject } = inbox()
-    inject.mockRejectedValueOnce(new Error('temporarily unavailable'))
-    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow()
+    const fetchUnread = deps.fetchUnread!
+    deps.fetchUnread = vi.fn().mockRejectedValueOnce(new Error('cloud unavailable')).mockImplementation(fetchUnread)
+    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('cloud unavailable')
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1 })
     await vi.advanceTimersByTimeAsync(120_000)
-    expect(inject).toHaveBeenCalledTimes(2)
+    expect(inject).toHaveBeenCalledTimes(1)
   })
 
   it('also retries a cloud read failure and caps consecutive failure backoff at one minute', async () => {
@@ -106,17 +189,21 @@ describe('inbox recovery without another incoming message', () => {
     expect(inject).toHaveBeenCalledTimes(1)
   })
 
-  it('re-pulls only unread rows after a later admission fails in the same batch', async () => {
+  it('does not re-pull a terminally rejected later item', async () => {
     const { deps, row, inject } = inbox()
     const later = { ...row, id: '00000000-0000-4000-8000-000000000005', seq: 2, content: 'Second message' }
     const read = new Set<string>()
+    const rejected = new Set<string>()
+    deps.recordFailure = async input => { for (const source of input.sources ?? []) rejected.add(source.row.id) }
+    deps.claimedSources = (_agent, ids) => new Map(ids.filter(id => rejected.has(id)).map(id => [id, false]))
     deps.fetchUnread = async () => [row, later].filter(entry => !read.has(entry.id))
     deps.markRead = async input => { read.add(input.messageId) }
     inject.mockResolvedValueOnce('accepted').mockRejectedValueOnce(new Error('temporary second admission failure'))
     await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('temporary second admission failure')
     await vi.advanceTimersByTimeAsync(1000)
-    expect(inject.mock.calls.map(([input]) => input.messageId)).toEqual([MESSAGE, later.id, later.id])
-    expect(read).toEqual(new Set([MESSAGE, later.id]))
+    expect(inject.mock.calls.map(([input]) => input.sourceMessageId)).toEqual([MESSAGE, later.id])
+    expect(read).toEqual(new Set([MESSAGE]))
+    expect(rejected).toEqual(new Set([later.id]))
   })
 
   it('does not retry a failed provider completion whose input was already accepted', async () => {
@@ -135,10 +222,13 @@ describe('inbox recovery without another incoming message', () => {
   it('does not poll normal not-live or not-now admission states', async () => {
     for (const verdict of ['not-live', 'not-now'] as const) {
       const { deps, inject } = inbox()
+      const scanned = vi.fn()
+      deps.onScanComplete = scanned
       inject.mockResolvedValue(verdict)
       await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ verdict })
       await vi.advanceTimersByTimeAsync(120_000)
       expect(inject).toHaveBeenCalledTimes(1)
+      expect(scanned).not.toHaveBeenCalled()
     }
   })
 })

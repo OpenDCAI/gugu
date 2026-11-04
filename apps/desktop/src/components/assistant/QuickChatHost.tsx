@@ -43,6 +43,20 @@ export function QuickChatHost({
   const mountedRef = useRef<Mounted | null>(null)
   mountedRef.current = mounted
 
+  // Subscribe before window.open: adoption can show a pending shortcut window immediately.
+  useLayoutEffect(() => {
+    if (!ipc) return
+    const offOpen = ipc.eventOn(QUICK_CHAT_CHANNELS.open, () => {
+      const current = mountedRef.current
+      if (!current || current.win.closed) setGeneration((n) => n + 1)
+    })
+    const offVisibility = ipc.eventOn(QUICK_CHAT_CHANNELS.visibility, (shown) => setVisible(shown === true))
+    return () => {
+      offOpen()
+      offVisibility()
+    }
+  }, [ipc])
+
   useLayoutEffect(() => {
     if (!ipc) return
     const win = window.open('about:blank', QUICK_CHAT_WINDOW_NAME, 'width=520,height=680')
@@ -73,19 +87,6 @@ export function QuickChatHost({
       }
     }
   }, [ipc, generation])
-
-  useEffect(() => {
-    if (!ipc) return
-    const offOpen = ipc.eventOn(QUICK_CHAT_CHANNELS.open, () => {
-      const current = mountedRef.current
-      if (!current || current.win.closed) setGeneration((n) => n + 1)
-    })
-    const offVisibility = ipc.eventOn(QUICK_CHAT_CHANNELS.visibility, (shown) => setVisible(shown === true))
-    return () => {
-      offOpen()
-      offVisibility()
-    }
-  }, [ipc])
 
   const name = assistant?.display_name ?? t('quickChat.assistant')
   useEffect(() => {

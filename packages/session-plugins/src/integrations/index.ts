@@ -38,6 +38,7 @@ export {
   type McpOAuthCredentials,
 } from './helpers/mcp-oauth';
 export { keyedMcpUrl } from './helpers/keyed-mcp';
+export { integrationMcpTransport, type McpTransportKind } from './helpers/mcp-transport';
 export type {
   IIntegrationAuthBehavior,
   IntegrationAuthDescriptor,
