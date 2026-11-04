@@ -37,3 +37,25 @@ GUGU_DB_TARGET=local bash scripts/dev/dev-app.sh
 配置以 [.envs/example.env](../../.envs/example.env) 为模板，官方服务的可选开关见
 [官方服务配置](optional-cloud-services.md)。数据库初始化及授权流程仍需遵循对应后端文档；
 脚本本身不创建数据库或账号。真实桌面验收使用 Electron；`--web` 仅用于网页开发和移动 shell。
+
+无需热更新时，可以直接运行构建产物，关闭后不留开发服务器：
+
+```bash
+GUGU_DB_TARGET=local pnpm build:app
+env -u ELECTRON_RUN_AS_NODE -u VITE_DEV_SERVER_URL \
+  GUGU_DB_TARGET=local \
+  GUGU_HOME="$PWD/.local/built/home" \
+  GUGU_USER_DATA_DIR="$PWD/.local/built/user-data" \
+  pnpm exec electron .
+```
+
+`build:app` 包含类型检查、渲染层与主进程构建、环境核对和原生模块重建。
+构建和运行使用同一套数据库配置；两个数据目录应当是本次验收专用的路径。
+启动后页面从 `gugu-app://app/index.html` 加载，不需要 Vite。修改源码后需重新构建；
+依赖更新后也须重建与当前 Electron 版本匹配的原生模块。
+
+开发时，Electron 主进程和 dev:web 的会话宿主由 Node 直接加载已安装的 CommonJS 依赖，
+保留各个引用方实际解析的依赖版本；ESM 依赖继续打包，以统一共享对象的实例。
+生产构建仍会打包这些依赖。
+依赖是否完整入包、动态 `require`、ESM/CJS 互操作及资源路径，需要用生产构建产物验证；
+开发版运行成功不能替代这一步。原生模块在两种模式下都必须通过 Electron ABI 加载检查。
