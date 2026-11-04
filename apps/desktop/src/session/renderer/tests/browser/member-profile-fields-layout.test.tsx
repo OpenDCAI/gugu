@@ -38,7 +38,7 @@ async function draw(language: string, theme: string, fill = false) {
   await i18n.changeLanguage(language)
   h.container.style.width = fill ? '240px' : '600px'
   await renderWithAppProviders(h, <MemberProfileCard member={member} fill={fill} aliasControls={{ alias: 'Test alias', onSave: vi.fn() }} />, { contacts: {} })
-  await until('the real profile and its upper metadata are rendered', () => h.container.querySelector('[data-profile-field="role"]') !== null && h.container.querySelector('[data-testid="profile-community-points"]') !== null)
+  await until('the real profile fields are rendered', () => h.container.querySelector('[data-profile-field="role"]') !== null && h.container.querySelector('[data-testid="profile-community-points"]') !== null)
   await document.fonts.ready
 }
 
@@ -59,8 +59,9 @@ function assertFields() {
     expect(values[index].getBoundingClientRect().right).toBeLessThanOrEqual(fields.getBoundingClientRect().right)
   }
   const role = fields.querySelector<HTMLElement>('[data-profile-field="role"]')!
-  const upper = h.container.querySelector<HTMLElement>('[data-testid="profile-community-points"]')!
-  expect(getComputedStyle(role).fontSize).toBe(getComputedStyle(upper).fontSize)
+  const caption = getComputedStyle(fields).getPropertyValue('--font-caption').trim()
+  expect(getComputedStyle(role).fontSize).toBe(caption)
+  expect(getComputedStyle(role).lineHeight).toBe(getComputedStyle(fields).getPropertyValue('--lh-caption').trim())
   const email = fields.querySelector<HTMLElement>('[data-profile-field="email"]')!
   expect(email.scrollWidth).toBeLessThanOrEqual(email.clientWidth + 1)
   expect(email.getBoundingClientRect().height).toBeGreaterThan(parseFloat(getComputedStyle(email).lineHeight))
