@@ -14,6 +14,7 @@ import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { rendererLogger } from '@/lib/log'
 import { liveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { watchSessionSendQueues } from '@/lib/sessionSendQueueHost'
+import { watchPhoneSessionSendQueues } from '@/mobile/agent-watch/phone-send-queue-host'
 
 /** Runs with the signed-in shell, including while the conversation itself is closed. */
 export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
@@ -65,7 +66,7 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
         }
         if (device && isPhoneDevice(device)) {
           const { invokePhoneHost } = await import('@/mobile/local-agent/phoneHostRpc')
-          const result = await invokePhoneHost<{ accepted?: boolean }>(device.device_id, 'sessionTimeline.sessionSend', [{ conversationId: input.sessionId, text: input.text, clientRequestId: input.id, ...(input.files?.length ? { files: input.files } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}) }])
+          const result = await invokePhoneHost<{ accepted?: boolean }>(device.device_id, 'sessionTimeline.sessionSend', [{ conversationId: input.sessionId, text: input.text, clientRequestId: input.id, ...(input.steerIfBusy ? { steerIfBusy: true } : {}), ...(input.files?.length ? { files: input.files } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}) }])
           if (!result.accepted) throw new SessionInputFailureError({ code: 'phone-unconfirmed' })
         } else if (platform.kind === 'electron') {
           const { rpcOn } = await import('@/session/renderer/lib/ipc')
@@ -75,7 +76,7 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
         } else {
           const { sendSessionText } = await import('@/mobile/agent-watch/sessionpage-rpc')
           if (!input.deviceId) throw new Error('Remote session input has no device')
-          await sendSessionText(input.deviceId, input.sessionId, input.text, input.id, input.files, input.attachments)
+          await sendSessionText(input.deviceId, input.sessionId, input.text, input.id, input.files, input.attachments, input.steerIfBusy)
         }
       }, valid, persisted => { void refresh(persisted).catch(report) }, input => {
         if (oldAttachmentHost(input)) throw new Error(translateSessionMessage('composer.attachmentHostUpdateRequired'))
@@ -98,7 +99,7 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
   }, [accountId])
   useEffect(() => platform.kind === 'electron'
     ? watchSessionSendQueues(accountId, () => hosts.current.find(device => device.is_current_device)?.device_id)
-    : undefined, [accountId])
+    : watchPhoneSessionSendQueues(accountId), [accountId])
   useEffect(() => { void state().queue?.then(queue => queue.flush()).catch(() => undefined) }, [devices, phones])
   return <><ChatSummariesHost /><NativeConversationReadHost /></>
 }

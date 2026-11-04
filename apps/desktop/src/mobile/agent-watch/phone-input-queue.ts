@@ -17,8 +17,9 @@ export function phoneQueuedPrompts(inputs: readonly SessionInput[]) {
 
 /** Save the decision with the input, before the sender may attempt any transport. */
 export function phoneInputQueueIntent(working: boolean, inputs: readonly SessionInput[]): Pick<SessionInput, 'queued' | 'sendQueue'> {
-  const queued = working || inputs.length > 0
-  const previous = inputs.filter(input => !input.sendQueue).sort((a, b) => b.createdAt - a.createdAt)[0]
+  const pending = inputs.filter(input => input.admission !== 'rejected')
+  const queued = working || pending.length > 0
+  const previous = pending.filter(input => !input.sendQueue).sort((a, b) => b.createdAt - a.createdAt)[0]
   return { queued, ...(queued ? { sendQueue: { order: Date.now(), ...(previous ? { afterInputId: previous.id } : {}) } } : {}) }
 }
 

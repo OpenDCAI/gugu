@@ -29,6 +29,13 @@ describe('phone composer ownership', () => {
     expect(localQueuedInputs([first], [first], [], [])).toEqual([])
   })
 
+  it('does not use a refused input as the dependency of the next composer queue', () => {
+    const rejected: SessionInput = { ...input('refused', 1), sendQueue: undefined, queued: false, admission: 'rejected' }
+    expect(phoneInputQueueIntent(false, [rejected])).toEqual({ queued: false })
+    expect(phoneInputQueueIntent(true, [rejected]).sendQueue?.afterInputId).toBeUndefined()
+    expect(projectPhonePendingInputs([], [rejected], [], [])).toEqual([])
+  })
+
   it('never puts a sent ordinary input back into the composer when the host later reports it queued', () => {
     const hosted = [{ id: 'runtime', clientMessageId: 'sent', text: 'same words' }, { id: 'old-manual', text: 'manual runtime prompt' }]
     expect(phoneManualHostPrompts(hosted).map(prompt => prompt.id)).toEqual(['old-manual'])
