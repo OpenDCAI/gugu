@@ -74,6 +74,12 @@ function single<T>(read: CreditRead<T>): CreditRead<T> {
  */
 export function createCreditV2Reader(client: Pick<SupabaseClient, 'schema'>, currentUserId: () => Promise<string>) {
   return {
+    async pricingMetadata(): Promise<CreditRead<null>> {
+      const { data, error } = await client.schema('public').rpc('public_pricing_v2').setHeader(VERSION_HEADER, '2')
+      throwReadError(error)
+      return rpcRows(data, () => null)
+    },
+
     async balance(): Promise<number | null> {
       const { data, error } = await client.schema('billing').from('user_credits')
         .select('balance_credits,credit_unit_version').setHeader(VERSION_HEADER, '2').maybeSingle()

@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { describe, expect, it } from 'vitest'
 import { createCreditV2Reader } from '../../../../apps/desktop/src/lib/billing/v2/readers'
+import { classifyCreditV2Error, createActiveCreditV2Reader, CreditV2StateError } from '../../../../apps/desktop/src/lib/billing/v2/active'
 import { deriveSpendingPower, isLowBalance, periodUsdFor } from '@gugu/core/billing'
 import { creditRatio } from '../../../../apps/desktop/src/lib/billing/creditGeometry'
 import {
@@ -213,5 +214,62 @@ describe('actual PostgREST request builders', () => {
     expect(await h.reader.membership()).toEqual({ rows: [], meta: null })
     expect(await h.reader.quota()).toEqual({ rows: [], meta: null })
     expect(await h.reader.balance()).toBeNull()
+  })
+})
+
+describe('no-fallback active v2 reads', () => {
+  it('reports installed-but-inactive pricing instead of serving the projected balance or reading v1', async () => {
+    const h = harness({ 'rpc/current_membership_v2': [membership] })
+    const activeReader = createActiveCreditV2Reader(h.reader, async () => 'current-user')
+    await expect(activeReader.rows(() => h.reader.membership())).rejects.toMatchObject({ state: 'not-active' })
+    expect(h.calls).toHaveLength(1)
+  })
+
+  it('publishes exact balance and quota only as one consistent account tuple', async () => {
+    const h = harness({ 'rpc/current_membership_v2': [{ ...membership, ...active }], 'rpc/current_quota_windows_v2': [{ ...quota, ...active }] })
+    const result = await createActiveCreditV2Reader(h.reader, async () => 'current-user').account()
+    expect(result.balance).toBe('9007199254740993.00000001')
+    expect(result.windows.period_credits).toBe('7.5')
+    expect(result.meta.active_credit_unit_version).toBe(2)
+    expect(h.calls).toHaveLength(2)
+  })
+
+  it('rejects account rows across different price versions', async () => {
+    const h = harness({ 'rpc/current_membership_v2': [{ ...membership, ...active }], 'rpc/current_quota_windows_v2': [quota] })
+    await expect(createActiveCreditV2Reader(h.reader, async () => 'current-user').account()).rejects.toBeInstanceOf(CreditReadContractError)
+  })
+
+  it('does not turn empty RPCs or an empty pricing probe into active zero', async () => {
+    const h = harness({ 'rpc/current_membership_v2': [], 'rpc/public_pricing_v2': [] })
+    await expect(createActiveCreditV2Reader(h.reader, async () => 'current-user').rows(() => h.reader.membership())).rejects.toMatchObject({ state: 'unknown' })
+  })
+
+  it('discards a result if the signed-in account changed while it was in flight', async () => {
+    const h = harness({ 'rpc/current_membership_v2': [{ ...membership, ...active }] })
+    let user = 'first'
+    const activeReader = createActiveCreditV2Reader(h.reader, async () => user)
+    await expect(activeReader.rows(async () => {
+      user = 'second'
+      return h.reader.membership()
+    })).rejects.toMatchObject({ state: 'account-changed' })
+  })
+
+  it('rejects a table batch when the version tuple changed around it', async () => {
+    const replies = { 'rpc/public_pricing_v2': [active] }
+    const h = harness(replies)
+    await expect(createActiveCreditV2Reader(h.reader, async () => 'current-user').table(async () => {
+      replies['rpc/public_pricing_v2'] = [{ ...active, fx_cny_per_usd: '6.70000000' }]
+      return 123
+    })).rejects.toBeInstanceOf(CreditReadContractError)
+  })
+
+  it('classifies only a missing v2 RPC or invalid contract, preserving permission and transport errors', () => {
+    expect(classifyCreditV2Error(new Error('missing', { cause: { code: 'PGRST202' } }))).toMatchObject({ state: 'not-installed' })
+    expect(classifyCreditV2Error(new CreditReadContractError('field'))).toMatchObject({ state: 'inconsistent' })
+    for (const error of [new Error('permission', { cause: { code: '42501' } }), new Error('Failed to fetch')]) {
+      expect(classifyCreditV2Error(error)).toBe(error)
+    }
+    const pending = new CreditV2StateError('not-active')
+    expect(classifyCreditV2Error(pending)).toBe(pending)
   })
 })
