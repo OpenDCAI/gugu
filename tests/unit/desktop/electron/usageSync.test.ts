@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -27,5 +27,11 @@ describe('usageSyncStateStore', () => {
     store.writeState('acct', { lastAt: 7 });
     expect(store.readState('acct')).toEqual({ lastAt: 7 });
     expect(store.readState('other')).toEqual({});
+  });
+
+  it('读不动(不是「还没写过」)照实抛,❌ 静默空水位', () => {
+    // 把水位文件那一格做成目录:读它会失败,且不是 ENOENT。
+    mkdirSync(join(dir, 'usage-sync.json'), { recursive: true });
+    expect(() => usageSyncStateStore(dir).readState('acct')).toThrow();
   });
 });

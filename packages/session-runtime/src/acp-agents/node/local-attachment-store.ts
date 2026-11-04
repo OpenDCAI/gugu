@@ -114,7 +114,9 @@ export class LocalAttachmentStore implements AttachmentStore {
     try {
       parsed = JSON.parse(contents);
     } catch {
-      // 坏索引等同「没有索引」:对象字节还在 objects/ 下,别让整个附件功能对这个 home 永久报错。
+      // 坏索引不能直接当空:下一次写入会盖掉原件,旧记录(哪怕字节还在 objects/ 下)就再也登记不回来。
+      // 先挪到一边留证(评审:rewrite 前保留原文件),再按空索引继续。
+      await rename(this.indexPath, `${this.indexPath}.corrupt-${Date.now()}`);
       return;
     }
     if (!Array.isArray(parsed)) return;

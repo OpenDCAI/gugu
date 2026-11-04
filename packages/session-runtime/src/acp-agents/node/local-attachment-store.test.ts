@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -191,5 +191,10 @@ describe('LocalAttachmentStore', () => {
 
     await expect(store.get(ref.id)).resolves.toEqual({ ref, data: new Uint8Array([7, 8, 9]) });
     await expect(readFile(join(storeDir, 'objects', ref.id))).resolves.toEqual(Buffer.from([7, 8, 9]));
+
+    // 坏索引先被挪到一边留证:重建不盖掉原件,旧引用还有人工救回的可能(评审)。
+    const quarantined = (await readdir(storeDir)).filter((name) => name.startsWith('index.json.corrupt-'));
+    expect(quarantined).toHaveLength(1);
+    await expect(readFile(join(storeDir, quarantined[0]), 'utf8')).resolves.toBe('{"records":');
   });
 });

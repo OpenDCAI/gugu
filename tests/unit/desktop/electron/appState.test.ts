@@ -24,6 +24,11 @@ describe('app-state file', () => {
     expect(readStateFile(file)).toEqual({});
   });
 
+  it('读不动(不是「还没写过」)照实抛,不静默当默认值', () => {
+    // 目录当文件读:任何平台都会失败,且不是 ENOENT。
+    expect(() => readStateFile(dir)).toThrow();
+  });
+
   it('round-trips and never leaves its temp file behind', () => {
     const file = join(dir, 'app-state.json');
     writeStateFile(file, { windowTone: 'dark' });

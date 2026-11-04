@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 
 /**
  * 宿主自己的那一格小状态(windowTone、close-to-tray 提示),落成 userData 下的一个 JSON。
@@ -8,9 +8,16 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
  * 写:先落临时文件再改名,别让一次中断留下半截文件(与 usage-sync 的水位同一套写法)。
  */
 export function readStateFile(file: string): Record<string, unknown> {
-  if (!existsSync(file)) return {}
+  let raw: string
   try {
-    const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
+    raw = readFileSync(file, 'utf8')
+  } catch (error) {
+    // 只有「还没写过」才按空;读不动(权限/占用这类 I/O 故障)照实抛,❌ 静默当默认值(评审)。
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+    throw error
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw)
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
   } catch {
     return {}
