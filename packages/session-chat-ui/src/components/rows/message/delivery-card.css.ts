@@ -121,7 +121,7 @@ export const deliveryFactsToggle = style({
   flexShrink: 0,
   selectors: {
     '&:hover, &:focus-visible, &[aria-expanded="true"]': { color: vars.fg },
-    '&:not(button)': { cursor: 'default' },
+    '&:not(button)': { cursor: 'default', justifyContent: 'flex-end' },
     '&:is(button)': { width: 12, flexWrap: 'nowrap' },
   },
 });
