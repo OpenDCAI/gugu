@@ -17,9 +17,11 @@ export function useOwnerNotificationRead(deviceId: string | null, sessionId: str
     const captured = opening.current
     let active = true
     let busy = false
+    // Read the live browser state again after an asynchronous host reply; it may have changed meanwhile.
+    const canRead = () => active && opening.current === captured && captured.shown
+      && document.visibilityState !== 'hidden' && document.hasFocus()
     const flush = async () => {
-      if (!active || busy || opening.current !== captured || !captured.shown
-        || document.visibilityState === 'hidden' || !document.hasFocus()) return
+      if (busy || !canRead()) return
       busy = true
       try {
         if (captured.pending === null) {
@@ -27,8 +29,7 @@ export function useOwnerNotificationRead(deviceId: string | null, sessionId: str
           // An older host has no owner-only snapshot. Keep its existing visible-message confirmation path.
           if (captured.pending === null) captured.pending = new Set(snapshot ?? [])
         }
-        if (!active || opening.current !== captured || !captured.shown
-          || document.visibilityState === 'hidden' || !document.hasFocus()) return
+        if (!canRead()) return
         const itemIds = [...captured.pending].slice(0, 500)
         if (!itemIds.length) return
         await writeRead({ kind: 'native', deviceId, conversationId: sessionId, itemIds })
