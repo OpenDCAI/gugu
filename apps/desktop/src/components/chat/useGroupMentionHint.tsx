@@ -13,7 +13,7 @@ export function useGroupMentionHint({ accountId, chatId, members, text, enabled,
   const [composing, setComposing] = useState(false)
   const target = enabled && text === '' && !composing ? members.find((member) => member.id === targetId && member.type === 'agent') : undefined
   const accept = () => {
-    if (!target || editor.current?.getText() !== '' || input.current?.getAttribute('aria-expanded') === 'true') return false
+    if (!target || !editor.current?.isEmpty() || input.current?.getAttribute('aria-expanded') === 'true') return false
     editor.current.insertMention({ id: target.id, label: target.name, name: target.name, role: 'agent', kind: 'custom' })
     return true
   }

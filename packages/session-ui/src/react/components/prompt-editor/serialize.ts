@@ -18,6 +18,11 @@ import type { Node } from '@tiptap/pm/model';
 import { markdownMentionReferences } from '@gugu/session-shared/markdown/dialect';
 import type { ContextMentionProvider, MentionItem } from './types';
 
+/** The initial empty textblock; blank lines and hard breaks are already user input. */
+export function isEmptyPromptDocument(doc: Node): boolean {
+  return doc.childCount === 1 && doc.firstChild?.isTextblock === true && doc.firstChild.content.size === 0;
+}
+
 export function mentionInsertContent(item: MentionItem) {
   return [{ type: 'mention', attrs: {
     id: item.id, label: item.label, name: item.name ?? null, kind: item.kind,

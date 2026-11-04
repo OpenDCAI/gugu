@@ -83,7 +83,8 @@ describe('group mention recall through the real composer and send path', () => {
     await type(text)
     expect(hint()).toBeNull()
     expect((await key('ArrowRight')).defaultPrevented).toBe(false)
-    expect(readComposer(input())).toBe(text)
+    if (text !== '\n') expect(readComposer(input())).toBe(text)
+    else expect(input().querySelectorAll('p')).toHaveLength(2) // Existing serialization trims trailing newlines; document still has input.
     await type('')
     expect(hint()?.textContent).toBe('@Alpha')
   })

@@ -133,6 +133,8 @@ export interface PromptEditorRef {
   clear(): void;
   /** Read the current serialized plain text. */
   getText(): string;
+  /** True only for the initial empty document, including no whitespace or blank lines. */
+  isEmpty(): boolean;
   /** Replace the editor contents with serialized plain text. */
   setText(text: string): void;
   /** Insert serialized paragraphs at a document boundary without replacing existing content. */
