@@ -28,6 +28,7 @@
 .qc-msg[data-mine] { align-self: flex-end; border-radius: 18px; background: var(--bubble-mine); padding: 8px 14px; }
 .qc-msg[data-sending='sending'], .qc-msg[data-sending='queued'] { opacity: 0.6; }
 .qc-plain { white-space: pre-wrap; }
+.qc-receiving { position: absolute; left: -19px; bottom: 6px; }
 .qc-other { color: var(--muted-fg); }
 .qc-system { align-self: center; font-size: var(--font-caption); color: var(--faint-fg); }
 .qc-error { display: block; font-size: var(--font-caption); color: var(--danger-fg); }

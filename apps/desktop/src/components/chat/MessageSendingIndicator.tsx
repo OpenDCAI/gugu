@@ -10,9 +10,7 @@ export function MessageSendingIndicator({ label, state = 'sending', title }: { l
 }
 
 export function MessageReceivingIndicator({ label }: { label: string }) {
-  return <svg width="15" height="15" viewBox="0 0 15 15" role="img" aria-label={label} data-send-state="receiving"
-    style={{ flexShrink: 0, display: 'block', opacity: .56 }}>
-    {[3, 7.5, 12].map((x, index) => <circle key={x} cx={x} cy="7.5" r="1.3" fill={COLOR_MUTED}
-      className="gg-receive-dot" style={{ animationDelay: `${index * 140}ms` }} />)}
+  return <svg width="15" height="15" viewBox="0 0 15 15" role="img" aria-label={label} data-send-state="receiving" className="gg-message-receiving">
+    {[3, 7.5, 12].map(x => <circle key={x} cx={x} cy="7.5" r="1.3" fill={COLOR_MUTED} className="gg-receive-dot" />)}
   </svg>
 }
