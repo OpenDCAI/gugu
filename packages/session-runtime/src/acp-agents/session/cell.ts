@@ -71,7 +71,7 @@ import type {
 } from './cell-deps';
 import { PermissionBroker, selectAutoApproveOption } from './permission-broker';
 import { RawAcpLog, type RawAcpEvent } from './raw-log';
-import { acceptPromptMessage, settleAcceptedRequests, type PromptRequest, type PromptResult } from './prompt-request';
+import { acceptPromptMessage, cancelledPromptResult, settleAcceptedRequests, type PromptRequest, type PromptResult } from './prompt-request';
 import { prepareNativePrompt, type NativePromptPreparation } from './prompt-preparation';
 import { canYieldRepliedAssistant, replyItems } from '@gugu/session-core/session-record/reply-process';
 
@@ -574,7 +574,7 @@ export class SessionCell {
         this.endWork(classified.outcome, { dequeueQueuedPrompt: this.dequeueAfterFailure });
       }
       if (event.error && request && !request.dispatched) {
-        request.completion.resolve(acpErr.promptFailed(event.error));
+        request.completion.resolve(this.failedPrompt(event.error, event.requestId));
         this.requests.delete(event.requestId);
         if (dequeueAfterFailure) this.releaseDispatch();
       }
@@ -969,8 +969,8 @@ export class SessionCell {
       // explicitly reports that unsupported method, the host-owned connection scope
       // remains the authoritative teardown path. Other close errors stay fail-loud.
       if (isUnsupportedSessionClose(error) || providerRejectedMissingSession(error)) return;
-      // 没关成,会话照旧在管(stop 可重试):之后的失败照实分类。
-      this.closeRequested = false;
+      // The owner still stops this resource after a failed courtesy close. Retain its intent
+      // through that teardown; a provider-authored failure still wins in classifyTurnFailure.
       throw error;
     }
   }
@@ -1447,12 +1447,22 @@ export class SessionCell {
     }
   }
 
+  private settleRequests(): void {
+    settleAcceptedRequests(this.requests, this.transcript,
+      this.closeRequested ? id => cancelledPromptResult(this.sessionId, id) : undefined);
+  }
+
+  private failedPrompt(cause: Parameters<typeof acpErr.promptFailed>[0], requestId?: string): PromptResult {
+    return this.closeRequested && classifyTurnFailure({ at: 'prompt', cause, closeRequested: true }).outcome.kind === 'cancelled'
+      ? cancelledPromptResult(this.sessionId, requestId) : acpErr.promptFailed(cause);
+  }
+
   /** agent 停下:转录里开着的那一组按结局收口,状态回到 ready(抽干队列)。 */
   private endWork(outcome: TranscriptTurnOutcome, opts?: { dequeueQueuedPrompt?: boolean; foreground?: TranscriptTurn['foreground']; result?: Result<SessionPromptResult, AcpSendPromptError> }): boolean {
     if (outcome.kind === 'cancelled' || outcome.kind === 'error') this.nativeAdmissionGeneration += 1;
     const working = this.machine.isWorking;
     if (!working && this.transcript.activeTurn === null) {
-      settleAcceptedRequests(this.requests, this.transcript);
+      this.settleRequests();
       this.closeTurnCompletion();
       return false;
     }
@@ -1464,7 +1474,7 @@ export class SessionCell {
     this.lastFailureProvisional = false;
     const previousRunningAgentCount = this.lastRunningAgentCount;
     this.transcript.settleTurn(outcome, Date.now(), opts?.foreground);
-    settleAcceptedRequests(this.requests, this.transcript);
+    this.settleRequests();
     this.dispatchAgentsChangedIfNeeded(previousRunningAgentCount);
     this.emitTranscriptChanged();
     // Detach this exact cycle before a queue drain can create its successor.
@@ -1483,7 +1493,7 @@ export class SessionCell {
       if (!working && opts?.dequeueQueuedPrompt !== false) this.releaseDispatch();
       resolve?.(opts?.result ?? (outcome.kind === 'error'
         ? acpErr.promptFailed({ name: 'ForegroundError', message: outcome.detail ?? outcome.reason ?? 'Foreground failed' })
-        : ok({ queued: false })));
+        : outcome.kind === 'cancelled' && this.closeRequested ? cancelledPromptResult(this.sessionId) : ok({ queued: false })));
     } catch (error) {
       this.deps.logger.error('SessionCell: queued dispatch failed', { sessionId: this.sessionId, error });
       resolve?.(acpErr.promptFailed(toSerializedError(error)));
@@ -1528,7 +1538,7 @@ export class SessionCell {
           cause: toSerializedError(event.error ? Object.assign(new Error(event.error.message), event.error) : new Error('Foreground ended with an error')),
           platformCredentials: this.deps.platformCredentials, closeRequested: this.closeRequested,
           credentialRefusal: this.credentialRefusal });
-        this.deps.logger.error('SessionCell: prompt failed', { sessionId: this.sessionId, providerId: this.deps.providerId, acpSessionId: this.acpSessionId, cause: event.error });
+        if (classified.outcome.kind === 'error') this.deps.logger.error('SessionCell: prompt failed', { sessionId: this.sessionId, providerId: this.deps.providerId, acpSessionId: this.acpSessionId, cause: event.error });
         if (this.endWork(classified.outcome, { foreground: event, dequeueQueuedPrompt: this.dequeueAfterFailure })) this.lastFailureProvisional = classified.provisional;
       } else {
         const reason = event.stopReason;
@@ -1621,7 +1631,9 @@ export class SessionCell {
         }
       }
     }
-    for (const request of this.requests.values()) request.completion.resolve(acpErr.promptFailed({ name: 'ConnectionClosed', message: 'ACP process closed' }));
+    for (const [id, request] of this.requests) request.completion.resolve(!abnormal
+      ? cancelledPromptResult(this.sessionId, id)
+      : acpErr.promptFailed({ name: 'ConnectionClosed', message: 'ACP process closed' }));
     this.requests.clear();
     this.applyEvent({ type: 'ProcessClosed', exit, abnormal });
   }
@@ -1639,7 +1651,9 @@ export class SessionCell {
         : classifyTurnFailure({ at: 'connection-lost', failure: null }).outcome,
       { dequeueQueuedPrompt: false });
     }
-    for (const request of this.requests.values()) request.completion.resolve(acpErr.promptFailed({ name: 'ConnectionClosed', message: 'ACP session closed' }));
+    for (const [id, request] of this.requests) request.completion.resolve(this.closeRequested
+      ? cancelledPromptResult(this.sessionId, id)
+      : acpErr.promptFailed({ name: 'ConnectionClosed', message: 'ACP session closed' }));
     this.requests.clear();
     this.permissions.drain(this.machine.pendingPermissions);
   }
@@ -2197,7 +2211,7 @@ export class SessionCell {
         if (receipt.status === 'accepted') {
           acceptPromptMessage(request, receipt.messageId, this.transcript, event => this.push(event), this.deps.providerId);
           this.applyReceiptMetadata(requestId, receipt._meta);
-          settleAcceptedRequests(this.requests, this.transcript);
+          this.settleRequests();
           const owner = this.transcript.entityOwner({ ...submittedMessage, messageId: receipt.messageId });
           if (!opts?.fromQueue || owner?.outcome?.kind !== 'error') this.releaseDispatch();
         } else {
@@ -2211,7 +2225,7 @@ export class SessionCell {
         }
         return ok({ queued: false });
       }).catch(async (error: unknown) => {
-        if (this._agent !== agent) return acpErr.promptFailed(toSerializedError(error));
+        if (this._agent !== agent) return this.failedPrompt(toSerializedError(error), requestId);
         if (steered) await releasePreparation();
         // Only a rejection before any provider work is a refusal; after it, the cycle owns the failure.
         const beforeWork = this.machine.phase.kind !== 'working' && this.machine.phase.kind !== 'cancelling';
@@ -2228,14 +2242,14 @@ export class SessionCell {
         if (retire) this.dequeueAfterFailure = false;
         this.push({ kind: 'prompt_result', requestId, error: toSerializedError(error) });
         if (retire) await this.deps.callbacks?.onPromptRejected?.();
-        return acpErr.promptFailed(toSerializedError(error));
+        return this.failedPrompt(toSerializedError(error), requestId);
       });
       return steered ? receipt : request.completion.promise;
     } catch (error) {
       await releasePreparation();
       recordUserMessage();
       this.push({ kind: 'prompt_result', requestId, error: toSerializedError(error) });
-      return acpErr.promptFailed(toSerializedError(error));
+      return this.failedPrompt(toSerializedError(error));
     }
   }
 
