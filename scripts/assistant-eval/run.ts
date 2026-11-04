@@ -7,7 +7,8 @@ import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
+import { insideRoot } from './paths'
 import { refreshAssistantContext, personalAssistantContext } from '../../apps/desktop/electron/sessionpage/assistant-context'
 import type { Materialization } from '../../apps/desktop/electron/capability-bundle'
 import { GUGU_PLATFORM_BLOCK } from '../../apps/desktop/electron/product-platform-prompt'
@@ -45,7 +46,7 @@ async function run(test: AssistantCase) {
   const inputs = fixtureInputs[test.id] ?? {}
   for (const [name, content] of Object.entries(inputs)) {
     const path = resolve(root, name)
-    if (!path.startsWith(`${root}/`)) throw new Error('Fixture input escapes its root')
+    if (!insideRoot(root, path)) throw new Error('Fixture input escapes its root')
     await mkdir(resolve(path, '..'), { recursive: true })
     await writeFile(path, content)
   }
@@ -90,10 +91,7 @@ async function run(test: AssistantCase) {
   let completed = false
   let phase = 0
   if (test.compact) evidence.compaction = { observed: false, checkpointBefore: false, readAfter: false }
-  const inside = (path: string) => {
-    const rest = relative(root, resolve(cwd, path))
-    return rest !== '..' && !rest.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(rest)
-  }
+  const inside = (path: string) => insideRoot(root, resolve(cwd, path))
   const dispatch = async (name: string, input: Record<string, unknown>): Promise<unknown> => {
     if (name === 'session_devices' || name === 'device_actions') {
       const devices = [
@@ -207,7 +205,7 @@ async function run(test: AssistantCase) {
   const nativePlugins = ((materialization.sessionNewPatch!.meta!.claudeCode as { options: { plugins?: Array<{ type: 'local'; path: string }> } }).options.plugins ?? [])
     .filter(plugin => plugin.path !== '/caps')
   for (const file of materialization.artifacts ?? []) {
-    if (file.path.startsWith(`${root}/`)) { await mkdir(resolve(file.path, '..'), { recursive: true }); await writeFile(file.path, file.content, { mode: file.mode }) }
+    if (insideRoot(root, file.path)) { await mkdir(resolve(file.path, '..'), { recursive: true }); await writeFile(file.path, file.content, { mode: file.mode }) }
   }
   const assistantOptions = (materialization.sessionNewPatch!.meta!.claudeCode as {
     options: { systemPrompt: string; effort: Options['effort']; env: Record<string, string> }

@@ -46,6 +46,13 @@ describe('toLoadError — 到那台机器的线断了', () => {
     expect(toLoadError(unreachable, 'device-d22').kind).toBe('connection_lost');
   });
 
+  it('远端缺少 sessions.lifeView:按等待版本匹配处理,不说成本地引擎启动失败', () => {
+    const outdated = Object.assign(new Error('[machine] device-d22 runs an older 咕咕 without sessions.lifeView: update it'), {
+      code: 'server_outdated',
+    });
+    expect(toLoadError(outdated, 'device-d22')).toMatchObject({ kind: 'connection_lost', deviceId: 'device-d22' });
+  });
+
   it('本机会话:照旧 generic(没有那条线可等)', () => {
     expect(toLoadError(disconnected).kind).toBe('generic');
   });

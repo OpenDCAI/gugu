@@ -22,6 +22,7 @@ export type MachineLinkState = Exclude<SessionHostConnectionState, 'switching'> 
 type Entry = {
   client: SessionHostClient;
   tooOld: boolean;
+  versionMatchOwner: symbol | null;
   listeners: Set<() => void>;
 };
 
@@ -58,6 +59,7 @@ export function machineClient(deviceId: string): SessionHostClient | null {
   );
   const entry: Entry = {
     tooOld: false,
+    versionMatchOwner: null,
     listeners: new Set(),
     client: createSessionHostClient(openWhenReachable, {
       isReachable: () => {
@@ -83,6 +85,7 @@ export function machineClient(deviceId: string): SessionHostClient | null {
       },
       warn: (message, detail) => log.warn(`[machine:${deviceId.slice(0, 8)}] ${message}`, detail),
       onOpenFailed: (error) => {
+        entry.versionMatchOwner = null;
         const tooOld = (error as { code?: unknown } | null)?.code === 'server_outdated';
         if (tooOld !== entry.tooOld) {
           entry.tooOld = tooOld;
@@ -92,6 +95,8 @@ export function machineClient(deviceId: string): SessionHostClient | null {
     }),
   };
   entry.client.onStateChange(() => {
+    // A new transport state owns its version observation; an old match cannot release it.
+    entry.versionMatchOwner = null;
     const hello = entry.client.hello();
     if (entry.client.state() === 'open') entry.tooOld = !!hello && hello.protocol < HOST_WS_PROTOCOL_VERSION;
     notify(entry);
@@ -134,6 +139,43 @@ export function machineLinkState(deviceId: string): MachineLinkState {
   return state === 'switching' ? 'open' : state;
 }
 
+/**
+ * 已连上的对端答某个 RPC「没有 handler」同样是明确的版本不匹配。先把整台机器标成太旧、请宿主桥匹配版本，
+ * ❌ 让具体功能把它误报成引擎故障。对端换版重启会关掉当前窗口；常规重连随后重试等待机器链路的工作。
+ */
+export function reportMachineOutdated(deviceId: string): void {
+  const entry = entries.get(deviceId);
+  // 同一批挂载的页面可能一起撞见这个缺口；第一份观察负责唯一一次换版请求，其余页面读共享的机器状态。
+  if (!entry || entry.tooOld) return;
+  const owner = Symbol('version-match');
+  entry.versionMatchOwner = owner;
+  entry.tooOld = true;
+  notify(entry);
+  // 换版请求失败(没有桥 / 匹配说「不是旧版」/ 请求被拒)时必须把锁放掉:连接稳着的时候
+  // `onMachineReconnected` 永远不来,锁死 = 这条路径再也不问、界面也不恢复(评审 P2)。
+  // 放掉之后沿用既有的失败-重试节奏:下一次真实失败会再走一遍这里。
+  const releaseLock = (): void => {
+    if (entries.get(deviceId) !== entry || entry.versionMatchOwner !== owner) return;
+    entry.versionMatchOwner = null;
+    if (entry.tooOld) {
+      entry.tooOld = false;
+      notify(entry);
+    }
+  };
+  const match = findRemoteHostsBridge()?.matchServerVersion;
+  if (!match) {
+    releaseLock();
+    return;
+  }
+  void match(deviceId).then((matched) => {
+    // true = 换版已排上:等对端重启,由既有的重连 + hello 判版本把锁解开。
+    if (!matched) releaseLock();
+  }).catch((error: unknown) => {
+    log.warn(`[machine:${deviceId.slice(0, 8)}] version match request failed`, { error: String(error) });
+    releaseLock();
+  });
+}
+
 /** 正在换线(旧窗口已关、新窗口在开):这时失败的问是旧窗口上的,等新窗口开好就能重来。 */
 export function machineLinkHandingOff(deviceId: string): boolean {
   return entries.get(deviceId)?.client.state() === 'switching';
@@ -152,7 +194,9 @@ export function subscribeMachineLink(deviceId: string, listener: () => void): ()
  * 旧窗口上落空的问要重来,虽然对外一直说「通着」。
  */
 export function onMachineReconnected(deviceId: string, cb: () => void): () => void {
-  const windowOpen = () => machineLinkState(deviceId) === 'open' && !machineLinkHandingOff(deviceId);
+  // 「真的重连了」= 客户端这一层的连通从断到通。tooOld 的置位/放锁只是「这次问不通、还能再试」,
+  // ❌ 借用这一下当重连(评审):连续失败会连着触发假重连,等待中的页面白白重开一遍。
+  const windowOpen = () => entries.get(deviceId)?.client.state() === 'open';
   let open = windowOpen();
   return subscribeMachineLink(deviceId, () => {
     const now = windowOpen();

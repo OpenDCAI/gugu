@@ -187,7 +187,12 @@ export function createCloudComputerClient(options: {
     async matchVersion(deviceId, start, signal) {
       const raw = await request(start ? 'POST' : 'GET', start ? '/version-match' : `/version-match?${new URLSearchParams({ deviceId })}`,
         start ? { deviceId } : undefined, signal)
-      const state = JSON.parse(raw) as CloudVersionMatchState
+      let state: CloudVersionMatchState
+      try {
+        state = JSON.parse(raw) as CloudVersionMatchState
+      } catch {
+        throw new CloudComputerError(200, 'bad_response', `cloud-computer /version-match returned non-JSON: ${raw.slice(0, 200)}`)
+      }
       if (!state || !['idle', 'updating', 'ready', 'failed'].includes(state.status)
         || ((state.status === 'updating' || state.status === 'ready') && typeof state.version !== 'string')
         || (state.status === 'failed' && typeof state.error !== 'string')) throw new CloudComputerError(200, 'bad_response', '云端咕咕没有返回有效的升级状态')

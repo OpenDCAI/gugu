@@ -64,7 +64,6 @@ export type {
   ChatItem,
   ChatMessage,
   ChatAttachment,
-  ChatImageAttachment,
   ChatToolCall,
   ChatThinking,
   ChatFileOpToolCall,

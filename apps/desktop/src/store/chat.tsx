@@ -1,3 +1,4 @@
+import { useChatListState } from './chatListState'
 import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
 import type { UnreadLocatorCommit } from '../lib/chatUnreadLocatorWindow'
 import { topicService } from '../lib/topics'
@@ -61,7 +62,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const { toast } = useToast()
   const userId = user?.id ?? null
   const notificationSettings = useNotificationSettings()
-  const [chats, setChats] = useState<ChatItem[]>([])
+  const [chats, setChats, chatsRef] = useChatListState()
   const [identitiesById, setIdentitiesById] = useState<ReturnType<typeof imSelectors.identitiesById>>({})
   const [activeChatId, setActiveChatIdState] = useActiveChatTransitionState()
   const [chatsLoad, setChatsLoad] = useState<'unread' | 'idle' | 'loading' | 'failed'>('unread') // unread = 这个号的列表还没读成过;failed = 最近一次读失败了(#2118:空着不是「没有」)
@@ -94,16 +95,12 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const messagesRef = useRef<MessageItem[]>([])
   const hasMoreOlderRef = useRef(false)
   const loadingMessagesRef = useRef<boolean>(false)
-  // chatsRef: mirror of chats so loadChats can read length synchronously to
-  // decide whether to flip loadingChats=true (only when list is empty / first load).
-  const chatsRef = useRef<ChatItem[]>([])
   // #4314 列表投影账本：谁被哪一发看见过、哪些乐观行还没被投影出来。规则在 chatListProjection.ts。
   const projectionRef = useRef(createChatListProjectionLedger())
   const listRequestSeqRef = useRef(0)
 
   // Sync refs synchronously with state so debug bridge reads consistent values.
   useLayoutEffect(() => { activeChatIdRef.current = activeChatId }, [activeChatId])
-  useLayoutEffect(() => { chatsRef.current = chats }, [chats])
 
   const healCycleCountRef = useRef(0)
   // Install global debug bridge once. Closure captures refs (live values).
@@ -232,7 +229,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const outboxDepsRef = useRef<{
     setMessagesAndCache: (updater: (prev: MessageItem[]) => MessageItem[], chatId: string) => void
     setThreadMessages: (updater: SetStateAction<MessageItem[]>, chatId: string) => void
-    patchChat: (chatId: string, partial: Partial<ChatItem>) => void
+    patchChat: PatchChat
     toast: (message: string, type?: ToastType) => void
     appendMessage: (message: MessageItem) => void
   } | null>(null)
@@ -249,7 +246,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       activeThreadRootId: (chatId) => chatId ? cache.view(chatId).activeThreadRootId : activeThreadRootIdRef.current,
       setMessagesAndCache: (updater, chatId) => outboxDepsRef.current?.setMessagesAndCache(updater, chatId),
       setThreadMessages: (updater, chatId) => outboxDepsRef.current?.setThreadMessages(updater, chatId),
-      patchChat: (chatId, partial) => outboxDepsRef.current?.patchChat(chatId, partial),
+      patchChat: (chatId, partial, expectedVersion) => outboxDepsRef.current?.patchChat(chatId, partial, expectedVersion),
       toast: (message, type) => outboxDepsRef.current?.toast(message, type),
       appendMessage: (message) => outboxDepsRef.current?.appendMessage(message),
     })
@@ -260,7 +257,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       wiring.dispose()
       if (outboxRef.current === wiring) outboxRef.current = null
     }
-  }, [cache, userId, getImRepository, subscribeAccountRevision])
+  }, [cache, userId, getImRepository, subscribeAccountRevision, chatsRef])
 
   const { epochOf: getMessageSnapshotEpoch, bump: bumpMessageSnapshotEpoch } = useMessageSnapshotEpochs()
 
@@ -277,12 +274,12 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (activeChatIdRef.current !== chatId) return
     setActiveChatIdState(null)
   }, [cache, invalidateMessageSnapshots, setActiveChatIdState])
-
+  const canAcknowledgeOpenChat = useCallback((id: string) => cache.isFollowingTail(id) && !unreadNavigationRef.current?.ownsChat(id), [cache]), visibleSeqOfChat = useCallback((id: string) => maxMainlineSeq(cache.rows(id)), [cache])
   // @@@chat-projection — 会话列表的每一发云端取数都经投影(spec I7 唯一属主):按键取数、按戳 join,
   // 一条通知的代价与账号里有多少会话无关。绑定的三件事在 chatProjectionBinding.ts。
   const chatProjection = useChatProjectionBinding({
     ledger: projectionRef.current, repositoryRef: imRepositoryRef, getRepository: getImRepository,
-    chatsRef, activeChatIdRef, requestSeqRef: listRequestSeqRef, setChats, onActiveRevoked,
+    chatsRef, activeChatIdRef, requestSeqRef: listRequestSeqRef, setChats, onActiveRevoked, canAcknowledge: canAcknowledgeOpenChat, visibleSeqOf: visibleSeqOfChat,
     notifications: { chatMessages: notificationSettings.chatMessages, sound: notificationSettings.sound },
   })
 
@@ -306,7 +303,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     } finally {
       setChatsLoad((state) => (state === 'loading' ? 'idle' : state))
     }
-  }, [chatProjection, userId])
+  }, [chatProjection, chatsRef, userId])
 
   messageNotificationRef.current = async (repository, message) => {
     if (imRepositoryScope.disposed || repository.accountId !== userId) return
@@ -323,7 +320,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
 
   const patchChat: PatchChat = useCallback((chatId, partial, expectedReadStateVersion) => {
     setChats((prev) => patchChatRows(prev, chatId, partial, expectedReadStateVersion))
-  }, [])
+  }, [setChats])
 
   const upsertChat = useCallback((chat: ChatItem) => {
     // #4314 Resolve an optimistic peer's identity before tracking it in the projection ledger.
@@ -333,7 +330,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       applyRow: (row) => setChats((prev) => (prev.some((i) => i.id === row.id) ? prev : upsertChatRow(prev, row))),
     })) return
     setChats((prev) => upsertChatRow(prev, chat))
-  }, [loadChats])
+  }, [loadChats, setChats])
 
   const applyFreshMessageSnapshot = useCallback((chatId: string, msgs: MessageItem[], epoch: number, verifiedCoverage = true): MessageItem[] | null => {
     if (epoch !== getMessageSnapshotEpoch(chatId)) return null
@@ -348,7 +345,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     const seq = maxMainlineSeq(messages)
     if (userId && cache.isObserved(chatId) && chatOnScreen() === chatId && cache.isFollowingTail(chatId)
       && seq > 0 && !unreadNavigationRef.current?.ownsChat(chatId)) advanceReadWatermark(chatsRef.current, chatId, seq, patchChat)
-  }, [cache, patchChat, userId])
+  }, [cache, chatsRef, patchChat, userId])
 
   /** 返回 false = 未落窗(未登录或快照 epoch 已变被拒收)。 */
   const applyMessagesSnapshot = useCallback((chatId: string, msgs: MessageItem[], readSeqs: Record<string, number> | null, epoch: number, verifiedCoverage = true): boolean => {
@@ -371,7 +368,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const expectedTailSeq = useCallback((chatId: string): number => {
     const chat = chatsRef.current.find((c) => c.id === chatId)
     return Math.max(0, (chat?.next_message_seq ?? 0) - 1)
-  }, [])
+  }, [chatsRef])
   // @@@msg-cache (#621/P2/#947) — revalidate only cached, settled ids on open/reconnect, bounded by window size.
   // Patch mutable overlays/body fields and remove confirmed missing rows so cold reopen cannot resurrect them.
   // Never query/drop optimistic rows; failed chunks preserve their ids and cannot block opening.
@@ -450,7 +447,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         healCycleCountRef.current += 1
       }
     },
-    [applyMessagesSnapshot, cache, getMessageSnapshotEpoch, maxSeqOf, memberReadPorts, noteFreshMessageRead, patchChat, refreshMessages, revalidateWindowOverlays, setThreadMessagesFor, userId],
+    [applyMessagesSnapshot, cache, chatsRef, getMessageSnapshotEpoch, maxSeqOf, memberReadPorts, noteFreshMessageRead, patchChat, refreshMessages, revalidateWindowOverlays, setThreadMessagesFor, userId],
   )
   const loadHistoryPage = useCallback(async (direction: 'older' | 'newer' | 'latest', chatId = activeChatIdRef.current, viewport?: ConversationViewport) => {
     if (!userId || !chatId) return
@@ -497,7 +494,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       receipts.delete(message.id)
       revisionLog.warn({ error, chatId }, 'message read receipt failed')
     })
-  }, [cache, patchChat, userId])
+  }, [cache, chatsRef, patchChat, userId])
 
   useEffect(() => {
     if (!userId) {
@@ -518,7 +515,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       })
       .catch((err) => console.error('[ChatStore] open IM repository failed', err))
     return () => { cancelled = true }
-  }, [getImRepository, loadChats, userId])
+  }, [chatsRef, getImRepository, loadChats, setChats, userId])
 
   useEffect(() => {
     if (!userId || !imRepositoryRef.current) return
@@ -568,7 +565,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         revalidate: () => revalidateWindowOverlays(chatId),
       })
     } finally { revalidateInFlightRef.current.delete(chatId) }
-  }, [applyMessagesSnapshot, cache, expectedTailSeq, getImRepository, getMessageSnapshotEpoch, imRepositoryScope, revalidateWindowOverlays, userId])
+  }, [applyMessagesSnapshot, cache, chatsRef, expectedTailSeq, getImRepository, getMessageSnapshotEpoch, imRepositoryScope.disposed, revalidateWindowOverlays, userId])
   // One read and revision owner per observed chat, shared by every surface.
   startConversationRef.current = (chatId) => {
     if (!userId) return () => undefined
@@ -655,7 +652,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         if (cache.view(chatId).activeThreadRootId === rootId) cache.patchView(chatId, { loadingThread: false })
       }
     })()
-  }, [cache, userId, setMessagesAndCache, setThreadMessagesFor, patchChat])
+  }, [cache, userId, setMessagesAndCache, setThreadMessagesFor, chatsRef, patchChat])
   const sendMessageToChat = useCallback(
     async (
       targetChatId: string,
@@ -735,7 +732,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       // @@@threads (#957) — 返回消息 id,供「新建话题」首条发完后 openThread(它) 进入话题。
       return id
     },
-    [userId, cache, setMessagesAndCache, setThreadMessagesFor, loadHistoryPage],
+    [userId, chatsRef, cache, setThreadMessagesFor, setMessagesAndCache, loadHistoryPage],
   )
 
   const outboxActions = useMemo(() => bindOutboxActions(outboxRef, userId), [userId])
@@ -804,7 +801,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       if (!cache.history(chatId, viewport).followForSend()) await loadHistoryPage('latest', chatId, viewport)
     }
     return sendAttachmentBatch({ ...opts, files, chatId, senderId: userId, toUserIds, appendMessage, outbox: outboxRef.current! })
-  }, [userId, cache, loadHistoryPage, appendMessage])
+  }, [userId, chatsRef, appendMessage, cache, loadHistoryPage])
 
   const pinChat = useCallback(async (chatId: string, pinned: boolean) => {
     if (!userId) throw new Error('Not authenticated')
@@ -816,7 +813,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, is_pinned: previousPinned } : c))
       throw err
     }
-  }, [userId])
+  }, [chatsRef, setChats, userId])
 
   const deleteChat = useCallback(async (chatId: string, persist = false) => {
     if (persist) { const receipt = await (chatsRef.current.find((chat) => chat.id === chatId)?.kind === 'topic' ? topicService.archiveTopic(chatId) : chatService.archiveChat(chatId)); if (imRepositoryScope.disposed || receipt && !await chatProjection.confirmPersonalDeletion(userId!, receipt)) return }
@@ -826,7 +823,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     dropDraftAttachments(chatId) // @@@draft-attachment (#1872) - drop queued attachments alongside the draft
     cache.delete(chatId)
     if (activeChatIdRef.current === chatId) setActiveChatId(null)
-  }, [cache, setActiveChatId, dropDraftAttachments, dropTextDraft, imRepositoryScope, chatProjection, userId])
+  }, [setChats, dropTextDraft, dropDraftAttachments, cache, setActiveChatId, chatsRef, imRepositoryScope.disposed, chatProjection, userId])
   // #901 退出群聊：共同 RPC 确认移除本人席位后，再本地清理。
   const leaveGroup = useCallback(async (chatId: string) => {
     if (!userId) throw new Error('Not authenticated')
@@ -837,9 +834,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     dropDraftAttachments(chatId) // @@@draft-attachment (#1872) - drop queued attachments alongside the draft
     cache.delete(chatId)
     if (activeChatIdRef.current === chatId) setActiveChatId(null)
-  }, [cache, userId, setActiveChatId, dropDraftAttachments, dropTextDraft])
+  }, [userId, setChats, dropTextDraft, dropDraftAttachments, cache, setActiveChatId])
 
-  const markUnread = useCallback((chatId: string) => markManualUnreadAndRefresh(chatId, { chats: chatsRef.current, patchChat, toast, refresh: loadChats }), [loadChats, patchChat, toast])
+  const markUnread = useCallback((chatId: string) => markManualUnreadAndRefresh(chatId, { chats: chatsRef.current, patchChat, toast, refresh: loadChats }), [chatsRef, loadChats, patchChat, toast])
 
   const setChatNotificationLevel = useCallback(async (chatId: string, level: NotificationLevel) => {
     if (!userId) throw new Error('Not authenticated')
@@ -857,7 +854,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         : c))
       throw err
     }
-  }, [userId])
+  }, [chatsRef, setChats, userId])
 
   // ── Dock / 托盘角标:与通知同一把尺 —— 群与话题只算叫到你的；列表内仍安静显示全部未读 ──────
   useEffect(() => {

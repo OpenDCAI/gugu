@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Popover } from '@/components/ui/Popover';
-import { formatClock } from '@/i18n/format';
+import { formatClock, formatDate } from '@/i18n/format';
 import { CalendarClock, ChevronDown, ChevronUp, Info, MessageCircle, Plug } from '@/lib/icons';
 import { collapsedRows, dayRows, defaultOpen, eventStatus, isTodayAgenda, joinNow, type DayRows, type EventStatus } from './assistant-day';
 import type { DayEvent, TodayDay, TodayPart } from './assistant-today-file';
@@ -236,5 +236,5 @@ function timeRange(event: DayEvent, t: T): string {
 
 function shortDate(localDate: string, t: T): string {
   const [year, month, day] = localDate.split('-').map(Number);
-  return new Intl.DateTimeFormat(t('today.locale'), { month: 'long', day: 'numeric' }).format(new Date(year, month - 1, day));
+  return formatDate(new Date(year, month - 1, day), { month: 'long', day: 'numeric' }, t('today.locale'));
 }

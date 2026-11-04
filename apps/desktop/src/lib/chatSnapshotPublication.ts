@@ -14,6 +14,7 @@ export function publishChatSnapshot(
   chats: ChatItem[],
   identities: readonly unknown[],
   isConversationDeleted?: (id: string) => boolean,
+  readChats?: () => ChatItem[],
 ): Promise<void> {
-  return replaceChatRowsAndIdentities(repository, chats, identities, isConversationDeleted)
+  return replaceChatRowsAndIdentities(repository, chats, identities, isConversationDeleted, readChats)
 }

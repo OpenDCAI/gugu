@@ -4,7 +4,8 @@ import { createChatView } from '@session-chat/chat-view'
 import type { ChatCommands } from '@session-chat/commands'
 import { DEFAULT_THEME } from '@session-chat/core/theme'
 import type { BackgroundCommandEntry } from '@session-chat/lib/background-command-roster'
-import { placeSubagentPanel } from '@session-chat/components/rows/background-tasks/background-tasks-parts'
+import { backgroundTaskMetaLayout, placeSubagentPanel } from '@session-chat/components/rows/background-tasks/background-tasks-parts'
+import type { MeasureCtx } from '@session-chat/core/define'
 import type { SubagentRosterEntry } from '@session-chat/lib/subagent-roster'
 import type { TranscriptTurn } from '@session-chat/model'
 import { createChatState } from '@session-chat/state/chat-state'
@@ -64,7 +65,7 @@ const agent = (over: Partial<SubagentRosterEntry> = {}): SubagentRosterEntry => 
   name: 'Audit chat perf',
   completedSteps: 3,
   calls: [],
-  elapsedMs: 0,
+  elapsedMs: 30_000,
   startedAt: Date.now() - 30_000,
   canCancel: true,
   ...over
@@ -72,6 +73,32 @@ const agent = (over: Partial<SubagentRosterEntry> = {}): SubagentRosterEntry => 
 
 const row = (host: HTMLElement) => host.querySelector<HTMLElement>('[data-slot="background-tasks"]')
 const items = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>('[data-slot="background-task"]')]
+
+describe('元数据:实时文案 + 最坏宽度预留', () => {
+  it('量高按单位最坏串预留,9m59s 与 10m00s 同高,文案仍是实时值', () => {
+    const ctx = { theme: DEFAULT_THEME, width: 640 } as unknown as MeasureCtx
+    const nine = backgroundTaskMetaLayout(agent(), ctx, '9m59s')
+    const ten = backgroundTaskMetaLayout(agent(), ctx, '10m00s')
+    expect(nine.text).toContain('9m59s')
+    expect(ten.text).toContain('10m00s')
+    // 评审的反例:多一个字符那一跳会换行,但预留高度取 `00m00s`,两跳同高。
+    expect(nine.height).toBe(ten.height)
+    expect(nine.height).toBe(backgroundTaskMetaLayout(agent(), ctx, '00m00s').height)
+    expect(backgroundTaskMetaLayout(agent({ elapsedMs: 3_600_000 }), ctx, '1h00m').height)
+      .toBe(backgroundTaskMetaLayout(agent({ elapsedMs: 3_600_000 }), ctx, '00h00m').height)
+  })
+
+  it('行内计时器每秒在跳(评审:不能冻在快照上)', async () => {
+    const { state, host } = mount()
+    state.transcript.history.seed([settled])
+    state.session.setBackgroundTasks({ commands: [], subagents: [agent({ completedSteps: 137, elapsedMs: 599_000, startedAt: Date.now() - 599_000 })] })
+    await until('后台行在屏上', () => row(host) !== null)
+    host.querySelector<HTMLElement>('[data-collapse-id="background-tasks:open"]')?.click()
+    await until('单子展开', () => items(host).length === 1)
+    const meta = items(host)[0].querySelector<HTMLElement>('[data-slot="background-task-meta"]')
+    await until('计时器自己跳到 10m00s', () => meta?.textContent?.includes('10m00s') === true)
+  })
+})
 
 describe('background tasks at the end of the transcript', () => {
   it('stays after the turn settled, folded into one line until opened', async () => {
@@ -91,7 +118,8 @@ describe('background tasks at the end of the transcript', () => {
     expect(cmdRow.textContent).toContain('pnpm test')
     expect(agentRow.textContent).toContain('Audit chat perf')
     expect(agentRow.textContent).toContain('3 steps')
-    expect(agentRow.textContent).toMatch(/3\ds/)
+    // 文案与量高取同一个值(快照):显示 30s,就是量高的那个 elapsedMs(评审)。
+    expect(agentRow.textContent).toContain('3 steps · 30s')
 
     // 它是最后一行:回复在它上面。
     const reply = [...host.querySelectorAll('*')].find((el) => el.textContent === 'Started them; I will report back.')
@@ -159,8 +187,8 @@ describe('background tasks at the end of the transcript', () => {
   })
 
   // owner 2026-10-27 原型:末尾那条回复带着过程行时,后台那一句与「执行中」同一行,单子就地展开在它下面。
-  it('hangs on a live process line that has no reply yet, across the steps under it', async () => {
-    const { state, host } = mount({}, true)
+  it('keeps wrapped background agents above the tool run on a live process line', async () => {
+    const { state, host } = mount({ onStopBackgroundTask: vi.fn() }, true)
     state.transcript.activeTurn.set({
       id: 'live', seq: 0, initiator: 'user', startedAt: Date.now() - 5000,
       items: [
@@ -169,7 +197,16 @@ describe('background tasks at the end of the transcript', () => {
         { kind: 'tool', id: 't2', seq: 2, name: 'bash', status: 'running' },
       ]
     } as unknown as TranscriptTurn)
-    state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
+    state.session.setBackgroundTasks({
+      commands: [],
+      subagents: [
+        agent({ completedSteps: 137, elapsedMs: 650_000, startedAt: Date.now() - 650_000 }),
+        agent({
+          id: 'agent-item-2', launchToolCallId: 'toolu_agent_2', name: 'Audit Electron main-process performance',
+          completedSteps: 114, elapsedMs: 650_000, startedAt: Date.now() - 650_000,
+        }),
+      ],
+    })
     // owner 0 号图:「执行中 · … · N 步 ⌄ | 后台 · … ›」同一行,❌ 单独一行排在步骤下面。
     const pill = () => host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-slot="background-tasks-pill"]')
     await until('the background pill sits on the live process line', () => pill() !== null)
@@ -183,6 +220,16 @@ describe('background tasks at the end of the transcript', () => {
     pill()!.click()
     await until('the list opens in that row', () => items(host).length === 2)
     expect(host.querySelector('[data-slot="turn-process"]')!.contains(items(host)[0])).toBe(true)
+    const toolRun = host.querySelector<HTMLElement>('[data-slot="tool-run"]')!
+    await untilStable('the expanded background list pushes the tool run down', () =>
+      toolRun.getBoundingClientRect().top - items(host).at(-1)!.getBoundingClientRect().bottom)
+    expect(items(host).at(-1)!.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      toolRun.getBoundingClientRect().top
+    )
+    // 评审:文字长了就该长高,❌ 用固定高度 + overflow:hidden 静默裁掉。
+    const metaEl = host.querySelector<HTMLElement>('[data-slot="background-task-meta"]')!
+    expect(getComputedStyle(metaEl).overflow).not.toBe('hidden')
+    expect(metaEl.scrollHeight).toBeLessThanOrEqual(metaEl.clientHeight + 1)
     // owner 10-28:过程行和后台各管各的 —— 收起过程,后台单子照样开着、照样能点;开合后台,过程行不动。
     const line = () => host.querySelector<HTMLElement>('[data-slot="turn-process"]')!
     const processOpen = line().dataset.expanded

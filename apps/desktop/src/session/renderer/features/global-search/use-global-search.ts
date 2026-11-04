@@ -106,7 +106,11 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
     .filter((hit) => !inTask || hit.sessionId === inTask.taskId)
     .map((hit) => ({ kind: 'task', id: `t:${hit.sessionId}:${hit.itemId}`, group: `task:${hit.sessionId}`, taskId: hit.sessionId, projectId: hit.projectId,
       title: hit.title, itemId: hit.itemId, role: hit.role, text: hit.excerpt, at: hit.at }))
-  const all = [...messageHits, ...taskHits].sort((a, b) => instant(b.at) - instant(a.at))
+  // `instant` 是正则 + Date.parse:放进比较器里等于每次排序都付 O(n log n) 遍解析的费用。
+  const all = [...messageHits, ...taskHits]
+    .map((hit) => ({ hit, at: instant(hit.at) }))
+    .sort((a, b) => b.at - a.at)
+    .map((entry) => entry.hit)
   const counts: Record<SearchFacet, number> = {
     all: all.length,
     message: messageHits.length,

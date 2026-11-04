@@ -35,6 +35,7 @@ const hostRpc = vi.hoisted(() => ({ invoke: vi.fn(), eventOn: vi.fn(), toast: vi
 vi.mock('@renderer/lib/machine-clients', () => ({
   machineClient: () => ({ api: { invoke: hostRpc.invoke, eventOn: hostRpc.eventOn, eventSend() {} } }),
   machineLinkState: () => 'open', machineLinkHandingOff: () => false,
+  reportMachineOutdated: () => {},
   onMachineReconnected: () => () => {}, subscribeMachineLink: () => () => {},
   onEachMachine: () => () => {}, closeMachineClient() {}, reconnectMachine() {}, machineLabel: () => 'fixture-remote',
   machineWireTransport: () => { throw new Error('Runtime replicas are controlled at the service boundary'); },

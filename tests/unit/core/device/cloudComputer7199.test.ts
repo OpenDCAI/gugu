@@ -309,3 +309,11 @@ describe('isCloudComputerNotOpen', () => {
     expect(isCloudComputerNotOpen(new Error('not_open'))).toBe(false)
   })
 })
+
+describe('matchVersion 坏应答', () => {
+  it('非 JSON 应答报 bad_response(与 /state 对齐),不是裸 SyntaxError', async () => {
+    const fetchMock = vi.fn(async () => new Response('<html>gateway error</html>', { status: 200 }))
+    const client = createCloudComputerClient({ baseUrl: 'http://cc', accessToken: async () => 'jwt-1', fetch: fetchMock })
+    await expect(client.matchVersion!('dev-1', false)).rejects.toMatchObject({ status: 200, code: 'bad_response' })
+  })
+})

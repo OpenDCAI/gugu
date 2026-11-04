@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
 import { useEditorContext } from '@renderer/features/sessions/editor/editor-provider';
-import { activeFileEntry as getActiveFileEntry } from '@renderer/features/sessions/editor/pane-selectors';
+import { activeFileResource } from '@renderer/features/sessions/editor/pane-selectors';
 import { ModelStatusOverlay } from '@renderer/lib/monaco/model-status-overlay';
 import { useModelStatus } from '@renderer/lib/monaco/use-model';
 
@@ -16,7 +16,7 @@ import { useModelStatus } from '@renderer/lib/monaco/use-model';
 export const FileContentRenderer = observer(function FileContentRenderer() {
   const { setEditorHost } = useEditorContext();
   const { pane } = usePaneContext();
-  const activeTab = getActiveFileEntry(pane);
+  const activeTab = activeFileResource(pane);
   // The tab knows which model backs it — asking it is what keeps a file outside the
   // workspace from sitting under a "loading" overlay forever (#5585).
   const modelStatus = useModelStatus(activeTab?.bufferUri ?? '');
