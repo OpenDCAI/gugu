@@ -1,13 +1,11 @@
 import { rendererLogger } from '../../lib/log'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import type { AttachmentPackage } from '../../session/shared/extensions/attachment-install'
-import { localizedManifestText } from '../../session/shared/extensions/catalog'
 import { appsHere } from './appsHere'
 
 const log = rendererLogger('app-slot/update-unasked')
 
 let queue: Promise<unknown> = Promise.resolve()
-const listeners = new Set<(updated: { name: string; version: string }) => void>()
 
 /**
  * 摩擦单 F66 (主人 10-01): an App package found in a chat, offered to this device's install without anyone clicking.
@@ -29,15 +27,5 @@ async function install(pkg: AttachmentPackage): Promise<boolean> {
   const result = await appsHere.installAttachment({ ...pkg, unasked: true })
   const data = result.data
   if (!result.success || !data || !data.installed) return false
-  // An update of an App here (`couldUpdateUnasked`): named as the person reads it, from what is installed.
-  const here = installedExtensionsStore.manifestFor(data.id)
-  const name = here ? localizedManifestText(here, installedExtensionsStore.locale).name : data.name
-  for (const listener of listeners) listener({ name, version: data.version })
   return true
-}
-
-/** The host's line after an App updated itself (摩擦单 F66: 「事后一句轻提示」). */
-export function onUpdatedUnasked(listener: (updated: { name: string; version: string }) => void): () => void {
-  listeners.add(listener)
-  return () => void listeners.delete(listener)
 }

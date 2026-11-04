@@ -11,6 +11,40 @@ export const composerRoot = style({
   containerType: 'inline-size',
 });
 
+// Tone belongs to the connected outline; the queue remains outside it.
+export const composerStack = recipe({
+  base: {
+    display: 'flex',
+    flexDirection: 'column',
+    minWidth: 0,
+    borderRadius: tokenVars.radiusThread,
+  },
+  variants: {
+    tone: {
+      task: {
+        vars: {
+          '--composer-outline-border': `color-mix(in srgb, ${vars.foregroundConflict} 35%, ${vars.border})`,
+        },
+        boxShadow: `0 0 0 3px color-mix(in srgb, ${vars.foregroundConflict} 10%, transparent)`,
+        selectors: {
+          '&:hover, &:focus-within': {
+            vars: {
+              '--composer-outline-border': `color-mix(in srgb, ${vars.foregroundConflict} 45%, ${vars.border})`,
+            },
+          },
+        },
+      },
+    },
+  },
+});
+
+// A host band is the top of this same stack; permission/notice continue its outline.
+globalStyle(`${composerRoot}[data-band-above] [data-slot="composer-permission-request"], ${composerRoot}[data-band-above] [data-slot="composer-notice"]`, {
+  borderTopLeftRadius: 0,
+  borderTopRightRadius: 0,
+  borderTopWidth: 0,
+});
+
 /**
  * @@@composer-card-radius — 输入卡片的圆角是 `tokenVars.radiusThread`(16px),**顶上接出来的
  * 每一条 band 都必须写同一个 token**(notice / permission / queued-prompts):不一致的话
@@ -46,17 +80,17 @@ export const noticeBand = recipe({
     variant: {
       error: {
         backgroundColor: vars.surfaceDestructive,
-        borderColor: vars.surfaceDestructiveBorder,
+        borderColor: `var(--composer-outline-border, ${vars.surfaceDestructiveBorder})`,
         color: vars.surfaceDestructiveForeground,
       },
       warning: {
         backgroundColor: vars.surfaceWarning,
-        borderColor: vars.surfaceWarningBorder,
+        borderColor: `var(--composer-outline-border, ${vars.surfaceWarningBorder})`,
         color: vars.surfaceWarningForeground,
       },
       info: {
         backgroundColor: vars.surfaceInfo,
-        borderColor: vars.surfaceInfoBorder,
+        borderColor: `var(--composer-outline-border, ${vars.surfaceInfoBorder})`,
         color: vars.surfaceInfoForeground,
       },
     },
@@ -136,12 +170,12 @@ export const composerShell = recipe({
     display: 'flex',
     flexDirection: 'column',
     gap: 0,
-    border: `1px solid ${vars.border}`,
+    border: `1px solid var(--composer-outline-border, ${vars.border})`,
     transition: `border-color ${durFast}`,
     selectors: {
-      '&:hover': { borderColor: vars.border1 },
+      '&:hover': { borderColor: `var(--composer-outline-border, ${vars.border1})` },
       '&:focus-within': {
-        borderColor: vars.border1,
+        borderColor: `var(--composer-outline-border, ${vars.border1})`,
       },
     },
   },
@@ -153,7 +187,7 @@ export const composerShell = recipe({
     },
     dragActive: {
       true: {
-        borderColor: vars.border1,
+        borderColor: `var(--composer-outline-border, ${vars.border1})`,
         // ❌ 这里原来还加一道 `0 0 0 1px` 的高亮环(叠在基础投影上)。2026-09-22 连同投影一起撤:
         // 见 @@@no card shadow —— 一条边上不叠 border + ring + shadow。拖拽态由描边提亮
         // (borderColor)与整卡淡蓝(下面那条 color-mix)两件事表达,已经够读出来了。
@@ -161,17 +195,6 @@ export const composerShell = recipe({
         backgroundColor: `color-mix(in srgb, ${vars.foregroundInfo} 5%, var(--composer-bg, ${vars.surfaceBaseEmphasis}))`,
       },
       false: {},
-    },
-    // 这一框是一件事(gugu-dev#181「输入框」):新任务整张变橙 —— 描边换色,外面一圈同色的浅环。
-    // 悬停 / 聚焦也留在这个色上(base 里那两条会把描边换回灰)。
-    tone: {
-      task: {
-        borderColor: `color-mix(in srgb, ${vars.foregroundConflict} 35%, ${vars.border})`,
-        boxShadow: `0 0 0 3px color-mix(in srgb, ${vars.foregroundConflict} 10%, transparent)`,
-        selectors: {
-          '&:hover, &:focus-within': { borderColor: `color-mix(in srgb, ${vars.foregroundConflict} 45%, ${vars.border})` },
-        },
-      },
     },
   },
   defaultVariants: { hasBand: false, dragActive: false },
@@ -337,6 +360,7 @@ export const attachmentRetry = style({
   textUnderlineOffset: '2px',
   selectors: {
     '&:focus-visible': { outline: `1px solid ${vars.border1}`, outlineOffset: '1px' },
+    '&:disabled': { opacity: 0.5, cursor: 'default' },
   },
 });
 
@@ -931,6 +955,8 @@ export const agentLockedIndicator = style({})
 // 档 4:用量读数让位。档 5:锁着的 agent 让位。档 6:模型名与强度让位,只剩厂商图形(没有图形的不收,靠 ellipsis)。
 globalStyle(`[data-slot="composer-toolbar"]:is([data-disclosure="4"], [data-disclosure="5"], [data-disclosure="6"]) ${usageTrigger}`, { display: 'none' })
 globalStyle(`[data-slot="composer-toolbar"]:is([data-disclosure="5"], [data-disclosure="6"]) ${agentLockedIndicator}`, { display: 'none' })
+// 锁着的那颗是「这条会话是哪个 harness」的标,❌ 按禁用灰掉(control 的 :disabled 是 0.5 + 不接指针,标就淡得看不见、悬停也没提示)。
+globalStyle(`[data-slot="composer-toolbar"] ${agentLockedIndicator}:is(:disabled, [data-disabled])`, { opacity: 1, pointerEvents: 'auto', cursor: 'default' })
 
 // 档 3 原来收「编程 | 通用」那个分段控件;那个手动切换已删(展示跟设置 → 通用的「终端」开关走),这一档现在不收东西,
 // 档号不挪,省得后面几档的规则跟着改。
@@ -1743,6 +1769,13 @@ export const modelTriggerIcon = style({
 // 模块按顺序求值,引用它的规则写在前面会读到未初始化的常量。
 globalStyle(
   `[data-slot="composer-toolbar"][data-disclosure="6"] [data-testid="composer-model-trigger"]:has(${modelTriggerIcon}) :is(${modelTriggerLabel}, ${modelTriggerEffort})`,
+  { display: 'none' },
+)
+
+// 模型左边有锁着的 harness 标时,触发器不再画厂商图形:Codex 挨着 OpenAI、Claude 挨着 Anthropic 是两枚几乎一样的标。
+// 档 5 起 harness 那颗让位,厂商图形回来,档 6 照旧只剩它。
+globalStyle(
+  `[data-slot="composer-toolbar"]:not([data-disclosure="5"], [data-disclosure="6"]):has(${agentLockedIndicator}) [data-testid="composer-model-trigger"] ${modelTriggerIcon}`,
   { display: 'none' },
 )
 

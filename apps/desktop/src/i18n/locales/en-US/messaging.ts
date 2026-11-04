@@ -59,11 +59,11 @@ export default {
     },
     "turnFailure": {
       "card": {
+        "deliveryRejected": "Message not delivered",
         "generic": "Reply not completed",
         "authentication": "Model authorization refused",
         "network": "Cannot reach the model service",
         "timeout": "No response in time",
-        "offline": "The device disconnected",
         "rateLimited": "Too many requests",
         "nextMessage": "The next message will retry automatically",
         "recovered_one": "{{name}}: {{count}} earlier reply failed · recovered",
@@ -71,10 +71,10 @@ export default {
         "settings": "Open settings"
       },
       "state": {
-        "exhausted": "out of credits",
-        "weekly": "weekly limit reached",
-        "monthly": "monthly limit reached",
-        "model-unavailable": "model unavailable"
+        "quota": "out of credits",
+        "weeklyQuota": "weekly limit reached",
+        "monthlyQuota": "monthly limit reached",
+        "modelUnavailable": "model unavailable"
       },
       "stateAction": "{{name}}: {{state}}. Click to change model",
       "authentication": "The model service refused authorization for this reply.",
@@ -88,9 +88,10 @@ export default {
       "changeModel": "Change model",
       "close": "Close",
       "generic": "This Agent could not complete the reply",
+      "deliveryRejected": "This message was not delivered. Resend to try again.",
       "notAdmitted": "Messages retained. Your assistant will reply when ready.",
+      "outcomeUnknown": "Delivery result unknown: the message may have reached your assistant, and it was not resent.",
       "undelivered": "Not delivered yet: no running Gugu instance holds this Agent. It will read the message once that instance is open.",
-      "offline": "The device disconnected before the reply completed",
       "retry": "Retry",
       "retrying": "Retrying…",
       "timeout": "This Agent did not respond in time"
@@ -268,7 +269,6 @@ export default {
     "clearSearch": "Clear search",
     "create": "New",
     "createTask": "New task",
-    "createAgent": "New Agent",
     "createGroup": "New group chat",
     "createGroupMobile": "New group chat",
     "newProject": "New project",
@@ -293,6 +293,8 @@ export default {
     "markUnreadFailed": "Could not mark this chat unread. Try again.",
     "muted": "Notifications muted",
     "noResults": "No chats found",
+    "searchMessages": "Search messages for “{{query}}”",
+    "searchMessagesTitle": "Search messages",
     "listLabel": "Chats",
     "pin": "Pin",
     "scan": "Scan",
@@ -361,6 +363,12 @@ export default {
     "usageUnavailable": "File storage usage is unavailable right now.",
 
     "fileUnavailable": "File unavailable right now",
+    "holderOffline": "{{machine}} is offline. This file opens when it is back online.",
+    "holderMachine": "The computer that keeps it",
+    "besideOffline": "On {machine}, not connected",
+    "besideOfflineNotice": "Some files on this page are kept on {{machine}}, which is not connected. They appear when it is back online.",
+    "besideUnavailable": "This file is not available right now.",
+    "besideOutside": "Only files in this document's folder can be shown.",
     "imageUnavailable": "Image unavailable right now",
     "newerInFolder": "Newer version in the folder",
     "retry": "Retry"
@@ -450,10 +458,14 @@ export default {
     "reactWith": "React with {{emoji}}"
   },
   "forward": {
+    "fileFailed": "{{name}} could not be forwarded with the task",
     "batchPreview": "Forward {{count}} messages",
     "batchPreview_one": "Forward {{count}} message",
     "batchPreview_other": "Forward {{count}} messages",
     "failed": "Could not forward the message",
+    "filesPreview": "Forward {{count}} files",
+    "filesPreview_one": "Forward {{count}} file",
+    "filesPreview_other": "Forward {{count}} files",
     "forwarding": "Forwarding…",
     "noResults": "No chats found",
     "noTargets": "No chats available for forwarding",
@@ -651,14 +663,15 @@ export default {
     }
   },
   "header": {
-    "groupApps": "Group Apps",
-    "personalPins": "Only you",
-    "pinGroupApp": "Pin {{name}} to this group header",
-    "unpinGroupApp": "Remove {{name}} from this group header",
-    "appPinsLoadFailed": "Could not load pinned Apps.",
-    "appPinsSaveFailed": "Could not save pinned Apps.",
+    "groupApps": "Apps",
+    "members_one": "{{count}} member",
+    "members_other": "{{count}} members",
+    "invite": "Invite",
+    "mute": "Mute notifications",
+    "pinConversation": "Pin conversation",
+    "searchHistory": "Search chat history",
+    "groupInfoAndSettings": "Group info and settings",
     "noGroupApps": "No Apps available on this device.",
-    "openInGroup": "Open in this group…",
     "announcement": "Group announcement",
     "groupInfo": "Group info",
     "chatInfo": "Conversation info",
@@ -704,14 +717,15 @@ export default {
     "agentRole": "Agent",
     "backToList": "Back to imported history",
     "label": "Imported history",
-    "turnMeta": "{{count}} turns · {{date}}",
-    "turnMeta_one": "{{count}} turn · {{date}}",
-    "turnMeta_other": "{{count}} turns · {{date}}",
+    "turnMeta": "{{count}} messages · {{date}}",
+    "turnMeta_one": "{{count}} message · {{date}}",
+    "turnMeta_other": "{{count}} messages · {{date}}",
     "userRole": "You",
     "view": "View {{title}}"
   },
   "message": {
     "myAgentTag": "my agent",
+    "removedIdentityTag": "removed",
     "agentOwnerUnavailableTag": "owner unavailable",
     "agentOwnerTag": "{{owner}}'s agent",
     "agentOwnerSuffix": " ({{owner}}'s agent)",
@@ -749,6 +763,7 @@ export default {
       "title": "Read receipt"
     },
     "retracted": "Message retracted",
+    "deliveredFrom": "From {{name}}",
     "sendStatus": {
       "unknown": "Awaiting confirmation",
       "unknownHint": "Waiting for the publication result. This message will update automatically; no need to resend.",
@@ -757,9 +772,23 @@ export default {
       "failedActions": "Undelivered message actions",
       "failedHint": "Not delivered. Click to retry or discard.",
       "queued": "Sending. Your assistant will reply when ready.",
-      "sending": "Sending"
+      "undelivered": "instance not running, not delivered",
+      "sending": "Sending",
+      "stopped": "Stopped. Sends with your next message.",
+      "unknownNotResent": "Result unknown; not resent",
+      "failure": {
+        "hostOffline": "The computer running this task is offline. It will be sent automatically once that computer is back.",
+        "hostNotReady": "The computer running this task is not ready for messages yet. Retry in a moment.",
+        "phoneUnconfirmed": "Your phone has not confirmed this message yet. Retry in a moment.",
+        "noAcknowledgement": "The task did not respond. Retry in a moment."
+      }
     },
     "showQuoted": "Go to the quoted message",
+    "svgFigure": {
+      "invalid": "This SVG could not be drawn: it is not a well-formed SVG document",
+      "noViewbox": "This SVG could not be drawn: its root needs a viewBox",
+      "tooLarge": "This SVG could not be drawn: it is larger than 64 KB"
+    },
     "taskCard": {
       "task": "New task",
       "schedule": "Scheduled",
@@ -789,12 +818,12 @@ export default {
     "whisperOnlyYou": "Whisper · only visible to you",
     "whisperTo": "Whisper to {{name}} · only visible to you both",
     "widget": "[Widget]",
-    "widgetCard": {
-      "empty": "No content",
-      "loading": "Loading"
-    }
+    "widgetUnavailable": { "missing": "App is not installed.", "disabled": "App is switched off.", "view": "This App view is unavailable.", "platform": "This App cannot run here." }
   },
   "outbox": {
+    "selectFileAgain": "Upload interrupted. Select the file again.",
+    "sourceNotSent": "The original message was not sent. Retry it before forwarding again.",
+    "sourceDiscarded": "The original message was discarded before it was sent",
     "deliveryTimeout": "Delivery timed out after {{seconds}}s because the network stopped responding",
     "discarded": "Discarded",
     "offscreenFailure": "A message was not delivered. Return to its chat to retry or discard it.",

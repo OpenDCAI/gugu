@@ -1,4 +1,4 @@
-import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
+import { rpcQuery } from '../../../../../../tests/support/rpcQuery';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -150,7 +150,7 @@ const files = createAppFiles({
   hasCapability: () => true,
   sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   // Every name is claimed by some App here: a folder still says no App opens it.
-  claimant: () => ({ suffix: '.png', app: { id: 'viewer', name: 'Viewer', icon: null } }),
+  claimant: () => ({ suffix: '.png', app: { id: 'viewer', name: 'Viewer', icon: null }, state: false }),
   identities: async (_token, ids) => ids.map((id) => ({ id, name: id === AGENT ? 'Helper' : 'Pat', avatar: null, kind: id === AGENT ? ('agent' as const) : ('human' as const) })),
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',
@@ -181,13 +181,13 @@ describe('entries say where they are', () => {
     expect(byId[B]).toMatchObject({ path: 'b.png', parentId: null });
     expect(byId[ATT]).toMatchObject({ type: 'folder', systemRole: 'attachments', createdBy: { kind: 'system' } });
     // One list through the door, as the person: each row says its path.
-    expect(rpcCalls).toEqual([{ name: 'workspace_list_as', args: { p_chat_id: CHAT, p_as_user_id: PERSON } }]);
+    expect(rpcCalls).toEqual([{ name: 'workspace_list_as', args: { p_chat_id: CHAT, p_as_user_id: PERSON, p_offset: 0, p_limit: 1000 } }]);
   });
 
   it('files.list({ chat, folder }): what is directly in it — by path (case not counted), by id, \'\' the top; a folder not there is not-found', async () => {
     expect((await files.groupFiles(CHAT, { folder: 'docs/2026' })).map((entry) => entry.id)).toEqual([A]);
     // Found the way the database finds it, as the person — the same door an agent's list takes.
-    expect(rpcCalls[0]).toEqual({ name: 'workspace_list_as', args: { p_chat_id: CHAT, p_as_user_id: PERSON, p_folder: 'docs/2026' } });
+    expect(rpcCalls[0]).toEqual({ name: 'workspace_list_as', args: { p_chat_id: CHAT, p_as_user_id: PERSON, p_folder: 'docs/2026', p_offset: 0, p_limit: 1000 } });
     expect((await files.groupFiles(CHAT, { folder: F })).map((entry) => entry.id)).toEqual([G]);
     expect((await files.groupFiles(CHAT, { folder: '' })).map((entry) => entry.id).sort()).toEqual([B, F, ATT].sort());
     await expect(files.groupFiles(CHAT, { folder: 'Docs/nope' })).rejects.toMatchObject({ code: 'not-found' });

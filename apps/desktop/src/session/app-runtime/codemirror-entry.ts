@@ -139,6 +139,7 @@ export function bindCodemirror(view: unknown, file: unknown, verbs?: PictureVerb
       // Undo only undoes this person's typing; ahead of any history() the App's setup brought.
       Prec.highest(keymap.of(yUndoManagerKeymap)),
       EditorState.readOnly.of(inner.readOnly),
+      EditorView.editable.of(!inner.readOnly),
       hold.extension,
       verbs ? pictureDrops(view, file as { entry?: { chat?: unknown; path?: unknown } }, verbs) : [],
     ];

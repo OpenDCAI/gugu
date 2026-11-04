@@ -60,7 +60,7 @@ function setup(options: { callTool?: CallTool; control?: ComputerControlHooks; h
     homedir: () => dir,
     clipboardRead: () => '',
     clipboardWrite: vi.fn(),
-    notify: vi.fn(),
+    notify: vi.fn(async () => ({ shown: true })),
     openExternal: vi.fn(async () => undefined),
     trashItem: vi.fn(async () => undefined),
     jxa: vi.fn(async () => ({})),
@@ -105,11 +105,34 @@ describe('电脑控制:登记', () => {
       ? { structuredContent: { pid: 77, snapshot_id: 's1', window_id: 501 } }
       : { structuredContent: {} } })
     await invoke('computer.get_window_state', { pid: 77, window_id: 501 }, { name: 'Agent A', task_title: 'Task one' })
+    expect(begin).not.toHaveBeenCalled()
+    await invoke('computer.click', { pid: 77, window_id: 501, x: 1, y: 1 }, { name: 'Agent A', task_title: 'Task one' })
     expect(begin).toHaveBeenLastCalledWith({ pid: 77, windowId: 501, callerName: 'Agent A', taskTitle: 'Task one' })
     await invoke('computer.click', { element_token: 's1:3', x: 1, y: 1 }, { name: 'Agent A' })
     expect(begin).toHaveBeenLastCalledWith({ pid: 77, windowId: 501, callerName: 'Agent A' })
     await invoke('computer.click', { target: { pid: 77, window_id: 502 }, x: 1, y: 1 }, { name: 'Agent A' })
     expect(begin).toHaveBeenLastCalledWith({ pid: 77, windowId: 502, callerName: 'Agent A' })
+  })
+
+  it.each([
+    ['computer.list_apps', {}],
+    ['computer.list_windows', {}],
+    ['computer.list_windows', { pid: 77 }],
+  ] as const)('does not begin activity for read-only %s %j', async (action, args) => {
+    const begin = vi.fn(() => ({ signal: new AbortController().signal, end: vi.fn() }))
+    const { invoke, callTool } = setup({ control: { begin } })
+    expect(await invoke(action, args)).toMatchObject({ ok: true })
+    expect(begin).not.toHaveBeenCalled()
+    expect(callTool).toHaveBeenCalledExactlyOnceWith(action.slice('computer.'.length), args, expect.anything())
+  })
+
+  it('keeps activity and its end handle for an act call', async () => {
+    const end = vi.fn()
+    const begin = vi.fn(() => ({ signal: new AbortController().signal, end }))
+    const { invoke } = setup({ control: { begin } })
+    expect(await invoke('computer.click', { pid: 77, window_id: 5, x: 10, y: 20 })).toMatchObject({ ok: true })
+    expect(begin).toHaveBeenCalledExactlyOnceWith({ pid: 77, windowId: 5 })
+    expect(end).toHaveBeenCalledOnce()
   })
 
   it('forwards the trusted execution budget through the provider and computer family without putting it in tool args', async () => {
@@ -269,6 +292,8 @@ describe('电脑控制:人接管那个 App(停止只停它)', () => {
           : okResult())
     await invoke('computer.list_apps', {}, { name: '云端助理' })
     await invoke('computer.get_window_state', { pid: 77, window_id: 5 }, { name: '云端助理' })
+    expect(views).toEqual([])
+    await invoke('computer.click', { element_token: 's7:3' }, { name: '云端助理' })
     expect(views.at(-1)).toBe('driving:计算器')
     await invoke('computer.list_apps', {}, { name: '云端助理' })
     expect(views.at(-1)).toBe('driving:计算器')
@@ -290,15 +315,15 @@ describe('电脑控制:人接管那个 App(停止只停它)', () => {
       exec: exec as never,
       windows: { 31: { app_name: 'charmap.exe', title: '字符映射表' }, 32: { app_name: 'notepad.exe', title: '无标题 - 记事本' }, 33: { app_name: 'tool.exe', title: '' } },
     })
-    await invoke('computer.get_window_state', { pid: 31, window_id: 5 })
+    await invoke('computer.click', { pid: 31, window_id: 5, x: 1, y: 1 })
     expect(views.at(-1)).toBe('driving:字符映射表')
     expect(exec).toHaveBeenCalledWith('powershell.exe', expect.arrayContaining(['-Command']), expect.anything())
-    await invoke('computer.get_window_state', { pid: 32, window_id: 5 })
+    await invoke('computer.click', { pid: 32, window_id: 5, x: 1, y: 1 })
     expect(views.at(-1)).toBe('driving:无标题 - 记事本')
-    await invoke('computer.get_window_state', { pid: 33, window_id: 5 })
+    await invoke('computer.click', { pid: 33, window_id: 5, x: 1, y: 1 })
     expect(views.at(-1)).toBe('driving:tool.exe')
     // 每个进程只读一次。
-    await invoke('computer.get_window_state', { pid: 31, window_id: 5 })
+    await invoke('computer.click', { pid: 31, window_id: 5, x: 1, y: 1 })
     expect(exec.mock.calls.filter(([, a]) => a.join(' ').includes('-Id 31 '))).toHaveLength(1)
   })
 

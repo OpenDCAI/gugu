@@ -98,7 +98,7 @@ export class SessionpageAgentArchivalSync {
     for (const binding of bindings) {
       if (binding.ownerUserId !== auth.userId || !binding.agentUserId) continue
       const local = states.get(binding.sessionId)
-      if (!local || local.revision === 0) continue
+      if (!local || local.revision === 0 || local.removedIdentity?.userId === binding.agentUserId) continue
       try {
         const previous = store.agents[binding.agentUserId]
         if (previous && previous.ownerUserId !== auth.userId) throw new Error('Session archival synchronization owner changed')
@@ -117,7 +117,7 @@ export class SessionpageAgentArchivalSync {
           try {
             await (this.deps.synchronize ?? syncAgentSessionArchival)(binding.agentUserId, deviceId, auth.accessToken, operation)
           } catch (error) {
-            if ((error as { code?: string }).code === '40001') {
+            if ((error as { code?: string }).code === 'PT409') {
               // Rebase from today's local journal, never from an old pending
               // archive that a later restore has already superseded.
               const latest = (await this.deps.inventory()).archival.find((item) => item.sessionId === binding.sessionId)

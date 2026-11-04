@@ -1,23 +1,18 @@
 /**
- * 咕咕 server 的目录布局(product spec 第 7 条:一台服务器多人各自登录,含共用同一个 Linux 账号)。
- *
- *   <GUGU_SERVER_HOME>/                 默认 ~/.gugu-server
- *     versions/<版本>/  current  channel   安装与升级(install.sh / server-updater.ts)
- *     data/                              守护进程自己的:日志、单实例锁、CA 证书兜底
- *     accounts/<咕咕账号 id>/
- *       account.json                     明文的「这是谁」(给 status 看,不含任何凭据)
- *       data/                            这个账号的全部状态:登录态(加密)、任务库、日志
- *       home/                            这个账号的 GUGU_HOME:agent 名册、影子 agent home
- *
- * 每个账号一个独立进程、独立目录:两个人共用一个 Linux 用户,他们的会话、agent、任务库互不相见;
- * 一个人退出登录不影响另一个。登录态存在即「这个账号在这台机器上」。
+ * One system user signs in to one Gugu account and runs one server process.
+ * Installation state lives under <GUGU_SERVER_HOME>/data; account data remains
+ * under account/{data,home}. The preload migrates historical directories before
+ * application code loads; retired accounts retain their history outside runtime.
  */
-import { execFile } from 'node:child_process'
+import { execFile } from '@gugu/core/local/childProcess'
+import { installationServerNames } from './server-installation'
 import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { parseServerConnectVia, SERVER_CONNECT_VIA_FILE } from '@gugu/core/cloud/serverConnectVia'
+import { SERVER_ACTIVITY_STALE_MS } from '@gugu/core/cloud/serverMachineHealth'
 import type { DeviceConnectVia } from '@gugu/core/shared/types/deviceHost'
+import { readCurrentAccount } from './server-startup'
 
 export type ServerAccount = {
   userId: string
@@ -38,14 +33,14 @@ export type ServerAccount = {
  * 照 VS Code Tunnels / Tailscale:离线的机器要说清是「没开机」还是「登录没了」,后者告诉人去那台机器上重新登录。
  * `gugu-server status` 打出来,桌面经 SSH 读它;重新登录成功即删掉。
  */
-export type SignedOutMark = { reason: 'expired' | 'removed'; at: string }
+export type SignedOutMark = { reason: 'expired' | 'removed' | 'logout'; at: string }
 
 export const SIGNED_OUT_FILE = 'signed-out.json'
 
 export function readSignedOutMark(dataDir: string): SignedOutMark | null {
   try {
     const value = JSON.parse(fs.readFileSync(path.join(dataDir, SIGNED_OUT_FILE), 'utf8')) as Partial<SignedOutMark>
-    if ((value.reason === 'expired' || value.reason === 'removed') && typeof value.at === 'string') {
+    if ((value.reason === 'expired' || value.reason === 'removed' || value.reason === 'logout') && typeof value.at === 'string') {
       return { reason: value.reason, at: value.at }
     }
   } catch {
@@ -70,48 +65,22 @@ export function serverHome(): string {
 }
 
 export const supervisorDataDir = (): string => path.join(serverHome(), 'data')
-export const accountsDir = (): string => path.join(serverHome(), 'accounts')
-export const accountDir = (userId: string): string => path.join(accountsDir(), userId)
-export const accountDataDir = (userId: string): string => path.join(accountDir(userId), 'data')
-export const accountHomeDir = (userId: string): string => path.join(accountDir(userId), 'home')
+export const accountDir = (): string => path.join(serverHome(), 'account')
+export const accountDataDir = (): string => path.join(accountDir(), 'data')
+export const accountHomeDir = (): string => path.join(accountDir(), 'home')
 /** 登录态文件名与 server-auth.ts 的 sessionPath() 一致(那边按当前进程的 userData 拼)。 */
 export const SESSION_FILE = 'server-session.enc'
 
-const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-export function listAccounts(): ServerAccount[] {
-  let names: string[]
-  try {
-    names = fs.readdirSync(accountsDir())
-  } catch {
-    return []
-  }
-  return names
-    .filter((name) => USER_ID.test(name))
-    .map((userId) => {
-      let meta: { email?: unknown; addedAt?: unknown } = {}
-      try {
-        meta = JSON.parse(fs.readFileSync(path.join(accountDir(userId), 'account.json'), 'utf8'))
-      } catch {
-        meta = {}
-      }
-      return {
-        userId,
-        email: typeof meta.email === 'string' ? meta.email : null,
-        addedAt: typeof meta.addedAt === 'string' ? meta.addedAt : null,
-        dir: accountDir(userId),
-        dataDir: accountDataDir(userId),
-        homeDir: accountHomeDir(userId),
-        signedIn: fs.existsSync(path.join(accountDataDir(userId), SESSION_FILE)),
-        signedOut: readSignedOutMark(accountDataDir(userId)),
-      }
-    })
-    .sort((a, b) => (a.addedAt ?? '').localeCompare(b.addedAt ?? ''))
+export function readServerAccount(): ServerAccount | null {
+  const account = readCurrentAccount(serverHome())
+  return account ? { userId: account.id, email: account.email, addedAt: account.addedAt,
+    dir: account.dir, dataDir: accountDataDir(), homeDir: accountHomeDir(),
+    signedIn: account.signedIn, signedOut: readSignedOutMark(accountDataDir()) } : null
 }
 
 export function writeAccountMeta(userId: string, email: string | null): void {
-  fs.mkdirSync(accountDir(userId), { recursive: true })
-  const file = path.join(accountDir(userId), 'account.json')
+  fs.mkdirSync(accountDir(), { recursive: true })
+  const file = path.join(accountDir(), 'account.json')
   let addedAt = new Date().toISOString()
   try {
     const previous = JSON.parse(fs.readFileSync(file, 'utf8')) as { addedAt?: unknown }
@@ -123,16 +92,17 @@ export function writeAccountMeta(userId: string, email: string | null): void {
 }
 
 /** 把一个账号的进程环境指到它自己的目录(在加载主进程之前调用)。 */
-export function applyAccountEnv(userId: string, env: NodeJS.ProcessEnv = process.env): void {
+export function applyAccountEnv(userId: string, env: NodeJS.ProcessEnv = process.env, directory = accountDir()): void {
   env.GUGU_SERVER_ACCOUNT = userId
-  env.GUGU_TASK_HOST_USER_DATA = accountDataDir(userId)
-  env.GUGU_HOME = accountHomeDir(userId)
+  env.GUGU_TASK_HOST_USER_DATA = path.join(directory, 'data')
+  env.GUGU_HOME = path.join(directory, 'home')
   // tmux 按账号分 socket:同一个 Linux 用户下两个账号各有各的 tmux 服务端,
   // 一个账号回收孤儿会话时碰不到另一个账号的终端。
-  env.GUGU_TMUX_SOCKET_LABEL = `${ACCOUNT_TMUX_LABEL_PREFIX}${userId.slice(0, 8)}`
+  env.GUGU_TMUX_SOCKET_LABEL = `${accountTmuxLabelPrefix(env)}${userId.slice(0, 8)}`
 }
 
-const ACCOUNT_TMUX_LABEL_PREFIX = 'gugu-server-'
+/** 与桌面 main.ts 的标签同一条规则:各通道的 server 不共用 tmux 服务端(同一个账号 id 也撞不上)。 */
+const accountTmuxLabelPrefix = (env: NodeJS.ProcessEnv) => `${installationServerNames(env.GUGU_SERVER_HOME ?? '').bin}-`
 
 /**
  * 账号被主人从「设置 → 设备」移除:结束这个账号的 tmux 服务端,里面还在跑的 agent 与终端一并结束。
@@ -144,7 +114,7 @@ export async function killAccountTmuxServer(
   run: (command: string, args: string[]) => Promise<unknown> = (command, args) => promisify(execFile)(command, args, { timeout: 10_000 }),
 ): Promise<boolean> {
   const label = env.GUGU_TMUX_SOCKET_LABEL?.trim()
-  if (!label?.startsWith(ACCOUNT_TMUX_LABEL_PREFIX)) return false
+  if (!label?.startsWith(accountTmuxLabelPrefix(env))) return false
   await run(env.GUGU_TMUX_BIN?.trim() || 'tmux', ['-L', label, 'kill-server']).catch(() => undefined)
   return true
 }
@@ -161,20 +131,31 @@ export function emailFromAccessToken(accessToken: string): string | null {
   }
 }
 
-/** 子进程每 10 秒写一次忙闲;超过这么久没写,当它不存在(卡死的进程不该永远挡住升级)。 */
-const ACTIVITY_STALE_MS = 60_000
-
-/** 这个账号的子进程写下的忙闲(见 main.ts 的 server 分支):有 agent 在跑一轮或等人批准。 */
-export function accountIsBusy(dataDir: string, now = Date.now()): boolean {
+/** One parser for account heartbeat freshness and current-process identity. */
+export function readAccountActivity(
+  dataDir: string,
+  now = Date.now(),
+  expectedProcess?: { pid: number | undefined; startedAt: number },
+): { busy: unknown; at: number; pid: number; startedAt: number } | null {
   try {
     const activity = JSON.parse(fs.readFileSync(path.join(dataDir, 'activity.json'), 'utf8')) as {
-      busy?: unknown
-      at?: unknown
+      busy?: unknown; at?: unknown; pid?: unknown; startedAt?: unknown
     }
-    return activity.busy === true && typeof activity.at === 'number' && now - activity.at < ACTIVITY_STALE_MS
-  } catch {
-    return false
-  }
+    if (typeof activity.at !== 'number' || !Number.isFinite(activity.at)
+      || activity.at > now || now - activity.at >= SERVER_ACTIVITY_STALE_MS
+      || typeof activity.pid !== 'number' || !Number.isInteger(activity.pid) || activity.pid <= 0
+      || typeof activity.startedAt !== 'number' || !Number.isFinite(activity.startedAt)
+      || activity.startedAt > activity.at
+      || (expectedProcess && (activity.pid !== expectedProcess.pid || activity.startedAt < expectedProcess.startedAt))) return null
+    return { busy: activity.busy, at: activity.at, pid: activity.pid, startedAt: activity.startedAt }
+  } catch { return null }
+}
+
+/** 账号此刻忙不忙,唯一的判据:它自己(pid 对得上)的新鲜心跳;没有 ⇒ unverified。 */
+export function activityProof(dataDir: string, now = Date.now(), expectedProcess?: { pid: number | undefined; startedAt: number }): 'idle' | 'busy' | 'unverified' {
+  const activity = readAccountActivity(dataDir, now, expectedProcess)
+  if (!activity || typeof activity.busy !== 'boolean') return 'unverified'
+  return activity.busy ? 'busy' : 'idle'
 }
 
 /**

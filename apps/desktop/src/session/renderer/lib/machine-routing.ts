@@ -38,8 +38,10 @@ const LOCAL_ONLY_NAMESPACES = new Set([
  */
 const LOCAL_ONLY_CHANNELS = new Set([
   'workspace.files.createDocumentPreview',
+  'workspace.files.createChatFolderPreview',
   'workspace.files.createRemotePreview',
   'workspace.files.setPreviewDocument',
+  'workspace.files.previewAssetsChanged',
   'workspace.files.releasePreview',
   'sessions.reportSessionsOnScreen',
 ]);

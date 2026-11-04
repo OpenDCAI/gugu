@@ -16,6 +16,7 @@ export function createAcpRuntimeController(
   platformSessionClosed: EventStreamHost<typeof acpRuntimeApiContract.platformSessionClosed>,
   turnCommitted: EventStreamHost<typeof acpRuntimeApiContract.turnCommitted>,
   promptSteered: EventStreamHost<typeof acpRuntimeApiContract.promptSteered>,
+  forkHandshake: EventStreamHost<typeof acpRuntimeApiContract.forkHandshake>,
   preparation: {
     requested: EventStreamHost<typeof acpRuntimeApiContract.nativePromptPreparationRequested>;
     settled: EventStreamHost<typeof acpRuntimeApiContract.nativePromptPreparationSettled>;
@@ -30,6 +31,7 @@ export function createAcpRuntimeController(
     platformSessionClosed,
     turnCommitted,
     promptSteered,
+    forkHandshake,
     nativePromptPreparationRequested: preparation.requested,
     nativePromptPreparationSettled: preparation.settled,
     enableNativePromptPreparation: () => preparation.bridge.enable(),

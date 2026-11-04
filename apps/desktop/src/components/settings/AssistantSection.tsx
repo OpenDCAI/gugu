@@ -9,7 +9,7 @@ import { AssistantNameInline } from '../assistant/AssistantNameInline'
 import { AgentSettingsModal } from '../agentsettings/AgentSettingsModal'
 import { Button } from '../ui/Button'
 import { Switch } from '../ui/Switch'
-import { ChevronRight, Clock, Database, Monitor, Plug, MessageCircle } from '@/lib/icons'
+import { ChevronRight, Clock, Database, Monitor, Plug, MessageCircle, SidebarMinimalistic } from '@/lib/icons'
 import { useAssistantHome } from '../../lib/useAssistantHome'
 import { platform } from '../../platform'
 import { useAuth } from '../../store/auth'
@@ -130,7 +130,7 @@ export function AssistantSection({ available, onOpenSection, onOpenAssistantPage
       <SettingsGroup presentation="navigation" title={t('capabilities.title')}>
         <SettingsRow
           title={t('settingsPage.model')}
-          leading={<span className="size-4 shrink-0" aria-hidden="true" />}
+          leading={<SidebarMinimalistic size={16} />}
           description={t('settingsPage.modelNote')}
           control={<ChevronRight size={16} className="gg-settings-row-chevron" aria-hidden="true" />}
           onClick={onOpenModel ?? (() => setModelOpen(true))}
@@ -150,8 +150,8 @@ export function AssistantSection({ available, onOpenSection, onOpenAssistantPage
       ) : null}
       {/* 会议提醒读的是这台电脑的日历、提醒也只在桌面弹:手机上没有这个开关(手机端咕咕页自己的事)。 */}
       {platform.capabilities.agentRuntime ? <MeetingReminderGroup /> : null}
-      {lookOpen && contact ? <AgentSettingsModal agent={contact} initialTab="look" onClose={() => setLookOpen(false)} /> : null}
-      {modelOpen && contact ? <AgentSettingsModal agent={contact} initialTab="aimodel" onClose={() => setModelOpen(false)} /> : null}
+      {lookOpen && contact ? <AgentSettingsModal agent={contact} initialTab="look" zIndex="var(--z-settings-modal)" onClose={() => setLookOpen(false)} /> : null}
+      {modelOpen && contact ? <AgentSettingsModal agent={contact} initialTab="aimodel" zIndex="var(--z-settings-modal)" onClose={() => setModelOpen(false)} /> : null}
     </SettingsPage>
   )
 }

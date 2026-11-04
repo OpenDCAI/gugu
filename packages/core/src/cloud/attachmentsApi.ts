@@ -7,6 +7,7 @@
 //   place  → only put in the chat's folder (a new file, or a new version of one) — no message;
 //   forward → a new-kind attachment message forwarded (the server makes the target's item);
 //   urls   → signed links for items' versions or whisper messages.
+import { retryFileDownload } from './fileDownloadRetry'
 import type { FileKeep } from '../shared/fileStorage'
 import { getSupabaseAnonKey, getSupabaseUrl } from './config'
 
@@ -35,21 +36,29 @@ export class AttachmentsError extends Error {
   }
 }
 
-async function call(endpoint: AttachmentsEndpoint, route: string, body: Record<string, unknown>): Promise<unknown> {
-  const response = await (endpoint.fetch ?? fetch)(`${endpoint.supabaseUrl.replace(/\/+$/, '')}/functions/v1/attachments/${route}`, {
-    method: 'POST',
-    headers: { apikey: endpoint.anonKey, Authorization: `Bearer ${endpoint.token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  const text = await response.text()
-  let json: unknown = null
-  try { json = JSON.parse(text) } catch { /* not json: said below as it is */ }
-  if (!response.ok) {
-    const said = (json ?? {}) as { error?: unknown; message?: unknown }
-    throw new AttachmentsError(route, response.status, typeof said.error === 'string' ? said.error : 'failed',
-      typeof said.message === 'string' ? said.message : `HTTP ${response.status} ${text.slice(0, 200)}`)
+async function call(endpoint: AttachmentsEndpoint, route: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+  signal?.throwIfAborted()
+  const url = `${endpoint.supabaseUrl.replace(/\/+$/, '')}/functions/v1/attachments/${route}`
+  const request = async () => {
+    const response = await (endpoint.fetch ?? fetch)(url, {
+      method: 'POST',
+      headers: { apikey: endpoint.anonKey, Authorization: `Bearer ${endpoint.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    })
+    const text = await response.text()
+    let json: unknown = null
+    try { json = JSON.parse(text) } catch { /* not json: said below as it is */ }
+    if (!response.ok) {
+      const said = (json ?? {}) as { error?: unknown; message?: unknown }
+      throw new AttachmentsError(route, response.status, typeof said.error === 'string' ? said.error : 'failed',
+        typeof said.message === 'string' ? said.message : `HTTP ${response.status} ${text.slice(0, 200)}`)
+    }
+    return json
   }
-  return json
+  return route === 'file-download' || route === 'file-resolve'
+    ? retryFileDownload(() => ({ stage: route === 'file-download' ? 'signature' : 'metadata', url }), request, signal)
+    : request()
 }
 
 /** Uploads to the configured object store using the server-issued scoped upload plan. */
@@ -57,21 +66,22 @@ export async function uploadAttachmentBytes(
   endpoint: AttachmentsEndpoint,
   file: { bytes: Uint8Array | Blob; name: string; contentType: string },
   scope: { chat_id: string | null; as: string; request_id?: string },
-  options?: { onPlan?: (plan: AttachmentUploadPlan) => void; retry?: boolean; onProgress?: (progress: AttachmentByteProgress) => void },
+  options?: { onPlan?: (plan: AttachmentUploadPlan) => void; retry?: boolean; onProgress?: (progress: AttachmentByteProgress) => void; signal?: AbortSignal },
 ): Promise<string> {
   const size = file.bytes instanceof Blob ? file.bytes.size : file.bytes.byteLength
   const form = await call(endpoint, 'upload', {
     size_bytes: size, content_type: file.contentType, as: scope.as, chat_id: scope.chat_id, request_id: scope.request_id ?? crypto.randomUUID(),
-  }) as { staging_key: string; url: string; fields: Record<string, string>; max_bytes: number; expires_at?: string; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
+  }, options?.signal) as { staging_key: string; url: string; fields: Record<string, string>; max_bytes: number; expires_at?: string; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
   options?.onPlan?.(form)
-  await uploadAttachmentPlan(endpoint, form, file, options?.retry === true && !!scope.request_id, options?.onProgress)
+  await uploadAttachmentPlan(endpoint, form, file, options?.retry === true && !!scope.request_id, options?.onProgress, options?.signal)
   return form.staging_key
 }
 
 export type AttachmentUploadPlan = { expires_at?: string; url: string; fields: Record<string, string>; max_bytes: number; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
 
 /** Ordinary and temporary uploads execute the same scoped provider plan; signing remains server-side. */
-export async function uploadAttachmentPlan(endpoint: AttachmentsEndpoint, form: AttachmentUploadPlan, file: { bytes: Uint8Array | Blob; name: string; contentType: string }, allowExisting = false, onProgress?: (progress: AttachmentByteProgress) => void): Promise<void> {
+export async function uploadAttachmentPlan(endpoint: AttachmentsEndpoint, form: AttachmentUploadPlan, file: { bytes: Uint8Array | Blob; name: string; contentType: string }, allowExisting = false, onProgress?: (progress: AttachmentByteProgress) => void, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
   const size = file.bytes instanceof Blob ? file.bytes.size : file.bytes.byteLength
   if (size > form.max_bytes) throw new AttachmentsError('upload', 413, 'too_large', `${file.name} is ${size} bytes; a file is at most ${form.max_bytes}`)
   const method = form.method ?? 'POST'
@@ -83,7 +93,7 @@ export async function uploadAttachmentPlan(endpoint: AttachmentsEndpoint, form: 
     for (const [key, value] of Object.entries(form.fields)) body.append(key, value)
     body.append('file', blob, file.name)
   }
-  const init = { method, body, headers: method === 'PUT' ? { 'content-type': file.contentType, ...form.headers } : form.headers }
+  const init = { method, body, headers: method === 'PUT' ? { 'content-type': file.contentType, ...form.headers } : form.headers, signal }
   const posted = endpoint.upload ? await endpoint.upload(form.url, init, onProgress)
     : await (endpoint.fetch ?? fetch)(form.url, init)
   if (posted.status !== 200 && posted.status !== 204 && !(allowExisting && posted.status === 409)) {
@@ -163,6 +173,24 @@ export interface ForwardArgs {
 export async function forwardAttachment(endpoint: AttachmentsEndpoint, args: ForwardArgs): Promise<Record<string, unknown>> {
   const answer = await call(endpoint, 'forward', { ...args }) as { message: Record<string, unknown> | null }
   if (!answer.message) throw new AttachmentsError('forward', 500, 'failed', `no message came back for ${args.source_message_id}`)
+  return answer.message
+}
+
+export interface ShareArgs {
+  item_id: string
+  /** A stored file's version (none = its current one); a text document is always sent as its text is now. */
+  version?: number | null
+  message_id: string
+  chat_id: string
+  sender_user_id: string
+  to_user_ids?: string[]
+  thread_root_id?: string | null
+}
+
+/** Sends a file of a chat's folder by reference — no bytes from here; the one way a folder file becomes a file card: the new message row. */
+export async function shareAttachment(endpoint: AttachmentsEndpoint, args: ShareArgs): Promise<Record<string, unknown>> {
+  const answer = await call(endpoint, 'share', { ...args }) as { message: Record<string, unknown> | null }
+  if (!answer.message) throw new AttachmentsError('share', 500, 'failed', `no message came back for ${args.item_id}`)
   return answer.message
 }
 

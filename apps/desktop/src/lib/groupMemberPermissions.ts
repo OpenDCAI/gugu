@@ -9,12 +9,26 @@ export function isGroupManagerRole(role: string | null | undefined): boolean {
   return role === 'owner' || role === 'admin'
 }
 
-export function canInviteHumansToGroup(input: {
-  viewerRole: string | null | undefined
-  allowMemberInvite: boolean
-}): boolean {
-  if (!input.viewerRole) return false
-  return isGroupManagerRole(input.viewerRole) || input.allowMemberInvite
+/** Agent ownership and current source-group authority are independent listen-mode rights. */
+export function canEditAgentListenMode(
+  profile: { type: 'human' | 'agent'; ownerUserId?: string | null },
+  currentUserId: string | null,
+  settings: { my_role: string | null; can_manage: boolean } | null,
+): boolean {
+  return !!currentUserId && profile.type === 'agent' && (
+    profile.ownerUserId === currentUserId ||
+    (settings?.can_manage === true && isGroupManagerRole(settings.my_role))
+  )
+}
+
+/** Reads the server's projection of the viewer (group_info_as), never a locally held roster role. */
+export function canInviteHumansToGroup(settings: {
+  my_role: string | null
+  can_manage: boolean
+  allow_member_invite: boolean
+} | null): boolean {
+  if (!settings?.my_role) return false
+  return settings.can_manage || settings.allow_member_invite
 }
 
 /**
@@ -24,4 +38,14 @@ export function canInviteHumansToGroup(input: {
  */
 export function isProjectGroupChat(chatId: string): boolean {
   return projectGroupsStore.projectOfChat(chatId) !== undefined
+}
+
+/** Every member can invite an owned Agent; project groups never invite humans. */
+export function groupInviteAccess(chatId: string, kind: 'group' | 'topic', settings: Parameters<typeof canInviteHumansToGroup>[0]) {
+  const projectGroup = isProjectGroupChat(chatId)
+  return {
+    projectGroup,
+    showInvite: kind === 'group' && Boolean(settings?.my_role),
+    canInviteHumans: kind === 'group' && !projectGroup && canInviteHumansToGroup(settings),
+  }
 }

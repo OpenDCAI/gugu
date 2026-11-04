@@ -53,9 +53,9 @@ vi.mock('@gugu/core', () => ({
     return { ...rec }
   }),
   writeAgentRuntimeSession: vi.fn(async () => undefined),
-  findReapedAgentForSession: vi.fn(async (sessionId: string, _env: unknown, ownerUserId?: string) => {
+  listReapedAgentsForSession: vi.fn(async (sessionId: string, _env: unknown, ownerUserId?: string) => {
     tombstoneLookups.push({ sessionId, ownerUserId })
-    return null
+    return []
   }),
 }))
 
@@ -170,6 +170,7 @@ const deps = {
 
 const SESSION = 'conv-shared'
 const PROJECT = 'proj-1'
+const SESSION_NAME = 'Codex 1'
 
 async function openSession(overrides: Record<string, unknown> = {}) {
   const { provisionSessionpageAgentForSession, settleSessionpageCloudProvisioning } = await import(SUT)
@@ -180,6 +181,8 @@ async function openSession(overrides: Record<string, unknown> = {}) {
       surface: 'tui',
       cwd: '/w/shared',
       projectId: PROJECT,
+      // The session was named once at creation and carries that name whichever account opens it.
+      displayName: SESSION_NAME,
       ...overrides,
     },
     deps,

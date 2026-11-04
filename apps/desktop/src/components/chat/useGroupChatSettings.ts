@@ -1,7 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { GroupChatSettings, UpdateGroupChatSettingsInput } from '@gugu/core/shared/types/chat'
+import type { GroupChatSettings, GroupCollabSnapshot, UpdateGroupChatSettingsInput } from '@gugu/core/shared/types/chat'
 import { chatService } from '../../lib/chat'
 import { rendererLogger } from '../../lib/log'
 
@@ -16,14 +16,20 @@ function pick(source: GroupChatSettings, keys: readonly SettingsKey[]): Partial<
 /**
  * @@@6418 群设置的读与写。每一项改动**即时落库**(原来 9 项攒到底部「保存」一起写,关抽屉就丢)。
  *
- * - 读:打开抽屉读一次 getGroupChatSettings;失败 fail-loud(#1125),❌ 显示默认值假装读到了。
+ * - 读:进群读一次;每次打开面板再读一次(hook 常驻在聊天区,不订阅 chat_meta_changed,别的管理员改的靠这次读到)。
+ *   失败 fail-loud(#1125),❌ 显示默认值假装读到了;下一次读成功就清掉那行错。读和写交叠时这次读作废(它可能早于那次写),等写都回来再读一次。
  * - 写:先把改动乐观地写进本地,再 updateGroupChatSettings。
  *   几次写可能同时在路上(连拨几个开关),所以**每次写只认领自己那几个字段**:
  *   · 成功时只把服务端返回里「这次写的字段」并回本地 —— 晚到的响应不会把别的字段盖回旧值;
  *   · 失败时只把「这次写的字段」回滚到改之前 —— 不会顺带撤掉同时成功的另一项(或刚传好的头像)。
  *   同一字段被连写两次时,只有最后一次发出的那次有资格改它(per-field 序号)。
  */
-export function useGroupChatSettings(chatId: string) {
+/** Settings carry the viewer's authority: re-read them when a projected role changes, not on every roster refresh. */
+export function groupRoleRevision(snapshot: GroupCollabSnapshot): string {
+  return [...snapshot.humans, ...snapshot.agents].map((member) => `${member.id}:${member.role}`).sort().join(',')
+}
+
+export function useGroupChatSettings(chatId: string | null, revision?: string, authorityRevision = 0) {
   const { t } = useTranslation('messaging')
   const [settings, setSettings] = useState<GroupChatSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -31,24 +37,54 @@ export function useGroupChatSettings(chatId: string) {
   settingsRef.current = settings
   const latestWrite = useRef(new Map<SettingsKey, number>())
   const writeSeq = useRef(0)
+  const writesInFlight = useRef(0)
+  const rereadAfterWrites = useRef(false)
+  const chatIdRef = useRef(chatId)
+  chatIdRef.current = chatId
+
+  // A chat switch starts empty; a role change re-reads in place (the first roster load is not a change).
+  const [roleChange, setRoleChange] = useState(0)
+  const seenRevision = useRef<{ chatId: string | null; revision?: string }>({ chatId })
+  useEffect(() => {
+    const seen = seenRevision.current
+    if (seen.chatId !== chatId) seenRevision.current = { chatId, revision }
+    else if (seen.revision && revision && seen.revision !== revision) { seen.revision = revision; setRoleChange((n) => n + 1) }
+    else if (!seen.revision) seen.revision = revision
+  }, [chatId, revision])
 
   useEffect(() => {
-    let cancelled = false
     setSettings(null)
     setError(null)
     latestWrite.current.clear()
+  }, [chatId])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!chatId) return
+    const writesAtStart = writeSeq.current
+    const startedDuringWrite = writesInFlight.current > 0
     chatService.getGroupChatSettings(chatId)
-      .then((loaded) => { if (!cancelled) setSettings(loaded) })
+      .then((loaded) => {
+        if (cancelled) return
+        if (startedDuringWrite || writeSeq.current !== writesAtStart) {
+          if (writesInFlight.current > 0) rereadAfterWrites.current = true
+          else setRoleChange((n) => n + 1)
+          return
+        }
+        setSettings(loaded)
+        setError(null)
+      })
       .catch((err: unknown) => {
         if (cancelled) return
+        settingsLog.error({ error: err, chatId }, 'group settings load failed')
         setError(t('group.settings.loadFailed', { reason: String((err as Error)?.message ?? err) }))
       })
     return () => { cancelled = true }
-  }, [chatId, t])
+  }, [chatId, t, roleChange, authorityRevision])
 
   const update = useCallback(async (input: UpdateGroupChatSettingsInput): Promise<boolean> => {
     const before = settingsRef.current
-    if (!before) {
+    if (!chatId || !before) {
       // 设置还没读到(或读失败)时写,只会拿一个不存在的「之前」去对账 —— 明说,❌ 静默丢掉这次操作。
       setError(t('group.settings.notLoaded'))
       return false
@@ -59,23 +95,37 @@ export function useGroupChatSettings(chatId: string) {
     const ownedKeys = () => keys.filter((key) => latestWrite.current.get(key) === seq)
     setError(null)
     setSettings((current) => (current ? { ...current, ...input } as GroupChatSettings : current))
+    writesInFlight.current += 1
     try {
       const updated = await chatService.updateGroupChatSettings(chatId, input)
+      if (chatIdRef.current !== chatId) return true
       const owned = ownedKeys()
       setSettings((current) => (current ? { ...current, ...pick(updated, owned) } : updated))
       return true
     } catch (err) {
+      if (chatIdRef.current !== chatId) return false
       const owned = ownedKeys()
       setSettings((current) => (current ? { ...current, ...pick(before, owned) } : current))
             settingsLog.error({ error: err, chatId, fields: keys }, 'group settings update failed')
       setError(messageForUser(err))
       return false
+    } finally {
+      writesInFlight.current -= 1
+      if (writesInFlight.current === 0 && rereadAfterWrites.current) {
+        rereadAfterWrites.current = false
+        setRoleChange((n) => n + 1)
+      }
     }
   }, [chatId, t])
 
   const setAvatarUrl = useCallback((avatarUrl: string) => {
+    writeSeq.current += 1
     setSettings((current) => (current ? { ...current, avatar_url: avatarUrl } : current))
   }, [])
 
-  return { settings, error, setError, update, setAvatarUrl }
+  const reload = useCallback(() => { setRoleChange((n) => n + 1) }, [])
+
+  return { settings, error, setError, update, setAvatarUrl, reload }
 }
+
+export type GroupChatSettingsState = ReturnType<typeof useGroupChatSettings>

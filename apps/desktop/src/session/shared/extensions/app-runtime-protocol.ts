@@ -1,5 +1,7 @@
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
+import type { MessageItem } from '@gugu/core/shared/types/chat';
 import type { FileOpenerCandidate } from './file-openers';
+import { extensionFromMimeType, mimeTypeFromName, normalizeMimeType } from '@gugu/core/shared/imageMime.mjs';
 /**
  * The App runtime's wire: what the platform script, the preload and main agree on
  * (the App platform's L3 runtime interface).
@@ -14,6 +16,7 @@ import type { FileOpenerCandidate } from './file-openers';
 
 import runtimeVersion from './app-runtime-version.json';
 import type { ErrorDetail, ExtensionHostEvent } from './bridge-protocol';
+import { fromBase64 } from 'lib0/buffer';
 
 /** Every App origin serves the platform runtime under this prefix, from gugu's own files. */
 export const APP_RUNTIME_PREFIX = '/_gugu/';
@@ -51,6 +54,12 @@ export const APP_RUNTIME_UI_GALLERY = `${APP_RUNTIME_BASE}gallery.html`;
  * built by the phone's bundle only — vite.config.mts phoneAppsPlugin; the desktop clears its partition instead).
  */
 export const APP_RUNTIME_FORGET_PAGE = `${APP_RUNTIME_BASE}forget.html`;
+/**
+ * The phone's gate (gate.ts, built by the phone's bundle only): the one page the shell serves in an App's gate
+ * origin (appOrigin.ts `gateOrigin`). It frames the App's page and stamps each call with whether the person's input
+ * landed in that App — the phone's reading of the gesture, as the desktop's preload reads it.
+ */
+export const APP_RUNTIME_GATE_PAGE = `${APP_RUNTIME_BASE}gate.html`;
 
 /**
  * One position of a JSON file written this often a second, every second for this long, is a clock or a frame loop kept in
@@ -77,6 +86,11 @@ export function noPageDialog(name: PageDialog): string {
  */
 export const RUNTIME_SCRIPT_TAG = `<script src="${APP_RUNTIME_ENTRY}"></script>`;
 
+/** The page's declared interface, distinct from the host version reported by gugu.apiVersion. */
+export function appRuntimeScriptTag(apiVersion?: number): string {
+  return apiVersion === undefined ? RUNTIME_SCRIPT_TAG : RUNTIME_SCRIPT_TAG.replace('></script>', ` data-gugu-api-version="${apiVersion}"></script>`);
+}
+
 /**
  * Puts the runtime's script tag into an App document, before any script of the App's own.
  *
@@ -84,12 +98,15 @@ export const RUNTIME_SCRIPT_TAG = `<script src="${APP_RUNTIME_ENTRY}"></script>`
  * into quirks mode. A synchronous classic script so `window.gugu` exists on the App's first
  * line. Idempotent, so a document that is served twice is not given two runtimes.
  */
-export function injectAppRuntime(html: string): string {
-  if (html.includes(RUNTIME_SCRIPT_TAG)) return html;
+export function injectAppRuntime(html: string, apiVersion?: number): string {
+  const tag = appRuntimeScriptTag(apiVersion);
+  const start = html.indexOf(`<script src="${APP_RUNTIME_ENTRY}"`);
+  const end = start < 0 ? -1 : html.indexOf('</script>', start);
+  if (end >= 0) return html.slice(0, start) + tag + html.slice(end + '</script>'.length);
   const doctype = /^(\uFEFF?\s*<!doctype[^>]*>)/i.exec(html);
-  if (!doctype) return RUNTIME_SCRIPT_TAG + html;
+  if (!doctype) return tag + html;
   const head = doctype[1]!;
-  return head + RUNTIME_SCRIPT_TAG + html.slice(head.length);
+  return head + tag + html.slice(head.length);
 }
 
 // ─── the sync port ──────────────────────────────────────────────────────────
@@ -152,39 +169,92 @@ export type SyncToMain =
 // ─── files.* over the bridge ─────────────────────────────────────────────────
 
 /**
- * Where a file lives (真源原则 13): a chat's workspace, or a folder on this computer — a session's working copy, or a
- * project's folder (`gugu.projects.list()`). Every `gugu.files` call names it — the page's own place is a fact of
- * `getContext()`, never read behind the call's back.
+ * Where a file lives (真源原则 13): the folder of a conversation (`{ chat }`: a group, a topic, a private chat), or a
+ * working copy (`{ workspace }`: a session's, or a project's root folder — `ctx.workspace.id`, `gugu.projects.list()`'s
+ * `workspace`). Every `gugu.files` call names it — the page's own place is a fact of `getContext()`, never read behind
+ * the call's back.
  */
-export type AppPlace = { chat: string } | LocalPlace;
-
-/** A folder on this computer: a session's working copy, or a project's root folder. Its files are named by their path there. */
-export type LocalPlace = { session: string } | { project: string };
+export type AppPlace = { chat: string } | WorkspacePlace;
 
 /**
- * A file, named so that where it lives is said: a working-copy file by its session and its path there (`id`, or `name`
+ * A working copy, by its one id: `session:<id>` (the folder a session works in, on the machine it is on) or `project:<id>`
+ * (a project's root folder on this computer). Its files are named by their path there.
+ */
+export type WorkspacePlace = { workspace: string };
+
+/**
+ * Where a page is drawn (真源原则 13), the one shape every host keeps — main's binding, the window's slots, the phone's
+ * frame: the conversation it is in (a group, a topic, a private chat; in a session's tab, the person's private chat with
+ * that session's agent) and the working copy it works on (`WorkspacePlace.workspace`) — either, both, or neither (the
+ * App's own page). Facts for `getContext()`, never a target a call falls back on.
+ */
+export interface AppWidget {
+  messageId: string;
+  data: Record<string, unknown>;
+  senderId: string | null;
+}
+
+export interface AppWhere {
+  conversation: string | null;
+  workspace: string | null;
+  /** The immutable message this page draws. A message view never moves to another message. */
+  widget?: AppWidget;
+}
+
+/** What a workspace id names: a session's working copy, or a project's root folder. */
+export type WorkspaceTarget = { session: string } | { project: string };
+
+/**
+ * A file, named so that where it lives is said: a working-copy file by its workspace and its path there (`id`, or `name`
  * — the same thing in a working copy); a chat file by its item id, which says its chat on its own (as `send`'s `about`
  * does; an entry also carries `chat`, checked when given), or by its name in a chat — its path from the top of the chat's
  * folder when it is in a subfolder (`合同/2026/甲方.pdf`; a name is never cut by `/`, gugu-supabase 20261016012659).
  */
 export type AppFileRef =
-  | (LocalPlace & { id: string })
-  | (LocalPlace & { name: string })
+  | (WorkspacePlace & { id: string })
+  | (WorkspacePlace & { name: string })
   | { chat?: string; id: string }
   | { chat: string; name: string };
 
-/** A file of a folder on this computer, as a call names it. Its name is its path there. */
-export type LocalFileRef = Extract<AppFileRef, LocalPlace>;
+/** A file of a working copy, as a call names it. Its name is its path there. */
+export type WorkspaceFileRef = Extract<AppFileRef, WorkspacePlace>;
 
-/** Whether a place (or a file named with one) is a folder on this computer rather than a chat's. */
-export const isLocal = <T extends object>(place: T): place is Extract<T, LocalPlace> => 'session' in place || 'project' in place;
+/** Whether a place (or a file named with one) is a working copy rather than a conversation's folder. */
+export const isWorkspace = <T extends object>(place: T): place is Extract<T, WorkspacePlace> => 'workspace' in place;
 
 /** One string per place: what a page keeps its open files and watches under (a path is only unique in its folder). */
 export function placeKey(place: AppPlace): string {
-  return 'chat' in place ? `chat:${place.chat}` : 'session' in place ? `session:${place.session}` : `project:${place.project}`;
+  return 'chat' in place ? `chat:${place.chat}` : place.workspace;
+}
+
+const WORKSPACE_ID = /^(session|project):(.+)$/;
+
+/** A session's working copy's workspace id; a project's root folder's. */
+export const sessionWorkspace = (sessionId: string): string => `session:${sessionId}`;
+export const projectWorkspace = (projectId: string): string => `project:${projectId}`;
+
+/** What a workspace id names. What is not one throws `invalid`. */
+export function workspaceTarget(place: WorkspacePlace): WorkspaceTarget {
+  const match = WORKSPACE_ID.exec(place.workspace);
+  if (!match) throw invalidPlace(`workspace is a working copy's id, as ctx.workspace.id gives it — ${JSON.stringify(place.workspace)} is not one`);
+  return match[1] === 'session' ? { session: match[2]! } : { project: match[2]! };
+}
+
+/** The session whose working copy a workspace id names, or null (a project's folder, no workspace). */
+export function workspaceSession(place: { workspace?: string | null } | null | undefined): string | null {
+  const match = place?.workspace ? WORKSPACE_ID.exec(place.workspace) : null;
+  return match?.[1] === 'session' ? match[2]! : null;
 }
 
 const invalidPlace = (message: string) => Object.assign(new Error(message), { code: 'invalid' as const });
+
+/** An explicit opener is validated by the trusted host, including values from untyped page code. */
+export function openWithTabOf(options: Record<string, unknown>): string | undefined {
+  if (!Object.hasOwn(options, 'tab')) return undefined;
+  if (typeof options.tab !== 'string' || !options.tab.trim()) throw invalidPlace('openWith tab must be a non-empty tab name');
+  if (options.ask === true) throw invalidPlace('openWith tab and ask cannot be combined');
+  return options.tab;
+}
 
 /** A chat's id, as getContext() and every entry carry it (`send` takes the same, app-send-core.ts). */
 const CHAT_ID =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -200,51 +270,52 @@ function chatIdOf(chat: string): string {
     'A tool that takes a chat from an agent marks it format: "gugu-chat", and gugu hands it over as its id');
 }
 
-/** A place as a page passed it, checked: exactly one of `chat` (a chat's id) / `session` / `project`, a non-empty string. */
+/** A place as a page passed it, checked: exactly one of `chat` (a chat's id) / `workspace` (a working copy's id). */
 export function placeOf(value: unknown): AppPlace {
-  const place = (value ?? {}) as { chat?: unknown; session?: unknown; project?: unknown };
-  const named = (['chat', 'session', 'project'] as const).filter((key) => typeof place[key] === 'string' && place[key]);
+  const place = (value ?? {}) as { chat?: unknown; workspace?: unknown };
+  const named = (['chat', 'workspace'] as const).filter((key) => typeof place[key] === 'string' && place[key]);
   if (named.length !== 1) {
-    throw invalidPlace('Say where: { chat: id } for a chat\'s files, { session: id } for a session\'s working copy — as getContext() gives them — ' +
-      'or { project: id } for a project\'s folder, as gugu.projects.list() gives it');
+    throw invalidPlace("Say where: { chat: id } for a conversation's folder, { workspace: id } for a working copy — as getContext() gives them " +
+      "(ctx.chat.id, ctx.workspace.id), or a project's workspace from gugu.projects.list()");
   }
-  const [key] = named;
-  const id = place[key!] as string;
-  return key === 'chat' ? { chat: chatIdOf(id) } : key === 'session' ? { session: id } : { project: id };
+  if (named[0] === 'chat') return { chat: chatIdOf(place.chat as string) };
+  const workspace = { workspace: place.workspace as string };
+  workspaceTarget(workspace);
+  return workspace;
 }
 
 /** An address (`user:`, `session:`, `aid:`, …) where a session's bare id belongs. */
 const ADDRESS = /^[a-z][a-z-]*:/i;
 
 /**
- * The session `gugu.showSession(id)` names, in its one spelling: its bare id, as `ctx.session.id`, `listAgents`'
+ * The session `gugu.showSession(id)` names, in its one spelling: its bare id, as `ctx.workspace.sessionId`, `listAgents`'
  * `sessionId` and a tool call's `call.session` give it. An address is refused, saying which to pass — never translated.
  */
 export function sessionIdOf(value: unknown): string {
   if (typeof value !== 'string' || !value) {
-    throw invalidPlace("Say which session: its id, as ctx.session.id gives it (listAgents' sessionId, a tool call's call.session)");
+    throw invalidPlace("Say which session: its id, as ctx.workspace.sessionId gives it (listAgents' sessionId, a tool call's call.session)");
   }
   if (ADDRESS.test(value)) {
-    throw invalidPlace(`${JSON.stringify(value)} is an address, not a session's id: pass the session's id, as ctx.session.id gives it`);
+    throw invalidPlace(`${JSON.stringify(value)} is an address, not a session's id: pass the session's id, as ctx.workspace.sessionId gives it`);
   }
   return value;
 }
 
 /**
- * A file as a page passed it: an entry from `files.list(place)`, `ctx.file`, `{ session, id | name }`, a chat file's
+ * A file as a page passed it: an entry from `files.list(place)`, `ctx.file`, `{ workspace, id | name }`, a chat file's
  * `{ id }`, or `{ chat, name }`.
  */
 export function fileRefOf(value: unknown): AppFileRef {
   if (typeof value === 'string') {
-    throw invalidPlace(`Say which file ${JSON.stringify(value)} is: pass an entry or ctx.file as it is, or { chat, name } / { session, name }`);
+    throw invalidPlace(`Say which file ${JSON.stringify(value)} is: pass an entry or ctx.file as it is, or { chat, name } / { workspace, name }`);
   }
-  const file = (value ?? {}) as { id?: unknown; name?: unknown; chat?: unknown; session?: unknown; project?: unknown };
+  const file = (value ?? {}) as { id?: unknown; name?: unknown; chat?: unknown; workspace?: unknown };
   const id = typeof file.id === 'string' && file.id ? file.id : null;
   const name = typeof file.name === 'string' && file.name ? file.name : null;
   if (id === null && name === null) {
-    throw invalidPlace('Say which file: pass an entry (from gugu.files.list) or ctx.file as it is, or { chat, name } / { session, name }');
+    throw invalidPlace('Say which file: pass an entry (from gugu.files.list) or ctx.file as it is, or { chat, name } / { workspace, name }');
   }
-  if (file.session !== undefined || file.project !== undefined || (id === null && file.chat !== undefined)) {
+  if (file.workspace !== undefined || (id === null && file.chat !== undefined)) {
     const place = placeOf(value);
     return id !== null ? { ...place, id } : { ...place, name: name! };
   }
@@ -252,13 +323,12 @@ export function fileRefOf(value: unknown): AppFileRef {
     if (file.chat !== undefined && (typeof file.chat !== 'string' || !file.chat)) throw invalidPlace('chat is a chat\'s id, as getContext() gives it');
     return typeof file.chat === 'string' ? { chat: chatIdOf(file.chat), id } : { id };
   }
-  throw invalidPlace(`Say where ${JSON.stringify(name)} is: { chat, name } or { session, name }`);
+  throw invalidPlace(`Say where ${JSON.stringify(name)} is: { chat, name } or { workspace, name }`);
 }
 
-/** Where a file the host knows lives (an entry, `ctx.file`): its session's working copy, its project's folder, or the chat it names. */
-export function placeOfFile(file: { chat?: string; session?: string; project?: string }): AppPlace {
-  if (file.session) return { session: file.session };
-  if (file.project) return { project: file.project };
+/** Where a file the host knows lives (an entry, `ctx.file`): its working copy, or the chat it names. */
+export function placeOfFile(file: { chat?: string; workspace?: string }): AppPlace {
+  if (file.workspace) return { workspace: file.workspace };
   if (file.chat) return { chat: file.chat };
   throw invalidPlace('This file does not say where it lives');
 }
@@ -314,9 +384,10 @@ export interface AppFileEntry {
   id: string;
   /** Where it lives: exactly one of these (`AppPlace`). */
   chat?: string;
-  session?: string;
-  project?: string;
+  workspace?: string;
   name: string;
+  /** The host-resolved name for saving a local copy, including the suffix its content type stands for. */
+  savedName: string;
   contentType: string;
   /** `folder` (子文件夹): a chat folder's subfolder — listed, entered, moved, never opened. */
   type: 'text' | 'json' | 'binary' | 'folder';
@@ -335,11 +406,16 @@ export interface AppFileEntry {
   displayName: string;
   /** The App that opens it here (the most specific claim, or the one chosen to always use); `null` when none does. */
   claimedBy: AppFileClaimant | null;
+  /**
+   * The file is its claiming App's own state here: that App's tab names it as its `chatFile` (App 模型 v2: derived from the
+   * declaration, nothing stored on the file). The folder hides it until 「显示 App 数据」.
+   */
+  appState: boolean;
   size: number | null;
   /**
-   * A project chat's file kept on its host machine and uploaded only when someone opens it (file storage policy): the
-   * machine's name when it is the reader's own (`null` otherwise), and whose file storage setting it follows; whether it is
-   * on (`online`, the reader's own machines only — the file opens once it is). Absent for every other file.
+   * A project chat's file kept on the machine that sent its current version and uploaded only when someone opens it: that
+   * machine's name, whose file storage setting it follows, and whether it is on (`online` — the file opens once it is).
+   * Absent for every other file.
    */
   storedOn?: { machine: string | null; owner: string; mine: boolean; online?: boolean };
   /**
@@ -358,12 +434,6 @@ export interface AppFileEntry {
   updatedBy: AppFilePerson | null;
   /** The chat messages it came from, for `gugu.showMessage` — ids only, never their content. */
   sourceMessageIds: string[];
-  /**
-   * Whether whoever reads (the person, or the agent a program works for) may delete it, as the folder decides (owner 10-18):
-   * who made it, the owner of the agent that made it, or the chat's owner or an admin — a folder with all in it; never
-   * 「附件」. A working copy's file: true on this computer.
-   */
-  canDelete: boolean;
   /**
    * `files.upload`'s answer only: the file of its folder that already had the name this one was picked with — the
    * database gave this one 「 (n)」 (子文件夹); `null` when it kept the name it was picked with.
@@ -437,8 +507,12 @@ export type FrameToHost =
   | { m: typeof APP_FRAME_MARKER; t: 'hello' }
   /** The runtime listens for its sync port now: the outer page hands it over (摩擦单 F28). */
   | { m: typeof APP_FRAME_MARKER; t: 'sync-port' }
-  /** `call`: a program's request made inside one tool call — that call's id, as main minted it (program-call.ts). */
-  | { m: typeof APP_FRAME_MARKER; t: 'call'; id: number; method: string; args: unknown; call?: string }
+  /**
+   * `call`: a program's request made inside one tool call — that call's id, as main minted it (program-call.ts).
+   * `gesture`: on the phone, written by the App's gate as it passes the call on, over whatever the App put there
+   * (gate.ts) — whether the person's input landed in this App. The outer page takes it only from the gate.
+   */
+  | { m: typeof APP_FRAME_MARKER; t: 'call'; id: number; method: string; args: unknown; call?: string; gesture?: boolean }
   /** A program's file sync traffic on its IPC channel (F16): what a page's sync port carries. */
   | { m: typeof APP_FRAME_MARKER; t: 'sync'; data: unknown };
 export type HostToFrame =
@@ -489,7 +563,7 @@ export interface ChatPeekFile {
  */
 export type PeekTarget =
   | { kind: 'chat'; detail: AppOpenWithDetail }
-  | { kind: 'local'; place: LocalPlace; projectId: string; workspaceId: string; path: string; absolutePath: string; name: string; ask: boolean }
+  | { kind: 'local'; place: WorkspacePlace; projectId: string; workspaceId: string; path: string; absolutePath: string; name: string; ask: boolean }
   | { kind: 'session'; sessionId: string; projectId: string; deviceId?: string };
 
 export const GROUP_FILE_NOT_OPENED = 'Not opened: the person at this computer is not in the chat this file belongs to';
@@ -499,6 +573,8 @@ export const APP_COMPOSE_EVENT = 'gugu:app-compose';
 export interface AppComposeDetail {
   chatId: string;
   text: string;
+  /** The original reply context, placed with this chat's draft rather than broadcast to the visible panel. */
+  quote?: MessageItem;
   /** G3 Images beside the text, as attachments of the draft: the person sends them, or not. */
   images?: AppComposeImage[];
   /** File references inserted as inline mention tokens in the draft text. */
@@ -545,9 +621,28 @@ export interface AppShowMessageDetail {
   messageId: string;
 }
 
+/**
+ * `gugu.files.forward`: the chat's own forward page (ForwardMessageDialog) opens for these files; each chat picked gets one
+ * file card per file, sent by reference (attachments/share) — a stored file at the version the page named, a text
+ * document as its text is now. Where the files are is the chat the page leaves out of the list, as a message's forward does.
+ */
+export const APP_FORWARD_FILES_EVENT = 'gugu:app-forward-files';
+export interface AppForwardFilesDetail {
+  chatId: string;
+  files: Array<{ itemId: string; version: number; name: string; document: boolean }>;
+}
+
 /** `gugu.showSession` on the phone: the task tab opens the session's row — the machine it is on, and the row as listed. */
 export const APP_SHOW_SESSION_EVENT = 'gugu:app-show-session';
 export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string; draft?: { text: string } } | { projectId: string };
+
+/** An App's bounded range reply, carried by the existing structured-clone bridge. */
+export type AppFileChunk = { size: number; offset: number; data: Uint8Array<ArrayBuffer> };
+
+/** The existing cross-machine workspace wire stays JSON/base64; decode only as it reaches the App bridge. */
+export function workspaceAppFileChunk(chunk: { size: number; offset: number; data: string }): AppFileChunk {
+  return { size: chunk.size, offset: chunk.offset, data: new Uint8Array(fromBase64(chunk.data)) };
+}
 
 /** What `files.open` / `files.reopen` answer. */
 export interface AppFileOpened {
@@ -561,6 +656,11 @@ export interface AppFileOpened {
    * for it (`docName` is empty); the page hands them over as `f.blob()`.
    */
   bytes?: ArrayBuffer;
+  /**
+   * A stored chat file or working copy that is not opened as text: nothing is sent with the answer; it is read in pieces
+   * (`filesRead`, 512 KB each) — `f.read(offset, length)`, or `f.blob()` for all of it.
+   */
+  chunked?: true;
 }
 
 /** The click's authorized document metadata, consumed by exactly one bound file open. */
@@ -594,6 +694,8 @@ function ownSuffix(name: string): string {
  */
 export function fileSuffixOf(file: { name: string; contentType?: string | null }): string {
   const type = (file.contentType ?? '').split(';')[0]!.trim().toLowerCase();
+  // A name whose own suffix already names this type keeps it (`.ini` is text/plain too, `.txt` is not added).
+  if (type && mimeTypeFromName(file.name) === type) return ownSuffix(file.name);
   return SUFFIX_OF_CONTENT_TYPE[type] || ownSuffix(file.name);
 }
 
@@ -604,6 +706,16 @@ export function fileSuffixOf(file: { name: string; contentType?: string | null }
 export function typedFileName(file: { name: string; contentType?: string | null }): string {
   const suffix = fileSuffixOf(file);
   return file.name.toLowerCase().endsWith(suffix) ? file.name : `${file.name}${suffix}`;
+}
+
+/** The name handed to a save or system-open operation; opener matching stays with typedFileName. */
+export function savedFileName(file: { name: string; contentType?: string | null }): string {
+  const type = normalizeMimeType(file.contentType);
+  const namedType = mimeTypeFromName(file.name);
+  if (SUFFIX_OF_CONTENT_TYPE[type] && namedType !== type) return typedFileName(file);
+  if (namedType) return file.name;
+  const extension = extensionFromMimeType(type);
+  return extension ? `${file.name}.${extension}` : file.name;
 }
 
 export function fileTypeOf(kind: string, contentType: string): AppFileEntry['type'] {

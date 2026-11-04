@@ -8,16 +8,17 @@ import type {
   MarketCompat,
   MarketHost,
   MarketIndexApp,
+  MarketIndex,
   MarketUpdatesSummary,
   MarketVersionHistoryEntry,
 } from '@shared/extensions/market';
-import { compatOf, MARKET_PAGE_SIZE } from '@shared/extensions/market';
+import { compatOf, marketCompatText, MARKET_PAGE_SIZE } from '@shared/extensions/market';
 import { safeParseExtensionManifest } from '@shared/extensions/manifest';
 import { requireAppPlatform } from '@shared/extensions/app-platforms';
 import { appSearchText, marketCategoryOf, marketCategoryRank } from '@shared/extensions/catalog';
 import { queryScore, queryWords } from '@shared/extensions/query-score';
 import { archiveRefusal, unpackedTooMuch } from '@shared/extensions/bundle-checks';
-import { marketEntriesFrom, marketHistoryFrom, marketUpdatesFrom, type InvalidMarketRow } from '@shared/extensions/market-entries';
+import { marketEntriesFrom, marketHistoryFrom, marketListingFrom, marketMetaPath, marketUpdatesFrom, type InvalidMarketRow, type MarketListing } from '@shared/extensions/market-entries';
 import {
   marketSnapshotSource,
   type MarketRefreshed,
@@ -192,7 +193,7 @@ export class CloudExtensionMarket {
     const page = options.page ?? 0;
     const needle = options.search ?? '';
     const { index, fetchedAt } = await this.index(false);
-    const { extensions, invalid } = await this.entriesFrom(index.apps);
+    const { extensions, invalid } = await this.entriesFrom(index.apps, index.hostApi);
     const matched = (
       // 10-19 按词打分,与已装列表、agent 的 app_search 同一条规矩(query-score.ts);❌ 再按整串包含。
       queryWords(needle).length > 0
@@ -231,7 +232,7 @@ export class CloudExtensionMarket {
    */
   async entries(): Promise<CloudMarketEntry[]> {
     const { index } = await this.index(false);
-    return (await this.entriesFrom(index.apps)).extensions;
+    return (await this.entriesFrom(index.apps, index.hostApi)).extensions;
   }
 
   /**
@@ -247,33 +248,35 @@ export class CloudExtensionMarket {
   }
 
   async entry(extensionId: string, fresh = false): Promise<CloudMarketEntry | null> {
-    const app = await this.app(extensionId, fresh);
+    const { index } = await this.index(fresh);
+    const app = index.apps.find(entry => entry.id === extensionId);
     if (!app) return null;
-    const { extensions } = await this.entriesFrom([app]);
+    const { extensions } = await this.entriesFrom([app], index.hostApi);
     return extensions[0] ?? null;
   }
 
   /** 目录里的 App → 卡片(market-entries.ts:手机读同一份目录,规矩只有这一份)。 */
   private async entriesFrom(
-    apps: readonly MarketIndexApp[]
+    apps: readonly MarketIndexApp[],
+    hostApi?: MarketIndex['hostApi']
   ): Promise<{ extensions: CloudMarketEntry[]; invalid: InvalidMarketRow[] }> {
-    return marketEntriesFrom(apps, await this.host(), (relativePath) => this.backend.urlOf(relativePath));
+    return marketEntriesFrom(apps, await this.host(), (relativePath) => this.backend.urlOf(relativePath), hostApi);
   }
 
-  // ── 版本历史 / README ──────────────────────────────────────────────────
+  // ── 版本历史 / 产品页内容 ──────────────────────────────────────────────────
 
   /** 一个扩展的全部版本,最新的在前;每一版带这台机器装不装得了、撤回没有。不在市场上就是空的。 */
   async history(extensionId: string): Promise<MarketVersionHistoryEntry[]> {
-    return marketHistoryFrom(await this.app(extensionId), await this.host());
+    const { index } = await this.index(false);
+    return marketHistoryFrom(index.apps.find(entry => entry.id === extensionId) ?? null, await this.host(), index.hostApi);
   }
 
-  /** 这一版包里的 README(没有就 null)。详情面板打开时才取。 */
-  async readme(extensionId: string, version: string): Promise<string | null> {
-    const readme = (await this.app(extensionId))?.versions.find((entry) => entry.version === version)?.readme;
-    return readme ? this.backend.readText(readme) : null;
+  /** 这一版的产品页内容(关于、截图),从它在下载站上的 meta 读。产品页打开时才取。 */
+  async listing(extensionId: string, version: string): Promise<MarketListing> {
+    return marketListingFrom(await this.backend.readText(marketMetaPath(extensionId, version)), extensionId, version, (relativePath) => this.backend.urlOf(relativePath));
   }
 
-  /** 下载站 `media/` 下的一个文件(README 里的截图),超过 `maxBytes` 当场断。 */
+  /** 下载站 `media/` 下的一个文件(截图),超过 `maxBytes` 当场断。 */
   async media(relativePath: string, maxBytes: number): Promise<Uint8Array> {
     if (!/^media\/[\w.\-/]+$/.test(relativePath) || relativePath.split('/').includes('..')) {
       throw new Error(`Not a market media path: ${relativePath}`);
@@ -317,7 +320,8 @@ export class CloudExtensionMarket {
     onProgress?: (received: number, total: number) => void
   ): Promise<MarketPrepared> {
     const host = await this.host();
-    const row = (await this.app(extensionId, true))?.versions.find((entry) => entry.version === version);
+    const { index } = await this.index(true);
+    const row = index.apps.find(app => app.id === extensionId)?.versions.find((entry) => entry.version === version);
     if (!row) {
       // 可见状态会变(下架、版本不存在)。此时告诉用户「这一版已经不在市场上了」,
       // ❌ 不去猜一个别的版本装上 —— 他点的是这一版。
@@ -327,7 +331,7 @@ export class CloudExtensionMarket {
       throw new Error(`Extension ${extensionId}@${version} was withdrawn: ${row.yanked.reason}`);
     }
     requireAppPlatform(row.manifest, host.platform);
-    const compat = compatOf(row, host);
+    const compat = compatOf(row, host, index.hostApi);
     if (compat) {
       // 每条安装路径(Apps 页、群里的「用 X 打开」、首启、agent 的 app_install)都走到这里,兼容性只在这里判一次。
       // 界面上这一版的按钮本来就是灰的;安装器只认协议号、不认最低咕咕版本,所以下载之前要挡。
@@ -455,9 +459,7 @@ export class CloudExtensionMarket {
  */
 /** Why this computer cannot install that version — said where an install fetches it, and on its row in an agent's catalog_list. */
 export function compatRefusal(extensionId: string, version: string, compat: NonNullable<MarketCompat>): string {
-  return compat.reason === 'needs-newer-app'
-    ? `Extension ${extensionId}@${version} needs gugu ${compat.minAppVersion} or newer — ask the person to update gugu`
-    : `Extension ${extensionId}@${version} targets apiVersion ${compat.apiVersion}, which this gugu no longer runs; its author has to update it`;
+  return `Extension ${extensionId}@${version} ${marketCompatText(compat)}${compat.reason === 'needs-newer-app' ? ' — ask the person to update gugu' : ''}`;
 }
 
 export async function unpackBundle(bytes: Uint8Array, targetDir: string): Promise<void> {

@@ -40,6 +40,7 @@ function SessionTranscriptContent({
   onReady,
   activeTurnId,
   pendingPrompt,
+  pendingMessages,
   backgroundTasks,
   onReachStart,
   mobile = false,
@@ -55,6 +56,7 @@ function SessionTranscriptContent({
   shown?: boolean
   activeTurnId?: string | null
   pendingPrompt?: import('@gugu/session-chat-ui').PendingPrompt | null
+  pendingMessages?: readonly import('@gugu/session-chat-ui').PendingPrompt[]
   onReady?: import('@renderer/lib/chat/chat-transcript').ChatTranscriptProps['onReady']
   onAtBottomChange?: (atBottom: boolean) => void
   onVisibleItems?: (ids: readonly string[]) => void
@@ -105,7 +107,8 @@ function SessionTranscriptContent({
     activeTurn.set(active, active ? 'generating' : undefined)
   }, [model, turns, activeTurnId])
 
-  useEffect(() => { model?.state.session.setPendingPrompt(pendingPrompt ?? null) }, [model, pendingPrompt])
+  useLayoutEffect(() => { model?.state.session.setPendingPrompt(pendingPrompt ?? null) }, [model, pendingPrompt])
+  useLayoutEffect(() => { model?.state.session.setPendingMessages(pendingMessages ?? []) }, [model, pendingMessages])
 
   useEffect(() => {
     model?.state.session.setBackgroundTasks(backgroundTasks ?? NO_BACKGROUND_TASKS)

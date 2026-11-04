@@ -41,26 +41,19 @@ vi.mock('@main/core/projects/utils', () => ({
     : null,
 }));
 
-vi.mock('@main/db/client', () => ({
+vi.mock('@main/db/client', async () => {
+  const { sessions } = await import('@main/db/schema');
+  return ({
   db: (() => {
     const mockDb = {
-      select: (projection?: unknown) => ({
-        from: () => ({
-          where: () => ({
-            limit: () => ({
-              all: () => projection
-                ? 'config' in (projection as Record<string, unknown>)
-                  ? [structuredClone(state.row)]
-                  : structuredClone(state.receipts)
-                : [state.row],
-            }),
-          }),
-          all: () => projection && 'config' in (projection as Record<string, unknown>)
-            ? [structuredClone(state.row)]
-            : projection
-              ? structuredClone(state.receipts)
-              : [state.row],
-        }),
+      select: () => ({
+        from: (table: unknown) => {
+          const rows = () => table === sessions ? [state.row] : structuredClone(state.receipts);
+          return {
+            where: () => ({ get: () => rows()[0], limit: () => ({ all: rows }) }),
+            all: rows,
+          };
+        },
       }),
       update: () => ({
         set: (value: { config?: SessionConfig; metadata?: string }) => ({
@@ -113,7 +106,8 @@ vi.mock('@main/db/client', () => ({
     };
     return mockDb;
   })(),
-}));
+});
+});
 
 vi.mock('./migrate-lifecycle-outbox', () => ({ migrateStrandedLifecycleOutbox: () => 0 }));
 vi.mock('@main/lib/logger', () => ({

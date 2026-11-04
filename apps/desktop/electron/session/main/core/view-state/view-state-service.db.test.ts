@@ -12,6 +12,7 @@ vi.mock('@main/db/client', () => ({
 }));
 
 import { viewStateService } from './view-state-service';
+import { readViewStateForRestore } from './restore-state';
 
 const lastViewed = (projectId: string, sessionId: string) => ({
   currentViewId: 'session',
@@ -28,8 +29,8 @@ describe('navigation restore: "not in this table" is not "deleted"', () => {
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('local-project', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, archived_at)
-        VALUES ('archived', 'local-project', 'Archived', 'claude', 'pty', '2026-10-22T00:00:00Z');
+      INSERT INTO sessions (id, project_id, provider, runtime, archived_at)
+        VALUES ('archived', 'local-project', 'claude', 'pty', '2026-10-22T00:00:00Z');
     `);
   });
 
@@ -54,5 +55,13 @@ describe('navigation restore: "not in this table" is not "deleted"', () => {
   it('an archived session still falls back', async () => {
     await viewStateService.save('navigation', lastViewed('local-project', 'archived'));
     expect(await viewStateService.get('navigation')).toMatchObject({ currentViewId: 'project' });
+  });
+
+  it('returns normal view state and only referenced session locations in the same restore read', async () => {
+    await viewStateService.save('sidebar', { selected: 'user-project' });
+    const restored = await readViewStateForRestore(['archived', 'not-here']);
+    expect(restored.views).toMatchObject({ sidebar: { selected: 'user-project' } });
+    expect(restored.locations).toEqual([{ conversationId: 'archived', projectId: 'local-project' }]);
+    expect(await viewStateService.getAll()).toEqual(restored.views);
   });
 });

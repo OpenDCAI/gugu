@@ -1,9 +1,11 @@
 /** @jsxImportSource solid-js */
-import { Show, createEffect, createSignal, onCleanup } from 'solid-js';
+import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { useChatTranslator } from '@session-chat/localization';
 import { conversationQuote, conversationQuotePreview, conversationReference } from './conversation-message.css';
+import { sourcePreview, mountSourcePreview } from '@session-chat/lib/source-preview';
+import { sourcePreviewBody } from '@session-chat/styles/source-preview.css';
 
 export function ConversationReplyReference(props: { itemId: string; text: string }) {
   const commands = useCommands(), translate = useChatTranslator();
@@ -11,6 +13,9 @@ export function ConversationReplyReference(props: { itemId: string; text: string
   const [open, setOpen] = createSignal(false), [touch, setTouch] = createSignal(false);
   const label = () => translate('transcript.showOriginalMessage');
   const navigate = () => commands().onConversationReply?.(props.itemId);
+  const preview = createMemo(() => open() ? sourcePreview(props.text) : null);
+  const [previewRoot, setPreviewRoot] = createSignal<HTMLDivElement>();
+  createEffect(() => { const root = previewRoot(), content = preview(); if (root && content) onCleanup(mountSourcePreview(root, content.truncated)); });
   createEffect(() => {
     const element = root(), mount = commands().onTooltipMount, itemId = props.itemId, text = props.text;
     if (!element || !mount) return;
@@ -29,7 +34,10 @@ export function ConversationReplyReference(props: { itemId: string; text: string
       </button>
       <Show when={open()}><Portal><div class={conversationQuotePreview} data-slot="conversation-quote-preview" role="dialog" aria-label={label()}
         style={{ position: 'fixed', top: `${root()?.getBoundingClientRect().bottom ?? 0}px`, left: `${Math.min(root()?.getBoundingClientRect().left ?? 0, Math.max(0, window.innerWidth - 336))}px` }}>
-        <button type="button" onClick={navigate}>{props.text}</button>
+        <div role="button" tabIndex={0} data-slot="conversation-quote-preview-content" onClick={navigate}
+          onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); navigate(); } }}>
+          <div ref={setPreviewRoot} class={sourcePreviewBody} data-conversation-source-markdown innerHTML={preview()?.html ?? ''} />
+        </div>
       </div></Portal></Show>
     </Show>
   </span>;

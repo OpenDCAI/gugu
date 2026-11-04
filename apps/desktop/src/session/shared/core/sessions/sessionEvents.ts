@@ -15,10 +15,13 @@ export const sessionChangedChannel = defineEvent<{
   sessionId: string;
   projectId: string;
   changes: {
-    /** Native personal replies still unseen; independent of the project attention flag. */
-    nativeUnreadCount?: number;
+    /** The host read journal changed; list subscribers reread the unseen reply keys. */
+    nativeUnreadKeys?: true;
     /** The host's native preview changed; list subscribers reread the canonical summary. */
     nativeLastMessage?: true;
+    /** A proactive owner message committed to this session's native record. */
+    nativeOwnerNotificationSeq?: true;
+    nativeOwnerNotificationEpoch?: true;
     /**
      * 这条会话的 provider 会话 id。**`null` = 清空**(这条会话现在没有可续的 provider 会话)。
      *
@@ -75,11 +78,6 @@ export const sessionCreatedChannel = defineEvent<{
   session: Session;
 }>('session:created');
 
-export const sessionDeletedChannel = defineEvent<{
-  sessionId: string;
-  projectId: string;
-}>('session:deleted');
-
 /**
  * spec agent-status-writer —— 一条会话的状态写下之后的那一份输出。写入者是它唯一的来源:进程内读者、
  * 会话页渲染层、宿主按 agent 的流拿的都是这同一个形状,❌ 各自再推导。
@@ -109,12 +107,7 @@ export function sessionInScope(
   return session.projectId === scope.projectId;
 }
 
-export const sessionAgentStatusChangedChannel = defineEvent<
-  AgentStatusChange & {
-    appFocused: boolean;
-    soundEvent?: 'needs_attention' | 'task_complete';
-  }
->('session:agent-status-changed');
+export const sessionAgentStatusChangedChannel = defineEvent<AgentStatusChange>('session:agent-status-changed');
 
 /** Session-page work failed after the initiating request returned. */
 export const sessionDeliveryFailedChannel = defineEvent<{
@@ -140,3 +133,6 @@ export const sessionStartStageChannel = defineEvent<{
   /** 这一步开始的时刻(ms);`stage` 为 null 时省略。 */
   since?: number;
 }>('session:start-stage');
+
+/** session-life: the single lifecycle projection of an ACP session, published after every transition. */
+export const sessionLifeViewChannel = defineEvent<import('./session-life').LifeView>('session:life-view');

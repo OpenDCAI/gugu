@@ -189,7 +189,6 @@ function AgentAccountRow({ agent, targets }: { agent: AgentPayload; targets: Acc
       onSuccess: refreshAfterLogin,
       onClose: refreshAfterLogin,
     });
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [agent.id, agent.name, agent.command, queryClient, refreshAuth, row.steps, showSignIn, remote, machine]);
 
   const hint = row.status === 'signed-out' && platform.models.length > 0

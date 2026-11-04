@@ -16,6 +16,7 @@ export interface ContactUser {
   owner_user_id?: string | null
   agent_public?: boolean | null
   desired_status?: AgentDesiredStatus | null
+  removed_at?: string | null
   session_archived_at?: string | null
   session_lifecycle_revision?: number
   created_at?: string | null

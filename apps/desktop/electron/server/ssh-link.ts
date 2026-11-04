@@ -2,7 +2,7 @@
  * #6264 远程 SSH 的机器:这台桌面与它之间的一切只走 SSH(product spec「两种连法，处处能用」)。
  *
  * 照 VS Code Remote-SSH(本机客户端 ↔ SSH ↔ server 的本机套接字):每台机器一条「设备连接」——
- * 一个常驻的 `ssh -T … exec gugu-server link --account <谁> --adopt-ssh` 子进程,骑在这台机器那条认证过的
+ * 一个常驻的 `ssh -T … exec gugu-server link --adopt-ssh` 子进程,骑在这台机器那条认证过的
  * 共享连接上(ControlMaster,见 ssh-machines.ts / ssh-install/logic.ts)。上面跑的是与咕咕云设备 RPC **逐字相同**的
  * 信封(请求、应答、推送),渲染层的设备 RPC 客户端(src/lib/deviceRpc.ts)只是把「频道」换成它 —— 于是设置、
  * 资源库、已安排、文件、审阅、会话列表与时间线、投递、导入全都走 SSH,❌ 一处一处分叉。
@@ -19,7 +19,8 @@
  * 成本:每台用到的机器一个 ssh 子进程(复用共享连接,不另握手);存活靠 ssh 自己的心跳(ServerAliveInterval=5,
  * 连丢 3 次即断),这里 ❌ 轮询。断了不自己重连 —— 由渲染层按「还有没有人在听推送」决定(见 deviceRpc.ts)。
  */
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import {
   encodeJsonFrame,
   FRAME,
@@ -30,10 +31,12 @@ import {
   LINK_READY_MARK,
   parseJson,
 } from '../session/main/core/pty/attach/attach-protocol'
-import { serverProtocolTooOld } from '@gugu/core/cloud/serverMachineHealth'
+import { SERVER_UPDATE_CONTROL_RPCS, serverProtocolTooOld } from '@gugu/core/cloud/serverMachineHealth'
+import { createDeviceRpcReplyEnvelope, parseDeviceRpcRequest } from '@gugu/core/cloud/deviceRpcProtocol'
 import type { SshLinkFailure } from '../../src/lib/sshLink'
 import { classifySshFailure, unknownCommandLine, type SshTarget } from './ssh-install/logic'
 import { sshBatchArgs } from './ssh-batch'
+import { desktopServerChannel, remoteServerPaths } from './server-names'
 
 const ACCOUNT_ID = /^[A-Za-z0-9_-]{1,128}$/
 
@@ -54,7 +57,7 @@ export function sshLinkArgs(
   // --adopt-ssh:老机器第一次被装它的那台桌面经 SSH 接上时补记「远程 SSH」。经远程隧道的中转连过去的 ❌ 带它
   // (那会把一台远程隧道的机器记成远程 SSH,设备列表标错、机器上限数错)。
   const adopt = options.adoptSsh === false ? '' : ' --adopt-ssh'
-  return sshBatchArgs(target, `exec ~/.local/bin/gugu-server link --account ${options.accountUserId}${adopt}`, options.controlPath)
+  return sshBatchArgs(target, `exec ${remoteServerPaths(desktopServerChannel()).binTilde} link --account ${options.accountUserId}${adopt}`, options.controlPath)
 }
 
 /** 还没接上就结束了:为什么(退出码 + 标准错误最后几行)。纯函数。 */
@@ -104,17 +107,18 @@ export type SshLinkMachine = { target: SshTarget; accountUserId: string; via?: '
 
 export type SpawnLinkSsh = (args: string[]) => ChildProcessWithoutNullStreams
 
-const systemSpawn: SpawnLinkSsh = (args) => spawn('ssh', args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+const systemSpawn: SpawnLinkSsh = (args) => spawn('ssh', args, { stdio: ['pipe', 'pipe', 'pipe'] })
 
 type Link = {
   child: ChildProcessWithoutNullStreams
-  ready: Promise<{ ok: true } | { ok: false; reason: SshLinkFailure; detail: string }>
+  ready: Promise<{ ok: true } | { ok: false; reason: SshLinkFailure; detail: string; controlOnly?: true }>
   open: boolean
+  protocol: number | null
 }
 
 export type SshLinkManager = {
   /** 开(或复用)这台机器的设备连接;接上了才回 ok。 */
-  open(deviceId: string): Promise<{ ok: true } | { ok: false; reason: SshLinkFailure; detail: string }>
+  open(deviceId: string): Promise<{ ok: true } | { ok: false; reason: SshLinkFailure; detail: string; controlOnly?: true }>
   /** 往这台机器写一条信封;连接没开着 = false(调用方按「断了」处理)。 */
   send(deviceId: string, message: unknown): boolean
   close(deviceId: string): void
@@ -150,7 +154,7 @@ export function createSshLinkManager(options: {
       })
     } catch (error) {
       const failed = Promise.resolve({ ok: false as const, reason: 'unreachable' as const, detail: (error as Error).message })
-      return { child: null as unknown as ChildProcessWithoutNullStreams, ready: failed, open: false }
+      return { child: null as unknown as ChildProcessWithoutNullStreams, ready: failed, open: false, protocol: null }
     }
     const child = (options.spawnSsh ?? systemSpawn)(args)
     let stderr = ''
@@ -160,13 +164,13 @@ export function createSshLinkManager(options: {
     const ready = new Promise<Awaited<Link['ready']>>((resolve) => {
       settleReady = resolve
     })
-    const link: Link = { child, ready, open: false }
+    const link: Link = { child, ready, open: false, protocol: null }
     let readySettled = false
     const finishReady = (value: Awaited<Link['ready']>) => {
       if (readySettled) return
       readySettled = true
       clearTimeout(timer)
-      link.open = value.ok
+      link.open = value.ok || value.controlOnly === true
       settleReady(value)
     }
     const timer = setTimeout(() => {
@@ -200,15 +204,12 @@ export function createSshLinkManager(options: {
         }
         return
       }
-      // 报了协议号、而且低于这台桌面要求的:明确的版本信号,当太旧收掉(不报 = 老版本,不知道,照常接)。
-      const protocol = linkProtocolFromPreamble(preamble.subarray(0, preamble.length - rest.length))
-      if (serverProtocolTooOld(protocol, { unknownIsTooOld: false })) {
-        finishReady({ ok: false, reason: 'outdated', detail: `server protocol ${String(protocol)}` })
-        child.kill('SIGTERM')
-        return
-      }
+      // Keep the authenticated link available for the controls that repair a version mismatch.
+      link.protocol = linkProtocolFromPreamble(preamble.subarray(0, preamble.length - rest.length))
       preamble = null
-      finishReady({ ok: true })
+      finishReady(serverProtocolTooOld(link.protocol, { unknownIsTooOld: false })
+        ? { ok: false, reason: 'outdated', detail: `server protocol ${String(link.protocol)}`, controlOnly: true }
+        : { ok: true })
       if (rest.length) takeFrames(rest)
     })
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
@@ -244,7 +245,7 @@ export function createSshLinkManager(options: {
       links.set(deviceId, link)
       const result = await link.ready
       if (!result.ok) {
-        if (links.get(deviceId) === link) links.delete(deviceId)
+        if (!link.open && links.get(deviceId) === link) links.delete(deviceId)
         log('ssh link: could not open', { deviceId, reason: result.reason, detail: result.detail })
       }
       return result
@@ -252,6 +253,16 @@ export function createSshLinkManager(options: {
     send(deviceId, message) {
       const link = links.get(deviceId)
       if (!link?.open) return false
+      const request = parseDeviceRpcRequest(message)
+      if (serverProtocolTooOld(link.protocol, { unknownIsTooOld: false })) {
+        if (!request) return false
+        if (!SERVER_UPDATE_CONTROL_RPCS.has(request.type)) {
+          options.onMessage(deviceId, { type: 'broadcast', event: 'broadcast', payload: createDeviceRpcReplyEnvelope(request.type, request.request_id, {
+            error: { code: 'server_outdated', message: '请更新那台机器上的咕咕' },
+          }) })
+          return true
+        }
+      }
       link.child.stdin.write(encodeJsonFrame(FRAME.message, message))
       return true
     },

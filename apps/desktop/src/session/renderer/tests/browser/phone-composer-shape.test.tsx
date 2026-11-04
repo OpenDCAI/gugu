@@ -112,11 +112,11 @@ it.each(['dark', 'light'] as const)('%s: the phone composer row has a solid back
 })
 
 
-it.each(['dark', 'light'] as const)('%s: the shared agent composer keeps the phone backing without changing desktop', async (theme) => {
+it.each(['dark', 'light'] as const)('%s: the shared agent composer keeps phone glass separate from the desktop fade', async (theme) => {
   await page.viewport(390, 844)
   if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light')
   const { createChatContext, createChatState } = await loadChatUi()
-  const context = createChatContext()
+  const context = createChatContext({ locale: () => 'en-US' })
   const state = createChatState(context)
   host = document.body.appendChild(document.createElement('div'))
   host.setAttribute('data-phone-shell', '')
@@ -140,7 +140,11 @@ it.each(['dark', 'light'] as const)('%s: the shared agent composer keeps the pho
     expect(Number.parseFloat(band.width), 'the backing covers the whole phone width').toBe(390)
     expect(row.getBoundingClientRect().height).toBeGreaterThan(0)
     host.removeAttribute('data-phone-shell')
-    expect(getComputedStyle(row, '::before').content, 'desktop keeps its transparent positioning layer').toBe('none')
+    const desktopFade = getComputedStyle(row, '::before')
+    expect(desktopFade.backdropFilter, 'desktop has no phone glass').toBe('none')
+    expect(alphaOf(desktopFade.backgroundColor), 'desktop has no solid full-row backing').toBe(0)
+    expect(desktopFade.backgroundImage).toContain('linear-gradient')
+    expect(Number.parseFloat(desktopFade.width)).toBe(row.getBoundingClientRect().width)
   } finally {
     root.unmount()
     root = null

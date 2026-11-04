@@ -1,20 +1,7 @@
-import type { ChatMessage } from '@gugu/session-chat-ui';
-import { parseMessageQuoteLink, type MessageQuoteSource } from '@gugu/core/shared/ui/messageQuote';
+import { readMessageQuote } from '@gugu/core/shared/ui/messageQuote';
 
-/** One source only: a real IM link, or the original native item. */
-export function sessionMessageQuoteSource(message: ChatMessage, sessionId: string): MessageQuoteSource | null {
-  if (message.guguDelivery) {
-    if (message.guguDelivery.segments.length !== 1) return null;
-    const facts = message.guguDelivery.segments[0]?.facts;
-    const source = facts?.sourceLink ? parseMessageQuoteLink(facts.sourceLink) : null;
-    if (source?.kind === 'chat') return source;
-  }
-  const itemId = message.sourceItemId === undefined ? message.id : message.sourceItemId;
-  const runtimePrefix = `${sessionId}:turn:`;
-  const runtimeIndex = itemId?.startsWith(runtimePrefix) && /^\d+:/.test(itemId.slice(runtimePrefix.length));
-  return itemId && !itemId.startsWith('optimistic:') && !runtimeIndex
-    ? { kind: 'session', sessionId, itemId } : null;
-}
+/** Only the authored body returns to an editor; persisted sources remain in the transcript. */
+export const sessionPromptBody = (text: string): string => readMessageQuote(text)?.body ?? text;
 
 /** Undefined: this row has no selection. Null: a selection crosses message boundaries. */
 export function selectedMessageText(root: HTMLElement, selection: Selection | null): string | null | undefined {

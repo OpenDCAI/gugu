@@ -3,6 +3,9 @@
  * non-space character right after it, the closing `$` a non-space character right before it and no digit right
  * after it. Without this, prose with two prices ("Backpack $29.99、Bike Light $9.99") became one inline formula.
  *
+ * One rule goes beyond pandoc: the closing `$` also cannot be followed by what starts a shell expansion (an ASCII
+ * letter, `_`, `(` or `{`), so `$(seq 1 40); echo live-$i` and `$HOME/$USER` stay text. `\(n\)th` still reads as math.
+ *
  * `remark-math` has no such option (upstream declined it: micromark/micromark-extension-math#6), so this is a guard
  * in front of its text construct. At a single `$` it looks ahead to the closing `$` that `remark-math` would pick (the
  * next run of exactly one `$`); if either end breaks the rules the `$` is plain text, otherwise `remark-math` parses
@@ -11,7 +14,7 @@
  * `tokenizeMarkdownMath` (@gugu/core/shared/markdownMath.mjs) applies the same rules, so what message_send checks
  * as math is what renders as math.
  */
-import { asciiDigit, markdownLineEndingOrSpace, unicodeWhitespace } from 'micromark-util-character';
+import { asciiAlphanumeric, markdownLineEndingOrSpace, unicodeWhitespace } from 'micromark-util-character';
 import type { Code, Construct, Extension, State, TokenizeContext, Tokenizer } from 'micromark-util-types';
 import type { Processor } from 'unified';
 
@@ -23,9 +26,17 @@ declare module 'micromark-util-types' {
 }
 
 const DOLLAR = 36;
+const LEFT_PAREN = 40;
+const UNDERSCORE = 95;
+const LEFT_BRACE = 123;
 
 function blank(code: Code): boolean {
   return code === null || markdownLineEndingOrSpace(code) || unicodeWhitespace(code);
+}
+
+/** A digit (a price) or the start of a shell expansion: what a closing `$` cannot have right after it. */
+function continuesPastClose(code: Code): boolean {
+  return asciiAlphanumeric(code) || code === UNDERSCORE || code === LEFT_PAREN || code === LEFT_BRACE;
 }
 
 /** Succeeds when the `$` here is not a single-dollar math opener that pandoc would reject. */
@@ -81,7 +92,7 @@ function tokenizeDeferToMath(this: TokenizeContext, effects: Parameters<Tokenize
       before = DOLLAR;
       return inside(code);
     }
-    return done(code, !blank(before) && !asciiDigit(code));
+    return done(code, !blank(before) && !continuesPastClose(code));
   }
 }
 

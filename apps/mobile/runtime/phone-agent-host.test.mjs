@@ -1,12 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, readFile, mkdir, writeFile, appendFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, mkdir, writeFile, appendFile, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { buildSessionDirectEnvelope } from '../../../packages/core/src/local/agent/deliveryEnvelope.ts'
 import { startPhoneAgentHost } from './phone-agent-host.mjs'
+import { openPhoneAgentStore } from './phone-agent-store.mjs'
+import { createPhoneTimelineRuntime } from './phone-agent-timeline.mjs'
 import { bindAgentEntry, createAgentEntry } from './agent-entry.mjs'
 import { createPhoneProvisioner } from './phone-agent-provision.mjs'
 import { createPhoneActionRuntime } from './phone-actions.mjs'
@@ -22,6 +24,7 @@ function fakeCloud() {
   const commands = []
   const calls = []
   const messages = []
+  const notices = []
   const inboxRows = []
   const devices = []
   const users = [{ id: agentId, type: 'agent', owner_user_id: ownerId, device_id: deviceId, display_name: '手机 Agent', desired_status: 'online' }, { id: ownerId, type: 'human', display_name: '主人' }]
@@ -38,14 +41,14 @@ function fakeCloud() {
       let filters = []
       let patch
       const result = () => {
-        if (table === 'users') return { data: users.filter((entry) => filters.every(([key, value]) => Array.isArray(value) ? value.includes(entry[key]) : entry[key] === value)), error: null }
+        if (table === 'active_users') return { data: users.filter((entry) => filters.every(([key, value]) => Array.isArray(value) ? value.includes(entry[key]) : entry[key] === value)), error: null }
         if (table === 'gugu_devices') {
           const matching = devices.filter((device) => filters.every(([key, value]) => device[key] === value))
           if (patch) { calls.push(['update_device', { patch, filters }]); for (const device of matching) Object.assign(device, patch) }
           return { data: matching, error: null }
         }
         if (table === 'chats') return { data: [{ id: groupId, kind: 'group', status: 'active' }], error: null }
-        if (table === 'chat_members') return { data: [], error: null }
+        if (table === 'active_members') return { data: [], error: null }
         if (table === 'agent_provisions') return { data: provision, error: null }
         if (table === 'gugu_device_commands') {
           const matching = commands.filter((command) => filters.every(([key, value]) => command[key] === value))
@@ -55,6 +58,11 @@ function fakeCloud() {
         throw new Error(`unexpected table ${table}`)
       }
       const query = {
+        insert: async (row) => {
+          if (table !== 'messages') throw new Error(`unexpected insert into ${table}`)
+          if (!notices.some((notice) => notice.id === row.id)) notices.push(structuredClone(row))
+          return { data: null, error: null }
+        },
         upsert: async (row) => {
           calls.push(['upsert_device', row])
           const existing = devices.find((device) => device.device_id === row.device_id)
@@ -107,7 +115,7 @@ function fakeCloud() {
       throw new Error(`unexpected ${schema} RPC ${name}`)
     },
   }
-  return { cloud, commands, calls, messages, inboxRows, devices, users }
+  return { cloud, commands, calls, messages, notices, inboxRows, devices, users }
 }
 
 async function fixture(runTurn, { nativeCall = async () => ({ ok: true }), cancelTurn = () => true, actionFactory = async () => ({ tools: () => [], confirmationForMessage: () => null, cancel: async () => undefined }), prepare = async () => undefined, onRpcStart = () => undefined, onSessionReply = () => undefined, preparationOptions = {} } = {}) {
@@ -342,6 +350,7 @@ async function recordTurn(command, hooks, text) {
   const lines = [user, answer].map((entry) => `${JSON.stringify(entry)}\n`).join('')
   if (previous) await appendFile(path, lines)
   else await writeFile(path, `${JSON.stringify({ type: 'session', version: 3, id: command.sessionId, cwd: directory, timestamp: new Date(at).toISOString() })}\n${lines}`)
+  hooks.emit({ type: 'pi_live', kind: 'committed', id: `phone-input:${command.jobId}`, recordId: userId })
 }
 
 test('a local create runs its first input directly and reads the actual Pi result without any DM messages', async () => {
@@ -579,7 +588,7 @@ test('a local initial message enters the shared inbox envelope and replies with 
     return { status: 'done', text: '已回复' }
   })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '查今天的日程', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '查今天的日程', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '查今天的日程' }], 'local-create-request')
     await until(() => fx.messages.some((message) => message.p_sender_user_id === agentId), fx.events)
@@ -590,6 +599,87 @@ test('a local initial message enters the shared inbox envelope and replies with 
     const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
     assert.equal(journal.jobs[messageId].prompt.includes('gugu_delivery'), true)
     assert.equal(JSON.stringify(journal).includes('private-turn-token'), false)
+  } finally { await fx.close() }
+})
+
+test('a failed chat turn is said in the chat as the desktop says it: one system notice, its fixed text, addressing no one', async () => {
+  const fx = await fixture(async (command) => {
+    if (!command.prompt.includes('gugu_delivery')) return { status: 'done', text: '[NO_REPLY]' }
+    return { status: 'failed', text: '', error: 'simulated model failure with private detail' }
+  })
+  const messageId = randomUUID()
+  // What is on disk at the moment the notice goes out: a failure said in the chat is already durable in the task.
+  const onDiskAtNotice = []
+  const from = fx.cloud.chat.from
+  fx.cloud.chat.from = (table) => {
+    const query = from(table)
+    if (table !== 'messages') return query
+    const insert = query.insert
+    query.insert = async (row) => {
+      onDiskAtNotice.push(JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8')).jobs[messageId].status)
+      return insert(row)
+    }
+    return query
+  }
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
+  try {
+    await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '你好' }], 'failing-chat-turn')
+    await until(() => fx.notices.length > 0, fx.events)
+    assert.equal(fx.notices.length, 1)
+    assert.deepEqual(onDiskAtNotice, ['failed'])
+    const [notice] = fx.notices
+    assert.deepEqual(Object.keys(notice).sort(), ['chat_id', 'client_message_id', 'content', 'content_type', 'id', 'is_thread_root', 'sender_user_id', 'thread_root_id'])
+    assert.equal(notice.chat_id, chatId)
+    assert.equal(notice.sender_user_id, agentId)
+    assert.equal(notice.content_type, 'system')
+    assert.equal(notice.content, 'This reply could not be completed. Please try again later.')
+    assert.equal(fx.messages.some((message) => message.p_sender_user_id === agentId), false)
+    // The raw error stays in the task: failed job, its error.
+    const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    assert.equal(journal.jobs[messageId].status, 'failed')
+    assert.match(journal.jobs[messageId].error, /simulated model failure/)
+  } finally { await fx.close() }
+})
+
+test('a failed chat turn still posts its notice when saving the failure fails', async () => {
+  let journalDirectory
+  const fx = await fixture(async (command) => {
+    if (!command.prompt.includes('gugu_delivery')) return { status: 'done', text: '[NO_REPLY]' }
+    // The save before the notice cannot write: its directory is gone until the notice goes out.
+    await rename(journalDirectory, `${journalDirectory}.away`)
+    return { status: 'failed', text: '', error: 'simulated model failure' }
+  })
+  journalDirectory = join(fx.root, 'hosts', ownerId)
+  const from = fx.cloud.chat.from
+  fx.cloud.chat.from = (table) => {
+    const query = from(table)
+    if (table !== 'messages') return query
+    const insert = query.insert
+    query.insert = async (row) => { await rename(`${journalDirectory}.away`, journalDirectory); return insert(row) }
+    return query
+  }
+  const messageId = randomUUID()
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
+  try {
+    await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '你好' }], 'failing-save-turn')
+    await until(() => fx.notices.length > 0, fx.events)
+    assert.equal(fx.notices.length, 1)
+    assert.equal(fx.notices[0].content_type, 'system')
+  } finally { await fx.close() }
+})
+
+test('a failed turn on a whispered message posts no public notice: it would tell the chat who was whispered to', async () => {
+  const fx = await fixture(async (command) => {
+    if (!command.prompt.includes('gugu_delivery')) return { status: 'done', text: '[NO_REPLY]' }
+    return { status: 'failed', text: '', error: 'simulated model failure with private detail' }
+  })
+  const messageId = randomUUID()
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '悄悄话', content_type: 'text', to_user_ids: [agentId], is_whisper: true, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
+  try {
+    await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '悄悄话' }], 'failing-whisper-turn')
+    await until(async () => JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8')).jobs[messageId]?.status === 'failed', fx.events)
+    assert.deepEqual(fx.notices, [])
+    assert.equal(fx.messages.some((message) => message.p_sender_user_id === agentId), false)
   } finally { await fx.close() }
 })
 
@@ -606,7 +696,7 @@ test('an image attachment is durably admitted as safe metadata and acknowledged 
     return { status: 'done', text: '已回复' }
   })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '[附件] calendar.png (image/png)\n[URL] https://unreachable.invalid/image.png\n[Size] 42\n[Kind] image\n[Caption]\n收到后告诉我', content_type: 'attachment', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '[附件] calendar.png (image/png)\n[URL] https://unreachable.invalid/image.png\n[Size] 42\n[Kind] image\n[Caption]\n收到后告诉我', content_type: 'attachment', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '收附件' }], 'image-metadata')
     await until(() => fx.messages.some((message) => message.p_sender_user_id === agentId), fx.events)
@@ -629,7 +719,7 @@ test('revoking OS permission after a successful phone read prevents data from re
     return { status: 'done', text: 'must not be delivered' }
   }, { nativeCall: async (name, args) => { permissionChecks.push([name, args]); return { ok: false, code: 'os_permission', message: '日历系统权限已撤销' } } })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '查询日历', content_type: 'text', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '查询日历', content_type: 'text', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: '查询日历' }], 'revoke-in-flight')
     await until(() => fx.events.some((event) => event.type === 'turn_failed'), fx.events)
@@ -1029,6 +1119,181 @@ test('RPC connectivity cannot publish ready before the initial heartbeat and sta
   try { assert.equal(fx.host.state().ready, true) } finally { await fx.close() }
 })
 
+const inboxAgentB = '74521d22-4a6e-4909-81d9-e9c62bf43205'
+const seedInboxAgents = async ({ root, users }, ids = [agentId, inboxAgentB]) => {
+  const store = await openPhoneAgentStore(root, ownerId)
+  for (const id of ids) {
+    if (!users.some(user => user.id === id)) users.push({ ...users[0], id })
+    store.state.agents[id] = { agentUserId: id, ownerId, deviceId, sessionId: randomUUID(), displayName: 'Inbox fixture', chatId, modelId: 'free', status: 'idle' }
+  }
+  await store.save()
+}
+const flushInbox = () => new Promise(resolve => setImmediate(resolve))
+const advanceInbox = async (t, ms) => {
+  t.mock.timers.tick(ms)
+  await flushInbox()
+  await flushInbox()
+}
+const inboxCalls = fx => fx.calls.filter(([name]) => name === 'pull_agent_inbox_v2').map(([, args]) => args.p_agent_user_id)
+
+for (const failFirst of [false, true]) test(`startup scans each agent once before any retry (first scan fails: ${failFirst})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, {
+    prepare: async args => {
+      await seedInboxAgents(args)
+      const rpc = args.cloud.rpc
+      let fail = failFirst
+      args.cloud.rpc = async (schema, name, input) => {
+        if (name === 'pull_agent_inbox_v2' && input.p_agent_user_id === agentId && fail) {
+          fail = false
+          args.calls.push([name, input])
+          throw new Error('initial scan unavailable')
+        }
+        return rpc(schema, name, input)
+      }
+    },
+    onRpcStart: ({ onConnectivity }) => onConnectivity(true),
+  })
+  try {
+    await flushInbox(); await flushInbox()
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    await advanceInbox(t, 1_000)
+    assert.deepEqual(inboxCalls(fx), failFirst ? [agentId, inboxAgentB, agentId] : [agentId, inboxAgentB])
+  } finally { await fx.close() }
+})
+
+test('phone inbox fallback waits five minutes while command reconciliation still runs every thirty seconds', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  t.mock.method(performance, 'now', () => Date.now())
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, { prepare: seedInboxAgents })
+  try {
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    const ticks = fx.calls.filter(([name]) => name === 'fetch_fair_pending_device_commands').length
+    for (let i = 0; i < 9; i++) await advanceInbox(t, 30_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    assert.equal(fx.calls.filter(([name]) => name === 'fetch_fair_pending_device_commands').length, ticks + 9)
+    await advanceInbox(t, 30_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB])
+  } finally { await fx.close() }
+})
+
+test('a successful delivery scan extends only that agent fallback deadline', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  t.mock.method(performance, 'now', () => Date.now())
+  let nudge
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, { prepare: seedInboxAgents, onRpcStart: ({ onCommand }) => { nudge = onCommand } })
+  try {
+    for (let i = 0; i < 5; i++) await advanceInbox(t, 30_000)
+    fx.commands.push({ id: randomUUID(), type: 'agent.deliver', status: 'pending', created_at: new Date().toISOString(), payload: { agent_user_id: agentId } })
+    await nudge()
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId])
+    for (let i = 0; i < 5; i++) await advanceInbox(t, 30_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB])
+    for (let i = 0; i < 5; i++) await advanceInbox(t, 30_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB, agentId])
+  } finally { await fx.close() }
+})
+
+test('reconnect scans each agent immediately; one failure and its shared retry cannot clear another agent coverage', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'], now: Date.now() })
+  t.mock.method(performance, 'now', () => Date.now())
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, { prepare: seedInboxAgents })
+  const rpc = fx.cloud.rpc
+  let failB = true
+  fx.cloud.rpc = async (schema, name, args) => {
+    if (name === 'pull_agent_inbox_v2' && args.p_agent_user_id === inboxAgentB && failB) {
+      failB = false
+      fx.calls.push([name, args])
+      throw new Error('one agent scan failed')
+    }
+    return rpc(schema, name, args)
+  }
+  try {
+    fx.connectivityChanged(false)
+    fx.connectivityChanged(true)
+    await flushInbox(); await flushInbox()
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB])
+    fx.connectivityChanged(true)
+    await flushInbox()
+    assert.equal(inboxCalls(fx).length, 4)
+    await advanceInbox(t, 1_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB, inboxAgentB])
+    await advanceInbox(t, 29_000)
+    assert.equal(inboxCalls(fx).length, 5, 'successful shared retry must postpone that agent deadline too')
+    assert.equal(fx.events.some(event => event.type === 'host_log' && event.message.includes('one agent scan failed')), true)
+  } finally { await fx.close() }
+})
+
+test('failed sign-out preserves a disconnect and reconciles each agent once on reconnect', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  t.mock.method(performance, 'now', () => Date.now())
+  let rejectSignOut, signingOut = false
+  const signOut = new Promise((resolve, reject) => { rejectSignOut = reject })
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, {
+    prepare: async args => {
+      await seedInboxAgents(args)
+      args.cloud.signOut = () => { signingOut = true; return signOut }
+    },
+  })
+  try {
+    assert.equal(fx.host.state().ready, true)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    const pending = fx.host.handle({ type: 'auth_request', action: 'sign_out', id: randomUUID() })
+    await flushInbox()
+    assert.equal(signingOut, true)
+    assert.equal(fx.host.state().ready, false)
+    fx.connectivityChanged(false)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB])
+    rejectSignOut(new Error('sign-out network unavailable'))
+    await pending
+    assert.equal(fx.host.state().ready, false)
+    assert.match(fx.host.state().error, /手机宿主连接已断开/)
+    fx.connectivityChanged(true)
+    await flushInbox(); await flushInbox()
+    assert.equal(fx.host.state().ready, true)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB])
+    fx.connectivityChanged(true)
+    await advanceInbox(t, 30_000)
+    assert.deepEqual(inboxCalls(fx), [agentId, inboxAgentB, agentId, inboxAgentB])
+  } finally { rejectSignOut(new Error('test cleanup')); await fx.close() }
+})
+
+test('a disconnect during a scan remains uncovered until a later connected full scan; stopped callbacks cannot scan', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  t.mock.method(performance, 'now', () => Date.now())
+  let nudge, release
+  const gate = new Promise(resolve => { release = resolve })
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, { prepare: args => seedInboxAgents(args, [agentId]), onRpcStart: ({ onCommand }) => { nudge = onCommand } })
+  const rpc = fx.cloud.rpc
+  let hold = true
+  fx.cloud.rpc = async (schema, name, args) => {
+    if (name === 'pull_agent_inbox_v2' && hold) { hold = false; await gate }
+    return rpc(schema, name, args)
+  }
+  try {
+    fx.commands.push({ id: randomUUID(), type: 'agent.deliver', status: 'pending', created_at: new Date().toISOString(), payload: { agent_user_id: agentId } })
+    const pending = nudge()
+    await flushInbox()
+    assert.equal(hold, false)
+    fx.connectivityChanged(false)
+    release()
+    await pending
+    const beforeReconnect = inboxCalls(fx).length
+    fx.connectivityChanged(true)
+    await flushInbox(); await flushInbox()
+    assert.equal(inboxCalls(fx).length, beforeReconnect + 1)
+    fx.connectivityChanged(true)
+    await advanceInbox(t, 30_000)
+    assert.equal(inboxCalls(fx).length, beforeReconnect + 1)
+    await fx.host.close()
+    fx.connectivityChanged(false)
+    fx.connectivityChanged(true)
+    await advanceInbox(t, 300_000)
+    assert.equal(inboxCalls(fx).length, beforeReconnect + 1)
+    await assert.rejects(fx.host.handle({ type: 'configure', config: { ...fx.config, ownerId: randomUUID() } }), /不能.*切换账号/)
+  } finally { release(); await fx.close() }
+})
+
 test('queued tasks resume after RPC and auth recover without another message or admission', async () => {
   let release
   const gate = new Promise((resolve) => { release = resolve })
@@ -1407,6 +1672,30 @@ test('session get exposes native running and terminal proof for the exact latest
  }finally{finish();await fx.close()}
 })
 
+test('retire keeps phone history but the shared view excludes it from inbox and live inventory', async () => {
+  let nudge
+  const fx = await fixture(async (command, hooks) => {
+    await recordTurn(command, hooks, 'kept history')
+    return { status: 'done', text: 'kept history' }
+  }, { onRpcStart: ({ onCommand }) => { nudge = onCommand } })
+  try {
+    const created = await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: 'keep history' }], 'archive-contract')
+    await until(() => fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events)
+    fx.commands.push({ id: randomUUID(), type: 'agent.retire', status: 'pending', created_at: new Date().toISOString(), payload: { agent_user_id: agentId } })
+    await nudge()
+    const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    assert.equal(journal.agents[agentId].status, 'archived')
+    assert.equal(journal.agents[agentId].sessionId, created.conversationId)
+    assert.equal(Object.values(journal.jobs)[0].text, 'kept history')
+    assert.equal((await fx.host.invoke('sessionTimeline.sessionsList', [])).sessions.length, 0)
+    const pulls = fx.calls.filter(([name]) => name === 'pull_agent_inbox_v2').length
+    fx.commands.push({ id: randomUUID(), type: 'agent.deliver', status: 'pending', created_at: new Date().toISOString(), payload: { agent_user_id: agentId } })
+    await nudge()
+    assert.equal(fx.calls.filter(([name]) => name === 'pull_agent_inbox_v2').length, pulls)
+    assert.deepEqual(fx.calls.filter(([name]) => name === 'archive_user'), [])
+  } finally { await fx.close() }
+})
+
 test('the conversation queue reserves edits across entry points and resumes the same native input after saving', async () => {
   let releaseFirst
   const firstGate = new Promise(resolve => { releaseFirst = resolve })
@@ -1435,3 +1724,41 @@ test('the conversation queue reserves edits across entry points and resumes the 
     assert.deepEqual((await snapshot()).queuedPrompts, [])
   } finally { releaseFirst(); await fx.close() }
 })
+
+test('resolves files at run time, warns without blocking later text, and persists the public input projection beyond jobs', async () => {
+  const prompts = [];
+  const ref = { itemId: randomUUID(), version: 1, name: 'missing.txt', mimeType: 'text/plain', sizeBytes: 3 };
+  const fx = await fixture(async (command, hooks) => {
+    prompts.push(command.prompt);
+    await recordTurn(command, hooks, '文件没能读取，请重新发送');
+    return { status: 'done', text: '文件没能读取，请重新发送' };
+  }, { prepare: ({ cloud }) => {
+    cloud.attachmentEndpoint = async () => ({ supabaseUrl: 'https://files.invalid', anonKey: 'public', token: 'test', fetch: async () => new Response(JSON.stringify({ status: 'gone', sha256: null }), { status: 200, headers: { 'Content-Type': 'application/json' } }) });
+  } });
+  try {
+    const created = await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: 'initial plain input' }], randomUUID());
+    await until(() => prompts.length === 1 && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events);
+    let journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'));
+    assert.equal(Object.values(journal.agents)[0].fileInputs, undefined);
+    await fx.host.invoke('sessionTimeline.sessionSend', [{ conversationId: created.conversationId, text: 'original caption', files: [ref], clientRequestId: randomUUID() }], randomUUID());
+    await until(() => prompts.length === 2 && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events);
+    assert.match(prompts[1], /^original caption\n\n/);
+    assert.match(prompts[1], /File not saved/);
+    assert.ok(fx.events.some(event => event.type === 'host_log' && event.level === 'warn' && event.message.includes(ref.itemId) && event.message.includes(created.conversationId)));
+    await fx.host.invoke('sessionTimeline.sessionSend', [{ conversationId: created.conversationId, text: 'following text', clientRequestId: randomUUID() }], randomUUID());
+    await until(() => prompts.length === 3 && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events);
+    assert.equal(prompts[2], 'following text');
+    await fx.host.close();
+    const reopened = await openPhoneAgentStore(fx.root, ownerId), agent = Object.values(reopened.state.agents)[0];
+    assert.equal(Object.keys(agent.fileInputs).length, 1);
+    reopened.state.jobs = {}; await reopened.save();
+    const timeline = createPhoneTimelineRuntime({ root: fx.root, store: reopened, authorize: async () => {} });
+    try {
+      const snapshot = await timeline.snapshot(agent, {});
+      const item = snapshot.turns.flatMap(turn => turn.items).find(item => item.kind === 'message' && item.role === 'user' && item.files?.length);
+      assert.equal(item.text, 'original caption');
+      assert.deepEqual(item.files, [ref]);
+      assert.doesNotMatch(JSON.stringify(item), /not saved|promptText/);
+    } finally { await timeline.close(); }
+  } finally { await fx.close(); }
+});

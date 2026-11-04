@@ -1,3 +1,4 @@
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -58,13 +59,13 @@ beforeEach(async () => {
     deliver: () => Promise.resolve(),
     presentation: () => ({ locale: 'zh-CN', themeMode: 'dark' as const, fullscreen: false, windowFocused: true }),
   });
-  await bindExtensionSurface({ webContentsId: fakeContents.id, extensionId: 'ext.notes', sessionId: 'task-1', tabId: 'tab-1', tabKind: 'ext.notes.main' });
+  await bindExtensionSurface({ webContentsId: fakeContents.id, extensionId: 'ext.notes', workspace: sessionWorkspace('task-1'), tabId: 'tab-1', tabKind: 'ext.notes.main' });
 });
 
 describe('the session a tab is in, told to the App with its agent (F35, 真源原则 13)', () => {
-  it('getContext: `session` carries its id, its agent as the user:<uuid> listAgents gives, its project — and no root without files:*', async () => {
+  it('getContext: `workspace` carries its id, its session, its agent as the user:<uuid> listAgents gives, its project — and no root without files:*', async () => {
     const result = (await call('getContext', {})) as { ok: boolean; value: Record<string, unknown> };
-    expect(result.value.session).toEqual({ id: 'task-1', agentId: 'user:agent-1', projectId: 'proj-1' });
+    expect(result.value.workspace).toEqual({ id: 'session:task-1', sessionId: 'task-1', agentId: 'user:agent-1', projectId: 'proj-1' });
     expect(result.value.chat).toBeUndefined();
     expect(result.value.file).toBeUndefined();
   });
@@ -75,7 +76,7 @@ describe('who works the page (owner 10-14)', () => {
   it('getContext: `operator` is the person on a page the host draws, the agent on a page bound for it', async () => {
     const operatorNow = async () => ((await call('getContext', {})) as { value: Record<string, unknown> }).value.operator;
     expect(await operatorNow()).toEqual({ kind: 'person' });
-    await bindExtensionSurface({ webContentsId: fakeContents.id, extensionId: 'ext.notes', sessionId: 'task-1', tabId: 'tab-1', tabKind: 'ext.notes.main', operator: { kind: 'agent', id: 'user:agent-1' } });
+    await bindExtensionSurface({ webContentsId: fakeContents.id, extensionId: 'ext.notes', workspace: sessionWorkspace('task-1'), tabId: 'tab-1', tabKind: 'ext.notes.main', operator: { kind: 'agent', id: 'user:agent-1' } });
     expect(await operatorNow()).toEqual({ kind: 'agent', id: 'user:agent-1' });
   });
 });

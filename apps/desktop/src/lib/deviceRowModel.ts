@@ -1,5 +1,6 @@
 import type { Device } from '@gugu/core/shared/types/chat'
-import { serverMachineNotices, type ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth'
+import type { DeviceServerUpdate } from '@gugu/core/shared/types/deviceHost'
+import { serverMachineNotices, serverSupportsConfirmedRestart, type ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth'
 import { deviceAcceptsWork } from '@gugu/core/cloud/cloudComputer'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import type { DeviceBoundAgent } from './chat'
@@ -30,10 +31,18 @@ export type DeviceRowModel = {
   /** 系统 · 架构,例如「Ubuntu 22.04.5 LTS · arm64」;都不知道时退回平台名。 */
   system: string | null
   version: string | null
-  update: { state: 'downloading' | 'ready' | 'failed'; version: string } | null
+  update: DeviceServerUpdate | null
   /** #6264 这台 server 有件事要人知道(版本对不上 / 磁盘快满 / 升级被退回),按要紧程度排;别的机器为空。 */
   notices: ServerMachineNotice[]
   connection: DeviceConnection
+}
+
+/** Shared by the device action and the prompt for the same reported update. */
+export function canRestartServerUpdate(update: DeviceServerUpdate | null | undefined, capabilities: Device['capabilities']): boolean {
+  if (serverSupportsConfirmedRestart(capabilities)) {
+    return update?.state === 'ready' || (update?.state === 'failed' && update.reason === 'boot-failed')
+  }
+  return update?.scope === 'account' || update?.scope === undefined
 }
 
 /** 平台标识(node 的 process.platform 与库里几种写法)→ 给人看的系统名。 */

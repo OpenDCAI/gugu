@@ -6,7 +6,6 @@ export type RpcIpcMainLike = {
   ): void;
 };
 
-// oxlint-disable-next-line typescript/no-explicit-any
 type ProcedureMap = Record<string, (...args: any[]) => unknown>;
 
 const senderHandlerSymbol = Symbol.for('emdash.rpc.senderHandler');
@@ -39,7 +38,6 @@ export function createRPCNamespace<T extends Record<string, ProcedureMap>>(contr
 
 // Accepts both flat controllers (ProcedureMap values) and namespace groups
 // (Record<string, ProcedureMap> values) at the top level.
-// oxlint-disable-next-line typescript/no-explicit-any
 type RouterMap = Record<string, Record<string, any>>;
 
 export function createRPCRouter<T extends RouterMap>(routers: T): T {

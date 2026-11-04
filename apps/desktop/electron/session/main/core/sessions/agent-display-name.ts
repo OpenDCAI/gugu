@@ -7,8 +7,9 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
+import { knownTaskName } from './task-name';
 
-/** 这条会话被显式命名过的那个名字;没有就是 undefined。 */
+/** 这条会话此刻的名字(绑了身份 = 身份名,否则待绑定记录);没有就是 undefined。 */
 export async function sessionAgentDisplayName(
   sessionId: string
 ): Promise<string | undefined> {
@@ -17,5 +18,5 @@ export async function sessionAgentDisplayName(
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .limit(1);
-  return row?.config?.agentDisplayName?.trim() || undefined;
+  return row ? knownTaskName({ id: sessionId, config: row.config }) : undefined;
 }

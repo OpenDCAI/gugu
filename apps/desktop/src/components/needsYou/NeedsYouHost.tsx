@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
 import { useMobileShell } from '@/hooks/useMobileShell'
@@ -66,6 +67,10 @@ export const NeedsYouHost = observer(function NeedsYouHost({ onAttentionChange }
   const [selected, setSelected] = useState<string | null>(null)
   const task = tasks.find(task => taskKey(task) === selected) ?? (tasks.length === 1 ? tasks[0] : undefined)
   const shown = opened && tasks.length > 0
+  const taskNames = useShownAgentName(tasks.flatMap(item => {
+    const identity = identitiesById[item.session.agent?.userId ?? '']
+    return [{ name: item.session.title, createdAt: identity?.created_at ?? undefined }, { name: identity?.display_name ?? '', createdAt: identity?.created_at ?? undefined }]
+  }))
   // Closing after the last wait also resets the next visit, without retaining a hidden dialog.
   if (opened && tasks.length === 0) setOpened(false)
   return <>
@@ -85,16 +90,15 @@ export const NeedsYouHost = observer(function NeedsYouHost({ onAttentionChange }
         {error && <p role="alert">{error}</p>}
         <div>
           <SectionLabel>{t('needsYou.waitingTasks')}</SectionLabel>
-          {tasks.map(item => {
-            const agentName = identitiesById[item.session.agent?.userId ?? '']?.display_name
+          {tasks.map((item, index) => {
             const presentation = sessionPresentation(item.session, true)
             const select = () => setSelected(taskKey(item))
             return <ListRow key={taskKey(item)} mobile={mobile} role="button" tabIndex={0}
               data-testid="needs-you-task" selected={task === item} aria-pressed={task === item}
-              onClick={select} onKeyDown={rowKeyActivate(select)} title={item.session.title}
+              onClick={select} onKeyDown={rowKeyActivate(select)} title={taskNames[index * 2]}
               leading={<SessionAvatar agentId={item.session.agent?.userId} sessionId={item.session.conversationId} presentation={presentation} />}
               // owner 10-28:列表行不写机器;点开的卡片里照旧说是哪台(下面 SettlementCard 的 machine)。
-              subtitle={agentName}
+              subtitle={taskNames[index * 2 + 1]}
               meta={presentation && <span className="text-[var(--text-secondary)]">{agentStatusText(presentation.label)}</span>} />
           })}
         </div>

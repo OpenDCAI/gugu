@@ -30,6 +30,7 @@ const updateSettings = vi.mocked(chatService.updateGroupChatSettings)
 
 function settingsRow(overrides: Partial<GroupChatSettings> = {}): GroupChatSettings {
   return {
+    my_role: 'owner', can_manage: true, can_dissolve: true, can_archive_topic: false,
     id: 'chat-1', public_id: 7, creator_user_id: 'owner-1', name: '产品组', status: 'active',
     group_prompt: null, default_agent_type: null, join_token: 'token', description: null,
     max_members: 100, allow_member_invite: false, invite_link_enabled: false, agent_join_approval: false,
@@ -42,7 +43,7 @@ const human = (id: string, role: GroupMemberItem['role']): GroupMemberItem => ({
 const SNAPSHOT: GroupCollabSnapshot = {
   scheduler: { chat_id: 'chat-1', paused: false, queue_count: 0, blocked_count: 0, summary: null, updated_at: '2026-09-28T00:00:00.000Z' },
   humans: [human('owner-1', 'owner'), human('member-1', 'member')],
-  agents: [], tasks: [], outputs: [],
+  agents: [], tasks: [],
 }
 
 let harness: ReturnType<typeof createReactHarness>
@@ -55,6 +56,7 @@ afterEach(() => { harness.cleanup(); vi.clearAllMocks() })
 const q = (selector: string) => document.querySelector(selector) as HTMLElement | null
 
 async function renderSettings(viewerId: string) {
+  if (viewerId !== 'owner-1') getSettings.mockResolvedValue(settingsRow({ my_role: 'member', can_manage: false, can_dissolve: false }))
   await renderWithAppProviders(harness, createNode(GroupMembersSection, {
     chat: chat({ id: 'chat-1', kind: 'group', name: '产品组' }),
     snapshot: SNAPSHOT,

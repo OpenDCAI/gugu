@@ -28,7 +28,7 @@ const OLD_SESSION_HOME = '89648ac1-68dd-4d63-b473-b83eeee942e7';
 /** 只回答这一问要的那两行:会话行、工作区行。 */
 function fakeDb() {
   const rows = [
-    [{ id: 'session-1', projectId: OLD_SESSION_HOME, workspaceId: 'ws-1', title: 'late-cooks-wave' }],
+    [{ id: 'session-1', projectId: OLD_SESSION_HOME, workspaceId: 'ws-1', config: { version: '1', type: 'acp', agentDisplayName: 'late-cooks-wave' } }],
     [{ id: 'ws-1', type: 'local', kind: null, path: '/root/.config/咕咕/task-home', config: null }],
   ];
   let call = 0;

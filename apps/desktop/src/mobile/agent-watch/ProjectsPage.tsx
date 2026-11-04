@@ -11,7 +11,7 @@ import { SectionLabel } from '@/components/ui/SectionLabel'
 import { ChevronDown, ChevronRight, Plus } from '@/lib/icons'
 import { useAssistantName } from '@/hooks/useAssistantHomeLabel'
 import { useDevicesStore } from '@/store/devicesContext'
-import { agentOfSession, deviceSessionsOf, directoryRows, useAgentNames, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { deviceSessionsOf, directoryRows, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { usePhoneAssistantIdentity } from '../assistant/phoneAssistantIdentity'
 import { AgentWatchNote, AgentWatchScreen } from './AgentWatchChrome'
@@ -40,7 +40,7 @@ function readStoredSet(key: string): ReadonlySet<string> {
   }
 }
 
-function useStoredSet(key: string): [ReadonlySet<string>, (id: string) => void, (ids: readonly string[], present: boolean) => void] {
+function useStoredSet(key: string): [ReadonlySet<string>, (id: string) => void] {
   const [value, setValue] = useState(() => readStoredSet(key))
   const update = useCallback((change: (next: Set<string>) => void): void => {
     setValue((current) => {
@@ -55,10 +55,7 @@ function useStoredSet(key: string): [ReadonlySet<string>, (id: string) => void, 
     })
   }, [key])
   const toggle = useCallback((id: string): void => update((next) => { if (!next.delete(id)) next.add(id) }), [update])
-  const set = useCallback((ids: readonly string[], present: boolean): void => {
-    update((next) => { for (const id of ids) { if (present) next.add(id); else next.delete(id) } })
-  }, [update])
-  return [value, toggle, set]
+  return [value, toggle]
 }
 
 const ALL_OPEN = { has: () => true }
@@ -69,7 +66,7 @@ const ALL_OPEN = { has: () => true }
  */
 function MachineNote({ device, error }: { device: Device; error?: string | null }): ReactNode {
   if (device.cloud_computer === 'asleep' || device.cloud_computer === 'waking') return null
-  if (!device.is_online) return <OfflineNote lastSeenAt={device.last_seen_at} phone={isPhoneDevice(device)} />
+  if (!device.is_online) return <OfflineNote device={device} />
   // 在线却此刻读不到(那台机器一时连不上):下面画的是它上报过的那份,照实说一句,❌ 红框(红框留给一行都拿不出来)。
   return error ? (
     <div className="gg-aw-offline" data-testid="agent-watch-unreachable">
@@ -95,7 +92,7 @@ export const ProjectsPage = observer(function ProjectsPage({
   onOpenSession: (deviceId: string, session: SessionpageSessionSummary) => void
   /** 页头右上角的 +:去选在哪台机器上新建(建会话要在那台机器上起进程,选机器那一步照旧)。 */
   onCreate?: () => void
-  /** 一条点不开的行被点名(gugu.showSession):展开它所在的分区、滚到它;不给 = 照常从头看。 */
+  /** 点名定位只滚到可见的行或所属分区,不改变手动折叠状态。 */
   reveal?: { deviceId: string; sessionId: string } | { projectId: string }
   /** 滚动位置的存放处:进时间线再回来要还在原处,页面自己在返回时是重新挂的。 */
   scrollMemo: MutableRefObject<number>
@@ -105,7 +102,6 @@ export const ProjectsPage = observer(function ProjectsPage({
   const { devices: allDevices, phones, loading: devicesLoading, error: devicesError } = useDevicesStore()
   const devices = useMemo(() => [...new Map([...(phones ?? []), ...allDevices].map((device) => [device.device_id, device])).values()], [allDevices, phones])
   const live = useLiveDeviceSessions()
-  const agentNames = useAgentNames()
   // #7199 个人助理不住项目区:它自己的会话不列,它派的归一组、标「由它发起」(桌面侧栏同一条)。
   const assistant = usePhoneAssistantIdentity()
   const assistantName = useAssistantName()
@@ -132,19 +128,18 @@ export const ProjectsPage = observer(function ProjectsPage({
   }, [deviceOf, live])
 
   /**
-   * 折起来的分区(owner 2026-09-15:「项目也应该可以折叠」)与父会话。子会话默认展开:桌面在子会话出生时会把父会话点开,
-   * 手机看不到出生那一刻,默认收起就会把一条在等你的子会话藏起来。
+   * 分区与父会话只由手动操作切换;定位、消息和运行状态都不改写已保存的选择。
    */
-  const [collapsed, toggleCollapsed, setCollapsed] = useStoredSet(COLLAPSED_KEY)
+  const [collapsed, toggleCollapsed] = useStoredSet(COLLAPSED_KEY)
   /** 点了「展开显示」的分区(收起的闲置家族全露)。 */
-  const [moreOpen, toggleMore, setMore] = useStoredSet(MORE_KEY)
+  const [moreOpen, toggleMore] = useStoredSet(MORE_KEY)
   /** 正在看管理动作的那条会话(行尾「…」打开的抽屉);null = 关着。 */
   const [menuFor, setMenuFor] = useState<{ deviceId: string; session: SessionpageSessionSummary; anchor: Element } | null>(null)
 
   // Read during every observer render: React's useMemo cannot track MobX presence dependencies.
   const sections = sessionSections(sectionMachines, rows, { assistantId, homeIds }, { expanded: moreOpen, online })
 
-  // ── 点名定位:展开它所在的分区与父会话,再滚到它 ───────────────────────
+  // 定位到已显示的行;目标被手动收起时,滚到可见的祖先或分区头。
   const bodyRef = useRef<HTMLDivElement>(null)
   const located = useMemo(() => {
     if (!reveal) return null
@@ -157,11 +152,12 @@ export const ProjectsPage = observer(function ProjectsPage({
   useEffect(() => {
     if (!reveal || !located || revealed.current === reveal) return
     revealed.current = reveal
-    setCollapsed([located.section.key, ...located.ancestors], false)
-    // 它在被「展开显示」收起的家族里 ⇒ 把这一格点开。
-    if ('projectId' in reveal || !locateSession(sections, reveal.sessionId)) setMore([located.section.key], true)
-    setScrollTarget('projectId' in reveal ? { attribute: 'data-project-id', id: reveal.projectId } : { attribute: 'data-session-id', id: reveal.sessionId })
-  }, [reveal, located, sections, setCollapsed, setMore])
+    const ancestor = located.ancestors.find((id) => collapsed.has(id))
+    if ('projectId' in reveal) setScrollTarget({ attribute: 'data-project-id', id: reveal.projectId })
+    else if (collapsed.has(located.section.key) || !locateSession(sections, reveal.sessionId)) {
+      setScrollTarget({ attribute: 'data-section-key', id: located.section.key })
+    } else setScrollTarget({ attribute: 'data-session-id', id: ancestor ?? reveal.sessionId })
+  }, [reveal, located, sections, collapsed])
   useEffect(() => {
     if (!scrollTarget) return
     const row = [...(bodyRef.current?.querySelectorAll(`[${scrollTarget.attribute}]`) ?? [])]
@@ -190,7 +186,7 @@ export const ProjectsPage = observer(function ProjectsPage({
   const manyMachines = machines.length > 1
   const twins = nameTwinIds(sections.flatMap((section) => (section.project ? [{ id: section.key, name: section.project.name }] : [])))
   /**
-   * 行上除 agent 名之外的标记。❌ 标机器(owner 10-28:会话列表不标机器,机器只在会话里说)。分区页头已经说了项目的格里
+   * 行上的标记。❌ 标机器(owner 10-28:会话列表不标机器,机器只在会话里说)。分区页头已经说了项目的格里
    * 不重复;置顶那格标自己的项目;挂在父会话下的行与父会话不在同一个项目里时标项目。
    */
   const tagsOf = (node: SessionNode, section: SessionSection, parent?: { deviceId: string; projectId: string }): string[] => {
@@ -226,7 +222,6 @@ export const ProjectsPage = observer(function ProjectsPage({
         <SessionRow
           key={node.item.id}
           session={node.item.session}
-          agentName={agentOfSession(node.item.session, agentNames)?.displayName}
           tags={tagsOf(node, section, parent)}
           depth={depth}
           childCount={node.children.length}
@@ -336,6 +331,7 @@ export const ProjectsPage = observer(function ProjectsPage({
             className="gg-aw-list"
             data-testid={section.pinned ? 'agent-watch-pinned-section' : 'agent-watch-session-group'}
             data-project-id={section.project?.id}
+            data-section-key={key}
             data-collapsed={isCollapsed ? 'true' : 'false'}
             data-assistant={section.assistant ? 'true' : undefined}
           >

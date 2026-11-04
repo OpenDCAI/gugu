@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { AgentDisplayStatus } from '@gugu/core/shared/types/chat'
+import type { AgentDisplayStatus, GroupChatSettings } from '@gugu/core/shared/types/chat'
+import { chatService } from '../../../apps/desktop/src/lib/chat'
 import { ChatListPanel, TopicSubRow } from '../../../apps/desktop/src/components/ChatListPanel'
 import { chat, clickElement, createNode, createReactHarness, renderWithAppProviders, typeInto } from '../../support/testHarness'
 
-const state = vi.hoisted(() => ({ statuses: {} as Record<string, AgentDisplayStatus>, read: vi.fn(async (_input: { chats: { id: string }[] }) => ({ failedChats: 0 })), select: vi.fn(), open: vi.fn(async () => {}) }))
+const state = vi.hoisted(() => ({ canDissolve: true, statuses: {} as Record<string, AgentDisplayStatus>, read: vi.fn(async (_input: { chats: { id: string }[] }) => ({ failedChats: 0 })), select: vi.fn(), open: vi.fn(async () => {}) }))
 vi.mock('../../../apps/desktop/src/lib/chatUnreadLocator', async original => ({ ...await original<typeof import('../../../apps/desktop/src/lib/chatUnreadLocator')>(), markChatsReadAndRefresh: state.read }))
 vi.mock('../../../apps/desktop/src/platform', () => import('../../support/capacitorPlatformTestDouble'))
 vi.mock('../../../apps/desktop/src/hooks/useAgentDisplayStatus', async () => ({
@@ -17,7 +18,16 @@ vi.mock('../../../apps/desktop/src/store/devicesContext', () => ({
 }))
 
 let h: ReturnType<typeof createReactHarness>
-beforeEach(() => { h = createReactHarness(); state.statuses = {}; vi.clearAllMocks() })
+beforeEach(() => {
+  h = createReactHarness(); state.statuses = {}; state.canDissolve = true; vi.clearAllMocks()
+  vi.spyOn(chatService, 'getGroupChatSettings').mockImplementation(async id => ({
+    id, creator_user_id: 'user-1', name: 'Planning', status: 'active', group_prompt: null,
+    default_agent_type: null, description: null, max_members: 100, allow_member_invite: false,
+    invite_link_enabled: false, agent_join_approval: false, join_mode: 'approval', hide_history: false,
+    avatar_url: null, is_discoverable: false, agent_flood_threshold: null, agent_flood_threshold_effective: 5,
+    my_role: 'owner', can_manage: true, can_dissolve: state.canDissolve, can_archive_topic: false,
+  } satisfies GroupChatSettings))
+})
 afterEach(() => { vi.useRealTimers(); h.cleanup() })
 const source = chat({ id: 'group', kind: 'group', name: 'Planning', unread_count: 2, member_user_ids: ['task-agent'] })
 const topic = chat({ id: 'task-topic', kind: 'topic', name: 'Fix login', source_chat_id: source.id, unread_count: 8 })
@@ -102,6 +112,16 @@ it('phone group long-press reuses all row actions and marks only the group and d
   await clickElement(readAction())
   expect(state.read).toHaveBeenCalledOnce()
   expect(state.read.mock.calls[0][0].chats.map(chat => chat.id)).toEqual(['group', 'task-topic'])
+})
+
+it('phone group long-press keeps personal actions but omits deletion when the server denies dissolution', async () => {
+  state.canDissolve = false
+  await render(true)
+  await hold(row())
+  expect(document.querySelector('[data-testid=conversation-row-delete-chat]')).toBeNull()
+  expect(readAction()).not.toBeNull()
+  expect(document.querySelector('[data-testid=conversation-row-pin]')).not.toBeNull()
+  expect(state.select).not.toHaveBeenCalled()
 })
 
 it('phone topic long-press marks its own scope and leaves the parent unread', async () => {

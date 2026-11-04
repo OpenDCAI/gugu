@@ -4,8 +4,13 @@ import { join } from 'node:path';
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
+import { sessionDirectMessageId, stableUuid } from './session-direct-identity';
 
-const mocks = vi.hoisted(() => ({ db: undefined as AppDb | undefined }));
+const mocks = vi.hoisted(() => ({
+  db: undefined as AppDb | undefined,
+  // session-life owns ACP sessions; here only its enqueue boundary is observed.
+  enqueue: vi.fn((_input: Record<string, unknown>): { seq: number; state: string } => ({ seq: 1, state: 'queued' })),
+}));
 
 vi.mock('@main/db/client', () => ({
   get db() {
@@ -19,13 +24,20 @@ vi.mock('@gugu/session-plugins/agents', () => ({
 vi.mock('@main/core/projects/utils', () => ({ resolveSession: () => null }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
+vi.mock('./session-life', () => ({ sessionLife: () => ({ enqueue: mocks.enqueue }) }));
 
 import {
   claimInterruptedDispatches,
+  drainAllSessionMessageOutboxes,
+  drainSessionMessageOutbox,
   sendMessage,
+  rejectPendingSessionDirectMessage,
+  listPendingSessionDirectMessages,
 } from './sendMessage';
 import { setSessionMessageRouter } from './session-message-router';
 
+// Retargeted to a PTY session (runtime null): the legacy SQLite outbox now serves only non-ACP sessions;
+// ACP sessions go to session-life's queue (covered by session-pending.db.test.ts and the owner cases).
 describe('conversation message SQLite outbox', () => {
   let fixture: Awaited<ReturnType<typeof openFixture>>;
   const target = {
@@ -38,22 +50,35 @@ describe('conversation message SQLite outbox', () => {
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
         VALUES (
           'conversation-1',
           'project-1',
-          'Conversation',
           'codex',
-          'acp',
-          '{"version":"1","type":"acp"}'
+          NULL,
+          '{"version":"1","type":"pty"}'
         );
     `);
+    mocks.enqueue.mockClear();
   });
 
   afterEach(() => {
+    expect(mocks.enqueue, 'a non-ACP session never reaches session-life').not.toHaveBeenCalled();
     setSessionMessageRouter(null);
     fixture.close();
     mocks.db = undefined;
+  });
+
+  it('a reader rejection replaces a retained local message with a failed receipt, never an accepted one', async () => {
+    setSessionMessageRouter(async () => ({ status: 'not-ready', preserve: true, reason: 'not ready' }));
+    const input = { ...target, clientMessageId: 'rejected-local', text: 'invalid input', kind: 'session-direct' as const };
+    await expect(sendMessage(input)).rejects.toThrow(/kept/);
+    expect(listPendingSessionDirectMessages(target.sessionId)).toHaveLength(1);
+    rejectPendingSessionDirectMessage(target.sessionId, input.clientMessageId, new Error('invalid payload'));
+    expect(listPendingSessionDirectMessages(target.sessionId)).toEqual([]);
+    expect(fixture.sqlite.prepare("SELECT json_extract(metadata, '$.state') AS state FROM messages WHERE id = ?").get(input.clientMessageId)).toEqual({ state: 'failed' });
+    expect(() => rejectPendingSessionDirectMessage(target.sessionId, input.clientMessageId, new Error('invalid payload'))).not.toThrow();
+    await expect(sendMessage(input)).rejects.toThrow(/previously failed/);
   });
 
   it('records a live session-direct only in the recipient timeline', async () => {
@@ -71,6 +96,20 @@ describe('conversation message SQLite outbox', () => {
       .prepare("SELECT json_extract(config, '$.messageOutbox') AS outbox FROM sessions WHERE id = ?")
       .get(target.sessionId)).toEqual({ outbox: null });
     expect(claimInterruptedDispatches()).toBe(0);
+  });
+
+  it('delivers a host update notice once when the same exit is recovered twice', async () => {
+    const inject = vi.fn(async (_sessionId: string, message: { id: string }) => ({ status: 'accepted' as const, messageId: message.id }));
+    setSessionMessageRouter(inject);
+    const at = 1_793_598_000_000;
+    const receipt = { delivery_id: stableUuid(['host:update', 'update-interrupted', String(at)]), delivery_at: new Date(at).toISOString() };
+    const id = sessionDirectMessageId('host:update', target.sessionId, receipt);
+    for (let boot = 0; boot < 2; boot++) {
+      expect(await sendMessage({ ...target, clientMessageId: id, text: 'Your work was interrupted by an update.', kind: 'session-direct' }))
+        .toMatchObject({ id, status: 'delivered' });
+    }
+    expect(inject).toHaveBeenCalledOnce();
+    expect(fixture.sqlite.prepare('SELECT id FROM messages WHERE id = ?').all(id)).toEqual([{ id }]);
   });
 
   // 复核 139:恢复失败时发信方要看到原因,并知道消息已经留下(照「not live」重发,恢复后收件方收到两遍)。
@@ -131,5 +170,78 @@ describe('conversation message SQLite outbox', () => {
     expect(fixture.sqlite
       .prepare('SELECT id FROM messages WHERE id IN (?, ?) ORDER BY id')
       .all('direct-1', 'direct-2')).toHaveLength(2);
+  });
+});
+
+describe('ACP sessions: sendMessage hands the message to session-life', () => {
+  let fixture: Awaited<ReturnType<typeof openFixture>>;
+  const target = { projectId: 'project-1', sessionId: 'acp-1' };
+  const router = vi.fn();
+  const outbox = () => fixture.sqlite
+    .prepare("SELECT json_extract(config, '$.messageOutbox') AS outbox FROM sessions WHERE id = ?")
+    .get(target.sessionId);
+
+  beforeEach(async () => {
+    fixture = await openFixture('empty');
+    mocks.db = fixture.db;
+    fixture.sqlite.exec(`
+      INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
+      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
+        VALUES ('acp-1', 'project-1', 'Conversation', 'codex', 'acp', '{"version":"1","type":"acp"}');
+    `);
+    mocks.enqueue.mockReset();
+    router.mockReset();
+    setSessionMessageRouter(router);
+  });
+
+  afterEach(() => {
+    // The legacy transport and outbox never see an ACP message.
+    expect(router).not.toHaveBeenCalled();
+    expect(outbox()).toEqual({ outbox: null });
+    setSessionMessageRouter(null);
+    fixture.close();
+    mocks.db = undefined;
+  });
+
+  it('enqueues the exact message (id, text, kind, delivery) and nothing else', async () => {
+    mocks.enqueue.mockReturnValueOnce({ seq: 1, state: 'queued' });
+    const delivery = { queue: true as const, coalesceKey: 'session:caller:paper' };
+    await expect(sendMessage({ ...target, clientMessageId: 'm-1', text: 'paper 5', kind: 'session-direct', delivery }))
+      .resolves.toEqual({ id: 'm-1', status: 'queued' });
+    expect(mocks.enqueue).toHaveBeenCalledExactlyOnceWith({
+      sessionId: 'acp-1', messageId: 'm-1', text: 'paper 5', kind: 'session-direct', delivery,
+    });
+
+    mocks.enqueue.mockReturnValueOnce({ seq: 2, state: 'queued' });
+    await sendMessage({ ...target, clientMessageId: 'm-2', text: 'hello' });
+    expect(mocks.enqueue).toHaveBeenLastCalledWith({ sessionId: 'acp-1', messageId: 'm-2', text: 'hello', kind: 'ordinary' });
+    expect(fixture.sqlite.prepare('SELECT id FROM messages').all()).toEqual([]);
+  });
+
+  it.each([
+    ['queued', 'queued'],
+    ['dispatching', 'queued'],
+    ['accepted', 'delivered'],
+    ['unknown', 'outcome-unknown'],
+  ] as const)('maps a %s receipt to %s', async (state, status) => {
+    mocks.enqueue.mockReturnValueOnce({ seq: 1, state });
+    await expect(sendMessage({ ...target, clientMessageId: 'm', text: 'hi', kind: 'session-direct' }))
+      .resolves.toEqual({ id: 'm', status });
+  });
+
+  it('a message whose receipt already failed is a caller-visible failure', async () => {
+    mocks.enqueue.mockReturnValueOnce({ seq: 1, state: 'failed' });
+    await expect(sendMessage({ ...target, clientMessageId: 'm-failed', text: 'hi', kind: 'session-direct' }))
+      .rejects.toMatchObject({ code: 'SESSION_DIRECT_NOT_LIVE', message: expect.stringContaining('m-failed already failed') });
+  });
+
+  it('the legacy outbox refuses an ACP session and the boot sweep skips it', async () => {
+    await expect(drainSessionMessageOutbox(target)).rejects.toThrow('owned by session-life');
+    // A stale legacy row left on an ACP session is not replayed by the boot sweep.
+    fixture.sqlite.prepare("UPDATE sessions SET config = ? WHERE id = 'acp-1'")
+      .run(JSON.stringify({ version: '1', type: 'acp', messageOutbox: [{ id: 'stale', text: 'old', kind: 'ordinary', state: 'pending' }] }));
+    await expect(drainAllSessionMessageOutboxes()).resolves.toBeUndefined();
+    expect(JSON.parse((outbox() as { outbox: string }).outbox)).toEqual([{ id: 'stale', text: 'old', kind: 'ordinary', state: 'pending' }]);
+    fixture.sqlite.prepare("UPDATE sessions SET config = ? WHERE id = 'acp-1'").run('{"version":"1","type":"acp"}');
   });
 });

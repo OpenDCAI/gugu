@@ -4,7 +4,7 @@
  * 进程仍以 ELECTRON_RUN_AS_NODE=1 跑 Electron 二进制,原生模块因此保持 Electron 的 ABI。
  * ipcMain / MessageChannelMain 故意抛错:无头模式的 IPC 必须走注入的 getHostIpc() 抽象。
  */
-import { spawn } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
@@ -151,7 +151,8 @@ function openWithPlatformOpener(target: string): void {
       : process.platform === 'win32'
         ? (['cmd', ['/c', 'start', '', target]] as const)
         : (['xdg-open', [target]] as const)
-  const child = spawn(command, [...args], { detached: true, stdio: 'ignore' })
+  // 用系统默认程序打开:起的是要人看见的那个程序。
+  const child = spawn(command, [...args], { detached: true, stdio: 'ignore', windowsHide: false })
   // 打不开(如无 xdg-open)只记日志:未监听的 'error' 事件会把整个宿主进程打死。
   child.on('error', (error) =>
     process.stderr.write(`[headless] opener failed ${command}: ${String(error)}\n`)

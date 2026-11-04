@@ -143,9 +143,7 @@ export default {
     },
     "title": "新建 Agent",
     "unfinishedSweep": {
-      "cancelled": "上次有一个 Agent 没建完，已取消。请重新创建。",
       "cancelledWithWarning": "上次有一个 Agent 没建完，已取消，但{{steps}}没有做干净。请重新创建。",
-      "completed": "上次没建完的 Agent「{{name}}」其实已经建好，已加入消息列表。",
       "pending": "上次有一个 Agent 没建完，取消还没做完（{{steps}}没有做干净），下次启动会再试。",
       "pendingError": "上次有一个 Agent 没建完，这次没能取消，下次启动会再试。"
     },
@@ -360,7 +358,7 @@ export default {
       "noDevice": "这个 Agent 没有绑定运行设备，模型选择无处生效。",
       "catalogUnavailable": "咕咕模型暂不可用，可先用 Agent 自带模型。",
       "noPlatformForEngine": "这个 Agent 的引擎不支持咕咕提供的模型，只能沿用它自己的配置。",
-      "liveSessionHint": "若这个 Agent 正有会话在跑：能当场切换的当场切换；否则会重开会话，正在跑的那一轮会被打断。在咕咕提供的模型与自己的模型之间切换时，部分引擎会另起一条新会话；咕咕里的对话记录都保留。"
+      "liveSessionHint": "若这个 Agent 正有会话在跑：能当场切换的当场切换；否则会重开会话，正在进行的回复会被打断。在咕咕提供的模型与自己的模型之间切换时，部分引擎会另起一条新会话；咕咕里的对话记录都保留。"
     },
     "nav": {
       "aiModel": "AI 模型",
@@ -377,11 +375,9 @@ export default {
       "avatar": "头像",
       "bio": "简介",
       "bioPlaceholder": "描述这个 Agent 的能力（可选）",
-      "confirmDelete": "确认删除 Agent「{{name}}」？此操作不可恢复。",
-      "deleteAgent": "删除 Agent",
-      "deleted": "已删除 Agent",
-      "deleteFailed": "Agent 删除失败。请重试。",
-      "deleting": "删除中…",
+      "deleteAgent": "归档任务",
+      "deleteFailed": "归档任务失败，请重试。",
+      "deleting": "归档中…",
       "emptyFile": "头像文件不能为空",
       "idLabel": "Agent ID",
       "invalidType": "头像必须是 PNG、JPEG、GIF 或 WebP 图片",
@@ -420,7 +416,7 @@ export default {
       "daysLater_one": "{{count}} 天后",
       "daysLater_other": "{{count}} 天后",
       "delete": "删除任务",
-      "deleteFailed": "删除失败",
+      "deleteFailed": "归档任务失败，请重试。",
       "empty": "暂无定时任务",
       "enable": "启用",
       "everyDays": "每 {{count}} 天",

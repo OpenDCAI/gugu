@@ -1,5 +1,5 @@
 import { Plus, RotateCcw, X } from '@/lib/icons'
-import { Minus } from 'lucide-react'
+import { Minus } from '@/lib/icons'
 import React, { useEffect, useState } from 'react';
 import {
   TransformComponent,

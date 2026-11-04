@@ -12,6 +12,11 @@ const provision = vi.hoisted(() => ({
   createResumeStore: vi.fn(() => ({ list: () => [], forget: (...args: unknown[]) => provision.forget(...args) })),
 }))
 vi.mock('../../../../apps/desktop/src/lib/agentProvision', () => provision)
+const identity = vi.hoisted(() => ({ platform: {
+  getLocalDeviceSelfSnapshot: undefined as undefined | (() => Promise<{ device_id: string } | null>),
+  subscribeLocalDeviceIdentified: undefined as undefined | ((listener: () => void) => () => void),
+} }))
+vi.mock('../../../../apps/desktop/src/platform', () => identity)
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ getCurrentAuthUserId: vi.fn(async () => 'owner') }))
 const ipc = vi.hoisted(() => ({ invoke: vi.fn(async () => ({ workdir: '/home/assistant', home: '/home' })) }))
 vi.mock('../../../../apps/desktop/src/platform/desktopIpc', () => ({ desktopIpc: () => ipc }))
@@ -38,11 +43,26 @@ function deferred<T>() {
 }
 
 afterEach(() => {
+  identity.platform.getLocalDeviceSelfSnapshot = undefined
+  identity.platform.subscribeLocalDeviceIdentified = undefined
   vi.clearAllMocks()
   vi.unstubAllEnvs()
 })
 
 describe('local assistant setup runs once at a time on this computer (#7348)', () => {
+  it('waits for local identification instead of treating a cold-starting local host as a server', async () => {
+    let notify!: () => void
+    let known = false
+    identity.platform.getLocalDeviceSelfSnapshot = async () => known ? { device_id: 'local' } : null
+    identity.platform.subscribeLocalDeviceIdentified = listener => { notify = listener; return () => {} }
+    provision.resumeSingleAgent.mockResolvedValueOnce(completed('local-assistant'))
+    const resumed = resumeLocalAssistant({ operationId: 'recover', deviceId: 'local', ownerUserId: 'owner', members: [{ provisionId: 'member' }] } as never)
+    await vi.waitFor(() => expect(notify).toBeTypeOf('function'))
+    expect(ipc.invoke).not.toHaveBeenCalled()
+    known = true; notify()
+    await expect(resumed).resolves.toMatchObject({ agentUserId: 'local-assistant' })
+    expect(ipc.invoke).toHaveBeenCalledWith('assistant-home:prepare', {})
+  })
   it('uses the configured harness default when the official model provider is disabled', async () => {
     vi.stubEnv('GUGU_PLATFORM_MODELS_ENABLED', 'false')
     provision.provisionSingleAgent.mockResolvedValueOnce(completed('local-assistant'))
@@ -120,6 +140,12 @@ describe('assistant setup appearance', () => {
     provision.provisionSingleAgent.mockResolvedValueOnce(completed('new-assistant'))
     await setUpAssistantOnThisComputer(selected, 'device-1')
     expect(parseAgentLook(provision.provisionSingleAgent.mock.calls[0][1].avatar)).toEqual({ color: 9, rest: 'happy', wear: [{ id: 'set-puppy', cw: 0 }] })
+  })
+
+  it('cloud setup carries the UI language (the assistant\'s welcome line is written in it)', async () => {
+    const { getLocaleSnapshot } = await import('../../../../apps/desktop/src/i18n')
+    await claimCloudAssistant({ ...draft, ...DEFAULT_ASSISTANT_LOOK })
+    expect(vi.mocked(provisionCloudComputer).mock.calls[0][0]?.assistant).toMatchObject({ locale: getLocaleSnapshot().resolvedLocale })
   })
 
   it('sends the same plain default to cloud setup', async () => {

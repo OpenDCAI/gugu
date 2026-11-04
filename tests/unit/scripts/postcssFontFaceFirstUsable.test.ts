@@ -1,6 +1,6 @@
 import postcss from 'postcss'
 import { describe, expect, it } from 'vitest'
-import fontFaceFirstUsable, { firstUsableFontSrc } from '../../../scripts/postcss-font-face-first-usable.mjs'
+import fontFaceFirstUsable, { firstUsableFontSrc } from '../../../scripts/build/postcss-font-face-first-usable.mts'
 
 const run = (css: string) => postcss([fontFaceFirstUsable()]).process(css, { from: 'test.css' }).css
 

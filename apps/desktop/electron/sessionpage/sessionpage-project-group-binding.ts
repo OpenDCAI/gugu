@@ -87,7 +87,7 @@ async function readGroupState(chat: ChatClient, chatId: string, ownerUserId: str
   if (row.kind !== 'group') return 'not-a-group'
   if (row.status === 'archived') return 'archived'
   const { data: me, error: meError } = await chat
-    .from('chat_members')
+    .from('active_members')
     .select('user_id')
     .eq('chat_id', chatId)
     .eq('user_id', ownerUserId)
@@ -151,7 +151,7 @@ export async function ensureProjectNoticeAccess(
     state = await readGroupState(chat, chatId, auth.userId)
   }
   if (state !== 'active') throw new ProjectGroupCloudError(`项目群不可用: ${state}`)
-  const member = await chat.from('chat_members').select('user_id').eq('chat_id', chatId).eq('user_id', agentUserId).maybeSingle()
+  const member = await chat.from('active_members').select('user_id').eq('chat_id', chatId).eq('user_id', agentUserId).maybeSingle()
   if (member.error) throw new ProjectGroupCloudError(member.error.message)
   if (member.data) return
   if (!founding) throw new ProjectGroupCloudError('操作 agent 已不在项目群中；明确重新加入后才能发布群通知')

@@ -1,6 +1,6 @@
 /**
  * 「文件存储与读取」(owner 10-27):一个人一份,不按群设。存在账号设置(identity.user_settings,scope 'user')的
- * file_storage 一格;项目群跟着「项目所在那台机器的主人」的这一份走,后端在用到时现读(chat.file_storage_policy)。
+ * file_storage 一格;发文件的人用自己这一份(项目群没有 host),后端在用到时现读(chat.file_storage_of)。
  * 取值与后端的 CHECK 是同一张表,缺省值也一样:没设过 = 默认。读写库在 app 侧(apps/desktop/src/lib/fileStorage.ts)。
  */
 
@@ -17,7 +17,7 @@ export type FileStorage = {
   /** 项目群里的图片发送时上传,留多久。 */
   image_retention: (typeof IMAGE_RETENTIONS)[number]
   /**
-   * 标成「临时」的文件留多久(owner 10-28:数据层与图片分开存,设置上共用一个控件)。项目群用机器主人的这一格,其他群用上传者自己的。
+   * 标成「临时」的文件留多久(owner 10-28:数据层与图片分开存,设置上共用一个控件)。用上传者自己的这一格。
    */
   temporary_retention: (typeof IMAGE_RETENTIONS)[number]
 }

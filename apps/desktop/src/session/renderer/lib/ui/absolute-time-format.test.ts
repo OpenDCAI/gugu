@@ -15,7 +15,7 @@ describe('formatAbsoluteTime', () => {
     expect(formatAbsoluteTime(at, 'zh', { now, includeYear: true })).toBe('2026年10月15日 07:07');
   });
 
-  it('阴控 —— 英文界面保持原来的写法', () => {
-    expect(formatAbsoluteTime(at, 'en', { now })).toBe('Oct 15, 07:07');
+  it('英文界面:月份缩写,时刻跟 locale 的 12 小时制', () => {
+    expect(formatAbsoluteTime(at, 'en', { now })).toBe('Oct 15, 07:07 AM');
   });
 });

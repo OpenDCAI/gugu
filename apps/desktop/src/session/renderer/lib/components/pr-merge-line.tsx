@@ -1,5 +1,5 @@
 import { ArrowRight } from '@/lib/icons'
-import { GitBranch } from 'lucide-react'
+import { GitBranch } from '@/lib/icons'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
 import type { PullRequest } from '@shared/core/pull-requests/pull-requests';

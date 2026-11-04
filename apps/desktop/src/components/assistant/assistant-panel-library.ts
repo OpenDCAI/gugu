@@ -39,7 +39,7 @@ export function assistantPanelLibrary(panel: AssistantPanelFiles) {
     async save(change: UserLibraryWrite): Promise<UserLibraryEntry> {
       const collection = assistantPanelCollection(await panel.snapshot(),domain(change.kind),panel.deviceId)
       const existing = collection.items.find(row => row.resource_key === change.id)
-      if (change.expectedModifiedAt && (!existing || metadata(existing).modifiedAt !== change.expectedModifiedAt)) throw new AssistantPanelError('40001','PANEL_RESOURCE_CHANGED')
+      if (change.expectedModifiedAt && (!existing || metadata(existing).modifiedAt !== change.expectedModifiedAt)) throw new AssistantPanelError('PT409','PANEL_RESOURCE_CHANGED')
       const id = change.id ?? crypto.randomUUID(), modifiedAt = new Date().toISOString()
       await panel.put(domain(change.kind),id,{ name: change.name,description: change.description,group: change.group,modifiedAt,contentFormat: 'markdown' },
         new TextEncoder().encode(change.content),existing?.revision ?? '0')

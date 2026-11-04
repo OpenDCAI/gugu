@@ -1,3 +1,4 @@
+import { sessionBootTasks } from '../boot-tasks';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { messages, sessions } from '@main/db/schema';
@@ -183,11 +184,11 @@ export function sessionIsWorking(sessionId: string): boolean {
 
 /** 开机收残那一步(与 `claimInterruptedDispatches` 同一道闸、同一条规则):上一个进程投到一半的附带认领为 `outcome-unknown`。 */
 export function claimInterruptedDeferredMessages(): number {
-  const interrupted = db.select({ id: messages.id })
+  const interrupted = db.select({ id: messages.id, sessionId: messages.sessionId })
     .from(messages)
     .where(and(sql`json_extract(${messages.metadata}, '$.defer') = 1`, sql`json_extract(${messages.metadata}, '$.state') = 'dispatching'`))
     .all();
-  const claimed = interrupted.filter((row) => setState(row.id, 'dispatching', 'outcome-unknown')).length;
+  const claimed = interrupted.filter((row) => sessionBootTasks.runSync('deferred-recovery', row.sessionId, () => setState(row.id, 'dispatching', 'outcome-unknown'))).length;
   if (claimed) log.warn('claimed interrupted deferred-message dispatches as outcome-unknown', { count: claimed });
   return claimed;
 }
@@ -207,9 +208,9 @@ export function installDeferredMessageDelivery(writer: {
   const retry = new Set<string>();
   const flush = (sessionId: string) => {
     retry.delete(sessionId);
-    void flushDeferredMessages(sessionId, (keptBack) => {
+    void sessionBootTasks.run('deferred-drain', sessionId, () => flushDeferredMessages(sessionId, (keptBack) => {
       if (keptBack && last.get(sessionId) === 'working') retry.add(sessionId);
-    });
+    }));
   };
   const waiting = db.selectDistinct({ sessionId: messages.sessionId, status: sessions.agentStatus })
     .from(messages)

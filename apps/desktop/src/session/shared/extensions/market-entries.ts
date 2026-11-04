@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { compareExtensionVersions, safeParseExtensionManifest, type ExtensionManifest } from './manifest';
 import { forkBehind } from './variants';
 import { appPlatformDeclarationProblems } from './app-platforms';
@@ -30,12 +31,13 @@ export interface InvalidMarketRow {
 export function marketEntriesFrom(
   apps: readonly MarketIndexApp[],
   host: MarketHost,
-  urlOf: (relativePath: string) => string
+  urlOf: (relativePath: string) => string,
+  hostApi?: MarketIndex['hostApi']
 ): { extensions: CloudMarketEntry[]; invalid: InvalidMarketRow[] } {
   const extensions: CloudMarketEntry[] = [];
   const invalid: InvalidMarketRow[] = [];
   for (const app of apps) {
-    const picked = pickForHost(app.versions.filter((version) => appPlatformDeclarationProblems(version.manifest, host.platform).length === 0), host);
+    const picked = pickForHost(app.versions.filter((version) => appPlatformDeclarationProblems(version.manifest, host.platform).length === 0), host, hostApi);
     if (!picked.chosen) {
       const live = app.versions.filter((version) => !version.yanked);
       if (live.length && live.every((version) => appPlatformDeclarationProblems(version.manifest).length > 0)) {
@@ -95,7 +97,10 @@ function entryFrom(
   };
 }
 
-/** 这台宿主读不懂的 manifest(协议号更新):只取名字、简介、作者画卡片。 */
+/**
+ * 这台宿主读不懂的 manifest(协议号更新,或早于最低支持的那一版):只取名字、副标题、作者画卡片。
+ * 它的语言 manifest 没说(早于 `defaultLocale`)就写 `und`(BCP 47 的「未定」),❌ 冠上界面语言。
+ */
 function placeholderManifest(id: string, version: MarketIndexVersion): ExtensionManifest {
   const raw = (version.manifest ?? {}) as Record<string, unknown>;
   const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name : id;
@@ -106,7 +111,8 @@ function placeholderManifest(id: string, version: MarketIndexVersion): Extension
     apiVersion: version.apiVersion,
     entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: name }] },
-    ...(typeof raw.description === 'string' ? { description: raw.description } : {}),
+    defaultLocale: typeof raw.defaultLocale === 'string' ? raw.defaultLocale : 'und',
+    ...(typeof raw.subtitle === 'string' ? { subtitle: raw.subtitle } : {}),
     ...(typeof raw.author === 'string' ? { author: raw.author } : {}),
     ...(Array.isArray(raw.platforms) ? { platforms: raw.platforms as NonNullable<ExtensionManifest['platforms']> } : {}),
   };
@@ -125,7 +131,7 @@ export function marketUpdatesFrom(
   const summary: MarketUpdatesSummary & { gone: string[] } = { checkedAt, updates: {}, yanked: {}, deprecated: {}, gone: [] };
   const ids = new Set(installed.map((entry) => entry.id));
   const apps = index.apps.filter((app) => ids.has(app.id));
-  const { extensions } = marketEntriesFrom(apps, host, (relativePath) => relativePath);
+  const { extensions } = marketEntriesFrom(apps, host, (relativePath) => relativePath, index.hostApi);
   const offeredById = new Map(extensions.map((entry) => [entry.manifest.id, entry]));
   for (const { id, version, fromMarket, forkBase } of installed) {
     const app = apps.find((entry) => entry.id === id);
@@ -157,7 +163,7 @@ export function marketUpdatesFrom(
 }
 
 /** 一个 App 的全部版本,最新的在前;每一版带这台机器装不装得了、撤回没有(产品页的版本历史、手机的「其他版本」)。 */
-export function marketHistoryFrom(app: MarketIndexApp | null, host: MarketHost): MarketVersionHistoryEntry[] {
+export function marketHistoryFrom(app: MarketIndexApp | null, host: MarketHost, hostApi?: MarketIndex['hostApi']): MarketVersionHistoryEntry[] {
   return (app?.versions ?? [])
     .slice()
     .sort((a, b) => compareExtensionVersions(b.version, a.version))
@@ -168,7 +174,7 @@ export function marketHistoryFrom(app: MarketIndexApp | null, host: MarketHost):
       apiVersion: version.apiVersion,
       minAppVersion: version.minAppVersion,
       yanked: version.yanked,
-      compat: compatOf(version, host),
+      compat: compatOf(version, host, hostApi),
       platformRefusal: appPlatformDeclarationProblems(version.manifest, host.platform).join('; ') || null,
     }));
 }
@@ -197,4 +203,30 @@ export function autoUpdatesFrom(
  */
 export function pinsAutoUpdate(installedVersion: string, offeredVersion: string | null): boolean {
   return offeredVersion !== null && isUpdateFor(installedVersion, offeredVersion);
+}
+
+/**
+ * 一版的产品页内容(App 模型 v2):关于(每种语言一份,键是 manifest 的 `defaultLocale` 和 `localized` 的标签)和截图地址。
+ * 发布时从源码的 `store/` 读出、核过(app-listing.ts),写进下载站上这一版的 meta(索引仓 sync.mjs 写 `meta/<id>/<版本>.json`);
+ * 不进安装包,所以本机装的 App 没有它。这一版的「新功能」不在这里:它是目录里每一版的 `releaseNotes`。
+ */
+export interface MarketListing {
+  about: Record<string, string>;
+  /** 下载站上的地址,按文件名排好。 */
+  screenshots: string[];
+}
+
+/** 下载站上一版的 meta 在哪(sync.mjs 的 `metaKey`)。 */
+export const marketMetaPath = (extensionId: string, version: string) => `meta/${extensionId}/${version}.json`;
+
+const marketListingSchema = z.object({
+  about: z.record(z.string(), z.string().min(1)),
+  screenshots: z.array(z.string().regex(/^media\/[\w.\-/]+$/)).min(1),
+});
+
+/** meta 的原文 → 产品页内容。早于产品页内容的版本(meta 里没有)当场说清楚,❌ 当成空的。 */
+export function marketListingFrom(metaText: string, extensionId: string, version: string, urlOf: (relativePath: string) => string): MarketListing {
+  const parsed = marketListingSchema.safeParse(JSON.parse(metaText));
+  if (!parsed.success) throw new Error(`${extensionId}@${version} has no store listing in the market (published before store/): ${parsed.error.issues.map((issue) => issue.path.join('.') || issue.message).join(', ')}`);
+  return { about: parsed.data.about, screenshots: parsed.data.screenshots.map(urlOf) };
 }

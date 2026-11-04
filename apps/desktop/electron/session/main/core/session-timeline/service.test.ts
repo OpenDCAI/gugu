@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { awaitFact } from '../../../../../../../tests/support/awaitFact';
 import * as asks from '../asks';
+import { askInstallInSession } from '../extensions/consent-in-session';
+import { answerAppInstall } from '@renderer/features/extensions/app-install-approval';
+import { EXTENSION_API_VERSION_MIN_SUPPORTED } from '@shared/extensions/manifest';
+import type { AppInstallAsk } from '@shared/extensions/host-actions';
 import type { QueuedPrompt } from '@gugu/session-core/acp/client';
 import type {
   PendingRequest,
@@ -31,6 +39,7 @@ const state = vi.hoisted(() => ({
   schedules: [] as unknown[],
   deliverText: vi.fn(),
   nativeUnread: [] as string[],
+  notificationEpoch: 0,
   storedHistory: vi.fn(),
   deliverPermission: vi.fn(),
   prepareQuestion: vi.fn(),
@@ -57,6 +66,8 @@ const state = vi.hoisted(() => ({
 }));
 
 const persistedQuestions = vi.hoisted(() => new Map<string, Settlement[]>());
+vi.mock('../extensions/extension-bridge-relay', () => ({ requestExtensionInstallConsent: vi.fn(), closeExtensionInstallConsent: vi.fn() }));
+vi.mock('@renderer/features/extensions/install-consent', () => ({ askInShell: vi.fn(), installConsentPrompt: vi.fn() }));
 vi.mock('../sessions/agent-question-store', () => ({
   readAgentQuestionRecords: (id: string) => persistedQuestions.get(id) ?? [],
   rememberAgentQuestion: (id: string, item: PendingRequest | Settlement) => {
@@ -69,7 +80,10 @@ vi.mock('../sessions/agent-question-store', () => ({
   },
 }));
 
-vi.mock('../sessions/session-conversation-read', () => ({ nativeConversationUnread: () => state.nativeUnread, nativeConversationAliases: () => ({}) }));
+vi.mock('../sessions/session-conversation-read', () => ({ nativeConversationUnread: () => state.nativeUnread, nativeConversationAliases: () => ({}), nativeOwnerNotificationUnread: () => [] }));
+const notificationFiles = vi.hoisted(() => new Map<string, string[]>());
+vi.mock('../sessions/owner-notifications', () => ({ ownerNotificationHead: () => undefined, ownerNotificationFile: (sessionId: string, path: string) => notificationFiles.get(sessionId)?.includes(path) ?? false }));
+vi.mock('../sessions/owner-notification-state', () => ({ ownerNotificationEpoch: () => state.notificationEpoch }));
 vi.mock('../sessions/session-conversation-activity', () => ({ nativeConversationActivity: () => null }));
 
 vi.mock('../sessions/session-turn-store', () => ({ getStoredHistory: (...args: unknown[]) => state.storedHistory(...args), getStoredToolImage: vi.fn() }));
@@ -81,7 +95,10 @@ vi.mock('@main/db/client', () => ({
         innerJoin: () => ({
           where: () => ({ all: () => state.rows.map((row) => ({ ...row })) }),
         }),
-        where: () => ({ orderBy: () => ({ all: () => state.projects.map((project) => ({ ...project })) }) }),
+        where: () => ({ orderBy: () => ({ all: () => [...new Map([
+          ...state.rows.map(row => [row.project.id, row.project] as const),
+          ...state.projects.map(project => [project.id, project] as const),
+        ]).values()].map(project => ({ ...project })) }) }),
       }),
     }),
   },
@@ -89,10 +106,6 @@ vi.mock('@main/db/client', () => ({
 
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 const openedOutputs = vi.hoisted(() => new Map<string, ({ kind: 'file'; path: string } | { kind: 'page'; url: string })[]>());
-const attachmentCopies = vi.hoisted(() => new Map<string, string>());
-vi.mock('../sessions/attachments/session-attachment-store', () => ({
-  findSessionAttachmentCopy: async (sessionId: string, path: string) => attachmentCopies.get(`${sessionId}:${path}`) ?? null,
-}));
 vi.mock('../sessions/session-outputs', () => ({
   sessionOutputs: async (sessionId: string) => openedOutputs.get(sessionId) ?? [],
   sessionOpenedFile: async (sessionId: string, path: string) =>
@@ -198,12 +211,15 @@ vi.mock('@main/core/agents/session-discovery', () => ({
 // 真实现要把平台模型目录、agent 控制器一起拉进来;这一组只问「附没附上菜单」。
 vi.mock('./session-model-menu', () => ({
   readSessionModelMenu: async (sessionId: string) => ({ agentName: `menu-of-${sessionId}`, platformModels: [], ownCatalog: null, ownAuth: null }),
+  readSessionPermissionAgentName: async (providerId: string) => `host-name-of-${providerId}`,
 }));
 
 // 本机名录:只有 conv-1 有 agent 身份。
 const roster = vi.hoisted(() => ({ read: async (): Promise<Map<string, string>> => new Map([['conv-1', 'user:agent-1']]) }));
 vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({
   agentIdsBySession: () => roster.read(),
+  // The same roster read, with each agent's private chat with the person (conv-1's is dm-1).
+  sessionAgents: async () => new Map([...(await roster.read())].map(([sessionId, agentId]) => [sessionId, { agentId, chatId: sessionId === 'conv-1' ? 'dm-1' : null }])),
 }));
 vi.mock('./live-permissions', () => ({
   watchSessionState: async (
@@ -244,6 +260,8 @@ function row(overrides: Partial<Row> = {}): {
     projectId: 'proj-1',
     ...overrides,
   };
+  // A task's name lives in its pending-bind record (task-name.ts); the fixture title is that name.
+  session.config = { agentDisplayName: session.title, ...(overrides.config as object | undefined) };
   return {
     session,
     project: { id: session.projectId, name: 'demo', path: '/repo/demo' },
@@ -385,6 +403,7 @@ describe('session timeline service', () => {
     state.pendingWatchDisposed = 0;
     state.emitPending = null;
     state.nativeUnread = [];
+    state.notificationEpoch = 0;
     state.storedHistory.mockReset();
     state.rows = [row()];
     state.projects = [];
@@ -401,6 +420,110 @@ describe('session timeline service', () => {
     state.readOptions.mockClear();
   });
 
+  it('record ingestion owns a silent snapshot and cannot turn an archived reader into a live tail', async () => {
+    const fake = makeTimeline();
+    fake.put({ itemId: 'agent-question:11111111-1111-4111-8111-111111111111', kind: 'question', title: 'Choose',
+      questions: [{ question: 'Choose', multiSelect: false, options: [{ optionId: 'one', name: 'One' }] }],
+      origin: { source: 'agent-question', payload: { sourceLink: 'gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333' } },
+      state: 'pending', optionId: null, resolvedBy: null, resolvedAt: null });
+    const interactive = makeTimeline();
+    const factory = vi.fn().mockResolvedValueOnce(fake.timeline).mockResolvedValueOnce(interactive.timeline);
+    service.setSessionTimelineFactory(factory);
+    expect(await service.pickRecordTurns('conv-1', async turns => turns, { images: false, committedOnly: true, includeArchived: true }))
+      .toEqual({ ok: true, turns: [], complete: true });
+    expect(state.pendingWatchCalls).toEqual([]);
+    expect(state.wake).not.toHaveBeenCalled();
+    expect(state.questionSend).not.toHaveBeenCalled();
+    expect(persistedQuestions.has('conv-1')).toBe(false);
+    expect(factory.mock.calls[0][0]).toMatchObject({ readMode: 'snapshot' });
+    expect(fake.timeline.disposed).toBe(1);
+    await service.snapshot({ conversationId: 'conv-1' });
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(factory.mock.calls[1][0]).not.toHaveProperty('readMode');
+    expect(state.pendingWatchCalls).toEqual(['conv-1']);
+  });
+
+  it('reports a broken record snapshot as unreadable without attaching interactive effects', async () => {
+    service.setSessionTimelineFactory(async () => { throw new Error('damaged zstd frame'); });
+    expect(await service.pickRecordTurns('conv-1', async turns => turns)).toEqual({ ok: false });
+    expect(state.pendingWatchCalls).toEqual([]);
+    expect(state.wake).not.toHaveBeenCalled();
+    expect(state.questionSend).not.toHaveBeenCalled();
+  });
+
+  it('passes a proved parent primary lineage to the child snapshot and disposes both readers', async () => {
+    state.rows.push(row({ id: 'parent' }));
+    const parent = makeTimeline(), child = makeTimeline();
+    const lineage = [{ uuid: 'ancestor', parentUuid: null }];
+    parent.timeline.getRecordLineage = () => lineage;
+    const factory = vi.fn().mockResolvedValueOnce(parent.timeline).mockResolvedValueOnce(child.timeline);
+    service.setSessionTimelineFactory(factory);
+    expect(await service.pickRecordTurns('conv-1', async turns => turns, { images: false, afterForkOf: 'parent' }))
+      .toEqual({ ok: true, turns: [], complete: true });
+    expect(factory.mock.calls[1][0]).toMatchObject({ conversationId: 'conv-1', readMode: 'snapshot', parentLineage: lineage });
+    expect(parent.timeline.disposed).toBe(1);
+    expect(child.timeline.disposed).toBe(1);
+    expect(state.pendingWatchCalls).toEqual([]);
+  });
+
+  it('follows a settling record on its own live reader until the last turn lands, without interactive effects', async () => {
+    const { createSessionRecordSource, createSessionTimeline } = await import('@gugu/session-core/session-record');
+    const root = await mkdtemp(join(tmpdir(), 'claude-settling-watch-'));
+    const file = join(root, 'record.jsonl');
+    const line = (uuid: string, role: 'user' | 'assistant', text: string) => JSON.stringify({
+      type: role, uuid, parentUuid: role === 'user' ? null : 'question', sessionId: 'record', timestamp: '2026-10-31T00:00:00Z',
+      message: { id: uuid, role, content: [{ type: 'text', text }], ...(role === 'assistant' ? { stop_reason: 'end_turn' } : {}) },
+    }) + '\n';
+    await writeFile(file, line('question', 'user', 'The last prompt'));
+    const opened: SessionTimeline[] = [];
+    const factory = vi.fn(async ({ readMode }: { readMode?: 'snapshot' }) => {
+      const timeline = await createSessionTimeline(createSessionRecordSource({ harness: 'claude', providerSessionId: 'record', roots: [root] },
+        { readMode }), { sessionId: 'conv-1' });
+      const dispose = timeline.dispose.bind(timeline);
+      let disposed = 0;
+      opened.push(Object.assign(timeline, { dispose: () => { disposed++; dispose(); }, disposals: () => disposed }));
+      return timeline;
+    });
+    service.setSessionTimelineFactory(factory);
+    try {
+      let settled: boolean | undefined;
+      const watching = service.watchRecordSettled('conv-1', new AbortController().signal).then(value => { settled = value; });
+      await awaitFact('watch opened', () => opened.length === 1 || undefined);
+      await new Promise(resolve => setImmediate(resolve));
+      expect(settled).toBeUndefined();
+      await appendFile(file, line('answer', 'assistant', 'LATE REPLY'));
+      await watching;
+      expect(settled).toBe(true);
+      expect(factory.mock.calls[0][0]).not.toHaveProperty('readMode');
+      expect((opened[0] as unknown as { disposals: () => number }).disposals()).toBe(1);
+
+      const stop = new AbortController();
+      await writeFile(file, line('question', 'user', 'The last prompt'));
+      const aborted = service.watchRecordSettled('conv-1', stop.signal);
+      await awaitFact('second watch opened', () => opened.length === 2 || undefined);
+      stop.abort();
+      expect(await aborted).toBe(false);
+      expect((opened[1] as unknown as { disposals: () => number }).disposals()).toBe(1);
+      expect(state.pendingWatchCalls).toEqual([]);
+      expect(state.wake).not.toHaveBeenCalled();
+      expect(state.questionSend).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('settles a fork without lineage fields as diverged and never indexes a guessed child prefix', async () => {
+    state.rows.push(row({ id: 'parent', provider: 'codex' }));
+    const parent = makeTimeline(), pick = vi.fn(async (turns: TimelineSnapshot['turns']) => turns);
+    const factory = vi.fn(async () => parent.timeline);
+    service.setSessionTimelineFactory(factory);
+    expect(await service.pickRecordTurns('conv-1', pick, { images: false, afterForkOf: 'parent' }))
+      .toEqual({ ok: false, reason: 'diverged' });
+    expect(factory).toHaveBeenCalledOnce();
+    expect(pick).not.toHaveBeenCalled();
+    expect(parent.timeline.disposed).toBe(1);
+  });
+
   it('uses the native archive at the first unread stored identity, with bounded older/newer pages and the real active turn', async () => {
     state.rows = [row({ runtime: 'acp' })];
     service.setSessionTimelineFactory(async () => makeTimeline().timeline);
@@ -415,6 +538,33 @@ describe('session timeline service', () => {
     state.emitPending?.([], [], null, [], active);
     expect(await service.nativeRecord({ conversationId: 'conv-1', tail: true, limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 7 }, { seq: 8 }, { seq: 9 }], activeTurn: active, hasNewer: false } });
     expect(await service.nativeRecord({ conversationId: 'conv-1', after: 7, limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 8 }, { seq: 9 }], hasNewer: false } });
+  });
+
+  it('returns raw notification rows so phone page merging can project each request exactly once', async () => {
+    state.rows = [row({ runtime: 'acp' })];
+    service.setSessionTimelineFactory(async () => makeTimeline().timeline);
+    const notice = { id: 'conv-1:turn:s59', seq: 59, initiator: 'agent', items: [{ kind: 'message', id: 'notice', seq: 0, role: 'assistant', text: 'Review',
+      ownerNotification: { requestId: 'request', requestHash: 'hash', sourceTurnId: 'provider-source' } }] };
+    const source = { id: 'conv-1:turn:s60', seq: 60, initiator: 'user', items: [{ kind: 'message', id: 'input', seq: 0, role: 'user', text: 'Work' }] };
+    const turns = [notice, source];
+    state.storedHistory.mockImplementation(async ({ limit }: { limit: number }) => ({ turns: turns.slice(-limit), nextCursor: null,
+      originTurnIds: turns.slice(-limit).map(turn => turn === source ? 'provider-source' : 'owner-notify:request') }));
+    const result = await service.nativeRecord({ conversationId: 'conv-1', tail: true, limit: 2 });
+    expect(result).toMatchObject({ ok: true, value: { turns, originTurnIds: ['owner-notify:request', 'provider-source'], nativeOwnerNotificationEpoch: 0 } });
+  });
+
+  it('retries a native page read crossed by a revert instead of labeling old rows with the new epoch', async () => {
+    state.rows = [row({ runtime: 'acp' })];
+    service.setSessionTimelineFactory(async () => makeTimeline().timeline);
+    const old = { id: 'conv-1:turn:s5', seq: 5, initiator: 'user', items: [] };
+    const current = { id: 'conv-1:turn:s0', seq: 0, initiator: 'user', items: [] };
+    state.storedHistory.mockImplementationOnce(async () => {
+      state.notificationEpoch = 1;
+      return { turns: [old], nextCursor: null, originTurnIds: ['old'] };
+    }).mockResolvedValue({ turns: [current], nextCursor: null, originTurnIds: ['current'] });
+    expect(await service.nativeRecord({ conversationId: 'conv-1', tail: true }))
+      .toMatchObject({ ok: true, value: { turns: [current], nativeOwnerNotificationEpoch: 1 } });
+    expect(state.storedHistory).toHaveBeenCalledTimes(4);
   });
 
   it('listSessions 按 projects 分组，supported 如实', async () => {
@@ -438,6 +588,9 @@ describe('session timeline service', () => {
     // 行上带 agent 的 id(名录里的绑定;显示名由看的一端去云端取),没有身份的是 null。
     expect(byId.get('conv-1')?.agent).toEqual({ userId: 'agent-1' });
     expect(byId.get('conv-2')?.agent).toBeNull();
+    // P4: the row says its conversation (the person's private chat with its agent) — what every machine and the phone read
+    // for the task's Apps; a session with no agent has none.
+    expect([byId.get('conv-1')?.chatId, byId.get('conv-2')?.chatId]).toEqual(['dm-1', undefined]);
   });
 
   it('心跳摘要那一份(listSessionStates)不读名录、不报 agent', () => {
@@ -489,6 +642,12 @@ describe('session timeline service', () => {
     });
   });
 
+  it('does not expose the session identifier when an approval answer has no session', async () => {
+    expect(await service.respond({
+      conversationId: 'private-session-identifier', itemId: 'ask-1', optionId: 'decline', kind: 'permission', by: 'desktop',
+    })).toEqual({ ok: false, error: { code: 'session_not_found', message: '这台机器上没有这条会话' } });
+  });
+
   it('没有记录可读(这一家没接 / 还没开起来)也打得开:快照是第一句话,❌ record_unsupported', async () => {
     const factory = vi.fn(async () => makeTimeline().timeline);
     service.setSessionTimelineFactory(factory);
@@ -533,7 +692,7 @@ describe('session timeline service', () => {
     const rootsOf = () => (factory.mock.calls.at(-1) as unknown as [{ locator: { roots: string[] } }])[0].locator.roots;
     state.rows = [
       row({ id: 'src', providerSessionId: 'sess-src', config: { type: 'acp', subscriptionConnectionId: 'conn-1' } }),
-      row({ id: 'fork', providerSessionId: 'sess-fork', config: { type: 'pty', forkedFrom: { sessionId: 'src', title: 's' } } }),
+      row({ id: 'fork', providerSessionId: 'sess-fork', config: { type: 'pty', forkedFrom: { sessionId: 'src' } } }),
     ];
     await service.snapshot({ conversationId: 'fork' });
     expect(rootsOf().at(-1)).toBe('/conn/conn-1/.claude/projects');
@@ -544,12 +703,15 @@ describe('session timeline service', () => {
     expect(rootsOf().some((root) => root.startsWith('/conn/'))).toBe(false);
   });
 
-  it('从没开起来的会话(不论有没有记下原因码):发消息先按「再试一次」那条路起来,读选项不唤醒、报建时选的模型', async () => {
+  // Retargeted: ACP never-started sessions are now started by the delivery itself (session-life), not pre-started here.
+  it('从没开起来的 ACP 会话:发消息直接投递(投递自己把它起来),❌ 先走「再试一次」;读选项不唤醒、报建时选的模型', async () => {
     startCalls.length = 0;
     state.deliverText.mockResolvedValue({ accepted: 'started' });
     state.rows = [row({ providerSessionId: null, config: { type: 'acp', initialQueue: [{ text: 'hi' }] } })];
-    await service.send('conv-1', '在吗');
-    expect(startCalls).toEqual(['conv-1']);
+    expect(await service.send('conv-1', '在吗')).toEqual({ ok: true, value: { accepted: 'started' } });
+    expect(startCalls).toEqual([]);
+    expect(state.deliverText).toHaveBeenCalledTimes(1);
+    expect(state.deliverText.mock.calls[0]?.[1]).toBe('在吗');
     expect(await service.sessionOptions({ conversationId: 'conv-1' })).toEqual({
       ok: true,
       value: { mode: null, effort: null, model: { selected: 'platform:gpt-5', available: [{ id: 'platform:gpt-5', name: 'GPT-5' }] } },
@@ -557,20 +719,20 @@ describe('session timeline service', () => {
   });
 
   // #6693:手机的权限档胶囊照桌面那一份排 —— 宿主随选项给出这家声明的档位表;没声明的家不给,手机照它报的名字显示。
-  it('读选项时附上这家声明的权限档表,没声明的家不附', async () => {
+  it('读权限选项时附上宿主引擎名,没有模型菜单也给;权限档表只给声明过的家', async () => {
     const mode = { selected: 'default', available: [{ id: 'default', name: 'default' }, { id: 'yolo', name: 'yolo' }] };
     state.rows = [row({ provider: 'hermes', runtime: 'pty' })];
     state.readOptions.mockResolvedValueOnce({ mode, model: null, effort: null });
     expect(await service.sessionOptions({ conversationId: 'conv-1' })).toEqual({
       ok: true,
-      value: { mode, model: null, effort: null, modeMap: { edit: { id: 'default' }, 'full-access': { id: 'yolo' } } },
+      value: { mode, model: null, effort: null, permissionAgentName: 'host-name-of-hermes', modeMap: { edit: { id: 'default' }, 'full-access': { id: 'yolo' } } },
     });
 
     state.rows = [row({ provider: 'gemini', runtime: 'pty' })];
     state.readOptions.mockResolvedValueOnce({ mode, model: null, effort: null });
     expect(await service.sessionOptions({ conversationId: 'conv-1' })).toEqual({
       ok: true,
-      value: { mode, model: null, effort: null },
+      value: { mode, model: null, effort: null, permissionAgentName: 'host-name-of-gemini' },
     });
   });
 
@@ -1230,7 +1392,6 @@ describe('session timeline service', () => {
       expect(await pushesAfter('session:changed', { ...at, changes: { archivedAt: null } })).toBe(1);
       expect(await pushesAfter('session:changed', { ...at, changes: { parentSessionId: null } })).toBe(1);
       expect(await pushesAfter('session:created', { session: { id: 'conv-2' } })).toBe(1);
-      expect(await pushesAfter('session:deleted', at)).toBe(1);
       // #7221 行上那枚定时标记:排上 / 取消 / 到点 / 没送到都经 automation:* 两条。
       expect(await pushesAfter('automation:changed', { automationId: 'a-1' })).toBe(1);
       expect(await pushesAfter('automation:run-changed', { automationId: 'a-1', run: {} })).toBe(1);
@@ -1278,6 +1439,38 @@ describe('session timeline service', () => {
     const settled = (promise: Promise<unknown>) => Promise.race([promise, flush().then(() => 'still asked')]);
     beforeEach(() => {
       state.hostWaits = [];
+    });
+
+    it('reviewing an unreadable remote manifest answers the ask and completes server consent as declined', async () => {
+      const { timeline } = makeTimeline();
+      service.setSessionTimelineFactory(async () => timeline);
+      const installed = askInstallInSession('conv-1', {
+        sourceDir: '/tmp/reader',
+        manifest: { id: 'reader', name: 'Reader', version: '1.0.0', apiVersion: EXTENSION_API_VERSION_MIN_SUPPORTED - 1,
+          defaultLocale: 'en', entry: 'main.html', contributes: { tabs: [{ name: 'main', title: 'Reader' }] } },
+        manifestDigest: 'digest-r', revokedPermissions: [], given: { first: true },
+      } as never, { name: 'Agent', agentUserId: null }, {
+        timeline: async () => ({ ask: asks.ask, respond: service.respond }),
+        idleSeconds: () => 999, window: null, closeWindow: async () => undefined,
+      });
+      try {
+        await flush();
+        const snapshot = await service.snapshot({ conversationId: 'conv-1' });
+        if (!snapshot.ok) throw new Error(snapshot.error.message);
+        const pending = snapshot.value.settlements[0]!;
+        expect(pending.state).toBe('pending');
+        const respond = vi.fn((answer: { optionId: string; digest?: string }) => service.respond({
+          conversationId: 'conv-1', itemId: pending.itemId, kind: 'permission', by: 'desktop', ...answer,
+        }));
+        await expect(answerAppInstall({
+          itemId: pending.itemId, ask: pending.origin!.payload as AppInstallAsk, optionId: 'install', respond,
+        })).rejects.toThrow('This install asks about a manifest this build cannot read');
+        expect(respond).toHaveBeenCalledExactlyOnceWith({ optionId: 'decline' });
+        await expect(installed).resolves.toEqual({ outcome: 'declined' });
+        expect(timeline.getSnapshot().settlements).toMatchObject([{ state: 'resolved', optionId: 'decline', resolvedBy: 'desktop' }]);
+      } finally {
+        asks.withdrawAll('conv-1', 'app-install');
+      }
     });
 
     it('a host question works on ACP, validates answers and commits only the first explicit answer', async () => {
@@ -1505,8 +1698,6 @@ describe('session timeline service', () => {
  * 判据喂记录 + 临时文件;阴控是同一个目录里、记录里没有的文件 —— 必须被拒。
  */
 const { mkdtempSync, writeFileSync } = await import('node:fs');
-const { tmpdir } = await import('node:os');
-const { join } = await import('node:path');
 
 describe('readOpenedFile', () => {
   const dir = mkdtempSync(join(tmpdir(), 'opened-file-'));
@@ -1517,15 +1708,7 @@ describe('readOpenedFile', () => {
 
   beforeEach(() => {
     openedOutputs.clear();
-    attachmentCopies.clear();
-  });
-
-  it('reads this session’s registered attachment copy even when the original was not opened', async () => {
-    attachmentCopies.set('conv-1:/deleted/original.html', report);
-    const result = await service.readOpenedFile({ conversationId: 'conv-1', path: '/deleted/original.html', offset: 0, length: 1024 });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(Buffer.from(result.value.data, 'base64').toString('utf8')).toBe('<h1>汇报</h1>');
-    expect(await service.readOpenedFile({ conversationId: 'conv-2', path: '/deleted/original.html', offset: 0, length: 1024 })).toMatchObject({ ok: false, error: { code: 'not_opened' } });
+    notificationFiles.clear();
   });
 
   it('打开过的文件:按块读出原字节', async () => {
@@ -1544,6 +1727,14 @@ describe('readOpenedFile', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'not_opened' } });
   });
 
+  it('reads the snapshot actually attached to this native notification and rejects another session or neighboring file', async () => {
+    notificationFiles.set('conv-1', [report]);
+    const result = await service.readOpenedFile({ conversationId: 'conv-1', path: report, offset: 0, length: 1024 });
+    expect(result.ok && Buffer.from(result.value.data, 'base64').toString('utf8')).toBe('<h1>汇报</h1>');
+    expect(await service.readOpenedFile({ conversationId: 'conv-2', path: report, offset: 0, length: 1024 })).toMatchObject({ ok: false, error: { code: 'not_opened' } });
+    expect(await service.readOpenedFile({ conversationId: 'conv-1', path: other, offset: 0, length: 1024 })).toMatchObject({ ok: false, error: { code: 'not_opened' } });
+  });
+
   it('打开过、后来被删了:如实说文件不在了', async () => {
     const gone = join(dir, 'gone.html');
     openedOutputs.set('conv-1', [{ kind: 'file', path: gone }]);
@@ -1556,4 +1747,12 @@ describe('readOpenedFile', () => {
     const result = await service.readOpenedFile({ conversationId: 'conv-1', path: dir, offset: 0, length: 1024 });
     expect(result).toMatchObject({ ok: false, error: { code: 'not_a_file' } });
   });
+});
+
+
+it('advertises end-to-end native input identity only for the ACP host contract', async () => {
+  state.rows = [row({ id: 'identity-acp', runtime: 'acp' }), row({ id: 'identity-pty', runtime: 'pty' })];
+  const { sessions } = await service.listSessions();
+  expect(sessions.find(session => session.conversationId === 'identity-acp')).toMatchObject({ nativeInputVersion: 2, nativeInputIdentity: true });
+  expect(sessions.find(session => session.conversationId === 'identity-pty')).not.toHaveProperty('nativeInputIdentity');
 });

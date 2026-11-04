@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { formatCalendarDate } from '@/i18n/format';
 import type { SessionImportSource } from '@renderer/features/session-import/import-source';
 import { SessionPreviewPane } from '@renderer/features/session-import/session-preview-pane';
 import { Button } from '@renderer/lib/ui/button';
@@ -37,31 +38,6 @@ export function sourceLabel(
 
 export function historyOptionId(key: string): string {
   return `session-history-option-${key}`;
-}
-
-/**
- * 第二行是绝对时间,中文照模板写成「2026年8月20日，19:46」(年份总写,❌ 相对时间 —— 列表里一眼要能比先后);
- * 其它语言交给 Intl 的同一组字段。
- */
-export function formatDateTime(ms: number, locale: string): string {
-  const date = new Date(ms);
-  if (locale.startsWith('zh')) {
-    const hh = String(date.getHours());
-    const mm = String(date.getMinutes()).padStart(2, '0');
-    return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日，${hh}:${mm}`;
-  }
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    }).format(date);
-  } catch {
-    return date.toLocaleString();
-  }
 }
 
 /** 咕咕行的详情(本机行的详情是原件预览 SessionPreviewPane)。 */
@@ -112,7 +88,7 @@ function GuguDetail({ row }: { row: SessionHistoryRowData }) {
 /**
  * 一条 = 两行 + 右侧一个动作,几何照 设计同事 2026-09-23 的模板图(「已归档的聊天」)逐项量出来:
  * 行高 60px(min-h-15)、左右 16px、标题 13px 正文色、第二行只有时间(13px 次级色)(模板写法「2026年8月20日，19:46」)、
- * 右侧浅灰实心按钮 h-7。行与行之间**不画线**,靠行高节奏与悬停填色分开(docs/ui-visual-spec.md §6.6;
+ * 右侧浅灰实心按钮 h-7。行与行之间**不画线**,靠行高节奏与悬停填色分开(docs/design/ui-visual-spec.md §6.6;
  * design.md line budget:「Rows breathe on rhythm and a hover fill, not on dividers」—— 设计同事 2026-09-25)。
  * 状态不另贴标签 —— 动作钮本身就说了(打开 / 恢复 / 导入);session id、agent、父子范围都在详情里,
  * 行上不放(模板行上只有标题与时间)。批量导入在节头 ···,行上不放勾选框。
@@ -167,7 +143,8 @@ export function SessionHistoryRow({
             className="block truncate text-sm leading-5 text-foreground-muted tabular-nums"
             dateTime={new Date(row.updatedAt).toISOString()}
           >
-            {formatDateTime(row.updatedAt, locale)}
+            {/* 绝对时间、年份总写:列表里一眼要能比先后。 */}
+            {formatCalendarDate(row.updatedAt, locale, { includeYear: true })}
           </time>
         </div>
         <Button

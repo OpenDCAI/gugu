@@ -1,3 +1,4 @@
+import { openRuntimeFork, runtimeFork, type RuntimeFork } from './session-life-forks';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { archiveSession, restoreSession } from './archiveSession';
 import { dehydrateSession } from './dehydrateSession';
@@ -16,6 +17,8 @@ import { setSessionPinned } from './setSessionPinned';
 import { setSessionParent } from './session-family';
 import { switchSessionRuntime } from './switch-session-runtime';
 import { sendMessage } from './sendMessage';
+import { sessionLife } from './session-life';
+import { stopSessionByPerson } from './session-orchestration';
 import { ensurePlatformSessionReady } from './platform-recovery-gate';
 import { recordLiveSessionSetting } from './record-live-session-setting';
 import { recordLiveModelSwitch } from './live-model-switch';
@@ -36,12 +39,13 @@ export const sessionController = createRPCController({
   getStoredHistory,
   getStoredToolImage,
   // #980 打开一条没在跑的会话时:把 agent 自己的记录里有、库里还没有的那几轮补进库,回补进了几轮。
-  syncStoredHistoryFromRecord,
+  syncStoredHistoryFromRecord: (sessionId: string) => syncStoredHistoryFromRecord(sessionId),
   forkSession,
   restartSession,
   switchSessionRuntime,
-  // 人这一侧收起会话只有归档(#6949):删除不上这张面,只剩主进程内部的回滚与上级对象的连带删除在用。
-  archiveSession,
+  // 人手动收起与自动清理共用归档;任务历史与绑定保留。
+  archiveSession: (projectId: string, sessionId: string, options?: Parameters<typeof archiveSession>[2]) =>
+    archiveSession(projectId, sessionId, options),
   // spec session-graph:UI 上没有恢复入口(owner 2026-09-11),但接口在 —— 归档不是删除,
   // 「数据回得来」这件事必须有代码作证。摆不摆入口是另一个决定。
   restoreSession,
@@ -69,5 +73,18 @@ export const sessionController = createRPCController({
   // 屏上的会话由渲染层报(主进程看不见界面),闲置回收据此不停人正看着的会话(renderer/app/sessions-on-screen.ts)。
   reportSessionsOnScreen: async (sessionIds: string[]) => {
     setSessionsOnScreen(sessionIds);
+  },
+  // session-life: the ACP lifecycle projection (later changes arrive on sessionLifeViewChannel) and the person's
+  // explicit start — the only way a page brings an ACP session up.
+  lifeView: async (sessionId: string) => sessionLife().read(sessionId),
+  lifeStart: async (sessionId: string) => { sessionLife().start(sessionId, 'user-open'); },
+  lifeStop: (sessionId: string) => stopSessionByPerson(sessionId),
+  lifeDiscard: async (sessionId: string, messageId: string) => { sessionLife().discardRow(sessionId, messageId); },
+  // A side chat is a fork entry of Life: opened by its page, fed through the same custody send, ended when the
+  // page closes it or its session ends.
+  lifeFork: async (fork: RuntimeFork) => openRuntimeFork(fork),
+  lifeEnd: (forkId: string) => {
+    if (!runtimeFork(forkId)) throw new Error(`Session ${forkId} is not a side chat; it ends by archive or delete`);
+    return sessionLife().interrupt(forkId, { k: 'interrupt', reason: 'delete' });
   },
 });

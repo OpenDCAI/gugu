@@ -1,4 +1,3 @@
-import { join } from 'node:path'
 import { platformModelAccessEnv, resolveGuguHome } from '@gugu/core'
 import type {
   CapabilityPackage,
@@ -31,14 +30,14 @@ import {
   type AcpEngineRuntimeContext,
   type BuildSocialBridgeDeps,
 } from './acp-engine-utils'
-import type { ExtensionCatalogApp, ExtensionSessionMcp } from './extension-session-mcp'
+import type { ExtensionAgentApp, ExtensionSessionMcp } from './extension-session-mcp'
 import { sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { McpServer as CanonicalMcpServer } from '@gugu/session-core/mcp'
 import type { GuguPermissionMode } from '@gugu/session-core/acp'
 import { GUGU_PLATFORM_BLOCK, estimatePromptTokens } from './product-platform-prompt'
-import { firstSentence } from './mcp/first-sentence'
 import { mcpEnvSuffix } from '../src/session/shared/mcp-library'
 import { createLogger } from './lib/logger'
+import { appLine, skillLine } from './extension-agent-lines'
 
 export { PRODUCT_CAPABILITY_PACKAGES } from '@gugu/session-plugins/agents'
 
@@ -69,7 +68,7 @@ export interface SessionCapabilityBundle {
    */
   extensionSkills: readonly ExtensionSkill[]
   /** 上下文工程第二批 P3: the Apps whose tools this session reaches through the catalog (`<gugu_apps>` names them). Required, same reason. */
-  extensionApps: readonly ExtensionCatalogApp[]
+  extensionApps: readonly ExtensionAgentApp[]
   /** #6387 Which extension each extension program in `mcpServers` came from (for the `/mcp` panel). */
   extensionServerOrigins: readonly { name: string; extensionId: string }[]
   /** #7199 这台机器上 Browser Use App 装着、开着、许给 agent 工具(buildSessionBundle 读一次;交给各家物化器,见 core 那一格)。 */
@@ -1060,12 +1059,12 @@ function guguToolNamingLine(
   const names = mcpToolNamesOn(mcp.toolNames, surface === 'tui' ? 'tui' : 'acp')
   switch (names.kind) {
     case 'listed':
-      return `Your harness lists each 咕咕 tool as \`${names.prefix}<tool>\` (e.g. \`${names.prefix}message_send\`); follow that tool definition's invocation form.\n`
+      return `Your harness lists each 咕咕 tool as \`${names.prefix}<tool>\` (e.g. \`${names.prefix}message_send\`).\n`
     case 'proxied':
       return `Your harness does not list 咕咕 tools one by one: call them through its \`${names.proxyTool}\` tool, naming the tool \`${names.prefix}<tool>\` (e.g. \`${names.prefix}message_send\`).\n`
     case 'namespaced':
       // Codex advertises the native name or an exec declaration, depending on its model tool mode.
-      return `Your harness exposes 咕咕 tools under \`${names.namespace}\`; follow each tool definition's advertised invocation form.\n`
+      return `Your harness exposes 咕咕 tools under \`${names.namespace}\`.\n`
     case 'server-proxied':
       // server 名就是咕咕那台 server 注册时用的名字 —— 与写进配置的键同一个常量,❌ 别另写一个字面量。
       return `Your harness does not list 咕咕 tools one by one: call them through its \`${names.proxyTool}\` tool with \`${names.serverArg}\` set to \`${GUGU_MCP_SERVER_NAME}\` and \`${names.toolArg}\` set to the bare tool name (e.g. \`message_send\`).\n`
@@ -1123,26 +1122,27 @@ function withSurfaceSelfDescription(
 /** #7317 What `<gugu_apps>` says while Computer Use is on (off: nothing, no token). */
 export const COMPUTER_USE_LINE = 'Computer Use is on: use browser_* tools for webpages in this session\'s own browser tabs. Use device_actions with group computer, then device_call, only for the person\'s other desktop apps.'
 
-/** 上下文工程第二批 P3 (owner 10-07 chose (c), D-27): one App line is at most this many characters… */
-export const GUGU_APPS_LINE_MAX_CHARS = 120
-/** …and the App lines together at most this many `estimatePromptTokens` units; past it, one line counts the rest. */
-export const GUGU_APPS_LINES_TOKEN_BUDGET = 300
+/**
+ * 上下文工程第二批 P3 (D-27, owner 10-07 chose (c); owner 10-31 raised it from 300): the App lines together are at most
+ * this many `estimatePromptTokens` units. Each line is an App's `instructions` in full (≤ INSTRUCTIONS_MAX_CHARS, app-listing.ts),
+ * never cut; past the budget, the Apps left out are still named, one short line with name and id.
+ */
+export const GUGU_APPS_LINES_TOKEN_BUDGET = 600
 
-function appLine(app: ExtensionCatalogApp): string {
-  const line = [...`- ${app.name} (${app.extensionId})${app.description ? `: ${firstSentence(app.description)}` : ''}`]
-  return line.length <= GUGU_APPS_LINE_MAX_CHARS ? line.join('') : `${line.slice(0, GUGU_APPS_LINE_MAX_CHARS - 1).join('')}…`
-}
+const moreAppsLine = (apps: readonly ExtensionAgentApp[]) =>
+  `- …more Apps: ${apps.map((app) => `${app.name} (${app.extensionId})`).join(', ')}; catalog_list for details`
 
-const moreAppsLine = (count: number) => `- …and ${count} more App${count === 1 ? '' : 's'}; catalog_list names them all.`
-
-/** The App lines, in catalog order, as many as the budget holds; the ones left out are counted, and catalog_list still lists them. */
-function appLines(apps: readonly ExtensionCatalogApp[]): string[] {
+/**
+ * The App lines, in order, as many in full as the budget holds; the rest by name (owner 10-31: their names are always
+ * listed, even when that line alone runs past the budget).
+ */
+function appLines(apps: readonly ExtensionAgentApp[]): string[] {
   const lines = apps.map(appLine)
-  for (let shown = lines.length; shown >= 0; shown -= 1) {
-    const kept = shown === lines.length ? lines : [...lines.slice(0, shown), moreAppsLine(lines.length - shown)]
+  for (let shown = lines.length; shown > 0; shown -= 1) {
+    const kept = shown === lines.length ? lines : [...lines.slice(0, shown), moreAppsLine(apps.slice(shown))]
     if (estimatePromptTokens(kept.join('\n')) <= GUGU_APPS_LINES_TOKEN_BUDGET) return kept
   }
-  return [moreAppsLine(lines.length)]
+  return [moreAppsLine(apps)]
 }
 
 /**
@@ -1165,34 +1165,27 @@ export const GUGU_APPS_SEARCH_LINE = [
 
 /**
  * `<gugu_apps>`: what the Apps installed in 咕咕 give this session, as facts.
- * - The Apps whose tools are in the catalog (上下文工程第二批 P3): their name and what they do — the first sentence of the
- *   manifest's description — so an agent knows, before any catalog_list, that a capability is in there. Before this, web
- *   search and library docs went 0/12 through the catalog (measured 2026-10-07).
- *   The heading says once, for every App, that they run with catalog_call, so a line can spend its 120 characters on
- *   the tools themselves (群文件夹: names and parameters, 10-12).
+ * - The Apps that give this session programs or skills (上下文工程第二批 P3): their name and their `instructions`, whole,
+ *   so an agent knows, before any catalog_list, that a capability is in there. Before this, web search and library docs
+ *   went 0/12 through the catalog (measured 2026-10-07). The heading says once, for every App, that they run with
+ *   catalog_call, so a line can spend its characters on the tools themselves (群文件夹: names and parameters, 10-12).
  * - #6387 App skills, for a harness with no plugin folder to mount them in: the same two facts a native skill list shows
  *   (name, when to use it) plus where SKILL.md is, read in place.
  * Rides the platform block, so it follows the same lifecycle (not repeated on resume).
  * 集体记忆对账第 13 条：写给 agent 的散文叫 App（#6874 把「扩展」改名 App，guide 和工具说明早就这么叫）；
  * 存储层的标识（gugu-ext://、.guguext、信封的 route="extension"）不在改名范围里。
  */
-export function guguAppsBlock(apps: readonly ExtensionCatalogApp[], skills: readonly ExtensionSkill[]): string {
+export function guguAppsBlock(apps: readonly ExtensionAgentApp[], skills: readonly ExtensionSkill[]): string {
   if (apps.length === 0 && skills.length === 0) return ''
   const parts: string[] = []
   // Computer Use stays on the device API path, independently of App tool disclosure.
   if (apps.some((app) => app.computerUse)) parts.push(COMPUTER_USE_LINE)
   const catalogApps = apps.filter((app) => !app.computerUse)
   if (catalogApps.length > 0) {
-    parts.push(['Apps available in this session (use their listed tools, or catalog_list / catalog_call):', ...appLines(catalogApps)].join('\n'))
-  }
-  // Standing behavior is not an App summary: keep the complete authorized rule.
-  for (const app of apps) {
-    if (app.agentInstructions) {
-      parts.push(`Standing instructions from App ${app.extensionId} (apply while its tools remain available; user instructions take precedence):\n${app.agentInstructions}`)
-    }
+    parts.push(['Apps available in this session:', ...appLines(catalogApps)].join('\n'))
   }
   if (skills.length > 0) {
-    const lines = skills.map((skill) => `- ${skill.name} (App ${skill.extensionId}): ${skill.description}\n  ${join(skill.dir, 'SKILL.md')}`)
+    const lines = skills.map(skillLine)
     parts.push(['Skills from Apps installed in 咕咕. When a task matches one, read its SKILL.md first and follow it.', ...lines].join('\n'))
   }
   parts.push(GUGU_APPS_SEARCH_LINE)

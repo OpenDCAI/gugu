@@ -16,7 +16,6 @@ import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
 import {
   sessionChangedChannel,
   sessionCreatedChannel,
-  sessionDeletedChannel,
 } from '@shared/core/sessions/sessionEvents';
 import type { Session } from '@shared/core/sessions/sessions';
 import { firstUtteranceOf, initialAgentStatus } from '@shared/core/sessions/initial-agent-status';
@@ -54,6 +53,7 @@ import { rendererLogger } from '../../../../../lib/log';
 import { queryClient } from '@renderer/lib/query-client';
 import { AGENTS_METADATA_QUERY_KEY } from '@renderer/lib/stores/use-agents';
 import type { AgentPayload } from '@shared/core/agents/agent-payload';
+import { rememberTask } from '@renderer/features/command-palette/recent-tasks';
 
 /**
  * 这一家 hooks descriptor 的 kind(#6206 状态源判据的输入),读 `useAgents` 同一份清单:composer 选 harness 时
@@ -125,7 +125,7 @@ function formatErrorMessage(error: unknown): string {
 
 /**
  * 一个项目里的会话在会话页的那一份(按会话 id 记)。会话出现、消失跟着会话自己的事件走:
- * session:created(新建、派生、分叉、从历史恢复)放进来,session:deleted 与归档拿出去。
+ * session:created(新建、派生、分叉、从历史恢复)放进来,归档拿出去。
  */
 export class ProjectSessionsStore {
   private readonly projectId: string;
@@ -156,13 +156,10 @@ export class ProjectSessionsStore {
       onMachineEvent(machine, sessionCreatedChannel, ({ session }) => {
         this.acceptCreatedSession(session);
       }),
-      onMachineEvent(machine, sessionDeletedChannel, ({ sessionId, projectId: evtProjectId }) => {
-        if (evtProjectId !== this.projectId) return;
-        this._removeSessionLocally(sessionId);
-      }),
       // 归档 = 这条会话离开列表:与删除同形,收起它在会话页的那一份(恢复时 session:created 再放回来)。
       onMachineEvent(machine, sessionChangedChannel, ({ sessionId, projectId: evtProjectId, changes }) => {
         if (evtProjectId !== this.projectId || !changes.archivedAt) return;
+        rememberTask(sessionId, true);
         this._removeSessionLocally(sessionId);
       }),
       onMachineEvent(machine, sessionProvisionProgressChannel, ({ sessionId, projectId: evtProjectId, message }) => {
@@ -312,7 +309,6 @@ export class ProjectSessionsStore {
     store.workspaceGit = git;
     this.sessions.set(session.id, store);
     sessionRegistry.acquire(session.id, this.projectId, [session]);
-    terminalRegistry.acquire(session.id, this.projectId);
   }
 
   /**
@@ -353,7 +349,7 @@ export class ProjectSessionsStore {
     return this._loadPromise;
   }
 
-  async createSession(params: CreateSessionParams) {
+  async createSession(params: CreateSessionParams, options?: { deferFirstTurn?: boolean }) {
     const ic = params.sessionConfig.initialSession;
     if (!ic) throw new Error('createSession: a session is created together with its initial agent config');
     const id = ic.id;
@@ -450,10 +446,10 @@ export class ProjectSessionsStore {
 
     this._settingsStore.pageData.invalidate();
 
-    await this.provisionSession(id);
+    await this.provisionSession(id, options);
   }
 
-  async provisionSession(sessionId: string): Promise<void> {
+  async provisionSession(sessionId: string, options?: { deferFirstTurn?: boolean }): Promise<void> {
     try {
       await getProjectManagerStore().mountProject(this.projectId);
       await this.loadSessions();
@@ -473,7 +469,7 @@ export class ProjectSessionsStore {
       session.phase = 'provision';
     });
 
-    const promise = this._doProvision(sessionId).finally(() => {
+    const promise = this._doProvision(sessionId, options).finally(() => {
       this._provisionPromises.delete(sessionId);
     });
 
@@ -481,7 +477,7 @@ export class ProjectSessionsStore {
     return promise;
   }
 
-  private async _doProvision(sessionId: string): Promise<void> {
+  private async _doProvision(sessionId: string, options?: { deferFirstTurn?: boolean }): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session || !isUnprovisioned(session)) return;
 
@@ -491,7 +487,7 @@ export class ProjectSessionsStore {
     if (wsId) workspaceRegistry.setBootstrapState(this.projectId, wsId, { kind: 'resolving' });
     let result: Awaited<ReturnType<typeof rpc.sessionCreate.provisionWorkspace>>;
     try {
-      result = await rpc.sessionCreate.provisionWorkspace(sessionId);
+      result = await rpc.sessionCreate.provisionWorkspace(sessionId, options);
     } catch (error) {
       // #6264 这一问没答回来(别的机器上的会话:连接此刻断了 / 连不上)。❌ 停在「正在准备文件…」一直转:
       // 落成失败态,界面给「重试」,话是连接那一层给的人话(「此刻连不上 Linux 2」)。

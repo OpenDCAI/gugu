@@ -9,9 +9,83 @@
  *  · 自带的 tmux:跑 `-V`(终端会话跨重启靠它)。
  * 任何一项不过就非 0 退出,自动升级与安装脚本据此留在旧版本上。只做加载与最小调用,几百毫秒。
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import path from 'node:path'
+import { packageIdentity, prepareInstallation, SERVER_PACKAGE_IDENTITY } from './server-package-environment.mts'
+import os from 'node:os'
+import { randomUUID } from 'node:crypto'
+import { spawnOwnedChild } from '@gugu/session-core/exec'
+import { signalProcessDescendantsSync } from '@gugu/session-core/acp/node'
+import { readAccountActivity } from './server-layout'
+
+/** Same cold-account smoke as ci-linux-packages.sh, through the target's actual entry. */
+export async function checkAccountBoot(binary: string): Promise<void> {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-boot-'))
+  const userId = randomUUID()
+  const account = path.join(home, 'accounts', userId)
+  const data = path.join(account, 'data')
+  const ready = Promise.withResolvers<void>()
+  const startedAt = Date.now()
+  let owned: ReturnType<typeof spawnOwnedChild> | undefined
+  let readiness: ReturnType<typeof setInterval> | undefined
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    const identityFile = path.resolve(path.dirname(binary), '..', 'app', 'dist-electron', SERVER_PACKAGE_IDENTITY)
+    if (fs.existsSync(identityFile)) prepareInstallation(home, packageIdentity(JSON.parse(fs.readFileSync(identityFile, 'utf8'))))
+    fs.mkdirSync(data, { recursive: true, mode: 0o700 })
+    fs.writeFileSync(path.join(account, 'account.json'), '{}', { mode: 0o600 })
+    const checkReady = () => {
+      if (!owned) return
+      const activity = readAccountActivity(data, Date.now(), { pid: owned.child.pid, startedAt })
+      if (activity) { ready.resolve(); return }
+      try {
+        const old = JSON.parse(fs.readFileSync(path.join(data, 'activity.json'), 'utf8')) as { at?: unknown; pid?: unknown; startedAt?: unknown }
+        if (typeof old.at === 'number' && (typeof old.pid !== 'number' || typeof old.startedAt !== 'number')) {
+          ready.reject(new Error('Target does not publish PID-bound boot readiness; automatic handoff is unsupported'))
+        }
+      } catch { /* A partial old non-atomic write is not readiness. */ }
+    }
+    owned = spawnOwnedChild(binary, ['run-account', userId], {
+      detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, GUGU_SERVER_HOME: home, GUGU_HOME: path.join(account, 'home'),
+        GUGU_TASK_HOST_USER_DATA: data, GUGU_USER_DATA_DIR: data,
+        GUGU_SERVER_ACCOUNT: userId, GUGU_SERVER_WAIT_PID: '', HOME: home, USERPROFILE: home },
+      onError: error => ready.reject(error),
+    })
+    // Main writes its existing heartbeat only after full account startup, after the early boot log.
+    // Drain output without collecting environment, credentials or unbounded logs.
+    owned.child.stdout?.resume()
+    owned.child.stderr?.resume()
+    owned.child.stdout?.on('error', error => ready.reject(error))
+    owned.child.stderr?.on('error', error => ready.reject(error))
+    owned.child.once('exit', code => ready.reject(new Error(`Account boot exited before serving (${code})`)))
+    readiness = setInterval(checkReady, 200)
+    checkReady()
+    timeout = setTimeout(() => ready.reject(new Error('Account boot did not become ready')), 45_000)
+    await ready.promise
+  } finally {
+    if (timeout) clearTimeout(timeout)
+    if (readiness) clearInterval(readiness)
+    try {
+      // Probe tools can detach from run-account's group. Keep their parent chain until this snapshot.
+      if (owned?.child.pid !== undefined && owned.child.exitCode === null && owned.child.signalCode === null) {
+        signalProcessDescendantsSync([owned.child.pid], 'SIGKILL')
+      }
+    } finally {
+      try { await owned?.stop({ graceMs: 10_000 }) }
+      finally {
+        try { fs.rmSync(home, { recursive: true, force: true }) }
+        catch (error) { process.stderr.write(`[server] WARN Could not remove account boot scratch directory ${home}: ${String(error)}\n`) }
+      }
+    }
+  }
+  // main.ts handles our SIGTERM with exit(143). An unhandled SIGTERM is normal too;
+  // SIGKILL or an unrelated fatal exit after the heartbeat is not a successful smoke.
+  if (owned.child.exitCode !== 0 && owned.child.exitCode !== 143 && owned.child.signalCode !== 'SIGTERM') {
+    throw new Error(`Account boot exited with code ${owned.child.exitCode}, signal ${owned.child.signalCode}`)
+  }
+}
 
 export type SelftestCheck = { name: string; run: () => void | Promise<void> }
 export type SelftestResult = { name: string; ok: boolean; error?: string }

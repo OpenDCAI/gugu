@@ -2,6 +2,7 @@ import { createRPCNamespace, createRPCRouter } from '@shared/lib/ipc/rpc';
 import { agentsController } from './core/agents/controller';
 import { agentSessionController, assistantWorkController } from './core/sessions/agent-session-controller';
 import { appController } from './core/app/controller';
+import { assistantHomeController } from './core/app/assistant-home-controller';
 import { automationsController } from './core/automations/controller';
 import { browserController } from './core/browser/controller';
 import { sessionController } from './core/sessions/controller';
@@ -44,6 +45,7 @@ export const rpcRouter = createRPCRouter({
   agentSession: agentSessionController,
   assistantWork: assistantWorkController,
   app: appController,
+  assistantHome: assistantHomeController,
   automations: automationsController,
   appSettings: appSettingsController,
   providerSettings: providerSettingsController,

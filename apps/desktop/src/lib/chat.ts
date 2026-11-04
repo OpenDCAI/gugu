@@ -26,8 +26,7 @@ import { messageItemFromRow, MESSAGES_VIEW_SELECT, type RawMessageRow } from '@g
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { readDeviceDisplayIdentities, readDisplayIdentities } from './identityReadAdapter'
 import type { DisplayIdentity } from './displayIdentity'
-import { rendererLogger } from './log'
-import { markMemberRead, markMemberUnread } from './chatMemberReadState'
+import { markMemberUnread } from './chatMemberReadState'
 import { i18n } from '@/i18n'
 import { platform } from '../platform'
 import {
@@ -55,7 +54,6 @@ import type {
   GroupMemberRoleInput,
   GroupMemberRole,
   ChatStatus,
-  MessageContentType,
   UpdateGroupChatSettingsInput,
   GroupSchedulerState,
   GroupTaskItem,
@@ -72,22 +70,19 @@ import {
   type WindowRevalidation,
 } from './chatMessageRevalidation'
 import {
-  forwardCanonicalMessage,
   uploadCanonicalGroupAvatar,
 } from './chatCanonicalStorage'
 import { writeIdempotentChatMessage } from './chatMessageWriter'
-import { findTombstonedGroupMemberIds } from './groupMemberIdentity'
 import { readGroupMemberIdentities } from './chatGroupIdentity'
 import { requireThreadCapableChat } from './chatThreadGate'
 import { addGroupAgent, type GroupAgentJoinOutcome, groupJoinError, listMyAgentJoinRequests } from './groupAgentJoinService'
 import { currentGroupAdmin } from './groupAdmin'
+import { deleteListedConversation } from './deleteListedConversation'
 export type {
   MessageOverlay,
   MessageMutationPatch,
   WindowRevalidation,
 } from './chatMessageRevalidation'
-const identityLog = rendererLogger('chat/identity')
-
 
 type GroupCollabMemberRow = {
   user_id: string
@@ -123,27 +118,14 @@ type GroupCollabAgentStateRow = {
   last_active_at: string | null
 }
 
-type GroupCollabOutputRow = {
-  id: string
-  chat_id: string
-  task_id: string | null
-  name: string
-  file_type: string | null
-  asset_id: string | null
-  url: string | null
-  produced_by_user_id: string | null
-  size_label: string | null
-  created_at: string
-}
-
 function normalizeGroupAgentType(
   value: string | null | undefined
 ): GroupChatSettings['default_agent_type'] {
   return nullableAgentType(value)
 }
 
-// 群设置行 → GroupChatSettings 的单一映射（get/update 共用，避免 select 列 / 默认值漂移）。
 interface GroupChatSettingsRow {
+  my_role: GroupMemberRole | null; can_manage: boolean; can_dissolve: boolean; can_archive_topic: boolean
   id: string; public_id: number | null; creator_user_id: string | null
   name: string | null
   status: ChatStatus
@@ -172,7 +154,7 @@ function normalizeGroupJoinMode(value: string | null | undefined): GroupJoinMode
 
 function mapGroupChatSettingsRow(row: GroupChatSettingsRow): GroupChatSettings {
   return {
-    id: row.id,
+    id: row.id, my_role: row.my_role, can_manage: row.can_manage, can_dissolve: row.can_dissolve, can_archive_topic: row.can_archive_topic,
     public_id: row.public_id,
     creator_user_id: row.creator_user_id ?? null,
     name: resolveOrLoud(row.name, `group chat name ${row.id}`),
@@ -461,6 +443,7 @@ export const chatService = {
       isThreadRoot?: boolean
       // @@@whisper (#820) — true = 定向私密消息（仅 sender + to_user_ids 可见）。DB CHECK 要求 whisper 必定向。
       isWhisper?: boolean
+      forwardedFromMessageId?: string
     } = {}
   ): Promise<MessageItem> {
     if (opts.threadRootId != null || opts.isThreadRoot === true) await requireThreadCapableChat(chatId, 'sendMessage')
@@ -475,6 +458,7 @@ export const chatService = {
       threadRootId: opts.threadRootId ?? null,
       isThreadRoot: opts.isThreadRoot ?? false,
       isWhisper: opts.isWhisper ?? false,
+      forwardedFromMessageId: opts.forwardedFromMessageId,
     })
   },
 
@@ -520,21 +504,6 @@ export const chatService = {
     if (error) throw new Error(error.message)
   },
 
-  /** Forward an existing message into another chat using the same insert path. */
-  async forwardMessage(
-    sourceMessageId: string,
-    targetChatId: string,
-    senderId: string
-  ): Promise<{
-    id: string
-    chat_id: string
-    content: string
-    content_type: MessageContentType
-    created_at: string
-  }> {
-    return forwardCanonicalMessage(sourceMessageId, targetChatId, senderId)
-  },
-
   async getMessageById(messageId: string, userId: string): Promise<MessageItem | null> {
     const { data: msg, error } = await chatDb
       .from('messages_view')
@@ -548,7 +517,6 @@ export const chatService = {
     return messageItemFromRow(msg as RawMessageRow, userId)
   },
 
-  markRead: markMemberRead,
   markUnread: markMemberUnread,
 
   /**
@@ -558,22 +526,13 @@ export const chatService = {
    */
   async getDmPeerUserId(chatId: string, userId: string): Promise<string | null> {
     const { data, error } = await chatDb // 读失败要抛:「没查成」≠「查不到」,吞成 null 会报成「收件人已不可用」
-      .from('chat_members')
+      .from('active_members')
       .select('user_id')
       .eq('chat_id', chatId)
       .neq('user_id', userId)
       .limit(1)
     if (error) throw new Error(error.message)
     return (data as { user_id: string }[] | null)?.[0]?.user_id ?? null
-  },
-
-  async markMessageRead(chatId: string, messageId: string, agentUserId: string): Promise<void> {
-    const { error } = await chatDb.rpc('mark_message_read', {
-      p_chat_id: chatId,
-      p_message_id: messageId,
-      p_agent_user_id: agentUserId
-    })
-    if (error) throw new Error(error.message)
   },
 
   /** Toggle an emoji reaction on a message. */
@@ -613,12 +572,12 @@ export const chatService = {
    * just the other person's cursor.
    */
   async getOtherMembersReadSeqs(chatId: string, userId: string): Promise<Record<string, number>> {
-    const { data } = await chatDb
-      .from('chat_members')
+    const { data, error } = await chatDb
+      .from('active_members')
       .select('user_id, last_read_seq')
       .eq('chat_id', chatId)
       .neq('user_id', userId)
-
+    if (error) throw new Error(error.message)
     const seqs: Record<string, number> = {}
     for (const row of (data as { user_id: string; last_read_seq: number }[] | null) ?? []) {
       seqs[row.user_id] = row.last_read_seq
@@ -628,17 +587,16 @@ export const chatService = {
 
   async getGroupCollab(chatId: string): Promise<GroupCollabLoad> {
     const collabChatDb = dataClient.schema('chat')
-    const collabIdentityDb = dataClient.schema('identity')
 
     const fetchSnapshotRows = async () => {
-      const [schedulerResult, membersResult, tasksResult, agentStatesResult, outputsResult] =
+      const [schedulerResult, membersResult, tasksResult, agentStatesResult] =
         await Promise.all([
           collabChatDb
             .from('group_scheduler_states')
             .select('chat_id, paused, queue_count, blocked_count, summary, updated_at')
             .eq('chat_id', chatId)
             .maybeSingle(),
-          collabChatDb.from('chat_members').select('chat_id, user_id, role, listen_mode').eq('chat_id', chatId),
+          collabChatDb.rpc('list_member_ids', { p_chat_id: chatId }),
           collabChatDb
             .from('group_tasks')
             .select(
@@ -652,54 +610,39 @@ export const chatService = {
             .select(
               'chat_id, agent_user_id, client, runtime, model_source, tools, permission_scope, current_task_id, last_action, last_active_at, updated_at'
             )
-            .eq('chat_id', chatId),
-          collabChatDb
-            .from('group_outputs')
-            .select(
-              'id, chat_id, task_id, name, file_type, asset_id, url, produced_by_user_id, size_label, created_at'
-            )
             .eq('chat_id', chatId)
-            .order('created_at', { ascending: false })
-            .limit(8)
         ])
 
-      // 每一张表读失败都照实抛:附属表(调度 / 任务 / agent 状态 / 产出)读错不再当成「空」画出来。
+      // 每一张表读失败都照实抛:附属表(调度 / 任务 / agent 状态)读错不再当成「空」画出来。
       // 读不到的这一次,界面留着缓存的名册(useGroupCollabLoader);下一条成员 / 修订事件再读。
       const read = <T>(label: string, result: { data: T; error: { message: string } | null }) => {
         if (result.error) throw new Error(`${label}: ${result.error.message}`)
         return result.data
       }
-      const members = (read('chat_members', membersResult) ?? []) as GroupCollabMemberRow[]
+      const members = (read('active_members', membersResult) ?? []) as GroupCollabMemberRow[]
       const tasksRaw = (read('group_tasks', tasksResult) ?? []) as GroupCollabTaskRow[]
       const agentStatesRaw = (read('group_agent_states', agentStatesResult) ?? []) as GroupCollabAgentStateRow[]
-      const outputsRaw = (read('group_outputs', outputsResult) ?? []) as GroupCollabOutputRow[]
       const schedulerRow = read('group_scheduler_states', schedulerResult) as GroupSchedulerState | null
 
       const usersById = await readGroupMemberIdentities(members)
 
-      return { schedulerRow, members, tasksRaw, agentStatesRaw, outputsRaw, usersById }
+      return { schedulerRow, members, tasksRaw, agentStatesRaw, usersById }
     }
 
     const snapshot = await fetchSnapshotRows()
 
-    const { schedulerRow, members, tasksRaw, agentStatesRaw, outputsRaw, usersById } = snapshot
+    const { schedulerRow, members, tasksRaw, agentStatesRaw, usersById } = snapshot
     if (members.length === 0) {
       // @@@5856 找茬第八轮:话题里这是稳态不是故障(见 GroupCollabEmptyError)。当成抖动重试的话,
       // 界面会一边说「名单没加载出来,关掉再打开一次」,一边在锚点卡上写着「N 条 · M 人」——两句都不真。
       throw new GroupCollabEmptyError()
     }
 
-    const unresolvedMemberIds = members
-      .map((member) => member.user_id)
-      .filter((userId) => !usersById.has(userId))
-    const removedAgentIds = await findTombstonedGroupMemberIds(
-      unresolvedMemberIds,
-      (userId) => collabIdentityDb.rpc('get_agent_presence', { p_agent_user_id: userId })
-    )
     const baseMembers = members.map((member) => {
-      const type = usersById.get(member.user_id)?.type ?? (removedAgentIds.has(member.user_id) ? 'agent' : 'human')
-      if (!usersById.has(member.user_id) && type === 'human') identityLog.error({ userId: member.user_id }, '[resolve-fail #1624] group member identity unresolved')
-      return { id: member.user_id, role: normalizeGroupRole(member.role), type, account_status: type === 'agent' ? (removedAgentIds.has(member.user_id) ? 'removed' : 'active') : null } as GroupMemberItem
+      const identity = usersById.get(member.user_id)
+      if (!identity) throw new Error(`Active group member identity is unavailable: ${member.user_id}`)
+      return { id: member.user_id, role: normalizeGroupRole(member.role), type: identity.type,
+        account_status: identity.type === 'agent' ? 'active' : null } as GroupMemberItem
     })
     const humans = baseMembers.filter((member) => member.type !== 'agent')
     // #857 Listen Mode：从原始成员行建 user_id→listen_mode 映射（DB CHECK 约束保证合法值，非法则回落 active）。
@@ -709,7 +652,7 @@ export const chatService = {
     const agents = mapGroupCollabAgents(baseMembers, agentStatesRaw, tasksRaw, listenModeByUserId)
     const scheduler = buildGroupCollabScheduler(schedulerRow, chatId, tasksRaw)
     // 名册连同身份一起出门(与 replaceChatRowsAndIdentities 同构):从前 usersById 只用来推 type 就丢掉,下游没有任何写入方。
-    return { snapshot: { scheduler, humans, agents, tasks: tasksRaw, outputs: outputsRaw }, identities: [...usersById.values()] }
+    return { snapshot: { scheduler, humans, agents, tasks: tasksRaw }, identities: [...usersById.values()] }
   },
 
   async getGroupChatSettings(chatId: string): Promise<GroupChatSettings> {
@@ -902,7 +845,7 @@ export const chatService = {
   },
 
   listMyAgentJoinRequests,
-  // 主人选择自己 Agent 的档位;数据库核实际 actor,并回执保存值。
+  // 主人或群管理员调群里 Agent 的档位;数据库核实际 actor,并回执保存值。
   async setAgentListenMode(chatId: string, agentUserId: string, mode: ListenMode): Promise<void> {
     await (await currentGroupAdmin()).setListenMode(chatId, agentUserId, mode)
   },
@@ -936,9 +879,9 @@ export const chatService = {
     return createGroupWithInvitations(chatDb, name, creatorId, await getCurrentAuthUserId(), identities, groupPrompt)
   },
 
-  /** Archive a chat so it disappears from getChats() for every member. */
-  async archiveChat(chatId: string): Promise<void> {
-    await (await currentGroupAdmin()).archive(chatId)
+  /** Delete this owner's DM list entry, or archive a group using its management authority. */
+  async archiveChat(chatId: string) {
+    return deleteListedConversation(chatId)
   },
 
   /**

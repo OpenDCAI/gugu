@@ -14,7 +14,7 @@ import {
   OWN_CHUNK_THRESHOLD,
   ownByteRatio,
   parseObfuscateFlag,
-} from '../../../scripts/obfuscate-own-chunks.mts'
+} from '../../../scripts/build/obfuscate-own-chunks.mts'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 

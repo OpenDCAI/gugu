@@ -26,7 +26,7 @@ export interface FileOpenerCandidate {
    * language it gives it: whoever draws it picks one with `localizedManifestText` (the candidate is made in main and on
    * the phone as well as in the window, and only the drawing side knows the language).
    */
-  app: Pick<ExtensionManifest, 'name' | 'localized'>;
+  app: Pick<ExtensionManifest, 'name' | 'defaultLocale' | 'localized'>;
   /** The App has this one tab: its title adds nothing under the App's name. */
   onlyTab: boolean;
   /**
@@ -34,6 +34,11 @@ export interface FileOpenerCandidate {
    * also what a remembered 「始终用它」 is kept under (`openWithKey`).
    */
   suffix: string;
+  /**
+   * The file is this App's own state in a chat: the tab names it as its `chatFile` (App 模型 v2 — the one sign of App
+   * data; the folder hides such files until 「显示 App 数据」). A file claimed by suffix is a person's document.
+   */
+  state: boolean;
 }
 
 /**
@@ -127,9 +132,10 @@ export function fileOpenersFor(
           extensionId: manifest.id,
           tabKind: `${manifest.id}.${tab.name}`,
           tabTitle: tab.title,
-          app: { name: manifest.name, ...(manifest.localized ? { localized: manifest.localized } : {}) },
+          app: { name: manifest.name, defaultLocale: manifest.defaultLocale, ...(manifest.localized ? { localized: manifest.localized } : {}) },
           onlyTab: manifest.contributes.tabs.length === 1,
           suffix: claimed,
+          state: context === 'chat' && tab.chatFile?.toLowerCase() === name,
         });
       }
     }
@@ -215,6 +221,36 @@ export function openerChoice(
 ): OpenerChoice {
   const openers = fileOpenersFor(fileName, apps, context);
   return ask ? askOpener(openers) : chooseOpener(openers, (suffix) => remembered(openWithKey(context, suffix)));
+}
+
+/** A page continuing in its own claiming tab, without consulting the person's default opener. */
+export function ownTabChoice(
+  fileName: string,
+  apps: readonly ExtensionManifest[],
+  context: FileOpenContext,
+  extensionId: string,
+  tab: string,
+): Extract<OpenerChoice, { kind: 'one' }> | null {
+  const candidate = fileOpenersFor(fileName, apps, context).find((entry) => entry.tabKind === `${extensionId}.${tab}`);
+  return candidate ? { kind: 'one', candidate } : null;
+}
+
+/** The same claim refusal on desktop and phone; the caller's identity comes from its trusted binding. */
+export function requireOwnTabChoice(
+  fileName: string,
+  apps: readonly ExtensionManifest[],
+  context: FileOpenContext,
+  extensionId: string,
+  tab: string,
+): Extract<OpenerChoice, { kind: 'one' }> {
+  const choice = ownTabChoice(fileName, apps, context, extensionId, tab);
+  if (choice) return choice;
+  const declared = apps.find((app) => app.id === extensionId)?.contributes.tabs.find((entry) => entry.name === tab);
+  const claims = declared ? claimedSuffixes(declared, context) : [];
+  const message = declared
+    ? `${tab} does not open this file: in a ${context} it opens ${claims.join(', ') || 'no files'}`
+    : `This App has no tab named ${tab}`;
+  throw Object.assign(new Error(message), { code: 'invalid' });
 }
 
 /**

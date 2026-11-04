@@ -3,7 +3,7 @@
  * macOS 会问「允许咕咕控制 xx 吗」—— 那就是这一组的系统权限)与 `execFileAsync`(命令行工具:mdfind、xattr、sdef ……)。
  * 参数经 argv 传 JSON,❌ 拼进脚本(引号 / 换行会把脚本弄坏)。脚本把结果 JSON.stringify 打到 stdout。
  */
-import { execFile, spawn } from 'node:child_process'
+import { execFile, spawn } from '@gugu/core/local/childProcess'
 
 /** macOS 不让发 Apple Event(用户没点允许 / 在隐私设置里关了)时 osascript 的错误码。 */
 const NOT_AUTHORIZED = /-1743|Not authori[sz]ed to send Apple events|不允许发送 Apple 事件/i

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseAst } from 'vite'
 import { describe, expect, it } from 'vitest'
-import { escapeNonAscii, taggedTemplateNonAsciiRanges } from '../../../scripts/renderer-chunking.mts'
+import { escapeNonAscii, taggedTemplateNonAsciiRanges } from '../../../scripts/build/renderer-chunking.mts'
 
 const run = (code: string): unknown => new Function(`return (${code})`)()
 // 与插件同一条路径:rollup 的解析器给区间,区间外全部转义

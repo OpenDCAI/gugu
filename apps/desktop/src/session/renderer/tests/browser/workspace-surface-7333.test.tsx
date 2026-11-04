@@ -147,3 +147,31 @@ it('a saved user sidebar width takes precedence over the unified navigation defa
   expect(localStorage.getItem('gugu.taskpage.sidebarWidth')).toBe('320');
   localStorage.removeItem('gugu.taskpage.sidebarWidth');
 });
+
+it('a place without the task list hides the sidebar as a retained surface: same node, never laid out again from scratch', async () => {
+  const listMounted = vi.fn();
+  function List() {
+    useEffect(() => { listMounted(); }, []);
+    return <div data-list="">project list</div>;
+  }
+  harness = createReactHarness();
+  const draw = (sidebarHidden: boolean) => (
+    <div className="gugu-skin emlight" style={{ position: 'fixed', inset: 0 }}>
+      <SessionLocalizationProvider><WorkspaceLayoutContextProvider>
+        <WorkspaceLayout sidebarHidden={sidebarHidden} leftSidebar={<List />} mainContent={<WorkspaceContentLayout titlebarSlot={null} mainPanel={<Body />} />} />
+      </WorkspaceLayoutContextProvider></SessionLocalizationProvider>
+    </div>
+  );
+  await harness.render(draw(false));
+  const list = harness.container.querySelector<HTMLElement>('[data-list]')!;
+  const shell = harness.container.querySelector<HTMLElement>('[data-workspace-shell]')!;
+  const surface = () => harness.container.querySelector<HTMLElement>('[data-workspace-content-surface]')!;
+  await harness.render(draw(true));
+  expect(list.checkVisibility(), 'the hidden list is not drawn').toBe(false);
+  expect(surface().getBoundingClientRect().left - shell.getBoundingClientRect().left, 'the place gets the whole width').toBeLessThan(NAV_COLUMN_WIDTH / 2);
+  await harness.render(draw(false));
+  expect(harness.container.querySelector('[data-list]'), 'coming back shows the same list, not a rebuilt one').toBe(list);
+  expect(list.checkVisibility()).toBe(true);
+  expect(listMounted).toHaveBeenCalledTimes(1);
+  expect(shell.querySelector('aside')!.getBoundingClientRect().width).toBe(NAV_COLUMN_WIDTH);
+});

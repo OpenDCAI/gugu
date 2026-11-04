@@ -7,7 +7,7 @@
 // 两边都只 import 这一个文件,❌ 各写一份键名。
 import { useSyncExternalStore } from 'react'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
-import { unreadForYou } from '@gugu/core/shared/ui/chatModels'
+import { chatAttention } from '@gugu/core/shared/ui/chatModels'
 import { isDuplicateAssistantChat } from './assistantChatList'
 import type { AssistantShellSnapshot } from './assistantShellBridge'
 import type { JoinedGroup } from './sidebarJoinedGroups'
@@ -43,11 +43,11 @@ export function sidebarChatSignals(chats: readonly ChatItem[], projectGroupChats
   for (const chat of chats) {
     if (chat.unread_count <= 0 || chat.is_muted || isDuplicateAssistantChat(chat, assistant)) continue
     const line = chat.kind === 'topic' ? (chat.source_chat_id ?? chat.id) : chat.id
-    // 项目行只数叫到你的(owner 10-28):项目群主线(含回复串)全算,它开出来的话题只算叫到你的那几条。
+    // 项目群主线(含回复串)全算,话题只算叫到你的那几条(owner 10-28),项目行与「对话」页签同一个数。
+    const count = chatAttention(chat).forYou
     if (projectGroupChats.has(line)) {
-      const count = unreadForYou(chat)
       if (count > 0) groupUnread.set(line, (groupUnread.get(line) ?? 0) + count)
-    } else chatsUnread += chat.unread_count
+    } else chatsUnread += count
   }
   return { chatsUnread, groupUnread }
 }

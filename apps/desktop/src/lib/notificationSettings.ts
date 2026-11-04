@@ -59,7 +59,7 @@ function emit(): void {
   for (const listener of listeners) listener()
 }
 
-function readNotificationSettings(): NotificationSettings {
+export function readNotificationSettings(): NotificationSettings {
   if (typeof window === 'undefined') return DEFAULT_SETTINGS
   currentSettings ??= readStoredSettings()
   return currentSettings

@@ -12,6 +12,7 @@
 // workspace; with a file (ctx.file) it opens the file it was handed; with neither there is nothing to show.
 
 import { placeOf, plainWords, relocate, spanOf } from './lines.js'
+import { INSERT_BLOCKS, isFrontmatter, listInsertion, moveBlock, previewBlock, sourceBlocks, turnBlockChanges } from './blocks.js'
 import { KINDS, SORTS, compareNames, comparer, defaultView, keepable, keptAs, kindOf, markOf, matches, rangeOf, sectionOf, sizeOf, timeLeft, wantsThumb } from './list.js'
 
 const $ = (id) => document.getElementById(id)
@@ -31,7 +32,7 @@ const STRINGS = {
     newFolderName: '新建文件夹',
     attachments: '附件',
     machineOf: '{owner} 的机器',
-    storedOnMine: '保存在 {machine} 上，有人打开时才上传。按你在「设置 › 设备 › 文件存储与读取」里的设置。',
+    storedOnMine: '保存在 {machine} 上，有人打开时才上传。按你在「设置 › 文件存储」里的设置。',
     storedOnOther: '保存在 {owner} 的机器上，有人打开时才上传。按 {owner} 的文件存储设置。',
     up: '上一级',
     move: '移动到…',
@@ -46,6 +47,8 @@ const STRINGS = {
     replaceOld: '替换原来的',
     dropNew: '不要新传的',
     done: '好',
+    workingCopy: '工作目录',
+    chatFolder: '对话的文件夹',
     noWorkspace: '这里没有对话的文件夹。在群里打开「群文件夹」、在私聊里打开「文件夹」，或者从对话里的文件「用文件夹打开」。',
     noFiles: '{folder}还是空的。',
     folderEmpty: '这个文件夹还是空的。',
@@ -54,6 +57,7 @@ const STRINGS = {
     openWith: '用别的 App 打开',
     more: '更多',
     downloadOnly: '这个文件在这里只能下载，不能在这里看和改。',
+    storedTextReadOnly: '这个文件按原样存着，在这里只能看，不能改。',
     remove: '删除',
     confirmRemove: '确认删除',
     rename: '改名',
@@ -68,11 +72,25 @@ const STRINGS = {
     italic: '斜体',
     code: '代码',
     link: '链接',
-    block: '这一段',
+    insertBelow: '在这一段下面插入',
+    insertTable: '表格',
+    insertImage: '图片…',
+    insertFile: '文件…',
+    blockActions: '这一块的操作',
+    turnInto: '转换为',
+    duplicateBlock: '复制一份',
+    moveBlockUp: '上移',
+    moveBlockDown: '下移',
+    deleteBlock: '删除',
+    copyBlockLink: '复制这一块的链接',
     citeBlock: '引用到聊天',
-    holdBlock: '加入待引用',
-    copyBlockLink: '复制这一段的链接',
-    findSource: '在源码里定位',
+    insertHeading: '标题',
+    insertList: '列表',
+    insertTodo: '待办',
+    insertQuote: '引用块',
+    insertCode: '代码块',
+    insertDivider: '分割线',
+    insertReloaded: '文档已重新载入，请重新选择插入位置。',
     emptyTitle: '这份文档还是空的',
     emptyHint: '直接开始写，或者请 agent 起个草稿',
     emptyWrite: '开始写',
@@ -100,6 +118,7 @@ const STRINGS = {
     upload: '上传',
     uploadTooLarge: '文件太大：{e}',
     download: '下载',
+    forward: '转发',
     createdBy: '{who} 创建 · {time}',
     editedBy: '{who} 编辑 · {time}',
     editedAt: '已编辑 · {time}',
@@ -130,8 +149,8 @@ const STRINGS = {
     clearsAt: '{time} 清除云端副本',
     keep: '保留方式',
     keepTemporary: '临时',
-    keepPermanent: '一直保留',
-    keepTip: '临时：到期清除云端副本，期限按上传者在「设置 › 设备 › 文件存储」里的设置，从改的这一刻算起。一直保留：直到有人删除。',
+    keepPermanent: '持续保存',
+    keepTip: '临时：到期清除云端副本，期限按上传者在「设置 › 文件存储」里的设置，从改的这一刻算起。持续保存：不按时间删除；没人打开的大文件会从云端清掉，规则见「设置 › 文件存储」。',
     keepNotMine: '只有上传这份文件的人能改它保留多久。',
     keepNone: '这份文件没有云端副本。',
     showInChat: '在聊天中定位',
@@ -146,7 +165,7 @@ const STRINGS = {
     anyone: '全部',
     cloud: '云端',
     keep_temporary: '临时',
-    keep_kept: '一直保留',
+    keep_kept: '持续保存',
     keep_soon: '7 天内清除',
     clearFilters: '清除筛选',
     noFiltered: '没有符合条件的文件。',
@@ -167,15 +186,15 @@ const STRINGS = {
     noCopy: '没有云端副本',
     machineOnline: '在线',
     machineOffline: '离线',
-    hostOffline: '{machine} 离线，上线后才能打开这个文件。',
     pick: '选择',
     pickAll: '全选',
     pickDone: '完成',
     picked: '已选 {n} 项',
     pickCancel: '取消选择',
+    pickForward: '转发',
     pickDownload: '下载',
     pickTemporary: '设为临时',
-    pickPermanent: '一直保留',
+    pickPermanent: '设为持续保存',
     pickLocate: '在聊天中定位',
     pickLocateAt: '{i}/{n}',
     pickPrev: '上一条',
@@ -200,7 +219,7 @@ const STRINGS = {
     newFolderName: 'New folder',
     attachments: 'Attachments',
     machineOf: '{owner}’s machine',
-    storedOnMine: 'Kept on {machine}; uploaded only when someone opens it. Follows your Settings › Devices › File storage.',
+    storedOnMine: 'Kept on {machine}; uploaded only when someone opens it. Follows your Settings › File storage.',
     storedOnOther: 'Kept on {owner}’s machine; uploaded only when someone opens it. Follows {owner}’s file storage settings.',
     up: 'Up',
     move: 'Move to…',
@@ -215,6 +234,8 @@ const STRINGS = {
     replaceOld: 'Replace the old one',
     dropNew: 'Drop the new one',
     done: 'OK',
+    workingCopy: 'Working folder',
+    chatFolder: 'Conversation folder',
     noWorkspace: 'There is no chat folder here. Open Group folder in a group or Folder in a private chat, or open a file of one with it.',
     noFiles: 'No files here yet.',
     folderEmpty: 'This folder is empty.',
@@ -223,6 +244,7 @@ const STRINGS = {
     openWith: 'Open with another App',
     more: 'More',
     downloadOnly: 'This file can only be downloaded here; it cannot be shown or changed here.',
+    storedTextReadOnly: 'This file is kept as it was stored: you can read it here, not change it.',
     remove: 'Delete',
     confirmRemove: 'Confirm delete',
     rename: 'Rename',
@@ -237,11 +259,25 @@ const STRINGS = {
     italic: 'Italic',
     code: 'Code',
     link: 'Link',
-    block: 'This block',
-    citeBlock: 'Cite in the chat',
-    holdBlock: 'Keep to cite',
-    copyBlockLink: 'Copy a link to it',
-    findSource: 'Find in the source',
+    insertBelow: 'Insert below this paragraph',
+    insertTable: 'Table',
+    insertImage: 'Image…',
+    insertFile: 'File…',
+    blockActions: 'Block actions',
+    turnInto: 'Turn into',
+    duplicateBlock: 'Duplicate',
+    moveBlockUp: 'Move up',
+    moveBlockDown: 'Move down',
+    deleteBlock: 'Delete',
+    copyBlockLink: 'Copy link to block',
+    citeBlock: 'Cite in chat',
+    insertHeading: 'Heading',
+    insertList: 'List',
+    insertTodo: 'To-do',
+    insertQuote: 'Quote',
+    insertCode: 'Code block',
+    insertDivider: 'Divider',
+    insertReloaded: 'The document was reloaded. Choose an insertion point again.',
     emptyTitle: 'This document is empty',
     emptyHint: 'Start writing, or ask an agent for a draft',
     emptyWrite: 'Start writing',
@@ -269,6 +305,7 @@ const STRINGS = {
     upload: 'Upload',
     uploadTooLarge: 'File too large: {e}',
     download: 'Download',
+    forward: 'Forward',
     createdBy: 'Created by {who} · {time}',
     editedBy: 'Edited by {who} · {time}',
     editedAt: 'Edited · {time}',
@@ -299,8 +336,8 @@ const STRINGS = {
     clearsAt: 'Cloud copy cleared {time}',
     keep: 'Keep',
     keepTemporary: 'Temporary',
-    keepPermanent: 'Until deleted',
-    keepTip: 'Temporary: the cloud copy is cleared after the uploader\'s period in Settings › Devices › File storage, counted from now. Until deleted: kept until someone deletes it.',
+    keepPermanent: 'Kept',
+    keepTip: 'Temporary: the cloud copy is cleared after the uploader\'s period in Settings › File storage, counted from now. Kept: not deleted on a schedule; large files nobody opens are cleared from the cloud, see Settings › File storage.',
     keepNotMine: 'Only the person who uploaded this file can change how long it is kept.',
     keepNone: 'This file has no cloud copy.',
     showInChat: 'Show in chat',
@@ -315,7 +352,7 @@ const STRINGS = {
     anyone: 'Any',
     cloud: 'Cloud',
     keep_temporary: 'Temporary',
-    keep_kept: 'Until deleted',
+    keep_kept: 'Kept',
     keep_soon: 'Cleared within 7 days',
     clearFilters: 'Clear filters',
     noFiltered: 'No file matches these filters.',
@@ -336,15 +373,15 @@ const STRINGS = {
     noCopy: 'No cloud copy',
     machineOnline: 'online',
     machineOffline: 'offline',
-    hostOffline: '{machine} is offline: this file opens once it is back.',
     pick: 'Select',
     pickAll: 'Select all',
     pickDone: 'Done',
     picked: '{n} selected',
     pickCancel: 'Clear selection',
+    pickForward: 'Forward',
     pickDownload: 'Download',
     pickTemporary: 'Make temporary',
-    pickPermanent: 'Keep until deleted',
+    pickPermanent: 'Keep',
     pickLocate: 'Show in chat',
     pickLocateAt: '{i}/{n}',
     pickPrev: 'Previous',
@@ -376,7 +413,11 @@ const state = {
   order: [], // the files on screen, in their order: what a range runs along
   locating: null, // 「在聊天中定位」 for a selection: { ids: message ids oldest first, at }
   showAppData: false,
+  // Which of its two roots the list shows: the conversation's folder (`chat`) or the working copy (`workspace`); null, both
+  // (a session's tab has both), for the person to pick.
+  root: null,
   folder: null, // the folder the list shows (子文件夹): a folder entry's id, null for the top
+  listed: new Set(), // a working copy's folders listed so far ('' the top): it is read one folder at a time
   dragging: null, // the entry being dragged onto a folder (desktop)
   mode: 'preview', // 阅读 first (owner 10-30, folder-docs)
   current: null, // { entry, file, view, unbind, offs: [] }
@@ -425,8 +466,14 @@ function stringsFor(locale, chat) {
 function can(capability) {
   return !!state.ctx?.capabilities?.includes(capability)
 }
-const canRead = () => can('files:read') || can('files:write')
+const canRead = () => can('files:read') || can('files:read:all-machines') || can('files:write')
 const canWrite = () => can('files:write')
+// A working copy is browsed and its files opened here; what is made, moved and uploaded goes to the conversation's folder.
+const inWorkspace = () => state.root === 'workspace'
+const canWriteHere = () => canWrite() && !inWorkspace()
+// The roots this page has: its conversation's folder, and — in a session's tab — that session's working copy.
+const rootsOf = (ctx) => [ctx?.chat ? 'chat' : null, ctx?.workspace && (ctx.capabilities ?? []).some((c) => c.startsWith('files:')) ? 'workspace' : null].filter(Boolean)
+const rootPlace = () => (inWorkspace() ? { workspace: state.ctx.workspace.id } : { chat: state.ctx.chat.id })
 
 function debounce(fn, ms) {
   let timer = null
@@ -487,14 +534,31 @@ async function applyContext(ctx) {
   state.t = stringsFor(ctx.locale, ctx.chat)
   document.documentElement.lang = isZh(ctx.locale) ? 'zh-CN' : 'en'
   renderChrome()
-  const inGroup = !!ctx.chat
+  const roots = rootsOf(ctx)
+  const inGroup = roots.length > 0
   // A page the host opened for one file (F3: its own page, bound to that file for life) shows that file only.
   document.body.classList.toggle('no-list', !inGroup || !canRead() || !!ctx.file)
-  if (previous?.chat?.id !== ctx.chat?.id || !!previous?.file !== !!ctx.file) {
-    // Adds, deletes and renames in this chat's workspace (§2.4: fed from workspace_changed) — every call names its chat.
+  if (previous?.chat?.id !== ctx.chat?.id || previous?.workspace?.id !== ctx.workspace?.id || !!previous?.file !== !!ctx.file) {
+    // Adds, deletes and renames in this chat's workspace (§2.4: fed from workspace_changed), and in the working copy's
+    // folders listed here (the file panel's own pushes) — every call names its place.
     state.unwatch?.()
-    state.unwatch = inGroup && canRead() && !ctx.file ? gugu.files.onChanged({ chat: ctx.chat.id }, heard) : null
-    if (inGroup && canRead() && !ctx.file) {
+    const watching = canRead() && !ctx.file
+      ? [ctx.chat && gugu.files.onChanged({ chat: ctx.chat.id }, heardIn('chat')), ctx.workspace && roots.includes('workspace') && gugu.files.onChanged({ workspace: ctx.workspace.id }, heardIn('workspace'))].filter(Boolean)
+      : []
+    state.unwatch = watching.length ? () => watching.forEach((stop) => stop()) : null
+    // One root: that one. Both: the person picks (the list shows the two), unless the one shown is still here.
+    const shown = state.root
+    const shownPlace = (c) => (shown === 'workspace' ? c?.workspace?.id : shown === 'chat' ? c?.chat?.id : undefined)
+    state.root = roots.length === 1 ? roots[0] : roots.includes(state.root) ? state.root : null
+    // The root on screen is the same place still (its conversation arrived, say): the person stays where they are.
+    const stays = !!previous && state.root === shown && shown !== null && shownPlace(previous) === shownPlace(ctx) && !!previous.file === !!ctx.file
+    if (!stays) {
+      state.folder = null
+      state.listed = new Set()
+      state.entries = []
+    }
+    if (stays) renderList()
+    if (!stays && inGroup && canRead() && !ctx.file) {
       state.showAppData = false
       await refreshList(true)
     }
@@ -527,11 +591,11 @@ function renderChrome() {
   $('select-files').textContent = state.selecting || state.picked.size ? t.pickDone : t.pick
   renderTools()
   $('new-label').textContent = t.new
-  $('new-doc').hidden = !canWrite()
+  $('new-doc').hidden = !canWriteHere()
   $('move-cancel').textContent = t.cancel
   $('conflicts-done').textContent = t.done
   $('upload-label').textContent = $('empty-upload').textContent = t.upload
-  $('upload').hidden = !canWrite()
+  $('upload').hidden = !canWriteHere()
   $('download').textContent = t.download
   $('open-with').textContent = t.openWith
   $('more').setAttribute('aria-label', t.more)
@@ -541,7 +605,8 @@ function renderChrome() {
     $(`fmt-${fmt}`).setAttribute('aria-label', t[fmt])
     $(`fmt-${fmt}`).title = t[fmt]
   }
-  $('block-handle').setAttribute('aria-label', t.block)
+  $('block-insert').setAttribute('aria-label', t.insertBelow)
+  $('block-handle').setAttribute('aria-label', t.blockActions)
   $('doc-empty-title').textContent = t.emptyTitle
   $('doc-empty-hint').textContent = t.emptyHint
   $('empty-write-label').textContent = t.emptyWrite
@@ -562,12 +627,13 @@ function renderChrome() {
 // The newest list asked is the one shown (an older one back later — another chat's — is dropped); what the chat says
 // while it is on its way goes over it again when it is back: the list may be from before (#7257).
 async function refreshList(readPreferences = false) {
-  if (!state.ctx?.chat || !canRead()) return
+  if (!state.root || !canRead()) return showList()
+  if (inWorkspace()) return listFolder(state.folder ?? '', true)
   const asked = (state.listing = { heard: [] })
   let entries
   let listError = null
   try {
-    const place = { chat: state.ctx.chat.id }
+    const place = rootPlace()
     const [listed, preferences] = await Promise.all([
       gugu.files.list(place),
       readPreferences ? gugu.files.viewPreferences(place) : null,
@@ -586,8 +652,41 @@ async function refreshList(readPreferences = false) {
   showList()
 }
 
-// What the chat says of its files (#7257): those as they are now, and the ids no longer there — into the list as it is,
-// never listed again.
+/**
+ * One folder of the working copy ('' the top), as the file panel has it: what is directly in it, into the list beside the
+ * folders read before — a folder of ten thousand files is never read whole. `again`: read it anew.
+ */
+async function listFolder(folder, again = false) {
+  if (!inWorkspace() || (!again && state.listed.has(folder))) return showList()
+  const workspace = state.ctx.workspace.id
+  let listed
+  try {
+    listed = await gugu.files.list({ workspace, folder })
+  } catch (error) {
+    if (state.ctx?.workspace?.id !== workspace) return
+    state.listError = error.code === 'denied' ? state.t.denied : fmt(state.t.failed, { e: error.message })
+    return showList()
+  }
+  if (!inWorkspace() || state.ctx?.workspace?.id !== workspace) return
+  const parent = folder || null
+  state.listed.add(folder)
+  state.listError = null
+  state.entries = [...state.entries.filter((entry) => (entry.parentId ?? null) !== parent), ...listed]
+  showList()
+}
+
+// What one root says of its files: heard only while that root is the one shown. A working copy says which paths changed:
+// the folders shown here that hold them are read again (one folder each, as the file panel reads it).
+const heardIn = (root) => (change) => {
+  if (state.root !== root) return
+  if (root === 'chat') return heard(change)
+  const folders = change.kind === 'resync' ? [...state.listed]
+    : (change.changes ?? []).map((c) => (c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''))
+  for (const folder of new Set(folders)) if (state.listed.has(folder)) void listFolder(folder, true)
+}
+
+// What the chat says of its files (#7257), or a working copy of a folder listed here: those as they are now, and the
+// ids no longer there — into the list as it is, never listed again.
 function heard(change) {
   if (change.kind !== 'entries') return
   state.listing?.heard.push(change)
@@ -636,15 +735,11 @@ function relativeTime(iso) {
 const changedAt = (entry) => entry.updatedAt ?? entry.createdAt
 
 const isFolder = (entry) => entry.type === 'folder'
-// Ownership is explicitly stored on the item. Opener claims and names do not classify App data.
-function visibleEntry(entry) {
-  const app = entry.metadata?.app
-  const marked = app && typeof app.publisher === 'string' && app.publisher.trim() && typeof app.id === 'string' && app.id.trim()
-  return state.showAppData || !marked
-}
+// App data is what an App's tab names as its chatFile (entry.appState, from its declaration); a file claimed by suffix is a person's.
+const visibleEntry = (entry) => state.showAppData || !entry.appState
 
 async function folderContextMenu(x, y) {
-  if (!state.ctx?.chat || state.ctx.file || !canRead()) return
+  if (!state.ctx?.chat || inWorkspace() || state.ctx.file || !canRead()) return
   const chat = state.ctx.chat.id
   const show = !state.showAppData
   try {
@@ -712,6 +807,7 @@ function renderList() {
   // The folder on screen is gone (deleted, or no longer seen): back to the top.
   if (state.folder && !state.entries.some((e) => e.id === state.folder)) state.folder = null
   renderCrumbs()
+  if (!state.root) return renderRoots()
   const needle = state.filter.trim().toLocaleLowerCase()
   // One clock for the whole list, the one relative times read (Date.now).
   const now = new Date(Date.now())
@@ -759,7 +855,33 @@ function renderList() {
   $('files-empty-message').textContent = state.listError
     ?? (needle ? fmt(t.noMatch, { q: state.filter.trim() }) : filtering && ofKind.length ? t.noFiltered
       : state.kind !== 'all' && shown.length ? t.noKind : state.folder ? t.folderEmpty : t.noFiles)
-  $('empty-upload').hidden = !canWrite() || !!needle || !!state.listError || (state.kind !== 'all' && shown.length > 0) || filtering
+  $('empty-upload').hidden = !canWriteHere() || !!needle || !!state.listError || (state.kind !== 'all' && shown.length > 0) || filtering
+}
+
+// A session's tab has two roots: its conversation's folder and its working copy — the list's top, each a folder to enter.
+function renderRoots() {
+  const t = state.t
+  // Drawn as the list draws a folder (listItem): the same row, a press enters it.
+  const row = (root, label) => {
+    const li = document.createElement('li')
+    li.className = 'file'
+    li.dataset.folder = ''
+    li.dataset.root = root
+    li.setAttribute('role', 'option')
+    const open = Object.assign(document.createElement('button'), { type: 'button', className: 'file-open' })
+    const title = Object.assign(document.createElement('span'), { className: 'file-title' })
+    title.append(Object.assign(document.createElement('span'), { className: 'file-name', textContent: label }))
+    open.append(folderMark(), title)
+    open.onclick = () => enterRoot(root)
+    li.append(open)
+    return li
+  }
+  $('file-list').classList.remove('as-grid')
+  $('file-list').replaceChildren(row('chat', t.chatFolder), row('workspace', t.workingCopy))
+  $('files-empty').hidden = true
+  $('empty-upload').hidden = true
+  state.order = []
+  renderTools([], new Date(Date.now()))
 }
 
 function sectionRow(text) {
@@ -917,7 +1039,8 @@ function sortMenu() {
 function renderCrumbs() {
   const nav = $('crumbs')
   const t = state.t
-  if (!state.folder || state.filter.trim()) {
+  const both = rootsOf(state.ctx).length > 1
+  if ((!state.folder && !(both && state.root)) || state.filter.trim()) {
     nav.hidden = true
     nav.replaceChildren()
     return
@@ -929,7 +1052,7 @@ function renderCrumbs() {
   up.className = 'back'
   up.innerHTML = '<gugu-icon name="chevron-left"></gugu-icon>'
   up.append(Object.assign(document.createElement('span'), { textContent: t.up }))
-  up.onclick = () => enterFolder(trail.length > 1 ? trail[trail.length - 2].id : null)
+  up.onclick = () => (trail.length ? enterFolder(trail.length > 1 ? trail[trail.length - 2].id : null) : enterRoot(null))
   const crumb = (text, folderId, current) => {
     const button = document.createElement('button')
     button.type = 'button'
@@ -940,7 +1063,15 @@ function renderCrumbs() {
     dropOnto(button, folderId)
     return button
   }
-  const parts = [up, crumb(t.title, null, false)]
+  const rootName = inWorkspace() ? t.workingCopy : both ? t.chatFolder : t.title
+  const parts = [up]
+  if (both) {
+    // The top of both roots: a press goes back to them.
+    const top = Object.assign(document.createElement('button'), { type: 'button', className: 'crumb', textContent: t.title })
+    top.onclick = () => enterRoot(null)
+    parts.push(top, Object.assign(document.createElement('span'), { className: 'crumb-sep', textContent: '/' }))
+  }
+  parts.push(crumb(rootName, null, !state.folder))
   trail.forEach((folder, i) => {
     parts.push(Object.assign(document.createElement('span'), { className: 'crumb-sep', textContent: '/' }))
     parts.push(crumb(shownName(folder), folder.id, i === trail.length - 1))
@@ -959,13 +1090,29 @@ function enterFolder(folderId) {
   }
   renderList()
   $('file-list').scrollTop = 0
+  // A working copy's folder is read when it is entered, once.
+  if (inWorkspace()) void listFolder(folderId ?? '')
+}
+
+// One of the two roots picked (null: back to both).
+function enterRoot(root) {
+  if (state.root === root) return enterFolder(null)
+  state.root = root
+  state.folder = null
+  state.entries = []
+  state.listed = new Set()
+  state.listError = null
+  hideBanner()
+  clearPicks()
+  renderList()
+  void refreshList(root === 'chat')
 }
 
 // A row or a crumb a dragged file can land on (desktop): the folder it stands for (null, the top).
 function dropOnto(el, folderId) {
   const fits = () => {
     const moving = state.dragging
-    if (!moving || !canWrite() || (moving.parentId ?? null) === folderId || moving.id === folderId) return false
+    if (!moving || !canWriteHere() || (moving.parentId ?? null) === folderId || moving.id === folderId) return false
     return !(isFolder(moving) && under(moving.id).some((e) => e.id === folderId))
   }
   el.addEventListener('dragover', (event) => {
@@ -1187,9 +1334,10 @@ function storedOnMark(storedOn) {
 // machine is back.
 const offline = (entry) => entry.storedOn?.online === false && !entry.keep
 
-// A press on a file: the host picks the App that opens it — or, its machine off, the list says why it cannot now.
+// A press on a file: the host picks the App that opens it and says why if it cannot now. Whether the machine that keeps
+// it is on is read afresh then, never from the list as it was loaded: the list is read again to show it.
 function openFile(entry) {
-  if (offline(entry)) return void showBanner(fmt(state.t.hostOffline, { machine: machineOf(entry.storedOn) }), 'info')
+  if (entry.storedOn) void refreshList()
   return openInHost(entry)
 }
 
@@ -1225,7 +1373,8 @@ function metaOf(entry, now) {
   const t = state.t
   const cells = []
   if (isFolder(entry)) {
-    cells.push(['size', fmt(t.items, { n: inside(entry.id).filter(visibleEntry).length })])
+    // A working copy is read one folder at a time: one not entered yet has no count to say (never a 0).
+    if (!inWorkspace() || state.listed.has(entry.id)) cells.push(['size', fmt(t.items, { n: inside(entry.id).filter(visibleEntry).length })])
   } else {
     const when = whenOf(changedAt(entry), now)
     if (when) cells.push(['when', when])
@@ -1291,7 +1440,7 @@ function listItem(entry, now = new Date(Date.now())) {
     li.addEventListener('dragend', () => (state.dragging = null))
   }
   if (folder) {
-    if (canWrite() && !entry.systemRole) drag(entry.name, false)
+    if (canWriteHere() && !entry.systemRole) drag(entry.name, false)
   } else {
     // DataTransfer is writable only during dragstart, before any asynchronous host answer.
     void gugu.linkTo({ kind: 'file', file: entry }).then((link) => drag(link, true))
@@ -1344,19 +1493,37 @@ function gridItem(entry, now) {
 }
 
 // File rows and grid cells use the page's existing menu, with the same actions and permission checks.
-function rowMenu(li, entry) {
+// Whether this person may delete a file, asked as its menu opens (a list does not carry it: a whole folder's answer cost
+// seconds before its first row). One answer per version of the entry: a change to it is a new version, asked again.
+const deletable = new Map() // `${id}:${version}` → Promise<boolean>
+const deletableSaid = new Map() // the same key → the answer, once it is back
+const deletableKey = (entry) => `${entry.id}:${entry.version}`
+function mayDelete(entry) {
+  if (!canWriteHere() || entry.systemRole) return Promise.resolve(false)
+  const key = deletableKey(entry)
+  if (!deletable.has(key)) {
+    deletable.set(key, gugu.files.canDelete([entry]).then(([yes]) => {
+      deletableSaid.set(key, yes === true)
+      return yes === true
+    }, () => { deletable.delete(key); return false }))
+  }
+  return deletable.get(key)
+}
+
+function rowMenu(li, entry, canDelete = false) {
   const t = state.t
   const folder = isFolder(entry)
   const open = { text: t.open, run: () => folder ? enterFolder(entry.id) : openFile(entry) }
   const openWith = { text: t.openWith, run: () => openInHost(entry, true) }
-  const change = canWrite() && !entry.systemRole
+  const change = canWriteHere() && !entry.systemRole
     ? [{ text: t.rename, run: () => startRename(li, entry) }, { text: t.move, run: () => showMoveDialog(entry) }] : []
-  const remove = canWrite() && !entry.systemRole && entry.canDelete
+  const remove = canWriteHere() && !entry.systemRole && canDelete
     ? [{ text: t.remove, run: () => removeFile(entry), ask: folder && under(entry.id).length ? fmt(t.confirmRemoveFolder, { n: under(entry.id).length }) : t.confirmRemove }] : []
   const groups = [[open]]
   if (folder) groups.push(change)
   else {
-    const use = [{ text: t.download, run: () => downloadEntry(entry) }, { text: t.copyLink, run: () => copyLink(entry) }]
+    const use = [...(canForward() ? [{ text: t.forward, run: () => forwardEntries([entry]) }] : []),
+      { text: t.download, run: () => downloadEntry(entry) }, { text: t.copyLink, run: () => copyLink(entry) }]
     if (entry.sourceMessageIds?.length) use.push({ text: t.showInChat, run: () => showSource(entry.sourceMessageIds.at(-1)) })
     const detail = { text: t.details, run: () => showDetails(entry) }
     const select = { text: t.pick, run: () => { state.selecting = true; pick(entry.id, 'toggle') } }
@@ -1383,9 +1550,19 @@ function rowMenu(li, entry) {
 
 function fileMenu(li, open, entry) {
   const show = (point) => {
-    const items = !isFolder(entry) && state.picked.size
-      ? [...pickedActions(), { separator: true }, { text: state.t.pickCancel, run: clearPicks }] : rowMenu(li, entry)
-    toggleMenu(open, items, { point, entry: state.picked.size && !isFolder(entry) ? null : entry, selection: state.picked.size && !isFolder(entry) })
+    const picked = !isFolder(entry) && state.picked.size
+    const context = { point, entry: picked ? null : entry, selection: picked }
+    if (picked) return toggleMenu(open, [...pickedActions(), { separator: true }, { text: state.t.pickCancel, run: clearPicks }], context)
+    // The menu opens at once; 删除 joins it when the answer is back and says yes (at once, when it is already known).
+    const said = deletableSaid.get(deletableKey(entry))
+    toggleMenu(open, rowMenu(li, entry, said === true), context)
+    if (said === undefined) {
+      void mayDelete(entry).then((yes) => {
+        if (!yes || state.menuAnchor !== open) return
+        closeMenu()
+        toggleMenu(open, rowMenu(li, entry, true), context)
+      })
+    }
   }
   let timer = null
   let held = false
@@ -1405,12 +1582,15 @@ function fileMenu(li, open, entry) {
     if (event.key === 'ContextMenu' || event.shiftKey && event.key === 'F10') {
       event.preventDefault()
       show()
-    } else if (state.picked.size <= 1 && canWrite() && !entry.systemRole) {
+    } else if (state.picked.size <= 1 && canWriteHere() && !entry.systemRole) {
       if (event.key === 'F2') { event.preventDefault(); startRename(li, entry) }
-      if (event.key === 'Delete' && entry.canDelete) {
+      if (event.key === 'Delete') {
         event.preventDefault()
-        const remove = rowMenu(li, entry).find((item) => item.ask)
-        toggleMenu(open, [{ ...remove, text: remove.ask }], { entry })
+        void mayDelete(entry).then((yes) => {
+          if (!yes) return
+          const remove = rowMenu(li, entry, true).find((item) => item.ask)
+          toggleMenu(open, [{ ...remove, text: remove.ask }], { entry })
+        })
       }
     }
   })
@@ -1442,6 +1622,18 @@ async function keepAs(entry, how) {
     showBanner(error.code === 'denied' ? state.t.keepNotMine : error.code === 'invalid' ? state.t.keepNone : fmt(state.t.failed, { e: error.message }), 'error')
   }
   await refreshList()
+}
+
+// 「转发」 (API 23): the host's forward page — the person picks the chats there, each gets a file card per file, by reference.
+// A host before it has no files.forward: the item is not offered rather than offered and refused.
+const canForward = () => typeof gugu.files.forward === 'function'
+async function forwardEntries(entries, then) {
+  try {
+    await gugu.files.forward(entries)
+    then?.()
+  } catch (error) {
+    showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  }
 }
 
 async function downloadEntry(entry) {
@@ -1547,17 +1739,17 @@ async function createFolder() {
   }
 }
 
-async function uploadFiles() {
+async function uploadFiles(place = { chat: state.ctx.chat.id, ...(state.folder ? { folder: state.folder } : {}) }) {
   hideBanner()
   // One upload at a time: the button is back once the files are in the list and anything to ask is asked.
   $('upload').disabled = true
   try {
     const before = new Set(state.entries.map((e) => e.id))
     // The host's file picker, into the folder on screen; [] when the person cancels.
-    const arrived = await gugu.files.upload({ chat: state.ctx.chat.id, ...(state.folder ? { folder: state.folder } : {}) })
+    const arrived = await gugu.files.upload(place)
     // What arrived is in the list, to open like any other file (the picker took the gesture's time).
     await refreshList()
-    askAboutNames(arrived, before)
+    return askAboutNames(arrived, before)
   } catch (error) {
     // A partial failure rejects too, after the rest are stored: the list shows what arrived.
     await refreshList()
@@ -1582,7 +1774,11 @@ function askAboutNames(arrived, before) {
     const old = entry.clashWith ? state.entries.find((e) => e.id === entry.clashWith && before.has(e.id)) : null
     if (old && !isFolder(old)) clashes.push({ entry, old })
   }
-  if (clashes.length === 0) return
+  if (clashes.length === 0) return Promise.resolve(arrived)
+  const kept = new Map(arrived.map((entry) => [entry.id, entry]))
+  let finish
+  const settled = new Promise((resolve) => { finish = () => { $('conflicts').hidden = true; resolve([...kept.values()]) } })
+  $('conflicts-done').onclick = finish // Unanswered names keep both files, as before.
   $('conflict-list').replaceChildren(...clashes.map(({ entry, old }) => {
     const li = document.createElement('li')
     li.className = 'conflict'
@@ -1594,20 +1790,20 @@ function askAboutNames(arrived, before) {
       button.type = 'button'
       button.textContent = text
       button.onclick = async () => {
-        for (const b of actions.querySelectorAll('button')) b.disabled = true
+        for (const b of $('conflicts').querySelectorAll('button')) b.disabled = true
         try {
-          await run()
+          kept.set(entry.id, await run())
           li.remove()
-          if (!$('conflict-list').children.length) $('conflicts').hidden = true
+          if (!$('conflict-list').children.length) finish()
         } catch (error) {
           showBanner(fmt(t.failed, { e: error.message }), 'error')
-          for (const b of actions.querySelectorAll('button')) b.disabled = false
         }
         await refreshList()
+        for (const b of $('conflicts').querySelectorAll('button')) b.disabled = false
       }
       return button
     }
-    actions.append(act(t.keepBoth, async () => undefined))
+    actions.append(act(t.keepBoth, async () => entry))
     if (entry.type === 'binary' && old.type === 'binary') {
       actions.append(act(t.replaceOld, async () => {
         const file = await gugu.files.open(entry, { readOnly: true })
@@ -1615,14 +1811,16 @@ function askAboutNames(arrived, before) {
         file.close()
         await gugu.files.replace(old, blob, { expectedVersion: old.version })
         await gugu.files.remove(entry)
+        return { ...old, contentType: entry.contentType }
       }))
     } else {
-      actions.append(act(t.dropNew, () => gugu.files.remove(entry)))
+      actions.append(act(t.dropNew, async () => { await gugu.files.remove(entry); return old }))
     }
     li.append(actions)
     return li
   }))
   $('conflicts').hidden = false
+  return settled
 }
 
 async function removeFile(entry) {
@@ -1710,6 +1908,7 @@ async function mountText(current, preview) {
   const render = () => {
     if (state.current !== current) return
     md.render($('preview'), file.text, { density: 'comfortable', frontmatter: true, sourceLines: true, file: current.entry })
+    current.previewPending = false
     previewMarks()
     // A task is ticked where it is read (its line's [ ] / [x], below); not in a file this person may only read.
     for (const box of $('preview').querySelectorAll('li > input[type=checkbox], li > p:first-child > input[type=checkbox]')) box.disabled = !!file.readOnly
@@ -1719,7 +1918,7 @@ async function mountText(current, preview) {
     $('empty-write').hidden = $('empty-draft').hidden = !!file.readOnly
   }
   const changed = debounce(render, 120)
-  current.offs.push(file.onChange((event) => { if (!event.entry) changed() }))
+  current.offs.push(file.onChange((event) => { if (!event.entry) { current.previewPending = true; hideBlockHandle(); changed() } }))
   render()
   // Reading does not wait for the source editor's module and construction.
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
@@ -1728,7 +1927,7 @@ async function mountText(current, preview) {
   current.marks = lineMarks(cm)
   current.view = new cm.EditorView({
     parent: $('editor'),
-    extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension],
+    extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension, blockCompletions(current, cm)],
   })
   current.unbind = gugu.bind.codemirror(current.view, file)
   showPlace()
@@ -1990,58 +2189,203 @@ function format(kind) {
   view.focus()
 }
 
-// Reading with a pointer: the top-level block under it gets a ⋯ in its left margin. Its menu does with the whole block
-// what a selection's bar does (Cite, ＋ Keep), copies a link to its lines (the pill's own `at`), or shows them in the source.
+// Reading with a pointer: + inserts after the top-level block's source span. The bound editor owns writes and undo;
+// the file's existing anchor follows that position while a picker is open or another person edits the document.
 let handleBlock = null
+let handleHideTimer = null
+let blockPointerMenu = false
 
-function hideBlockHandle() {
-  if ($('menu').hidden || state.menuAnchor !== $('block-handle')) {
+function cancelBlockHandleHide() {
+  clearTimeout(handleHideTimer)
+  handleHideTimer = null
+}
+
+function scheduleBlockHandleHide() {
+  cancelBlockHandleHide()
+  handleHideTimer = setTimeout(hideBlockHandle, 150)
+}
+
+function scheduleBlockHandleHideUnlessHovered() {
+  if (!$('preview').matches(':hover') && !$('block-controls').matches(':hover')) scheduleBlockHandleHide()
+}
+
+function hideBlockHandle(force = false) {
+  cancelBlockHandleHide()
+  if (!force && $('block-controls').contains(document.activeElement)) return
+  if (force || $('menu').hidden || !$('block-controls').contains(state.menuAnchor)) {
+    if ($('block-controls').contains(document.activeElement)) $('preview').focus({ preventScroll: true })
     handleBlock = null
-    $('block-handle').hidden = true
+    $('block-controls').hidden = true
   }
 }
 
 function showBlockHandle(event) {
-  if (touchPane?.matches || !state.current || state.current.file.type !== 'text') return
+  cancelBlockHandleHide()
+  if (!state.current?.view) return hideBlockHandle(true)
+  if (touchPane?.matches || state.current.previewPending || state.current.file.type !== 'text') return hideBlockHandle()
   const root = $('preview').firstElementChild
+  const pane = $('preview').getBoundingClientRect()
   let block = null
-  for (let node = event.target; node && node !== root && node !== $('preview'); node = node.parentElement) if (node.parentElement === root) block = node
-  if (!block?.dataset.line) return hideBlockHandle()
-  if (block === handleBlock && !$('block-handle').hidden) return
+  // The reading column's left padding belongs to the block's row too: the pointer crosses it to reach its +.
+  for (const node of root?.children ?? []) {
+    if (!node.dataset.line) continue
+    const box = node.getBoundingClientRect()
+    if (box.top > event.clientY) break
+    if (box.bottom < event.clientY) continue
+    if (event.clientX >= pane.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom) {
+      block = node
+      break
+    }
+  }
+  if (!block) return
+  const span = spanOf(block.dataset.line)
+  const current = state.current
+  $('block-insert').hidden = current.file.readOnly || current.view.state.readOnly
+  if (block === handleBlock && !$('block-controls').hidden) return
+  try {
+    if (!previewBlock(current.view.state, state.cm, span)) return hideBlockHandle(true)
+  } catch (error) {
+    hideBlockHandle(true)
+    return showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  }
   handleBlock = block
   const box = block.getBoundingClientRect()
-  const pane = $('preview').getBoundingClientRect()
-  const handle = $('block-handle')
+  const handle = $('block-controls')
   handle.hidden = false
   handle.style.top = `${box.top + 2}px`
   handle.style.left = `${Math.max(pane.left + 2, box.left - handle.offsetWidth - 6)}px`
 }
 
+// Opposite associations retain the first and last characters. A deleted block collapses the range, so the next
+// paragraph cannot inherit its action. The current syntax tree still owns extents and neighbors at dispatch.
+function blockRange(current, span) {
+  const block = previewBlock(current.view.state, state.cm, span)
+  if (!block) throw new Error(state.t.insertReloaded)
+  return { from: current.file.anchor(block.from), to: current.file.anchor(block.to, -1) }
+}
+
+function resolvedRange(current, range) {
+  const from = current.file.resolve(range.from)
+  const end = current.file.resolve(range.to)
+  if (from === null || end === null || end <= from) throw new Error(state.t.insertReloaded)
+  const blocks = sourceBlocks(current.view.state, state.cm, end)
+  const index = blocks.findIndex((block) => block.from <= from && end <= block.to)
+  if (index < 0 || isFrontmatter(blocks[index])) throw new Error(state.t.insertReloaded)
+  if (range.line) {
+    const line = current.view.state.doc.lineAt(from)
+    if (end > line.to || !/^\/\S*$/.test(line.text)) throw new Error(state.t.insertReloaded)
+    return { from: line.from, to: line.to, line: true, above: blocks[index - 1], below: blocks[index + 1] }
+  }
+  return { ...blocks[index], above: blocks[index - 1], below: blocks[index + 1] }
+}
+
+function blockAction(run) {
+  return async () => {
+    try { return await run() } catch (error) { showBanner(fmt(state.t.failed, { e: error.message }), 'error') }
+  }
+}
+
+function openBlockMenu(event, run) {
+  blockPointerMenu = event.detail > 0
+  void blockAction(run)()
+}
+
+function changeBlock(current, range, change, userEvent = 'input.complete') {
+  const view = current.view
+  if (state.current !== current || current.file.readOnly || !view || view.state.readOnly) return
+  try {
+    const at = resolvedRange(current, range)
+    const edit = change(view.state.doc, at)
+    if (!edit) return
+    const { changes, head } = edit
+    view.dispatch({ changes, selection: { anchor: head }, effects: state.cm.EditorView.scrollIntoView(head, { y: 'center' }), userEvent })
+    if (state.mode === 'preview') setMode(narrowPane?.matches ? 'edit' : 'split')
+    view.focus()
+    hideBlockHandle(true)
+  } catch (error) {
+    showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  }
+}
+
+function insertionItems(current, range, below = true) {
+  const insert = (text, caret = 0, kind) => changeBlock(current, range, (doc, at) => {
+    const from = below ? at.to : at.from
+    const list = (kind === 'list' || kind === 'todo') && listInsertion(current.view.state, state.cm, at, kind, text)
+    const after = doc.sliceString(at.to)
+    const trailing = /^\n*/.exec(after)[0].length
+    const prefix = below ? list ? list.prefix : '\n\n' : ''
+    const suffix = after.length === trailing ? (trailing ? '' : '\n') : '\n'.repeat(Math.max(0, 2 - trailing))
+    return { changes: { from, to: at.to, insert: prefix + (list ? list.text : text) + suffix }, head: from + prefix.length + caret + (list ? list.offset : 0) }
+  })
+  return INSERT_BLOCKS.map((item) => ({
+    text: state.t[item.label],
+    disabled: !item.text && (!current.entry.chat || !canWrite() || $('upload').disabled),
+    run: blockAction(async () => {
+      if (item.text !== undefined) return insert(item.text, item.caret, item.id)
+      const arrived = await uploadFiles({ chat: current.entry.chat, ...(current.entry.parentId ? { folder: current.entry.parentId } : {}) })
+      if (!arrived?.length) return
+      insert(arrived.map((entry) => `${item.id === 'image' && (entry.contentType || '').startsWith('image/') ? '!' : ''}[${entry.name.replace(/[[\]\\]/g, '\\$&')}](gugu-file://${entry.id})`).join('\n\n'))
+    }),
+  }))
+}
+
+function insertMenu() {
+  const current = state.current, span = spanOf(handleBlock?.dataset.line)
+  if (!current?.view || current.previewPending || !span || current.file.readOnly || current.view.state.readOnly) return
+  toggleMenu($('block-insert'), [{ label: state.t.insertBelow }, ...insertionItems(current, blockRange(current, span))])
+}
+
 function blockMenu() {
-  const current = state.current
-  const block = handleBlock
+  const current = state.current, block = handleBlock
   const span = spanOf(block?.dataset.line)
-  if (!current || !span) return
-  const t = state.t
-  const pick = { text: block.innerText || block.textContent || '', lines: span }
+  if (!current?.view || current.previewPending || !span) return
+  const t = state.t, range = blockRange(current, span)
+  const at = resolvedRange(current, range)
+  const move = (down) => changeBlock(current, range, (doc, block) => {
+    const neighbor = down ? block.below : block.above
+    return neighbor && !isFrontmatter(neighbor) ? moveBlock(doc, block, neighbor, down) : null
+  }, 'move')
+  const pick = () => {
+    const at = resolvedRange(current, range), doc = current.view.state.doc
+    return { text: doc.sliceString(at.from, at.to), lines: [doc.lineAt(at.from).number, doc.lineAt(at.to).number] }
+  }
+  const edits = [
+    { text: t.turnInto, children: ['heading', 'list', 'quote', 'code'].map((kind) => ({
+      text: t[INSERT_BLOCKS.find((item) => item.id === kind).label],
+      run: () => changeBlock(current, range, (doc, at) => {
+        const changes = turnBlockChanges(current.view.state, state.cm, at, kind)
+        const content = changes.find((change) => change.from === at.from)?.to ?? at.from
+        return { changes, head: state.cm.state.ChangeSet.of(changes, doc.length).mapPos(content, 1) }
+      }),
+    })) },
+    [t.duplicateBlock, () => changeBlock(current, range, (doc, at) => ({ changes: { from: at.to, insert: `\n\n${doc.sliceString(at.from, at.to)}` }, head: at.to + 2 }))],
+    { text: t.moveBlockUp, disabled: !at.above || isFrontmatter(at.above), run: () => move(false) },
+    { text: t.moveBlockDown, disabled: !at.below, run: () => move(true) },
+    [t.deleteBlock, () => changeBlock(current, range, (_doc, at) => {
+      const from = at.below ? at.from : at.above ? at.above.to : at.from
+      return { changes: { from, to: at.below ? at.below.from : at.to, insert: '' }, head: from }
+    }, 'delete')],
+    { separator: true },
+  ]
   toggleMenu($('block-handle'), [
-    [t.citeBlock, () => void cite(current, [pick], state.held)],
-    [t.holdBlock, () => {
-      state.held.push(refOf(current, pick))
-      renderHeld()
-    }],
-    [t.copyBlockLink, () => void copyLink(current.entry, placeOf(current.file.text, span[0], span[1]))],
-    [t.findSource, () => findInSource(span)],
+    ...(!current.file.readOnly && !current.view.state.readOnly ? edits : []),
+    [t.copyBlockLink, blockAction(() => { const p = pick(); return copyLink(current.entry, placeOf(current.file.text, p.lines[0], p.lines[1])) })],
+    [t.citeBlock, blockAction(() => cite(current, [pick()], state.held))],
   ])
 }
 
-// The block's lines marked in the source, as a pill's are: beside the reading when there is room, else the source alone.
-function findInSource(span) {
-  if (state.mode === 'preview') setMode(narrowPane?.matches ? 'edit' : 'split')
-  state.found = { lines: span, said: false }
-  applyMarks()
-  const view = state.current?.view
-  if (view) view.dispatch({ effects: state.cm.EditorView.scrollIntoView(view.state.doc.line(Math.min(span[0], view.state.doc.lines)).from, { y: 'center' }) })
+function blockCompletions(current, cm) {
+  return cm.markdownLanguage.data.of({ autocomplete: (context) => {
+    if (current.file.readOnly || context.state.readOnly) return null
+    const line = context.state.doc.lineAt(context.pos)
+    if (context.pos !== line.to || !/^\/\S*$/.test(line.text)) return null
+    for (let node = cm.language.syntaxTree(context.state).resolveInner(context.pos, -1); node; node = node.parent) {
+      if (node.name === 'FencedCode' || node.name === 'CodeBlock' || isFrontmatter(node)) return null
+    }
+    const range = { from: current.file.anchor(line.from), to: current.file.anchor(line.to, -1), line: true }
+    const items = insertionItems(current, range, false).filter((item) => !item.disabled)
+    return { from: line.from + 1, validFor: (filter, _from, to, state) => !/\s/.test(filter) && state.doc.lineAt(to).text === `/${filter}`, options: items.map((item, index) => ({ label: item.text, boost: items.length - index, type: 'keyword', apply: () => { cm.autocomplete.closeCompletion(current.view); void item.run() } })) }
+  } })
 }
 
 // A task ticked in the reading page ticks its line in the source: that line's `[ ]` / `[x]`, nothing else.
@@ -2176,6 +2520,7 @@ function watchStatus(current) {
     badge.textContent = file.readOnly && status === 'online' ? t.readOnly : status === 'offline' ? t.offline : ''
     if (status === 'gone') goneState(current)
     else if (status === 'offline') showBanner(t.offline, 'info')
+    else if (file.readOnlyReason === 'stored-bytes') showBanner(t.storedTextReadOnly, 'info', true)
     else if (!$('banner').dataset.sticky) hideBanner()
   }
   // Ordinary edits and their confirmations stay quiet; read-only and offline still need saying.
@@ -2186,6 +2531,7 @@ function watchStatus(current) {
 
 // Gone: deleted, removed from the chat, capability withdrawn. The text stays readable; editing stops.
 function goneState(current) {
+  hideBlockHandle(true)
   showBanner(state.t.gone, 'error', true)
   const text = current.file.type === 'text' ? current.file.text : JSON.stringify(current.file.toJSON(), null, 2)
   current.unbind?.()
@@ -2449,8 +2795,9 @@ function clearPicks() {
 
 const pickedEntries = () => state.order.filter((id) => state.picked.has(id)).map((id) => state.entries.find((e) => e.id === id)).filter(Boolean)
 
-// The same four batch actions in the toolbar and the selection's context menu.
+// The same batch actions in the toolbar and the selection's context menu.
 const pickedActions = () => [
+  ...(canForward() ? [{ text: state.t.pickForward, run: () => forwardEntries(pickedEntries(), clearPicks) }] : []),
   { text: state.t.pickDownload, run: downloadPicked },
   ...(canWrite() ? [{ text: state.t.pickTemporary, run: () => keepPicked('temporary') }, { text: state.t.pickPermanent, run: () => keepPicked('permanent') }] : []),
   { text: state.t.pickLocate, run: startLocate },
@@ -2660,10 +3007,13 @@ function closeDetails() {
 }
 
 function closeMenu() {
+  const blockControls = $('block-controls').contains(state.menuAnchor)
   if ($('menu').contains(document.activeElement)) state.menuAnchor?.focus({ preventScroll: true })
+  if (blockControls && blockPointerMenu && $('block-controls').contains(document.activeElement)) $('preview').focus({ preventScroll: true })
   state.menuAnchor?.setAttribute('aria-expanded', 'false')
   state.menuAnchor = null
   $('menu').hidden = true
+  if (blockControls) scheduleBlockHandleHideUnlessHovered()
 }
 
 // ─── start ──────────────────────────────────────────────────────────────────
@@ -2756,9 +3106,14 @@ function start() {
     button.onclick = () => format(button.dataset.fmt)
   }
   $('preview').addEventListener('pointermove', showBlockHandle)
-  $('preview').addEventListener('pointerleave', (event) => { if (event.relatedTarget !== $('block-handle') && !$('block-handle').contains(event.relatedTarget)) hideBlockHandle() })
-  $('preview').addEventListener('scroll', () => hideBlockHandle())
-  $('block-handle').onclick = () => blockMenu()
+  $('preview').addEventListener('pointerenter', cancelBlockHandleHide)
+  $('preview').addEventListener('pointerleave', scheduleBlockHandleHide)
+  $('preview').addEventListener('scroll', () => hideBlockHandle(true))
+  $('block-controls').addEventListener('pointerenter', cancelBlockHandleHide)
+  $('block-controls').addEventListener('pointerleave', scheduleBlockHandleHide)
+  $('block-controls').addEventListener('focusout', scheduleBlockHandleHideUnlessHovered)
+  $('block-insert').onclick = (event) => openBlockMenu(event, insertMenu)
+  $('block-handle').onclick = (event) => openBlockMenu(event, blockMenu)
   $('preview').addEventListener('change', tickTask)
   $('empty-write').onclick = () => {
     setMode(state.mode === 'split' && !narrowPane?.matches ? 'split' : 'edit')

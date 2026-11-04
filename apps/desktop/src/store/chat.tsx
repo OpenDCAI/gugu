@@ -1,3 +1,4 @@
+import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
 import type { UnreadLocatorCommit } from '../lib/chatUnreadLocatorWindow'
 import { topicService } from '../lib/topics'
 import type { ConversationViewport } from './chatWindowCache'
@@ -6,7 +7,8 @@ import { chatService } from '../lib/chat'
 import { isLifecycleCancellation } from '../lib/authBoundedFetch'
 import { useAuth } from './auth'
 import { useToast, type ToastType } from '../components/toastContext'
-import { unreadForYou, upsertChatRow } from '@gugu/core/shared/ui/chatModels'
+import { chatAttention, upsertChatRow } from '@gugu/core/shared/ui/chatModels'
+import { writeRead } from '../lib/readWriter'
 import { useGroupCreation } from './useGroupCreation'
 import { mergeMessagesById, optimisticReplyFields, upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
 import { useNotificationSettings } from '../lib/notificationSettings'
@@ -22,10 +24,10 @@ import { createChatListProjectionLedger, useChatProjectionBinding } from './chat
 import { adoptOptimisticChatRow } from '../lib/optimisticChatIdentity'
 import { applyMessageWindowRevalidation } from '../lib/chatMessageRevalidation'
 import { platform } from '../platform'
-import { createOutboxWiring, type OutboxWiring } from './chatOutboxWiring'
+import { bindOutboxActions, createOutboxWiring, type OutboxWiring } from './chatOutboxWiring'
 import { markLatestThreadRead, markManualUnreadAndRefresh } from '../lib/chatUnreadLocator'
 import { useChatUnreadStreamNavigation } from '../lib/chatUnreadStreamNavigation'
-import { ChatStoreProvider, type SendMessageOptions, type SendAttachmentOptions, useDraftAttachmentsStore, useDraftMentionsStore, useTextDraftStore, type RefreshChatsOptions } from './chatContext'
+import { ChatStoreProvider, type SendMessageOptions, type SendAttachmentOptions, useDraftAttachmentsStore, useDraftMentionsStore, useTextDraftStore, useDraftQuotesStore, type RefreshChatsOptions } from './chatContext'
 import { advanceReadWatermark, applyThreadSnapshot, fetchOpenThreadSnapshot, patchChatRows, reconcileMemberReadSeqs, type PatchChat } from './chatRealtimeMutations'; import { subscribeChatLineRevisions } from '../lib/accountRevisionListeners'; import { chatOnScreen } from '../lib/onScreenChat'
 import { useMessageReadFailures, useMessageSnapshotEpochs } from './chatMessageReads'
 import { useChatConversation, type ChatConversationAccess } from './useChatConversation'
@@ -49,7 +51,6 @@ import { createSupabaseAccountRevisionSource } from '../lib/supabaseAccountRevis
 import { initializeAccountSync } from '../lib/accountSyncSnapshot'
 import { subscribeAgentPresenceRevisions } from '../lib/agentPresenceStore'
 import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'
-import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
 import { i18n } from '../i18n'
 import { rendererLogger } from '../lib/log'
 const revisionLog = rendererLogger('chat/account-revision')
@@ -64,7 +65,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const [chatsLoad, setChatsLoad] = useState<'unread' | 'idle' | 'loading' | 'failed'>('unread') // unread = 这个号的列表还没读成过;failed = 最近一次读失败了(#2118:空着不是「没有」)
   const { track: trackMessageRead, noteFreshRead: noteFreshMessageRead, failureOf: messageReadFailureOf } = useMessageReadFailures() // #7199 读失败按会话、按最新一次读记
   const { dropTextDraft, ...textDraftContext } = useTextDraftStore()
-  const draftMentionContext = useDraftMentionsStore()
+  const draftMentionContext = useDraftMentionsStore(), draftQuoteContext = useDraftQuotesStore()
   // @@@draft-attachment (#1872) - per-chat queued-attachment store (state/set/get/drop live in the hook).
   const { dropDraftAttachments, ...draftAttachmentContext } = useDraftAttachmentsStore()
   const cancelChatOpenRef = useRef<(chatId: string, error: Error) => void>(() => undefined)
@@ -219,10 +220,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     [cache, getImRepository],
   )
 
-  // @@@send-outbox (#1762 洞③/#1941) — 发送 outbox 接线。io 依赖全经 outboxDepsRef 惰性委托:wiring
-  // 单例首次 render 构造,而 patchChat 等定义在本文件更靠后(直接闭包会 TDZ)——
-  // depsRef 在每次 render 末尾(provider return 前)刷新为最新身份,回调只在事件时刻解引用。
-  // retrySend/discardSend 经 context 供 MessageSendStatus 直连,无 props 钻孔(冻结文件零增行)。
+  // @@@send-outbox (#1762 洞③/#1941) — 账号级接线在 effect 中创建;io 经 outboxDepsRef 惰性委托。
+  // depsRef 在每次 render 末尾刷新;context 操作经同一 wiring ref 调用。
   const userRef = useRef(user)
   userRef.current = user
   const outboxDepsRef = useRef<{
@@ -236,6 +235,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   useEffect(() => {
     if (!userId) return
     const wiring = createOutboxWiring({
+      observeMessage: (senderId, chatId) => observeAttachmentMessage(subscribeAccountRevision, senderId, chatId),
       getImRepository,
       user: () => userRef.current ? { id: userRef.current.id, nickname: userRef.current.nickname, avatarUrl: userRef.current.avatarUrl ?? null } : null,
       chats: () => chatsRef.current,
@@ -255,7 +255,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       wiring.dispose()
       if (outboxRef.current === wiring) outboxRef.current = null
     }
-  }, [cache, userId, getImRepository])
+  }, [cache, userId, getImRepository, subscribeAccountRevision])
 
   const { epochOf: getMessageSnapshotEpoch, bump: bumpMessageSnapshotEpoch } = useMessageSnapshotEpochs()
 
@@ -292,7 +292,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       // (它会原样交回同一份行)。刚建号/刚建会话时成员行**晚一点**提交,命名它的是 journal 的
       // 那条 operation(服务端义务 O1),路径是 wake → advance,不是一次定时轮询。
       const data = await chatProjection.hydrate(userId)
-      if (data.length > 0 || chatsRef.current.length === 0 || options.acceptEmpty === true) {
+      if (data.length > 0 || chatsRef.current.length === 0 || options.acceptEmpty === true || chatProjection.hasDeletedConversation(userId, chatsRef.current)) {
         // 选中一条会话是**用户的意图**,不是列表刷新的投影 —— 什么时候才算「它没了」由账本判(#4314)。
         await chatProjection.publish(data, chatProjection.identities(userId), {
           requestSeq, notify: !isFirstLoad, preserveMissingActive: options.preserveMissingActive,
@@ -484,11 +484,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (!message.to_user_ids?.includes(userId) || message.sender_user_id === userId
       || message.delivery_status === 'read' || receipts.has(message.id)) return
     receipts.add(message.id)
-    void chatService.markMessageRead(chatId, message.id, userId).catch((error: unknown) => {
+    void writeRead({ kind: 'receipt', chatId, messageId: message.id, readerUserId: userId }).catch((error: unknown) => {
       receipts.delete(message.id)
-      // The realtime row can arrive before the read RPC can see its transaction.
-      if (/not found in chat/i.test(error instanceof Error ? error.message : String(error))) return
-      revisionLog.warn({ error, chatId }, 'markMessageRead failed')
+      revisionLog.warn({ error, chatId }, 'message read receipt failed')
     })
   }, [cache, patchChat, userId])
 
@@ -738,9 +736,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     [userId, cache, setMessagesAndCache, setThreadMessagesFor, loadHistoryPage],
   )
 
-  // @@@send-outbox — failed 态的重试/丢弃(MessageSendStatus 经 context 直连)。
-  const retrySend = useCallback((messageId: string) => { outboxRef.current?.retrySend(messageId) }, [])
-  const discardSend = useCallback((messageId: string) => { outboxRef.current?.discardSend(messageId) }, [])
+  const outboxActions = useMemo(() => bindOutboxActions(outboxRef, userId), [userId])
 
   const toggleReaction = useCallback(
     async (messageId: string, emoji: string, chatId = activeChatIdRef.current) => {
@@ -773,6 +769,10 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }, [cache, persistWindowToLocalSync, setMessagesAndCache])
   const deleteMessage = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current) => {
     if (targetChatId) invalidateMessageSnapshots(targetChatId)
+    if (outboxRef.current?.outbox.has(messageId)) {
+      await outboxRef.current.outbox.discard(messageId)
+      return
+    }
     const { chatId } = await chatService.deleteMessage(messageId)
     invalidateMessageSnapshots(chatId)
     removeMessage(messageId, chatId)
@@ -806,9 +806,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (!opts.threadRootId) {
       if (!cache.history(chatId, viewport).followForSend()) await loadHistoryPage('latest', chatId, viewport)
     }
-    return sendAttachmentBatch({ ...opts, files, chatId, senderId: userId, toUserIds, appendMessage,
-      observeMessage: observeAttachmentMessage(subscribeAccountRevision, userId, chatId), removePlaceholder: (id) => removeMessage(id, chatId) })
-  }, [userId, cache, loadHistoryPage, appendMessage, removeMessage, subscribeAccountRevision])
+    return sendAttachmentBatch({ ...opts, files, chatId, senderId: userId, toUserIds, appendMessage, outbox: outboxRef.current! })
+  }, [userId, cache, loadHistoryPage, appendMessage])
 
   const pinChat = useCallback(async (chatId: string, pinned: boolean) => {
     if (!userId) throw new Error('Not authenticated')
@@ -823,14 +822,14 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }, [userId])
 
   const deleteChat = useCallback(async (chatId: string, persist = false) => {
-    if (persist) await (chatsRef.current.find((chat) => chat.id === chatId)?.kind === 'topic' ? topicService.archiveTopic(chatId) : chatService.archiveChat(chatId))
+    if (persist) { const receipt = await (chatsRef.current.find((chat) => chat.id === chatId)?.kind === 'topic' ? topicService.archiveTopic(chatId) : chatService.archiveChat(chatId)); if (imRepositoryScope.disposed || receipt && !await chatProjection.confirmPersonalDeletion(userId!, receipt)) return }
     projectionRef.current.forgetChat(chatId) // 显式删除是权威动作:乐观行与投影水位一起出列 (#4314)
     setChats((prev) => prev.filter((c) => c.id !== chatId))
     dropTextDraft(chatId)
     dropDraftAttachments(chatId) // @@@draft-attachment (#1872) - drop queued attachments alongside the draft
     cache.delete(chatId)
     if (activeChatIdRef.current === chatId) setActiveChatId(null)
-  }, [cache, setActiveChatId, dropDraftAttachments, dropTextDraft])
+  }, [cache, setActiveChatId, dropDraftAttachments, dropTextDraft, imRepositoryScope, chatProjection, userId])
   // #901 退出群聊：共同 RPC 确认移除本人席位后，再本地清理。
   const leaveGroup = useCallback(async (chatId: string) => {
     if (!userId) throw new Error('Not authenticated')
@@ -863,11 +862,10 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     }
   }, [userId])
 
-  // ── Dock / 托盘角标:与项目行、通知同一把尺 —— 话题只算叫到你的(owner 10-28) ──────
+  // ── Dock / 托盘角标:与通知同一把尺 —— 群与话题只算叫到你的；列表内仍安静显示全部未读 ──────
   useEffect(() => {
     if (!platform.capabilities.badge) return
-    const total = chats.reduce((sum, c) => sum + (c.is_muted ? 0 : unreadForYou(c)), 0)
-    platform.setBadge(total)
+    platform.setBadge(chats.reduce((sum, c) => sum + chatAttention(c).askingYou, 0))
   }, [chats])
 
   const conversationActions = useCallback<ChatConversationAccess['actions']>((chatId, viewport = {}) => ({
@@ -917,8 +915,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         loadingChats: chatsLoad === 'loading', chatsLoadFailed: chatsLoad === 'failed', chatsRead: chatsLoad === 'idle',
         setActiveChatId,
         sendMessageToChat,
-        retrySend,
-        discardSend,
+        sendAttachmentsToChat,
+        ...outboxActions,
         refreshChats: loadChats,
         createGroupChat,
         upsertChat,
@@ -929,7 +927,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         setChatNotificationLevel,
         patchChat,
         ...textDraftContext,
-        ...draftMentionContext,
+        ...draftMentionContext, ...draftQuoteContext,
         ...draftAttachmentContext,
       }}
     >

@@ -14,11 +14,12 @@ import {
   entryAwareRendererManualChunk,
   guguEntryReachabilityPlugin,
   type EntryReachability,
-} from './scripts/renderer-chunking.mjs'
-import { obfuscateOwnChunks, parseObfuscateFlag } from './scripts/obfuscate-own-chunks.mjs'
-import { monacoWorkerSingleBundlePlugin } from './scripts/monaco-worker-bundle.mjs'
-import { deterministicModuleSideEffects } from './scripts/deterministic-module-side-effects.mjs'
-import { announceActiveDb, applyActiveDbEnv, serverChannelForDb } from './scripts/build-env-preflight.mjs'
+} from './scripts/build/renderer-chunking.mjs'
+import { obfuscateOwnChunks, parseObfuscateFlag } from './scripts/build/obfuscate-own-chunks.mjs'
+import { monacoWorkerSingleBundlePlugin } from './scripts/build/monaco-worker-bundle.mjs'
+import { deterministicModuleSideEffects } from './scripts/build/deterministic-module-side-effects.mjs'
+import { activateDbEnv, serverChannelForDb } from './scripts/build/build-env-preflight.mts'
+import { serverPackageIdentity } from './scripts/build/server-package-identity.mts'
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin'
 import solid from 'vite-plugin-solid'
 import { emdashAliasEntries } from './apps/desktop/electron/sessionpage/emdash-aliases.mjs'
@@ -28,7 +29,7 @@ import {
   webHostEntries,
   desktopPreloadEntry,
   extensionPreloadEntry,
-} from './scripts/product-build-entries.mjs'
+} from './scripts/build/product-build-entries.mts'
 import {
   EMDASH_EXTERNAL,
   SESSIONPAGE_NODE18_BANNER,
@@ -78,10 +79,9 @@ const buildTestNotes = process.env.GUGU_TEST_NOTES ?? ''
 // process.env，于是 renderer inline（vite loadEnv 末尾的 shell 覆盖循环）与烘焙 define（本文件
 // 顶层直读 process.env）拿到的是同一组值 —— 两条通路由构造同源，而不是事后比对才发现分叉。
 // 这也让裸 `vite` 起的 `pnpm dev` 认得登记处，无需任何 wrapper。
-applyActiveDbEnv(process.cwd(), process.env)
 // @@@db-announce `pnpm dev` 是裸 vite，此前整条路上没有任何一层说过「这次连的是哪个库」。
 // product spec 要求未声明时也必须把库显示出来，不允许悄悄连上。
-announceActiveDb(process.cwd(), process.env)
+activateDbEnv()
 
 const guguTarget = process.env.GUGU_TARGET ?? 'electron'
 const isElectronTarget = guguTarget === 'electron'
@@ -124,7 +124,7 @@ const isGuguEntry = (id: string) => id.endsWith('apps/desktop/index.html')
 // @@@4865 三个 electron 入口(主进程+会话页主进程图+三个 worker / preload / extension-bridge preload)。
 // 抽成导出常量,两处消费:
 //  · dev(`vite`):下方按常规挂 vite-plugin-electron,在 vite 进程内 watch 构建 + 拉起 Electron;
-//  · build(`build:app` → scripts/build-electron-app.mts):渲染层 rollup(~1 万模块,本就贴着 V8 默认堆顶)
+//  · build(`build:app` → scripts/build/build-electron-app.mts):渲染层 rollup(~1 万模块,本就贴着 V8 默认堆顶)
 //    与主进程 rollup(并入会话页图后 4000 模块)若共用一个 node 进程,渲染层的图还在堆上时主进程构建就
 //    OOM(CI 实测 4GB 顶爆)。脚本在子进程跑渲染层(GUGU_ELECTRON_BUILD=separate → 这里不挂插件),
 //    同时在自己进程里用同一份 entries 调 vite-plugin-electron 导出的 build() —— 两条路吃同一份配置,不会漂。
@@ -144,7 +144,7 @@ const sessionMainVite: ElectronOptions['vite'] = {
     ...bakedSupabaseDefine,
     __GUGU_TIER__: JSON.stringify(guguTier),
     __GUGU_BUILD_DISTRIBUTION__: JSON.stringify(guguBuildDistribution),
-    // 给别的机器装哪条通道的 server:跟这次构建连的库走(scripts/build-env-preflight.mjs serverChannelForDb)。
+    // 给别的机器装哪条通道的 server:跟这次构建连的库走(scripts/build/build-env-preflight.mts serverChannelForDb)。
     __GUGU_SERVER_CHANNEL__: JSON.stringify(serverChannelForDb(process.env.VITE_SUPABASE_URL || bakedSupabaseUrl || null)),
   },
   // 与渲染层同一条(@@@renderer-ascii-output,#6484):V8 把每个模块的源码常驻堆里,一个非 Latin-1 字符
@@ -162,8 +162,9 @@ const sessionMainVite: ElectronOptions['vite'] = {
       // 绝不内联;清单是 verify-packaged-natives 探针的单一来源。
       // #7191 浏览器工具(@playwright/mcp + 它锁定的 playwright-core)运行时从 app/node_modules 加载:它们靠 __dirname
       // 找自己的文件,打进主进程包会断;根 dependencies 声明两者,electron-builder 原样带进包。
-      external: ['ws', '@playwright/mcp', 'playwright-core', ...EMDASH_EXTERNAL],
+      external: ['ws', '@playwright/mcp', 'playwright-core', './server-boot.cjs', ...EMDASH_EXTERNAL],
       output: {
+        paths: id => id.replaceAll('\\', '/').endsWith('/server-boot.cjs') ? './server-boot.cjs' : id,
         // Electron 28 = Node 18:`globalThis.crypto` 不是全局,会话页 runtime 裸用
         // crypto.randomUUID()。注入到每个产物(主进程、worker、共享 chunk),幂等。
         // 用 intro ❌ banner:banner 排在 rollup 写的 `'use strict';` **前面**,把指令序言变成
@@ -173,8 +174,17 @@ const sessionMainVite: ElectronOptions['vite'] = {
     },
   },
   plugins: [
+    {
+      name: 'gugu-server-boot-preload',
+      generateBundle() {
+        // Both the launcher and application import this exact, unbundled implementation.
+        this.emitFile({ type: 'asset', fileName: 'server-boot.cjs', source: readFileSync(
+          fileURLToPath(new URL('./apps/desktop/electron/server/server-boot.cjs', import.meta.url)), 'utf8') })
+      },
+    },
     // @@@deterministic-mse (#7066) — 渲染层、主进程、两个 preload 共用这一个插件:同一个 sha 打几次产物逐字节相同。
     deterministicModuleSideEffects(),
+    serverPackageIdentity(bakedSupabaseUrl, serverChannelForDb(process.env.VITE_SUPABASE_URL || bakedSupabaseUrl || null)),
     {
       // @@@4865 清掉旧布局的产物目录:dist-electron/taskpage/ 是 gitignore 的,CI 槽位与开发
       // 检出都会留着上一版的 emdash-main-bridge.cjs;electron-builder 按 dist-electron/**
@@ -284,7 +294,7 @@ const sessionMainVite: ElectronOptions['vite'] = {
 const sessionHostEnabled = process.env.GUGU_TASK_HOST !== '0'
 const sessionHostDevToken =
   process.env.GUGU_TASK_HOST_TOKEN ?? randomBytes(18).toString('base64url')
-// 端口与数据目录默认按 worktree 路径哈希(与 playwright.config.ts #1897 的 e2e 端口同一套办法):
+// 端口与数据目录默认按 worktree 路径哈希(与 playwright.config.mts #1897 的 e2e 端口同一套办法):
 // fleet 机器上几十个 worktree / 16 个 CI 槽并行起 dev:web,固定端口 + 共享 ~/.gugu-task-host
 // 会互相撞死(第二个宿主绑不上口 → 退出 → vite 跟着退)。显式 env 仍然优先。
 const sessionHostWorktreeHash = (() => {
@@ -494,11 +504,13 @@ async function buildAppRuntime(outDir: string): Promise<void> {
  * not take that module): the same tag, right after the doctype, once. app-runtime-protocol.test.ts
  * pins the tag's form, so a change there fails a test instead of drifting from here.
  */
-function injectAppRuntimeTag(html: string): string {
+function injectAppRuntimeTag(html: string, apiVersion: number): string {
   const tag = `<script src="/_gugu/${appRuntimeVersion()}/gugu.js"></script>`
-  if (html.includes(tag)) return html
+  const declared = tag.replace('></script>', ` data-gugu-api-version="${apiVersion}"></script>`)
+  if (html.includes(declared)) return html
+  if (html.includes(tag)) return html.replace(tag, declared)
   const doctype = /^(\uFEFF?\s*<!doctype[^>]*>)/i.exec(html)
-  return doctype ? doctype[1] + tag + html.slice(doctype[1]!.length) : tag + html
+  return doctype ? doctype[1] + declared + html.slice(doctype[1]!.length) : declared + html
 }
 
 /**
@@ -514,21 +526,25 @@ function phoneAppsPlugin(outDir: string) {
     async closeBundle() {
       const runtimeDir = resolve(outDir, `_gugu/${appRuntimeVersion()}`)
       await buildAppRuntime(runtimeDir)
-      // The phone's own page in every App origin, which forgets the App's storage when it is uninstalled
-      // (forget-entry.ts; APP_RUNTIME_FORGET_PAGE names it). A classic script of its own: the App's CSP is `script-src 'self'`.
+      // The phone's own pages, each a classic script of its own (the CSP they are served with is `script-src 'self'`):
+      // the one in every App origin that forgets the App's storage when it is uninstalled (forget-entry.ts;
+      // APP_RUNTIME_FORGET_PAGE), and the one in every App's gate origin that frames its pages (gate-entry.ts; APP_RUNTIME_GATE_PAGE).
       const esbuild = await import('esbuild')
-      await esbuild.build({
-        entryPoints: [fileURLToPath(new URL('./apps/desktop/src/session/app-runtime/forget-entry.ts', import.meta.url))],
-        outfile: resolve(runtimeDir, 'forget.js'),
-        bundle: true,
-        platform: 'browser',
-        target: 'es2022',
-        minify: true,
-        legalComments: 'none',
-        format: 'iife',
-        logLevel: 'warning',
-      })
+      for (const name of ['forget', 'gate']) {
+        await esbuild.build({
+          entryPoints: [fileURLToPath(new URL(`./apps/desktop/src/session/app-runtime/${name}-entry.ts`, import.meta.url))],
+          outfile: resolve(runtimeDir, `${name}.js`),
+          bundle: true,
+          platform: 'browser',
+          target: 'es2022',
+          minify: true,
+          legalComments: 'none',
+          format: 'iife',
+          logLevel: 'warning',
+        })
+      }
       writeFileSync(resolve(runtimeDir, 'forget.html'), '<!doctype html><meta charset="utf-8"><title>gugu</title><script src="forget.js"></script>\n')
+      writeFileSync(resolve(runtimeDir, 'gate.html'), '<!doctype html><meta charset="utf-8"><title>gugu</title><body><script src="gate.js"></script></body>\n')
       const shipped = fileURLToPath(new URL('./apps/desktop/preinstalled-apps/', import.meta.url))
       const appsDir = resolve(outDir, 'apps')
       rmSync(appsDir, { recursive: true, force: true })
@@ -539,9 +555,9 @@ function phoneAppsPlugin(outDir: string) {
         const target = resolve(appsDir, entry.name)
         // The whole bundle, README.md included: the App's details read it from the installed package.
         cpSync(resolve(shipped, entry.name), target, { recursive: true })
-        const manifest = JSON.parse(readFileSync(resolve(target, 'manifest.json'), 'utf-8')) as { entry?: string }
+        const manifest = JSON.parse(readFileSync(resolve(target, 'manifest.json'), 'utf-8')) as { entry?: string; apiVersion: number }
         const page = resolve(target, manifest.entry ?? 'index.html')
-        writeFileSync(page, injectAppRuntimeTag(readFileSync(page, 'utf-8')))
+        writeFileSync(page, injectAppRuntimeTag(readFileSync(page, 'utf-8'), manifest.apiVersion))
         shippedManifests.push(manifest)
       }
       // What the phone has installed: the outer page reads it for each App's grants and for 「用 X 打开」.
@@ -590,7 +606,7 @@ export default defineConfig(({ command }) => ({
   // 脚本的源码常驻在渲染进程里,只要源码里有一个非 Latin-1 字符(中文文案就是),整份就按 UTF-16 存、
   // 内存翻倍。mac1 2026-09-25:登录后渲染进程里脚本源码串 27 MB,全部是双字节(#6484)。
   // 压缩这一步(vite 的 esbuild renderChunk)与 CSS 压缩都读这里的 charset;esbuild 不转的正则字面量等残留
-  // 由 rendererAsciiOutput()(scripts/renderer-chunking.mts)收尾。
+  // 由 rendererAsciiOutput()(scripts/build/renderer-chunking.mts)收尾。
   esbuild: { charset: 'ascii' },
   // Resolve .tsx/.ts before .js so any future stray .js (build artefact, etc.)
   // can never shadow the actual TypeScript source again. Vite's default order
@@ -674,7 +690,7 @@ export default defineConfig(({ command }) => ({
           renderer(),
         ]
       : // 网页版:同一套主进程图以无头宿主入口构建;dev 下由插件拉起并热重启(见 sessionHostBuildEntries)。
-        // build 走 scripts/build-electron-app.mts 的两阶段(理由同 electronBuildEntries 的注释:渲染层
+        // build 走 scripts/build/build-electron-app.mts 的两阶段(理由同 electronBuildEntries 的注释:渲染层
         // 与会话页主进程图共用一个 node 进程会 OOM,CI 的 build:renderer 实撞 4GB 顶爆)。
         separateElectronBuild ? [] : [electron(sessionHostBuildEntries)]),
   ],

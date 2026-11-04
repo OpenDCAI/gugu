@@ -15,7 +15,7 @@ import {
   type SessionpageToolDef,
 } from './sessionpage-tool-registrar'
 import { APP_RUNTIME_GLUE_MODULE } from '../../src/session/shared/extensions/app-runtime-protocol'
-import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS, APP_MANAGE_ARGS } from '../../src/session/shared/extensions/app-tool-args'
+import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS, APP_MANAGE_ARGS, appCheckTargetError } from '../../src/session/shared/extensions/app-tool-args'
 
 export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   {
@@ -33,7 +33,7 @@ export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       `  import { f, me, myName, $, $$, html, render } from '${APP_RUNTIME_GLUE_MODULE}'  // gugu's, not in your bundle; me: 'user:<uuid>'`,
       '  f.data.answers[me] = x  // live JSON, spread ok, never cloned; typed together: gugu.text(""), in data {"$text":""}; many adding: a map by id',
       '  f.presence.set(pos)  // per-frame state; the file: events, results (a catch)',
-      '  let members = (await gugu.getContext()).chat?.members ?? []  // { id, name, kind }: pick, never copy',
+      '  let members = (await gugu.chats.members({ chat: (await gugu.getContext()).chat.id })).members  // { id, name, kind }: pick, never copy; manifest chat:read',
       '  // f.onChange(renderShared): render($("#shared"), html`…`) — inputs of file values too, rows by data-key; drafts, bind.text boxes: #controls',
       '  // wake only the agent it concerns: gugu.dispatch("your move", { to: { chat, member: member.id }, refs: [{ file: f.entry }] }) — state stays in the file; manifest.permissions.capabilities ["chat:relay"]',
       '  // agents follow: a tool in tools.js, run(args, { agent }) — guide apps-programs',
@@ -52,7 +52,7 @@ export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   {
     name: 'app_install',
     // 集体记忆对账第 7 条:D-17 重装没新增声明不弹框(extension-agent-actions.ts installPlan 的 asks),说明里补这半句。
-    description: 'Install an App on your owner\'s computer (this one, or another with device): from source_dir (app_create), a .guguext in a chat (source_message_id), or the market; app (installed here) only sends it into a chat. For a chat App give chat_id and data too: one call makes its data file, checks the App on it, posts it to the chat as a card and returns the file\'s link. An App asking for capabilities waits for the person to confirm; reinstalling from the same folder with nothing new declared replaces it without asking. Switching an App on belongs to the person on their App page; never edit installed files.',
+    description: 'Install an App on your owner\'s computer (here or with device): source_dir (app_create), a chat\'s .guguext (source_message_id), or market; app (installed here) only shares it to a chat. For a chat App give chat_id and data: one call creates its data file, checks the App on it, posts its card and returns the file link. New capabilities need consent; same-folder reinstalls with nothing new replace quietly. asked:true means the person agreed here or on the other computer before installation. Switching an App on belongs to the person on their App page; never edit installed files.',
     schema: z.object(APP_INSTALL_ARGS).strict().refine((args) => [args.source_dir, args.source_message_id, args.market, args.app].filter((given) => given !== undefined).length === 1, {
       message: 'app_install takes exactly one of source_dir, source_message_id, market or app',
     }).refine((args) => args.app === undefined || (args.chat_id !== undefined && args.device === undefined), {
@@ -73,8 +73,11 @@ export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
     name: 'app_check',
     // Owner 10-13: the page is kept to go on with (page), it runs where it opens. Owner 10-14: you work it — the one
     // sentence says so, and nothing else warns.
-    description: 'See whether an installed App actually works: the host runs one of its tabs as a hidden page where it opens — on a chat\'s file (item_id) as opening that file there would, in a chat\'s side panel (chat_id), else as a tab of your session — and you work it. What it does on the page is real, done in your name. It waits until it settles (loaded, its files opened, quiet; up to 15 s), and reads back whether it loaded, the errors it threw or reported with the file, line and source (a hint is advice to you, not a failure), what the App\'s real pages recorded since this version was installed, console errors, a snapshot of what it shows (its accessibility tree, a line per control: role "name"), and what would have reached your owner\'s screen (shown). With steps it then clicks, fills, presses and waits as a person would and says what each step did. The page stays as the check left it: the answer\'s page, given back, goes on from there.',
-    schema: z.object(APP_CHECK_ARGS).strict(),
+    description: 'Run an installed App as a hidden page and work it as yourself: operations and shared-state writes are real. A widget message (message_id or widget_id) opens the original card with its data, sender and manifest size; tab_kind is inferred. Otherwise give tab_kind: item_id opens a chat file, chat_id its side panel, file_path a session file. Returns loaded, errors with source/line (including separately labelled historical page errors), console, accessibility snapshot, pictures by default, and shown instead of changing the person’s screen or composer. Widget checks report their version, size, locale/theme or rendered:false with reason/text. Steps click/tap, fill, press and wait using roles/names from snapshot. The returned page continues where it stopped; give page with tab_kind and steps. See guide widgets for real operations and vote identity.',
+    schema: z.object(APP_CHECK_ARGS).strict().superRefine((args, ctx) => {
+      const message = appCheckTargetError(args)
+      if (message) ctx.addIssue({ code: 'custom', message })
+    }),
     action: 'check',
   },
 ]

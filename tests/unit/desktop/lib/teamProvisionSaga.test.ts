@@ -16,7 +16,9 @@ import {
   cancelTeamProvision,
   type TeamMemberProvisionInput,
 } from '../../../../apps/desktop/src/lib/teamProvisionSaga'
+import { getLocaleSnapshot } from '../../../../apps/desktop/src/i18n'
 import {
+  buildSingleBlueprint,
   buildTeamBlueprint,
   getProvision,
   listOperationMembers,
@@ -107,10 +109,13 @@ function installStatefulRpc() {
       return Promise.resolve({ data: null })
     }
     if (name === 'set_agent_desired_status') return Promise.resolve({ data: null })
-    if (name === 'remove_owned_agent') {
-      const removed = String(params.p_agent_user_id)
-      removedFakeAgents.add(removed)
-      return Promise.resolve({ data: null })
+    if (name === 'archive_user') {
+      const removed = String(params.p_user_id)
+      if (params.p_remove_social_identity === true) removedFakeAgents.add(removed)
+      return Promise.resolve({
+        data: { user_id: removed, remove_social_identity: params.p_remove_social_identity, removed_at: params.p_remove_social_identity === true ? '2026-10-31T00:00:00Z' : null },
+        error: null,
+      })
     }
     if (name === 'settle_provision_cancellation') {
       fakeMembers.forEach((m) => {
@@ -312,7 +317,7 @@ describe('#2260 teamProvisionSaga', () => {
     installStatefulRpc()
     const res = await cancelTeamProvision(OP)
     expect(rpc.mock.calls.filter((c) => c[0] === 'cancel_agent_provision_operation')).toHaveLength(1)
-    expect(rpc.mock.calls.filter((c) => c[0] === 'remove_owned_agent')).toHaveLength(1)
+    expect(rpc.mock.calls.filter((c) => c[0] === 'archive_user')).toEqual([['archive_user', { p_user_id: 'a-m1', p_remove_social_identity: true }]])
     expect(rpc.mock.calls.filter((c) => c[0] === 'settle_provision_cancellation')).toHaveLength(1)
     expect(fakeMembers[0].phase).toBe('cancelled')
     expect(res.fullyCancelled).toBe(true)
@@ -368,6 +373,12 @@ describe('#2260 teamProvisionSaga fresh-review fixes (fail-first)', () => {
     const rec: ProvisionResumeRecord = { version: 2, ownerUserId: 'other-owner', operationId: OP, deviceId: 'd', blueprint: bp, members: [{ provisionId: 'p1', memberKey: 'm1', memorySourceRef: { sources: ['claude-code'], clientDigest: 'x' } }] }
     await expect(resumeTeam(rec, { readMemory, computeSourceDigest: digestFn })).rejects.toThrow(/owner/)
     expect(readMemory).not.toHaveBeenCalled()
+  })
+  it('a blueprint carries the UI language at setup (the agent\'s welcome line is written in it)', () => {
+    const member = { memberKey: 'm1', displayName: 'm1', agentType: 'codex', inheritMemory: false, historyImportRequired: false, provisionId: 'p1' }
+    const locale = getLocaleSnapshot().resolvedLocale
+    expect(buildSingleBlueprint(member).locale).toBe(locale)
+    expect(buildTeamBlueprint({ groupChatId: 'g'.padEnd(36, '0'), teamName: 'T', groupPrompt: 'c', members: [{ ...member, listenMode: 'passive' }] }).locale).toBe(locale)
   })
   it('P1.5 provisionTeam fails loud when a member gives memoryContent without memory_sources (no silent drop)', async () => {
     installStatefulRpc()

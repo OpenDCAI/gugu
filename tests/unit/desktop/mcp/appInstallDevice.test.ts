@@ -147,12 +147,12 @@ describe('app_install { device }: installed on another of the owner\'s machines'
     const { install, sessions, extensions } = await agent(
       async (action) => (action.consent as { kind: string }).kind === 'return'
         ? { installed: false, outcome: 'ask', id: 'reader', ask }
-        : { installed: true, outcome: 'confirmed', id: 'reader' },
+        : { installed: true, outcome: 'confirmed', id: 'reader', asked: true },
       asked,
     )
     const answer = await install({ source_message_id: `msg:${MESSAGE}`, device: 'device:other' })
     expect(answer.isError, answer.body).toBe(false)
-    expect(JSON.parse(answer.body)).toMatchObject({ installed: true, device_id: 'device:other' })
+    expect(JSON.parse(answer.body)).toMatchObject({ installed: true, asked: true, device_id: 'device:other' })
     expect(extensions).toEqual([{ action: 'ask_install', request: { ...ask, machine: 'mac1 B' } }])
     expect(sessions.slice(1)).toEqual([
       { action: 'app_install', device: 'other', message_id: MESSAGE, consent: { kind: 'return' } },

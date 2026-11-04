@@ -238,7 +238,7 @@ function TabSwitchHarness(args: HarnessArgs) {
   const [capturedErrors, setCapturedErrors] = createSignal<string[]>([]);
 
   // Shared process-wide context (theme, caches, measureEpoch, mentions).
-  const ctx = createChatContext({ theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
+  const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
   onCleanup(() => ctx.dispose());
 
   // One persistent ChatState per conversation.
@@ -614,14 +614,14 @@ export const LegacyOverlapCrash: Story = {
 //
 // Exercises the setScrollMode(pinTopMode) path: a user sends a message
 // (optimistic insert), the view immediately pins the message at the top of the
-// viewport, and the "agent response" streams in below it while the pin holds.
+// viewport when the content is tall enough, and the "agent response" streams below it.
 // Verifies that:
 //   1. The pin is instant (no wait for an IPC echo).
-//   2. activeTurnReserve() creates enough canvas space for the scroll.
-//   3. The pin transitions to 'tail' when the "turn" completes.
+//   2. A short transcript clamps the pin to its real scroll range.
+//   3. The harness explicitly switches the pin to 'tail' after committing the turn.
 
 function SendAndPinHarness() {
-  const ctx = createChatContext({ theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
+  const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
   onCleanup(() => ctx.dispose());
 
   const state = createChatState(ctx, { uri: 'story-send-pin' });

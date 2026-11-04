@@ -14,9 +14,10 @@ import { IconButton } from './ui/IconButton'
 import { bindFileViewerMenu } from './preview/file-viewer-menu'
 import { quoteChatFile } from './preview/quote-preview-file'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
-import { fetchBlob, downloadRemoteFile } from '../lib/download'
+import { fetchBlob, downloadBlob } from '../lib/download'
 import { canWriteImageToClipboard, writeImageBlobToClipboard } from '../lib/imageClipboard'
 import { rendererLogger } from '../lib/log'
+import { offlineHolder } from '../lib/fileHost'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { UiPortalContainerProvider } from '@gugu/session-ui/react/primitives'
 import { commandRegistry } from '@renderer/lib/commands/registry'
@@ -81,12 +82,13 @@ async function fetchImageAsPngBlob(url: string): Promise<Blob> {
   })
 }
 
-type ViewerSlide = SlideData & { item: ImageViewerItem; sizeKnown: boolean }
+type ViewerSlide = SlideData & { item: ImageViewerItem; sizeKnown: boolean; loadingStarted?: boolean }
 
 function slideFor(item: ImageViewerItem): ViewerSlide {
   const size = decodedSizeOf(item.thumb)
   return {
     src: item.url,
+    ...(item.preview ? { type: 'image' } : {}),
     alt: item.alt,
     // 尺寸未知时按视口占位(宽为 0 PhotoSwipe 不加载图),loadComplete 里回填真尺寸
     width: size?.width ?? window.innerWidth,
@@ -146,30 +148,70 @@ function viewerOptions(request: ImageViewerRequest, mobile: boolean, errorMsg: s
   }
 }
 
-function wireViewer(pswp: PhotoSwipe, dialogLabel: string): void {
+function wireViewer(pswp: PhotoSwipe, dialogLabel: string, onFileError: (item: ImageViewerItem, error: unknown) => void): void {
   // 缩略图打开的那几张:翻到哪张,取哪张的原图,换上(取不到就留着缩略图;item.full 自己记着结果,不重复下)。
   const upgrade = (index: number) => {
     const slides = pswp.options.dataSource
     const data = (Array.isArray(slides) ? slides[index] : undefined) as ViewerSlide | undefined
-    const full = data?.item.full
-    if (!data || !full) return
-    full().then((url) => {
+    if (!data || data.loadingStarted || (!data.item.preview && !data.item.full)) return
+    data.loadingStarted = true
+    const replace = (url: string) => {
+      if (pswp.isDestroying || !pswp.isOpen) return
       if (data.src === url) return
       data.src = url
       data.item.url = url
-      pswp.refreshSlideContent(index)
-    }, (error: unknown) => log.warn({ error: String(error) }, 'full image unavailable; keeping the thumbnail'))
+      // Refreshing a slide destroys its zoom/pan. Only the existing image's bytes changed.
+      pswp.contentLoader.getContentByIndex(index)?.loadImage(false)
+    }
+    void (async () => {
+      if (data.item.preview) {
+        try { replace(await data.item.preview()) }
+        catch (error) {
+          if (!data.item.full) throw error
+          log.warn({ error: String(error) }, 'image preview unavailable')
+        }
+        if (pswp.isDestroying || !pswp.isOpen) return
+      }
+      if (data.item.full) replace(await data.item.full())
+    })().catch((error: unknown) => {
+      if (pswp.isDestroying || !pswp.isOpen) return
+      log.warn({ error: String(error) }, 'image bytes unavailable')
+      if (data.item.preview) {
+        if (!data.src) {
+          const content = pswp.contentLoader.getContentByIndex(index)
+          if (content) { content.state = 'error'; content.displayError() }
+        }
+        onFileError(data.item, error)
+      }
+    })
   }
   pswp.on('afterInit', () => upgrade(pswp.currIndex))
   pswp.on('change', () => upgrade(pswp.currIndex))
   pswp.on('loadComplete', ({ content, isError }) => {
     const data = content.data as ViewerSlide
     const img = content.element
-    if (isError || data.sizeKnown || !(img instanceof HTMLImageElement) || img.naturalWidth === 0) return
-    data.width = img.naturalWidth
-    data.height = img.naturalHeight
+    if (isError || !(img instanceof HTMLImageElement) || !img.naturalWidth || !img.naturalHeight) return
+    if (data.sizeKnown && data.width === img.naturalWidth && data.height === img.naturalHeight) return
+    const wasKnown = data.sizeKnown
+    const slide = content.slide
+    const zoom = slide ? slide.currZoomLevel * slide.width / img.naturalWidth : 0
+    data.width = content.width = img.naturalWidth
+    data.height = content.height = img.naturalHeight
     data.sizeKnown = true
-    pswp.refreshSlideContent(content.index)
+    if (!slide) return
+    slide.width = content.width
+    slide.height = content.height
+    slide.calculateSize()
+    if (wasKnown) {
+      // A higher-resolution source has the same visible rectangle at a smaller pixel zoom.
+      slide.setZoomLevel(zoom)
+      slide.currentResolution = zoom
+    } else {
+      slide.currentResolution = 0
+      slide.zoomAndPanToInitial()
+    }
+    slide.updateContentSize(true)
+    slide.applyCurrentZoomPan()
   })
 
   // undefined = 没有起落位置,PhotoSwipe 退成淡入淡出(它自己的实现也这样返回,只是类型没写)
@@ -273,7 +315,8 @@ function ImageViewerChrome({ viewer, mobile, onEdit }: { viewer: OpenViewer; mob
 
   const handleDownload = useCallback(async () => {
     try {
-      await downloadRemoteFile(current.full ? await current.full() : current.url, downloadNameFor(current))
+      const blob = await fetchBlob(current.full ? await current.full() : current.url)
+      await downloadBlob(blob, downloadNameFor(current, blob.type))
     } catch (error) {
       rendererLogger('chat/file-open').error({ error }, 'image download failed')
       toast(t('shell.imagePreview.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
@@ -334,7 +377,7 @@ function ImageViewerChrome({ viewer, mobile, onEdit }: { viewer: OpenViewer; mob
 }
 
 export function ImagePreviewProvider({ children }: { children: ReactNode }) {
-  const { t } = useTranslation('main')
+  const { t, i18n } = useTranslation('main')
   const mobile = useMobileShell()
   const { toast } = useToast()
   const [viewer, setViewer] = useState<OpenViewer | null>(null)
@@ -347,8 +390,8 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
     return () => commandRegistry.setShortcutsPaused(paused)
   }, [annotating])
   // 宿主只登记一次,打开时读最新的形态与文案
-  const latest = useRef({ t, mobile, toast })
-  latest.current = { t, mobile, toast }
+  const latest = useRef({ t, i18n, mobile, toast })
+  latest.current = { t, i18n, mobile, toast }
 
   useEffect(() => {
     let active: PhotoSwipe | null = null
@@ -360,7 +403,15 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
           const { t: translate, mobile: isMobile } = latest.current
           active?.destroy()
           const pswp = new PhotoSwipeCtor(viewerOptions(request, isMobile, translate('shell.imagePreview.loadFailed')))
-          wireViewer(pswp, translate('shell.imagePreview.dialog'))
+          wireViewer(pswp, translate('shell.imagePreview.dialog'), (item, error) => {
+            const target = item.resource?.target
+            void (async () => {
+              const offline = target?.kind === 'file' ? await offlineHolder(target.itemId, target.version) : null
+              if (pswp.isDestroying || !pswp.isOpen) return
+              const { t, i18n, toast } = latest.current
+              toast(offline ? i18n.t('attachmentView.holderOffline', { ns: 'messaging', machine: offline.machine || i18n.t('attachmentView.holderMachine', { ns: 'messaging' }) }) : t('shell.imagePreview.loadFailed'), 'error', offline ? undefined : messageForUser(error))
+            })()
+          })
           let unbindMenu: (() => void) | undefined
           const bindMenu = () => {
             unbindMenu?.()
@@ -381,6 +432,7 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
           })
           pswp.on('destroy', () => {
             unbindMenu?.()
+            request.items.forEach(item => item.release?.())
             if (active === pswp) active = null
             setViewer((open) => (open?.pswp === pswp ? null : open))
             setEditing(null)
@@ -404,6 +456,7 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const openPswp = viewer?.pswp
+  const imageBounds = useCallback(() => openPswp?.currSlide?.content.element?.getBoundingClientRect(), [openPswp])
   // 开着的查看器与 Sheet 同进一个栈:返回键 / Esc 只归栈顶,MainLayout 见 isSheetOpen() 就不动下面的页面
   const isTopLayer = useBackLayer(openPswp ? () => editing ? setEditing(null) : openPswp.close() : undefined)
   useEffect(() => {
@@ -452,7 +505,7 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
     <>
       {children}
       {viewer ? createPortal(editing ? <Suspense fallback={<div role="status">{t('imageAnnotate.loading')}</div>}>
-        <UiPortalContainerProvider value={viewer.root}><AnnotateEditor item={editing} mobile={mobile} onCancel={() => setEditing(null)} onDone={() => viewer.pswp.close()} /></UiPortalContainerProvider>
+        <UiPortalContainerProvider value={viewer.root}><AnnotateEditor item={editing} imageBounds={imageBounds} mobile={mobile} onCancel={() => setEditing(null)} onDone={() => viewer.pswp.close()} /></UiPortalContainerProvider>
       </Suspense> : <ImageViewerChrome viewer={viewer} mobile={mobile} onEdit={() => setEditing(viewer.items[viewer.index])} />, viewer.root) : null}
     </>
   )

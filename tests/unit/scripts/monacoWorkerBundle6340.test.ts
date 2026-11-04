@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { rewriteMonacoWorkerFallback } from '../../../scripts/monaco-worker-bundle.mjs'
+import { rewriteMonacoWorkerFallback } from '../../../scripts/build/monaco-worker-bundle.mjs'
 
 const require = createRequire(import.meta.url)
 const monacoEsm = path.join(path.dirname(require.resolve('monaco-editor/package.json')), 'esm')

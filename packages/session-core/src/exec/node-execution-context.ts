@@ -1,10 +1,11 @@
-import { execFile } from 'node:child_process';
+import { execFile } from '@gugu/core/local/childProcess';
 import { promisify } from 'node:util';
 import type { ExecContextOptions, IExecutionContext } from './execution-context';
 import type { ExecResult } from './types';
 import { spawnOwnedChild } from './owned-child';
 import { execInProcessGroup } from './process-group';
 import { planDirectSpawn } from './windows-launcher';
+import { anySignal } from '@gugu/core/shared/anySignal';
 
 const execFileAsync = promisify(execFile);
 
@@ -105,8 +106,6 @@ export class NodeExecutionContext implements IExecutionContext {
   }
 
   private signal(callerSignal?: AbortSignal): AbortSignal {
-    return callerSignal
-      ? AbortSignal.any([this.lifetime.signal, callerSignal])
-      : this.lifetime.signal;
+    return anySignal([this.lifetime.signal, callerSignal]);
   }
 }

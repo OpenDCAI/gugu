@@ -1,6 +1,6 @@
-export const SUPPORTED_LOCALES = ['zh-CN', 'en-US'] as const
+import { SUPPORTED_LOCALES, type SupportedLocale } from '@gugu/session-shared/format'
 
-export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number]
+export { SUPPORTED_LOCALES, type SupportedLocale } from '@gugu/session-shared/format'
 export type LocalePreference = 'system' | SupportedLocale
 
 export const FALLBACK_LOCALE: SupportedLocale = 'zh-CN'

@@ -338,7 +338,6 @@ const ShortcutRow: React.FC<ShortcutRowProps> = ({
       )}
     >
       <span className="truncate text-[length:var(--font-body)] text-foreground">{label}</span>
-      {/* oxlint-disable-next-line typescript/no-explicit-any */}
       <Shortcut hotkey={hotkey as any} variant="keycaps" />
     </div>
   );

@@ -13,6 +13,7 @@ import {
   type AcpTerminalProcess,
 } from '@gugu/session-core/acp/node';
 import type { AcpRuntimeProcessHost } from '../runtime/types';
+import { outputPressureGate } from './output-pressure-gate';
 
 class ChildProcessHandle implements AcpProcessHandle {
   private firstError: Error | null = null;
@@ -156,6 +157,24 @@ const fsPort: AcpFs = {
 
 export class ChildAcpProcessHost implements AcpRuntimeProcessHost {
   readonly fs = fsPort;
+  private readonly outputSources = new Set<(paused: boolean) => void>();
+  private outputPaused = false;
+
+  setOutputPaused(paused: boolean): void {
+    this.outputPaused = paused;
+    for (const gate of this.outputSources) gate(paused);
+  }
+
+  private trackOutput(child: ChildProcess, terminal = false): void {
+    // Provider stderr is diagnostic; a host terminal's stderr is command output.
+    for (const source of [child.stdout, ...(terminal ? [child.stderr] : [])]) {
+      if (!source) continue;
+      const gate = outputPressureGate(source);
+      this.outputSources.add(gate);
+      child.once('exit', () => this.outputSources.delete(gate));
+      gate(this.outputPaused);
+    }
+  }
 
   async spawn(spec: {
     command: string;
@@ -171,14 +190,15 @@ export class ChildAcpProcessHost implements AcpRuntimeProcessHost {
         // @@@5405 POSIX 上自成进程组:child.pid 即组长 pid,这棵树从此有了一个**在组长死后仍然
         // 有效**的地址(父子链会被 SIGKILL 当场摧毁,进程组不会)。没有它,适配器与这个 worker
         // 同组 —— 那时 kill(-pid) 会把 worker 连同其它会话一起收掉,收树这条路根本不存在。
-        // Windows 没有进程组,detached 在那里另有语义(独立控制台),所以只在非 win32 开。
-        detached: process.platform !== 'win32',
+        // Windows 上 spawnOwnedChild 不把 detached 传下去(那里没有进程组,收树靠 taskkill /T)。
+        detached: true,
         onError,
       })
     );
     if (!handle.child.stdin || !handle.child.stdout) {
       throw new Error('ChildAcpProcessHost: failed to spawn process - no stdio streams');
     }
+    this.trackOutput(handle.child);
     return handle;
   }
 
@@ -199,6 +219,7 @@ export class ChildAcpProcessHost implements AcpRuntimeProcessHost {
     if (!terminal.child.stdout) {
       throw new Error('ChildAcpProcessHost: failed to spawn terminal - no stdout stream');
     }
+    this.trackOutput(terminal.child, true);
     return terminal;
   }
 }

@@ -76,7 +76,7 @@ interface Tab {
 }
 
 function FastSwitchHarness(props: { autoThrash?: boolean }) {
-  const ctx = createChatContext({ theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
+  const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
   onCleanup(() => ctx.dispose());
 
   // Two independent ChatStates — mirrors the desktop per-conversation pattern.

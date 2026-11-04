@@ -7,7 +7,6 @@ import { makeAutoObservable } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { getPortalContainer } from '@renderer/lib/portal-container';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
@@ -22,12 +21,13 @@ import { TailValue } from './sidebar-identity-tail';
 /**
  * 侧栏会话行的**身份卡**(#6092,取代 #5818 的「标题就地翻成 agent 名」)。
  *
- * 行上只写得下标题;指针停在行上,行右侧弹出一张卡回答「这一行是谁、在哪」:**任务名、agent 名、设备、文件夹**
- * 四行(设备与文件夹 owner 2026-10-28 加,见 sidebar-identity-place.ts),
+ * 行上只写得下标题;指针停在行上,行右侧弹出一张卡回答「这一行是谁、在哪」:**Agent 名、设备、文件夹**
+ * 三行(设备与文件夹 owner 2026-10-28 加,见 sidebar-identity-place.ts)。值仍是它统一的 agent 名字 ——
+ * 一个任务只有一个名字(owner 2026-10-31),所以 ❌ 再摆一行「agent 名」,
  * **整行点一下就复制这一行**。#7334 起卡上不再摆会话 ID 与 agent ID —— 平时拿名字的人用不上两串 ID,
  * 摆着只是多一层要读的东西;要会话 ID 的人主动去拿(行的右键「复制会话 ID」)。
- * 复制出去的是**带标签的这一对**(「任务名：X」「Agent 名：Y」)—— 单个值离开了标签,粘到哪都读不出它是什么
- * (owner 2026-10-16)。两行各复制各的,❌ 合成一次复制(owner 同日:「复制任务名就是复制任务名」)。
+ * 复制出去的是**带标签的这一对**(「Agent 名：X」)—— 单个值离开了标签,粘到哪都读不出它是什么
+ * (owner 2026-10-16)。每行各复制各的,❌ 合成一次复制(owner 同日:「复制任务名就是复制任务名」)。
  *
  * 形状(assistant-ui design.md 的浮层与行规):
  *  · 浮层是**举起来的物件**:圆角 --radius-surface(10px)+ **一层 lift 影,没有环也没有边**。
@@ -53,10 +53,7 @@ import { TailValue } from './sidebar-identity-tail';
  *    点外 / Esc 由 Base UI 出。
  *  · 右键菜单开了、行开始被拖了,卡当场收:那两件事都是「不在看这张卡了」。
  *
- * 值的显示与复制**同一个真源**:卡上显示的就是复制出去的那两个值。❌ 不挂原生 title:一个飘在别处的
- * 浏览器 tooltip 只会打断排版(owner 2026-09-21 实机)。
- * 没有咕咕身份的会话,agent 那一行写「未分配」且不可复制 —— ❌ 不拿标题冒充人名、❌ 把「未分配」当成一个值
- * 粘出去。
+ * 显示沿用起名占位投影；复制始终取同一个原名真源。❌ 不挂原生 title。
  */
 
 const OPEN_DELAY_MS = 400;
@@ -204,13 +201,13 @@ export function useSidebarIdentityCardTrigger(sessionId: string, enabled: boolea
 }
 
 type RowSpec = {
-  key: 'sessionName' | 'agentName' | 'device' | 'folder';
+  key: 'sessionName' | 'device' | 'folder';
   label: string;
-  /** null = 这一格没有(agent 未分配 / 文件夹不知道):写 missing 那句且不可复制。 */
+  /** null = 这一格没有(文件夹不知道):写 missing 那句且不可复制。 */
   value: string | null;
   /** 卡上显示的那一份(文件夹把主目录缩成 `~`);不给就显示 value。复制出去的始终是 value。 */
   display?: string;
-  /** value 为 null 时写什么;默认「未分配」。 */
+  /** value 为 null 时写什么。 */
   missing?: string;
   /** 放不下时保住结尾:文件夹的最后一段目录名永远露着,截掉的是前面(「~/Codebase/idc…/shop」)。 */
   keepTail?: boolean;
@@ -220,23 +217,20 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
   projectId,
   sessionId,
   title,
+  displayTitle = title,
   anchor,
   onDismiss,
 }: {
   projectId: string;
   sessionId: string;
   title: string;
+  displayTitle?: string;
   /** 取行本体。传取值函数:虚拟列表重渲染会换掉行节点,拿着旧节点定位是对着脱离文档的元素算坐标。 */
   anchor: () => Element | null;
   onDismiss: () => void;
 }) {
   const { translate } = useSessionMessages();
-  const identity = sessionAgentNames.identityFor(sessionId);
-
-  const rows: RowSpec[] = [
-    { key: 'sessionName', label: translate('identityCard.sessionName'), value: title },
-    { key: 'agentName', label: translate('identityCard.agentName'), value: identity?.displayName ?? null },
-  ];
+  const rows: RowSpec[] = [{ key: 'sessionName', label: translate('identityCard.sessionName'), value: title, display: displayTitle }];
   // 在哪:设备 + 文件夹。别的机器上的会话没挂载时没有工作区,只知道项目目录(会话目录那一行不带 cwd)。
   const machine = machineRegistry.machineOf(projectId);
   const place = identityPlace({
@@ -278,7 +272,7 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
             data-sidebar-identity-card
             data-session-id={sessionId}
             role="dialog"
-            aria-label={translate('identityCard.dialog', { name: title })}
+            aria-label={translate('identityCard.dialog', { name: displayTitle })}
             onPointerLeave={(event) => {
               if (!staysOnCard(event)) onDismiss();
             }}
@@ -322,7 +316,7 @@ function IdentityRow({ row }: { row: RowSpec }) {
   const copy = async () => {
     if (row.value === null) return;
     try {
-      // 带上标签:「任务名：X」。分隔符取文案(中文全角「：」,英文「: 」),拼接在这里做 ——
+      // 带上标签:「Agent 名：X」。分隔符取文案(中文全角「：」,英文「: 」),拼接在这里做 ——
       // ❌ 把会话标题当插值参数塞进文案模板:标题是用户写的任意文字。
       await platform.writeClipboardText(`${row.label}${translate('identityCard.copyKeySeparator')}${row.value}`);
       flash(copiedLabel);
@@ -341,7 +335,7 @@ function IdentityRow({ row }: { row: RowSpec }) {
     return (
       <div data-identity-row={row.key} className="flex items-center gap-2 px-3 py-1">
         <span className={labelClass}>{row.label}</span>
-        <span className={valueClass}>{row.missing ?? translate('identityCard.unassigned')}</span>
+        <span className={valueClass}>{row.missing}</span>
       </div>
     );
   }

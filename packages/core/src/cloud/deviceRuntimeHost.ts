@@ -9,7 +9,6 @@ import {
   markDeviceOffline,
   syncDeviceHeartbeat,
   cleanupLegacyDeviceRows,
-  type AgentDeliverFailure,
   type AgentRuntimeStateRpcClient,
   type DeviceCapabilitiesSource,
   type DeviceSessionDigestSource,
@@ -56,6 +55,7 @@ import {
 import type { AgentStatusReading } from '../shared/agentStatus'
 import type { AgentRuntimeStateWrite } from './agentRuntimeStateReporter'
 import { parseAgentPresencePayload } from './agentPresenceProtocol'
+import type { RemovedSessionIdentity } from '../shared/sessionArchival'
 import { isDeviceRemovedError } from './devices'
 import { MACHINE_LIMIT_NEXT_STEP, machineLimitMessage, machineLimitRefusalFromError } from './machineLimit'
 import {
@@ -100,6 +100,11 @@ export type SubscribeDeviceRpc = (input: {
   deviceId: string
 }) => Promise<() => void> | (() => void)
 
+export type SubscribeOwnedAgentChanges = (input: {
+  ownerUserId: string
+  onChanged: () => Promise<void>
+}) => Promise<() => void> | (() => void)
+
 export interface DeviceRuntimeHostOptions {
   env?: NodeJS.ProcessEnv
   /** 排空跟进的间隔(上一轮取到过命令却没有一条落终态时,隔多久复查)。❌ 不是轮询周期,见 spec device-runtime。 */
@@ -131,10 +136,10 @@ export interface DeviceRuntimeHostOptions {
   /** P4: ACP 运行时桥（electron 注入）；agent.cache.acp_engine_id 有值时走 ACP。 */
   runtimeBridge?: AgentRuntimeBridge
   /**
-   * A local roster row was removed: at an owner switch (`owner-change`), or because the cloud no longer has
-   * the agent (`cloud-gone`, the gone guard below — #6938: the host revokes the cards it issued to it).
+   * Reconcile a roster row at an owner switch or after a cloud response:
+   * `cloud-gone` revokes cards after removal; `cloud-removed` must persist the receipt before roster removal.
    */
-  onAgentRosterRemoved?: (agent: LocalAgentRecord, reason: AgentRosterRemovalReason) => Promise<void> | void
+  onAgentRosterRemoved?: (agent: LocalAgentRecord, reason: AgentRosterRemovalReason, receipt?: RemovedSessionIdentity) => Promise<void> | void
   /**
    * #4277 owner 边界确立/变更时通知宿主(首次鉴权 tick 也算一次)。宿主拿它切按账号分的日志文件等
    * 「跟着当下登录走」的东西。回调抛错只 warn,❌ 不拖垮 tick。
@@ -151,6 +156,8 @@ export interface DeviceRuntimeHostOptions {
    */
   subscribeCommandWake?: SubscribeDeviceCommandWake
   subscribeDeviceRpc?: SubscribeDeviceRpc
+  subscribeOwnedAgentChanges?: SubscribeOwnedAgentChanges
+  onOwnedAgentsChanged?: (ownerUserId: string) => Promise<void> | void
   warn?: (message: string) => void
   // @@@auth-expired-signal - fired exactly once when the host's auth is PERMANENTLY lost (refresh
   onAuthExpired?: (message: string) => void
@@ -161,8 +168,6 @@ export interface DeviceRuntimeHostOptions {
   onDeviceRemoved?: (message: string) => void
   machineIdentifier?: DeviceMachineIdentifier
   deviceIdCacheWriter?: DeviceIdCacheWriter
-  // #2115 — agent.deliver 终态失败上抛(→ electron main 发 error 流事件,renderer 显失败提示+重试)。
-  onAgentDeliverFailure?: (failure: AgentDeliverFailure) => void
 }
 
 export interface DeviceRuntimeHostTickResult {
@@ -360,6 +365,8 @@ export function createDeviceRuntimeHostLoop(
   let commandWake: { deviceId: string; unsubscribe: () => void } | null = null
   let commandWakeEpoch = 0
   let deviceRpc: { deviceId: string; unsubscribe: () => void } | null = null
+  let ownedAgentChanges: { ownerUserId: string; unsubscribe: () => void } | null = null
+  let ownedAgentChangesEpoch = 0
   let lifecycleGeneration = 0
   let lastAuth: RuntimeAuth | null = null
   let activeOwnerUserId: string | null = null
@@ -394,9 +401,18 @@ export function createDeviceRuntimeHostLoop(
   // #5331 例外:公网身份**还在飞**的行不是「别处删了」,是还没铸出来。守卫的前提(名册有行 ⇒ 云端
   // 必然有过对应行)在本地优先铸身份之后不再成立,而这里删掉的正是一条刚起、正在用的会话的行。
   // fail-loud:跳过要说出来,否则「守卫没发作」和「守卫误删了」在日志里同形。
-  // #6938 真删掉的行(只有它们,留下的在飞行不算)交给宿主:身份没了,宿主发给它的卡跟着作废。
-  const dropLocalAgentByGuguUserId = async (agentUserId: string): Promise<void> => {
+  // Not writable only revokes routing/cards; only an explicit account_status='removed' proves deletion.
+  const dropLocalAgentByGuguUserId = async (agentUserId: string, reason: 'cloud-gone' | 'cloud-removed' = 'cloud-gone', receipt?: RemovedSessionIdentity): Promise<void> => {
     if (!agentUserId) return
+    if (reason === 'cloud-removed') {
+      if (receipt?.userId !== agentUserId) throw new Error('Confirmed removal does not match the local identity')
+      // The callback archives the same task and persists its replacement marker. Failure keeps its binding.
+      for (const agent of await listAgents(env)) {
+        if (agent.gugu_user_id === agentUserId && !agentCloudIdentityPending(agent)) {
+          await options.onAgentRosterRemoved?.(agent, reason, receipt)
+        }
+      }
+    }
     const removed = await removeAgents(
       (agent) => {
         if (agent.gugu_user_id !== agentUserId) return false
@@ -411,7 +427,7 @@ export function createDeviceRuntimeHostLoop(
       },
       env,
     )
-    for (const agent of removed) await options.onAgentRosterRemoved?.(agent, 'cloud-gone')
+    if (reason !== 'cloud-removed') for (const agent of removed) await options.onAgentRosterRemoved?.(agent, reason)
   }
   /**
    * presence 行的唯一写口:每一次写成功都记进「已发布过什么」。建 / 停 / 下线这类说不出读数的写记成没有读数,
@@ -444,6 +460,12 @@ export function createDeviceRuntimeHostLoop(
     deviceRpc = null
   }
 
+  function unsubscribeOwnedAgentChanges(): void {
+    ownedAgentChanges?.unsubscribe()
+    ownedAgentChanges = null
+    ownedAgentChangesEpoch += 1
+  }
+
   async function establishOwnerBoundary(ownerUserId: string): Promise<void> {
     if (persistedOwnerUserId === undefined) {
       persistedOwnerUserId = await readDeviceRuntimeOwner(env)
@@ -452,6 +474,7 @@ export function createDeviceRuntimeHostLoop(
     if (previousOwnerUserId !== null && previousOwnerUserId !== ownerUserId) {
       unsubscribeCommandWake()
       unsubscribeDeviceRpc()
+      unsubscribeOwnedAgentChanges()
       if (activeHeartbeat) await activeHeartbeat
       await clearLocalAgentRuntimesForOwnerChange({
         env,
@@ -505,6 +528,25 @@ export function createDeviceRuntimeHostLoop(
       return
     }
     deviceRpc = { deviceId, unsubscribe }
+  }
+
+  async function ensureOwnedAgentChanges(ownerUserId: string, generation: number): Promise<void> {
+    if (!options.subscribeOwnedAgentChanges || generation !== lifecycleGeneration) return
+    if (ownedAgentChanges?.ownerUserId === ownerUserId) return
+    unsubscribeOwnedAgentChanges()
+    const epoch = ownedAgentChangesEpoch
+    const current = () => generation === lifecycleGeneration && epoch === ownedAgentChangesEpoch && activeOwnerUserId === ownerUserId
+    const unsubscribe = await options.subscribeOwnedAgentChanges({
+      ownerUserId,
+      onChanged: async () => {
+        if (current()) await options.onOwnedAgentsChanged?.(ownerUserId)
+      },
+    })
+    if (!current()) {
+      unsubscribe()
+      return
+    }
+    ownedAgentChanges = { ownerUserId, unsubscribe }
   }
 
   // 一次「该取命令了」的请求。没有 tick 在飞就立刻跑一轮;有就排一个后续的 ——
@@ -688,12 +730,14 @@ export function createDeviceRuntimeHostLoop(
       if (!auth?.accessToken || !auth.userId) {
         unsubscribeCommandWake()
         unsubscribeDeviceRpc()
+        unsubscribeOwnedAgentChanges()
         lastAuth = null
         lastTickAt = nowMs()
         queueBelievedEmpty = false
         return { skipped: true }
       }
       await establishOwnerBoundary(auth.userId)
+      await ensureOwnedAgentChanges(auth.userId, generation)
       lastAuth = auth
       lastError = null
       // @@@activity-edge (#3961/#4008) — 逐 agent 的维护与边沿发布都在 activity 的 flight 上跑(见 maintainLocalAgents),
@@ -806,7 +850,6 @@ export function createDeviceRuntimeHostLoop(
           },
           onRuntimeStateReportError: (error) =>
             options.warn?.(`[device-runtime] ${(error as Error).message}`),
-          onAgentDeliverFailure: options.onAgentDeliverFailure,
         },
         env
       )
@@ -859,6 +902,7 @@ export function createDeviceRuntimeHostLoop(
       if (handleAuthExpired(err)) {
         unsubscribeCommandWake()
         unsubscribeDeviceRpc()
+        unsubscribeOwnedAgentChanges()
         lastAuth = null
         queueBelievedEmpty = false
         return { skipped: true }
@@ -1261,7 +1305,7 @@ export function createDeviceRuntimeHostLoop(
   // 是真变化):那是在给后端 180 s 的 derived_status 续命,而它的 offline 自 #2774(0.2.30)起总被 desired 盖过 ——
   // 在线只看设备行与 desired。
   // 删了的 agent 由这一读显式认出:remove_owned_agent 留的墓碑让主人照样读得到它,account_status='removed' ⇒
-  // 收回名册行与发给它的卡(#2151/#6938 的 cloud-gone)。'unauthorized' 分不清「别处删了」「不是我的」「还没铸出来」
+  // 收回名册行并交 cloud-removed 删除证明。'unauthorized' 分不清「别处删了」「不是我的」「还没铸出来」
   // ⇒ 只说一声、❌ 不删(写路径的 not writable 守卫照旧兜底)。
   async function reconcileWithCloud(auth: RuntimeAuth, generation: number): Promise<boolean> {
     try {
@@ -1281,8 +1325,10 @@ export function createDeviceRuntimeHostLoop(
           if (!presence) {
             options.warn?.(`[device-runtime] presence of local agent ${agentUserId} is ${row.status}; left in the roster`)
           } else if (presence.accountStatus === 'removed') {
+            if (presence.agentUserId !== agentUserId) throw new Error('Removed presence identity does not match its batch key')
+            // The backend removed payload uses users.removed_at as updated_at, never a local clock.
+            await dropLocalAgentByGuguUserId(agentUserId, 'cloud-removed', { userId: agentUserId, removedAt: presence.updatedAt })
             publishedActivity.delete(agentUserId)
-            await dropLocalAgentByGuguUserId(agentUserId)
           } else {
             publishedActivity.set(agentUserId, { activityStatus: presence.activityStatus, reading: presence.status })
             publishedRecentActions.set(agentUserId, recentActionsKey({ actions: presence.recentActions, lastActionAt: presence.lastActionAt }))
@@ -1410,6 +1456,7 @@ export function createDeviceRuntimeHostLoop(
     unsubscribeAgentTurnState = null
     unsubscribeCommandWake()
     unsubscribeDeviceRpc()
+    unsubscribeOwnedAgentChanges()
     lastAuth = null
     if (runningTick) await runningTick.catch(() => undefined)
     // 定时任务那一轮从前是在 tick 里被 await 的;现在它有自己的 flight,停机同样要等它落地 ——

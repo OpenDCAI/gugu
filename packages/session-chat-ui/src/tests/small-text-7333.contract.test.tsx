@@ -247,7 +247,7 @@ describe('the reply\'s copy button in the caption tier (#7333 母版补页 05)',
       items: [msg('u1', 0, 'user', '问'), msg('a1', 1, 'assistant', '答一句话。')] as TranscriptTurn['items'],
       outcome: { kind: 'done' },
     }
-    const ctx = createChatContext()
+    const ctx = createChatContext({ locale: () => 'en-US' })
     const state = createChatState(ctx)
     state.session.setGenerating(false)
     state.transcript.history.seed([turn])

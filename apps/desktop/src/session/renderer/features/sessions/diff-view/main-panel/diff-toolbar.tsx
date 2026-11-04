@@ -1,5 +1,5 @@
 import { AlignJustify } from '@/lib/icons'
-import { Columns2 } from 'lucide-react'
+import { Columns2 } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import type { DiffTabResource } from '@renderer/features/sessions/diff-view/stores/diff-tab-resource';
 import { useWorkspaceSurface } from '@renderer/features/sessions/session-view-context';

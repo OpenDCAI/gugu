@@ -21,7 +21,7 @@ import type { DisplayIdentity } from '../../../apps/desktop/src/lib/displayIdent
 import type { ContactUser } from '../../../packages/core/src/shared/types/contacts'
 import type { AccountRevisionListener } from '../../../apps/desktop/src/lib/accountRevisionCoordinator'
 import type { ChatContextValue } from '../../../apps/desktop/src/store/chatContext'
-import { createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../support/testHarness'
+import { createNode, createReactHarness, displayIdentity, renderWithAppProviders, typeInto } from '../../support/testHarness'
 import { setAgentDisplayStatusOverride, clearAgentDisplayStatusOverrides } from '../../support/agentDisplayStatusTestDouble'
 
 vi.mock('../../../apps/desktop/src/lib/chat', () => ({
@@ -89,7 +89,6 @@ function collab(agents: GroupAgentItem[], humans: GroupMemberItem[] = []): Group
     humans,
     agents,
     tasks: [],
-    outputs: [],
   }
 }
 
@@ -104,10 +103,10 @@ let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
   clearAgentDisplayStatusOverrides()
-  // 话题面板里那一行会自己去读设置;给一个缺省值,免得每条**不关心它**的用例都得记着桩一次。
+  // Member controls project the authoritative management capabilities.
   getSettings.mockResolvedValue(settingsRow(null, 5))
 })
-afterEach(() => { harness.cleanup(); vi.clearAllMocks() })
+afterEach(() => { harness.cleanup(); vi.clearAllMocks(); vi.useRealTimers() })
 
 // 页头归宿主画;测试宿主把标题与动作原样摆出来(话题改名框、邀请按钮都在这两块里)。
 const head = (title: ReactNode, actions: ReactNode) => createNode(Fragment, null, title, actions)
@@ -143,6 +142,19 @@ describe('@@@5856 名册读不到', () => {
 })
 
 describe('MemberListPanel archived members', () => {
+  it('filters a naming placeholder by the real identity name', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime('2026-11-02T08:00:00.000Z')
+    getGroupCollab.mockResolvedValue({ snapshot: collab([agentItem('fresh')]), identities: [displayIdentity('fresh', {
+      type: 'agent', display_name: 'Codex 5', created_at: '2026-11-02T08:00:00.000Z',
+    })] })
+    await renderWithAppProviders(harness, createNode(MemberListPanel, { chatId: 'chat-1', chatKind: 'group', head }), { contacts: {} })
+    const search = harness.container.querySelector<HTMLInputElement>('[data-testid="member-list-search"]')!
+    await typeInto(search, 'Codex 5')
+    expect(harness.container.querySelector('[data-member-name="fresh"]')?.textContent).toBe('正在起名…')
+    await typeInto(search, '正在起名')
+    expect(harness.container.querySelector('[data-member-row="fresh"]')).toBeNull()
+  })
   it('keeps the member and displays an actual muted archived label, not only an avatar tooltip', async () => {
     setAgentDisplayStatusOverride('archived', 'archived')
     await renderPanel(collab([agentItem('archived')], [humanItem('owner-1')]))
@@ -264,6 +276,7 @@ const { GroupAgentFloodSettings } = await import('../../../apps/desktop/src/comp
 
 function settingsRow(threshold: number | null, effective: number | null) {
   return {
+    my_role: 'owner' as const, can_manage: true, can_dissolve: false, can_archive_topic: true,
     id: 'chat-1', public_id: 7, creator_user_id: 'owner-1', name: '话题', status: 'active' as const,
     group_prompt: null, default_agent_type: null, join_token: null, description: null,
     max_members: 100, allow_member_invite: false, invite_link_enabled: true, agent_join_approval: false,
@@ -278,7 +291,7 @@ async function renderThresholdSetting(threshold: number | null, effective: numbe
   getSettings.mockResolvedValue(settingsRow(threshold, effective))
   await renderWithAppProviders(
     harness,
-    createNode(AgentFloodThresholdSetting, { chatId: 'chat-1', editable: true, inherits: true }),
+    createNode(AgentFloodThresholdSetting, { chatId: 'chat-1', inherits: true }),
     { auth: { id: 'owner-1' }, chat: { identitiesById: {} }, contacts: { contacts: [] } },
   )
   await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
@@ -325,7 +338,7 @@ describe('@@@5856 话题里的 agent 数量线', () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve() })
     expect(harness.container.querySelector('[data-testid="member-list-search"]')).toBeTruthy()
     expect(harness.container.querySelector('[data-testid="agent-flood-threshold-row"]')).toBeNull()
-    expect(getSettings).not.toHaveBeenCalled()
+    expect(getSettings).toHaveBeenCalledWith('chat-1')
   })
 
   it('没填自己的数时,占位符显示的是**服务端算出来的**生效值,❌ 不是客户端编的 5', async () => {
@@ -377,7 +390,7 @@ describe('#5999 群设置只管群自己的阈值，私聊设置管话题阈值'
       return { snapshot, identities: identitiesFor(snapshot) }
     })
     const values = new Map<string, number | null>([['source-1', 9], ['topic-1', null], ['topic-2', 4]])
-    const read = (id: string) => ({ ...settingsRow(values.get(id) ?? null, values.get(id) ?? values.get('source-1') ?? 5), id })
+    const read = (id: string) => ({ ...settingsRow(values.get(id) ?? null, values.get(id) ?? values.get('source-1') ?? 5), id, can_manage: id !== 'topic-2' && (role === 'owner' || role === 'admin') })
     getSettings.mockImplementation(async (id) => read(id))
     updateSettings.mockImplementation(async (id, patch) => {
       if (patch.agent_flood_threshold !== undefined) values.set(id, patch.agent_flood_threshold)
@@ -387,7 +400,7 @@ describe('#5999 群设置只管群自己的阈值，私聊设置管话题阈值'
   }
   const toast = vi.fn()
   async function renderSettings(editable?: boolean, subscribeAccountRevision: ChatContextValue['subscribeAccountRevision'] = () => () => {}) {
-    await renderWithAppProviders(harness, createNode(GroupAgentFloodSettings, { chatId: 'source-1', editable }), { auth: { id: 'owner-1' }, toast, chat: { subscribeAccountRevision } })
+    await renderWithAppProviders(harness, createNode(GroupAgentFloodSettings, { chatId: 'source-1', scope: editable === undefined ? 'topics' : 'group' }), { auth: { id: 'owner-1' }, toast, chat: { subscribeAccountRevision } })
     await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
   }
   const inputs = () => Array.from(harness.container.querySelectorAll<HTMLInputElement>('[data-testid="agent-flood-threshold-input"]'))
@@ -516,7 +529,7 @@ describe('#5999 群设置只管群自己的阈值，私聊设置管话题阈值'
     expect(harness.container.querySelectorAll('[data-agent-flood-effective="9"]')).toHaveLength(1)
     expect(updateSettings).not.toHaveBeenCalled()
   })
-  it('私聊里无法编辑未参与的话题，但能读取独立值', async () => {
+  it('服务端拒绝管理的话题只读，但能读取独立值', async () => {
     seedSettings()
     await renderSettings()
     const select = harness.container.querySelector('select')!
@@ -534,9 +547,9 @@ describe('#5999 群设置只管群自己的阈值，私聊设置管话题阈值'
     await change(inputs()[0], '8')
     expect(updateSettings).toHaveBeenLastCalledWith('topic-1', { agent_flood_threshold: 8 })
   })
-  it('权限读取失败时显示错误，不能用来源管理员身份代替话题权限', async () => {
+  it('权限读取失败时显示错误，不把未知权限当成允许', async () => {
     seedSettings()
-    getGroupCollab.mockRejectedValue(new Error('network unavailable'))
+    getSettings.mockRejectedValueOnce(new Error('network unavailable'))
     await renderSettings()
     expect(inputs()).toHaveLength(0)
     expect(harness.container.querySelector('[role="alert"]')?.textContent).toContain('network unavailable')

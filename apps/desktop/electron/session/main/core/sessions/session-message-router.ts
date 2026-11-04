@@ -17,7 +17,6 @@ export type SessionMessageRouter = (
 let router: SessionMessageRouter | null = null;
 let outboxDrain: (() => Promise<void>) | null = null;
 let outboxReady = false;
-let sessionLive: ((sessionId: string) => void) | null = null;
 
 export function setSessionMessageRouter(next: SessionMessageRouter | null): void {
   router = next;
@@ -41,15 +40,6 @@ export async function setSessionMessageOutboxReady(ready = true): Promise<void> 
   migrateStrandedLifecycleOutbox();
   outboxReady = true;
   await outboxDrain();
-}
-
-/** 宿主的「这条会话可投递了」:ACP 腿在运行时登记好这条会话(启动成功)的那一刻叫它。 */
-export function setSessionLiveNotifier(handler: ((sessionId: string) => void) | null): void {
-  sessionLive = handler;
-}
-
-export function notifySessionLive(sessionId: string): void {
-  sessionLive?.(sessionId)
 }
 
 export function getSessionMessageRouter(): SessionMessageRouter | null {

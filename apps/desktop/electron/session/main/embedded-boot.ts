@@ -1,3 +1,5 @@
+import { sessionBootTasks } from './core/boot-tasks'
+import { hasAgentInstallsInProgress } from './core/agents/install-progress-ledger'
 // @@@sessionpage — the session backend's EMBEDDED-MODULE entry. The session backend is a cohesive
 // submodule (owner #43), NOT a set of gugu subsystems: it exposes exactly ONE boot entry here, and gugu
 // (the host) invokes it + bridges IPC — the host never reaches into the session backend's DB / pty /
@@ -16,6 +18,7 @@
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
 import { takeLastExit } from '../../lib/exit-reason'
+import { resumeHostUpdate } from './core/agent-status/resume-host-update'
 import type { BirthGroup } from '@shared/core/sessions/create-session';
 export { readCurrentActivityInput,readCurrentAssistantWorkInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
@@ -53,6 +56,7 @@ export { setPlatformCredentialsProbe } from './core/agent-config/auth-expiry-fro
 // @@@5301 会话页 agent 系统通知的正文注入口。会话页 ❌ 不 import 宿主的语言 store
 // (它有模块级状态,跨界只会拿到复制品) —— 由宿主把当下语言的两句文案推进来。
 export { setSessionAgentNotificationCopy } from './core/agent-hooks/notification-copy'
+export { setSystemNotificationsUsable } from './core/agent-hooks/system-notifications'
 export type { SessionAgentNotificationCopy } from './core/agent-hooks/notification-copy'
 // 宿主的界面语言(App 名字等由会话页这侧拼给人看的字按它挑语言),同上由宿主注入。
 export { setSessionHostLocale } from './core/host-locale'
@@ -69,7 +73,6 @@ import {
   type HostIpc,
 } from '@main/lib/host-ipc'
 import type { SessionSummary } from '@gugu/session-core/acp'
-import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils'
 import { sessionViewOfRuntime, type SessionView } from '@shared/core/sessions/sessions'
 
 import { registerRPCRouter } from '@shared/lib/ipc/rpc'
@@ -102,15 +105,17 @@ import {
 } from '@main/core/extensions/extension-background'
 import { rpcRouter } from '@main/rpc' // ← the complete router, every controller
 import { initializeDatabase } from '@main/db/initialize'
+import { startTurnTextBackfillWorker, stopTurnTextBackfillWorker, type SearchBackfillLogger } from '@main/db/turn-text-backfill-runner'
 import { migrateProjectKind } from '@main/core/projects/operations/migrate-project-kind'
 import { closeDatabase, db, sqlite } from '@main/db/client'
 import { resolveDatabasePath } from '@main/db/path'
 import { backupBeforeTaskToSession, runTaskToSessionOnce } from '../../migrations/task-to-session'
 import { backupBeforeSessionNaming, runSessionNamingOnce } from '../../migrations/session-naming'
 import { tmuxBackendStartupSweepSettled } from '../../sessionpage/tmux-backend'
-import { sessions, workspaces as workspacesTable } from '@main/db/schema'
-import { eq } from 'drizzle-orm'
+import { sessions, projects as projectsTable, workspaces as workspacesTable } from '@main/db/schema'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer'
+import { reconcileSurvivorsWithPresence } from '@main/core/agent-hooks/presence-interrupt'
 import {
   closeInterruptedRunIntervals,
   installRunIntervalRecorder,
@@ -136,12 +141,15 @@ import {
   cleanupLegacyBrowserPartitions,
   migrateLegacyBrowserPartitionDirs,
 } from '@main/core/browser/browser-partition-cleanup'
-import { sweepOrphanSessionAttachmentDirectories } from '@main/core/sessions/attachments/session-attachment-store'
 import { projectSettingsService } from '@main/core/projects/settings/project-settings-service'
 import { getProjectById, getProjects } from '@main/core/projects/operations/getProjects'
 import { resolveAgentSessionProject } from '@main/core/projects/operations/resolve-agent-session-project'
-import { resolveSession, resolveWorkspace } from '@main/core/projects/utils'
-import { deleteSession } from '@main/core/sessions/deleteSession'
+import { resolveAssistantSessionWorkspace } from '@main/core/projects/operations/task-directory-workspace'
+import { runPendingAssistantProjectCleanup } from '@main/core/projects/operations/assistant-project-cleanup'
+export { setAssistantProjectCleanupOwner, runPendingAssistantProjectCleanup } from '@main/core/projects/operations/assistant-project-cleanup'
+import { persistedWorkspacePath, resolveSession, resolveWorkspace } from '@main/core/projects/utils'
+import { RETIRED_REMOTE_WORKSPACE_MESSAGE } from '@main/core/workspaces/resolve-workspace-kind'
+import { archiveSession } from '@main/core/sessions/archiveSession'
 import { getSessions } from '@main/core/sessions/getSessions'
 import { sessionArchivalInventory, sessionArchivalState } from '@main/core/sessions/session-archival'
 export { sessionArchivalState as emdashSessionArchivalState, sessionMessageRefused as emdashSessionMessageRefused } from '@main/core/sessions/session-archival'
@@ -202,7 +210,6 @@ import { browserWebContentsRegistry } from '@main/core/browser/browser-webconten
 import { setBrowserCorsRelaxationSettings } from '@main/core/browser/browser-profile-session'
 import { promptLibraryService } from '@main/core/prompt-library/service'
 import { agentHookService } from '@main/core/agent-hooks/agent-hook-service'
-import { isAppFocused } from '@main/core/agent-hooks/app-focus'
 import {
   disposeAcpRuntimeProcess,
   getAcpRuntimeClient,
@@ -221,18 +228,20 @@ import {
   setSessionStatusFeed,
 } from '@main/core/session-timeline/service'
 import { connectionConfigRoot } from '@main/core/agents/harness-connections'
-import { acpSessionLive, setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
+import { setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
 import { setOtherMachines } from '@main/core/sessions/session-family'
+import { hasPendingTaskNames, loadTaskNames, setTaskNamer, setTaskNameOwner } from '@main/core/sessions/task-name'
+import { adoptLegacyTaskNames } from '@main/core/sessions/renameSession'
 import { setAgentSessionHost } from '@main/core/sessions/agent-session-controller'
 import { answerAppMessage } from '@main/core/extensions/extension-send'
-import { answerAppReadFile } from '@main/core/extensions/app-files-elsewhere'
 import { answerAppCall } from '@main/core/extensions/app-programs-elsewhere'
 export { spawnAgentForExtension } from '@main/core/extensions/extension-agents'
-export { answerAppMessage, answerAppReadFile, answerAppCall, setAgentSessionHost }
+export { answerAppMessage, answerAppCall, setAgentSessionHost }
 import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader'
 import { flushLogWrites, setLogFileOwner } from '@main/lib/file-logger'
 import { setSessionMessageOutboxReady } from '@main/core/sessions/session-message-router'
 import { sessionProcess } from '@main/core/sessions/session-process'
+import { ptyRecordResumeSet, startPtyRecordSync } from '@main/core/sessions/pty-record-sync'
 export { sessionProcess }
 export { setUserLibraryOwner } from '@main/core/app/user-library'
 // #7341 第二步 项目跨设备:`projects.*` 的项目群四件事由宿主接上实现(对照 / 登录态 / 云端都在宿主那边);
@@ -246,6 +255,10 @@ export {
 export {
   localSessionIds,
   setOtherMachines,
+  setTaskNamer,
+  setTaskNameOwner,
+  hasPendingTaskNames,
+  adoptLegacyTaskNames,
   runRemoteSessionAction,
   runSessionAction,
   sessionCallerFacts,
@@ -271,8 +284,12 @@ export {
 } from '@main/core/agents/platform-model-catalog-hook'
 // @@@sessionpage TASKPAGE-FUSION — re-export the MCP-injector setter on the module boundary so the gugu
 // host can give session-page codex sessions the gugu MCP send tool + gugu identity at session start.
+export { sessionLife }
+export { setSessionLifeSourceHost } from '@main/core/sessions/session-life-host'
+export { claimedSessionSources } from '@main/core/sessions/session-pending'
 export {
   setEmdashMcpInjector,
+  setEmdashIdentityProvisioner,
   type EmdashMcpInjector,
   type EmdashSessionStartInfo,
 } from '@main/core/acp/emdash-mcp-injector'
@@ -305,13 +322,13 @@ export {
 } from '@main/core/sessions/impl/emdash-pty-sessionpage-hook'
 export {
   setSessionMessageRouter,
-  setSessionLiveNotifier,
   setSessionMessageOutboxReady,
   type SessionMessageRouter,
 } from '@main/core/sessions/session-message-router'
 export {
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,
+  rejectPendingSessionDirectMessage,
   recordFailedSessionDirectMessage,
   // 宿主在「投递属主注册好了」那一刻要用它把排队的首轮送出去 —— 收件箱 pull 看不见 `ordinary` 行。
   drainSessionMessageOutboxById,
@@ -356,6 +373,18 @@ import {
   type SessionScope,
 } from '@shared/core/sessions/sessionEvents'
 import { log } from '@main/lib/logger'
+import { events } from '@main/lib/events'
+import { installSessionLife, sessionLife } from '@main/core/sessions/session-life'
+import { hydrateLife, shouldStartOnHydrate } from '@gugu/core/local/session-life/step'
+import { admitCreationTurns, bindIdentityThenCreate, claimIdentityCreation } from '@main/core/sessions/session-life-creation'
+import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-agent'
+import { isLifeSession, lifeSessions, lifeStore } from '@main/core/sessions/session-pending'
+import { sessionLifeSources } from '@main/core/sessions/session-life-host'
+import { createAcpLegAdapter } from '@main/core/acp/session-life-acp'
+import { forkStore, runtimeFork, runtimeForks, runtimeForksOf } from '@main/core/sessions/session-life-forks'
+import { sessionOwnedBy } from '@main/core/sessionpage/sessionpage-session-agent'
+import { sessionLifeViewChannel } from '@shared/core/sessions/sessionEvents'
+import type { LifeStatus, LifeView } from '@shared/core/sessions/session-life'
 import { guguNodeTarget, installGuguNode } from './core/pty/gugu-node'
 import { createStageLedger, type StageLedger } from '@main/lib/stage-ledger'
 import { openProject } from '@main/core/projects/operations/openProject'
@@ -413,6 +442,11 @@ export async function bootEmdashModule(ipcMain: IpcMain, discovery?: Pick<Sessio
     browserFeatures: true,
     ...discovery,
   })
+}
+
+/** Host service readiness, rather than module initialization, starts the optional index work. */
+export function startSessionpageSearchBackfill(logger: SearchBackfillLogger): void {
+  startTurnTextBackfillWorker(logger)
 }
 
 async function maybeStartDevWsHost(): Promise<HostIpc | null> {
@@ -477,23 +511,15 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // 删 0600 settings 文档 + 清续期定时器)。少这条腿,归档在用户眼里结束了,凭证还留在盘上。
   // 由组合根接线(与 setEmdashPlatform* 那批同形):session-main 的中心件不该静态引 ACP host 的模块级 scope。
   // ⚠️ worker 没起就什么都不做:那意味着一条 ACP 会话都不存在,把它叫醒等于收尾自己制造出要收的东西。
-  setSessionAcpSessionStopper(async ({ sessionId }) => {
-    const client = await peekAcpRuntimeClient()
-    if (!client) return
+  setSessionAcpSessionStopper(async ({ sessionId }, mode) => {
     const [row] = await db
       .select({ runtime: sessions.runtime })
       .from(sessions)
       .where(eq(sessions.id, sessionId))
       .limit(1)
-    if (row?.runtime !== 'acp') return
-    const result = await client.stopSession({ sessionId }).catch((error: unknown) => {
-      log.warn('session teardown: ACP session stop threw', { sessionId, error: String(error) })
-      return null
-    })
-    // 归档在用户眼里已经发生了,没停干净不该把整个归档判失败;响亮记一笔。
-    if (result && !result.success) {
-      log.warn('session teardown: ACP session stop reported an error', { sessionId, error: result.error })
-    }
+    // Archive already went through session-life (archiveOneLocked) before the workspace is torn down.
+    if (row?.runtime !== 'acp' || mode === 'archive') return
+    await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'user-stop' })
   })
 
   // --- The half of the bridge that acts (#2374). Installed here rather than beside the attach
@@ -517,6 +543,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   await backupBeforeTaskToSession(sqlite, resolveDatabasePath())
   await backupBeforeSessionNaming(sqlite, resolveDatabasePath())
   await initializeDatabase()
+  await runPendingAssistantProjectCleanup(true)
   // #609 已有的、登记在 ~ / task-home / GUGU_HOME 底下的项目改成 workspace(会话随之列进「任务」);幂等,失败不拦启动。
   try {
     const demoted = migrateProjectKind(path.join(app.getPath('userData'), 'project-kind-migration.json'))
@@ -536,6 +563,29 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   )
   // 开门即已迁完(退役的 lifecycle 条目在门里先迁走);同上面两段一样不等占用判定。
   await setSessionMessageOutboxReady()
+  // session-life: the single owner of ACP session lifecycle. Installed before any entry can deliver; the host signs
+  // it in once its account is known.
+  installSessionLife({
+    sessions: lifeSessions,
+    store: sessionId => runtimeFork(sessionId) ? forkStore : lifeStore,
+    adapter: sessionId => createAcpLegAdapter(sessionId, runtimeFork(sessionId)),
+    forks: runtimeForksOf,
+    allForks: runtimeForks,
+    parentOf: sessionId => runtimeFork(sessionId)?.parentId ?? null,
+    ownedBy: (sessionId, userId) => sessionOwnedBy(sessionId, process.env, userId),
+    markRead: row => sessionLifeSources.markRead(row),
+    reportFailure: (rows, cause) => sessionLifeSources.reportFailure(rows, cause),
+    publish: view => {
+      events.emit(sessionLifeViewChannel, view)
+      for (const cb of lifeViewSubscribers) cb(view)
+    },
+    removed: sessionId => log.info('session-life: session removed', { sessionId }),
+    failed: (sessionId, error) => log.error('session-life: failure', { sessionId, error: String(error) }),
+    now: Date.now,
+  })
+  // Task names: a bound task is named by its roster identity (task-name.ts). The roster keys were just
+  // renamed above, and every reader of a name below (search backfill first) needs the projection.
+  await loadTaskNames()
   // #6892 起任何 agent / worker 之前问一次系统代理,只补给 agent 与安装器(utils/systemProxyEnv.ts)。
   log.info('[session-host] system proxy for agent processes', await resolveSystemProxy((url) => electronSession.defaultSession.resolveProxy(url)))
 
@@ -550,6 +600,11 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // ⇒ 有人占着就**跳过并喊一声**,❌ 不硬收。
   const dataDir = app.getPath('userData')
   const occupancy = dataDirHeldByAnotherHost(dataDir)
+  // Terminal records to read once at boot; the persisted facts are read here, before the sweep settles their status.
+  let ptyRecordResume: string[] = []
+  let updateInterrupted: string[] = []
+  let lastExit: ReturnType<typeof takeLastExit> = { reason: 'unclean', at: null }
+  let presenceReconciliation = Promise.resolve()
   // 先宣告再收残:占用判定明确排除本进程的 pid,所以宣告不会让自己跳过自己的收残;
   // 而先宣告能把「两个宿主几乎同时开机、都读到『没人占』」的窗口收窄到写文件那一瞬。
   // (❌ 不为此上文件级互斥锁:那一瞬撞上的后果 = 退回今天的行为,不是新的损坏。)
@@ -563,7 +618,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   } else {
     // 用量页的运行区间:上一个进程没来得及收口的,按它最后一次心跳收 —— 与下面的状态收残同一道闸
     // (别的活宿主占着这份数据目录时,它那几段区间还开着是对的)。
-    closeInterruptedRunIntervals()
+    sessionBootTasks.runSync('run-interval-sweep', '', closeInterruptedRunIntervals)
     // 收残只收引擎随上一个进程没了的会话;在 tmux 里活下来的照旧在跑。tmux 只问这一次,所有会话按同一份列表判。
     // 没有 tmux 服务器 = 空列表(listTmuxSessionNames 自己这样答);问不出来(没装 tmux、tmux 坏了)= 一个都没活下来,
     // 照旧全收 —— 响亮记一条,❌ 为此让开机失败。
@@ -571,24 +626,19 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
       log.error('[session-host] 开机收残问不出 tmux 会话列表,按一个都没活下来收', { error: String(error) })
       return new Set<string>()
     })
+    ptyRecordResume = ptyRecordResumeSet()
     // 上一次是怎么退出的(更新 / 重启 / 没正常退出):被打断的那几条会话据此说清原因。读一次就删。
-    await agentStatusWriter.settleAfterRestart(tmuxSessionNames, takeLastExit(dataDir))
+    lastExit = takeLastExit(dataDir)
+    updateInterrupted = await sessionBootTasks.run('status-sweep', '', () => agentStatusWriter.settleAfterRestart(tmuxSessionNames, lastExit.reason)) ?? []
+    presenceReconciliation = reconcileSurvivorsWithPresence(tmuxSessionNames)
     // 上一个进程投到一半就没了的消息：现在认领为「结果未知」终态（不能重投，只能如实说）。
     // 必须在任何人看见会话之前做完 —— 正常在途不经过这里，所以新建会话不会闪这条提示。
-    claimInterruptedDispatches()
-    claimInterruptedDeferredMessages()
+    sessionBootTasks.runSync('dispatch-sweep', '', claimInterruptedDispatches)
+    sessionBootTasks.runSync('deferred-sweep', '', claimInterruptedDeferredMessages)
   }
   searchService.initialize()
   workspaceFileIndexService.initialize()
   void editorBufferService.pruneStale()
-  // 附件目录:既不是一条还在的会话、也没有任何一行附件落在里面 ⇒ 孤儿(创建失败、或者删会话时没清成)。
-  // ⚠️ 只在这里跑:运行中跑会误删一个正在被新建页攒着、会话还没建出来的草稿目录(#5269)。
-  void sweepOrphanSessionAttachmentDirectories().then(
-    (removed) => {
-      if (removed > 0) log.info('task-attachments: swept orphan directories', { removed })
-    },
-    (error: unknown) => log.warn('task-attachments: sweep failed', { error: String(error) })
-  )
   // 依赖体检的 `<bin> --version` 是 detached 起的(不然只杀得掉直接子进程)，收尾在 finally 里 ——
   // 那一半只在我们还活着时有效。被强杀时子进程活下来，stdio 管道读端却没了，不处理 SIGPIPE 的
   // 程序就在写失败上空转：mac1 实测两个 `amp --version` 各占满一核，清掉两个半小时后又长出两个。
@@ -672,8 +722,15 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   await promptLibraryService.initialize()
   // 写入者先于任何事件来源就位:它订 hook 总线,births / 收残 / 回收都经它(spec agent-status-writer)。
   agentStatusWriter.initialize()
+  stopPtyRecordSync = startPtyRecordSync(ptyRecordResume)
   installSessionsGoneFeed()
-  onSessionsGone((scope) => agentStatusWriter.forget(scope))
+  onSessionsGone((scope) => {
+    agentStatusWriter.forget(scope)
+    sessionBootTasks.clearTask('sessionId' in scope ? scope.sessionId : scope.projectId)
+  })
+  agentStatusWriter.on('agent:status', ({ sessionId, reading }) => {
+    if (reading.status === 'idle' && reading.detail === 'done') sessionBootTasks.clearTask(sessionId)
+  })
   agentHookService.initialize().catch((e) => {
     log.error('Failed to start agent event service:', e)
   })
@@ -691,7 +748,11 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // agent_status 列的对账(补上不经过那条事件的状态写入:出生即 working、restart)。
   installRunIntervalRecorder({ agentStatus: agentStatusWriter, sessionEvents })
   // 附带(defer:推迟到对方下次进入运行中时再送):同一条输出的又一个订阅者 —— 会话进入运行中那一刻,把挂着的附带按普通发送投出去。
-  installDeferredMessageDelivery(agentStatusWriter)
+  // RPC and the first usable host path do not wait for presence I/O. Only deferred delivery
+  // must read the corrected snapshot (or the retained stored reading after the scan's deadline).
+  void presenceReconciliation.then(() => {
+    sessionBootTasks.runSync('deferred-install', '', () => installDeferredMessageDelivery(agentStatusWriter))
+  })
   // spec idle-reclaim:同一条输出的第三个订阅者 —— 空闲满 10 分钟、不在屏上的会话停掉进程,任务放回重启后的样子。
   installIdleReclaim({ agentStatus: agentStatusWriter })
   // @@@4068 — same funnel, second consumer: tell extension surfaces that an agent moved.
@@ -742,6 +803,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // 且只跑一次 —— renderer 的 GithubContext 在 mount 时就查这个 RPC,功能没有损失。
   // ❌ 别把 reconcile 挪回开机。
 
+  await resumeHostUpdate(updateInterrupted, lastExit, app.getVersion())
+
 }
 
 let stopActivityCollector: (() => void) | null = null
@@ -751,8 +814,10 @@ let stopActivityCollector: (() => void) | null = null
  * `before-quit` rather than letting the session backend register its own preventDefault quit handler.
  */
 let disposeEmdashModulePromise: Promise<void> | null = null
+let stopPtyRecordSync: () => void = () => {}
 
 async function disposeEmdashModuleOnce(): Promise<void> {
+  stopTurnTextBackfillWorker()
   const failures: unknown[] = []
   const runPhase = async (phase: string, action: () => void | Promise<void>): Promise<void> => {
     const startedAt = performance.now()
@@ -772,6 +837,7 @@ async function disposeEmdashModuleOnce(): Promise<void> {
   await runPhase('automations', () => automationsService.stop())
   await runPhase('extension-programs', stopAllExtensionPrograms)
   await runPhase('agent-hooks', () => agentHookService.dispose())
+  await runPhase('pty-record-sync', () => stopPtyRecordSync())
   await runPhase('agent-status', () => agentStatusWriter.dispose())
   await runPhase('resource-sampler', stopResourceSampler)
   await runPhase('pr-sync', () => prSyncScheduler.dispose())
@@ -803,7 +869,7 @@ export function disposeEmdashModule(): Promise<void> {
 // The gugu host uses these to make one session-page codex session message another: a gugu `agent.deliver`
 // for a session-page agent is fulfilled by injecting a new ACP turn into that agent's live session-page
 // conversation — NOT by pty writes. FAIL-LOUD: if the conversation is not a live session-page session, `sendPrompt` returns an error and
-// we THROW (surfaced by gugu's onAgentDeliverFailure). A busy-but-live session returning {queued:true}
+// we THROW (the failed agent.deliver command records it; its chat or composer says it). A busy-but-live session returning {queued:true}
 // is not inbox admission; detached callers surface it as an error instead of marking delivery complete.
 
 /**
@@ -856,8 +922,9 @@ export async function runEmdashExtensionAction(
 export function emdashExtensionAgentContributions(): {
   extensionId: string
   name: string
-  description?: string
-  agentInstructions?: string
+  apiVersion: number
+  networkHosts: string[]
+  instructions?: string
   /** The manifest as installed: what an agent's app_search filters and shows (app-search.ts). */
   manifest: ExtensionManifest
   /** Switched on in 「App」: an agent's app_search says a switched-off one is there, and who switches it on. */
@@ -892,8 +959,9 @@ export function emdashExtensionAgentContributions(): {
       return {
       extensionId: manifest.id,
       name: manifest.name,
-      ...(manifest.description ? { description: manifest.description } : {}),
-      ...(manifest.contributes.agentInstructions ? { agentInstructions: manifest.contributes.agentInstructions } : {}),
+      apiVersion: manifest.apiVersion,
+      networkHosts: service.grantedHosts(manifest.id),
+      ...(manifest.contributes.instructions ? { instructions: manifest.contributes.instructions } : {}),
       manifest,
       enabled: service.isEnabled(manifest.id),
       rootDir,
@@ -1027,24 +1095,9 @@ async function wakeEmdashSessionStages(sessionId: string, ledger: StageLedger): 
     ledger.settle({ outcome: 'reopened' })
     return
   }
-  // 「ACP 会话活没活」只认 acpSessionLive(`starting` 也算活:再起一次只会撞上正在起的那个)。
-  if (await acpSessionLive(sessionId)) {
-    ledger.mark('already-live')
-    ledger.settle({ outcome: 'already-live' })
-    return
-  }
-  ledger.mark('summary-read')
-  if (!session.workspaceId) throw new Error(`session ${sessionId} workspace is not ready`)
-  const mounted = await sessionService.ensureSessionMounted(sessionId)
-  ledger.mark('session-mounted')
-  const workspace = resolveWorkspace(session.projectId, mounted.workspaceId)
-  if (!workspace) throw new Error(`session ${sessionId} workspace is not mounted`)
-  const result = await (await getAcpRuntimeClient()).startSession({
-    input: acpStartInputFor(session, mounted.workspaceId, workspace.path),
-  })
-  ledger.mark('acp-start-returned', { success: result.success })
-  ledger.settle({ outcome: result.success ? 'reopened' : 'failed' })
-  if (!result.success) throw new Error(`session ${sessionId} failed to reopen: ${JSON.stringify(result)}`)
+  // ACP: session-life is the only starter — a delivery (enqueue) or the person's explicit start. A wake would be a
+  // second start owner, so it is refused loudly.
+  throw new Error(`ACP session ${sessionId} is started by session-life (deliver or start), not by a wake`)
 }
 
 /**
@@ -1084,7 +1137,7 @@ export function acpStartInputFor(
  * `sourceChangeSession=replace` 起了一条新的原生会话(咕咕这边的对话记录仍在,harness 自己的上下文从零开始)。
  * `not-started` = 这条会话从没起来过(#7092):只把新选择落进了记录,没停也没起 —— 调用方按正常首启起它。
  */
-export type ReloadNativeSession = 'preserved' | 'replaced' | 'not-started'
+export type ReloadNativeSession = 'issued' | 'preserved' | 'replaced' | 'not-started'
 
 /**
  * 重载一条活着的 ACP 会话 —— **换掉会话级注入,但保住这条会话的历史**。
@@ -1456,18 +1509,13 @@ export async function reloadEmdashSession(input: {
     }
   }
 
-  const client = await getAcpRuntimeClient()
-  // 停之前先记下这条会话此刻attach的适配器进程 —— 重载的真判据是**进程换没换**,见下面那段。
-  const before = await client.adapterProvenance({ sessionId })
-  const stopped = await client.stopSession({ sessionId })
-  // 停不下来就别往下走:接着 start 会撞上一个还活着的适配器进程,而它手里是**旧**凭据 ——
-  // 那正是「界面写着新模型、实际跑旧的」那类静默错。
-  if (!stopped.success) {
-    const message = `could not be stopped for reload (${reason}): ${JSON.stringify(stopped)}`
-    throw new Error(
-      `session ${sessionId} ${message}`
-      + await restoreConfig(message),
-    )
+  // session-life reconfigures (contract v3.1 #13): stop without a barrier, patch the record, start again. The
+  // attempt's channel reports preserved/replaced in the LifeView; this call returns once the reload is issued.
+  const life = sessionLife()
+  await life.interrupt(sessionId, { k: 'interrupt', reason: 'reconfigure' })
+  if (life.read(sessionId).kind === 'failed') {
+    const message = `could not be stopped for reload (${reason})`
+    throw new Error(`session ${sessionId} ${message}` + await restoreConfig(message))
   }
   if (sourceChanged) {
     // Clear transient provider state before the source-change reload. The descriptor decides
@@ -1520,78 +1568,7 @@ export async function reloadEmdashSession(input: {
       + await restoreConfig(message),
     )
   }
-  /**
-   * ⚠️ **抛与「返回失败」都要回滚** —— 这两种起不来长得完全不一样,而我只挡了后一种。
-   *
-   * 2026-09-07 隔离栈阴性控实撞:把一个**没有渠道分组**的模型上架,重开时服务端在**铸令牌那一步**
-   * 就拒了(「refusing to mint a session token that would land in a group with no channel」)——
-   * 那是 `startSession` **抛异常**,不是返回 `{success:false}`。于是我的回滚整段被跳过,
-   * 会话记录停在 `glm-4.5` 上 —— 正是这个回滚存在的理由本身。
-   *
-   * ⇒ 把「写完记录之后、确认新会话跑起来之前」整段包住:任何一条出口都先把记录放回去再抛。
-   */
-  let result: Awaited<ReturnType<typeof client.startSession>>
-  try {
-    result = await client.startSession({
-      input: acpStartInputFor(fresh, mounted.workspaceId, workspace.path),
-    })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    const restored = await restoreConfig(message)
-    throw new Error(
-      `session ${sessionId} failed to reload (${reason}): `
-      + `${message}${restored}`,
-    )
-  }
-  if (!result.success) {
-    throw new Error(
-      `session ${sessionId} failed to reload (${reason}): ${JSON.stringify(result)}`
-      + await restoreConfig(JSON.stringify(result)),
-    )
-  }
-  // A restart normally succeeds only when the provider returns the same session id that was loaded.
-  // Providers that declare sourceChangeSession=replace intentionally start a new native session
-  // when the billing route changes; the host transcript remains the durable history for that path.
-  const expectedProviderSessionId = providerSessionId
-  if (result.data.providerSessionId !== expectedProviderSessionId && !(sourceChanged && sourceChangeSession === 'replace')) {
-    const message = `provider resume returned a different session (asked ${expectedProviderSessionId}, got ${result.data.providerSessionId})`
-    throw new Error(
-      `session ${sessionId} failed to reload (${reason}): ${message}`
-      + await restoreConfig(message),
-    )
-  }
-  /**
-   * 进程真的换了吗 —— 这是重载**唯一**够格的判据。
-   *
-   * 每条 conversation 的 `makeAcpConnectionKey` 都含有会话 id，同工作区的兄弟会话不会共用
-   * adapter。这里仍对**进程身份**取证，以便重载明确证明新进程已建立，而不是只依赖返回的 session id。
-   * 拿不到 pid(平台不给)时不假装判过 —— 那种情况下这条判据不成立,交给上面那道 sessionId 判据。
-   */
-  const after = await client.adapterProvenance({ sessionId })
-  if (
-    before && after
-    && before.pid !== null && after.pid !== null
-    && before.pid === after.pid
-  ) {
-    if (before.connectionKey === after.connectionKey) {
-      // 进程没换 = 新的会话级注入一个字节都没到达 ⇒ 记录里那个新选择**没有生效**,
-      // 留着它只会让下一次启动带着一个从没跑过的配置。⇒ 与「起不来」同一处置:先放回去再抛。
-      const message = `reload (${reason}) reused the SAME adapter process`
-      const restored = await restoreConfig(message)
-      throw new Error(
-        `session ${sessionId} reload (${reason}) reused the SAME adapter process `
-        + `(pid ${after.pid}, connection ${after.connectionKey}) —— 新的会话级注入一个字节都没到达。`
-        + '这条会话与同工作区的另一条会话共用一个适配器进程,停掉自己那一份租约不会让进程重启。'
-        + '请检查这条会话的 adapter ownership 后再重试。'
-        + restored,
-      )
-    }
-    throw new Error(
-      `session ${sessionId} reload (${reason}) kept pid ${after.pid} across two `
-      + `different connections (${before.connectionKey} → ${after.connectionKey}) —— 这不是正常的会话重载,`
-      + '而是一个进程被两条连接同时认领,属于另一类事故,❌ 不要按「重载失败」重试。',
-    )
-  }
+  life.start(sessionId, 'reconfigure')
   const currentConfigRows = await db.select({ config: sessions.config })
     .from(sessions).where(eq(sessions.id, sessionId))
   const currentConfig = currentConfigRows[0]?.config
@@ -1600,7 +1577,7 @@ export async function reloadEmdashSession(input: {
     await db.update(sessions).set({ config: cleanConfig }).where(eq(sessions.id, sessionId))
   }
   if (input.resetModel) await recordReportedDefaultModel(sessionId, platformBefore ?? null)
-  return { nativeSession: result.data.providerSessionId === expectedProviderSessionId ? 'preserved' : 'replaced' }
+  return { nativeSession: 'issued' }
 }
 
 /**
@@ -1758,6 +1735,8 @@ function reloadOutcome(reloaded: { warning?: string; nativeSession: ReloadNative
 } {
   const warning = reloaded.warning ? { warning: reloaded.warning } : {}
   if (reloaded.nativeSession === 'not-started') return { applied: 'next-session', ...warning }
+  // ACP: issued; its preserved/replaced arrives as the attempt's LifeView fact once the channel is up.
+  if (reloaded.nativeSession === 'issued') return { applied: 'reload', ...warning }
   return { applied: 'reload', nativeSession: reloaded.nativeSession, ...warning }
 }
 
@@ -1768,6 +1747,8 @@ export interface SessionpageAgentSessionStartInput {
   displayName: string
   agentType: string
   projectPath: string
+  /** Set by the authenticated host after checking the provision's assistant role. */
+  assistant?: { deviceId: string; ownerId: string }
   chatId: string
   initialText?: string
   initialPrompt?: string
@@ -1840,10 +1821,10 @@ export async function openAllEmdashProjects(): Promise<void> {
   results.forEach((result, index) => {
     const project = projects[index]!
     if (result.status === 'rejected') {
-      agentSessionLog.error({ projectId: project.id, err: result.reason }, '启动时打开项目失败')
+      sessionBootTasks.record('project-open', project.id, result.reason)
     } else if (!result.value.success) {
-      agentSessionLog.error({ projectId: project.id, error: result.value.error }, '启动时打开项目失败')
-    }
+      sessionBootTasks.record('project-open', project.id, result.value.error)
+    } else sessionBootTasks.clear('project-open', project.id)
   })
 }
 
@@ -1860,6 +1841,18 @@ export async function startSessionpageAgentSession(
   input: SessionpageAgentSessionStartInput,
   provision: SessionpageAgentSessionProvisioner,
 ): Promise<SessionpageAgentSessionProvisioned> {
+  const release = claimIdentityCreation(input.agentUserId)
+  try {
+    return await startSessionpageAgentSessionClaimed(input, provision)
+  } finally {
+    release()
+  }
+}
+
+async function startSessionpageAgentSessionClaimed(
+  input: SessionpageAgentSessionStartInput,
+  provision: SessionpageAgentSessionProvisioner,
+): Promise<SessionpageAgentSessionProvisioned> {
   // #4181 —— 这条链路曾静默挂死 30 分钟以上且零日志。每个阶段落一行，挂点自己报名；
   // #4184 —— host-owned abort：每个阶段边界检查取消（150s 有界启动预算）。两套互补：测点管可见，abort 管有界。
   const signal = input.signal
@@ -1870,7 +1863,10 @@ export async function startSessionpageAgentSession(
     agentSessionLog.info({ agentUserId: input.agentUserId, stage, elapsedMs: Date.now() - startedAt }, 'agent session start stage — #4181')
   agentSessionLog.info({ agentUserId: input.agentUserId, agentType: input.agentType, displayName: input.displayName }, 'agent session start begin — #4181')
   // 目录还没登记 / 隐式任务工作区还没建(没有渲染层的咕咕 server)时当场补齐,见 resolve-agent-session-project.ts。
-  const project = await resolveAgentSessionProject(input.projectPath)
+  const assistantWorkspace = input.assistant ? await resolveAssistantSessionWorkspace(input.projectPath, {
+    sessionId: input.existingSessionId, assistantId: input.agentUserId, deviceId: input.assistant.deviceId, ownerId: input.assistant.ownerId,
+  }) : null
+  const project = assistantWorkspace?.project ?? await resolveAgentSessionProject(input.projectPath)
   throwIfAborted()
   mark('projects-loaded')
   const opened = projectManager.getProject(project.id)
@@ -1880,7 +1876,7 @@ export async function startSessionpageAgentSession(
       return result.data
     })
   mark('project-opened')
-  const repositoryWorkspaceId = opened.repositoryWorkspaceId ?? project.repositoryWorkspaceId
+  const repositoryWorkspaceId = assistantWorkspace?.workspaceId ?? opened.repositoryWorkspaceId ?? project.repositoryWorkspaceId
   if (!repositoryWorkspaceId)
     throw new Error(`session-page project ${project.id} has no repository workspace to run in`)
   const provider = toAgentProviderId(pluginIdForAgentType(input.agentType))
@@ -1920,21 +1916,45 @@ export async function startSessionpageAgentSession(
       `agent.create ${provider} received an initial prompt but does not declare an argv/stdin startup channel`,
     )
   }
-  let runtimeStartedByAttempt = false
   const cleanup = () => rollbackAgentSessionStartup({
-    projectId: project.id, sessionId, created: !existing, started: runtimeStartedByAttempt,
+    projectId: project.id, sessionId, created: !existing, started: false,
   })
   try {
     throwIfAborted()
     // 落行并挂载(挂不上就撤掉这一行再抛,见 attachAgentToSession);ACP 会话的引擎在下面显式起。
-    const session = existing ?? await attachAgentToSession({
+    // The identity this command was given is bound first (identity is its own persistent fact; the identity stage
+    // reads it as bound). A new session row that cannot be written takes its binding back with it.
+    let provisioned!: Awaited<ReturnType<typeof provision>>
+    const bindIdentity = async (projectPath: string) => {
+      provisioned = await provision({
+        agentUserId: input.agentUserId,
+        displayName: input.displayName,
+        providerId: provider,
+        projectPath,
+        chatId: input.chatId,
+        sessionId,
+        projectId: project.id,
+      })
+    }
+    let session: Awaited<ReturnType<typeof attachAgentToSession>>
+    if (existing) {
+      session = existing
+      await sessionService.ensureSessionMounted(session.id)
+      const mounted = resolveSession(project.id, session.id)
+      if (!mounted) throw new Error(`session-page agent session ${session.id} is not mounted`)
+      await bindIdentity(mounted.sessionPath)
+    } else {
+      // From the workspace's persisted record (the path mounting it uses): nothing has mounted a new session yet, and
+      // the in-memory registry holds a workspace only once something mounts or leases it (a new account has neither).
+      const projectPath = persistedWorkspacePath(repositoryWorkspaceId)
+      if (!projectPath) throw new Error(RETIRED_REMOTE_WORKSPACE_MESSAGE)
+      session = await bindIdentityThenCreate(() => bindIdentity(projectPath), () => attachAgentToSession({
       id: sessionId,
       projectId: project.id,
       workspaceId: repositoryWorkspaceId,
       provider,
-      title: input.displayName,
-      // 这条会话就是这个 agent 的运行时,标题 = 它在通讯录里的名字 —— 显式命名,harness 起的名不盖它。
-      titleSource: 'manual',
+      // 这条会话就是这个 agent 的运行时:它的名字就是这个 agent 在通讯录里的名字。
+      agentDisplayName: input.displayName,
       permissionMode,
       ...(effort ? { effort } : {}),
       // 不带首句 = 常驻,等主人的第一条消息:出生 idle(#7199;从前记一句占位当首轮,一出生就「在干活」,云电脑永远不闲)。
@@ -1943,57 +1963,20 @@ export async function startSessionpageAgentSession(
       ...(modelChoice
         ? { ...(modelChoice.model ? { model: modelChoice.model } : {}), platformModel: modelChoice.platformModel }
         : {}),
-    })
-    throwIfAborted()
-    mark('session-attached')
-    const workspaceId = existing
-      ? (await sessionService.ensureSessionMounted(session.id)).workspaceId
-      : repositoryWorkspaceId
-    const mounted = resolveSession(project.id, session.id)
-    if (!mounted) throw new Error(`session-page agent session ${session.id} is not mounted`)
-    const provisioned = await provision({
-      agentUserId: input.agentUserId,
-      displayName: input.displayName,
-      providerId: provider,
-      projectPath: mounted.sessionPath,
-      chatId: input.chatId,
-      sessionId: session.id,
-      projectId: project.id,
-    })
+    }),
+      () => unbindSessionAgent(sessionId, process.env))
+    }
     throwIfAborted()
     mark('identity-provisioned')
     // 在首轮跑起来之前记下:首轮里就可能开子 agent。
     if (childHarness) await recordChildHarnessDefault(provisioned.guguAgentUserId, childHarness)
-    if (existing && await acpSessionLive(session.id)) {
-      throwIfAborted()
-      return { ...provisioned, sessionId: session.id, projectId: project.id }
-    }
-    runtimeStartedByAttempt = true
-    const startPromise = (await getAcpRuntimeClient()).startSession({
-      input: {
-        ...acpStartInputFor(session, workspaceId, mounted.sessionPath),
-        ...(!session.providerSessionId && input.initialPrompt ? { initialQueue: [{ text: input.initialPrompt, origin: 'communication' as const }] } : {}),
-      },
-    })
-    let removeAbortListener: () => void = () => undefined
-    const abortPromise = new Promise<never>((_, reject) => {
-      const onAbort = () => {
-        reject(signal.reason ?? new Error('session-page agent session start aborted'))
-      }
-      if (signal.aborted) onAbort()
-      else {
-        signal.addEventListener('abort', onAbort, { once: true })
-        removeAbortListener = () => signal.removeEventListener('abort', onAbort)
-      }
-    })
-    let result: Awaited<typeof startPromise>
-    try {
-      result = await Promise.race([startPromise, abortPromise])
-    } finally {
-      removeAbortListener()
-    }
-    if (!result.success) throw new Error(result.error.message ?? result.error.type)
-    mark('runtime-started')
+    // The identity is bound above as part of creation; session-life starts the session from here and its LifeView
+    // tells whether the start succeeded. The command answers now with the identity it was given.
+    // Its creation turn (the first task / first message) is admitted here once, under the session's stable
+    // `<id>:creation:0`: a replayed create of the same bound session finds it queued and admits nothing twice.
+    if (session.providerSessionId) sessionLife().start(session.id, 'user-open')
+    else admitCreationTurns({ ...session, initialQueue: input.initialPrompt ? [{ text: input.initialPrompt, origin: 'communication' }] : undefined })
+    mark('life-admitted')
     return { ...provisioned, sessionId: session.id, projectId: project.id }
   } catch (error) {
     agentSessionLog.error(
@@ -2012,7 +1995,7 @@ export async function disposeSessionpageAgentSession(input: {
   sessionId: string
 }): Promise<void> {
   await stopExactSessionpageSession(input).catch(() => false)
-  await deleteSession(input.projectId, input.sessionId, { skipTransportStop: true })
+  await archiveSession(input.projectId, input.sessionId, { skipTransportStop: true, removeSocialIdentity: false })
     .catch(() => undefined)
 }
 
@@ -2076,8 +2059,8 @@ export type EmdashSessionProvisionInput = {
 export async function emdashSessionProvisionInput(target: {
   projectId: string
   sessionId: string
-}): Promise<EmdashSessionProvisionInput | null> {
-  const rows = await getSessions()
+}, options: { includeArchived?: boolean } = {}): Promise<EmdashSessionProvisionInput | null> {
+  const rows = await getSessions(options)
   const session = rows.find((row) => row.id === target.sessionId && row.projectId === target.projectId)
   if (!session) return null
   if (!session.workspaceId) throw new Error('Session workspace is not ready')
@@ -2201,17 +2184,9 @@ export async function emdashSessionpageInventory(): Promise<{
   }
 }
 
-/**
- * @@@sessionpage TASKPAGE-FUSION — fires whenever something MAY have removed conversations, so the gugu
- * host can re-reconcile its projection (spec ⑨ 删除必同步). Deliberately a coarse "something changed"
- * trigger rather than per-entity delete events: project deletes cascade their conversation rows away WITHOUT
- * emitting `session:deleted` per child — so any per-entity wiring would silently miss cases.
- * Only `session:deleted` names a dead session; `session:archived` retains its identity. `session:torn-down` (archive, delete,
- * project dispose on app quit, plain detach) is a bare reconcile — a teardown stops runtimes, it does not end
- * the session. Returns an unsubscribe fn.
- */
+/** Reconcile retained task/roster projections when archival, project visibility or runtime mounts change. */
 export function onEmdashSessionpageReapTrigger(
-  cb: (reason: string, info?: { deadSessionId?: string }) => void
+  cb: (reason: string) => void
 ): () => void {
   // ⚠️ 宿主把会话页后端的 main 打成一个 esbuild 包,其中一部分模块被包成 **lazy ESM 段**(`__esm(...)`):
   // 没被显式触碰过的段不会求值,于是这里的静态 binding 可能读到 undefined —— 实测 `sessionService` 就是
@@ -2230,21 +2205,14 @@ export function onEmdashSessionpageReapTrigger(
       )
     }
   }
-  // session:archived / session:deleted 都在行操作**之后**发、且与会话是否挂载无关 —— 归档一条用户从未
-  // 打开的会话照样发(它没有挂载可拆,所以 session:torn-down 对它根本不触发)。
-  sub('session:deleted', () =>
-    sessionEvents.on('session:deleted', (sessionId) =>
-      cb('session:deleted', { deadSessionId: sessionId }))
-  )
+  // Archival fires after persistence, including tasks that never had a runtime mount.
   sub('session:archived', () =>
     sessionEvents.on('session:archived', () =>
       cb('session:archived'))
   )
   sub('session:created', () => sessionEvents.on('session:created', () => cb('session:created')))
   sub('project:deleted', () => projectEvents.on('project:deleted', () => cb('project:deleted')))
-  // 拆除只说「运行时停了」,不说「会话没了」:应用退出时项目按 `tmux ? 'detach' : 'terminate'` 拆每个挂载,
-  // 那些会话都还在。只有上面的 session:deleted 能点名会话死亡(行操作之后才发);
-  // 这里只触发一轮普通对账,由 inventory 判断(#6168:点名死亡曾让每次退出应用都回收掉 TUI agent)。
+  // App shutdown tears down runtimes while task rows remain; the inventory still decides eligibility.
   sub('session:torn-down', () =>
     sessionWorkspaceManager.hooks.on('session:torn-down', () => cb('session:torn-down'))
   )
@@ -2278,10 +2246,7 @@ function installExtensionAgentChangeFeed(): void {
   agentStatusWriter.on('agent:status', ({ sessionId }) => {
     notifyExtensionAgentsChanged(sessionId)
   })
-  // ❌ 不转发 session:deleted。那条推送在桥里要过一遍「这个 agent 这个 surface
-  // 看得见吗」,而被删掉的会话已经不在库里 —— 过滤器必然把它滤掉,于是这一路只会是
-  // 一条声称存在、实际永远静默的通道。删除该怎么告知是另一件事,值得单独设计;
-  // 装上一个不响的铃比没有铃更糟。
+
 }
 
 let platformCheckpointFeedInstalled = false
@@ -2306,6 +2271,21 @@ export function onAgentStatus(cb: (change: AgentStatusChange) => void): () => vo
 /** 启动 / 重连时的对账:每条会话此刻的读数(与写入者第一次触及它时得到的同一个)。 */
 export function agentStatusSnapshot(): Promise<AgentStatusChange[]> {
   return agentStatusWriter.snapshot()
+}
+
+const lifeViewSubscribers = new Set<(view: LifeView) => void>()
+
+/** Host-side readers of every session-life transition (`events` only reaches renderers). Returns the unsubscribe. */
+export function onSessionLifeView(cb: (view: LifeView) => void): () => void {
+  lifeViewSubscribers.add(cb)
+  return () => {
+    lifeViewSubscribers.delete(cb)
+  }
+}
+
+/** A session's current LifeView; null = session-life does not own it (terminal legs). */
+export function sessionLifeStatusOf(sessionId: string): LifeStatus | null {
+  return isLifeSession(sessionId) ? sessionLife().status(sessionId) : null
 }
 
 const sessionsGoneSubscribers = new Set<(scope: SessionScope) => void>()
@@ -2343,9 +2323,6 @@ function installSessionsGoneFeed(): void {
       log.error(`[sessionpage] 订阅 ${label} 失败 —— 这一类会话消失的回收会缺失`, error)
     }
   }
-  sub('session:deleted', () =>
-    sessionEvents.on('session:deleted', (sessionId) => announceSessionsGone({ sessionId }))
-  )
   sub('session:archived', () =>
     sessionEvents.on('session:archived', (sessionId) => announceSessionsGone({ sessionId }))
   )
@@ -2363,12 +2340,12 @@ function installSessionsGoneFeed(): void {
  * (badge + sidebar dot) is 100% the shipped pipeline; only the trigger is delivered by the test.
  */
 export function emitSessionpageAgentEventForTest(event: AgentEvent): void {
-  agentHookService.emitAgentEvent(event, false)
+  agentHookService.emitAgentEvent(event)
 }
 
 /** Host bridge for provider lifecycle sources that do not pass through the CLI hook server. */
 export function emitSessionpageAgentEvent(event: AgentEvent): void {
-  agentHookService.emitProviderLifecycleEvent(event, isAppFocused())
+  agentHookService.emitProviderLifecycleEvent(event)
 }
 
 /**
@@ -2402,7 +2379,7 @@ export async function emdashSessionpageSessionFacts(): Promise<Array<{
   return rows.map((session) => ({
     sessionId: session.id,
     projectId: session.projectId,
-    title: formatSessionTitleForDisplay(session.providerId, session.title),
+    title: session.title,
     projectName: projectName.get(session.projectId) ?? '',
     // 行 → Conversation 的映射器总是写这两格(`mapSessionRowToSession`);类型上可选只因渲染侧的乐观对象。
     status: session.agentStatus
@@ -2443,7 +2420,9 @@ export { captureSessionpageProjectionViewer } from './core/extensions/extension-
  * 迟早对不上。这里只保证「最近动过的排在前面」。
  */
 export function sessionpageSessionDigest(): Array<{
-  nativeInputVersion?: 1
+  nativeInputVersion?: 1 | 2
+  /** Client identity survives host queue admission and provider transcript IDs. */
+  nativeInputIdentity?: true
   runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string
@@ -2457,7 +2436,7 @@ export function sessionpageSessionDigest(): Array<{
   isPinned: boolean
   unseen: boolean
   parentConversationId: string | null
-  agentUserId?: string | null; nativeUnreadCount?: number
+  agentUserId?: string | null
 }> {
   refreshDigestAgents()
   const agents = digestAgents
@@ -2468,6 +2447,7 @@ export function sessionpageSessionDigest(): Array<{
     .sort((a, b) => (b.lastInteractedAt ?? '').localeCompare(a.lastInteractedAt ?? ''))
     .map((session) => ({
       nativeInputVersion: session.nativeInputVersion,
+      ...(session.nativeInputIdentity ? { nativeInputIdentity: true as const } : {}),
       runtime: session.runtime,
       conversationId: session.conversationId,
       projectId: session.projectId,
@@ -2477,7 +2457,7 @@ export function sessionpageSessionDigest(): Array<{
       agentStatus: session.agentStatus,
       status: parseAgentStatusView(session.status ?? null),
       lastInteractedAt: session.lastInteractedAt,
-      supported: session.supported, nativeUnreadCount: session.nativeUnreadKeys?.length,
+      supported: session.supported,
       // 离线时手机看的就是这份。少了这三项,离线的会话列表会把置顶画成没置顶、
       // 未读画成已读、子 agent 画成平级 —— 那不是「信息少一点」,是画错。
       // 这里三项都读得到(本地库就在手边),所以给确定值;❌ 不写 `?? false` 之类的兜底,
@@ -2511,17 +2491,43 @@ function refreshDigestAgents(): void {
 /**
  * #6264 server 换版时这台机器(这个账号)算不算忙 —— 写进 activity.json 的 busy,守护进程据此决定现在换还是等空闲。
  * 只数账号进程一重启就会被打断的会话(`busyForVersionSwitch`,「会不会被打断」读 `sessionProcess(id).home`);
- * tmux 里的终端会话换版后照名字接回,不拦换版。未结束的集成授权同样会被重启打断,也计入 activity.json。
+ * tmux 里的终端会话换版后照名字接回,不拦换版。未结束的集成授权和可自动恢复的待投递工作同样计入。
  * 本机读数,❌ 进云端摘要。
  */
 export function sessionpageBusyForVersionSwitch(): boolean {
-  return integrationConnectionService.hasPendingAuthorizations() || listSessionStates().sessions.some((session) =>
-    busyForVersionSwitch(
-      parseAgentStatusView(session.status ?? null),
-      session.runtime,
-      sessionProcess(session.conversationId)?.home ?? null,
-    ),
-  )
+  return sessionpageVersionSwitchActivity().busy
+}
+
+/** One reading supplies both the existing idle policy and its visible agent count. */
+/** Same heartbeat, same ledger; discard tasks archived/deleted through any entry point. */
+export function sessionpageBootFailures() {
+  const failures = sessionBootTasks.snapshot()
+  const ids = failures.map(failure => failure.taskId).filter(Boolean)
+  if (ids.length) {
+    try {
+      const live = new Set([
+        ...db.select({ id: sessions.id }).from(sessions)
+          .where(and(inArray(sessions.id, ids), isNull(sessions.archivedAt))).all().map(row => row.id),
+        ...db.select({ id: projectsTable.id }).from(projectsTable).where(inArray(projectsTable.id, ids)).all().map(row => row.id),
+      ])
+      for (const id of ids) if (!live.has(id)) sessionBootTasks.clearTask(id)
+    } catch { /* A failed optional read retains bounded diagnostics, never blocks the heartbeat. */ }
+  }
+  return sessionBootTasks.snapshot()
+}
+
+export function sessionpageVersionSwitchActivity(): { busy: boolean; busyAgents: number } {
+  const sessions = new Map(listSessionStates().sessions.map(session => [session.conversationId, session]))
+  const life = new Set(lifeSessions())
+  const busyAgents = [...new Set([...sessions.keys(), ...life])].filter(sessionId => {
+    const session = sessions.get(sessionId)
+    if (session && busyForVersionSwitch(parseAgentStatusView(session.status ?? null), session.runtime, sessionProcess(sessionId)?.home ?? null)) return true
+    if (!life.has(sessionId)) return false
+    const pending = lifeStore.pending(sessionId)
+    return pending.dispatching.length > 0 || (pending.queued.length > 0
+      && shouldStartOnHydrate(hydrateLife(lifeStore.read(sessionId)), pending))
+  }).length
+  return { busy: hasAgentInstallsInProgress() || integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
 }
 
 /** Refresh the account heartbeat at authorization boundaries, without waiting

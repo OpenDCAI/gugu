@@ -69,7 +69,7 @@ function fakeChat() {
           const group = groups.get(filters.id ?? '')
           return group ? { id: group.chatId, kind: group.kind, status: group.status } : null
         }
-        if (table === 'chat_members') {
+        if (table === 'active_members') {
           const group = groups.get(filters.chat_id ?? '')
           return group && filters.user_id && group.members.has(filters.user_id) ? { user_id: filters.user_id } : null
         }

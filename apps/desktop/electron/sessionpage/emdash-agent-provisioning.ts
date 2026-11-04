@@ -1,3 +1,4 @@
+import type { SessionBootTasks } from '@gugu/core/shared/sessionBootTasks'
 import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
 // @@@sessionpage TASKPAGE-FUSION — AUTO-PROVISIONING (Part C, the real thing). Turns a session-page session
@@ -34,8 +35,10 @@ import { randomUUID } from 'node:crypto'
 import { createLogger } from '../lib/logger'
 import {
   createAgent,
-  findReapedAgentForSession,
+  listReapedAgentsForSession,
   listAgents,
+  writeAgentName,
+  removeAgents,
   updateAgent,
   writeAgentRuntimeSession,
 } from '@gugu/core'
@@ -48,9 +51,9 @@ import {
   type SessionpageSessionSurface,
 } from '@gugu/session-plugins/agents'
 import { electronFetch, makeChatClient } from '../supabase'
-import { agentMayBelongTo, agentsForOwner } from '@gugu/core/local/state/agentOwner'
+import { agentsForOwner } from '@gugu/core/local/state/agentOwner'
 import { AGENT_CLOUD_IDENTITY_STATE_CACHE_KEY } from '@gugu/core/local/state/agentCloudIdentity'
-import { emdashAgentRegistry, unregisterEmdashAgent } from './emdash-agent-registry'
+import { emdashAgentRegistry, registerEmdashAgent, unregisterEmdashAgent } from './emdash-agent-registry'
 // #5419 撤回一行没落地的本机身份 = 释放它的本机足迹,与「owner 删 agent」「回收器收 agent」
 // 是同一个动作的第三条驱动 ⇒ 用同一个实现。(该模块回头引本文件的 cache key 常量,两边都只在
 // 调用时用,模块初始化期互不依赖。)
@@ -60,7 +63,7 @@ import {
   type SessionpageDeliveryOwnerKind,
 } from './sessionpage-delivery-owner-registry'
 import { forgetProjectGroupId, readProjectGroupId, rememberProjectGroupId } from './sessionpage-project-groups'
-import { agentNameSerial, nextAgentDefaultName, uniqueAgentDisplayName } from '../../src/lib/agentDefaultName'
+import { agentNameSerial, nextAgentDefaultName, uniqueAgentDisplayName } from '@gugu/core/shared/agentDefaultName'
 import { listAgentNameSerialsViaSupabase } from '@gugu/core/cloud/agentIdentityReconcile'
 import { registerOfflineLocalSessionDelivery, unregisterLocalSessionDeliveryForAgent } from './local-session-delivery'
 import {
@@ -74,7 +77,7 @@ import {
 /** Roster-record cache keys binding a gugu agent to its session-page conversation, its project + task, and
  *  (project-scoped conversations only) the gugu group mirroring its project. Projectless conversations store
  *  empty project/group → they are plain DM agent-contacts, not group members (spec ⑨). project+task ids let
- *  a task/project cascade-delete reap this agent (cascade fires no per-conversation delete event). */
+ *  task/project reconciliation archive this binding without deleting its identity. */
 // 这三格另有一个读者:会话页会话自己的 MCP 面(`@main/core/sessionpage/sessionpage-session-agent`,
 // spawn 回执据此说出对话该落在哪个项目群)。写者在这边、读者在那边,键名各写一份就会在改名时
 // 无声分家 —— 读者查不到、回执悄悄退回点对点,正是 #4566 的病灶形状。所以键名只有一处定义。
@@ -133,9 +136,8 @@ export function groupProjectIdFor(rawProjectId: string | null | undefined, env: 
 
 /**
  * #6396 本机起号的起点:这个账号每个名字前缀在服务端已经用到几号(identity.agent_name_serials,
- * 删掉/改过名的 agent 用过的号也算)。序号只增不减,所以这份也只增不减地合并四路事实:登录时取一次、
- * 另一台设备发了号就当场再取一次(服务端给本账号每台设备推 agent_changed,渲染层转给主进程)、
- * 每建一条会话在后台再取一次(无头宿主没有那条推送,靠这一路)、本机刚发出去的号。
+ * 删掉/改过名的 agent 用过的号也算)。序号只增不减,所以这份也只增不减地合并三路事实:登录时取一次、
+ * 本账号 agent 有变动时取一次(主进程自己订 agent_changed)、本机刚发出去的号。
  *
  * ⚠️ 它落后了也不会发出重号 —— 服务端按自己的记录把偏低的候选往上抬(identity.provision_taskpage_agent)。
  *    这份的价值是让会话**起来时**的名字就是最终的名字,不在起来一秒后被改名。❌ 所以也不该为它挡启动链。
@@ -156,6 +158,27 @@ function serialFloor(ownerUserId: string, label: string): number {
 function noteAgentName(ownerUserId: string, name: string, label: string): void {
   const serial = agentNameSerial(name, label)
   if (serial !== null) raiseSerialFloor(ownerUserId, label, serial)
+}
+
+/**
+ * The engine default name a new task is created with (`<label> <n>`): numbered past the owner's
+ * roster names and the account's serial floor, and reserved so the next task gets the next number.
+ */
+export async function defaultTaskAgentName(
+  providerId: string,
+  taken: readonly string[],
+  ownerUserId: string | null,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  const label = getAgentTypeLabel(normalizeAgentType(providerId))
+  const roster = await listAgents(env, { includeGuests: true })
+  const owned = ownerUserId ? agentsForOwner(roster, ownerUserId) : roster
+  const name = nextAgentDefaultName(owned.map((a) => ({ display_name: a.name })), label, {
+    reservedNames: taken,
+    floor: ownerUserId ? serialFloor(ownerUserId, label) : 0,
+  })
+  if (ownerUserId) noteAgentName(ownerUserId, name, label)
+  return name
 }
 
 const listAgentNameSerialsDefault = (auth: { accessToken: string; userId: string }): Promise<Map<string, number>> =>
@@ -229,6 +252,8 @@ async function findOwnerDirectChatMemoized(accessToken: string, agentUserId: str
 /** The slice of the session-page session-start info this module needs. */
 export interface SessionpageSessionInfo {
   sessionId: string
+  /** Explicit same-session Restore may replace this removed identity through normal spawn provisioning. */
+  replacesRemovedIdentity?: string
   providerId: string
   surface: SessionpageSessionSurface
   cwd: string
@@ -283,8 +308,6 @@ export interface SessionpageProvisionDeps {
    * 单账号机器上永远正确);在场 ⇒ 别家的行被停放、当前账号自己登记一个。
    */
   isAgentOwnedByCurrentUser?: (agentUserId: string) => Promise<boolean>
-  /** #6396 这个账号各名字前缀用到几号(identity.agent_name_serials)。缺席 ⇒ 走 supabase 适配器;测试注入用。 */
-  listAgentNameSerials?: (auth: { accessToken: string; userId: string }) => Promise<Map<string, number>>
   /**
    * #5331 一次往返供给:铸身份 + 名字唯一性 + 进项目群合成一个 RPC(identity.provision_taskpage_agent)。
    * 新身份只从这里铸。宿主接线时给 @gugu/core 的实现。
@@ -611,9 +634,9 @@ export function cacheString(cache: Record<string, unknown> | null | undefined, k
 
 /** Replay a create against its durable roster binding, never the process-local registry. */
 export async function sessionpageAgentSessionForStart(agentUserId: string, ownerUserId: string): Promise<string | undefined> {
-  const agent = (await listAgents()).find((row) => row.gugu_user_id === agentUserId)
+  const agent = agentsForOwner(await listAgents(), null, { includeArchived: true }).find((row) => row.gugu_user_id === agentUserId)
   if (!agent) return undefined
-  if (!agentMayBelongTo(agent, ownerUserId)) throw new Error('agent.create roster owner mismatch')
+  if (!agentsForOwner([agent], ownerUserId, { includeArchived: true }).length) throw new Error('agent.create roster owner mismatch')
   return cacheString(agent.cache, SESSION_CACHE_KEY) || cacheString(agent.cache, PARKED_SESSION_CACHE_KEY) || undefined
 }
 
@@ -682,8 +705,8 @@ async function adoptSessionpageAgentIdentityLocked(
   mark('direct-chat-resolved')
   // #4277 每一行都记 owner:这个身份是拿当前账号复用的。
   const local = existing
+    // A bound identity keeps its own name; the session's pending-bind name only names a new identity.
     ? await updateAgent({ guguUserId: existing.gugu_user_id }, {
-      name: displayName,
       agent_type: agentType,
       path: info.projectPath || '',
       gugu_user_id: guguAgentUserId,
@@ -737,7 +760,18 @@ export async function provisionSessionpageAgentForSession(
   const tombstoneOwner = (await deps.getAuth())?.userId
   const authMs = Date.now() - preLockAt
   const tombstoneAt = Date.now()
-  if (await findReapedAgentForSession(info.sessionId, deps.env ?? process.env, tombstoneOwner)) return null
+  // Each archive-with-removal → Restore cycle leaves one tombstone for the same session.
+  const reaped = await listReapedAgentsForSession(info.sessionId, deps.env ?? process.env, tombstoneOwner)
+  const removedIds = new Set(reaped.map((entry) => entry.gugu_user_id))
+  if (removedIds.size > 0 && !(info.replacesRemovedIdentity && removedIds.has(info.replacesRemovedIdentity))) {
+    const bound = (await listAgents(deps.env ?? process.env, { includeGuests: true })).find((agent) =>
+      cacheString(agent.cache, SESSION_CACHE_KEY) === info.sessionId
+      && cacheString(agent.cache, OWNER_CACHE_KEY) === tombstoneOwner)
+    // An explicit Restore already minted this session's replacement; removed identities stay tombstoned.
+    if (!bound || removedIds.has(bound.gugu_user_id)) return null
+  }
+  // Later starts of the replacement still cannot consume the old identity's birth-group invitation.
+  if (reaped.length > 0 && !info.replacesRemovedIdentity) info = { ...info, replacesRemovedIdentity: reaped[0]!.gugu_user_id }
   const tombstoneMs = Date.now() - tombstoneAt
   const queuedAt = Date.now()
   return serialize(
@@ -870,11 +904,12 @@ async function provisionLockedBody(
           afterBinding,
           provisionalLocalRow: false,
           // The creation's cloud send never landed, so this is still its first mint — it still joins where it was born.
-          ...(deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
+          ...(!info.replacesRemovedIdentity && deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
         })
       }
     }
     await updateAgent({ guguUserId: existing.gugu_user_id }, {
+      ...(existing.status === 'archived' ? { status: 'idle' } : {}),
       cache: {
         ...(existing.cache ?? {}),
         [DIRECT_CHAT_CACHE_KEY]: directChatId,
@@ -1057,15 +1092,13 @@ async function provisionFreshLocalFirst(
   ])
   mark('identity-inputs-loaded', { rosterSize: roster.length, minting: true, localFirst: true })
   // #6396 序号只增不减:起点 = max(服务端账本记的这个前缀用到几号, 本机名册里归这个账号的最大号) + 1。
-  // 账本落后时服务端会往上抬(会话起来后再改名),所以每铸一次都在后台把账本再取一次,给下一条会话用。
   const rosterNames = agentsForOwner(roster, ownerAuth.userId).map((a) => ({ display_name: a.name }))
-  const requested = info.displayName?.trim() || ''
+  // The session was named at creation (task-name.ts); binding only makes that name unique.
+  const requested = info.displayName?.trim()
+  if (!requested) throw new Error(`session ${info.sessionId} reached provisioning without a name`)
   const label = getAgentTypeLabel(agentType)
-  const displayName = requested
-    ? uniqueAgentDisplayName(rosterNames, requested)
-    : nextAgentDefaultName(rosterNames, label, { floor: serialFloor(ownerAuth.userId, label) })
+  const displayName = uniqueAgentDisplayName(rosterNames, requested)
   noteAgentName(ownerAuth.userId, displayName, label)
-  refreshSerialFloors(ownerAuth, deps.listAgentNameSerials)
   const guguAgentUserId = randomUUID()
   const groupChatId = projectId ? (mappedGroupId || randomUUID()) : ''
   // 刚铸出来的身份必然没有私聊(@@@no-auto-dm)。
@@ -1101,7 +1134,8 @@ async function provisionFreshLocalFirst(
     projectId,
     guguAgentUserId,
     displayName,
-    nameMode: requested ? 'explicit' : 'serial',
+    // A name shaped `<label> <n>` is a serial name the server may lift past numbers used elsewhere (#6396).
+    nameMode: agentNameSerial(displayName, label) === null ? 'explicit' : 'serial',
     agentType,
     deviceId: deviceIdPromise,
     localPath: info.cwd || null,
@@ -1109,7 +1143,7 @@ async function provisionFreshLocalFirst(
     groupChatId,
     afterBinding,
     provisionalLocalRow: true,
-    ...(deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
+    ...(!info.replacesRemovedIdentity && deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
   })
   return { guguAgentUserId, displayName, groupChatId, projectName }
 }
@@ -1194,14 +1228,19 @@ function startCloudProvision(job: {
     if (!minted) throw new Error('unreachable')
     noteAgentName(job.ownerAuth.userId, minted.displayName, getAgentTypeLabel(job.agentType))
     await job.afterBinding
-    const patch: Record<string, unknown> = {}
-    if (minted.displayName !== job.displayName) patch.name = minted.displayName
+    // The server may lift a serial past numbers used elsewhere: that is the identity's name now.
+    if (minted.displayName !== job.displayName) await writeAgentName(job.guguAgentUserId, minted.displayName, 'cloud', job.env)
     const resolved = resolveProvisionedProjectGroup(job, minted)
     const groupChatId = resolved.groupChatId
     if (resolved.kind === 'pending-approval') {
       log.info(
         { sessionId: job.sessionId, agentUserId: job.guguAgentUserId, groupChatId: job.groupChatId },
         'project group requires approval for Agents — join request queued, agent not in the group yet',
+      )
+    } else if (resolved.kind === 'not-joined') {
+      log.warn(
+        { sessionId: job.sessionId, agentUserId: job.guguAgentUserId, groupChatId: job.groupChatId, priorGroupState: minted.priorGroupState },
+        'cloud identity created without project group membership',
       )
     } else if (resolved.kind === 'remapped') {
       // 映射里的群已归档、或不是这个账号所在的群(foreign)⇒ 服务端另建了一个:映射与名册都改指新群。会话启动时拿到的旧 id 留在它的系统块里,
@@ -1214,7 +1253,6 @@ function startCloudProvision(job: {
     if (job.birthGroup) await joinBirthGroup(job.ownerAuth.accessToken, job.ownerAuth.userId, await job.birthGroup(), job.guguAgentUserId, log)
     const current = (await listAgents(job.env, { includeGuests: true })).find((a) => a.gugu_user_id === job.guguAgentUserId)
     await updateAgent({ guguUserId: job.guguAgentUserId }, {
-      ...patch,
       cache: {
         ...(current?.cache ?? {}),
         [GROUP_CACHE_KEY]: groupChatId,
@@ -1266,6 +1304,8 @@ function startCloudProvision(job: {
           // identityRemoved:false —— 云端那一行**从来没存在过**,这不是删除,不立碑:
           // 这条会话下次起来照常重新开户(「随后落地被接纳」的另一支)。
           await releaseAgentLocalFootprint({ agentUserId: job.guguAgentUserId, identityRemoved: false, env: job.env })
+          // No cloud identity was created; withdraw the provisional binding rather than retaining it for Restore.
+          await removeAgents((agent) => agent.gugu_user_id === job.guguAgentUserId, job.env)
           withdrawnIdentityBySession.set(job.sessionId, job.guguAgentUserId)
         } else {
           const current = (await listAgents(job.env, { includeGuests: true })).find((a) => a.gugu_user_id === job.guguAgentUserId)
@@ -1364,11 +1404,12 @@ async function resolveOwnedBindingForSession(
   const ownerUserId = ownerAuth.userId
   const isMine = async (agent: RosterRow): Promise<boolean> => {
     const recorded = cacheString(agent.cache, OWNER_CACHE_KEY)
-    if (recorded) return recorded === ownerUserId
+    if (recorded) return agentsForOwner([agent], ownerUserId, { includeArchived: true }).length > 0
     if (!deps.isAgentOwnedByCurrentUser) return true
     return deps.isAgentOwnedByCurrentUser(agent.gugu_user_id)
   }
 
+  roster = agentsForOwner(roster, null, { includeArchived: true })
   const active = roster.find(
     (agent) => agent.gugu_user_id && cacheString(agent.cache, SESSION_CACHE_KEY) === sessionId,
   )
@@ -1469,7 +1510,7 @@ async function findOwnerDirectChat(accessToken: string, guguAgentUserId: string)
   // chat 的成员行。所以「这个 agent 的成员行」天然就是「owner 与它共处的 chat」——不会捞到 agent 与别人
   // 的会话。这条等价关系是本函数的前提,那条策略改了要回来复核。
   const { data: memberships, error: membershipError } = await chat
-    .from('chat_members')
+    .from('active_members')
     .select('chat_id')
     .eq('user_id', guguAgentUserId)
   if (membershipError) {
@@ -1491,10 +1532,9 @@ async function findOwnerDirectChat(accessToken: string, guguAgentUserId: string)
 }
 
 /**
- * @@@chat-page-dm — 聊天页「新建 Agent」的私聊，在 ensure-agent-address 那个 seam 显式开。
- * 这不是 provision 自动开（#4121 @@@no-auto-dm 禁的那种）：走到这里的只有聊天页首条消息一条路
- * （use-create-session-callback → sessionpage:ensure-agent-address），即 owner「真去开私聊」的那一刻，
- * 而私聊正是这条路的消息容器（sendMessageToChat / openAgentChat 都以它为地址）。
+ * @@@chat-page-dm — agent 和主人的私聊，在 ensure-agent-address 那个 seam 显式开。
+ * 这不是 provision 自动开（#4121 @@@no-auto-dm 禁的那种）：走到这里的是界面上要用这条私聊的那一刻
+ * （会话页 session-verb-dock → sessionpage:ensure-agent-address），即 owner「真去开私聊」的那一刻。
  * `open_dm` 幂等（find-or-create）；开出来写回 roster 缓存，后续 resume 的只读查询直接命中。
  *
  * 私聊地址是**公网身份的派生物**（spec agent-provisioning「身份分两层」）：`open_dm` 按目标 id 查的正是
@@ -1645,11 +1685,8 @@ export function findGroupIdForProject(
   projectId: string,
   ownerUserId: string,
 ): string | null {
-  for (const agent of roster) {
+  for (const agent of agentsForOwner(roster, ownerUserId)) {
     if (cacheString(agent.cache, PROJECT_CACHE_KEY) !== projectId) continue
-    // #4277 别家的行记着别家的群,拿来只会白问一次云端(RLS 看不见)—— 只看归我的与不知道归谁的老行。
-    const rowOwner = cacheString(agent.cache, OWNER_CACHE_KEY)
-    if (rowOwner && rowOwner !== ownerUserId) continue
     const groupId = cacheString(agent.cache, GROUP_CACHE_KEY)
     if (groupId) return groupId
   }
@@ -1676,13 +1713,15 @@ async function groupIsUsable(chat: ReturnType<typeof makeChatClient>, chatId: st
  * 一次往返供给回来之后,这个 agent 实际在哪个项目群里(名册记这个)。
  *  · pending_approval:项目群开了「Agent 加入需审批」而账号不是管理员 ⇒ 进了待审请求、这次不在群里;
  *    映射照旧指着项目群(批准后再开会话即在群里),名册 ❌ 记它在群里。
+ *  · 入群失败:身份已铸成,空群返回值为准;映射保留,名册不记群。
  *  · 服务端另建了群(映射的群已归档 / foreign)⇒ 映射与名册改指新群。
  */
 export function resolveProvisionedProjectGroup(
   job: { groupName?: string | null; groupChatId: string },
   minted: { groupChatId: string; priorGroupState: string },
-): { kind: 'pending-approval' | 'remapped' | 'unchanged'; groupChatId: string } {
+): { kind: 'pending-approval' | 'not-joined' | 'remapped' | 'unchanged'; groupChatId: string } {
   if (minted.priorGroupState === 'pending_approval') return { kind: 'pending-approval', groupChatId: '' }
+  if (job.groupName && !minted.groupChatId) return { kind: 'not-joined', groupChatId: '' }
   if (job.groupName && minted.groupChatId && minted.groupChatId !== job.groupChatId) {
     return { kind: 'remapped', groupChatId: minted.groupChatId }
   }
@@ -1696,26 +1735,24 @@ export function resolveProvisionedProjectGroup(
  */
 export async function registerExistingSessionpageAgents(
   env: NodeJS.ProcessEnv = process.env,
-  options: { ownerUserId?: string | null } = {},
+  options: { ownerUserId?: string | null; bootTasks?: SessionBootTasks } = {},
 ): Promise<number> {
   const log = createLogger('sessionpage/boot')
   const startedAt = Date.now()
   log.info({}, 'persisted binding roster read started')
-  const roster = await listAgents(env, { includeGuests: true })
+  const roster = agentsForOwner(await listAgents(env, { includeGuests: true }), options.ownerUserId)
   const readMs = Date.now() - startedAt
   log.info({ readMs, rows: roster.length }, 'persisted binding roster read finished')
   let count = 0
-  const incompleteCapabilityRows: string[] = []
+  const incomplete: string[] = []
   for (const agent of roster) {
-    // #4277 别家账号的行不注册:它在这个账号的进程里既收不到投递也拉不到收件箱,挂着只会每次
-    // 开机扫出一行 400。没记 owner 的老行照旧;不知道当前是谁(未登录)也照旧。
-    if (!agentMayBelongTo(agent, options.ownerUserId)) continue
+    const register = () => {
     const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY)
     const providerId = cacheString(agent.cache, PROVIDER_CACHE_KEY)
     const surface = cacheString(agent.cache, SURFACE_CACHE_KEY)
-    // Identity reconstruction is surface-blind. Every persisted conversation binding is kept behind
-    // the same offline owner until its actual transport promotes; no owner-kind branch may decide
-    // whether the identity exists.
+    // Identity reconstruction is surface-blind: every persisted binding gets an owner, so no owner-kind branch
+    // decides whether the identity exists. A terminal binding waits behind the offline owner until its transport
+    // promotes; an ACP binding gets its session-life claimant at once.
     const registerOfflineOwner = () => {
       if (agent.gugu_user_id && sessionId) {
         registerOfflineLocalSessionDelivery(agent.gugu_user_id, {
@@ -1727,24 +1764,29 @@ export async function registerExistingSessionpageAgents(
     }
     if (!providerId || (surface !== 'acp' && surface !== 'tui')) {
       registerOfflineOwner()
-      if (providerId || surface) incompleteCapabilityRows.push(agent.gugu_user_id)
-      continue
+      if (providerId || surface) throw new Error('Persisted task capability is incomplete')
+      return
     }
     try {
       const integration = resolveSessionpageSessionIntegration(providerId, surface)
-      if (integration.identity !== 'addressable') continue
+      if (integration.identity !== 'addressable') return
     } catch {
       registerOfflineOwner()
-      incompleteCapabilityRows.push(agent.gugu_user_id)
-      continue
+      throw new Error('Persisted task capability is invalid')
+    }
+    // An ACP session's claimant needs nothing live: it enqueues into session-life, which starts the session when a
+    // delivery arrives. Behind the offline owner an inbox unit would answer not-live and wake a leg no wake starts.
+    if (surface === 'acp' && agent.gugu_user_id && sessionId) {
+      registerEmdashAgent({ guguAgentUserId: agent.gugu_user_id, sessionId })
+      count++
+      return
     }
     registerOfflineOwner()
+    }
+    if (options.bootTasks) options.bootTasks.runSync('roster-rehydrate', cacheString(agent.cache, SESSION_CACHE_KEY) || '', register)
+    else { try { register() } catch { incomplete.push(agent.gugu_user_id) } }
   }
-  if (incompleteCapabilityRows.length) {
-    throw new Error(
-      `session-page capability cache is incomplete or invalid for agent record(s): ${incompleteCapabilityRows.join(', ')}`,
-    )
-  }
+  if (incomplete.length) throw new Error(`session-page capability cache is incomplete or invalid for agent record(s): ${incomplete.join(', ')}`)
   log.info({ readMs, registerMs: Date.now() - startedAt - readMs, bindings: count }, 'persisted binding reconstruction finished')
   return count
 }
@@ -1766,15 +1808,20 @@ export async function registerExistingSessionpageAgents(
 export async function unregisterForeignSessionpageAgents(
   env: NodeJS.ProcessEnv = process.env,
   ownerUserId: string,
+  bootTasks?: SessionBootTasks,
 ): Promise<number> {
   if (!ownerUserId) return 0
   let released = 0
-  for (const agent of await listAgents(env, { includeGuests: true })) {
+  for (const agent of agentsForOwner(await listAgents(env, { includeGuests: true }), null, { includeArchived: true })) {
     if (!agent.gugu_user_id) continue
-    if (agentMayBelongTo(agent, ownerUserId)) continue
-    unregisterEmdashAgent(agent.gugu_user_id)
-    unregisterLocalSessionDeliveryForAgent(agent.gugu_user_id)
-    released++
+    if (agentsForOwner([agent], ownerUserId, { includeArchived: true }).length) continue
+    const release = () => {
+      unregisterEmdashAgent(agent.gugu_user_id)
+      unregisterLocalSessionDeliveryForAgent(agent.gugu_user_id)
+      released++
+    }
+    if (bootTasks) bootTasks.runSync('roster-release', cacheString(agent.cache, SESSION_CACHE_KEY) || '', release)
+    else release()
   }
   return released
 }

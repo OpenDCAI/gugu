@@ -1,3 +1,4 @@
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { messageForUser } from '@/lib/userFacingError';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -64,6 +65,7 @@ import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
 import { STATUS_MESSAGE_KEY, SessionHistoryRow, historyOptionId, sourceLabel } from './session-history-row';
 import { SessionHistorySectionBox } from './session-history-section-box';
 import { useSessionHistory, useSessionHistoryDirectories } from './use-session-history';
+import { LegacyDmArchiveButton } from '@/components/legacy-dm-history/LegacyDmHistoryEntry';
 
 // spec session-page「会话历史」(#6083)。形状照 设计同事 2026-09-23 给的参照(「直接 copy 这套会话历史」):
 //   标题行(右侧一个动作)→ 搜索 + 一个分组筛选菜单 + 目录下拉 → 一目录一节(节头:文件夹图标、名字、
@@ -205,6 +207,13 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
   const [actionError, setActionError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useCommandProvider({
+    scopeId: 'session-sub',
+    isActive: (element) => !!element && !!rootRef.current?.contains(element),
+    getCommands: () => [{ id: 'app.find', hideFromPalette: true, execute: () => searchRef.current?.focus() }],
+  });
+
   const moreRef = useRef<HTMLDivElement>(null);
 
   // 换任何筛选条件都从头要一批、收起详情。
@@ -572,7 +581,7 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
       {/* 几何照 设计同事 2026-09-23 的模板图量出来(1728×1050 视口):内容列 768px 居中、标题顶 64px、
           标题到筛选行 48px、筛选行到第一节 36px、节与节之间 48px。 */}
       <PageContent className="flex min-h-0 max-w-3xl flex-col pt-16 pb-12">
-        <div onKeyDown={handleKeyDown} className="flex min-h-0 flex-col">
+        <div ref={rootRef} onKeyDown={handleKeyDown} className="flex min-h-0 flex-col">
           {/* 标题行:左标题,右侧只在批量导入时显示进度(模板右侧是「全部删除」,我们不做删除)。 */}
           <div className="flex min-h-8 items-center justify-between gap-4 [-webkit-app-region:drag]">
             {/* #6264 看哪台机器:标题右边那一个机器选择器(与资源库、已安排、设置同一个组件、同一个位置)。 */}
@@ -587,7 +596,7 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
                 <Spinner size="sm" />
                 {translate('sessionHistory.importingCount', { count: importedCount })}
               </span>
-            ) : null}
+            ) : <LegacyDmArchiveButton />}
           </div>
 
           {/* 筛选行(模板):搜索框占满剩余宽度 + 筛选菜单(类型 / 状态 / 排序方式)+ 项目下拉。

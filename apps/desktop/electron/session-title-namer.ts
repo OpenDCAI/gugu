@@ -3,7 +3,7 @@
  * (与它开会话、与语音笔记同一个签发口 `model-access issue`,按积分记在它名下),把首轮交给设置里选的模型要一个短名。
  *
  * - 自动名先到先得、只起一次:harness 先起了名、或人先改了名,模型回来的那一刻 `applyTitle` 就不收(判据在落库事务里)。
- * - 预算 5 秒(签票 + 模型):过了就放弃,标题留在兜底 / harness 起的名上;❌ 等待态、❌ 重试。
+ * - 预算 5 秒(签票 + 模型):过了就放弃,标题留在兜底 / harness 起的名上;不等待、不重试。显示层独立处理起名占位。
  * - 没积分、模型要会员、没登录 = 不起名,与关掉起名一样安静;这不是故障,只记 info。
  *
  * 签票必须挂在一个归当前账号的 agent 名下,而新会话的身份是建完之后才供给的 ⇒ 建会话时只记下来,
@@ -12,6 +12,7 @@
  */
 import * as electron from 'electron'
 import type { RuntimeAuthProvider } from '@gugu/core'
+import { parseCreatedAt } from '@gugu/core/shared/agentDefaultName'
 import {
   issuePlatformModelAccess,
   modelAccessFailureReason,
@@ -59,21 +60,13 @@ export interface SessionTitleNamerDeps {
   /** 这条会话的标题此刻是不是首轮兜底,以及它的首轮。 */
   titleState: (sessionId: string) => { fallback: boolean; firstUtterance: string | undefined }
   /** 落名;返回 false = 这一刻已经有别的名(人改的 / harness 起的),不收。 */
-  applyTitle: (sessionId: string, title: string) => boolean
+  applyTitle: (sessionId: string, title: string) => Promise<boolean>
   now?: () => number
 }
 
 function netFetch(url: string, init: RequestInit): Promise<Response> {
   const fetcher = (electron as { net?: { fetch?: typeof fetch } } | undefined)?.net?.fetch
   return fetcher ? fetcher(url, init) : fetch(url, init)
-}
-
-/** SQLite 的 `CURRENT_TIMESTAMP` 是不带时区的 UTC(`2026-10-16 19:00:00`);ISO 串照常解析。 */
-function parseCreatedAt(value: string | undefined): number | null {
-  if (!value) return null
-  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(value) ? `${value.replace(' ', 'T')}Z` : value
-  const at = Date.parse(iso)
-  return Number.isFinite(at) ? at : null
 }
 
 /** 模型回的 content:字符串,或 [{type:'text', text}] 一串。 */
@@ -186,7 +179,7 @@ export function createSessionTitleNamer(deps: SessionTitleNamerDeps) {
         log.warn({ sessionId, model, contentLength: contentText(payload)?.length ?? null }, 'session title: the model did not return a usable name')
         return 'unusable'
       }
-      const applied = deps.applyTitle(sessionId, title)
+      const applied = await deps.applyTitle(sessionId, title)
       log.info({ sessionId, model, applied, elapsedMs: now() - startedAt }, 'session title: generated')
       return applied ? 'named' : 'superseded'
     } catch (error) {

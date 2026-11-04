@@ -12,7 +12,7 @@
  * ## 现在的合同
  *
  * 状态副本 `onGone` ⇒ 与宿主停掉(#6497)同一个状态:句柄还掉、记录留着、不当场重起;打字不报错;
- * 下一句走首次打开那条路把会话起起来。
+ * 下一句经 custody 交给宿主,由宿主的 session-life 把会话起起来。
  *
  * ## 判据能判假吗
  *
@@ -21,13 +21,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { runInAction } from 'mobx';
+import type { TranscriptTurn } from '@gugu/session-core/acp';
 
-const startupQueue = vi.fn().mockResolvedValue({ success: true, data: { queued: true } });
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
-  getAcpRuntimeClient: async () => ({ queuePrompt: startupQueue }),
+  getAcpRuntimeClient: async () => ({}),
 }));
+const custody = vi.fn(async () => {});
+vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNativeInput: () => false }));
 
-const toasts: Array<{ title: string }> = [];
+const toasts: Array<{ title: string; description?: string }> = [];
 vi.mock('@renderer/lib/hooks/use-toast', () => ({
   toast: (arg: { title: string }) => {
     toasts.push(arg);
@@ -37,6 +39,8 @@ vi.mock('@renderer/lib/hooks/use-toast', () => ({
 type StoreModule = typeof import('./acp-chat-store');
 type StoreCtor = StoreModule['AcpChatStore'];
 type Store = InstanceType<StoreCtor>;
+const storedHistory = vi.fn(async () => ({ turns: [] as TranscriptTurn[], originTurnIds: [] as string[], nextCursor: null }));
+const turn = (id: string): TranscriptTurn => ({ id, seq: 0, initiator: 'user', items: [] }) as unknown as TranscriptTurn;
 
 // 桥必须在模块图加载之前就位(同 acp-chat-store.session-absent.test.ts 的先例与理由)。
 Object.defineProperty(document, 'fonts', {
@@ -46,7 +50,7 @@ Object.defineProperty(document, 'fonts', {
 Object.defineProperty(window, 'electronAPI', {
   configurable: true,
   value: {
-    invoke: () => Promise.resolve([]),
+    invoke: (channel: string) => channel === 'sessions.getStoredHistory' ? storedHistory() : Promise.resolve([]),
     eventSend: () => {},
     eventOn: () => () => {},
     getPathForFile: () => '',
@@ -57,11 +61,11 @@ const { AcpChatStore }: StoreModule = await import('./acp-chat-store');
 /** 一份 replica 的最小形状:`current()` + `onChange()`,能从外面推一次新值。 */
 function replica<T>(initial: T) {
   let value = initial;
-  const listeners = new Set<() => void>();
+  const listeners = new Set<(value: T) => void>();
   const goneListeners = new Set<(error: { code: string }) => void>();
   return {
     current: () => value,
-    onChange: (cb: () => void) => {
+    onChange: (cb: (value: T) => void) => {
       listeners.add(cb);
       return () => listeners.delete(cb);
     },
@@ -72,7 +76,7 @@ function replica<T>(initial: T) {
     ready: Promise.resolve(),
     push(next: T) {
       value = next;
-      for (const listener of [...listeners]) listener();
+      for (const listener of [...listeners]) listener(value);
     },
     /** 重连被拒、不会再好:新进程里没有这份实例。 */
     gone() {
@@ -104,12 +108,19 @@ function fakeSession() {
     success: false,
     error: { type: 'conversation_not_found', message: 'conv' },
   });
+  const draftReady = new Set<() => void>();
+  let connected = true;
   const session = {
     agents: replica([] as unknown[]),
     sessionState: replica<Record<string, unknown>>(readyState),
     activeTurn: replica(null),
     plan: replica(null),
-    draft: replica(null),
+    draft: replica<{ rev: number; text: string } | null>(null),
+    canSyncDraft: () => connected,
+    onDraftSyncReady: (listener: () => void) => { draftReady.add(listener); return () => draftReady.delete(listener); },
+    draftConnectionGeneration: 0,
+    disconnectDraft() { connected = false; session.draftConnectionGeneration++; },
+    reconnectDraft() { connected = true; for (const listener of draftReady) listener(); },
     terminals: replica([] as unknown[]),
     config: replica({}),
     sendPrompt,
@@ -123,7 +134,6 @@ function fakeSession() {
 
 type Internal = {
   _bootstrapped: boolean;
-  _startInput: () => unknown;
   _subscribeLiveSession: (session: unknown) => void;
   _runBootstrap: () => Promise<void>;
 };
@@ -133,7 +143,6 @@ function attachedStore() {
   seq += 1;
   const store = new AcpChatStore(`conv-7327-${seq}`, 'proj-1');
   const internal = store as unknown as Internal;
-  internal._startInput = () => ({ sessionId: store.sessionId });
   const boot = vi.spyOn(internal, '_runBootstrap').mockResolvedValue(undefined);
   const { session, disposed, sendPrompt } = fakeSession();
   runInAction(() => {
@@ -147,10 +156,109 @@ function attachedStore() {
 
 beforeEach(() => {
   toasts.length = 0;
-  startupQueue.mockClear();
+  custody.mockClear();
+  storedHistory.mockReset();
+  storedHistory.mockResolvedValue({ turns: [], originTurnIds: [], nextCursor: null });
 });
 
 describe('#7327 运行时进程重启过之后的聊天面', () => {
+  it.each(['the newest unsent draft', ''])('#1449 keeps %j locally while offline, then writes it once after reattachment', async latest => {
+    vi.useFakeTimers();
+    try {
+      const { store, session } = attachedStore();
+      session.setPromptDraft.mockResolvedValue({ success: true, data: undefined });
+      session.disconnectDraft();
+      store.setDraftText('obsolete queued text');
+      await vi.advanceTimersByTimeAsync(400);
+      store.setDraftText(latest);
+      await vi.advanceTimersByTimeAsync(400);
+      expect(session.setPromptDraft).not.toHaveBeenCalled();
+      expect(store.draftText).toBe(latest);
+      session.draft.push({ rev: 100, text: 'old remote snapshot' });
+      expect(store.draftText).toBe(latest);
+      session.reconnectDraft();
+      await vi.advanceTimersByTimeAsync(400);
+      expect(session.setPromptDraft).toHaveBeenCalledOnce();
+      expect(session.setPromptDraft).toHaveBeenCalledWith({ rev: 101, input: latest ? { text: latest } : null });
+      expect(toasts).toEqual([]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('#1449 does not apply a late result from the previous connection to the recovered draft', async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, session } = attachedStore();
+      let finish!: (result: unknown) => void;
+      session.setPromptDraft.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+      session.setPromptDraft.mockResolvedValue({ success: true, data: undefined });
+      store.setDraftText('previous connection');
+      await vi.advanceTimersByTimeAsync(400);
+      session.disconnectDraft();
+      store.setDraftText('newest edit');
+      session.reconnectDraft();
+      finish({ success: false, error: { type: 'conversation_not_found', message: 'old runtime id' } });
+      await vi.advanceTimersByTimeAsync(400);
+      expect(session.setPromptDraft).toHaveBeenCalledTimes(2);
+      expect(session.setPromptDraft).toHaveBeenLastCalledWith({ rev: expect.any(Number), input: { text: 'newest edit' } });
+      expect(toasts).toEqual([]);
+      expect(store.draftText).toBe('newest edit');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('#1449 shows a readable typed error for a real missing-session draft failure', async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, session } = attachedStore();
+      session.setPromptDraft.mockResolvedValue({ success: false, error: { type: 'conversation_not_found', message: '16dd43f4-2ba2-4887-a4ff-b509240a36e6' } });
+      store.setDraftText('keep my words');
+      await vi.advanceTimersByTimeAsync(400);
+      expect(store.draftText).toBe('keep my words');
+      expect(toasts).toEqual([{ title: translateSessionMessage('acpFailure.syncDraft'), description: translateSessionMessage('acpFailure.sessionUnavailable'), variant: 'destructive' }]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('#1449 preserves actionable non-lifecycle failures', async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, session } = attachedStore();
+      session.setPromptDraft.mockRejectedValue(new Error('Access to the session was revoked'));
+      store.setDraftText('keep my words');
+      await vi.advanceTimersByTimeAsync(400);
+      expect(toasts[0]?.description).toContain('Access to the session was revoked');
+      expect(store.draftText).toBe('keep my words');
+    } finally { vi.useRealTimers(); }
+  });
+  it('discards a running frame on Gone and reads the recovered stored history', async () => {
+    const { store, session, boot } = attachedStore();
+    store.chatState.transcript.activeTurn.set(turn('stale-frame'));
+    store.chatState.session.setGenerating(true);
+    storedHistory.mockResolvedValue({ turns: [turn('recovered')], originTurnIds: [], nextCursor: null });
+    expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe('stale-frame');
+    expect(store.chatState.session.state.generating).toBe(true);
+
+    session.sessionState.gone();
+
+    expect(store.session).toBeNull();
+    expect(store.chatState.transcript.state.activeTurnSnapshot).toBeNull();
+    expect(store.chatState.session.state.generating).toBe(false);
+    await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns.map((item) => item.id)).toEqual(['recovered']));
+    expect(storedHistory).toHaveBeenCalledTimes(1);
+    expect(boot).not.toHaveBeenCalled();
+    store.dispose();
+  });
+
+  it('keeps normal Closed handling separate from Gone recovery', () => {
+    const { store, session } = attachedStore();
+    store.chatState.transcript.activeTurn.set(turn('retained-frame'));
+
+    session.sessionState.push({ ...readyState, lifecycle: 'closed' });
+
+    expect(store.session).toBeNull();
+    expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe('retained-frame');
+    expect(storedHistory).not.toHaveBeenCalled();
+    store.dispose();
+  });
+
   it('状态副本说「没了」:session 置空、界面订阅摘掉,记录留着,不当场重起', () => {
     const { store, session, disposed, boot } = attachedStore();
     // 阳性对照:被测场景成立 —— 句柄在、订阅挂着。
@@ -184,23 +292,14 @@ describe('#7327 运行时进程重启过之后的聊天面', () => {
     }
   });
 
-  it('之后的第一句:开场一次 + 排进启动队列,❌ 发给死句柄', async () => {
+  it('之后的第一句:经 custody 交给宿主,页面不自己开场,❌ 发给死句柄', () => {
     const { store, session, sendPrompt, boot } = attachedStore();
     session.sessionState.gone();
 
     store.submitPrompt('接着说');
-    // 两条路走哪条都会落一次调用;等到落下再判是哪条(❌ 只等启动队列:走错路时用例挂死而不是判红)。
-    await vi.waitFor(() =>
-      expect(startupQueue.mock.calls.length + sendPrompt.mock.calls.length).toBeGreaterThan(0)
-    );
 
-    expect(startupQueue).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.objectContaining({ text: '接着说' }),
-        startInput: expect.objectContaining({ sessionId: store.sessionId }),
-      })
-    );
-    expect(boot).toHaveBeenCalledTimes(1);
+    expect(custody).toHaveBeenCalledWith(store, '接着说', [], []);
+    expect(boot).not.toHaveBeenCalled();
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(toasts.map((t) => t.title)).not.toContain(translateSessionMessage('acpFailure.sendMessage'));
   });

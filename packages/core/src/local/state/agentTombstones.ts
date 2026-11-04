@@ -51,22 +51,19 @@ export async function listReapedAgents(
 }
 
 /**
- * 这条会话页会话的 agent 是否已被 owner 删除。空 id 一律不算命中——`cacheString` 对缺失键返回 ''，
- * 拿它当钥匙会让**每一条**没有会话绑定的墓碑匹配上**每一条**新会话,把整个会话页 provisioning 关死。
+ * 这条会话页会话被移除过的全部身份(每次「归档并移出身份 → 恢复」各留一块)。空 id 一律不算命中——`cacheString`
+ * 对缺失键返回 '',拿它当钥匙会让**每一条**没有会话绑定的墓碑匹配上**每一条**新会话,把整个会话页 provisioning 关死。
  */
-export async function findReapedAgentForSession(
+export async function listReapedAgentsForSession(
   sessionId: string,
   env: NodeJS.ProcessEnv = process.env,
   ownerUserId?: string
-): Promise<ReapedAgentTombstone | null> {
-  if (!sessionId) return null
-  const tombstones = await listReapedAgents(env)
-  return (
-    tombstones.find(
-      (entry) =>
-        entry.conversation_id === sessionId &&
-        (!entry.owner_user_id || !ownerUserId || entry.owner_user_id === ownerUserId)
-    ) ?? null
+): Promise<ReapedAgentTombstone[]> {
+  if (!sessionId) return []
+  return (await listReapedAgents(env)).filter(
+    (entry) =>
+      entry.conversation_id === sessionId &&
+      (!entry.owner_user_id || !ownerUserId || entry.owner_user_id === ownerUserId)
   )
 }
 

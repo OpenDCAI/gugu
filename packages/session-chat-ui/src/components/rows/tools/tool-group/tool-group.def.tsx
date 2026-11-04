@@ -61,7 +61,7 @@ const TOOL_GROUP_VARS: ToolGroupVars = {
 // Direct imports of leaf defs avoids a circular dependency on unit-registry.ts.
 // Only tool-family kinds can appear as children.
 
-// oxlint-disable-next-line typescript/no-explicit-any -- registry boundary
+// registry boundary
 const CHILD_DEFS: Record<string, UnitDef<any, any>> = {
   tool: toolUnitDef,
   subagent: subagentUnitDef,
@@ -146,7 +146,7 @@ function ChildLeaf(props: { node: ItemNode; ctx: RenderCtx; vars: ToolGroupVars 
   const def = CHILD_DEFS[props.node.item.kind];
   if (!def) return null;
   // Assign to a PascalCase local so JSX treats it as a component call.
-  // oxlint-disable-next-line typescript/no-explicit-any -- registry boundary
+  // registry boundary
   const Renderer = def.Render as (p: { data: ChatItem; ctx: RenderCtx; vars: any }) => JSX.Element;
   return <Renderer data={props.node.item} ctx={props.ctx} vars={def.vars ?? {}} />;
 }

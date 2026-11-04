@@ -9,7 +9,6 @@ export type TabViewSnapshot = {
 export type BuiltInTabDescriptor =
   | { kind: 'session'; tabId: string; sessionId: string; isPreview: boolean }
   | { kind: 'acp-chat'; tabId: string; sessionId: string; isPreview: boolean }
-  | { kind: 'file-browser'; tabId: string; isPreview: boolean }
   | { kind: 'file'; tabId: string; path: string; isPreview: boolean; isExternal?: boolean }
   | { kind: 'review'; tabId: string; sessionId: string; isPreview: boolean }
   | {
@@ -54,7 +53,6 @@ export type TabDescriptor = (BuiltInTabDescriptor | ExtensionTabDescriptor) & {
 const BUILT_IN_TAB_KINDS = {
   session: true,
   'acp-chat': true,
-  'file-browser': true,
   file: true,
   review: true,
   browser: true,
@@ -189,6 +187,7 @@ export type SidebarSessionSortBy = 'created-at' | 'updated-at';
 export type SidebarSnapshot = {
   expandedProjectIds?: string[];
   expandedSessionIds?: string[];
+  idleExpandedProjectIds?: string[];
   projectOrder?: string[];
   sessionOrderByProject?: Record<string, string[]>;
   sessionSortBy?: SidebarSessionSortBy;

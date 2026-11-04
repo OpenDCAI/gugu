@@ -167,17 +167,10 @@ export class GitRepository implements IGitRepository {
   }
 
   async readBlobAtRef(ref: string, filePath: string): Promise<string | null> {
+    // A missing path is empty in a diff; an invalid ref or failed read is an error.
+    await this.exec.exec(['rev-parse', '--verify', '--end-of-options', `${ref}^{tree}`]);
     this.catFile ??= new CatFileBatch({ exec: this.exec });
-    try {
-      return await this.catFile.readText(`${ref}:${filePath}`);
-    } catch {
-      try {
-        const { stdout } = await this.exec.exec(['show', `${ref}:${filePath}`]);
-        return stdout;
-      } catch {
-        return null;
-      }
-    }
+    return this.catFile.readText(`${ref}:${filePath}`);
   }
 
   subscribe(cb: (update: GitRepoUpdate) => void): Unsubscribe {

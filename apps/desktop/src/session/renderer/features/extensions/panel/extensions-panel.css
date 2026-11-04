@@ -1,7 +1,7 @@
 /*
  * Extensions panel — drawn like the two pages beside it.
  *
- * The bar is the repo's UI specification (docs/ui-visual-spec.md)
+ * The bar is the repo's UI specification (docs/design/ui-visual-spec.md)
  * and the two sibling settings pages: 智能体 is a single column of rows (icon ·
  * name · one status on the right), 集成 is a two-column grid of bordered cards
  * (icon · name · one sentence). This panel uses exactly those two shapes and

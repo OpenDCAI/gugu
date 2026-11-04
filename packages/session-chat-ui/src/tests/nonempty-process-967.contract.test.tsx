@@ -15,7 +15,7 @@ const disposers: (() => void)[] = [];
 afterEach(() => disposers.splice(0).forEach(dispose => dispose()));
 
 function mount() {
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true });
   const state = createChatState(context);
   const host = document.createElement('div');

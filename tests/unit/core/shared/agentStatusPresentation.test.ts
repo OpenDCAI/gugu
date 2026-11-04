@@ -3,6 +3,8 @@ import {
   AGENT_STATUS_LABELS,
   AGENT_STATUS_TONES,
   agentStatusColorVar,
+  isNeedsYou,
+  presentationAttention,
   presentAgentStatus,
 } from '../../../../packages/core/src/shared/agentStatusPresentation'
 import {
@@ -51,6 +53,15 @@ describe('presentAgentStatus — the one table', () => {
     }
   })
 
+  it('a session-life lifecycle word answers before the reading, after reachability', () => {
+    for (const lifecycle of ['starting', 'archived'] as const) {
+      expect(presentAgentStatus({ reading: r('working', 'running'), reachability: 'online', lifecycle })).toMatchObject({ tone: lifecycle, label: lifecycle, animate: false })
+    }
+    expect(presentAgentStatus({ reading: null, reachability: 'removed', lifecycle: 'starting' }).tone).toBe('removed')
+    expect(agentStatusColorVar('starting')).toBe('var(--agent-tone-muted)')
+    expect(labelOfDisplayStatus('starting')).toBe('starting')
+  })
+
   it('colors come from the --agent-tone-* tokens: orange / yellow / red', () => {
     expect(agentStatusColorVar('running')).toBe('var(--agent-tone-running)')
     expect(agentStatusColorVar('parked')).toBe('var(--agent-tone-running)')
@@ -73,7 +84,7 @@ describe('chat folds the presentation into its coarse status', () => {
     expect(displayStatusOf('needs_user')).toBe('needs_user')
     expect(displayStatusOf('error')).toBe('error')
     for (const tone of ['done', 'idle', 'online', 'none'] as const) expect(displayStatusOf(tone)).toBe('idle')
-    for (const tone of ['offline', 'removed', 'pending'] as const) expect(displayStatusOf(tone)).toBe(tone)
+    for (const tone of ['offline', 'removed', 'pending', 'starting'] as const) expect(displayStatusOf(tone)).toBe(tone)
   })
 
   it('coarse label and color agree with the table', () => {
@@ -100,5 +111,40 @@ describe('chat folds the presentation into its coarse status', () => {
   it('an old host with no reading still says "running" through its projection, and nothing else', () => {
     expect(readingOfPresenceProjection({ activityStatus: 'running' })).toEqual({ status: 'working', detail: 'running' })
     expect(readingOfPresenceProjection({ activityStatus: 'idle' })).toBeNull()
+  })
+})
+
+describe('needs-you and attention are defined once', () => {
+  const at = (status: 'working' | 'needs_user' | 'error' | 'idle', detail: string | null = null) =>
+    presentAgentStatus({ reading: { status, detail } as AgentStatusView })
+  it('includes failed tasks and every human wait in passive Needs you (#1165)', () => {
+    for (const wait of ['approval', 'question', 'plan', 'dialog']) {
+      expect(isNeedsYou(at('needs_user', wait))).toBe(true)
+    }
+    expect(isNeedsYou(at('error'))).toBe(true)
+  })
+  it('keeps ordinary activity and unreachable agents out of passive Needs you', () => {
+    for (const tone of AGENT_STATUS_TONES) {
+      const presentation = { tone, label: 'none' as const, animate: false, emphasis: false }
+      expect(isNeedsYou(presentation), tone).toBe(tone === 'needs_user' || tone === 'error')
+    }
+    expect(isNeedsYou(null)).toBe(false)
+    expect(isNeedsYou(undefined)).toBe(false)
+  })
+  it('attention is a wait or a failure', () => {
+    expect(presentationAttention(at('needs_user', 'question'))).toBe('needs_user')
+    expect(presentationAttention(at('error'))).toBe('error')
+    expect(presentationAttention(at('working', 'running'))).toBeNull()
+  })
+  it("an unreachable host's working is not drawn; its other readings are", () => {
+    expect(presentAgentStatus({ reading: { status: 'working', detail: 'running' }, hostOnline: false })).toBeNull()
+    expect(presentAgentStatus({ reading: { status: 'needs_user', detail: 'approval' }, hostOnline: false })).toMatchObject({ tone: 'needs_user' })
+    // U7-C decision (b): retain the row mark while excluding offline hosts from attention totals.
+    for (const status of ['needs_user', 'error'] as const) {
+      const presentation = presentAgentStatus({ reading: { status, detail: null }, hostOnline: false })
+      expect(presentation?.tone).toBe(status)
+      expect(isNeedsYou(presentation, false)).toBe(false)
+      expect(isNeedsYou(presentation, true)).toBe(true)
+    }
   })
 })

@@ -1,15 +1,18 @@
 import { useState } from 'react'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { useTranslation } from 'react-i18next'
-import { turnFailurePresentation, type TurnFailureReason } from '@gugu/core/shared/turnFailurePresentation'
+import { turnFailurePresentation } from '@gugu/core/shared/turnFailurePresentation'
+import type { AgentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import { AlertTriangle, X } from '@/lib/icons'
-import { formatCalendarDayTime } from '@/lib/calendarTime'
+import { formatCalendarDay } from '@/i18n/format'
 import { Avatar } from '../Avatar'
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import './turn-failure-card.css'
 
 type TurnFailureCardProps = {
-  reason: TurnFailureReason
+  reason: AgentFailureReason
   displayName: string
   agentId?: string | null
   avatar?: string | null
@@ -24,9 +27,11 @@ type TurnFailureCardProps = {
 }
 
 /** The same presentation for a persisted chat failure and a retryable device command. */
-export function TurnFailureCard({ reason, displayName, agentId, avatar, createdAt, count = 1, recovered = false,
+export function TurnFailureCard({ reason, displayName: name, agentId, avatar, createdAt, count = 1, recovered = false,
   placement, onRetry, retrying, onOpenSettings, onDismiss }: TurnFailureCardProps) {
   const { t } = useTranslation('messaging')
+  const identity = useAvatarIdentity(agentId ?? '')
+  const displayName = useShownAgentName({ name, createdAt: agentId ? identity?.created_at ?? undefined : undefined })
   const [expanded, setExpanded] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
   const presentation = turnFailurePresentation(reason)
@@ -48,7 +53,7 @@ export function TurnFailureCard({ reason, displayName, agentId, avatar, createdA
             <span className="tfc-name" title={displayName}>{displayName}</span>
             <span className="tfc-title">{title}</span>
             {count > 1 ? <span className="tfc-count">×{count}</span> : null}
-            {createdAt ? <time className="tfc-time" dateTime={createdAt}>{formatCalendarDayTime(createdAt)}</time> : null}
+            {createdAt ? <time className="tfc-time" dateTime={createdAt}>{formatCalendarDay(createdAt, { withTime: true })}</time> : null}
           </div>
           <Button variant="ghost" size="sm" className="tfc-reason block h-auto min-h-0 max-[719px]:min-h-0 p-0" aria-label={cause} onClick={() => setDetailOpen(true)}>
             {cause}{placement === 'stream' ? ` · ${t(presentation.nextMessageKey)}` : ''}

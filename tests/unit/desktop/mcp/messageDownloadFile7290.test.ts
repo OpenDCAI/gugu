@@ -7,7 +7,7 @@ import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 // @ts-expect-error — 注入式 MCP server 是无类型 .mjs;运行时 import 可用。
 import { callTool } from '../../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
-import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
+import { verifiedFileHandle } from '../../../support/verifiedFileHandle'
 import { attachmentDownloadName } from '../../../../packages/core/src/shared/attachmentDownloadName.mjs'
 
 const AGENT = '11111111-1111-4111-8111-111111111111'

@@ -13,7 +13,7 @@ import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reaso
 import { useAttachmentUploadProgress } from '../../lib/attachmentUploadProgress'
 import { MessageSendingIndicator } from './MessageSendingIndicator'
 
-type Props = { state: MessageSendState; messageId: string; reason?: string | null; blocks?: MessageItem['delivery_blocks'] }
+type Props = { state: MessageSendState; messageId: string; reason?: string | null; retryable?: boolean; blocks?: MessageItem['delivery_blocks']; undeliveredTo?: readonly string[] }
 
 export function MessageSendStatus(props: Props) {
   const { t } = useTranslation('messaging')
@@ -23,11 +23,16 @@ export function MessageSendStatus(props: Props) {
       className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">
       {identitiesById[block.agent_user_id]?.display_name ? `${identitiesById[block.agent_user_id].display_name} · ` : ''}{t('message.sendStatus.archived')}
     </span>)}
+    {/* 没有运行中的实例持有它叫醒的 agent:等不来,字直接写在气泡旁(手机没有悬停);写名字,因为群里的人是收到了的。 */}
+    {props.undeliveredTo?.map((agentId) => <span key={agentId} data-send-state="undelivered" data-agent-id={agentId} title={t('agent.turnFailure.undelivered')}
+      className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">
+      {identitiesById[agentId]?.display_name ? `${identitiesById[agentId].display_name} · ` : ''}{t('message.sendStatus.undelivered')}
+    </span>)}
     <MessageTransportStatus {...props} />
   </>
 }
 
-function MessageTransportStatus({ state, messageId, reason }: Props) {
+function MessageTransportStatus({ state, messageId, reason, retryable = true }: Props) {
   const { t } = useTranslation('messaging')
   const { retrySend, discardSend } = useChatStore('retrySend', 'discardSend')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -80,7 +85,7 @@ function MessageTransportStatus({ state, messageId, reason }: Props) {
             style={{ minWidth: 96 }}
           >
             {failureReason && <div className="max-w-72 break-words px-3 py-2 text-[length:var(--font-body)] text-[var(--text-secondary)]">{failureReason}</div>}
-            <MenuItem
+            {retryable && <MenuItem
               render={<button type="button" />}
               nativeButton
               data-testid="message-send-retry"
@@ -88,7 +93,7 @@ function MessageTransportStatus({ state, messageId, reason }: Props) {
               style={{ minHeight: 32, fontSize: 'var(--font-body)' }}
             >
               {t('common.retry')}
-            </MenuItem>
+            </MenuItem>}
             <MenuItem
               render={<button type="button" />}
               nativeButton

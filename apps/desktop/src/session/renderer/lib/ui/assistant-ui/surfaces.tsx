@@ -9,7 +9,7 @@
  *
  * ## 相对上游的逐条改动
  *
- * 上游取值与本仓视觉规格硬限冲突时**本仓赢**（`docs/ui-visual-spec.md` §2/§4/§5/§6）。
+ * 上游取值与本仓视觉规格硬限冲突时**本仓赢**（`docs/design/ui-visual-spec.md` §2/§4/§5/§6）。
  * 下表就是这些差异存在的理由，⚠️ 下次同步 registry 时不要把它们「改回去」。
  *
  * | 名字 | 上游 | 这里 | 为什么 |
@@ -17,7 +17,7 @@
  * | `paper` | `shadow-[0_1px_2px_rgba(…),0_12px_32px_-16px_rgba(…)]` | `bg-card`（**无影**） | §6：表面层级靠**底色**表达不靠投影。⚠️ 2026-09-22 按 design.md 统一：原来这里留了一条 `shadow-xs`，与同一行自述的判据自相矛盾 —— 「Shadows are zeroed globally. Only a floating surface may lift」，静置表面不是浮层 |
  * | `floating` | 同上另一组任意值双层投影 | `bg-popover rounded-surface shadow-lift` | §6.1：菜单/下拉/弹层**只有一种表达**。⚠️ 2026-09-22 按 design.md 统一，原配方是 `shadow-sm ring-1 ring-foreground/10`：「Do not stack a border, a ring, and a shadow on one edge」——浮层只需要「抬起来」那一层，环是第二条线。圆角补到 `--radius-surface`（#7333 起 12px）那一档；抬起的那一层是全仓唯一的 `--shadow-lift`，而不是 Tailwind 内置的 `shadow-sm`（0 1px 3px）——同一个 composer 里 `packages/session-ui` 那半边画的就是 lift，两半边深浅不一读起来像两类东西 |
  * | `ghostButton` | `focus-visible:ring-foreground/20` | `focus-visible:ring-border-primary` | §7：焦点强调色走 `--color-ring`→`--border-primary`，不另起一份 |
- * | `labelSwap` | 6px 的半步 gap | `gap-2`（8px） | §4：0.5 步进 utility 由 `check-ui-visual-spec.mjs` 双向棘轮冻结（会话页基线 341，只减不增），新增一处就会红。⚠️ 那把尺子按**源码文本**计数，注释里的取值和代码里的取值同形 —— 所以这一行不能把上游那个字面量写出来，写出来它自己就会把棘轮顶破一格（实测：342 vs 341） |
+ * | `labelSwap` | 6px 的半步 gap | `gap-2`（8px） | §4：0.5 步进 utility 由 `check-ui-visual-spec.mts` 双向棘轮冻结（会话页基线 341，只减不增），新增一处就会红。⚠️ 那把尺子按**源码文本**计数，注释里的取值和代码里的取值同形 —— 所以这一行不能把上游那个字面量写出来，写出来它自己就会把棘轮顶破一格（实测：342 vs 341） |
  * | `mono` | 上游 11 像素的任意值 | `text-tiny` | §2：走 `--text-tiny` 这一档 token（#7333 起并入 12 的标注档） |
  * | `live` | `text-blue-500 dark:text-blue-400` | `text-live` | 2026-09-22 按 design.md 统一：「`blue-500` means live: streaming, running, connected, or currently selected」。原裁决（2026-08-12）是 `text-primary`，理由是「当时会话页主题里 `--color-(info\|blue)` 读到 0 ⇒ jade 是唯一可用强调色」——那个前提已不成立：`index.css` 现在有 `--color-live`（#6104 的唯一 accent 档）。⚠️ 代用期间 live 是绿的、而蓝被拿去标已完成态，两个强调色在同屏争；现在回到「一次只有一个强调色，那个色是蓝」 |
  * | 各处 `duration-150/200/300` | 裸数字 | `duration-[var(--dur-fast,120ms)]` / `-med,180ms` | 时长走 token 档位（沿用 `thread-welcome.tsx` 已有先例） |

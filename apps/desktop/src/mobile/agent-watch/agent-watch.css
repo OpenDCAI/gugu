@@ -496,7 +496,6 @@
   min-width: 0;
   max-width: 100%;
 }
-.gg-aw .gg-aw-head-agent { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .gg-aw .gg-aw-head-state { flex: none; }
 
 /* ── 「机器离线」一行提示 + 渐进披露 ────────────────────────────────────────

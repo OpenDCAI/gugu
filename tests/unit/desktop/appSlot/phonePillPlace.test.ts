@@ -36,7 +36,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
   }),
 }))
 
-const office: FileOpenerCandidate = { extensionId: 'office', tabKind: 'office.main', tabTitle: 'Office', app: { name: '咕咕办公' }, onlyTab: true, suffix: '.pptx' }
+const office: FileOpenerCandidate = { extensionId: 'office', tabKind: 'office.main', tabTitle: 'Office', app: { name: '咕咕办公', defaultLocale: 'zh-CN' }, onlyTab: true, suffix: '.pptx', state: false }
 
 let frame: HTMLIFrameElement
 let posted: ReturnType<typeof vi.fn>

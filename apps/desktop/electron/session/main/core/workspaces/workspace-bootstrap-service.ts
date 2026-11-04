@@ -13,10 +13,11 @@ import { sessions, workspaces } from '@main/db/schema';
 import type { ProvisionWorkspaceError } from '@shared/core/sessions/create-session';
 import { log } from '@main/lib/logger';
 import type { WorkspaceType } from '@shared/core/workspaces/workspaces';
-import { isRetiredRemoteWorkspace } from './resolve-workspace-kind';
+import { isRetiredRemoteWorkspace, RETIRED_REMOTE_WORKSPACE_MESSAGE } from './resolve-workspace-kind';
 import { createWorkspaceFactory } from './workspace-factory';
 import { workspaceGitContext, type WorkspaceGitContext } from './workspace-git-context';
 import { workspaceRegistry } from './workspace-registry';
+import { taskName } from '@main/core/sessions/task-name';
 
 export type WorkspaceBootstrapResult = {
   path: string;
@@ -70,7 +71,7 @@ export class WorkspaceBootstrapService {
         type: 'setup-failed',
         stepKind: 'byoi-config',
         stepErrorType: 'retired',
-        message: '这条会话用的「自带机器」/ SSH 工作区已下线,不能再运行',
+        message: RETIRED_REMOTE_WORKSPACE_MESSAGE,
       });
     }
 
@@ -98,7 +99,7 @@ export class WorkspaceBootstrapService {
     const [row] = await this.db
       .select({
         id: sessions.id,
-        title: sessions.title,
+        config: sessions.config,
         projectId: sessions.projectId,
         workspaceId: sessions.workspaceId,
       })
@@ -121,7 +122,7 @@ export class WorkspaceBootstrapService {
       projectManager.getProject(row.projectId) ?? (await this.openOnDemand(row.projectId));
     if (!project) throw new Error(`Project ${row.projectId} not found`);
 
-    return this.ensureWorkspaceSetup(wsRow, { id: row.id, title: row.title }, project);
+    return this.ensureWorkspaceSetup(wsRow, { id: row.id, title: taskName(row) }, project);
   }
 
   /**

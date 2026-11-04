@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  markInboxRowsRead,
   pullAgentInbox,
   resetAgentInboxReaderStateForTests,
   type AgentInboxInjectionInput,
@@ -57,24 +58,58 @@ function harness(opts: {
 }) {
   const unread: AgentInboxUnreadRow[] = []
   const injected: AgentInboxInjectionInput[] = []
-  const factReads: string[] = []
+  // The pull returns each room row with the rules in force on its line (pull_agent_inbox_v2 `group_rules`); the
+  // fixture derives them from the chat facts the same way the database does.
+  const rulesOf = (chatId: string) => effectiveGroupRules(chatId, async (id) => opts.facts[id] ?? null)
   const deps: AgentInboxReaderDeps = {
     accessToken: 'owner-token',
-    fetchUnread: async () => unread.splice(0),
+    fetchUnread: async () => Promise.all(unread.splice(0).map(async (entry) => ({
+      ...entry, groupRules: entry.chatKind === 'group' || entry.chatKind === 'topic' ? await rulesOf(entry.chatId) : null,
+    }))),
     markRead: async () => {},
     inject: async (input) => { injected.push(input); return 'accepted' },
-    fetchChatFacts: async (chatId, asUserId) => {
-      expect(asUserId).toBe(AGENT)
-      factReads.push(chatId)
-      return opts.facts[chatId] ?? null
-    },
     groupRulesLedger: opts.ledger ?? memoryGroupRulesLedger(),
     ...(opts.contextKey ? { deliveryContextKey: opts.contextKey } : {}),
   }
-  return { deps, unread, injected, factReads }
+  return { deps, unread, injected }
 }
 
 const group = (prompt: string | null): ChatFactsRow => ({ kind: 'group', source_chat_id: null, group_prompt: prompt })
+
+it('a rejected first queued item cannot consume the rules needed by the next item', async () => {
+  const h = harness({ facts: { [GROUP]: group('Keep this group rule') } })
+  h.unread.push(row('bad', 1), row('good', 2), row('after', 3))
+  h.deps.claimedSources = () => new Map()
+  h.deps.queuesInbox = () => true
+  h.deps.recordFailure = async () => {}
+  h.deps.postDisclosure = async () => {}
+  h.deps.inject = async input => {
+    if (input.sources?.[0]?.row.seq === 1) throw new Error('bad item')
+    h.injected.push(input)
+    return 'enqueued'
+  }
+  await expect(pullAgentInbox(AGENT, h.deps)).rejects.toThrow('bad item')
+  expect(h.injected).toHaveLength(2)
+  expect(h.injected[0]!.text).toContain('Keep this group rule')
+  expect(h.injected[0]!.sources?.[0]?.rulesDelivered).toBeDefined()
+  expect(h.injected[1]!.text).not.toContain('Keep this group rule')
+})
+
+it('missing group rules remains retryable and never creates a terminal failed source', async () => {
+  const h = harness({ facts: { [GROUP]: group('Rules recovered') } })
+  const record: unknown[] = []
+  let available = false
+  h.deps.fetchUnread = async () => [row('retry', 1, { groupRules: available ? 'Rules recovered' : null })]
+  h.deps.queuesInbox = () => true
+  h.deps.claimedSources = () => new Map()
+  h.deps.recordFailure = async input => { record.push(input) }
+  await expect(pullAgentInbox(AGENT, h.deps)).rejects.toThrow('carries no group rules')
+  expect(record).toEqual([])
+  expect(h.injected).toEqual([])
+  available = true
+  await expect(pullAgentInbox(AGENT, h.deps)).resolves.toMatchObject({ injected: 1 })
+  expect(h.injected[0]!.text).toContain('Rules recovered')
+})
 
 beforeEach(() => {
   resetAgentInboxReaderStateForTests()
@@ -185,7 +220,7 @@ describe('读者随投递送达群规', () => {
     const h = harness({ facts: { [GROUP]: group('规矩A') } })
     let verdict: 'not-live' | 'accepted' = 'not-live'
     h.deps.inject = async (input) => { h.injected.push(input); return verdict }
-    h.deps.fetchUnread = async () => [row('m1', 1)]
+    h.deps.fetchUnread = async () => [row('m1', 1, { groupRules: '规矩A' })]
     await pullAgentInbox(AGENT, h.deps)
     verdict = 'accepted'
     await pullAgentInbox(AGENT, h.deps)
@@ -193,11 +228,10 @@ describe('读者随投递送达群规', () => {
     expect(h.injected[1]!.text).toContain('<![CDATA[规矩A]]>')
   })
 
-  it('私聊与没立规矩的群:不读、不带任何群规格子', async () => {
+  it('私聊与没立规矩的群:不带任何群规格子', async () => {
     const h = harness({ facts: { [OTHER_GROUP]: group(null) } })
     h.unread.push(row('d1', 1, { chatId: '00000000-0000-4000-8000-000000000005', chatKind: 'dm' }), row('m1', 1, { chatId: OTHER_GROUP }))
     await pullAgentInbox(AGENT, h.deps)
-    expect(h.factReads).toEqual([OTHER_GROUP])
     for (const input of h.injected) {
       expect(input.text).not.toContain('rules=')
       expect(input.text).not.toContain('<group_rules')
@@ -211,11 +245,10 @@ describe('读者随投递送达群规', () => {
     expect(h.injected[0]!.text).toContain('<![CDATA[群规矩]]>')
   })
 
-  it('群规读失败 ⇒ 这批不注入(❌ 在没见过群规的情况下照投)', async () => {
+  it('群行没带群规 ⇒ 这批不注入(❌ 在没见过群规的情况下照投)', async () => {
     const h = harness({ facts: {} })
-    h.deps.fetchChatFacts = async () => { throw new Error('chat_facts failed: HTTP 500') }
-    h.unread.push(row('m1', 1))
-    await expect(pullAgentInbox(AGENT, h.deps)).rejects.toThrow('chat_facts failed')
+    h.deps.fetchUnread = async () => [row('m1', 1)]
+    await expect(pullAgentInbox(AGENT, h.deps)).rejects.toThrow('carries no group rules')
     expect(h.injected).toHaveLength(0)
   })
 })
@@ -227,5 +260,19 @@ describe('信封里的群规格子', () => {
       .toContain('<group_rules version="none" removed="true"/>')
     const text = renderDeliveryEnvelope({ ...base, groupRules: { version: 'v', text: 'a]]>b' } })
     expect(text).toContain('<![CDATA[a]]]]><![CDATA[>b]]>')
+  })
+})
+
+describe('an enqueuing host records delivered rules at acceptance, never at enqueue', () => {
+  it('leaves the ledger untouched until the host marks the unit accepted', async () => {
+    const ledger = memoryGroupRulesLedger()
+    const { deps, unread, injected } = harness({ facts: { [GROUP]: group('规矩A') }, ledger })
+    deps.inject = async (input) => { injected.push(input); return 'enqueued' }
+    unread.push(row('a', 1))
+    await pullAgentInbox(AGENT, deps)
+    expect(injected[0]!.text).toContain('规矩A')
+    expect(await ledger.read(AGENT, GROUP)).toBeNull()
+    await markInboxRowsRead(AGENT, injected[0]!.sources ?? [], deps)
+    expect(await ledger.read(AGENT, GROUP)).not.toBeNull()
   })
 })

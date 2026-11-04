@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => ({
   showPage: vi.fn(),
   registerBrowser: vi.fn(),
   ensurePage: vi.fn(),
-  resolveAttachmentPath: vi.fn(),
   registeredKinds: new Set<string>(),
   /** The kinds of the tabs already open in the session's panes. */
   openKinds: [] as string[],
@@ -30,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   workspaceGet: vi.fn(),
   installedManifests: [] as Array<{
     id: string;
+    defaultLocale?: string;
     contributes: { tabs: Array<{ name: string; title: string; opensFiles?: { session?: string[]; group?: string[] } }> };
   }>,
 }));
@@ -58,7 +58,6 @@ vi.mock('@renderer/lib/ipc', () => ({
   rpc: {
     browser: { registerSession: mocks.registerBrowser, ensureAgentPage: mocks.ensurePage },
     app: { getHomeDirectory: mocks.getHomeDirectory, openPath: mocks.openPath, openIn: mocks.openIn },
-    sessionCreate: { resolveAttachmentPath: mocks.resolveAttachmentPath },
     extensions: { sessionFilePlace: mocks.sessionFilePlace },
     workspace: {
       files: { fileExists: mocks.fileExists, statExternalFile: mocks.statExternalFile },
@@ -97,8 +96,35 @@ const {
 } = await import('./open-file-in-file-editor');
 
 describe('task file preview routing', () => {
+  it('reports an unprepared or missing workspace rather than acknowledging an open', async () => {
+    mocks.getSessionPageStore.mockReturnValue(undefined);
+    await expect(openFileInSessionEditor('project-1', 'session-1', 'a.txt')).rejects.toThrow('prepared workspace');
+    mocks.getSessionPageStore.mockReturnValue({ workspaceId: 'missing' });
+    mocks.workspaceGet.mockReturnValue(undefined);
+    await expect(openFileInSessionEditor('project-1', 'session-1', 'a.txt')).rejects.toThrow('no workspace');
+    expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
+  });
+
+  it('returns a cancelled choice without an error toast on the click path', async () => {
+    for (const id of ['text', 'other-text']) mocks.installedManifests.push({ id, defaultLocale: 'en', contributes: { tabs: [{ name: 'view', title: 'Text', opensFiles: { session: ['.txt'] } }] } });
+    mocks.showModal.mockImplementation((_kind: unknown, props: { onClose: () => void }) => props.onClose());
+    await expect(openFileInSessionEditor('project-1', 'session-1', 'a.txt', { ask: true })).resolves.toBeUndefined();
+    await makeFileLinkHandlers('project-1', 'session-1').onOpenFile('a.txt');
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
+  });
+
+  it('the shared click handler and change-card entry report a missing file', async () => {
+    mocks.fileExists.mockResolvedValue({ success: true, data: { exists: false, isDirectory: false } });
+    await makeFileLinkHandlers('project-1', 'session-1').onOpenFile('gone.txt');
+    await openFileBesideConversation('project-1', 'session-1', 'gone.txt');
+    expect(mocks.toastError).toHaveBeenCalledTimes(2);
+    expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.showModal.mockReset();
     mocks.showPage.mockReset();
     mocks.installedManifests.length = 0;
     mocks.openWithDefaults = {};
@@ -146,38 +172,9 @@ describe('task file preview routing', () => {
     mocks.getHomeDirectory.mockResolvedValue('/Users/tester');
     mocks.openPath.mockResolvedValue({ success: true });
     mocks.openIn.mockResolvedValue({ success: true });
-    // 默认:查不到副本就原样返回 —— 与主进程 `resolveAttachmentPath` 的兜底一致。
-    mocks.resolveAttachmentPath.mockImplementation((_sessionId: string, target: string) =>
-      Promise.resolve({ success: true, data: target })
-    );
   });
 
-  /**
-   * 消息里那条 mention 指着**用户自己那个文件**(agent 要改的就是它),点开却不能跟着走它:
-   * 它同时押在「文件还在不在」和「在不在 home 里」两件事上,而 home 之外 `openPath` 直接判死。
-   * 存过副本就开副本 —— 这正是 #5269 最初那个「点了没反应」。
-   */
-  it('附件存过副本就打开副本,❌ 不打开 home 之外那条原路径', async () => {
-    mocks.resolveAttachmentPath.mockResolvedValue({
-      success: true,
-      data: '/u/task-attachments/session-1/a1-report.pdf',
-    });
-
-    await openFileInSessionEditor('project-1', 'session-1', '/Volumes/SSD/report.pdf');
-
-    // PDF 开在文件 tab 里(那张表里有它自己的渲染器),而路径指的是**副本**。
-    await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
-        'file',
-        { path: '/u/task-attachments/session-1/a1-report.pdf', external: true },
-        { preview: false }
-      )
-    );
-    expect(mocks.openPath).not.toHaveBeenCalled();
-  });
-
-  it('❌ 查不到副本就照旧指原路径 —— 工作区外的普通文件本来就该开它自己', async () => {
-    // 阴控:上一条若是把所有路径都改写成副本,这一条会红。
+  it('工作区外的普通文件照原路径打开', async () => {
     await openFileInSessionEditor('project-1', 'session-1', '/Volumes/SSD/report.pdf');
 
     await vi.waitFor(() =>
@@ -303,8 +300,7 @@ describe('task file preview routing', () => {
       data: { exists: false, isDirectory: false },
     });
 
-    await openFresh('project-1', 'session-1', '~/gugu-linktest/b.md');
-    await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+    await expect(openFresh('project-1', 'session-1', '~/gugu-linktest/b.md')).rejects.toThrow();
 
     await openFresh('project-1', 'session-1', '~/gugu-linktest/b.md');
     // 第二次必须已经展开 —— rejected promise 被 cache 住的话这一步还是 toast。
@@ -791,8 +787,8 @@ describe('task file preview routing', () => {
   describe('「用哪个打开」 when several Apps claim it (真源 §2.4, 主人 09-29)', () => {
     const twoClaims = () => {
       mocks.installedManifests.push(
-        { id: 'sheets', contributes: { tabs: [{ name: 'grid', title: 'Grid', opensFiles: { session: ['.csv'] } }] } },
-        { id: 'tables', contributes: { tabs: [{ name: 'main', title: 'Tables', opensFiles: { session: ['.csv'] } }] } },
+        { id: 'sheets', defaultLocale: 'en', contributes: { tabs: [{ name: 'grid', title: 'Grid', opensFiles: { session: ['.csv'] } }] } },
+        { id: 'tables', defaultLocale: 'en', contributes: { tabs: [{ name: 'main', title: 'Tables', opensFiles: { session: ['.csv'] } }] } },
       );
     };
 

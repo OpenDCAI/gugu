@@ -1,8 +1,9 @@
 import { useEffect, type RefObject } from 'react';
 import { focusSessionComposer } from '@renderer/features/sidebar/session-keyboard-nav';
+import { sessionNavContextFor } from '@renderer/features/sidebar/session-keyboard-nav-listener';
 
 /**
- * 项目块里浮着的文件夹卡(gugu-dev#181):按 Esc 卡就让开;直接打字卡不让开,打的字落进新任务的框(焦点在别处也一样)。
+ * 项目块里浮着的文件夹卡(gugu-dev#181):键没有别的主人时,按 Esc 卡就让开;直接打字卡不让开,打的字落进新任务的框。
  * owner 10-26:「怎么输入框一打字，彩色文件夹就消失了，这不对」—— 卡只在选了一张文件夹或按 Esc 时收起。
  *
  * 在 window 的捕获阶段接:输入框里的 Esc 是会话键盘导航的「离开输入框」,它挂在 document 上,处理完就停止冒泡,
@@ -13,6 +14,7 @@ export function useFloatingCardKeys(cardShown: boolean, hideCard: () => void, do
   useEffect(() => {
     if (!cardShown) return;
     const onKey = (event: KeyboardEvent) => {
+      if (!sessionNavContextFor(event)) return;
       if (event.key === 'Escape') {
         hideCard();
         event.preventDefault();

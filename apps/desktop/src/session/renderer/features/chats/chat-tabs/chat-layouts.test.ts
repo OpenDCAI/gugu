@@ -30,10 +30,11 @@ import {
   updateFileNames,
 } from './chat-layouts';
 import { CHAT_TAB_KIND } from './chat-tab-providers';
+import { tabFullscreen } from '../../tabs/tab-fullscreen';
 
 const board: PanelItem = { kind: 'kanban.board', title: 'Board' };
 const deck: PanelItem = { kind: 'slides.main', itemId: 'deck', typedName: 'deck.pptx', title: 'deck.pptx' };
-const file = (id: string): PanelItem => ({ kind: 'workspace.main', itemId: id, title: `${id}.md`, fileName: `${id}.md` });
+const file = (id: string): PanelItem => ({ kind: 'workspace.file', itemId: id, title: `${id}.md`, fileName: `${id}.md` });
 const kinds = (chatId: string) => panelTabsOf(chatId).map((tab) => tab.item.itemId ?? tab.item.kind);
 const pane = (chatId: string) => chatLayoutOf(chatId).groups[0]!.pane;
 const strip = (chatId: string) => pane(chatId).tabOrder.map((id) => pane(chatId).entries.get(id)!.kind);
@@ -76,8 +77,8 @@ describe('opening beside the chat', () => {
     openPanelItem('beside-3', { kind: 'kanban.file', itemId: 'B', title: '协作看板' });
     openPanelItem('beside-3', { kind: 'kanban.board', itemId: 'B', title: '协作看板' });
     expect(panelTabsOf('beside-3')).toHaveLength(1);
-    openPanelItem('beside-3', { kind: 'workspace.main', itemId: 'B', title: '协作看板.board' });
-    expect(panelTabsOf('beside-3').map((tab) => tab.item.kind)).toEqual(['workspace.main', 'kanban.board']);
+    openPanelItem('beside-3', { kind: 'workspace.file', itemId: 'B', title: '协作看板.board' });
+    expect(panelTabsOf('beside-3').map((tab) => tab.item.kind)).toEqual(['workspace.file', 'kanban.board']);
   });
 
   it('the folder is a tab only once it is opened, opened again it is the same one, and its × lets it go', () => {
@@ -154,6 +155,41 @@ describe('filling the block (the old 「全屏」) is the pair separated', () =>
     setPanelFull('full-1', tab, false);
     expect(panelFull('full-1', tab)).toBe(false);
     expect(chatAlone('full-1')).toBe(false);
+  });
+
+  it.each([false, true])('multi-block fullscreen preserves whether the panel is separated (separated=%s)', (separated) => {
+    const chatId = `full-pair-projection-${separated}`;
+    const tab = openPanelItem(chatId, board)!;
+    if (separated) setPanelFull(chatId, tab, true);
+    const host = pane(chatId);
+    const saved = JSON.stringify(chatLayoutOf(chatId).snapshot);
+    const pair = host.livePair && { ...host.livePair };
+    if (separated) expect(host.tabFill(tab)).toBeNull(); // A lone, unpaired page already fills its only block.
+    try {
+      host.tabFill(tab, true)!.toggle(); // Same multi-block capability passed by GenericTabItem.
+      expect(tabFullscreen.isOn(host, tab)).toBe(true);
+      expect(host.shownTabIds).toEqual([tab]);
+      expect(panelFull(chatId, tab)).toBe(separated);
+      expect(host.livePair).toEqual(pair);
+      expect(JSON.stringify(chatLayoutOf(chatId).snapshot)).toBe(saved);
+    } finally {
+      tabFullscreen.exit();
+    }
+    expect(panelFull(chatId, tab)).toBe(separated);
+    expect(JSON.stringify(chatLayoutOf(chatId).snapshot)).toBe(saved);
+  });
+
+  it('keeps an intact pair when the block temporarily fits only one page', () => {
+    const chatId = 'full-pair-narrow';
+    const tab = openPanelItem(chatId, board)!;
+    const host = pane(chatId);
+    const saved = JSON.stringify(chatLayoutOf(chatId).snapshot);
+    host.setDimensions(200, 900);
+    expect(host.shownTabIds).toEqual([tab]);
+    expect(panelFull(chatId, tab)).toBe(false);
+    host.setDimensions(1600, 900);
+    expect(host.shownTabIds).toHaveLength(2);
+    expect(JSON.stringify(chatLayoutOf(chatId).snapshot)).toBe(saved);
   });
 });
 

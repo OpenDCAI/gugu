@@ -21,6 +21,9 @@ import { getSessionWorkspaceActionOrder, sessionWorkspaceActionBlocked } from '.
 import { registerWorkspaceBackend, type WorkspaceBackend } from './workspace-backend/workspace-backend';
 import { ShellTitlebar } from '@renderer/lib/components/titlebar/shell-titlebar';
 import { NEW_SESSION_DRAFT_KEY, composerDrafts, projectDraftKey } from './composer-drafts';
+import { useComposerTrayBand } from './composer-tray';
+import { cancelComposerVerb } from './composer-verb-tag';
+import { readComposerVerb, setComposerVerb, takeComposerCarry } from '@/lib/composerVerbBridge';
 
 const mocks = vi.hoisted(() => ({
   notify: vi.fn(),
@@ -133,7 +136,7 @@ vi.mock('@renderer/features/sessions/hooks/useSessionSettings', () => ({
 vi.mock('@renderer/features/sessions/session-config/session-field', () => ({
   SessionField: (props: { showAutoApproveToggle?: boolean; canSubmit?: boolean }) => {
     mocks.sessionFieldProps = props;
-    return React.createElement('div', { 'data-testid': 'active-task-composer' });
+    return React.createElement('div', { 'data-testid': 'active-task-composer' }, useComposerTrayBand());
   }
 }));
 
@@ -143,13 +146,14 @@ vi.mock('./implicit-session-home-project', () => ({
 
 vi.mock('@renderer/features/sessions/session-config/initial-session-section', () => ({
   useInitialSessionState: (...args: unknown[]) => {
-    mocks.initialPrompt = (args[3] as { initialPrompt?: string } | undefined)?.initialPrompt;
+    const options = args[3] as { initialPrompt?: string; draft?: ReturnType<typeof composerDrafts.forKey> } | undefined;
+    if (options?.draft && mocks.prompt !== null) options.draft.setPrompt(mocks.prompt);
+    mocks.initialPrompt = options?.draft?.prompt ?? options?.initialPrompt;
     return {
       prompt: mocks.prompt ?? mocks.initialPrompt ?? '',
       issueContextEditorOpen: false,
-      // #4325 —— 「这一轮带了内容」把待发附件一并算上,所以这份替身也必须有这个通道。
+      // 「这一轮带了内容」把待发附件一并算上,所以这份替身也必须有附件。
       attachments: [],
-      captureAttachmentDraft: () => ({ uploads: [], pending: [] }),
     };
   }
 }));
@@ -351,6 +355,30 @@ describe('NewSessionPage', () => {
     expect(homeView.TitlebarSlot).toBe(ShellTitlebar);
   });
 
+  it('cancelling the task verb carries text back and discards attachments and the old task retry', () => {
+    const key = 'cancel-task-draft';
+    const draft = composerDrafts.forKey(key);
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    draft.setPrompt('carry these words');
+    draft.setPending([{ chip: { id: 'image', name: 'image.png', kind: 'image', previewUrl: 'blob:cancel-task' }, file: new File(['image'], 'image.png') }]);
+    draft.setPendingMessage({ projectId: 'project-1', sessionId: 'old-task', clientMessageId: 'old-message', prompt: 'old words', text: 'old words' });
+    draft.setDeliveryError({ kind: 'raw', detail: 'old failure' });
+    setComposerVerb('chat-cancel', 'task');
+
+    cancelComposerVerb('chat-cancel', key);
+
+    expect(readComposerVerb('chat-cancel')).toBeNull();
+    expect(takeComposerCarry('chat-cancel')).toBe('carry these words');
+    const reopened = composerDrafts.forKey(key);
+    expect(reopened).not.toBe(draft);
+    expect(reopened.prompt).toBe('');
+    expect(reopened.pending).toEqual([]);
+    expect(reopened.pendingMessage).toBeNull();
+    expect(reopened.deliveryError).toBeNull();
+    expect(revoke.mock.calls.filter(([url]) => url === 'blob:cancel-task')).toHaveLength(1);
+    revoke.mockRestore();
+  });
+
   it('keeps the full zero-height shell titlebar available for moving the window', async () => {
     await renderPage();
 
@@ -447,8 +475,7 @@ describe('NewSessionPage', () => {
       'side-session',
       'review',
       'terminal',
-      'browser',
-      'files'
+      'browser'
     ]);
   });
 
@@ -464,7 +491,7 @@ describe('NewSessionPage', () => {
       projectId === 'on-tunnel' ? remote(false) : projectId === 'on-ssh' ? remote(true) : null
     );
     try {
-      const full = ['side-session', 'review', 'terminal', 'browser', 'ports', 'files'];
+      const full = ['side-session', 'review', 'terminal', 'browser', 'ports'];
       expect(getSessionWorkspaceActionOrder('on-tunnel')).toEqual(full);
       expect(getSessionWorkspaceActionOrder('on-ssh')).toEqual(full);
       expect(full.filter((id) => sessionWorkspaceActionBlocked('on-tunnel', id as never))).toEqual([
@@ -509,17 +536,6 @@ describe('NewSessionPage', () => {
     });
     // 没选 = 项目根目录(这里的 git 上下文桩给的根目录是 null)。
     expect(mocks.createSessionStateWorkspaceId).toBeNull();
-  });
-
-  it('keeps the capability-backed permission selector on the message-page composer', async () => {
-    await act(async () => {
-      root.render(localized(React.createElement(NewSessionComposer, {
-        projectId: 'project-1',
-        creationSurface: 'chat-page'
-      })));
-    });
-
-    expect(mocks.sessionFieldProps?.showAutoApproveToggle).toBe(true);
   });
 
   it('draws the shared machine picker (compact size) in the composer tray', async () => {
@@ -567,6 +583,7 @@ describe('NewSessionPage', () => {
     await renderPage();
     expect(mocks.initialPrompt).toBe('写了一半的首句');
 
+    await act(async () => composerDrafts.forKey(NEW_SESSION_DRAFT_KEY).take());
     await act(async () => mocks.onCreated?.({ projectId: 'implicit-task-home', sessionId: 'session-1' }));
     await act(async () => root.render(localized()));
     await renderPage();

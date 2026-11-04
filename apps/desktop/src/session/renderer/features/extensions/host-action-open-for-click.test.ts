@@ -83,7 +83,7 @@ describe('showing an already-open file while its metadata is checked', () => {
       await applyExtensionHostAction({ origin, action: { kind: 'openWith', detail: {
         background: true, chatId: 'chat', itemId: 'file', name: 'renamed.md', typedName: 'renamed.md',
         file: { document: true, contentType: 'text/markdown', version: 2, size: 5 },
-        choice: { kind: 'one', candidate: { extensionId: 'workspace', tabKind: 'workspace.main', tabTitle: 'Files', app: { name: 'Files' }, onlyTab: true, suffix: '.md' } },
+        choice: { kind: 'one', candidate: { extensionId: 'workspace', tabKind: 'workspace.main', tabTitle: 'Files', app: { name: 'Files', defaultLocale: 'en' }, onlyTab: true, suffix: '.md', state: false } },
       } } });
       expect(updateFileNames).toHaveBeenCalledWith([{ id: 'file', filename: 'renamed.md', content_type: 'text/markdown' }], expect.any(Array));
       expect(showChatTab).not.toHaveBeenCalled();

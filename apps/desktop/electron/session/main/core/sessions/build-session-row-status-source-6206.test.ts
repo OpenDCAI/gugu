@@ -12,6 +12,7 @@ const create = {
   projectId: 'p1',
   workspaceId: 'w1',
   title: 'T',
+  agentDisplayName: 'Codex 1',
   origin: { kind: 'create' as const, firstUtterance: 'hi' },
   claimsFirstSpawn: false,
 };
@@ -32,4 +33,11 @@ describe('conversation birth status follows the status source (#6206)', () => {
     expect(() => buildSessionRow({ ...create, provider: 'no-such-harness' as never, runtime: 'pty' }))
       .toThrow(/unknown agent provider 'no-such-harness'/);
   });
+});
+
+it('retains a file-only ACP first turn without inventing text in its prompt', () => {
+  const files = [{ itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 }];
+  const { origin: _origin, ...rest } = create;
+  const row = buildSessionRow({ ...rest, provider: 'claude' as never, runtime: 'acp', initialQueue: [{ text: '', origin: 'manual', files }] });
+  expect(row.config).toMatchObject({ initialQueue: [{ text: '', origin: 'manual', files }] });
 });

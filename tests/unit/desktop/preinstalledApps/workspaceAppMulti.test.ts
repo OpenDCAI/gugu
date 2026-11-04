@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // 群文件夹第三步(owner 10-28):多选 —— 勾选框、Ctrl/⌘、Shift 连续选、长按(手机);选中以后一次下载(API 20:桌面问
-// 一次文件夹、手机走系统分享)、一起设为临时或一直保留(只交自己传的、有云端副本的,其余说明跳过了几个)、在聊天中
+// 一次文件夹、手机走系统分享)、一起设为临时或持续保存(只交自己传的、有云端副本的,其余说明跳过了几个)、在聊天中
 // 一条一条定位(1/3 ‹ ›)。换文件夹、换类型都放开选中。页面跑在假的 window.gugu 上。
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -33,12 +33,15 @@ const gugu = {
   showMessage: vi.fn(async () => {}),
   clipboard: { writeText: vi.fn(async () => {}) },
   files: {
+    // Asked as a row's menu opens (a list carries no delete answer); the rig answers from its fixtures.
+    canDelete: vi.fn(async (files: unknown) => [files].flat().map((file) => (file as { canDelete?: boolean }).canDelete === true)),
     viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => ENTRIES.map((e) => ({ ...e }))),
     onChanged: vi.fn(() => () => {}),
     openWith: vi.fn(async () => {}),
     download: vi.fn(async (files: unknown[]) => (Array.isArray(files) ? files.length : true)),
     keep: vi.fn(async (files: unknown[]) => ({ changed: files.length })),
+    forward: vi.fn(async () => {}) as ReturnType<typeof vi.fn> | undefined,
   },
 }
 
@@ -199,8 +202,8 @@ describe('picking', () => {
     open('c')
     row('b').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 90, clientY: 20 }))
     const actions = [...$('menu').querySelectorAll<HTMLButtonElement>('button')]
-    expect(actions.map((item) => item.textContent)).toEqual(['下载', '设为临时', '一直保留', '在聊天中定位', '取消选择'])
-    actions[0]!.click()
+    expect(actions.map((item) => item.textContent)).toEqual(['转发', '下载', '设为临时', '设为持续保存', '在聊天中定位', '取消选择'])
+    actions[1]!.click()
     await until('batch download called', () => gugu.files.download.mock.calls.length > 0)
     expect(gugu.files.download).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'a' }), expect.objectContaining({ id: 'c' })])
   })
@@ -252,6 +255,45 @@ describe('picking', () => {
     expect(bar().hidden).toBe(true)
     $('kinds').querySelector<HTMLButtonElement>('[data-kind="all"]')!.click()
     expect(picked()).toEqual([])
+  })
+})
+
+describe('转发 (API 23)', () => {
+  const menuOf = (id: string) => {
+    row(id).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 90, clientY: 20 }))
+    return [...$('menu').querySelectorAll<HTMLButtonElement>('button')]
+  }
+
+  test('a file\'s menu: Forward first in the use group (as a message\'s menu has it before Download); the host\'s page gets that file', async () => {
+    const items = menuOf('a')
+    const labels = items.map((item) => item.textContent)
+    expect(labels.slice(labels.indexOf('转发'), labels.indexOf('转发') + 3)).toEqual(['转发', '下载', '复制链接'])
+    items.find((item) => item.textContent === '转发')!.click()
+    await until('forward asked', () => gugu.files.forward!.mock.calls.length > 0)
+    expect(gugu.files.forward).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'a' })])
+  })
+
+  test('picked files: one Forward for them all, in the order on screen; the selection is let go once the host\'s page is up', async () => {
+    gugu.files.forward!.mockClear()
+    open('c', { ctrlKey: true })
+    open('a', { ctrlKey: true })
+    barButton('转发').click()
+    await until('forward asked', () => gugu.files.forward!.mock.calls.length > 0)
+    expect(gugu.files.forward).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'a' }), expect.objectContaining({ id: 'c' })])
+    await until('let go', () => picked().length === 0)
+  })
+
+  test('a host before API 23 (no files.forward): no Forward anywhere, rather than one that fails', () => {
+    const forward = gugu.files.forward
+    delete gugu.files.forward
+    try {
+      expect(menuOf('a').map((item) => item.textContent)).not.toContain('转发')
+      pressEscape()
+      open('a', { ctrlKey: true })
+      expect([...bar().querySelectorAll('button')].map((item) => item.textContent)).not.toContain('转发')
+    } finally {
+      gugu.files.forward = forward
+    }
   })
 })
 

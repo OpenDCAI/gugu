@@ -8,7 +8,7 @@ import { rendererLogger } from '../../lib/log'
 
 const announcementLog = rendererLogger('chat/announcements')
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
-import { formatCalendarDay } from '../../lib/calendarTime'
+import { formatCalendarDay } from '@/i18n/format'
 import { Avatar } from '../Avatar'
 import { useChatStore } from '../../store/chatContext'
 

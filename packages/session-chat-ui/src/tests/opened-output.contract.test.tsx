@@ -157,7 +157,7 @@ describe('opened-output cards on a mounted ChatView', () => {
     const onOpenOutput = vi.fn();
     const onOutputMenu = vi.fn();
     await page.viewport(1000, 800);
-    const ctx = createChatContext();
+    const ctx = createChatContext({ locale: () => 'en-US' });
     ctx.setLayout({ preset: 'double', userGutter: 72 });
     const state = createChatState(ctx);
     state.transcript.history.seed([TURN]);
@@ -223,7 +223,7 @@ describe('opened-output cards on a mounted ChatView', () => {
   // #7305(owner 10-16 截图:停止键亮着,对话最后已经挂出两张卡):卡是这一轮交出来的东西,跑完或被停下才出。
   it('while the turn is still running there is no card; it appears once the turn settles', async () => {
     await page.viewport(1000, 800);
-    const ctx = createChatContext();
+    const ctx = createChatContext({ locale: () => 'en-US' });
     ctx.setLayout({ preset: 'double', userGutter: 72 });
     const state = createChatState(ctx);
     const { endedAt: _endedAt, outcome: _outcome, ...running } = TURN;

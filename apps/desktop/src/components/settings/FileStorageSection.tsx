@@ -5,7 +5,6 @@ import { messageForUser } from '@/lib/userFacingError'
 import { listMyDeviceProjects } from '../../lib/deviceProjects'
 import { readFileStorage, writeFileStorage } from '../../lib/fileStorage'
 import { useAuth } from '../../store/auth'
-import { useDevicesStore } from '../../store/devicesContext'
 import { Button } from '../ui/Button'
 import { useSettingsDetail } from './SettingsDetailNavigation'
 import { FileStorageDashboard } from './FileStorageDashboard'
@@ -24,7 +23,6 @@ export function FileStorageSection({ onBack }: { onBack: () => void }) {
   const { t } = useTranslation('settings')
   useSettingsDetail('file-storage', t('fileStorage.title'), onBack)
   const { user } = useAuth()
-  const { devices } = useDevicesStore()
   const [state, setState] = useState<{ storage: FileStorage; machines: string[] } | null>(null)
   const [loadFailed, setLoadFailed] = useState('')
   const [saveFailed, setSaveFailed] = useState('')
@@ -67,7 +65,6 @@ export function FileStorageSection({ onBack }: { onBack: () => void }) {
   const { storage } = state
   const cloud = storage.proactive_upload
   const bound = state.machines.length > 0
-  const labels = state.machines.map((id) => devices.find((device) => device.device_id === id)?.label ?? id.slice(0, 8))
   // One group of settings under the dashboard (owner 10-28 design): the project rows only for someone with a bound machine.
   const settings = (
     <SettingsGroup title={t('fileStorage.settingsTitle')}
@@ -77,7 +74,7 @@ export function FileStorageSection({ onBack }: { onBack: () => void }) {
         {saveFailed && <SettingsNote tone="danger">{saveFailed}</SettingsNote>}
       </>}>
       {bound && <SettingsRow title={<label htmlFor="settings-file-mode">{t('fileStorage.files')}</label>}
-        description={`${t(cloud ? 'fileStorage.filesCloudHint' : 'fileStorage.filesMachineHint')} ${t('fileStorage.machines', { machines: labels.join('、') })}`}
+        description={`${t(cloud ? 'fileStorage.filesCloudHint' : 'fileStorage.filesMachineHint')} ${t('fileStorage.machines')}`}
         control={(
           <select id="settings-file-mode" className="gg-settings-select" value={cloud ? 'cloud' : 'machine'}
             onChange={(event) => update(event.target.value === 'cloud' ? { proactive_upload: true } : { proactive_upload: false, temporary_transfer: true })}>

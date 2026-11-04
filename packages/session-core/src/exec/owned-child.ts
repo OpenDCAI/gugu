@@ -1,10 +1,6 @@
-import {
-  execFile,
-  spawn,
-  type ChildProcess,
-  type ChildProcessWithoutNullStreams,
-  type SpawnOptions,
-} from 'node:child_process';
+import type { ChildProcess, ChildProcessWithoutNullStreams, SpawnOptions } from 'node:child_process';
+// 相对 `.ts` 路径同下:这份源码会被 node 直接跑。
+import { execFile, spawn } from '../../../core/src/local/childProcess.ts';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 // `.ts` 全路径:codex ACP 桥(runtime/codex-app-server-acp.mjs)在单测里由 node 直接跑这份源码。
@@ -15,7 +11,11 @@ import { planDirectSpawn } from './windows-launcher.ts';
  *
  * - POSIX:`detached: true` 让子进程自成一组,信号发给 `-pid`(整组);组已不在就退回只发给它本身。
  *   不 detached 的子进程与宿主同组,只能发给它本身。
- * - Windows:没有进程组,`child.kill()` 只结束 `child.pid` 这一个进程。停止 = 在**活根**上异步
+ * - Windows:`detached` 一律不传给 spawn。那里它不是进程组,而是 `DETACHED_PROCESS`:子进程没有控制台,
+ *   CREATE_NO_WINDOW 被系统忽略 ⇒ 它再起的每个控制台孙进程(git、reg、where…)各弹一个新黑框;包了
+ *   cmd.exe / powershell.exe 时连输出都接不到管道上(2026-09-16 win-dev 实测 `codex.cmd --version`:
+ *   detached:true 时 exit 0、stdout 空)。不 detached ⇒ 子进程拿到一个隐藏的控制台,孙进程继承它。
+ *   没有进程组,`child.kill()` 只结束 `child.pid` 这一个进程。停止 = 在**活根**上异步
  *   `taskkill /T /F`,它沿父子链走完整棵树。根已退出时不再按它的 pid 发任何东西(pid 可能已被复用)。
  *   taskkill 一律异步起:同步 spawn 会挂住调用它的线程,而调用方包括 Electron 主进程的退出停机。
  *
@@ -61,11 +61,11 @@ export function spawnOwnedChild(
   { onError, platform = process.platform, ...spawnOptions }: OwnedChildOptions
 ): OwnedChild {
   const launch = planDirectSpawn(command, args, { env: spawnOptions.env, platform });
-  const child = spawn(launch.command, launch.args, { ...spawnOptions, ...launch.spawnOverrides });
-  child.on('error', onError);
-  const exited = new Promise<void>((resolve) => child.on('exit', () => resolve()));
   const windows = platform === 'win32';
   const group = !windows && spawnOptions.detached === true;
+  const child = spawn(launch.command, launch.args, { ...spawnOptions, ...launch.spawnOverrides, detached: group });
+  child.on('error', onError);
+  const exited = new Promise<void>((resolve) => child.on('exit', () => resolve()));
   const hasExited = (): boolean => child.exitCode != null || child.signalCode != null;
   /** 根已退出,且(成组时)组里也没人了 —— 此后这个 pid / pgid 可能被复用,不再对它发任何信号。 */
   const isSettled = (): boolean => hasExited() && !(group && processAlive(-child.pid!));
@@ -141,7 +141,7 @@ function taskkillTree(pid: number): Promise<void> {
   // 按系统目录取绝对路径:PATH 上同名的别的东西不该被当成 taskkill。
   const taskkill = path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');
   return new Promise((resolve, reject) => {
-    execFile(taskkill, ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 5_000 }, (error, _stdout, stderr) => {
+    execFile(taskkill, ['/PID', String(pid), '/T', '/F'], { timeout: 5_000 }, (error, _stdout, stderr) => {
       if (error) reject(new Error(`taskkill /T /F ${pid} failed: ${error.message} ${String(stderr).trim()}`));
       else resolve();
     });

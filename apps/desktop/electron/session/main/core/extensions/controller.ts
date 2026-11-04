@@ -1,6 +1,5 @@
 import type { ChatFileRef } from '@shared/extensions/app-files-core';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { app } from 'electron';
 import {
   clearExtensionSessionData,
@@ -12,6 +11,7 @@ import {
   bindExtensionSurface,
   retargetExtensionSurface,
   notifyGroupWorkspaceChanged,
+  notifyWatchedChatsChanged,
   notifyInstalledAppsChanged,
   invokeExtensionCommand,
   deliverToOpeningPage,
@@ -58,6 +58,7 @@ import {
   extensionTabKind,
   parseExtensionTabKind,
   type ExtensionManifest,
+  isConfinedToolProgram,
 } from '@shared/extensions/manifest';
 import type { CloudMarketEntry, MarketListItem } from '@shared/extensions/market';
 import {
@@ -98,23 +99,6 @@ function disclosureOf(manifests: readonly ExtensionManifest[]) {
       .filter((manifest) => (manifest.contributes.mcpServers ?? []).length > 0)
       .map((manifest) => [manifest.id, extensionsService().disclosure(manifest.id)])
   );
-}
-
-/** The installed copy of an extension when what is installed is exactly this version; null otherwise. */
-function installedAtVersion(extensionId: string, version: string) {
-  try {
-    const installed = extensionsService().get(extensionId);
-    return installed.manifest.version === version ? installed : null;
-  } catch {
-    // not installed here (or unreadable): the copy to read is the market's
-    return null;
-  }
-}
-
-/** The bundle's README.md (the file the market keeps from a package, any letter case); null when it has none. */
-function readBundleReadme(rootDir: string): string | null {
-  const name = fs.readdirSync(rootDir).find((file) => file.toLowerCase() === 'readme.md');
-  return name ? fs.readFileSync(path.join(rootDir, name), 'utf8') : null;
 }
 
 /**
@@ -236,10 +220,12 @@ export const extensionsController = createRPCController({
       if (extensionOpened(installed.manifest.id)) events.emit(extensionsQuitChangedChannel, { quit: quitExtensions() });
       configureExtensionSession({
         extensionId: installed.manifest.id,
+        apiVersion: installed.manifest.apiVersion,
         rootDir: installed.rootDir,
         // What it may reach, not what it asked for: a host the user took back
         // is enforced away here and mirrored out of the served CSP.
         networkHosts: extensionsService().grantedHosts(installed.manifest.id),
+        declaredHosts: installed.manifest.permissions?.network ?? [],
       });
       return {
         success: true,
@@ -266,22 +252,18 @@ export const extensionsController = createRPCController({
    * can never hand one extension another's grants.
    */
   bindSurface: async (args: {
+    resourceChat?: string;
     opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;
     extensionId: string;
-    /** Absent for a surface in no task (a group's side panel, L3). */
-    sessionId?: string;
     tabId: string;
     /** `<extensionId>.<tabName>` — which declared tab this surface draws. */
     tabKind: string;
-    /** The file of its session this tab was opened for (an extension claimed its type). */
+    /** The file of its workspace this tab was opened for (an extension claimed its type). */
     filePath?: string;
-    /** G1 With `filePath` and no session: the project whose folder that file is in. */
-    projectId?: string;
-    /** The chat this surface is drawn for, and the chat file it was opened for (L3). */
-    chatId?: string;
+    /** The chat file it was opened for (L3). */
     itemId?: string;
-  }) => {
+  } & Partial<import('@shared/extensions/app-runtime-protocol').AppWhere>) => {
     try {
       // A page the host draws is the person's to work (owner 10-14); only main's own `app_check` binds one for an agent.
       await bindExtensionSurface({ ...args, operator: { kind: 'person' } });
@@ -387,6 +369,12 @@ export const extensionsController = createRPCController({
     return { success: true };
   },
 
+  /** A device of the account went on or off: the folders on screen read their files again, so each says where it is kept now. */
+  devicesOnlineChanged: async () => {
+    void notifyWatchedChatsChanged();
+    return { success: true };
+  },
+
   /** The remembered 「始终用它」 choices (`<context>:<suffix>` → tab kind), for the host's open paths. */
   openWithDefaults: async () => {
     try {
@@ -424,14 +412,13 @@ export const extensionsController = createRPCController({
    * 与 bindSurface 分开:bind 只在这张页第一次出现时做一次;之后每切一次会话走这条。
    */
   retargetSurface: async (args: {
+    resourceChat?: string;
     opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;
-    sessionId?: string;
     tabId: string;
     filePath?: string;
-    chatId?: string;
     itemId?: string;
-  }) => {
+  } & Partial<import('@shared/extensions/app-runtime-protocol').AppWhere>) => {
     try {
       await retargetExtensionSurface(args);
       return { success: true };
@@ -621,27 +608,15 @@ export const extensionsController = createRPCController({
   },
 
   /**
-   * 这一版包里的 README(可能没有)。这台机器装着的正是这一版,就读装好的那份 —— 从文件夹装的、从聊天里装的、
-   * 内置的都一样,包里写了就有(#6950:从前只问市场,文件夹装的永远是「作者没写说明」);没装这一版才问市场。
-   * 名字沿用:别的机器按这个名字调它,改名就要动机器之间的协议。
+   * 市场上这一版的产品页内容(关于、截图):只有上架的版本有 —— `store/` 不进安装包,本机装的 App 没有它(owner 10-31)。
+   * 读不到就报错,❌ 改读别处。别的机器也按这个名字调它(机器之间的协议):太旧、还没有它的那台,对端说不认得这个方法。
    */
-  marketReadme: async (args: { extensionId: string; version: string }) => {
+  marketListing: async (args: { extensionId: string; version: string }) => {
     try {
-      const installed = installedAtVersion(args.extensionId, args.version);
-      if (!installed) return { success: true, data: { readme: await cloudExtensionMarket().readme(args.extensionId, args.version) } };
-      // 从市场装的:读市场上这一版的那份 —— 字一样(版本不可变),但 README 里的截图已改写成下载站地址;
-      // 包里那份是相对路径,产品页的「预览」画不出来(#7059)。连不上才读装好的那份。
-      // 文件夹、聊天里装的读它自己的(#6950):同 id 同版本的市场那份未必是它。
-      const fromMarket =
-        extensionsService().origins()[args.extensionId] === 'market'
-          ? await cloudExtensionMarket()
-              .readme(args.extensionId, args.version)
-              .catch(() => null)
-          : null;
-      return { success: true, data: { readme: fromMarket ?? readBundleReadme(installed.rootDir) } };
+      return { success: true as const, data: await cloudExtensionMarket().listing(args.extensionId, args.version) };
     } catch (error) {
-      log.error('Failed to read extension README:', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      log.warn(`Market listing not read: ${error instanceof Error ? error.message : String(error)}`);
+      return { success: false as const, error: error instanceof Error ? error.message : String(error) };
     }
   },
 
@@ -817,14 +792,19 @@ export const extensionsController = createRPCController({
     try {
       const service = extensionsService();
       service.setPermissionGranted(args.extensionId, args.permission, args.granted);
-      if (args.permission === 'agents:tools' && !args.granted) {
-        void revokeExtensionPrograms(args.extensionId).catch((error: unknown) => log.warn('App program did not stop after permission withdrawal:', error));
-      }
       const installed = service.get(args.extensionId);
+      if ((!args.granted && args.permission === 'agents:tools') || (
+        installed.manifest.permissions?.network?.includes(args.permission)
+        && installed.manifest.contributes.mcpServers?.some((server) => isConfinedToolProgram(installed.manifest.apiVersion, server))
+      )) {
+        void revokeExtensionPrograms(args.extensionId).catch((error: unknown) => log.warn('App program did not stop after permission change:', error));
+      }
       configureExtensionSession({
         extensionId: installed.manifest.id,
+        apiVersion: installed.manifest.apiVersion,
         rootDir: installed.rootDir,
         networkHosts: service.grantedHosts(installed.manifest.id),
+        declaredHosts: installed.manifest.permissions?.network ?? [],
       });
       // The filter binds at once; the CSP does not — it was stamped when the
       // document loaded. Reloading is what stops an open surface from carrying a

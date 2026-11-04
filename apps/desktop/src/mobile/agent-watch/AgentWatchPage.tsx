@@ -12,7 +12,7 @@ import { useDevicesStore } from '@/store/devicesContext'
 import { useBackLayer } from '@/components/ui/sheetStack'
 import { navigateMobile } from '../navigateMobile'
 import { requestAlertPermissionOnce, useAgentWatchAlerts, useAgentWatchFocus } from './useAgentWatchAlerts'
-import { agentOfSession, rowOpens, useAgentNames, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { rowOpens, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { MachinesPage } from './MachinesPage'
 import { ProjectsPage } from './ProjectsPage'
 import { SessionTimelinePage } from './SessionTimelinePage'
@@ -83,20 +83,24 @@ export function AgentWatchPage({
   const { devices: hosts, phones } = useDevicesStore()
   const devices = useMemo(() => [...new Map([...hosts, ...(phones ?? [])].map((one) => [one.device_id, one])).values()], [hosts, phones])
   const { toast } = useToast()
-  const [route, setRouteState] = useState<AgentWatchRoute>({ name: 'projects' })
-  // ❌ 不在渲染里回调:那是渲染期副作用。所有跳转都走这一个口子。
-  const setRoute = useCallback((next: AgentWatchRoute) => {
-    const depth = (page: AgentWatchRoute) => page.name === 'projects' ? 0 : page.name === 'create' ? 2 : 1
-    const update = () => { setRouteState(next); onRouteChange?.(next.name) }
-    if (active) navigateMobile(update, depth(next) < depth(route) ? 'pop' : 'push')
+  // 只记录实际走过的页。外部直达会话时,项目列表没有被访问,不能成为它的父页。
+  const [routes, setRoutes] = useState<AgentWatchRoute[]>([{ name: 'projects' }])
+  const route = routes[routes.length - 1]!
+  const navigate = useCallback((next: AgentWatchRoute[], direction: 'push' | 'pop' | 'replace') => {
+    const update = () => { setRoutes(next); onRouteChange?.(next[next.length - 1]!.name) }
+    if (active) navigateMobile(update, direction)
     else update()
-  }, [active, route, onRouteChange])
+  }, [active, onRouteChange])
+  const setRoute = useCallback((next: AgentWatchRoute) => navigate([...routes, next], 'push'), [navigate, routes])
+  const goBack = useCallback(() => {
+    if (routes.length > 1) navigate(routes.slice(0, -1), 'pop')
+    else onExit()
+  }, [navigate, routes, onExit])
   // 项目页的滚动位置:进时间线再回来页面是重新挂的,滚回离开时的地方。
   const projectsScroll = useRef(0)
 
   // 订阅在 AgentWatchRoot;这里只读会话目录,并报正盯着的那条(它不弹横幅:页头状态词已经在说这件事)。
   const live = useLiveDeviceSessions()
-  const agentNames = useAgentNames()
 
   // 路由只存 deviceId,机器行每次从 store 现查:在线状态会实时翻转,
   // 存下 Device 快照就会停在进页那一帧(离线机器上线了,页面还说它离线)。
@@ -105,21 +109,17 @@ export function AgentWatchPage({
   useAgentWatchFocus(active && device && route.name === 'timeline' ? { deviceId: route.deviceId, sessionId: route.session.conversationId } : null)
   // The fallback root must also restore the shell's bottom navigation and back stack.
   useEffect(() => {
-    if ('deviceId' in route && !device) setRoute({ name: 'projects' })
-  }, [route, device, setRoute])
+    if ('deviceId' in route && !device) navigate([{ name: 'projects' }], 'replace')
+  }, [route, device, navigate])
 
   // 「项目」tab 是手机壳返回栈里的一层(ui/sheetStack.ts):先在这张页的层级里往回退,退到根才离开这个 tab。
-  useBackLayer(() => {
-    if (route.name === 'timeline' || route.name === 'pick-machine') setRoute({ name: 'projects' })
-    else if (route.name === 'create') setRoute({ name: 'pick-machine' })
-    else onExit()
-  }, active)
+  useBackLayer(goBack, active)
 
   // 切走「项目」tab ⇒ 回到根页:相邻 tab 横滑过来看到的是这个 tab 的根(#6730),
   // 会话列表同步、时间线订阅与「正盯着」也不在屏外接着跑。
   useEffect(() => {
-    if (!active && route.name !== 'projects') setRoute({ name: 'projects' })
-  }, [active, route.name, setRoute])
+    if (!active && route.name !== 'projects') navigate([{ name: 'projects' }], 'replace')
+  }, [active, route.name, navigate])
 
   // 只认「变了」:重挂时带着旧计数不能自己跳进去。
   const seenCreateRequest = useRef(createRequest)
@@ -129,9 +129,9 @@ export function AgentWatchPage({
     if (createRequest === seenCreateRequest.current) return
     seenCreateRequest.current = createRequest
     setBirthGroup(createInGroup)
-    setRoute({ name: 'pick-machine' })
+    navigate([{ name: 'projects' }, { name: 'pick-machine' }], 'push')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 群只在请求变的那一刻读
-  }, [createRequest, setRoute])
+  }, [createRequest, navigate])
   useEffect(() => {
     if (route.name === 'projects') setBirthGroup(null)
   }, [route.name])
@@ -141,12 +141,13 @@ export function AgentWatchPage({
     if (!openRequest || openRequest === seenOpenRequest.current) return
     seenOpenRequest.current = openRequest
     // A row that does not open (an offline machine's, from its heartbeat): the person lands where it is listed, as a tap leaves them.
-    if ('projectId' in openRequest) { setRoute({ name: 'projects', reveal: openRequest }); return }
+    if ('projectId' in openRequest) { navigate([{ name: 'projects', reveal: openRequest }], 'push'); return }
     const { deviceId, session, tabKind, draft } = openRequest
-    setRoute(rowOpens(session)
+    const next: AgentWatchRoute = rowOpens(session)
       ? { name: 'timeline', deviceId, session, ...(tabKind ? { appKind: tabKind } : {}), ...(draft ? { draft } : {}) }
-      : { name: 'projects', reveal: { deviceId, sessionId: session.conversationId } })
-  }, [openRequest, setRoute])
+      : { name: 'projects', reveal: { deviceId, sessionId: session.conversationId } }
+    navigate([next], 'push')
+  }, [openRequest, navigate])
 
   // 机器在名下消失了(被删 / 换账号)⇒ 退回列表。派生而不是在渲染里 setState:
   // 后者会先画出一帧指向不存在机器的页。
@@ -160,10 +161,9 @@ export function AgentWatchPage({
         device={device}
         initialAppKind={route.appKind}
         session={liveSession ?? route.session}
-        agent={agentOfSession(liveSession ?? route.session, agentNames)}
         firstPrompt={route.firstPrompt}
         draft={route.draft}
-        onBack={() => setRoute({ name: 'projects' })}
+        onBack={goBack}
       />
     )
   }
@@ -175,7 +175,7 @@ export function AgentWatchPage({
         device={device}
         birthGroup={birthGroup}
         onClearBirthGroup={() => setBirthGroup(null)}
-        onBack={() => setRoute({ name: 'pick-machine' })}
+        onBack={goBack}
         // 从群里新建的会话回到那个群;其余打开新会话,返回时回到项目页。
         onCreated={(session, firstPrompt, result) => {
           const phone = isPhoneDevice(device)
@@ -186,11 +186,11 @@ export function AgentWatchPage({
           const groupId = phone ? result?.birthGroup?.chatId : birthGroup?.chatId
           if (groupId && onOpenGroupChat && (!phone || result?.birthGroup?.status === 'joined' || result?.birthGroup?.status === 'pending_approval')) {
             if (phone && result?.birthGroup?.status === 'pending_approval') toast(tWorkspace('groupJoinPending'), 'success')
-            setRoute({ name: 'projects' })
+            navigate([{ name: 'projects' }], 'replace')
             onOpenGroupChat(groupId)
             return
           }
-          setRoute({ name: 'timeline', deviceId: device.device_id, session, firstPrompt })
+          navigate([{ name: 'projects' }, { name: 'timeline', deviceId: device.device_id, session, firstPrompt }], 'replace')
         }}
       />
     )
@@ -199,7 +199,7 @@ export function AgentWatchPage({
   if (route.name === 'pick-machine') {
     return (
       <MachinesPage
-        onBack={() => setRoute({ name: 'projects' })}
+        onBack={goBack}
         onOpenDevice={(picked) => setRoute({ name: 'create', deviceId: picked.device_id })}
       />
     )

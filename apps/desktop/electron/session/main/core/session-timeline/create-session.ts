@@ -20,6 +20,7 @@ import {
   type SessionpageSessionView,
 } from '@gugu/session-core/session-record/contract';
 import { db } from '@main/db/client';
+import { readProjects } from '@main/core/projects/operations/getProjects';
 import { sessions, projects } from '@main/db/schema';
 import type { SessionRow } from '@main/db/schema';
 import {
@@ -145,10 +146,7 @@ async function harnessOptions(): Promise<SessionpageHarnessOption[]> {
 
 export async function createOptions(): Promise<CreateSessionResult<SessionpageSessionCreateOptions>> {
   try {
-    const rows = await db
-      .select({ id: projects.id, name: projects.name, path: projects.path })
-      .from(projects)
-      .all();
+    const rows = readProjects().map(({ id, name, path }) => ({ id, name, path }));
     /*
      * 最近用过的项目排最前 —— 手机端默认选第一个,而人多半是想接着刚才那个项目干。
      * 真机实测按建表顺序排时,第一个永远是内置的「任务工作区」(id 固定、最早建),
@@ -349,6 +347,34 @@ export interface CreateSessionDeps {
   ensureAgentInstalled: (provider: string) => Promise<void>;
 }
 
+/** Validate against the same harness/model effort catalog as the creation picker. */
+export async function resolveCreateEffort(
+  request: SessionpageSessionCreateModelsRequest & { effort?: string }
+): Promise<CreateSessionResult<string | null>> {
+  if (request.effort === undefined) return { ok: true, value: null };
+  const effort = request.effort.trim();
+  if (!effort) return fail('effort_rejected', 'Reasoning effort must not be empty');
+  let options: { id: string }[];
+  if (request.model?.trim().startsWith('platform:')) {
+    const catalog = await createModels(request);
+    if (!catalog.ok) return catalog;
+    options = catalog.value.efforts;
+  } else {
+    const { probeHarnessCatalogState } = await import('@main/core/agents/session-discovery');
+    const state = await probeHarnessCatalogState(
+      request.harness, sessionRuntimeOfView(request.sessionView ?? DEFAULT_SESSION_VIEW), request.model?.trim() || undefined,
+    );
+    if (state.kind !== 'ready') {
+      return fail('effort_rejected', `Cannot verify ${request.harness} reasoning levels: ${state.kind}${state.kind === 'unavailable' ? `: ${state.reason}` : ''}`);
+    }
+    options = state.efforts;
+  }
+  if (!options.some((option) => option.id === effort)) {
+    return fail('effort_rejected', `${request.harness} does not offer reasoning effort '${effort}' for ${request.model ?? 'its default model'}; available: ${options.map((option) => option.id).join(', ')}`);
+  }
+  return { ok: true, value: effort };
+}
+
 // 这个模块顶层只有类型 import,真依赖在它里面也是用时再取 —— 静态 import 不会把 electron 拖进单测。
 const defaultCreateSessionDeps: CreateSessionDeps = { ensureAgentInstalled };
 
@@ -428,7 +454,9 @@ async function createSessionSteps(
       return failStart('model_rejected', (error as Error)?.message ?? String(error), provider, requestedPlatform);
     }
   }
-  const effort = request.effort?.trim() || null;
+  const resolvedEffort = await resolveCreateEffort({ ...request, sessionView: view.view });
+  if (!resolvedEffort.ok) return resolvedEffort;
+  const effort = resolvedEffort.value;
 
   /*
    * ⚠️ 建会话那整条配方**用时再取**,❌ 不在模块顶层 import(理由见 agentPayloads 抬头)。
@@ -499,7 +527,6 @@ async function createSessionSteps(
     sessionId,
     projectId,
     runtime,
-    initialQueue: runtime === 'acp' ? [{ text: prompt, origin: 'manual' as const }] : undefined,
     launchWorkspace: () => sessionService.provisionWorkspace(sessionId),
   });
   if (!launched.ok) {
@@ -527,13 +554,20 @@ export async function startSession(sessionId: string): Promise<CreateSessionResu
     import('@main/core/sessions/session-service'),
   ]);
   const session = mapSessionRowToSession(row);
-  const runtime = session.runtime === 'acp' ? 'acp' : 'pty';
+  // ACP: the creation turns are already pending rows; retrying is session-life's explicit start (its LifeView
+  // carries the outcome and any failure).
+  if (session.runtime === 'acp') {
+    const { sessionLife } = await import('@main/core/sessions/session-life');
+    sessionLife().start(sessionId, 'retry');
+    clearStartFailure(sessionId);
+    return { ok: true, value: { started: true } };
+  }
+  const runtime = 'pty';
   const platformModel = (await sessionPlatformModel(sessionId).catch(() => null)) != null;
   const launched = await launchCreatedSession({
     sessionId,
     projectId: row.projectId,
     runtime,
-    initialQueue: session.initialQueue,
     launchWorkspace: async () => ({ success: true, data: await sessionService.ensureSessionMounted(row.id) }),
   });
   if (!launched.ok) {

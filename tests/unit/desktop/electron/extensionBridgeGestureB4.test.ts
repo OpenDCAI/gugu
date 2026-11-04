@@ -1,24 +1,30 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { BRIDGE_VERBS, gestureRefusal } from '../../../../apps/desktop/src/session/shared/extensions/bridge-protocol'
+import { BRIDGE_VERBS, EXTENSION_BRIDGE_EVENT_CHANNEL, callRefusal, gestureRefusal, needsGesture } from '../../../../apps/desktop/src/session/shared/extensions/bridge-protocol'
 
 /**
- * L11 B4: which verbs need the person's gesture is a column of `BRIDGE_VERBS`, checked once — where the preload's
- * `call()` takes every verb — and refused in one sentence (`gestureRefusal`). Outside a gesture nothing reaches main.
+ * L11 B4: which verbs need the person's gesture is a column of `BRIDGE_VERBS`, judged once (`callRefusal`, in main on
+ * the desktop, in the host on the phone) and refused in one sentence (`gestureRefusal`). What it judges is a fact read
+ * where no page script reaches: on the desktop the preload reads the page's activation as each call leaves it and
+ * sends it with the call; the page has no way to set it.
  */
 
 const electron = vi.hoisted(() => ({
   exposed: {} as Record<string, unknown>,
   invoke: vi.fn(async (_channel: string, _request: unknown) => ({ ok: true, value: 'done' })),
+  on: vi.fn(),
 }))
 vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld: (name: string, api: unknown) => void (electron.exposed[name] = api) },
-  ipcRenderer: { invoke: electron.invoke, on: () => undefined, removeListener: () => undefined, sendSync: () => 'light' },
+  ipcRenderer: { invoke: electron.invoke, on: electron.on, removeListener: () => undefined, sendSync: () => 'light' },
 }))
 
 const activation = { isActive: false }
 Object.defineProperty(navigator, 'userActivation', { value: activation, configurable: true })
+const addedListeners = vi.spyOn(window, 'addEventListener')
 await import('../../../../apps/desktop/electron/extension-bridge-preload')
+const initialWheelListeners = addedListeners.mock.calls.filter(([type]) => type === 'wheel').length
+addedListeners.mockRestore()
 
 type Host = {
   getContext(): Promise<unknown>
@@ -27,7 +33,7 @@ type Host = {
   showSession(id: string): Promise<unknown>
   dispatch(text: string, options?: Record<string, unknown>): Promise<unknown>
   clipboard: { writeText(text: string): Promise<unknown> }
-  appFiles: Record<'openWith' | 'upload' | 'download', (args: unknown) => Promise<unknown>>
+  appFiles: Record<'openWith' | 'upload' | 'download' | 'forward', (args: unknown) => Promise<unknown>>
   forum: Record<'post' | 'reply' | 'react' | 'remove' | 'block' | 'assign' | 'award', (...args: unknown[]) => Promise<unknown>>
 }
 const host = electron.exposed.__guguHost as Host
@@ -37,6 +43,7 @@ const gestureCalls: Record<string, () => Promise<unknown>> = {
   filesOpenWith: () => host.appFiles.openWith({ ref: { chat: 'chat-1', name: 'a.md' } }),
   filesUpload: () => host.appFiles.upload({}),
   filesDownload: () => host.appFiles.download({ ref: { chat: 'chat-1', name: 'a.md' } }),
+  filesForward: () => host.appFiles.forward({ refs: [{ chat: 'chat-1', name: 'a.md' }] }),
   showMessage: () => host.showMessage('msg-1'),
   showSession: () => host.showSession('s-1'),
   dispatch: () => host.dispatch('picked'),
@@ -51,9 +58,28 @@ const gestureCalls: Record<string, () => Promise<unknown>> = {
   openLink: () => host.openLink('gugu://ext/radar/radar'),
 }
 
-const methodsSent = () => electron.invoke.mock.calls.map(([, request]) => (request as { method: string }).method)
+const sent = () => electron.invoke.mock.calls.map(([, request]) => request as { method: string; gesture: unknown })
 
-describe('a verb that needs a gesture is refused at the one entry, in one sentence (L11 B4)', () => {
+describe('a verb that needs a gesture is judged by one rule, on what the preload read (L11 B4)', () => {
+  it('only registers a non-passive wheel listener while the trusted context names a message view', () => {
+    const receive = electron.on.mock.calls.find(([channel]) => channel === EXTENSION_BRIDGE_EVENT_CHANNEL)![1] as (event: unknown, payload: unknown) => void
+    const add = vi.spyOn(window, 'addEventListener'), remove = vi.spyOn(window, 'removeEventListener')
+    try {
+      expect(initialWheelListeners).toBe(0)
+      receive(null, { type: 'context', context: {} })
+      expect(add).not.toHaveBeenCalled()
+      receive(null, { type: 'context', context: { widget: { messageId: 'message-1' } } })
+      expect(add).toHaveBeenCalledExactlyOnceWith('wheel', expect.any(Function), { capture: true, passive: false })
+      const listener = add.mock.calls[0]![1]
+      receive(null, { type: 'context', context: { widget: { messageId: 'message-1' } } })
+      expect(add).toHaveBeenCalledTimes(1)
+      receive(null, { type: 'context', context: { widget: {}, modal: { data: null } } })
+      expect(remove).toHaveBeenCalledExactlyOnceWith('wheel', listener, true)
+    } finally {
+      add.mockRestore(); remove.mockRestore()
+    }
+  })
+
   beforeEach(() => {
     electron.invoke.mockClear()
   })
@@ -63,22 +89,31 @@ describe('a verb that needs a gesture is refused at the one entry, in one senten
     expect(marked.sort()).toEqual(Object.keys(gestureCalls).sort())
   })
 
-  it('outside a gesture: each is refused with the same sentence, and main hears nothing', async () => {
+  it('the preload sends each call with the activation it read as the call left the page, never the page\'s word', async () => {
+    for (const active of [false, true]) {
+      electron.invoke.mockClear()
+      activation.isActive = active
+      for (const callIt of Object.values(gestureCalls)) await callIt()
+      expect(sent().map(({ method }) => method)).toEqual(Object.keys(gestureCalls))
+      expect(sent().every(({ gesture }) => gesture === active)).toBe(true)
+    }
+    // An argument named like it is the page's data, not the reading.
     activation.isActive = false
-    for (const [verb, callIt] of Object.entries(gestureCalls)) await expect(callIt()).rejects.toEqual(gestureRefusal(verb))
-    expect(electron.invoke).not.toHaveBeenCalled()
+    electron.invoke.mockClear()
+    await host.dispatch('picked', { gesture: true })
+    expect(sent()[0]!.gesture).toBe(false)
   })
 
-  it('control: inside a gesture each reaches main; outside one, a verb without the mark does, and so does upload with bytes', async () => {
-    activation.isActive = true
-    for (const callIt of Object.values(gestureCalls)) await expect(callIt()).resolves.toBe('done')
-    expect(methodsSent()).toEqual(Object.keys(gestureCalls))
-    electron.invoke.mockClear()
-    activation.isActive = false
-    await expect(host.getContext()).resolves.toBe('done')
-    await expect(host.appFiles.upload({ files: [{ name: 'a.txt', bytes: new Uint8Array() }] })).resolves.toBe('done')
-    // A dispatch naming its target sends straight away: no gesture (its capability is asked at main's door).
-    await expect(host.dispatch('hi', { to: { agent: 'user:0a000000-0000-4000-8000-000000000001' } })).resolves.toBe('done')
-    expect(methodsSent()).toEqual(['getContext', 'filesUpload', 'dispatch'])
+  it('callRefusal: outside a gesture each is refused in the same sentence; inside one, and for an unmarked call, it is not', () => {
+    const has = () => true
+    for (const verb of Object.keys(gestureCalls)) {
+      const args = verb === 'filesUpload' ? { pick: true } : {}
+      expect(callRefusal(verb, args, { kind: 'page', widget: false, has, gesture: false })).toEqual(gestureRefusal(verb))
+      expect(callRefusal(verb, args, { kind: 'page', widget: false, has, gesture: true })).toBeNull()
+    }
+    // Upload with bytes and a dispatch naming its target need none; a program never has one.
+    expect(needsGesture('filesUpload', { files: [] })).toBe(false)
+    expect(callRefusal('dispatch', { text: 'hi', to: { agent: 'user:0a000000-0000-4000-8000-000000000001' } }, { kind: 'page', widget: false, has, gesture: false })).toBeNull()
+    expect(callRefusal('clipboardWriteText', {}, { kind: 'program', has })).toMatchObject({ code: 'invalid' })
   })
 })

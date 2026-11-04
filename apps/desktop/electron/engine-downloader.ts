@@ -3,7 +3,8 @@
 //   · resolveBundledNpmInvocation:用 Electron 内嵌的 node 跑随 App 交付的 npm。
 // 文件名是历史:这里原来还有 #1478 那套「agent 运行时按需下载到共享缓存」,它从 acp-bridge-impl 退役起就没有生产调用方,
 // 连同下载进度浮层一起删了(要用时从 git 取回)。
-import { execFile, type ChildProcess, type ExecFileOptionsWithStringEncoding } from 'node:child_process'
+import type { ChildProcess, ExecFileOptionsWithStringEncoding } from 'node:child_process'
+import { execFile } from '@gugu/core/local/childProcess'
 import { statSync, type Dirent } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'

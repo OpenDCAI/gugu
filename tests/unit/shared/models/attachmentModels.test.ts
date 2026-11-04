@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { messageItemFromRow } from '@gugu/core/cloud/messageItem'
 import {
   formatAttachmentMetadata,
   formatLegacyAttachmentContent,
@@ -51,6 +52,41 @@ describe('attachment models', () => {
     })
     expect(content).toContain('[Kind] image\n[Caption]\nhello\nworld')
     expect(parseAttachmentContent(content)?.caption).toBe('hello\nworld')
+  })
+
+  it('carries the committed image dimensions and content identity through the real message decoder', () => {
+    const metadata = { status: 'ready', source: 'managed-object', item_id: 'item-1', version: 3,
+      file_name: 'shot.png', content_type: 'image/png', size_bytes: 2048, sha256: 'a'.repeat(64), width: 1200, height: 900,
+      url: 'https://objects.invalid/temporary-lease', bucket_id: 'private', object_name: 'private-object' }
+    const row = messageItemFromRow({ id: 'message-1', chat_id: 'chat-1', sender_user_id: 'sender-1',
+      content: '[附件] shot.png (image/png)\n[Size] 2048\n[Kind] image', content_type: 'attachment',
+      file_item_id: 'item-1', file_version: 3, file_metadata: metadata }, 'viewer-1')!
+    const parsed = parseAttachmentContent(row.content, row)!
+    expect(parsed.source).toEqual({ kind: 'item', itemId: 'item-1', version: 3 })
+    expect(parsed.fileMetadata).toMatchObject({ status: 'ready', revision: {
+      item_id: 'item-1', version: 3, sha256: metadata.sha256, width: 1200, height: 900,
+    } })
+    const exposed = JSON.stringify(parsed.fileMetadata)
+    for (const secret of [metadata.url, metadata.bucket_id, metadata.object_name]) expect(exposed).not.toContain(secret)
+  })
+
+  it('keeps optimistic image dimensions local while preserving their blob source', () => {
+    const content = '[附件] shot.png (image/png)\n[URL] blob:preview\n[Size] 2048\n[Kind] image'
+    const local = { id: 'message-1', local_send_state: 'sending' as const, image_dimensions: { width: 1200, height: 900 } }
+    expect(parseAttachmentContent(content, local)).toMatchObject({
+      source: { kind: 'url', url: 'blob:preview' }, imageDimensions: local.image_dimensions,
+    })
+    const raw = { id: 'message-1', chat_id: 'chat-1', sender_user_id: 'sender-1', content, image_dimensions: local.image_dimensions }
+    const received = messageItemFromRow(raw, 'viewer-1')!
+    expect(received).not.toHaveProperty('image_dimensions')
+    expect(parseAttachmentContent(received.content, received)).not.toHaveProperty('imageDimensions')
+  })
+
+  it.each(['gone', 'expired'] as const)('preserves the explicit %s state instead of treating it as ready image metadata', status => {
+    const row = messageItemFromRow({ id: 'message-1', chat_id: 'chat-1', sender_user_id: 'sender-1',
+      content: '[附件] shot.png (image/png)\n[Size] 2048\n[Kind] image', content_type: 'attachment',
+      file_item_id: 'item-1', file_version: 3, file_metadata: { status, sha256: 'a'.repeat(64) } }, 'viewer-1')!
+    expect(parseAttachmentContent(row.content, row)?.fileMetadata).toEqual({ status, sha256: 'a'.repeat(64) })
   })
 
   it.each([

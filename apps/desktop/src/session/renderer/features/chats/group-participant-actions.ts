@@ -8,6 +8,13 @@ import { yieldChatAuxiliary } from './chat-tabs/chat-layouts';
 import { groupParticipantPanes } from './group-participant-panes';
 
 function sourceContent(chatId: string): ScreenBlockContent {
+  // A shared group may have several project bindings. Its sidebar representative can change while
+  // the previous project is still on screen; placement belongs to that visible group, not the row.
+  for (const id of screenLayout.order) {
+    const content = screenLayout.blocks.get(id);
+    if (content?.kind === 'project' && projectGroupsStore.chatIdOf(content.projectId) === chatId) return content;
+    if (content?.kind === 'chat' && content.chatId === chatId) return content;
+  }
   const projectId = projectGroupsStore.projectOfChat(chatId);
   return projectId ? { kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) } : { kind: 'chat', chatId };
 }

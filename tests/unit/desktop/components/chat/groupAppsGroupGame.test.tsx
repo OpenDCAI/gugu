@@ -22,7 +22,7 @@ const { EXTENSION_API_VERSION, parseExtensionManifest } = await import('@/sessio
 const { UI_EVENTS } = await import('@/lib/uiEvents')
 
 const manifest = (id: string, tab: Record<string, unknown>) =>
-  parseExtensionManifest({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id, ...tab }] } })
+  parseExtensionManifest({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id, ...tab }] } })
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
@@ -43,9 +43,8 @@ afterEach(() => {
   runInAction(() => { installedExtensionsStore.manifests = []; installedExtensionsStore.disabled = []; installedExtensionsStore.isLoaded = false })
 })
 
-const pins = { ids: [], ready: true, saving: false, error: null, set: vi.fn(), retry: vi.fn() } as never
 async function picker(chatId = 'g1') {
-  await renderWithAppProviders(harness, createNode(GroupAppsPicker, { chatId, pins, mobile: true, anchor: createRef<HTMLButtonElement>(), onClose: vi.fn() }))
+  await renderWithAppProviders(harness, createNode(GroupAppsPicker, { chatId, mobile: true, anchor: createRef<HTMLButtonElement>(), onClose: vi.fn() }))
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
   return [...document.querySelectorAll<HTMLElement>('[data-app-id]')].map((row) => row.dataset.appId)
 }

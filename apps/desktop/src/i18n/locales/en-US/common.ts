@@ -1,4 +1,7 @@
 export default {
+  "agentName": {
+    "naming": "Naming the agent…"
+  },
   "needsYou": {
     "title": "Needs you",
     "waitingTasks": "Tasks waiting for you",
@@ -40,6 +43,7 @@ export default {
     "archived": "Archived",
     "removed": "Removed",
     "pending": "Confirming",
+    "starting": "Starting",
     "none": "Status unavailable"
   },
   "agentShare": {

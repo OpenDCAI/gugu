@@ -25,26 +25,6 @@ import type { WindowsShimReader } from './windows-node-entry';
 export type WindowsLauncherOverrides = {
   /** 命令行由我们自己拼好并转义完毕，Node 不要再插手。 */
   windowsVerbatimArguments?: true;
-  /** 别让包进来的 cmd.exe / powershell.exe 在 GUI 应用底下闪一个黑窗。 */
-  windowsHide?: true;
-  /**
-   * 包了壳就**必须**关掉 `detached`——否则输出全丢。
-   *
-   * Windows 上 `detached: true` = `DETACHED_PROCESS`，子进程不继承控制台；`cmd.exe` /
-   * `powershell.exe` 在这种情况下不会把它自己那个子进程的 stdout 接到我们给的管道上，
-   * 于是**退出码是 0、stdout 却是空的**——探测因此判成「装上了，但版本读不出来」，
-   * 面板显示一个没有版本号的条目（真机实测，见下）。
-   *
-   * 2026-09-16 在 win-dev（Windows Server 2025，Node 24.14）上的对照：
-   * | 被跑的东西 | detached:true | detached:false |
-   * |---|---|---|
-   * | `codex.cmd --version`（经 cmd.exe） | exit 0，stdout **空** | exit 0，`codex-cli 0.154.0` |
-   * | `codex.ps1 --version`（经 powershell.exe） | exit 0，stdout **空** | exit 0，`codex-cli 0.154.0` |
-   * | `node.exe --version`（不包壳） | 正常 | 正常 |
-   *
-   * ⇒ 只在**包了壳**时关掉它；不包壳的那条路照旧（POSIX 上那边还靠它组建进程组）。
-   */
-  detached?: false;
 };
 
 export type DirectSpawnPlan = {
@@ -114,7 +94,7 @@ export function planDirectSpawn(
     return {
       command: windowsEnvValue(env, 'ComSpec') ?? 'cmd.exe',
       args: ['/d', '/s', '/c', `"${commandLine}"`],
-      spawnOverrides: { windowsVerbatimArguments: true, windowsHide: true, detached: false },
+      spawnOverrides: { windowsVerbatimArguments: true },
       wrapsShell: true,
     };
   }
@@ -123,7 +103,7 @@ export function planDirectSpawn(
     return {
       command: 'powershell.exe',
       args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', command, ...args],
-      spawnOverrides: { windowsHide: true, detached: false },
+      spawnOverrides: {},
       wrapsShell: true,
     };
   }

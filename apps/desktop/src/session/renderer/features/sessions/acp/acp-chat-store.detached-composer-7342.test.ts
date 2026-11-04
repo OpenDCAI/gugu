@@ -6,7 +6,7 @@
  *
  * 宿主停掉进程(闲置回收)⇒ `_onSessionClosedByHost` 扔掉句柄 ⇒ `model` / `effort` 只在「正在起」时
  * 读记录、其余答 null,触发器退回占位的「模型」;`usage` 只读活会话,圈不画了。
- * 而下一句发出去,`_startInput` 读的就是记录里那个模型 —— 值一直在,只是没画。
+ * 而下一句发出去,宿主起它用的就是记录里那个模型 —— 值一直在,只是没画。
  *
  * ## 判据能判假吗
  *
@@ -98,6 +98,8 @@ function attached(input: { record: Partial<Session>; liveModel: string; liveUsag
     activeTurn: replica(null),
     plan: replica(null),
     draft: replica(null),
+    canSyncDraft: () => true,
+    onDraftSyncReady: () => () => {},
     terminals: replica([] as unknown[]),
     config: replica({
       modelOptions: { selected: input.liveModel, available: [] },

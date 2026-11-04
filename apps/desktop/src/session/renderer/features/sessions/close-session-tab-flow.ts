@@ -13,7 +13,6 @@ const KIND_LABEL: Record<string, SessionMessageKey> = {
   'side-chat': 'workspace.sideTask',
   browser: 'workspace.browser',
   file: 'workspace.files',
-  'file-browser': 'workspace.files',
   terminal: 'workspace.terminal',
   review: 'workspace.review',
   diff: 'workspace.review',

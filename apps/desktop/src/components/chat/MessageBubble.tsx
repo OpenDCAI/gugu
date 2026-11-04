@@ -1,11 +1,14 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { useMessageTextSelection } from '../../hooks/useMessageTextSelection'
+import { MESSAGE_BUBBLE_LAYOUT as layout } from '@gugu/core/shared/ui/messageBubbleLayout'
 import { MessageSelectionToolbar } from './MessageSelectionToolbar'
 import { messageSelectionActionItems } from './messageActionItems'
 import { memo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
 import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'; import { GroupAvatarSlot } from './StickyGroupAvatar'
-import { Avatar } from '../Avatar'; import { platform } from '../../platform'
+import { MessageSenderAvatar } from './MessageSenderAvatar'; import { platform } from '../../platform'
 import { useAuth } from '../../store/auth'; import { useLongPress } from '../../hooks/useLongPress'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
@@ -20,59 +23,22 @@ import { COLOR_MUTED, readReceiptLabel } from './chatPresentation'
 import { MessageSendStatus } from './MessageSendStatus'; import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'; import { keepAction } from './messageKeep'
 import { Markdown } from '../markdown/Markdown'; import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { buildBubbleStyle } from './messageBubbleStyle'
-import { WidgetCard, type Widget } from './WidgetCard'
 import { ComposerCardView } from './ComposerCardView'
 import { QuestionCardView } from './QuestionCardView'
+import { WidgetBubble } from './WidgetBubble'
 import { parseQuotedContent, partialQuotedContent, type QuoteSelection } from './messageQuoteContent'
 import { DirectMessageQuote, MessageQuote } from './MessageQuote'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
+import { parseWidgetMessage } from '@gugu/core/shared/ui/widgetModels'
 import { HoverActionBar, MessageHoverRegion, MessageHoverTrigger } from './HoverActionBar'
 import { DeferredEmojiQuickPicker } from './messageActionModules'
 import { MsgMoreMenu } from './MsgMoreMenu'
 import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
 import { highlightText } from './highlightText'
 import { SystemMessageNotice } from './SystemMessageNotice'
-import { BubbleSender, BubbleTime } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
+import { BubbleSender, BubbleTime, ReadReceiptRing } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
 
-// @@@send-outbox (#1762 洞③) — 传输瞬态指示(sending/failed)整体搬去 MessageSendStatus.tsx:
-// failed 从纯装饰红圈升级为「未送达」可见文字 + 重试/丢弃 popover(#1941 fail-loud)。
-
-// @@@1345 已读进度圆环：环填充比例=read/total。空环=已发出无人读(#5649 起渲染)；部分=进度弧；满=实心 + 对比色勾。@@@live-accent (Refs #6105) 弧与满环从 --accent(#fff/#000)改到 --live:「已读完成」是 live 态,画的是真实读数不是装饰灯。
-function ReadReceiptRing({ read, total }: { read: number; total: number }) {
-  const frac = total > 0 ? Math.max(0, Math.min(1, read / total)) : 0
-  const r = 5.5
-  const circ = 2 * Math.PI * r
-  const full = frac >= 1
-  return (
-    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
-      {/* @@@1483 空环(sent/未读)轨道色：原 --border-strong(0.12 alpha 发丝分隔线 token)做独立图标 → 白底上
-          几乎不可见(QA round1)。改用 muted-foreground token --text-tertiary(#9a9aa2 light/#6f6f78 dark)：
-          两端主题都清晰可见,又低于已读态 accent 的层级(sent<partial<read)。 */}
-      <circle cx="7.5" cy="7.5" r={r} fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" />
-      {frac > 0 && !full && (
-        <circle
-          cx="7.5"
-          cy="7.5"
-          r={r}
-          fill="none"
-          stroke="var(--live)"
-          strokeWidth="1.5"
-          strokeDasharray={circ}
-          strokeDashoffset={circ * (1 - frac)}
-          strokeLinecap="round"
-          transform="rotate(-90 7.5 7.5)"
-        />
-      )}
-      {full && (
-        <>
-          <circle cx="7.5" cy="7.5" r={r + 0.4} fill="var(--live)" />
-          {/* 勾用 --text-on-accent(=--primary-fg)：两侧主题各自落在背景那一端,画在 --live 上都够对比。❌ 别用恒 #fff 的 surface-white,深色侧白勾压亮蓝会糊 */}
-          <path d="M5 7.6l1.8 1.8 3.3-3.6" stroke="var(--text-on-accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </>
-      )}
-    </svg>
-  )
-}
+// Sending/failed state and its retry/discard menu live in MessageSendStatus.
 
 function VoiceAttachmentBubble({
   fileName,
@@ -154,7 +120,7 @@ interface BubbleProps {
   // #1163 perf — 由父层(MessageListRow / thread map)按本消息预算好的发送/已读态(primitive 字符串)。
   // 旧版直接收整个 `memberReadSeqs` map 自己 derive：任一成员已读回执到达就换 map 引用 → 破 memo →
   // 全群可视气泡重渲。上移计算后，只有本消息状态真翻转时该 prop 才变，气泡才重渲。
-  sendState?: MessageSendState
+  sendState?: MessageSendState; /** Comma-joined agent ids: a primitive keeps this row's memo. */ undeliveredTo?: string
   // @@@1345 已读回执做成进度圆环(替文字)：父层预算好的「已读数 / 收件总数」两个 primitive(memo 安全——
   // 传整个 memberReadSeqs map 会破 memo)。环填充比例=read/total；点击展开「谁已读/谁未读」名单(onShowReadReceipt)。
   // total===1 → 私聊(满环=已读/空环=未读)；total>1 → 群聊(部分填充)。仅本人已发(非撤回/非发送中)显示。
@@ -198,7 +164,7 @@ interface BubbleProps {
 export const MessageBubble = memo(function MessageBubble({
   msg,
   onReaction,
-  sendState,
+  sendState, undeliveredTo,
   readReceiptRead,
   readReceiptTotal,
   onShowReadReceipt,
@@ -221,7 +187,8 @@ export const MessageBubble = memo(function MessageBubble({
 }: BubbleProps) {
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
-  const handleCopyText = async (content = msg.content ?? '') => {
+  const copyText = msg.content_type === 'widget' ? parseWidgetMessage(msg.content)?.text ?? '[Widget]' : msg.content ?? ''
+  const handleCopyText = async (content = copyText) => {
     try {
       await platform.writeClipboardText(content)
       toast(t('message.copied'), 'success')
@@ -245,7 +212,6 @@ export const MessageBubble = memo(function MessageBubble({
   const mediaAttachment = msg.content_type === 'attachment' && !voiceAttachment
     ? parseAttachmentContent(msg.content, msg)
     : null
-
   useEffect(() => {
     if (!showMenu && !showMoreMenu && !showEmojiPicker) return
     const closeFromSharedEvent = () => {
@@ -259,9 +225,8 @@ export const MessageBubble = memo(function MessageBubble({
       document.removeEventListener(UI_EVENTS.closeContextMenus, closeFromSharedEvent as EventListener)
     }
   }, [showMenu, showMoreMenu, showEmojiPicker])
-
   const messageActions = (close: () => void, selectedText = menuSelection) => ({
-    isRetracted: !!msg.retracted_at, content: msg.content, hasHoverBar: !compactMobile, hasSelection: !compactMobile && !!selectedText, onClose: close,
+    isRetracted: !!msg.retracted_at, content: copyText, hasHoverBar: !compactMobile, hasSelection: !compactMobile && !!selectedText, onClose: close,
     onReply: () => { onQuote(msg); close() },
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
     onQuoteSelection: selectedText && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: selectedText }, { originalContent: msg.content }); close() } : undefined,
@@ -324,15 +289,17 @@ export const MessageBubble = memo(function MessageBubble({
   const card = msg.content_type === 'card' ? parseComposerCard(msg.content) : null
   const bubbleStyle = card ? { maxWidth: '100cqw' } : buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile, groupedWithPrev)
 
-  const avatarName = memberProfile?.displayName ?? ''
-  const avatarUrl = memberProfile?.avatar ?? null
   const avatarIsAgent = memberProfile?.type === 'agent' || (!msg.is_mine && isAgent)
+  const senderIdentity = useAvatarIdentity(avatarIsAgent ? msg.sender_user_id ?? '' : '')
+  const avatarName = useShownAgentName({ name: memberProfile?.displayName ?? '', createdAt: avatarIsAgent ? senderIdentity?.created_at ?? undefined : undefined })
+  const avatarUrl = memberProfile?.avatar ?? null
   // @@@avatar-status-badge (#793 rollout) - the agent sender's status lives on its memberProfile
   // (populated for both group agents and the DM peer in ChatAreaPanel's messageMemberProfiles).
   // Pass it through so the avatar shows the unified status corner badge.
   // @@@msg-avatar (#1102) - 消息头像对齐设计稿 .av.s(28–32px 小号);原 md=40 偏大显「旧/重」。
   // @@@1355 sender avatars are projected only from the canonical sender URL.
-  const avatar = <Avatar name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} harnessBadge={!compactMobile} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
+  // Display-only naming never changes the sender id or profile actions.
+  const avatar = <MessageSenderAvatar senderUserId={msg.sender_user_id} name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} harnessBadge={!compactMobile} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
   const canOpenProfile = !!memberProfile && !!onOpenMemberProfile
 
   if (msg.content_type === 'system') return <SystemMessageNotice message={msg} senderName={avatarName} onOpenTopic={onOpenTopicAnchor} />
@@ -344,17 +311,25 @@ export const MessageBubble = memo(function MessageBubble({
   const replyQuote = msg.reply_to_message_id && showReplyQuote ? (isGroup ? <MessageQuote disclosure={{ showMarker: true, mobile: compactMobile }} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} onShowMessage={onShowMessage} /> : <DirectMessageQuote disclosure={{ showMarker: true, mobile: compactMobile }} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} onShowMessage={onShowMessage} />) : null
   return (
     <MessageHoverRegion enabled={!streaming && !compactMobile} forceOpen={showMoreMenu || showEmojiPicker}
+      actions={<HoverActionBar
+        isMine={msg.is_mine} anchorRef={bubbleRef}
+        isRetracted={isRetracted}
+        reactButtonRef={reactButtonRef}
+        moreButtonRef={moreButtonRef}
+        onReact={openEmojiPickerFromButton}
+        onReply={() => { onQuote(msg) }}
+        onMore={openMoreMenuFromButton}
+      />}
       style={{
         display: 'flex',
         flexDirection: msg.is_mine ? 'row-reverse' : 'row',
         alignItems: 'flex-start',
-        gap: '11px', // #1323 模块3 — SSOT .msg gap:11(原 10)
+        gap: layout.avatarGap,
         // @@@msg-air - 行间留白加大 + 头像与气泡间距加大，求轻量呼吸感。
         // 合组的后续消息收紧上下距（组内 1px，组间仍 5px），气泡簇视觉上归属同一发言。
-        padding: groupedWithPrev ? '1px 14px' : '5px 14px',
+        padding: `${groupedWithPrev ? 1 : 5}px ${layout.rowPadX}px`,
       }}
     >
-      {(hovered) => <>
       {/* Avatar — both sent and received；一组只在组尾画一个头像(sticky 贴滚动区底边),其余几条用等宽占位保持气泡对齐 */}
       {hideAvatar ? null : <GroupAvatarSlot wide={compactMobile} groupedWithPrev={groupedWithPrev} groupedWithNext={groupedWithNext}>{canOpenProfile ? (
         <MemberProfileAvatarButton
@@ -381,12 +356,11 @@ export const MessageBubble = memo(function MessageBubble({
           // shrink-to-fit(宽度不确定)。不可断的超宽块公式(KaTeX 单个 inline-block)会把这条不确定链一路顶到公式
           // 内在宽度,而气泡的百分比 max-width 在内在尺寸计算里被当 none 忽略 → 气泡连同整列胀破越出聊天区。
           //   ① flexBasis 定成 70%/78% + minWidth:0 → 本列是确定宽度(= 可用宽的 70%),不再被内容顶宽;短消息里
-          //      气泡仍靠内部 align-items/fit-content 贴合内容(列虽定宽但透明,视觉不变)。
           //   ② containerType:inline-size → 本列成为行内尺寸查询容器,气泡即可用 100cqw 拿到确定长度的 max-width
           //      真正封顶(见 bubbleStyle.maxWidth);封顶后气泡内的 .katex-display/pre 的 overflow-x-auto 才在气泡
           //      内横滚。直接给 flex 列上 container-type 会把 auto flex-basis 的内容尺寸算成 0 → 列塌成 0,故必须显式 flexBasis。
-          flexBasis: compactMobile ? '78%' : '70%',
-          maxWidth: compactMobile ? '78%' : '70%',
+          flexBasis: `${100 * (compactMobile ? layout.column.phone : layout.column.desktop)}%`,
+          maxWidth: `${100 * (compactMobile ? layout.column.phone : layout.column.desktop)}%`,
           minWidth: 0,
           containerType: 'inline-size',
           gap: '3px',
@@ -418,19 +392,8 @@ export const MessageBubble = memo(function MessageBubble({
         {/* 气泡行收成 fit-content(我方 marginLeft:auto 靠右),工具条锚在**这一行**的边上 = 贴着气泡。
             Design: .msg-actions{position:absolute}  agent → right:0 / own → left:0  */}
         <MessageHoverTrigger data-message-bubble-row="true" style={{ position: 'relative', display: 'flex', flexDirection: 'row', alignItems: 'flex-end', justifyContent: msg.is_mine ? 'flex-end' : 'flex-start', gap: '4px', width: 'fit-content', maxWidth: '100%', minWidth: 0, ...(msg.is_mine ? { marginLeft: 'auto' } : {}) }}>
-          {/* Hover action bar (.msg:hover .msg-actions{display:flex}) —— 只在桌面外壳:手机上消息操作走长按面板(下面 showMenu
-              的手机分支),而且手机上等不到 pointerleave,一次点按置上的 hover 会让它一直浮着(#6850)。 */}
-          {hovered && <HoverActionBar
-            isMine={msg.is_mine} anchorRef={bubbleRef}
-            isRetracted={isRetracted}
-            reactButtonRef={reactButtonRef}
-            moreButtonRef={moreButtonRef}
-            onReact={openEmojiPickerFromButton}
-            onReply={() => { onQuote(msg) }}
-            onMore={openMoreMenuFromButton}
-          />}
           {msg.is_mine && !msg.retracted_at && sendState && (
-            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} blocks={msg.delivery_blocks} />
+            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} retryable={msg.local_send_retryable} blocks={msg.delivery_blocks} undeliveredTo={undeliveredTo ? undeliveredTo.split(',') : undefined} />
           )}
 
           {/* @@@1345 逐成员读回执做成进度圆环(替文字)：本人已发消息显示 ○ 环(填充比例=已读%)，
@@ -440,7 +403,7 @@ export const MessageBubble = memo(function MessageBubble({
               showReadReceipt：每条本人消息各自挂环（#2098 owner 要逐条，撤 #1779 只挂末条的降噪）。
               read=0 的空环 = 「已发出、还没人读」(#5649 owner 拍板四态:发送中/已发出/已读/失败;发送中已改成虚线流动环,与空环可区分)。
               任务卡不挂环:它是交给一个 agent 的事件(gugu-dev#181),接没接、做到哪看卡行尾的状态,❌ 再问谁读了。 */}
-          {showReadReceipt && msg.is_mine && !card && !msg.retracted_at && sendState !== 'sending' && sendState !== 'queued' && sendState !== 'failed' && readReceiptTotal != null && readReceiptTotal > 0 && readReceiptRead != null && (
+          {showReadReceipt && msg.is_mine && !card && !msg.retracted_at && sendState !== 'sending' && sendState !== 'queued' && sendState !== 'undelivered' && sendState !== 'failed' && readReceiptTotal != null && readReceiptTotal > 0 && readReceiptRead != null && (
             <button
               type="button"
               data-testid="message-read-receipt"
@@ -476,33 +439,19 @@ export const MessageBubble = memo(function MessageBubble({
             }}
           >
             {/* 名字只在群里收到的、一组的第一条上(DM 头栏已经说了是谁);任务卡自己写着是谁发的。 */}
-            {showSender && <BubbleSender member={memberProfile} senderId={msg.sender_user_id} replyMark={replyQuote} />}
+            {showSender && <BubbleSender member={memberProfile} displayName={avatarName} senderId={msg.sender_user_id} replyMark={replyQuote} />}
             {isRetracted ? (
               // #1323 模块3 — 撤回文字 --text-tertiary→--muted-fg(原偏淡)
               <span className="msg-time-room-inline" style={{ color: 'var(--muted-fg)', fontStyle: 'italic', '--msg-time-room': timeRoom } as React.CSSProperties}>{t('message.retracted')}</span>
             ) : (
-              <div className={timeInline ? 'msg-time-room' : undefined} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', '--msg-time-room': timeRoom } as React.CSSProperties}>
+              <div data-message-find-content="" className={timeInline ? 'msg-time-room' : undefined} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', '--msg-time-room': timeRoom } as React.CSSProperties}>
                 {card?.type === 'question' ? (
                   <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={replyQuote ? <>{replyQuote}{fmtMsgTime(msg.created_at)}</> : fmtMsgTime(msg.created_at)} />
                 ) : card ? (
                   <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={replyQuote ? <>{replyQuote}{fmtMsgTime(msg.created_at)}</> : fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} onOpenTopic={compactMobile && onOpenTopic && card.type === 'task' ? () => onOpenTopic(msg.id) : undefined} />
-                ) : msg.content_type === 'widget' ? (() => {
-                  // Widget: parse JSON from msg.content, fall back to plain bubble on failure
-                  let widget: Widget | null = null
-                  try {
-                    const parsed = JSON.parse(msg.content ?? '{}') as { id?: string; title?: string; html?: string; url?: string }
-                    if (parsed.id && parsed.title) {
-                      widget = { id: parsed.id, title: parsed.title, html: parsed.html, url: parsed.url }
-                    }
-                  } catch {
-                    // parse failure → fallback below
-                  }
-                  if (widget) {
-                    return <WidgetCard widget={widget} />
-                  }
-                  // fallback: show raw content as text
-                  return <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{t('message.widget')}</span>
-                })() : msg.content_type === 'attachment' ? (
+                ) : msg.content_type === 'widget' ? (
+                  <WidgetBubble message={msg} />
+                ) : msg.content_type === 'attachment' ? (
                   voiceAttachment ? (
                     <VoiceAttachmentBubble
                       fileName={voiceAttachment.fileName}
@@ -515,7 +464,7 @@ export const MessageBubble = memo(function MessageBubble({
                   ) : (
                     <span style={{ color: 'var(--text-link)' }}>{t('message.attachment')}</span>
                   )
-                ) : <div ref={textSelection.ref} data-message-text-selection={compactMobile ? msg.id : undefined} style={compactMobile ? { userSelect: 'text', WebkitUserSelect: 'text', WebkitTouchCallout: 'default' } : { display: 'contents' }}>{(() => {
+                ) : <div ref={textSelection.ref} data-message-text-selection={compactMobile ? msg.id : undefined} style={compactMobile ? { alignSelf: 'stretch', minWidth: 0, maxWidth: '100%', userSelect: 'text', WebkitUserSelect: 'text', WebkitTouchCallout: 'default' } : { display: 'contents' }}>{(() => {
                   const partial = partialQuotedContent(msg)
                   const raw = partial?.replyText ?? msg.content ?? ''
                   if (highlight) return <span className="msg-time-room-inline">{highlightText(raw, highlight)}</span> // 包一层:外面是引用块那一列(flex 列),裸的文字段和 <mark> 会各占一行
@@ -589,7 +538,6 @@ export const MessageBubble = memo(function MessageBubble({
           onClose={() => setShowEmojiPicker(false)}
         />
       )}
-      </>}
     </MessageHoverRegion>
   )
 })

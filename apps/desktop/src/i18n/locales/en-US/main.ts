@@ -29,15 +29,7 @@ export default {
     "note": "Note",
     "notePlaceholder": "Describe this number…",
     "deleteMarker": "Delete number {{number}}",
-    "message": "Message",
-    "messagePlaceholder": "Say something or @ a member…",
-    "includeNotes": "Include numbered notes",
-    "compose": "Put in composer",
-    "sendTo": "Send to “{{name}}”",
-    "sendWhisperTo": "Whisper to {{name}}",
-    "whisperRecipient": "the other person",
-    "replyToOriginal": "Reply to original image",
-    "sourceChat": "source chat",
+    "export": "Copy or save image",
     "copy": "Copy image",
     "save": "Save to device",
     "saveFolder": "Save to chat folder",
@@ -45,8 +37,8 @@ export default {
     "saved": "Image saved",
     "savedToFolder": "Saved to chat folder",
     "noSource": "This image has no source chat. Copy it or save it to your device.",
-    "notSignedIn": "Sign in to send an image",
-    "originalUnavailable": "The original message is no longer available",
+    "notSignedIn": "Sign in to put the image in a chat",
+    "originalUnavailable": "The original message is no longer available to reply to.",
     "canvas": "Annotation canvas",
     "keyboardHint": "R rectangle · A arrow · N number · P pen · T text · M mosaic · C crop · Space + drag to pan · ⌘ +/− zoom",
     "touchHint": "Draw with one finger · Pan and zoom with two fingers · Hold a mark to select it"
@@ -206,12 +198,15 @@ export default {
     "offline": {
       "phoneTitle": "Phone Agent host disconnected",
       "phoneBody": "Task records stay on this phone. Reconnect and enable its Agent host to read the records and continue.",
-      "title": "Machine offline — the timeline cannot be opened",
+      "title": "{{machine}} is not connected",
       "body": "The timeline is read live from this machine, so it is unreachable while the machine is offline. Turn it on, sign in with the same account, then come back.",
+      "sendLater": "Messages sent now are delivered when it reconnects.",
       "lastSeen": "Last seen: {{time}}"
     },
     "output": {
       "machineOnly": "Opens only on that computer",
+      "notOpened": "This session hasn't opened this file yet.",
+      "editedNotOpened": "Edited by agent · Open on computer",
       "fileMissing": "The file is no longer on that computer.",
       "fileChanged": "The file changed while it was being read. Tap again.",
       "tooLarge": "The file is too large. The phone shows files up to {{limit}}.",
@@ -251,9 +246,9 @@ export default {
         "gap_too_large": "Too much was missed while disconnected, so the timeline was reloaded in full."
       },
       "outcome": {
-        "done": "Turn finished",
-        "cancelled": "Turn cancelled",
-        "error": "Turn failed"
+        "done": "Finished",
+        "cancelled": "Cancelled",
+        "error": "Failed"
       },
       "compacting": "Compacting context…",
       "compacted": "Context compacted — everything above is a summary to the agent",
@@ -446,7 +441,6 @@ export default {
         "zh-CN": "简体中文"
       },
       "light": "Light",
-      "plain-white": "Plain white",
       "notifications": "Notifications",
       "notificationsChat": "Chat message notifications",
       "notificationsChatAria": "Enable chat message notifications",
@@ -494,6 +488,7 @@ export default {
       "account": "Me",
       "preferences": "Preferences",
       "work": "Work",
+      "diagnostics": "Diagnostics",
       "about": "About"
     },
     "nav": {
@@ -658,9 +653,6 @@ export default {
       "shareNoGuguNumber": "{{name}} does not have a Gugu ID yet, so a card cannot be created.",
       "shareUnavailable": "This task does not have an agent identity that can be shared yet.",
       "taskCreated": "Task created",
-      "taskDeliverFailed": "Message not delivered to {{name}}.",
-      "taskDeliverFailedCount_one": "{{count}} message not delivered to {{name}}.",
-      "taskDeliverFailedCount_other": "{{count}} messages not delivered to {{name}}.",
       "unownedAgentDm": "You cannot message someone else’s Agent privately. Work with it in a shared group."
     },
     "update": {

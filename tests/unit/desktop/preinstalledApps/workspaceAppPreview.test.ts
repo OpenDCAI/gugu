@@ -12,6 +12,7 @@ import * as cmView from '@codemirror/view'
 import { EditorView } from '@codemirror/view'
 import * as lezerHighlight from '@lezer/highlight'
 import { basicSetup } from 'codemirror'
+import * as autocomplete from '@codemirror/autocomplete'
 import { beforeAll, describe, expect, test, vi } from 'vitest'
 
 const entry = {
@@ -46,7 +47,7 @@ const gugu = {
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => context),
   onContextChanged: vi.fn((handler: typeof contextChanged) => { contextChanged = handler; handler(context); return () => {} }),
-  codemirror: vi.fn(async () => ({ EditorView, basicSetup, markdown, markdownLanguage, view: cmView, state: cmState, language, lezerHighlight })),
+  codemirror: vi.fn(async () => ({ EditorView, basicSetup, markdown, markdownLanguage, view: cmView, state: cmState, language, autocomplete, lezerHighlight })),
   onLink: vi.fn(() => () => {}),
   markdown: vi.fn(async () => md),
   bind: { codemirror: vi.fn(() => () => {}) },

@@ -571,7 +571,7 @@ export const EXPRESSION_BY_ID: Record<InternalExpressionId, Expression> = Object
   [...EXPRESSIONS, ASLEEP, WOE].map((e) => [e.id, e])
 ) as Record<InternalExpressionId, Expression>
 
-// ───────────── 14 种展示状态（抄 presentAgentStatus，不自己编） ─────────────
+// ───────────── 16 种展示状态（抄 presentAgentStatus，不自己编） ─────────────
 export type DisplayStateId =
   | 'running'
   | 'parked'
@@ -587,6 +587,7 @@ export type DisplayStateId =
   | 'archived'
   | 'removed'
   | 'pending'
+  | 'starting'
   | 'none'
 
 /**
@@ -613,6 +614,7 @@ export const EXPRESSION_CADENCE: Partial<Record<DisplayStateId, Cadence>> = {
   idle: IDLE_CADENCE,
   online: IDLE_CADENCE,
   pending: IDLE_CADENCE,
+  starting: IDLE_CADENCE,
   running: { home: [3, 6], away: [1.2, 2.4] },
   parked: { home: [6, 10], away: [2, 4] },
   needsApproval: WAIT_CADENCE,
@@ -628,6 +630,7 @@ export const BLINK_CADENCE: Partial<Record<DisplayStateId, readonly [number, num
   idle: [4, 9],
   online: [4, 9],
   pending: [4, 9],
+  starting: [4, 9],
   running: [3, 6],
   parked: null,
   needsApproval: null,
@@ -646,6 +649,7 @@ export function expressionPool(
     case 'idle':
     case 'online':
     case 'pending':
+    case 'starting':
       return [resting, resting === 'curious' ? 'neutral' : 'curious']
     case 'running':
       return ['attentive', 'suspicious', 'curious']
@@ -683,6 +687,7 @@ export type StateTone =
   | 'archived'
   | 'removed'
   | 'pending'
+  | 'starting'
   | 'none'
 export type Family = 'idle' | 'work' | 'park' | 'wait' | 'error' | 'done' | 'away'
 
@@ -833,6 +838,16 @@ export const STATES: DisplayState[] = [
     id: 'pending',
     zh: '确认中',
     tone: 'pending',
+    color: MUTED,
+    animate: false,
+    emphasis: false,
+    family: 'away',
+    glyph: 'dot'
+  },
+  {
+    id: 'starting',
+    zh: '启动中',
+    tone: 'starting',
     color: MUTED,
     animate: false,
     emphasis: false,

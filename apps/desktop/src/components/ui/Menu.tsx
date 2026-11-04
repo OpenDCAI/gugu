@@ -16,6 +16,7 @@ import { ChevronRight } from '@/lib/icons'
 import { popupMotion } from './variants'
 import { useBackLayer } from './sheetStack'
 import { useUiPortalContainer } from '@gugu/session-ui/react/primitives'
+import { Switch } from './Switch'
 
 // @@@menu-variants - 菜单样式的唯一真相。`gg-menu*` 类名保留但不再承载样式:
 // Sidebar.css 的 `.gg-sidebar-profile-actions .gg-menu-item-icon > svg` 按这些名字定位,
@@ -35,7 +36,7 @@ const menuPopup = cn(
 // @@@menu-spacing - 菜单是可重复操作的控件组，弹层与每行都必须留出稳定的内容安全区。
 // Inline padding keeps the spacing alive under the renderer's global reset without exempting the
 // entire menu-item subtree from the reset.
-// (这里刻意不写那个标签的字面量:scripts/check-ui-visual-spec.mjs 连注释一起数 rawButtons。)
+// (这里刻意不写那个标签的字面量:scripts/checks/check-ui-visual-spec.mts 连注释一起数 rawButtons。)
 // ⚠️ `w-full` 与 `text-left` 不能省:行可以经 `render` 换成原生按钮元素(头栏 ⋯ 菜单的「群公告 / 设置」),
 // 而按钮 ① 即使 display:flex,宽度 auto 也按内容收缩(HTML 规范给 button 的 fit-content),不像 div 那样撑满 ⇒
 // 可点范围与高亮只剩「图标 + 两个字」那一截,行右边大半截点了没反应(owner 2026-09-27 真机);
@@ -69,8 +70,8 @@ const menuItemLabel = 'gg-menu-item-label min-w-0 flex-1'
 export const menuSurfaceClassName = menuPopup
 export const menuRowClassName = menuItem
 export const menuRowLabelClassName = menuItemLabel
-const menuSurfacePadding = 4
-const menuRowPadding = '6px 10px'
+const menuSurfacePadding = 'var(--gg-menu-padding, 4px)'
+const menuRowPadding = 'var(--gg-menu-item-padding, 6px 10px)'
 
 /** A pointer coordinate (context menu) or the element the menu was opened from. */
 export type MenuAnchorProps =
@@ -201,6 +202,21 @@ export function MenuItem({ icon, danger, disabled, title, className, style, 'dat
       )}
     </MenuPrimitive.Item>
   )
+}
+
+/** Checkbox menu semantics own input; the inert Switch reuses the existing visual only. */
+export function MenuSwitchItem({ label, checked, onCheckedChange, disabled, 'data-testid': testId }: {
+  label: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+  disabled?: boolean
+  'data-testid'?: string
+}) {
+  return <MenuPrimitive.CheckboxItem checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} closeOnClick={false}
+    className={cn('group/menu-item', menuItem)} style={{ padding: menuRowPadding }} data-testid={testId}>
+    <span className={menuItemLabel}>{label}</span>
+    <Switch checked={checked} onCheckedChange={() => undefined} disabled={disabled} aria-hidden inert tabIndex={-1} className="pointer-events-none" />
+  </MenuPrimitive.CheckboxItem>
 }
 
 const submenuRowStyle: CSSProperties = { padding: menuRowPadding }

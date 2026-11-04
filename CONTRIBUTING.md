@@ -8,8 +8,8 @@ Gugu is an agent collaboration tool built for researchers and scientists. Commun
 
 1. Read `AGENTS.md` at the repository root and set up the toolchain from `.node-version` and the `packageManager` field in `package.json`.
 2. In a separate checkout, run `pnpm install --frozen-lockfile`, then `pnpm rebuild:native` to build native modules for Electron; configuration is described in `.envs/example.env`.
-3. Use your own development backend; optional official-service settings are in `docs/optional-cloud-services.md`.
-4. Start an isolated instance with `scripts/dev-app.sh`; check commands are in `docs/development-tools.md`.
+3. Use your own development backend; optional official-service settings are in `docs/guides/optional-cloud-services.md`.
+4. Start an isolated instance with `scripts/dev/dev-app.sh`; check commands are in `docs/guides/development-tools.md`.
 
 Database setup and authorization follow the backend repository's documentation.
 
@@ -23,4 +23,4 @@ Database setup and authorization follow the backend repository's documentation.
 - Product specifications are maintained privately by the maintainers; when a change alters user-facing behavior, describe the intended behavior in the issue or PR.
 - Most code comments are in Chinese. Comments and discussions in English are welcome.
 
-Building and integrating public Apps: see `docs/writing-a-tab-extension.md`.
+Building and integrating public Apps: see `docs/guides/writing-a-tab-extension.md`.

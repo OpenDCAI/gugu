@@ -15,7 +15,7 @@
 // AcpChatStore.loadError,不经本账本。
 //
 // 跨 bundle:gugu 主渲染层与本页是同一文档里的两棵 React 树、两份 module graph,module 级单例跨不过去。
-// 出口沿用既有做法 —— 一个 window 全局适配对象(与 __GUGU_CREATE_CONTEXT__ / __EMDASH_SET_EMBED_VIEW__
+// 出口沿用既有做法 —— 一个 window 全局适配对象(与 __EMDASH_SET_EMBED_VIEW__
 // 同一种边界),由 embedded.tsx 在**每次**入口求值时装上(热更新会重新求值入口模块,装晚了就会指向上一份
 // module 实例的空 Map);独立打开的 session-embedded.html 不装,账本照常工作。
 //

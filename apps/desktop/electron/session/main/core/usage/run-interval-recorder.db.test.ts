@@ -69,10 +69,10 @@ describe('run-interval-recorder', () => {
     mocks.warnings = [];
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, created_at, updated_at)
-        VALUES ('c1', 'p1', 'C', 'claude', '2026-01-01 00:00:00', '2026-01-01 00:00:00');
-      INSERT INTO sessions (id, project_id, title, provider, created_at, updated_at)
-        VALUES ('c2', 'p1', 'D', 'codex', '2026-01-01 00:00:00', '2026-01-01 00:00:00');
+      INSERT INTO sessions (id, project_id, provider, created_at, updated_at)
+        VALUES ('c1', 'p1', 'claude', '2026-01-01 00:00:00', '2026-01-01 00:00:00');
+      INSERT INTO sessions (id, project_id, provider, created_at, updated_at)
+        VALUES ('c2', 'p1', 'codex', '2026-01-01 00:00:00', '2026-01-01 00:00:00');
     `);
     clock = at(23, 10);
     recorder = new RunIntervalRecorder(() => clock);
@@ -113,14 +113,14 @@ describe('run-interval-recorder', () => {
     ]);
   });
 
-  it('error 也收口;会话删了收口但区间留着', () => {
+  it('error 也收口;任务归档后结束区间并保留用量历史', () => {
     recorder.observeStatus('c1', 'working');
     recorder.observeStatus('c2', 'working');
     clock += MIN;
     recorder.observeStatus('c1', 'error');
-    fixture.sqlite.exec(`DELETE FROM sessions WHERE id = 'c2'`);
+    fixture.sqlite.exec(`UPDATE sessions SET archived_at = '2026-09-28 23:11:00' WHERE id = 'c2'`);
     clock += MIN;
-    recorder.observeDeleted('c2');
+    recorder.observeArchived('c2');
     expect(intervals().map((row) => [row.session_id, row.ended_at])).toEqual([
       ['c1', at(23, 10, 1)],
       ['c2', at(23, 10, 2)],
@@ -132,8 +132,8 @@ describe('run-interval-recorder', () => {
     const createdAt = new Date(clock + 20_000).toISOString();
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, agent_status, created_at, updated_at)
-         VALUES ('c3', 'p1', 'E', 'claude', 'working', ?, ?)`
+        `INSERT INTO sessions (id, project_id, provider, agent_status, created_at, updated_at)
+         VALUES ('c3', 'p1', 'claude', 'working', ?, ?)`
       )
       .run(createdAt, createdAt);
     clock += MIN;
@@ -226,7 +226,7 @@ describe('run-interval-recorder', () => {
     expect(intervals()[0]).toMatchObject({ started_at: at(23, 10), ended_at: at(23, 10, 3) });
   });
 
-  it('装上之后,agent:status 与 conversation:deleted 都进得来;订阅方抛错不会传回状态管道', () => {
+  it('装上之后,agent:status 与 session:archived 都进得来;订阅方抛错不会传回状态管道', () => {
     const handlers: Record<string, (arg: never) => void> = {};
     const source = {
       on: (name: string, handler: (arg: never) => void) => {
@@ -245,7 +245,7 @@ describe('run-interval-recorder', () => {
         reading: { status: 'working' },
       });
       clock += MIN;
-      (handlers['session:deleted'] as (id: string) => void)('c1');
+      (handlers['session:archived'] as (id: string) => void)('c1');
       expect(intervals()[0]).toMatchObject({ session_id: 'c1', ended_at: at(23, 10, 1) });
 
       // 库坏了:只记一笔日志,不抛。
@@ -285,8 +285,8 @@ describe('buildLocalUsageSnapshot / usage.localDaily', () => {
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
     `);
     const addSession = fixture.sqlite.prepare(
-      `INSERT INTO sessions (id, project_id, title, provider, provider_session_id, created_at, archived_at)
-       VALUES (?, 'p1', 'x', ?, ?, ?, ?)`
+      `INSERT INTO sessions (id, project_id, provider, provider_session_id, created_at, archived_at)
+       VALUES (?, 'p1', ?, ?, ?, ?)`
     );
     addSession.run('c1', 'claude', 'sid-claude', createdUtc(at(23, 9)), null);
     addSession.run('c2', 'codex', '01a0ce35-43e0-7db2-b762-49dd6f882b08', createdUtc(at(23, 9, 30)), '2026-09-23 12:00:00'); // 已归档也算
@@ -372,7 +372,7 @@ describe('buildLocalUsageSnapshot / usage.localDaily', () => {
   it('还开着的区间算到 now 为止', async () => {
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, agent_status) VALUES ('c1', 'p1', 'x', 'claude', 'working');
+      INSERT INTO sessions (id, project_id, provider, agent_status) VALUES ('c1', 'p1', 'claude', 'working');
     `);
     fixture.sqlite
       .prepare(`INSERT INTO session_run_intervals (session_id, provider, started_at, ended_at, last_seen_at) VALUES ('c1', 'claude', ?, NULL, ?)`)

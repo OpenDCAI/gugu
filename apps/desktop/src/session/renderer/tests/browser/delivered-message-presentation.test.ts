@@ -18,7 +18,7 @@ let dispose: (() => void) | undefined;
 afterEach(() => { dispose?.(); dispose = undefined; });
 
 it.each(['image', 'file'] as const)('updates a mounted transcript from the authorized original %s after its message arrives', async kind => {
-  const context = createChatContext({ layout: { preset: 'double', userGutter: 0, agentConversation: true } });
+  const context = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', userGutter: 0, agentConversation: true } });
   const state = createChatState(context);
   const host = document.createElement('div');
   host.className = nativeChatAppearance;
@@ -47,7 +47,7 @@ it.each(['image', 'file'] as const)('updates a mounted transcript from the autho
 });
 
 it('does not replace an unavailable source with transport paths or update a disposed host', async () => {
-  const context = createChatContext(), state = createChatState(context);
+  const context = createChatContext({ locale: () => 'en-US' }), state = createChatState(context);
   let finish: (message: MessageItem | null) => void = () => {};
   const load = vi.fn(() => new Promise<MessageItem | null>(resolve => { finish = resolve; }));
   const stop = connectDeliveredMessagePresentation(state, load, vi.fn());

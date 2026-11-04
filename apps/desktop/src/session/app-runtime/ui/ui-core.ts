@@ -1,4 +1,5 @@
-import { ICON_ALIASES, ICON_BODIES } from '@gugu/session-ui/icon-bodies';
+import { formatCalendarDay } from '@gugu/session-shared/format';
+import { ICON_ALIASES, ICON_BODIES, ICON_ATTRIBUTES } from '@gugu/session-ui/icon-bodies';
 
 /** The DOM-free half of ui.js (ui-entry.ts): what its elements say, testable without a page. */
 
@@ -23,25 +24,21 @@ export const ICONS: ReadonlyMap<string, string> = new Map([
     .map(([alias, target]) => [iconName(alias), ICON_BODIES[target]!] as const),
 ]);
 
-const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+/** The same SVG defaults as the React factory, including copied stroke widths and classes. */
+export const ICON_SVG_ATTRIBUTES: ReadonlyMap<string, Record<string, string | number>> = new Map([
+  ...Object.entries(ICON_ATTRIBUTES).map(([name, attributes]) => [iconName(name), attributes] as const),
+  ...Object.entries(ICON_ALIASES)
+    .filter(([alias, target]) => !alias.endsWith('Icon') && target in ICON_ATTRIBUTES)
+    .map(([alias, target]) => [iconName(alias), ICON_ATTRIBUTES[target]!] as const),
+]);
 
-/** How gugu's own lists say a time: relative within the hour, the clock today, then 昨天, then the date. */
+/** An App's timestamp: relative within the hour, then the transcript separators' writing, clock kept (today 14:20, 昨天 14:20, 8月3日 09:00). */
 export function timePhrase(date: Date, now: Date, zh: boolean): string {
-  const clock = date.toLocaleTimeString(zh ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   const seconds = (now.getTime() - date.getTime()) / 1000;
   if (Math.abs(seconds) < 45) return zh ? '刚刚' : 'just now';
   if (seconds > 0 && seconds < 3600) {
     const minutes = Math.max(1, Math.round(seconds / 60));
     return zh ? `${minutes} 分钟前` : `${minutes} min ago`;
   }
-  if (sameDay(date, now)) return clock;
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (sameDay(date, yesterday)) return zh ? `昨天 ${clock}` : `Yesterday ${clock}`;
-  if (date.getFullYear() === now.getFullYear()) {
-    return zh ? `${date.getMonth() + 1}月${date.getDate()}日` : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }
-  return zh
-    ? `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
-    : date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  return formatCalendarDay(date, zh ? 'zh-CN' : 'en-US', { now, withTime: true });
 }

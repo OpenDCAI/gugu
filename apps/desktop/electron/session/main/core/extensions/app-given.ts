@@ -32,7 +32,7 @@ async function me(): Promise<{ token: string; userId: string }> {
  */
 async function placeChats(token: string, userId: string): Promise<{ chats: PlaceChat[]; identities: Record<string, PlaceIdentity> }> {
   const chat = createGuguSupabaseClient({ schema: 'chat', headers: { Authorization: `Bearer ${token}` } });
-  const mine = await chat.from('chat_members').select('chat_id').eq('user_id', userId);
+  const mine = await chat.from('active_members').select('chat_id').eq('user_id', userId);
   if (mine.error) throw new Error(mine.error.message);
   const ids = [...new Set(((mine.data as { chat_id: string }[] | null) ?? []).map((row) => row.chat_id))];
   type Row = { id: string; kind: PlaceChat['kind']; status: PlaceChat['status']; name: string | null; avatar_url: string | null; last_message_at: string | null; source_chat_id: string | null };
@@ -43,7 +43,7 @@ async function placeChats(token: string, userId: string): Promise<{ chats: Place
   });
   const drawn = rows.filter((row) => row.status === 'active' && (row.kind === 'group' || row.kind === 'dm')).map((row) => row.id);
   const members = await fetchInChunks(drawn, async (chunk) => {
-    const { data, error } = await chat.from('chat_members').select('chat_id, user_id').in('chat_id', chunk);
+    const { data, error } = await chat.from('active_members').select('chat_id, user_id').in('chat_id', chunk);
     if (error) throw new Error(error.message);
     return (data as { chat_id: string; user_id: string }[] | null) ?? [];
   });

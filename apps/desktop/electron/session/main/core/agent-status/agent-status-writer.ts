@@ -1,3 +1,4 @@
+import { sessionBootTasks } from '../boot-tasks';
 import type { IDisposable, IInitializable } from '@gugu/session-shared';
 import { eq, inArray } from 'drizzle-orm';
 import {
@@ -7,7 +8,6 @@ import {
   type AgentStatusReading,
 } from '@gugu/core/shared/agentStatus';
 import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
-import { isAppFocused } from '@main/core/agent-hooks/app-focus';
 import { maybeShowNotification } from '@main/core/agent-hooks/notification';
 import { isSessionAutoApproved } from '@main/core/agent-hooks/turn-autonomy';
 import { getPlugin } from '@main/core/agents/plugin-registry';
@@ -33,6 +33,7 @@ import {
   type ProviderReviewGate,
 } from '@shared/core/sessions/sessionEvents';
 import type { InterruptedBy, Session } from '@shared/core/sessions/sessions';
+import type { HarnessPresenceStatus } from '@gugu/session-core/agents/plugins';
 import { hasStatusSource } from '@shared/core/sessions/initial-agent-status';
 import {
   emptyStatusLogState,
@@ -68,7 +69,7 @@ interface SessionStatusLog {
   written: { status: AgentStatus; detail: AgentStatusReading['detail']; unseen: boolean } | null;
 }
 
-type PublishMeta = { event?: AgentEvent; appFocused: boolean; timestamp: number; announceWait: boolean };
+type PublishMeta = { event?: AgentEvent; timestamp: number };
 
 /** 一条会话出生时写下的那一行(建行的列值来自出生规则 `birthStatusColumns`)。 */
 export type SessionBirth = Pick<Session, 'id' | 'projectId' | 'agentStatus' | 'agentStatusDetail'>;
@@ -80,6 +81,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
   /** 声明了的状态来源读不出(会话在场文件没出现 / 格式变了):一句原因。 */
   private readonly statusSourceFaults = new Map<string, string>();
   private readonly writes = new Map<string, Promise<void>>();
+  private readonly writeVersions = new Map<string, symbol>();
   private readonly disposers: Array<() => void> = [];
   private readonly _hooks = new HookCore<AgentStatusWriterHooks>((name, e) =>
     log.error(`AgentStatusWriter: ${String(name)} hook error`, e)
@@ -93,7 +95,8 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
    * 同一会话的写入按到达顺序一条一条做完:每条都先 await 库再发布;两条挨得很近的写入(回合起 → 马上被取消)
    * 并发跑时,后到的可能先发布完,读者最终停在前一条上。
    */
-  private inOrder(sessionId: string, write: () => Promise<void>): Promise<void> {
+  private inOrder(sessionId: string, write: () => Promise<void>, version = Symbol()): Promise<void> {
+    this.writeVersions.set(sessionId, version);
     const next = (this.writes.get(sessionId) ?? Promise.resolve()).then(write);
     const settled = next.then(
       () => undefined,
@@ -126,6 +129,11 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     if (!entry) return false;
     const { status } = readStatusLog(entry.state);
     return status === 'working' || status === 'needs_user';
+  }
+
+  currentReading(sessionId: string): AgentStatusReading | null {
+    const entry = this.logs.get(sessionId);
+    return entry ? readStatusLog(entry.state) : null;
   }
 
   /**
@@ -197,12 +205,9 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     if (unchanged && !reading.finished) return;
     // 做完、等人、出错写成未读;在跑、没做完的空闲(被打断)不是一句需要你看的话。
     const unseen = !(reading.status === 'working' || (reading.status === 'idle' && !reading.finished));
-    const finished = reading.finished && reading.status === 'idle';
-    const waitAsked = meta.announceWait && reading.status === 'needs_user' && previous?.status !== 'needs_user';
     await this.publish(sessionId, entry, reading, unseen, meta, {
       persist: true,
       active: true,
-      soundEvent: finished ? 'task_complete' : waitAsked ? 'needs_attention' : undefined,
     });
     // 系统横幅跟着这一份读数走,与它从哪条路来(终端 hook、ACP、宿主的等待)无关;叫不叫人由 shouldNotify 定。
     void maybeShowNotification({ sessionId, projectId: entry.projectId }, previous, reading);
@@ -218,7 +223,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     reading: AgentStatusReading,
     unseen: boolean,
     meta: PublishMeta,
-    options: { persist: boolean; active?: true; soundEvent?: 'needs_attention' | 'task_complete' },
+    options: { persist: boolean; active?: true },
   ): Promise<void> {
     entry.written = { status: reading.status, detail: reading.detail, unseen };
     const lastInteractedAt = options.active ? new Date(meta.timestamp).toISOString() : undefined;
@@ -247,17 +252,13 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       providerBlocker: this.getProviderBlocker(sessionId),
       statusSourceFault: this.getStatusSourceFault(sessionId),
     };
-    events.emit(sessionAgentStatusChangedChannel, {
-      ...change,
-      appFocused: meta.appFocused,
-      ...(options.soundEvent ? { soundEvent: options.soundEvent } : {}),
-    });
+    events.emit(sessionAgentStatusChangedChannel, change);
     this._hooks.callHookBackground('agent:status', { ...change, sourceId: meta.event?.sourceId,
       ...(options.active ? { activityAt: meta.timestamp } : {}) });
   }
 
   private now(): PublishMeta {
-    return { appFocused: isAppFocused(), timestamp: Date.now(), announceWait: false };
+    return { timestamp: Date.now() };
   }
 
   /**
@@ -307,19 +308,63 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
    * `tmuxSessionNames` 是开机时问一次 tmux 的结果,活没活与接回同一个判据(`sessionsAliveInTmux`)。
    * 在任何会话能说话之前跑完;这之后由行恢复的日志只会遇到静止的读数。
    */
-  async settleAfterRestart(tmuxSessionNames: ReadonlySet<string>, lastExit: InterruptedBy = 'unclean'): Promise<void> {
+  async settleAfterRestart(tmuxSessionNames: ReadonlySet<string>, lastExit: InterruptedBy = 'unclean'): Promise<string[]> {
     const inFlight = await db
       .select({ id: sessions.id })
       .from(sessions)
       .where(inArray(sessions.agentStatus, ['working', 'needs_user']));
     const alive = sessionsAliveInTmux(tmuxSessionNames);
     const gone = inFlight.filter((row) => !alive.has(row.id)).map((row) => row.id);
-    if (gone.length === 0) return;
-    await db
-      .update(sessions)
-      .set({ agentStatus: 'error', agentStatusDetail: null, agentStatusSeen: 0 })
-      .where(inArray(sessions.id, gone));
-    recordInterruptedTurns(gone, lastExit);
+    const settled: string[] = [];
+    for (const sessionId of gone) {
+      await sessionBootTasks.run('status-recovery', sessionId, async () => {
+        await db.update(sessions)
+          .set({ agentStatus: 'error', agentStatusDetail: null, agentStatusSeen: 0 })
+          .where(eq(sessions.id, sessionId));
+        recordInterruptedTurns([sessionId], lastExit);
+        settled.push(sessionId);
+      });
+    }
+    return settled;
+  }
+
+  /** Sample after prior writes, and remember this position even after the queue becomes idle. */
+  async presenceWriteVersion(sessionId: string): Promise<symbol> {
+    const version = this.writeVersions.get(sessionId) ?? Symbol();
+    const ready = this.inOrder(sessionId, async () => {}, version);
+    await ready;
+    return version;
+  }
+
+  /** A surviving harness's boot snapshot uses the normal writer path, never interruption recovery. */
+  reconcilePresence(params: StatusWriteParams & { status: HarnessPresenceStatus; signal?: AbortSignal; writeVersion: symbol }): Promise<void> {
+    const sessionId = params.sessionId;
+    if (params.writeVersion !== this.writeVersions.get(sessionId)) return Promise.resolve();
+    const writingVersion = Symbol();
+    return this.inOrder(sessionId, () => this.apply(sessionId, ctx => {
+      // The boot deadline can expire while this write is queued or logFor reads the stored row.
+      if (params.signal?.aborted) return [];
+      // A newer queued live fact supersedes the sample, even while logFor is waiting.
+      if (writingVersion !== this.writeVersions.get(sessionId)) return [];
+      const current = this.currentReading(sessionId);
+      const target: Pick<AgentStatusReading, 'status' | 'detail'> = params.status === 'busy'
+        ? { status: 'working', detail: 'running' }
+        : params.status === 'shell' ? { status: 'working', detail: 'parked' }
+          : params.status === 'waiting' ? { status: 'needs_user', detail: current?.status === 'needs_user' ? current.detail : 'approval' }
+            : { status: 'idle', detail: current?.status === 'idle' ? current.detail : 'done' };
+      // A matching snapshot cannot replace existing waits, background counts or read state.
+      if (current?.status === target.status && current.detail === target.detail) return [];
+      const events: AgentStatusEvent[] = [{ kind: 'Started', sessionId }];
+      if (params.status === 'idle' || params.status === 'shell') {
+        events.push({ kind: 'Stopped', sessionId, outcome: 'done',
+          backgroundTasks: params.status === 'shell' ? 1 : 0, scheduledTasks: 0 });
+      } else {
+        events.push({ kind: 'TasksObserved', sessionId, backgroundTasks: 0, scheduledTasks: 0 });
+        if (params.status === 'busy') events.push({ kind: 'WaitEnded', sessionId, id: '*' });
+        else if (!ctx.waiting) events.push({ kind: 'WaitStarted', sessionId, id: 'presence', waitKind: 'approval' });
+      }
+      return events;
+    }, this.now()), writingVersion);
   }
 
   /** 宿主停下了在飞的一切(停止键、ACP 取消 / 关闭):被打断,不是做完也不是失败。 */
@@ -351,7 +396,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       }
       if (!entry.written.unseen) return;
       await this.publish(sessionId, entry, readStatusLog(entry.state), false, this.now(), { persist: true });
-    });
+    }, this.writeVersions.get(sessionId));
   }
 
   /**
@@ -420,7 +465,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       const entry = await this.logFor(params.sessionId);
       if (!entry?.written) return;
       await this.publish(params.sessionId, entry, readStatusLog(entry.state), entry.written.unseen, this.now(), { persist: false });
-    }).catch((error) =>
+    }, this.writeVersions.get(params.sessionId)).catch((error) =>
       log.error('AgentStatusWriter: failed to publish the status source fault', { sessionId: params.sessionId, error: String(error) }),
     );
   }
@@ -474,6 +519,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       this.providerReviewGates.delete(sessionId);
       this.providerBlockers.delete(sessionId);
       this.statusSourceFaults.delete(sessionId);
+      this.writeVersions.delete(sessionId);
     }
   }
 
@@ -490,7 +536,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     return hasStatusSource({ runtime: 'pty', hooksKind: getPlugin(row.provider).capabilities.hooks.kind }) ? 'present' : 'none';
   }
 
-  private async applyEvent(event: AgentEvent, appFocused: boolean): Promise<void> {
+  private async applyEvent(event: AgentEvent): Promise<void> {
     const source = await this.statusSource(event.sessionId);
     // 会话行已经不在是合法的时序(删会话先删行、后停 harness,退出边带着仍然有效的令牌到达):不写、不播,
     // 否则会把 `forget` 刚清掉的日志重新种回去,并对一条已宣告删除的会话陈述状态。
@@ -507,20 +553,18 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     }
     await this.apply(event.sessionId, (ctx) => translateAgentEvent(event, ctx), {
       event,
-      appFocused,
       timestamp: event.timestamp,
-      announceWait: true,
     });
   }
 
   initialize(): void {
     this.disposers.push(
-      agentHookService.on('agent:event', (event, appFocused) => {
+      agentHookService.on('agent:event', (event) => {
         if (event.type === 'start' && event.payload.origin !== 'subagent') {
           this.providerReviewGates.delete(event.sessionId);
           this.providerBlockers.delete(event.sessionId);
         }
-        return this.inOrder(event.sessionId, () => this.applyEvent(event, appFocused));
+        return this.inOrder(event.sessionId, () => this.applyEvent(event));
       }),
     );
   }
@@ -531,6 +575,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     this.providerReviewGates.clear();
     this.providerBlockers.clear();
     this.statusSourceFaults.clear();
+    this.writeVersions.clear();
   }
 }
 

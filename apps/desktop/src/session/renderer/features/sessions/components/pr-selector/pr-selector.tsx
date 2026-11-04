@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle } from '@/lib/icons'
-import { Github } from 'lucide-react'
+import { Github } from '@/lib/icons'
 import { type ReactNode, useState } from 'react';
 import { ListPopoverCard } from '@renderer/lib/components/list-popover-card';
 import { StatusIcon } from '@renderer/lib/components/pr-status-icon';

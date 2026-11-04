@@ -29,8 +29,6 @@ vi.mock('../agent-hooks/hook-server', () => ({
   },
 }));
 vi.mock('../agent-hooks/event-enricher', () => ({ parseHookEvent: vi.fn() }));
-// electron 的 BrowserWindow 在 node 环境是 undefined ⇒ 真 isAppFocused 会抛。焦点与本判据无关。
-vi.mock('../agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/sessions/set-session-id', () => ({ setProviderSessionId: vi.fn() }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn(), on: vi.fn(() => () => {}) } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
@@ -50,8 +48,8 @@ describe('#6089 agent 被杀掉后的已读位', () => {
     fixture.sqlite.prepare(`INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo')`).run();
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status, agent_status_seen)
-         VALUES ('c1', 'p1', 'C', 'claude', 'pty', 'needs_user', 0)`
+        `INSERT INTO sessions (id, project_id, provider, runtime, agent_status, agent_status_seen)
+         VALUES ('c1', 'p1', 'claude', 'pty', 'needs_user', 0)`
       )
       .run();
   });

@@ -5,9 +5,9 @@
  * This is what makes "what you installed is what runs" true: an App's code comes only from
  * its bundle, and the one other script in the page is the platform runtime, served from
  * gugu's own files under the reserved `/_gugu/` path (read-only, shipped with this build,
- * not overridable by a bundle). script-src 'self'
- * admits only those — no remote script, and with no
- * 'unsafe-eval' the string-to-code paths are out too. connect-src is narrowed
+ * not overridable by a bundle). script-src 'self' admits only those scripts;
+ * 'wasm-unsafe-eval' permits WebAssembly compilation, while the absence of
+ * 'unsafe-eval' keeps JavaScript string-to-code paths out. connect-src is narrowed
  * per extension to the hosts its manifest declares; the session-level block is
  * the real enforcement (a page cannot lift that), and this header makes the
  * same rule visible to the extension author as a console error rather than a
@@ -16,8 +16,8 @@
  * style-src keeps 'unsafe-inline': inline styles execute no code, and every
  * mainstream UI toolkit emits them.
  *
- * `framedBy` is the one origin that may embed the page: on the desktop the App's own (it is the top of its webview);
- * on the phone the gugu page whose iframe it runs in.
+ * `framedBy` is who may embed the page: on the desktop the App's own origin (it is the top of its webview); on the phone
+ * the gugu page and the App's gate between them (appOrigin.ts `gateOrigin`) — frame-ancestors checks every ancestor.
  */
 export function extensionContentSecurityPolicy(framedBy: string, networkHosts: readonly string[]): string {
   // Mirrors what the session actually permits, or the header would refuse
@@ -36,11 +36,11 @@ export function extensionContentSecurityPolicy(framedBy: string, networkHosts: r
   // to a declared host whatever the request is for — so a header that allowed
   // `fetch()` and refused `<img>` from the same host was this file contradicting
   // itself, and the author chasing a rule nothing states. Code stays pinned to
-  // the bundle regardless: script-src is 'self' and nothing widens it.
+  // the bundle regardless: script sources stay 'self'; WebAssembly compilation does not admit remote scripts.
   const assetSources = ["'self'", ...httpsSources];
   return [
     `default-src 'self'`,
-    `script-src 'self'`,
+    `script-src 'self' 'wasm-unsafe-eval'`,
     `style-src 'self' 'unsafe-inline'`,
     `img-src ${assetSources.join(' ')} data: blob:`,
     `font-src ${assetSources.join(' ')} data:`,

@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
+import { setImmediate, setTimeout as delay } from 'node:timers/promises';
 import type BetterSqlite3 from 'better-sqlite3';
 import journal from '@root/drizzle/meta/_journal.json';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
+import { messageReferenceId } from '@gugu/session-core/acp/client';
 
 // Vite bundles all migration SQL files at build time — no runtime path resolution needed.
 // Each value is the raw SQL string content of the file.
@@ -89,6 +93,10 @@ export function applyMigrations(
   }
 }
 
+const SEARCH_INDEX_VERSION = '9';
+const TURN_TEXT_BACKFILL_MAX_TURNS = 64;
+const TURN_TEXT_BACKFILL_MAX_BYTES = 1024 * 1024;
+
 /**
  * Creates the FTS5 full-text search virtual table used by the command palette.
  * This is managed outside the Drizzle migration system because Drizzle cannot
@@ -96,32 +104,142 @@ export function applyMigrations(
  * table so it can be safely dropped and recreated when the schema changes.
  */
 function ensureSearchIndex(connection: BetterSqlite3.Database): void {
-  // Bump this version string whenever the FTS schema changes — the table is
-  // dropped and recreated, and backfill() + seedCommands() repopulate it.
-  const SEARCH_INDEX_VERSION = '5';
+  connection.transaction(() => {
+    // Bump this version string whenever the FTS schema changes — the table is
+    // dropped and recreated, and backfill() + seedCommands() repopulate it.
+    // 7: a session is indexed by its one name (task-name.ts), not the dropped `sessions.title` (6 was
+    // already taken by the said-in-tasks search, so installs that built 6 rebuild once more).
+    // 8: turn_text_rows.item_id holds the message's source identity, the one a reveal compares.
+    // 9: extract each turn's identity before expanding its messages, including in live-write triggers.
+    const row = connection.prepare(`SELECT value FROM kv WHERE key = 'fts_version'`).get() as
+      | { value: string }
+      | undefined;
 
-  const row = connection.prepare(`SELECT value FROM kv WHERE key = 'fts_version'`).get() as
-    | { value: string }
-    | undefined;
+    if (row?.value !== SEARCH_INDEX_VERSION) {
+      connection.exec(`DROP TABLE IF EXISTS search_index`);
+      ensureTurnText(connection);
+      connection.exec(`
+        CREATE VIRTUAL TABLE search_index USING fts5(
+          item_type,
+          item_id    UNINDEXED,
+          project_id UNINDEXED,
+          title,
+          keywords,
+          tokenize = 'trigram case_sensitive 0'
+        )
+      `);
+      connection.prepare("DELETE FROM kv WHERE key IN ('turn_text_backfilled', 'turn_text_backfill_cursor')").run();
+      connection
+        .prepare(
+          `INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES ('fts_version', ?, unixepoch())`
+        )
+        .run(SEARCH_INDEX_VERSION);
+    }
+  })();
+}
 
-  if (row?.value !== SEARCH_INDEX_VERSION) {
-    connection.exec(`DROP TABLE IF EXISTS search_index`);
-    connection.exec(`
-      CREATE VIRTUAL TABLE search_index USING fts5(
-        item_type,
-        item_id    UNINDEXED,
-        project_id UNINDEXED,
-        title,
-        keywords,
-        tokenize = 'trigram case_sensitive 0'
-      )
-    `);
-    connection
-      .prepare(
-        `INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES ('fts_version', ?, unixepoch())`
-      )
-      .run(SEARCH_INDEX_VERSION);
-  }
+/**
+ * Task conversation text for search, derived from session_turns by triggers: every writer of a turn (live, replay,
+ * revision, record append, truncation, session cascade) updates it in the same transaction, and nothing else writes it.
+ * Only message items (what the person and the agent said, through `search_text`) are kept; thinking and tools are not searchable.
+ * A stored turn whose data is not JSON has no items here, as for every other reader of session_turns.
+ * `turn_text_rows` holds them keyed by (session_id, seq); `turn_text` is its trigram FTS5 index (external content).
+ * Its item_id is the message's source identity (`message_reference`), never the runtime/stored display id.
+ * Rebuilt with the search index version; existing turns are backfilled after boot without blocking readiness.
+ */
+/**
+ * `search_text(text)`: what a person reads in a message item, for turn_text — a delivery's body (its envelope is how
+ * it arrived, not what was said; read by the envelope module's one reader), nothing for the silence marker. Registered on
+ * the connection before migrations, because the session_turns triggers call it on every turn write.
+ */
+export function registerSearchText(connection: BetterSqlite3.Database): void {
+  connection.function('search_text', { deterministic: true }, (text: unknown) => {
+    if (typeof text !== 'string' || isGuguSilence(text)) return null;
+    return readDeliveryEnvelope(text)?.body ?? text;
+  });
+  // `message_reference(turn.id, turn.referenceId, item.id)`: a turn from an old runtime has no durable source, so its
+  // text stays searchable under the id it was stored with.
+  connection.function('message_reference', { deterministic: true }, (turnId: unknown, referenceId: unknown, itemId: unknown) => {
+    if (typeof itemId !== 'string') return null;
+    const turn = { id: String(turnId), ...(typeof referenceId === 'string' ? { referenceId } : {}) };
+    return messageReferenceId(turn, itemId) ?? itemId;
+  });
+}
+
+function turnTextMessages(turn: string): string {
+  return `SELECT ${turn}.session_id, ${turn}.seq,
+      message_reference(json_extract(h.value, '$[0]'), json_extract(h.value, '$[1]'), json_extract(item.value, '$.id')), json_extract(item.value, '$.role'),
+      search_text(json_extract(item.value, '$.text'))
+    FROM json_each(iif(json_valid(${turn}.data),
+      json_array(json_array(json_extract(${turn}.data, '$.id'), json_extract(${turn}.data, '$.referenceId'))), '[]')) AS h
+    CROSS JOIN json_each(iif(json_valid(${turn}.data), ${turn}.data, '{}'), '$.items') AS item
+    WHERE json_extract(item.value, '$.kind') = 'message' AND length(search_text(json_extract(item.value, '$.text'))) > 0`;
+}
+
+function ensureTurnText(connection: BetterSqlite3.Database): void {
+  connection.exec(`
+    DROP TRIGGER IF EXISTS session_turns_text_insert;
+    DROP TRIGGER IF EXISTS session_turns_text_update;
+    DROP TRIGGER IF EXISTS session_turns_text_delete;
+    DROP TABLE IF EXISTS turn_text;
+    DROP TABLE IF EXISTS turn_text_rows;
+    CREATE TABLE turn_text_rows (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, seq INTEGER NOT NULL,
+      item_id TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL);
+    CREATE INDEX turn_text_rows_turn ON turn_text_rows (session_id, seq);
+    CREATE VIRTUAL TABLE turn_text USING fts5(text, content = 'turn_text_rows', content_rowid = 'id', tokenize = 'trigram case_sensitive 0');
+    CREATE TRIGGER turn_text_rows_insert AFTER INSERT ON turn_text_rows BEGIN
+      INSERT INTO turn_text (rowid, text) VALUES (NEW.id, NEW.text);
+    END;
+    CREATE TRIGGER turn_text_rows_delete AFTER DELETE ON turn_text_rows BEGIN
+      INSERT INTO turn_text (turn_text, rowid, text) VALUES ('delete', OLD.id, OLD.text);
+    END;
+    CREATE TRIGGER session_turns_text_insert AFTER INSERT ON session_turns BEGIN
+      INSERT INTO turn_text_rows (session_id, seq, item_id, role, text) ${turnTextMessages('NEW')};
+    END;
+    CREATE TRIGGER session_turns_text_update AFTER UPDATE OF data ON session_turns BEGIN
+      DELETE FROM turn_text_rows WHERE session_id = OLD.session_id AND seq = OLD.seq;
+      INSERT INTO turn_text_rows (session_id, seq, item_id, role, text) ${turnTextMessages('NEW')};
+    END;
+    CREATE TRIGGER session_turns_text_delete AFTER DELETE ON session_turns BEGIN
+      DELETE FROM turn_text_rows WHERE session_id = OLD.session_id AND seq = OLD.seq;
+    END;
+  `);
+}
+
+/** Each committed batch owns its stable cursor; live turn writes keep using the same triggers. */
+export async function backfillTurnText(connection: BetterSqlite3.Database): Promise<void> {
+  const read = connection.prepare('SELECT value FROM kv WHERE key = ?');
+  const write = connection.prepare('INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch())');
+  const next = connection.prepare(`SELECT session_id, seq, sum(b) OVER (ORDER BY session_id, seq) AS bytes
+    FROM (SELECT session_id, seq, octet_length(data) AS b FROM session_turns
+      WHERE (session_id, seq) > (?, ?) ORDER BY session_id, seq LIMIT ?)
+    ORDER BY session_id, seq`);
+  const insert = connection.prepare(`INSERT INTO turn_text_rows (session_id, seq, item_id, role, text)
+    ${turnTextMessages('t').replace('FROM json_each', 'FROM session_turns AS t CROSS JOIN json_each')}
+    AND (t.session_id, t.seq) > (?, ?) AND (t.session_id, t.seq) <= (?, ?)
+    AND NOT EXISTS (SELECT 1 FROM turn_text_rows r WHERE r.session_id = t.session_id AND r.seq = t.seq)`);
+  const batch = connection.transaction(() => {
+    if ((read.get('turn_text_backfilled') as { value: string } | undefined)?.value === SEARCH_INDEX_VERSION) return false;
+    const saved = read.get('turn_text_backfill_cursor') as { value: string } | undefined;
+    const cursor = (saved ? JSON.parse(saved.value) : ['', -1]) as [string, number];
+    const turns = next.all(...cursor, TURN_TEXT_BACKFILL_MAX_TURNS) as { session_id: string; seq: number; bytes: number }[];
+    // Include the whole turn that crosses the byte limit, even when it alone exceeds the limit.
+    const end = turns.find((turn) => turn.bytes >= TURN_TEXT_BACKFILL_MAX_BYTES) ?? turns.at(-1);
+    if (!end) {
+      write.run('turn_text_backfilled', SEARCH_INDEX_VERSION);
+      connection.prepare("DELETE FROM kv WHERE key = 'turn_text_backfill_cursor'").run();
+      return false;
+    }
+    // Commit one bounded chunk, not repeated chunks under the same write lock.
+    // A live trigger may already have indexed a turn ahead of the persisted cursor.
+    insert.run(...cursor, end.session_id, end.seq);
+    write.run('turn_text_backfill_cursor', JSON.stringify([end.session_id, end.seq]));
+    return true;
+  });
+  await setImmediate();
+  // Acquire the write lock before reading its cursor; a deferred WAL snapshot cannot be upgraded
+  // after a live writer commits. Leave a real lock-free interval for waiting foreground writers.
+  while (batch.immediate()) await delay(5);
 }
 
 /**
@@ -132,52 +250,54 @@ function ensureSearchIndex(connection: BetterSqlite3.Database): void {
  * changes without a full Drizzle migration.
  */
 function ensureFileIndex(connection: BetterSqlite3.Database): void {
-  const FILE_INDEX_VERSION = '5';
+  connection.transaction(() => {
+    const FILE_INDEX_VERSION = '5';
 
-  const row = connection.prepare(`SELECT value FROM kv WHERE key = 'file_index_version'`).get() as
-    | { value: string }
-    | undefined;
+    const row = connection.prepare(`SELECT value FROM kv WHERE key = 'file_index_version'`).get() as
+      | { value: string }
+      | undefined;
 
-  if (row?.value === FILE_INDEX_VERSION) return;
+    if (row?.value === FILE_INDEX_VERSION) return;
 
-  connection.exec(`DROP TABLE IF EXISTS workspace_file_index`);
-  connection.exec(`DROP TABLE IF EXISTS workspace_file_index_rows`);
-  connection.exec(`DROP TABLE IF EXISTS workspace_file_index_meta`);
-  connection.exec(`
-    CREATE TABLE workspace_file_index_rows (
-      rowid        INTEGER PRIMARY KEY,
-      workspace_id TEXT NOT NULL,
-      path         TEXT NOT NULL,
-      filename     TEXT NOT NULL,
-      UNIQUE(workspace_id, path)
-    );
-  `);
-  connection.exec(`
-    CREATE VIRTUAL TABLE workspace_file_index USING fts5(
-      workspace_id UNINDEXED,
-      path,
-      filename,
-      tokenize = 'trigram case_sensitive 0',
-      content = ''
-    )
-  `);
-  connection.exec(`
-    CREATE TABLE workspace_file_index_meta (
-      workspace_id     TEXT PRIMARY KEY,
-      indexed_at       INTEGER NOT NULL,
-      root_path        TEXT NOT NULL,
-      status           TEXT NOT NULL
-        CHECK (status IN ('complete', 'stale', 'truncated')),
-      file_count       INTEGER NOT NULL,
-      truncate_reason  TEXT
-        CHECK (truncate_reason IS NULL OR truncate_reason IN ('maxEntries', 'timeBudget'))
-    )
-  `);
-  connection
-    .prepare(
-      `INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES ('file_index_version', ?, unixepoch())`
-    )
-    .run(FILE_INDEX_VERSION);
+    connection.exec(`DROP TABLE IF EXISTS workspace_file_index`);
+    connection.exec(`DROP TABLE IF EXISTS workspace_file_index_rows`);
+    connection.exec(`DROP TABLE IF EXISTS workspace_file_index_meta`);
+    connection.exec(`
+      CREATE TABLE workspace_file_index_rows (
+        rowid        INTEGER PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        path         TEXT NOT NULL,
+        filename     TEXT NOT NULL,
+        UNIQUE(workspace_id, path)
+      );
+    `);
+    connection.exec(`
+      CREATE VIRTUAL TABLE workspace_file_index USING fts5(
+        workspace_id UNINDEXED,
+        path,
+        filename,
+        tokenize = 'trigram case_sensitive 0',
+        content = ''
+      )
+    `);
+    connection.exec(`
+      CREATE TABLE workspace_file_index_meta (
+        workspace_id     TEXT PRIMARY KEY,
+        indexed_at       INTEGER NOT NULL,
+        root_path        TEXT NOT NULL,
+        status           TEXT NOT NULL
+          CHECK (status IN ('complete', 'stale', 'truncated')),
+        file_count       INTEGER NOT NULL,
+        truncate_reason  TEXT
+          CHECK (truncate_reason IS NULL OR truncate_reason IN ('maxEntries', 'timeBudget'))
+      )
+    `);
+    connection
+      .prepare(
+        `INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES ('file_index_version', ?, unixepoch())`
+      )
+      .run(FILE_INDEX_VERSION);
+  })();
 }
 
 /**
@@ -198,6 +318,7 @@ export async function initializeDatabase(
   // This keeps the module importable in non-Electron environments (Vitest).
   const conn = connection ?? (await import('./client')).sqlite;
   conn.pragma('foreign_keys = ON');
+  registerSearchText(conn);
   applyMigrations(conn, bundledMigrations());
   ensureSearchIndex(conn);
   ensureFileIndex(conn);

@@ -42,12 +42,11 @@ describe('chatMentionProvider', () => {
     });
   });
 
-  it('resolves task-local agent mentions with title and harness icon only in their task URI', () => {
+  it('resolves task-local agent mentions with harness icon only in their task URI', () => {
     registerLocalSessionMentions('conversation-1', [
       {
         id: '9fd5746b-1111-4111-8111-111111111111',
         name: 'Codex 1',
-        title: 'Fix the delivery route',
         engine: 'codex',
         iconUrl: 'data:image/svg+xml,codex',
       },
@@ -58,7 +57,6 @@ describe('chatMentionProvider', () => {
       label: 'aid:9fd5746b-1111-4111-8111-111111111111',
       name: 'Codex 1',
       kind: 'custom',
-      title: 'Fix the delivery route',
       engine: 'codex',
       iconUrl: 'data:image/svg+xml,codex',
     };

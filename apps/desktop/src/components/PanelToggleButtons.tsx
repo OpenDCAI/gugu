@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen } from '@/lib/icons'
 import { useEffect, useRef, useState } from 'react'
 import { readPanelToggle, usePanelToggle, type PanelSlot } from '../lib/panelToggles'
 import { IconButton } from './ui/IconButton'

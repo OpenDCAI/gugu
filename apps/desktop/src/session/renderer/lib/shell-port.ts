@@ -2,20 +2,17 @@
 // 桌面版:桥 = preload 的 electronAPI,壳口经 ipcMain 到 electron/main.ts;
 // 网页版:桥 = 壳装的 WebSocket 客户端,壳在装桥时已把壳通道分流给自己(answerSessionShellChannels)。
 //
-// #6264 一套工作台:会话在别的机器上时,「这条会话绑的是哪个 agent / 它的地址 / 改它的名」问**那台机器**
+// #6264 一套工作台:会话在别的机器上时,「这条会话绑的是哪个 agent / 它的地址」问**那台机器**
 // (绑定记在那台机器上,由它的主进程应答,见 device-session-host.ts 的兜底);分享名片、报障仍是这台电脑的界面。
-// 侧栏那张「会话 → agent 名」表、@ 与拖拽用的会话名册,这一口只答本机那一份;别的机器上的会话读会话目录
-// (行上带 agent id,名字从身份缓存按 id 取),❌ 每次逐台去问 —— 掉线又回来的那台会让弹层卡到超时(#7016)。
+// 侧栏那张「会话 → agent」绑定表、@ 与拖拽用的会话名册,这一口只答本机那一份;别的机器上的会话读会话目录
+// (行上带 agent id 与任务名),❌ 每次逐台去问 —— 掉线又回来的那台会让弹层卡到超时(#7016)。
 import {
   createSessionShellPort,
   type SessionShellAgentName,
   type SessionShellInvoke,
   type SessionShellPort,
 } from '@shared/lib/ipc/shell-port'
-import {
-  sessionpageAgentProvisionedEvent,
-  sessionpageAgentRenamedEvent,
-} from '@shared/lib/ipc/sessionpage-identity-contract'
+import { sessionpageAgentProvisionedEvent } from '@shared/lib/ipc/sessionpage-identity-contract'
 import { electronApi, findSessionHostBridge, type SessionHostBridge } from './electron-api'
 import { invokeOnMachine, onMachineEvent } from './ipc'
 import { onEachMachine } from './machine-clients'
@@ -28,18 +25,11 @@ function machinePort(machine: string): SessionShellPort {
 }
 
 /**
- * 开户 / 改名两条事件(载荷同形,见 sessionpage-identity-contract):本机一份,每台连着的机器各订一份 —— 别的机器上的会话
- * 开户、改名,由那台机器推过来。❌ 只听本机的桥 —— 那样远端会话的身份卡永远等不到它。返回退订。
+ * 开户事件(见 sessionpage-identity-contract):本机一份,每台连着的机器各订一份 —— 别的机器上的会话
+ * 开户,由那台机器推过来。❌ 只听本机的桥 —— 那样远端会话的绑定永远等不到它。返回退订。
  */
 export function onSessionpageIdentityEvent(cb: (event: SessionShellAgentName) => void): () => void {
-  const listen = (machine: string | null) => {
-    const offProvisioned = onMachineEvent(machine, sessionpageAgentProvisionedEvent, cb)
-    const offRenamed = onMachineEvent(machine, sessionpageAgentRenamedEvent, cb)
-    return () => {
-      offProvisioned()
-      offRenamed()
-    }
-  }
+  const listen = (machine: string | null) => onMachineEvent(machine, sessionpageAgentProvisionedEvent, cb)
   const offLocal = listen(null)
   const offMachines = onEachMachine(listen)
   return () => {
@@ -58,10 +48,6 @@ export function machineAwareShellPort(local: SessionShellPort): SessionShellPort
       return machine ? machinePort(machine).agentCard(sessionId) : local.agentCard(sessionId)
     },
     agentNames: () => local.agentNames(),
-    renameAgent: (input) => {
-      const machine = machineOf(input.sessionId)
-      return machine ? machinePort(machine).renameAgent(input) : local.renameAgent(input)
-    },
     // 分享名片画在这台电脑上;名片(会话 → agent)取自会话所在的那台机器。
     shareAgent: async (sessionId) => {
       const machine = machineOf(sessionId)

@@ -98,6 +98,7 @@ export async function installExtensionFromAttachment(
     return {
       installed: true,
       outcome: 'confirmed' as const,
+      asked: done.asked,
       ...summary,
       ...(installed ? { updatedFrom: installed.manifest.version } : {}),
       ...(window ? { window: window.window, next: window.note } : {}),

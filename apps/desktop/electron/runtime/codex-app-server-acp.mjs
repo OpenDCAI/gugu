@@ -2,7 +2,7 @@
 import { codexTerminalUpdate } from './codex-terminals.mjs'
 
 // Thin protocol adapter: preserve Gugu's ACP host contract while running the user's own Codex app-server.
-import { execFile } from 'node:child_process'
+import { execFile } from '../../../../packages/core/src/local/childProcess.ts'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
@@ -196,8 +196,10 @@ function auditAcpRequest(method, params) {
 }
 
 function write(message) {
-  process.stdout.write(`${JSON.stringify(message)}\n`)
+  if (!process.stdout.write(`${JSON.stringify(message)}\n`)) appReader?.pause()
 }
+
+process.stdout.on('drain', () => appReader?.resume())
 
 function respond(id, result, error) {
   write(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result })
@@ -257,6 +259,11 @@ function appRequest(method, params, timeoutMs = 45_000) {
     appPending.set(id, {
       resolve: (value) => {
         clearTimeout(timer)
+        // Bind the insertion before another line in this stdout chunk can end its native turn.
+        if (method === 'turn/start') {
+          const insertion = promptInsertions.get(params.clientUserMessageId)
+          if (insertion) insertion.turnId = String(value?.turn?.id ?? '')
+        }
         resolve(value)
       },
       reject: (error) => {
@@ -513,6 +520,7 @@ async function loadModelCatalog(timeoutMs = 45_000) {
         name: String(raw.displayName ?? id).trim() || id,
         ...(raw.description ? { description: String(raw.description) } : {}),
         efforts,
+        defaultEffort: String(raw.defaultReasoningEffort ?? '').trim() || null,
       })
     }
     cursor = String(response?.nextCursor ?? response?.next_cursor ?? '').trim() || null
@@ -580,13 +588,14 @@ function modelConfigOptions(selected, models) {
 function effortConfigOptions(selectedModelId, selectedEffortId, models) {
   const current = models.find((model) => model.id === selectedModelId)
   const efforts = current?.efforts ?? []
-  if (efforts.length === 0 || !selectedEffortId) return []
+  const currentEffort = selectedEffortId ?? current?.defaultEffort
+  if (efforts.length === 0 || !currentEffort) return []
   return [{
     configId: 'effort',
     name: 'Reasoning effort',
     category: 'thought_level',
     type: 'select',
-    currentValue: selectedEffortId,
+    currentValue: currentEffort,
     options: efforts.map((effort) => ({ value: effort, name: effort })),
   }]
 }
@@ -773,7 +782,6 @@ const bundledCatalog = memoizeSuccess(() => new Promise((resolve, reject) => {
   execFile(codexBin, ['debug', 'models', '--bundled'], {
     env: process.env,
     maxBuffer: 64 * 1024 * 1024,
-    windowsHide: true,
     shell: process.platform === 'win32' && /\.(cmd|bat)$/i.test(codexBin),
   }, (error, stdout, stderr) => {
     if (error) reject(new Error(`${error.message}${stderr ? `: ${String(stderr).trim()}` : ''}`))
@@ -926,7 +934,7 @@ function expectPromptInsertion(acpId, content) {
   const clientId = randomUUID()
   let resolve
   const promise = new Promise(done => { resolve = done })
-  const entry = { acpId, clientId, content, promise, resolve, messageId: null, cancelled: false }
+  const entry = { acpId, clientId, content, promise, resolve, messageId: null, cancelled: false, turnId: null }
   promptInsertions.set(clientId, entry)
   return entry
 }
@@ -934,6 +942,7 @@ function forgetPromptInsertion(acpId) {
   for (const [clientId, entry] of promptInsertions) if (entry.acpId === acpId) promptInsertions.delete(clientId)
 }
 function insertedUserMessage(item) {
+  if (item.clientId?.startsWith('gugu-steer:')) return // The cell records admitted steering itself.
   // app-server echoes the explicit clientUserMessageId as userMessage.clientId.
   // Unsolicited messages never claim an outstanding RPC, even in the same native turn.
   const entry = promptInsertions.get(item.clientId)
@@ -1466,7 +1475,10 @@ function onAppNotification(message) {
   if (method === 'item/started') {
     if (params.item?.type === 'userMessage') { insertedUserMessage(params.item); return }
     trackRunningCommand(params, 'started')
-    if (params.item?.type === 'contextCompaction') return compactionUpdate(params.item, 'in_progress')
+    if (params.item?.type === 'contextCompaction') {
+      if (activeCycle?.turnId === String(params.turnId)) activeCycle.compacted = true
+      return compactionUpdate(params.item, 'in_progress')
+    }
     const terminal = codexTerminalUpdate(params.item ?? {})
     if (terminal) sessionUpdate(terminal)
     const tool = itemTool(params.item)
@@ -1527,6 +1539,15 @@ function onAppNotification(message) {
         name: command.name, description: command.name, taskType: 'Bash', showInTranscript: true, canStop: true,
       })
     }
+    if (activeCycle?.turnId === String(params.turn?.id) && activeCycle.compacted) {
+      const outcome = turnOutcome(params.turn)
+      for (const [clientId, insertion] of promptInsertions) {
+        if (insertion.turnId !== activeCycle.turnId || insertion.messageId !== null) continue
+        promptInsertions.delete(clientId)
+        insertion.resolve({ error: outcome.error?.message ?? `Native turn ended before input insertion (${outcome.stopReason})`,
+          code: outcome.error?.code ?? (outcome.stopReason === 'cancelled' ? -32800 : -32603) })
+      }
+    }
     if (!activeCycle || activeCycle.turnId === String(params.turn?.id)) {
       sessionUpdate({ sessionUpdate: 'state_update', state: 'idle', ...turnOutcome(params.turn) })
     }
@@ -1578,7 +1599,7 @@ function beginCycle(turnId) {
   if (activeCycle?.turnId === turnId) return
   let resolveCompletion
   const completion = new Promise(resolve => { resolveCompletion = resolve })
-  activeCycle = { turnId, completion, resolveCompletion }
+  activeCycle = { turnId, completion, resolveCompletion, compacted: false }
 }
 function settleCycle(turn) {
   const turnId = String(turn?.id ?? '')
@@ -2184,6 +2205,7 @@ async function handleAcpRequest(message) {
     respond(id, {
       protocolVersion: 2,
       capabilities: { session: { prompt: { image: {} }, mcp: { http: {} }, fork: {} } },
+      _meta: { steering: { supported: true } },
       info: { name: 'codex-app-server', version: 'local' },
     })
     return
@@ -2430,15 +2452,28 @@ async function handleAcpRequest(message) {
     void publishAvailableCommands(params.cwd, params.additionalDirectories)
     return
   }
+  if (method === '_session/steering') {
+    let outcome = 'promptRequired'
+    const turnId = activeCycle?.turnId
+    if (turnId) {
+      try {
+        await appRequest('turn/steer', { threadId: sessionId, input: promptInputItems(params.prompt),
+          expectedTurnId: turnId, clientUserMessageId: `gugu-steer:${randomUUID()}` })
+        outcome = 'injected'
+      } catch (error) {
+        if (error.code !== -32600) throw error
+      }
+    }
+    respond(id, { outcome })
+    return
+  }
   if (method === 'session/prompt') {
     if (revertingHistory) throw new Error('Conversation revert is in progress')
     if (!sessionId) throw new Error('no local Codex session')
     const input = promptInputItems(params.prompt)
     const insertion = expectPromptInsertion(id, params.prompt)
-    const cycle = activeCycle
-    const activeTurnId = cycle?.turnId ?? null
     if (joinPromptText(params.prompt).trim() === '/compact') {
-      if (cycle || compactInsertion) throw new Error('local Codex cannot compact while foreground work is active')
+      if (activeCycle || compactInsertion) throw new Error('local Codex cannot compact while foreground work is active')
       compactInsertion = insertion
       try {
         await appRequest('thread/compact/start', { threadId: sessionId })
@@ -2447,21 +2482,6 @@ async function handleAcpRequest(message) {
         if (compactInsertion === insertion) compactInsertion = null
       }
       return
-    }
-    if (activeTurnId) {
-      try {
-        await appRequest('turn/steer', { threadId: sessionId, input, expectedTurnId: activeTurnId,
-          clientUserMessageId: insertion.clientId })
-        await receipt(id, insertion)
-        return
-      } catch (error) {
-        throwIfInsertionCancelled(insertion)
-        if (insertion.messageId !== null) { await receipt(id, insertion); return }
-        // A native cycle can end between observing it and the steer RPC. Wait only for that
-        // specific cycle before submitting a new one; a receipt is never an end-of-work signal.
-        process.stderr.write(`[codex-app-server-acp] turn/steer failed; retrying as turn/start: ${error?.message ?? error}\n`)
-        if (activeCycle === cycle) await cycle.completion
-      }
     }
     throwIfInsertionCancelled(insertion)
     const started = await appRequest('turn/start', { threadId: sessionId, input,

@@ -5,10 +5,20 @@ import { clickElement, contact, createNode, createReactHarness, renderWithAppPro
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
-afterEach(() => { harness.cleanup() })
+afterEach(() => { harness.cleanup(); vi.useRealTimers() })
 
 // 发出好友申请后：离开这一页（onBack：弹窗关掉 / 手机整页返回），搜索框与结果清空，不再留着上一次的输入。
 describe('AddFriendSearch after a request is sent', () => {
+  it('shows the real default name in fresh agent lookup results', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime('2026-11-02T08:00:00.000Z')
+    await renderWithAppProviders(harness, createNode(AddFriendSearch, { onBack: vi.fn() }), {
+      contacts: { contacts: [], sentRequests: [], searchResults: [contact({ id: 'fresh', display_name: 'Codex 5', type: 'agent', agent_type: 'codex', created_at: '2026-11-02T08:00:00.000Z' })] },
+    })
+    await typeInto(harness.container.querySelector('input')!, 'Codex 5')
+    expect(harness.container.querySelector('.gg-row')?.textContent).toContain('Codex 5')
+    expect(harness.container.querySelector('.gg-row')?.textContent).not.toContain('正在起名…')
+  })
   it('clears the query and results, then hands back to the host', async () => {
     const sendRequest = vi.fn(async () => {})
     const clearSearch = vi.fn()

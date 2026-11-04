@@ -1,6 +1,9 @@
+import { useObserver } from 'mobx-react-lite';
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { resolveConversationMessageReference, type ChatView, type TranscriptTurn } from '@gugu/session-chat-ui';
+import { takeTaskReveal } from '@/hooks/useSourceMessageReveal';
 import { revealSourceMessage, SOURCE_MESSAGE_FLASH_MS } from '@/lib/sourceMessageReveal';
+import { UI_EVENTS } from '@/lib/uiEvents';
 import { parseMessageQuoteLink } from '@gugu/core/shared/ui/messageQuote';
 
 type SourceStore = {
@@ -94,4 +97,23 @@ export function useSessionSourceMessage(store: SourceStore | null | undefined, v
     });
   }, [loadOlder, view]);
   return { reveal, loadOlder, flashMessageId };
+}
+
+/**
+ * A message found by the global search panel is revealed once this task's view and first history page are in, now or
+ * when it opens. Taking the request any earlier spends it: nothing is loaded yet and there is no cursor to page back with.
+ */
+export function useSearchedTaskReveal(store: { sessionId: string; historyLoading: boolean } | null | undefined, view: ChatView | null, reveal: (reference: string) => void) {
+  const sessionId = store?.sessionId;
+  const ready = useObserver(() => !!view && store?.historyLoading === false);
+  useEffect(() => {
+    if (!ready || !sessionId) return;
+    const take = () => {
+      const reference = takeTaskReveal(sessionId);
+      if (reference) reveal(reference);
+    };
+    take();
+    window.addEventListener(UI_EVENTS.chatAsked, take);
+    return () => window.removeEventListener(UI_EVENTS.chatAsked, take);
+  }, [ready, sessionId, reveal]);
 }

@@ -40,7 +40,7 @@ export function createPhoneAssistantWork({ ownerId,deviceId,instanceId,cloud,sto
       let sequence=0
       const result=await enqueueAssistantWorkReport({rpc:(name,args)=>cloud.identity.rpc(name,args),prepare,
         resolveNumbers:async numbers=>{
-          const {data,error}=await cloud.identity.from('users').select('id,gugu_number').eq('owner_user_id',ownerId).in('gugu_number',numbers)
+          const {data,error}=await cloud.identity.from('active_users').select('id,gugu_number').eq('owner_user_id',ownerId).in('gugu_number',numbers)
           if(error) throw new Error(error.message)
           return new Map((data??[]).map(row=>[row.gugu_number,row.id]))
         },id:()=>stableId('phone-work-report',job.id,callId,sequence++)},

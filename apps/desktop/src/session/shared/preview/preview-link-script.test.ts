@@ -1,7 +1,7 @@
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import { DOCUMENT_MAX_ZOOM } from './pinch-zoom';
-import { DOCUMENT_PREVIEW_CSP, PREVIEW_LINK_SCRIPT, previewDocumentHtml } from './preview-link-script';
+import { DOCUMENT_PREVIEW_CSP, PREVIEW_LINK_SCRIPT, PREVIEW_RESTORE_MESSAGE_TYPE, PREVIEW_RESTORED_MESSAGE_TYPE, previewDocumentHtml } from './preview-link-script';
 
 type Listener = (event: unknown) => void;
 
@@ -15,7 +15,8 @@ function runInFakeDocument(script: string) {
   };
   const postMessage = vi.fn();
   const scrollTo = vi.fn();
-  runInNewContext(script, { document, parent: { postMessage }, window: { scrollTo } });
+  const parent = { postMessage };
+  runInNewContext(script, { document, parent, requestAnimationFrame: (callback: () => void) => callback(), window: { scrollTo, scrollX: 12, scrollY: 900, addEventListener: (type: string, listener: Listener) => listeners.set(`window:${type}`, listener) } });
   const wheel = (event: { ctrlKey: boolean; deltaY: number }) => {
     const preventDefault = vi.fn();
     listeners.get('wheel')?.({ ...event, preventDefault });
@@ -29,8 +30,18 @@ function runInFakeDocument(script: string) {
     });
     return preventDefault;
   };
-  return { document, wheel, click, postMessage, scrollTo };
+  return { document, wheel, click, postMessage, scrollTo, listeners, parent };
 }
+
+it('restores scrolling only for the parent and acknowledges after the frame can be painted', () => {
+  const { listeners, parent, scrollTo, postMessage } = runInFakeDocument(PREVIEW_LINK_SCRIPT);
+  const message = listeners.get('window:message')!;
+  message({ source: {}, data: { type: PREVIEW_RESTORE_MESSAGE_TYPE, x: 12, y: 900 } });
+  expect(scrollTo).not.toHaveBeenCalled();
+  message({ source: parent, data: { type: PREVIEW_RESTORE_MESSAGE_TYPE, x: 12, y: 900 } });
+  expect(scrollTo).toHaveBeenCalledWith({ left: 12, top: 900, behavior: 'instant' });
+  expect(postMessage).toHaveBeenCalledWith({ type: PREVIEW_RESTORED_MESSAGE_TYPE }, '*');
+});
 
 describe('shared preview anchors', () => {
   it('scrolls to an existing target without navigating or opening a host link', () => {

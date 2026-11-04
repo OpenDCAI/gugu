@@ -128,26 +128,21 @@ describe('ProjectsPage — 置顶分区与父子树(对齐桌面侧栏)', () => 
     expect(row(projectSection(), 'plain')).not.toBeNull()
   })
 
-  it('#6726 行的第二行带这条会话背后的 agent 名(行上只有 id,名字按 id 对上通讯录);还没有身份的行不编一个', async () => {
+  it('一个任务一个名字:行只写会话的 title,通讯录里那份 agent 名 ❌ 当第二个名字摆上去', async () => {
     await renderOnline([summary('named', 1, { agent: { userId: 'agent-1' } }), summary('bare', 2, { agent: null })])
-    expect(row(projectSection(), 'named')?.querySelector('.gg-aw-item-meta')?.textContent).toContain('Codex 3')
-    expect(row(projectSection(), 'bare')?.querySelector('.gg-aw-item-meta')?.textContent).not.toContain('Codex 3')
+    expect(row(projectSection(), 'named')?.textContent).not.toContain('Codex 3')
   })
 
-  it('owner 10-09 第二行只留 agent 名与时间:不写状态词(图标就是它)、有名字不写 harness、名字就是标题不重复', async () => {
-    contacts.list = [...contacts.list, { id: 'agent-echo', display_name: 'title-echo' }]
+  it('owner 10-09 第二行只留 harness 与时间:不写状态词(图标就是它),名字在标题行说过不重复', async () => {
     await renderOnline([
       summary('named', 1, { agentStatus: 'working', agent: { userId: 'agent-1' } }),
       summary('bare', 2, { agentStatus: 'working', agent: null }),
-      summary('echo', 3, { agent: { userId: 'agent-echo' } }),
     ])
     const parts = (id: string) => [...(row(projectSection(), id)?.querySelectorAll('.gg-aw-item-part') ?? [])].map((el) => el.textContent)
     expect(parts('named')).toHaveLength(2)
-    expect(parts('named')[0]).toBe('Codex 3')
+    expect(parts('named')[0]).toBe('codex')
     expect(parts('bare')).toHaveLength(2)
     expect(parts('bare')[0]).toBe('codex')
-    expect(parts('echo')).toHaveLength(2)
-    expect(parts('echo')).not.toContain('title-echo')
   })
 
   it('没有置顶的会话就没有「置顶」分区', async () => {
@@ -213,7 +208,7 @@ describe('ProjectsPage — 置顶分区与父子树(对齐桌面侧栏)', () => 
   })
 
   // owner 2026-10-09:进 Chole 看得到 125,看不到它下面在 ThinkPad 上的子会话。
-  it('跨机器:别的机器上的子会话挂在父会话下,行上带它自己的 agent 名、❌ 机器名(owner 10-28);点开交出它所在的机器', async () => {
+  it('跨机器:别的机器上的子会话挂在父会话下,行上 ❌ 机器名(owner 10-28);点开交出它所在的机器', async () => {
     const chole = device({ device_id: 'chole', label: 'Chole' })
     const thinkpad = device({ device_id: 'thinkpad', label: 'ThinkPad' })
     online('chole', [summary('125', 1)])
@@ -223,7 +218,6 @@ describe('ProjectsPage — 置顶分区与父子树(对齐桌面侧栏)', () => 
     const child = row(projectSection(), 'lane')
     expect(child?.closest('.gg-aw-item-wrap')?.getAttribute('data-depth')).toBe('1')
     expect(child?.querySelector('.gg-aw-item-meta')?.textContent).not.toContain('ThinkPad')
-    expect(child?.querySelector('.gg-aw-item-meta')?.textContent).toContain('Claude 7')
     await act(async () => (child as HTMLButtonElement).click())
     expect(opened).toEqual([['thinkpad', 'lane']])
 
@@ -530,8 +524,9 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
     expect(noSessions).not.toBe(noMachines)
   })
 
-  it('点名定位:收起的分区被展开、滚到那一行;没点名时收起照旧', async () => {
+  it('点名定位保留收起的分区和展开显示偏好,滚到所属分区', async () => {
     localStorage.setItem('gugu.agent-watch.collapsed.projects', JSON.stringify(['device-1|p1']))
+    localStorage.setItem('gugu.agent-watch.more.projects', JSON.stringify(['another-project']))
     const scrollIntoView = vi.fn()
     const original = Element.prototype.scrollIntoView
     Element.prototype.scrollIntoView = scrollIntoView
@@ -542,11 +537,57 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
       expect(row(harness.container, 'wanted'), '阳控:收起的分区不画行').toBeNull()
       await renderPage([device()], { reveal: { deviceId: 'device-1', sessionId: 'wanted' } })
       await flush()
-      expect(row(harness.container, 'wanted')).not.toBeNull()
+      expect(row(harness.container, 'wanted')).toBeNull()
+      expect(projectSection()?.getAttribute('data-collapsed')).toBe('true')
+      expect(JSON.parse(localStorage.getItem('gugu.agent-watch.collapsed.projects')!)).toEqual(['device-1|p1'])
+      expect(JSON.parse(localStorage.getItem('gugu.agent-watch.more.projects')!)).toEqual(['another-project'])
       expect(scrollIntoView).toHaveBeenCalled()
-      expect(scrollIntoView.mock.contexts.at(-1)).toBe(row(harness.container, 'wanted'))
+      expect(scrollIntoView.mock.contexts.at(-1)).toBe(projectSection())
     } finally {
       Element.prototype.scrollIntoView = original
     }
+  })
+
+  it('定位子会话保留祖先折叠,定位项目也不改写偏好', async () => {
+    const folded = JSON.stringify(['parent'])
+    const more = JSON.stringify(['another-project'])
+    localStorage.setItem('gugu.agent-watch.collapsed.projects', folded)
+    localStorage.setItem('gugu.agent-watch.more.projects', more)
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      rpc.list = { projects: [repo], sessions: [summary('parent', 1), summary('wanted', 2, { parentConversationId: 'parent' })] }
+      online('device-1', rpc.list.sessions)
+      await renderPage([device()], { reveal: { deviceId: 'device-1', sessionId: 'wanted' } })
+      expect(row(harness.container, 'wanted')).toBeNull()
+      expect(row(harness.container, 'parent')).not.toBeNull()
+      expect(scrollIntoView.mock.contexts.at(-1)).toBe(row(harness.container, 'parent'))
+      await renderPage([device()], { reveal: { projectId: 'p1' } })
+      expect(projectSection()?.getAttribute('data-collapsed')).toBe('false')
+      expect(localStorage.getItem('gugu.agent-watch.collapsed.projects')).toBe(folded)
+      expect(localStorage.getItem('gugu.agent-watch.more.projects')).toBe(more)
+    } finally { Element.prototype.scrollIntoView = original }
+  })
+
+  it('定位收在展开显示里的会话不打开列表,手动展开仍能保存并恢复', async () => {
+    const more = JSON.stringify(['another-project'])
+    localStorage.setItem('gugu.agent-watch.more.projects', more)
+    rpc.list = { projects: [repo], sessions: Array.from({ length: 7 }, (_, index) => summary(`idle-${index}`, index + 1)) }
+    online('device-1', rpc.list.sessions)
+    await renderPage([device()], { reveal: { deviceId: 'device-1', sessionId: 'idle-0' } })
+    expect(row(harness.container, 'idle-0')).toBeNull()
+    const toggle = harness.container.querySelector<HTMLButtonElement>('[data-testid="agent-watch-session-more"]')!
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(localStorage.getItem('gugu.agent-watch.more.projects')).toBe(more)
+    await act(async () => toggle.click())
+    expect(row(harness.container, 'idle-0')).not.toBeNull()
+    const saved = localStorage.getItem('gugu.agent-watch.more.projects')
+    expect(JSON.parse(saved!)).toEqual(['another-project', 'device-1|p1'])
+    harness.cleanup()
+    harness = createReactHarness()
+    await renderPage([device()], { reveal: { projectId: 'p1' } })
+    expect(row(harness.container, 'idle-0')).not.toBeNull()
+    expect(localStorage.getItem('gugu.agent-watch.more.projects')).toBe(saved)
   })
 })

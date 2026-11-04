@@ -30,6 +30,9 @@ const IMAGE_CONTENT = '[附件] screenshot.png (image/png)\n[URL] https://files.
 const IMAGE_LINK = { url: 'https://files.test.local/screenshot.png', width: 1000, height: 500 };
 
 let harness: ReturnType<typeof createReactHarness>;
+// 每条用例一个消息 id:附件状态缓存(attachmentQueryClient,模块级)按消息 id 记,同一个 id 会让上一条文件卡片没取到的状态
+// 落进下一条图片的气泡里(它把这条消息读成「文件暂时打不开」)。
+let messageSeq = 0;
 beforeAll(async () => {
   await i18n.changeLanguage('zh-CN');
 });
@@ -41,7 +44,7 @@ async function renderAttachment(content: string, selector: string, listWidth: nu
   await renderWithAppProviders(
     harness,
     createNode(MessageBubble, {
-      msg: message({ id: 'msg-1', sender_user_id: 'sender-1', created_at: '2026-10-16T09:41:00.000Z', content_type: 'attachment', content, is_mine: isMine }),
+      msg: message({ id: `msg-${++messageSeq}`, sender_user_id: 'sender-1', created_at: '2026-10-16T09:41:00.000Z', content_type: 'attachment', content, is_mine: isMine }),
       onReaction: vi.fn(),
       memberReadSeqs: {},
       onQuote: vi.fn(),

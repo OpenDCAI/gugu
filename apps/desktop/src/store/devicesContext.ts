@@ -5,7 +5,7 @@ import type { DeviceBoundAgent } from '../lib/chat'
 import type { CloudComputerStoreState } from '../lib/cloudComputerStore'
 
 // #1749 设备 store 的单一事实源：设置面板与 create-agent selector 都只订这里（列表 + 排序 + 实时在线 +
-// rename/remove 动作）。设计见 docs/devices-abstraction-design.md。
+// rename/remove 动作）。设计见 docs/design/devices-abstraction-design.md。
 export interface DevicesContextValue {
   /**
    * 账号名下的机器(已排序：本机 → 其他在线 → 离线,组内按 label)。设备列表、「在哪跑」、侧栏、

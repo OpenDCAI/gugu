@@ -14,7 +14,7 @@ const turn = (seq: number, text = 'Acknowledged.'): TranscriptTurn => ({ id: `st
   { kind: 'message', id: `answer-${seq}`, seq: 1, role: 'assistant', text },
 ] });
 function mount() {
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true });
   const state = createChatState(context);
   const host = document.createElement('div');

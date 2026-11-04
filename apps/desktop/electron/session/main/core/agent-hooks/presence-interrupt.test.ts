@@ -8,7 +8,6 @@ const mocks = vi.hoisted(() => ({
   logError: vi.fn(),
 }));
 vi.mock('./agent-hook-service', () => ({ agentHookService: { emitAgentEvent: mocks.emitAgentEvent } }));
-vi.mock('./app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/agent-status/agent-status-writer', () => ({
   agentStatusWriter: { reportStatusSourceFault: mocks.reportStatusSourceFault, isWorkingOrWaiting: mocks.isWorkingOrWaiting },
 }));

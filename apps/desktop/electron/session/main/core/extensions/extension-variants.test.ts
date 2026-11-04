@@ -22,7 +22,7 @@ function setup() {
   roots.push(root);
   const source = path.join(root, 'source');
   mkdirSync(source);
-  const manifest: ExtensionManifest = { id: 'demo', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Demo' }] }, permissions: { capabilities: ['files:read'], network: ['example.com'] } };
+  const manifest: ExtensionManifest = { id: 'demo', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Demo' }] }, permissions: { capabilities: ['files:read'], network: ['example.com'] } };
   writeFileSync(path.join(source, 'index.html'), 'upstream');
   const save = () => writeFileSync(path.join(source, 'manifest.json'), JSON.stringify(manifest));
   save();

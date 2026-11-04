@@ -176,7 +176,7 @@ describe('sessionSections — 项目分区的「展开显示」', () => {
     ...[1, 2, 3, 4, 5, 6, 7].map((n) => session(`r${n}`, 'a', 50 - n)),
     session('kid', 'a', 48, { parentConversationId: 'r1' }),
     session('busy-root', 'a', 10),
-    session('busy-kid', 'a', 9, { parentConversationId: 'busy-root', agentStatus: 'working' }),
+    session('busy-kid', 'a', 9, { parentConversationId: 'busy-root', status: { status: 'working', detail: 'running' } }),
     session('loose', 'gone', 5),
     session('pin', 'a', 1, { isPinned: true }),
   ]

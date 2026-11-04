@@ -9,6 +9,7 @@ import { readClaudeRecord, type ClaudeRecordItem } from '@gugu/core/local/agent/
 
 import {
   type RecordEntry,
+  type RecordLineageNode,
   type RecordImageRef,
   type SessionRecordLocator,
   type SessionRecordResume,
@@ -19,6 +20,7 @@ import { findUnder, isFile } from './find-file';
 import { locateImages, readRecordImage } from './record-images';
 import {
   SessionRecordNotFoundError,
+  SessionRecordForkDivergedError,
   asRecord,
   boundaryEntry,
   emitJsonLines,
@@ -92,6 +94,10 @@ class ClaudeJsonlSource implements SessionRecordSource {
    */
   private anchors = new Set<string>();
   private stopped = false;
+  private lineage: RecordLineageNode[] = [];
+  private lineageValid = true;
+  private inherited = 0;
+  private ownIncrement = false;
 
   constructor(
     readonly locator: SessionRecordLocator,
@@ -123,7 +129,7 @@ class ClaudeJsonlSource implements SessionRecordSource {
       },
       this.warn
     );
-    const resumed = resume ? await this.resumeRead(path, resume) : false;
+    const resumed = this.options?.readMode !== 'snapshot' && resume ? await this.resumeRead(path, resume) : false;
     if (!resumed) {
       // 要过存档、却没能续上 ⇒ **必须**显式告诉上层「你手里装回去的那份作废」。
       // 不说的话:上层带着存档里的去重表,把整份重读的内容一条不剩地当成重复丢掉,
@@ -131,7 +137,9 @@ class ClaudeJsonlSource implements SessionRecordSource {
       if (resume) events.onReset('source_replaced');
       await this.fullRead(path);
     }
-    this.reader.start();
+    if (this.options?.readMode === 'snapshot') {
+      if (!this.nativeChild && this.options.parentLineage && this.inherited === 0) throw new SessionRecordForkDivergedError();
+    } else this.reader.start();
   }
 
   /**
@@ -165,6 +173,7 @@ class ClaudeJsonlSource implements SessionRecordSource {
   }
 
   async resumePoint(): Promise<SessionRecordResume | null> {
+    if (this.options?.readMode === 'snapshot') return null;
     // 存档在拆除时取,紧接着同步 stop() 把 this.reader 置空 —— await 之后只认这一刻的 reader。
     const reader = this.reader;
     if (!reader || !this.primaryPath) return null;
@@ -187,8 +196,10 @@ class ClaudeJsonlSource implements SessionRecordSource {
   }
 
   async catchUp(): Promise<void> {
-    await this.reader?.catchUp();
+    if (this.options?.readMode !== 'snapshot') await this.reader?.catchUp();
   }
+
+  getLineage(): readonly RecordLineageNode[] | null { return this.lineageValid ? this.lineage : null; }
 
   readImage(ref: RecordImageRef): Promise<string | null> {
     return readRecordImage(ref);
@@ -208,7 +219,13 @@ class ClaudeJsonlSource implements SessionRecordSource {
     this.seenUuids = new Set();
     this.lastUuid = null;
     this.anchors = new Set();
+    this.lineage = [];
+    this.lineageValid = true;
+    this.inherited = 0;
+    this.ownIncrement = false;
     await this.reader!.readFromStart((lines, offsets) => this.emitLines(lines, offsets));
+    // A storage snapshot belongs to this task's primary record, not a descendant's continuation.
+    if (this.options?.readMode === 'snapshot') return;
     // 分叉串联接在整份读之后：串上来的那份也是"已有内容"，尾读要交接到链条最后一份上。
     const tailPath = await this.chainForks(path);
     if (tailPath !== path) this.reader!.retarget(tailPath);
@@ -233,6 +250,22 @@ class ClaudeJsonlSource implements SessionRecordSource {
     this.seenUuids.add(uuid);
     this.lastUuid = uuid;
     if (!this.nativeChild && record.isSidechain === true) return [];
+    if (this.options?.readMode === 'snapshot' && !this.nativeChild && this.reader?.currentPath === this.primaryPath) {
+      const parentUuid = record.parentUuid;
+      const valid = parentUuid === null || typeof parentUuid === 'string';
+      if (valid) this.lineage.push({ uuid, parentUuid });
+      else this.lineageValid = false;
+      const parent = this.options?.parentLineage;
+      if (this.options?.readMode === 'snapshot' && parent) {
+        if (!valid) throw new SessionRecordForkDivergedError();
+        if (!this.ownIncrement) {
+          const node = parent[this.inherited];
+          if (node?.uuid === uuid && node.parentUuid === parentUuid) { this.inherited++; return []; }
+          if (this.inherited === 0 || parentUuid !== parent[this.inherited - 1].uuid) throw new SessionRecordForkDivergedError();
+          this.ownIncrement = true;
+        }
+      }
+    }
     const message = asRecord(record.message);
     const blocks = Array.isArray(message?.content) ? message.content.map(asRecord) : [];
     for (const block of blocks) {

@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
 import { learnHarnessConfigRoot } from '@main/core/agent-hooks/harness-config-roots';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
-import { isAppFocused } from '@main/core/agent-hooks/app-focus';
 import { log } from '@main/lib/logger';
 import { applyHarnessTitle } from '../sessions/renameSession';
 import { SessionActivityObserver } from '../activity/session-observation';
@@ -30,6 +29,8 @@ class AcpAgentStatusBridge {
    * 库只在第一次见到这条会话时读一次。会话停掉(摘要消失)就忘掉,下次起来重读。
    */
   private readonly recordedUsage = new Map<string, ContextReading | null>();
+  /** Per-session summary watchers (the session-life ACP leg reads its exit from these). */
+  private readonly watchers = new Map<string, Set<(summary: SessionSummary | undefined) => void>>();
   private processExitUnsubscribe: Unsubscribe | null = null;
   private replica: ReplicaState<SessionSummaryList> | null = null;
   private attaching = false;
@@ -77,6 +78,18 @@ class AcpAgentStatusBridge {
         this.queuedRuntime = null;
         if (queued !== null && this.spawnedUnsubscribe) this.connect(queued);
       });
+  }
+
+  /** Every later summary of this session; `undefined` = the runtime no longer lists it. */
+  watch(sessionId: string, listener: (summary: SessionSummary | undefined) => void): Unsubscribe {
+    let set = this.watchers.get(sessionId);
+    if (!set) this.watchers.set(sessionId, set = new Set());
+    set.add(listener);
+    return () => { set.delete(listener); if (!set.size) this.watchers.delete(sessionId); };
+  }
+
+  private notify(sessionId: string, summary: SessionSummary | undefined): void {
+    for (const listener of [...(this.watchers.get(sessionId) ?? [])]) listener(summary);
   }
 
   /** 此刻运行时里的 ACP 会话摘要(按 conversationId),只读。闲置回收按它找「进程还在」的会话。 */
@@ -139,6 +152,7 @@ class AcpAgentStatusBridge {
       }
       this.applyContextUsage(summary);
       this.summaries.set(summary.sessionId, summary);
+      if (summary !== previous) this.notify(summary.sessionId, summary);
     }
 
     for (const [sessionId, summary] of [...this.summaries]) {
@@ -147,6 +161,7 @@ class AcpAgentStatusBridge {
       this.summaries.delete(sessionId);
       this.activity.forget(sessionId);
       this.recordedUsage.delete(sessionId);
+      this.notify(sessionId, undefined);
     }
   }
 
@@ -171,14 +186,12 @@ class AcpAgentStatusBridge {
    * 显式命名的会话不动,首轮兜底与 harness 上一次的名会被盖掉。
    */
   private applyTitle(summary: SessionSummary): void {
-    try {
-      applyHarnessTitle(summary.sessionId, summary.title ?? '');
-    } catch (error) {
+    void applyHarnessTitle(summary.sessionId, summary.title ?? '').catch((error: unknown) => {
       log.warn('ACP agent status bridge failed to apply the harness session title', {
         sessionId: summary.sessionId,
         error: String(error),
       });
-    }
+    });
   }
 
   /** 一轮落定时把最后那份上下文读数记进会话记录,换了模型就作废 —— 判据在 `contextUsageChange`。 */
@@ -203,7 +216,7 @@ class AcpAgentStatusBridge {
   private applyActions(actions: AcpAgentStatusAction[]): void {
     for (const action of actions) {
       if (action.kind === 'event') {
-        agentHookService.emitAgentEvent(action.event, isAppFocused());
+        agentHookService.emitAgentEvent(action.event);
       } else {
         void agentStatusWriter
           .interrupt({

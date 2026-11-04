@@ -14,7 +14,7 @@ export type ExtensionsApi = Pick<
   | 'marketEntry'
   | 'marketUpdates'
   | 'marketRefresh'
-  | 'marketReadme'
+  | 'marketListing'
   | 'marketRead'
   | 'marketHistory'
   | 'installFromMarket'

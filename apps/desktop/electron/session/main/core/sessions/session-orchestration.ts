@@ -1,3 +1,4 @@
+import { taskName } from './task-name';
 import { assistantWorkIntentSchema,type AssistantWorkIntent } from '@gugu/core/shared/assistantWorkIntent';
 import { SessionArchivedError } from '@gugu/core/shared/sessionArchival';
 import { assistantWorkLedgerContext } from '../../../../sessionpage/assistant-work-ledger';
@@ -10,13 +11,14 @@ import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { readCurrentActivitySource } from './session-activity-source';
 import { receiveAssistantWorkReport, workReportSchema, type WorkReport } from '../../../../sessionpage/assistant-work';
 import { isProjectAgentAction, runProjectAgentAction, type ProjectAgentAction } from '../projects/project-agent-actions';
+import { localProjectOfGroup } from '../projects/operations/project-groups';
+import { getProjectById } from '../projects/operations/getProjects';
 import { isLibraryAgentAction, runLibraryAgentAction, type LibraryAgentAction } from '../app/user-library';
 import { randomUUID } from 'node:crypto';
 import { sessionDirectMessageId } from './session-direct-identity';
 import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
-import { resolveSessionPermissionMode, type SessionSummary } from '@gugu/session-core/acp';
+import type { SessionSummary } from '@gugu/session-core/acp';
 import { and, eq, inArray } from 'drizzle-orm';
-import { getAcpRuntimeClient } from '@main/core/acp/controller';
 import type { MessagePreviewEntry, MessagePreviewProjection } from '@gugu/session-core/session-record/message-preview';
 import { readSessionPreview } from '@main/core/session-timeline/preview-rpc';
 import {
@@ -42,10 +44,14 @@ import { rememberBirthGroup } from '@main/core/sessions/birth-groups';
 import type { BirthGroup } from '@shared/core/sessions/create-session';
 import { rememberedProviderOf, resolveSessionProviderSelection, sessionpageLegFor } from '@shared/core/sessions/provider-selection';
 import type { NewSessionMemory } from '@shared/core/app-settings';
+import { sessionLife } from './session-life';
+import { displayStatus } from '@shared/core/sessions/session-life';
+import { admitCreationTurns, bindIdentityThenCreate } from './session-life-creation';
+import { provisionStartIdentity } from '@main/core/acp/runtime-process/host';
+import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-agent';
 import { createStageLedger } from '@main/lib/stage-ledger';
 import { events } from '@main/lib/events';
 import {
-  MAX_SESSION_TITLE_LENGTH,
   sessionpageLegOfView,
   type Session,
   type SessionRuntime,
@@ -84,7 +90,6 @@ import {
   type AgentProviderId,
 } from '@gugu/session-plugins/agents';
 import { providerConsumesStartupPrompt } from '@gugu/session-core/agents/plugins';
-import { resolveSessionDisplayName } from '@shared/core/sessions/session-display-name';
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions';
 import { flushDeferredMessages, sessionIsWorking, storeDeferredMessage } from './session-deferred-messages';
 import { childHarnessDefault } from './child-harness-default';
@@ -99,10 +104,9 @@ import {
   type SessionTransport,
 } from '../agents/session-discovery';
 import { getPlugin, listPlugins, toAgentProviderId } from '../agents/plugin-registry';
-import { archiveSession } from './archiveSession';
-import { setSessionParent } from './session-family';
+import { resolveSessionParent, setSessionParent } from './session-family';
 import { attachAgentToSession, type InternalSessionRelations } from './attach-agent-to-session';
-import { deleteSession } from './deleteSession';
+import { archiveSession } from './archiveSession';
 import { recordSessionOutput } from './session-outputs';
 import { sessionPlatformModel } from './platform-model-selection';
 import type { AgentScheduleAction } from '../automations/agent-schedules';
@@ -157,12 +161,13 @@ export type SessionAction =
       /** The `project` parameter, decoded at the host boundary: a project id, or a folder on this machine. */
       project_id?: string;
       project_path?: string;
-      nest?: boolean;
+      parent_session_id?: string | null;
       transport?: SessionRuntime;
       /** Canonical plugin id returned by session_list_harnesses. */
       harness?: string;
       /** A model id returned by session_list_models — `platform:<id>` for a Gugu model, otherwise harness-native. */
       model?: string;
+      thinking?: string;
       /** A group of the owner's the child is born in — joined once its identity is minted (birth-groups.ts). */
       chat_id?: string;
     }
@@ -200,10 +205,10 @@ export type SessionAction =
   | { action: 'close_tab'; tab_id: string }
   | { action: 'get'; session_id?: string }
   | { action: 'stop'; session_id: string }
-  | { action: 'archive'; session_id: string; with_children?: boolean }
+  | { action: 'archive'; session_id: string; with_children?: boolean; remove_social_identity?: boolean }
   /** `parent_session_id` null = 不挂在谁下面(根会话)。两个 id 都已在宿主边界解成裸 id。 */
   | { action: 'set_parent'; session_id: string; parent_session_id: string | null }
-  /** #7221 schedule_*:给自己排的「已安排」,只作用于发起调用的这条会话(agent-schedules.ts)。 */
+  /** #7221 schedule_*:建只给自己;看与取消可指名主人的另一条会话(agent-schedules.ts)。 */
   | AgentScheduleAction
   | ProjectAgentAction
   | LibraryAgentAction
@@ -222,7 +227,11 @@ export type SessionSnapshot = {
   /** 派它的会话在另一台机器上时,那台机器。 */
   spawned_by_device_id?: string;
   parent_session_id: string | null;
+  /** 父级的远端祖先暂时够不着,与 session_set_parent 同一条回执。 */
+  not_reached?: string[];
   project_id: string;
+  /** 跨机省略 project 时,说明实际落点及推导或回落原因。 */
+  project_note?: string;
   title: string;
   provider_id: string;
   /** Panel (acp) or terminal (pty). Reported explicitly so a caller never has to infer the shape from
@@ -363,16 +372,7 @@ function resolveSessionRow(rows: SessionRow[], sessionId: string): SessionRow {
 type EnvelopeSender = { sessionId: string; title: string | null };
 
 async function localEnvelopeSender(caller: SessionRow): Promise<EnvelopeSender> {
-  const identity = await localAgentForSession(caller.id, process.env);
-  // The roster identity is the canonical name for unnamed parent sessions; an explicit
-  // session_spawn title is the same persisted identity for named children. Do not use
-  // `sessions.title` here: a title derived from the first prompt is indistinguishable
-  // from a custom title in that column and would put prompt text in the sender pill.
-  const title = resolveSessionDisplayName({
-    identityName: identity?.name,
-    explicitName: caller.config?.agentDisplayName,
-  }) ?? providerDisplayName(caller.provider);
-  return { sessionId: caller.id, title };
+  return { sessionId: caller.id, title: taskName(caller) };
 }
 
 /** 别的机器上的发信人:名字后面带上机器名 —— 收信的 agent 与看转录的人都要知道这句话从哪台机器来。 */
@@ -438,11 +438,11 @@ function snapshot(
     ...(!row.spawnedBySessionId && remoteSpawner ? { spawned_by_device_id: remoteSpawner.deviceId } : {}),
     parent_session_id: sessionParentId(row),
     project_id: row.projectId,
-    title: row.title,
+    title: taskName(row),
     provider_id: row.provider ?? 'unknown',
     model,
     transport,
-    status: sessionStatus(row, runtime),
+    status: sessionStatus(row),
     detail: parseAgentStatusDetail(row.agentStatusDetail, status),
     pinned: row.isPinned === 1,
     last_active_at: row.lastInteractedAt ?? null,
@@ -464,38 +464,28 @@ function activeMs(at: string | null): number {
 
 /**
  * 一条会话在工具里的状态 = 运行时这一轴压过活动这一轴(spec agent-status-writer):
- *  - 运行时:ACP 报 lost / 起动中、spawn 起动门还开着;
+ *  - 运行时:ACP 读 session-life 的投影(displayStatus);终端腿是 spawn 起动门还开着;
  *  - 否则是状态写入者写下的那一句,用 core 的词原样给(侧栏、session_peers、手机读的是同一份)——
  *    两种腿同一个来源,❌ 从 ACP 摘要再推一遍活动,❌ 另起一套词。没有状态源就是 `null`,❌ 猜一个终态。
  * 进程在不在不是一种状态(#6546):停掉、没起的会话照样收得进 `session_message`(发送方按原会话唤醒它),
  * 所以 ❌ 由「没有运行时」推出一个 `closed`。
  */
-function sessionStatus(row: SessionRow, runtime: SessionSummary | null): SessionSnapshot['status'] {
+function sessionStatus(row: SessionRow): SessionSnapshot['status'] {
   // 归档 = 离开会话列表、只在会话历史里(#6720):行照列,状态说它已经收起,❌ 从列表里滤掉。
   if (row.archivedAt) return 'archived';
-  if (runtime?.lifecycle === 'lost') return 'error';
-  if (runtime?.lifecycle === 'starting' || runtime?.lifecycle === 'replaying') return 'starting';
+  // ACP: session-life's projection is the lifecycle axis (contract §3, the one composition point).
+  if (transportOf(row) === 'acp') return displayStatus(sessionLife().status(row.id), parseAgentStatus(row.agentStatus));
   if (row.config?.spawnStartupState === 'starting') return 'starting';
   return parseAgentStatus(row.agentStatus);
 }
 
-function defaultTitle(prompt: string): string {
-  const firstLine = prompt
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean);
-  return (firstLine || 'Child session').slice(0, MAX_SESSION_TITLE_LENGTH);
-}
+/** Why a session stops: a person, the idle reclaimer, or a restart for new configuration (no stop barrier). */
+export type SessionStopReason = 'user-stop' | 'idle-reap' | 'version-switch';
 
-function runtimeError(result: { error: { type: string; message?: string } }): Error {
-  return new Error(result.error.message ?? result.error.type);
-}
-
-async function stopSessionTransport(target: SessionRow, onlyIfIdle = false): Promise<void> {
+async function stopSessionTransport(target: SessionRow, reason: SessionStopReason = 'user-stop'): Promise<void> {
   if (transportOf(target) === 'acp') {
-    const result = await (await getAcpRuntimeClient()).stopSession({ sessionId: target.id, ...(onlyIfIdle ? { onlyIfIdle: true } : {}) });
-    if (!result.success && result.error.type === 'stop_pending') throw Object.assign(new Error('stop_pending: executor is still stopping; check session_get before reporting it stopped'), { code: 'stop_pending' });
-    if (!result.success) throw runtimeError(result);
+    // session-life owns the stop: an idle-reap is declined by Life itself when the session is not free.
+    await sessionLife().interrupt(target.id, { k: 'interrupt', reason });
     // 状态桥要等下一次摘要推送才看得到这条会话没了;回执 ❌ 抢在它前面读到旧的 working(#6095 的 ACP 面)。
     // 停这一端自己把「被打断」交给写入者(与终端腿 stopSession 同一个写口),桥随后那一次是空操作。
     await agentStatusWriter.settleSessionExited({ sessionId: target.id, projectId: target.projectId });
@@ -567,6 +557,12 @@ async function startSpawnedSession(input: {
   transport: SessionRuntime;
   initialPrompt?: string;
 }): Promise<void> {
+  // ACP: the creation turns are the session's first pending rows and session-life starts it. A startup failure is
+  // the session's failed state with its stage and cause — the person's session is never archived for it.
+  if (input.transport === 'acp') {
+    admitCreationTurns(input.session);
+    return;
+  }
   let transportStarted = false;
   const ledger = createStageLedger({
     scope: 'sessionpage/session-spawn',
@@ -576,49 +572,19 @@ async function startSpawnedSession(input: {
   });
   const mark = (stage: string, extra?: Record<string, unknown>) => ledger.mark(stage, extra);
   try {
-    if (input.transport === 'acp') {
-      const acpClient = await getAcpRuntimeClient();
-      mark('runtime-client-ready');
-      const result = await acpClient.startSession({
-        input: {
-          sessionId: input.session.id,
-          projectId: input.projectId,
-          providerId: input.session.providerId,
-          workspaceId: input.targetWorkspaceId,
-          cwd: input.targetWorkspacePath,
-          providerSessionId: null,
-          ...(input.session.initialQueue?.length
-            ? { initialQueue: input.session.initialQueue }
-            : {}),
-          ...(input.session.startupOrigin
-            ? { startupOrigin: input.session.startupOrigin }
-            : {}),
-          ...(input.session.initialMessageId
-            ? { initialMessageId: input.session.initialMessageId }
-            : {}),
-          ...(input.session.taskChatId ? { taskChatId: input.session.taskChatId } : {}),
-          model: input.session.model ?? null,
-          permissionMode: resolveSessionPermissionMode(input.session),
-        },
-      });
-      if (!result.success) throw runtimeError(result);
-      transportStarted = true;
-      mark('transport-started');
-    } else {
-      await sessionService.ensureSessionMounted(input.session.id);
-      mark('session-mounted');
-      const mounted = resolveSession(input.projectId, input.session.id);
-      if (!mounted) throw new Error('spawned session workspace is not mounted');
-      await mounted.sessions.startSession(
-        input.session,
-        undefined,
-        false,
-        input.initialPrompt,
-        undefined,
-      );
-      transportStarted = true;
-      mark('transport-started');
-    }
+    await sessionService.ensureSessionMounted(input.session.id);
+    mark('session-mounted');
+    const mounted = resolveSession(input.projectId, input.session.id);
+    if (!mounted) throw new Error('spawned session workspace is not mounted');
+    await mounted.sessions.startSession(
+      input.session,
+      undefined,
+      false,
+      input.initialPrompt,
+      undefined,
+    );
+    transportStarted = true;
+    mark('transport-started');
 
     await setSpawnStartupState(input.session.id, 'ready');
     mark('startup-state-ready');
@@ -644,7 +610,7 @@ async function startSpawnedSession(input: {
     }
     if (row) {
       try {
-        await deleteSession(input.projectId, input.session.id, { skipTransportStop: true });
+        await archiveSession(input.projectId, input.session.id, { skipTransportStop: true, removeSocialIdentity: false });
       } catch (cleanupError) {
         log.error('spawn session failed to remove its session', {
           sessionId: input.session.id,
@@ -659,17 +625,24 @@ async function startSpawnedSession(input: {
   }
 }
 
+/** A person's stop from the task page: the one stop path, so the status writer hears it too. A side chat has no row: its entry only. */
+export async function stopSessionByPerson(sessionId: string): Promise<void> {
+  const [row] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+  if (row) await stopSessionTransport(row);
+  else await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'user-stop' });
+}
+
 export async function stopExactSessionpageSession(target: {
   projectId: string;
   sessionId: string;
-  onlyIfIdle?: boolean;
+  reason?: SessionStopReason;
 }): Promise<boolean> {
   const rows = await projectSessionRows(target.projectId);
   const session = rows.find((row) =>
     row.id === target.sessionId && row.projectId === target.projectId
   );
   if (!session) return false;
-  await stopSessionTransport(session, target.onlyIfIdle);
+  await stopSessionTransport(session, target.reason);
   return true;
 }
 
@@ -828,15 +801,22 @@ export async function resolveCreateModelChoice(
 /**
  * Who spawned a session, and whether it is listed under them — one rule for every spawn (session_spawn here and from
  * another machine, and an App's page an agent works, owner 10-14): the spawner is recorded always (who started it, and
- * 「连同子会话」 follows it); it is the parent unless the call said `nest`, or named a project (owner 2026-10-02).
+ * 「连同子会话」 follows it). The already-authenticated spawner is the default parent; an explicit parent uses the same
+ * ownership/cycle check as set_parent before creation. Project placement and spawn provenance remain separate.
  */
-function spawnedBy(
+async function spawnedBy(
   by: { localSessionId: string } | { deviceId: string; sessionId: string; agentUserId?: string; name?: string },
-  placement: { nest?: boolean; named: boolean },
-): Omit<InternalSessionRelations, 'spawnedByExtensionId'> {
-  const nest = placement.nest ?? !placement.named;
-  if ('localSessionId' in by) return { spawnedBySessionId: by.localSessionId, ...storedParent(nest ? by : null) };
-  return { spawnedByRemote: by, ...storedParent(nest ? { deviceId: by.deviceId, sessionId: by.sessionId } : null) };
+  parentId?: string | null,
+  childId?: string,
+): Promise<{ relations: Omit<InternalSessionRelations, 'spawnedByExtensionId'>; not_reached: string[] }> {
+  const spawner = 'localSessionId' in by ? by : { deviceId: by.deviceId, sessionId: by.sessionId };
+  const { parent, not_reached } = parentId === undefined
+    ? { parent: spawner, not_reached: [] }
+    : await resolveSessionParent(childId, parentId);
+  return {
+    relations: { ...('localSessionId' in by ? { spawnedBySessionId: by.localSessionId } : { spawnedByRemote: by }), ...storedParent(parent) },
+    not_reached,
+  };
 }
 
 async function spawnSession(
@@ -904,6 +884,7 @@ async function spawnSession(
   });
   signal?.throwIfAborted();
 
+  const { relations, not_reached } = await spawnedBy({ localSessionId: context.sessionId }, action.parent_session_id, action.assistant_work?.child_session_id);
   const row = await createChildSession({
     ledger,
     projectId,
@@ -912,6 +893,7 @@ async function spawnSession(
     transport,
     prompt,
     title: action.title,
+    thinking: action.thinking,
     sourceLink: action.source_link,
     assistantWork: action.assistant_work,
     envelope: envelopeOf(await localEnvelopeSender(caller)),
@@ -939,11 +921,12 @@ async function spawnSession(
     // —— 落地就是 BYOK，也就是 owner 在军训 case 里看到的「总教官跑 gpt-5.6-luna，派出去的 agent
     // 跑 harness 默认模型」。派生路径共用 attachAgentToSession 那一处继承，这里只说源是谁。
     inheritPlatformModelFrom: context.sessionId,
-    relations: spawnedBy({ localSessionId: context.sessionId }, { nest: action.nest, named: Boolean(named) }),
+    relations,
     signal,
   });
   return {
     ...snapshot(row, {}, await sessionModel(row)),
+    ...(not_reached.length ? { not_reached } : {}),
     ...(action.assistant_work ? {assistant_work_target:{session_id:row.id,device_id:(await assistantWorkLedgerContext()).deviceId}} : {}),
     // child 是本项目里生出来的，因此和 caller 同属这个群（[[agent-provisioning]] 的入群是它 session
     // start 的一步）。点名了别的项目时 child 入的是那个项目的群，caller 不在里面 ⇒ 只有点对点。
@@ -1011,6 +994,8 @@ function envelopeOf(sender: EnvelopeSender): DeliveryEnvelope {
  * 会话行 + 挂载 → 首句 → 起引擎。
  */
 async function createChildSession(input: {
+  /** ACP creation that needs its identity at once (an App spawn): bind it before the row exists. */
+  bindIdentityFirst?: boolean;
   ledger: ReturnType<typeof createStageLedger>;
   projectId: string;
   /** child 在哪个工作区里干活。 */
@@ -1024,6 +1009,7 @@ async function createChildSession(input: {
   /** The first turn's envelope: the sending session's, or the App's. */
   envelope: DeliveryEnvelope;
   model: string | undefined;
+  thinking?: string;
   platformModel: { modelId: string } | null | undefined;
   inheritPlatformModelFrom?: string;
   /** The chat it is born in (`chat_id`, an App's `chat`): joined when its identity is minted. */
@@ -1034,6 +1020,20 @@ async function createChildSession(input: {
   signal?: AbortSignal;
 }): Promise<SessionRow> {
   const { ledger, projectId, provider, transport, signal } = input;
+  let effort: string | undefined;
+  if (input.thinking !== undefined) {
+    const platform = input.platformModel ?? (input.platformModel === undefined && input.inheritPlatformModelFrom
+      ? await sessionPlatformModel(input.inheritPlatformModelFrom) : null);
+    const { resolveCreateEffort } = await import('../session-timeline/create-session');
+    const resolved = await resolveCreateEffort({
+      harness: provider,
+      sessionView: transport === 'pty' ? 'code' : 'general',
+      model: platform ? platformOptionId(platform.modelId) : input.model,
+      effort: input.thinking,
+    });
+    if (!resolved.ok) throw new Error(`${resolved.error.code}: ${resolved.error.message}`);
+    effort = resolved.value ?? undefined;
+  }
   const prompt = withActivitySource(input.prompt, input.sourceLink);
   const mark = (stage: string, extra?: Record<string, unknown>) => ledger.mark(stage, extra);
   const title = input.title?.trim() || undefined;
@@ -1078,7 +1078,7 @@ async function createChildSession(input: {
   // a working child as "The engine could not start" (real Electron on dev: 4/4; the guard fired 37 ms
   // before the first turn began).
   const initialQueue = !intent && transport === 'acp'
-    ? [{ text: input.envelope(messageId, prompt), origin: 'communication' as const }]
+    ? [{ text: input.envelope(messageId, prompt), origin: 'communication' as const, kind: 'session-direct' as const }]
     : undefined;
   signal?.throwIfAborted();
   // Providers whose declared prompt capability consumes the startup prompt (argv/stdin, not
@@ -1090,18 +1090,16 @@ async function createChildSession(input: {
   // 落行放在所有校验之后:任何一道校验抛了都不该留下一条会话。行落下之后当场挂载(挂不上就撤掉这一行再抛)。
   // Born in a chat: its identity joins it when first minted (birth-groups.ts).
   if (input.birthGroup) rememberBirthGroup(sessionId, input.birthGroup);
-  const session = await attachAgentToSession({
+  const attach = () => attachAgentToSession({
     id: sessionId,
     projectId,
     workspaceId: input.workspaceId,
     provider,
-    title: (title || defaultTitle(input.prompt)).slice(0, MAX_SESSION_TITLE_LENGTH),
-    // spec session-graph: explicit title is also the addressable agent name.
+    // spec session-graph: an explicit title is the task's addressable name; absent = the engine default.
     agentDisplayName: title,
-    // 派活的一方显式起了名 ⇒ harness 自己拟的名不盖它;没起名 ⇒ 首轮兜底,等 harness 起名。
-    ...(title ? { titleSource: 'manual' as const } : {}),
     permissionMode: UNATTENDED_SESSION_PERMISSION_MODE,
     model: input.model,
+    effort,
     platformModel: input.platformModel,
     ...(input.inheritPlatformModelFrom ? { inheritPlatformModelFrom: input.inheritPlatformModelFrom } : {}),
     origin: { kind: 'create', firstUtterance: prompt },
@@ -1110,7 +1108,19 @@ async function createChildSession(input: {
     ...(initialQueue ? { startupOrigin: 'session-page' as const, initialMessageId: messageId } : {}),
     runtime: transport,
     deferStart: true,
-  }, db, input.relations).catch((error: unknown) => {
+  }, db, input.relations);
+  const created = input.bindIdentityFirst && transport === 'acp'
+    ? bindIdentityThenCreate(
+      async () => {
+        const cwd = resolveWorkspace(projectId, input.workspaceId)?.path;
+        if (!cwd) throw new Error(`workspace ${input.workspaceId} is unknown`);
+        const identity = await provisionStartIdentity({ sessionId, providerId: provider, projectId, cwd }, 'fresh', { agentDisplayName: title || undefined });
+        if (!identity) throw new Error(`session ${sessionId} could not be given an identity`);
+      },
+      attach,
+      () => unbindSessionAgent(sessionId, process.env))
+    : attach();
+  const session = await created.catch((error: unknown) => {
     ledger.settle({ outcome: 'failed' });
     throw error;
   });
@@ -1118,9 +1128,10 @@ async function createChildSession(input: {
   try {
     signal?.throwIfAborted();
     if (input.sourceLink) await rememberActivitySource(sessionId, input.sourceLink);
-    await setSpawnStartupState(sessionId, 'starting');
+    // ACP startup is session-life's own projection; only other runtimes keep this config flag (until ⑤).
+    if (transport !== 'acp') await setSpawnStartupState(sessionId, 'starting');
   } catch (error) {
-    await deleteSession(projectId, sessionId, { skipTransportStop: true });
+    await archiveSession(projectId, sessionId, { skipTransportStop: true, removeSocialIdentity: false });
     ledger.settle({ outcome: 'failed' });
     throw error;
   }
@@ -1145,17 +1156,18 @@ async function createChildSession(input: {
         queuedStartupDelegation: true,
       });
     } catch (error) {
-      await deleteSession(projectId, sessionId, { skipTransportStop: true });
+      await archiveSession(projectId, sessionId, { skipTransportStop: true, removeSocialIdentity: false });
       ledger.settle({ outcome: 'failed' });
       throw error;
     }
-  } else {
+  } else if (!initialQueue) {
     // Native argv/stdin delivery replaces the outbox transport, but the child conversation still
     // needs the durable entity row used by the chat/task transcript. Recording it is independent
-    // from provider startup, so a failed spawn never erases what the caller sent.
+    // from provider startup, so a failed spawn never erases what the caller sent. An ACP child's first
+    // turn gets that row from its pending row (admitted below, with the same id): one writer only.
     recordDeliveredSessionDirectMessage(
       { sessionId },
-      { id: messageId, text: initialPrompt ?? initialQueue![0]!.text },
+      { id: messageId, text: initialPrompt! },
     );
   }
   if (!initialPrompt && !initialQueue) mark('delegation-enqueued', { sessionId });
@@ -1304,8 +1316,9 @@ export async function spawnSessionForApp(input: AppSessionSpawnInput): Promise<S
     platformModel: selection.kind === 'gugu' ? { modelId: selection.modelId } : requestedHarness || requestedModel || last ? null : undefined,
     ...(input.chat ? { birthGroup: { chatId: input.chat, asTask: false } } : {}),
     awaitStart: true,
+    bindIdentityFirst: true,
     relations: {
-      ...(input.bySession ? spawnedBy({ localSessionId: input.bySession }, { named: Boolean(project) }) : { parentSessionId: null }),
+      ...(input.bySession ? (await spawnedBy({ localSessionId: input.bySession })).relations : { parentSessionId: null }),
       spawnedByExtensionId: input.extensionId,
     },
   });
@@ -1709,8 +1722,11 @@ export async function revealExtensionTabInSession(target: {
 export type SessionDirectRecipientResult = {
   /** Typed recipient address, exactly as the caller may reuse it. */
   to: string;
-  /** `deferred`: kept, to be sent when the target next starts working (delivery "defer"). */
-  status: 'delivered' | 'deferred' | 'failed';
+  /**
+   * `deferred`: kept, to be sent when the target next starts working (delivery "defer").
+   * `queued`: durably in the target's queue (its session takes it when it runs); it is not resent, so do not resend it.
+   */
+  status: 'delivered' | 'queued' | 'deferred' | 'failed';
   message_id?: string;
   error?: { code: string; message: string };
 };
@@ -1829,11 +1845,15 @@ async function sendSessionMessage(
         ...(plan && 'queue' in plan ? { delivery: plan.queue } : {}),
       });
       const admitted = result.status === 'delivered' || (action.client_message_id !== undefined && result.status === 'accepted');
+      // The receipt is the recipient queue's own: a durably queued message is queued, never a failure (a failure invites a
+      // resend, and a resend without a stable id is one more copy). A caller with its own stable id (the cloud's
+      // client_message_id) keeps its protocol: it holds the message pending until accepted and its resends dedupe here.
+      const queued = !admitted && result.status === 'queued' && action.client_message_id === undefined;
       recipients.push({
         to: encodeTypedId('session', target.id),
-        status: admitted ? 'delivered' : 'failed',
+        status: admitted ? 'delivered' : queued ? 'queued' : 'failed',
         message_id: result.id,
-        ...(admitted
+        ...(admitted || queued
           ? {}
           : {
               error: result.status === 'outcome-unknown'
@@ -1963,10 +1983,15 @@ export async function runSessionAction(
   if (action.action === 'schedule_create' || action.action === 'schedule_list' || action.action === 'schedule_cancel') {
     // 到点是把交代当一条消息送回来:这条腿收不进消息,排上了也送不到,当场说。
     if (action.action === 'schedule_create') assertMessageableTarget([caller], null, caller);
+    // 看与取消可以指名主人的另一条会话(与 session_archive 同一个口径):那条会话必须在这台机器上,别的机器由宿主路由过去。
+    const target = action.action !== 'schedule_create' && action.session_id !== undefined
+      ? resolveSessionRow(await allSessionRows(), action.session_id)
+      : caller;
+    signal?.throwIfAborted();
     // 动态取:已安排那一侧到点要回头用本模块投递,静态互相 import 会成环。
     const { runAgentScheduleAction } = await import('../automations/agent-schedules');
     return runAgentScheduleAction(
-      { sessionId: caller.id, projectId: caller.projectId, provider: caller.provider ?? null },
+      { sessionId: target.id, projectId: target.projectId, provider: target.provider ?? null },
       action,
     );
   }
@@ -2077,7 +2102,7 @@ async function runTargetAction(
     // 「工作目录不许一个 task 都不剩」那道闸。❌ 给 agent 删除:删除永久、撤不回来,只归人(owner 2026-09-28)。
     signal?.throwIfAborted();
     const withChildren = action.with_children === true;
-    const { archived, unreached } = await archiveSession(target.projectId, target.id, { withChildren });
+    const { archived, unreached } = await archiveSession(target.projectId, target.id, { withChildren, removeSocialIdentity: action.remove_social_identity });
     signal?.throwIfAborted();
     if (archived.length === 0) throw new Error('session is already archived');
     return {
@@ -2098,15 +2123,17 @@ async function runTargetAction(
 /** 本机发起方在跨机器请求里的自述;机器与 Agent ID 由宿主补。 */
 export async function sessionCallerFacts(
   context: SessionCallerContext,
-): Promise<Pick<RemoteSessionCaller, 'sessionId' | 'name' | 'harness' | 'childHarness' | 'transport' | 'model' | 'platformModel'>> {
+): Promise<Pick<RemoteSessionCaller, 'sessionId' | 'name' | 'harness' | 'childHarness' | 'groupChatId' | 'transport' | 'model' | 'platformModel'>> {
   const caller = await callerRow(context);
   const sender = await localEnvelopeSender(caller);
   const platform = await sessionPlatformModel(caller.id);
+  const group = await sessionpageProjectGroupForSession(caller.id, process.env);
   return {
     sessionId: caller.id,
     name: sender.title,
     harness: caller.provider ?? null,
     childHarness: (await callerChildHarnessDefault(caller.id, caller.provider ?? null)) ?? null,
+    ...(group.kind === 'group' ? { groupChatId: group.groupChatId } : {}),
     transport: transportOf(caller),
     model: caller.config?.model ?? null,
     platformModel: platform ? platformOptionId(platform.modelId) : null,
@@ -2153,8 +2180,15 @@ export async function runRemoteSessionAction(
   if (action.action === 'open_in_tab') {
     throw new Error('session_open_in_tab opens a tab in the calling session\'s own pane; it has no meaning on another machine');
   }
+  // 别的机器上的 agent 指名这台机器上的一条会话,看它的或取消它的「已安排」(宿主按 session_id 路由到这里)。
+  if ((action.action === 'schedule_list' || action.action === 'schedule_cancel') && action.session_id !== undefined) {
+    const target = resolveSessionRow(await allSessionRows(), action.session_id);
+    signal?.throwIfAborted();
+    const { runAgentScheduleAction } = await import('../automations/agent-schedules');
+    return runAgentScheduleAction({ sessionId: target.id, projectId: target.projectId, provider: target.provider ?? null }, action);
+  }
   if (action.action === 'schedule_create' || action.action === 'schedule_list' || action.action === 'schedule_cancel') {
-    throw new Error(`${action.action} works on the machine the calling session runs on; it has no meaning on another machine`);
+    throw new Error(`${action.action} without session_id works on the machine the calling session runs on; it has no meaning on another machine`);
   }
 
   const rows = await allSessionRows();
@@ -2179,15 +2213,31 @@ async function spawnForRemoteCaller(
   });
   const prompt = action.prompt.trim();
   if (!prompt) throw new Error('prompt is required');
-  // 与本机同一条默认(spawnedBy):没点名工作目录就挂在发起会话下面(它在别的机器上,记在 config 里)。
+  // 与本机同一条默认(spawnedBy):挂在发起会话下面(它在别的机器上,记在 config 里),点没点名项目都一样。
   const named = namedPlacement(action);
 
-  // 工作目录:点名了项目用那个项目的根工作区;没点名用这台机器的隐式主目录项目 —— 与会话页新建会话同一步
-  // (projectRootPlacement)。
+  // 跨机默认与人在项目里选设备一样,按同一项目群找本机项目,落在根工作区。
+  // 没有关联仍走原任务工作区,但回执要说清原因与关联入口。
+  let matchedProjectId: string | undefined;
+  if (!named && caller.groupChatId) {
+    const matched = await localProjectOfGroup(caller.groupChatId);
+    if (!matched.success) throw new Error(matched.error.message);
+    matchedProjectId = matched.data;
+  }
   const { projectId, workspaceId } = await projectRootPlacement(
-    named ?? {},
-    named ? `project ${named.project_path ?? named.project_id} on this machine` : 'this machine\'s home project',
+    named ?? (matchedProjectId ? { project_id: matchedProjectId } : {}),
+    named ? `project ${named.project_path ?? named.project_id} on this machine` : 'default project on this machine',
   );
+  let projectNote: string | undefined;
+  if (!named) {
+    const project = await getProjectById(projectId);
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+    projectNote = matchedProjectId
+      ? `Project "${project.name}" (root workspace, matched the caller's project group).`
+      : caller.groupChatId
+        ? `Task workspace "${project.name}": this device has no local project associated with the caller's project group. Use project_add_device to associate a folder first.`
+        : `Task workspace "${project.name}" (no caller project group supplied).`;
+  }
   signal?.throwIfAborted();
 
   const transport: SessionRuntime = action.transport ?? caller.transport;
@@ -2225,6 +2275,12 @@ async function spawnForRemoteCaller(
   const selection = carried ?? (await resolveSpawnModelSelection(provider, transport, modelToResolve));
   signal?.throwIfAborted();
 
+  const { relations, not_reached } = await spawnedBy({
+    deviceId: caller.deviceId,
+    sessionId: caller.sessionId,
+    ...(caller.agentUserId ? { agentUserId: caller.agentUserId } : {}),
+    ...(caller.name ? { name: caller.name } : {}),
+  }, action.parent_session_id, action.assistant_work?.child_session_id);
   const row = await createChildSession({
     ledger,
     projectId,
@@ -2233,6 +2289,7 @@ async function spawnForRemoteCaller(
     transport,
     prompt,
     title: action.title,
+    thinking: action.thinking,
     sourceLink: action.source_link,
     assistantWork: action.assistant_work,
     envelope: envelopeOf(remoteEnvelopeSender(caller)),
@@ -2241,18 +2298,15 @@ async function spawnForRemoteCaller(
       ? undefined
       : selection.model ?? (inheritModel ? caller.model ?? undefined : undefined),
     platformModel: selection.kind === 'gugu' ? { modelId: selection.modelId } : inheritModel && !caller.model ? undefined : null,
-    relations: spawnedBy({
-      deviceId: caller.deviceId,
-      sessionId: caller.sessionId,
-      ...(caller.agentUserId ? { agentUserId: caller.agentUserId } : {}),
-      ...(caller.name ? { name: caller.name } : {}),
-    }, { nest: action.nest, named: Boolean(named) }),
+    relations,
     signal,
   });
   return {
     ...snapshot(row, {}, await sessionModel(row)),
+    ...(projectNote ? { project_note: projectNote } : {}),
+    ...(not_reached.length ? { not_reached } : {}),
     ...(action.assistant_work ? {assistant_work_target:{session_id:row.id,device_id:(await assistantWorkLedgerContext()).deviceId}} : {}),
-    // 发起方与 child 不在同一台机器、也不在同一个项目群里:往来只有点对点这一条。
+    // 保留跨机 child 的点对点回信入口。
     message_route: { tool: 'session_message', to: [encodeTypedId('session', row.id)] },
   };
 }

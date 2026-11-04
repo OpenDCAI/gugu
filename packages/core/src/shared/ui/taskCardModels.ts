@@ -1,16 +1,19 @@
+import { transcriptFileRefSchema } from '@gugu/session-core/acp/client'
+
 /**
  * The cards a person's composer drops into a chat (gugu-dev#181「派任务」): a `content_type='card'` message whose
  * content is one of these JSON shapes. The card is the person's own message — it names no recipient and wakes nobody
  * (the cloud delivery trigger skips cards); the agent it hands the words to gets them from the host as its first turn.
  *
- * Who took the task — the agent's name, its type and its look — is a snapshot taken when the card is posted. Everyone
- * who sees the card draws it from these, never from what they can look up about that agent: archiving the session
- * removes the agent from the group, and a colleague may not see an agent that is still waiting to be let in, yet the
- * card still has to say who took the task.
+ * Who took the task — the agent's name, its type and its look — is a snapshot taken when the card is posted.
+ * Viewers who can read the identity display its current name and avatar when available, keeping the snapshot as a fallback
+ * when the identity cannot be read. The engine mark always uses the posted type: a colleague may not see an agent
+ * that is still waiting to be let in, yet the card still has to identify its engine.
  */
 export interface TaskCard {
   v: 1
   type: 'task'
+  files?: Array<import('@gugu/session-core/session-record/contract').TurnFileRef>
   /** The person's words, verbatim. */
   text: string
   agentUserId: string
@@ -75,6 +78,11 @@ export function parseComposerCard(content: string | null | undefined): ComposerC
   const card = raw as Record<string, unknown>
   if (card.v !== 1 || !isText(card.text) || !isText(card.deviceId) || typeof card.machineLabel !== 'string') return null
   if (card.type === 'task' && isText(card.agentUserId) && isText(card.agentName) && isText(card.sessionId) && isText(card.projectId)) {
+    if (card.files !== undefined) {
+      const files = transcriptFileRefSchema.array().safeParse(card.files)
+      if (!files.success) return null
+      return { ...card, files: files.data } as unknown as TaskCard
+    }
     return card as unknown as TaskCard
   }
   if (card.type === 'schedule' && isText(card.automationId) && isText(card.scheduleLabel)) {
@@ -93,7 +101,7 @@ export function parseComposerCard(content: string | null | undefined): ComposerC
  */
 export function serializeComposerCard(card: ComposerCard): string {
   const { v, type, text, ...rest } = card
-  return JSON.stringify({ v, type, text, ...rest })
+  return JSON.stringify({ v, type, text, ...rest, ...(card.type === 'task' && card.files ? { files: card.files.map(file => transcriptFileRefSchema.parse(file)) } : {}) })
 }
 
 // Whole escapes only: a cut that lands inside one (`\`, `\u12`) ends the words just before it.

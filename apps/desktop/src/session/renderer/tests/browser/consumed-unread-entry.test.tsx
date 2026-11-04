@@ -19,7 +19,7 @@ import '@/styles/tokens.css'
 vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }))
 vi.mock('@/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
 vi.mock('@/lib/chatUnreadLocatorMessages', () => ({ getUnreadLocatorWindow: vi.fn() }))
-vi.mock('@/lib/chatMemberReadState', () => ({ markStreamRead: vi.fn(async () => {}), markMemberRead: vi.fn(), markMemberUnread: vi.fn() }))
+vi.mock('@/lib/readWriter', async (original) => ({ ...await original<typeof import('@/lib/readWriter')>(), writeRead: vi.fn(async () => {}) }))
 
 let harness: ReturnType<typeof createReactHarness> | undefined
 let slotHarness: ReturnType<typeof createReactHarness> | undefined
@@ -100,7 +100,7 @@ async function renderConversation(width: number, naturallySeen = false, surface:
     const jump = () => {
       void navigation.jumpToUnreadEntry('long-chat', memory.scrollerRef.current).then(() => confirmed(`m${target}`), rejected)
     }
-    const rowProps: MessageListRowProps = { rows, messages, isFiltering: false, mobile: width < 720, memberReadSeqs: {}, queuedIds: new Set(), memberProfiles: {},
+    const rowProps: MessageListRowProps = { rows, messages, isFiltering: false, mobile: width < 720, memberReadSeqs: {}, deliveryWaits: new Map(), memberProfiles: {},
       isGroupChat: true, onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, selectMode: false,
       selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: noop, flashMessageId, highlight: undefined, threeParty: undefined,
       onShowReadReceipt: undefined, onOpenMemberProfile: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,

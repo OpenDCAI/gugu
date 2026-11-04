@@ -6,7 +6,7 @@
 // Only the public API: gugu.files, and Node's own modules for the files on this computer.
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, isAbsolute, join } from 'node:path'
+import { basename, extname, isAbsolute, join } from 'node:path'
 
 const CHAT = {
   type: 'string',
@@ -179,7 +179,7 @@ async function saveLocally(entry, data, agent) {
   if (!Number.isInteger(version)) throw new Error(`read: ${entry.name} came back with no version`)
   const dir = join(tmpdir(), 'gugu-workspace', who, entry.id, `v${version}`)
   await mkdir(dir, { recursive: true })
-  const path = join(dir, localFileName(entry.name))
+  const path = join(dir, localFileName(entry.savedName))
   await writeFile(path, data)
   return { path, version }
 }
@@ -232,7 +232,7 @@ export const list = {
 
 export const read = {
   description:
-    'Read a file of a chat\'s folder. A text or JSON file comes a page at a time: a one-line JSON header, a blank line, then its lines verbatim — copy old for edit from them; next_offset reads on. A stored file (an image, a PDF, a .pptx…), or save: true, is saved whole on this computer in a folder of its own for that version; its path and version come back — the version edit\'s expected_version names when you store your change. A link\'s #lines=12-14 is the lines a person picked: read from offset 12 and change those, not the same words elsewhere.',
+    'Read a file of a chat\'s folder. A text or JSON file comes a page at a time: a one-line JSON header, a blank line, then its lines verbatim — copy old for edit from them; next_offset reads on. Stored UTF-8 text also comes as read-only pages; to edit it, use save: true, then edit with the saved path and version. Other stored files (an image, a PDF, a .pptx…), or save: true, are saved whole on this computer in a folder of their own for that version; the version edit\'s expected_version names when you store your change. A link\'s #lines=12-14 is the lines a person picked: read from offset 12 and change those, not the same words elsewhere.',
   inputSchema: {
     type: 'object',
     required: ['item_id'],
@@ -248,8 +248,15 @@ export const read = {
     return withFile(item_id, { readOnly: true }, async (f) => {
       const entry = f.entry
       const head = { id: entry.id, name: entry.name, type: entry.type, by: byOf(entry), updated_at: entry.updatedAt, link: await linkOf(entry) }
+      if (f.readOnlyReason === 'stored-bytes' && save !== true) {
+        return pageOf(f.text, {
+          ...head,
+          read_only: true,
+          edit: 'Stored text is read-only here. Call workspace__read with save: true, then workspace__edit with the saved path and expected_version to store a new version.',
+        }, { offset, limit })
+      }
       if (f.type === 'binary' || save === true) {
-        const data = f.type === 'binary' ? Buffer.from(await (await f.blob()).arrayBuffer()) : f.text
+        const data = f.type === 'binary' || f.readOnlyReason === 'stored-bytes' ? Buffer.from(await (await f.blob()).arrayBuffer()) : f.text
         const saved = await saveLocally(entry, data, agent)
         return { ...head, size: entry.size, version: saved.version, saved_to: saved.path }
       }
@@ -301,7 +308,12 @@ export const create = {
       file = new File([content], title.trim(), { type })
     } else {
       const bytes = await localFile(path, 'create')
-      file = new File([bytes], typeof title === 'string' && title.trim() ? title.trim() : basename(path))
+      let name = basename(path)
+      if (typeof title === 'string' && title.trim()) {
+        name = title.trim()
+        if (!/\.[A-Za-z0-9]{1,8}$/.test(name)) name += extname(path)
+      }
+      file = new File([bytes], name)
     }
     const sourceMessageIds = (source_message_ids ?? []).map((id) => String(id).replace(/^msg:/, ''))
     const [entry] = await gugu.files.upload(folder === undefined ? { chat: chat_id } : { chat: chat_id, folder }, file, { sourceMessageIds, ...(keep === undefined ? {} : { keep }) })

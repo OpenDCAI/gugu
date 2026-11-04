@@ -19,7 +19,7 @@ it('keeps all eight real replicas pending for a fifteen-second backend and then 
     config: { modelOptions: null, efforts: null, modeOptions: null, availableCommands: [], acceptsImagePrompts: false },
     usage: null, plan: null, activeTurn: null, draft: null, agents: [], terminals: [],
   };
-  runtime.client = { session: { state: (_key: unknown, name: string): LiveClientHandle => ({
+  runtime.client = { connection: { onDisconnect: () => () => {} }, session: { state: (_key: unknown, name: string): LiveClientHandle => ({
     topic: `session.${name}`,
     snapshot: () => {
       snapshots(name);

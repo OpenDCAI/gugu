@@ -2,7 +2,7 @@ import { platform } from '@/platform';
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { Check, ChevronRight, Copy, Folder, Terminal, X } from '@/lib/icons'
-import { GitBranch } from 'lucide-react'
+import { GitBranch } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getSessionView } from '@renderer/features/sessions/stores/session-selectors';
@@ -30,6 +30,7 @@ import {
 } from './resource-monitor-utils';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { ResourceMonitorInternalsSection } from './resource-monitor-internals-section';
+import { ResourceProcessGroups } from './resource-process-groups';
 
 /**
  * One process table for both the live view and a recorded moment. `live` decides whether rows can be stopped
@@ -54,7 +55,7 @@ export const ResourceMonitorView = observer(function ResourceMonitorView({ snaps
   const groups = useMemo(() => buildGroups(snapshot?.entries ?? []), [snapshot]);
   const processes = useMemo(() => sortAppProcesses(snapshot?.appProcesses ?? []), [snapshot]);
 
-  const hasProjects = groups.length > 0;
+  const hasProjects = groups.length > 0 || snapshot?.processGroups?.some(group => group.kind === 'session');
   const hasProcesses = processes.length > 0;
 
   return (
@@ -69,7 +70,7 @@ export const ResourceMonitorView = observer(function ResourceMonitorView({ snaps
         <div className="grid grid-cols-[1fr_4rem_5rem] gap-2 border-b border-border px-2 pt-2 pb-1 text-xs text-foreground-muted">
           <span>{translate('resourceMonitor.process')}</span>
           <span className="text-right">CPU</span>
-          <span className="text-right">{translate('resourceMonitor.memory')}</span>
+          <span className="text-right" title={translate('resourceMonitor.memoryRss')}>RSS</span>
         </div>
         {isLoading ? (
           <ResourceMonitorLoadingState />
@@ -86,6 +87,7 @@ export const ResourceMonitorView = observer(function ResourceMonitorView({ snaps
             )}
 
             <Section heading={translate('palette.activeSessions')}>
+              <ResourceProcessGroups groups={snapshot?.processGroups ?? []} />
               {hasProjects ? (
                 <div className="flex flex-col gap-1">
                   {groups.map((g) => (

@@ -71,7 +71,7 @@ import { unitContainsItem, unitItemIds, unitReservedHeight } from './core/units'
 import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
-import { pendingPromptTurn } from './state/pending-prompt';
+import { activeTurnWithInputs, pendingPromptLanded, projectPendingMessages, type PendingMessageProjectionCache } from './state/pending-prompt';
 import { isEmptyAgentTurn, joinsFoldRunAt } from './state/turn-fold';
 import {
   flattenTier, lastConversationMessage,
@@ -319,6 +319,13 @@ export function ChatRoot(props: ChatRootProps) {
   // are wrapped in a stable closure that never changes its value.
   const state: () => ChatState =
     typeof props.state === 'function' ? props.state : () => props.state as ChatState;
+  const pendingMessageCache: PendingMessageProjectionCache = new WeakMap();
+  const projectedInputs = createMemo(() => {
+    const s = state();
+    return projectPendingMessages(s.transcript.state.committedTurns, s.transcript.state.activeTurnSnapshot, s.session.state.pendingMessages, pendingMessageCache);
+  });
+  const projectedCommitted = createMemo(() => projectedInputs().committed, undefined,
+    { equals: (a, b) => a.length === b.length && a.every((turn, index) => turn === b[index]) });
 
   // Assemble the full ChatCaches bundle from context (shared) + state (parse).
   // Leaf components (Code.tsx, Diff.tsx) consume this via useCaches().
@@ -341,7 +348,10 @@ export function ChatRoot(props: ChatRootProps) {
   })();
   const theme = () => props.context.theme;
   const contentClass = () => props.contentClass ?? DEFAULT_CONTENT_CLASS;
-  const commands = () => props.commands?.() ?? {};
+  const commands = () => ({
+    ...props.commands?.(),
+    isLatestTurn: (turnId: string) => latestTurnId() === turnId,
+  });
   const editingMessage = () => commands().editingMessage;
   const [composerPlacement, setComposerPlacementSignal] = createSignal<ComposerPlacement>(
     resolveComposerPlacement(props.composerPlacement)
@@ -486,39 +496,8 @@ export function ChatRoot(props: ChatRootProps) {
     setTotalHeight(virt.total());
   };
 
-  // ── Geometry shadow ───────────────────────────────────────────────────────
-  //
-  // activeTurnReserve: the min-height of the active turn's response region,
-  // expressed as trailing canvas space. When the tail of content (from the last
-  // user message to the end) is shorter than the viewport, the reserve expands
-  // maxScrollTop so projectAnchor('anchor'/'top') can place the user message at the
-  // top. As the agent streams a response, tailHeight grows, reserve shrinks,
-  // and once the tail fills the viewport reserve is 0 (normal scrolling).
-  //
-  // INVARIANT: derives from virt.total() (real measured heights) and is added
-  // only in contentH — never fed back into virt — so there is no feedback loop
-  // and the heightmap is never polluted with reserve padding.
-  //
-  // Gated by pinUserMessages so views that don't need this behavior are unaffected.
-  // lastUserUnitIdx() is memoized on transcript changes, not per streaming tick.
-  const activeTurnReserve = () => {
-    if (!props.pinUserMessages) return 0;
-    const currentState = state();
-    const hasUncommittedTurn =
-      currentState.transcript.state.activeTurnSnapshot !== null ||
-      currentState.session.state.pendingPrompt !== null;
-    if (!hasUncommittedTurn) return 0;
-    const idx = lastUserUnitIdx();
-    if (idx < 0) return 0;
-    const tailHeight = totalHeight() - virt.top(idx);
-    // Subtract padBottom (composer height + TRANSCRIPT_VERTICAL_PADDING) so the
-    // reserve grants exactly enough room to bring the user message flush to the
-    // top edge, not past it. Without this, a short agent response allows the
-    // user message to over-scroll into blank space below the composer.
-    return Math.max(0, viewHeight() - padBottom() - tailHeight);
-  };
-
-  const contentH = () => totalHeight() + padTop() + padBottom() + activeTurnReserve();
+  // Scroll geometry depends on measured content, not turn lifecycle.
+  const contentH = () => totalHeight() + padTop() + padBottom();
   const maxScrollTop = () => Math.max(0, contentH() - viewHeight());
 
   // ── Flat unit view (two-tier, incremental) ────────────────────────────────
@@ -542,6 +521,8 @@ export function ChatRoot(props: ChatRootProps) {
   // Identity of the model this effect last built from. A change signals a
   // view.setModel swap and drives the snapshot + incremental-cache reset.
   let lastState: ChatState | undefined;
+  let itemScrollGeneration = 0;
+  onCleanup(() => { itemScrollGeneration++; });
   const [committedUnitsVersion, setCommittedUnitsVersion] = createSignal(0);
   // Stable empty array passed to makeUnitsView when we need a committed-only
   // view. Must not change identity so memos don't re-run on each access.
@@ -564,9 +545,10 @@ export function ChatRoot(props: ChatRootProps) {
   // rebuild from the incoming model — all within the same synchronous run.
   createEffect(() => {
     const s = state();
-    const next = s.transcript.state.committedTurns;
+    const next = projectedCommitted();
 
     if (s !== lastState) {
+      itemScrollGeneration++;
       // Model swap: snapshot the outgoing model's heights while committedUnitsArr
       // and virt still reflect it, then clear the incremental cache so the build
       // below re-seeds from scratch for the incoming model.
@@ -661,8 +643,9 @@ export function ChatRoot(props: ChatRootProps) {
 
   const activeLayout = createMemo(() => {
     committedUnitsVersion();
-    const at = state().transcript.state.activeTurnSnapshot;
+    const at = projectedInputs().active;
     const pendingPrompt = state().session.state.pendingPrompt;
+    const pendingMessages = projectedInputs().waiting;
     // ⚠️ 有「当前状态」要说时这一档不能空手返回 —— 那一行就贴在这一档的末尾。
     // 没有活动轮也没有待发提示时，它是这一档**唯一**的一行（会话起不来时正是这种情形）。
     const condition = state().session.state.condition;
@@ -675,12 +658,18 @@ export function ChatRoot(props: ChatRootProps) {
     const build = (withBackground: boolean) => {
       const full = segmentCtx(true);
       const ctx = withBackground ? full : { ...full, backgroundTasks: () => null };
-      if (!at && !pendingPrompt) {
+      if (!at && !pendingPrompt && !pendingMessages.length) {
         if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
         return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
       }
-      const activeTurn = at ?? pendingPromptTurn(pendingPrompt!);
-      return flattenTier([activeTurn], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
+      const activeTurn = activeTurnWithInputs(at, pendingPrompt, pendingMessages)!;
+      // Reserve the same process row from send to startup: adding it at acknowledgement scrolls a long transcript.
+      const pending = [...(pendingPrompt ? [pendingPrompt] : []), ...pendingMessages];
+      const failedPending = !at && pending.length > 0 && pending.every(input => input.stopped || input.delivery?.state === 'waiting' || input.delivery?.state === 'failed' || input.delivery?.state === 'unknown');
+      const body = flattenTier([activeTurn], failedPending ? { ...ctx, active: false } : ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
+      // A held input has no running process row, but it cannot hide the host's compression/stop/failure state.
+      if (!failedPending) return body;
+      return [...body, ...flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, body.at(-1)?.kind ?? prevKind, committedDayKey, lastConversationMessage(body))];
     };
     const units = build(false);
     if (!background) return { units, backgroundOwner: null as string | null };
@@ -715,7 +704,9 @@ export function ChatRoot(props: ChatRootProps) {
     const pendingPrompt = s.session.state.pendingPrompt;
     const committedTurns = s.transcript.state.committedTurns;
     const hasActiveTurn = s.transcript.state.activeTurnSnapshot !== null;
-    if (pendingPrompt && (hasActiveTurn || committedTurns !== pendingPromptCommittedTurns)) {
+    if (pendingPrompt && (pendingPrompt.delivery
+      ? pendingPromptLanded(pendingPrompt, [...committedTurns, ...(s.transcript.state.activeTurnSnapshot ? [s.transcript.state.activeTurnSnapshot] : [])])
+      : hasActiveTurn || (!pendingPrompt.held && committedTurns !== pendingPromptCommittedTurns))) {
       s.session.setPendingPrompt(null);
     }
     pendingPromptCommittedTurns = committedTurns;
@@ -879,9 +870,8 @@ export function ChatRoot(props: ChatRootProps) {
 
   // ── Last user message unit index ──────────────────────────────────────────
   // Finds the first unit index (in the full units() view) for the last user-
-  // role message. Scans activeTurn first so the reserve picks up the freshly-
-  // sent message during streaming (ACP bundles the prompt + response into one
-  // activeTurn), then falls back to committed. Used by reservedBottom below.
+  // role message. Scans activeTurn first for the freshly-sent message during
+  // streaming, then falls back to committed. Used by the visibility check.
   //
   // Memoized on committedUnitsVersion + activeTurn identity so it does not
   // recompute on every streaming text patch (only on structural turn changes).
@@ -907,8 +897,7 @@ export function ChatRoot(props: ChatRootProps) {
       }
     }
 
-    // 1b. 乐观行:发出了、真的那一轮还没开出 —— 它就是最后那一句。底部预留与贴顶都按它算,
-    //     与真的那一轮开出后一样,交接时那句话不跳(behavior session-page「打开速度」)。
+    // 1b. A pending prompt is the latest user message before its real turn arrives.
     if (targetId === null && !active) {
       targetId = state().session.state.pendingPrompt?.id ?? null;
     }
@@ -987,7 +976,7 @@ export function ChatRoot(props: ChatRootProps) {
       const s = state();
       const pending = s.session.state.pendingPrompt;
       const active =
-        s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
+        activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting);
       if (!active) return userTurns();
       const base = committedUnitsArr.length;
       const inActive = collectUserTurnUnits(
@@ -1021,19 +1010,20 @@ export function ChatRoot(props: ChatRootProps) {
       committedUnitsVersion();
       const s = state();
       const pending = s.session.state.pendingPrompt;
-      const active = s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
+      const active = activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting);
       const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
       const base = committedUnitsArr.length;
       const ends = active
         ? [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)]
         : committed;
-      // Native replies have the same boundary as sent replies: the preceding
-      // input must scroll clear of the reply's header, process and body.
+      // The first, standalone process header has the same boundary as reply
+      // heads. Otherwise a zero-gap input sticks 8px into it and its backdrop
+      // plus fade cover the no-tool first frame (#1129).
       const all = makeUnitsView(committedUnitsArr, active ? activeUnits() : NO_ACTIVE_UNITS);
       for (let i = 0; i < all.length; i++) {
         const unit = all.at(i)!;
         const data = unit.data as ChatMessage;
-        if (data.role === 'assistant' && (data.conversationPart === 'head'
+        if (unit.kind === 'turn-process' || data.role === 'assistant' && (data.conversationPart === 'head'
           || data.conversationPart === 'body' && unit.itemId.includes(':sent:'))) ends.push(i);
       }
       return [...new Set(ends)].sort((a, b) => a - b);
@@ -1127,16 +1117,20 @@ export function ChatRoot(props: ChatRootProps) {
   // Last scrollTop we wrote. Seeded to 0; adopted from browser-clamped value
   // after each write so clamped positions are never counted as user movement.
   let expectedScrollTop = 0;
+  // The last frame found the scroller skipped, not drawn (@@@skipped-scroller).
+  let skipped = false;
   // Sub-pixel remainder of the last above-size compensation that the browser's
   // pixel grid did not store; carried into the next one (see @@@above-compensation).
   let aboveResidue = 0;
 
   const writeScrollTop = (top: number) => {
     if (!scrollEl) return;
-    // Clamp arithmetically: projectAnchor already wrote canvasEl.style.height =
-    // contentH() before calling us, so maxScrollTop() matches what the browser
-    // would compute. Avoiding the read-back (scrollEl.scrollTop after the write)
-    // eliminates the forced layout reflow that the read-back caused. Safe because
+    // Synchronously update canvas height so scrollTop is never clamped: every
+    // caller may be running before this frame's commit() has grown the canvas.
+    if (canvasEl) canvasEl.style.height = `${contentH()}px`;
+    // Clamp arithmetically: the canvas now has contentH(), so maxScrollTop()
+    // matches what the browser would compute. Avoiding the read-back (scrollEl.scrollTop
+    // after the write) eliminates the forced layout reflow that the read-back caused. Safe because
     // USER_SCROLL_EPSILON filters any sub-pixel divergence in readPhase.
     const clamped = Math.max(0, Math.min(top, maxScrollTop()));
     scrollEl.scrollTop = clamped;
@@ -1174,13 +1168,11 @@ export function ChatRoot(props: ChatRootProps) {
     return i;
   }
 
-  // The ONE function that writes scrollTop. Flush canvas height first so the
-  // browser never clamps scrollTop to a stale (outgoing) canvas height — this
-  // is the root cause of "open at top after tab switch".
+  // The ONE function that writes scrollTop. writeScrollTop flushes canvas height
+  // first so the browser never clamps scrollTop to a stale (outgoing) canvas
+  // height — this is the root cause of "open at top after tab switch".
   const projectAnchor = (m: ScrollMode) => {
     if (!scrollEl) return;
-    // Synchronously update canvas height so scrollTop is never clamped.
-    if (canvasEl) canvasEl.style.height = `${contentH()}px`;
 
     if (m.kind === 'anchor') {
       const i = unitIndexOf(m.itemId, m.edge);
@@ -1188,7 +1180,7 @@ export function ChatRoot(props: ChatRootProps) {
         const rowTop = virt.top(i) + padTop();
         const target =
           m.edge === 'top' ? rowTop + m.offset : rowTop + virt.size(i) - viewHeight() + padBottom() + m.offset;
-        const next = Math.max(0, target);
+        const next = Math.max(0, Math.min(target, maxScrollTop()));
         // Sub-pixel no-op guard: if the settle correction is smaller than 1 px
         // (anchor already matches the current position), skip the write so the
         // browser thumb is never perturbed by a near-zero adjustment.
@@ -1260,7 +1252,6 @@ export function ChatRoot(props: ChatRootProps) {
     const live = scrollEl.scrollTop;
     const unread = live - expectedScrollTop;
     const carried = aboveResidue;
-    if (canvasEl) canvasEl.style.height = `${contentH()}px`;
     writeScrollTop(live + aboveDelta + carried);
     const stored = scrollEl.scrollTop;
     aboveResidue = expectedScrollTop - stored;
@@ -1350,6 +1341,18 @@ export function ChatRoot(props: ChatRootProps) {
   const readPhase = () => {
     const el = scrollEl;
     if (!el) return;
+    // @@@skipped-scroller — a retained page behind another view is skipped (content-visibility, lib/retainedSurface.ts in
+    // the desktop app), and its scroller keeps the geometry of its last layout while the model grows. The frame neither
+    // reads nor writes it then: its frozen scrollTop against the grown model would read as the reader scrolling up, and
+    // the tail would turn into an anchor at the spot they left. No reader input reaches a skipped scroller, so the first
+    // drawn frame takes the browser's scrollTop as written and projects the intent the reader had.
+    const wasSkipped = skipped;
+    skipped = !el.checkVisibility();
+    if (skipped) return;
+    if (wasSkipped) {
+      expectedScrollTop = el.scrollTop;
+      needsProject = true;
+    }
     for (const id of pendingBubbleMeasures) {
       const index = unitIndexOf(id);
       if (index >= 0) measureUnitAt(index);
@@ -1461,6 +1464,7 @@ export function ChatRoot(props: ChatRootProps) {
   }
 
   const writePhase = (): boolean => {
+    if (skipped) return false; // @@@skipped-scroller
     if (totalDirty) {
       totalDirty = false;
       setTotalHeight(virt.total());
@@ -1661,6 +1665,8 @@ export function ChatRoot(props: ChatRootProps) {
   const doScrollToItem = (id: string, opts?: ScrollToItemOptions) => {
     const el = scrollEl;
     if (!el) return;
+    const targetState = state(), generation = ++itemScrollGeneration;
+    const ownsScroll = () => generation === itemScrollGeneration && state() === targetState;
 
     const us = units();
     let unitIdx = -1;
@@ -1696,6 +1702,7 @@ export function ChatRoot(props: ChatRootProps) {
 
     const t0 = computeTarget();
     if (us.at(idx)?.children) requestAnimationFrame(() => {
+      if (!ownsScroll()) return;
       const step = Array.from(el.querySelectorAll<HTMLElement>('[data-process-step]')).find(node => node.dataset.itemId === id);
       const viewport = step?.closest<HTMLElement>('[data-slot="conversation-process-steps"]');
       if (step && viewport) {
@@ -1724,6 +1731,7 @@ export function ChatRoot(props: ChatRootProps) {
     } else {
       writeScrollTop(t0);
       requestAnimationFrame(() => {
+        if (!ownsScroll()) return;
         const t1 = computeTarget();
         writeScrollTop(t1);
       });
@@ -1853,10 +1861,7 @@ export function ChatRoot(props: ChatRootProps) {
       props.controls.onMounted?.();
     }
 
-    const onScroll = () => {
-      if (el.offsetParent === null) return;
-      scheduler.request();
-    };
+    const onScroll = () => scheduler.request();
     el.addEventListener('scroll', onScroll, { passive: true });
     onCleanup(() => {
       el.removeEventListener('scroll', onScroll);
@@ -1943,7 +1948,7 @@ export function ChatRoot(props: ChatRootProps) {
         // Pin the toggled row at its current viewport position before the height
         // change. With readPhase no longer reclassifying intent on idle frames,
         // this anchor is now guaranteed to survive the tween — fixing the scroll
-        // jump on expand/collapse in short reserve-active transcripts.
+        // jump on expand/collapse in short transcripts.
         // ⚠️ 开关的 id 与它所在那一行的 unit id **未必是同一个**:带命名空间后缀的开关
         // (`${turnId}:outcome-detail`、`${turnId}:discarded`)在 `unitIndexOf` 里查不到 ⇒
         // `idx < 0` ⇒ 锚点没设上 ⇒ 点开视口上方的一行时,transcript 会在读者眼皮底下跳。
@@ -1978,6 +1983,13 @@ export function ChatRoot(props: ChatRootProps) {
       document.addEventListener('visibilitychange', onVisibilityChange);
       onCleanup(() => document.removeEventListener('visibilitychange', onVisibilityChange));
     }
+    // Drawn again after being skipped (@@@skipped-scroller): content-visibility moves no ResizeObserver, so this is
+    // the wake for a page whose stream ended while it was away.
+    const drawn = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) scheduler.request();
+    });
+    drawn.observe(el);
+    onCleanup(() => drawn.disconnect());
 
     // Attach to the initial model: load its persisted scroll intent and project
     // it onto the DOM. Flushes canvas height first so scrollTop is never clamped.
@@ -2030,7 +2042,7 @@ export function ChatRoot(props: ChatRootProps) {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <ChatTranslationProvider value={props.context.translate}>
+    <ChatTranslationProvider value={props.context}>
       <SelfIdentityProvider value={props.context.selfIdentity}>
       <SenderAvatarProvider value={props.context.senderAvatar}>
       <AppNameProvider value={props.context.appName}>
@@ -2078,7 +2090,7 @@ export function ChatRoot(props: ChatRootProps) {
                   >
                     <For each={visible()}>
                       {(unitIndex) => {
-                        const u = () => units().at(unitIndex);
+                        const u = createMemo(() => units().at(unitIndex));
                         const isActiveTurn = () => {
                           const unit = u();
                           return unit ? activeTurnItemIds().has(unit.itemId) : false;

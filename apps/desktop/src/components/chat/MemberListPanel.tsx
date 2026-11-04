@@ -1,3 +1,4 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 // @@@5856 成员面板 —— 产品预期见 product spec「成员与响应档位」。
 //
 // 群和话题**共用这一个面板**:话题的名单可以比来源窄,但读法一模一样 —— 名单就是这条 chat 自己的
@@ -27,6 +28,7 @@ import { HeaderSearch } from '../ui/HeaderSearch'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import type { MemberProfileChatTarget } from '../MemberProfileCard'
 import { useGroupMemberPanelControls } from './GroupMemberPanelControls'
+import { groupRoleRevision, useGroupChatSettings, type GroupChatSettingsState } from './useGroupChatSettings'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -80,7 +82,7 @@ const metaCellStyle = {
 // @@@ui-ruler 其余结构性 style 一并提到模块作用域(同 ChatListPanel 的 *_STYLE 常量):
 // 既避免每次渲染重建对象,也让 JSX 里不再残留内联几何块这条债务痕迹。
 // 依赖 props/state 的那一档提成纯函数,保持同一条纪律。
-// 档位是一行淡字(❌ 带框的胶囊:看着像按钮);说明在悬停浮层里。主人点它照旧翻档。
+// 档位是一行淡字(❌ 带框的胶囊:看着像按钮);说明在悬停浮层里。agent 的主人和群管理员点它翻档。
 const listenModeToggleStyle = (editable: boolean): React.CSSProperties => ({
   padding: 0, minHeight: 0, height: 'auto', flexShrink: 0, fontWeight: 400,
   fontSize: 'var(--font-caption)', lineHeight: 1.2, color: 'var(--muted-fg)',
@@ -121,7 +123,7 @@ const MEMBER_LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, minHeight: 0, o
  * 两个值的东西不需要两个按钮占一整行 —— 那条灰底三连在视觉上不协调。
  * 现在一行只留当前档位本身,点一下就翻到另一档。
  * 变更走 useListenModeEditControls 那条**现成**的 mutation(chat_members.listen_mode);
- * 不是这个 agent 的主人拿不到 editControls ⇒ 这里就是只读镜像,点不动。
+ * 既不是这个 agent 的主人、也不是群管理员的拿不到 editControls ⇒ 这里就是只读镜像,点不动。
  */
 function ListenModeToggle({
   value,
@@ -181,6 +183,7 @@ function MemberRow({
   // 名册里有这个 id、身份却没跟上来 —— 这是数据层该出而没出的值,照 GroupMemberAvatarRow 的做法喊出来,
   // ❌ 不静默补一个「未知用户」。
   const diagnostic = identity ? null : resolveOrLoud(undefined, `member list identity ${memberId}`)
+  const shownName = useShownAgentName({ name: identity?.display_name ?? diagnostic ?? '', createdAt: isAgent ? identity?.created_at ?? undefined : undefined })
   return (
     <div
       data-member-row={memberId}
@@ -194,7 +197,7 @@ function MemberRow({
       style={onOpen ? MEMBER_ROW_INTERACTIVE_STYLE : MEMBER_ROW_STYLE}
     >
       <Avatar
-        name={identity?.display_name ?? ''}
+        name={shownName}
         avatarUrl={identity?.avatar ?? null}
         seed={memberId}
         size="sm"
@@ -207,7 +210,7 @@ function MemberRow({
             data-member-name={memberId}
             style={MEMBER_ROW_NAME_STYLE}
           >
-            {identity?.display_name ?? diagnostic}
+            {shownName}
           </span>
           <ArchivedAgentLabel status={statusBadge} />
           {roleLabel ? (
@@ -243,6 +246,7 @@ export type MemberListPanelProps = {
    */
   chatName?: string | null
   /** @@@6418 群:名册被这里改动(邀请/移出/改角色/审批)后通知外层重读它自己的那份快照。 */
+  settingsState?: GroupChatSettingsState
   snapshot: GroupCollabSnapshot | null
   error?: UseGroupCollabLoaderResult['error']
   onReload: () => Promise<void>
@@ -250,7 +254,7 @@ export type MemberListPanelProps = {
   onWhisper?: (target: MemberProfileChatTarget) => void
 }
 
-export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, error, onReload: load, onOpenUserChat, onWhisper }: MemberListPanelProps) {
+export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, settingsState, error, onReload: load, onOpenUserChat, onWhisper }: MemberListPanelProps) {
   const { t } = useTranslation('messaging')
   const { t: tContacts } = useTranslation('contacts')
   const { user } = useAuth()
@@ -271,14 +275,18 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
   const people = useMemo(() => unified.filter((member) => member.type === 'human'), [unified])
   const agentMembers = useMemo(() => unified.filter((member) => member.type === 'agent'), [unified])
 
+  const ownSettings = useGroupChatSettings(settingsState ? null : chatId, snapshot ? groupRoleRevision(snapshot) : undefined)
+  const { settings, error: settingsError, reload: reloadSettings } = settingsState ?? ownSettings
+  const reload = useCallback(async () => { reloadSettings(); await load() }, [reloadSettings, load])
   const group = useGroupMemberPanelControls({
     chatId,
-    enabled: chatKind === 'group',
+    chatKind,
+    settings,
     snapshot,
     identities,
     agentStatuses,
     currentUserId: user?.id ?? null,
-    onReload: load,
+    onReload: reload,
     onOpenUserChat,
     onWhisper,
   })
@@ -289,22 +297,19 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
   const mobile = useMobileShell()
   useEffect(() => { setQuery('') }, [chatId])
 
-  // 只有 agent 的主人拿得到可交互的档位控件 —— 判断与 mutation 都在这个现成 hook 里,这里不复制一份。
+  // The row and profile use the same owner/source-group permission and mutation hook.
   const resolveEditControls = useListenModeEditControls({
     chatId,
     currentUserId: user?.id ?? null,
-    onReload: load,
+    settings,
+    onAuthorityReload: reloadSettings,
+    onReload: reload,
   })
 
-  // 改名:落库口径与群名同一条(chats_update_owner 要 owner/admin),所以能不能改直接问同一个 hook。
-  // create_topic 把创建者置为 owner,所以开话题的人总改得动自己那条。
+  // 管理能力来自服务端;话题参与角色不授予改名权。
   const [renamed, setRenamed] = useState<string | null>(null)
   const topicName = renamed ?? chatName ?? null
-  // 落库口径是 chats_update_owner,要 owner/admin。
-  const viewerIsManager = useMemo(() => {
-    const role = snapshot?.humans.find((human) => human.id === user?.id)?.role ?? null
-    return role === 'owner' || role === 'admin'
-  }, [snapshot, user?.id])
+  const viewerIsManager = settings?.can_manage === true
   const canRenameTopic = chatKind === 'topic' && viewerIsManager
   const handleRenameTopic = useCallback(async (next: string) => {
     const updated = await chatService.updateGroupChatSettings(chatId, { name: next })
@@ -373,8 +378,8 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
         isAgent
         roleLabel={roleLabel(agent.role)}
         statusBadge={shownAgent.status(agent.id, groupAgentDisplayStatus(agent, agentStatuses))}
-        onOpen={chatKind === 'group' ? (anchor) => group.openProfile(agent.id, anchor) : undefined}
-        actions={chatKind === 'group' ? group.rowActions(agent.id) : undefined}
+        onOpen={(anchor) => group.openProfile(agent.id, anchor)}
+        actions={group.rowActions(agent.id)}
         selected={group.activeMemberId === agent.id}
         metaCells={(
           <>
@@ -447,6 +452,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
           </div>
         ) : null}
 
+        {settingsError ? <div role="alert" style={MEMBER_LIST_ERROR_STYLE}>{settingsError}</div> : null}
         {group.errorLine}
 
         {error ? (
@@ -485,8 +491,8 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
                   roleLabel={roleLabel((member.raw as GroupMemberItem).role)}
                   // 在线态:人这一侧产品里没有真值 ⇒ 不给角标(❌ 不编一个「在线」出来)。
                   statusBadge={undefined}
-                  onOpen={chatKind === 'group' ? (anchor) => group.openProfile(member.id, anchor) : undefined}
-                  actions={chatKind === 'group' ? group.rowActions(member.id) : undefined}
+                  onOpen={(anchor) => group.openProfile(member.id, anchor)}
+                  actions={group.rowActions(member.id)}
                   selected={group.activeMemberId === member.id}
                 />
               ))}

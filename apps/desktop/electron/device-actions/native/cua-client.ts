@@ -1,5 +1,5 @@
 /**
- * #7199「电脑控制」= trycua/cua 的 cua-driver(MIT,v0.36.0,scripts/build-mac-native.mjs 随包带上)。
+ * #7199「电脑控制」= trycua/cua 的 cua-driver(MIT,v0.36.0,scripts/build/build-mac-native.mjs 随包带上)。
  * 它在后台操作别的 App:❌ 抢人的焦点、❌ 动人的真鼠标,并在屏幕上画一个 agent 自己的鼠标。
  *
  * 照它的嵌入说明起守护进程,直接从咕咕主进程 spawn(❌ open / NSWorkspace):
@@ -13,7 +13,8 @@
  * 环境变量只给白名单里的几样:❌ 把咕咕的整份环境(含各种 key)交给第三方进程。它默认会上报使用数据、查更新、写 ~/.cua-driver,
  * 这里一律关掉 / 挪进咕咕自己的数据目录。
  */
-import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
+import { spawn as nodeSpawn } from '@gugu/core/local/childProcess'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'

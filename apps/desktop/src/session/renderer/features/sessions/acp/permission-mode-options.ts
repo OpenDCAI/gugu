@@ -81,6 +81,7 @@ function reportedIdFor(
 export function localizePermissionModeOptions(
   options: Options | null,
   translate: Translate,
+  agentName: string,
   modeMap?: ProviderPermissionModeMap
 ): Options | null {
   if (!options) return null;
@@ -93,7 +94,7 @@ export function localizePermissionModeOptions(
     },
     'read-only': {
       name: translate('taskConfig.permissionReadOnly'),
-      description: translate('taskConfig.permissionReadOnlyHint'),
+      description: translate('taskConfig.permissionReadOnlyHint', { agent: agentName }),
     },
     edit: {
       name: translate('taskConfig.permissionEdit'),

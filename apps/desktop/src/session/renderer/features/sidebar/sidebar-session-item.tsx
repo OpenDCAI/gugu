@@ -1,17 +1,18 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { platform } from '@/platform';
 import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '../sessions/gugu-reason';
 import { commandRegistry } from '@renderer/lib/commands/registry';
 import { dissolveScreenGroup, isScreenView, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
 import { AlertTriangle, Archive, Copy, LayoutGrid, Pencil, Pin, PinOff, Scissors, Sparkles, SquareMinus } from '@/lib/icons'
-import { GitFork } from 'lucide-react'
+import { GitFork } from '@/lib/icons'
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { spawnedByExtensionLabel as spawnedByExtensionLabelFor } from '@renderer/features/extensions/spawned-by-extension-label';
 import { useAssistantShell } from '@renderer/features/assistant/assistant-shell';
 import { when } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useRef } from 'react';
-import { formatSessionTitleForDisplay } from '@renderer/features/sessions/session-title-utils';
 import { requestArchiveSession } from '@renderer/features/sessions/archive-session-flow';
 import { moveSessionUnder } from '@renderer/features/sessions/set-session-parent-flow';
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
@@ -38,21 +39,22 @@ import { clearDraggedScreenContent, setDraggedScreenContent } from '@renderer/li
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { SessionRowShell } from './sidebar-session-row';
+import type { SessionBranchSummary } from './sidebar-session-branch';
 import { useSessionDropTarget } from './use-session-drop-target';
 import { ProjectBadge } from './remote-host-chip';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { SidebarIdentityCard, sidebarIdentityCard, useSidebarIdentityCardTrigger } from './sidebar-identity-card';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
-import { showModal } from '@renderer/lib/modal/modal-provider';
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import type { SidebarJoin } from '@/lib/sidebarJoinedGroups';
-import type { RemoteSidebarSession } from './sidebar-store';
+import { mountedSessionPresentation, type RemoteSidebarSession } from './sidebar-store';
 import { sessionPresentation, sessionReading } from '@/mobile/agent-watch/watch-status';
-import { taskStatusPresentation } from '@/lib/taskAgentStatus';
 import { useShownAgentStatus } from '@/components/chat/useAgentsOnCloudComputer';
 import { withMountedSession } from './with-mounted-session';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract';
 import { sessionScheduleDigest } from '@shared/core/automations/session-schedule';
+import { agentForksOn } from '@shared/core/agents/agent-payload';
+import { useConversationSessionSummary } from '@/hooks/useConversationSessionSummary';
 
 // @@@sessionpage otty-state — sidebar CONVERSATION row, hanging directly under its project (spec
 // session-page: conversations ARE the sessions; tasks are an invisible workspace container). A
@@ -75,6 +77,7 @@ export type SidebarSessionItemProps = {
   hasChildren?: boolean;
   expanded?: boolean;
   needsAttention?: boolean;
+  treeSummary?: SessionBranchSummary;
   onToggle?: () => void;
   /** 拼在一屏的一组里:这一行是框的哪一段。 */
   join?: SidebarJoin;
@@ -90,6 +93,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   hasChildren = false,
   expanded = false,
   needsAttention = false,
+  treeSummary,
   onToggle,
   join,
 }: SidebarSessionItemProps) {
@@ -100,36 +104,40 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const { translate } = useSessionMessages();
   const shownStatus = useShownAgentStatus();
   const assistantName = useAssistantShell()?.assistant?.display_name ?? null;
-  // 这一行是谁 —— 指针停在行上,右侧弹出身份卡(#6092;#7334 起只有任务名 / agent 名,点一行复制「标签：值」)。
+  // 这一行是谁 —— 指针停在行上,右侧弹出身份卡(#6092;任务名 / 设备 / 文件夹,点一行复制「标签：值」)。
   // 它取代了 #5818 那次「标题就地翻成 agent 名」。会话 ID 不在卡上,在下面右键菜单的「复制会话 ID」。
-  // 设置里关掉 = 用户不要这个行为 → 连倒计时都不起。名字与 id 取本机花名册(session-agent-names),
-  // 与通讯录 / 分享名片 / `@` 弹层同一个事实。
+  // 设置里关掉 = 用户不要这个行为 → 连倒计时都不起。名字是会话的 title(任务只有一个名字)。
   const identityCardEnabled = sidebarStore.agentNameOnHoverEnabled;
   const rowRef = useRef<HTMLDivElement | null>(null);
   const rowAnchor = useCallback(() => rowRef.current, []);
   const identityCard = useSidebarIdentityCardTrigger(sessionId, identityCardEnabled);
   const identityCardOpen = identityCardEnabled && sidebarIdentityCard.activeSessionId === sessionId;
-  const agentIdentity = sessionAgentNames.identityFor(sessionId);
+  const agentBinding = sessionAgentBindings.bindingFor(sessionId);
   const nestDrop = useSessionDropTarget();
 
   // 挂着的会话读它自己的 store;别的机器上还没挂的读会话目录那一行(列出不挂载,见 sidebar-store)。
   const session = sessionRegistry.get(sessionId)?.sessions.get(sessionId);
   const listed = sidebarStore.remoteSession(projectId, sessionId);
   const machine = machineRegistry.machineOf(projectId);
+  const notificationCount = useConversationSessionSummary(sessionId, machine)?.nativeOwnerNotificationUnreadCount ?? 0;
   // 它给自己排的定时,一台机器一个来源:本机的问本机(automation:* 事件驱动);别的机器上的(挂没挂着都一样)读那台机器
   // 推来的会话目录里那一格 —— 与置顶、未读同一条腿,❌ 再为挂着的那几条各开一条跨网问答。
   const localSchedules = useSessionSchedules(null, sessionId, machine === null);
-  if (!session && !listed) return null;
   const schedule =
     machine === null
       ? sessionScheduleDigest(localSchedules)
       : (listed ?? sidebarStore.remoteSession(projectId, sessionId))?.summary.schedule;
-  const row = session ? rowOfStore(session, schedule) : rowOfListing(listed!);
-  const agentUserId = agentIdentity?.agentUserId ?? listed?.summary.agent?.userId;
+  const row = session ? rowOfStore(session, schedule) : listed ? rowOfListing(listed) : null;
+  const agentUserId = agentBinding?.agentUserId ?? listed?.summary.agent?.userId;
+  const identity = useAvatarIdentity(agentUserId ?? '');
+  const title = useShownAgentName({ name: row?.title ?? '', agentType: row?.providerId, createdAt: row?.createdAt ?? identity?.created_at ?? undefined });
+  const forkParent = row?.forkedFromSessionId
+    ? sessionRegistry.get(row.forkedFromSessionId)?.sessions.get(row.forkedFromSessionId)
+    : undefined;
+  const forkedFromTitle = useShownAgentName({ name: forkParent?.data.title ?? '', agentType: forkParent?.data.providerId, createdAt: forkParent?.data.createdAt });
+  if (!row) return null;
   const presentation = shownStatus.presentation(agentUserId, session
-    ? taskStatusPresentation(agentUserId
-      ? { kind: 'agent', agentUserId }
-      : { kind: 'task', reading: row.status ? { status: row.status, detail: row.detail } : null, unseen: !row.seen, online: true })
+    ? mountedSessionPresentation(session, agentUserId)
     : sessionPresentation(listed!.summary, listed!.live, agentUserId));
   const sessionIsActive =
     currentView === 'session' && params.sessionId === sessionId && params.projectId === projectId;
@@ -148,10 +156,9 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     !agentUserId && row.status === null &&
     harness !== undefined &&
     !hasStatusSource({ runtime: row.runtime, hooksKind: harness.capabilities.hooks.kind });
-  const title = formatSessionTitleForDisplay(providerId, row.title);
 
-  // spec session-fork-share: 父会话标题可能是一整条长消息 → tooltip 里截断,否则在窄侧栏竖成一条。
-  const forkedFromTitle = row.forkedFromTitle;
+  // spec session-fork-share: fork 自谁 = 父会话此刻的名字,从父会话自己的 store 读(❌ 存一份副本);
+  // 父会话没挂上就不写名字。名字可能很长 → tooltip 里截断,否则在窄侧栏竖成一条。
   const forkedFromLabel =
     forkedFromTitle && forkedFromTitle.length > 20
       ? `${forkedFromTitle.slice(0, 20)}…`
@@ -200,10 +207,8 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   };
 
   // spec session-fork-share:「任意会话可 fork」—— pty 与 ACP 两种 runtime 都摆这个入口,
-  // 各走各的分叉动作(pty `--fork-session`,ACP `session/fork`)。仍然 provider-gated:
-  // 这一家没有分叉能力,分叉就无从谈起。
-  const canFork =
-    agents?.find((agent) => agent.id === providerId)?.capabilities.sessions.fork === 'supported';
+  // 各走各的分叉动作,分叉与来源同 runtime ⇒ 问的是**来源那条腿**能不能分叉。
+  const canFork = agentForksOn(harness?.capabilities, row.runtime);
 
   // #7334 会话 ID 平时不摆出来(身份卡只给名字),要的人从右键主动拿。复制**完整** ID:菜单里没有显示宽度
   // 的顾虑,截断的 ID 拿去寻址什么也找不到。菜单点完就收,失败原因去敏后显示并记录。
@@ -265,7 +270,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       dragged.sessionId !== sessionId &&
       sidebarStore.parentOf(dragged.sessionId) !== sessionId &&
       !sidebarStore.isWithin(sessionId, dragged.sessionId),
-    (child) => moveSessionUnder(child, { projectId, sessionId, title }, sidebarStore.parentOf(child.sessionId))
+    (child) => moveSessionUnder(child, { projectId, sessionId, title: row.title }, sidebarStore.parentOf(child.sessionId))
   );
 
   // @@@done-unread 「做完未读」= idle + 未 seen —— 表达方式见 sidebar-session-row。
@@ -295,13 +300,13 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           </TooltipContent>
         </Tooltip>
       ) : null}
-      {row.forkedFromTitle !== undefined ? (
+      {row.forkedFromSessionId !== undefined ? (
         // spec session-fork-share: fork 会话挂一个 fork 图标(前缀,避开右侧 hover 浮出的
         // 置顶/归档动作),hover 才弹出「fork 自 ×」谱系 —— 不占行宽,不论从哪个入口 fork。
         <Tooltip>
           <TooltipTrigger
             render={
-              <span className="flex shrink-0 items-center text-foreground-tertiary-passive">
+              <span className="flex shrink-0 items-center text-foreground-tertiary-passive" data-testid="sidebar-forked-from">
                 <GitFork className="size-3" />
               </span>
             }
@@ -353,6 +358,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       hasChildren={hasChildren}
       expanded={expanded}
       needsAttention={needsAttention}
+      treeSummary={treeSummary}
       onToggle={onToggle}
       title={title}
       harness={harness ? { id: providerId, name: harness.name } : null}
@@ -362,6 +368,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       lastInteractedAt={row.lastInteractedAt}
       schedule={row.schedule ?? null}
       doneUnread={doneUnread}
+      notificationCount={notificationCount}
       isActive={isActive}
       isCursor={isCursor}
       isPendingArchive={isPendingArchive}
@@ -379,7 +386,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           // 拖起来就不是在看这张卡了。
           identityCard.dismiss();
           // 带上项目:落在一块的边上时,分出来的那块要开这条会话的页(spec session-page「一屏几块」)。
-          setDraggedScreenContent(e.dataTransfer, { kind: 'session', sessionId, title, projectId }, e.currentTarget);
+          setDraggedScreenContent(e.dataTransfer, { kind: 'session', sessionId, title: row.title, projectId }, e.currentTarget);
         },
         onDragEnd: clearDraggedScreenContent,
         ...nestHere,
@@ -393,7 +400,8 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           <SidebarIdentityCard
             projectId={projectId}
             sessionId={sessionId}
-            title={title}
+            title={row.title}
+            displayTitle={title}
             anchor={rowAnchor}
             onDismiss={identityCard.dismiss}
           />
@@ -443,18 +451,6 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       <Pencil className="size-4" />
       {translate('task.renameSession')}
     </ContextMenuItem>
-    {/* #6091 「重命名 Agent」与「重命名会话」是两件事、两个入口(owner:「他们是独立的」)。只有已经有咕咕
-        身份的会话才有这一格:没身份就没有可改的名字,❌ 摆一个点进去改不了的入口。 */}
-    {agentIdentity ? (
-      <ContextMenuItem
-        onClick={() => {
-          showModal('renameAgentModal', { sessionId, currentName: agentIdentity.displayName });
-        }}
-      >
-        <Pencil className="size-4" />
-        {translate('task.renameAgent')}
-      </ContextMenuItem>
-    ) : null}
     <ContextMenuItem onClick={() => void copySessionId()}>
       <Copy className="size-4" />
       {translate('sidebar.copySessionId')}
@@ -478,14 +474,15 @@ type SessionInRegistry = NonNullable<ReturnType<NonNullable<ReturnType<typeof se
 type SidebarRowData = {
   providerId: string;
   title: string;
+  createdAt?: string;
   status: SessionInRegistry['status'];
   detail: SessionInRegistry['detail'];
   seen: boolean;
   runtime: 'acp' | 'pty';
   isPinned: boolean;
   lastInteractedAt: string | null | undefined;
-  /** fork 来源:目录里没有,点开(挂上)之后才显示。 */
-  forkedFromTitle: string | undefined;
+  /** fork 来源会话:目录里没有,点开(挂上)之后才显示。 */
+  forkedFromSessionId: string | undefined;
   spawnedByExtensionId: string | null | undefined;
   /** 声明了的状态来源读不出(spec hook-status-derivation「打断边:会话在场文件」):一句原因。 */
   statusSourceFault: string | null;
@@ -497,13 +494,14 @@ function rowOfStore(session: SessionInRegistry, schedule: SessionpageScheduleDig
   return {
     providerId: session.data.providerId,
     title: session.data.title,
+    createdAt: session.data.createdAt,
     status: session.status,
     detail: session.detail,
     seen: session.seen,
     runtime: session.data.runtime ?? 'pty',
     isPinned: session.data.isPinned === true,
     lastInteractedAt: session.data.lastInteractedAt,
-    forkedFromTitle: session.data.forkedFrom ? session.data.forkedFrom.title ?? '' : undefined,
+    forkedFromSessionId: session.data.forkedFrom?.sessionId,
     spawnedByExtensionId: session.data.spawnedByExtensionId,
     statusSourceFault: session.statusSourceFault,
     schedule,
@@ -522,7 +520,7 @@ function rowOfListing({ summary }: RemoteSidebarSession): SidebarRowData {
     runtime: summary.runtime === 'acp' ? 'acp' : 'pty',
     isPinned: summary.isPinned === true,
     lastInteractedAt: summary.lastInteractedAt,
-    forkedFromTitle: undefined,
+    forkedFromSessionId: undefined,
     spawnedByExtensionId: summary.spawnedByExtensionId,
     // 会话级标注只随本机写入者的状态输出到达;目录里另一台机器的行没有(与 providerBlocker 一样)。
     statusSourceFault: null,

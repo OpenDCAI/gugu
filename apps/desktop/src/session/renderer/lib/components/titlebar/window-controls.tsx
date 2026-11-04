@@ -1,6 +1,6 @@
 import { detectHostOs } from '@shared/host-os';
 import { Copy, Square, X } from '@/lib/icons'
-import { Minus } from 'lucide-react'
+import { Minus } from '@/lib/icons'
 import { type ReactNode, useEffect, useState } from 'react';
 import { events, rpc } from '@renderer/lib/ipc';
 import { cn } from '@renderer/utils/utils';

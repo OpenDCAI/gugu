@@ -132,17 +132,17 @@ function tools(owner: string, self: string) {
     // 主人自己的状态以主人的 JWT(RLS)直读:置顶、好友、备注,以及主人私聊的两位成员(#84,本就按主人的可见域读)。
     restGet: async (path: string, profile = 'chat') => {
       const ids = (list: string) => list.split(',').map(decodeURIComponent)
-      const pinned = /^chat_members\?user_id=eq\.([^&]+)&is_pinned=is\.true&select=chat_id$/.exec(path)
+      const pinned = /^active_members\?user_id=eq\.([^&]+)&is_pinned=is\.true&select=chat_id$/.exec(path)
       if (pinned && profile === 'chat') {
-        return (await asOwnerQuery(owner, 'SELECT chat_id FROM chat.chat_members WHERE user_id = $1 AND is_pinned', [decodeURIComponent(pinned[1]!)])).rows
+        return (await asOwnerQuery(owner, 'SELECT chat_id FROM chat.active_members WHERE user_id = $1 AND is_pinned', [decodeURIComponent(pinned[1]!)])).rows
       }
-      const rosters = /^chat_members\?chat_id=in\.\(([^)]+)\)&select=chat_id,user_id$/.exec(path)
+      const rosters = /^active_members\?chat_id=in\.\(([^)]+)\)&select=chat_id,user_id$/.exec(path)
       if (rosters && profile === 'chat') {
-        return (await asOwnerQuery(owner, 'SELECT chat_id, user_id FROM chat.chat_members WHERE chat_id = ANY($1)', [ids(rosters[1]!)])).rows
+        return (await asOwnerQuery(owner, 'SELECT chat_id, user_id FROM chat.active_members WHERE chat_id = ANY($1)', [ids(rosters[1]!)])).rows
       }
-      const friendships = /^friendships\?or=\(user_a_id\.eq\.([^,]+),user_b_id\.eq\.([^)]+)\)&select=user_a_id,user_b_id$/.exec(path)
+      const friendships = /^active_friendships\?or=\(user_a_id\.eq\.([^,]+),user_b_id\.eq\.([^)]+)\)&select=user_a_id,user_b_id$/.exec(path)
       if (friendships && profile === 'identity' && decodeURIComponent(friendships[1]!) === owner && decodeURIComponent(friendships[2]!) === owner) {
-        return (await asOwnerQuery(owner, 'SELECT user_a_id, user_b_id FROM identity.friendships WHERE user_a_id = $1 OR user_b_id = $1', [owner])).rows
+        return (await asOwnerQuery(owner, 'SELECT user_a_id, user_b_id FROM identity.active_friendships WHERE user_a_id = $1 OR user_b_id = $1', [owner])).rows
       }
       const aliases = /^contact_overrides\?owner_user_id=eq\.([^&]+)&select=contact_user_id,alias$/.exec(path)
       if (aliases && profile === 'identity' && decodeURIComponent(aliases[1]!) === owner) {

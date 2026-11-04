@@ -129,8 +129,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   notifyDeviceCommandsChanged: (): void => ipcRenderer.send('device-runtime:commands-changed'),
   // 渲染层建 / 改 / 删了定时任务之后说一声(见 main.ts 的同名通道)。
   notifyScheduledTasksChanged: (): void => ipcRenderer.send('device-runtime:scheduled-tasks-changed'),
-  // #6396 —— 渲染层收到 agent_changed(本账号的 agent 有变动)后说一声,主进程据此刷新起名用的号(见 main.ts 同名通道)。
-  notifyOwnedAgentsChanged: (): void => ipcRenderer.send('owned-agents:changed'),
   // @@@2374 — 按域名通用,❌ 不再一域一对方法。原来只有 `auth` 那一对,`extensions` 域
   // 因此在渲染层根本发不出「我准备好了」,主进程于是永远等到超时 —— 扩展的每个宿主动作
   // (改标题/角标、开浏览器 tab、报错、投进对话)都死在这里,而 platform 侧那句
@@ -180,9 +178,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('device:self-identified', listener)
   },
   getLocalDeviceSelfSnapshot: (): Promise<unknown> => ipcRenderer.invoke('device:get-self-snapshot'),
-  // @@@4526 owner 删除自己的 agent 后释放它在本机的足迹(花名册 / runtime session / 投递注册)。
-  releaseOwnedAgentLocalFootprint: (agentUserId: string): Promise<unknown> =>
-    ipcRenderer.invoke('owned-agent:release-local-footprint', { agentUserId }),
   // @@@share-card-rename 改名的本机那半:花名册上的 name(会话页读它)。云端改完再调,详见 main 侧同名注释。
   renameOwnedAgentLocalFootprint: (agentUserId: string, name: string): Promise<boolean> =>
     ipcRenderer.invoke('owned-agent:rename-local-footprint', { agentUserId, name }),

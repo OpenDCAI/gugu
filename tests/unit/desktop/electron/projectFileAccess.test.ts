@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFileResolver, type FileProviders, type FileRevision } from '../../../../packages/core/src/shared/fileResolver'
-import { ciphertextSize, transformFile } from '../../../../packages/core/src/shared/fileCipher'
+import { ciphertextSize, createFileKey, transformFile } from '../../../../packages/core/src/shared/fileCipher'
 import { createProjectTransferHost } from '../../../../apps/desktop/electron/projectFileTransferHost'
 import { createFileChunkCache, createFileSink } from '../../../../apps/desktop/electron/fileSnapshot'
+import { createNodeFileResolver, saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
 import { createProjectFileReader, localProjectFileProvider, openProjectFileSource, snapshotProjectFile } from '../../../../apps/desktop/electron/projectFileHost'
 import { ownSshFileProvider } from '../../../../apps/desktop/electron/projectFileSsh'
 import { createDesktopFileAccess } from '../../../../apps/desktop/electron/desktopFileAccess'
@@ -21,6 +22,102 @@ const actor = { accountId: 'owner', actorId: 'owner' }
 const digest = (data: Uint8Array) => createHash('sha256').update(data).digest('hex')
 const identity = async () => ({ accountId, deviceId: 'host-device' })
 const reader = () => createProjectFileReader({ identity, root: async id => id === 'project' ? root : null, env })
+
+describe('downloads consume one file without the random-read cache', () => {
+  const remote = (content: Uint8Array = bytes) => {
+    const stored = { ...revision, source: 'managed-object' as const }
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).endsWith('/file-resolve')) return Response.json({ status: 'ready', ...stored })
+      if (String(url).endsWith('/file-download')) return Response.json({ status: 'ready', url: 'https://objects.invalid/file', size_bytes: stored.size_bytes, sha256: stored.sha256, download_id: 'download' })
+      if (String(url) === 'https://objects.invalid/file') return new Response(content as Uint8Array<ArrayBuffer>)
+      throw new Error('Unexpected file request')
+    })
+    return { resolve: createNodeFileResolver(tempRoot, async () => ({ supabaseUrl: 'https://files.invalid', anonKey: 'public', token: 'test', fetch: fetcher as typeof fetch })), fetcher }
+  }
+  it('writes one authenticated destination, reuses its verified digest, and leaves no remote-files chunks or snapshot', async () => {
+    const { resolve, fetcher } = remote()
+    const save = async () => {
+      const file = await resolve(ref, actor)
+      if (file.status !== 'ready') throw new Error('Missing fixture')
+      return saveFileHandle(file, join(home, 'attachments'), 'file.bin')
+    }
+    const [first, concurrent] = await Promise.all([save(), save()])
+    expect(first.file_path).toBe(concurrent.file_path)
+    expect(await readFile(first.file_path)).toEqual(bytes)
+    expect(await readdir(join(home, 'attachments', revision.sha256!))).toEqual(['file.bin'])
+    expect(await stat(tempRoot).catch(() => null)).toBeNull()
+    const gets = fetcher.mock.calls.filter(([url]) => String(url) === 'https://objects.invalid/file').length
+    await save()
+    expect(fetcher.mock.calls.filter(([url]) => String(url) === 'https://objects.invalid/file')).toHaveLength(gets)
+  })
+  it('removes the partial on a digest mismatch and never publishes corrupted content', async () => {
+    const { resolve } = remote(Buffer.alloc(bytes.length, 9))
+    const file = await resolve(ref, actor)
+    if (file.status !== 'ready') throw new Error('Missing fixture')
+    await expect(saveFileHandle(file, join(home, 'attachments'), 'file.bin')).rejects.toThrow('SHA-256')
+    expect(await stat(join(home, 'attachments', revision.sha256!)).catch(() => null)).toBeNull()
+    expect(await stat(tempRoot).catch(() => null)).toBeNull()
+  })
+
+  it.each([false, true])('authenticates encrypted downloads before publishing, including revoked access=%s', async revoked => {
+    const stored = { ...revision, temporary_transfer: true }, key = await createFileKey(), chunks: Uint8Array[] = []
+    const source = { size: bytes.length, read: async (offset: number, length: number) => bytes.subarray(offset, offset + length), dispose: async () => {} }
+    const encrypted = await transformFile({ direction: 'encrypt', revision: stored, source, key, sink: {
+      write: async chunk => { chunks.push(chunk) }, abort: async () => {},
+      commit: async () => ({ size: ciphertextSize(bytes.length), read: async () => new Uint8Array(), dispose: async () => {} }),
+    } })
+    const cipher = Buffer.concat(chunks), destination = join(home, 'attachments', revision.sha256!), routes: string[] = []
+    let resolutions = 0
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+      const route = String(url).split('/').at(-1)!
+      routes.push(route)
+      if (route === 'file-resolve') {
+        if (++resolutions === 2) {
+          expect((await readdir(destination)).every(name => name.endsWith('.part'))).toBe(true)
+          if (revoked) return Response.json({ error: 'denied', message: 'Access revoked' }, { status: 403 })
+        }
+        return Response.json({ status: 'ready', ...stored })
+      }
+      if (route === 'file-request') return Response.json({ status: 'ready', transfer_status: 'ready' })
+      if (route === 'file-download') return Response.json({ status: 'ready', url: 'https://objects.invalid/encrypted', size_bytes: cipher.length,
+        sha256: stored.sha256, download_id: 'encrypted', ciphertext_bytes: cipher.length, ciphertext_sha256: encrypted.ciphertextSha256,
+        codec: 'secretstream-v1', key: Buffer.from(key).toString('base64') })
+      if (route === 'encrypted') return new Response(cipher)
+      if (route === 'file-read-complete') return Response.json({ status: 'ready' })
+      throw new Error('Unexpected file request')
+    })
+    const resolve = createNodeFileResolver(tempRoot, async () => ({ supabaseUrl: 'https://files.invalid', anonKey: 'public', token: 'test', fetch: fetcher as typeof fetch }))
+    const file = await resolve(ref, actor)
+    if (file.status !== 'ready') throw new Error('Missing fixture')
+    try {
+      const saving = saveFileHandle(file, join(home, 'attachments'), 'file.bin')
+      if (revoked) {
+        await expect(saving).rejects.toThrow('Access revoked')
+        expect(await stat(destination).catch(() => null)).toBeNull()
+        expect(routes).not.toContain('file-read-complete')
+      } else {
+        expect(await readFile((await saving).file_path)).toEqual(bytes)
+        expect(await readdir(destination)).toEqual(['file.bin'])
+        expect(routes).toContain('file-read-complete')
+      }
+      expect(await stat(tempRoot).catch(() => null)).toBeNull()
+    } finally { key.fill(0) }
+  })
+
+  it('removes the partial when cancellation arrives during the object read', async () => {
+    const controller = new AbortController(), stored = { ...revision, source: 'managed-object' as const }
+    const resolve = createNodeFileResolver(tempRoot, async () => ({ supabaseUrl: 'https://files.invalid', anonKey: 'public', token: 'test',
+      fetch: async url => {
+        if (String(url).endsWith('/file-resolve')) return Response.json({ status: 'ready', ...stored })
+        if (String(url).endsWith('/file-download')) return Response.json({ status: 'ready', url: 'https://objects.invalid/file', size_bytes: stored.size_bytes, sha256: stored.sha256, download_id: 'download' })
+        return new Response(new ReadableStream({ pull(stream) { controller.abort(new Error('cancelled')); stream.enqueue(bytes); stream.close() } }))
+      } }))
+    const file = await resolve(ref, actor, { signal: controller.signal })
+    if (file.status !== 'ready') throw new Error('Missing fixture')
+    await expect(saveFileHandle(file, join(home, 'attachments'), 'file.bin')).rejects.toThrow('cancelled')
+    expect(await stat(join(home, 'attachments', revision.sha256!)).catch(() => null)).toBeNull()
+  })
+})
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'gugu-project-file-access-'))
   root = join(home, 'project'); tempRoot = join(home, 'snapshots')
@@ -50,9 +147,9 @@ describe('account/project revision index', () => {
   })
   it('serializes concurrent index writes with group writes, and forget invalidates', async () => {
     await Promise.all(Array.from({ length: 4 }, (_, n) => rememberProjectFile({ ...revision, item_id: `item-${n}` }, 'owner', env)))
-    for (let n = 0; n < 4; n++) expect(await readProjectFile({ item_id: `item-${n}` }, 'owner', 'host-device', env)).not.toBeNull()
+    for (let n = 0; n < 4; n++) expect(await readProjectFile({ item_id: `item-${n}`, version: 1 }, 'owner', 'host-device', env)).not.toBeNull()
     await forgetProjectFile('item-0', 'owner', env)
-    expect(await readProjectFile({ item_id: 'item-0' }, 'owner', 'host-device', env)).toBeNull()
+    expect(await readProjectFile({ item_id: 'item-0', version: 1 }, 'owner', 'host-device', env)).toBeNull()
     await forgetProjectGroupId('project', 'owner', env)
     expect(await readProjectFile(ref, 'owner', 'host-device', env)).toBeNull()
   })
@@ -74,14 +171,16 @@ describe('account/project revision index', () => {
 describe('a later version the database made from the same bytes (#719: a rename or move)', () => {
   // The index still holds version 1; the database's record of version 2 names the same bytes under a new name.
   const renamed = () => ({ ...revision, version: 2, file_name: 'renamed.bin' })
-  it('reads version 2 as the same bytes, under its new name, and keeps reading version 1 without asking', async () => {
+  it('reads version 2 as the same bytes, under its new name, and keeps reading the named version 1 without asking', async () => {
     const later = vi.fn(async () => renamed())
     expect(await readProjectFile({ ...ref, version: 2 }, 'owner', 'host-device', env, later)).toEqual({ ...revision, version: 2, file_name: 'renamed.bin' })
     expect(later).toHaveBeenCalledWith({ item_id: 'item', version: 2 })
     later.mockClear()
     expect(await readProjectFile(ref, 'owner', 'host-device', env, later)).toEqual(revision)
-    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'host-device', env, later)).toEqual(revision)
     expect(later).not.toHaveBeenCalled()
+    // No version named: the current one, which the database says is version 2, the same bytes here.
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'host-device', env, later)).toEqual({ ...revision, version: 2, file_name: 'renamed.bin' })
+    expect(later).toHaveBeenCalledWith({ item_id: 'item' })
     const provider = localProjectFileProvider({ identity, read: createProjectFileReader({ identity, root: async () => root, env, later }), tempRoot, env, later })
     const file = await createFileResolver({ local: provider, metadata: later as never, managed: later as never, ssh: later as never, temporary: later as never })({ ...ref, version: 2 }, actor)
     if (file.status !== 'ready') throw Error('ready expected')
@@ -96,7 +195,7 @@ describe('a later version the database made from the same bytes (#719: a rename 
       expect(JSON.parse(String(init?.body))).toEqual({ ref: { item_id: 'item', version: 2 }, as: 'owner' })
       return Response.json({ ...renamed(), status: 'ready' })
     })
-    const access = createDesktopFileAccess({ auth: async () => ({ userId: 'owner', accessToken: 'memory-only-token' }), root: async () => root, links: () => null, tempRoot, downloads: join(home, 'downloads'), fetch: network as typeof fetch, rpc: network as never, env })
+    const access = createDesktopFileAccess({ auth: async () => ({ userId: 'owner', accessToken: 'memory-only-token' }), root: async () => root, links: () => null, tempRoot, downloads: join(home, 'downloads'), fetch: network as typeof fetch, rpc: network as never, env, deviceStore: join(home, 'project-files'), identityDb: network as never })
     const file = await access.resolveAccount({ id: 'item' }, null, { version: 2, localOnly: true })
     if (file?.status !== 'ready') throw Error('ready expected')
     expect(file.revision.file_name).toBe('renamed.bin')
@@ -110,6 +209,16 @@ describe('a later version the database made from the same bytes (#719: a rename 
   ] as const)('refuses when the database names %s', async (_, change) => {
     expect(await readProjectFile({ ...ref, version: 2 }, 'owner', 'host-device', env, async () => ({ ...renamed(), ...change }) as FileRevision)).toBeNull()
   })
+  // A project chat has no host: another member's device may write the next version, which it then keeps. The device that
+  // kept version 1 must not answer for the file's current version with its own old bytes (native #107 cell 4).
+  it('answers no version named only while this device keeps the current version; a named older version stays local', async () => {
+    const elsewhere = vi.fn(async () => ({ ...revision, version: 2, host_device_id: 'other-device', relative_path: 'item/file.bin', sha256: 'cd'.repeat(32), size_bytes: 74 }) as FileRevision)
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'host-device', env, elsewhere)).toBeNull()
+    expect(elsewhere).toHaveBeenCalledWith({ item_id: 'item' })
+    expect(await readProjectFile(ref, 'owner', 'host-device', env, elsewhere)).toEqual(revision)
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'host-device', env, async () => revision)).toEqual(revision)
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'host-device', env)).toBeNull()
+  })
   it('refuses a version the database does not have, and never asks about one older than the index', async () => {
     expect(await readProjectFile({ ...ref, version: 2 }, 'owner', 'host-device', env, async () => null)).toBeNull()
     await rememberProjectFile({ ...revision, version: 3 }, 'owner', env)
@@ -120,12 +229,17 @@ describe('a later version the database made from the same bytes (#719: a rename 
 })
 
 describe('local read fence and verified snapshot', () => {
-  it('the production composition root opens by item or folder path without cloud, auth refresh or an SSH dial', async () => {
+  it('the production composition root opens by item or folder path asking only which version is current, without bytes from the cloud, auth refresh or an SSH dial', async () => {
     await writeDeviceIdCache(deviceFile(env, 'owner'), 'host-device')
     await rememberProjectFile({ ...revision, workspace: { path: 'file.bin', parent_id: null, created_at: '2026-10-24T00:00:00Z', updated_at: '2026-10-24T00:00:00Z', created_by: 'owner', source_message_ids: [] } }, 'owner', env)
+    // The one metadata question a current-version read asks: the database names this device's version 1 as current.
+    const current = vi.fn(async (input: string | URL | Request) => {
+      if (!/\/functions\/v1\/attachments\/file-resolve$/.test(String(input))) throw new Error('Unexpected network request')
+      return Response.json({ ...revision, status: 'ready' })
+    })
     const network = vi.fn(async () => { throw new Error('Unexpected network request') })
     const links = vi.fn(() => null)
-    const access = createDesktopFileAccess({ auth: async () => ({ userId: accountId, accessToken: 'memory-only-token' }), root: async () => root, links, tempRoot, downloads: join(home, 'downloads'), fetch: network, rpc: network, env })
+    const access = createDesktopFileAccess({ auth: async () => ({ userId: accountId, accessToken: 'memory-only-token' }), root: async () => root, links, tempRoot, downloads: join(home, 'downloads'), fetch: current as typeof fetch, rpc: network, env, deviceStore: join(home, 'project-files'), identityDb: network as never })
     expect(access.handlers('realtime')).toEqual({})
     expect(Object.keys(access.handlers('ssh'))).toEqual(['file.read'])
     for (const named of [{ id: 'item' }, { chat: 'group', name: 'file.bin' }]) {

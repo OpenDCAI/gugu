@@ -3,13 +3,21 @@
  * 两处说同一件事,❌ 各写一套。纯函数,读的只是那台机器随心跳报上来的几项(老宿主不报 = 不知道,不下结论)。
  */
 import type { DeviceCapabilities } from '../shared/types/chat'
+/** Old supervisors must explicitly report support; a version string cannot grant an override. */
+export function serverSupportsConfirmedRestart(capabilities: Pick<DeviceCapabilities, 'server_confirmed_restart'> | null | undefined): boolean {
+  return capabilities?.server_confirmed_restart === true
+}
+
+/** Account activity older than this cannot block an update or supply a busy count. */
+export const SERVER_ACTIVITY_STALE_MS = 60_000
 
 /**
  * 桌面↔server 这条线说的协议版本。有不兼容的改动时加一;server 同时报「桌面至少要哪一版」。
  * 照 VS Code / Zed 的「客户端与 server 版本对不上就明说」(Zed 发了旧客户端不认的消息直接断线:zed#42474),
  * 只是不要求逐版本相等 —— server 自动升级、桌面自动升级,两边总有先后。
  */
-export const REMOTE_PROTOCOL_VERSION = 15
+// 17 adds durable task attachment upload/status/commit verbs; editor saves are unchanged.
+export const REMOTE_PROTOCOL_VERSION = 17
 /**
  * server 报给桌面:桌面的协议版本低于它 = 这台电脑上的咕咕太旧。
  *
@@ -66,16 +74,17 @@ export const REMOTE_PROTOCOL_VERSION = 15
  * 14: the saved-login form is removed (#848); the later remote-browser removal keeps this window, and removed RPC
  *     methods use the normal unknown-method response.
  * 15: canonical file patches. sessionTimeline sends one patch tool entity with structured changes and raw patch bytes.
+ * 16: task inputs carry folder-file references; attachment sends require this version rather than silently losing files.
  *
  * 向下兼容一档(owner 10-28,换版打断 7 条车道之后):两边只差一档时照常连,由**新的一侧**降级 ——
- * 15 ↔ 14 的改文件实体由 session-record/contract.ts 的 protocol14FileChanges 在线上换算(宿主按开窗时对端报的协议、
- * 客户端按宿主答的协议);14 的界面看到的是它自己的改文件卡。开窗时按那台机器的协议报 hello(`helloProtocol`):
+ * 16 ↔ 15 的文字与窗口照常互通;附件输入要求 16，旧宿主明确拒绝。14 的改文件降级在升到 16 时移除。
+ * 开窗时按那台机器的协议报 hello(`helloProtocol`):
  * 老宿主见到更高的号会当成版本信号、要求当场换版,有 agent 在跑也照换。差两档以上才说「太旧」。
  * 下一次加一时,两个下沿跟着抬到新号减一,并删掉上一档的降级。
  */
-export const MIN_CLIENT_PROTOCOL = 14
+export const MIN_CLIENT_PROTOCOL = 16
 /** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧(同样向下兼容一档)。 */
-export const MIN_SERVER_PROTOCOL = 14
+export const MIN_SERVER_PROTOCOL = 16
 
 /** 开窗时报给那台机器的协议:它比这台低、但还在兼容的一档里,就照它的报(见上);说不出 = 报自己的。纯函数。 */
 export function helloProtocol(serverProtocol: number | null | undefined, own = REMOTE_PROTOCOL_VERSION, minServer = MIN_SERVER_PROTOCOL): number {
@@ -136,13 +145,15 @@ export function formatBytes(bytes: number): string {
 }
 
 /** #6264 设备行点「重试」换到匹配版本的那条设备调用(界面也要用,所以放在不碰文件系统的这里)。 */
-export const VERSION_RETRY_RPC = 'server.versionMatch.retry'
+// A distinct verb cannot be interpreted by an older server as an unconfirmed busy override.
+export const VERSION_RETRY_RPC = 'server.versionMatch.retryWhenIdle'
+/** Older clients use this verb. New servers treat it as idle-only, never as confirmation. */
+export const LEGACY_VERSION_RETRY_RPC = 'server.versionMatch.retry'
+export const VERSION_RESTART_RPC = 'server.versionMatch.restartConfirmed'
+/** Read the current interruption count before presenting a restart confirmation. */
+export const VERSION_ACTIVITY_RPC = 'server.versionMatch.activity'
 
-/**
- * #6264 报给那台机器的「这是哪一台桌面」:设备编号 + 版本。设备编号跟着硬件走,同一台电脑上的正式版、Beta、
- * 开发实例是同一个编号 —— 只按编号记,两个版本会互相覆盖,账号在两版之间来回切(实测 d22 每十几秒切一次)。
- * 带上版本各记一条,那台机器照旧取最新的那一版(同一账号按新的一边跑)。
- */
-export function desktopReportId(deviceId: string, version: string): string {
-  return `${deviceId}:${version.replace(/[^A-Za-z0-9_-]/g, '_')}`.slice(0, 128)
-}
+/** Version-independent controls implemented by the server's existing update handlers. */
+export const SERVER_UPDATE_CONTROL_RPCS: ReadonlySet<string> = new Set([
+  VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC, VERSION_RESTART_RPC, VERSION_ACTIVITY_RPC,
+])

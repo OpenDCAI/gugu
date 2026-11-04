@@ -8,7 +8,7 @@ import { ChevronLeft, X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
 import { projectTurnFailureMessages } from '../../lib/projectTurnFailureMessages'
-import { useQueuedMessageIds } from '../../hooks/useQueuedMessageIds'
+import { useDeliveryWaits } from '../../hooks/useDeliveryWaits'
 import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import type { AgentStatusById } from './agentMentionStatusModels'
@@ -48,6 +48,8 @@ import { MessageLoadFailure } from './MessageLoadFailure'
 import { MessageListSkeleton } from './MessageListSkeleton'
 import { ChatSearchControls } from './ChatSearch'
 import { useChatSearch } from './useChatSearch'
+import { useMessageFind } from './useMessageFind'
+import { FindBar } from '@renderer/lib/ui/find-bar'
 
 /**
  * @@@5856 话题分栏 —— 右侧那条独立收发的话题线(product spec)。
@@ -88,7 +90,7 @@ export type TopicSplitPaneProps = {
   memberReadSeqs: Record<string, number>
   onSend: (text: string, toUserIds: readonly string[] | null, replyToMessageId: string | null, isWhisper?: boolean, submittedAt?: number) => Promise<void>
   /** 发附件。回形针在 ChatMessageComposer 里是无条件画的,不接这一口 = 挂得上发不出去。 */
-  onSendAttachments: (files: File[], opts?: { toUserIds?: string[] | null; isWhisper?: boolean; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>
+  onSendAttachments: (files: File[], opts?: { toUserIds?: string[] | null; replyToMessageId?: string | null; isWhisper?: boolean; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>
   /**
    * 能在这一栏里 @ 到的人 = **来源线**的名册。spec:「招 agent 同理——建完之后 @ 它,它就进来了」,
    * 而服务端只放行来源线的成员,所以候选集就取来源线的,❌ 不取话题当前那几个(那样永远拉不进新人)。
@@ -176,6 +178,7 @@ const TOPIC_SPLIT_HEADER_ACTIONS_STYLE: React.CSSProperties = { display: 'flex',
 const TOPIC_SPLIT_MESSAGES_STYLE: React.CSSProperties = {
   flex: 1,
   minHeight: 0,
+  position: 'relative',
   overflowY: 'auto',
   display: 'flex',
   flexDirection: 'column',
@@ -257,7 +260,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   // 已读环有 —— 水位由 useChatConversation 按**这条话题**自己拉,拉不到时是空表(空表就不出环)。
   const search = useChatSearch(topic.chatId, visible !== false, messages, paneRef, viewportKey)
   const { searchMode, searchQuery, isFiltering, displayedMessages } = search
-  const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
+  const deliveryWaits = useDeliveryWaits(messages, memberReadSeqs)
   const rows = useMemo<ChatListRowItem[]>(
     () => (isFiltering ? visibleDeliveryMessages(displayedMessages) : projectTurnFailureMessages(visibleDeliveryMessages(displayedMessages))).map((message) => ({ type: 'message' as const, message })),
     [displayedMessages, isFiltering],
@@ -273,15 +276,16 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     chatId: topic.chatId, viewportKey, activationKey: topic.chatId, enabled: visible !== false && !isFiltering, discardSaved: !!history.unreadEntry,
     messageIds: rows.map((row) => row.message.id), isAtBottomRef, setFollowingTail, loadMessageAnchor,
   })
+  const find = useMessageFind({ chatId: topic.chatId, messages, rows, rootRef: paneRef, listRef, scrollerRef, enabled: visible !== false && !mobile, search })
   const onHistoryError = useCallback((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'), [toast])
   const unreadNavigationPending = useUnreadLocatorNavigation({ revealMessage, activeChatId: topic.chatId, enabled: visible !== false && !isFiltering,
     onNavigate: () => search.setSearchMode(false), scrollerRef, setFlashMessageId, flashTimerRef })
-  const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: !!unreadNavigationPending,
+  const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ enabled: !find.isOpen, resetKey: chatResetKey, unreadNavigationPending: !!unreadNavigationPending,
     hasNewer: messageWindow.hasNewer, loading: !!messageWindow.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
-  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !isFiltering && !unreadNavigationPending,
+  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !find.isOpen && !isFiltering && !unreadNavigationPending,
     scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: history.loadOlderMessages, loadNewer: history.loadNewerMessages, window: messageWindow, onError: onHistoryError })
   const { pinToBottom, onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages,
-    enabled: visible !== false && !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
+    enabled: visible !== false && !find.isOpen && !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
     isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: history.returnToLatestMessages, onError: onHistoryError })
   const showMessage = useSourceMessageReveal({
     viewportKey, navigationTarget, enabled: visible !== false, ready: !isFiltering,
@@ -295,7 +299,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     messages,
     isFiltering,
     mobile,
-    memberReadSeqs, queuedIds,
+    memberReadSeqs, deliveryWaits,
     // 话题是多人线 ⇒ 与群同口径,收到的气泡上方显发送者名。
     isGroupChat: true,
     memberProfiles,
@@ -307,7 +311,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     onQuote,
     onForward: onForward ?? noop,
     onDelete: onDelete ?? noop,
-    onVisible: (message) => { if (visible !== false) history.markMessageVisible(message) },
+    onVisible: (message) => { if (visible !== false && !find.isOpen) history.markMessageVisible(message) },
     // 右键发送者头像 → @ 他:插进**这一栏**的输入框,与上面运行中头像条同一个 setMentionToInsert。
     onMentionMember: setMentionToInsert,
     // 单层不嵌套:onOpenTopic 给 undefined —— 话题里的消息不给「开话题」入口,也就没有锚点卡
@@ -321,7 +325,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     onToggleSelect: noop,
     onEnterSelectMode: undefined,
     flashMessageId,
-  }), [showMessage, rows, messages, mobile, memberReadSeqs, queuedIds, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, onQuote, flashMessageId, history, visible, isFiltering, searchQuery])
+  }), [showMessage, rows, messages, mobile, memberReadSeqs, deliveryWaits, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, onQuote, flashMessageId, history, visible, find.isOpen, isFiltering, searchQuery])
 
   useBackLayer(onClose, mobile && !inTab)
   const headerTitle = <TopicBreadcrumb topicName={topic.name} sourceMessagePreview={sourceMessagePreview} />
@@ -374,6 +378,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           data-testid="topic-split-messages"
           style={TOPIC_SPLIT_MESSAGES_STYLE}
         >
+          <FindBar {...find} onSearchAll={find.searchAll} />
           {loading && messages.length === 0 && <MessageListSkeleton />}
           {history.messagesError && !(loading && messages.length === 0) && <MessageLoadFailure error={history.messagesError}
             inline={messages.length > 0} onRetry={() => history.refreshMessages()} />}
@@ -392,7 +397,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
               rowProps={rowProps}
               listRef={listRef}
               initialTopMostItemIndex={openLocation()}
-              followTail={!unreadNavigationPending && !messageWindow.hasNewer && messageWindow.change !== 'newer'}
+              followTail={!find.isOpen && !unreadNavigationPending && !messageWindow.hasNewer && messageWindow.change !== 'newer'}
               unreadAbove={history.unreadEntry ? { messageId: history.unreadEntry.locator.message_id, messageSeq: history.unreadEntry.locator.message_seq,
                 label: t('chatArea.unreadAbove', { count: history.unreadEntry.locator.unread_count }), onSeen: history.unreadEntry.onSeen, onJump: () => void history.jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
               onAtBottomChange={onAtBottomChange}

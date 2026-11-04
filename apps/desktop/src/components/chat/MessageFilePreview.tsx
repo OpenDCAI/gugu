@@ -1,18 +1,23 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { messageActionItems } from './messageActionItems'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { bindFileViewerMenu } from '../preview/file-viewer-menu'
 import { quoteChatFile, selectedTextQuote } from '../preview/quote-preview-file'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { downloadBlob } from '../../lib/download'
-import { attachmentBytes, attachmentPreview, openAttachmentImage, openAttachmentInSystemApp, sourceKeyOf } from '../../lib/attachmentBytes'
+import { attachmentBytes, attachmentPreview, openAttachmentInSystemApp, sourceKeyOf } from '../../lib/attachmentBytes'
 import { rendererLogger } from '../../lib/log'
+import { offlineHolder } from '../../lib/fileHost'
+import { useDevicesStore } from '../../store/devicesContext'
+import { isDeviceOnline } from '@gugu/core/shared/enums/deviceModels'
 import { messageForUser } from '../../lib/userFacingError'
 import { useToast } from '../toastContext'
 import { MessageFilePreviewPanel } from './MessageFilePreviewPanel'
 import { classifyDocumentPreview, documentPreviewNeedsFetch, type DocumentPreviewKind } from './documentPreview'
+import { savedFileName } from '../../session/shared/extensions/app-runtime-protocol'
+import { chatFolderPreview } from '../preview/chat-folder-preview-registration'
 
 const fileOpenLog = rendererLogger('chat/file-open')
 
@@ -61,7 +66,7 @@ async function readPreview(file: PreviewFile, kind: DocumentPreviewKind): Promis
 }
 
 /** The host's preview wherever a file opens: messages, the chat's folder and an App's peek. */
-export function MessageFilePreview({ file, mobile = false, fill = false, tabbed = false, message, onForward, onBack, onClose }: { file: PreviewFile; mobile?: boolean; fill?: boolean; tabbed?: boolean; message?: MessageItem; onForward?: (message: MessageItem) => void; onBack?: () => void; onClose: () => void }) {
+export function MessageFilePreview({ file, mobile = false, fill = false, tabbed = false, readOnly = false, message, onForward, onBack, onClose }: { file: PreviewFile; mobile?: boolean; fill?: boolean; tabbed?: boolean; readOnly?: boolean; message?: MessageItem; onForward?: (message: MessageItem) => void; onBack?: () => void; onClose: () => void }) {
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
   const kind = classifyDocumentPreview(file)
@@ -69,7 +74,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   const activeKey = useRef(key)
   const viewerRef = useRef<HTMLElement>(null)
   useEffect(() => {
-    if (!viewerRef.current || (file.source.kind !== 'item' && !message)) return
+    if (readOnly || !viewerRef.current || (file.source.kind !== 'item' && !message)) return
     return bindFileViewerMenu(viewerRef.current, () => ({
       resource: file.source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: file.source.itemId, version: file.source.version } } : undefined,
       quote: async (selection) => {
@@ -80,21 +85,50 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
       canSelectAll: !(mobile && kind === 'html') && kind !== 'image' && kind !== 'video' && kind !== 'unsupported',
     }), (error) => toast(error instanceof Error ? error.message : String(error), 'error'))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- source identity retains the menu snapshot across unrelated renders
-  }, [key, file.fileName, message?.id, kind, mobile, toast])
+  }, [key, file.fileName, message?.id, kind, mobile, toast, readOnly])
   const [read, setRead] = useState<PreviewRead | null>(null)
+  // A chat folder's HTML document is given its folder: the files its page names beside it are shown (preview-protocol).
+  const [besideOffline, setBesideOffline] = useState<{ machine: string; deviceId: string } | null>(null)
+  // The machine a failed read waits for: when the device list sees it go from off to on, the file is read again by itself.
+  const [waitingFor, setWaitingFor] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const { devices } = useDevicesStore()
+  const seenOff = useRef(false)
+  useEffect(() => {
+    if (!waitingFor) { seenOff.current = false; return }
+    const online = devices.some((device) => device.device_id === waitingFor && isDeviceOnline(device.status))
+    if (!online) { seenOff.current = true; return }
+    if (seenOff.current) { seenOff.current = false; setWaitingFor(null); setBesideOffline(null); setAttempt((n) => n + 1) }
+  }, [devices, waitingFor])
+  const itemId = file.source.kind === 'item' ? file.source.itemId : null
+  const registerHtml = useMemo(() => {
+    if (itemId === null) return undefined
+    const style = getComputedStyle(document.documentElement)
+    return chatFolderPreview(itemId, {
+      unavailable: t('attachmentView.besideUnavailable'),
+      outside: t('attachmentView.besideOutside'),
+      offline: t('attachmentView.besideOffline'),
+      palette: { surface: style.getPropertyValue('--bg-secondary').trim(), border: style.getPropertyValue('--border-strong').trim(), text: style.getPropertyValue('--text-secondary').trim() },
+    }, (holder) => { setBesideOffline(holder); setWaitingFor(holder.deviceId) })
+  }, [itemId, t])
   useEffect(() => {
     activeKey.current = key
     let live = true, release: PreviewRead['release']
     setRead(null)
     const source = file.source
-    const quoteImage = source.kind === 'item' ? () => quoteChatFile(source.itemId, source.version, null) : undefined
-    if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(source, file.fileName, () => live, quoteImage, message ? { chatId: message.chat_id, messageId: message.id } : undefined) : readPreview(file, kind)).then(
-      (done) => { release = done?.release; if (!live) { void release?.(); return } if (kind === 'image') (onBack ?? onClose)(); else if (done) setRead(done) },
-      (error) => live && setRead(previewFailure(error, t)),
+    if (kind !== 'unsupported') void readPreview(file, kind).then(
+      (done) => { release = done.release; if (!live) { void release?.(); return } setRead(done) },
+      async (error) => {
+        // A project file kept on a machine that is off now says so, from a fresh read of where it is kept.
+        const offline = source.kind === 'item' ? await offlineHolder(source.itemId, source.version) : null
+        if (!live) return
+        setWaitingFor(offline?.deviceId ?? null)
+        setRead(offline !== null ? { content: null, errorStatus: 'failed', error: t('attachmentView.holderOffline', { machine: offline.machine || t('attachmentView.holderMachine') }) } : previewFailure(error, t))
+      },
     )
     return () => { live = false; void release?.() }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- source kind/id/version and the preview kind identify the bytes
-  }, [key, kind, file.document, message?.id, message?.chat_id, t])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- source kind/id/version and the preview kind identify the bytes; attempt reads them again
+  }, [key, kind, file.document, message?.id, message?.chat_id, t, attempt])
   const renewVideo = async (video: HTMLVideoElement) => {
     const current = read
     if (video.dataset.renewing) return
@@ -115,10 +149,10 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     if (activeKey.current === key) setRead(failure)
     return true
   }
+  const savedName = savedFileName({ name: file.fileName, contentType: file.mimeType })
   const openExternal = () => {
     if (missing) return
-    const fileName = kind === 'html' && !/\.html?$/i.test(file.fileName) ? `${file.fileName}.html` : file.fileName
-    void openAttachmentInSystemApp(file.source, fileName).catch((error) => {
+    void openAttachmentInSystemApp(file.source, savedName).catch((error) => {
       if (rememberMissing(error)) return
       fileOpenLog.error({ error }, 'system app handoff failed')
       toast(t('chatArea.downloadFailed'), 'error', messageForUser(error))
@@ -126,12 +160,13 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   }
   const download = () => {
     if (missing) return
-    void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch((error) => {
+    void previewBytes(file).then((blob) => downloadBlob(blob, savedName)).catch((error) => {
       if (rememberMissing(error)) return
       fileOpenLog.error({ error }, 'preview file download failed'); toast(t('chatArea.downloadFailed'), 'error', messageForUser(error))
     })
   }
-  const actions = messageActionItems({ isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: missing ? undefined : download }, t)
-  if (kind === 'image' && !read?.error) return null
-  return <MessageFilePreviewPanel viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={missing || kind === 'unsupported' || file.document ? undefined : openExternal} />
+  const actions = messageActionItems({ isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: !readOnly && message && onForward ? () => onForward(message) : undefined, onDownload: missing ? undefined : download }, t)
+  const notice = besideOffline ? t('attachmentView.besideOfflineNotice', { machine: besideOffline.machine || t('attachmentView.holderMachine') }) : undefined
+  // `key`: a read again (the machine back) gives the HTML preview a new registration, so its files are asked for again.
+  return <MessageFilePreviewPanel key={attempt} notice={notice} registerHtml={registerHtml} viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={missing || kind === 'unsupported' || file.document ? undefined : openExternal} />
 }

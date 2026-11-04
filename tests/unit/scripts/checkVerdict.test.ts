@@ -23,6 +23,7 @@ import {
   deriveCheckProfiles,
   evaluateCheckSnapshots,
   eventHasSubscribingWorkflow,
+  hasUnsubscribedPushEvent,
   shouldReadPullRequestMergeState,
   GITHUB_PR_FILES_API_CAP,
   JOB_OUTPUTS_MARKER,
@@ -30,7 +31,7 @@ import {
   parseJobOutputsAnnotations,
   pullRequestEvents,
   workflowRunsForEvent
-} from '../../../scripts/check-verdict.mjs'
+} from '../../../scripts/ci/check-verdict.mts'
 
 type CheckRun = {
   id: number
@@ -121,7 +122,7 @@ describe('exact-head check verdict', () => {
   it('rejects abbreviated head SHAs with a rev-parse repair hint', () => {
     const result = spawnSync(
       process.execPath,
-      [resolve('scripts/check-verdict.mjs'), '--sha', '7d435d2501', '--push', 'dev'],
+      [resolve('scripts/ci/check-verdict.mts'), '--sha', '7d435d2501', '--push', 'dev'],
       { cwd: process.cwd(), encoding: 'utf8' }
     )
 
@@ -137,7 +138,7 @@ describe('exact-head check verdict', () => {
     const result = spawnSync(
       process.execPath,
       [
-        resolve('scripts/check-verdict.mjs'),
+        resolve('scripts/ci/check-verdict.mts'),
         '--sha',
         '7d435d25015b2c15ea3c7f729799cddd399405a7',
         '--push',
@@ -421,6 +422,60 @@ describe('exact-head check verdict', () => {
     })
   })
 
+  it('treats an unsubscribed push as terminal without claiming CI passed', () => {
+    const workflows = [inventoryEntry('.github/workflows/ci.yml', {
+      on: { pull_request: null, workflow_dispatch: null },
+      jobs: { gate: { name: 'Typecheck, lint, and test', 'runs-on': 'fixture' } }
+    })]
+    const result = evaluateCheckSnapshots(deriveCheckProfiles([event({ workflows })]), [[]])
+    expect(result).toMatchObject({
+      verdict: 'INCOMPLETE', settling: false,
+      diagnostic: expect.stringContaining('waiting cannot create a retired push run')
+    })
+    expect(hasUnsubscribedPushEvent(result)).toBe(true)
+    const pr = evaluateCheckSnapshots(deriveCheckProfiles([event({
+      type: 'pull_request', action: 'synchronize', baseRef: 'dev', workflows
+    })]), [[]])
+    expect(hasUnsubscribedPushEvent(pr)).toBe(false)
+    expect(pr.verdict).toBe('INCOMPLETE')
+  })
+
+  it('returns from --push --watch after one snapshot when push CI was retired', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'gugu-no-push-ci-'))
+    const root = join(directory, 'repo')
+    mkdirSync(join(root, '.github/workflows'), { recursive: true })
+    writeFileSync(join(root, '.github/workflows/ci.yml'),
+      'on:\n  pull_request:\n  workflow_dispatch:\njobs:\n  gate:\n    name: Gate\n    runs-on: fixture\n')
+    execFileSync('git', ['init', '-q'], { cwd: root })
+    execFileSync('git', ['config', 'user.email', 'fixture@gugu.test'], { cwd: root })
+    execFileSync('git', ['config', 'user.name', 'Gugu fixture'], { cwd: root })
+    execFileSync('git', ['add', '.'], { cwd: root })
+    execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: root })
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+    const log = join(directory, 'gh.ndjson')
+    const fakeGh = cachedFixtureExecutable('gh.mjs', `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+appendFileSync(process.env.GUGU_GH_INVOCATION_LOG, JSON.stringify(args) + '\\n')
+const endpoint = args.find((arg) => arg.startsWith('repos/'))
+if (endpoint?.includes('/actions/runs?')) process.stdout.write('[{"workflow_runs":[]}]')
+else if (endpoint?.includes('/commits/')) process.stdout.write('[{"check_runs":[]}]')
+else { console.error('unexpected request'); process.exitCode = 24 }
+`)
+    try {
+      const result = spawnSync(process.execPath, [resolve('scripts/ci/check-verdict.mts'),
+        '--repo', 'fixture/repo', '--sha', sha, '--before', sha, '--push', 'dev', '--watch', '--json'
+      ], { cwd: root, encoding: 'utf8', timeout: 10_000,
+        env: { ...process.env, GUGU_GH: fakeGh, GUGU_GH_INVOCATION_LOG: log } })
+      expect(result.error).toBeUndefined()
+      expect(result.status).toBe(2)
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        verdict: 'INCOMPLETE', diagnostic: expect.stringContaining('Post-merge CI is not configured')
+      })
+      expect(readFileSync(log, 'utf8').trim().split('\n')).toHaveLength(2)
+    } finally { rmSync(directory, { recursive: true, force: true }) }
+  })
+
   it('attaches merge state only to an event-mismatch zero-check result', () => {
     const eventMismatch = deriveCheckProfiles([
       event({
@@ -481,7 +536,7 @@ describe('exact-head check verdict', () => {
       cwd: fixtureRoot,
       encoding: 'utf8'
     }).trim()
-    // @@@4918 假 gh 经 GUGU_GH 被 check-verdict.mjs 执行。正文全静态
+    // @@@4918 假 gh 经 GUGU_GH 被 check-verdict.mts 执行。正文全静态
     // (调用日志与 sha 都走 env),所以能按内容寻址、跨 worker/跨 run 复用同一个 inode。
     const fakeGh = cachedFixtureExecutable(
       'gh.mjs',
@@ -514,7 +569,7 @@ if (args[0] === 'pr') {
       const result = spawnSync(
         process.execPath,
         [
-          resolve('scripts/check-verdict.mjs'),
+          resolve('scripts/ci/check-verdict.mts'),
           '--repo',
           'fixture/repo',
           '--sha',

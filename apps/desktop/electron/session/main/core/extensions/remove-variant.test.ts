@@ -20,7 +20,7 @@ beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), 'gugu-remove-fork-'));
   source = path.join(root, 'source');
   mkdirSync(source);
-  const manifest = { id: 'demo', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Demo' }] } };
+  const manifest = { id: 'demo', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Demo' }] } };
   writeFileSync(path.join(source, 'manifest.json'), JSON.stringify(manifest));
   writeFileSync(path.join(source, 'index.html'), 'original');
   service = new ExtensionsService(path.join(root, 'extensions'));

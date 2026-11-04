@@ -219,7 +219,7 @@ export function decide(
         : acpErr.invalidState('The queued message is no longer available for editing');
       // Acquiring/updating an edit never replaces the committed prompt with a stale client echo.
       const input = cmd.queueEdit ? { text: prompt.text, origin: prompt.origin,
-        hiddenContext: prompt.hiddenContext, attachments: prompt.attachments, coalesceKey: prompt.coalesceKey } : cmd.input;
+        hiddenContext: prompt.hiddenContext, attachments: prompt.attachments, files: prompt.files, coalesceKey: prompt.coalesceKey } : cmd.input;
       const queueEdit = cmd.queueEdit && !prompt.queueEdit ? { ...cmd.queueEdit, draftText: prompt.text } : cmd.queueEdit;
       return ok([{ type: 'QueuedPromptEdited', id: cmd.id, input, updatedAt: cmd.updatedAt,
         ...(queueEdit !== undefined ? { queueEdit } : {}) }]);
@@ -368,9 +368,19 @@ export function evolve(
         if (s.queuedPrompts.some(prompt => prompt.id === ev.prompt.id && (ev.retainIdentity || prompt.queueDispatching))) {
           return { state: s, effects: [] };
         }
+        if (ev.retainIdentity) {
+          // A previously admitted input is not a new same-key update. Return it ahead of the
+          // newer waiting input, preserving earlier fences and excluding it from future coalescing.
+          const { coalesceKey, ...retained } = ev.prompt;
+          const index = coalesceKey === undefined ? -1 : s.queuedPrompts.findIndex(prompt =>
+            prompt.coalesceKey === coalesceKey && !prompt.queueDispatching);
+          const queuedPrompts = [...s.queuedPrompts];
+          queuedPrompts.splice(index < 0 ? queuedPrompts.length : index, 0, retained);
+          return { state: { ...s, queuedPrompts }, effects: [{ type: 'state' }] };
+        }
         // #6387 同键替换:还在排的那条换成新内容,位置与 id 不变(它仍是「那一条」,只是内容新了)。
         const key = ev.prompt.coalesceKey;
-        const index = key === undefined || ev.retainIdentity
+        const index = key === undefined
           ? -1
           : s.queuedPrompts.findIndex((prompt) => prompt.coalesceKey === key && !prompt.queueEdit && !prompt.queueDispatching);
         if (index >= 0) {
@@ -622,7 +632,7 @@ function dequeuePromptEffects(queuedPrompts: readonly QueuedPrompt[]): {
 type MergeKind = 'alone' | 'typed' | 'envelope';
 
 function mergeKind(prompt: QueuedPrompt): MergeKind {
-  if (prompt.origin === 'manual' || prompt.attachments?.length) return 'alone';
+  if (prompt.origin === 'manual' || prompt.attachments?.length || prompt.files?.length) return 'alone';
   return prompt.origin === 'typed' ? 'typed' : 'envelope';
 }
 
@@ -639,12 +649,10 @@ export function mergeTypedPrompts(sources: readonly QueuedPrompt[]): QueuedPromp
   if (sources.length === 1) return head;
   const join = (parts: readonly (string | undefined)[]): string =>
     parts.filter((part): part is string => !!part?.trim()).join('\n\n');
-  const hiddenContext = join(sources.map((prompt) => prompt.hiddenContext));
   return {
     id: head.id,
     origin: 'typed',
     text: join(sources.map((prompt) => prompt.text)),
-    ...(hiddenContext ? { hiddenContext } : {}),
     createdAt: head.createdAt,
     updatedAt: Math.max(...sources.map((prompt) => prompt.updatedAt)),
   };

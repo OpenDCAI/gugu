@@ -20,7 +20,7 @@ function deferred(): Deferred {
 }
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 
-function rig() {
+function rig(options: { busyAgents?: () => number | null; confirmInterrupt?: (count: number | null) => Promise<boolean> } = {}) {
   const listeners = new Map<string, Array<(arg?: unknown) => void>>()
   const on = (event: string) => (listener: (arg: never) => void) => {
     listeners.set(event, [...(listeners.get(event) ?? []), listener as (arg?: unknown) => void])
@@ -79,6 +79,8 @@ function rig() {
     rejectTarget: () => false,
     dmg: { applies: () => false, start: () => {} },
     updateQuit,
+    busyAgents: options.busyAgents ?? (() => 0),
+    confirmInterrupt: options.confirmInterrupt ?? (async () => true),
     logInfo: () => {},
     logWarn: () => {},
   })
@@ -108,8 +110,8 @@ function rig() {
 }
 
 /** 起点:V2 已经静默下好在等人按。 */
-async function staged(version = '0.2.90-beta.2.1') {
-  const r = rig()
+async function staged(version = '0.2.90-beta.2.1', options: Parameters<typeof rig>[0] = {}) {
+  const r = rig(options)
   r.setFeed(version)
   await r.periodicCheck()
   await r.finishDownload()
@@ -117,6 +119,90 @@ async function staged(version = '0.2.90-beta.2.1') {
   expect(r.stagedVersion).toBe(version)
   return r
 }
+
+describe('desktop restart consent', () => {
+  it('Later leaves the staged update ready without arming a later quit', async () => {
+    const asked: Array<number | null> = []
+    const r = await staged(undefined, { busyAgents: () => 2, confirmInterrupt: async n => { asked.push(n); return false } })
+    await r.clickInstall()
+    expect(asked).toEqual([2])
+    expect(r.handOffs).toEqual([])
+    expect(r.status).toBe('downloaded')
+    r.setFeed('0.2.90-beta.3.1')
+    await r.periodicCheck()
+    await r.finishDownload()
+    expect(r.handOffs).toEqual([])
+  })
+
+  it.each([0, 1, 2])('rechecks after downloading: accepted 1, current %i', async current => {
+    let busy = 1
+    const asked: Array<number | null> = []
+    const r = await staged(undefined, { busyAgents: () => busy, confirmInterrupt: async n => { asked.push(n); return n === 1 } })
+    r.setFeed('0.2.90-beta.3.1')
+    await r.clickInstall()
+    busy = current
+    await r.finishDownload()
+    expect(asked).toEqual(current > 1 ? [1, 2] : [1])
+    expect(r.handOffs).toEqual(current > 1 ? [] : ['0.2.90-beta.3.1'])
+    if (current > 1) {
+      r.setFeed('0.2.90-beta.4.1')
+      await r.periodicCheck()
+      await r.finishDownload()
+      expect(r.handOffs).toEqual([])
+    }
+  })
+
+  it('serializes repeated clicks while the confirmation is open', async () => {
+    const answer = deferred()
+    const asked: Array<number | null> = []
+    const r = await staged(undefined, { busyAgents: () => 2, confirmInterrupt: async n => { asked.push(n); await answer.promise; return true } })
+    const first = r.clickInstall()
+    const second = r.clickInstall()
+    expect(asked).toEqual([2])
+    answer.resolve()
+    await Promise.all([first, second])
+    expect(r.handOffs).toHaveLength(1)
+  })
+
+  it.each([
+    ['missing backend', (): number | null => null],
+    ['failed backend', (): number | null => { throw new Error('activity unavailable') }],
+  ] as const)('asks without a count when activity is unavailable: %s', async (_name, busyAgents) => {
+    for (const approve of [false, true]) {
+      const asked: Array<number | null> = []
+      const r = await staged(undefined, { busyAgents, confirmInterrupt: async n => { asked.push(n); return approve } })
+      await r.clickInstall()
+      expect(asked).toEqual([null])
+      expect(r.handOffs).toHaveLength(approve ? 1 : 0)
+      expect(r.status).toBe('downloaded')
+    }
+  })
+
+  it('asks without a count if the backend becomes unavailable during a download', async () => {
+    let busy: number | null = 1
+    const asked: Array<number | null> = []
+    const r = await staged(undefined, { busyAgents: () => busy, confirmInterrupt: async n => { asked.push(n); return n !== null } })
+    r.setFeed('0.2.90-beta.3.1')
+    await r.clickInstall()
+    busy = null
+    await r.finishDownload()
+    expect(asked).toEqual([1, null])
+    expect(r.handOffs).toEqual([])
+  })
+
+  it('clears consent without a count after the requested download fails', async () => {
+    const asked: Array<number | null> = []
+    const r = await staged(undefined, { busyAgents: () => null, confirmInterrupt: async n => { asked.push(n); return true } })
+    r.setFeed('0.2.90-beta.3.1')
+    await r.clickInstall()
+    await r.failDownload()
+    r.setFeed('0.2.90-beta.4.1')
+    await r.periodicCheck()
+    await r.finishDownload()
+    expect(asked).toEqual([null])
+    expect(r.handOffs).toEqual([])
+  })
+})
 
 describe('按下「重启更新」时查 feed 失败(离线)', () => {
   it('照样装手上那一份,交接恰好一次', async () => {

@@ -1,6 +1,6 @@
 /** @jsxImportSource solid-js */
 import { conversationSpeaker, messageReplyReference } from '@session-chat/state/conversation-density';
-import { For, Show } from 'solid-js';
+import { For, Show, createMemo } from 'solid-js';
 import { conversationHeaderLayout } from './conversation-header-layout';
 export { conversationDestinationLayout } from './conversation-destination';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
@@ -90,14 +90,14 @@ function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): nu
   const header = item.conversationPart === 'body' ? 0 : headerLayout(item, ctx).height;
   const bodyVars = conversationVars(item, vars);
   // 时间、复制、编辑那一行照原气泡画在气泡下面(owner 定稿 0 号图);没有正文就没有气泡,也不留这一行。
-  const actions = hasConversationActions(item) || headerLayout(item, ctx).referenceInFooter || isMessageEditing(item.id, ctx) ? 0 : userMessageActionsHeight(bodyVars);
   const bodyCtx = conversationContext(ctx, item);
   const body = measureUserMessage(item, bodyCtx, bodyVars);
   // 折着 ⇔ 展开量出来比现在高;那时气泡下面多一行「展开全文」。
   const folded = bodyCtx.expandedId !== item.id && !isMessageEditing(item.id, ctx) && measureUserMessage(item, { ...bodyCtx, expandedId: item.id }, bodyVars) > body;
   const canCollapse = ctx.expanded(conversationBubbleKey(item)) && ctx.latestConversationMessageId !== item.id
     && measureUserMessage(item, { ...bodyCtx, expandedId: null }, bodyVars) < body;
-  return header + body - actions + (folded || canCollapse ? CONVERSATION_EXPAND_H : 0) + (item.role === 'assistant' && item.conversationProcess ? backgroundHeight(item, ctx) : 0);
+  const actions = hasConversationActions(item) || headerLayout(item, ctx).referenceInFooter || isMessageEditing(item.id, ctx) || canCollapse ? 0 : userMessageActionsHeight(bodyVars);
+  return header + body - actions + (folded ? CONVERSATION_EXPAND_H : 0) + (item.role === 'assistant' && item.conversationProcess ? backgroundHeight(item, ctx) : 0);
 }
 
 /** 后台任务挂在这条过程行上、单子又展开着 ⇒ 多出单子的高(挂在哪由 ChatRoot 算,见 MeasureCtx.background)。 */
@@ -124,19 +124,19 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
   const self = useSelfIdentity();
   const commands = useCommands();
   const translate = useChatTranslator();
+  const chatName = useChatName();
   const facts = () => props.data.guguDelivery?.segments[0]?.facts;
   const subject = () => props.data.role === 'assistant';
   const measuredCtx = () => ({ ...props.ctx.measureCtx!(), selfIdentity: self(), commands: commands(), translate, chatName });
   const name = () => conversationSenderName(props.data, measuredCtx());
-  const head = () => headerLayout(props.data, measuredCtx());
-  const chatName = useChatName();
+  const head = createMemo(() => headerLayout(props.data, measuredCtx()));
   const senderTarget = (): MessageSenderTarget | null => {
     if (subject()) return conversationAgentTarget({ sessionId: commands().conversationAgentSession?.(), userId: commands().conversationAgentUserId?.() });
     return messageSenderTarget(facts()) ?? (!facts() && self()?.userId ? { kind: 'sender', userId: self()!.userId } : null);
   };
   const quoteLabel = (quote: NonNullable<ChatMessage['conversationReply']>) => replySenderLabel(quote, measuredCtx());
   const reference = () => <Show when={messageQuote(props.data)}>{quote => <ConversationReplyReference itemId={quote().itemId}
-    text={`${quoteLabel(quote()) ? `${quoteLabel(quote())}：` : ''}${quote().text || translate('transcript.showOriginalMessage')}`} />}</Show>;
+    text={`${quoteLabel(quote()) ? `${quoteLabel(quote())}\n\n` : ''}${quote().text || translate('transcript.showOriginalMessage')}`} />}</Show>;
   const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!(), props.data) };
   return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}
     data-conversation-part={props.data.conversationPart}>

@@ -43,6 +43,7 @@ export function ConversationNarration(props: { data: ChatMessage; ctx: RenderCtx
     return ctx ? conversationNarrationHeight(props.data, ctx, canExpand()) : CONVERSATION_NARRATION_H;
   };
   return <div class={styles.root} data-conversation-narration={props.data.id}
+    data-agent-conversation-message={!canExpand() || expanded() ? props.data.id : undefined}
     data-conversation-terminal-reason={props.data.conversationTerminalReason || undefined}
     style={{ height: `${height()}px` }}>
     <button type="button" class={styles.trigger} data-collapse-id={canExpand() ? conversationTextKey(props.data.id) : undefined}

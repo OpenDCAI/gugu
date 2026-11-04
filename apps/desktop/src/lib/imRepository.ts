@@ -1,3 +1,5 @@
+import type { CommitArgs } from '@gugu/core/cloud/attachmentsApi'
+import type { CreateTopicInput } from './topics'
 import type {
   ChatItem,
   GroupAgentItem,
@@ -46,7 +48,18 @@ export type OutboxRow = LocalImRow & { id: string; value: OutboxRecord }
 export type ViewRow = LocalImRow & { key: string; value: unknown }
 export type SyncStateRow = LocalImRow & { key: string; value: unknown }
 
+export type OutboxOperation =
+  | { kind: 'message' }
+  | { kind: 'upload' }
+  | { kind: 'nativeAttachment'; commit: Omit<CommitArgs, 'staging_key'> }
+  | { kind: 'forward'; source: { kind: 'message'; id: string } | { kind: 'file'; id: string; version: number | null } }
+  | { kind: 'attachment'; commit: CommitArgs }
+  | { kind: 'topic'; input: CreateTopicInput & { topicId: string } }
+
 export interface OutboxRecord {
+  /** Missing on older durable text records. */
+  operation?: OutboxOperation
+  preview?: Pick<MessageItem, 'file_item_id' | 'file_version' | 'file_blob_id' | 'file_metadata' | 'image_dimensions'>
   clientMessageId: string
   chatId: string
   senderUserId: string
@@ -61,7 +74,10 @@ export interface OutboxRecord {
     /** 私聊发送时对端尚未就绪:投递前由 outbox 的 prepare 解析对端并写回 toUserIds(#1554,C2)。 */
     resolveDmPeer?: boolean
   }
-  state: 'pending' | 'sending' | 'failed'
+  /** Local source dependency, preserved across restarts. */
+  dependsOn?: string
+  dependencyDiscarded?: boolean
+  state: 'pending' | 'sending' | 'failed' | 'uploading'
   attempts: number
   lastError: string | null
   enqueuedAt: string
@@ -213,7 +229,7 @@ function createAccountRepository(
       const run = writeChain.then(async () => {
         recordImTransaction()
         const operations: LocalImDbOperation[] = []
-        const transaction = createTransaction(accountId, operations)
+        const transaction = createTransaction(accountId, operations, current)
         const result = await mutate(transaction)
         validateOperations(accountId, operations)
         const applied = applyOperations(current, operations, accountId)
@@ -254,12 +270,17 @@ function createAccountRepository(
   }
 }
 
-function createTransaction(accountId: string, operations: LocalImDbOperation[]): ImRepositoryTransaction {
+function createTransaction(accountId: string, operations: LocalImDbOperation[], stored: ImRepositorySnapshot): ImRepositoryTransaction {
   const put = (store: ImStoreName, value: LocalImRow) => operations.push({ type: 'put', store, value })
+  let removed: Set<string> | null = null
   return {
     clear: () => operations.push({ type: 'clearAccount', accountId }),
     putIdentity: (value) => {
       const identity = displayIdentityFromRow(value)
+      // Removal is terminal on the server (a removed identity is immutable), so a row without
+      // removed_at is an older observation and cannot bring a removed identity back.
+      removed ??= new Set(stored.identity.filter((row) => row.value.removed_at).map((row) => row.id))
+      if (!identity.removed_at && removed.has(identity.id)) return
       put('identity', { accountId, id: identity.id, value: identity })
     },
     putChat: (id, value, order = 0) => put('chat', { accountId, id: nonEmpty(id, 'chat.id'), order, value }),
@@ -320,11 +341,12 @@ export async function replaceChatRowsAndIdentities(
   repository: AccountImRepository,
   chats: ChatItem[],
   identities: readonly unknown[],
+  isConversationDeleted?: (id: string) => boolean,
 ): Promise<void> {
-  const published = chats
-  // 行引用的每个 id(对端 / 群成员)都必须在这一次提交的身份里 —— 忘了在这里报,不在冷启动时整份缓存作废。
-  assertIdentityClosure('conversation list', published.flatMap((chat) => [chat.peer_user_id, ...(chat.member_user_ids ?? [])]), identities)
   await repository.transaction((transaction) => {
+    // Evaluate inside the serialized write: an older queued snapshot cannot undo a confirmed deletion.
+    const published = chats.filter(chat => !isConversationDeleted?.(chat.id))
+    assertIdentityClosure('conversation list', published.flatMap((chat) => [chat.peer_user_id, ...(chat.member_user_ids ?? [])]), identities)
     writeChatRows(repository, transaction, published)
     for (const identity of identities) transaction.putIdentity(identity)
   })
@@ -472,7 +494,7 @@ export function readGroupRoster(repository: AccountImRepository, chatId: string)
       })
     } else humans.push(base)
   }
-  return { scheduler: emptyScheduler(chatId), humans, agents, tasks: [], outputs: [] }
+  return { scheduler: emptyScheduler(chatId), humans, agents, tasks: [] }
 }
 
 export function readOutboxRecords(repository: AccountImRepository): OutboxRecord[] {

@@ -53,7 +53,7 @@ export const COMMANDS = defineCommands({
     label: 'New Task',
     labelKey: 'sidebar.newTask',
     description: 'Create a new task in this project',
-    iconKey: 'square-plus',
+    iconKey: 'bolt',
     defaultHotkey: 'Mod+N',
     category: 'Navigation',
   },
@@ -295,6 +295,13 @@ export const COMMANDS = defineCommands({
     defaultHotkey: 'Mod+O',
     label: 'Quick Switcher',
     description: 'Switch between tasks, groups, projects, and contacts',
+    category: 'Navigation',
+  },
+  'app.globalSearch': {
+    capture: true,
+    defaultHotkey: 'Mod+Shift+F',
+    label: 'Search Messages',
+    description: 'Search what was said in every chat and task',
     category: 'Navigation',
   },
   'app.toggleLeftSidebar': {

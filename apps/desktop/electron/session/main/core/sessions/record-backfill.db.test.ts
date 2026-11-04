@@ -1,0 +1,252 @@
+import { openFixture } from '@tooling/utils/db';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { AppDb } from '@main/db/client';
+import type { TranscriptTurn } from '@gugu/session-core/acp';
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createSessionRecordSource, createSessionTimeline } from '@gugu/session-core/session-record';
+import type { RecordLineageNode } from '@gugu/session-core/session-record';
+
+const state = vi.hoisted(() => ({ db: undefined as AppDb | undefined,
+  row: { runtime: 'pty', provider: 'codex', providerSessionId: 'record', agentStatus: 'idle' as string | null,
+    archivedAt: null as string | null, config: undefined as { forkedFrom: { sessionId: string } } | undefined },
+  process: null as { home: 'host'; start: 'fresh' } | null, tmux: false,
+  turns: [] as TranscriptTurn[], committed: null as TranscriptTurn[] | null, complete: true, available: true, pick: vi.fn() }));
+vi.mock('@main/db/client', () => ({ get db() { return state.db; } }));
+vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
+vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('@main/core/session-timeline/service', () => ({
+  readSessionRow: () => state.row,
+  pickRecordTurns: state.pick,
+}));
+vi.mock('@main/core/session-timeline/locate', () => ({ sessionRecordHarnessForProvider: (provider: string) => provider }));
+vi.mock('@main/core/session-timeline/write-bridge', () => ({ acpSessionLive: async () => false }));
+vi.mock('./session-process', () => ({ sessionProcess: () => state.process,
+  sessionEngine: async () => state.process ? 'owned' : state.tmux ? 'detached' : 'gone' }));
+
+import { events } from '@main/lib/events';
+import { onActivitySignal } from '../activity/signals';
+import { syncStoredHistoryFromRecord } from './record-backfill';
+import { withStoredTurns } from './session-turn-store';
+import { nativeConversationUnread } from './session-conversation-read';
+
+type Fixture = Awaited<ReturnType<typeof openFixture>>;
+let fixture: Fixture;
+const turn = (seq: number): TranscriptTurn => ({ id: `c1:turn:${seq}`, seq, initiator: 'user',
+  items: [
+    { kind: 'message', id: `c1:turn:${seq}:message:question-${seq}`, seq: 0, role: 'user', text: `question ${seq}` },
+    { kind: 'message', id: `c1:turn:${seq}:message:answer-${seq}`, seq: 1, role: 'assistant', text: `answer ${seq}` },
+  ] });
+const rows = () => fixture.sqlite.prepare('SELECT seq,data FROM session_turns ORDER BY seq').all();
+
+beforeEach(async () => {
+  fixture = await openFixture('empty'); state.db = fixture.db;
+  fixture.sqlite.exec("INSERT INTO projects(id,name,path) VALUES ('p1','P','/repo'); INSERT INTO sessions(id,project_id,title,runtime,agent_status) VALUES ('c1','p1','C','pty','idle');");
+  state.row = { runtime: 'pty', provider: 'codex', providerSessionId: 'record', agentStatus: 'idle', archivedAt: null, config: undefined };
+  state.turns = [turn(0), turn(1)]; state.committed = null; state.process = null; state.tmux = false; state.complete = true; state.available = true;
+  state.pick.mockReset().mockImplementation(async (_id: string, pick: (turns: TranscriptTurn[]) => Promise<TranscriptTurn[] | null>, options: { committedOnly?: boolean }) => {
+    const selected = options.committedOnly && state.committed ? state.committed : state.turns;
+    return state.available ? { ok: true, turns: await pick(selected), complete: state.complete } : { ok: false };
+  });
+  vi.mocked(events.emit).mockClear();
+});
+afterEach(() => { fixture.close(); });
+
+it('stores completed history without outcome metadata, emits no live notification/activity/status facts, and is idempotent', async () => {
+  const activity = vi.fn();
+  const off = onActivitySignal(activity);
+  const before = fixture.sqlite.prepare('SELECT * FROM sessions WHERE id=?').get('c1');
+  const unread = await nativeConversationUnread('c1');
+  try {
+    expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 2, status: 'complete' });
+    expect(state.pick.mock.calls[0][2]).toMatchObject({ committedOnly: false });
+    expect(rows()).toHaveLength(2);
+    expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'complete' });
+    expect(rows()).toHaveLength(2);
+    expect(await nativeConversationUnread('c1')).toEqual(unread);
+    expect(fixture.sqlite.prepare('SELECT * FROM sessions WHERE id=?').get('c1')).toEqual(before);
+    expect(fixture.sqlite.prepare("SELECT key FROM kv WHERE key LIKE 'native-conversation-%'").all()).toEqual([]);
+    expect(events.emit).not.toHaveBeenCalled();
+    expect(activity).not.toHaveBeenCalled();
+  } finally { off(); }
+});
+
+it('keeps an active suffix incomplete while persisting only the timeline-owned completed prefix', async () => {
+  state.turns = [turn(0), turn(1)]; state.committed = [turn(0)]; state.complete = false; state.row.agentStatus = 'working';
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'active' });
+  expect(state.pick.mock.calls[0][2]).toMatchObject({ committedOnly: true });
+  expect(rows()).toHaveLength(1);
+  state.turns = [turn(0), turn(1)]; state.complete = true; state.row.agentStatus = 'idle';
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'complete' });
+  expect(state.pick.mock.calls[1][2]).toMatchObject({ committedOnly: false });
+});
+
+it.each([false, true])('finds a settled Claude reply after a live snapshot (earlier prompt row: %s)', async earlyPrompt => {
+  const root = await mkdtemp(join(tmpdir(), 'claude-settled-backfill-'));
+  const file = join(root, 'record.jsonl');
+  const line = (uuid: string, role: 'user' | 'assistant', text: string) => JSON.stringify({
+    type: role, uuid, parentUuid: role === 'user' ? null : 'question', sessionId: 'record',
+    timestamp: '2026-10-31T00:00:00Z', message: { id: uuid, role, content: [{ type: 'text', text }],
+      ...(role === 'assistant' ? { stop_reason: 'end_turn' } : {}) },
+  }) + '\n';
+  await writeFile(file, line('question', 'user', 'The live prompt'));
+  state.row.provider = 'claude';
+  state.pick.mockImplementation(async (_id: string, pick: (turns: TranscriptTurn[]) => Promise<TranscriptTurn[] | null>, options: { committedOnly?: boolean }) => {
+    const timeline = await createSessionTimeline(createSessionRecordSource({ harness: 'claude', providerSessionId: 'record', roots: [root] },
+      { readMode: 'snapshot' }), { sessionId: 'c1' });
+    try {
+      const all = timeline.getSnapshot().turns;
+      const prefix = timeline.getSnapshot({ committedOnly: options.committedOnly }).turns;
+      return { ok: true, turns: await pick(prefix), complete: all.length === prefix.length };
+    } finally { timeline.dispose(); }
+  });
+  const activity = vi.fn();
+  const offActivity = onActivitySignal(activity);
+  try {
+    // Preserve/revise an actual early snapshot too: status notification can follow the record's prompt write.
+    if (earlyPrompt) expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'complete' });
+    const before = rows();
+    const sessionBefore = fixture.sqlite.prepare('SELECT * FROM sessions WHERE id=?').get('c1');
+    const unreadBefore = await nativeConversationUnread('c1');
+    state.row.agentStatus = 'working';
+    expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'active' });
+    expect(rows()).toEqual(before);
+    await appendFile(file, line('answer', 'assistant', 'SETTLEDREPLY'));
+    state.row.agentStatus = 'idle';
+    expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: earlyPrompt ? 0 : 1, status: 'complete' });
+    const stored = rows() as { seq: number; data: string }[];
+    expect(stored).toHaveLength(1);
+    expect(JSON.parse(stored[0].data)).toMatchObject({ id: 'c1:turn:s0', seq: 0, outcome: { kind: 'done' } });
+    expect((JSON.parse(stored[0].data) as TranscriptTurn).items).toContainEqual(expect.objectContaining({ kind: 'message', role: 'assistant', text: 'SETTLEDREPLY' }));
+    expect(events.emit).not.toHaveBeenCalled();
+    expect(activity).not.toHaveBeenCalled();
+    expect(await nativeConversationUnread('c1')).toEqual(unreadBefore);
+    expect(fixture.sqlite.prepare('SELECT * FROM sessions WHERE id=?').get('c1')).toEqual(sessionBefore);
+    expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'complete' });
+    expect(rows()).toEqual(stored);
+  } finally {
+    offActivity(); await rm(root, { recursive: true, force: true });
+  }
+});
+
+it.each(['error', 'archived'])('keeps the unfinished last turn of a %s PTY without inventing an outcome', async kind => {
+  state.row.agentStatus = kind === 'archived' ? 'working' : 'error';
+  state.row.archivedAt = kind === 'archived' ? '2026-10-31' : null;
+  state.committed = [turn(0)];
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 2, status: 'complete' });
+  expect(state.pick.mock.calls[0][2]).toMatchObject({ committedOnly: false });
+  expect((rows() as { data: string }[]).map(row => JSON.parse(row.data).outcome)).toEqual([undefined, undefined]);
+});
+
+it('reports a live idle terminal whose last record turn has no outcome as settling, and final once its process is gone', async () => {
+  state.process = { home: 'host', start: 'fresh' };
+  state.turns = [{ ...turn(0), outcome: { kind: 'done', reason: 'end_turn' } }, turn(1)];
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 2, status: 'settling' });
+  state.turns = [state.turns[0], { ...turn(1), outcome: { kind: 'done', reason: 'end_turn' } }];
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'complete' });
+  expect((rows() as { data: string }[]).map(row => JSON.parse(row.data).outcome?.kind)).toEqual(['done', 'done']);
+  state.turns = [...state.turns, turn(2)]; state.process = null;
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'complete' });
+});
+
+it('keeps a restarted terminal whose engine is still in tmux settling before reattach, and completes it when the turn lands', async () => {
+  // After a host restart the process table is empty until reattach; tmux still holds the running engine.
+  state.tmux = true;
+  state.turns = [turn(0)];
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'settling' });
+  state.process = { home: 'host', start: 'fresh' };
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'settling' });
+  state.turns = [{ ...turn(0), outcome: { kind: 'done', reason: 'end_turn' } }];
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'complete' });
+  expect((rows() as { data: string }[]).map(row => JSON.parse(row.data).outcome?.kind)).toEqual(['done']);
+});
+
+it('uses the owned process fact when no status source exists', async () => {
+  state.row.agentStatus = null; state.process = { home: 'host', start: 'fresh' };
+  state.committed = [turn(0)]; state.complete = false;
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'active' });
+  expect(state.pick.mock.calls[0][2]).toMatchObject({ committedOnly: true });
+});
+
+it('does not append an idle snapshot suffix if a turn starts during the read', async () => {
+  state.pick.mockImplementationOnce(async (_id: string, pick: (turns: TranscriptTurn[]) => Promise<TranscriptTurn[] | null>) => {
+    const turns = await pick(state.turns);
+    state.row.agentStatus = 'working';
+    return { ok: true, turns, complete: true };
+  });
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'active' });
+  expect(rows()).toEqual([]);
+});
+
+it('resumes after cancellation from committed canonical rows without repeating an earlier turn', async () => {
+  // Cancel right after the first committed row: the row commit itself calls back (a test-only SQLite trigger).
+  const abort = new AbortController();
+  fixture.sqlite.function('abort_backfill', () => { abort.abort(); return null; });
+  fixture.sqlite.exec('CREATE TEMP TRIGGER abort_after_first AFTER INSERT ON session_turns BEGIN SELECT abort_backfill(); END');
+  try {
+    expect(await syncStoredHistoryFromRecord('c1', { signal: abort.signal, runtime: 'pty' })).toEqual({ inserted: 1, status: 'cancelled' });
+  } finally { fixture.sqlite.exec('DROP TRIGGER abort_after_first'); }
+  expect(rows()).toHaveLength(1);
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'complete' });
+  expect(rows()).toHaveLength(2);
+});
+
+it('rechecks a presentation switch after waiting for the existing persistence queue', async () => {
+  let release!: () => void;
+  const prior = withStoredTurns('c1', () => new Promise<void>(resolve => { release = resolve; }));
+  await Promise.resolve();
+  const backfill = syncStoredHistoryFromRecord('c1', { runtime: 'pty' });
+  state.row.runtime = 'acp'; release(); await prior;
+  expect(await backfill).toEqual({ inserted: 0, status: 'runtime-changed' });
+  expect(state.pick).not.toHaveBeenCalled();
+  expect(rows()).toEqual([]);
+});
+
+it('reports missing, unsupported and divergent history without appending it', async () => {
+  state.available = false;
+  expect((await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).status).toBe('unavailable');
+  state.available = true; state.row.provider = 'other';
+  expect((await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).status).toBe('unsupported');
+  state.row.provider = 'codex';
+  await syncStoredHistoryFromRecord('c1', { runtime: 'pty' });
+  state.turns = [{ ...turn(9), items: [{ kind: 'message', id: 'changed', seq: 0, role: 'user', text: 'different branch' }] }];
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'diverged' });
+  expect(rows()).toHaveLength(2);
+});
+
+it('does not write inherited history when the existing reader cannot prove the fork cut', async () => {
+  state.row.config = { forkedFrom: { sessionId: 'parent' } };
+  state.pick.mockResolvedValue({ ok: false, reason: 'diverged' });
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'diverged' });
+  expect(state.pick.mock.calls[0][2]).toMatchObject({ afterForkOf: 'parent' });
+  expect(rows()).toEqual([]);
+});
+
+it('stores only a proved Claude fork increment after canonical storage renumbers it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fork-backfill-'));
+  const line = (uuid: string, parentUuid: string | null, role: string, text: string) => JSON.stringify({
+    type: role, uuid, parentUuid, isSidechain: false, sessionId: 'child', timestamp: '2026-10-31T00:00:00Z',
+    message: { id: uuid, role, content: [{ type: 'text', text }], ...(role === 'assistant' ? { stop_reason: 'end_turn' } : {}) },
+  });
+  const common = [line('p0', null, 'user', 'parent question'), line('p1', 'p0', 'assistant', 'parent answer')];
+  await mkdir(join(root, 'records'));
+  await writeFile(join(root, 'records', 'parent.jsonl'), common.join('\n') + '\n');
+  await writeFile(join(root, 'records', 'child.jsonl'), [...common, line('c0', 'p1', 'user', 'child question'),
+    line('c1', 'c0', 'assistant', 'child answer')].join('\n') + '\n');
+  const source = (id: string, parentLineage?: readonly RecordLineageNode[] | null) =>
+    createSessionRecordSource({ harness: 'claude', providerSessionId: id, roots: [root] }, { readMode: 'snapshot', parentLineage: parentLineage ?? undefined });
+  const parent = await createSessionTimeline(source('parent'), { sessionId: 'parent' });
+  const child = await createSessionTimeline(source('child', parent.getRecordLineage!()), { sessionId: 'c1' });
+  try {
+    state.row.provider = 'claude'; state.row.config = { forkedFrom: { sessionId: 'parent' } };
+    state.turns = child.getSnapshot({ committedOnly: true }).turns;
+    expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'complete' });
+    const stored = rows() as { seq: number; data: string }[];
+    const texts = stored.flatMap(row => (JSON.parse(row.data) as TranscriptTurn).items.map(item => 'text' in item ? item.text : ''))
+    expect(texts.join(' ')).not.toContain('parent');
+    expect(texts.filter(text => text.startsWith('child'))).toHaveLength(2);
+  } finally {
+    child.dispose(); parent.dispose(); await rm(root, { recursive: true, force: true });
+  }
+});

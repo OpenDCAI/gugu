@@ -26,6 +26,7 @@ import {
   type ExtensionProgram,
   type ExtensionPrograms,
 } from './session/main/core/extensions/extension-programs'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 /**
  * The extension gateway (Refs #6615): sessions reach extension programs only through here; gugu runs
@@ -112,8 +113,9 @@ export interface CatalogInstalledApp {
 }
 
 /** What an App that is on gives the agent, and where it is: its tools and skill in the catalog, its tabs by tab_kind. */
-function onApp(app: CatalogInstalledApp): Pick<AppSearchHit, 'state' | 'next' | 'tabs'> {
+function onApp(app: CatalogInstalledApp): Pick<AppSearchHit, 'state' | 'next' | 'tabs' | 'widgetViews'> {
   const { id, contributes } = app.manifest
+  const widgetViews = contributes.tabs.flatMap(tab => tab.widget ? [{ view: tab.name, height: tab.widget.height }] : [])
   return {
     state: 'on',
     next: (app.givesAgents
@@ -126,6 +128,7 @@ function onApp(app: CatalogInstalledApp): Pick<AppSearchHit, 'state' | 'next' | 
         : '') +
       '. For a feature its tools or tabs do not provide, read guide_read apps-fork and ask "Shall I fork a version?" before making changes or building a workaround.',
     tabs: contributes.tabs.map((tab) => extensionTabKind(id, tab.name)),
+    ...(widgetViews.length ? { widgetViews } : {}),
   }
 }
 
@@ -335,7 +338,7 @@ export function createExtensionGatewayHost(
         if (!access.ok) return refused(access.next)
         const current = installed(entry)
         if (!current) return refused(`App ${entry.extensionId} no longer ships program ${entry.server}`)
-        return trackRequest(callProgram(programs(), current, { agentId, agentUserId: subjectId }, name, args, extra, AbortSignal.any([grantSignal, extra.signal]), readers), name)
+        return trackRequest(callProgram(programs(), current, { agentId, agentUserId: subjectId }, name, args, extra, anySignal([grantSignal, extra.signal]), readers), name)
       })
       return server
     },

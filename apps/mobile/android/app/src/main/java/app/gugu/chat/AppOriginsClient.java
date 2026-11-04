@@ -30,8 +30,11 @@ import java.util.Map;
 public class AppOriginsClient extends BridgeWebViewClient {
     private static final String TAG = "GuguAppOrigins";
 
+    private final Bridge bridge;
+
     public AppOriginsClient(Bridge bridge) {
         super(bridge);
+        this.bridge = bridge;
     }
 
     @Override
@@ -40,16 +43,28 @@ public class AppOriginsClient extends BridgeWebViewClient {
         String host = url.getHost();
         if (!request.isForMainFrame() && isDocument(request)) {
             String referer = header(request.getRequestHeaders(), "Referer");
-            String from = referer == null ? null : Uri.parse(referer).getHost();
-            boolean fromApp = referer == null || AppOrigins.appOf(from) != null;
-            if (fromApp && (host == null || !host.equalsIgnoreCase(from))) {
-                Log.w(TAG, "refused a frame leaving an App's origin: " + (from == null ? "(no referrer)" : from) + " -> " + url.getScheme() + "://" + host);
+            // No Referer is null; one whose host cannot be read is "" (no App's, no gate's: left alone, as before).
+            String refererHost = referer == null ? null : Uri.parse(referer).getHost();
+            String from = referer == null ? null : refererHost == null ? "" : refererHost;
+            if (!AppOrigins.frameMayGo(from, host)) {
+                Log.w(TAG, "refused a frame leaving its origin: " + (from == null ? "(no referrer)" : from) + " -> " + url.getScheme() + "://" + host);
                 return AppOrigins.empty(204, Collections.emptyMap());
             }
         }
+        // A chat folder's HTML document and the files beside it (GuguPreviewOrigins): answered by the gugu page.
+        String previewId = GuguPreviewOrigins.previewOf(host);
+        if (previewId != null && "https".equals(url.getScheme())) return GuguPreviewOrigins.serve(bridge, previewId, request);
+        String gateId = AppOrigins.gateOf(host);
+        if (gateId != null && "https".equals(url.getScheme())) return AppOrigins.serveGate(view.getContext(), gateId, url.getPath(), pageOrigin());
         String appId = AppOrigins.appOf(host);
         if (appId != null && "https".equals(url.getScheme())) return AppOrigins.serve(view.getContext(), appId, url.getPath());
         return super.shouldInterceptRequest(view, request);
+    }
+
+    /** The gugu page's own origin (https://localhost, or the dev server's): the one page that frames a gate. */
+    private String pageOrigin() {
+        Uri app = Uri.parse(bridge.getAppUrl());
+        return app.getScheme() + "://" + app.getEncodedAuthority();
     }
 
     /** A frame's document (a navigation), as the WebView asks for one: the navigation Accept header. */

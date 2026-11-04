@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
 
-const checker = resolve(__dirname, '../../../scripts/theme-color-check.mjs')
+const checker = resolve(__dirname, '../../../scripts/checks/theme-color-check.mjs')
 
 // 合成仓,❌ 读活基线:活基线的目标是归零,读它的断言会在债务清空那天变成平凡真。
 function git(cwd: string, args: string[]) {

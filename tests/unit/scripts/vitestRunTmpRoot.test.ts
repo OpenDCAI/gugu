@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import vitestRunTmpRoot from '../../../scripts/vitest-run-tmp-root'
+import vitestRunTmpRoot from '../../../scripts/test-infra/vitest-run-tmp-root'
 
 describe('vitest per-run tmp root (#6272)', () => {
   it('reaches the worker: os.tmpdir() is the run root the globalSetup created', () => {

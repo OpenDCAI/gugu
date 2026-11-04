@@ -1,6 +1,6 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { Circle, CircleCheck, Plus, X } from '@/lib/icons'
-import { Github } from 'lucide-react'
+import { Github } from '@/lib/icons'
 import {
   GitHubCredentialSourceBadge,
   GitHubDefaultAccountBadge,

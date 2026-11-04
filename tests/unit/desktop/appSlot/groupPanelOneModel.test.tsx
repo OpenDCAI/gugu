@@ -113,7 +113,7 @@ describe('the slot header', () => {
   const install = (toolbar: { id: string; title: string }[], menu: { id: string; title: string }[], version = '1.0.0', origin = 'attachment') =>
     act(() =>
       installedExtensionsStore.applyList({
-        extensions: toolbar === NONE ? [] : [{ id: 'board', name: 'Board', version, contributes: { tabs: [{ name: 'main', title: 'Board', toolbar, menu }] } }],
+        extensions: toolbar === NONE ? [] : [{ id: 'board', name: 'Board', version, defaultLocale: 'en', contributes: { tabs: [{ name: 'main', title: 'Board', toolbar, menu }] } }],
         invalid: [],
         origins: { board: origin },
       } as unknown as InstalledExtensionsList),
@@ -177,7 +177,7 @@ describe('the slot header', () => {
 // went to its files — one with none opened nothing at all.
 describe('an App opened in the group (「在本群打开」)', () => {
   const installTabs = (tabs: { name: string; title: string; opensFiles?: Record<string, string[]>; chatFile?: string }[]) =>
-    act(() => installedExtensionsStore.applyList({ extensions: [{ id: 'board', name: 'Board', version: '1.0.0', apiVersion: 14, contributes: { tabs } }], invalid: [] } as unknown as InstalledExtensionsList))
+    act(() => installedExtensionsStore.applyList({ extensions: [{ id: 'board', name: 'Board', version: '1.0.0', apiVersion: 14, defaultLocale: 'en', contributes: { tabs } }], invalid: [] } as unknown as InstalledExtensionsList))
 
   it('the folder asked for is a tab of its own beside a remembered App, with no Back', async () => {
     const chatId = 'folder-entry-7590'
@@ -242,7 +242,7 @@ describe('an App opened in the group (「在本群打开」)', () => {
     const { appsHere } = await import('../../../../apps/desktop/src/components/appSlot/appsHere')
     installTabs([{ name: 'main', title: 'Board' }, { name: 'file', title: 'Board', opensFiles: { chat: ['.board.json'] }, chatFile: 'team.board.json' }])
     const chatId = 'group-9'
-    const candidate = { extensionId: 'board', tabKind: 'board.file', tabTitle: 'Board', app: { name: 'Board' }, onlyTab: false, suffix: '.board.json' }
+    const candidate = { extensionId: 'board', tabKind: 'board.file', tabTitle: 'Board', app: { name: 'Board', defaultLocale: 'en' }, onlyTab: false, state: false, suffix: '.board.json' }
     const detail = { chatId, itemId: 'B', name: 'team.board.json', typedName: 'team.board.json', file: { document: true, contentType: 'application/json', version: 1, size: 2 }, choice: { kind: 'one', candidate } }
     vi.mocked(appsHere!.appChatFile).mockResolvedValue({ success: true, data: detail as never })
     await harness.render(slot({ chatId }))

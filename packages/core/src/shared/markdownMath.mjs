@@ -417,13 +417,14 @@ function isFlowDollarCandidate(markdown, index, runLength, memo) {
 }
 
 const BLANK = /\s/u
-const DIGIT = /[0-9]/
+// A digit (a price) or the start of a shell expansion: what a closing `$` cannot have right after it.
+const CONTINUES_PAST_CLOSE = /[0-9A-Za-z_({]/
 
 /**
  * Single-dollar text math the pandoc way (`tex_math_dollars`), as the renderer reads it (session-shared
  * markdown/pandoc-dollar-math.ts): no blank right after the opening `$`, none right before the closing one, and no
- * digit right after the closing one. Otherwise the opening `$` is prose — "Backpack $29.99、Bike Light $9.99" is
- * two prices, not a formula.
+ * digit or shell-expansion start right after the closing one. Otherwise the opening `$` is prose — "Backpack
+ * $29.99、Bike Light $9.99" is two prices and `$(seq 1 40); echo live-$i` is a command, not a formula.
  */
 function pandocSingleDollarMath(markdown, open, close) {
   const after = markdown[open + 1]
@@ -436,7 +437,7 @@ function pandocSingleDollarMath(markdown, open, close) {
   // Text math stays in its paragraph: a blank line (or a quote's empty `>` line) between the dollars ends it.
   if (/\n[ \t>]*\r?\n/.test(markdown.slice(open, close))) return false
   const next = markdown[close + 1]
-  return next === undefined || !DIGIT.test(next)
+  return next === undefined || !CONTINUES_PAST_CLOSE.test(next)
 }
 
 function mathAt(markdown, index, memo) {
@@ -555,8 +556,8 @@ function displayMathBlockOnOwnLine(markdown, start, end, content) {
 /**
  * `\(…\)` in dollars that still read as math under the pandoc rules (`pandocSingleDollarMath`): what is blank at
  * either edge — spaces, and a line break with the next line's container prefix — moves outside the dollars, so no
- * line is added or lost and a `$$` never lands at a line start (that would open a math block). A digit right after
- * takes two dollars, which stay text math there.
+ * line is added or lost and a `$$` never lands at a line start (that would open a math block). What a closing `$`
+ * cannot have right after it takes two dollars, which stay text math there.
  */
 function inlineDollarMath(content, next) {
   // Edges with a line break move outside (lines stay put); edges of only spaces are dropped.
@@ -566,7 +567,7 @@ function inlineDollarMath(content, next) {
   const core = rest.slice(0, rest.length - edge.length)
   if (!core) return `$${content}$`
   const trail = edge.includes('\n') ? edge : ''
-  const dollars = trail === '' && next !== undefined && DIGIT.test(next) ? '$$' : '$'
+  const dollars = trail === '' && next !== undefined && CONTINUES_PAST_CLOSE.test(next) ? '$$' : '$'
   return `${lead}${dollars}${core}${dollars}${trail}`
 }
 

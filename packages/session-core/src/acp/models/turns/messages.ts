@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { attachmentRefSchema } from '../attachments';
+import { transcriptFileRefSchema } from '../turn-files';
 import { entityContentSchema } from '../entity-content';
 
 export const transcriptMessageSchema = z.object({
@@ -13,10 +14,21 @@ export const transcriptMessageSchema = z.object({
   /** Canonical blocks; text is their display projection, written by the fold. */
   content: z.array(entityContentSchema).optional(),
   _meta: z.record(z.string(), z.unknown()).optional(),
+  /** A host-committed proactive message to the owner, independent of provider turn revisions. */
+  ownerNotification: z.object({
+    requestId: z.string().uuid(),
+    requestHash: z.string(),
+    sourceTurnId: z.string().optional(),
+    files: z.array(z.object({
+      path: z.string(), name: z.string(), mimeType: z.string(),
+      sizeBytes: z.number().int().nonnegative(), sha256: z.string(),
+    })).optional(),
+  }).optional(),
   /** Native provider boundary; never a display index or a text match. */
   revertAnchor: z.string().optional(),
   /** Attachment metadata only; bytes are served separately by the runtime. */
   attachments: z.array(attachmentRefSchema).optional(),
+  files: z.array(transcriptFileRefSchema).optional(),
   /**
    * Epoch ms when this message **started** arriving (first chunk). Later chunks do not move it.
    *

@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   declaredContexts,
+  EXTENSION_API_VERSION_MIN_SUPPORTED,
   isValidExtensionId,
   parseExtensionManifest,
   safeParseExtensionManifest,
@@ -18,6 +19,7 @@ import { EXTENSION_ORIGINS, keptRevocations, type ExtensionOrigin } from '@share
 import { appIdentityOf, appKey, type AppIdentity } from '@shared/extensions/app-identity';
 import { resolveAppSettings, type AppSettings } from '@shared/extensions/app-settings';
 import { requireAppPlatform } from '@shared/extensions/app-platforms';
+import { assertConfinedProgramBundle } from './extension-validate';
 
 import { z } from 'zod';
 import { BUNDLE_SKIP_NAMES } from '@shared/extensions/market';
@@ -308,6 +310,7 @@ export class ExtensionsService {
       // whatever a bundle points at — a key, someone's documents — into the
       // extension's own origin, where it is then served to the extension.
       fs.cpSync(source, staging, { recursive: true, dereference: false, verbatimSymlinks: true, ...(origin === 'fork' ? { filter: (file: string) => !BUNDLE_SKIP_NAMES.has(path.basename(file)) } : {}) });
+      assertConfinedProgramBundle(staging, manifest);
 
       // Re-check the copy, not the folder it came from. The digest above was
       // taken before this copy; anything that rewrote the source in between
@@ -466,6 +469,20 @@ export class ExtensionsService {
     if (!this.isInstalled(id)) return true;
     const previous = this.identityOf(id);
     return identity !== null && (previous === null || appKey(previous) !== appKey(identity));
+  }
+
+  /**
+   * An installed App this build does not run because its manifest is for an older interface (App 模型 v2, owner 10-31: one
+   * switch, nothing older runs): what that manifest says of it — its version, for the market to move it to one this build
+   * runs, and the permissions the person approved, so the move asks only for what is new (installPlan). Null for anything
+   * else, a readable App included.
+   */
+  olderInterface(id: string): { id: string; version: string; permissions: NonNullable<ExtensionManifest['permissions']> } | null {
+    if (!this.isInstalled(id) || this.list().extensions.some((entry) => entry.manifest.id === id)) return null;
+    const raw = readManifestJson(path.join(this.rootDir, id)) as { id?: unknown; version?: unknown; apiVersion?: unknown; permissions?: ExtensionManifest['permissions'] };
+    if (raw.id !== id || typeof raw.version !== 'string' || typeof raw.apiVersion !== 'number' || raw.apiVersion >= EXTENSION_API_VERSION_MIN_SUPPORTED) return null;
+    const identity = this.identityOf(id);
+    return { id, version: raw.version, permissions: (identity ? this.grantsFile.read()[appKey(identity)] : undefined) ?? raw.permissions ?? {} };
   }
 
   identityOf(id: string): AppIdentity | null {
@@ -788,6 +805,7 @@ export class ExtensionsService {
     }
     const text = readManifestText(source);
     const manifest = parseExtensionManifest(parseManifestJson(text, source));
+    assertConfinedProgramBundle(source, manifest);
     if (manifest.entry) resolveExistingBundleFile(source, manifest.entry, 'entry');
     for (const tab of manifest.contributes.tabs) if (tab.entry) resolveExistingBundleFile(source, tab.entry, `tab ${tab.name}`);
     // Over the raw bytes, not the parsed object: what the user agreed to is the

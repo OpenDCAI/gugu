@@ -50,6 +50,9 @@ import {
 const QUESTION_ANSWER_H = 24;
 
 export function normalizeMessage(item: ChatMessage, deliveredMessage?: (id: string) => DeliveryMessagePresentation | undefined): ChatMessage {
+  const sentFiles = item.sentAttachments ?? (item.sentAttachment ? [item.sentAttachment] : undefined);
+  const ownerFiles: ChatMessage['attachments'] = item.ownerNotification?.files?.map(file => ({ id: `path:${file.path}`, name: file.name,
+    kind: file.mimeType.startsWith('image/') ? 'image' as const : 'file' as const }));
   const originalDelivery = item.guguDelivery ?? readDeliveryEnvelope(item.text);
   const originalAttachments = originalDelivery?.segments.flatMap(segment => deliveredMessage?.(segment.facts?.messageId?.replace(/^msg:/, '') ?? '')?.attachments ?? []);
   const segments = originalDelivery?.segments.map(segment => ({ ...segment, body: taskProtocolText(deliveredMessage?.(segment.facts?.messageId?.replace(/^msg:/, '') ?? '')?.text ?? safeDeliveredBody(segment.body)) }));
@@ -68,8 +71,9 @@ export function normalizeMessage(item: ChatMessage, deliveredMessage?: (id: stri
     ...item,
     ...(guguDelivery ? { text: guguDelivery.body, guguDelivery } : {}),
     ...(hookNotice ? { text: hookNotice.body, hookNotice } : {}),
-    ...(item.sentAttachment ? { text: item.sentAttachment.caption ?? '' } : {}),
-    attachments: item.sentAttachment ? [{ id: item.sentAttachment.kind === 'image' ? `gugu-message-file://${item.sentAttachment.messageId}` : item.sentAttachment.messageId, name: item.sentAttachment.name, kind: item.sentAttachment.kind ?? 'file' as const, href: item.sentAttachment.href }] : (originalAttachments?.length ? originalAttachments : item.attachments)?.map((attachment) => ({
+    ...(sentFiles ? { text: sentFiles.flatMap(file => file.caption ? [file.caption] : []).join('\n\n') } : {}),
+    ...(ownerFiles?.length ? { text: '' } : {}),
+    attachments: sentFiles ? sentFiles.map(file => ({ id: file.href.startsWith('gugu-message-file://') ? file.href : `gugu-message-file://${file.messageId}`, name: file.name, kind: file.kind ?? 'file' as const, href: file.href })) : (ownerFiles?.length ? ownerFiles : originalAttachments?.length ? originalAttachments : item.attachments)?.map((attachment) => ({
       id: attachment.id,
       name: attachment.name,
       ...(attachment.kind ? { kind: attachment.kind } : {}),
@@ -81,6 +85,9 @@ export function normalizeMessage(item: ChatMessage, deliveredMessage?: (id: stri
   // 送达,那是**传输方式**;用户看的是「我附了这个」,两条路该长成同一个样子。只对用户消息做
   // —— 附件条本来就只长在用户卡上(measureMessage 的 `aH` 也只在那一支)。
   if (normalized.role !== 'user') return normalized;
+  const imageNames = new Set(normalized.attachments?.map(file => file.name) ?? []);
+  const files = (item.files ?? []).filter(file => !imageNames.has(file.name)).map(file => ({ id: `${file.itemId}:${file.version}`, name: file.name, kind: 'file' as const }));
+  if (files.length) normalized.attachments = [...(normalized.attachments ?? []), ...files];
   const split = splitAttachmentMentions(normalized.text);
   if (split.attachments.length === 0) return normalized;
   // ⚠️ 刚发出去的那一轮**两样都有**:上传那条路给的附件(带着现成的 previewUrl),以及正文里
@@ -100,7 +107,7 @@ export function normalizeMessage(item: ChatMessage, deliveredMessage?: (id: stri
 export function messageFromItem(item: ChatMessage, ctx: SegmentCtx): ChatMessage {
   return {
     ...normalizeMessage(item, ctx.deliveredMessage),
-    streaming: ctx.active && item.role === 'assistant',
+    streaming: ctx.active && item.role === 'assistant' && !item.ownerNotification,
   };
 }
 
@@ -126,7 +133,7 @@ export function measureMessage(item: ChatMessage, ctx: MeasureCtx, baseVars: Mes
     return measureHookNotice(item, ctx, HOOK_NOTICE_VARS, { label: rowTranslator(ctx)('transcript.hookNoticeFrom', { hook: item.hookNotice.hookName }) });
   }
 
-  if (item.role === 'user') return measureUserMessage(item, ctx, baseVars);
+  if (item.role === 'user' || item.sentAttachment || item.sentAttachments || item.ownerNotification?.files?.length) return measureUserMessage(item, ctx, baseVars);
 
   // assistant / thought
   const footer = isFinalReply(item, ctx) ? vars.footerH : 0;
@@ -282,7 +289,7 @@ function MessageBodyRender(props: { data: ChatMessage; ctx: RenderCtx; vars: Mes
       fallback={
         <Show
           when={props.data.role === 'user'}
-          fallback={<AssistantRender data={props.data} ctx={props.ctx} vars={props.vars} />}
+          fallback={<Show when={props.data.sentAttachment || props.data.sentAttachments || props.data.ownerNotification?.files?.length} fallback={<AssistantRender data={props.data} ctx={props.ctx} vars={props.vars} />}><UserMessageCard {...props} conversation /></Show>}
         >
           <UserMessageRender data={props.data} ctx={props.ctx} vars={props.vars} />
         </Show>
@@ -329,7 +336,7 @@ export const messageUnitDef = defineUnit<ChatMessage, MessageVars>({
     if (item.hookNotice) {
       return estimateHookNotice(item, ctx, HOOK_NOTICE_VARS);
     }
-    if (item.role === 'user') return estimateUserMessage(item, ctx, baseVars);
+    if (item.role === 'user' || item.sentAttachment || item.sentAttachments || item.ownerNotification?.files?.length) return estimateUserMessage(item, ctx, baseVars);
     const lines = Math.max(1, Math.ceil(item.text.length / 60));
     const footer = isFinalReply(item, ctx) ? vars.footerH : 0;
     return proseLinesHeight(lines, ctx.theme) + footer;

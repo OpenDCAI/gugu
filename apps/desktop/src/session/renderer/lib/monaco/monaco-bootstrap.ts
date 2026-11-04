@@ -77,7 +77,6 @@ export const monacoBootstrap = {
       installMonacoCancellationBoundary();
       const m = await import('monaco-editor');
       instance = m;
-      // oxlint-disable-next-line typescript/no-explicit-any
       (globalThis as any).__monaco = m;
       modelRegistry.notifyMonacoReady(m);
       defineMonacoThemes(m);

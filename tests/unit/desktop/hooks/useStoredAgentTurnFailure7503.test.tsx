@@ -15,21 +15,20 @@ vi.mock('../../../../apps/desktop/src/lib/realtimeChannel', () => ({
 }))
 import { useStoredAgentTurnFailure } from '../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure'
 
-const failure = (revision = 'one', commandId = 'cmd') => ({ agentUserId: 'agent', commandId, revision, at: 1, rawMessage: 'weekly limit reached' })
-function Probe({ chatId = 'chat', thread = null }: { chatId?: string; thread?: string | null }) {
-  const state = useStoredAgentTurnFailure(chatId, thread, ['agent'])
-  return <div><span data-failure>{state.failure?.commandId}</span><span data-read-failed>{String(state.readFailed)}</span><button onClick={() => state.dismiss('cmd')}>dismiss</button><span data-notified>{String(state.failure ? state.wasNotified(state.failure) : false)}</span><button data-mark onClick={() => { if (state.failure) state.markNotified(state.failure) }}>mark</button></div>
+const failure = (revision = 'one', commandId = 'cmd') => ({ agentUserId: 'agent', commandId, revision, at: 1, reason: 'weeklyQuota' })
+function Probe({ chatId = 'chat', thread = null, anyChat = false }: { chatId?: string; thread?: string | null; anyChat?: boolean }) {
+  const state = useStoredAgentTurnFailure(anyChat ? 'any-chat' : { chatId, threadRootId: thread }, ['agent'])
+  return <div><span data-failure>{state.failure?.commandId}</span><span data-read-failed>{String(state.readFailed)}</span><button onClick={() => state.dismiss('cmd')}>dismiss</button></div>
 }
 let ui: ReturnType<typeof createReactHarness>
 const current = () => ui.container.querySelector('[data-failure]')?.textContent
-const notified = () => ui.container.querySelector('[data-notified]')?.textContent
 const emit = (extra = {}) => act(async () => { bus.listener?.({ id: 'cmd', agent_user_id: 'agent', chat_id: 'chat', thread_root_id: null, status: 'error', ...extra }) })
 beforeEach(() => { ui = createReactHarness(); read.mockReset().mockResolvedValue([]); bus.off.mockClear(); recover.agents = []; window.localStorage.clear() })
 afterEach(() => ui.cleanup())
 
 describe('其他设备的额度通知由命令结果驱动', () => {
   it('模型不可用的关闭同样按命令版本保存，新失败仍可提示', async () => {
-    const unavailable = (revision: string) => ({ ...failure(revision), rawMessage: 'Model test is not available' })
+    const unavailable = (revision: string) => ({ ...failure(revision), reason: 'modelUnavailable' })
     read.mockResolvedValue([unavailable('one')]); await ui.render(createNode(Probe, {}))
     await clickElement(ui.container.querySelector('button')!)
     await emit(); expect(current()).toBe('')
@@ -42,10 +41,20 @@ describe('其他设备的额度通知由命令结果驱动', () => {
     read.mockResolvedValue([failure()])
     await ui.render(createNode(Probe, {}))
     expect(current()).toBe('cmd')
-    expect(read).toHaveBeenCalledWith('owner', 'chat', null, ['agent'])
+    expect(read).toHaveBeenCalledWith({ chatId: 'chat', threadRootId: null }, ['agent'])
     await emit({ thread_root_id: 'other' }); await emit({ chat_id: 'other' }); await emit({ agent_user_id: 'other' })
     expect(read).toHaveBeenCalledTimes(1)
     await act(async () => bus.onSubscribed?.())
+    expect(read).toHaveBeenCalledTimes(2)
+  })
+  // A task page reads its agent over every chat: an event from any chat of that agent refreshes it.
+  it('任务页按 Agent 读：任何聊天来的事件都刷新，别的 Agent 不刷', async () => {
+    read.mockResolvedValue([failure()])
+    await ui.render(createNode(Probe, { anyChat: true }))
+    expect(read).toHaveBeenCalledWith('any-chat', ['agent'])
+    await emit({ chat_id: 'other', thread_root_id: 'thread' })
+    expect(read).toHaveBeenCalledTimes(2)
+    await emit({ agent_user_id: 'other' })
     expect(read).toHaveBeenCalledTimes(2)
   })
   it('关闭后不因补读重现；同一命令重试的新失败可以重新提醒', async () => {
@@ -86,22 +95,4 @@ describe('其他设备的额度通知由命令结果驱动', () => {
     expect(current()).toBe('cmd'); expect(ui.container.querySelector('[data-read-failed]')?.textContent).toBe('true')
   })
 
-  it('额度类失败只提醒一次：新投递再失败、换聊天重挂都认得；投递成功后清掉，下次失败再提醒', async () => {
-    read.mockResolvedValue([failure('one', 'cmd-1')]); await ui.render(createNode(Probe, {}))
-    expect(current()).toBe('cmd-1'); expect(notified()).toBe('false')
-    await clickElement(ui.container.querySelector('[data-mark]')!); expect(notified()).toBe('true')
-    read.mockResolvedValue([failure('two', 'cmd-2')]); await emit({ id: 'cmd-2' })
-    expect(current()).toBe('cmd-2'); expect(notified()).toBe('true')
-    ui.cleanup(); ui = createReactHarness(); await ui.render(createNode(Probe, { chatId: 'other' })); expect(notified()).toBe('true')
-    read.mockResolvedValue([{ ...failure('three', 'cmd-3'), rawMessage: 'insufficient_quota' }])
-    await act(async () => bus.onSubscribed?.()); expect(notified()).toBe('false')
-    read.mockResolvedValue([failure('four', 'cmd-4')]); await act(async () => bus.onSubscribed?.()); expect(notified()).toBe('true')
-    read.mockResolvedValue([]); recover.agents = ['agent']; await act(async () => bus.onSubscribed?.())
-    recover.agents = []; read.mockResolvedValue([failure('five', 'cmd-5')]); await act(async () => bus.onSubscribed?.())
-    expect(notified()).toBe('false')
-  })
-  it('限流这类一次性失败不记「已提醒」', async () => {
-    read.mockResolvedValue([{ ...failure('one', 'cmd-1'), rawMessage: 'HTTP 429 too many requests' }]); await ui.render(createNode(Probe, {}))
-    await clickElement(ui.container.querySelector('[data-mark]')!); expect(notified()).toBe('false')
-  })
 })

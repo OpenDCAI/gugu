@@ -128,11 +128,12 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       title: z.string().min(1).describe('Short name; default automatic.').optional(),
       device: deviceSchema.describe(DEVICE_DESCRIPTION).optional(),
       // #7331 先复用:描述只说「新目录当场登记」时,agent 把每个自己切的 worktree 都传进来,对方机器上一个 worktree 一个项目。
-      project: z.string().min(1).describe('Existing project:<id> or root. New projects only when requested; subfolders/worktrees go in prompt. Omit: current directory (remote: home).').optional(),
-      nest: z.boolean().describe('Child reporting to you, listed in session_children. Default true without project.').optional(),
+      project: z.string().min(1).describe('Existing project:<id> or folder there. New projects only on request; worktrees/subfolders go in prompt. Omit: your project (remote: its copy in the same project group, else its task workspace; result says which).').optional(),
+      parent_session_id: sessionIdSchema.nullable().describe('session:<id>. Omit: you; null: root.').optional(),
       transport: z.enum(['acp', 'pty']).optional(),
       harness: z.string().describe('From session_list_harnesses; default: your sub-agent default.').optional(),
       model: z.string().describe('From session_list_models (verbatim) or model.spawn_model_id; platform: ids bill Gugu credits.').optional(),
+      thinking: z.string().trim().min(1).describe('Harness reasoning level.').optional(),
       chat_id: z.string().min(1).describe('A group your owner is in, for the child to join.').optional(),
     }).strict(),
     action: 'spawn',
@@ -264,9 +265,10 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_archive',
-    description: 'Archive another session of yours: stop its process and hide it from lists, keeping its identity, name, history and group seats. It receives no messages while archived; restoring does not replay that interval. A person can restore it from history. session_get still reads it; session_children requires status:"archived". with_children=true archives its subtree; default false archives only this one. Only a person can delete a session.',
+    description: 'Archive another session of yours: stop its process and hide it from lists, preserving its history, files and configuration. By default also remove its identity from all groups and contacts; restoring the same task creates a new identity and only joins its project group. remove_social_identity=false keeps the identity and existing seats and works offline. Removal needs a connection and a confirmed cloud receipt. It receives no messages while archived; restoring does not replay that interval. A person can restore it from history. session_get still reads it; session_children requires status:"archived". with_children=true archives its subtree; default false archives only this one.',
     schema: z.object({
       session_id: sessionIdSchema,
+      remove_social_identity: z.boolean().describe('Default true: remove from all groups and contacts; restoring uses a new identity. False keeps the existing identity and seats, including when offline.').optional(),
       with_children: z.boolean().describe('Also archive every session under it (its children, transitively, on any of your machines) — the "together with its child sessions" box on the session page. Machines that could not be reached are listed in not_reached.').optional(),
     }).strict(),
     action: 'archive',

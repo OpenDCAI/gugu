@@ -14,7 +14,7 @@ import {
   resolveWorkspacePath,
 } from './workspace-file-policy';
 import { dirnameMachinePath, isAbsoluteMachinePath, joinMachinePath } from '../path-utils';
-import { createDocumentPreview, createPreview, createRemotePreview, releasePreview, setPreviewDocument } from '../preview-protocol';
+import { createChatFolderPreview, createDocumentPreview, createPreview, createRemotePreview, previewAssetsChanged, releasePreview, setPreviewDocument, type PreviewFailureCopy } from '../preview-protocol';
 import {
   createWorkspaceUploads,
   readWorkspaceChunk,
@@ -22,6 +22,10 @@ import {
   type WorkspaceWriteChunk,
 } from '../workspace-transfer';
 
+import { createAttachmentUploads } from '../attachment-uploads';
+import type { AttachmentUploadSpec, AttachmentUploadChunk } from '@gugu/session-core/session-record/contract';
+
+const attachmentUploads = createAttachmentUploads();
 const uploads = createWorkspaceUploads();
 /** watchDirectory 的租约:id → 撤掉它。 */
 const directoryWatches = new Map<string, () => void>();
@@ -53,6 +57,11 @@ function resolveWorkspaceFiles(projectId: string, workspaceId: string) {
 export const workspaceFileSystemController = createRPCController({
   /** 已授权读出的群正文:没有项目、目录或文件系统权限。 */
   createDocumentPreview: async (documentHtml: string) => ok(createDocumentPreview(documentHtml)),
+  /** A document in a chat's folder, previewed with the files beside it (its place read here, as the signed-in person). */
+  createChatFolderPreview: async (itemId: string, documentHtml: string, failureCopy: PreviewFailureCopy) => {
+    const created = await createChatFolderPreview(itemId, documentHtml, failureCopy);
+    return created ? ok(created) : err({ type: 'not_found' as const, message: 'This document is not in a chat folder you can read' });
+  },
   readExternalFile: async (
     projectId: string,
     workspaceId: string,
@@ -147,6 +156,9 @@ export const workspaceFileSystemController = createRPCController({
     return ok({ success: true as const });
   },
 
+  previewAssetsChanged: async (previewId: string, changedPaths?: string[]) =>
+    ok(await previewAssetsChanged(previewId, changedPaths)),
+
   /** tab 关掉就撤登记 —— 留着等于那份文件一直可被取。 */
   releasePreview: async (previewId: string) => {
     releasePreview(previewId);
@@ -161,6 +173,36 @@ export const workspaceFileSystemController = createRPCController({
     const resolved = resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     return transfer(() => readWorkspaceChunk(resolved.data.env.path, request));
+  },
+
+  attachmentUploadBegin: async (projectId: string, workspaceId: string, request: AttachmentUploadSpec) => {
+    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    if (!resolved.success) return resolved;
+    return transfer(() => attachmentUploads.begin(resolved.data.env.path, request));
+  },
+
+  attachmentUploadStatus: async (projectId: string, workspaceId: string, request: AttachmentUploadSpec) => {
+    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    if (!resolved.success) return resolved;
+    return transfer(() => attachmentUploads.status(resolved.data.env.path, request));
+  },
+
+  attachmentUploadWrite: async (projectId: string, workspaceId: string, request: AttachmentUploadChunk) => {
+    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    if (!resolved.success) return resolved;
+    return transfer(() => attachmentUploads.write(resolved.data.env.path, request));
+  },
+
+  attachmentUploadCommit: async (projectId: string, workspaceId: string, request: AttachmentUploadSpec) => {
+    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    if (!resolved.success) return resolved;
+    return transfer(() => attachmentUploads.commit(resolved.data.env.path, request));
+  },
+
+  attachmentUploadAbort: async (projectId: string, workspaceId: string, request: AttachmentUploadSpec) => {
+    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    if (!resolved.success) return resolved;
+    return transfer(() => attachmentUploads.abort(resolved.data.env.path, request));
   },
 
   /** #6264 按块写一份文件(从别的电脑上传 / 在别的电脑上存大文件),最后一段落盘并核版本。 */

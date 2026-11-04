@@ -49,13 +49,11 @@ interface Window {
     subscribeLocalDeviceIdentified: (callback: () => void) => () => void
     showNotification: (payload: { title: string; body?: string; chatId?: string | null }) => Promise<unknown>
     getLocalDeviceSelfSnapshot: () => Promise<unknown>
-    releaseOwnedAgentLocalFootprint: (agentUserId: string) => Promise<unknown>
     renameOwnedAgentLocalFootprint: (agentUserId: string, name: string) => Promise<boolean>
     writeHumanAuthSession: (session: unknown) => Promise<void>
     clearHumanAuthSession: (reason: 'signed-out' | 'lost') => Promise<void>
     notifyDeviceCommandsChanged: () => void
     notifyScheduledTasksChanged: () => void
-    notifyOwnedAgentsChanged: () => void
   }
   // @@@host-system-languages — 桌面宿主注入的真实系统语言列表(app.getPreferredSystemLanguages());
   // web/移动端为 undefined,那里 navigator.languages 本身就是系统语言。

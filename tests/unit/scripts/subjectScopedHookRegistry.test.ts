@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { scanSubjectScopedHooks, HOOKS_DIR } from '../../../scripts/subject-scoped-hooks.mjs'
+import { scanSubjectScopedHooks, HOOKS_DIR } from '../../../scripts/checks/subject-scoped-hooks.mts'
 
 // #3922 —— 状态串台那一族的**登记闸**。
 //
@@ -14,7 +14,7 @@ import { scanSubjectScopedHooks, HOOKS_DIR } from '../../../scripts/subject-scop
 // 而那正是本闸要防的那类错误本身。
 
 const ROOT = resolve(__dirname, '../../..')
-const REGISTRY_PATH = resolve(ROOT, 'scripts/subject-scoped-hook-registry.json')
+const REGISTRY_PATH = resolve(ROOT, 'scripts/checks/subject-scoped-hook-registry.json')
 const HOW = new Set(['subject-scoped', 'keyed-map', 'derived', 'no-own-state'])
 
 const registry = JSON.parse(readFileSync(REGISTRY_PATH, 'utf8')) as Record<string, { how: string; why: string }>
@@ -27,7 +27,7 @@ const HOWTO = [
   '状态只能在副作用里追上主体参数,而副作用落在绘制之后 ⇒ 切换那一刻,「上一个主体的答案」会被消费方',
   '盖上「当前主体的身份」,造出一条看起来完全合法的假事实 —— 下游门控识别不了它。',
   '',
-  '请在 scripts/subject-scoped-hook-registry.json 里登记它,并写清 how / why:',
+  '请在 scripts/checks/subject-scoped-hook-registry.json 里登记它,并写清 how / why:',
   '  subject-scoped —— 状态与它描述的主体一起存,主体不符时交出「还不知道」',
   '  keyed-map      —— 结果按 key 存 map,取用**当前参数**算出的 key',
   '  derived        —— 没有自有 state,值全部由下游 hook 当场派生',

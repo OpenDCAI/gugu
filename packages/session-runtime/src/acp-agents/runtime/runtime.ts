@@ -52,7 +52,7 @@ export class AcpRuntime {
   constructor(private readonly deps: AcpRuntimeDeps) {
     let manager: SessionManager | null = null;
     this.terminalLiveRegistry = new TerminalLiveRegistry((sessionId) =>
-      manager?.syncTerminals(sessionId)
+      manager?.onTerminalsChanged(sessionId)
     );
     this.terminals = new AgentTerminalManager(deps.host, this.terminalLiveRegistry.hooks);
     const fs = new FsPort(deps.host);
@@ -127,12 +127,8 @@ export class AcpRuntime {
     });
   }
 
-  queuePrompt(
-    sessionId: string,
-    prompt: PromptInput,
-    startInput?: AcpStartInput,
-  ): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
-    return this.manager.queuePrompt({ sessionId, prompt }, startInput);
+  queuePrompt(sessionId: string, prompt: PromptInput): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
+    return this.manager.queuePrompt({ sessionId, prompt });
   }
 
   editQueuedPrompt(

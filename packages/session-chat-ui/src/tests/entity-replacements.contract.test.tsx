@@ -18,7 +18,7 @@ function fixture() {
 
 it('replaces and clears mounted message text, and removes the specified mounted plan', async () => {
   const { parser, send } = fixture();
-  const context = createChatContext({ theme: DEFAULT_THEME });
+  const context = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
   const state = createChatState(context);
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;top:0;left:0;width:800px;height:800px';

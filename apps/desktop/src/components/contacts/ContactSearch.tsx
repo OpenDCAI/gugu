@@ -5,6 +5,7 @@ import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/cont
 import { Check, Search } from '@/lib/icons'
 import { cn } from '@/lib/cn'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
+import { useShellTabIs } from '../../lib/shellTab'
 import { recentChatActivity, searchContacts, type ContactSearchHit } from '../../lib/contactSearch'
 import { displayName } from '../../lib/contactsListSort'
 import { graphemes, normalizeMentionKey } from '../../lib/mentionMatch'
@@ -63,12 +64,10 @@ export function Marked({ text, hits }: { text: string; hits: number[] }) {
   return <>{runs.map((run) => <span key={run.at} className={run.hit ? 'text-[var(--fg)]' : 'text-[var(--muted-fg)]'}>{run.text}</span>)}</>
 }
 
-export function ContactSearch({ query, onQuery, mobile = false, onScreen, head, people, agents, groups, pick, onOpenContact, onOpenGroup, onLookupNumber, children }: {
+export function ContactSearch({ query, onQuery, mobile = false, head, people, agents, groups, pick, onOpenContact, onOpenGroup, onLookupNumber, children }: {
   query: string
   onQuery: (query: string) => void
   mobile?: boolean
-  /** 手机:这一页此刻在屏上(见 HeaderSearch)。 */
-  onScreen?: boolean
   /** 手机:页头。框收在页头的放大镜里(ui/HeaderSearch),与桌面那颗常驻框共用同一份输入与键盘处理。 */
   head?: (searchButton: ReactNode) => ReactNode
   people: ContactUser[]
@@ -81,6 +80,8 @@ export function ContactSearch({ query, onQuery, mobile = false, onScreen, head, 
   /** 没有关键词时的浏览视图(滚动区本身)。 */
   children: ReactNode
 }) {
+  // 手机:这一页此刻在屏上(见 HeaderSearch)。Read here, not threaded from the panel (@@@shell-tab-store).
+  const onScreen = useShellTabIs('contacts')
   const { t } = useTranslation('contacts')
   const { chats } = useChatStore('chats')
   const [active, setActive] = useState(0)

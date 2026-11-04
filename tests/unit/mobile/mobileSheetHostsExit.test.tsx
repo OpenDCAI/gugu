@@ -37,7 +37,7 @@ let exit: ReturnType<typeof holdDialogExit>
 beforeEach(() => {
   h = createReactHarness(); exit = holdDialogExit(); vi.clearAllMocks(); m.signal = null
   m.read.mockResolvedValue(new Uint8Array([1, 2, 3]))
-  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: () => 'blob:preview' })
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:preview') })
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: m.revoke })
 })
 afterEach(() => { h.cleanup(); delete (HTMLElement.prototype as Partial<HTMLElement>).getAnimations })
@@ -110,7 +110,8 @@ it('image handoff: starts after the loading sheet exits and keeps the transferre
   await frame()
   expect(m.image).not.toHaveBeenCalled()
   await expectExit(q('opened-output-preview-sheet'), exit)
-  expect(m.image).toHaveBeenCalledWith([{ url: 'blob:preview', alt: 'image.png', quote: expect.any(Function) }])
+  expect(m.image).toHaveBeenCalledWith([{ url: 'blob:preview', alt: 'image.png', file: { name: 'image.png' }, quote: expect.any(Function) }])
+  expect(URL.createObjectURL).toHaveBeenCalledWith(expect.objectContaining({ type: 'image/png' }))
   m.image.mock.calls[0][0][0].quote()
   expect(m.quote).toHaveBeenCalledWith(workspaceFileQuote('/repo/image.png', null))
   expect(m.revoke).not.toHaveBeenCalled()
@@ -146,4 +147,18 @@ it('incoming-share target selection: drafts immediately, navigates only after sh
     await expectExit(popup, exit)
     expect(navigate).toHaveBeenCalledOnce()
   } finally { window.removeEventListener(UI_EVENTS.notificationClicked, navigate) }
+})
+
+
+it('file preview: rejects a 100 MB file after one chunk and shows the existing size warning', async () => {
+  const actual = await vi.importActual<typeof import('../../../apps/desktop/src/mobile/agent-watch/opened-output-open')>('../../../apps/desktop/src/mobile/agent-watch/opened-output-open')
+  const read = vi.fn(async () => ({ size: 100 * 1024 * 1024, etag: 'large', data: 'YQ==' }))
+  m.read.mockImplementation(() => actual.readWholeOpenedFile({ read, conversationId: 'task-1', path: '/repo/big.log' }))
+  await h.render(createNode(Preview, { path: '/repo/big.log' }))
+  await clickElement(h.container.querySelector('button')!)
+  await waitForCondition(() => q('message-file-preview-panel')?.textContent?.includes('20') === true, 'phone size warning')
+  expect(read).toHaveBeenCalledOnce()
+  expect(q('message-file-preview-panel').textContent).toContain('文件太大，手机上最多看')
+  expect(q('message-file-preview-panel').textContent).toContain('20')
+  expect(URL.createObjectURL).not.toHaveBeenCalled()
 })

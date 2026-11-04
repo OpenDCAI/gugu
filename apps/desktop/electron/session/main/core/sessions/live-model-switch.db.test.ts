@@ -31,8 +31,8 @@ describe('recordLiveModelSwitch', () => {
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-        VALUES ('conv-1', 'project-1', 'Task', 'copilot', 'acp',
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
+        VALUES ('conv-1', 'project-1', 'copilot', 'acp',
                 '{"version":"1","type":"acp","model":"own-model","permissionMode":"full-access"}');
     `);
   });

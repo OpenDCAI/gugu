@@ -8,8 +8,8 @@
 
 1. 读取根目录 AGENTS.md，按 .node-version 和 package.json 的 packageManager 准备工具链。
 2. 在独立 checkout 执行 pnpm install --frozen-lockfile，再执行 pnpm rebuild:native 为 Electron 编译原生模块；配置见 .envs/example.env。
-3. 使用自己的开发后端；官方服务的可选配置见 docs/optional-cloud-services.md。
-4. 通过 scripts/dev-app.sh 启动隔离实例；检查命令见 docs/development-tools.md。
+3. 使用自己的开发后端；官方服务的可选配置见 docs/guides/optional-cloud-services.md。
+4. 通过 scripts/dev/dev-app.sh 启动隔离实例；检查命令见 docs/guides/development-tools.md。
 
 数据库初始化与授权以对应后端文档为准。内部共享环境只供获授权维护者使用，不能作为社区开发的必经入口。
 
@@ -22,4 +22,4 @@
 - 密钥、账号登录态和私人运维资料不得进入 Git、issue 或聊天。
 - 产品规格由维护者私下维护；改变用户可见行为的改动，请在 issue / PR 里写清预期行为。
 
-公共 App 开发与接入说明见 docs/writing-a-tab-extension.md。
+公共 App 开发与接入说明见 docs/guides/writing-a-tab-extension.md。

@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { McpOAuthCredentials } from './mcp-oauth';
+import { integrationMcpTransport } from './mcp-transport';
 
 export class McpToolError extends Error {
   constructor(
@@ -21,14 +21,14 @@ export async function withMcpClient<T>(
   credentials: McpOAuthCredentials,
   run: (client: Client) => Promise<T>
 ): Promise<T> {
-  const transport = new StreamableHTTPClientTransport(new URL(credentials.serverUrl), {
-    requestInit: {
-      headers: { Authorization: `Bearer ${credentials.tokens.access_token}` },
-    },
+  const transport = integrationMcpTransport({
+    url: credentials.serverUrl,
+    transport: credentials.transport,
+    headers: { Authorization: `Bearer ${credentials.tokens.access_token}` },
   });
   const client = new Client({ name: 'gugu', version: '1.0.0' });
-  await client.connect(transport);
   try {
+    await client.connect(transport);
     return await run(client);
   } finally {
     await client.close();

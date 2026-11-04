@@ -432,7 +432,7 @@ export function RemoteFolderPicker({ deviceId, initialPath = '~', onSelect, onCa
             id="remote-folder-path-suggestions"
             role="listbox"
             data-testid="remote-folder-path-suggestions"
-            // 浮层公式(docs/ui-visual-spec.md §6.3):--radius-surface + 唯一那档 lift,❌ 再叠一圈 border。
+            // 浮层公式(docs/design/ui-visual-spec.md §6.3):--radius-surface + 唯一那档 lift,❌ 再叠一圈 border。
             className="absolute top-full right-2 left-9 z-10 m-0 mt-1 list-none rounded-[var(--radius-surface)] bg-[var(--popover)] p-1 shadow-[var(--shadow-lift)]"
           >
             {suggestions.map((entry, index) => (

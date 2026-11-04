@@ -174,6 +174,7 @@ describe('normalizeLatexMathDelimitersWithLines: each rewritten line says the so
 })
 
 // 单美元公式照 pandoc(tex_math_dollars)认:开头的 $ 后面不能是空白,结尾的 $ 前面不能是空白、后面不能紧跟数字。
+// 比 pandoc 多一条:结尾的 $ 后面也不能紧跟 shell 展开的开头(英文字母、_、(、{),否则命令里的 $(…) / $VAR 会变成公式。
 // 不然一句话里的两个价格之间的字被当成公式,渲染成斜体乱码(「…Backpack $29.99、Bike Light $9.99…」)。
 // 渲染(共用方言)与 message_send 校验用的分词(tokenizeMarkdownMath)必须一起改、认法一致。
 describe('single-dollar math follows pandoc: prices stay prose', () => {
@@ -191,6 +192,13 @@ describe('single-dollar math follows pandoc: prices stay prose', () => {
     'Cost $5 off\n\nx$y',
     '> quote $5 off\n>\n> x$y',
     '| item | price |\n| - | - |\n| a | $5 |\n| b | $10 |',
+    'for i in $(seq 1 40); do echo live-$i; done',
+    '$HOME/$USER',
+    '$PATH:$HOME/bin',
+    '$(date)-$(whoami)',
+    '${a}-${b}',
+    '$a$b',
+    '$FOO_$BAR',
   ]
   it.each(prose)('%s: no inline math anywhere', async (markdown) => {
     expect(await rendererBoundaryNodes(markdown)).toEqual([])
@@ -211,6 +219,8 @@ describe('single-dollar math follows pandoc: prices stay prose', () => {
     ['\\$5 escaped, then $x$', ['x']],
     ['> a $x\n>$y$', ['y']],
     ['- a $x\n  $y$', ['y']],
+    ['$x$是未知数', ['x']],
+    ['$f(x)$ and $(a+b)^2$', ['f(x)', '(a+b)^2']],
   ]
   it.each(math)('%s: still math', async (markdown, contents) => {
     expect(await rendererBoundaryNodes(markdown)).toEqual(contents.map(() => 'inlineMath'))
@@ -221,6 +231,7 @@ describe('single-dollar math follows pandoc: prices stay prose', () => {
     const cases: Array<[string, string, number]> = [
       ['area \\( x^2 \\) here', 'area $x^2$ here', 1],
       ['\\(x\\)5 times', '$$x$$5 times', 1],
+      ['the \\(n\\)th term', 'the $$n$$th term', 1],
       // A line break at an edge moves outside the dollars (with the next line's container prefix): no line added or
       // lost, and no `$$` at a line start opening a math block that swallows what follows.
       ['see \\(x\n\\) here', 'see $x$\n here', 1],

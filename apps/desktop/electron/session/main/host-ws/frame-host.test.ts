@@ -8,8 +8,8 @@ import {
 } from '@shared/lib/ipc/session-host-client';
 import { broadcastDeviceSessionHostEvent, installDeviceSessionHost, remoteInvokePolicyForCaller } from './device-session-host';
 import { FrameSessionHost, type FrameSocket, type FrameInvokePolicy } from './frame-host';
-import { decodeHostWsMessage, encodeHostWsMessage, HOST_WS_PROTOCOL_VERSION } from '@shared/lib/ipc/host-ws-protocol';
-import { sessionpageAgentProvisionedEvent, sessionpageAgentRenamedEvent } from '@shared/lib/ipc/sessionpage-identity-contract';
+import { HOST_WS_PROTOCOL_VERSION } from '@shared/lib/ipc/host-ws-protocol';
+import { sessionpageAgentProvisionedEvent } from '@shared/lib/ipc/sessionpage-identity-contract';
 
 function memoryLink(host: FrameSessionHost, policy?: FrameInvokePolicy) {
   const serverSockets: Array<{ drop(): void }> = [];
@@ -258,8 +258,8 @@ describe('FrameSessionHost over a device-shaped link', () => {
     expect(disconnected).toBe(true);
   });
 
-  // #6264 会话开户 / agent 改名:壳主进程播给本机窗口的同时经这里推给别的电脑 —— 没有窗口的 server 上
-  // 这是唯一的出口,少了它别的电脑上那条会话的身份卡一直写「未分配」。
+  // #6264 会话开户:壳主进程播给本机窗口的同时经这里推给别的电脑 —— 没有窗口的 server 上
+  // 这是唯一的出口,少了它别的电脑上那条会话一直认不出背后的 agent。
   it('pushes the shell identity events to desktops watching this machine', async () => {
     const host = installDeviceSessionHost({ appVersion: () => '9.9.9' });
     const link = memoryLink(host);
@@ -270,32 +270,7 @@ describe('FrameSessionHost over a device-shaped link', () => {
     await flush();
     const event = { conversationId: 'conv-d22-1', agentUserId: 'agent-d22-uuid', displayName: 'Codex 8' };
     broadcastDeviceSessionHostEvent(sessionpageAgentProvisionedEvent.name, event);
-    broadcastDeviceSessionHostEvent(sessionpageAgentRenamedEvent.name, event);
     await flush();
     expect(got).toEqual([event]);
-  });
-});
-
-// Protocol 14 compatibility (delete with protocol14FileChanges on the next protocol bump): the frame a
-// protocol-14 window receives for a turn with a file edit, captured at the host's egress.
-describe('a protocol-14 window', () => {
-  it('receives 14\'s own file entity for a patch, and a 15 window the patch unchanged', async () => {
-    const host = new FrameSessionHost();
-    const patch = { type: 'diff', changes: [{ operation: 'modify', path: '/w/a.txt' }], scope: 'file',
-      patch: { format: 'git_patch', text: 'diff --git "a//w/a.txt" "b//w/a.txt"\n--- "a//w/a.txt"\n+++ "b//w/a.txt"\n@@ -2,3 +2,4 @@\n beta\n-gamma\n+GAMMA-817\n delta\n+zeta\n' } };
-    const item = { kind: 'patch-tool-call', id: 't:tool:edit', seq: 1, toolCallId: 'edit', title: 'Edit a.txt', status: 'done', contentBlocks: [patch] };
-    host.ipcMain.handle('sessionTimeline.sessionSnapshot', () => ({ turns: [{ id: 't', items: [item] }] }));
-    const read = async (peerProtocol: number) => {
-      const frames: unknown[] = [];
-      let deliver: ((frame: string | Uint8Array) => void) | null = null;
-      host.attach({ send: (frame) => frames.push(decodeHostWsMessage(frame)), close: () => {}, onFrame: (cb) => (deliver = cb), onClose: () => {} },
-        { peerProtocol });
-      deliver!(encodeHostWsMessage({ t: 'invoke', id: 1, channel: 'sessionTimeline.sessionSnapshot', args: [] }) as string);
-      await flush();
-      return (frames.find((frame) => (frame as { t: string }).t === 'result') as { value: { turns: Array<{ items: unknown[] }> } }).value.turns[0]!.items;
-    };
-    expect(await read(14)).toEqual([{ kind: 'modify-file-tool-call', id: 't:tool:edit', seq: 1, toolCallId: 'edit', title: 'Edit a.txt',
-      status: 'done', path: '/w/a.txt', oldText: 'beta\ngamma\ndelta', newText: 'beta\nGAMMA-817\ndelta\nzeta' }]);
-    expect(await read(15)).toEqual([item]);
   });
 });

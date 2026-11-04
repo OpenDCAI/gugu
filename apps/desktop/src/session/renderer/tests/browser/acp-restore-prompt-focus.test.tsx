@@ -56,7 +56,7 @@ describe.each([1100, 390])('Restore prompt at viewport width %i', (width) => {
     active.store = store
     const current = store
     const internals = current as unknown as { _bootstrapped: boolean }
-    const submit = vi.spyOn(store, 'submitPrompt').mockImplementation(() => {})
+    const submit = vi.spyOn(store, 'submitPrompt').mockImplementation(() => Promise.resolve())
     store.chatState.transcript.history.seed([{
       id: 'failed-turn', seq: 0, initiator: 'user',
       items: [{ kind: 'message', id: 'original-prompt', seq: 0, role: 'user', text: original }],

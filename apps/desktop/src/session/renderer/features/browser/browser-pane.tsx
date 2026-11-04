@@ -15,7 +15,7 @@ import { browserFocusedChannel } from '@shared/events/browserEvents';
 import { AgentBrowserOverlay } from './agent-browser-overlay';
 import { useAgentBrowserStateSync } from './agent-browser-state';
 import { AgentBrowserAssistant } from './agent-browser-assistant';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
+import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { browserControlsRegistry } from './browser-controls-registry';
 import {
   browserLoadErrorCode,
@@ -442,7 +442,7 @@ const BrowserPaneContent = observer(function BrowserPaneContent({
         {sessionBrowserId ? (
           <AgentBrowserOverlay browserId={sessionBrowserId} hostElement={page?.element ?? null} visible={visible}
             assistant={session.sessionId ? <AgentBrowserAssistant owner={session}
-              agentName={sessionAgentNames.nameFor(session.sessionId) ?? translate('browser.assistantNameFallback')} /> : null} />
+              agentName={sessionRegistry.get(session.sessionId)?.sessions.get(session.sessionId)?.data.title ?? translate('browser.assistantNameFallback')} /> : null} />
         ) : null}
       </div>
     </div>

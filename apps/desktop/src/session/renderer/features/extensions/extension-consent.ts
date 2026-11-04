@@ -1,5 +1,5 @@
 import type { useSessionMessages } from '@renderer/localization/use-session-messages';
-import { compareExtensionVersions, programLine, type ExtensionCapability, type ExtensionManifest } from '@shared/extensions/manifest';
+import { compareExtensionVersions, isConfinedToolProgram, programLine, type ExtensionCapability, type ExtensionManifest } from '@shared/extensions/manifest';
 import { localizedManifestText } from '@shared/extensions/catalog';
 import { addedPermissions } from '@shared/extensions/upgrade';
 import { isComputerUseView } from '@shared/extensions/app-places';
@@ -96,6 +96,12 @@ function describeAgentTools(manifest: ExtensionManifest, translate: SessionTrans
     return machine ? translate('extensions.permissionsAgentsSkillsOnlyOn', { machine }) : translate('extensions.permissionsAgentsSkillsOnly');
   }
   const skills = manifest.contributes.skills ? translate('extensions.permissionsAgentsToolsSkills') : '';
+  if (servers.every((server) => isConfinedToolProgram(manifest.apiVersion, server))) {
+    const hosts = manifest.permissions?.network?.length
+      ? translate('extensions.permissionsAgentsToolsHosts', { hosts: manifest.permissions.network.join(', ') }) : '';
+    return machine ? translate('extensions.permissionsAgentsToolsConfinedOn', { skills, machine, hosts })
+      : translate('extensions.permissionsAgentsToolsConfined', { skills, hosts });
+  }
   return machine ? translate('extensions.permissionsAgentsToolsOn', { skills, machine }) : translate('extensions.permissionsAgentsTools', { skills });
 }
 
@@ -145,14 +151,14 @@ export function describePermissions(
  * plain variant rather than the red one it defaults to.
  */
 export function consentPrompt(
-  installed: ExtensionManifest | undefined,
+  installed: Pick<ExtensionManifest, 'version' | 'permissions'> | undefined,
   revokedPermissions: readonly string[],
   candidate: ExtensionManifest,
   translate: SessionTranslate,
   /** The interface language: the App is named as its manifest's `localized` says it there. */
   locale: string,
   /**
-   * 「这版改了什么」(云端那一版的 CHANGELOG 节,#5410)。只在有装着的旧版本、且这是
+   * 「这版改了什么」(云端那一版的 store/whats-new.md,#5410)。只在有装着的旧版本、且这是
    * 一次更新时才放在描述最前面 —— 首次安装没有「这一版相对哪一版」可言,权限清单已经
    * 是当时最重要的那句话。
    */

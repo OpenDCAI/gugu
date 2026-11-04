@@ -1,3 +1,6 @@
+vi.mock('../../../../apps/desktop/src/components/appSlot/OwnedAgentResourcesHost', () => ({ OwnedAgentResourcesHost: () => null }))
+const resourceHosts = vi.hoisted(() => ({ host: vi.fn(), suspend: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/ownedAgentResources', () => ({ hostOwnedAgentResources: resourceHosts.host, suspendOwnedAgentResources: resourceHosts.suspend }))
 vi.mock('../../../../apps/desktop/src/hooks/useSessionInputOutbox', () => ({ SessionInputOutboxHost: () => null }))
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
@@ -10,23 +13,24 @@ import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { openLinkTarget } from '../../../../apps/desktop/src/lib/guguLinks'
 import { conversationLink, parseGuguLink } from '@gugu/core/shared/ui/guguLink'
 import { ToastContext } from '../../../../apps/desktop/src/components/toastContext'
-import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
-import type { SessionpageMessageHost } from '../../../../apps/desktop/src/session/shared/sessionpage-message-host'
+import { clickElement, createNode, createReactHarness, message } from '../../../support/testHarness'
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
-import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_COMPOSE_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_COMPOSE_EVENT, APP_SHOW_SESSION_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { sheetStack } from '../../../../apps/desktop/src/components/ui/sheetStack'
 import { rememberAssistantTaskChat } from '../../../../apps/desktop/src/lib/assistantTaskChat'
 import { installAssistantShellBridge, publishAssistantShell } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stores/app-state'
 import { MOBILE_TABS } from '@gugu/core/shared/enums/sidebarTabModels'
-import { i18n } from '../../../../apps/desktop/src/i18n'
-import type { Notice } from '../../../../apps/desktop/src/lib/notices'
-const deliveryNotice = vi.hoisted(() => vi.fn<(notice: Notice) => string>(() => 'notice'))
-vi.mock('../../../../apps/desktop/src/lib/notices', async (original) => ({
-  ...await original<object>(), notify: deliveryNotice,
-}))
-const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[] }))
+import * as needsYouTasks from '../../../../apps/desktop/src/components/needsYou/useNeedsYouTasks'
+const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[], remote: false }))
+vi.mock('../../../../apps/desktop/src/lib/ownedAgentConversation', async original => {
+  const actual = await original<typeof import('../../../../apps/desktop/src/lib/ownedAgentConversation')>()
+  return { ...actual, ownedAgentConversation: (...args: Parameters<typeof actual.ownedAgentConversation>) => taskRoute.remote
+    ? Promise.resolve({ kind: 'remote', deviceId: 'host', session: { conversationId: 'task-session', projectId: 'project', title: 'Task', harness: 'claude', supported: true } })
+    : actual.ownedAgentConversation(...args) }
+})
 const openNativeConversation = vi.hoisted(() => vi.fn(async () => true))
 vi.mock('../../../../apps/desktop/src/lib/guguLinks', async original => ({
   ...await original<object>(), openTarget: openNativeConversation,
@@ -127,13 +131,11 @@ vi.mock('../../../../apps/desktop/src/components/ChatListPanel', async () => {
   return {
     ChatListPanel: ({
       onChatSelected,
-      onOpenAgentCreateDraft,
       onNewProject,
       lead,
       headerLeading,
     }: {
       onChatSelected?: () => void
-      onOpenAgentCreateDraft?: () => void
       onNewProject?: () => void
       lead?: React.ReactNode
       headerLeading?: React.ReactNode
@@ -142,9 +144,6 @@ vi.mock('../../../../apps/desktop/src/components/ChatListPanel', async () => {
         headerLeading,
         lead,
         React.createElement('button', { type: 'button', 'data-testid': 'mock-chat-row', onClick: onChatSelected }, 'chat-list-panel'),
-        onOpenAgentCreateDraft
-          ? React.createElement('button', { type: 'button', 'data-testid': 'mock-chat-create-agent', onClick: onOpenAgentCreateDraft }, 'create agent')
-          : null,
         onNewProject
           ? React.createElement('button', { type: 'button', 'data-testid': 'mock-chat-new-project', onClick: onNewProject }, 'new project')
           : null)
@@ -155,8 +154,11 @@ vi.mock('../../../../apps/desktop/src/components/ChatListPanel', async () => {
 const chatAreaProbe = vi.hoisted(() => ({ mounts: 0 }))
 vi.mock('../../../../apps/desktop/src/components/ChatAreaPanel', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
+  const { useShellTab } = await vi.importActual<typeof import('../../../../apps/desktop/src/lib/shellTab')>('../../../../apps/desktop/src/lib/shellTab')
   return {
-    ChatAreaPanel: ({ activeTab, hidden = false, navigationTarget, onBack }: { activeTab: string; hidden?: boolean; navigationTarget?: boolean; onBack?: () => void }) => {
+    // The panel reads the shown tab from the shell tab store, not a prop.
+    ChatAreaPanel: ({ hidden = false, navigationTarget, onBack }: { hidden?: boolean; navigationTarget?: boolean; onBack?: () => void }) => {
+      const activeTab = useShellTab()
       const [bumps, setBumps] = React.useState(0)
       React.useEffect(() => { chatAreaProbe.mounts += 1 }, [])
       return React.createElement('div', { 'data-testid': 'mock-chat-area', 'data-bumps': String(bumps), 'data-active-tab': activeTab, 'data-hidden': String(hidden), 'data-navigation-target': String(navigationTarget) },
@@ -193,8 +195,13 @@ vi.mock('../../../../apps/desktop/src/mobile/assistant/MobileAssistantTab', asyn
 const agentWatchProbe = vi.hoisted(() => ({ rootMounts: 0, rootUnmounts: 0 }))
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/AgentWatchPage', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
+  const { useBackLayer } = await vi.importActual<typeof import('../../../../apps/desktop/src/components/ui/sheetStack')>('../../../../apps/desktop/src/components/ui/sheetStack')
   return {
-    AgentWatchPage: ({ active, createRequest }: { active: boolean; createRequest?: number }) => React.createElement('div', { 'data-testid': 'mock-agent-watch-page', 'data-active': String(active), 'data-create-request': String(createRequest ?? 0) }),
+    AgentWatchPage: ({ active, createRequest, onExit }: { active: boolean; createRequest?: number; onExit: () => void }) => {
+      useBackLayer(onExit, active)
+      return React.createElement('div', { 'data-testid': 'mock-agent-watch-page', 'data-active': String(active), 'data-create-request': String(createRequest ?? 0) },
+        React.createElement('button', { 'data-testid': 'mock-session-back', onClick: onExit }, 'back'))
+    },
     AgentWatchRoot: () => {
       React.useEffect(() => {
         agentWatchProbe.rootMounts += 1
@@ -209,12 +216,6 @@ vi.mock('../../../../apps/desktop/src/components/sessionpage/EmdashSessionFrame'
   EmdashSessionFrame: () => null,
   prewarmEmdashAssets: activationProbe.prewarm,
 }))
-vi.mock('../../../../apps/desktop/src/components/AcpAgentCreateComposer', async () => {
-  const React = await vi.importActual<typeof import('react')>('react')
-  return {
-    AcpAgentCreateComposer: () => React.createElement('div', { 'data-testid': 'mock-acp-agent-create-composer' }, 'acp-agent-create-composer'),
-  }
-})
 vi.mock('../../../../apps/desktop/src/components/ContactsPanel', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
   return {
@@ -283,11 +284,20 @@ vi.mock('../../../../apps/desktop/src/store/contactsContext', async () => {
 })
 // gugu-dev#181 桌面上打开一条对话 = 请会话页摆出它那块(会话页装的那座桥,这里装一份假的、只记下请求)。
 const sessionPageViewRequests = { openChat: vi.fn(), openSession: vi.fn() }
+const notificationClicks = vi.hoisted(() => ({
+  listener: null as ((click: { chatId: string | null }) => void) | null,
+  unsubscribe: vi.fn(),
+}))
 const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted(() => ({
   platformMock: {
     kind: 'electron',
     capabilities: { notifications: false, appUpdates: false, sessionHost: true },
     showNotification: vi.fn(),
+    subscribeNotificationClicks: vi.fn((listener: (click: { chatId: string | null }) => void) => {
+      let active = true
+      notificationClicks.listener = (click) => { if (active) listener(click) }
+      return () => { active = false; notificationClicks.unsubscribe() }
+    }),
     installUpdate: vi.fn()
   },
   chatStoreMock: {
@@ -295,6 +305,7 @@ const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted
     identitiesById: {},
     draftAttachments: {},
     setDraftAttachments: vi.fn(),
+    setDraftQuote: vi.fn(),
     activeChatId: null as string | null,
     setActiveChatId: vi.fn(),
     refreshChats: vi.fn(),
@@ -325,6 +336,7 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
+  taskRoute.remote = false
   vi.stubGlobal('matchMedia', () => ({ matches: false }))
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
     configurable: true,
@@ -334,7 +346,6 @@ beforeEach(() => {
     },
   })
   taskRoute.contacts = []
-  deliveryNotice.mockClear()
   fileOwner.mockResolvedValue({ data: { chat_id: 'personal-dm' }, error: null })
   activationProbe.calls.length = 0
   chatAreaProbe.mounts = 0
@@ -343,12 +354,16 @@ beforeEach(() => {
   activationProbe.prewarm.mockReset()
   platformMock.kind = 'electron'
   platformMock.capabilities.sessionHost = true
+  notificationClicks.listener = null
+  notificationClicks.unsubscribe.mockClear()
+  platformMock.subscribeNotificationClicks.mockClear()
   chatStoreMock.chats = []
   chatStoreMock.activeChatId = null
   chatStoreMock.setActiveChatId.mockReset()
   chatStoreMock.refreshChats.mockReset()
   chatStoreMock.upsertChat.mockReset()
   chatStoreMock.writeDraft.mockReset()
+  chatStoreMock.setDraftQuote.mockReset()
   chatStoreMock.sendMessageToChat.mockReset()
   chatStoreMock.sendMessageToChat.mockResolvedValue(MESSAGE_ID)
   draftValues.clear()
@@ -376,12 +391,13 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
-async function renderMainLayoutWithToast(toast = vi.fn()) {
+async function renderMainLayoutWithToast(toast = vi.fn(), effectsActive = true) {
   await harness.render(createNode(
     ToastContext.Provider,
     { value: { toast } },
     createNode(MainLayout, {
       user: { id: 'user-1', email: 'user@example.com', nickname: 'User' },
+      effectsActive,
     }),
   ))
   return { toast }
@@ -396,42 +412,6 @@ function layerOpen(testId: string): boolean {
   return document.querySelector(`[data-testid="${testId}"]`)?.hasAttribute('data-open') ?? false
 }
 
-describe('MainLayout: task delivery failure notices', () => {
-  const fail = async (agentUserId: string, messageId?: string, error = 'Provider refused the request') => {
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent(UI_EVENTS.sessionpageDeliverFailed, { detail: { agentUserId, messageId, error } }))
-    })
-    return deliveryNotice.mock.calls.at(-1)![0]
-  }
-  const description = (name: string, count: number) => i18n.t('shell.toast.taskDeliverFailedCount', { ns: 'main', name, count })
-
-  it('updates one task notice with the actual redacted cause and distinct source message count', async () => {
-    taskRoute.contacts = [{ id: 'agent-1', display_name: 'Ledger' }]
-    await renderMainLayoutWithToast()
-    const first = await fail('agent-1', 'message-1', 'Denied /Users/alice/private with sk-test_secret\nprivate stack')
-    expect(first.title).toBe('Denied [path] with [redacted token]')
-    expect(first.description).toBe(description('Ledger', 1))
-    expect((await fail('agent-1', 'message-1')).description).toBe(description('Ledger', 1))
-    const second = await fail('agent-1', 'message-2')
-    expect(second.key).toBe(first.key)
-    expect(second.description).toBe(description('Ledger', 2))
-    expect((await fail('agent-2', 'message-3')).key).not.toBe(first.key)
-  })
-
-  it.each(['onDismiss', 'onAutoClose'] as const)('starts a new message count after %s, ignoring an old notice callback', async (close) => {
-    await renderMainLayoutWithToast()
-    const old = await fail('agent-1', 'message-1')
-    old[close]?.()
-    expect((await fail('agent-1', 'message-2')).description).toBe(description('agent-1', 1))
-    old[close]?.()
-    expect((await fail('agent-1', 'message-3')).description).toBe(description('agent-1', 2))
-  })
-
-  it('does not invent a message count for an event without a source message', async () => {
-    await renderMainLayoutWithToast()
-    expect((await fail('agent-1')).description).toBe(i18n.t('shell.toast.taskDeliverFailed', { ns: 'main', name: 'agent-1' }))
-  })
-})
 // 安卓返回键(同 ui/sheetStack.ts 的 NATIVE_BACK_EVENT)。
 async function nativeBack() {
   await act(async () => {
@@ -521,25 +501,6 @@ describe('MainLayout', () => {
     await ask()
     expect(panel()?.getAttribute('data-section')).toBe('about')
   })
-  it('exposes the create-agent entry on a platform without a task host, wired to the ACP-only composer', async () => {
-    platformMock.kind = 'web'
-    platformMock.capabilities.sessionHost = false
-    await harness.render(createNode(MainLayout, {
-      user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
-    }))
-    const chatEntry = harness.container.querySelector('[data-testid="mock-chat-create-agent"]') as HTMLElement | null
-    expect(chatEntry, 'Messages must offer the create entry on web/Capacitor too').toBeTruthy()
-    await clickElement(chatEntry!)
-    const composer = harness.container.querySelector('[data-testid="mock-acp-agent-create-composer"]')
-    expect(composer, 'clicking it must mount the ACP-only assembly, not a no-op').toBeTruthy()
-    await clickElement(harness.container.querySelector('[data-testid="mock-open-contacts"]') as HTMLElement)
-    expect(
-      harness.container.querySelector('[data-testid="mock-contacts-create-agent"]'),
-      'Contacts must offer it on web/Capacitor too',
-    ).toBeTruthy()
-    expect(activationProbe.prewarm).not.toHaveBeenCalled()
-  })
-  // #446 手机「伙伴」(owner 10-26,v7.12 稿)取代联系人面板;「消息」右上的「新项目」推进伙伴的新项目页;伙伴推进去的页没有底栏、不横滑。
   it('#446 mobile: 伙伴 replaces the contacts panel, and 新项目 from 消息 opens it with a new-project request', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
@@ -568,6 +529,36 @@ describe('MainLayout', () => {
     expect(harness.container.querySelector('[data-testid="mock-phone-partners"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-chat-new-project"]'), 'no phone 新项目 entry on the desktop').toBeNull()
   })
+  it.each(['messages', 'contacts', 'project', 'notification'] as const)('adds one session layer from %s and returns to the retained source', async source => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    taskRoute.remote = true
+    taskRoute.contacts = [{ id: 'task-agent', type: 'agent', owner_user_id: 'user-1' }]
+    chatStoreMock.chats = [{ id: 'task-dm', kind: 'dm', peer_user_id: 'task-agent' }] as never
+    await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
+    if (source !== 'messages') {
+      await clickElement(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileContactsNav}"]`) as HTMLElement)
+      if (source !== 'contacts') await clickElement(harness.container.querySelector('[data-testid="mock-phone-partners-push"]') as HTMLElement)
+    }
+    const before = sheetStack.length
+    for (const method of ['header', 'native']) {
+      await act(async () => {
+        if (source === 'notification') notificationClicks.listener?.({ chatId: 'task-dm' })
+        else window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: { deviceId: 'host', session: { conversationId: 'task-session', supported: true } } }))
+        await Promise.resolve()
+      })
+      expect(layerOpen('mobile-sessions-layer')).toBe(true)
+      expect(sheetStack).toHaveLength(before + 1)
+      if (source !== 'messages') expect(harness.container.querySelector('[data-testid="mock-phone-partners"]')?.getAttribute('data-active')).toBe('true')
+      if (method === 'header') await clickElement(harness.container.querySelector('[data-testid="mock-session-back"]') as HTMLElement)
+      else await nativeBack()
+      expect(layerOpen('mobile-sessions-layer')).toBe(false)
+      expect(sheetStack).toHaveLength(before)
+      const page = source === 'messages' ? 'chats' : 'contacts'
+      expect(harness.container.querySelector(`[data-mobile-tab-page="${page}"]`)?.hasAttribute('inert')).toBe(false)
+      expect(Boolean(harness.container.querySelector('nav'))).toBe(source === 'messages' || source === 'contacts')
+    }
+  })
   // 伙伴里只有项目群聊那一行(话题不成行,owner 10-28):进去落在群聊页签,❌ 开话题分屏。
   it('returns from a project group opened in Partners to the retained project directory without showing the root tab bar', async () => {
     platformMock.kind = 'capacitor'
@@ -583,50 +574,6 @@ describe('MainLayout', () => {
     await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-back"]') as HTMLElement)
     expect(harness.container.querySelector('[data-testid="mock-chat-area"]')?.getAttribute('data-active-tab')).toBe('contacts')
     expect(harness.container.querySelector('nav')).toBeNull()
-  })
-  it('keeps the two assemblies mutually exclusive: a task host never mounts the ACP-only composer', async () => {
-    await harness.render(createNode(MainLayout, {
-      user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
-    }))
-    await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
-    // gugu-dev#181 有会话页的桌面上没有单独的聊天页:建 agent 只走会话页那一个新建会话,聊天页的创建入口与 ACP 装配都不在。
-    expect(harness.container.querySelector('[data-testid="mock-chat-create-agent"]')).toBeNull()
-    expect(
-      harness.container.querySelector('[data-testid="mock-acp-agent-create-composer"]'),
-      'Electron creates through the one resident session-page composer; a second assembly here would be a fork',
-    ).toBeNull()
-  })
-  it('opens the created agent conversation on the session page, never by switching the shell chat', async () => {
-    await harness.render(createNode(MainLayout, {
-      user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
-    }))
-    // gugu-dev#181 桌面上没有单独的聊天页可切过去。
-    expect(chatSurfaceOf(harness.container)).toBeNull()
-    const host = (window as typeof window & { __GUGU_SESSIONPAGE_MESSAGES__?: SessionpageMessageHost })
-      .__GUGU_SESSIONPAGE_MESSAGES__
-    expect(host, 'the create flow reaches the shell through this host').toBeTruthy()
-    await act(async () => {
-      host!.openAgentChat({ chatId: 'agent-dm', agentUserId: 'agent-1' })
-      await Promise.resolve()
-    })
-    // gugu-dev#181 桌面上没有单独的聊天页:新建 agent 的那条对话在会话页这屏打开(一块),❌ 换壳的当前对话。
-    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('agent-dm', false)
-    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
-  })
-  it('publishes the exact ordinary sendMessageToChat API to the taskpage composer', async () => {
-    await renderMainLayoutWithToast()
-    const host = (window as typeof window & { __GUGU_SESSIONPAGE_MESSAGES__?: SessionpageMessageHost })
-      .__GUGU_SESSIONPAGE_MESSAGES__
-    expect(host).toBeTruthy()
-    expect(host!.sendMessageToChat).toBe(chatStoreMock.sendMessageToChat)
-    await host!.sendMessageToChat('chat-1', 'later message', {
-      toUserIds: ['agent-1'],
-      clientMessageId: 'later-id',
-    })
-    expect(chatStoreMock.sendMessageToChat).toHaveBeenCalledWith('chat-1', 'later message', {
-      toUserIds: ['agent-1'],
-      clientMessageId: 'later-id',
-    })
   })
   it('handles Android back from the mobile chat pane by returning to the chat list', async () => {
     platformMock.kind = 'capacitor'
@@ -715,28 +662,6 @@ describe('MainLayout', () => {
     await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
     expect(chatSurfaceOf(harness.container)).toBeNull()
     expect(harness.container.textContent).not.toContain('chat-list-panel')
-  })
-  // 创建面(新建 agent)盖在聊天区上时,聊天区只隐藏不卸载:从前条件卸载,关掉创建面回来整个面板重挂
-  // (消息列表、滚动位置、分栏、群协作状态全部重来 = 那一下白闪)。
-  it('keeps the chat area mounted and merely hidden under the create surface', async () => {
-    platformMock.kind = 'web'
-    platformMock.capabilities.sessionHost = false
-    await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
-    const chatArea = harness.container.querySelector('[data-testid="mock-chat-area"]') as HTMLElement
-    expect(chatArea.getAttribute('data-hidden')).toBe('false')
-    await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-bump"]') as HTMLElement)
-    await clickElement(harness.container.querySelector('[data-testid="mock-chat-create-agent"]') as HTMLElement)
-    expect(harness.container.querySelector('[data-testid="mock-acp-agent-create-composer"]')).toBeTruthy()
-    expect(harness.container.querySelector('[data-testid="mock-chat-area"]'), 'opening the create surface must not unmount the chat area').toBe(chatArea)
-    expect(chatArea.getAttribute('data-hidden')).toBe('true')
-    const shell = chatArea.parentElement as HTMLElement
-    expect(shell.style.contentVisibility).toBe('hidden')
-    await clickElement(harness.container.querySelector('[data-testid="mock-chat-row"]') as HTMLElement)
-    expect(harness.container.querySelector('[data-testid="mock-acp-agent-create-composer"]')?.closest('[style*="display: none"]')).toBeTruthy()
-    expect(harness.container.querySelector('[data-testid="mock-chat-area"]')).toBe(chatArea)
-    expect(chatArea.getAttribute('data-hidden')).toBe('false')
-    expect(chatArea.getAttribute('data-bumps'), 'local UI state survives the create-surface round trip').toBe('1')
-    expect(chatAreaProbe.mounts).toBe(1)
   })
   it('keeps the agent-watch root mounted across every mobile tab (#6610)', async () => {
     platformMock.kind = 'capacitor'
@@ -893,6 +818,17 @@ describe('MainLayout', () => {
     expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-assistant-tab"]')).toBeNull()
   })
+  it.each(['error', 'needs_user', null] as const)('keeps the attention list slot with no assistant (attention=%s, #1165)', async attention => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    const read = vi.spyOn(needsYouTasks, 'useNeedsYouTasks').mockReturnValue({ tasks: [], attention, error: null })
+    try {
+      await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
+      const slot = harness.container.querySelector('[data-mobile-tab-page="chats"] [data-needs-you-list-slot]')
+      expect(slot !== null).toBe(attention !== null)
+      expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
+    } finally { read.mockRestore() }
+  })
   // #446 列表底栏不因聚焦收放;键盘是否遮住它只认原生 IME 信号。
   it('keeps the root tab bar mounted when an editable control gains focus without a keyboard signal', async () => {
     platformMock.kind = 'capacitor'
@@ -1046,7 +982,7 @@ describe('MainLayout: files.openWith', () => {
     await renderMainLayoutWithToast()
     fileOwner.mockResolvedValue({ data: { chat_id: 'topic-file' }, error: null })
     await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1' }, { restore }) })
-    if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false)
+    if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false, 'resource')
     else expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('source')
     expect(drainTopicSplitRequest('source')).toBeNull()
     expect(takeChatAsk('source')).toEqual({ itemId: 'F1', restore })
@@ -1058,7 +994,7 @@ describe('MainLayout: files.openWith', () => {
     await renderMainLayoutWithToast()
     await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail })) })
     // 桌面上对话是会话页这屏的一块:请会话页把它摆出来。
-    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('g-open', false)
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('g-open', false, 'resource')
     expect(takeChatAsk('g-open'), 'a page asked: what it opens has that page as its 上一页').toEqual({ itemId: 'F1', opener: detail, fromPage: true })
   })
 
@@ -1083,6 +1019,54 @@ describe('MainLayout: files.openWith', () => {
   })
 })
 
+
+it.each(['owned', 'group'] as const)('opens a %s file on its file host and preserves the authorized source message', async kind => {
+  const chatId = 'file-chat'
+  const source = message({ id: 'receipt', chat_id: chatId, file_item_id: 'F1', file_version: 1 })
+  chatStoreMock.chats = [{ id: chatId, kind: kind === 'owned' ? 'dm' : 'group', peer_user_id: kind === 'owned' ? 'agent' : null }] as never
+  if (kind === 'owned') { taskRoute.contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'user-1' }]; taskRoute.remote = true }
+  fileOwner.mockResolvedValue({ data: { chat_id: chatId }, error: null })
+  openNativeConversation.mockClear()
+  await renderMainLayoutWithToast()
+  await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1', version: 1 }, { message: source }) })
+  if (kind === 'owned') {
+    expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
+    expect(openNativeConversation).toHaveBeenCalledWith({ kind: 'session', sessionId: 'task-session', projectId: 'project', deviceId: 'host' })
+    expect(resourceHosts.host).toHaveBeenCalledWith('user-1', chatId, expect.objectContaining({ sessionId: 'task-session', projectId: 'project' }))
+  } else {
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledExactlyOnceWith(chatId, false, 'resource')
+    expect(openNativeConversation).not.toHaveBeenCalled()
+  }
+  expect(takeChatAsk(chatId)).toEqual({ itemId: 'F1', message: source })
+})
+
+it('opens an App card beside the owned agent session without an IM block', async () => {
+  taskRoute.remote = true
+  chatStoreMock.chats = [{ id: 'owned-app', kind: 'dm', peer_user_id: 'agent' }] as never
+  taskRoute.contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'user-1' }]
+  openNativeConversation.mockClear()
+  await renderMainLayoutWithToast()
+  await act(async () => { await openLinkTarget({ kind: 'app', extensionId: 'board', tab: 'main', path: '', query: {}, place: { chat: 'owned-app' } }) })
+  expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
+  expect(openNativeConversation).toHaveBeenCalledWith({ kind: 'session', sessionId: 'task-session', projectId: 'project', deviceId: 'host' })
+  expect(resourceHosts.host).toHaveBeenCalledWith('user-1', 'owned-app', expect.objectContaining({ sessionId: 'task-session' }))
+  expect(takeChatAsk('owned-app')).toEqual({ app: 'board', tab: 'main' })
+})
+
+it('rejects file navigation when the task bridge is absent, and toasts a failed Open With event', async () => {
+  chatStoreMock.chats = [{ id: 'file-chat', kind: 'dm' }] as never
+  fileOwner.mockResolvedValue({ data: { chat_id: 'file-chat' }, error: null })
+  const toast = vi.fn()
+  await renderMainLayoutWithToast(toast)
+  delete (window as unknown as Record<string, unknown>).__GUGU_SESSIONPAGE_VIEW_REQUESTS__
+  await act(async () => { await expect(openLinkTarget({ kind: 'file', itemId: 'F1' })).rejects.toThrow() })
+  expect(takeChatAsk('file-chat')).toBeNull()
+  await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: {
+    chatId: 'file-chat', itemId: 'F1', name: 'proof.txt', typedName: 'proof.txt', choice: { kind: 'none' },
+  } })) })
+  expect(toast).toHaveBeenCalledWith(expect.any(String), 'error')
+  expect(takeChatAsk('file-chat')).toBeNull()
+})
 
 describe('MainLayout: personal assistant destinations', () => {
   const shell = { cloudAvailable: false, canHostHere: true, cloud: null, loadError: null,
@@ -1109,6 +1093,7 @@ describe('MainLayout: personal assistant destinations', () => {
         else window.dispatchEvent(new CustomEvent(name, { detail }))
       })
       expect(navigate).toHaveBeenCalledWith('assistant')
+      expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
       expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
       if ('itemId' in detail) expect((takeChatAsk('personal-dm') as { itemId?: string } | null)?.itemId).toBe('personal-file')
       if ('text' in detail) expect(chatStoreMock.writeDraft).toHaveBeenCalledWith('personal-dm', { at: 'end', text: 'follow-up' })
@@ -1130,6 +1115,25 @@ describe('MainLayout: personal assistant destinations', () => {
   })
 })
 
+it.each(['group', 'topic', 'owned', 'assistant'] as const)('places an image reply in its %s destination while another chat is active', async kind => {
+  const target = '0b1e7c1a-0000-4000-8000-000000000002', parent = '0b1e7c1a-0000-4000-8000-000000000001'
+  const original = message({ id: 'original-image', chat_id: target, sender_user_id: 'agent', is_whisper: true, to_user_ids: ['user-1'] })
+  const dm = kind === 'owned' || kind === 'assistant'
+  chatStoreMock.activeChatId = 'other-chat'
+  chatStoreMock.chats = [{ id: parent, kind: 'group' }, { id: target, kind: dm ? 'dm' : kind, source_chat_id: kind === 'topic' ? parent : null, peer_user_id: dm ? 'agent' : null }] as never
+  if (kind === 'owned') taskRoute.contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'user-1' }]
+  if (kind === 'assistant') { installAssistantShellBridge(); publishAssistantShell({ assistant: { id: 'agent' }, chatId: target } as never) }
+  await renderMainLayoutWithToast()
+  await act(async () => { window.dispatchEvent(new CustomEvent(APP_COMPOSE_EVENT, { detail: {
+    chatId: target, text: '① Check this', quote: original, images: [{ name: 'edited.png', type: 'image/png', bytes: new ArrayBuffer(3) }],
+  } })) })
+  expect(chatStoreMock.setDraftQuote).toHaveBeenCalledWith(target, kind === 'owned' ? null : expect.objectContaining({ messageId: original.id, source: original }))
+  expect(chatStoreMock.writeDraft).toHaveBeenCalledWith(target, kind === 'owned' ? '① Check this' : { at: 'end', text: '① Check this' })
+  expect(chatStoreMock.setDraftAttachments).toHaveBeenCalledWith(target, [expect.objectContaining({ file: expect.objectContaining({ name: 'edited.png', type: 'image/png' }) })])
+  if (kind === 'topic') expect(drainTopicSplitRequest(parent)).toMatchObject({ chatId: target })
+  if (kind === 'assistant') await act(async () => publishAssistantShell({ assistant: null, chatId: null } as never))
+})
+
 // Links and notifications retain the topic address. Files open the shared source slot.
 
 describe('MainLayout: opening a topic on the desktop', () => {
@@ -1139,6 +1143,7 @@ describe('MainLayout: opening a topic on the desktop', () => {
   const ways: Array<[string, () => void, string]> = [
     ['a conversation link', () => { clickLink(conversationLink(TOPIC)) }, SRC],
     ['a notification', () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: TOPIC } })) }, TOPIC],
+    ['a phone notification', () => { notificationClicks.listener!({ chatId: TOPIC }) }, TOPIC],
     ['an App naming it', () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: { chatId: TOPIC, itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } } })) }, SRC],
   ]
   it.each(ways)('from %s, through the one door', async (_way, open, target) => {
@@ -1148,9 +1153,67 @@ describe('MainLayout: opening a topic on the desktop', () => {
       open()
       for (let i = 0; i < 5; i += 1) await Promise.resolve()
     })
-    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(target, false)
+    expect(sessionPageViewRequests.openChat.mock.calls[0]).toEqual(_way === 'an App naming it' ? [target, false, 'resource'] : [target, false])
     if (_way === 'a conversation link') expect(drainTopicSplitRequest(SRC)).toMatchObject({ chatId: TOPIC, sourceChatId: SRC })
     else expect(drainTopicSplitRequest(SRC)).toBeNull()
+  })
+  it('unsubscribes notification clicks when MainLayout unmounts', async () => {
+    await renderMainLayoutWithToast()
+    expect(platformMock.subscribeNotificationClicks).toHaveBeenCalled()
+    notificationClicks.unsubscribe.mockClear()
+    await harness.render(null)
+    expect(notificationClicks.unsubscribe).toHaveBeenCalledOnce()
+  })
+  it('keeps one phone notification subscription across startup rerenders', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await renderMainLayoutWithToast(vi.fn(), false)
+    for (const effectsActive of [true, false, true]) {
+      phoneAssistantMock.state.available = effectsActive
+      phoneAssistantMock.state.chatId = effectsActive ? 'assistant-chat' : null
+      await renderMainLayoutWithToast(vi.fn(), effectsActive)
+    }
+    expect(platformMock.subscribeNotificationClicks).toHaveBeenCalledOnce()
+    expect(notificationClicks.unsubscribe).not.toHaveBeenCalled()
+    await harness.render(null)
+    expect(notificationClicks.unsubscribe).toHaveBeenCalledOnce()
+  })
+  it('delivers the retained cold tap to the latest open and still handles warm clicks', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await renderMainLayoutWithToast(vi.fn(), false)
+    // The plugin consumes its retained tap for the first listener, even if JS receives it later.
+    const coldClick = notificationClicks.listener!
+    const initialOpen = chatStoreMock.setActiveChatId
+    chatStoreMock.setActiveChatId = vi.fn()
+    for (const effectsActive of [true, false, true]) {
+      await renderMainLayoutWithToast(vi.fn(), effectsActive)
+    }
+    await act(async () => { coldClick({ chatId: 'cold-chat' }) })
+    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledExactlyOnceWith('cold-chat')
+    expect(initialOpen).not.toHaveBeenCalled()
+    chatStoreMock.setActiveChatId.mockClear()
+    await act(async () => { notificationClicks.listener!({ chatId: 'warm-chat' }) })
+    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledExactlyOnceWith('warm-chat')
+    chatStoreMock.setActiveChatId.mockClear()
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: 'window-chat' } }))
+    })
+    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledExactlyOnceWith('window-chat')
+    await harness.render(null)
+    chatStoreMock.setActiveChatId.mockClear()
+    await act(async () => { coldClick({ chatId: 'after-unmount' }) })
+    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+  })
+  it('does not navigate for a phone notification without a chatId', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await renderMainLayoutWithToast()
+    chatStoreMock.setActiveChatId.mockClear()
+    sessionPageViewRequests.openChat.mockClear()
+    await act(async () => { notificationClicks.listener!({ chatId: null }) })
+    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+    expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
   })
 })
 
@@ -1164,7 +1227,7 @@ describe('MainLayout: an App requested from a topic uses the shared source slot'
       window.dispatchEvent(new CustomEvent(eventName, { detail: { chatId: 'topic-app', extensionId: 'board' } }))
     })
     expect(resourceChat).toHaveBeenLastCalledWith('layout-token', 'topic-app', 'user-1')
-    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source-app', false)
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source-app', false, 'resource')
     expect(takeChatAsk('source-app')).toEqual({ app: 'board' })
     expect(takeChatAsk('topic-app')).toBeNull()
     expect(drainTopicSplitRequest('source-app')).toBeNull()

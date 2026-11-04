@@ -21,9 +21,9 @@ import type { DirectTerminalReason } from '../../../src/session/shared/direct-te
 import { MACHINE_LIMIT_ERROR, parseMachineLimitRefusal, type MachineLimitRefusal } from '@gugu/core/cloud/machineLimit'
 import { serverProtocolTooOld } from '@gugu/core/cloud/serverMachineHealth'
 import { isIpLikeLabel } from '@gugu/core/shared/ipLikeLabel'
-import { isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
 import { quoteShellArg } from '../../session/main/utils/shellEscape'
-import { INCOMING_DIR, MATCH_MARK, versionManifestUrl } from '../server-account-versions'
+import { parseStatusJson } from '../server-status'
+import { desktopServerChannel, remoteServerPaths } from '../server-names'
 
 // ── 用户填的地址 ───────────────────────────────────────────────────────────────
 
@@ -438,8 +438,8 @@ const ALIVE_MARK = '__GUGU_ALIVE__'
 /** 下载脚本连不上下载站时的退出码(桌面据此改走「本机下载后传过去」)。 */
 export const NO_INTERNET_EXIT = 3
 
-const SERVER_BIN = '"$HOME/.local/bin/gugu-server"'
-const SERVER_HOME = '"${GUGU_SERVER_HOME:-$HOME/.gugu-server}"'
+/** 找的、装的都是这台桌面那条通道的 server(server-names.ts):正式版桌面看不见同一个用户下的 Beta,反过来也一样。 */
+const { bin: SERVER_BIN, home: SERVER_HOME } = remoteServerPaths(desktopServerChannel())
 /** 本机下载好的包经 SSH 传到那台机器上的落点(相对家目录,登录 shell 的起点就是家目录)。 */
 export const UPLOAD_FILE = '.gugu-server-upload.tar.gz'
 
@@ -473,8 +473,6 @@ export function probeScript(): string {
     'if [ -x "$B" ]; then',
     '  echo "installed=$(cat "$H/current/version" 2>/dev/null || echo unknown)"',
     '  if "$B" help 2>/dev/null | grep -q -- "--grant-stdin"; then echo grant=1; fi',
-    // #6264 认得 match-version = 每个账号能各跑各的版本(换版只重启那一个账号);不认得的老 server 只能整台换。
-    '  if "$B" help 2>/dev/null | grep -q -- "match-version"; then echo match=1; fi',
     // 这份说哪一版桌面↔server 协议。分清三种:报出来了 / 老版本明确不认这条命令(退出码 2 + 「不认识的命令」)/
     // 其它失败(崩溃、超时、权限)—— 只有前两种能判「太旧」,第三种照实报失败,❌ 当太旧去重装(installedServerTooOld)。
     '  if command -v timeout >/dev/null 2>&1; then PO="$(timeout 20 "$B" protocol 2>&1)"; else PO="$("$B" protocol 2>&1)"; fi',
@@ -485,13 +483,11 @@ export function probeScript(): string {
     `  if [ "$PC" = 2 ] && printf '%s' "$PO" | grep -qF '${unknownCommandLine('protocol')}'; then echo protocol_unknown=1; fi`,
     '  echo "protocol_err=$(printf \'%s\\n\' "$PO" | tail -n 1 | tr -d \'\\r\' | cut -c1-200)"',
     'fi',
-    'P="$(cat "$H/data/server.lock" 2>/dev/null)"',
-    'if [ -n "$P" ] && kill -0 "$P" 2>/dev/null; then echo running=1; fi',
-    'for d in "$H"/accounts/*/; do',
-    '  [ -f "${d}data/server-session.enc" ] || continue',
-    '  e="$(sed -n \'s/.*"email": *"\\([^"]*\\)".*/\\1/p\' "${d}account.json" 2>/dev/null | head -n 1)"',
-    '  echo "account=$(basename "$d") $e"',
-    'done',
+    'if [ -x "$B" ]; then',
+    '  SO="$("$B" status --json 2>&1)"; SC=$?',
+    '  echo "status_exit=$SC"',
+    '  printf \'%s\\n\' "$SO"',
+    'fi',
     'if command -v curl >/dev/null 2>&1; then echo fetcher=curl; elif command -v wget >/dev/null 2>&1; then echo fetcher=wget; fi',
     'echo "freekb=$(df -Pk "$HOME" 2>/dev/null | awk \'NR==2{print $4}\')"',
     'X="$HOME/.gugu-exec-test.$$"',
@@ -516,8 +512,6 @@ export type ProbeResult = {
   libc: string
   installedVersion: string | null
   supportsGrant: boolean
-  /** 装着的那份认得 `match-version`(每个账号各跑各的版本)。 */
-  supportsMatch: boolean
   /** 装着的那份说的桌面↔server 协议版本;没报出来(不认这条命令 / 命令失败 / 没装)= null。 */
   installedProtocol: number | null
   /**
@@ -535,6 +529,7 @@ export type ProbeResult = {
   /** 家目录里能不能执行程序(noexec 挂载时不能);没测成为 null。 */
   exec: boolean | null
   accounts: Array<{ userId: string; email: string | null }>
+  statusError?: string | null
 }
 
 export function parseProbeOutput(stdout: string): ProbeResult | null {
@@ -542,19 +537,17 @@ export function parseProbeOutput(stdout: string): ProbeResult | null {
   const end = stdout.indexOf(PROBE_END, begin)
   if (begin < 0 || end < 0) return null
   const fields = new Map<string, string>()
-  const accounts: ProbeResult['accounts'] = []
   for (const line of stdout.slice(begin + PROBE_BEGIN.length, end).split(/\r?\n/)) {
     const eq = line.indexOf('=')
     if (eq <= 0) continue
     const key = line.slice(0, eq).trim()
     const value = line.slice(eq + 1).trim()
-    if (key === 'account') {
-      const [userId, ...rest] = value.split(' ')
-      if (/^[A-Za-z0-9_-]{1,128}$/.test(userId)) accounts.push({ userId, email: rest.join(' ').trim() || null })
-      continue
-    }
     fields.set(key, value)
   }
+  const report = fields.get('installed') ? parseStatusJson(stdout.slice(begin, end)) : null
+  const statusError = !fields.get('installed') ? null : fields.get('status_exit') !== '0' || !report
+    ? `Could not determine the installed server account state: status --json exit ${fields.get('status_exit') ?? '?'} or invalid status markers/JSON` : null
+  const accounts = report?.accounts.filter(account => account.signedIn && !account.signedOut).map(({ userId, email }) => ({ userId, email })) ?? []
   const fetcher = fields.get('fetcher')
   const freeKb = Number(fields.get('freekb'))
   const installedProtocol = /^\d{1,6}$/.test(fields.get('protocol') ?? '') ? Number(fields.get('protocol')) : null
@@ -575,16 +568,15 @@ export function parseProbeOutput(stdout: string): ProbeResult | null {
     libc: fields.get('libc') ?? '',
     installedVersion: fields.get('installed') || null,
     supportsGrant: fields.get('grant') === '1',
-    supportsMatch: fields.get('match') === '1',
     installedProtocol,
     protocolCheck,
     protocolError: protocolCheck === 'failed' ? `exit ${fields.get('protocol_exit') ?? '?'}: ${fields.get('protocol_err') ?? ''}`.trim() : null,
-    running: fields.get('running') === '1',
+    running: report?.supervisorVersion != null || report?.accounts.some(account => account.running) === true,
     fetcher: fetcher === 'curl' || fetcher === 'wget' ? fetcher : null,
     freeKb: fields.get('freekb') && Number.isFinite(freeKb) ? freeKb : null,
     writable: fields.get('writable') !== '0',
     exec: exec === '1' ? true : exec === '0' ? false : null,
-    accounts,
+    accounts, statusError,
   }
 }
 
@@ -661,11 +653,6 @@ export function manifestUrl(base: string, channel: string, probe: Pick<ProbeResu
  */
 export function installScriptUrl(base: string, channel: string): string {
   return `${base}/${channel}/install.sh`
-}
-
-/** 某一版的清单(钉在这一版上):`<根>/<版本>/<系统>-<架构>.txt`。 */
-export function versionedManifestUrl(base: string, version: string, probe: Pick<ProbeResult, 'os' | 'arch'>): string {
-  return versionManifestUrl(base, version, `${platformFromUname(probe.os)}-${archFromUname(probe.arch)}`)
 }
 
 /**
@@ -761,71 +748,6 @@ export function oneLineInstallCommand(downloadBase: string, channel: string, fet
   return fetcher === 'wget'
     ? `wget -qO- ${downloadBase}/install.sh | ${pipe}`
     : `curl -fsSL ${downloadBase}/install.sh | ${pipe}`
-}
-
-// ── #6264 换成和这台桌面匹配的那一版(那台机器认得 match-version 时)─────────────────────────
-
-const ACCOUNT_RE = /^[A-Za-z0-9_-]{1,128}$/
-const DESKTOP_RE = /^[A-Za-z0-9:_-]{1,128}$/
-
-/** 报这台桌面是哪一版、问这个账号的目标版本(同一账号几台桌面取最新)。 */
-export function matchReportScript(options: { accountUserId: string; desktopId: string; version: string; protocol: number }): string {
-  if (!ACCOUNT_RE.test(options.accountUserId) || !DESKTOP_RE.test(options.desktopId) || !isServerVersion(options.version)) {
-    throw new Error('账号 / 桌面 / 版本的形状不对')
-  }
-  return `${SERVER_BIN} match-version --account ${options.accountUserId} --desktop ${options.desktopId} --version ${options.version} --protocol ${Math.max(0, Math.floor(options.protocol))} </dev/null\n`
-}
-
-/**
- * 请守护进程把这一个账号换到这一版,等它真的换过去。没装由它自己装(下载,或用 incomingUploadCommand 放进去的包),
- * 桌面 ❌ 再装一份:换版装东西的只有那台机器上的守护进程(server-account-converge.ts)。
- */
-export function matchApplyScript(options: { accountUserId: string; version: string; now?: boolean }): string {
-  if (!ACCOUNT_RE.test(options.accountUserId) || !isServerVersion(options.version)) throw new Error('账号 / 版本的形状不对')
-  return `${SERVER_BIN} match-version --account ${options.accountUserId} --apply ${options.version}${options.now ? ' --now' : ''} </dev/null\n`
-}
-
-/**
- * 连不上下载站的机器:本机下好的包经 SSH 放进那台机器的 `versions/.incoming/<版本>.tar.gz`(server-account-versions.ts
- * incomingPackage),守护进程装它而 ❌ 下载。包先写成 `.part`,写完才改名。
- */
-export function incomingUploadCommand(version: string): string {
-  if (!isServerVersion(version)) throw new Error('版本号格式不对')
-  const dir = `${SERVER_HOME}/versions/${INCOMING_DIR}`
-  return `mkdir -p ${dir} && cat > ${dir}/${version}.tar.gz.part && mv ${dir}/${version}.tar.gz.part ${dir}/${version}.tar.gz`
-}
-
-/** 再写那一版的清单行(版本 sha256 来源):守护进程看到它才去装,所以在包传完之后写。 */
-export function incomingManifestScript(version: string, sha256: string): string {
-  if (!isServerVersion(version)) throw new Error('版本号格式不对')
-  if (!/^[0-9a-f]{64}$/.test(sha256)) throw new Error('校验值格式不对')
-  const dir = `${SERVER_HOME}/versions/${INCOMING_DIR}`
-  return `printf '%s\\n' '${version} ${sha256} desktop-upload' > ${dir}/${version}.txt.part && mv ${dir}/${version}.txt.part ${dir}/${version}.txt\n`
-}
-
-export type MatchReport = { target: string; running: string | null; installed: boolean; supervisor: boolean }
-
-/** 读 match-version 打的那一行(之前可能夹着对方 rc 打的字)。认不出 = null。 */
-export function parseMatchOutput(stdout: string): Record<string, string> | null {
-  const at = stdout.lastIndexOf(`${MATCH_MARK} `)
-  if (at < 0) return null
-  const fields: Record<string, string> = {}
-  for (const pair of (stdout.slice(at + MATCH_MARK.length + 1).split(/\r?\n/)[0] ?? '').trim().split(/\s+/)) {
-    const eq = pair.indexOf('=')
-    if (eq > 0) fields[pair.slice(0, eq)] = pair.slice(eq + 1)
-  }
-  return fields
-}
-
-export function parseMatchReport(stdout: string): MatchReport | null {
-  const fields = parseMatchOutput(stdout)
-  if (!fields || !isServerVersion(fields.target)) return null
-  return {
-    target: fields.target,
-    running: isServerVersion(fields.running) ? fields.running : null,
-    installed: fields.installed === '1',
-    supervisor: fields.supervisor === '1',
-  }
 }
 
 /** 第四步:注册常驻服务。 */

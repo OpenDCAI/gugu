@@ -20,6 +20,8 @@ import {
 import { DeviceRpcChannelError, DeviceRpcTimeoutError } from '../../../../packages/core/src/cloud/deviceRpcRequester'
 import { createDeviceActionCaller } from '@gugu/core/cloud/deviceActionCaller'
 import { assistantStartupIndex } from '../../../../apps/desktop/electron/sessionpage/assistant-startup-index'
+import { registerRPCRouter } from '../../../../apps/desktop/src/session/shared/lib/ipc/rpc'
+import { agentSessionController, setAgentSessionHost } from '../../../../apps/desktop/electron/session/main/core/sessions/agent-session-controller'
 
 const NOW = Date.parse('2026-09-30T04:00:00.000Z')
 
@@ -43,6 +45,7 @@ const CALLER: RemoteSessionCaller = {
   agentUserId: 'agent-a',
   name: 'Claude 1',
   harness: 'claude',
+  childHarness: null,
   transport: 'acp',
   model: null,
   platformModel: null,
@@ -262,10 +265,32 @@ describe('reaching another machine', () => {
 })
 
 describe('doing things on another machine', () => {
-  it('passes nest through: a child on another machine can hang under the caller', async () => {
-    const { xm, call } = makeCrossMachine(async () => ({ result: { session_id: 'child-1', parent_session_id: 'caller-session' } }))
-    await xm.runOnDevice('dev-b', CALLER, { action: 'spawn', prompt: 'x', nest: true })
-    expect(call.mock.calls[0]![2].action).toEqual({ action: 'spawn', prompt: 'x', nest: true })
+  it('passes a chosen parent through to the other machine independently of placement', async () => {
+    const { xm, call } = makeCrossMachine(async () => ({ result: { session_id: 'child-1', parent_session_id: 'chosen-parent' } }))
+    await xm.runOnDevice('dev-b', CALLER, { action: 'spawn', prompt: 'x', parent_session_id: 'chosen-parent' })
+    expect(call.mock.calls[0]![2].action).toEqual({ action: 'spawn', prompt: 'x', parent_session_id: 'chosen-parent', nest: true })
+  })
+
+  it.each([
+    [{}, true, 'caller-session'],
+    [{ parent_session_id: 'caller-session' }, true, 'caller-session'],
+    [{ parent_session_id: null }, false, null],
+  ])('preserves representable parent choices on an older receiver: %j', async (parent, nest, expected) => {
+    const { xm, call } = makeCrossMachine(async (_device, _channel, { action, caller }) => ({
+      result: { session_id: 'child-1', parent_session_id: action.nest ? caller.sessionId : null },
+    }))
+    expect(await xm.runOnDevice('dev-b', CALLER, { action: 'spawn', prompt: 'x', project_id: 'elsewhere', ...parent }))
+      .toMatchObject({ session_id: 'child-1', parent_session_id: expected })
+    expect(call.mock.calls[0]![2].action).toMatchObject({ ...parent, nest })
+    expect(call).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports the created session when an old receiver ignores an explicit third-party parent, without retrying or moving it', async () => {
+    const { xm, call } = makeCrossMachine(async () => ({ result: { session_id: 'already-created', parent_session_id: 'caller-session' } }))
+    await expect(xm.runOnDevice('dev-b', CALLER, { action: 'spawn', prompt: 'x', parent_session_id: 'third-party' }))
+      .rejects.toMatchObject({ code: 'SESSION_PARENT_UNSUPPORTED', message: expect.stringContaining("session:already-created was created, but that device's version does not support putting it under the given parent; update that device, or move it with session_set_parent. Do not spawn it again") })
+    expect(call).toHaveBeenCalledTimes(1)
+    expect(call.mock.calls[0]![2].action).toEqual({ action: 'spawn', prompt: 'x', parent_session_id: 'third-party', nest: true })
   })
 
   it('marks a spawned child with its machine and reaches it later without searching', async () => {
@@ -378,7 +403,6 @@ describe('answering another machine', () => {
       run: vi.fn(async () => ({ ran: true })),
       app: vi.fn(async () => ({ id: 'm-1' })),
       appSpawn: vi.fn(async () => ({ agentId: 'user:a-new' })),
-      appReadFile: vi.fn(),
       appCall: vi.fn(),
       ...overrides,
     }
@@ -428,12 +452,46 @@ describe('answering another machine', () => {
 
 describe('agentSession.<action> arguments', () => {
   const APP = { kind: 'app', deviceId: 'dev-a', deviceLabel: 'this box', extensionId: 'radar', extensionName: 'Radar' } as const
-  const READ = { action: 'read_file', session_id: 's', path: 'renders/cut.mp4', offset: 0, length: 524288 } as const
-  const CHUNK = { path: 'renders/cut.mp4', size: 3, etag: '9-3', offset: 0, data: 'YWJj' }
 
   it('keeps only the caller facts it knows', () => {
     expect(parseAgentSessionRequest('get', { ...CALLER, extra: 'ignored' }, { action: 'get', session_id: 's' }))
       .toEqual({ caller: CALLER, action: { action: 'get', session_id: 's' } })
+  })
+
+  it('round-trips every caller field, including both cross-machine defaults', () => {
+    const caller = {
+      ...CALLER, childHarness: 'opencode', groupChatId: 'project-group',
+    } satisfies Required<RemoteSessionCaller>
+    expect(parseAgentSessionRequest('spawn', caller, { action: 'spawn', prompt: 'work' }))
+      .toEqual({ caller, action: { action: 'spawn', prompt: 'work' } })
+  })
+
+  it('accepts older callers and validates optional caller facts as text', () => {
+    const { childHarness: _childHarness, ...older } = CALLER
+    expect(parseAgentSessionRequest('list_harnesses', older, { action: 'list_harnesses' }))
+      .toEqual({ caller: CALLER, action: { action: 'list_harnesses' } })
+    expect(parseAgentSessionRequest('spawn', { ...CALLER, childHarness: 7, groupChatId: {} }, { action: 'spawn', prompt: 'work' }))
+      .toEqual({ caller: CALLER, action: { action: 'spawn', prompt: 'work' } })
+  })
+
+  it.each([
+    [{ nest: true }, {}],
+    [{ nest: false }, { parent_session_id: null }],
+    [{ nest: false, parent_session_id: 'chosen' }, { parent_session_id: 'chosen' }],
+    [{ nest: true, parent_session_id: null }, { parent_session_id: null }],
+    [{ nest: 'ignored', parent_session_id: 'chosen' }, { parent_session_id: 'chosen' }],
+  ])('adapts an older spawn sender at the receiving boundary: %j', (legacy, expected) => {
+    expect(parseAgentSessionRequest('spawn', CALLER, { action: 'spawn', prompt: 'x', ...legacy }))
+      .toEqual({ caller: CALLER, action: { action: 'spawn', prompt: 'x', ...expected } })
+  })
+
+  it('refuses malformed parent or legacy nesting values on the spawn wire', () => {
+    for (const parent_session_id of ['', false, 1, {}]) {
+      expect(parseAgentSessionRequest('spawn', CALLER, { action: 'spawn', prompt: 'x', parent_session_id }))
+        .toHaveProperty('error')
+    }
+    expect(parseAgentSessionRequest('spawn', CALLER, { action: 'spawn', prompt: 'x', nest: 'false' }))
+      .toHaveProperty('error')
   })
 
   it('refuses a request without a caller device and session, or whose action is not the method it came on', () => {
@@ -463,42 +521,32 @@ describe('agentSession.<action> arguments', () => {
       .toEqual({ error: 'delivery is queue or defer' })
     expect(parseAgentSessionRequest('spawn', APP, { action: 'spawn', prompt: 'x' }))
       .toEqual({ caller: APP, action: { action: 'spawn', prompt: 'x', spawn: {} } })
-    expect(parseAgentSessionRequest('read_file', APP, { ...READ, junk: 1 })).toEqual({ caller: APP, action: READ })
-    expect(parseAgentSessionRequest('read_file', APP, { ...READ, offset: '0' }))
-      .toEqual({ error: 'read_file names a session (session_id), a path in its working copy, an offset and a length' })
-    expect(parseAgentSessionRequest('read_file', CALLER, READ))
-      .toEqual({ error: 'read_file is for an App on another machine; an agent works on its own machine' })
+    // A working copy's files are read through app_call (filesList / filesRead): there is no read_file of its own any more.
+    expect(parseAgentSessionRequest('read_file' as never, APP, { action: 'read_file', session_id: 's', path: 'a', offset: 0, length: 1 }))
+      .toEqual({ error: "an App may only send a message, start an agent, or have a page's call done on another machine, not read_file" })
     expect(parseAgentSessionRequest('message', APP, { action: 'message', session_ids: ['a', 'b'], text: 'hi' }))
       .toEqual({ error: 'an App message names one session (session_ids: [id]) and text' })
     expect(parseAgentSessionRequest('message', { ...APP, extensionName: '' }, { action: 'message', session_ids: ['s'], text: 'hi' }))
       .toEqual({ error: 'an App caller needs extensionId and extensionName' })
   })
 
-  it('hands an App\'s message and file read to the host\'s App parts, never to the session part', async () => {
+  it('hands an App\'s message and page call to the host\'s App parts, never to the session part', async () => {
     const { xm } = makeCrossMachine()
     const run = vi.fn()
     const app = vi.fn(async () => ({ id: 'm-1' }))
-    const appReadFile = vi.fn(async () => CHUNK)
     const appCall = vi.fn()
     await expect(xm.answer('message', APP, { action: 'message', session_ids: ['s'], text: 'hi' }, {
-      peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall,
+      peers: vi.fn(), run, app, appSpawn: vi.fn(), appCall,
     })).resolves.toEqual({ id: 'm-1' })
-    await expect(xm.answer('read_file', APP, READ, { peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall })).resolves.toEqual(CHUNK)
     // A page's call on that machine (its program, its data folder): its own part, the verb and args as the page gave them.
     const CALL = { action: 'app_call', call_id: 'c-1', session_id: 's', version: '0.7.0', method: 'writeData', args: { path: 'journal.json', content: '{}' } } as const
     appCall.mockResolvedValueOnce(undefined)
-    await expect(xm.answer('app_call', APP, CALL, { peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall })).resolves.toBeUndefined()
+    await expect(xm.answer('app_call', APP, CALL, { peers: vi.fn(), run, app, appSpawn: vi.fn(), appCall })).resolves.toBeUndefined()
     expect(appCall).toHaveBeenCalledWith(APP, CALL)
     expect(app).toHaveBeenCalledWith(APP, { action: 'message', session_ids: ['s'], text: 'hi' })
-    expect(appReadFile).toHaveBeenCalledWith(APP, READ)
     expect(run).not.toHaveBeenCalled()
   })
 
-  it('an App reads a chunk on the machine it names, asked as that App', async () => {
-    const { xm, call } = makeCrossMachine(async () => ({ result: CHUNK }))
-    await expect(xm.appReadFile({ extensionId: 'radar', extensionName: 'Radar' }, 'dev-b', READ)).resolves.toEqual(CHUNK)
-    expect(call).toHaveBeenCalledWith('dev-b', 'agentSession.read_file', { caller: APP, action: READ, args: [APP, READ] })
-  })
 })
 
 // owner 2026-10-01「一起收」「链路统一」:归档 / 删除「连同子会话」按父子关系找后代 —— 别的机器报来会话表,
@@ -549,8 +597,11 @@ describe('the family across machines', () => {
         ? { result: { ok: true, value: {} } }
         : { result: { ok: false, error: { code: 'not_found', message: 'no such session' } } })
     await xm.archiveOn('dev-b', 's1')
+    await xm.archiveOn('dev-b', 's1', false)
+    // 默认连社交身份一起移除;调用方明确选了保留时原样带过去。
     expect(call.mock.calls.map(([deviceId, type, { args }]) => [deviceId, type, args])).toEqual([
-      ['dev-b', 'sessionTimeline.sessionUpdate', [{ conversationId: 's1', archived: true }]],
+      ['dev-b', 'sessionTimeline.sessionUpdate', [{ conversationId: 's1', archived: true, removeSocialIdentity: true }]],
+      ['dev-b', 'sessionTimeline.sessionUpdate', [{ conversationId: 's1', archived: true, removeSocialIdentity: false }]],
     ])
     await expect(xm.archiveOn('dev-b', 's2')).rejects.toMatchObject({ code: 'not_found', message: 'on device:dev-b: no such session' })
     await expect(xm.archiveOn('dev-c', 's3')).rejects.toThrow('is offline')
@@ -655,6 +706,34 @@ it('prepares a dormant work seat only through the dedicated capability and never
   await expect(xm.runOnDevice('dev-b', CALLER, { action: 'spawn', assistant_work: { version: 1 }, prompt: 'task' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OUTDATED' })
   expect(call).toHaveBeenCalledOnce()
   expect(call.mock.calls[0]?.[1]).toBe('assistantWork.prepare')
+})
+
+it.each([false, true])('thinking requires the receiving router capability; ordinary spawn remains compatible (supportsThinking=%s)', async (supportsThinking) => {
+  const handlers = new Map<string, (event: { sender: { id: number } }, ...args: unknown[]) => unknown>()
+  const hostRun = vi.fn(async (_name: string, _caller: unknown, action: unknown) => ({ session_id: 'child', effort: (action as { thinking?: unknown }).thinking }))
+  setAgentSessionHost(hostRun)
+  registerRPCRouter({ agentSession: supportsThinking ? agentSessionController : { spawn: agentSessionController.spawn } }, {
+    handle: (channel, handler) => { handlers.set(channel, handler) },
+  })
+  const { xm, call } = makeCrossMachine(async (_device, channel, { args }) => {
+    const handler = handlers.get(channel)
+    return handler ? { result: await handler({ sender: { id: 1 } }, ...args) }
+      : { error: { code: 'unknown_method', message: `No handler registered for '${channel}'` } }
+  })
+  try {
+    const thinking = xm.runOnDevice('dev-b', CALLER, { action: 'spawn', prompt: 'work', thinking: 'native-level' })
+    if (supportsThinking) await expect(thinking).resolves.toMatchObject({ session_id: 'child', effort: 'native-level' })
+    else {
+      await expect(thinking).rejects.toMatchObject({ code: 'SESSION_DEVICE_OUTDATED' })
+      expect(hostRun).not.toHaveBeenCalled()
+    }
+    expect(call.mock.calls[0]?.[1]).toBe('agentSession.spawnWithThinking')
+    expect(call).toHaveBeenCalledOnce()
+    await expect(xm.runOnDevice('dev-b', CALLER, { action: 'spawn', prompt: 'ordinary' })).resolves.toMatchObject({ session_id: 'child' })
+    expect(call.mock.calls[1]?.[1]).toBe('agentSession.spawn')
+  } finally {
+    setAgentSessionHost(null)
+  }
 })
 
 // owner 10-28:一台机器的会话列表只问一处(sessionsOn),几秒内复用,正在问的合成一个,失败不留;往那台发了别的就作废。

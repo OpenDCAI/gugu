@@ -185,8 +185,8 @@ export function sessionListFromDigest(digest: readonly DeviceSessionSummary[] | 
       byId.set(entry.projectId, { id: entry.projectId, name: entry.projectName, path: '' })
     }
     sessions.push({
-      ...(entry.nativeInputVersion === 1 ? { nativeInputVersion: 1 as const } : {}),
-      ...(entry.nativeUnreadCount !== undefined ? { nativeUnreadCount: entry.nativeUnreadCount } : {}),
+      ...((entry.nativeInputVersion === 1 || entry.nativeInputVersion === 2) ? { nativeInputVersion: entry.nativeInputVersion } : {}),
+      ...(entry.nativeInputIdentity === true ? { nativeInputIdentity: true as const } : {}),
       conversationId: entry.conversationId,
       projectId: entry.projectId,
       title: entry.title,

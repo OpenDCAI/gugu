@@ -7,16 +7,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSessionShellPort, type SessionShellPeer } from '@shared/lib/ipc/shell-port';
 
-const LOCAL = { sessionId: 'local-1', identity: { users: { id: 'agent-local', display_name: 'Claude 3', gugu_number: 103 } }, engine: 'claude' };
-const REMOTE = { sessionId: 'remote-1', identity: { users: { id: 'agent-remote', display_name: 'Codex 8', gugu_number: null } }, engine: 'codex' };
+const LOCAL = { sessionId: 'local-1', title: 'Claude 3', identity: { users: { id: 'agent-local', display_name: 'Claude 3', gugu_number: 103 } }, engine: 'claude' };
+const REMOTE = { sessionId: 'remote-1', title: 'Codex 8', identity: { users: { id: 'agent-remote', display_name: 'Codex 8', gugu_number: null } }, engine: 'codex' };
 const directory = vi.fn((): { peers: SessionShellPeer[]; notRead: { id: string; label: string }[] } =>
   ({ peers: [REMOTE], notRead: [{ id: 'dev-c', label: 'ThinkPad' }] }));
 const sessionPeers = vi.fn(async (_sessionId?: string): Promise<SessionShellPeer[]> => [LOCAL]);
 
-vi.mock('@renderer/features/projects/stores/project-selectors', () => ({ getProjectManagerStore: () => ({ projects: new Map() }) }));
-vi.mock('@renderer/features/sessions/stores/session-registry', () => ({ sessionRegistry: { get: () => undefined } }));
 vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({
-  remoteHostsStore: { directoryPeers: () => directory(), findListedSession: () => null },
+  remoteHostsStore: { directoryPeers: () => directory() },
 }));
 vi.mock('@renderer/lib/machine-routing', () => ({ machineRegistry: { machineOf: () => null } }));
 vi.mock('@renderer/lib/electron-api', () => ({ electronApi: vi.fn(), findSessionHostBridge: vi.fn() }));
@@ -61,7 +59,7 @@ describe('@ 弹层读会话目录', () => {
   });
 
   it('中文名按拼音全拼、首字母、混拼都能筛到;咕咕号只认全等或前缀', async () => {
-    const HAN = { sessionId: 'local-2', identity: { users: { id: 'agent-han', display_name: '咕咕助手', gugu_number: 52013 } }, engine: 'claude' };
+    const HAN = { sessionId: 'local-2', title: '咕咕助手', identity: { users: { id: 'agent-han', display_name: '咕咕助手', gugu_number: 52013 } }, engine: 'claude' };
     const ids = async (query: string) => {
       sessionPeers.mockResolvedValueOnce([LOCAL, HAN]);
       directory.mockReturnValueOnce({ peers: [REMOTE], notRead: [] });

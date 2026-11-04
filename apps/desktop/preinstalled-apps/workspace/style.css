@@ -29,19 +29,19 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 
 /* A file's mark: its suffix on a square coloured by its family (list.js markOf). */
 .file-badge {
-  display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: #fff;
-  font-size: 11px; font-weight: 700; line-height: 1; letter-spacing: .02em; overflow: hidden; background: #8a8a93;
+  display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--em-color-white);
+  font-size: 11px; font-weight: 700; line-height: 1; letter-spacing: .02em; overflow: hidden; background: var(--em-file-generic);
 }
-.file-badge[data-family='pdf'] { background: #d9534a; }
-.file-badge[data-family='word'] { background: #3b74d4; }
-.file-badge[data-family='sheet'] { background: #2e9a5a; }
-.file-badge[data-family='slides'] { background: #df8530; }
-.file-badge[data-family='archive'] { background: #8a6b4c; }
-.file-badge[data-family='image'] { background: #2f9aa8; }
-.file-badge[data-family='video'] { background: #7657cf; }
-.file-badge[data-family='audio'] { background: #c95584; }
-.file-badge[data-family='code'] { background: #4a5568; }
-.file-badge[data-family='text'] { background: #5b5b66; }
+.file-badge[data-family='pdf'] { background: var(--em-file-pdf); }
+.file-badge[data-family='word'] { background: var(--em-file-word); }
+.file-badge[data-family='sheet'] { background: var(--em-file-sheet); }
+.file-badge[data-family='slides'] { background: var(--em-file-slides); }
+.file-badge[data-family='archive'] { background: var(--em-file-archive); }
+.file-badge[data-family='image'] { background: var(--em-file-image); }
+.file-badge[data-family='video'] { background: var(--em-file-video); }
+.file-badge[data-family='audio'] { background: var(--em-file-audio); }
+.file-badge[data-family='code'] { background: var(--em-file-code); }
+.file-badge[data-family='text'] { background: var(--em-file-text); }
 
 /* The row keeps its time; activity, size and host names stay in hover and Details. */
 .file-list { gap: 2px; }
@@ -87,7 +87,7 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .file.cell .file-open { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 0; grid-template-columns: none; }
 .file.cell .cell-picture { position: relative; width: 100%; height: auto; aspect-ratio: 1; border-radius: var(--em-radius-control); font-size: 13px; }
 .file.cell .file-name { flex: none; max-width: 100%; font-size: var(--em-font-caption); font-weight: 400; color: var(--em-foreground-muted); }
-.cell-play { position: absolute; inset: 0; margin: auto; width: 28px; height: 28px; color: #fff; opacity: .85; }
+.cell-play { position: absolute; inset: 0; margin: auto; width: 28px; height: 28px; color: var(--em-color-white); opacity: .85; }
 .cell-keep { position: absolute; top: 6px; left: 6px; padding: 1px 6px; border-radius: var(--em-radius-capsule); background: color-mix(in srgb, var(--em-background) 85%, transparent); }
 .cell-host { position: absolute; bottom: 26px; left: 6px; padding: 1px 6px; border-radius: var(--em-radius-capsule); background: color-mix(in srgb, var(--em-background) 85%, transparent); }
 /* Desktop selection is the whole row; the phone's selection checkbox has its own column. */
@@ -273,6 +273,10 @@ body[data-mode='split'] .preview { padding: 32px 40px 96px; }
 body[data-mode='preview'] .doc-info { width: 100%; max-width: calc(720px + 112px); margin-inline: auto; padding: 16px 56px 0; box-sizing: border-box; }
 @media (max-width: 640px) { body[data-mode='preview'] .doc-info { padding: 12px 18px 0; } }
 @media (max-width: 640px) { .preview { padding: 16px 18px 80px; } }
+/* Keep the existing desktop reading gutter wherever mouse-operated block controls can appear. */
+@media (hover: hover) {
+  .preview, body[data-mode='split'] .preview, body[data-mode='preview'] .doc-info { padding-left: 56px; }
+}
 /* Writing: no line numbers or folds while only the source is shown; side by side keeps them to read lines against. */
 body[data-mode='edit'] .editor .cm-gutters { display: none; }
 body[data-mode='edit'] .editor .cm-content { max-width: 720px; margin-inline: auto; padding: 32px 40px 96px; box-sizing: border-box; }
@@ -281,11 +285,12 @@ body[data-mode='edit'] .editor .cm-content { max-width: 720px; margin-inline: au
 .doc-empty { min-height: 0; overflow: auto; }
 .doc-empty .row { justify-content: center; margin-top: var(--em-spacing-sm); }
 body.empty-doc .preview, body[data-mode='edit'] .doc-empty, body[data-kind='json'] .doc-empty { display: none; }
-/* The reading block under the pointer: its ⋯ in the left margin. */
-.block-handle { position: fixed; z-index: 9; width: 22px; min-width: 0; height: 22px; min-height: 0; padding: 0; justify-content: center; border: 0; border-radius: var(--em-radius-document); background: transparent; color: var(--em-foreground-passive); }
+/* The reading block under the pointer: its insertion and block actions in the left margin. */
+.block-controls { position: fixed; z-index: 9; display: flex; }
+.block-handle { width: 22px; min-width: 0; height: 22px; min-height: 0; padding: 0; justify-content: center; border: 0; border-radius: var(--em-radius-document); background: transparent; color: var(--em-foreground-passive); }
 .block-handle:hover, .block-handle[aria-expanded='true'] { background: var(--em-hover); color: var(--em-foreground); }
 .block-handle gugu-icon { width: var(--em-icon-sm); height: var(--em-icon-sm); }
-body:not([data-state='doc']) .block-handle, body[data-mode='edit'] .block-handle { display: none; }
+body:not([data-state='doc']) .block-controls, body[data-mode='edit'] .block-controls { display: none; }
 body[data-mode='edit'] .panes, body[data-mode='preview'] .panes, body[data-kind='json'] .panes { grid-template-columns: 1fr; }
 body[data-mode='edit'] .preview, body[data-mode='preview'] .editor { display: none; }
 body[data-kind='json'] .modes, body[data-kind='json'] .preview { display: none; }

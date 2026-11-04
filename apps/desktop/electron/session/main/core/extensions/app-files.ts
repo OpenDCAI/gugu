@@ -17,20 +17,25 @@ import {
 } from '@shared/extensions/app-files-core';
 import {
   APP_FILE_MAX_BYTES,
+  workspaceAppFileChunk,
+  type AppFileChunk,
   fileRefOf,
   fileSearchOf,
   folderOf,
-  isLocal,
+  isWorkspace,
+  workspaceSession,
+  workspaceTarget,
   placeKey,
   placeOf,
   type AppFileEntry,
   type AppFileOpened,
   type AppFileRef,
+  type AppForwardFilesDetail,
   type AppFileUpload,
   type AppFileVersion,
   type AppFileVersionContent,
-  type LocalFileRef,
-  type LocalPlace,
+  type WorkspaceFileRef,
+  type WorkspacePlace,
   type ChatPeekFile,
   type PeekTarget,
   type PreparedChatFile,
@@ -38,11 +43,11 @@ import {
 import { extensionsService } from '@main/core/extensions/extensions-root';
 import { currentAccountAccessToken, resolveAccountFile, publishAccountFile } from '@main/core/extensions/account-token';
 import { fileServiceUrl, fileSync, localFileService } from '@main/core/extensions/file-sync';
-import { createLocalAppFiles, type LocalSurface } from '@main/core/extensions/local-files';
-import { readElsewhere } from '@main/core/extensions/app-files-elsewhere';
+import { createLocalAppFiles, workingCopyEntry, type LocalSurface } from '@main/core/extensions/local-files';
+import { REMOTE_WORKSPACE_CHUNK_BYTES } from '@gugu/session-core/session-record/contract';
 import { renderExtensionIcon } from '@main/core/extensions/extension-icon';
 import { fileIconKey } from '@shared/extensions/app-icon';
-import { claimantOf, openerChoice as chatOpenerChoice } from '@shared/extensions/file-openers';
+import { claimantOf, openerChoice as chatOpenerChoice, requireOwnTabChoice } from '@shared/extensions/file-openers';
 import { sessionHostLocale } from '@main/core/host-locale';
 import { localizedManifestText } from '@shared/extensions/catalog';
 import { PACKAGE_MESSAGE_SELECT, type PackageMessageRow, type PackageReads } from '@shared/extensions/attachment-install';
@@ -83,7 +88,7 @@ function claimant(typedName: string) {
     if (rendered && !('dataUrl' in rendered)) log.warn(`Extension ${candidate.extensionId} fileIcons ${candidate.suffix}: ${rendered.reason}`);
     icons.set(key, rendered && 'dataUrl' in rendered ? rendered.dataUrl : null);
   }
-  return { suffix: candidate.suffix, app: { id: candidate.extensionId, name: localizedManifestText(candidate.app, sessionHostLocale()).name, icon: icons.get(key) ?? null } };
+  return { suffix: candidate.suffix, state: candidate.state, app: { id: candidate.extensionId, name: localizedManifestText(candidate.app, sessionHostLocale()).name, icon: icons.get(key) ?? null } };
 }
 
 /**
@@ -106,6 +111,11 @@ export interface DesktopFilePage {
   extensionId: string;
   handed: (AppFileRef & { id: string }) | null;
   asAgent?: string | null;
+  /** A page's own chat, as it was bound: already its resource container (`surfaceResourceChat`). */
+  boundChat?: string | null;
+  /** The active program call stamped by the host; pages have no call. */
+  callId?: string;
+  signal?: AbortSignal;
 }
 
 
@@ -140,7 +150,6 @@ const files = createAppFiles({
   hasCapability: (extensionId, capability) => extensionsService().hasCapability(extensionId, capability),
   sync: fileSync,
   claimant,
-  appIdentity: (id) => extensionsService().identityOf(id),
   async identities(token, ids) {
     return (await accounts(token, ids)).map((user) => ({
       id: user.id,
@@ -161,6 +170,16 @@ const files = createAppFiles({
   filesUrl: fileServiceUrl,
   warn: (message, data) => log.warn(`[app-files] ${message}`, data ?? {}),
 });
+
+/** A chat document's place, for the host's own preview of it (`gugu-preview://`, preview-protocol.ts). */
+export function chatDocumentPlace(itemId: string) {
+  return files.documentPlace(itemId);
+}
+
+/** A file that preview's page names beside the document, read as the signed-in person. */
+export function besideChatDocument(chatId: string, path: string) {
+  return files.besideDocument(chatId, path);
+}
 
 /** One account as `identities` reads it, for who published an App package (app-identity.ts `publisherOf`). */
 export async function readAccount(id: string) {
@@ -213,65 +232,56 @@ function chatSurface(page: DesktopFilePage): FileSurface {
     extensionId: page.extensionId,
     itemId: page.handed && 'chat' in page.handed ? page.handed.id : null,
     asAgent: page.asAgent ?? null,
+    ...(page.callId ? { callId: page.callId } : {}),
+    ...(page.signal ? { signal: page.signal } : {}),
   };
 }
 
 /**
  * The folder on this computer a call names: a session's working copy, found the one way main finds a session's
  * (`agentSessionContext`, as an App tool call's `_meta` does); a project's root folder, the one its sessions run in
- * (`listProjectFolders`). A session not on this computer or whose working copy is not open, a project not on this
- * computer, is `not-found`. The same files, gates and watch either way: a folder is a folder.
+ * (`listProjectFolders`). A session not on this computer or with no such folder here, a project not on this computer,
+ * is `not-found`; whether anything has opened it since this computer started does not matter. The same files, gates and
+ * watch either way: a folder is a folder.
  */
-export async function localRootOf(place: LocalPlace): Promise<{ workspaceRoot: string; projectId: string; workspaceId: string | null }> {
-  if ('project' in place) {
+export async function localRootOf(place: WorkspacePlace): Promise<{ workspaceRoot: string; projectId: string; workspaceId: string | null }> {
+  const target = workspaceTarget(place);
+  if ('project' in target) {
     const { projectRootFolder } = await import('@main/core/projects/operations/project-folders');
-    const root = await projectRootFolder(place.project);
-    if (!root) throw new AppFileError('not-found', `Project ${place.project} is not a project on this computer`);
-    return { workspaceRoot: await fs.realpath(root.path), projectId: place.project, workspaceId: root.workspaceId };
+    const root = await projectRootFolder(target.project);
+    if (!root) throw new AppFileError('not-found', `Project ${target.project} is not a project on this computer`);
+    return { workspaceRoot: await fs.realpath(root.path), projectId: target.project, workspaceId: root.workspaceId };
   }
   const { agentSessionContext } = await import('@main/core/extensions/extension-agent-context');
-  const session = await agentSessionContext(place.session);
-  if (!session?.workspaceRoot) throw new AppFileError('not-found', `Session ${place.session} has no working copy open on this computer`);
+  const session = await agentSessionContext(target.session);
+  if (!session?.workspaceRoot) throw new AppFileError('not-found', 'This task has no working folder on this computer');
   return { workspaceRoot: await fs.realpath(session.workspaceRoot), projectId: session.projectId, workspaceId: session.workspaceId ?? null };
 }
 
-async function localFolder(page: DesktopFilePage, place: LocalPlace): Promise<LocalSurface & { projectId: string; workspaceId: string | null }> {
-  const handed = page.handed && isLocal(page.handed) && placeKey(page.handed) === placeKey(place) ? page.handed.id : null;
-  // Only the keys that say where: a file's ref names its place and itself.
-  const where: LocalPlace = 'project' in place ? { project: place.project } : { session: place.session };
+async function localFolder(page: DesktopFilePage, place: WorkspacePlace): Promise<LocalSurface & { projectId: string; workspaceId: string | null }> {
+  const handed = page.handed && isWorkspace(page.handed) && placeKey(page.handed) === placeKey(place) ? page.handed.id : null;
+  // Only the key that says where: a file's ref names its place and itself.
+  const where: WorkspacePlace = { workspace: place.workspace };
   return { pageId: page.pageId, extensionId: page.extensionId, place: where, filePath: handed, ...(await localRootOf(where)) };
 }
 
-/**
- * With `files:read:all-machines`, a file of a session that is not on this computer: read whole, on the machine that has
- * it. Null otherwise — the working copy here answers, as it always did.
- */
-async function fileElsewhere(page: DesktopFilePage, ref: LocalFileRef) {
-  // A project is named by this computer's id for it: another computer's projects are not named here.
-  if (!('session' in ref)) return null;
-  if (!extensionsService().hasCapability(page.extensionId, 'files:read:all-machines')) return null;
-  const { agentSessionContext } = await import('@main/core/extensions/extension-agent-context');
-  if (await agentSessionContext(ref.session)) return null;
-  const app = { extensionId: page.extensionId, extensionName: extensionsService().get(page.extensionId).manifest.name };
-  return readElsewhere(app, ref.session, 'id' in ref ? ref.id : ref.name);
-}
-
-const isChat = (ref: AppFileRef): ref is ChatFileRef => !isLocal(ref);
+const isChat = (ref: AppFileRef): ref is ChatFileRef => !isWorkspace(ref);
 const withId = (ref: AppFileRef, what: string): AppFileRef & { id: string } => {
   if (!('id' in ref)) throw new AppFileError('invalid', `${what} takes a file by its id`);
   return ref;
 };
 
-export async function openAppFile(page: DesktopFilePage, args: { ref?: unknown; readOnly?: boolean; appData?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened> {
+export async function openAppFile(page: DesktopFilePage, args: { ref?: unknown; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened> {
   const ref = fileRefOf(args.ref);
   const readOnly = args.readOnly === true ? { readOnly: true } : {};
-  if (!isChat(ref) && args.appData) throw new AppFileError('invalid', 'App data metadata belongs to chat files');
-  const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as LocalFileRef);
-  // Another machine's file comes as its bytes, read only, whatever it is: no live document across machines.
-  if (elsewhere) return { entry: elsewhere.entry, docName: '', access: 'ro', self: await files.self(), bytes: elsewhere.bytes.slice().buffer };
+  // Another machine's file is read there in pieces (`f.read`), read only, whatever it is: no live document across machines.
+  if (!isChat(ref) && await elsewhereGated(page, ref)) {
+    const name = 'id' in ref ? ref.id : ref.name;
+    return { entry: workingCopyEntry({ workspace: ref.workspace }, name, null), docName: '', access: 'ro', self: await files.self(), chunked: true };
+  }
   return isChat(ref)
-    ? files.open(chatSurface(page), { ref, ...readOnly, appData: args.appData === true, deferDetails: args.deferDetails === true, ...(typeof args.expectedVersion === 'number' ? { expectedVersion: args.expectedVersion } : {}) }, page.takeOpening?.())
-    : local.open(await localFolder(page, ref), { ref: ref as LocalFileRef, ...readOnly });
+    ? files.open(chatSurface(page), { ref, ...readOnly, deferDetails: args.deferDetails === true, ...(typeof args.expectedVersion === 'number' ? { expectedVersion: args.expectedVersion } : {}) }, page.takeOpening?.())
+    : local.open(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, ...readOnly });
 }
 
 /** After `stale-epoch:<n>`: the same file at its new epoch. */
@@ -280,12 +290,12 @@ export async function reopenAppFile(page: DesktopFilePage, args: { ref?: unknown
   const readOnly = args.readOnly === true ? { readOnly: true } : {};
   return isChat(ref)
     ? files.reopen(chatSurface(page), { ref: ref as Extract<ChatFileRef, { id: string }>, ...readOnly })
-    : local.reopen(await localFolder(page, ref), { ref: ref as LocalFileRef & { id: string }, ...readOnly });
+    : local.reopen(await localFolder(page, ref), { ref: ref as WorkspaceFileRef & { id: string }, ...readOnly });
 }
 
 /** Let go of an open file: the grant goes, wherever the file lives. */
-export function closeAppFile(page: DesktopFilePage, args: { docName: string }): void {
-  files.close(chatSurface(page), args);
+export function closeAppFile(page: DesktopFilePage, args: { docName?: string; ref?: ChatFileRef & { version?: number } }): Promise<void> {
+  return files.close(chatSurface(page), args);
 }
 
 /**
@@ -300,15 +310,63 @@ export async function listAppFiles(page: DesktopFilePage, args: { place?: unknow
   const place = placeOf(args.place);
   const folder = folderOf(args.folder);
   if ('chat' in place) return files.groupFiles(place.chat, { asAgent: page.asAgent ?? null, ...(folder === undefined ? {} : { folder }) });
-  noFoldersInWorkingCopy(folder);
-  return local.list(await localFolder(page, place));
+  const there = await onItsMachine(page, place, 'filesList', { place, ...(folder === undefined ? {} : { folder }) });
+  if (there.there) return there.value as AppFileEntry[];
+  const { listWorkingCopy } = await import('./working-copy-files');
+  return listWorkingCopy(place, folder, page.pageId);
+}
+
+/** `f.read(offset, length)`: a pinned chat snapshot or a working copy, through the same range packet. */
+export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; offset?: unknown; length?: unknown }): Promise<AppFileChunk> {
+  const ref = fileRefOf(args.ref);
+  const offset = Number(args.offset ?? 0);
+  const length = Number(args.length ?? 0);
+  if (isChat(ref)) return files.read(chatSurface(page), { ref: { ...ref, version: (args.ref as { version?: number })?.version }, offset, length });
+  const there = await onItsMachine(page, ref, 'filesRead', { ref, offset, length });
+  if (there.there) return workspaceAppFileChunk(there.value as { size: number; offset: number; data: string });
+  const { readWorkingCopy } = await import('./working-copy-files');
+  return workspaceAppFileChunk(await readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, offset, length));
+}
+
+/**
+ * Whether a working copy is a session's on another of the person's machines — whose files only an App with
+ * `files:read:all-machines` reads (list, pieces, open, save). Refused, said why, without it; false for this computer's.
+ */
+async function elsewhereGated(page: DesktopFilePage, place: WorkspacePlace): Promise<boolean> {
+  if (!(await sessionElsewhere(place))) return false;
+  if (!extensionsService().hasCapability(page.extensionId, 'files:read:all-machines')) {
+    throw new AppFileError('denied', 'Not permitted: a working copy on another of your computers needs "files:read:all-machines"');
+  }
+  return true;
+}
+
+/** A session's working copy on another of the person's machines, and that session's project there; null for this computer's. */
+async function sessionElsewhere(place: WorkspacePlace): Promise<{ sessionId: string; projectId: string | null; deviceId: string } | null> {
+  const sessionId = workspaceSession(place);
+  if (!sessionId) return null;
+  const { sessionMachine } = await import('./app-programs-elsewhere');
+  const machine = await sessionMachine(sessionId);
+  return machine ? { sessionId, projectId: machine.projectId, deviceId: machine.deviceId } : null;
+}
+
+/**
+ * A working copy's file call (`machine: 'place'`) for a session on another of the person's machines: done there, by the
+ * same `machineVerbs` that machine's own pages reach. `{ there: false }` for a working copy on this computer.
+ */
+async function onItsMachine(page: DesktopFilePage, place: WorkspacePlace, method: 'filesList' | 'filesRead', args: Record<string, unknown>) {
+  const session = workspaceSession(place);
+  if (!session) return { there: false } as const;
+  if (!(await elsewhereGated(page, place))) return { there: false } as const;
+  const { callOnSessionMachine } = await import('./app-programs-elsewhere');
+  const manifest = extensionsService().get(page.extensionId).manifest;
+  return callOnSessionMachine({ extensionId: page.extensionId, manifest }, session, method, args, page.asAgent != null);
 }
 
 /** Across every chat whoever the page works as is in (`files:read`, checked at the door): by a piece of the path; opened last. */
-export async function appFileViewPreferences(_page: DesktopFilePage, args: { place?: unknown; showAppData?: boolean }) {
+export async function appFileViewPreferences(page: DesktopFilePage, args: { place?: unknown; showAppData?: boolean }) {
   const place = placeOf(args.place);
   if (!('chat' in place)) throw new AppFileError('invalid', 'Folder preferences belong to a chat');
-  return files.viewPreferences(place.chat, args.showAppData);
+  return files.viewPreferences(place.chat, args.showAppData, page.asAgent ? null : page.boundChat);
 }
 
 export async function searchAppFiles(page: DesktopFilePage, args: unknown): Promise<AppFileEntry[]> {
@@ -336,12 +394,11 @@ function noSourceMessagesInWorkingCopy(sourceMessageIds: unknown): void {
 
 export async function createAppFile(
   page: DesktopFilePage,
-  args: { place?: unknown; name: string; content: string; contentType?: string; sourceMessageIds?: unknown; folder?: unknown; appData?: boolean },
+  args: { place?: unknown; name: string; content: string; contentType?: string; sourceMessageIds?: unknown; folder?: unknown },
 ): Promise<AppFileEntry> {
   const place = placeOf(args.place);
   const file = { name: args.name, content: args.content, ...(args.contentType ? { contentType: args.contentType } : {}) };
-  if ('chat' in place) return files.create(place.chat, { ...file, sourceMessageIds: args.sourceMessageIds, folder: args.folder, appData: args.appData === true }, { asAgent: page.asAgent ?? null, extensionId: page.extensionId });
-  if (args.appData) throw new AppFileError('invalid', 'App data metadata belongs to chat files');
+  if ('chat' in place) return files.create(place.chat, { ...file, sourceMessageIds: args.sourceMessageIds, folder: args.folder }, { asAgent: page.asAgent ?? null, extensionId: page.extensionId });
   noSourceMessagesInWorkingCopy(args.sourceMessageIds);
   noFoldersInWorkingCopy(folderOf(args.folder));
   return local.create(await localFolder(page, place), file);
@@ -351,7 +408,7 @@ export async function renameAppFile(page: DesktopFilePage, args: { ref?: unknown
   const ref = fileRefOf(args.ref);
   return isChat(ref)
     ? files.rename(chatSurface(page), { ref, name: args.name })
-    : local.rename(await localFolder(page, ref), { ref: ref as LocalFileRef, name: args.name });
+    : local.rename(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, name: args.name });
 }
 
 /** 「设为临时 / 一直保留」: a chat file's cloud copy (a working copy's file has none). */
@@ -377,7 +434,7 @@ export async function moveAppFile(page: DesktopFilePage, args: { ref?: unknown; 
 
 export async function removeAppFile(page: DesktopFilePage, args: { ref?: unknown }): Promise<void> {
   const ref = fileRefOf(args.ref);
-  return isChat(ref) ? files.remove(chatSurface(page), { ref }) : local.remove(await localFolder(page, ref), { ref: ref as LocalFileRef });
+  return isChat(ref) ? files.remove(chatSurface(page), { ref }) : local.remove(await localFolder(page, ref), { ref: ref as WorkspaceFileRef });
 }
 
 /** A file's next content (G1): a chat's stored file becomes its next version; a working copy's file is written over. */
@@ -387,7 +444,18 @@ export async function replaceAppFile(page: DesktopFilePage, args: { ref?: unknow
   const expectedVersion = (args.expectedVersion ?? null) as number | null;
   if (isChat(ref)) return files.replace(chatSurface(page), { ref, file, expectedVersion });
   if (expectedVersion !== null) throw new AppFileError('invalid', "A working copy's file has no versions here: replace it without expectedVersion");
-  return local.replace(await localFolder(page, ref), { ref: ref as LocalFileRef, file });
+  return local.replace(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, file });
+}
+
+/**
+ * Whether whoever reads may delete each file, in the order asked: a chat file's answer is the database's (its delete's own
+ * rule); a working copy's is this computer's — yes for a file here, no for one only another computer has.
+ */
+export async function appFilesCanDelete(page: DesktopFilePage, args: { refs?: unknown }): Promise<boolean[]> {
+  const refs = (Array.isArray(args.refs) ? args.refs : []).map((ref) => fileRefOf(ref));
+  const chat = await files.canDelete(chatSurface(page), { refs: refs.filter(isChat) });
+  let next = 0;
+  return Promise.all(refs.map(async (ref) => (isChat(ref) ? chat[next++]! : !(await sessionElsewhere(ref as WorkspacePlace)))));
 }
 
 /** G2 A chat file's kept versions. A working copy's history is its own (git): not kept here, said so. */
@@ -421,6 +489,17 @@ export async function uploadAppFiles(
 }
 
 export const messageToShow = files.messageToShow;
+
+/** `files.forward`: a chat's files — a working copy's file is on a computer, in no chat to send it from. */
+export async function forwardTargets(page: DesktopFilePage, args: { refs?: unknown }): Promise<AppForwardFilesDetail> {
+  if (!Array.isArray(args.refs)) throw new AppFileError('invalid', 'files.forward(files): give one file or more');
+  const refs = args.refs.map((given) => {
+    const ref = fileRefOf(given);
+    if (!isChat(ref)) throw new AppFileError('invalid', "files.forward: only a chat's files are forwarded");
+    return ref;
+  });
+  return files.forwardTargets(chatSurface(page), { refs });
+}
 export const chatMembersOf = files.members;
 export const chatsOf = files.chats;
 export const surfaceChatOf = files.chat;
@@ -448,32 +527,49 @@ export function openerChoice(typedName: string, ask = false) {
   return chatOpenerChoice(typedName, manifests, 'chat', (key) => defaults[key] ?? null, ask);
 }
 
+/** A page's own claiming tab uses the same enabled Apps, without reading openWithDefaults. */
+export function ownTabChoice(typedName: string, extensionId: string, tab: string) {
+  return requireOwnTabChoice(typedName, enabledApps().map((entry) => entry.manifest), 'chat', extensionId, tab);
+}
+
 /**
  * 「用 X 打开」, gated like saving the file: a chat file — who opens it, for the window that shows the chat to open
- * (`AppOpenWithDetail`); a working-copy file — opened in its session's pane by the resolver a click goes through
- * (`openSessionFileForApp`), here and now. Beside the page (`peek`, G1), and always for a project's file (no session's pane
- * holds it): which file in which workspace, for the window to open in the page's own slot.
+ * (`AppOpenWithDetail`); a session's working-copy file — which file of which session, for the window that shows the page
+ * to open in that session's pane the way a click there does (the same resolver, on this computer or another: the window
+ * reaches the session's machine as its own file panel does). Beside the page (`peek`, G1), and always for a project's file
+ * (no session's pane holds it): which file in which workspace, for the window to open in the page's own slot.
  */
 export async function openWithTarget(
   page: DesktopFilePage,
   args: { ref?: unknown; ask?: boolean; peek?: boolean },
 ): Promise<
   | { kind: 'chat'; target: { chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile; opening?: PreparedChatFile } }
-  | { kind: 'session' }
+  | { kind: 'session'; target: { sessionId: string; projectId: string | null; deviceId: string | null; path: string; ask: boolean } }
   | { kind: 'peek'; target: Extract<PeekTarget, { kind: 'local' }> }
 > {
   const ref = fileRefOf(args.ref);
   if (isChat(ref)) return { kind: 'chat', target: await files.openTarget(chatSurface(page), { ref }) };
+  const name = 'id' in ref ? ref.id : ref.name;
+  const ask = args.ask === true;
+  // A session's working copy on another machine: gated as opening it read-only (the file the page was handed needs nothing).
+  const elsewhere = await sessionElsewhere(ref);
+  if (elsewhere) {
+    const handed = page.handed && isWorkspace(page.handed) && page.handed.workspace === ref.workspace && page.handed.id === name;
+    const service = extensionsService();
+    if (!handed && !service.hasCapability(page.extensionId, 'files:read') && !service.hasCapability(page.extensionId, 'files:write')) {
+      throw new AppFileError('denied', 'Not permitted: opening a file other than the one this page was opened for needs "files:read" or "files:write"');
+    }
+    return { kind: 'session', target: { sessionId: elsewhere.sessionId, projectId: elsewhere.projectId, deviceId: elsewhere.deviceId, path: name, ask } };
+  }
   const copy = await localFolder(page, ref);
-  const found = local.openTarget(copy, { ref: ref as LocalFileRef });
-  if (args.peek || !('session' in found.place)) {
+  const found = local.openTarget(copy, { ref: ref as WorkspaceFileRef });
+  const session = workspaceSession(found.place);
+  if (args.peek || !session) {
     if (!copy.workspaceId) throw new AppFileError('not-found', `${found.name} is in no workspace this computer has open`);
     const { place } = found;
-    return { kind: 'peek', target: { kind: 'local', place, projectId: copy.projectId, workspaceId: copy.workspaceId, path: found.path, absolutePath: path.join(copy.workspaceRoot, found.path), name: found.name, ask: args.ask === true } };
+    return { kind: 'peek', target: { kind: 'local', place, projectId: copy.projectId, workspaceId: copy.workspaceId, path: found.path, absolutePath: path.join(copy.workspaceRoot, found.path), name: found.name, ask } };
   }
-  const { openSessionFileForApp } = await import('@main/core/sessions/session-orchestration');
-  await openSessionFileForApp({ projectId: copy.projectId, sessionId: found.place.session, path: path.join(copy.workspaceRoot, found.path), ask: args.ask === true });
-  return { kind: 'session' };
+  return { kind: 'session', target: { sessionId: session, projectId: copy.projectId, deviceId: null, path: found.path, ask } };
 }
 
 /**
@@ -509,12 +605,21 @@ type SaveSource = Awaited<ReturnType<typeof files.downloadSource>> | { name: str
 
 async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<SaveSource> {
   const ref = fileRefOf(given);
-  const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as LocalFileRef);
-  return isChat(ref)
-    ? await files.downloadSource(chatSurface(page), { ref })
-    : elsewhere
-      ? { name: elsewhere.entry.name, bytes: elsewhere.bytes, kind: 'bytes' as const }
-      : { ...local.downloadSource(await localFolder(page, ref), { ref: ref as LocalFileRef }), kind: 'bytes' as const };
+  if (isChat(ref)) return await files.downloadSource(chatSurface(page), { ref });
+  if (await elsewhereGated(page, ref)) {
+    // Another machine's file: its pieces, one after another, as `f.blob()` reads it.
+    const pieces: Buffer[] = [];
+    for (let offset = 0, size = Infinity; offset < size;) {
+      const chunk = await readAppFile(page, { ref, offset, length: REMOTE_WORKSPACE_CHUNK_BYTES });
+      const bytes = Buffer.from(chunk.data);
+      size = chunk.size;
+      if (bytes.byteLength === 0) break;
+      pieces.push(bytes);
+      offset += bytes.byteLength;
+    }
+    return { name: path.posix.basename('id' in ref ? ref.id : ref.name), bytes: Buffer.concat(pieces), kind: 'bytes' as const };
+  }
+  return { ...local.downloadSource(await localFolder(page, ref), { ref: ref as WorkspaceFileRef }), kind: 'bytes' as const };
 }
 
 async function saveTo(source: SaveSource, filePath: string): Promise<void> {

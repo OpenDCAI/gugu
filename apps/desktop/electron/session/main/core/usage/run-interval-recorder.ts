@@ -1,3 +1,4 @@
+import { sessionBootTasks } from '../boot-tasks';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { sessionRunIntervals, sessions } from '@main/db/schema';
@@ -79,13 +80,13 @@ export class RunIntervalRecorder {
     }
   }
 
-  /** 会话删了 = 它不再在干活。区间留着(那段时长仍是那天的事实),只收口。 */
-  observeDeleted(sessionId: string): void {
+  /** 任务归档后不再运行;保留历史用量区间,只结束当前区间。 */
+  observeArchived(sessionId: string): void {
     this.scheduledOnly.delete(sessionId);
     try {
       this.close(sessionId, this.now());
     } catch (error) {
-      log.warn('usage: failed to close run interval of a deleted session', {
+      log.warn('usage: failed to close run interval of an archived task', {
         sessionId,
         error: String(error),
       });
@@ -241,17 +242,17 @@ export function bypassStartMs(
  * 正在跑的会话的区间收掉。返回收掉的条数。
  */
 export function closeInterruptedRunIntervals(): number {
-  try {
-    const result = db
-      .update(sessionRunIntervals)
+  // Enumeration belongs to this optional recovery sweep, not database initialisation.
+  const rows = sessionBootTasks.runSync('run-interval-inventory', '', () =>
+    db.selectDistinct({ sessionId: sessionRunIntervals.sessionId }).from(sessionRunIntervals)
+      .where(isNull(sessionRunIntervals.endedAt)).all()) ?? [];
+  let closed = 0;
+  for (const { sessionId } of rows) {
+    closed += sessionBootTasks.runSync('run-interval-recovery', sessionId, () => db.update(sessionRunIntervals)
       .set({ endedAt: sql`${sessionRunIntervals.lastSeenAt}` })
-      .where(isNull(sessionRunIntervals.endedAt))
-      .run();
-    return result.changes;
-  } catch (error) {
-    log.warn('usage: failed to close interrupted run intervals', { error: String(error) });
-    return 0;
+      .where(and(eq(sessionRunIntervals.sessionId, sessionId), isNull(sessionRunIntervals.endedAt))).run().changes) ?? 0;
   }
+  return closed;
 }
 
 export const runIntervalRecorder = new RunIntervalRecorder();
@@ -262,16 +263,16 @@ type StatusSource = {
     handler: (input: { sessionId: string; reading: { status: string } & RunFacts }) => void
   ): unknown;
 };
-type DeletionSource = {
-  on(name: 'session:deleted', handler: (sessionId: string) => void): unknown;
+type ArchivalSource = {
+  on(name: 'session:archived', handler: (sessionId: string) => void): unknown;
 };
 
 let installed = false;
 
-/** 开机时装一次:订状态、订删除、起心跳。重复调用是空操作。 */
+/** 开机时装一次:订状态、订归档、起心跳。重复调用是空操作。 */
 export function installRunIntervalRecorder(sources: {
   agentStatus: StatusSource;
-  sessionEvents: DeletionSource;
+  sessionEvents: ArchivalSource;
   recorder?: RunIntervalRecorder;
   heartbeatMs?: number;
 }): () => void {
@@ -281,8 +282,8 @@ export function installRunIntervalRecorder(sources: {
   sources.agentStatus.on('agent:status', ({ sessionId, reading }) =>
     recorder.observeStatus(sessionId, reading.status, { running: reading.running, background: reading.background })
   );
-  sources.sessionEvents.on('session:deleted', (sessionId) =>
-    recorder.observeDeleted(sessionId)
+  sources.sessionEvents.on('session:archived', (sessionId) =>
+    recorder.observeArchived(sessionId)
   );
   recorder.reconcile();
   const timer = setInterval(() => recorder.reconcile(), sources.heartbeatMs ?? RUN_INTERVAL_HEARTBEAT_MS);

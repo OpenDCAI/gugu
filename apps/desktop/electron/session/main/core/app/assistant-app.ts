@@ -1,6 +1,6 @@
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { userIdFromSupabaseAccessToken } from '@gugu/core';
-import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision';
+import { ASSISTANT_PROVISION_SELECT, pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision';
 import { listAgentsForExtension } from '@main/core/extensions/extension-agents';
 import { currentAccountAccessToken } from '@main/core/extensions/account-token';
 import { messageAgentFromHostApp, AppSendError } from '@main/core/extensions/extension-send';
@@ -32,7 +32,7 @@ export async function callAssistantApp(verb: string, input: unknown, expectedOwn
   }
   if (verb === 'dispatch' || verb === 'listAgents') {
     const client = createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } });
-    const { data, error } = await client.from('agent_provisions').select('agent_user_id, device_id, member_key, phase, created_at')
+    const { data, error } = await client.from('agent_provisions').select(ASSISTANT_PROVISION_SELECT)
       .eq('owner_user_id', ownerId).eq('member_key', 'assistant');
     if (error) throw new AppSendError('failed', 'Could not verify the personal assistant');
     const personal = pickAssistant((data ?? []) as AssistantProvisionRow[]);
@@ -59,7 +59,7 @@ export async function callAssistantApp(verb: string, input: unknown, expectedOwn
     if (args.name === 'assistant_work_list' || args.name === 'assistant_work_clear') {
       z.object({}).strict().parse(args.arguments ?? {});
       const client = createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } });
-      const { data, error } = await client.from('agent_provisions').select('agent_user_id, device_id, member_key, phase, created_at')
+      const { data, error } = await client.from('agent_provisions').select(ASSISTANT_PROVISION_SELECT)
         .eq('owner_user_id', ownerId).eq('member_key', 'assistant');
       if (error) throw new AppSendError('failed', 'Could not verify the personal assistant');
       const personal = pickAssistant((data ?? []) as AssistantProvisionRow[]);

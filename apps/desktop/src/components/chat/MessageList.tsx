@@ -2,13 +2,14 @@ import type { QuoteSelection } from './messageQuoteContent'
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { CSSProperties, MouseEvent, ReactNode, Ref } from 'react'
 import type { MessageItem, MessageSendState, TopicSummary } from '@gugu/core/shared/types/chat'
+import type { HeldMessage } from '@gugu/core/shared/ui/systemNotice'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { computeGroupedWithPrev } from '@gugu/core/shared/ui/messageListModels'
 import { deriveMessageSendState, deriveReadReceipt } from '@gugu/core/shared/ui/messageState'
 import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { OPEN_AT_LATEST, useRowAboveViewport } from '@/lib/listLanding'
 import { useFlowList, type FlowListHandle, type ListLanding } from '@/lib/flowList'
-import { formatCalendarDayTime } from '@/lib/calendarTime'
+import { formatCalendarDay } from '@/i18n/format'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import type { MemberProfileSide } from '../memberProfileModels'
 import { Button } from '../ui/Button'
@@ -89,8 +90,8 @@ export interface MessageListRowProps {
   /** #1708 命中「来源消息跳转」时高亮闪烁的消息 id。 */
   flashMessageId: string | null | undefined
   memberReadSeqs: Record<string, number>
-  /** My messages an agent has not taken yet (useQueuedMessageIds): 「发送中」 until it reads them. */
-  queuedIds: ReadonlySet<string>
+  /** My messages an agent has not taken yet (useDeliveryWaits): their bubbles say so until it reads them. */
+  deliveryWaits: ReadonlyMap<string, HeldMessage>
   // 私聊/AI 没有 thread surface；群聊 thread 由右侧 panel 承载。
   isGroupChat: boolean
   threeParty: boolean | undefined
@@ -164,7 +165,7 @@ const MessageListRow = memo(function MessageListRow({
   mobile,
   highlight,
   flashMessageId,
-  memberReadSeqs, queuedIds,
+  memberReadSeqs, deliveryWaits,
   isGroupChat,
   threeParty,
   memberProfiles, bubbleMemberProfiles,
@@ -218,7 +219,8 @@ const MessageListRow = memo(function MessageListRow({
 
   const isSelected = selectedIds.has(msg.id)
   const readReceipt = computeReadReceipt(msg, memberReadSeqs) // @@@1577 M5 A6 — 单次派生,原同行同参调两次
-  const sendState = queuedIds.has(msg.id) ? 'queued' : computeSendState(msg, memberReadSeqs)
+  const held = deliveryWaits.get(msg.id)
+  const sendState = held?.wait ?? computeSendState(msg, memberReadSeqs)
 
   // 连续消息合组：同一发送者、无时间分隔线切断、双方都是普通消息时，后续消息隐藏头像+名字/时间行，
   // 只留气泡（间距也收紧）。搜索态(isFiltering)结果不连续，不合组。whisper 形态特殊，不参与合组。
@@ -245,6 +247,7 @@ const MessageListRow = memo(function MessageListRow({
       showReplyQuote={showReplyQuote}
       onReaction={onReaction}
       sendState={sendState}
+      undeliveredTo={held?.undeliveredTo.join(',')}
       readReceiptRead={readReceipt?.read}
       readReceiptTotal={readReceipt?.total}
       // #2098 owner 定:已读回执逐条显示(每条本人消息都挂环),非只末条。气泡内已按 is_mine + read>0 门控。
@@ -277,7 +280,7 @@ const MessageListRow = memo(function MessageListRow({
         /* @@@ui-ruler 时间分隔 = Chip(小标签的唯一实现:18px 药丸、caption 字号、muted 底)。
            原来是这里自己拍的 10px 圆角 + 2/10 内距 + 裸 11px。 */
         <div style={{ textAlign: 'center', margin: 'var(--spacing-sm) 0 var(--spacing-xs)', userSelect: 'none' }}>
-          <Chip>{formatCalendarDayTime(msg.created_at)}</Chip>
+          <Chip>{formatCalendarDay(msg.created_at, { withTime: true })}</Chip>
         </div>
       )}
       {/* @@@multi-select (#988) — 多选态：行首勾选框 + 整行点击切换选中；内层气泡 pointer-events:none

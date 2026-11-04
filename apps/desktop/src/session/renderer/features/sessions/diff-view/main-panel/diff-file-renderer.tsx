@@ -10,12 +10,12 @@ import {
   useWorkspaceId,
   useWorkspaceSurface,
 } from '@renderer/features/sessions/session-view-context';
+import { CodeMirrorDiffEditor } from '@renderer/lib/codemirror/diff-editor';
 import { HtmlContentRenderer } from '@renderer/lib/editor/html-renderer';
 import { resolveWorkspaceResourcePath } from '@renderer/lib/editor/workspace-resource-path';
 import { ModelStatusOverlay } from '@renderer/lib/monaco/model-status-overlay';
 import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
 import { buildMonacoModelPath } from '@renderer/lib/monaco/monacoModelPath';
-import { StickyDiffEditor } from '@renderer/lib/monaco/sticky-diff-editor';
 import { useModelStatus } from '@renderer/lib/monaco/use-model';
 import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
 import { getLanguageFromPath } from '@renderer/utils/languageUtils';
@@ -195,7 +195,7 @@ const TextDiffRenderer = observer(function TextDiffRenderer({ tab }: DiffFileRen
   return (
     <div className="file-diff-view flex h-full flex-col">
       <div className="relative min-h-0 flex-1">
-        <StickyDiffEditor
+        <CodeMirrorDiffEditor
           originalUri={originalUri}
           modifiedUri={modifiedUri}
           diffStyle={diffView.diffStyle}

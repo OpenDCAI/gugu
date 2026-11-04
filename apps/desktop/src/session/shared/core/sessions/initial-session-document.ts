@@ -1,7 +1,6 @@
 import type { GuguPermissionMode } from '@gugu/session-core/acp/client';
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import type { NewSessionConfig } from './new-session-config';
-import { sessionTitleFromPrompt, nextDefaultSessionTitle } from './session-title';
 import { sessionRuntimeOfView, type SessionView } from './sessions';
 
 export type InitialSessionDocument = NonNullable<NewSessionConfig['initialSession']>;
@@ -30,8 +29,6 @@ export type InitialSessionInput = {
    */
   platformModel?: { modelId: string } | null;
   startupOrigin?: 'chat-page' | 'session-page';
-  /** 已有会话的标题,给默认标题计数用;没有就当空。 */
-  existingTitles?: ReadonlyArray<{ providerId: AgentProviderId; title: string }>;
 };
 
 /**
@@ -53,10 +50,7 @@ export function buildInitialSessionDocument(
     // spec session-resume:新建 = 带着第一句话开一件活。
     origin: { kind: 'create' as const, firstUtterance },
     ...(input.startupOrigin ? { startupOrigin: input.startupOrigin } : {}),
-    // 侧栏那一行就是会话标题,所以由第一句话起名,❌ 不用 provider 计数(spec flows 链1)。
-    title:
-      sessionTitleFromPrompt(firstUtterance)
-      ?? nextDefaultSessionTitle(input.provider, [...(input.existingTitles ?? [])]),
+    // No name here: the task is named by its creating entry (task-name.ts), never from the first prompt.
     permissionMode: input.permissionMode,
     // 平台模型由网关签发的 token 钉死,所以只省略 harness 的 model id;effort 仍随同一份
     // conversation config 记录并由共享注入边界读取,创建页与会话内不能各自推导。

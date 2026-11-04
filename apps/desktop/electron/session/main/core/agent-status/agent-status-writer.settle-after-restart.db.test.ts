@@ -1,3 +1,4 @@
+import { sessionBootTasks } from '../boot-tasks';
 import { openFixture } from '@tooling/utils/db';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
@@ -30,7 +31,6 @@ vi.mock('../agent-hooks/hook-server', () => ({
   },
 }));
 vi.mock('../agent-hooks/event-enricher', () => ({ parseHookEvent: vi.fn() }));
-vi.mock('../agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/sessions/set-session-id', () => ({ setProviderSessionId: vi.fn() }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn(), on: vi.fn(() => () => {}) } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
@@ -63,10 +63,10 @@ describe('settling after a restart leaves sessions whose engine survived in tmux
   const seed = (id: string, runtime: 'pty' | 'acp', agentStatus: string) =>
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status, agent_status_seen)
-         VALUES (?, 'p1', 'C', 'claude', ?, ?, 1)`
+        `INSERT INTO sessions (id, project_id, provider, runtime, agent_status, agent_status_seen, config)
+         VALUES (?, 'p1', 'claude', ?, ?, 1, json_object('version', '1', 'type', ?, 'agentDisplayName', 'C'))`
       )
-      .run(id, runtime, agentStatus);
+      .run(id, runtime, agentStatus, runtime);
 
   beforeAll(async () => {
     await agentHookService.initialize();
@@ -92,7 +92,8 @@ describe('settling after a restart leaves sessions whose engine survived in tmux
   });
 
   it('a session still running in tmux keeps its reading; the ones whose engine died with the host are settled', async () => {
-    await agentStatusWriter.settleAfterRestart(new Set([tmuxName('in-tmux'), tmuxName('in-tmux-asking'), 'gugu-someone-else']));
+    const settled = await agentStatusWriter.settleAfterRestart(new Set([tmuxName('in-tmux'), tmuxName('in-tmux-asking'), 'gugu-someone-else']));
+    expect(settled.sort()).toEqual(['acp', 'pty-gone']);
 
     expect(status('in-tmux').status).toBe('working');
     expect(status('in-tmux-asking').status).toBe('needs_user');
@@ -128,4 +129,12 @@ describe('settling after a restart leaves sessions whose engine survived in tmux
       expect(status(id)).toEqual({ status: 'error', detail: null });
     }
   });
+  it('records one task update refusal and continues restart recovery for the other tasks', async () => {
+    fixture.sqlite.exec(`CREATE TRIGGER refuse_one_status BEFORE UPDATE ON sessions WHEN OLD.id='pty-gone' BEGIN SELECT RAISE(ABORT,'status fixture refusal'); END;`);
+    await expect(agentStatusWriter.settleAfterRestart(new Set())).resolves.not.toContain('pty-gone');
+    expect(status('pty-gone').status).toBe('working');
+    expect(status('acp').status).toBe('error');
+    expect(sessionBootTasks.snapshot()).toContainEqual(expect.objectContaining({ operation: 'status-recovery', taskId: 'pty-gone' }));
+  });
+
 });

@@ -72,9 +72,9 @@ function source(): string {
   writeFileSync(path.join(dir, 'index.html'), '<p>search</p>');
   writeFileSync(path.join(dir, 'tools.js'), 'export const search = { description: "Search", inputSchema: { type: "object" }, run: () => "" };');
   writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
-    id: 'searcher', name: 'Searcher', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+    id: 'searcher', name: 'Searcher', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
     permissions: { capabilities: ['agents:tools'] },
-    contributes: { tabs: [{ name: 'main', title: 'Searcher' }], mcpServers: [{ tools: 'tools.js' }] },
+    contributes: { tabs: [{ name: 'main', title: 'Searcher' }], mcpServers: [{ tools: 'tools.js' }], instructions: 'Test tools.' },
   }));
   return dir;
 }

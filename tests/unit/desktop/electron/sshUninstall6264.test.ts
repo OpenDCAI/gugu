@@ -18,6 +18,7 @@ import { createSshMachineStore, registerSshMachinesIpc } from '../../../../apps/
 import { createServerUpdateStateWriter } from '../../../../apps/desktop/electron/server/server-updater'
 import type { SpawnSsh } from '../../../../apps/desktop/electron/server/ssh-install/runner'
 import { SERVER_SSH_MACHINES_CHANNELS, type ServerUninstallState } from '../../../../apps/desktop/src/lib/serverSshMachines'
+import { binLauncher } from '../../../../apps/desktop/electron/server/server-names'
 
 const ME = '11111111-1111-4111-8111-111111111111'
 const OTHER = '22222222-2222-4222-8222-222222222222'
@@ -57,6 +58,22 @@ const runSh = (home: string, script: string): string => {
 }
 
 describe('#6264 从这台机器上卸载咕咕 server:远端脚本', () => {
+  it('reads the fixed account and retained history once, skipping rollback aliases', () => {
+    const home = tmp()
+    try {
+      const root = fakeInstall(home)
+      fs.renameSync(path.join(root, 'accounts', ME), path.join(root, 'account'))
+      fs.symlinkSync('../account', path.join(root, 'accounts', ME))
+      fs.mkdirSync(path.join(root, 'retired'))
+      fs.renameSync(path.join(root, 'accounts', OTHER), path.join(root, 'retired', OTHER))
+      const parsed = parseInspectOutput(runSh(home, inspectScript()))!
+      expect(parsed.accounts).toHaveLength(2)
+      expect(parsed.accounts.filter(account => account.userId === ME)).toEqual([{ userId: ME, email: 'me@example.test', signedIn: true }])
+      expect(runSh(home, uninstallScript())).toContain(UNINSTALLED_MARK)
+      expect(fs.existsSync(root)).toBe(false)
+      expect(fs.existsSync(path.join(home, 'projects/app'))).toBe(true)
+    } finally { fs.rmSync(home, { recursive: true, force: true }) }
+  })
   it('看一眼:报出版本与每个账号(有没有登录态、邮箱)', () => {
     const home = tmp()
     try {
@@ -87,6 +104,24 @@ describe('#6264 从这台机器上卸载咕咕 server:远端脚本', () => {
       expect(fs.existsSync(path.join(home, 'projects', 'app'))).toBe(true)
       // 再看一眼:什么都没有了
       expect(parseInspectOutput(runSh(home, inspectScript()))).toEqual({ installed: false, version: null, accounts: [] })
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('命令是 install.sh 写的那行启动脚本:钉着的正是这个目录才删,钉着别的目录的不碰', () => {
+    const home = tmp()
+    try {
+      const serverHome = fakeInstall(home)
+      const bin = path.join(home, '.local', 'bin', 'gugu-server')
+      fs.rmSync(bin)
+      fs.writeFileSync(bin, binLauncher(path.join(home, 'elsewhere')), { mode: 0o755 })
+      expect(() => runSh(home, uninstallScript())).toThrow()
+      expect(fs.existsSync(bin)).toBe(true)
+      fs.mkdirSync(serverHome, { recursive: true })
+      fs.writeFileSync(bin, binLauncher(serverHome), { mode: 0o755 })
+      expect(runSh(home, uninstallScript())).toContain(UNINSTALLED_MARK)
+      expect(fs.existsSync(bin)).toBe(false)
     } finally {
       fs.rmSync(home, { recursive: true, force: true })
     }

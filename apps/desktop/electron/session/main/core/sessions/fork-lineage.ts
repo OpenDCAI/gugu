@@ -151,7 +151,6 @@ export async function readTranscriptUuids(
 
 export type ForkParentCandidate = {
   sessionId: string;
-  title: string;
   uuids: Set<string>;
   lastInteractedAt: string | null;
 };

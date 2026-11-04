@@ -53,7 +53,7 @@ const highlightedRow = () =>
 
 async function mount(turns: TranscriptTurn[]) {
   // The double-column layout folds each turn's process behind a header.
-  const ctx = createChatContext({ layout: { preset: 'double', userGutter: 72 } });
+  const ctx = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', userGutter: 72 } });
   const state = createChatState(ctx);
   state.transcript.history.seed(turns);
   const host = document.createElement('div');

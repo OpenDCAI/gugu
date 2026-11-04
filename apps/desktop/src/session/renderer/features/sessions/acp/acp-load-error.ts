@@ -3,6 +3,7 @@ import { AcpStartError } from '@renderer/lib/acp/acp-live-session';
 export type AcpLoadError =
   | { kind: 'auth_required'; message: string }
   | { kind: 'adapter_lost'; message: string }
+  | { kind: 'history_unavailable'; message: string }
   | { kind: 'provider_session_missing'; message: string }
   | { kind: 'harness_not_installed'; message: string }
   /**

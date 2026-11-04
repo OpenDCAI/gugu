@@ -1,8 +1,23 @@
 import type { ChatComposerProps, PromptEditorRef } from '@gugu/session-ui/react/components';
+import { observer } from 'mobx-react-lite';
+import { composerDrafts } from '../composer-drafts';
+import { useCreateSessionCallback } from '../create-session-modal/use-create-session-callback';
+import type { CreateSessionState } from '../create-session-modal/use-create-session-state';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
+  getSessionManagerStore: () => ({ createSession: mocks.createSession }),
+  getSessionPageStore: () => ({ workspaceId: 'workspace' }),
+  asProvisioned: (value: unknown) => value,
+}));
+vi.mock('@/lib/sessionPublication', async original => ({ ...(await original<object>()), getRendererSession: () => ({ user: { id: 'fixture-owner' } }) }));
+vi.mock('@renderer/lib/shell-port', async original => {
+  const actual = await original<typeof import('@renderer/lib/shell-port')>();
+  return { ...actual, shellPort: () => ({ ...actual.shellPort(), ensureAgentAddress: async () => ({ chatId: 'fixture-chat' }) }) };
+});
 
 vi.mock('@/lib/supabase', () => ({
   dataClient: () => { throw new Error('Initial composer tests must not access the cloud'); },
@@ -25,7 +40,6 @@ import { queryClient } from '@renderer/lib/query-client';
 import {
   InitialSessionField,
   resolvePlatformModel,
-  sessionpageLegForCreation,
   terminalLegUnstartableForCreation,
   useInitialSessionState,
   type InitialSessionState,
@@ -37,29 +51,16 @@ import { effortSourceFor, platformEffortFacts, resolveCreateEfforts, resolveEffo
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  createSession: vi.fn(),
+  sendMessage: vi.fn(),
+  created: vi.fn(),
   setProviderOverride: vi.fn(),
   invoke: vi.fn(),
   /** 访达拖进来的那条真路径;粘贴进来的是空串(Chromium 给不出路径)。 */
   droppedPath: '',
-  /** 那台机器(dev-ssh)上那一份:新建会话页的附件必须落在它那儿(#6264)。 */
-  remoteCommitAttachment: vi.fn(async (input: { name: string }) => ({
-    success: true as const,
-    data: { id: 'r1', storedPath: `/remote/${input.name}`, mentionPath: `/remote/${input.name}`, name: input.name, size: 1 },
-  })),
-  rpcCommitAttachment: vi.fn(
-    async (input: { sessionId: string; name: string; originalPath?: string }) => {
-      const storedPath = `/u/task-attachments/${input.sessionId}/att-${input.name}`;
-      return {
-        success: true as const,
-        data: {
-          id: `att-${input.name}`,
-          storedPath,
-          originalPath: input.originalPath,
-          mentionPath: input.originalPath ?? storedPath,
-        },
-      };
-    }
-  ),
+  /** 放进私聊文件夹那一步(P3):只在任务建好之后由 placeAttachments 发起。 */
+  prepareTaskAttachment: vi.fn(async (file: File) => ({ itemId: `item-${file.name}`, version: 1, name: file.name, mimeType: file.type, sizeBytes: file.size, path: `/local/${file.name}` })),
+  placeTaskAttachment: vi.fn(async (_file: File, prepared: unknown) => prepared),
   editorText: '',
   editorApi: {
     focus: vi.fn(),
@@ -472,33 +473,18 @@ vi.mock('@renderer/lib/ipc', () => {
     on: vi.fn(() => () => {}),
   },
   rpc: {
+    sessions: { sendMessage: mocks.sendMessage },
+    sessionTimeline: { sessionStart: async () => ({ ok: true }) },
+    sessionCreate: { admitFirstMessages: async () => {} },
     issues: {
       searchIssues: vi.fn(),
       getIssueContext: vi.fn(),
-    },
-    // 附件的字节在**任务建出来之前**就按块传好、落盘(#5269、#6264)。替身照真实的形状回两条路径:
-    // `storedPath` = 我们自己那一份,`mentionPath` = 发给 agent 的那条(有原路径就是原路径)。
-    sessionCreate: {
-      writeAttachmentChunk: vi.fn(async () => ({ success: true as const, data: { received: 0 } })),
-      commitAttachmentUpload: mocks.rpcCommitAttachment,
-      discardAttachmentUpload: vi.fn(async () => ({ success: true as const, data: undefined })),
-      recordAttachments: vi.fn(async () => ({ success: true as const, data: undefined })),
     },
   },
   };
   // #6264 一套工作台:按机器路由的那几个口,替身里都落到本机这一份。
   return {
-    rpcOn: (machine: string | null) =>
-      machine === 'dev-ssh'
-        ? {
-            ...mod.rpc,
-            sessionCreate: {
-              writeAttachmentChunk: vi.fn(async () => ({ success: true as const, data: { received: 0 } })),
-              commitAttachmentUpload: mocks.remoteCommitAttachment,
-              discardAttachmentUpload: vi.fn(async () => ({ success: true as const, data: undefined })),
-            },
-          }
-        : mod.rpc,
+    rpcOn: () => mod.rpc,
     // 平台模型目录那一问经宿主通道走(本机 = electronApi().invoke)。
     invokeOnMachine: (_machine: string | null, channel: string, ...args: unknown[]) => mocks.invoke(channel, ...args),
     onMachineEvent: () => () => {},
@@ -506,8 +492,10 @@ vi.mock('@renderer/lib/ipc', () => {
   };
 });
 
+vi.mock('@/lib/attachmentsEndpoint', () => ({ placeTaskAttachment: mocks.placeTaskAttachment, prepareTaskAttachment: mocks.prepareTaskAttachment }));
+
 vi.mock('@renderer/utils/logger', () => ({
-  log: { warn: vi.fn() },
+  log: { warn: vi.fn(), error: vi.fn() },
 }));
 
 // 新建会话的记忆在应用设置 `newSessionMemory`(这台设备一份,主进程的 spawnAgent 读同一份 —— L11 复核 58)。
@@ -604,13 +592,41 @@ function Probe({
   return null;
 }
 
+let latestCreation: ReturnType<typeof useCreateSessionCallback> | undefined;
+const creationState = {
+  isValid: true, linkedType: null, linkedIssue: null,
+  sessionName: { effectiveSessionName: 'fixture-task' },
+  workspaceConfig: { resolvedConfig: { version: '2' } },
+} as unknown as CreateSessionState;
+const CreationProbe = observer(function CreationProbe({ draftKey, local = false }: { draftKey: string; local?: boolean }) {
+  const draft = React.useMemo(() => composerDrafts.forKey?.(draftKey), [draftKey]);
+  const state = useInitialSessionState('project-1', undefined, false, {
+    resetPromptOnProjectChange: false,
+    initialPrompt: draft ? undefined : composerDrafts.get(draftKey),
+    draft,
+  });
+  state.promptCapability = local ? undefined : { kind: 'none', startupDelivery: 'startup-prompt' };
+  // PromptEditor.setText emits onChange even for a programmatic state synchronization.
+  React.useEffect(() => state.setPrompt(state.prompt), [state.prompt, state.setPrompt]);
+  latestState = state;
+  latestCreation = useCreateSessionCallback({
+    selectedProjectId: 'project-1', state: creationState, initialSession: state,
+    navigate: mocks.navigate, onClose: () => {}, onCreated: mocks.created, openAfterCreate: false,
+  });
+  return React.createElement(React.Fragment, null,
+    React.createElement('textarea', { value: state.prompt, readOnly: true, 'data-draft-input': true }),
+    React.createElement('button', { disabled: !latestCreation.canCreate, onClick: latestCreation.handleCreateSession }, 'Send'),
+    React.createElement('span', { 'data-files': true }, state.attachments.map(chip => chip.name).join(',')),
+    React.createElement('span', { role: 'alert' }, JSON.stringify(latestCreation.deliveryError)),
+  );
+});
+
 function FieldProbe({
   linkedIssue,
   includeIssueContextByDefault = false,
   placeholder,
   enableMentions,
   provider,
-  creationSurface,
 }: {
   linkedIssue?: LinkedIssue;
   includeIssueContextByDefault?: boolean;
@@ -618,13 +634,10 @@ function FieldProbe({
   enableMentions?: boolean;
   /** 换一家 harness 来渲染 —— 登录那条链只在具体某一家身上才成立。 */
   provider?: string;
-  creationSurface?: 'chat-page' | 'session-page';
 }) {
   const state = useInitialSessionState(
     'project-1',
     provider as Parameters<typeof useInitialSessionState>[1],
-    undefined,
-    { creationSurface }
   );
   latestState = state;
   return React.createElement(InitialSessionField, {
@@ -833,6 +846,264 @@ describe('useInitialSessionState', () => {
     });
   }
 
+  async function renderCreation(draftKey: string, local = false) {
+    await act(async () => root.render(React.createElement(CreationProbe, { draftKey, local })));
+  }
+  async function remountCreation(draftKey: string, local = false) {
+    await act(async () => root.render(null));
+    await renderCreation(draftKey, local);
+  }
+  function deferCreation() {
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    mocks.createSession.mockReset();
+    mocks.sendMessage.mockReset().mockResolvedValue({ status: 'queued' });
+    mocks.created.mockReset();
+    mocks.createSession.mockImplementationOnce(() => new Promise<void>((yes, no) => { resolve = yes; reject = no; }));
+    return { resolve: () => resolve(), reject: () => reject(new Error('fixture-create-failed')) };
+  }
+
+  it('a remounted creation stays empty and cannot submit the in-flight first turn twice', async () => {
+    const key = 'remount-empty';
+    composerDrafts.set(key, 'submitted first turn');
+    const pending = deferCreation();
+    await renderCreation(key);
+    await act(async () => latestState?.enqueueAttachments([new File(['original'], 'original.txt')]));
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    await remountCreation(key);
+    expect(container.querySelector('textarea')?.value).toBe('');
+    expect(latestState?.attachments).toEqual([]);
+    expect(container.querySelector('button')?.disabled).toBe(true);
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    await act(async () => pending.resolve());
+    expect(container.querySelector('textarea')?.value).toBe('');
+    expect(composerDrafts.get(key)).toBe('');
+    expect(mocks.created).toHaveBeenCalledOnce();
+  });
+
+  it('a successful old instance retains the newer mounted text and file draft', async () => {
+    const key = 'remount-new-input';
+    composerDrafts.set(key, 'submitted first turn');
+    const pending = deferCreation();
+    await renderCreation(key);
+    await act(async () => latestCreation?.handleCreateSession());
+    await remountCreation(key);
+    await act(async () => latestState?.setPrompt('newer input'));
+    const file = new File(['new bytes'], 'new.txt');
+    await act(async () => latestState?.enqueueAttachments([file]));
+    await act(async () => pending.resolve());
+    expect(container.querySelector('textarea')?.value).toBe('newer input');
+    expect(composerDrafts.get(key)).toBe('newer input');
+    expect(latestState?.pendingAttachmentFiles()).toEqual([expect.objectContaining({ file })]);
+    expect(mocks.created).toHaveBeenCalledOnce();
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+  });
+
+  it('a moved in-flight draft keeps its lock and returns both captions after unmounted failure', async () => {
+    const key = 'moving-creation';
+    const destination = 'moving-destination';
+    composerDrafts.set(key, 'original');
+    composerDrafts.set(destination, '');
+    const pending = deferCreation();
+    await renderCreation(key);
+    await act(async () => latestCreation?.handleCreateSession());
+    await act(async () => composerDrafts.moveToEmpty(key, destination));
+    await remountCreation(destination);
+    await act(async () => latestState?.setPrompt('new words'));
+    expect(latestCreation?.canCreate).toBe(false);
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    await act(async () => pending.reject());
+    expect(container.querySelector('textarea')?.value).toBe('original\nnew words');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('fixture-create-failed');
+    expect(latestCreation?.canCreate).toBe(true);
+    await act(async () => latestState?.setPrompt('edited after failure'));
+    expect(latestCreation?.deliveryError).toBeNull();
+  });
+
+  it('a remounted sender cannot create a second task even if send is invoked directly', async () => {
+    const key = 'remount-duplicate';
+    composerDrafts.set(key, 'one task');
+    const pending = deferCreation();
+    await renderCreation(key);
+    await act(async () => latestCreation?.handleCreateSession());
+    await remountCreation(key);
+    await act(async () => latestState?.setPrompt('next task draft'));
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    await act(async () => pending.resolve());
+  });
+
+  it('pre-create failure returns submitted files before newer files without revoking the submitted preview', async () => {
+    const key = 'remount-file-failure';
+    composerDrafts.set(key, 'original caption');
+    const pending = deferCreation();
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    await renderCreation(key);
+    const original = new File(['original'], 'original.png', { type: 'image/png' });
+    await act(async () => latestState?.enqueueAttachments([original]));
+    const preview = latestState?.attachments[0]?.previewUrl;
+    await act(async () => latestCreation?.handleCreateSession());
+    await remountCreation(key);
+    expect(container.querySelector('[data-files]')?.textContent).toBe('');
+    expect(revoke).not.toHaveBeenCalledWith(preview);
+    await act(async () => latestState?.setPrompt('new caption'));
+    const newer = new File(['new'], 'new.txt');
+    await act(async () => latestState?.enqueueAttachments([newer]));
+    await act(async () => pending.reject());
+    expect(container.querySelector('textarea')?.value).toBe('original caption\nnew caption');
+    expect(latestState?.pendingAttachmentFiles().map(({ file }) => file)).toEqual([original, newer]);
+    expect(latestState?.attachments.map(({ name }) => name)).toEqual(['original.png', 'new.txt']);
+    expect(revoke).not.toHaveBeenCalledWith(preview);
+    await act(async () => latestState?.setAttachments([]));
+    expect(revoke).toHaveBeenCalledWith(preview);
+    revoke.mockRestore();
+  });
+
+  it('post-create send failure returns only text and a remounted retry sends once without recreating', async () => {
+    const key = 'remount-local-retry';
+    composerDrafts.set(key, 'original caption');
+    const pending = deferCreation();
+    mocks.sendMessage.mockRejectedValueOnce(new Error('fixture-send-failed'));
+    await renderCreation(key, true);
+    await act(async () => latestState?.enqueueAttachments([new File(['original'], 'original.txt')]));
+    await act(async () => latestCreation?.handleCreateSession());
+    await remountCreation(key, true);
+    await act(async () => latestState?.setPrompt('new caption'));
+    await act(async () => pending.resolve());
+    expect(latestState?.prompt).toBe('original caption\nnew caption');
+    expect(latestState?.attachments).toEqual([]);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('fixture-send-failed');
+    await remountCreation(key, true);
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    expect(mocks.sendMessage).toHaveBeenCalledTimes(2);
+    expect(mocks.sendMessage.mock.calls.map(([message]) => message.text)).toEqual(['original caption', 'original caption']);
+    expect(mocks.sendMessage.mock.calls[1]?.[0].delivery.files).toHaveLength(1);
+    expect(latestState?.prompt).toBe('new caption');
+    expect(mocks.created).toHaveBeenCalledOnce();
+  });
+
+  it('a pure attachment send failure keeps its retry until added text resends to the same task', async () => {
+    const key = 'attachment-only-retry';
+    composerDrafts.set(key, '');
+    const pending = deferCreation();
+    mocks.sendMessage.mockRejectedValueOnce(new Error('fixture-send-failed'));
+    await renderCreation(key, true);
+    await act(async () => latestState?.enqueueAttachments([new File(['image'], 'image.png', { type: 'image/png' })]));
+    await act(async () => latestCreation?.handleCreateSession());
+    await act(async () => pending.resolve());
+    expect(latestState?.prompt).toBe('');
+    expect(latestState?.attachments).toEqual([]);
+    expect(composerDrafts.forKey(key).pendingMessage?.files).toHaveLength(1);
+    await remountCreation(key, true);
+    await act(async () => latestState?.setPrompt('retry this image'));
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    expect(mocks.sendMessage).toHaveBeenCalledTimes(2);
+    expect(mocks.sendMessage.mock.calls[1]?.[0].sessionId).toBe(mocks.sendMessage.mock.calls[0]?.[0].sessionId);
+    expect(mocks.sendMessage.mock.calls[1]?.[0].delivery.files).toHaveLength(1);
+    expect(latestState?.prompt).toBe('retry this image');
+  });
+
+  it('discarding a failed task retry lets a reopened composer create a different task', async () => {
+    const key = 'discard-retry';
+    composerDrafts.set(key, 'old task caption');
+    const pending = deferCreation();
+    mocks.sendMessage.mockRejectedValueOnce(new Error('fixture-send-failed'));
+    await renderCreation(key, true);
+    await act(async () => latestCreation?.handleCreateSession());
+    await act(async () => pending.resolve());
+    expect(latestCreation?.deliveryError).not.toBeNull();
+    await act(async () => composerDrafts.discard(key));
+    await remountCreation(key, true);
+    await act(async () => latestState?.setPrompt('a different task'));
+    mocks.createSession.mockResolvedValueOnce(undefined);
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledTimes(2);
+    expect(mocks.sendMessage.mock.calls.map(([message]) => message.text)).toEqual(['old task caption', 'a different task']);
+    expect(mocks.sendMessage.mock.calls[1]?.[0].sessionId).not.toBe(mocks.sendMessage.mock.calls[0]?.[0].sessionId);
+    expect(latestState?.prompt).toBe('');
+  });
+
+  it('clearing an idle failed retry abandons it only after its last chip is removed', async () => {
+    const key = 'clear-idle-retry';
+    composerDrafts.set(key, 'old task caption');
+    const pending = deferCreation();
+    mocks.sendMessage.mockRejectedValueOnce(new Error('fixture-send-failed'));
+    await renderCreation(key, true);
+    await act(async () => latestCreation?.handleCreateSession());
+    await act(async () => pending.resolve());
+    await act(async () => latestState?.enqueueAttachments([new File(['new'], 'new.txt')]));
+    await act(async () => latestState?.setPrompt(''));
+    expect(composerDrafts.forKey(key).pendingMessage).not.toBeNull();
+    await act(async () => latestState?.setAttachments([]));
+    expect(composerDrafts.forKey(key).pendingMessage).toBeNull();
+    await act(async () => latestState?.setPrompt('a different task'));
+    mocks.createSession.mockResolvedValueOnce(undefined);
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledTimes(2);
+    expect(mocks.sendMessage.mock.calls.map(([message]) => message.text)).toEqual(['old task caption', 'a different task']);
+  });
+
+  it('an external draft writer only changes the unsubmitted input during creation', async () => {
+    const key = 'external-during-creation';
+    composerDrafts.set(key, 'original caption');
+    const pending = deferCreation();
+    await renderCreation(key);
+    await act(async () => latestCreation?.handleCreateSession());
+    await act(async () => composerDrafts.set(key, 'external next draft'));
+    expect(container.querySelector('textarea')?.value).toBe('external next draft');
+    await act(async () => pending.resolve());
+    expect(mocks.createSession.mock.calls[0]?.[0].sessionConfig.initialSession.initialQueue[0].text).toBe('original caption');
+    expect(latestState?.prompt).toBe('external next draft');
+    expect(composerDrafts.get(key)).toBe('external next draft');
+  });
+
+  it('a completed request releases its preview once and cannot restore sent input after a callback error', async () => {
+    const key = 'success-once';
+    composerDrafts.set(key, 'original caption');
+    const pending = deferCreation();
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    mocks.created.mockImplementationOnce(() => { throw new Error('fixture-callback-failed'); });
+    await renderCreation(key);
+    await act(async () => latestState?.enqueueAttachments([new File(['image'], 'sent.png', { type: 'image/png' })]));
+    const preview = latestState?.attachments[0]?.previewUrl;
+    await act(async () => latestCreation?.handleCreateSession());
+    await remountCreation(key);
+    await act(async () => pending.resolve());
+    expect(latestState?.prompt).toBe('');
+    expect(latestState?.attachments).toEqual([]);
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    expect(mocks.created).toHaveBeenCalledOnce();
+    expect(revoke.mock.calls.filter(([url]) => url === preview)).toHaveLength(1);
+    expect(latestCreation?.deliveryError).toBeNull();
+    revoke.mockRestore();
+  });
+
+  it('discarding an in-flight task releases submitted previews on later failure without restoring the new draft', async () => {
+    const key = 'discard-pending';
+    composerDrafts.set(key, 'in-flight caption');
+    const pending = deferCreation();
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    await renderCreation(key);
+    await act(async () => latestState?.enqueueAttachments([new File(['image'], 'sent.png', { type: 'image/png' })]));
+    const preview = latestState?.attachments[0]?.previewUrl;
+    await act(async () => latestCreation?.handleCreateSession());
+    await act(async () => composerDrafts.discard(key));
+    await remountCreation(key);
+    await act(async () => latestState?.setPrompt('a different task'));
+    await act(async () => pending.reject());
+    expect(latestState?.prompt).toBe('a different task');
+    expect(latestState?.attachments).toEqual([]);
+    expect(latestCreation?.deliveryError).toBeNull();
+    expect(revoke.mock.calls.filter(([url]) => url === preview)).toHaveLength(1);
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    revoke.mockRestore();
+  });
+
   it('an explicit effort reset does not inherit the remembered level again', async () => {
     remember({
       provider: 'claude', model: 'claude-opus-4-8', effort: 'high',
@@ -970,19 +1241,27 @@ describe('useInitialSessionState', () => {
       expect(latestState?.attachments).toEqual([]);
     });
 
-    it('附件贴上来就传到那台机器 —— ❌ 按预留的任务 id 选线落到本机(那个 id 哪台机器都还不认识)', async () => {
+    it('附件在建任务之前只是 chip:先定名(首轮正文要写),建好之后才按那个名放进私聊文件夹(P3)', async () => {
       await renderRemote(true);
-      mocks.remoteCommitAttachment.mockClear();
-      mocks.rpcCommitAttachment.mockClear();
+      mocks.placeTaskAttachment.mockClear();
+      mocks.prepareTaskAttachment.mockClear();
       await act(async () => {
-        await latestState?.enqueuePathAttachments([new File(['x'], 'notes.txt', { type: 'text/plain' })]);
+        await latestState?.enqueueAttachments([new File(['x'], 'notes.txt', { type: 'text/plain' })]);
       });
+      expect(latestState?.attachments.map((chip) => chip.name)).toEqual(['notes.txt']);
+      expect(mocks.placeTaskAttachment).not.toHaveBeenCalled();
+      let named: unknown;
+      await act(async () => { named = await latestState?.prepareAttachments(); });
+      expect(named).toEqual([expect.objectContaining({ itemId: 'item-notes.txt', version: 1, path: '/local/notes.txt' })]);
+      expect(mocks.placeTaskAttachment).not.toHaveBeenCalled();
+      let files: unknown;
       await act(async () => {
-        expect(await latestState?.waitForPathAttachments()).toBe(true);
+        files = await latestState?.placeAttachments(async () => ({ chatId: 'dm-1', owner: 'owner-1' }));
       });
-      expect(mocks.remoteCommitAttachment).toHaveBeenCalledTimes(1);
-      expect(mocks.rpcCommitAttachment).not.toHaveBeenCalled();
-      expect(latestState?.pathAttachmentMentions()).toEqual(['@[notes.txt](/remote/notes.txt)']);
+      expect(mocks.prepareTaskAttachment).toHaveBeenCalledTimes(1);
+      expect(mocks.placeTaskAttachment).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ itemId: 'item-notes.txt' }),
+        { chatId: 'dm-1', owner: 'owner-1' }, expect.any(Function), { signal: expect.any(AbortSignal), placement: {} });
+      expect(files).toEqual([expect.objectContaining({ itemId: 'item-notes.txt', version: 1 })]);
     });
 
     it('本机新建照常走本机附件通道', async () => {
@@ -1001,27 +1280,6 @@ describe('useInitialSessionState', () => {
     });
   });
 
-  it('scopes the inbound-none fallback to chat-page first turns', () => {
-    const kimiSessionpage = {
-      'acp': { identity: 'addressable' as const, messageTransport: 'router' as const },
-      'tui': {
-        identity: 'addressable' as const,
-        messageTransport: 'local-session' as const,
-        inbound: 'none' as const,
-      },
-    };
-
-    const legFrom = (creationSurface: 'session-page' | 'chat-page') => sessionpageLegForCreation({
-      sessionpage: kimiSessionpage,
-      preferred: 'tui',
-      terminalUnstartable: terminalLegUnstartableForCreation({
-        sessionpage: kimiSessionpage, prompt: { kind: 'argv' }, creationSurface, dispatchesToChat: false,
-      }),
-    });
-    expect(legFrom('session-page')).toBe('tui');
-    expect(legFrom('chat-page')).toBe('acp');
-  });
-
   // 派进群里的任务(项目里的新任务)首句是任务卡:终端腿要有吃得下消息首句的启动通道,
   // 与主进程起 pty 时那道闸同一个函数(providerTakesMessageStartupInPty)。
   it('locks Terminal for a dispatched task when the terminal leg cannot take the task card at startup', () => {
@@ -1033,7 +1291,7 @@ describe('useInitialSessionState', () => {
       prompt: { kind: 'argv', startupDelivery: 'delivery-bridge' as const },
     };
     const unstartable = (prompt: typeof codexLike.prompt | { kind: string }, dispatchesToChat: boolean) =>
-      terminalLegUnstartableForCreation({ sessionpage: codexLike.sessionpage, prompt, creationSurface: 'session-page', dispatchesToChat });
+      terminalLegUnstartableForCreation({ sessionpage: codexLike.sessionpage, prompt, dispatchesToChat });
 
     expect(unstartable(codexLike.prompt, true)).toBe(true);
     expect(unstartable({ kind: 'argv' }, true)).toBe(false);
@@ -1206,54 +1464,6 @@ describe('useInitialSessionState', () => {
     expect(latestState?.autoApprove).toBe(false);
   });
 
-  // ⭐ #5597 —— 「草稿上显示的档 = 落库的档」在**聊天页**那一面。
-  //
-  // 之前这一面的决定不在 state 里:`buildInitialSession` 拿 `unattended` 无条件覆盖成
-  // full-access,于是草稿显示只读、会话开出 bypassPermissions,而且不报错。
-  // 现在这一面只保留一个**默认值**,选中值一律照选中的走。
-  describe('聊天页草稿的权限档(#5597)', () => {
-    it('默认是无人值守那一档 —— 那一面没有人守着答权限弹窗', async () => {
-      // autoApproveByDefault=false:会话页此刻的默认是 edit ⇒ 读到 full-access 只可能来自
-      // 聊天页那条分支,❌ 不可能是全局默认碰巧同值(否则这条用例证明不了任何事)。
-      await renderProbe('project-1', { creationSurface: 'chat-page' }, false);
-
-      expect(latestState?.permissionMode).toBe('full-access');
-      expect(latestState?.autoApprove).toBe(true);
-    });
-
-    // 阴控:同一把判据在会话页那一面必须读到**别的**值。少了它,上一条在
-    // 「creationSurface 整个没接上、两面都回落到同一个常量」时照样绿。
-    it('阴控:同一份设置下任务页那一面不是 full-access', async () => {
-      await renderProbe('project-1', { creationSurface: 'session-page' }, false);
-
-      expect(latestState?.permissionMode).toBe('edit');
-    });
-
-    // 只列这家 fixture **真声明过**的档(claude 没声明 plan ⇒ 选 plan 会被既有的降档钳夹成
-    // edit,那是另一条不变量,❌ 不要在这里混进来把判据搞成两件事)。
-    it.each(['read-only', 'edit'] as const)(
-      '在草稿上选 %s ⇒ state 就是它,❌ 不被无人值守默认顶掉',
-      async (mode) => {
-        await renderProbe('project-1', { creationSurface: 'chat-page' }, false);
-
-        await act(async () => latestState?.setPermissionMode(mode));
-
-        expect(latestState?.permissionMode).toBe(mode);
-        expect(latestState?.autoApprove).toBe(false);
-      },
-    );
-
-    // 聊天页不继承会话页那份「上次启动记住的档」:那是会话页的偏好(应用设置 newSessionMemory),
-    // 让它决定一个无人值守面的默认值,等于用一次无关的选择改掉这一面的产品默认。
-    it('不继承任务页记住的档', async () => {
-      remember({ provider: 'claude', permissionMode: 'read-only' });
-
-      await renderProbe('project-1', { creationSurface: 'chat-page' }, false);
-
-      expect(latestState?.permissionMode).toBe('full-access');
-    });
-  });
-
   // 「已安排」到点自己开,也没人守着。它的表单不摆权限控件、主进程又只收无人值守那一档 ——
   // 原来它继承会话页记住的档,上次新建选过「编辑」的人在这里只看到一句红字「此智能体不支持无人值守」,
   // 存不了、也没有控件可改。
@@ -1404,6 +1614,11 @@ describe('InitialSessionField', () => {
     await act(async () => {});
   }
 
+  it('lets task creation consume the draft after success instead of clearing on Enter', async () => {
+    await renderField();
+    expect((mocks.lastChatComposerProps as ChatComposerProps).editorOptions?.clearOnSubmit).toBe(false);
+  });
+
   /**
    * 清单口径:**acp 或 pty 任有一条可用即可**（owner 2026-08-28）。
    *
@@ -1435,6 +1650,7 @@ describe('InitialSessionField', () => {
           {
             sessionId: 'codex-conversation',
             engine: 'codex',
+            title: 'Codex 1',
             identity: { users: { id: userId, display_name: 'Codex 1', gugu_number: null } },
           },
         ]);
@@ -1511,6 +1727,7 @@ describe('InitialSessionField', () => {
           {
             sessionId: 'codex-conversation',
             engine: 'codex',
+            title: 'ENG-123 helper',
             identity: { users: { id: userId, display_name: 'ENG-123 helper', gugu_number: null } },
           },
         ]);

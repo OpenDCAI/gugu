@@ -23,6 +23,7 @@ import {
 import type { CloudMarketEntry } from '@shared/extensions/market';
 import { APP_RUNTIME_GLUE_MODULE } from '@shared/extensions/app-runtime-protocol';
 import { extensionsService } from '@main/core/extensions/extensions-root';
+import { sessionHostLocale } from '@main/core/host-locale';
 import { installPlan } from './install-plan';
 import { windowNoteOf, requestExtensionInstallConsent } from './extension-bridge-relay';
 import type { ExtensionInstallConsentRequest, ExtensionInstallConsentResult } from '@shared/extensions/host-actions';
@@ -34,9 +35,11 @@ import { extensionVariants, removeExtensionVariant, prepareVariant, switchExtens
 import { installPrepared, notGivenNoteOf } from './install-prepared';
 import { resolvesInside } from './path-containment';
 import { readExtensionSkills } from '../../../../extension-session-mcp';
+import { appLine, skillLine, skillUseLine } from '../../../../extension-agent-lines';
 import { EXTENSION_ARCHIVE_MIME, EXTENSION_ARCHIVE_SUFFIX, packExtensionArchive, packInstalledExtension, unpackExtensionArchive } from './extension-archive';
 import type { CloudExtensionMarket, CloudMarketListing } from './market-catalog';
-import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS, APP_MANAGE_ARGS, manifestFragmentSchema } from '@shared/extensions/app-tool-args';
+import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS, APP_MANAGE_ARGS, manifestFragmentSchema, appCheckTargetError } from '@shared/extensions/app-tool-args';
+import { WIDGET_CHECK_SCHEMA } from '@shared/extensions/extension-check';
 import { handedConsentSchema, type HandedConsent } from '@shared/extensions/install-consent-flow';
 import { TEMPLATE_AUTHOR_FILES, TEMPLATE_LOOK, extensionTemplate, templateFileSuffix } from './extension-templates';
 import {
@@ -106,7 +109,7 @@ const agentActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('pack_installed'), id: z.string().min(1) }),
   // D-31 Built by the host for `app_install { device }`: the other machine handed back its ask, asked here as this agent's.
   z.object({ action: z.literal('ask_install'), request: z.custom<ExtensionInstallConsentRequest>((value) => typeof value === 'object' && value !== null) }),
-  z.object({ action: z.literal('check'), ...APP_CHECK_ARGS }),
+  z.object({ action: z.literal('check'), ...APP_CHECK_ARGS, widget: WIDGET_CHECK_SCHEMA.optional() }),
 ]);
 
 /**
@@ -116,17 +119,16 @@ const agentActionSchema = z.discriminatedUnion('action', [
  * #6615 问题 11: the tools DO reach this session — through the catalog, read live (D-10). The earlier
  * sentence「this session does not have them」predates the catalog; W-21 measured a Codex agent believing it,
  * spawning a throwaway session to test its own tool and telling the person only new sessions could use it.
- * Skills still reach only sessions that start later (they are handed over at session start).
+ * The install result carries the same App and skill descriptions as the session opening, including a quiet reinstall.
  *
  * D-30: only an agent its owner gave the App to has any of that. A-B 10-06 C4c: the person took the installing agent's
  * group out on the sheet, and the answer still said the tools were in its catalog — the catalog said not given.
  */
-function forAgentsNote(manifest: {
-  id: string;
-  contributes: { mcpServers?: readonly unknown[]; skills?: string };
-}, listed: boolean, given: boolean): { for_agents?: string } {
+function forAgentsNote(installed: { manifest: ExtensionManifest; rootDir: string }, listed: boolean, given: boolean, asked = true): { for_agents?: string } {
+  const { manifest, rootDir } = installed;
   const servers = manifest.contributes.mcpServers ?? [];
   if (servers.length === 0 && !manifest.contributes.skills) return {};
+  if (!given && !asked) return {};
   if (!given) {
     return {
       for_agents:
@@ -135,6 +137,13 @@ function forAgentsNote(manifest: {
     };
   }
   const parts: string[] = [];
+  if (manifest.contributes.instructions) {
+    parts.push(appLine({ extensionId: manifest.id, name: manifest.name, instructions: manifest.contributes.instructions }));
+  }
+  if (manifest.contributes.skills) {
+    const skills = readExtensionSkills(manifest.id, path.join(rootDir, manifest.contributes.skills), () => {});
+    parts.push(...skills.map(skillLine), ...skills.map(skillUseLine));
+  }
   if (servers.length > 0) {
     // #6634 问题 16: nothing has asked its programs for their tools yet, so this does not promise they are there —
     // the catalog asks on first use, and a program it has to leave out is named, with why, when a tool is not found.
@@ -151,7 +160,7 @@ function forAgentsNote(manifest: {
   if (manifest.contributes.skills) {
     parts.push(`Its skills are in the catalog too, next to its tools: catalog_list with name "${manifest.id}" shows each one and the SKILL.md to read.`);
   }
-  return { for_agents: parts.join(' ') };
+  return { for_agents: parts.join('\n') };
 }
 
 /** Asked after the install recorded where it was given; a caller without a session (no owner choosing for it) has every App. */
@@ -281,6 +290,13 @@ function bundleOf(
   }
   let manifest = overlay(existing ?? {}, template ? { platforms: template.platforms, contributes: { tabs: template.tabs } } : {}) as Json;
   manifest = overlay(manifest, own) as Json;
+  const permissions = manifest.permissions;
+  if (template && (permissions === undefined || isObject(permissions))) {
+    const capabilities = permissions?.capabilities;
+    if (capabilities === undefined || Array.isArray(capabilities)) {
+      manifest.permissions = { ...permissions, capabilities: [...new Set([...template.capabilities, ...(capabilities ?? [])])] };
+    }
+  }
   const contributes = (manifest.contributes ?? {}) as Json;
   const tabs = ((contributes.tabs ?? []) as Json[]).map((tab) => tab.hostPage ? tab : ({ entry: `${String(tab.name)}.html`, ...tab }));
   // 摩擦单 F114 (S23: {"session":["TODO.md"]} on group-json also kept the template's group claim) It is the claim, whole.
@@ -289,6 +305,8 @@ function bundleOf(
     manifest: {
       // A new App's; one being changed keeps its own, and an older one is refused with what to change.
       apiVersion: EXTENSION_API_VERSION,
+      // Written into manifest.json, as `version` is: a new App's name is in the language its person reads gugu in, unless `manifest` says.
+      defaultLocale: sessionHostLocale(),
       ...(tabs[0]?.entry ? { entry: tabs[0].entry } : {}),
       ...manifest,
       id: action.id,
@@ -361,6 +379,7 @@ const kept = (report: ExtensionCheckReport) =>
   report.page ? `The page stays as it is now: app_check again with page "${report.page}" and more steps goes on from here (it closes ${EXTENSION_CHECK_PAGE_IDLE_MS / 60_000} min after, or when you app_install again). ` : '';
 
 export function checkResult(report: ExtensionCheckReport, now = Date.now()) {
+  const widget = report.widget ? { rendered: report.rendered, widget: report.widget, text: report.text, locale: report.locale, themeMode: report.themeMode, note: report.note } : {};
   // What the page threw also comes through the runtime's reportError (摩擦单 F63), as "<message> (<file>:<line>)": said
   // once, by the console's copy, which carries the line of source (F75).
   const thrown = new Set(report.errors.filter((error) => error.kind !== 'reportError' && error.source).map((error) => `${error.message} (${error.source})`));
@@ -403,6 +422,8 @@ export function checkResult(report: ExtensionCheckReport, now = Date.now()) {
     : '';
   return {
     ok,
+    ...widget,
+    ...(report.reason ? { reason: report.reason } : {}),
     loaded: report.loaded,
     ...(report.loadError ? { load_error: report.loadError } : {}),
     ...(report.stuck ? { stuck: report.stuck } : {}),
@@ -416,7 +437,7 @@ export function checkResult(report: ExtensionCheckReport, now = Date.now()) {
     ...(report.pictures?.length ? { pictures: report.pictures } : {}),
     ...(report.page ? { page: report.page } : {}),
     elapsed_ms: report.elapsedMs,
-    next: ok
+    next: report.rendered === false ? report.text! : ok
       ? `It loaded without errors.${heard} ${stepWords}${host}${busy}${report.tools?.length ? `Its tools for agents: ${report.tools.join(', ')}. ` : ''}Read snapshot too: it is what the person sees — if it says something is missing (no file bound, nothing to show), that is still a bug. ${look}${kept(report)}Tell the person it is done only when it works and looks right.`
       : `It does not work yet: ${why}${stepWords}fix what load_error, errors and console say, app_install again, and app_check again.${heard} ${host}${busy}${look}${kept(report)}Do not tell the person it is done until a check comes back ok.`,
   };
@@ -611,13 +632,12 @@ async function installFromMarketForAgent(
   return withWindowNote(result.announced, {
     installed: true,
     outcome: 'confirmed',
+    asked: result.asked,
     id: result.id,
     name: result.name,
     version: result.version,
     tabs: tabKinds(result.manifest),
-    ...(result.asked
-      ? forAgentsNote(result.manifest, service.disclosure(result.id) === 'full', await callerHasApp(dependencies, result.id))
-      : {}),
+    ...forAgentsNote(result, service.disclosure(result.id) === 'full', await callerHasApp(dependencies, result.id), result.asked),
     ...pinnedNext(result, installNext(result.manifest, { market: result.id }, following, skillsLeftOut(result))),
   });
 }
@@ -710,11 +730,12 @@ async function installFolder(
   return withWindowNote(done.announced, {
     installed: true,
     outcome: 'confirmed' as const,
+    asked: done.asked,
     id: installed.manifest.id,
     name: installed.manifest.name,
     version: installed.manifest.version,
     tabs: tabKinds(installed.manifest),
-    ...(done.asked ? forAgentsNote(installed.manifest, service.disclosure(installed.manifest.id) === 'full', await callerHasApp(dependencies, installed.manifest.id)) : {}),
+    ...forAgentsNote(installed, service.disclosure(installed.manifest.id) === 'full', await callerHasApp(dependencies, installed.manifest.id), done.asked),
     ...(from ? installNext(installed.manifest, from, following, skillsLeftOut(installed)) : {}),
     ...notGivenNoteOf(done),
   });
@@ -909,38 +930,44 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       // E-05 for an agent is what it always was: an error with the install's own reason (the card says it to a person).
       if (result.outcome === 'refused') throw new Error(result.reason);
       if (!result.installed) return result;
-      const { manifest } = extensionsService().get(result.id);
+      const installed = extensionsService().get(result.id);
+      const { manifest } = installed;
       return {
         ...result,
         tabs: manifest.contributes.tabs.map((tab) => ({ name: tab.name, tab_kind: extensionTabKind(manifest.id, tab.name) })),
-        ...forAgentsNote(manifest, extensionsService().disclosure(result.id) === 'full', await callerHasApp(dependencies, result.id)),
+        ...forAgentsNote(installed, extensionsService().disclosure(result.id) === 'full', await callerHasApp(dependencies, result.id)),
       };
     }
     case 'check': {
       if (dependencies.headless) throw new Error(HEADLESS_EXTENSION_CHECK_REFUSAL);
-      const kind = parseExtensionTabKind(action.tab_kind);
+      if (!action.widget) {
+        const error = appCheckTargetError(action);
+        if (error) throw new Error(error);
+        if (action.message_id !== undefined || action.widget_id !== undefined) throw new Error('app_check: the host must resolve the widget message first');
+      }
+      const kind = parseExtensionTabKind(action.tab_kind ?? '');
       if (!kind) {
         throw new Error(`app_check: "${action.tab_kind}" is not a tab_kind (<App id>.<tab name>) — take it from app_install or app_search`);
       }
       const service = extensionsService();
       const entry = service.list().extensions.find((candidate) => candidate.manifest.id === kind.extensionId);
-      if (!entry) {
+      if (!entry && !action.widget) {
         throw new Error(`app_check: ${kind.extensionId} is not installed — app_install it first (app_search shows what is)`);
       }
-      if (!service.isEnabled(kind.extensionId)) {
+      if (!action.widget && !service.isEnabled(kind.extensionId)) {
         throw new Error(`app_check: ${kind.extensionId} is switched off; the person switches it back on in Apps`);
       }
-      const tabs = entry.manifest.contributes.tabs;
+      const tabs = entry?.manifest.contributes.tabs ?? [];
       const tab = tabs.find((candidate) => candidate.name === kind.tabName);
-      if (!tab) {
+      if (!tab && !action.widget) {
         throw new Error(`app_check: ${kind.extensionId} has no tab "${kind.tabName}"; its tab_kinds: ${tabs.map((candidate) => extensionTabKind(kind.extensionId, candidate.name)).join(', ')}`);
       }
       // The tool is listed only where it works (F14); a host without it answering anyway is a build that got here by accident.
       if (!dependencies.checkSurface) throw new Error('app_check is not available in this build of gugu');
-      if (action.page !== undefined && [action.chat_id, action.item_id, action.file_path, action.phone].some((given) => given !== undefined)) {
+      if (action.page !== undefined && [action.widget ? undefined : action.chat_id, action.item_id, action.file_path, action.phone].some((given) => given !== undefined)) {
         throw new Error('app_check: a page goes on where it opened, at its size — give page with tab_kind and steps alone');
       }
-      if (action.phone !== undefined && !action.steps) throw new Error('app_check: phone is the size steps run at — give it with steps');
+      if (action.phone !== undefined && !action.steps && !action.widget) throw new Error('app_check: phone is the size steps run at — give it with steps');
       const badKey = action.steps?.findIndex((step) => 'press' in step && !isExtensionStepKey(step.press)) ?? -1;
       if (badKey >= 0) {
         const { press } = action.steps![badKey] as { press: string };
@@ -951,20 +978,22 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       // App's own page, a tab of the caller's session as it opens there.
       const session = action.file_path !== undefined
         ? await sessionFileOf(action.file_path, action, dependencies.callerWorkspaceRoot, caller)
-        : !action.chat_id && caller && declaredContexts(tab).length === 0 ? { sessionId: caller } : null;
+        : !action.chat_id && caller && tab && declaredContexts(tab).length === 0 ? { sessionId: caller } : null;
       // Owner 10-14: the page is worked by the agent that asks — what it does there is done in that agent's name; with no
       // agent asking, nobody works it (the person never sees it), so there is no check.
       const agent = caller ? await dependencies.callerAgent?.() : undefined;
       if (!caller || !agent) throw new Error('app_check: the page is worked by the agent that asks, and none asks here');
       const report = await dependencies.checkSurface({
         extensionId: kind.extensionId,
-        tabName: tab.name,
+        tabName: kind.tabName,
         ...(action.chat_id ? { chatId: action.chat_id } : {}),
         ...(action.item_id ? { itemId: action.item_id } : {}),
         ...(session ?? {}),
         timeoutMs: EXTENSION_CHECK_TIMEOUT_MS,
         ...(action.steps ? { steps: action.steps } : {}),
         ...(action.phone ? { phone: true } : {}),
+        ...(action.look === undefined ? {} : { look: action.look }),
+        ...(action.widget ? { widget: action.widget } : {}),
         caller,
         operator: { kind: 'agent', id: agent },
         ...(action.page ? { page: action.page } : {}),

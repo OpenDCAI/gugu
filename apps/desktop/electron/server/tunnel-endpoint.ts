@@ -9,7 +9,7 @@
  *    不给交互 shell、不给反向转发、不转发到别的主机。
  * 命令以这个账号进程的身份跑 —— 与经 SSH 登录这台机器的同一个人、同一个系统用户,不多一分权限。
  */
-import { spawn } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'

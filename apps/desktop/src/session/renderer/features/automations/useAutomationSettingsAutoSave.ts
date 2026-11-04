@@ -116,7 +116,6 @@ export function useAutomationSettingsAutoSave(automation: Automation) {
     // (这条自动化存的那一家在这台机器上不在时,composer 会落到别家 —— 那一下不能自己存进去)。
     if (selectionTouched && canSave) savePatch();
     // We intentionally only track the selection here; other fields use action-at-change-site.
-    // oxlint-disable-next-line react/exhaustive-deps
   }, [selectionKey]);
 
   // Workspace config changes (preset, branch name, sandbox toggle, etc.) are not
@@ -131,7 +130,6 @@ export function useAutomationSettingsAutoSave(automation: Automation) {
       return;
     }
     if (canSave) savePatch();
-    // oxlint-disable-next-line react/exhaustive-deps
   }, [resolvedConfigKey]);
 
   function handlePromptBlur() {

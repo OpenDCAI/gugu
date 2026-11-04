@@ -11,17 +11,20 @@ import { Sheet } from '../ui/Sheet'
 import { useBackLayer } from '../ui/sheetStack'
 import { openLinkTarget } from '../../lib/guguLinks'
 import { MessageFilePreview, type PreviewFile } from './MessageFilePreview'
+import { isRenderableImage } from '@gugu/core/shared/imageMime.mjs'
+import { openAttachmentImage } from '../../lib/attachmentBytes'
 
 export type { PreviewFile } from './MessageFilePreview'
 
 const fileOpenLog = rendererLogger('chat/file-open')
 
-export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toast, onForward }: {
+export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toast, onForward, readOnly = false }: {
   mobile: boolean
   visible: boolean
   closeRightSurfaces: () => void
   toast: (message: string, kind: 'error', description?: string) => void
   onForward?: (message: MessageItem) => void
+  readOnly?: boolean
 }) {
   const { t } = useTranslation('messaging')
   const downloadFailed = t('chatArea.downloadFailed')
@@ -37,8 +40,12 @@ export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toa
   const opening = useRef(0)
   const restoreRef = useRef<(() => void) | null>(null)
   const open = useCallback((file: PreviewFile, message?: MessageItem, restore: () => void = () => {}) => {
+    if (isRenderableImage(file.fileName, file.mimeType)) {
+      openAttachmentImage(file.source, file.fileName, message ? { chatId: message.chat_id, messageId: message.id } : undefined)
+      return
+    }
     // A personal assistant conversation hosts its own preview; other group files use the App-first path.
-    if (!hosted && file.source.kind === 'item' && platform.kind !== 'web') {
+    if (!readOnly && !hosted && file.source.kind === 'item' && platform.kind !== 'web') {
       void openLinkTarget({ kind: 'file', itemId: file.source.itemId }, { message, restore }).catch((error) => {
         fileOpenLog.error({ error }, 'opening the group file failed')
         toast(downloadFailed, 'error', messageForUser(error))
@@ -48,7 +55,7 @@ export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toa
     closeRightSurfaces()
     restoreRef.current = restore ?? null
     setPreview({ file, message, opening: ++opening.current })
-  }, [closeRightSurfaces, downloadFailed, hosted, toast])
+  }, [closeRightSurfaces, downloadFailed, hosted, toast, readOnly])
   const close = useCallback(() => {
     restoreRef.current = null
     setPreview(null)
@@ -72,7 +79,7 @@ export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toa
     return () => window.removeEventListener('keydown', back, true)
   }, [chatNavigation, isOpen, isTopLayer, closeByUser])
   useEffect(() => { if (mobile && preview && !visible) close() }, [mobile, preview, visible, close])
-  const body = preview && <MessageFilePreview key={preview.opening} fill={hosted} onBack={chatNavigation ? closeByUser : undefined} mobile={mobile} file={preview.file} message={preview.message} onForward={onForward} onClose={closeByUser} />
+  const body = preview && <MessageFilePreview key={preview.opening} readOnly={readOnly} fill={hosted} onBack={chatNavigation ? closeByUser : undefined} mobile={mobile} file={preview.file} message={preview.message} onForward={readOnly ? undefined : onForward} onClose={closeByUser} />
   const panel = host && 'target' in host ? (host.target && preview ? createPortal(body, host.target) : null) : mobile ? (
     preview && <Sheet fullScreenMobile onClose={closeByUser} ariaLabel={preview.file.fileName} testId="message-file-preview-sheet">{body}</Sheet>
   ) : (

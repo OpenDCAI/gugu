@@ -1,121 +1,59 @@
-import { ok } from '@gugu/session-shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { deleteProject } from './deleteProject';
-
-const mocks = vi.hoisted(() => ({
-  closeProject: vi.fn(),
-  deleteProjectData: vi.fn(),
-  deleteProjectRow: vi.fn(),
-  deleteWhere: vi.fn(),
-  returningDeleted: vi.fn(),
-  delViewState: vi.fn(),
-  forgetSessionOutputs: vi.fn(),
-  getProject: vi.fn(),
-  sessionsOfProject: vi.fn(),
-  projectEmit: vi.fn(),
-  teardownSession: vi.fn(),
-}));
-
-vi.mock('@main/core/projects/project-events', () => ({
-  projectEvents: { _emit: mocks.projectEmit },
-}));
-
-vi.mock('@main/db/client', () => ({
-  db: {
-    delete: mocks.deleteProjectRow,
-    select: () => ({ from: () => ({ where: mocks.sessionsOfProject }) }),
-  },
-}));
-
-vi.mock('@main/core/projects/project-manager', () => ({
-  projectManager: {
-    getProject: mocks.getProject,
-    closeProject: mocks.closeProject,
-  },
-}));
-
-vi.mock('@main/core/sessions/session-workspace-manager', () => ({
-  sessionWorkspaceManager: {
-    teardownSession: mocks.teardownSession,
-  },
-}));
-
-vi.mock('@main/core/pull-requests/pr-sync-engine', () => ({
-  prSyncEngine: {
-    deleteProjectData: mocks.deleteProjectData,
-  },
-}));
-
-vi.mock('@main/core/sessions/session-outputs', () => ({
-  forgetSessionOutputs: mocks.forgetSessionOutputs,
-}));
-
-vi.mock('@main/core/view-state/view-state-service', () => ({
-  viewStateService: {
-    del: mocks.delViewState,
-  },
-}));
-
-describe('deleteProject', () => {
+const m = vi.hoisted(() => ({ archive: vi.fn(), close: vi.fn(), rows: vi.fn(), current: vi.fn(), remove: vi.fn(), set: vi.fn(), update: vi.fn(), emit: vi.fn() }));
+vi.mock('@main/core/projects/project-events', () => ({ projectEvents: { _emit: m.emit } }));
+vi.mock('@main/core/projects/project-manager', () => ({ projectManager: { getProject: () => ({}), closeProject: m.close } }));
+vi.mock('@main/core/sessions/archiveSession', () => ({ archiveSession: m.archive }));
+vi.mock('@main/core/pull-requests/pr-sync-engine', () => ({ prSyncEngine: { deleteProjectData: vi.fn() } }));
+vi.mock('@main/core/view-state/view-state-service', () => ({ viewStateService: { del: vi.fn() } }));
+vi.mock('@main/db/client', () => ({ db: {
+  select: () => ({ from: () => ({ where: m.rows }) }),
+  update: () => ({ set: m.set }),
+  transaction: (run: (tx: unknown) => unknown) => run({
+    select: () => ({ from: () => ({ where: () => ({ all: m.current }) }) }),
+    delete: () => ({ where: () => ({ returning: () => ({ all: m.remove }) }) }),
+  }),
+} }));
+describe('project removal archives tasks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-
-    mocks.deleteProjectRow.mockReturnValue({ where: mocks.deleteWhere });
-    mocks.deleteWhere.mockReturnValue({ returning: mocks.returningDeleted });
-    mocks.returningDeleted.mockResolvedValue([{ id: 'project-1' }]);
-    mocks.sessionsOfProject.mockResolvedValue([{ id: 'session-1' }]);
-    mocks.getProject.mockReturnValue({ projectId: 'project-1' });
-    mocks.closeProject.mockResolvedValue(ok());
-    mocks.teardownSession.mockResolvedValue(ok());
-    mocks.deleteProjectData.mockResolvedValue(undefined);
-    mocks.delViewState.mockResolvedValue(undefined);
+    m.rows.mockResolvedValue([{ id: 'task' }]);
+    m.current.mockReturnValue([{ id: 'task' }]);
+    m.set.mockReturnValue({ where: m.update }); m.remove.mockReturnValue([{ id: 'project' }]);
   });
-
-  it('closes a mounted project before deleting its database row', async () => {
-    await deleteProject('project-1');
-
-    expect(mocks.closeProject).toHaveBeenCalledWith('project-1');
-    expect(mocks.teardownSession).toHaveBeenCalledWith('session-1');
-    expect(mocks.delViewState).toHaveBeenCalledWith('session:session-1:tabs');
-    expect(mocks.forgetSessionOutputs).toHaveBeenCalledWith('session-1');
-    expect(mocks.deleteWhere).toHaveBeenCalledTimes(1);
-    const closeOrder = mocks.closeProject.mock.invocationCallOrder[0];
-    const deleteOrder = mocks.deleteWhere.mock.invocationCallOrder[0];
-    expect(closeOrder).toBeDefined();
-    expect(deleteOrder).toBeDefined();
-    expect(closeOrder!).toBeLessThan(deleteOrder!);
+  it('archives tasks and hides the project without discarding its folder bindings', async () => {
+    await deleteProject('project');
+    expect(m.archive).toHaveBeenCalledWith('project', 'task');
+    expect(m.set).toHaveBeenCalledWith({ archivedAt: expect.any(String) });
+    expect(m.archive.mock.invocationCallOrder[0]).toBeLessThan(m.set.mock.invocationCallOrder[0]);
+    expect(m.remove).not.toHaveBeenCalled();
+    expect(m.emit).toHaveBeenCalledWith('project:deleted', 'project');
+    expect(m.set.mock.invocationCallOrder[0]).toBeLessThan(m.emit.mock.invocationCallOrder[0]);
   });
-
-  it('deletes an unmounted project without closing a provider, still clearing what its sessions left behind', async () => {
-    mocks.getProject.mockReturnValue(undefined);
-
-    await deleteProject('project-1');
-
-    expect(mocks.closeProject).not.toHaveBeenCalled();
-    expect(mocks.teardownSession).not.toHaveBeenCalled();
-    // Its sessions go with it (foreign-key cascade): their view state and outputs are cleared here, not guessed at boot.
-    expect(mocks.delViewState).toHaveBeenCalledWith('session:session-1');
-    expect(mocks.delViewState).toHaveBeenCalledWith('session:session-1:tabs');
-    expect(mocks.forgetSessionOutputs).toHaveBeenCalledWith('session-1');
-    expect(mocks.deleteWhere).toHaveBeenCalledTimes(1);
+  it('keeps the project attached if archival fails', async () => {
+    m.archive.mockRejectedValueOnce(new Error('stop failed'));
+    await expect(deleteProject('project')).rejects.toThrow('stop failed');
+    expect(m.update).not.toHaveBeenCalled(); expect(m.remove).not.toHaveBeenCalled();
   });
-
-  it('does not publish a deletion when no project row was removed', async () => {
-    mocks.getProject.mockReturnValue(undefined);
-    mocks.returningDeleted.mockResolvedValue([]);
-    await deleteProject('missing');
-    expect(mocks.projectEmit).not.toHaveBeenCalled();
+  it('keeps the existing empty-project removal', async () => {
+    m.rows.mockResolvedValue([]);
+    m.current.mockReturnValue([]);
+    await deleteProject('project');
+    expect(m.remove).toHaveBeenCalledOnce(); expect(m.emit).toHaveBeenCalledWith('project:deleted', 'project');
   });
-
-  it('cleans PR sync data before deleting the project row', async () => {
-    await deleteProject('project-1');
-
-    expect(mocks.deleteProjectData).toHaveBeenCalledWith('project-1');
-    expect(mocks.deleteProjectRow).toHaveBeenCalledTimes(1);
-    expect(mocks.deleteWhere).toHaveBeenCalledTimes(1);
-
-    expect(mocks.deleteProjectData.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.deleteProjectRow.mock.invocationCallOrder[0]
-    );
+  it('archives a task which arrives after an initially empty inventory instead of cascading it', async () => {
+    m.rows.mockResolvedValue([]);
+    m.current.mockReturnValue([{ id: 'arrived' }]);
+    await deleteProject('project');
+    expect(m.archive).toHaveBeenCalledWith('project', 'arrived');
+    expect(m.remove).not.toHaveBeenCalled();
+    expect(m.set).toHaveBeenCalledWith({ archivedAt: expect.any(String) });
+  });
+  it('re-reads after the original archival and includes another task which arrived meanwhile', async () => {
+    m.archive.mockImplementationOnce(async () => { m.current.mockReturnValue([{ id: 'task' }, { id: 'arrived' }]); });
+    await deleteProject('project');
+    expect(m.archive).toHaveBeenCalledWith('project', 'arrived');
+    expect(m.current.mock.invocationCallOrder[0]).toBeGreaterThan(m.archive.mock.invocationCallOrder[0]);
+    expect(m.remove).not.toHaveBeenCalled();
   });
 });

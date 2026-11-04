@@ -34,7 +34,7 @@ const TURN: TranscriptTurn = {
 
 describe('ChatContext.setLayout on a mounted ChatView', () => {
   it('re-stamps the root, re-measures the user row, and restores on the way back', async () => {
-    const ctx = createChatContext();
+    const ctx = createChatContext({ locale: () => 'en-US' });
     const state = createChatState(ctx);
     state.transcript.history.seed([TURN]);
     const host = document.createElement('div');

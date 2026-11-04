@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { useChatStore } from '../../store/chatContext'
 import { useToast } from '../toastContext'
 import { useMarkChatsRead } from '../../hooks/useMarkChatsRead'
-import { chatsInReadScope, hasUnreadInRows } from '../../session/shared/conversation-row-menu'
+import { chatsInReadScope, conversationCanDelete, hasUnreadInRows } from '../../session/shared/conversation-row-menu'
 import { rendererLogger } from '../../lib/log'
 import { messageForUser } from '../../lib/userFacingError'
+import { useGroupChatSettings } from './useGroupChatSettings'
 import { ConversationRowContextMenu } from './ConversationRowContextMenu'
+import { useAuth } from '../../store/auth'
 
 const log = rendererLogger('chat/row-menu')
 
@@ -19,18 +21,22 @@ export function ChatRowContextMenu({ chat, onPin, onSetNotificationLevel, onDele
   onSetNotificationLevel: (level: NotificationLevel) => void
   onDelete: () => void
 }) {
-  const { chats } = useChatStore('chats')
+  const { chats, identitiesById } = useChatStore('chats', 'identitiesById')
+  const { user } = useAuth()
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
   const markRead = useMarkChatsRead()
-  return <ConversationRowContextMenu {...menu} state={{ kind: 'chat', pinned: chat.is_pinned,
+  const { settings, error } = useGroupChatSettings(chat.kind === 'group' || chat.kind === 'topic' ? chat.id : null)
+  const peer = identitiesById[chat.peer_user_id ?? '']
+  const canDelete = conversationCanDelete(chat.kind, settings, Boolean(user && peer?.type === 'agent' && peer.owner_user_id === user.id))
+  return <ConversationRowContextMenu {...menu} loadError={error} state={{ kind: 'chat', canDelete, pinned: chat.is_pinned,
     notificationsMuted: chat.notification_level === 'none', hasUnread: hasUnreadInRows(chatsInReadScope(chats, chat.id)), hasAnyUnread: hasUnreadInRows(chats) }}
     onAction={(action) => {
       if (action === 'mark-read') markRead(chat.id)
       else if (action === 'mark-all-read') markRead()
       else if (action === 'pin') onPin()
       else if (action === 'notifications') onSetNotificationLevel(chat.notification_level === 'none' ? 'all' : 'none')
-      else if (action === 'delete-chat') void Promise.resolve().then(onDelete).catch((error: unknown) => {
+      else if (action === 'delete-chat' && canDelete) void Promise.resolve().then(onDelete).catch((error: unknown) => {
         log.error({ error: String(error), chatId: chat.id }, 'delete chat failed')
         toast(t('chatList.deleteFailed'), 'error', messageForUser(error))
       })

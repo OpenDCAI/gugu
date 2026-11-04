@@ -33,6 +33,8 @@ import { ProjectPathConflictError } from './project-creation-error';
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
 import { cachedDevicesAccount } from '@/store/devicesCache';
 import { libraryDeviceId } from '@/components/assistant/assistant-library-client';
+import { reconcileSessionProjectLocations } from '@renderer/features/sessions/restore-session-projects';
+import type { SessionProjectLocation } from '@shared/core/projects/session-project-references';
 
 export class ProjectManagerStore {
   projects = observable.map<string, ProjectStore>();
@@ -197,12 +199,15 @@ export class ProjectManagerStore {
     if (inspection.existingProject) {
       if (machine) machineRegistry.register(machine, [inspection.existingProject.id]);
       else machineRegistry.claimLocal([inspection.existingProject.id]);
-      // #609 这个目录是替人登记的 workspace(~):人亲手加 ⇒ 交给那台机器把它记成项目(同一个 id)。
-      if (inspection.existingProject.kind === 'workspace' && !(data.mode === 'pick' && data.automatic)) {
+      // Explicitly adding a known directory claims a workspace or reopens its
+      // archived project through the host, retaining the original project id.
+      if ((inspection.existingProject.kind === 'workspace' || inspection.existingProject.archivedAt)
+        && !(data.mode === 'pick' && data.automatic)) {
         const claimed = await rpcOn(machine).projects.createProject({ type: 'local', path: targetPath, name: data.name, allowNonGit: true });
         if (!claimed.success) throw new Error(claimed.error.type);
+        if (inspection.existingProject.archivedAt) await this.ensureProjectLoaded(inspection.existingProject.id);
       }
-      if (inspection.existingProject.rootFolderDetached) {
+      if (inspection.existingProject.rootFolderDetached && !inspection.existingProject.archivedAt) {
         const attached = await rpcOn(machine).projects.attachProjectFolder(inspection.existingProject.id, targetPath);
         if (!attached.success) throw new Error(attached.error.message);
         await this.ensureProjectLoaded(inspection.existingProject.id);
@@ -478,7 +483,7 @@ export class ProjectManagerStore {
    * 与本机项目同一套界面(照 Zed:机器是项目的属性)。**只登记,❌ 挂**:侧栏的行来自会话目录,
    * 要用到某个项目时才由 ensureMounted 挂上。清单里没有了的那台机器的项目拿掉(在那台机器上删掉的)。
    */
-  syncMachineProjects(deviceId: string, projects: readonly LocalProject[]): void {
+  syncMachineProjects(deviceId: string, projects: readonly LocalProject[], sessions: readonly SessionProjectLocation[] = []): void {
     machineRegistry.register(
       deviceId,
       projects.map((project) => project.id)
@@ -486,8 +491,14 @@ export class ProjectManagerStore {
     const keep = new Set(projects.map((project) => project.id));
     runInAction(() => {
       for (const project of projects) {
-        if (!this.projects.has(project.id)) this.projects.set(project.id, createUnmountedProject(project, 'idle'));
+        const known = this.projects.get(project.id);
+        // 重连后的分类覆盖旧副本,保留已挂载的会话;远端不能改写本机项目的类别(#581)。
+        if (known?.data && machineRegistry.machineOf(project.id) === deviceId && known.data.kind !== project.kind) {
+          known.data = { ...known.data, kind: project.kind };
+        }
+        if (!known) this.projects.set(project.id, createUnmountedProject(project, 'idle'));
       }
+      reconcileSessionProjectLocations(sessions);
       for (const [id, store] of [...this.projects]) {
         if (keep.has(id) || this.pendingCreationIds.has(id)) continue;
         if (machineRegistry.machineOf(id) !== deviceId) continue;

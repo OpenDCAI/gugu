@@ -6,8 +6,10 @@ import { ComposerCardView } from '../../../../apps/desktop/src/components/chat/C
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageBubble } from '../../../../apps/desktop/src/components/chat/MessageBubble'
 import { serializeComposerCard, type TaskCard } from '../../../../packages/core/src/shared/ui/taskCardModels'
-import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
+import { createNode, createReactHarness, displayIdentity, message, renderWithAppProviders } from '../../../support/testHarness'
 import type { ChatContextValue } from '../../../../apps/desktop/src/store/chatContext'
+import { installIdentityDirectoryBridge, publishIdentityDirectory } from '../../../../apps/desktop/src/lib/identityDirectoryBridge'
+import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
 
 const cardOpen = vi.hoisted(() => ({ open: vi.fn(), snapshot: vi.fn(async () => ({ device_id: 'device-1' })) }))
 vi.mock('../../../../apps/desktop/src/components/chat/openTaskCardSession', () => ({ openTaskCardSession: cardOpen.open }))
@@ -32,8 +34,12 @@ vi.mock('../../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => ({
 }))
 
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness(); lookedUp = 'codex'; agentStatus = undefined })
-afterEach(() => { harness.cleanup() })
+beforeEach(() => {
+  harness = createReactHarness(); lookedUp = 'codex'; agentStatus = undefined
+  installIdentityDirectoryBridge()
+  publishIdentityDirectory({}, () => {})
+})
+afterEach(() => { harness.cleanup(); publishIdentityDirectory(null, null); vi.useRealTimers() })
 
 const CARD: TaskCard = {
   v: 1, type: 'task', text: '用一句话介绍你自己', agentUserId: 'agent-1', agentName: 'Codex 1', agentType: 'codex',
@@ -44,6 +50,87 @@ const bubble = (msg: ReturnType<typeof message>, compactMobile = false) => creat
   showReadReceipt: true, readReceiptRead: 0, readReceiptTotal: 1,
 })
 const ring = () => harness.container.querySelector('[data-testid="message-read-receipt"]')
+
+describe('task cards follow the current agent identity', () => {
+  const at = '2026-11-02T08:00:00.000Z'
+  const content = () => harness.container.querySelector<HTMLElement>('[data-testid="composer-card"]')!
+  const renderTask = async (card: TaskCard = CARD, createdAt = at, compactMobile = false, identityCreatedAt: string | null = at) => {
+    await act(async () => publishIdentityDirectory(identityCreatedAt ? { [card.agentUserId]: displayIdentity(card.agentUserId, {
+      type: 'agent', display_name: card.agentName, owner_user_id: 'user-1', created_at: identityCreatedAt,
+    }) } : {}, () => {}))
+    await renderWithAppProviders(harness, bubble(message({ id: 'live-card', is_mine: true, content_type: 'card', content: serializeComposerCard(card), created_at: createdAt }), compactMobile))
+  }
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    vi.setSystemTime(at)
+  })
+
+  it.each(['zh-CN', 'en-US'] as const)('shows a bounded naming placeholder for a newly created identity (%s)', async (locale) => {
+    setLocalePreference(locale)
+    await renderTask()
+    const placeholder = locale === 'zh-CN' ? '正在起名…' : 'Naming the agent…'
+    expect(content().textContent).toContain(placeholder)
+    expect(content().textContent).not.toContain('Codex 1')
+    await act(async () => { await vi.advanceTimersByTimeAsync(59_999) })
+    expect(content().textContent).toContain(placeholder)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(content().textContent).toContain('Codex 1')
+    expect(content().textContent).not.toContain(placeholder)
+  })
+
+  it.each([false, true])('updates an existing card from the identity directory without remounting (mobile=%s)', async (mobile) => {
+    await renderTask(CARD, at, mobile)
+    const card = content()
+    await act(async () => publishIdentityDirectory({ [CARD.agentUserId]: displayIdentity(CARD.agentUserId, {
+      type: 'agent', display_name: '研究助手', owner_user_id: 'user-1',
+    }) }, () => {}))
+    expect(content()).toBe(card)
+    expect(content().textContent).toContain('研究助手')
+    expect(content().textContent).not.toContain('正在起名…')
+    await act(async () => publishIdentityDirectory({ [CARD.agentUserId]: displayIdentity(CARD.agentUserId, {
+      type: 'agent', display_name: '改过的名字', owner_user_id: 'user-1',
+    }) }, () => {}))
+    expect(content()).toBe(card)
+    expect(content().textContent).toContain('改过的名字')
+    expect(content().textContent).not.toContain('研究助手')
+  })
+
+  it('uses identity age independently of the card message age', async () => {
+    await renderTask(CARD, '2026-11-02T07:00:00.000Z')
+    expect(content().textContent).toContain('正在起名…')
+    await renderTask(CARD, at, false, '2026-11-02T07:59:00.000Z')
+    expect(content().textContent).toContain('Codex 1')
+    expect(content().textContent).not.toContain('正在起名…')
+  })
+
+  it('keeps explicit names and missing identities raw, and recognizes legacy engine defaults', async () => {
+    await renderTask({ ...CARD, agentName: 'Named at spawn' })
+    expect(content().textContent).toContain('Named at spawn')
+    await renderTask(CARD, at, false, null)
+    expect(content().textContent).toContain('Codex 1')
+    expect(content().textContent).not.toContain('正在起名…')
+    const { agentType: _legacy, ...legacy } = CARD
+    await renderTask(legacy)
+    expect(content().textContent).toContain('正在起名…')
+  })
+
+  it('shows the placeholder on the first frame when identity creation is slightly ahead of the client clock', async () => {
+    await renderTask(CARD, at, false, '2026-11-02T08:00:00.150Z')
+    expect(content().textContent).toContain('正在起名…')
+    expect(content().textContent).not.toContain('Codex 1')
+  })
+
+  it('shows the naming label in the actual message sender header without rewriting its profile', async () => {
+    const memberProfile = { id: CARD.agentUserId, displayName: CARD.agentName, avatar: null, email: null, type: 'agent', role: 'member', ownerUserId: 'user-1' }
+    publishIdentityDirectory({ [CARD.agentUserId]: displayIdentity(CARD.agentUserId, { type: 'agent', display_name: CARD.agentName, created_at: at }) }, () => {})
+    await renderWithAppProviders(harness, createNode(MessageBubble, {
+      msg: message({ is_mine: false, sender_user_id: CARD.agentUserId, content: 'Hello' }), memberProfile, isGroup: true,
+      onReaction: vi.fn(), onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(),
+    }))
+    expect(harness.container.querySelector('.msg-sender-name')?.textContent).toBe('正在起名…')
+    expect(memberProfile.displayName).toBe('Codex 1')
+  })
+})
 
 describe('task card in a chat (gugu-dev#181)', () => {
   it('shows three rows with the time and the agent avatar, and no read ring', async () => {
@@ -166,10 +253,16 @@ describe('task card resource access', () => {
   })
 
   it('names the other owner and says it cannot be viewed, without opening a task', async () => {
-    await renderCard(false)
+    await renderCard(false, { ...CARD, files: [
+      { itemId: 'brief', version: 1, name: 'brief.pdf', mimeType: 'application/pdf', sizeBytes: 12 },
+      { itemId: 'notes', version: 2, name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 4 },
+    ] })
     const card = harness.container.querySelector<HTMLElement>('[data-testid="composer-card"]')!
     expect(card.tagName).toBe('DIV')
     expect(card.textContent).toContain('Colleague 的任务 · 无法查看')
+    expect(card.textContent).toContain('brief.pdf')
+    expect(card.textContent).toContain('notes.txt')
+    expect(card.querySelector('a')).toBeNull()
     await act(async () => { card.click() })
     expect(cardOpen.open).not.toHaveBeenCalled()
   })

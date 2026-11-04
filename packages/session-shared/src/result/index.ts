@@ -248,7 +248,6 @@ export const isErr = <T, E>(r: Result<T, E>): r is Err<E> => !r.success;
 // Promise<Result>, or a function returning either. Single source of truth.
 // ---------------------------------------------------------------------------
 
-// oxlint-disable-next-line typescript/no-explicit-any
 export type DataOf<R> = R extends (...args: any[]) => infer Ret
   ? DataOf<Ret>
   : R extends Promise<infer V>
@@ -257,7 +256,6 @@ export type DataOf<R> = R extends (...args: any[]) => infer Ret
       ? T
       : never;
 
-// oxlint-disable-next-line typescript/no-explicit-any
 export type ErrorOf<R> = R extends (...args: any[]) => infer Ret
   ? ErrorOf<Ret>
   : R extends Promise<infer V>
@@ -374,7 +372,6 @@ export const tryCatchAsync = async <T, E = SerializedError>(
 //   });
 // ---------------------------------------------------------------------------
 
-// oxlint-disable-next-line typescript/no-explicit-any
 export function* unwrapGen<T, E>(r: Result<T, E>): Generator<Err<E>, T, any> {
   if (r.success) return r.data;
   yield r;
@@ -382,7 +379,6 @@ export function* unwrapGen<T, E>(r: Result<T, E>): Generator<Err<E>, T, any> {
   throw new Error('unreachable');
 }
 
-// oxlint-disable-next-line typescript/no-explicit-any
 export function gen<T, E>(body: () => Generator<Err<E>, T, any>): Result<T, E> {
   const it = body();
   const step = it.next();
@@ -391,7 +387,6 @@ export function gen<T, E>(body: () => Generator<Err<E>, T, any>): Result<T, E> {
 
 export async function* unwrapGenAsync<T, E>(
   r: Result<T, E> | Promise<Result<T, E>>
-  // oxlint-disable-next-line typescript/no-explicit-any
 ): AsyncGenerator<Err<E>, T, any> {
   const awaited = await r;
   if (awaited.success) return awaited.data;
@@ -400,7 +395,7 @@ export async function* unwrapGenAsync<T, E>(
 }
 
 export async function genAsync<T, E>(
-  body: () => AsyncGenerator<Err<E>, T, any> // oxlint-disable-line typescript/no-explicit-any
+  body: () => AsyncGenerator<Err<E>, T, any>
 ): Promise<Result<T, E>> {
   const it = body();
   const step = await it.next();

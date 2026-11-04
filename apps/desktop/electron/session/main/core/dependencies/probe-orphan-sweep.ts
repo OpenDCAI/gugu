@@ -144,7 +144,7 @@ export function createProbeOrphanSweepDeps(
   if (process.platform === 'win32') return undefined
   return {
     async snapshot() {
-      const { execFile } = await import('node:child_process')
+      const { execFile } = await import('@gugu/core/local/childProcess')
       const { promisify } = await import('node:util')
       const run = promisify(execFile)
       // `-x` 才看得到没有控制终端的进程 —— 孤儿正是这种。

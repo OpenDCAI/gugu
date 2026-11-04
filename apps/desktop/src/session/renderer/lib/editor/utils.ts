@@ -21,9 +21,8 @@ export const isMarkdownFile = isMarkdownPath;
  * 左边 glyph 20 + 行号 39 + 装饰槽 26 = 85px,右边 minimap 16 + overview ruler 14 = 30px,
  * 合计 115px,正文只剩 63px。这 115px **不随面板变宽而缩**,面板越窄占比越离谱。
  *
- * 同一棵树里的 diff 编辑器(lib/monaco/editorConfig.ts)早就按「给人读」调过了 ——
- * minimap 关、folding 关、4px 细滚动条;只有这一份还停在 Monaco 出厂值上,
- * 于是两个并排的面板一个像编辑器、一个像 IDE。这里补齐的就是这个差。
+ * 同一棵树里的 diff 编辑器(lib/codemirror/)本来就只有行号和细滚动条;
+ * 这一份按同样「给人读」的标准把 Monaco 出厂装饰关掉。
  *
  * ⚠️ glyphMargin 全仓**没有任何东西往里画**(diff 那边的批注管理器画的是行装饰,不是 glyph),
  *    那 20px 是纯空白。❌ 别因为「IDE 都有」把它加回来 —— 要加先得有画进去的东西。

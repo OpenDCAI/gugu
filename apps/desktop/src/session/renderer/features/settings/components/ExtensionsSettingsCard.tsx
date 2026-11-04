@@ -1,3 +1,4 @@
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { useAppDetailRequest } from '@renderer/features/apps/use-app-detail-request';
 import type { AppDetailLink } from '@gugu/core/shared/ui/guguLink';
 import { messageForUser } from '@/lib/userFacingError';
@@ -34,7 +35,7 @@ import { featuredShotsReady } from '@renderer/features/extensions/panel/app-feat
 import { keepShelf, keptShelf } from '@renderer/features/extensions/panel/kept-shelf';
 import { appLifecycle } from '@renderer/features/extensions/panel/app-lifecycle';
 import type { AppLifecycle } from '@renderer/features/extensions/panel/app-lifecycle-button';
-import { AppProductPage, listOf, type ExtensionDetailSubject } from '@renderer/features/extensions/panel/app-product-page';
+import { AppProductPage, type ExtensionDetailSubject } from '@renderer/features/extensions/panel/app-product-page';
 import { InstalledAppRow } from '@renderer/features/extensions/panel/app-rows';
 import {
   InstalledRowNoticeLine,
@@ -72,7 +73,7 @@ import { marketDownloadProgressChannel, marketRefreshedChannel } from '@shared/e
 import type { MarketRefreshed } from '@shared/extensions/market-snapshot';
 import { marketHome } from '@shared/extensions/market-home';
 import { chatDb } from '@/lib/supabase';
-import type { ExtensionManifest } from '@shared/extensions/manifest';
+import { declaredContexts, type ExtensionManifest } from '@shared/extensions/manifest';
 import { readCachedDevices } from '@/store/devicesCache';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 
@@ -164,6 +165,13 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
   const [justInstalled, setJustInstalled] = useState<string | null>(null);
   // 进产品页从顶上看起;回清单回到刚才滚到的地方(照 Mac App Store 的返回)。滚的是外面那一层页面。
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useCommandProvider({
+    scopeId: 'session-sub',
+    isActive: (element) => !!element && !!rootRef.current?.contains(element),
+    getCommands: () => !searchRef.current?.isConnected ? [] : [{ id: 'app.find', hideFromPalette: true, execute: () => searchRef.current?.focus() }],
+  });
+
   const listScroll = useRef(0);
   const scroller = () => {
     let node = rootRef.current?.parentElement ?? null;
@@ -490,7 +498,6 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
   useEffect(() => {
     if (remote && !remote.online) return;
     void readShelf(debouncedQuery);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [readShelf, debouncedQuery, remote?.online]);
 
   /**
@@ -734,14 +741,13 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
       if (host.local) await registerInstalledExtensionTabs();
       if (firstInstall) setJustInstalled(manifest.id);
       // "Did it work" and "what next" in one breath: the tab is where it went.
+      // What a task's「+」lists: the App's own page, by its name in this language (installedExtensionsStore.mainTabOf); an App
+      // whose tabs only open files or come one per task has nothing there to put, and says nothing about it.
+      const name = localizedManifestText(manifest, locale).name;
+      const hasPage = manifest.contributes.tabs.some((tab) => declaredContexts(tab).length === 0 && !tab.perSession);
       toast({
-        title: translateRef.current('extensions.installed', { name: localizedManifestText(manifest, locale).name }),
-        description: translateRef.current('extensions.installedNext', {
-          tabs: listOf(
-            manifest.contributes.tabs.map((tab) => tab.title),
-            locale
-          ),
-        }),
+        title: translateRef.current('extensions.installed', { name }),
+        ...(hasPage ? { description: translateRef.current('extensions.installedNext', { name }) } : {}),
         tier: 'success',
       });
     } catch (error) {
@@ -1144,7 +1150,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
     const withdrawn = declared.filter((permission) => (revoked[manifest.id] ?? []).includes(permission.key)).length;
     if (withdrawn > 0) return <span>{translate('extensions.rowRevoked', { count: withdrawn })}</span>;
     const text = localizedManifestText(manifest, locale);
-    return <span>{text.description ?? translate('extensions.noDescription')}</span>;
+    return <span>{text.subtitle}</span>;
   };
 
   const header = (aside?: ReactNode) => (
@@ -1215,6 +1221,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
 
   const search = (
     <SearchInput
+      ref={searchRef}
       type="search"
       containerClassName="w-56"
       placeholder={searchPlaceholder}

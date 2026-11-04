@@ -54,18 +54,14 @@ describe('updateUnasked: an App update found in a chat', () => {
     expect(state.asked).toEqual([])
   })
 
-  it('asks the install, unasked; the host hears only what went in', async () => {
-    const { onUpdatedUnasked, updateUnasked } = await load()
+  it('updates without creating a status-notification subscription', async () => {
+    const { updateUnasked } = await load()
     state.publishers = { vote: { id: '0a000000-0000-4000-8000-00000000000a', name: 'Alice' } }
-    const heard: unknown[] = []
-    onUpdatedUnasked((updated) => heard.push(updated))
     state.answers.set(card('vote-2'), { installed: true, outcome: 'confirmed', id: 'vote', name: 'Vote', version: '0.2.0' })
     expect(await updateUnasked({ messageId: card('vote-2') })).toBe(true)
     expect(state.asked).toEqual([{ messageId: card('vote-2'), unasked: true }])
-    expect(heard).toEqual([{ name: 'Vote', version: '0.2.0' }])
     // Held (it asks for more, or someone else sent it): not in, nothing said — the group's bar asks the person instead.
     expect(await updateUnasked({ messageId: card('vote-3') })).toBe(false)
-    expect(heard).toHaveLength(1)
   })
 
   it('one package asked about at a time: the next waits until the one before is answered', async () => {

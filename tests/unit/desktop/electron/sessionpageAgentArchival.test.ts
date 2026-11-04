@@ -95,7 +95,7 @@ describe('durable background session archival synchronization', () => {
   })
 
   it('rebases a stale operation without changing or dropping its archive interval', async () => {
-    deps.synchronize = vi.fn(async () => { restore(); remoteRevision = 20; throw Object.assign(new Error('stale'), { code: '40001' }) })
+    deps.synchronize = vi.fn(async () => { restore(); remoteRevision = 20; throw Object.assign(new Error('stale'), { code: 'PT409' }) })
     await expect(new SessionpageAgentArchivalSync(deps).flush()).rejects.toThrow('pending')
     const pending = (await stored()).agents.agent.pending
     expect(pending.revision).toBe(21)

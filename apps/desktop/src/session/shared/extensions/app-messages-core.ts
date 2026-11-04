@@ -1,5 +1,5 @@
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink';
+import { FILE_LINK_IN_TEXT, groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink';
 import { personId, placeOf } from './app-runtime-protocol';
 
 /**
@@ -52,11 +52,8 @@ interface MessageRow {
   created_at: string;
 }
 
-// A link ends where markdown or prose would end it: `groupFileLink` escapes all of these inside one.
-const FILE_LINK = /gugu-file:\/\/[^\s()[\]<>"'`]+/gi;
-
 function refsOf(text: string): AppMessage['refs'] {
-  return [...text.matchAll(FILE_LINK)].flatMap(([href]) => {
+  return [...text.matchAll(FILE_LINK_IN_TEXT)].flatMap(([href]) => {
     const link = parseGroupFileLink(href);
     if (!link) return [];
     return [{ file: link.itemId, ...(link.version === undefined ? {} : { version: link.version }), ...(link.at ? { at: { ...link.at } } : {}) }];

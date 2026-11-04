@@ -9,11 +9,11 @@ import {
   type StepResult,
 } from '../../../../apps/desktop/electron/computer-use-program'
 import type { ExtensionProgram } from '../../../../apps/desktop/electron/session/main/core/extensions/extension-programs'
-import { safeParseExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
+import { EXTENSION_API_VERSION, safeParseExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 import { givesAgentTools } from '../../../../apps/desktop/src/session/shared/extensions/app-places'
 import { peekWindow } from '../../../../apps/desktop/electron/device-actions/families/computer'
 import { createComputerControl } from '../../../../apps/desktop/electron/device-actions/computer-control'
-import { catalogAppsOf, type ExtensionAgentContribution } from '../../../../apps/desktop/electron/extension-session-mcp'
+import { agentAppsOf, type ExtensionAgentContribution } from '../../../../apps/desktop/electron/extension-session-mcp'
 import { COMPUTER_USE_LINE, guguAppsBlock } from '../../../../apps/desktop/electron/capability-bundle'
 import { SESSION_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-session-tool'
 
@@ -486,11 +486,11 @@ describe('#7317 Computer Use 「电脑」 page', () => {
   // The owner's test (67f2a4fc): told 「用我的电脑计算器按一个 6+6+6+6+6 的和」, agents scripted Calculator with osascript
   // or took the browser's mouse for computer control; device_actions was in their list all along.
   it('on, it routes the person\'s apps through device_actions / device_call without banning test-app debugging; off, it says nothing', () => {
-    const contribution = (extensionId: string) => ({ extensionId, name: extensionId === 'computer-use' ? 'Computer Use' : extensionId, disclosure: 'progressive' }) as unknown as ExtensionAgentContribution
+    const contribution = (extensionId: string) => ({ extensionId, name: extensionId === 'computer-use' ? 'Computer Use' : extensionId, instructions: `${extensionId} line`, disclosure: 'progressive', skillsDir: null }) as unknown as ExtensionAgentContribution
     const program = (extensionId: string, native?: 'computer-use' | 'browser-use') => ({ extensionId, server: extensionId, ...(native ? { native } : {}) }) as ExtensionProgram
-    const on = catalogAppsOf([contribution('computer-use'), contribution('browser-use'), contribution('board')],
+    const on = agentAppsOf([contribution('computer-use'), contribution('browser-use'), contribution('board')],
       [program('computer-use', 'computer-use'), program('browser-use', 'browser-use'), program('board')])
-    expect(on).toEqual([{ extensionId: 'computer-use', name: 'Computer Use', computerUse: true }, { extensionId: 'browser-use', name: 'browser-use' }, { extensionId: 'board', name: 'board' }])
+    expect(on).toEqual([{ extensionId: 'computer-use', name: 'Computer Use', instructions: 'computer-use line', computerUse: true }, { extensionId: 'browser-use', name: 'browser-use', instructions: 'browser-use line' }, { extensionId: 'board', name: 'board', instructions: 'board line' }])
     const block = guguAppsBlock(on, [])
     expect(block).toContain(COMPUTER_USE_LINE)
     expect(COMPUTER_USE_LINE.length).toBeLessThanOrEqual(250)
@@ -501,16 +501,16 @@ describe('#7317 Computer Use 「电脑」 page', () => {
     expect(block).not.toMatch(/- Computer Use \(computer-use\)/)
     expect(block).toMatch(/- browser-use \(browser-use\)/)
     // Off (its program not running): no line, no token.
-    const off = catalogAppsOf([contribution('computer-use'), contribution('board')], [program('board')])
-    expect(off).toEqual([{ extensionId: 'board', name: 'board' }])
+    const off = agentAppsOf([contribution('computer-use'), contribution('board')], [program('board')])
+    expect(off).toEqual([{ extensionId: 'board', name: 'board', instructions: 'board line' }])
     expect(guguAppsBlock(off, [])).not.toContain('Computer Use')
   })
 
   it('accepts a tab declared one per task, and refuses it on the settings page or a tab that opens files', () => {
     const manifest = (tab: Record<string, unknown>) => ({
-      id: 'computer-use', name: 'Computer Use', version: '0.2.0', apiVersion: 5,
+      id: 'computer-use', name: 'Computer Use', version: '0.2.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       permissions: { capabilities: ['agents:tools'] },
-      contributes: { tabs: [{ name: 'settings', title: 'Settings', hostPage: 'settings' }, tab], mcpServers: [{ name: 'computer-use', host: 'computer-use' }] },
+      contributes: { tabs: [{ name: 'settings', title: 'Settings', hostPage: 'settings' }, tab], mcpServers: [{ name: 'computer-use', host: 'computer-use' }], instructions: 'device_actions group computer.' },
     })
     const screen = { name: 'preview', title: '电脑', entry: 'app/preview.html', perSession: true }
     expect(safeParseExtensionManifest(manifest(screen)).ok).toBe(true)

@@ -1,7 +1,8 @@
 import { fileSearchOf, folderOf, placeOf, type AppFileEntry, type AppFileOpened, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import { guguError, refOf, type GuguHost } from './host';
-import { askingMain, fileKey, openFiles, OpenFile } from './open-file';
+import { askingMain, fileKey, openFiles, OpenFile, storedTextFile } from './open-file';
 import { syncLink } from './sync-link';
+import { workspaceStoredText } from '@gugu/core/shared/workspaceUpload.mjs';
 
 export { bindText } from './text-binding';
 
@@ -44,7 +45,8 @@ async function openNow(host: GuguHost, requested: Promise<AppFileOpened>): Promi
   try {
     const opened = await requested;
     if (opened.entry.detailsPending) detailsOf = opened.docName;
-    if (opened.bytes) return storedFile(opened.entry, opened.bytes);
+    if (opened.bytes) return storedFile(host, opened.entry, opened.bytes);
+    if (opened.chunked) return chunkedFile(host, opened.entry);
     const id = fileKey(opened.entry);
     const existing = openFiles.get(id);
     if (existing && existing.status !== 'gone') {
@@ -86,12 +88,69 @@ function entryAfterPaint(docName: string): void {
 }
 
 /**
- * A stored file — an image, a clip, a sound: read-only, nothing synced. `blob()` is what `<img>`, `<video>` and `<audio>`
- * take through `URL.createObjectURL` (the page's CSP admits `blob:`).
+ * Stored bytes stay the source of truth. Valid UTF-8 text-shaped files open as a read-only text snapshot; other files stay
+ * binary, and `blob()` is what `<img>`, `<video>` and `<audio>` take through `URL.createObjectURL`.
  */
-function storedFile(entry: AppFileEntry, bytes: ArrayBuffer): object {
+function storedFile(host: GuguHost, entry: AppFileEntry, bytes: ArrayBuffer): object {
   const blob = new Blob([bytes], { type: entry.contentType });
-  return Object.freeze({ entry: { ...entry }, type: 'binary', readOnly: true, blob: async () => blob, close: () => undefined });
+  const preview = workspaceStoredText(entry.name, entry.contentType, new Uint8Array(bytes));
+  if (preview) return storedTextFile(host, entry, preview.text, bytes);
+  return Object.freeze({ entry: { ...entry }, type: 'binary', readOnly: true, size: bytes.byteLength, bytes: async () => new Uint8Array(await blob.arrayBuffer()), blob: async () => blob, close: () => undefined });
+}
+
+/** The pieces one `f.read` asks for at most: what the host reads a working copy's file in (512 KB). */
+const CHUNK_BYTES = 512 * 1024;
+
+/**
+ * A working copy's file that is not a document, of any size: read where it is, in pieces — `read(offset, length)` the
+ * bytes at an offset (a viewer scrolls a 100 MB log this way), `blob()` all of it.
+ */
+function chunkedFile(host: GuguHost, entry: AppFileEntry): object {
+  const plain = refOf(entry);
+  const ref = { ...plain, ...(!('workspace' in plain) ? { version: entry.version ?? undefined } : {}) };
+  let size = entry.size;
+  let closed = false;
+  const read = async (offset = 0, length = CHUNK_BYTES): Promise<Uint8Array<ArrayBuffer>> => {
+    if (closed) throw guguError('failed', 'This file handle is closed.');
+    if (!Number.isSafeInteger(offset) || offset < 0 || length !== Infinity && (!Number.isSafeInteger(length) || length < 0)) throw guguError('invalid', 'A file range needs a non-negative integer offset and length.');
+    const out: Uint8Array<ArrayBuffer>[] = [];
+    let at = Math.max(0, Math.floor(offset));
+    let left = Math.max(0, length === Infinity ? Infinity : Math.floor(length));
+    while (left > 0) {
+      const chunk = await host.appFiles.read({ ref, offset: at, length: Math.min(left, CHUNK_BYTES) });
+      if (closed) throw guguError('failed', 'This file handle is closed.');
+      size = chunk.size;
+      const bytes = chunk.data;
+      if (bytes.byteLength === 0) break;
+      out.push(bytes);
+      at += bytes.byteLength;
+      left -= bytes.byteLength;
+      if (at >= chunk.size) break;
+    }
+    if (out.length === 1) return out[0]!;
+    const all: Uint8Array<ArrayBuffer> = new Uint8Array(out.reduce((n, b) => n + b.byteLength, 0));
+    let n = 0;
+    for (const bytes of out) {
+      all.set(bytes, n);
+      n += bytes.byteLength;
+    }
+    return all;
+  };
+  return Object.freeze({
+    entry: { ...entry },
+    type: 'binary',
+    readOnly: true,
+    get size() { return size; },
+    read,
+    bytes: () => read(0, Infinity),
+    // All of it, to its end: a file on another machine comes with no size until its first piece says it.
+    blob: async () => new Blob([await read(0, Infinity)], { type: entry.contentType }),
+    close: () => {
+      if (closed) return Promise.resolve();
+      closed = true;
+      return host.appFiles.close({ ref });
+    },
+  });
 }
 
 /** A place as the page passed it, checked: what is not one throws `invalid`, as a coded Error. */
@@ -135,22 +194,22 @@ function checked<T>(read: () => T): T {
 }
 
 /** `files.create({ chat | session, name, folder }, content)`: a new file, named where it goes (`folder`: 子文件夹). */
-export function createFile(host: GuguHost, target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[]; appData?: boolean }) {
+export function createFile(host: GuguHost, target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[] }) {
   const place = where(target);
   const name = (target as { name?: unknown }).name;
   const folder = folderNamed((target as { folder?: unknown }).folder);
   if (typeof name !== 'string' || !name.trim()) throw guguError('invalid', 'A file needs a name: files.create({ chat | session, name }, content)');
-  const isJson = typeof content !== 'string';
-  if (isJson && (content === null || Array.isArray(content))) {
+  const isJson = typeof content !== 'string' || (name.endsWith('.json') && !options?.contentType);
+  const data: unknown = isJson && typeof content === 'string' ? checked(() => JSON.parse(content)) : content;
+  if (isJson && (data === null || typeof data !== 'object' || Array.isArray(data))) {
     throw guguError('invalid', 'A JSON file must hold an object at the top (its root is shared per key)');
   }
   return host.appFiles.create({
     place,
     name,
-    content: isJson ? JSON.stringify(content, null, 2) : content,
+    content: isJson ? JSON.stringify(data, null, 2) : content as string,
     ...(options?.contentType ? { contentType: options.contentType } : isJson ? { contentType: 'application/json' } : {}),
     sourceMessageIds: options?.sourceMessageIds,
-    ...(options?.appData === true ? { appData: true } : {}),
     ...(folder === undefined ? {} : { folder }),
   });
 }

@@ -17,11 +17,9 @@ type ModalId = keyof typeof modalRegistry;
 
 type ModalArgs<TId extends ModalId> = Parameters<(typeof modalRegistry)[TId]['component']>[0];
 
-// oxlint-disable-next-line typescript/no-explicit-any
 export function wrapArgs<TId extends ModalId>(args: UserArgs<TId>): Record<string, any> {
   return {
     ...args,
-    // oxlint-disable-next-line typescript/no-explicit-any
     onSuccess: (result: any) => {
       modalStore.closeModal('completed');
       args.onSuccess?.(result);

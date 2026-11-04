@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatAttachmentSize, type AttachmentSource } from '@gugu/core/shared/ui/attachmentModels'
-import { formatCalendarDay } from '../lib/calendarTime'
+import { formatCalendarDay } from '@/i18n/format'
 import { cn } from '@/lib/cn'
 import { XCircle } from '@/lib/icons'
 import { useChatStore } from '../store/chatContext'

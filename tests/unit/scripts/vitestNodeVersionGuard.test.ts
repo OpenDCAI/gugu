@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { assertVitestNodeVersion } from '../../../scripts/vitest-node-version-guard'
+import { assertVitestNodeVersion } from '../../../scripts/test-infra/vitest-node-version-guard'
 
 describe('Vitest runner Node pin guard', () => {
   it('accepts an exact pin', () => {

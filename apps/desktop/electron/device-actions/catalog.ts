@@ -88,7 +88,7 @@ export interface FamilyDeps {
   clipboardWrite(text: string): Promise<void> | void
   /** 剪贴板里的图片(PNG base64);没有回 null。 */
   clipboardReadImage?(): Promise<{ mimeType: string; data: string; width: number; height: number } | null>
-  notify(title: string, body: string): void
+  notify(title: string, body: string, options?: { probe: boolean }): Promise<{ shown: boolean }>
   openExternal(url: string): Promise<void>
   /** 移到废纸篓 / 回收站(Electron shell.trashItem)。 */
   trashItem(path: string): Promise<void>
@@ -121,7 +121,7 @@ export interface ComputerControlHooks {
    * 人停了这个 App(pid),或停了整个电脑控制 → 回 { refused: 给 agent 的话 };
    * 否则登记「正在操作」,回这一下的中止信号(人按停止时触发,reason 是给 agent 的话)和收尾 end()(成败都调)。
    */
-  begin(call: { callerName?: string; taskTitle?: string; pid?: number; windowId?: number; appName?: string }): { refused: string } | { signal: AbortSignal; end(): void }
+  begin(call: { callerName?: string; taskTitle?: string; pid?: number; windowId?: number; appName?: string }): { refused: string } | { signal: AbortSignal; ready?: Promise<boolean>; end(): void }
 }
 
 export interface FamilyContext {

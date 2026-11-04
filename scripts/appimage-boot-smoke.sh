@@ -70,7 +70,7 @@ for i in $(seq 1 "$TIMEOUT"); do
     # createLogger 早于 main.ts 给目录),app 照样活、boot OK 照样打,只是**一行都不落盘、一声不响**
     # —— 单测照不出来(它们都先调 initLogging),只有真启动的产物能。实翻车一次,别再回退。
     if [ -z "$LOGFILE" ]; then
-      echo "::error::app 起来了但没有日志文件(userData/logs/gugu-main.log 不存在或为空)——日志基座的初始化顺序坏了,见 docs/logging.md 纪律③。主进程输出尾:"
+      echo "::error::app 起来了但没有日志文件(userData/logs/gugu-main.log 不存在或为空)——日志基座的初始化顺序坏了,见 docs/guides/logging.md 纪律③。主进程输出尾:"
       tail -40 "$LOG"
       exit 1
     fi

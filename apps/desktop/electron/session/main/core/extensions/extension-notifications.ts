@@ -1,4 +1,4 @@
-import { fileRefOf, type AppFileRef, type AppPlace } from '@shared/extensions/app-runtime-protocol';
+import { fileRefOf, isWorkspace, workspaceSession, type AppFileRef, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import type { ExtensionHostEvent } from '@shared/extensions/bridge-protocol';
 import { sessionHostLocale } from '@main/core/host-locale';
 import { localizedManifestText } from '@shared/extensions/catalog';
@@ -31,12 +31,13 @@ export interface ExtensionNotifierDeps {
   /** The interface language: the App's name in the title is the one its manifest gives there. */
   locale(): string;
   /** Settings → Notifications, the same two switches agent banners obey. */
-  notificationsAllowed(): Promise<boolean>;
+  notificationSettings(): Promise<{ enabled: boolean; sound: boolean }>;
+  systemUsable(): Promise<boolean>;
   /**
    * `shown` settles when the system answers: resolved once the banner is actually on screen,
    * rejected with the reason when the system refuses it (e.g. gugu is not allowed to notify).
    */
-  show(banner: { title: string; body: string; onClick: () => void }): { close(): void; shown: Promise<void> };
+  show(banner: { title: string; body: string; silent: boolean; onClick: () => void }): { close(): void; shown: Promise<void> };
   focusApp(): void;
   /** Brings what a click opens on screen: a tab (by kind) in a session, the App in a chat's panel or on its own page, a file. */
   open(
@@ -47,19 +48,46 @@ export interface ExtensionNotifierDeps {
       | { file: BannerFile },
   ): Promise<void>;
   /** The click, to the background page and to the App's pages where it opened (null: the background page alone). */
-  deliver(extensionId: string, event: ExtensionHostEvent, opened: AppPlace | 'own' | null): void;
+  deliver(extensionId: string, event: ExtensionHostEvent, opened: AppPlace | { session: string } | 'own' | null): void;
   onError(message: string, error: unknown): void;
   now(): number;
 }
 
 /**
- * Enough for "your export finished" and "3 new papers" in quick succession; a page that
+ * Enough for a few distinct requests for attention in quick succession; a page that
  * posts in a loop is stopped and told why, instead of burying every other banner.
  */
-/** A file a banner's click opens: a chat's, or a session's (a project's has no place a banner opens it). */
-type BannerFile = Exclude<AppFileRef, { project: string }> & { id: string };
+/** A file a banner's click opens: a chat's, or a session's working copy's (a project's has no place a banner opens it). */
+type BannerFile = AppFileRef & { id: string };
 
 export const EXTENSION_NOTIFICATIONS_PER_MINUTE = 10;
+const recent = new Map<string, number[]>();
+
+/** One sliding window for each App or the agent device-action source. */
+export function admitBanner(source: string, now: number): void {
+  const window = (recent.get(source) ?? []).filter((at) => now - at < 60_000);
+  if (window.length >= EXTENSION_NOTIFICATIONS_PER_MINUTE) {
+    recent.set(source, window);
+    throw new Error(
+      `too many banners: at most ${EXTENSION_NOTIFICATIONS_PER_MINUTE} a minute — use a tag to update one instead of posting new ones`,
+    );
+  }
+  window.push(now);
+  recent.set(source, window);
+}
+
+/** The main-process device action and its user-pressed probe share the task preferences. */
+export async function showDeviceNotification(title: string, body: string, options?: { probe: boolean }): Promise<{ shown: boolean }> {
+  const [{ Notification }, { appSettingsService }, { log }, { systemNotificationsUsable }] = await Promise.all([
+    import('electron'), import('@main/core/settings/settings-service'), import('@main/lib/logger'),
+    import('../agent-hooks/system-notifications'),
+  ]);
+  const { enabled, sound } = await appSettingsService.get('notifications');
+  if (!enabled || !(await systemNotificationsUsable())) return { shown: false };
+  if (!options?.probe) admitBanner('device-action', Date.now());
+  await showSystemBanner(Notification, log, 'device', { title, body, silent: !sound }).shown;
+  return { shown: true };
+}
 const MAX_TITLE = 120;
 const MAX_BODY = 500;
 const MAX_TAG = 64;
@@ -79,7 +107,7 @@ function parseOpen(manifest: ExtensionManifest, raw: unknown): BannerOpen | null
     const file = fileRefOf(open.file);
     if (!('id' in file)) throw new Error('open.file is a file\'s entry or ctx.file');
     // A project's file opens beside a page (G1), and a banner is no page: it names the App's tab or the file's session.
-    if ('project' in file) throw new Error('open.file is a chat\'s or a session\'s file: a project\'s file opens beside a page');
+    if (isWorkspace(file) && !workspaceSession(file)) throw new Error('open.file is a chat\'s or a session\'s file: a project\'s file opens beside a page');
     return { file };
   }
   const id = open[places[0]];
@@ -91,7 +119,6 @@ function parseOpen(manifest: ExtensionManifest, raw: unknown): BannerOpen | null
 }
 
 export function createExtensionNotifier(deps: ExtensionNotifierDeps) {
-  const recent = new Map<string, number[]>();
   const byTag = new Map<string, { close(): void }>();
 
   function parse(manifest: ExtensionManifest, raw: Record<string, unknown>) {
@@ -124,28 +151,17 @@ export function createExtensionNotifier(deps: ExtensionNotifierDeps) {
     };
   }
 
-  function admit(extensionId: string): void {
-    const now = deps.now();
-    const window = (recent.get(extensionId) ?? []).filter((at) => now - at < 60_000);
-    if (window.length >= EXTENSION_NOTIFICATIONS_PER_MINUTE) {
-      recent.set(extensionId, window);
-      throw new Error(
-        `too many banners: at most ${EXTENSION_NOTIFICATIONS_PER_MINUTE} a minute — use a tag to update one instead of posting new ones`,
-      );
-    }
-    window.push(now);
-    recent.set(extensionId, window);
-  }
-
   async function notify(input: { extensionId: string; request: Record<string, unknown> }): Promise<{ shown: true }> {
     const manifest = deps.manifestOf(input.extensionId);
     const parsed = parse(manifest, input.request);
     // Said, not swallowed: an extension that thinks its banner went out will never
     // tell its user "turn notifications on to get these".
-    if (!(await deps.notificationsAllowed())) {
+    const { enabled, sound } = await deps.notificationSettings();
+    if (!enabled) {
       throw new Error('system notifications are turned off in gugu settings');
     }
-    admit(input.extensionId);
+    if (!(await deps.systemUsable())) throw new Error('this computer has no system notification service running');
+    admitBanner(`app:${input.extensionId}`, deps.now());
 
     const tagKey = parsed.tag === undefined ? null : `${input.extensionId}\u0000${parsed.tag}`;
     if (tagKey) byTag.get(tagKey)?.close();
@@ -153,6 +169,7 @@ export function createExtensionNotifier(deps: ExtensionNotifierDeps) {
     const banner = deps.show({
       title: `${localizedManifestText(manifest, deps.locale()).name} · ${parsed.title}`,
       body: parsed.body,
+      silent: !sound,
       onClick: () => {
         if (tagKey && byTag.get(tagKey) === banner) byTag.delete(tagKey);
         deps.focusApp();
@@ -205,12 +222,44 @@ export function refusalReason(systemError: string): string {
   return `the system did not show the notification: ${systemError}`;
 }
 
+// Retain banners until close/click/refusal, including device banners without an App tag.
+const live = new Set<import('electron').Notification>();
+
+function showSystemBanner(
+  Notification: typeof import('electron').Notification,
+  log: Pick<typeof import('@main/lib/logger').log, 'info' | 'warn'>,
+  source: 'extension' | 'device',
+  { title, body, silent, onClick }: { title: string; body: string; silent: boolean; onClick?: () => void },
+): ReturnType<ExtensionNotifierDeps['show']> {
+  const banner = new Notification({ title, body, silent });
+  live.add(banner);
+  const release = () => live.delete(banner);
+  banner.on('close', release);
+  const shown = new Promise<void>((resolve, reject) => {
+    banner.on('show', () => {
+      log.info(`notification: ${source} banner shown`, { title });
+      resolve();
+    });
+    banner.on('failed', (_event, error) => {
+      release();
+      log.warn(`notification: OS refused ${source} banner`, { error: String(error) });
+      reject(new Error(refusalReason(String(error))));
+    });
+  });
+  banner.on('click', () => {
+    release();
+    onClick?.();
+  });
+  banner.show();
+  return { shown, close: () => { release(); banner.close(); } };
+}
+
 let notifier: ReturnType<typeof createExtensionNotifier> | null = null;
 
 /** The live path: the bridge's `notify` verb lands here. */
 export async function showExtensionNotification(input: { extensionId: string; request: Record<string, unknown> }): Promise<{ shown: true }> {
   if (!notifier) {
-    const [electron, { extensionsService }, { appSettingsService }, { focusAppFromNotification }, bridge, orchestration, { log }, { agentSessionContext }, { actInWindow }, files] =
+    const [electron, { extensionsService }, { appSettingsService }, { focusAppFromNotification }, bridge, orchestration, { log }, { agentSessionContext }, { actInWindow }, files, { systemNotificationsUsable }] =
       await Promise.all([
         import('electron'),
         import('./extensions-root'),
@@ -222,54 +271,22 @@ export async function showExtensionNotification(input: { extensionId: string; re
         import('./extension-agent-context'),
         import('./extension-bridge-relay'),
         import('./app-files'),
+        import('../agent-hooks/system-notifications'),
       ]);
     const projectOf = async (sessionId: string) => {
       const projectId = (await agentSessionContext(sessionId))?.projectId;
       if (!projectId) throw new Error(`No session ${sessionId} on this computer`);
       return projectId;
     };
-    // Held so macOS does not garbage-collect a banner before its click arrives — the
-    // same reason the agent banners keep theirs.
-    const live = new Set<InstanceType<typeof electron.Notification>>();
     notifier = createExtensionNotifier({
       manifestOf: (id) => extensionsService().get(id).manifest,
       locale: sessionHostLocale,
-      notificationsAllowed: async () => {
-        const { enabled, osNotifications } = await appSettingsService.get('notifications');
-        return enabled && osNotifications && electron.Notification.isSupported();
+      notificationSettings: async () => {
+        const { enabled, sound } = await appSettingsService.get('notifications');
+        return { enabled, sound };
       },
-      show: ({ title, body, onClick }) => {
-        const banner = new electron.Notification({ title, body, silent: true });
-        live.add(banner);
-        const release = () => live.delete(banner);
-        banner.on('close', release);
-        let settle: { resolve: () => void; reject: (error: Error) => void } | null = null;
-        const shown = new Promise<void>((resolve, reject) => {
-          settle = { resolve, reject };
-        });
-        // 系统真的把横幅显示出来时才触发 —— 「横幅到底出没出来」唯一不靠人眼的读数。
-        banner.on('show', () => {
-          log.info('notification: extension banner shown', { title });
-          settle?.resolve();
-        });
-        banner.on('failed', (_event, error) => {
-          release();
-          log.warn('notification: OS refused an extension banner', { error: String(error) });
-          settle?.reject(new Error(refusalReason(String(error))));
-        });
-        banner.on('click', () => {
-          release();
-          onClick();
-        });
-        banner.show();
-        return {
-          shown,
-          close: () => {
-            release();
-            banner.close();
-          },
-        };
-      },
+      systemUsable: systemNotificationsUsable,
+      show: (banner) => showSystemBanner(electron.Notification, log, 'extension', banner),
       focusApp: () => {
         focusAppFromNotification();
       },
@@ -280,8 +297,9 @@ export async function showExtensionNotification(input: { extensionId: string; re
           await actInWindow({ kind: 'openApp', extensionId: target.extensionId, chatId: target.chat });
         } else if ('own' in target) {
           await actInWindow({ kind: 'openApp', extensionId: target.own });
-        } else if ('session' in target.file) {
-          await orchestration.openSessionFileForApp({ projectId: await projectOf(target.file.session), sessionId: target.file.session, path: target.file.id, ask: false });
+        } else if (isWorkspace(target.file)) {
+          const sessionId = workspaceSession(target.file)!;
+          await orchestration.openSessionFileForApp({ projectId: await projectOf(sessionId), sessionId, path: target.file.id, ask: false });
         } else {
           await actInWindow({ kind: 'openChatFile', chatId: target.file.chat ?? (await files.chatOfItem(target.file.id)), itemId: target.file.id });
         }

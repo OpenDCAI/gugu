@@ -1,7 +1,7 @@
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import { stringifyMention } from '@gugu/session-shared/markdown';
-import { APP_COMPOSE_IMAGE_MAX_BYTES, APP_COMPOSE_MAX_IMAGES, fileRefOf, isLocal, type AppComposeDetail, type AppComposeImage, type AppComposeRef } from './app-runtime-protocol';
+import { APP_COMPOSE_IMAGE_MAX_BYTES, APP_COMPOSE_MAX_IMAGES, fileRefOf, isWorkspace, type AppComposeDetail, type AppComposeImage, type AppComposeRef } from './app-runtime-protocol';
 import { dispatchCallOf, dispatchOffers, type DispatchAsk, type DispatchPicked, type DispatchSpawn, type DispatchTarget } from './app-dispatch-core';
 
 /**
@@ -95,7 +95,7 @@ function refsOf(refs: unknown): CheckedRef[] {
     } catch (error) {
       throw new AppSendError('invalid', `refs[${index}].file: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (isLocal(place) || !('id' in place) || !UUID.test(place.id)) {
+    if (isWorkspace(place) || !('id' in place) || !UUID.test(place.id)) {
       throw new AppSendError('invalid', `refs[${index}].file is a chat file: pass its entry or ctx.file`);
     }
     const where = at === undefined ? undefined : placeOf(at, index);
@@ -274,6 +274,8 @@ async function withPills(token: string, text: string, refs: unknown): Promise<{ 
  */
 export interface DispatchHere {
   chat: DispatchAsk['chat'];
+  /** API 27+ reads the roster only if the person opens the target picker. */
+  readMembers?: () => Promise<NonNullable<DispatchAsk['chat']>['members']>;
   preselect: string | null;
   local?: string[];
   spawnOn?: string | null;
@@ -324,7 +326,7 @@ export async function dispatchFromApp(
     const { token, userId } = await platform.account();
     const pills = named(call.refs) ? (await pillsOf(token, refsOf(call.refs))).pills.map((pill) => pill.label) : [];
     // The person is not among whom they hand it to: a whisper to oneself is refused.
-    const chat = here.chat && { ...here.chat, members: here.chat.members.filter((member) => member.id !== `user:${userId}`) };
+    const chat = here.chat && { ...here.chat, members: (here.readMembers ? await here.readMembers() : here.chat.members).filter((member) => member.id !== `user:${userId}`) };
     const picked = await platform.pick({ draft: call.draft, offers, text, pills, chat, preselect: here.preselect, ...(call.draft && here.local ? { local: here.local } : {}), ...(here.spawnOn !== undefined ? { spawnOn: here.spawnOn } : {}), visible });
     if (!picked) return { cancelled: true };
     ({ to, visible } = picked);

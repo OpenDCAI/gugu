@@ -51,8 +51,8 @@ describe('deferred messages: kept on the session, sent when it starts working', 
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status)
-        VALUES ('s1', 'project-1', 'S1', 'claude', 'acp', 'idle');
+      INSERT INTO sessions (id, project_id, provider, runtime, agent_status)
+        VALUES ('s1', 'project-1', 'claude', 'acp', 'idle');
     `);
     routed.length = 0;
     answer = 'accepted';

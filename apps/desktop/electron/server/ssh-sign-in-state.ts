@@ -2,17 +2,20 @@
  * #6264 离线的 SSH 机器:问一句「这个账号在那台机器上还登着吗」(经同一条 SSH 读 `gugu-server status --json`)。
  * 答案决定设备行上写「离线」还是「登录已失效 · 重新登录」。连不上 / 那边太旧 = unknown,照旧只说离线。
  */
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import type { SshSignInState } from '../../src/lib/serverSshMachines'
 import type { SshTarget } from './ssh-install/logic'
 import { parseStatusJson, type StatusReport } from './server-status'
 import { sshBatchArgs } from './ssh-batch'
+import { desktopServerChannel, remoteServerPaths } from './server-names'
 
 export function signInStateFrom(report: StatusReport | null, userId: string): SshSignInState {
   if (!report) return { state: 'unknown' }
   const account = report.accounts.find((a) => a.userId === userId)
   if (!account) return { state: 'signedOut' }
   if (account.signedIn) return { state: 'signedIn' }
+  if (account.signedOut?.reason === 'logout') return { state: 'signedOut' }
   if (account.signedOut) return { state: account.signedOut.reason, at: account.signedOut.at }
   return { state: 'signedOut' }
 }
@@ -26,9 +29,9 @@ export function sshSignInState(options: {
   timeoutMs?: number
   spawnSsh?: SpawnStatusSsh
 }): Promise<SshSignInState> {
-  const args = sshBatchArgs(options.target, 'exec ~/.local/bin/gugu-server status --json', options.controlPath)
+  const args = sshBatchArgs(options.target, `exec ${remoteServerPaths(desktopServerChannel()).binTilde} status --json`, options.controlPath)
   return new Promise((resolve) => {
-    const child = (options.spawnSsh ?? ((a) => spawn('ssh', a, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })))(args)
+    const child = (options.spawnSsh ?? ((a) => spawn('ssh', a, { stdio: ['pipe', 'pipe', 'pipe'] })))(args)
     let stdout = ''
     let settled = false
     const done = (state: SshSignInState) => {

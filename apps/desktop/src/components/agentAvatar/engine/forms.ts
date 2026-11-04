@@ -32,7 +32,8 @@ export function formFor(state: DisplayStateId | null, e: number): FormId {
     case 'removed':
       return 'sleep' // 不在线：蜷成一颗睡团；已移除：同一颗睡团飘起来变小（同一层，所以从不在线转过去是连着的）
     case 'pending':
-      return 'roll' // 确认中：一颗球左右滚着张望
+    case 'starting':
+      return 'roll' // 确认中 / 启动中：一颗球左右滚着张望
     default:
       return 'body'
   }

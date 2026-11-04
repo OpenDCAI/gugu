@@ -22,6 +22,12 @@ vi.mock('../../../../apps/desktop/src/lib/realtimeChannel', () => ({
   subscribeAuthenticatedRealtimeChannel: vi.fn(),
 }))
 
+// contacts.ts reaches the archive write through archiveOwnedAgent (session host / phone host / modal);
+// that path is not under test here, so its boundary is stubbed instead of booting the whole chain.
+vi.mock('../../../../apps/desktop/src/lib/archiveOwnedAgent', () => ({
+  archiveOwnedAgent: vi.fn(),
+}))
+
 vi.mock('@gugu/core/cloud/supabase', () => ({
   dbPayload: (value: unknown) => value,
 }))

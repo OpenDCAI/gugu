@@ -24,14 +24,18 @@ import {
 } from '../run-transitions';
 import { automationInitialSession, executeSessionCreate } from './sessionCreate';
 
-const { mockAcpStartSession } = vi.hoisted(() => ({
+const { mockAcpStartSession, life } = vi.hoisted(() => ({
   mockAcpStartSession: vi.fn(),
+  // session-life (owner of ACP sessions): the launcher admits the creation turns as its first pending rows.
+  life: { enqueue: vi.fn((_input: Record<string, unknown>) => ({ seq: 1, state: 'queued' })), start: vi.fn() },
 }));
+vi.mock('@main/core/sessions/session-life', () => ({ sessionLife: () => life }));
 
 // 起 agent 那一步用的是**真的** launchCreatedSession(与别的机器建会话同一份),只把它按需取的
 // 几个重依赖换成桩:读回刚落库的会话行、ACP 启动入参构造、终端腿的首启。
 vi.mock('@main/core/sessions/getSessions', () => ({
-  getSessions: async () => [{ id: createdSession()?.id }],
+  // As the real reader maps it: the created row, its creation turns included (the launch admits them from it).
+  getSessions: async () => [createdSession()],
 }));
 vi.mock('@main/embedded-boot', () => ({
   acpStartInputFor: (session: { id: string }, workspaceId: string, cwd: string) => ({
@@ -172,6 +176,8 @@ describe('executeSessionCreate', () => {
       data: { path: '/tmp/session', workspaceId: 'workspace-1' },
     });
     vi.mocked(hydrateSession).mockResolvedValue(undefined as never);
+    life.enqueue.mockClear();
+    life.start.mockClear();
     mockAcpStartSession.mockResolvedValue({
       success: true,
       data: { providerSessionId: 'acp-session' },
@@ -364,21 +370,43 @@ describe('executeSessionCreate', () => {
         origin: { kind: 'create', firstUtterance: 'Check things' },
         initialQueue: [{ text: 'Check things', origin: 'manual' }],
         title: 'Daily follow-up',
-        titleSource: 'manual',
       })
     );
     expect(session?.model).toBeUndefined();
     expect(session?.initialPrompt).toBeUndefined();
     expect(vi.mocked(prepareCreateSession).mock.calls[0]?.[0].automationRunId).toBe(run.id);
-    expect(mockAcpStartSession).toHaveBeenCalledWith({
-      input: {
-        sessionId: session?.id,
-        workspaceId: 'workspace-1',
-        cwd: '/tmp/session',
-        initialQueue: [{ text: 'Check things', origin: 'manual' }],
-      },
+    // The shared launcher hands the first sentence to session-life as the session's first pending row; session-life
+    // starts it (no direct ACP runtime start, no start-carried initialQueue).
+    expect(life.enqueue).toHaveBeenCalledExactlyOnceWith({
+      sessionId: session?.id, messageId: `${session?.id}:creation:0`, text: 'Check things', kind: 'ordinary',
+      turn: { kind: 'prompt', origin: 'manual' },
     });
+    expect(life.start).not.toHaveBeenCalled();
+    expect(mockAcpStartSession).not.toHaveBeenCalled();
     expect(hydrateSession).not.toHaveBeenCalled();
+  });
+
+  it("gives the first turn the linked issue as that message's model context", async () => {
+    await executeSessionCreate(
+      {
+        ...automation,
+        agentConfig: { prompt: 'Check things', provider: 'claude', autoApprove: true, type: 'acp' },
+        sessionConfig: {
+          ...automation.sessionConfig!,
+          sessionConfig: {
+            ...automation.sessionConfig!.sessionConfig,
+            linkedIssue: { provider: 'github', identifier: '#42', title: 'Flaky upload', url: 'https://example.test/42' },
+          },
+        },
+      } as Automation,
+      run,
+      noopStep
+    );
+
+    const turn = life.enqueue.mock.calls[0]?.[0].turn as { origin: string; hiddenContext?: string };
+    expect(turn.origin).toBe('manual');
+    expect(turn.hiddenContext).toContain('<issue_context provider="github" identifier="#42">');
+    expect(turn.hiddenContext).toContain('Flaky upload');
   });
 
   it('hands the terminal leg its first sentence as the startup prompt', async () => {

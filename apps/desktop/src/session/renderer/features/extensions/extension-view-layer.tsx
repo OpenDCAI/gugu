@@ -6,9 +6,10 @@ import { log } from '@renderer/utils/logger';
 import type { BrowserWebviewElement } from '@renderer/features/browser/browser-webview-types';
 import { extensionSurfaceStore } from './extension-surface-store';
 import { extensionViewStore, type ExtensionViewClaim } from './extension-view-store';
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { AppSettingsPage } from './app-settings-page';
-import { ExtensionGuestBinding } from './extension-guest-binding';
+import { ExtensionGuestBinding, type ExtensionGuestTarget } from './extension-guest-binding';
 
 /**
  * 常驻扩展的页都住在这一层:每个 App 在每个地方(一个群、一个任务)一张,一生不换地方(摩擦单 F48,
@@ -18,10 +19,8 @@ import { ExtensionGuestBinding } from './extension-guest-binding';
  * composer 视图,Workspace 整棵卸载,挂在它里面的页会跟着销毁(L3 第 3 步;报告 5 §1.5)。
  * 落点不止会话格:dock、群右栏也向同一张页认领(extension-view-store 的认领栈)。
  *
- * 为什么不放在会话页的树里:内嵌网页在页面树里换个位置就会整页重载。要做到
- * 「切会话那一格纹丝不动」(behavior tab-extensions),页就得住在会话树之外、由宿主
- * 把它摆到当前会话那一格的位置上 —— 切会话只是挪一下、告诉它现在给谁看,不重建。
- *
+ * 网页换父节点会重载:页常驻在会话树外,只跟随当前认领槽摆位、换使用者(behavior tab-extensions)。
+ * 根测量容器不建堆叠上下文:每张 guest 与 divider/pane 都读 tokens.css 的同一层级表。
  * 一格都没在屏上时页藏起来但活着(后台那份状态本来也不靠它),因为下一次它要**立刻**出现,
  * 而不是再准备一次。但它只在**第一次有格要它**时才建(从入口打开、以后的 dock):
  * ❌ 装好就起一张谁也没要的隐藏页(摩擦单 F3)。
@@ -49,7 +48,7 @@ export const ExtensionViewLayer = observer(function ExtensionViewLayer() {
     <div
       ref={layerRef}
       data-slot="extension-view-layer"
-      className="pointer-events-none fixed inset-0 z-30"
+      className="pointer-events-none absolute inset-0"
     >
       {[...extensionViewStore.residentPages.values()].map((page) => {
         const contribution = enabled.get(page.kind);
@@ -104,6 +103,7 @@ function rectOf(element: Element): Box {
  * 两个框都要:面板收起时是把宽度压到 0 再 overflow-hidden,里面那一格的布局框还是 320 宽 ——
  * 只看它自己的框,页会画在一个早已被裁掉的位置上。所以沿祖先把每一层 overflow 不是 visible
  * 的框都交一遍,得到真正可见的区域;页按露出的区域裁,内容按整格的框摆,不变形。
+ * fixed 全屏格是裁剪边界:格外原分栏的 overflow 不再裁它,格内与根层的裁剪仍然有效。
  * 两边都按视口量,再换算到本层坐标,祖先有 transform 也不歪。
  */
 function boxOf(element: HTMLElement, layer: HTMLElement): { full: Box; clip: Box } {
@@ -115,6 +115,9 @@ function boxOf(element: HTMLElement, layer: HTMLElement): { full: Box; clip: Box
     if (node instanceof Element) {
       const cs = getComputedStyle(node);
       if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') clip = intersect(clip, rectOf(node));
+      // The fixed fullscreen pane escapes its old split block's overflow. Its
+      // resident guest must stop clipping there too, while keeping inner clips.
+      if (node.hasAttribute('data-tab-fullscreen')) break;
     }
     node = node instanceof ShadowRoot ? node.host : node.parentNode;
   }
@@ -142,22 +145,27 @@ function ancestorsOf(element: HTMLElement): Element[] {
 /**
  * One App page in the layer, for one place and optionally one file. It follows whichever slot claims it now.
  */
-const ExtensionPage = observer(function ExtensionPage({
+export const ExtensionPage = observer(function ExtensionPage({
   kind,
   extensionId,
-  layerRef,
+  layerRef: residentLayerRef,
   pageKey,
   itemId,
   managed = false,
+  inline,
 }: {
   kind: string;
   extensionId: string;
-  layerRef: React.RefObject<HTMLDivElement | null>;
+  layerRef?: React.RefObject<HTMLDivElement | null>;
   pageKey?: string;
   itemId?: string;
   /** Host settings page: no App HTML or webview. */
   managed?: boolean;
+  /** Message pages live in the document flow and are destroyed when outside the viewport. */
+  inline?: ExtensionGuestTarget;
 }) {
+  const unusedLayerRef = useRef<HTMLDivElement | null>(null);
+  const layerRef = residentLayerRef ?? unusedLayerRef;
   const claimOf = useCallback(
     () => pageKey === undefined ? undefined : extensionViewStore.claims.get(pageKey),
     [pageKey]
@@ -227,14 +235,16 @@ const ExtensionPage = observer(function ExtensionPage({
         extensionSurfaceStore.setWebContentsId(previous.sessionId, previous.tabId, null);
         registeredRef.current = null;
       }
-      if (!claim) return;
-      const target = {
-        // A group's side panel is in no task: the binding says so by leaving it out.
-        ...(claim.sessionId ? { sessionId: claim.sessionId } : {}),
-        tabId: claim.tabId,
-        ...(claim.chatId ? { chatId: claim.chatId } : {}),
-        ...(claim.itemId ? { itemId: claim.itemId } : {}),
-        ...(claim.takeOpening ? { opening: claim.takeOpening() } : {}),
+      if (!claim && !inline) return;
+      const target = inline ?? {
+        // Where it is (`AppWhere`): a group's side panel works on no working copy, a session's tab is in its agent's chat.
+        workspace: claim?.sessionId ? sessionWorkspace(claim.sessionId) : null,
+        // A chat's slot is in that chat; a session's slot in the person's private chat with its agent.
+        conversation: claim?.chatId ?? claim?.conversation ?? null,
+        ...(claim?.resourceChat ? { resourceChat: claim.resourceChat } : {}),
+        tabId: claim?.tabId ?? '',
+        ...(claim?.itemId ? { itemId: claim.itemId } : {}),
+        ...(claim?.takeOpening ? { opening: claim.takeOpening() } : {}),
       };
       void guestBinding.aim(target)
         .then((result) => {
@@ -244,6 +254,12 @@ const ExtensionPage = observer(function ExtensionPage({
             return;
           }
           const { webContentsId } = result;
+          if (inline) {
+            const box = boxRef.current;
+            if (box) report(document.visibilityState === 'visible', box.clientWidth, box.clientHeight);
+            return;
+          }
+          if (!claim) return;
           // The slot that claimed it can now reach this page (its header's toolbar / menu, 摩擦单 F13).
           extensionViewStore.setSurface(claim.token, webContentsId);
           // 这期间又指向别处了:登记表归最新那次管,这次的落地只算 bind 成功,别的不写。
@@ -264,7 +280,7 @@ const ExtensionPage = observer(function ExtensionPage({
           log.warn('Extension surface binding failed:', error);
         });
     },
-    [guestBinding, layerRef, report, managed]
+    [guestBinding, layerRef, report, managed, inline]
   );
 
   const attachWebview = useCallback(
@@ -297,29 +313,42 @@ const ExtensionPage = observer(function ExtensionPage({
       };
       element.addEventListener('dom-ready', ready);
       element.addEventListener('render-process-gone', gone);
+      // Electron guests are separate documents: their wheel cannot bubble into the chat's scroller.
+      const wheel = (event: Event) => {
+        const message = event as Event & { channel: string; args: { x: number; y: number }[] };
+        if (!inline || message.channel !== 'gugu-widget-wheel') return;
+        const delta = message.args[0];
+        if (!delta || !Number.isFinite(delta.x) || !Number.isFinite(delta.y)) return;
+        for (let node = boxRef.current?.parentElement; node; node = node.parentElement) {
+          if (node.scrollHeight > node.clientHeight && /auto|scroll/.test(getComputedStyle(node).overflowY)) {
+            node.scrollBy({ left: delta.x, top: delta.y, behavior: 'instant' });
+            break;
+          }
+        }
+      };
+      element.addEventListener('ipc-message', wheel);
       guestTeardownRef.current = () => {
         element.removeEventListener('dom-ready', ready);
         element.removeEventListener('render-process-gone', gone);
+        element.removeEventListener('ipc-message', wheel);
       };
     },
-    [aimAt, claimOf, guestBinding, kind]
+    [aimAt, claimOf, guestBinding, kind, inline]
   );
 
   // 认领方一换(切会话 / 换 tab / 聊天栏换会话)→ 重新指向 + 重新摆位。
   useLayoutEffect(
-    () =>
-      reaction(
+    () => inline ? undefined : reaction(
         () => claimOf(),
         (claim) => aimAt(claim),
         { fireImmediately: true }
       ),
-    [aimAt, claimOf]
+    [aimAt, claimOf, inline]
   );
 
   // 摆位与尺寸汇报:跟着认领方那一格走;一格都没有就藏起来。
   useLayoutEffect(
-    () =>
-      reaction(
+    () => inline ? undefined : reaction(
         () => claimOf(),
         (claim) => {
           teardownRef.current?.();
@@ -346,6 +375,9 @@ const ExtensionPage = observer(function ExtensionPage({
             box.style.width = `${clip.width}px`;
             box.style.height = `${clip.height}px`;
             box.style.visibility = shown ? 'visible' : 'hidden';
+            box.style.zIndex = ancestorsOf(claim.element).some((element) => element.hasAttribute('data-tab-fullscreen'))
+              ? 'var(--z-pane-fullscreen-resident)'
+              : 'var(--z-pane-resident)';
             if (managed) box.style.opacity = shown ? '1' : '0';
             box.inert = !shown;
             const inner = innerRef.current;
@@ -399,8 +431,19 @@ const ExtensionPage = observer(function ExtensionPage({
       ),
     // surface 进依赖:页的框(boxRef)要等激活之后才渲染出来,而那时认领方可能早就在了 ——
     // 不重订这条反应,它就停在「fireImmediately 那次没框可摆」上,直到下一次切会话才醒。
-    [claimOf, layerRef, report, surface, managed]
+    [claimOf, layerRef, report, surface, managed, inline]
   );
+
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!inline || !box) return;
+    const layout = () => report(document.visibilityState === 'visible', box.clientWidth, box.clientHeight);
+    const resize = new ResizeObserver(layout);
+    resize.observe(box);
+    document.addEventListener('visibilitychange', layout);
+    layout();
+    return () => { resize.disconnect(); document.removeEventListener('visibilitychange', layout); };
+  }, [inline, surface, report]);
 
   useEffect(
     () => () => {
@@ -413,6 +456,14 @@ const ExtensionPage = observer(function ExtensionPage({
 
   if (!surface && !managed) return null;
   const manifest = installedExtensionsStore.manifestFor(extensionId);
+  const page = managed && manifest ? <AppSettingsPage key={`${manifest.version}:${JSON.stringify(manifest.settings)}`} manifest={manifest} active={claimOf() !== undefined} /> : surface ? <webview
+    key={`${extensionId}:${surface.partition}`}
+    ref={attachWebview}
+    src={surface.entryUrl}
+    partition={surface.partition}
+    className="h-full w-full bg-background"
+  /> : null;
+  if (inline) return <div ref={boxRef} className="h-full w-full overflow-hidden bg-background" data-extension-view={kind} data-widget-message={inline.widget?.messageId}>{page}</div>;
   return (
     <div
       ref={boxRef}
@@ -422,13 +473,7 @@ const ExtensionPage = observer(function ExtensionPage({
       data-extension-item={itemId}
     >
       <div ref={innerRef} className="absolute" style={{ left: 0, top: 0, width: 0, height: 0 }}>
-        {managed && manifest ? <AppSettingsPage key={`${manifest.version}:${JSON.stringify(manifest.settings)}`} manifest={manifest} active={claimOf() !== undefined} /> : surface ? <webview
-          key={`${extensionId}:${surface.partition}`}
-          ref={attachWebview}
-          src={surface.entryUrl}
-          partition={surface.partition}
-          className="h-full w-full bg-background"
-        /> : null}
+        {page}
       </div>
     </div>
   );

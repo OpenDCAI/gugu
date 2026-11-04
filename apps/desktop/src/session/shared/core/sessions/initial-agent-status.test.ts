@@ -17,7 +17,7 @@ describe('hasStatusSource / initialAgentStatus (#6206)', () => {
     expect(initialAgentStatus(create, { runtime: 'acp', hooksKind: 'none' })).toBe('working');
     expect(
       initialAgentStatus(
-        { origin: { kind: 'fork', forkedFrom: { sessionId: 'c', title: 't' } } } as never,
+        { origin: { kind: 'fork', forkedFrom: { sessionId: 'c' } } } as never,
         { runtime: 'pty', hooksKind: 'config' },
       ),
     ).toBe('idle');

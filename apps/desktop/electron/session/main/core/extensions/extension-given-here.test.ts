@@ -18,9 +18,9 @@ function installed(): ExtensionsService {
   writeFileSync(path.join(source, 'index.html'), '<p>search</p>');
   writeFileSync(path.join(source, 'tools.js'), 'export const search = { description: "Search", inputSchema: { type: "object" }, run: () => "" };');
   writeFileSync(path.join(source, 'manifest.json'), JSON.stringify({
-    id: 'searcher', name: 'Searcher', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+    id: 'searcher', name: 'Searcher', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
     permissions: { capabilities: ['agents:tools'] },
-    contributes: { tabs: [{ name: 'main', title: 'Searcher' }], mcpServers: [{ tools: 'tools.js' }] },
+    contributes: { tabs: [{ name: 'main', title: 'Searcher' }], mcpServers: [{ tools: 'tools.js' }], instructions: 'Test tools.' },
   }));
   const service = new ExtensionsService(path.join(work, `installed-${Math.random().toString(36).slice(2)}`));
   service.installFromDirectory(source, service.inspectDirectory(source).manifestDigest, 'folder', { id: 'owner-1' });

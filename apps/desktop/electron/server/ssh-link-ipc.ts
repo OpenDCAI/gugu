@@ -6,7 +6,7 @@
  * 这里用与直连终端同一套 askpass + 提问卡片问一次,登上后共享连接一直留着(ControlPersist),再开设备连接不再问。
  * 密码提问上照样给「以后连这台机器不用再输密码」(下次免密,见 ssh-key-install.ts)。
  */
-import { spawn } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import type { BrowserWindow } from 'electron'
 import {
   SSH_LINK_CHANNELS,
@@ -17,11 +17,11 @@ import {
 } from '../../src/lib/sshLink'
 import type { SshKeyInstallOutcome } from '../../src/session/shared/ssh-prompt'
 import type { DirectTerminalAskpass } from '../session/main/core/pty/direct-terminal/ssh-connect'
-import { desktopReportId, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
-import { reportedDesktopVersion } from '@gugu/core/cloud/serverDesktopVersions'
 import { createSshAutoUpgrader, sshServerUpgradeRunner, type SshAutoUpgrader } from './ssh-install/auto-upgrade'
 import { buildEnsureMasterArgs, classifySshFailure, type SshTarget } from './ssh-install/logic'
 import { systemSpawnSsh } from './ssh-install/system'
+import type { DeviceCapabilities } from '@gugu/core/shared/types/chat'
+import type { DeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { SharedSshLinks } from '../device-rpc-requester'
 import type { HeldFileSshLinks } from '../projectFileSsh'
 import { createSshLinkManager, type SshLinkManager } from './ssh-link'
@@ -67,13 +67,9 @@ export function registerSshLinkIpc(options: {
   upgradeChannel?: 'stable' | 'beta'
   /** 单测替身;默认按 upgradeChannel 真升。 */
   upgrader?: SshAutoUpgrader
-  /** 这台桌面是不是发布流水线出的包(GUGU_BUILD_DISTRIBUTION=published);不是就不报自己的版本(见 reportedDesktopVersion)。 */
-  published: boolean
-  /**
-   * #6264 这台桌面的设备 id(与开窗口时报给那台机器的同一个,见 src/lib/remoteSessionHost.ts):替它换成和这台桌面
-   * 匹配的那一版时报给它。拿不到就只能整台升级(老路)。
-   */
-  desktopId?: () => Promise<string | null>
+  /** Heartbeat facts and update requests use the same owner-bound device path as the device page. */
+  readCapabilities?: (deviceId: string) => Promise<DeviceCapabilities | null>
+  callUpdate?: DeviceRpcRequester['call']
   /**
    * 远程隧道:这台电脑没有它的 SSH 映射、但经中转连通了的机器(tunnel-machines.ts)。设备连接照样开在它上面;
    * 不替它升级(它自己经咕咕云升级)、不问登录(只用咕咕钥匙)。
@@ -127,11 +123,6 @@ export function registerSshLinkIpc(options: {
     }
   }
   const channel = options.upgradeChannel
-  // 报给那台机器的「这台桌面是哪一版」:正式版 = 自己的版本;开发 / 测试可用 GUGU_SERVER_MATCH_VERSION 覆盖(见 reportedDesktopVersion)。
-  // process.defaultApp:Electron 以「electron .」起的(没打包)时为 true。
-  const desktopVersion = reportedDesktopVersion(process.env, { packaged: process.defaultApp !== true, published: options.published })
-  // 渲染层开窗口时报的也是这一个(src/lib/remoteSessionHost.ts),两处 ❌ 各算各的。
-  options.ipcMain.handle(SSH_LINK_CHANNELS.desktopVersion, () => desktopVersion)
   const upgrader: SshAutoUpgrader | null =
     options.upgrader ??
     (channel
@@ -141,18 +132,20 @@ export function registerSshLinkIpc(options: {
               const machine = await machineFor(deviceId)
               return machine ? sshTargetOf(machine) : null
             },
-            matchFor: async (deviceId) => {
-              const machine = await machineFor(deviceId)
-              const id = (await options.desktopId?.().catch(() => null)) ?? null
-              if (!machine || !id || !desktopVersion) return null
-              return { accountUserId: machine.ownerUserId, desktop: { id: desktopReportId(id, desktopVersion), version: desktopVersion, protocol: REMOTE_PROTOCOL_VERSION } }
+            currentUserId: options.currentUserId,
+            readCapabilities: deviceId => {
+              if (!options.readCapabilities) throw new Error('Server update capabilities are unavailable')
+              return options.readCapabilities(deviceId)
+            },
+            call: (...args) => {
+              if (!options.callUpdate) throw new Error('The shared device requester is unavailable')
+              return options.callUpdate(...args)
             },
             controlPath: terminalControlPath,
             channel,
             spawnSsh: systemSpawnSsh(process.env),
           }),
           emit: (event: SshUpgradeEvent) => send(SSH_LINK_CHANNELS.upgradeState, event),
-          desktopVersion,
           log: options.log,
         })
       : null)
@@ -160,15 +153,17 @@ export function registerSshLinkIpc(options: {
   options.ipcMain.handle(SSH_LINK_CHANNELS.open, async (_event, deviceId: unknown): Promise<SshLinkOpenResult> => {
     if (typeof deviceId !== 'string' || !ID.test(deviceId)) return { ok: false, reason: 'unmapped' }
     // 正在替它升级:这时开出去只会撞上还没换下来的旧版本,❌ 再起一个 ssh。
-    if (upgrader?.upgrading(deviceId)) return { ok: false, reason: 'updating' }
+    const updating = upgrader?.upgrading(deviceId) === true
+    if (updating && !links.isOpen(deviceId)) return { ok: false, reason: 'updating' }
     // 原因的原文只进日志(ssh-link.ts 已记),渲染层只拿原因码。
     const result = await links.open(deviceId)
     // 经远程隧道的机器:不替它升级(它自己经咕咕云换版本);连不上 = 中转那条路坏了,让远程隧道重连。
     if (!(await machineFor(deviceId)) && options.tunnels?.linkMachine(deviceId)) {
       if (!result.ok && result.reason !== 'outdated') options.tunnels.reportBroken(deviceId)
-      return result.ok ? result : { ok: false, reason: result.reason, via: 'tunnel' }
+      return result.ok ? result : { ...result, via: 'tunnel' }
     }
-    return openOutcome(deviceId, result, upgrader)
+    const outcome: SshLinkOpenResult = updating ? { ok: false, reason: 'updating' } : openOutcome(deviceId, result, upgrader)
+    return !result.ok && result.controlOnly && !outcome.ok ? { ...outcome, controlOnly: true } : outcome
   })
   options.ipcMain.handle(SSH_LINK_CHANNELS.upgrade, async (_event, request: { deviceId?: unknown; force?: unknown; desktopTooOld?: unknown; now?: unknown }) => {
     if (!request || typeof request.deviceId !== 'string' || !ID.test(request.deviceId) || !upgrader) return false
@@ -212,7 +207,6 @@ export function registerSshLinkIpc(options: {
           const child = spawn('ssh', buildEnsureMasterArgs(sshTargetOf(machine), controlPath), {
             stdio: ['ignore', 'ignore', 'pipe'],
             env: { ...process.env, ...askpass.env },
-            windowsHide: true,
           })
           let stderr = ''
           child.stderr.setEncoding('utf8').on('data', (chunk: string) => {

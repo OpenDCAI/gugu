@@ -96,7 +96,6 @@ export function useInstallingAgents(): ReadonlySet<string> {
     .filter((id): id is AgentProviderId => !!id)
     .sort();
   const key = ids.join(',');
-  // oxlint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => new Set<string>(key ? key.split(',') : []), [key]);
 }
 const selectOpVars = (m: { state: { variables?: unknown } }) =>
@@ -121,7 +120,6 @@ export function useBusyInstallAgents(): ReadonlySet<string> {
     .filter((id): id is AgentProviderId => !!id)
     .sort();
   const key = [...installing].sort().concat(updatingIds).join(',');
-  // oxlint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => new Set<string>(key ? key.split(',') : []), [key]);
 }
 
@@ -248,7 +246,6 @@ export function useAgentInstallationStatuses() {
       },
     );
     return stop;
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [host.key]);
 
   /**

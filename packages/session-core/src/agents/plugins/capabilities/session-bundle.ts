@@ -138,8 +138,8 @@ export interface SessionpageSessionIntegration {
    */
   injection?: SessionpageInjectionDeclaration;
   /**
-   * 这一格为什么关着 —— 一句给用户看的、provider 自述的原因,在 fail-loud 口(创建会话页的
-   * `messageTransportError`)原样接在通用错误后面。缺席 = 沿用通用错误、不加原因(现存所有格皆如此)。
+   * 这一格为什么关着 —— provider 自述的一句原因。它从前接在对话页创建的 fail-loud 口(`messageTransportError`)
+   * 后面;那条入口随 gugu-dev#181 收成会话页后已删,此刻没有界面读它。
    *
    * 为什么是**自由字符串**而不是复用 units 的结构化 {@link Degradation}:格的关闭跨了 code 枚举
    * 说不出的类别。grok 就是活证——tui 那格是「未从发布源实测过」(≈unverified),而 acp

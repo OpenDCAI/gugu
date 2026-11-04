@@ -33,7 +33,8 @@ function StickyGroupAvatar({ width, continuesGroup, children }: { width: string;
       layer.style.bottom = `${box.bottom - own.bottom}px`
       layer.style.height = `${own.bottom - first.top}px`
     }
-    measure()
+    // No synchronous first measure (it forced a layout mid-commit): the observer's first delivery runs after layout,
+    // before paint, and only writes styles.
     const observer = new ResizeObserver(measure)
     observer.observe(row.parentElement)
     return () => observer.disconnect()

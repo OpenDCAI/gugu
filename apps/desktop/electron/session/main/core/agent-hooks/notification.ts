@@ -9,6 +9,8 @@ import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { sessionAgentNotificationCopy } from './notification-copy';
+import { systemNotificationsUsable } from './system-notifications';
+import { taskName } from '@main/core/sessions/task-name';
 
 const activeNotifications = new Set<Notification>();
 
@@ -41,11 +43,11 @@ function getNotificationBody(reading: AgentStatusView): string {
 
 async function getSessionLabel(sessionId: string): Promise<{ title: string | null; provider: string | null }> {
   const [row] = await db
-    .select({ title: sessions.title, provider: sessions.provider })
+    .select({ id: sessions.id, config: sessions.config, provider: sessions.provider })
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .limit(1);
-  return { title: row?.title || null, provider: row?.provider ?? null };
+  return { title: row ? taskName(row) : null, provider: row?.provider ?? null };
 }
 
 function getProviderName(providerId: string): string {
@@ -63,12 +65,12 @@ export async function maybeShowNotification(
   next: AgentStatusView,
 ): Promise<void> {
   try {
-    const { enabled, osNotifications } = await appSettingsService.get('notifications');
+    const { enabled, sound } = await appSettingsService.get('notifications');
     // @@@5301 ❌ 这里**不看窗口聚焦**(onScreen 恒为 false)。焦点只说明这个窗口在最前面,不说明人在电脑前 ——
     // 拿它当「用户已经看见了」的证据,结果就是人离开时该响的不响(owner 2026-09-09 定)。
-    // 要不要打扰由用户自己的显式选择决定:上面这两个开关,以及会话级静音。
-    if (!Notification.isSupported()) return;
-    if (!shouldNotify({ kind: 'agent', previous, next }, { enabled: enabled && osNotifications, onScreen: false })) return;
+    // 要不要打扰由用户自己的显式选择决定:通知总开关；声音只跟横幅。
+    if (!shouldNotify({ kind: 'agent', previous, next }, { enabled, onScreen: false })) return;
+    if (!(await systemNotificationsUsable())) return;
 
     const body = getNotificationBody(next);
 
@@ -76,7 +78,7 @@ export async function maybeShowNotification(
     const providerName = label.provider ? getProviderName(label.provider) : 'Agent';
     const title = label.title ? `${providerName} — ${label.title}` : providerName;
 
-    const notification = new Notification({ title, body, silent: true });
+    const notification = new Notification({ title, body, silent: !sound });
     activeNotifications.add(notification);
 
     const releaseNotification = () => activeNotifications.delete(notification);

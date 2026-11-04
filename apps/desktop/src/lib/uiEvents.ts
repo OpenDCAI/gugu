@@ -1,5 +1,6 @@
 
 export const UI_EVENTS = {
+  identityInvalidated: '__identity_invalidated',
   closeContextMenus: '__close_context_menus',
   updateReady: '__update_ready',
   updateStatus: '__update_status',
@@ -30,10 +31,6 @@ export const UI_EVENTS = {
   // 只有这一个方向(聊天区 → 列表):「打开一条话题」不走事件,它就是普通的选中会话,
   // 由聊天区那个收口当场换成「来源线 + 分栏」(见 ChatAreaPanel 的话题收口)。
   topicSplitChanged: '__chat_topic_split_changed',
-  agentStream: '__agent_stream',
-  // @@@sessionpage fail-loud VISIBLE (#6) — 会话页 agent 投递终态失败:聊天流失败条在「任务」
-  // tab 不可见,故 main 额外广播此事件 → renderer 弹可见 toast(fail-loud 让用户看见,不静默、不回退)。
-  sessionpageDeliverFailed: '__sessionpage_deliver_failed',
   // @@@sessionpage 分享 — 会话页头部点了分享:main 转达「分享这个 agent」,由 gugu 渲染层用自己的
   // 通讯录数据打开既有的 SharePosterDialog(contact QR 名片)。
   sessionpageShareAgent: '__sessionpage_share_agent',

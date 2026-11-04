@@ -125,7 +125,7 @@ describe('readable process rows at real split-column widths (#1036)', () => {
 
 
 it('unpins a tall question when the column narrows, restores short pins, and rechecks viewport height', async () => {
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 32, agentConversation: true });
   const state = createChatState(context);
   const host = document.createElement('div');

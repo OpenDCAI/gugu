@@ -1,6 +1,21 @@
 import type * as monaco from 'monaco-editor';
 
-let activeEditor: monaco.editor.ICodeEditor | null = null;
+interface CodeEditorHistory {
+  hasFocus(): boolean;
+  undo(): void;
+  redo(): void;
+}
+
+let activeEditor: CodeEditorHistory | null = null;
+
+export function registerCodeEditorHistory(editor: CodeEditorHistory, subscribe: (listener: () => void) => () => void): () => void {
+  const dispose = subscribe(() => { activeEditor = editor; });
+  if (editor.hasFocus()) activeEditor = editor;
+  return () => {
+    dispose();
+    if (activeEditor === editor) activeEditor = null;
+  };
+}
 
 function isEditorFocused(editor: monaco.editor.ICodeEditor | null): boolean {
   if (!editor) return false;
@@ -18,31 +33,21 @@ function isEditorFocused(editor: monaco.editor.ICodeEditor | null): boolean {
 
 export function registerActiveCodeEditor(editor: monaco.editor.ICodeEditor | null): () => void {
   if (!editor) return () => {};
-
-  const focusDisposable = editor.onDidFocusEditorText?.(() => {
-    activeEditor = editor;
+  return registerCodeEditorHistory({
+    hasFocus: () => isEditorFocused(editor),
+    undo: () => editor.trigger('menu', 'undo', null),
+    redo: () => editor.trigger('menu', 'redo', null),
+  }, listener => {
+    const subscription = editor.onDidFocusEditorText(listener);
+    return () => subscription.dispose();
   });
-
-  // If the editor starts focused, capture immediately.
-  if (isEditorFocused(editor)) {
-    activeEditor = editor;
-  }
-
-  return () => {
-    try {
-      focusDisposable?.dispose?.();
-    } catch {}
-    if (activeEditor === editor) {
-      activeEditor = null;
-    }
-  };
 }
 
 export function performActiveEditorUndo(): boolean {
   const editor = activeEditor;
-  if (!editor || !isEditorFocused(editor)) return false;
+  if (!editor?.hasFocus()) return false;
   try {
-    editor.trigger('menu', 'undo', null);
+    editor.undo();
     return true;
   } catch {
     return false;
@@ -51,9 +56,9 @@ export function performActiveEditorUndo(): boolean {
 
 export function performActiveEditorRedo(): boolean {
   const editor = activeEditor;
-  if (!editor || !isEditorFocused(editor)) return false;
+  if (!editor?.hasFocus()) return false;
   try {
-    editor.trigger('menu', 'redo', null);
+    editor.redo();
     return true;
   } catch {
     return false;

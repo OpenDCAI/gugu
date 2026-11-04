@@ -1,3 +1,4 @@
+import { locateFindRange, paintFindHighlight } from './find-highlight';
 import { batch } from 'solid-js';
 import { SEGMENTERS, UNIT_REGISTRY } from '@session-chat/components/engine/unit-registry';
 import { srOnly } from '@session-chat/components/rows/message/message.css';
@@ -23,7 +24,6 @@ type Entry = { unit: RenderUnit; order: number; parts: Part[]; userCard: boolean
 type Match = { entry: Entry; part: number; start: number };
 type Caches = Pick<ChatCaches, 'parseBlocks' | 'parseBlocksStreaming' | 'computeDiff'>;
 type Payload = Pick<ChatToolCall, 'id' | 'status' | 'request' | 'result' | 'error'>;
-const HIGHLIGHT = 'gugu-chat-find';
 const EMPTY: ChatFindStatus = { currentIndex: 0, total: 0 };
 const NONE: readonly FoldGate[] = [];
 /** A jump waits at most this many frames for its row to mount and settle. */
@@ -102,44 +102,6 @@ function unitParts(unit: RenderUnit, caches: Caches): Part[] {
   }
 }
 
-/** The mounted row's range for the match: the occurrence nearest `expected` non-whitespace characters in. */
-function locate(row: HTMLElement, query: string, expected: number): Range | null {
-  const needle = query.replace(/\s+/gu, '').toLowerCase();
-  const walker = row.ownerDocument.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      for (let el = node.parentElement; el && el !== row; el = el.parentElement) {
-        if (el.getAttribute('aria-hidden') === 'true' || el.classList.contains(srOnly)) return NodeFilter.FILTER_REJECT;
-      }
-      return NodeFilter.FILTER_ACCEPT;
-    },
-  });
-  let text = '';
-  const at: { node: Text; offset: number }[] = [];
-  for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
-    let offset = 0;
-    for (const ch of node.data) {
-      if (/\S/u.test(ch)) {
-        const lower = ch.toLowerCase();
-        text += lower;
-        for (let k = 0; k < lower.length; k++) at.push({ node, offset });
-      }
-      offset += ch.length;
-    }
-  }
-  let best = -1;
-  for (let i = needle ? text.indexOf(needle) : -1; i !== -1; i = text.indexOf(needle, i + 1)) {
-    if (best === -1 || Math.abs(i - expected) < Math.abs(best - expected)) best = i;
-    if (i > expected) break;
-  }
-  const first = at[best];
-  const last = at[best + needle.length - 1];
-  if (best === -1 || !first || !last) return null;
-  const range = row.ownerDocument.createRange();
-  range.setStart(first.node, first.offset);
-  range.setEnd(last.node, last.offset + String.fromCodePoint(last.node.data.codePointAt(last.offset) ?? 0).length);
-  return range;
-}
-
 /** Scroll every inner scroller between the row and the range (tool panes, output windows) onto the range. */
 function revealInner(range: Range, row: HTMLElement): void {
   const start = range.startContainer;
@@ -151,21 +113,6 @@ function revealInner(range: Range, row: HTMLElement): void {
     const box = el.getBoundingClientRect();
     const hit = range.getBoundingClientRect();
     el.scrollTop += hit.top + hit.height / 2 - (box.top + box.height / 2);
-  }
-}
-
-type Highlights = { set(name: string, value: unknown): void; delete(name: string): void };
-let painter: object | null = null;
-/** One highlight registry per document: only the find that painted the current highlight may erase it. */
-function paint(owner: object, range: Range | null): void {
-  const g = globalThis as unknown as { CSS?: { highlights?: Highlights }; Highlight?: new (r: Range) => unknown };
-  if (!g.CSS?.highlights || !g.Highlight) return;
-  if (range) {
-    painter = owner;
-    g.CSS.highlights.set(HIGHLIGHT, new g.Highlight(range));
-  } else if (painter === owner) {
-    painter = null;
-    g.CSS.highlights.delete(HIGHLIGHT);
   }
 }
 
@@ -182,6 +129,7 @@ export function createChatFind(deps: {
   let current = -1;
   let range: Range | null = null;
   let frame = 0;
+  let identityFrame = 0;
   let observer: MutationObserver | null = null;
 
   const rowOf = (itemId: string) =>
@@ -202,7 +150,7 @@ export function createChatFind(deps: {
       .filter((p) => p.gates.every(isOpen))
       .reduce((n, p) => n + nonWs(p.text), nonWs((m.entry.parts[m.part] as Part).text.slice(0, m.start)));
 
-  const search = () => {
+  const allUnits = () => {
     const state = deps.state();
     const caches: ChatCaches = { ...deps.context.sharedCaches, ...state.parseCaches };
     // Every row the transcript can show: flattened like the engine does, with all folds open.
@@ -211,7 +159,11 @@ export function createChatFind(deps: {
     const head = flattenTier(committedTurns, ctx(false), SEGMENTERS, UNIT_REGISTRY);
     const dayKey = trailingDayKey(committedTurns, undefined, ctx(false).latestTurnId);
     const tail = live ? flattenTier([live], ctx(true), SEGMENTERS, UNIT_REGISTRY, head.at(-1)?.kind, dayKey) : [];
-    const units = [...head, ...tail];
+    return { units: [...head, ...tail], caches };
+  };
+
+  const search = () => {
+    const { units, caches } = allUnits();
     const needle = query.toLowerCase();
     const found: Match[] = [];
     units.forEach((unit, order) => {
@@ -230,7 +182,7 @@ export function createChatFind(deps: {
 
   const show = (next: Range | null) => {
     range = next;
-    paint(token, next);
+    paintFindHighlight(deps.parent.ownerDocument, token, next);
     observer?.disconnect();
     observer = null;
     const canvas = deps.parent.querySelector('[data-chat-canvas]');
@@ -240,8 +192,8 @@ export function createChatFind(deps: {
       const m = matches[current];
       const row = m && !frame && !range?.startContainer.isConnected ? rowOf(m.entry.unit.itemId) : null;
       if (!m || !row) return;
-      range = locate(row, query, expected(m));
-      paint(token, range);
+      range = locateFindRange(row, query, expected(m), srOnly);
+      paintFindHighlight(deps.parent.ownerDocument, token, range);
     });
     observer.observe(canvas, { childList: true, subtree: true, characterData: true });
   };
@@ -261,7 +213,7 @@ export function createChatFind(deps: {
       frame = 0;
       const row = rowOf(itemId);
       if (!row && ++frames === 2) scrollTo(itemId, -(band().bottom - band().top) / 3);
-      const found = row ? locate(row, query, expected(m)) : null;
+      const found = row ? locateFindRange(row, query, expected(m), srOnly) : null;
       // Settled = the match sits at the same place in an unchanged row for two frames running.
       const rowBox = row?.getBoundingClientRect();
       const sig = found && rowBox
@@ -309,8 +261,35 @@ export function createChatFind(deps: {
     return go(matches.length === 0 ? -1 : Math.max(0, matches.findIndex((m) => m.entry.order >= topOrder)));
   };
 
+  const openItem = (itemId: string): boolean => {
+    const unit = allUnits().units.find(unit => unit.itemId === itemId);
+    if (!unit) return false;
+    const state = deps.state();
+    batch(() => {
+      for (const gate of unit.folds ?? []) state.viewState.setCollapsed(gate.id, gate.stored);
+      if (unit.kind === 'message' && (unit.data as ChatMessage).conversationNarration) {
+        state.viewState.setCollapsed(`${itemId}:conversation-text`, true);
+      }
+    });
+    return true;
+  };
+
   return {
     find,
+    /** Open the folds an item sits in (the same fold map as find, without matching private text); nothing moves. */
+    openItem,
+    /** Identity navigation: open the item's folds, then position its row. */
+    revealItem(itemId: string): boolean {
+      if (!openItem(itemId)) return false;
+      const state = deps.state();
+      scrollTo(itemId, -8);
+      // The process has its own bounded scroll viewport; position its actual row too.
+      cancelAnimationFrame(identityFrame);
+      identityFrame = requestAnimationFrame(() => {
+        if (deps.state() === state) deps.controls.scrollToItem(itemId, { align: 'start', offset: -8 });
+      });
+      return true;
+    },
     step(direction: 'next' | 'prev'): ChatFindStatus {
       const was = matches[current];
       matches = query ? search().found : [];
@@ -322,6 +301,6 @@ export function createChatFind(deps: {
       if (at === -1) return go(n === 0 ? -1 : direction === 'next' ? 0 : n - 1);
       return go((at + (direction === 'next' ? 1 : n - 1)) % n);
     },
-    clear: () => void find(''),
+    clear: () => { cancelAnimationFrame(identityFrame); void find(''); },
   };
 }

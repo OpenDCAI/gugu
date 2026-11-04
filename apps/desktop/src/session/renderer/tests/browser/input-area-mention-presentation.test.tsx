@@ -17,7 +17,7 @@ import '@/styles/tokens.css'
 
 vi.mock('@renderer/lib/shell-port', async (importOriginal) => ({
   ...await importOriginal<typeof import('@renderer/lib/shell-port')>(),
-  shellPort: () => ({ sessionPeers: async () => [{ sessionId: 'task-claude', engine: 'codex',
+  shellPort: () => ({ sessionPeers: async () => [{ sessionId: 'task-claude', title: 'Claude', engine: 'codex',
     identity: { users: { id: 'agent-claude', display_name: 'Claude', gugu_number: 123 } },
   }] }),
 }))
@@ -117,5 +117,24 @@ describe('participant mention presentation', () => {
     const pill = input.element().querySelector('[data-mention-id="agent-claude"]')!
     expect(pill.textContent).toBe('@Claude')
     expect(pill.querySelector('img, svg[role="img"]')).toBeNull()
+  })
+
+  it('keeps a participant label visible when a stale result carries file kind', async () => {
+    const provider = {
+      isQueryActive: () => true,
+      search: async () => [{ id: 'agent-code-x1', label: 'codeX1', name: 'codeX1', kind: 'file' as const, role: 'agent' as const }],
+    }
+    root!.render(<MessageProvider locale="en-US" translate={translateSessionMessage}>
+      <ChatComposer editorOptions={{ inputTestId: 'stale-mention-editor' }} mentionProvider={provider} onSubmit={() => {}} />
+    </MessageProvider>)
+    const input = page.getByTestId('stale-mention-editor')
+    await input.click()
+    await userEvent.keyboard('@')
+    const option = page.getByRole('option', { name: /codeX1/ })
+    await until('stale participant option is available', () => option.elements().length === 1)
+    await option.click()
+    const pill = input.element().querySelector('[data-mention-id="agent-code-x1"]')!
+    expect(pill.textContent).toBe('@codeX1')
+    expect(pill.querySelector('button'), 'participant mentions must not expose a file remove button').toBeNull()
   })
 })

@@ -17,15 +17,19 @@ import {
 import {
   acquireProjectWorkspace,
   releaseProjectWorkspace,
+  acquireTaskDirectory,
 } from './operations/project-workspace-lease';
 import { countProjectsUsingGithubAccount } from './settings/count-projects-using-github-account';
 import { projectSettingsService } from './settings/project-settings-service';
+import { getAssistantProjectCleanupReport, migrateAssistantProject } from './operations/assistant-project-cleanup';
 
 export const projectController = createRPCController({
   createProject,
   inspectProjectPath,
   getProjects,
   deleteProject,
+  getAssistantProjectCleanupReport,
+  migrateAssistantProject,
   getProjectSettingsPage: (projectId: string) =>
     projectSettingsService.getProjectSettingsPage(projectId),
   updateProjectSettings: (projectId, settings) =>
@@ -39,6 +43,7 @@ export const projectController = createRPCController({
   countProjectsUsingGithubAccount,
   openProject,
   acquireProjectWorkspace,
+  acquireTaskDirectory,
   releaseProjectWorkspace,
   // #7341 项目挂的文件夹(product spec「挂文件夹」)
   listProjectFolders,

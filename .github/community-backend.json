@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "e968187519872e5f5df34be69c4a8799f2e936af",
-  "status": "merged in OpenDCAI/gugu-supabase#80; includes project-file version handoffs and settled upload reservations"
+  "ref": "2f1215c704b1ff273288cc1e045f7bc7b073016d",
+  "status": "merged in OpenDCAI/gugu-supabase#161; personal archived-agent DM deletion preserves historical authorization and stays excluded from account snapshots and list projections"
 }

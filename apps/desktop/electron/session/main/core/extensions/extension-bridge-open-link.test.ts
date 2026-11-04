@@ -53,21 +53,21 @@ const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-pro
 
 registerExtensionBridge();
 const handle = handlers.get(EXTENSION_BRIDGE_CHANNEL)!;
-const open = (sender: number, url: unknown) => handle({ sender: { id: sender, session: {} } }, { method: 'openLink', args: { url } });
+const open = (sender: number, url: unknown) => handle({ sender: { id: sender, session: {} } }, { method: 'openLink', args: { url }, gesture: true });
 
 const LINK = 'gugu-dev://ext/radar/radar?gugu.session=0d000000-0000-4000-8000-000000000001';
 
 beforeEach(async () => {
   opened.length = 0;
   outcome = { kind: 'opened', extensionId: 'chess', tab: 'main' };
-  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'chess', tabId: 'tab-1', tabKind: 'chess.main', chatId: CHAT });
+  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'chess', tabId: 'tab-1', tabKind: 'chess.main', conversation: CHAT });
   received.length = 0;
 });
 
 describe('a link of gugu\'s own, clicked in an App page (openLink)', () => {
   it('delivers a topic link to the App already bound in its source chat', async () => {
     const manifest = parseExtensionManifest({
-      id: 'chess', name: 'Chess', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+      id: 'chess', name: 'Chess', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       entry: 'main.html', contributes: { tabs: [{ name: 'main', title: 'Main' }] },
     });
     const openApp = vi.fn(async () => ({ chat: CHAT }));

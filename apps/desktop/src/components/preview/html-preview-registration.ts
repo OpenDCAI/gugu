@@ -6,7 +6,7 @@ import { platform } from '@/platform';
 /** 平台只决定如何供给正文。调用方可提供文件登记,默认是没有目录权限的群正文。 */
 export async function registerHtmlPreview(
   html: string,
-  register: (html: string) => ReturnType<typeof rpc.workspace.files.createPreview> = (content) => rpc.workspace.files.createDocumentPreview(content),
+  register: (html: string) => Promise<{ success: true; data: { url: string; previewId: string } } | { success: false; error: { message?: string } | object }> = (content) => rpc.workspace.files.createDocumentPreview(content),
 ): Promise<HtmlPreviewRegistration> {
   if (platform.kind !== 'electron') {
     // 网页/手机只供正文;Blob URL 不提供目录资源,与原群预览的能力范围一致。
@@ -23,12 +23,20 @@ export async function registerHtmlPreview(
     };
   }
   const result = await register(html);
-  if (!result.success) return { ok: false, message: 'message' in result.error ? result.error.message : 'Preview unavailable' };
+  if (!result.success) {
+    const message = 'message' in result.error && typeof result.error.message === 'string' ? result.error.message : 'Preview unavailable';
+    return { ok: false, message };
+  }
   const { url, previewId } = result.data;
   let revision = 0;
   return {
     ok: true,
     url: `${url}?r=0`,
+    assetsChanged: async (paths) => {
+      const result = await rpc.workspace.files.previewAssetsChanged(previewId, paths);
+      if (!result.success) throw new Error('Could not check preview dependencies');
+      return result.data;
+    },
     update: async (html) => {
       await rpc.workspace.files.setPreviewDocument(previewId, html);
       return `${url}?r=${++revision}`;

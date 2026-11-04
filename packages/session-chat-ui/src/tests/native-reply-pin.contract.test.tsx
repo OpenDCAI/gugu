@@ -8,7 +8,7 @@ import { until, untilStable } from '../../../../tests/support/awaitCondition';
 
 describe('native reply after a file input', () => {
   it.each([390, 1280])('scrolls the input clear of its reply header at width %i, including remount', async width => {
-    const context = createChatContext({ layout: { agentConversation: true, preset: 'double', userGutter: 0 } });
+    const context = createChatContext({ locale: () => 'en-US', layout: { agentConversation: true, preset: 'double', userGutter: 0 } });
     const state = createChatState(context);
     const turn: TranscriptTurn = {
       id: 'native-file-turn', seq: 0, initiator: 'user', outcome: { kind: 'done' },

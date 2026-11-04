@@ -1,18 +1,19 @@
 import type { RpcRouter } from '@main/rpc'
 import { invokePhoneHost } from '../local-agent/phoneHostRpc'
-import type { AttachmentUploadRpc } from '@renderer/features/sessions/acp/composer-file-upload'
 import type { ToolImage } from '@gugu/session-core/acp/client'
 import { rendererLogger } from '@/lib/log'
 import { readCachedDevices, subscribeCachedDevices } from '@/store/devicesCache'
 import { getCloudComputerState, subscribeCloudComputerState } from '@/lib/cloudComputerStore'
 import { remoteHostReachable } from '@/session/shared/remote-hosts'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
-import { appCallWaitMs, FILE_PATCH_PROTOCOL, protocol14FileChanges, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction } from '@gugu/session-core/session-record/contract'
+import { appCallWaitMs, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction } from '@gugu/session-core/session-record/contract'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { callDeviceRpc } from '@/lib/deviceRpc'
-import { openPhoneSessionHostPipe } from '@/lib/remoteSessionHost'
+import { openMachineSessionHostPipe, openPhoneSessionHostPipe } from '@/lib/remoteSessionHost'
+import { desktopIpc } from '@/platform/desktopIpc'
 import { SESSION_HOST_RPC } from '@/session/shared/lib/ipc/session-host-device-frames'
 import { createRPCClient } from '@/session/shared/lib/ipc/rpc'
+import { rpcOn } from '@/session/renderer/lib/ipc'
 import { linkChangesOf } from '@/session/shared/remote-sessions/session-list-sync'
 import {
   createSessionHostClient,
@@ -73,7 +74,7 @@ function reachable(deviceId: string): boolean {
 function host(deviceId: string): SessionHostClient {
   let client = hosts.get(deviceId)
   if (!client) {
-    client = createSessionHostClient(openPhoneSessionHostPipe(deviceId), {
+    client = createSessionHostClient(desktopIpc() ? openMachineSessionHostPipe(deviceId) : openPhoneSessionHostPipe(deviceId), {
       isReachable: () => reachable(deviceId),
       peerVersion: () => readCachedDevices().find(device => device.device_id === deviceId)?.capabilities?.app_version ?? null,
       subscribeReachability: (listener) => {
@@ -126,8 +127,9 @@ function rpc(deviceId: string) {
  * #7199 手机助理 App 问云电脑(读记忆、列已安排):同一条线、同一张路由表上的别的动词 —— 与桌面 `rpcOn` 一样的那组,
  * ❌ 为它另开协议。
  */
-export function machineRpc(deviceId: string) {
-  return rpc(deviceId)
+/** `local`: the session lives on this computer, so its own host answers over IPC (assistant task pane on the desktop). */
+export function machineRpc(deviceId: string, local = false) {
+  return local ? rpcOn(null) : rpc(deviceId)
 }
 
 /**
@@ -140,8 +142,7 @@ function once(deviceId: string) {
     const reply = await callDeviceRpc<{ value: unknown; protocol?: number }>(deviceId, SESSION_HOST_RPC.call,
       { channel, args, protocol: REMOTE_PROTOCOL_VERSION }, { timeoutMs: 12_000 })
     if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
-    // A host before protocol 15 does not say its protocol here (protocol14FileChanges, delete on next bump).
-    return protocol14FileChanges(reply.result?.value, reply.result?.protocol ?? FILE_PATCH_PROTOCOL - 1, 'from-peer')
+    return reply.result?.value
   })
 }
 
@@ -215,20 +216,10 @@ export function unsubscribeSession(deviceId: string, subscriptionId: string): Pr
   return rpc(deviceId).sessionTimeline.sessionUnsubscribe({ subscriptionId })
 }
 
-export async function sendSessionText(deviceId: string, sessionId: string, text: string, clientMessageId?: string, attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']): Promise<unknown> {
-  const receipt = await value(rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text, ...(clientMessageId ? { clientMessageId } : {}), ...(attachments?.length ? { attachments } : {}) }))
+export async function sendSessionText(deviceId: string, sessionId: string, text: string, clientMessageId?: string, files?: import('@gugu/session-core/session-record/contract').TurnFileRef[], attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]) {
+  const receipt = await value(rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text, ...(clientMessageId ? { clientMessageId } : {}), ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) }))
   if (clientMessageId && receipt.clientMessageId !== clientMessageId) throw new Error('会话尚未确认接收这条消息，稍后自动重试')
   return receipt
-}
-
-/** 输入框附件:桌面输入框同三条(`sessionCreate.*`),问的是会话所在的那台机器。 */
-export function sessionAttachmentRpc(deviceId: string, phoneHost = false): AttachmentUploadRpc {
-  if (phoneHost) return {
-    writeAttachmentChunk: (chunk) => invokePhoneHost(deviceId, 'sessionCreate.writeAttachmentChunk', [{ ...chunk, data: Array.from(chunk.data) }]),
-    commitAttachmentUpload: (commit) => invokePhoneHost(deviceId, 'sessionCreate.commitAttachmentUpload', [commit]),
-    discardAttachmentUpload: (input) => invokePhoneHost(deviceId, 'sessionCreate.discardAttachmentUpload', [input]),
-  }
-  return rpc(deviceId).sessionCreate
 }
 
 /** 附件卡(#7193):这条会话打开给人看的那份文件,读一段(那台机器核对它真的打开过)。 */

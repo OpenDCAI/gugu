@@ -3,7 +3,7 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import { retainDeviceSessions, updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { showPhoneAppView } from '../../../../apps/desktop/src/components/appSlot/phoneAppState'
 // @vitest-environment jsdom
-import { rpcQuery } from '../../../helpers/rpcQuery'
+import { rpcQuery } from '../../../support/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame, type PhoneAppBinding } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
 import { platform } from '../../../../apps/desktop/src/platform'
@@ -45,26 +45,32 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
         ? { data: [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }], error: null }
         : name === 'workspace_deletable_as'
         ? { data: args.p_item_ids, error: null }
-        // Not a project chat: no machine keeps its files.
-        : name === 'file_project_policy_for'
-        ? { data: null, error: null }
+        // Not kept on a machine: a cloud file.
+        : name === 'file_resolve_as'
+        ? { data: { status: 'ready', source: 'managed-object' }, error: null }
         : { data: [{ id: DECK, chat_id: CHAT, kind: 'file', filename: 'deck.pptx', version: 3, parent_id: null, system_role: null, path: 'deck.pptx' }], error: null })
     return { from: () => query, rpc }
   },
 }))
+/**
+ * What the App's gate read as the call left the App (gate.ts): whether the person's input landed in this App. The
+ * frame here stands in for the gate, which is what the host hears the App through.
+ */
 const activation = { isActive: false }
+/** This page's own activation: any tap anywhere on the phone's screen — the host's sign before the gate (11-02). */
+const pageActivation = { isActive: false }
 /** The task tab's list, as the slot reads it for `showSession`: what it answers, and which sessions were asked for. */
 const taskList = { answer: { shown: true } as { shown: true } | { unread: string[] }, asked: [] as string[] }
-Object.defineProperty(navigator, 'userActivation', { value: activation, configurable: true })
+Object.defineProperty(navigator, 'userActivation', { value: pageActivation, configurable: true })
 
 let frame: HTMLIFrameElement
 let posted: ReturnType<typeof vi.fn>
 let host: ReturnType<typeof hostAppFrame> | undefined
-function start(capabilities: PhoneAppBinding['capabilities']) {
+function start(capabilities: PhoneAppBinding['capabilities'], widget?: PhoneAppBinding['widget']) {
   host?.dispose()
   host = hostAppFrame(
     frame,
-    { extensionId: 'board', tabId: 'tab-1', tabName: 'main', chatId: 'chat-1', capabilities, locale: 'en-US', themeMode: 'light' },
+    { extensionId: 'board', tabId: 'tab-1', tabName: 'main', chatId: 'chat-1', capabilities, locale: 'en-US', themeMode: 'light', ...(widget ? { widget } : {}) },
     {
       showMessage: vi.fn(),
       showSession: (sessionId: string) => {
@@ -94,10 +100,10 @@ afterEach(() => {
 })
 
 let nextId = 1
-/** A call as the App's runtime posts it from its own document; its answer as the host posts it back. */
+/** A call as the App's runtime posts it, stamped by its gate on the way; its answer as the host posts it back. */
 async function call(method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const id = nextId++
-  window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method, args }, source: frame.contentWindow, origin: ORIGIN }))
+  window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method, args, gesture: activation.isActive }, source: frame.contentWindow, origin: ORIGIN }))
   await vi.waitFor(() => expect(posted.mock.calls.some(([message]) => (message as { id?: number }).id === id)).toBe(true))
   return posted.mock.calls.map(([message]) => message as Record<string, unknown>).find((message) => message.id === id)!
 }
@@ -107,6 +113,7 @@ const gestureCalls: Record<string, Record<string, unknown>> = {
   filesOpenWith: { ref: { name: 'a.md' } },
   filesUpload: { pick: true },
   filesDownload: { ref: { name: 'a.md' } },
+  filesForward: { refs: [{ name: 'a.md' }] },
   showMessage: { id: 'msg-1' },
   showSession: { id: 's-1' },
   dispatch: { text: 'picked' },
@@ -122,6 +129,43 @@ const gestureCalls: Record<string, Record<string, unknown>> = {
 }
 
 describe('the phone refuses a verb outside the gesture it needs, in the same sentence as the desktop (L11 B4)', () => {
+  it.each([false, true])('a widget refuses dispatch without its gate gesture, regardless of outer activation %s', async (active) => {
+    start(['chat:relay'], { messageId: 'message-1', data: {}, senderId: 'sender-1' })
+    pageActivation.isActive = active
+    activation.isActive = false
+    const composed = vi.fn()
+    window.addEventListener(APP_COMPOSE_EVENT, composed)
+    try {
+      for (const args of [
+        { text: 'picked' },
+        { text: 'draft', draft: true, to: { chat: CHAT } },
+        { text: 'named', to: { chat: CHAT, member: 'user:00000000-0000-4000-8000-000000000001' }, gesture: true },
+      ]) {
+        expect(await call('dispatch', args)).toMatchObject({ ok: false, ...gestureRefusal('dispatch') })
+      }
+      expect(composed).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener(APP_COMPOSE_EVENT, composed)
+      pageActivation.isActive = false
+    }
+  })
+
+  it.each([false, true])('a widget drafts through the ordinary composer with its gate gesture and outer activation %s', async active => {
+    start([], { messageId: 'message-1', data: {}, senderId: 'sender-1' })
+    activation.isActive = true
+    pageActivation.isActive = active
+    const composed = vi.fn()
+    window.addEventListener(APP_COMPOSE_EVENT, composed)
+    try {
+      expect(await call('dispatch', { text: 'Widget draft', draft: true, to: { chat: CHAT } })).toMatchObject({ ok: true, value: { to: { chat: CHAT } } })
+      expect(composed).toHaveBeenCalledTimes(1)
+      expect(composed.mock.calls[0]![0].detail).toMatchObject({ chatId: CHAT, text: 'Widget draft\n' })
+    } finally {
+      window.removeEventListener(APP_COMPOSE_EVENT, composed)
+      pageActivation.isActive = false
+    }
+  })
+
   it('every verb the table marks is refused with gestureRefusal, before it does anything', async () => {
     expect(Object.keys(gestureCalls).sort()).toEqual(Object.entries(BRIDGE_VERBS).filter(([, facts]) => 'gesture' in facts).map(([verb]) => verb).sort())
     activation.isActive = false
@@ -129,6 +173,37 @@ describe('the phone refuses a verb outside the gesture it needs, in the same sen
       const { code, message } = gestureRefusal(verb)
       expect(await call(verb, args), verb).toMatchObject({ ok: false, code, message })
     }
+  })
+
+  it("a tap anywhere else on the screen is not this App's: the page's own activation lends nothing", async () => {
+    pageActivation.isActive = true
+    activation.isActive = false
+    try {
+      for (const [verb, args] of Object.entries(gestureCalls)) expect(await call(verb, args), verb).toMatchObject({ ok: false, code: 'denied', message: gestureRefusal(verb).message })
+    } finally {
+      pageActivation.isActive = false
+    }
+  })
+
+  it("a call that did not come through the App's gate is not heard, whatever it says of its gesture", async () => {
+    const other = document.createElement('iframe')
+    document.body.append(other)
+    const id = nextId++
+    window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method: 'clipboardWriteText', args: { text: 'x' }, gesture: true }, source: other.contentWindow, origin: ORIGIN }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(posted.mock.calls.some(([message]) => (message as { id?: number }).id === id)).toBe(false)
+    other.remove()
+  })
+
+  it("a tap on one of the App's commands in its header is the App's gesture for as long as an activation lasts", async () => {
+    vi.spyOn(platform, 'writeClipboardText').mockResolvedValue(undefined)
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1_000)
+    activation.isActive = false
+    host!.command('copy')
+    expect(await call('clipboardWriteText', { text: 'hi' })).toMatchObject({ ok: true })
+    now.mockReturnValue(1_000 + 5_001)
+    expect(await call('clipboardWriteText', { text: 'hi' })).toMatchObject({ ok: false, code: 'denied' })
+    now.mockRestore()
   })
 
   it('control: inside a gesture the clipboard is written; outside one, a verb without the mark answers', async () => {
@@ -244,7 +319,7 @@ describe('the phone refuses a verb whose capability the App lacks, as the deskto
       id: 'board',
       name: 'Board',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       entry: 'index.html',
       permissions: { capabilities: ['files:read:all-machines', 'chat:relay'] },
       contributes: { tabs: [{ name: 'main', title: 'Board', opensFiles: { chat: ['.board.json'] } }] },

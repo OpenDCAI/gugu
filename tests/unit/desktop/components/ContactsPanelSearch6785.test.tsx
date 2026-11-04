@@ -13,7 +13,7 @@ beforeEach(() => {
   harness = createReactHarness()
   Element.prototype.scrollIntoView = vi.fn() // jsdom 没有 scrollIntoView
 })
-afterEach(() => { harness.cleanup() })
+afterEach(() => { harness.cleanup(); vi.useRealTimers() })
 
 const people = [
   contact({ id: 'zs', display_name: '张三', gugu_number: 109591 }),
@@ -28,7 +28,7 @@ const groups = [
 
 async function render(options: { mobile?: boolean; contacts?: Parameters<typeof contactsStore>[0] } = {}) {
   const onOpenGroupChat = vi.fn()
-  await renderWithAppProviders(harness, createNode(ContactsPanel, { activeTab: 'contacts', mobile: options.mobile ?? false, onOpenGroupChat }), {
+  await renderWithAppProviders(harness, createNode(ContactsPanel, { mobile: options.mobile ?? false, onOpenGroupChat }), { shellTab: 'contacts',
     auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner' },
     contacts: { contacts: people, groupChats: groups, ...options.contacts },
     chat: { chats: [] },
@@ -47,6 +47,16 @@ const browseHidden = () => $('[data-testid="contacts-browse"]')?.className === '
 const press = (key: string) => act(async () => { input().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })) })
 
 describe('contacts search (desktop sidebar)', () => {
+  it('filters by the real name while the selected agent detail uses the naming placeholder', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime('2026-11-02T08:00:00.000Z')
+    await render({ contacts: { contacts: [contact({ id: 'fresh', display_name: 'Codex 5', type: 'agent', agent_type: 'codex', owner_user_id: 'owner-1', created_at: '2026-11-02T08:00:00.000Z' })] } })
+    await typeInto(input(), 'codex5')
+    expect(titles()).toEqual(['Codex 5'])
+    await press('Enter')
+    expect(detailTitle()).toBe('正在起名…')
+    expect(titles()).toEqual(['Codex 5'])
+  })
   it('swaps the browse tree for one grouped results table and brings it back on clear', async () => {
     await render()
     expect(results()).toBeNull()

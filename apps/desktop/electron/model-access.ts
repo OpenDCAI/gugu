@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile } from '@gugu/core/local/childProcess'
 import { mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
@@ -534,7 +534,7 @@ export function processStartedAt(pid: number): Promise<number | null> {
       `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($p) { $p.StartTime.ToUniversalTime().ToString('o') }`]]
     : ['ps', ['-o', 'lstart=', '-p', String(pid)]]
   return new Promise((resolve, reject) => {
-    execFile(file, args, { env: { ...process.env, LC_ALL: 'C' }, windowsHide: true }, (error, stdout) => {
+    execFile(file, args, { env: { ...process.env, LC_ALL: 'C' } }, (error, stdout) => {
       const text = String(stdout).trim()
       // ps 对不存在的 pid 以 1 退出且无输出;这是「不在」,不是工具失败。
       if (!text) {

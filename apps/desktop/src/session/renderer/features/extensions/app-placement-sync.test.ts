@@ -16,6 +16,7 @@ function manifest(id: string, tabNames: string[], opensFiles?: unknown, perSessi
     id,
     name: id,
     version: '1.0.0',
+    defaultLocale: 'en',
     entry: 'index.html',
     contributes: { tabs: tabNames.map((name) => ({ name, title: name, ...(opensFiles ? { opensFiles } : {}), ...(perSession ? { perSession } : {}) })) },
   } as unknown as ExtensionManifest;

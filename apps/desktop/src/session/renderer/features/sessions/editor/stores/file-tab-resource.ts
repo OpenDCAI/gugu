@@ -45,6 +45,8 @@ export class FileTabResource implements TabResource {
   isLoading: boolean;
   totalSize: number | null;
   externalError: string | undefined;
+  /** Transient position belongs to this open tab, surviving source/preview unmounts. */
+  readonly htmlPreviewScroll = { x: 0, y: 0 };
   /**
    * A link from another document asked to land on this anchor (`./other.md#section`, #6950). One-shot: the preview
    * scrolls there once its text has rendered and clears it; the nonce lets the same anchor be asked for again.

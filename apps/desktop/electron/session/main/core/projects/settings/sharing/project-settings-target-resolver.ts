@@ -10,6 +10,7 @@ import type {
 } from '@shared/core/project-settings/project-settings';
 import type { ProjectProvider } from '../../project-provider';
 import { resolveWorkspace } from '../../utils';
+import { taskName } from '@main/core/sessions/task-name';
 
 export type ProjectSettingsResolvedTarget = ProjectSettingsWriteTargetOption & {
   fileSystem: IFileSystem;
@@ -72,14 +73,14 @@ export async function resolveAllProjectSettingsTargets(
   if (!projectRow) return [projectTarget];
 
   const sessionRows = await db
-    .select({ title: sessions.title, workspaceId: sessions.workspaceId })
+    .select({ id: sessions.id, config: sessions.config, workspaceId: sessions.workspaceId })
     .from(sessions)
     .where(eq(sessions.projectId, project.projectId));
 
   // 多条会话共享一个工作区时只列一次。
   const byWorkspace = new Map<string, ProjectSettingsResolvedTarget>();
   for (const session of sessionRows) {
-    const target = resolveSessionWorkspaceTarget(project, session);
+    const target = resolveSessionWorkspaceTarget(project, { title: taskName(session), workspaceId: session.workspaceId });
     if (target?.type === 'workspace' && !byWorkspace.has(target.workspaceId)) {
       byWorkspace.set(target.workspaceId, target);
     }

@@ -1,8 +1,10 @@
 import { z } from 'zod';
-import { EXTENSION_API_VERSION } from './bridge-protocol';
-import { networkHostAllowed } from './partition';
+import { WIDGET_HEIGHT_MIN, WIDGET_HEIGHT_MAX } from '@gugu/core/shared/ui/widgetModels';
+import { EXTENSION_API_VERSION, EXTENSION_TOOL_CONFINEMENT_API_VERSION } from './bridge-protocol';
+import { networkHostAllowed } from './network-host';
 import { APP_PLATFORMS } from './app-platforms';
 import { claimTakes } from './file-openers';
+import { INSTRUCTIONS_MAX_CHARS, SUBTITLE_MAX_CHARS } from './app-listing';
 
 /**
  * Extension (App) manifest — the `manifest.json` at the root of an
@@ -20,7 +22,7 @@ export { EXTENSION_API_VERSION };
  * gugu. Both are compatibility facts, not「the bundle is broken」— the market keeps
  * them apart (see shared/extensions/market.ts `compatOf`).
  */
-export const EXTENSION_API_VERSION_MIN_SUPPORTED = 3;
+export const EXTENSION_API_VERSION_MIN_SUPPORTED = 25;
 
 // `engines.gugu`: the oldest gugu this bundle runs on, as a lower bound only.
 // Same idea as VS Code's `engines.vscode` (`^1.8.0`), narrowed to the two spellings
@@ -36,6 +38,7 @@ const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 // the user's language and shows an unknown one as-is, so authors can add their
 // own without the schema having to know every category first.
 const CATEGORY_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const LOCALE_PATTERN = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
 // Bare lowercase hostname with at least two labels; leftmost label may be the
 // wildcard `*.`. No scheme, port, or path — the manifest names hosts, the
 // enforcement layer decides protocols.
@@ -110,8 +113,8 @@ const tabCommandSchema = z.strictObject({
 /**
  * A local program this extension runs as an MCP server for the agents on this machine
  * (owner 2026-09-24 chose「扩展可以自带一个本机程序当 MCP server」). It runs with the
- * person's full rights — which is why the install sheet shows the exact command and it
- * sits behind its own consent (`agents:tools`), revocable on its own.
+ * person's full rights when it uses command form or an older API. New tools modules
+ * are host-confined; both forms have their own revocable consent (`agents:tools`).
  *
  * `command`: `node` runs on gugu's own runtime (nobody has to install Node); a path
  * starting with `./` is a program inside the bundle; anything else is looked up on PATH
@@ -135,8 +138,9 @@ export const mcpServerContributionSchema = z.union([
   /*
    * 摩擦单 F77 A module of the bundle whose every export is an MCP tool (the Tool's fields plus `run(args, { agent })`):
    * gugu runs it on its own runtime and speaks MCP for it — the App writes its tools, never the protocol, and who called
-   * comes from gugu's gateway alone (app-runtime/tools-host.ts). The same consent as a command: it runs on this computer
-   * with the person's rights. No name (摩擦单 F119): it is the App's, and its tools are `<App id>__<tool>`.
+   * comes from gugu's gateway alone (app-runtime/tools-host.ts). It needs agents:tools consent and runs
+   * under host confinement from EXTENSION_TOOL_CONFINEMENT_API_VERSION. No name (摩擦单 F119):
+   * it is the App's, and its tools are `<App id>__<tool>`.
    */
   z.strictObject({
     tools: z.string().regex(/^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._/-]*\.m?js$/, {
@@ -221,6 +225,8 @@ const tabContributionSchema = z.strictObject({
    * break them all to state something they already state.
    */
   entry: bundlePathSchema.optional(),
+  /** API 26: this tab may also appear in a message, with this default height. */
+  widget: z.strictObject({ height: z.number().int().min(WIDGET_HEIGHT_MIN).max(WIDGET_HEIGHT_MAX) }).optional(),
   /**
    * A host-owned page; no HTML is loaded from the App for this tab.
    * `settings`: the App's configuration / status page, one per App.
@@ -429,7 +435,7 @@ const permissionsSchema = z.strictObject({
     .array(z.enum(EXTENSION_CAPABILITIES))
     .max(12)
     .optional(),
-  /** Hostnames this extension's webview may reach. Anything else is blocked. */
+  /** Hostnames its pages and host-confined tools may reach. Anything else is blocked. */
   network: z
     .array(
       z
@@ -454,19 +460,13 @@ export const extensionManifestSchema = z
     name: z.string().trim().min(1).max(64),
     /** Required when publishing or installing; installed older Apps remain readable at runtime. */
     platforms: z.array(z.enum(APP_PLATFORMS)).optional(),
+    /** Which language the base `name` / `subtitle` / `examples` are written in (BCP 47), as Chrome's `default_locale`. */
+    defaultLocale: z.string().regex(LOCALE_PATTERN, { message: 'must be a BCP 47 tag' }),
     /**
-     * What it does, for the market card and the detail sheet. Optional: every
-     * bundle that exists predates it, and a manifest is not less valid for not
-     * selling itself. Capped because a card clamps at three lines — anything a
-     * reader has to scroll belongs in the bundle's own page. Refs #5265.
+     * 名字下面那一句(市场的行、精选卡的大字、产品页头):这个 App 是什么,一行写得下。上架必填(app-listing.ts),没写就不画,❌ 回落。
+     * 人读的正文是 `store/about.md`,agent 读的那一行是 `contributes.instructions`。
      */
-    description: z.string().trim().min(1).max(280).optional(),
-    /**
-     * 名字下面那一句(市场的行、精选卡的大字、产品页头):这个 App 是什么,一行写得下。没写就用 description 的第一句。
-     * 30 字封顶:中文 20 字左右、英文 30 个字符就是一行。写了它就要声明 `apiVersion` 8(下面 superRefine):只认得 7 的客户端
-     * (0.2.57-beta.113.1 / 115.1,与新版共用 0.2.57 这个 x.y.z)于是拿到这个 App 给 7 的上一版,❌ 拿到一份它的 schema 拒收的 manifest。
-     */
-    subtitle: z.string().trim().min(1).max(30).optional(),
+    subtitle: z.string().trim().min(1).max(SUBTITLE_MAX_CHARS).optional(),
     /**
      * 「对 agent 说」(#7059):产品页上一两句示例说法,点一句 = 新建任务、这句已填好。写给人看、照它说给 agent,
      * 所以短;App 自己写,跟代码一起改版本(索引仓只放官方定的事)。用到它的版本要 `engines.gugu >= 0.2.53`。
@@ -501,12 +501,7 @@ export const extensionManifestSchema = z
             message: `apiVersion ${value} needs a newer gugu (this build supports up to ${EXTENSION_API_VERSION})`,
           });
         } else if (value < EXTENSION_API_VERSION_MIN_SUPPORTED) {
-          ctx.addIssue({
-            code: 'custom',
-            // What to do, said wherever an older manifest is refused (installed list, install, app_install / app_check): an
-            // agent rewrites it as app_create writes Apps today — no table of what changed since 1 or 2 (owner 10-06).
-            message: `apiVersion ${value} is an older App interface; ask an agent to rewrite the App for apiVersion ${EXTENSION_API_VERSION} as app_create writes Apps.`,
-          });
+          ctx.addIssue({ code: 'custom', message: olderInterface(value) });
         }
       }),
     /**
@@ -535,19 +530,26 @@ export const extensionManifestSchema = z
     /** SPDX identifier or a short licence name, as text. Not verified. */
     license: z.string().trim().min(1).max(64).optional(),
     /**
-     * Per-locale name and description, keyed by BCP 47 tag (`en`, `zh-CN`). The
-     * base `name` / `description` stay required and single-string, so a bundle
-     * that never heard of this field is unchanged; a reader in a listed locale
-     * gets that text, everyone else gets the base.
+     * The human-facing text in other languages, keyed by BCP 47 tag (`en`, `zh-CN`); the base fields are in
+     * `defaultLocale`. A reader in a listed language gets that text, everyone else the base.
      */
     localized: z
       .record(
-        z.string().regex(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/, { message: 'must be a BCP 47 tag' }),
+        z.string().regex(LOCALE_PATTERN, { message: 'must be a BCP 47 tag' }),
         z.strictObject({
           name: z.string().trim().min(1).max(64).optional(),
-          description: z.string().trim().min(1).max(280).optional(),
-          subtitle: z.string().trim().min(1).max(30).optional(),
+          subtitle: z.string().trim().min(1).max(SUBTITLE_MAX_CHARS).optional(),
           examples: z.array(z.string().trim().min(1).max(80)).min(1).max(3).optional(),
+          /** API 25: a tab's title and its toolbar commands' titles in this language, by tab name and command id. */
+          tabs: z
+            .record(
+              z.string().regex(TAB_NAME_PATTERN),
+              z.strictObject({
+                title: z.string().trim().min(1).max(48).optional(),
+                toolbar: z.record(z.string().regex(TAB_NAME_PATTERN), z.string().trim().min(1).max(32)).optional(),
+              })
+            )
+            .optional(),
         })
       )
       .optional(),
@@ -587,8 +589,11 @@ export const extensionManifestSchema = z
        * session as-is — text the agent reads, nothing gugu runs.
        */
       skills: bundlePathSchema.optional(),
-      /** Standing behavior delivered in the session platform prompt, independently of skill discovery. */
-      agentInstructions: z.string().trim().min(1).max(8000).optional(),
+      /**
+       * The App's one standing line for agents: placed whole as its line in every session's `<gugu_apps>`, never cut.
+       * Required with programs or skills, refused without. Longer standing behavior is a skill whose description says when to read it.
+       */
+      instructions: z.string().trim().min(1).max(INSTRUCTIONS_MAX_CHARS).optional(),
       /**
        * The App's own choice of how its programs' tools reach agents (owner 10-06「本身一个 app 自己初始化的时候也给自己
        * 抉择啊」): listed in every new session's tool list instead of the catalog (D-10's default). Read once, at the
@@ -598,9 +603,22 @@ export const extensionManifestSchema = z
     }),
   })
   .superRefine((manifest, ctx) => {
-    const managed = manifest.contributes.tabs.some((tab) => tab.hostPage);
-    if ((managed || manifest.settings) && manifest.apiVersion < 5) {
-      ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'host pages and settings require apiVersion 5' });
+    const language = (tag: string) => tag.split('-')[0];
+    for (const [tag, entry] of Object.entries(manifest.localized ?? {})) {
+      if (language(tag) === language(manifest.defaultLocale)) {
+        ctx.addIssue({ code: 'custom', path: ['localized', tag], message: `the base fields are already in ${manifest.defaultLocale} (defaultLocale)` });
+      }
+      // A localized tab or command is one the App has: a name or id it does not declare is a typo, said so.
+      for (const [name, text] of Object.entries(entry.tabs ?? {})) {
+        const tab = manifest.contributes.tabs.find((candidate) => candidate.name === name);
+        if (!tab) {
+          ctx.addIssue({ code: 'custom', path: ['localized', tag, 'tabs', name], message: `this App has no tab named ${name}` });
+          continue;
+        }
+        for (const id of Object.keys(text.toolbar ?? {})) {
+          if (!tab.toolbar?.some((command) => command.id === id)) ctx.addIssue({ code: 'custom', path: ['localized', tag, 'tabs', name, 'toolbar', id], message: `tab ${name} has no toolbar command ${id}` });
+        }
+      }
     }
     if (!manifest.entry && !manifest.contributes.tabs.some((tab) => tab.entry) && !manifest.contributes.mcpServers && !manifest.contributes.skills) {
       ctx.addIssue({ code: 'custom', path: ['entry'], message: 'an App without HTML must give agents programs or skills' });
@@ -625,6 +643,9 @@ export const extensionManifestSchema = z
         ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'entry'], message: 'an HTML tab needs its entry or the App entry' });
       }
       // A file's tab is already one page per file, and the settings page is one per App: neither has a task of its own.
+      if (tab.widget && (manifest.apiVersion < 26 || tab.hostPage || tab.perSession || tab.opensFiles || tab.chatFile)) {
+        ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'widget'], message: 'widget requires apiVersion 26 and cannot combine with hostPage, perSession, opensFiles or chatFile' });
+      }
       if (tab.perSession && (tab.hostPage === 'settings' || tab.opensFiles)) {
         ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'perSession'], message: 'a page per task cannot be the host settings page or open files' });
       }
@@ -634,9 +655,7 @@ export const extensionManifestSchema = z
           ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'fileIcons', claim], message: `"${claim}" is not one of this tab's opensFiles claims (${claims.join(', ') || 'none'}): fileIcons are keyed by them` });
         }
       }
-      if (tab.sideWidth !== undefined && manifest.apiVersion < 16) ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'sideWidth requires apiVersion 16' });
       if (tab.chatFile !== undefined) {
-        if (manifest.apiVersion < 14) ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'chatFile requires apiVersion 14' });
         const chatClaims = claimedSuffixes(tab, 'chat');
         if (!chatClaims.some((claim) => claimTakes(claim, tab.chatFile!))) {
           ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'chatFile'], message: `"${tab.chatFile}" is not a file this tab opens in a chat (its opensFiles.chat: ${chatClaims.join(', ') || 'none'})` });
@@ -671,26 +690,19 @@ export const extensionManifestSchema = z
       });
     }
     const servers = manifest.contributes.mcpServers ?? [];
-    if (servers.some((server) => 'host' in server) && manifest.apiVersion < 5) {
-      ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'host MCP programs require apiVersion 5' });
+    const extendsAgents = servers.length > 0 || manifest.contributes.skills !== undefined;
+    if (extendsAgents && manifest.contributes.instructions === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['contributes', 'instructions'], message: `an App that gives agents programs or skills says in one line (≤ ${INSTRUCTIONS_MAX_CHARS} characters) what it gives them: its line in every session's <gugu_apps>` });
     }
-    if ((declared as readonly string[]).includes('chat:read') && manifest.apiVersion < 6) {
-      ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'chat:read requires apiVersion 6' });
+    if (!extendsAgents && !manifest.contributes.tabs.some(tab => tab.widget) && manifest.contributes.instructions !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['contributes', 'instructions'], message: 'instructions tell agents about the App\'s programs or skills, and there are none' });
     }
-    const subtitled = manifest.subtitle !== undefined || Object.values(manifest.localized ?? {}).some((text) => text.subtitle !== undefined);
-    if (subtitled && manifest.apiVersion < 8) {
-      ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'subtitle requires apiVersion 8' });
-    }
-    if (manifest.contributes.agentInstructions && servers.length === 0) {
-      ctx.addIssue({ code: 'custom', path: ['contributes', 'agentInstructions'], message: 'standing instructions require an MCP program' });
-    }
-    const extendsAgents = servers.length > 0 || manifest.contributes.skills !== undefined || manifest.contributes.agentInstructions !== undefined;
     const offersTools = (declared as readonly string[]).includes('agents:tools');
     if (extendsAgents && !offersTools) {
       ctx.addIssue({
         code: 'custom',
         path: ['permissions', 'capabilities'],
-        message: 'an App that gives agents MCP servers, skills or standing instructions must declare "agents:tools", so the install sheet says so',
+        message: 'an App that gives agents MCP servers or skills must declare "agents:tools", so the install sheet says so',
       });
     }
     if (offersTools && !extendsAgents) {
@@ -698,7 +710,7 @@ export const extensionManifestSchema = z
         code: 'custom',
         path: ['permissions', 'capabilities'],
         // app_create takes these same fields, in its manifest (S1), so one name serves both.
-        message: '"agents:tools" is declared but there are no contributes.mcpServers, contributes.skills or contributes.agentInstructions',
+        message: '"agents:tools" is declared but there are no contributes.mcpServers or contributes.skills',
       });
     }
     if (manifest.contributes.toolsListed && servers.length === 0) {
@@ -737,6 +749,11 @@ export type ExtensionManifest = z.infer<typeof extensionManifestSchema>;
 export type ExtensionTabContribution = ExtensionManifest['contributes']['tabs'][number];
 export type ExtensionMcpServerContribution = NonNullable<ExtensionManifest['contributes']['mcpServers']>[number];
 
+/** Shared by process descriptors, install checks and consent: command programs remain unrestricted. */
+export function isConfinedToolProgram(apiVersion: number | undefined, server: { tools: string } | { name: string }): boolean {
+  return apiVersion !== undefined && apiVersion >= EXTENSION_TOOL_CONFINEMENT_API_VERSION && 'tools' in server;
+}
+
 /** A program's name among its App's (F119: a tools module is the App's own, so it is named after the App). */
 export function programName(server: { name: string } | { tools: string }, appId: string): string {
   return 'tools' in server ? appId : server.name;
@@ -766,9 +783,20 @@ function formatIssues(error: z.ZodError): string[] {
   });
 }
 
+/**
+ * What to do, said wherever an older manifest is refused (installed list, install, app_install / app_check): an agent
+ * rewrites it as app_create writes Apps today — no table of what changed since (owner 10-06).
+ */
+const olderInterface = (apiVersion: number) =>
+  `apiVersion ${apiVersion} is an older App interface; ask an agent to rewrite the App for apiVersion ${EXTENSION_API_VERSION} as app_create writes Apps.`;
+
 export function safeParseExtensionManifest(
   raw: unknown
 ): { ok: true; manifest: ExtensionManifest } | { ok: false; issues: string[] } {
+  // A manifest for an older interface is judged by that alone: the rest of this schema is a later contract it never
+  // promised to keep, so listing each field it lacks would read as a list of fixes instead of the one thing to do.
+  const declared = (raw as { apiVersion?: unknown } | null)?.apiVersion;
+  if (typeof declared === 'number' && declared < EXTENSION_API_VERSION_MIN_SUPPORTED) return { ok: false, issues: [`apiVersion: ${olderInterface(declared)}`] };
   const result = extensionManifestSchema.safeParse(raw);
   if (result.success) return { ok: true, manifest: result.data };
   return { ok: false, issues: formatIssues(result.error) };

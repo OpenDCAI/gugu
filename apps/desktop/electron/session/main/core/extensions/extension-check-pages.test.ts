@@ -12,12 +12,13 @@ import { EXTENSION_CHECK_PAGE_IDLE_MS, type ExtensionCheckRequest } from '@share
  */
 
 type Listener = (...args: unknown[]) => void;
-const windows: { id: number; destroyed: boolean; loads: number; size: { width: number }; listeners: Map<string, Listener[]> }[] = [];
+const windows: { id: number; destroyed: boolean; loads: number; size: { width: number; height: number }; listeners: Map<string, Listener[]> }[] = [];
 const binds: Record<string, unknown>[] = [];
 const watchers = new Map<number, (message: string, level: 'error' | 'hint') => void>();
 const readings = new Map<number, CheckReadings>();
 const shown = { width: null as number | null };
 const pictured: string[][] = [];
+const navigation: string[] = [];
 const TREE = { nodes: [{ nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] }, { nodeId: '2', parentId: '1', role: { value: 'button' }, name: { value: 'Go' }, backendDOMNodeId: 5 }] };
 const counts = (writes: number): CheckReadings => ({ writes, writesPerSecond: 0, presenceSets: 0, presencePerSecond: 0, opens: 1, opensSettled: 1, shown: [] });
 
@@ -25,10 +26,10 @@ vi.mock('electron', () => ({
   BrowserWindow: class {
     readonly record;
     readonly webContents;
-    constructor(options: { width: number }) {
+    constructor(options: { width: number; height: number }) {
       const id = 100 + windows.length;
       const listeners = new Map<string, Listener[]>();
-      this.record = { id, destroyed: false, loads: 0, size: { width: options.width }, listeners };
+      this.record = { id, destroyed: false, loads: 0, size: { width: options.width, height: options.height }, listeners };
       windows.push(this.record);
       const record = this.record;
       const on = (event: string, listener: Listener) => void listeners.set(event, [...(listeners.get(event) ?? []), listener]);
@@ -43,7 +44,10 @@ vi.mock('electron', () => ({
           isAttached: () => true,
           attach: () => undefined,
           sendCommand: async (method: string) => {
-            if (method === 'Accessibility.getFullAXTree') return TREE;
+            if (method === 'Accessibility.getFullAXTree') {
+              navigation.push(`snapshot:${id}`);
+              return TREE;
+            }
             if (method === 'DOM.getBoxModel') return { model: { border: [0, 0, 40, 0, 40, 20, 0, 20] } };
             return {};
           },
@@ -51,6 +55,7 @@ vi.mock('electron', () => ({
       };
     }
     loadURL = async () => {
+      navigation.push(`loaded:${this.record.id}`);
       this.record.loads += 1;
       for (const listener of this.record.listeners.get('did-finish-load') ?? []) listener();
     };
@@ -65,6 +70,7 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: () => undefined } }));
 vi.mock('./bridge-preload-path', () => ({ resolveExtensionBridgePreload: () => '/preload.js' }));
 vi.mock('./extension-check-source', () => ({ sourceLine: () => null, staticHints: () => [] }));
 vi.mock('./extension-bridge', () => ({
+  extensionPresentation: () => ({ locale: 'en-US', themeMode: 'dark', fullscreen: false, windowFocused: false }),
   bindExtensionSurface: async (input: Record<string, unknown>) => void binds.push(input),
   recentExtensionErrors: () => [],
   checkReadingsOf: (id: number) => readings.get(id) ?? null,
@@ -88,7 +94,7 @@ vi.mock('./extension-look-picture', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./extension-look-picture')>()),
   keepPainting: async () => undefined,
   endPictures: () => undefined,
-  showAtSize: async () => undefined,
+  showAtSize: async (contents: { id: number }) => { navigation.push(`sized:${contents.id}`); },
   pictureOf: async (_contents: unknown, _size: unknown, label: string) => ({ label, mimeType: 'image/jpeg', data: 'AAAA' }),
   picturesOf: async (_contents: unknown, sizes: { says: string }[]) => {
     pictured.push(sizes.map((size) => size.says));
@@ -96,11 +102,12 @@ vi.mock('./extension-look-picture', async (importOriginal) => ({
   },
 }));
 vi.mock('./extension-webview-security', () => ({ isAllowedExtensionNavigation: () => true }));
+const widgetAvailability = vi.hoisted(() => ({ missing: false, enabled: true, view: true, platforms: ['desktop', 'phone'] }));
 vi.mock('./extensions-root', () => ({
-  extensionsService: () => ({
-    get: (id: string) => ({ rootDir: '/bundle', manifest: { id, entry: 'main.html', contributes: { tabs: [{ name: 'main', entry: 'main.html' }] } } }),
-    grantedHosts: () => [],
-  }),
+  extensionsService: () => {
+    const get = (id: string) => ({ rootDir: '/bundle', manifest: { id, version: '1.2.3', platforms: widgetAvailability.platforms, entry: 'main.html', contributes: { tabs: [{ name: 'main', entry: 'main.html', ...(widgetAvailability.view ? { widget: { height: 240 } } : {}) }] } } });
+    return { get, list: () => ({ extensions: widgetAvailability.missing ? [] : [get('board')] }), isEnabled: () => widgetAvailability.enabled, grantedHosts: () => [] };
+  },
 }));
 
 const { checkExtensionSurface, closeCheckPages } = await import('./extension-check');
@@ -122,11 +129,13 @@ const notFound = (id: string) => `app_check: page "${id}" is not found.`;
 
 beforeEach(() => {
   vi.useFakeTimers();
+  Object.assign(widgetAvailability, { missing: false, enabled: true, view: true, platforms: ['desktop', 'phone'] });
   closeCheckPages({ extensionId: 'board' });
   closeCheckPages({ extensionId: 'chess' });
   windows.length = 0;
   binds.length = 0;
   pictured.length = 0;
+  navigation.length = 0;
   readings.clear();
   shown.width = null;
 });
@@ -283,6 +292,69 @@ describe('where it opens decides its size (owner 10-13)', () => {
       ['952 wide (a tab on the task page)', '412 wide (a phone, touch)'],
     ]);
     expect(phone.pictures?.map(({ label }) => label)).toEqual(['the end, after the steps, 412 wide (a phone, touch)']);
-    expect(binds.slice(1, 3)).toEqual([expect.objectContaining({ sessionId: 's1' }), expect.objectContaining({ sessionId: 's1' })]);
+    expect(binds.slice(1, 3)).toEqual([expect.objectContaining({ workspace: 'session:s1' }), expect.objectContaining({ workspace: 'session:s1' })]);
+  });
+});
+
+
+describe('hidden widget checks', () => {
+  const widget = { id: 'w1', messageId: 'm1', senderId: 'sender-1', text: 'Dinner', data: { poll: 'p1' } };
+  it('h2 uses the message height for the desktop slot and its report', async () => {
+    const report = await check({ widget: { ...widget, height: 360 }, chatId: 'chat-1', caller: 's1' });
+    expect(windows[0]!.size).toEqual({ width: 420, height: 360 });
+    expect(report.widget?.size).toEqual({ w: 420, h: 360 });
+  });
+  it('h3 uses the message height at the phone bubble width without pictures', async () => {
+    const report = await check({ widget: { ...widget, height: 360 }, chatId: 'chat-1', caller: 's1', phone: true, look: false });
+    expect(windows[0]!.size).toEqual({ width: 267, height: 360 });
+    expect(report.widget?.size).toEqual({ w: 267, h: 360 });
+    expect(report.pictures).toBeUndefined();
+  });
+  it('binds the original input as the real operator before loading, and pictures only the fixed slot', async () => {
+    const report = await check({ widget, chatId: 'chat-1', caller: 's1' });
+    expect(binds[0]).toMatchObject({ widget: { messageId: 'm1', senderId: 'sender-1', data: { poll: 'p1' } }, conversation: 'chat-1', workspace: null, operator: { kind: 'agent', id: 'user:agent-f' } });
+    expect(windows[0]!.size).toEqual({ width: 420, height: 240 });
+    expect(report).toMatchObject({ rendered: true, text: 'Dinner', locale: 'en-US', themeMode: 'dark', widget: { id: 'w1', message_id: 'm1', chat_id: 'chat-1', app_version: '1.2.3', size: { w: 420, h: 240 } } });
+    expect(report.pictures).toHaveLength(1);
+    // Navigation must finish before emulation attaches to the hidden page.
+    expect(navigation.slice(0, 2)).toEqual(['loaded:100', 'sized:100']);
+    expect(pictured).toHaveLength(0);
+    const continued = await check({ caller: 's1', page: report.page!, steps: GO, look: false });
+    expect(continued.steps?.[0]).toMatchObject({ ok: true, did: 'clicked button "Go"' });
+    expect(continued.widget).toEqual(report.widget);
+    expect(continued.pictures ?? []).toHaveLength(0);
+    expect(windows).toHaveLength(1);
+    await expect(check({ widget: { ...widget, messageId: 'm2' }, caller: 's1', page: report.page! })).rejects.toThrow('different widget message');
+  });
+  it('uses a phone bubble slot with touch without requiring steps', async () => {
+    const report = await check({ widget, chatId: 'chat-1', caller: 's1', phone: true, look: false });
+    expect(report.widget?.size).toEqual({ w: 267, h: 240 });
+    expect(windows[0]!.size).toEqual({ width: 267, height: 240 });
+    expect(navigation.slice(0, 3)).toEqual(['loaded:100', 'sized:100', 'snapshot:100']);
+    expect(report.snapshot).toContain('button "Go"');
+    expect(report.pictures).toBeUndefined();
+  });
+  it('a widget that stops answering while its size is set is quiet, not a load error', async () => {
+    const pictures = await import('./extension-look-picture');
+    const size = vi.spyOn(pictures, 'showAtSize').mockImplementationOnce(() => new Promise(() => {}));
+    try {
+      const report = await check({ widget, caller: 's1', phone: true, look: false });
+      expect(report.stuck).toBe('quiet');
+      expect(report.loadError).toBeNull();
+      expect(report.page).toBeUndefined();
+    } finally {
+      size.mockRestore();
+    }
+  });
+  it.each(['missing', 'disabled', 'view', 'platform'] as const)('%s returns the same unavailable reason/text without a page', async reason => {
+    if (reason === 'missing') widgetAvailability.missing = true;
+    if (reason === 'disabled') widgetAvailability.enabled = false;
+    if (reason === 'view') widgetAvailability.view = false;
+    if (reason === 'platform') widgetAvailability.platforms = ['phone'];
+    const report = await check({ widget, chatId: 'chat-1', caller: 's1' });
+    expect(report).toMatchObject({ rendered: false, reason, text: expect.stringContaining('Dinner') });
+    expect(report.page).toBeUndefined();
+    expect(windows).toHaveLength(0);
+    expect(binds).toHaveLength(0);
   });
 });

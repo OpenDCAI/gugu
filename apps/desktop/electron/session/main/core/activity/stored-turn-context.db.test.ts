@@ -28,7 +28,7 @@ beforeEach(async () => {
   mocks.db = fixture.db;
   mocks.sqlite = fixture.sqlite;
   fixture.sqlite.exec(`INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
-    INSERT INTO sessions (id, project_id, title) VALUES ('c1', 'p1', 'C');`);
+    INSERT INTO sessions (id, project_id, config) VALUES ('c1', 'p1', json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'C'));`);
   home = mkdtempSync(join(tmpdir(), 'gugu-activity-turns-')); vi.stubEnv('GUGU_HOME', home);
   stop = installActivityCollector();
 });

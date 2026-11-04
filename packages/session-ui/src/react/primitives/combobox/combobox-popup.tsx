@@ -176,11 +176,11 @@ export const ComboboxPopup = React.forwardRef<ComboboxPopupHandle, ComboboxPopup
         const clamped = Math.min(previous, items.length - 1);
         return keepActiveRef.current && clamped >= 0 && !items[clamped].disabled ? clamped : firstEnabled;
       });
-      // oxlint-disable-next-line react/exhaustive-deps -- 只在内容签名变时归位,items 本身每次渲染都是新数组
+      // 只在内容签名变时归位,items 本身每次渲染都是新数组
     }, [itemsSignature, firstEnabled]);
     React.useEffect(() => {
       activeIdRef.current = items[selectedIndex]?.id ?? null;
-      // oxlint-disable-next-line react/exhaustive-deps -- 记下「此刻高亮的是谁」,只跟着高亮变
+      // 记下「此刻高亮的是谁」,只跟着高亮变
     }, [selectedIndex, itemsSignature]);
 
     // 把当前活动项的 id 报给调用方,填它输入框的 `aria-activedescendant`。

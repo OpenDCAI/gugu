@@ -334,8 +334,7 @@ describe('pluginRegistry', () => {
       'continue', 'copilot', 'devin', 'droid',
       // ⚠️ grok 2026-09-01 **退出**这一组(#4658):它的 tui 腿从来没被量过(units 四维全
       //    unverified),此前挂着 `addressable/local-session` 是**过声明** —— A 读数里那条静默假死
-      //    正是「声明矩阵说腿可用、物化却兑现不出」撞出来的。置 none/none 后 `firstTurnTransportOf`
-      //    给 'none',`messageTransportError` 当场亮红,把静默换成响亮错误。终端腿首句通道待 #4653
+      //    正是「声明矩阵说腿可用、物化却兑现不出」撞出来的。置 none/none。终端腿首句通道待 #4653
       //    链定语义再开(边界 ②)。grok 的协议腿已在 #4716 升为 addressable/router，但终端腿仍关闭。
       // ⚠️ kimi 2026-08-28 **回到**这一组:终端腿重开,`sessionpage['tui']` 跟着回来。
       //    (dev 上它一度退出 —— 那是终端腿开关关着的读数;本分支把开关翻回 true。)
@@ -580,9 +579,7 @@ describe('pluginRegistry', () => {
       });
     }
     // opencode 的 tui 腿自 #4406 起是实测申明,形状已在上方 toEqual 整表钉住。
-    // grok 的 tui 是**今天用户唯一够得着的 messageTransportError 格**(聊天页 Chat UI 关 →
-    // 命中 tui=none;其余 12 家 acp=none 的开关被 canToggleChatUi 禁着够不着)。它的
-    // `reason` 是那条红字里「为什么」的来源,单独钉一条正向棘轮,防止未来把它悄悄改回或抹掉。
+    // grok 的 tui 腿如实关着,`reason` 记着为什么;单独钉一条正向棘轮,防止未来把它悄悄改回或抹掉。
     expect(pluginRegistry.get('grok')!.capabilities.sessionBundle.sessionpage['tui']).toEqual({
       identity: 'none',
       messageTransport: 'none',

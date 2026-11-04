@@ -35,7 +35,6 @@ export function useAutomations(projectId?: string) {
     return onMachineEvent(machineOf(host), automationChangedChannel, () => {
       void queryClient.invalidateQueries({ queryKey: automationsQueryKey(host) });
     });
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [queryClient, host.key]);
 
   function invalidateAutomations() {
@@ -180,7 +179,6 @@ export function useLatestAutomationRun(automationId: string) {
       if (id !== automationId) return;
       queryClient.setQueryData(key, run);
     });
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [automationId, queryClient, host.key]);
 
   return useQuery({
@@ -219,6 +217,5 @@ export function useAutomationEventBridge(automationId: string) {
       unsubChanged();
       unsubRun();
     };
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [automationId, queryClient, host.key]);
 }

@@ -35,6 +35,8 @@ export const CHAT_VIEW_COMMANDS = [
  * via `view.setCommands(commands)`.
  */
 export type ChatCommands = {
+  /** Retry the same durable input identity, in place. */
+  onRetrySend?: (itemId: string) => void;
   /** Mount the host's tooltip or source popover without coupling Solid to the host UI framework. */
   onTooltipMount?: (target: { root: HTMLElement; text: string; onOpenOriginal?: () => void; originalLabel?: string }) => void | (() => void);
   /** A recycled row supplies live getters; the host returns its DOM-listener cleanup. */
@@ -47,8 +49,6 @@ export type ChatCommands = {
   conversationClock?: () => number;
   /** Display name of the agent owning this transcript, supplied by its host. */
   conversationAgentName?: () => string | null;
-  canQuoteMessage?: (message: ChatMessage) => boolean;
-  onQuoteMessage?: (target: { message: ChatMessage; sender: string }) => void;
   /** Authorized IM system notices stay visible in their process header, even when folded. */
   conversationProcessNotice?: (processId: string) => { id: string; text: string } | null;
   onConversationReply?: (itemId: string) => void;
@@ -177,6 +177,13 @@ export type ChatCommands = {
    * 只有 `cancelled` 那一支会渲染它 —— 失败 / 中断没有「接着往下」这回事。
    */
   onContinueTurn?: (arg: { itemId: string; source: 'turn-outcome' }) => void;
+
+  /** The person pressed 「丢弃」 on a stopped turn; the view hides it either way, the host may have more to take back. */
+  onDiscardTurn?: (arg: { turnId: string }) => void;
+  /** False: this stopped turn offers no 「丢弃」. Absent: it does. */
+  canDiscardTurn?: (turnId: string) => boolean;
+  /** Live transcript identity, read while rendering cached outcome rows. */
+  isLatestTurn?: (turnId: string) => boolean;
 
   /**
    * 计划审批卡（#7139）上点了一个选项：宿主用会话自己的 `requestId` / `optionId` 答那条待批请求

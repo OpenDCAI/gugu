@@ -1,13 +1,16 @@
+import { promptAttachmentSchema, turnFileRefSchema } from '@gugu/session-core/acp/client';
 import { createNativeRecordReader } from './native-record';
-import { promptAttachmentSchema } from '@gugu/session-core/acp/client';
 import { ask, withdrawAll } from '../asks';
 import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondAskQuestion } from '../asks/ask';
 import { askSourceSpec } from '../asks/sources';
 import { readAgentQuestionRecords, rememberAgentQuestion } from '../sessions/agent-question-store';
-import { nativeConversationAliases, nativeConversationUnread } from '../sessions/session-conversation-read';
+import { nativeConversationAliases, nativeConversationUnread, nativeOwnerNotificationUnread } from '../sessions/session-conversation-read';
+import { ownerNotificationHead, ownerNotificationFile } from '../sessions/owner-notifications';
+import { ownerNotificationEpoch } from '../sessions/owner-notification-state';
 import { nativeConversationActivity } from '../sessions/session-conversation-activity';
 import { deliverAgentQuestionAnswer, restoredAgentQuestion } from '../sessions/agent-question-delivery';
-import { desc, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
+import { readProjects } from '@main/core/projects/operations/getProjects';
 import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
 import { resolveAgentHome } from '@gugu/session-core/agents/plugins/helpers';
 import { isVisibleQueuedPrompt } from '@shared/core/sessions/visible-queued-prompt';
@@ -16,6 +19,7 @@ import type { OpenedOutput, ToolImage } from '@gugu/session-core/acp/client';
 import {
   findToolImage,
   type RecordCursor,
+  type RecordLineageNode,
   type SessionRecordLocator,
   type SessionTimeline,
   type PendingRequest,
@@ -45,9 +49,11 @@ import { sessionListDelta } from '@gugu/session-core/session-record/session-list
 import { SessionOptionsError, readSessionOptions, setSessionOption } from './live-options';
 import { getPlugin, isValidProviderId } from '@main/core/agents/plugin-registry';
 import { sessionParentId, sessionSpawnerId, mapSessionRowToSession } from '@main/core/sessions/utils';
-import { agentIdsBySession } from '@main/core/sessionpage/sessionpage-session-agent';
+import { taskName } from '@main/core/sessions/task-name';
+import { agentIdsBySession, sessionAgents } from '@main/core/sessionpage/sessionpage-session-agent';
 import { db } from '@main/db/client';
 import { sessions, projects, type SessionRow } from '@main/db/schema';
+import { persistedWorkspacePath } from '@main/core/projects/utils';
 import { tapMainEvents } from '@main/lib/events';
 import { listSessionSchedules } from '@main/core/automations/repo';
 import {
@@ -69,7 +75,6 @@ import {
 import {
   sessionChangedChannel,
   sessionCreatedChannel,
-  sessionDeletedChannel,
   type AgentStatusChange,
 } from '@shared/core/sessions/sessionEvents';
 import {
@@ -83,12 +88,13 @@ import { locateSessionRecord, sessionRecordHarnessForProvider, type SessionRecor
 import { hermesRecordedDeliveryIds } from './hermes-delivery-receipts';
 import { OpenedFileError, readOpenedFileChunk } from './opened-file';
 import { sessionOpenedFile, sessionOutputs } from '../sessions/session-outputs';
-import { findSessionAttachmentCopy } from '../sessions/attachments/session-attachment-store';
 import { createStandInTimeline } from './stand-in-timeline';
 import { readStartFailure } from './start-failures';
 import { knownHarnessConfigRoots } from '@main/core/agent-hooks/harness-config-roots';
+import { sessionLife } from '@main/core/sessions/session-life';
+import { runtimeFork } from '@main/core/sessions/session-life-forks';
 import { notStartedSessionOptions } from './not-started-options';
-import { readSessionModelMenu, type SessionpageSessionOptionsWithMenu } from './session-model-menu';
+import { readSessionModelMenu, readSessionPermissionAgentName, type SessionpageSessionOptionsWithMenu } from './session-model-menu';
 import {
   acpSessionLive,
   deliverPermissionDecision,
@@ -133,6 +139,8 @@ export type SessionTimelineFactory = (input: {
   conversationId: string;
   /** 记录里认出来的提问宿主能不能代答(#6798);能 ⇒ 提问结算带上整份题目。 */
   answerableQuestions?: boolean;
+  readMode?: 'snapshot';
+  parentLineage?: readonly RecordLineageNode[];
 }) => Promise<SessionTimeline>;
 
 /**
@@ -140,13 +148,13 @@ export type SessionTimelineFactory = (input: {
  * 会让每一个只想测服务层记账的用例都替记录源交税（也会把原生模块拖进不需要它的进程）。
  * 真开一份时间线的那一刻才加载。
  */
-const defaultTimelineFactory: SessionTimelineFactory = async ({ locator, conversationId: sessionId, answerableQuestions }) => {
+const defaultTimelineFactory: SessionTimelineFactory = async ({ locator, conversationId: sessionId, answerableQuestions, readMode, parentLineage }) => {
   const { createSessionRecordSource, createSessionTimeline } = await import(
     '@gugu/session-core/session-record'
   );
   // 存档只是捷径:读不出来 / 对不上,`createSessionTimeline` 自己会退回整份重读。
-  const archive = await loadTimelineArchive(sessionId);
-  return createSessionTimeline(createSessionRecordSource(locator), {
+  const archive = readMode === 'snapshot' ? null : await loadTimelineArchive(sessionId);
+  return createSessionTimeline(createSessionRecordSource(locator, { readMode, parentLineage }), {
     sessionId,
     archive,
     ...(answerableQuestions ? { answerableQuestions } : {}),
@@ -199,7 +207,7 @@ const subscriptions = new Map<string, ActiveSubscription>();
  * 早先这里只选了列表要显示的那几列，再把它 `as Conversation` 递给注入路径 —— 那是一句
  * 类型上的谎：注入路径哪天多读一个字段，拿到的是 undefined 而类型说它在，静默走错。
  */
-function readSessionRows(): Array<{
+function readSessionRows(includeArchived = false, id?: string): Array<{
   session: SessionRow;
   project: SessionpageProjectSummary;
 }> {
@@ -211,29 +219,23 @@ function readSessionRows(): Array<{
     .from(sessions)
     .innerJoin(projects, eq(sessions.projectId, projects.id))
     // 归档的会话不上这张面 —— 与 `getSessions()` 同一条口径:归属键是**会话自己**那一列(spec session-graph)。
-    .where(isNull(sessions.archivedAt))
+    .where(and(includeArchived ? undefined : isNull(sessions.archivedAt), id === undefined ? undefined : eq(sessions.id, id)))
     .all()
     .map(({ session, project }) => ({ session, project: projectSummary(project) }));
 }
 
 function readLocalProjects(): SessionpageProjectSummary[] {
-  return db
-    .select({ id: projects.id, name: projects.name, path: projects.path, kind: projects.kind })
-    .from(projects)
-    .where(eq(projects.workspaceProvider, 'local'))
-    .orderBy(desc(projects.updatedAt))
-    .all()
-    .map(projectSummary);
+  return readProjects().map(({ id, name, path, kind }) => projectSummary({ id, name, path, kind }));
 }
 
 /** #609 workspace 带上 kind,手机据此把它的会话列进「任务」;项目照旧只有 id / name / path。 */
-function projectSummary({ kind, ...project }: { id: string; name: string; path: string; kind: 'project' | 'workspace' }): SessionpageProjectSummary {
+function projectSummary({ kind, ...project }: { id: string; name: string; path: string; kind?: 'project' | 'workspace' }): SessionpageProjectSummary {
   return kind === 'workspace' ? { ...project, kind } : project;
 }
 
-export function readSessionRow(conversationId: string): SessionRow | null {
+export function readSessionRow(conversationId: string, options: { includeArchived?: boolean } = {}): SessionRow | null {
   return (
-    readSessionRows().find((row) => row.session.id === conversationId)?.session ??
+    readSessionRows(options.includeArchived, conversationId).find((row) => row.session.id === conversationId)?.session ??
     null
   );
 }
@@ -490,9 +492,9 @@ function scheduleIdleDispose(entry: TimelineEntry): void {
   entry.idleTimer.unref?.();
 }
 
-async function acquire(
-  conversationId: string
-): Promise<SessionTimelineResult<TimelineEntry>> {
+async function acquire(conversationId: string): Promise<SessionTimelineResult<TimelineEntry>> {
+  const row = readSessionRow(conversationId);
+  if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
   const cached = entries.get(conversationId);
   if (cached) {
     cached.refs += 1;
@@ -503,10 +505,6 @@ async function acquire(
     return { ok: true, value: cached };
   }
 
-  const row = readSessionRow(conversationId);
-  if (!row) {
-    return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
-  }
   const location = locateRow(row);
   if (!location.supported) {
     // 没有记录可读也要打得开(spec session-always-openable):给一个只含第一句话的替身,
@@ -539,7 +537,6 @@ async function acquire(
   const generation = resetGeneration;
   // 审批只有 ACP 腿有可结算的请求 id；TUI 腿的审批画在终端里，没有通道
   // （`write-bridge` 对它 fail loud）。所以这条订阅只对 ACP 腿开。
-  const live = summaryRuntime(row.runtime) === 'acp';
   const promise = factory({ locator: location.locator, conversationId, answerableQuestions: remoteAnswerFor(row) }).then((timeline) => {
     if (generation !== resetGeneration) {
       timeline.dispose();
@@ -555,12 +552,8 @@ async function acquire(
       disposed: false,
     };
     entries.set(conversationId, entry);
-    try { restoreAgentQuestions(entry, row.projectId); }
+    try { attachInteractive(entry, row); }
     catch (error) { entries.delete(conversationId); timeline.dispose(); throw error; }
-    if (live) attachPendingRequests(entry);
-    withdrawOrphanHostAsks(entry);
-    // A host ask made before this timeline opened (D-31): on it from the start.
-    if (hostAsks.has(conversationId)) syncPending(entry);
     return entry;
   });
   opening.set(conversationId, promise);
@@ -571,6 +564,13 @@ async function acquire(
   } finally {
     if (opening.get(conversationId) === promise) opening.delete(conversationId);
   }
+}
+
+function attachInteractive(entry: TimelineEntry, row: SessionRow): void {
+  restoreAgentQuestions(entry, row.projectId);
+  if (summaryRuntime(row.runtime) === 'acp') attachPendingRequests(entry);
+  withdrawOrphanHostAsks(entry);
+  if (hostAsks.has(row.id)) syncPending(entry);
 }
 
 /** 会话行上的建立时间(SQLite `CURRENT_TIMESTAMP`,UTC)→ epoch ms;读不出来 = 不知道。 */
@@ -678,7 +678,18 @@ function notStartedFacts(row: SessionRow): Pick<SessionpageSessionSummary, 'reco
 
 /** 这台机器的会话列表:手机、别的电脑、App 读的都是这一份(会话页路由表 `sessionTimeline.sessionsList`)。 */
 export async function listSessions(): Promise<SessionpageSessionsListResult> {
-  return sessionList(await agentIdsBySession(process.env));
+  return sessionList(await sessionAgents(process.env));
+}
+
+/** Resolve the canonical binding even when its task is archived; a missing task is an orphan, not an offline host. */
+export async function sessionOfAgent(agentUserId: string): Promise<{ projectId: string; sessionId: string } | null> {
+  const wanted = agentUserId.replace(/^user:/, '');
+  if (!wanted) throw new Error('Agent identity is required');
+  const bound = [...await agentIdsBySession(process.env)].filter(([, id]) => id === `user:${wanted}`);
+  if (bound.length > 1) throw new Error('Agent identity is bound to multiple tasks');
+  if (!bound.length) return null;
+  const [row] = db.select({ projectId: sessions.projectId, sessionId: sessions.id }).from(sessions).where(eq(sessions.id, bound[0][0])).limit(1).all();
+  return row ?? null;
 }
 
 /** 同一份列表,同步、不读名录(行上不带 agent):心跳的离线摘要与换版忙不忙只要状态。 */
@@ -686,20 +697,23 @@ export function listSessionStates(): SessionpageSessionsListResult {
   return sessionList(null);
 }
 
-function sessionList(agents: ReadonlyMap<string, string> | null): SessionpageSessionsListResult {
+function sessionList(agents: ReadonlyMap<string, { agentId: string; chatId: string | null }> | null): SessionpageSessionsListResult {
   const rows = readSessionRows();
+  const visibleProjects = readLocalProjects();
+  const visibleIds = new Set(visibleProjects.map(project => project.id));
   const projectById = new Map<string, SessionpageProjectSummary>();
   const sessions: SessionpageSessionSummary[] = [];
   const schedules = schedulesBySession(listSessionSchedules());
 
   for (const { session, project } of rows) {
+    if (!visibleIds.has(project.id)) continue;
     projectById.set(project.id, project);
     sessions.push(summaryOf(session, agents, schedules));
   }
   // 还没开过会话的项目也要列:手机新建会话只能挑这里列出的项目,刚在电脑上打开的项目 ❌ 因为没会话就看不见
   // (#6985:在手机上给一台刚加的机器开第一条会话)。只列本机项目,与侧栏同一个口径:隐式的任务工作区不算
   // 一个项目(侧栏也不列它),它只在里面有会话时随会话出现。
-  for (const project of readLocalProjects()) {
+  for (const project of visibleProjects) {
     if (isImplicitSessionHomeProjectId(project.id)) continue;
     if (!projectById.has(project.id)) projectById.set(project.id, project);
   }
@@ -710,24 +724,26 @@ function sessionList(agents: ReadonlyMap<string, string> | null): SessionpageSes
 /** 一条会话的摘要,与 `listSessions` 同一个投影;建会话时交回发起方,它就不用自己拼一份「不知道」的。 */
 export async function sessionSummary(conversationId: string): Promise<SessionpageSessionSummary | null> {
   const [row] = db.select().from(sessions).where(eq(sessions.id, conversationId)).limit(1).all();
-  return row ? summaryOf(row, await agentIdsBySession(process.env), schedulesBySession(listSessionSchedules())) : null;
+  return row ? summaryOf(row, await sessionAgents(process.env), schedulesBySession(listSessionSchedules())) : null;
 }
 
 /**
- * `agents`:本机名录里「会话 → agent」(`user:<uuid>`),一次读完;null = 这一份不报 agent。
+ * `agents`:本机名录里「会话 → agent」(`user:<uuid>`)与主人和它的私聊,一次读完;null = 这一份不报 agent。
  * `schedules`:整台机器给自己排的定时按会话分好(一次读完),行上那枚定时标记从这里来。
  */
 function summaryOf(
   session: SessionRow,
-  agents: ReadonlyMap<string, string> | null,
+  agents: ReadonlyMap<string, { agentId: string; chatId: string | null }> | null,
   schedules: ReadonlyMap<string, SessionSchedule[]>
 ): SessionpageSessionSummary {
-  const agentId = agents?.get(session.id);
+  const agent = agents?.get(session.id);
   const location = locateRow(session);
+  const cwd = session.workspaceId ? persistedWorkspacePath(session.workspaceId) : null;
   return {
+    ...(cwd ? { cwd } : {}),
     conversationId: session.id,
     projectId: session.projectId,
-    title: session.title,
+    title: taskName(session),
     // `harness` 报的是 provider 自己的 id：三家之外也要看得见是哪一家，
     // 而不是被折叠成一个「不支持」。
     harness: session.provider ?? 'unknown',
@@ -735,9 +751,13 @@ function summaryOf(
     ...statusFieldsOf(session),
     lastInteractedAt: session.lastInteractedAt,
     supported: location.supported,
-    nativeInputVersion: 1,
+    nativeInputVersion: 2,
+    ...(session.runtime === 'acp' ? { nativeInputIdentity: true as const } : {}),
     nativeLastMessage: nativeConversationActivity(session.id),
     nativeUnreadKeys: nativeConversationUnread(session.id),
+    nativeOwnerNotificationUnreadCount: nativeOwnerNotificationUnread(session.id).length,
+    nativeOwnerNotificationSeq: ownerNotificationHead(session.id) ?? -1,
+    nativeOwnerNotificationEpoch: ownerNotificationEpoch(session.id),
     nativeUnreadAliases: nativeConversationAliases(session.id),
     ...(location.supported ? {} : { unsupportedReason: location.reason, ...notStartedFacts(session) }),
     // 这三项库里早就有,先前没往手机端传 —— 手机上于是既没有置顶区、也认不出未读、
@@ -748,7 +768,9 @@ function summaryOf(
     parentConversationId: sessionParentId(session),
     spawnedByConversationId: sessionSpawnerId(session),
     ...(session.config?.activitySourceLinks ? { activitySourceLinks: session.config.activitySourceLinks } : {}),
-    ...(agents ? { agent: agentId ? { userId: agentId.slice('user:'.length) } : null } : {}),
+    ...(agents ? { agent: agent ? { userId: agent.agentId.slice('user:'.length) } : null } : {}),
+    // 这条会话的对话:主人和它的 agent 的私聊 —— 别的机器、手机都从这一行拿到它(任务页里 App 的 `ctx.chat`)。
+    ...(agent?.chatId ? { chatId: agent.chatId } : {}),
     spawnedByExtensionId: session.spawnedByExtensionId ?? null,
     schedule: sessionScheduleDigest(schedules.get(session.id) ?? []),
   };
@@ -893,7 +915,8 @@ async function withModelMenu(
   if (!row.provider) return options;
   const modeMap = options.mode ? declaredModeMap(row.provider) : undefined;
   const modelMenu = options.model ? await readSessionModelMenu(row.id, row.provider) : undefined;
-  return { ...options, ...(modelMenu ? { modelMenu } : {}), ...(modeMap ? { modeMap } : {}) };
+  const permissionAgentName = options.mode ? modelMenu?.agentName ?? await readSessionPermissionAgentName(row.provider) : undefined;
+  return { ...options, ...(modelMenu ? { modelMenu } : {}), ...(modeMap ? { modeMap } : {}), ...(permissionAgentName ? { permissionAgentName } : {}) };
 }
 
 /** 这家声明的权限档表;没声明(或不认识这家)就没有。 */
@@ -1021,25 +1044,74 @@ type TranscriptTurns = TimelineSnapshot['turns'];
  * 拿到的必须是带图的那份 —— 库里那份没有别处可以再取。读不回来的那张保持只有字数(与「图不在了」同一种降级)。
  * `ok: false` = 这里没有记录可读;`turns: null` = `pick` 说不挑(记录与库岔开了)。
  */
+/** Ingestion owns this reader. It cannot populate or dispose the interactive cache. */
+async function openIngestionRecord(conversationId: string, includeArchived?: boolean, parentLineage?: readonly RecordLineageNode[], readMode: 'snapshot' | 'live' = 'snapshot'): Promise<SessionTimeline | null> {
+  const row = readSessionRow(conversationId, { includeArchived });
+  if (!row || !timelineFactory) return null;
+  const location = locateRow(row);
+  if (!location.supported) return null;
+  const generation = resetGeneration;
+  const timeline = await timelineFactory({ locator: location.locator, conversationId, ...(readMode === 'snapshot' ? { readMode } : {}), parentLineage });
+  if (generation !== resetGeneration) { timeline.dispose(); return null; }
+  return timeline;
+}
+
 export async function pickRecordTurns(
   conversationId: string,
   pick: (turns: TranscriptTurns) => Promise<TranscriptTurns | null>,
-  options: { images: boolean } = { images: true },
-): Promise<{ ok: true; turns: TranscriptTurns | null } | { ok: false }> {
-  const acquired = await acquire(conversationId);
-  if (!acquired.ok) return { ok: false };
+  options: { images: boolean; committedOnly?: boolean; includeArchived?: boolean; afterForkOf?: string } = { images: true },
+): Promise<{ ok: true; turns: TranscriptTurns | null; complete: boolean } | { ok: false; reason?: 'diverged' }> {
+  const opened: SessionTimeline[] = [];
+  let provingParent = !!options.afterForkOf;
   try {
-    if (acquired.value.standIn) return { ok: false };
-    const timeline = acquired.value.timeline;
+    let parentLineage: readonly RecordLineageNode[] | undefined;
+    if (options.afterForkOf) {
+      const parent = await openIngestionRecord(options.afterForkOf, true);
+      if (!parent) return { ok: false, reason: 'diverged' };
+      opened.push(parent);
+      parentLineage = parent.getRecordLineage?.() ?? undefined;
+      if (!parentLineage?.length) return { ok: false, reason: 'diverged' };
+    }
+    provingParent = false;
+    const timeline = await openIngestionRecord(conversationId, options.includeArchived, parentLineage);
+    if (!timeline) return { ok: false };
+    opened.push(timeline);
     await timeline.catchUp();
-    const picked = await pick(timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns);
-    if (!picked || !options.images) return { ok: true, turns: picked };
-    return { ok: true, turns: await Promise.all(picked.map((turn) => withImagesReadBack(timeline, turn))) };
+    const all = timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns;
+    const prefix = options.committedOnly ? timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER, committedOnly: true }).turns : all;
+    const complete = prefix.length === all.length;
+    const picked = await pick(prefix);
+    if (!picked || !options.images) return { ok: true, turns: picked, complete };
+    return { ok: true, turns: await Promise.all(picked.map((turn) => withImagesReadBack(timeline, turn))), complete };
   } catch (error) {
     log.warn('[session-timeline] record unreadable', { conversationId, error: (error as Error)?.message ?? String(error) });
-    return { ok: false };
+    return { ok: false, ...(provingParent || (error as Error)?.name === 'SessionRecordForkDivergedError' ? { reason: 'diverged' as const } : {}) };
   } finally {
-    release(acquired.value);
+    for (const timeline of opened.reverse()) timeline.dispose();
+  }
+}
+
+/**
+ * A terminal reports idle before its buffered record write lands (record-backfill `settling`). Ingestion follows
+ * the same live record reader until the last turn carries its outcome: `true` = it settled, `false` = `signal` ended
+ * the watch first. A record that cannot be reopened fails loudly.
+ */
+export async function watchRecordSettled(conversationId: string, signal: AbortSignal): Promise<boolean> {
+  const timeline = await openIngestionRecord(conversationId, true, undefined, 'live');
+  if (!timeline) throw new Error(`record unavailable for ${conversationId}`);
+  let unsubscribe = () => {};
+  try {
+    return await new Promise<boolean>((resolve) => {
+      const check = () => { if (timeline.getSnapshot({ limit: 1 }).turns.at(-1)?.outcome) resolve(true); };
+      signal.addEventListener('abort', () => resolve(false), { once: true });
+      if (signal.aborted) resolve(false);
+      unsubscribe = timeline.subscribe(timeline.getSnapshot({ limit: 1 }).cursor, check);
+      // The reader caught up while opening: an outcome that landed after the settling snapshot is already here.
+      check();
+    });
+  } finally {
+    unsubscribe();
+    timeline.dispose();
   }
 }
 
@@ -1071,11 +1143,10 @@ export async function readOpenedFile(
   input: SessionpageOpenedFileReadRequest
 ): Promise<SessionTimelineResult<SessionpageOpenedFileChunk>> {
   try {
-    const copy = await findSessionAttachmentCopy(input.conversationId, input.path);
-    if (!copy && !(await sessionOpenedFile(input.conversationId, input.path))) {
+    if (!(await sessionOpenedFile(input.conversationId, input.path)) && !ownerNotificationFile(input.conversationId, input.path)) {
       return fail('not_opened', `这条会话没有打开过 ${input.path}`);
     }
-    return { ok: true, value: await readOpenedFileChunk(copy ?? input.path, input.offset, input.length) };
+    return { ok: true, value: await readOpenedFileChunk(input.path, input.offset, input.length) };
   } catch (error) {
     if (error instanceof OpenedFileError) return fail(error.code, error.message);
     return fail('read_failed', (error as Error)?.message ?? String(error));
@@ -1206,9 +1277,9 @@ const sessionsSubscriptions = new Map<string, { stop: () => void }>();
 const SESSIONS_PUSH_DEBOUNCE_MS = 200;
 
 /** 列表上看得见、又不经状态写入者的变化:会话增删、这几格元信息,以及会话给自己排的定时。 */
-const LISTED_FIELDS = ['title', 'isPinned', 'archivedAt', 'parentSessionId', 'nativeUnreadCount', 'nativeLastMessage'];
+const LISTED_FIELDS = ['title', 'isPinned', 'archivedAt', 'parentSessionId', 'nativeUnreadKeys', 'nativeLastMessage', 'nativeOwnerNotificationSeq', 'nativeOwnerNotificationEpoch'];
 function changesSessionList(channel: string, data: unknown): boolean {
-  if (channel === sessionCreatedChannel.name || channel === sessionDeletedChannel.name) {
+  if (channel === sessionCreatedChannel.name) {
     return true;
   }
   // 行上那枚定时标记:排上、取消、到点、没送到都经这两条(automations-service)。
@@ -1332,10 +1403,19 @@ export async function send(
   conversationId: string,
   text: string,
   clientMessageId?: string,
-  attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
+  files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files'],
+  attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]
 ): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string }>> {
+  if (files !== undefined && !turnFileRefSchema.array().safeParse(files).success) return fail('invalid_request', '附件引用无效');
   if (attachments !== undefined && !promptAttachmentSchema.array().safeParse(attachments).success) return fail('invalid_request', '附件引用无效');
   if (clientMessageId !== undefined && (!clientMessageId.trim() || clientMessageId.length > 256)) return fail('invalid_request', '消息标识无效');
+  // A side chat has no session row: its custody send lands in its fork entry's queue.
+  if (runtimeFork(conversationId)) {
+    if (!text.trim() && !files?.length && !attachments?.length) return fail('empty_text', '消息是空的');
+    sessionLife().enqueue({ sessionId: conversationId, messageId: clientMessageId ?? crypto.randomUUID(), text: text.trim(), kind: 'ordinary',
+      delivery: { queue: true, origin: 'manual', ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) } });
+    return { ok: true, value: { accepted: 'queued', ...(clientMessageId ? { clientMessageId } : {}) } };
+  }
   const row = readSessionRow(conversationId);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
   // provider 为空 = 这一行没记下是哪家引擎；再往下走只会在插件表里抛一句认不出来的话。
@@ -1344,39 +1424,13 @@ export async function send(
   }
   // 还没开起来的会话(建的时候 agent 没起来,#6264):先按「再试一次」同一条路把它起来 —— 第一句话随之投递 ——
   // 再发这一句。❌ 直接唤醒:唤醒不带第一句,agent 会只看到后来这一句。
-  if (await neverStarted(row)) {
-    const { startSession } = await import('./create-session');
-    const started = await startSession(conversationId);
-    if (!started.ok) return fail(started.error.code, started.error.message);
-  }
+  // A never-started session is ACP only (neverStarted), and its delivery itself starts it (session-life row 1).
   try {
-    const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, attachments);
+    const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, files, attachments);
     return { ok: true, value: { ...accepted, ...(clientMessageId ? { clientMessageId } : {}) } };
   } catch (error) {
     if (error instanceof SessionWriteError) return fail(error.code, error.message);
     return fail('send_failed', (error as Error)?.message ?? String(error));
-  }
-}
-
-type AttachmentUploads = typeof import('@main/core/sessions/attachments/attachment-upload');
-
-/**
- * 手机输入框的附件落进这条会话的附件目录。`run` 拿到的是桌面输入框同三个函数
- * (`attachment-upload.ts`:同一套 id / 路径段校验、同一个落盘、同一张登记表)。
- */
-export async function withSessionAttachments<T>(
-  conversationId: string,
-  run: (uploads: AttachmentUploads) => Promise<T>
-): Promise<SessionTimelineResult<T>> {
-  const row = readSessionRow(conversationId);
-  if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
-  // 用时再 import:它拖着 electron 与落盘那一串,只读时间线的路不该替它交税(与 create-session 同一条)。
-  const uploads = await import('@main/core/sessions/attachments/attachment-upload');
-  try {
-    return { ok: true, value: await run(uploads) };
-  } catch (error) {
-    if (error instanceof uploads.AttachmentUploadError) return fail(error.code, error.message);
-    return fail('persist_failed', (error as Error)?.message ?? String(error));
   }
 }
 
@@ -1416,13 +1470,13 @@ export async function updateSession(
     }
     if (input.archived === true) {
       const { archiveSession } = await import('@main/core/sessions/archiveSession');
-      await archiveSession(row.projectId, row.id);
+      await archiveSession(row.projectId, row.id, { removeSocialIdentity: input.removeSocialIdentity });
     }
     const after = db.select().from(sessions).where(eq(sessions.id, row.id)).get();
     return {
       ok: true,
       value: {
-        title: after?.title ?? row.title,
+        title: taskName(after ?? row),
         isPinned: (after?.isPinned ?? row.isPinned) === 1,
         archived: !!after?.archivedAt,
       },
@@ -1450,7 +1504,7 @@ export async function respond(
   input: SessionpageSessionRespondRequest
 ): Promise<SessionTimelineResult<SessionpageSessionRespondResult>> {
   const row = readSessionRow(input.conversationId);
-  if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
+  if (!row) return fail('session_not_found', '这台机器上没有这条会话');
   const target = writeTargetFrom(row);
 
   const acquired = await acquire(input.conversationId);

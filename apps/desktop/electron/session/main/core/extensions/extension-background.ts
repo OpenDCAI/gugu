@@ -192,8 +192,10 @@ export function syncExtensionBackgrounds(): void {
     try {
       startExtensionBackground(manifest, {
         extensionId: manifest.id,
+        apiVersion: manifest.apiVersion,
         rootDir,
         networkHosts: service.grantedHosts(manifest.id),
+        declaredHosts: manifest.permissions?.network ?? [],
       });
     } catch (error: unknown) {
       // 一个扩展的后台起不来(比如无头宿主里根本没有 BrowserWindow),只记这一条:

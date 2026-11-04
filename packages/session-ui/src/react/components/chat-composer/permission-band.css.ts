@@ -8,7 +8,7 @@ export const band = style({
   gap: '0.75rem',
   // 与卡片同圆角,见 chat-composer.css.ts 的 @@@composer-card-radius。
   borderRadius: `${tokenVars.radiusThread} ${tokenVars.radiusThread} 0 0`,
-  border: `1px solid ${vars.border}`,
+  border: `1px solid var(--composer-outline-border, ${vars.border})`,
   borderBottomWidth: 0,
   paddingLeft: '0.75rem',
   paddingRight: '0.75rem',

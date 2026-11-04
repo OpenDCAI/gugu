@@ -9,6 +9,16 @@ const askedReveals = new Map<string, string>()
 export function askReveal(chatId: string, messageId: string, viewportKey = 'primary'): void {
   askedReveals.set(JSON.stringify([viewportKey, chatId]), messageId)
 }
+/** A task's view takes reveals under its own key in the same map: search asks, the task view takes it once on screen. */
+const taskKey = (sessionId: string) => `task:${sessionId}`
+export function askTaskReveal(sessionId: string, reference: string): void {
+  askReveal(taskKey(sessionId), reference)
+}
+export function takeTaskReveal(sessionId: string): string | undefined {
+  const asked = JSON.stringify(['primary', taskKey(sessionId)]), reference = askedReveals.get(asked)
+  askedReveals.delete(asked)
+  return reference
+}
 
 /**
  * #1708 来源消息 → 主消息列表定位 + 高亮闪烁。入口是群右栏工作区 App 的「来源消息」(gugu.showMessage;主进程已核过

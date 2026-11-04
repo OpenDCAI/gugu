@@ -66,7 +66,7 @@ function setup(options: {
     homedir: () => home,
     clipboardRead: () => '',
     clipboardWrite: () => undefined,
-    notify: () => undefined,
+    notify: async () => ({ shown: true }),
     openExternal: async () => undefined,
     trashItem,
     jxa: vi.fn() as unknown as FamilyDeps['jxa'],

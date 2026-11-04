@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import type { ExtensionCapability } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 
 /**
  * owner 10-16「程序跟着数据」, the phone: an App page in a session on one of the person's computers calls the App's program on
@@ -33,16 +34,22 @@ vi.mock('../../../../apps/desktop/src/components/appSlot/phoneApps', async (orig
   const real = await original<typeof import('../../../../apps/desktop/src/components/appSlot/phoneApps')>()
   return { ...real, phoneApps: { ...real.phoneApps, data: { ...real.phoneApps.data, read: own.read } } }
 })
+vi.mock('../../../../apps/desktop/src/session/shared/remote-sessions/session-directory', async (original) => ({
+  ...await original<typeof import('../../../../apps/desktop/src/session/shared/remote-sessions/session-directory')>(),
+  listedSession: (_devices: unknown, _live: unknown, id: string) => id === 's-there'
+    ? { row: { deviceId: 'dev-server', session: { conversationId: id, projectId: 'p-2' } } } : { unread: [] },
+}))
+const openWorkingCopy = vi.fn()
 const { hostAppFrame } = await import('../../../../apps/desktop/src/components/appSlot/phoneAppHost')
 
 let frame: HTMLIFrameElement
 let posted: ReturnType<typeof vi.fn>
 let host: ReturnType<typeof hostAppFrame> | undefined
 const SESSION: { id: string; deviceId: string; deviceLabel: string; projectId: string; online?: boolean } = { id: 's-there', deviceId: 'dev-server', deviceLabel: 'server', projectId: 'p-2' }
-function start(where: { chatId: string | null; session?: typeof SESSION }) {
+function start(where: { chatId: string | null; session?: typeof SESSION }, capabilities: ExtensionCapability[] = ['files:read']) {
   host?.dispose()
-  host = hostAppFrame(frame, { extensionId: 'spexcode', tabId: 'tab-1', tabName: 'main', ...where, capabilities: ['files:read'], locale: 'en-US', themeMode: 'light' }, {
-    showMessage: vi.fn(), showSession: () => ({ shown: true }), openWith: vi.fn(), chrome: vi.fn(),
+  host = hostAppFrame(frame, { extensionId: 'spexcode', tabId: 'tab-1', tabName: 'main', ...where, capabilities, locale: 'en-US', themeMode: 'light' }, {
+    showMessage: vi.fn(), showSession: () => ({ shown: true }), openWith: vi.fn(), openWorkingCopy, chrome: vi.fn(),
   })
 }
 beforeEach(() => {
@@ -53,22 +60,64 @@ beforeEach(() => {
   Object.defineProperty(frame.contentWindow!, 'postMessage', { value: posted, configurable: true })
   sent.calls.length = 0
   sent.refusal = null
+  openWorkingCopy.mockClear()
+  sent.answer = { content: [{ type: 'text', text: 'graph' }] }
 })
 afterEach(() => {
   host?.dispose()
   host = undefined
   frame.remove()
+  vi.unstubAllGlobals()
 })
 
 let nextId = 1
 async function call(method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const id = nextId++
-  window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method, args }, source: frame.contentWindow, origin: ORIGIN }))
+  window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method, args, gesture: true }, source: frame.contentWindow, origin: ORIGIN }))
   await vi.waitFor(() => expect(posted.mock.calls.some(([message]) => (message as { id?: number }).id === id)).toBe(true))
   return posted.mock.calls.map(([message]) => message as Record<string, unknown>).find((message) => message.id === id)!
 }
 
 describe('an App page on the phone, in a session on another computer', () => {
+  it.each([false, true])('refuses an ungranted workspace range before contacting the computer (explicit device: %s)', async (explicitDevice) => {
+    start({ chatId: null, session: SESSION }, [])
+    sent.answer = { size: 3, offset: 0, data: 'AP+A' }
+    const reply = await call('filesRead', {
+      ref: { workspace: 'session:s-there', id: 'data.bin' }, offset: 0, length: 3,
+      ...(explicitDevice ? { device: 'device:00000000-0000-4000-8000-000000000001' } : {}),
+    })
+    expect(reply).toMatchObject({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "files:read"' })
+    expect(sent.calls).toHaveLength(0)
+  })
+
+  it('decodes a workspace range once before posting binary bytes to the App', async () => {
+    start({ chatId: null, session: SESSION })
+    sent.answer = { size: 3, offset: 0, data: 'AP+A' }
+    const reply = await call('filesRead', { ref: { workspace: 'session:s-there', id: 'data.bin' }, offset: 0, length: 3 })
+    expect(reply).toMatchObject({ ok: true, value: { size: 3, offset: 0 } })
+    const value = structuredClone(reply.value) as { data: Uint8Array }
+    expect(value.data).toBeInstanceOf(structuredClone(new Uint8Array()).constructor)
+    expect([...value.data]).toEqual([0, 255, 128])
+    expect(value.data.buffer.byteLength).toBe(3)
+    expect(sent.answer).toMatchObject({ data: 'AP+A' })
+  })
+
+  it('opens a working-copy file in the phone preview through the same machine route as listing', async () => {
+    start({ chatId: null, session: SESSION })
+    sent.answer = { size: 18, offset: 0, etag: 'v1', data: 'YQ==' }
+    const ref = { workspace: 'session:s-there', id: 'notes/a.md' }
+    expect(await call('filesOpenWith', { ref })).toMatchObject({ ok: true })
+    expect(sent.calls[0]).toMatchObject(['dev-server', { extensionId: 'spexcode' }, { method: 'filesRead', session_id: 's-there', args: { ref, offset: 0, length: 1 } }])
+    expect(openWorkingCopy).toHaveBeenCalledWith('notes/a.md', expect.any(Function))
+    const read = openWorkingCopy.mock.calls[0]![1] as (offset: number, length: number) => Promise<unknown>
+    await expect(read(1, 17)).resolves.toMatchObject({ size: 18, etag: 'v1' })
+    expect(sent.calls[1]).toMatchObject(['dev-server', expect.anything(), { method: 'filesRead', args: { ref, offset: 1, length: 17 } }])
+    openWorkingCopy.mockClear()
+    sent.refusal = { code: 'not-found', message: 'file missing' }
+    expect(await call('filesOpenWith', { ref, ask: true })).toMatchObject({ ok: false, code: 'not-found' })
+    expect(openWorkingCopy).not.toHaveBeenCalled()
+  })
+
   it('calls its program on that computer, with this App\'s version, under one caller id kept for this install', async () => {
     start({ chatId: null, session: SESSION })
     expect(await call('callProgram', { name: 'graph', arguments: { a: 1 } })).toMatchObject({ ok: true, value: { content: [{ text: 'graph' }] } })
@@ -131,10 +180,10 @@ describe('an App page on the phone, in a session on another computer', () => {
     expect(sent.calls).toHaveLength(0)
   })
 
-  it('its context names the session and its computer, and no chat', async () => {
+  it('its context names the working copy (the session) and its computer, and no chat', async () => {
     start({ chatId: null, session: SESSION })
     const context = (await call('getContext', {})).value as Record<string, unknown>
-    expect(context.session).toEqual({ id: 's-there', deviceId: 'dev-server', deviceLabel: 'server', projectId: 'p-2' })
+    expect(context.workspace).toEqual({ id: 'session:s-there', sessionId: 's-there', deviceId: 'dev-server', deviceLabel: 'server', projectId: 'p-2' })
     expect(context).not.toHaveProperty('chat')
   })
 

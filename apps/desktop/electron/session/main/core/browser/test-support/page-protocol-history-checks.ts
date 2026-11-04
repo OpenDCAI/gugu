@@ -5,6 +5,7 @@ import { BrowserWindow } from 'electron';
 import { createPageProtocol } from '../page-protocol';
 import { isSupportedBrowserNavigationUrl } from '../browser-navigation';
 import { withinDeadline } from './page-protocol-deadline';
+import { navigateHistoryFromScript } from './page-protocol-history-script';
 
 export async function pageProtocolHistoryChecks(url: string, check: (name: string, body: () => Promise<void>) => Promise<void>) {
   const file = path.join(process.env.GUGU_HOME!, 'owned-history-secret.txt');
@@ -41,7 +42,7 @@ export async function pageProtocolHistoryChecks(url: string, check: (name: strin
         const lease = createPageProtocol(contents);
         try {
           await lease.send('Runtime.enable');
-          if (input === 'script') await withinDeadline(lease.send('Runtime.evaluate', { expression: 'history.go(-1)' }), 'history script');
+          if (input === 'script') await navigateHistoryFromScript(contents, lease, -1);
           else if (input === 'alt-left') {
             for (const type of ['keyDown', 'keyUp']) await lease.send('Input.dispatchKeyEvent', {
               type, modifiers: 1, key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37,
@@ -51,7 +52,7 @@ export async function pageProtocolHistoryChecks(url: string, check: (name: strin
               type, button: 'back', buttons: type === 'mousePressed' ? 8 : 0, x: 20, y: 20, clickCount: 1,
             });
           }
-          await new Promise(resolve => setTimeout(resolve, 150));
+          if (input !== 'script') await new Promise(resolve => setTimeout(resolve, 150));
           process.stdout.write('HISTORY_INPUT_OBSERVATION=' + JSON.stringify({ scheme, input, landedUrl: contents.getURL() }) + '\n');
           assert.ok(isSupportedBrowserNavigationUrl(contents.getURL()), 'history input reached an unsupported URL: ' + contents.getURL());
           const entries = contents.navigationHistory.getAllEntries();

@@ -15,7 +15,7 @@ describe('ContactsPanel default section collapse', () => {
   it('counts folded device content and does not show an empty page while a device owns a group', async () => {
     const agent = contact({ id: 'local-agent', type: 'agent', owner_user_id: 'owner-1', device_id: 'local-device' })
     const group = { id: 'project-group', kind: 'group' as const, name: 'Project Group', avatar_url: null, member_count: 2, is_muted: false, member_user_ids: ['owner-1', agent.id] }
-    await renderWithAppProviders(harness, createNode(ContactsPanel, { activeTab: 'contacts' }), {
+    await renderWithAppProviders(harness, createNode(ContactsPanel, {}), { shellTab: 'contacts',
       auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner' },
       contacts: { contacts: [agent], groupChats: [group] },
       chat: { chats: [] },
@@ -35,7 +35,7 @@ describe('ContactsPanel default section collapse', () => {
   })
 
   it('retains the empty states when all contact partitions are empty', async () => {
-    await renderWithAppProviders(harness, createNode(ContactsPanel, { activeTab: 'contacts' }), {
+    await renderWithAppProviders(harness, createNode(ContactsPanel, {}), { shellTab: 'contacts',
       auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner' },
       contacts: { contacts: [], groupChats: [] },
       chat: { chats: [] },
@@ -53,7 +53,7 @@ describe('ContactsPanel default section collapse', () => {
       id: 'plain-group', kind: 'group' as const, name: 'Plain Group', avatar_url: null,
       member_count: 2, is_muted: false, member_user_ids: ['owner-1', 'alice'],
     }
-    await renderWithAppProviders(harness, createNode(ContactsPanel, { activeTab: 'contacts' }), {
+    await renderWithAppProviders(harness, createNode(ContactsPanel, {}), { shellTab: 'contacts',
       auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner' },
       contacts: { contacts: [contact({ id: 'alice', display_name: 'Alice' })], sharedGroupAgents: [sharedAgent], groupChats: [group] },
       chat: { chats: [] },

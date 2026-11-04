@@ -4,6 +4,7 @@ import { gitRepoUpdateChannel, gitWorktreeUpdateChannel } from '@shared/core/git
 import { HEAD_REF, STAGED_REF } from '@shared/core/git/types';
 import type { MonacoModelRegistry } from './monaco-model-registry';
 import { workspaceEvents } from '@renderer/features/sessions/workspace-backend/workspace-backend';
+import { log } from '@renderer/utils/logger';
 
 /** Disk models for paths affected by a watch event (atomic saves often use create/delete, not modify). */
 function diskUrisForFileChange(
@@ -26,11 +27,14 @@ function diskUrisForFileChange(
  * Call once in `bootstrap()` after Monaco pool initialization.
  */
 export function wireModelRegistryInvalidation(registry: MonacoModelRegistry): () => void {
+  const refresh = (uri: string) => {
+    void registry.invalidateModel(uri).catch(error => log.error('Failed to refresh editor model', { uri, error }));
+  };
   // Disk file modifications → invalidate matching disk:// models.
   const unsubFs = workspaceEvents.on(fileChangesChannel, ({ workspaceId, update }) => {
     if (update.kind === 'resync') {
       for (const uri of registry.findDiskUris({ workspaceId })) {
-        void registry.invalidateModel(uri);
+        refresh(uri);
       }
       registry.noteDiskChange(workspaceId);
       return;
@@ -40,7 +44,7 @@ export function wireModelRegistryInvalidation(registry: MonacoModelRegistry): ()
       if (change.entryType !== 'directory') registry.noteDiskChange(workspaceId, change.path);
       const uris = diskUrisForFileChange(registry, workspaceId, change);
       for (const uri of uris) {
-        void registry.invalidateModel(uri);
+        refresh(uri);
       }
     }
   });
@@ -49,7 +53,7 @@ export function wireModelRegistryInvalidation(registry: MonacoModelRegistry): ()
   const unsubWorkspace = workspaceEvents.on(gitWorktreeUpdateChannel, ({ workspaceId, update }) => {
     const ref = update.kind === 'status' ? STAGED_REF : HEAD_REF;
     for (const uri of registry.findGitUris({ workspaceId, ref })) {
-      void registry.invalidateModel(uri);
+      refresh(uri);
     }
   });
 
@@ -57,7 +61,7 @@ export function wireModelRegistryInvalidation(registry: MonacoModelRegistry): ()
     if (update.kind !== 'refs') return;
     const refKind = 'branch';
     for (const uri of registry.findGitUris({ projectId, refKind })) {
-      void registry.invalidateModel(uri);
+      refresh(uri);
     }
   });
 

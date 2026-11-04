@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from '@gugu/core/local/childProcess';
 
 function windowsExecutableExtensions(env: NodeJS.ProcessEnv): string[] {
   const pathExt = env.PATHEXT || '.COM;.EXE;.BAT;.CMD';
@@ -62,7 +62,6 @@ function readGitForWindowsInstallPath(env: NodeJS.ProcessEnv): string | null {
       const file = path.join(dir, 'git-for-windows.reg');
       execFileSync(reg, ['export', `${root}\\SOFTWARE\\GitForWindows`, file, '/y'], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
       });
       const installPath = parseRegExportString(fs.readFileSync(file, 'utf16le'), 'InstallPath');
       if (installPath) return installPath;

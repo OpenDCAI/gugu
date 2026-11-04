@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { saveFileHandle, writeFileHandle } from '@gugu/core/local/files/fileSnapshots'
 import { createFileResolver, type FileRevision } from '@gugu/core/shared/fileResolver'
-import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
+import { verifiedFileHandle } from '../../../support/verifiedFileHandle'
 const roots: string[] = []
 afterEach(async () => {
   for (const root of roots.splice(0)) {

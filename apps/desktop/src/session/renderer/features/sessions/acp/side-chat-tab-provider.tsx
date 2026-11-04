@@ -1,11 +1,11 @@
-import { GitFork } from 'lucide-react';
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { GitFork } from '@/lib/icons';
 import { observer } from 'mobx-react-lite';
 import type { ResolvedTab, TabBarItemProps, TabEntry, TabHandle, TabProvider, TabViewContext } from '@renderer/features/tabs/core/tab-provider';
 import { createTabProvider } from '@renderer/features/tabs/core/tab-provider-registry';
 import { registeredTabView } from '@renderer/features/tabs/core/tab-views';
 import type { SessionTabContext } from '@renderer/features/tabs/core/session-tab-context';
 import { GenericTabDragPreview, GenericTabItem } from '@renderer/features/tabs/tab-bar/generic-tab-item';
-import { formatSessionTitleForDisplay } from '../session-title-utils';
 import { sessionRegistry } from '../stores/session-registry';
 import { acpChatResources } from './acp-chat-resources';
 import { AcpChatTabResource } from './acp-chat-tab-resource';
@@ -25,13 +25,11 @@ export interface SideChatState {
 
 export type SideChatOpenArgs = SideChatState;
 
-function sideChatLabel(resource: AcpChatTabResource): string {
+function useSideChatLabel(resource: AcpChatTabResource): string {
   const session = sessionRegistry
     .get(resource.store.sessionId)
     ?.sessions.get(resource.store.sessionId);
-  const baseLabel = session
-    ? formatSessionTitleForDisplay(session.data.providerId, session.data.title)
-    : 'ACP Chat';
+  const baseLabel = useShownAgentName({ name: session?.data.title ?? 'ACP Chat', agentType: session?.data.providerId, createdAt: session?.data.createdAt });
   return translateSessionMessage('chat.sideChatSuffix', { label: baseLabel });
 }
 
@@ -40,7 +38,7 @@ const SideChatTabBarItem = observer(function SideChatTabBarItem({
   host,
   ctx,
 }: TabBarItemProps<AcpChatTabResource>) {
-  const label = sideChatLabel(tab.resource);
+  const label = useSideChatLabel(tab.resource);
   const runtimeViewId = tab.resource.store.runtimeView?.id;
   const forkedFromSessionId = tab.resource.store.runtimeView?.forkedFromSessionId;
 
@@ -65,7 +63,7 @@ const SideChatTabBarItem = observer(function SideChatTabBarItem({
 function SideChatTabBarItemDragPreview({ tab }: { tab: ResolvedTab<AcpChatTabResource> }) {
   return (
     <GenericTabDragPreview
-      label={sideChatLabel(tab.resource)}
+      label={useSideChatLabel(tab.resource)}
       preSlot={<GitFork className="size-3.5 shrink-0 text-foreground-muted" />}
     />
   );

@@ -124,6 +124,7 @@ function artifactBlock(node: RootContent, id: BlockId): Block {
   if (node.type !== 'code') throw new Error(`not an artifact node: ${node.type}`);
   const lang = node.lang?.toLowerCase();
   if (lang === 'mermaid' || lang === 'mmd') return { kind: 'mermaid', id, source: node.value };
+  if (lang === 'svg') return { kind: 'svg', id, source: node.value };
   return { kind: 'code', id, code: node.value, lang: node.lang ?? undefined };
 }
 
@@ -134,6 +135,13 @@ function readerText(node: Nodes | MdastMention): string {
   if ('value' in node && typeof node.value === 'string') return node.value;
   if ('children' in node) return (node.children as Nodes[]).map(readerText).join('');
   return '';
+}
+
+/** The same visible-text projection as transcript blocks, without rendering or fetching anything. */
+export function documentToPlainText(text: string): string {
+  const parser = createMarkdownParser(TRANSCRIPT_DIALECT);
+  const tree = parser.runSync(parser.parse(text)) as Root;
+  return tree.children.map(readerText).join('\n\n');
 }
 
 /**

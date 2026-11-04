@@ -3,7 +3,7 @@ import { marketHome } from './market-home';
 
 type Entry = Parameters<typeof marketHome>[0][number];
 const entry = (id: string, first: string, extra: Partial<Entry> = {}): Entry => ({
-  manifest: { id, name: id, version: '1.0.0', apiVersion: 3, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id }] } },
+  manifest: { id, name: id, version: '1.0.0', apiVersion: 25, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id }] } },
   version: '1.0.0', publishedAt: first, firstPublishedAt: first,
   deprecated: null, compat: null, featured: false, firstRun: false, ...extra,
 });
@@ -44,10 +44,10 @@ describe('marketHome', () => {
     expect(ids(two.popular!)).toEqual(['second']);
   });
 
-  it('excludes unavailable and retired Apps from recommendations, not from the complete New list', () => {
+  it('excludes author-update and retired Apps from recommendations, not from the complete New list', () => {
     const entries = [
       entry('retired', '2026-10-04', { featured: true, deprecated: { note: null, replacedBy: null } }),
-      entry('blocked', '2026-10-03', { featured: true, compat: { reason: 'needs-newer-app', minAppVersion: '9.0.0' } }),
+      entry('blocked', '2026-10-03', { featured: true, compat: { reason: 'needs-author-update', apiVersion: 24 } }),
       entry('default', '2026-10-02', { firstRun: true, featured: true }),
       entry('editor', '2026-10-01', { featured: true }),
     ];

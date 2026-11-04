@@ -144,7 +144,7 @@ describe('project folders', () => {
       },
     });
     await writeFile(path.join(rootB, 'keep.txt'), 'original');
-    fixture.sqlite.exec("INSERT INTO sessions (id, project_id, workspace_id, title) VALUES ('source-session', 'project-b', 'ws-root-b', 'keep')");
+    fixture.sqlite.exec("INSERT INTO sessions (id, project_id, workspace_id) VALUES ('source-session', 'project-b', 'ws-root-b')");
 
     const pending = await runProjectAgentAction({ projectId: 'project-a' }, { action: 'project_add_folder', path: rootB }) as { needs_confirmation: boolean; source_project_id: string; sessions: number };
     expect(pending).toMatchObject({ needs_confirmation: true, source_project_id: 'project-b', sessions: 1 });
@@ -233,10 +233,10 @@ describe('project folders', () => {
       vi.useRealTimers();
       expect([relatedFolder.attachedAt, worktreeFolder.attachedAt]).toEqual(['2026-10-16T01:00:00.000Z', '2026-10-16T02:00:00.000Z']);
       fixture.sqlite.exec(`
-        INSERT INTO sessions (id, project_id, workspace_id, title) VALUES ('s-root', 'project-a', 'ws-root-a', 'root');
-        INSERT INTO sessions (id, project_id, workspace_id, title) VALUES ('s-wt', 'project-a', '${worktreeFolder.workspaceId}', 'wt');
-        INSERT INTO sessions (id, project_id, workspace_id, title, archived_at) VALUES ('s-wt-archived', 'project-a', '${worktreeFolder.workspaceId}', 'old', '2026-10-01');
-        INSERT INTO sessions (id, project_id, workspace_id, title) VALUES ('s-foreign', 'project-b', 'ws-root-a', 'foreign');
+        INSERT INTO sessions (id, project_id, workspace_id) VALUES ('s-root', 'project-a', 'ws-root-a');
+        INSERT INTO sessions (id, project_id, workspace_id) VALUES ('s-wt', 'project-a', '${worktreeFolder.workspaceId}');
+        INSERT INTO sessions (id, project_id, workspace_id, archived_at) VALUES ('s-wt-archived', 'project-a', '${worktreeFolder.workspaceId}', '2026-10-01');
+        INSERT INTO sessions (id, project_id, workspace_id) VALUES ('s-foreign', 'project-b', 'ws-root-a');
       `);
 
       const result = await listProjectFolders('project-a');
@@ -379,7 +379,7 @@ describe('project folders', () => {
     it('同一路径已有一条无主的旧行:认领它(沿用 id,kind 改成 path),在里面的本项目会话算这个文件夹的', async () => {
       fixture.sqlite.exec(`
         INSERT INTO workspaces (id, kind, location, type, path, key) VALUES ('ws-old', 'worktree', 'local', 'local', '${worktree}', '${computeWorkspaceKey(worktree)}');
-        INSERT INTO sessions (id, project_id, workspace_id, title) VALUES ('s-old', 'project-a', 'ws-old', 'old worktree session');
+        INSERT INTO sessions (id, project_id, workspace_id) VALUES ('s-old', 'project-a', 'ws-old');
       `);
 
       const folder = await attachOk('project-a', worktree);
@@ -391,7 +391,7 @@ describe('project folders', () => {
     it('无主的旧行正被别的项目没归档的会话用着 ⇒ belongs-to-other-project,不认领', async () => {
       fixture.sqlite.exec(`
         INSERT INTO workspaces (id, kind, location, type, path, key) VALUES ('ws-old', 'worktree', 'local', 'local', '${worktree}', '${computeWorkspaceKey(worktree)}');
-        INSERT INTO sessions (id, project_id, workspace_id, title) VALUES ('s-b', 'project-b', 'ws-old', 'b session');
+        INSERT INTO sessions (id, project_id, workspace_id) VALUES ('s-b', 'project-b', 'ws-old');
       `);
 
       expect(await attachProjectFolder('project-a', worktree)).toEqual({
@@ -417,7 +417,7 @@ describe('project folders', () => {
   describe('detachProjectFolder', () => {
     it('摘下:行还在(在里面的会话照旧),只是不再挂在项目下;通知项目文件夹变了', async () => {
       const folder = await attachOk('project-a', worktree);
-      fixture.sqlite.exec(`INSERT INTO sessions (id, project_id, workspace_id, title) VALUES ('s-wt', 'project-a', '${folder.workspaceId}', 'wt')`);
+      fixture.sqlite.exec(`INSERT INTO sessions (id, project_id, workspace_id) VALUES ('s-wt', 'project-a', '${folder.workspaceId}')`);
       mocks.emitted.length = 0;
 
       expect(await detachProjectFolder('project-a', folder.workspaceId)).toEqual({ success: true });
@@ -469,7 +469,7 @@ describe('project folders', () => {
       const attached = await attachOk('project-a', worktree);
       await detachProjectFolder('project-a', 'ws-root-a');
       expect((await getProjects()).map((project) => project.id)).toContain('project-a');
-      fixture.sqlite.exec(`INSERT INTO sessions (id, project_id, workspace_id, title) VALUES ('keep-session', 'project-a', 'ws-root-a', 'keep')`);
+      fixture.sqlite.exec(`INSERT INTO sessions (id, project_id, workspace_id) VALUES ('keep-session', 'project-a', 'ws-root-a')`);
       await detachProjectFolder('project-a', attached.workspaceId);
       expect(await listProjectFolders('project-a')).toEqual({ success: true, data: [] });
       expect((await getProjects()).map((project) => project.id)).toContain('project-a');

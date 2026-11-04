@@ -33,8 +33,8 @@ export type FileTreeProjectionPush = {
 };
 
 /**
- * Per-path main-process projector. It is the single client of the core `FileTree` for one path and
- * the per-view projection hub toward renderer (and, later, mobile) clients.
+ * Main-process projector over one path's core `FileTree`, the per-view projection hub toward renderer
+ * (and, later, mobile) clients. A mounted workspace has one; a page listing a working copy has its own over the same tree.
  *
  * - Subscribes once to the core tree and reduces its keyed delta stream into an inline
  *   `scope -> listing` union cache (no exported primitive; just a Map + a small reducer).
@@ -131,6 +131,23 @@ export class FileTreeProjector {
       }
     }
     return ok({ version: this.flushScopes(subscriptionId, sub, scopes) });
+  }
+
+  /**
+   * One directory's children as this view now holds them, registered first (`null`: the root). What an App's
+   * `files.list({ session }, { folder })` reads: the same listing this tree sends the file panel, one level at a time.
+   */
+  async listDir(
+    subscriptionId: string,
+    absDir: string | null
+  ): Promise<Result<FileNode[], FileTreeOperationError>> {
+    if (absDir === null) return ok(this.materialize(null));
+    const revealed = await this.revealPath(subscriptionId, absDir);
+    if (!revealed.success) return err(revealed.error);
+    const id = this.idByPath.get(absDir);
+    const node = id === undefined ? undefined : this.nodeById.get(id);
+    if (!node || !isExpandableFileNode(node)) return err({ type: 'not_found' });
+    return ok(this.materialize(node.id));
   }
 
   async closeProjection(subscriptionId: string): Promise<void> {

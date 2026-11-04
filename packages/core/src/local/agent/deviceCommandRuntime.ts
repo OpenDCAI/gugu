@@ -19,8 +19,9 @@ import { getSupabaseAnonKey, getSupabaseUrl } from '../../cloud/config'
 import { normalizeAgentType, type AgentType } from '../../agentTypes'
 import type { AgentActivityStatus } from '../../shared/types/chat'
 import type { AgentStatusReading } from '../../shared/agentStatus'
+import { isTransientNetworkError, transientNetworkErrorCode } from '../../shared/networkError'
 import { AGENT_INIT_HELD_TIMEOUT_MS } from '../../shared/enums/deviceModels'
-import { getAgent, listAgents, removeAgents, updateAgent, cachedProviderSessionId, type LocalAgentRecord } from '../state/agents'
+import { getAgent, listAgents, archiveAgents, removeAgents, updateAgent, cachedProviderSessionId, type LocalAgentRecord } from '../state/agents'
 import { agentOwnerUserId, agentsForOwner } from '../state/agentOwner'
 import { normalizeAgentModelSelection, type AgentModelSelection } from './modelAccess'
 import { engineIdForAgentType } from '../../shared/agentModelSelection'
@@ -156,9 +157,9 @@ export interface AgentRuntimeStateReport {
 
 /**
  * 名册上的一行为什么被删:`owner-change` = 换了登录账号,没记 owner 的老行归属未知、整个拆掉;
- * `cloud-gone` = 云端已经没有这个 agent(#2151 的 gone 守卫,#6938)。
+ * `cloud-gone` = 不可写(不存在或非本账号);`cloud-removed` = presence 明确 account_status='removed'。
  */
-export type AgentRosterRemovalReason = 'owner-change' | 'cloud-gone'
+export type AgentRosterRemovalReason = 'owner-change' | 'cloud-gone' | 'cloud-removed'
 
 export interface ClearLocalAgentRuntimesOptions {
   env?: NodeJS.ProcessEnv
@@ -228,8 +229,12 @@ export interface AgentRuntimeBridge {
    * 明确的通道原子判决)。queued-only admission 必须由注入口响亮失败,不能推进游标。真基础设施错误照旧 THROW。❌ 无 pty 回落。
    */
   injectAgentInbox?(input: AgentInboxInjectionInput): Promise<AgentInboxInjectionResult>
+  rejectAgentInbox?(input: AgentInboxInjectionInput, cause: unknown): Promise<void>
+  queuesAgentInbox?(agentUserId: string): boolean
   /** Local session-direct outbox projected into the common inbox reader. */
   fetchLocalSessionDirectInbox?(agentUserId: string): Promise<AgentInboxUnreadRow[]>
+  /** Inbox rows this agent's session queue already holds (see AgentInboxReaderDeps.claimedSources). */
+  claimedInboxSources?(agentUserId: string, messageIds: readonly string[]): ReadonlyMap<string, boolean>
   /** A local session-direct row is acknowledged only after common-reader acceptance. */
   markLocalSessionDirectRead?(input: { agentUserId: string; sessionId: string; messageId: string }): Promise<void>
   /** 冷会话唤醒踢一脚——不 await(收信方开机代价记在收信方头上,#4320)。 */
@@ -608,22 +613,6 @@ export async function handleAgentCreateDeviceCommand(
   }
 }
 
-function transientNetworkErrorCode(err: unknown): string | null {
-  const direct = (err as { code?: unknown } | null | undefined)?.code
-  if (typeof direct === 'string' && direct) return direct
-  const cause = (err as { cause?: { code?: unknown } } | null | undefined)?.cause
-  return typeof cause?.code === 'string' && cause.code ? cause.code : null
-}
-
-function isTransientNetworkError(err: unknown): boolean {
-  const code = transientNetworkErrorCode(err)
-  if (code && /^(?:EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|ECONNRESET|ECONNREFUSED|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT)$/i.test(code)) {
-    return true
-  }
-  const message = err instanceof Error ? err.message : String(err ?? '')
-  return /\bfetch failed\b|\bnetwork error\b|\bsocket hang up\b|\bconnection (?:reset|refused|timed out)\b/i.test(message)
-}
-
 // 自命令创建起是否仍在「容许重试」窗口内(held 把命令 requeue 到 pending,created_at 不变 → now-created
 // 随重试增长,超时即不再 held、落终态)。无 created_at 时保守允许重试(由 orphan 回收 + tick 节流兜底)。
 function withinAgentInitHeldWindow(commandCreatedAt: string | undefined, now: number): boolean {
@@ -651,14 +640,14 @@ export async function handleAgentDeliverDeviceCommand(
   if (!options.accessToken) {
     throw new Error('agent.deliver nudge requires a fresh owner access token')
   }
-  if (!(await getAgent({ guguUserId }, env))) {
+  if (!agentsForOwner(await listAgents(env), options.ownerUserId).some((agent) => agent.gugu_user_id === guguUserId)) {
     // #5041 — 队列按持有判据只把本实例持有、或没有任何活着的实例持有(持有预算已尽)的命令交到这里;拿到一条名册里没有的
     // agent = 这台设备上没有运行中的实例持有它(典型:它所在的咕咕窗口已关闭)。终态必须对用户显形——先向来源 chat 落一条
     // 稳定 id 的 system 披露,再 fail loud 落 error,并在错误上标记「已显形」,宿主据此不再叠第二层通用失败提示。
     const disclosed = text(payload.source) === 'forum'
       ? await discloseForumUndeliverable({ agentUserId: guguUserId, postId: text(payload.post_id) }, options)
       : await discloseUndeliverable(
-        { agentUserId: guguUserId, chatId, messageId, threadRootId: text(payload.thread_root_id) || null },
+        { agentUserId: guguUserId, chatId, messageId, threadRootId: text(payload.thread_root_id) || null, isWhisper: payload.is_whisper === true },
         options,
       )
     throw new UndeliverableAgentCommandError(guguUserId, disclosed)
@@ -731,16 +720,22 @@ export function agentInboxDepsFromBridge(input: {
   }
   return {
     accessToken: input.accessToken,
+    recipientIsRegistered: async (id) => agentsForOwner(await listAgents(input.env), input.ownerUserId).some((agent) => agent.gugu_user_id === id),
     ...(bridge.sessionArchival ? { sessionArchival: bridge.sessionArchival } : {}),
     ...(bridge.sessionMessageRefused ? { sessionMessageRefused: bridge.sessionMessageRefused } : {}),
     ...(bridge.downloadAttachment ? { downloadAttachment: bridge.downloadAttachment } : {}),
     ...(input.ownerUserId ? { ownerUserId: input.ownerUserId } : {}),
     ...(input.env ? { env: input.env } : {}),
     inject: (injection) => bridge.injectAgentInbox!(injection),
+    ...(bridge.rejectAgentInbox ? { recordFailure: (injection: AgentInboxInjectionInput, cause: unknown) => bridge.rejectAgentInbox!(injection, cause) } : {}),
+    ...(bridge.queuesAgentInbox ? { queuesInbox: (agentUserId: string) => bridge.queuesAgentInbox!(agentUserId) } : {}),
     // 论坛来源:被指派到帖子上的事,与聊天同一个读者、同一批触发。
     fetchForumUnread: (agentUserId: string) => fetchForumUnreadViaRpc(agentUserId, input.accessToken),
     ...(bridge.fetchLocalSessionDirectInbox
       ? { fetchLocalUnread: (agentUserId: string) => bridge.fetchLocalSessionDirectInbox!(agentUserId) }
+      : {}),
+    ...(bridge.claimedInboxSources
+      ? { claimedSources: (agentUserId: string, ids: readonly string[]) => bridge.claimedInboxSources!(agentUserId, ids) }
       : {}),
     ...(bridge.markLocalSessionDirectRead
       ? { markLocalRead: (input: { agentUserId: string; sessionId: string; messageId: string }) => bridge.markLocalSessionDirectRead!(input) }
@@ -910,7 +905,7 @@ export async function clearLocalAgentRuntimesForOwnerChange(
       await removeAgentRuntimeSession(agent.gugu_user_id, env)
     }
   }
-  for (const agent of await removeAgents((agent) => !agentOwnerUserId(agent), env)) {
+  for (const agent of await archiveAgents((agent) => !agentOwnerUserId(agent), env)) {
     await options.onAgentRosterRemoved?.(agent, 'owner-change')
   }
 }
@@ -995,6 +990,7 @@ export async function syncAgentRuntimeSessions(
  * Retry(Retry 只会把同一条再送回同一个「无人持有」)。消息文本保持 `Local agent not found for <id>`(日志与命令 error 列的既有形状)。
  */
 export class UndeliverableAgentCommandError extends Error {
+  readonly reason = 'undelivered' as const
   readonly disclosed: boolean
   get disclosedInChat(): boolean { return this.disclosed }
   constructor(agentUserId: string, disclosed: boolean) {
@@ -1037,7 +1033,7 @@ export function createDeviceCommandHoldingResolver(
   const nowMs = input.nowMs ?? (() => Date.now())
   let roster: Promise<Set<string>> | null = null
   let rosterRefreshed = false
-  const loadRoster = () => listAgents(env).then((agents) => new Set(agents.map((agent) => agent.gugu_user_id)))
+  const loadRoster = () => listAgents(env).then((rows) => new Set(agentsForOwner(rows, null).map((agent) => agent.gugu_user_id)))
   const rosterHas = async (agentUserId: string): Promise<boolean> => {
     roster ??= loadRoster()
     if ((await roster).has(agentUserId)) return true
@@ -1097,9 +1093,11 @@ async function discloseForumUndeliverable(
 }
 
 async function discloseUndeliverable(
-  input: { agentUserId: string; chatId: string; messageId: string; threadRootId: string | null },
+  input: { agentUserId: string; chatId: string; messageId: string; threadRootId: string | null; isWhisper: boolean },
   options: HandleAgentDeliverDeviceCommandOptions,
 ): Promise<boolean> {
+  // This row is public: saying it about a whisper would tell the chat who was whispered to. The command error stays private.
+  if (input.isWhisper) return false
   if (!input.chatId || !input.messageId) {
     log.error(
       { agentUserId: input.agentUserId, chatId: input.chatId || null, messageId: input.messageId || null },
@@ -1128,7 +1126,7 @@ async function findLocalAgentByGuguUserId(
   env: NodeJS.ProcessEnv
 ): Promise<LocalAgentRecord> {
   const agent = await getAgent({ guguUserId }, env)
-  if (!agent) throw new Error(`Local agent not found for ${guguUserId}`)
+  if (!agent || !agentsForOwner([agent], null).length) throw new Error(`Local agent not found for ${guguUserId}`)
   return agent
 }
 

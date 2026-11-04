@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- 检查脚本是无类型的 .mjs,和仓里其它 scripts 用例同一写法。
-import { analyzeSource, isScannedFile } from '../../../scripts/error-outlet-check.mjs';
+import { analyzeSource, isScannedFile } from '../../../scripts/checks/error-outlet-check.mjs';
 
 type Analysis = { emitterSites: { name: string; line: number }[]; outlets: number; violation: boolean };
 const analyze = (file: string, source: string): Analysis =>

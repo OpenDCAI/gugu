@@ -23,9 +23,9 @@ const buttonVariants = cva(
     // pointerup/mouseup 四条 trusted 事件都到,`click` 一条都没有,`onClick` 从不执行,
     // 而 `dispatchEvent('click')` 与 Enter 都能发)。让 svg/path 退出命中测试,down 与 up 的
     // target 就永远是**稳定的那个 button 元素自己**,对图标内部任何 DOM 抖动免疫。
-    // (这里刻意不写那个标签的字面量:scripts/check-ui-visual-spec.mjs 按正则数 rawButtons,
+    // (这里刻意不写那个标签的字面量:scripts/checks/check-ui-visual-spec.mts 按正则数 rawButtons,
     //  连注释一起数,写了会把 mainRenderer 的棘轮顶高一格。)
-    // ❌ 别改 `packages/session-ui/src/icons.tsx`:那是 `scripts/gen-icons.mjs` 的生成物。
+    // ❌ 别改 `packages/session-ui/src/icons.tsx`:那是 `scripts/build/gen-icons.mjs` 的生成物。
     '[&_svg]:pointer-events-none',
     'rounded-[var(--radius-control)] border border-transparent',
     'font-[inherit] text-[length:var(--font-body)] font-[var(--font-weight-medium)] leading-none',

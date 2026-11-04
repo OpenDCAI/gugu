@@ -15,6 +15,7 @@ const boundary = vi.hoisted(() => ({
   open: vi.fn(),
   close: vi.fn(),
   preview: vi.fn(),
+  image: vi.fn(),
   previewContents: new Map<string, string>(),
 }))
 vi.mock('@/components/preview/html-preview-registration', () => ({ registerHtmlPreview: boundary.preview }))
@@ -25,6 +26,7 @@ vi.mock('@/lib/attachmentBytes', () => ({
   attachmentBytes: boundary.read,
   attachmentPreview: boundary.signed,
   openAttachmentInSystemApp: boundary.open,
+  openAttachmentImage: boundary.image,
   sourceKeyOf: (source: { itemId: string; version: number }) => `${source.itemId}@${source.version}`,
 }))
 vi.mock('@/lib/chatFolder', () => ({ readChatFolderText: boundary.document, rendererFileServiceUrl: () => 'https://files.test' }))
@@ -41,8 +43,8 @@ const { chatAlone, chatLayoutOf, closeChatTab, openPanelItem, panelFull, panelTa
 import { tabFullscreen } from '@/session/renderer/features/tabs/tab-fullscreen'
 const { installedExtensionsStore } = await import('@/session/renderer/features/extensions/installed-extensions-store')
 const { appsHere } = await import('@/components/appSlot/appsHere')
-const workspace = { id: 'workspace', name: '文件夹', version: '0.2.53', apiVersion: 3, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: '文件夹', opensFiles: { chat: ['.md', '.json'] } }] } }
-const candidate = { extensionId: 'workspace', tabKind: 'workspace.main', tabTitle: '文件夹', app: { name: '文件夹' }, onlyTab: true, suffix: '.md' }
+const workspace = { id: 'workspace', name: '文件夹', version: '0.2.53', apiVersion: 3, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: '文件夹', opensFiles: { chat: ['.md', '.json'] } }] } }
+const candidate = { extensionId: 'workspace', tabKind: 'workspace.main', tabTitle: '文件夹', app: { name: '文件夹', defaultLocale: 'zh-CN' }, onlyTab: true, state: false, suffix: '.md' }
 let harness: ReturnType<typeof createReactHarness>
 const checkVisibility = HTMLElement.prototype.checkVisibility
 const detail = (suffix: string) => ({ chatId: 'preview-group', itemId: `file-${suffix}`, name: `report.${suffix}`, typedName: `report.${suffix}`, file: { document: false, contentType: suffix === 'html' ? 'text/html' : suffix === 'mp4' ? 'video/mp4' : 'application/octet-stream', version: 3, size: 1024 }, choice: { kind: 'none' as const } })
@@ -88,6 +90,23 @@ async function closeFromTab(chatId: string) {
 }
 
 describe('unclaimed group files use the message preview from every entry', () => {
+  it.each([false, true])('an image opens in the viewer while keeping its folder tab (mobile=%s)', async (mobile) => {
+    boundary.mobile = mobile
+    const folder = openPanelItem('preview-group', folderItem())
+    const file = detail('png')
+    await slot(file, true, { fromPage: true })
+    expect(boundary.image).toHaveBeenCalledWith({ kind: 'item', itemId: file.itemId, version: 3 }, file.name, { chatId: file.chatId })
+    expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
+    expect(panelTabsOf(file.chatId)).toHaveLength(1)
+    expect(harness.container.querySelector('[data-testid="message-file-preview-panel"]')).toBeNull()
+    expect(boundary.read).not.toHaveBeenCalled()
+  })
+  it.each(['preview-group', 'another-chat'])('an image link retains its originating message in %s', async (chatId) => {
+    const file = detail('png')
+    const message = { id: 'image-reference', chat_id: chatId } as MessageItem
+    await slot(file, true, { message })
+    expect(boundary.image).toHaveBeenCalledWith({ kind: 'item', itemId: file.itemId, version: 3 }, file.name, { chatId, messageId: message.id })
+  })
   it('renews an expired video preview after a late Range failure, preserving position without downloading the original', async () => {
     let now = 1_800_000_000_000
     vi.spyOn(Date, 'now').mockImplementation(() => now)

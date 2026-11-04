@@ -7,8 +7,8 @@ import solid from 'vite-plugin-solid'
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin'
 import { playwright } from '@vitest/browser-playwright'
 import { emdashAliasEntries } from './apps/desktop/electron/sessionpage/emdash-aliases.mjs'
-import { WorkerAttributionReporter } from './scripts/vitest-worker-attribution-reporter'
-import { lockfileScopedModuleCacheDir } from './scripts/vitest-module-cache-dir'
+import { WorkerAttributionReporter } from './scripts/test-infra/vitest-worker-attribution-reporter'
+import { lockfileScopedModuleCacheDir } from './scripts/test-infra/vitest-module-cache-dir'
 import { LAZY_LANG_MODULES } from './packages/session-chat-ui/src/core/highlight/lazy-langs'
 
 // The Mac Studio CI slots all share one 32-core host, and vitest sizes its worker pool from the
@@ -156,7 +156,7 @@ const BROWSER_CASE_CAP_MS = 60_000
 // 既彼此唯一、又不能和外层 project 同名 —— 统一加 `-chromium` 后缀。
 const browserOptions = (name: string) => ({
   enabled: true as const,
-  provider: playwright(),
+  provider: playwright({ contextOptions: { locale: 'en-US' } }),
   headless: true,
   instances: [{ browser: 'chromium' as const, name: `${name}-chromium` }],
 })
@@ -177,8 +177,8 @@ export default defineConfig({
     // The setup only validates the process; it never switches toolchains or changes PATH.
     // 第二项:每次运行一个专属临时根,结束删净(#6272),原因见文件头。
     globalSetup: [
-      resolve(__dirname, 'scripts/vitest-node-version-guard.ts'),
-      resolve(__dirname, 'scripts/vitest-run-tmp-root.ts'),
+      resolve(__dirname, 'scripts/test-infra/vitest-node-version-guard.ts'),
+      resolve(__dirname, 'scripts/test-infra/vitest-run-tmp-root.ts'),
     ],
     ...(maxWorkers === undefined ? {} : { maxWorkers }),
     // @@@no-case-budget (#4357 / #5955) — 用例与钩子**不设**墙钟上限(0 = 不限)。
@@ -413,6 +413,7 @@ export default defineConfig({
           // 字元格尺寸与 resize 时序 —— 旁边只要有个吃 CPU 的组件测试文件,它们就整片超时。
           fileParallelism: false,
           browser: browserOptions('session-browser'),
+          setupFiles: ['tests/support/browser-locale-reset.ts'],
           include: ['apps/desktop/src/session/renderer/tests/browser/**/*.test.{ts,tsx}'],
         },
       },

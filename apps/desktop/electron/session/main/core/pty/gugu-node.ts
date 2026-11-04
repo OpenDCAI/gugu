@@ -5,7 +5,7 @@
  * agent 的 shell 里原本没有能指望的运行时:buildAgentEnv 不给 node,用户 shell 里的 `ELECTRON_*` / `GUGU_*` 被剥掉
  * (childProcessEnv.ts),咕咕经 mise 装的那份 node 不在 PATH 上(也只有装过 npm 形态的 agent 才有)。可咕咕自己一直带着
  * 一份:桌面是自己的可执行文件按 node 跑(`ELECTRON_RUN_AS_NODE`;runAsNode 是承重的,见 devtools-lock.ts),server 是
- * 包里的官方 node(scripts/build-gugu-server.mjs)。
+ * 包里的官方 node(scripts/build/build-gugu-server.mjs)。
  *
  *  · 叫 `gugu-node`,❌ 叫 `node`:它的目录排在 PATH 最前,同名就遮住用户自己的 node。
  *  · 每次启动重写(server-browser-env.ts 的 writeHelperScripts,与 gugu-browser 同一个写法):更新后可执行文件换了地方,

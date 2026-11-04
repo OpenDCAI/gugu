@@ -49,14 +49,14 @@ import { setupViewCommandProvider } from '@renderer/lib/commands/view-command-pr
 import { wireCommitHistoryInvalidation } from '@renderer/lib/commit-history-invalidation';
 import { wireExternalLinkRequests } from '@renderer/lib/external-link-requests';
 import { wireSessionsOnScreenReport } from '@renderer/app/sessions-on-screen';
-import { rpc } from '@renderer/lib/ipc';
+import { rpc, rpcOn } from '@renderer/lib/ipc';
 import { wireModelRegistryInvalidation } from '@renderer/lib/monaco/invalidation-bridges';
 import { monacoBootstrap } from '@renderer/lib/monaco/monaco-bootstrap';
 import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
 import { wirePrCacheInvalidation } from '@renderer/lib/pr-cache-invalidation';
+import { wireAgentCapabilityInvalidation } from '@renderer/lib/stores/use-agents';
 import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
 import { log } from '@renderer/utils/logger';
-import { initSoundPlayer } from '@renderer/utils/soundPlayer';
 import type { NavigationSnapshot, SidebarSnapshot } from '@shared/view-state';
 import { App } from './App';
 import { migrateRenamedLocalStorageKeys } from './lib/renamed-storage-keys';
@@ -66,12 +66,14 @@ import { setEmbedVisible, setPortalContainer } from './lib/portal-container';
 import { setEmbedView, type EmbedView } from './lib/stores/embed-view';
 import { installSessionStartupFailureBridge } from './features/sessions/stores/session-startup-failures';
 import { installSessionViewRequestBridge } from './features/sessions/stores/session-view-requests';
+import { openChatResource } from './features/sessions/open-chat-resource';
 import { openChatOnScreen } from './features/chats/open-chat';
 import { showGroupParticipant } from './features/chats/group-participant-actions';
 import { groupParticipantRequests } from './features/chats/group-participant-requests';
 import { wireGroupParticipantAccount } from './features/chats/group-participant-account';
 import { installSessionTabViews, prewarmSessionTabViews } from './features/sessions/session-tab-views';
 import { appState } from './lib/stores/app-state';
+import { restoreSavedScreenSessionLocations, savedScreenSessionIds } from './features/sessions/restore-session-projects';
 import { SessionLocalizationProvider } from './localization/localization-provider';
 import { reportSessionRendererBootFailure } from '@/session/shared/lib/session-renderer-boot';
 
@@ -153,6 +155,7 @@ async function bootstrap() {
   // gugu-dev#181 壳要打开一条对话:对话是这屏的一块(项目群开项目块)(session-view-requests.ts)。同上,热更新前装。
   installSessionViewRequestBridge(window, {
     openChat: openChatOnScreen,
+    openChatResource,
     openGroupChat: (sourceChatId, chatId) => showGroupParticipant(sourceChatId, { kind: 'chat', chatId }),
     prepareGroupSession: (sourceChatId, target) => groupParticipantRequests.prepare(sourceChatId, target),
   });
@@ -183,8 +186,8 @@ async function bootstrap() {
     setPortalContainer(mountEl);
   }
 
-  // gugu #2549: the ONE persistent embed instance can render either the full session-page Workspace
-  // or a composer-only root (对话页原地创建 Agent) — see lib/stores/embed-view.ts for why this is a
+  // The ONE persistent embed instance can render either the full session-page Workspace
+  // or the session-create root — see lib/stores/embed-view.ts for why this is a
   // reactive switch on a single instance rather than a second independent module load. The host
   // (gugu MainLayout) flips this via __EMDASH_SET_EMBED_VIEW__ whenever it needs the embed to show
   // a different root; App.tsx reads the store reactively. __EMDASH_EMBED_VIEW__ only seeds the
@@ -207,12 +210,12 @@ async function bootstrap() {
 
   wireModelRegistryInvalidation(modelRegistry);
   wirePrCacheInvalidation();
+  wireAgentCapabilityInvalidation();
   wireCommitHistoryInvalidation();
   wireExternalLinkRequests();
   // 屏上的会话报给主进程:闲置回收不停人正看着的会话(spec idle-reclaim「不在屏上」)。
   wireSessionsOnScreenReport();
 
-  initSoundPlayer();
 
   // Monaco must NOT gate the mount: even vendored locally it is a multi-MB async chunk.
   // Editors await monacoBootstrap.init() themselves when opened — boot it in the background
@@ -250,7 +253,7 @@ async function bootstrap() {
   const results = await Promise.allSettled([
     settleOptional(rpc.viewState.get('navigation') as Promise<NavigationSnapshot> | null),
     settleOptional(rpc.viewState.get('sidebar')),
-    settleOptional(rpc.viewState.getAll()),
+    settleOptional(rpcOn(null).viewState.getForRestore(savedScreenSessionIds())),
     settleOptional(prefetchAppSettingsKey('interface')),
     settleOptional(prefetchAppSettingsKey('browser')),
   ]);
@@ -258,23 +261,19 @@ async function bootstrap() {
   for (const result of results) {
     if (result.status === 'rejected') log.warn('Renderer bootstrap optional state failed:', result.reason);
   }
-  const navResult = navState.status === 'fulfilled' ? (navState.value as NavigationSnapshot) : null;
+  const savedNav = navState.status === 'fulfilled' ? (navState.value as NavigationSnapshot) : null;
   const sidebarResult = sidebarState.status === 'fulfilled' ? sidebarState.value : null;
-  const allViewState = allViewStateResult.status === 'fulfilled' && allViewStateResult.value
-    ? (allViewStateResult.value as Record<string, unknown>)
-    : {};
-
-  viewStateCache.populate(allViewState);
+  const restoreState = allViewStateResult.status === 'fulfilled' ? allViewStateResult.value : null;
+  restoreSavedScreenSessionLocations(restoreState?.locations ?? []);
+  viewStateCache.populate(restoreState?.views ?? {});
 
   setupNavigationGuards();
-  if (navResult) appState.navigation.restoreSnapshot(navResult);
+  if (savedNav) appState.navigation.restoreSnapshot(savedNav);
   setupAppCommandProvider();
   setupExtensionCommandProvider();
   setupViewCommandProvider();
   if (sidebarResult) {
     appState.sidebar.restoreSnapshot(sidebarResult as Partial<SidebarSnapshot>);
-  } else {
-    appState.sidebar.expandAllProjects();
   }
 
   renderSessionTree(container, mountEl);

@@ -1,6 +1,6 @@
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { AlertTriangle, CheckCircle2, HelpCircle, XCircle, type IconComponent } from '@/lib/icons'
-import { GitMerge } from 'lucide-react'
+import { GitMerge } from '@/lib/icons'
 import { Button } from '@renderer/lib/ui/button';
 import { Checkbox } from '@renderer/lib/ui/checkbox';
 import { SplitButton, type SplitButtonAction } from '@renderer/lib/ui/split-button';

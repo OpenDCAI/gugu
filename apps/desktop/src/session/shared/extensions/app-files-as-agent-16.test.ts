@@ -1,4 +1,4 @@
-import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
+import { rpcQuery } from '../../../../../../tests/support/rpcQuery';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**

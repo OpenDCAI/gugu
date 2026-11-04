@@ -1,11 +1,13 @@
 import { when } from 'mobx';
-import { getSessionView } from '@renderer/features/sessions/stores/session-selectors';
+import { getSessionPageStore, getSessionView, sessionViewKind } from '@renderer/features/sessions/stores/session-selectors';
 import { sessionTabKind } from './session-tab-kind';
 import { sessionPaneReady } from './session-pane-ready';
 import { machineUnavailableLabel } from './machine-unavailable-label';
+import { offlineSessionInputTarget } from './offline-session-input-target';
 import { sessionRegistry } from './stores/session-registry';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { rememberTask } from '@renderer/features/command-palette/recent-tasks';
 
 interface OpenSessionInSessionOptions {
   projectId: string;
@@ -45,6 +47,13 @@ export function openSessionInSessionWhenReady({
   host,
   onReady,
 }: OpenSessionInSessionOptions): () => void {
+  const kind = sessionViewKind(getSessionPageStore(projectId, sessionId), projectId);
+  if (!onlyIfNoTabs && kind !== 'archived' && kind !== 'missing') rememberTask(sessionId);
+  if (offlineSessionInputTarget(projectId, kind)) {
+    // Navigation (including a beside block) reaches SessionContentGate without a remote workspace.
+    onReady?.();
+    return () => {};
+  }
   const paneReady = sessionPaneReady(projectId, sessionId, { reviveArchived: false });
   return when(
     () => {

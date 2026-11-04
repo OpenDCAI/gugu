@@ -1,4 +1,7 @@
 export default {
+  "agentName": {
+    "naming": "正在起名…"
+  },
   "needsYou": {
     "title": "需要你处理",
     "waitingTasks": "等待你处理的任务",
@@ -40,6 +43,7 @@ export default {
     "archived": "已归档",
     "removed": "已移除",
     "pending": "确认中",
+    "starting": "启动中",
     "none": "状态不可用"
   },
   "agentShare": {

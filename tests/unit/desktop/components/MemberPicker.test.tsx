@@ -10,7 +10,7 @@ vi.mock('../../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => import
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
-afterEach(() => { harness.cleanup() })
+afterEach(() => { harness.cleanup(); vi.useRealTimers() })
 
 const providers = {
   auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner' },
@@ -29,6 +29,20 @@ const key = (target: Element, k: string) => act(async () => { target.dispatchEve
 const confirmText = () => [...harness.container.querySelectorAll('button')].find((b) => /创建群聊/.test(b.textContent ?? ''))?.textContent
 
 describe('member picker', () => {
+  it('keeps a newly created agent searchable and selectable by its real default name', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime('2026-11-02T08:00:00.000Z')
+    const confirm = vi.fn()
+    await renderWithAppProviders(harness, createNode(MemberPicker, { title: 'Add', confirmLabel: (n: number) => `Add ${n}`, onConfirm: confirm, onClose: () => {} }), {
+      ...providers,
+      contacts: { contacts: [contact({ id: 'new-agent', display_name: 'Codex 5', type: 'agent', agent_type: 'codex', owner_user_id: 'owner-1', created_at: '2026-11-02T08:00:00.000Z' })] },
+    })
+    await typeInto(search(), 'codex5')
+    expect(q('[data-contact-option="new-agent"]')?.textContent).toContain('Codex 5')
+    expect(q('[data-contact-option="new-agent"]')?.textContent).not.toContain('正在起名…')
+    await key(search(), 'Enter')
+    expect(chips()).toEqual(['Codex 5'])
+  })
   it('retains the phone summary reader while selecting members without requiring an assistant task pane',async()=>{
     expect(phoneTaskDirectoryRequested()).toBe(false)
     await renderWithAppProviders(harness,createNode(MemberPicker,{title:'Add',confirmLabel:(n:number)=>`Add ${n}`,onConfirm:()=>{},onClose:()=>{}}),providers)

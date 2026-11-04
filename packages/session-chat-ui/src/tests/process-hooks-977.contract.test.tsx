@@ -11,7 +11,7 @@ afterEach(() => disposers.splice(0).forEach(dispose => dispose()));
 const bash = (id: string, seq: number): TranscriptItem => ({ kind: 'execute-tool-call', id, seq,
   toolCallId: id, title: `echo ${id}`, command: `echo ${id}`, status: 'done' });
 function mount(items: TranscriptItem[], reply: string | null = 'Fixture done.') {
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true });
   const state = createChatState(context);
   const host = document.createElement('div');

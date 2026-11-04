@@ -111,7 +111,7 @@ async function mountTranscript(
     pinUserMessages?: boolean; unreadId?: string; top?: number; agentConversation?: boolean;
   } = {}
 ): Promise<Mounted> {
-  const ctx = createChatContext(opts.agentConversation ? { layout: { preset: 'double', userGutter: 0, agentConversation: true } } : { theme: DEFAULT_THEME });
+  const ctx = createChatContext(opts.agentConversation ? { locale: () => 'en-US', layout: { preset: 'double', userGutter: 0, agentConversation: true } } : { locale: () => 'en-US', theme: DEFAULT_THEME });
   const state = createChatState(ctx);
   state.transcript.history.seed(opts.turns ?? generateMockTranscript(itemCount, 7));
 
@@ -173,6 +173,55 @@ afterEach(() => {
 });
 
 describe('transcript scroll behaviour across the P3 row redraw', () => {
+  it.each(['done', 'cancelled'] as const)('keeps a short reply at its natural position while active, %s, and reopened', async status => {
+    const { state, host, scrollEl, remount } = await mountTranscript(0, { pinUserMessages: true, height: 600 });
+    state.transcript.activeTurn.set({
+      id: 'short', seq: 0, initiator: 'user', items: [
+        { kind: 'message', id: 'short-user', seq: 0, role: 'user', text: 'A short question.' },
+        { kind: 'message', id: 'short-reply', seq: 1, role: 'assistant', text: 'A short reply.' },
+      ],
+    });
+    await until('the short reply mounts', () => host.querySelector('[data-item-id="short-reply"]') !== null);
+    await settled(scrollEl);
+    expect(scrollEl.scrollTop, 'a short active reply has no artificial scroll range').toBe(0);
+    expect(scrollEl.scrollHeight).toBe(scrollEl.clientHeight);
+    const before = [rowOffset(scrollEl, 'short-user'), rowOffset(scrollEl, 'short-reply')];
+
+    state.transcript.activeTurn.commit(status);
+    await until('the turn is committed', () => state.transcript.state.activeTurnSnapshot === null);
+    await settled(scrollEl);
+    expect([rowOffset(scrollEl, 'short-user'), rowOffset(scrollEl, 'short-reply')]).toEqual(before);
+    const reopened = await remount();
+    expect([rowOffset(reopened, 'short-user'), rowOffset(reopened, 'short-reply')]).toEqual(before);
+    expect(reopened.scrollTop).toBe(0);
+    expect(reopened.scrollHeight).toBe(reopened.clientHeight);
+  });
+
+  it('keeps anchor intent when shrinking content clamps its target', async () => {
+    const history: TranscriptTurn[] = [{ id: 'earlier', seq: 0, initiator: 'agent', items: [
+      { kind: 'message', id: 'earlier-reply', seq: 0, role: 'assistant', text: 'An earlier reply.' },
+    ] }];
+    const { state, view, host, scrollEl } = await mountTranscript(0, { turns: history, height: 600 });
+    const turn = (text: string): TranscriptTurn => ({ id: 'shrinking', seq: 1, initiator: 'user', items: [
+      { kind: 'message', id: 'reader-user', seq: 0, role: 'user', text: 'Keep this reading position.' },
+      { kind: 'message', id: 'shrinking-reply', seq: 1, role: 'assistant', text },
+    ] });
+    state.transcript.activeTurn.set(turn('A long response paragraph.\n\n'.repeat(50)));
+    await until('the long reply mounts', () => host.querySelector('[data-item-id="shrinking-reply"]') !== null);
+    await settled(scrollEl);
+    const intent = pinTopMode('reader-user');
+    view.setScrollMode(intent);
+    await settled(scrollEl);
+    expect(scrollEl.scrollTop, 'the anchor projection must move the real scroller before it shrinks').toBeGreaterThan(0);
+    expect(state.scroll.get()).toEqual(intent);
+
+    state.transcript.activeTurn.set(turn('A short response.'));
+    await until('the content shrinks below the viewport', () => scrollEl.scrollHeight === scrollEl.clientHeight);
+    await settled(scrollEl);
+    expect(scrollEl.scrollTop).toBe(0);
+    expect(state.scroll.get(), 'browser clamping is not reader input').toEqual(intent);
+  });
+
   it('places an unread sent bubble below the viewport top, with its receipt and floating composer', async () => {
     const receipt = (index: number) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
     const turns: TranscriptTurn[] = Array.from({ length: 30 }, (_, index) => ({

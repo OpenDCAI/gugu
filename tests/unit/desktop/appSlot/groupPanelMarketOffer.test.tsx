@@ -42,7 +42,7 @@ const slides = (version: string) => ({
   id: 'slides',
   name: 'Slides',
   version,
-  apiVersion: 4,
+  apiVersion: 4, defaultLocale: 'en',
   entry: 'index.html',
   contributes: { tabs: [{ name: 'main', title: 'Slides', opensFiles: { chat: ['.pptx'] } }] },
 })

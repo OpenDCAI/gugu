@@ -10,7 +10,7 @@
  *   createChatView(opts)   — per-mount DOM owner (virtualizer, scroll, scheduler).
  *
  * Quick start:
- *   const ctx  = createChatContext({ highlighter });
+ *   const ctx  = createChatContext({ locale, highlighter });
  *   const st   = createChatState(ctx);
  *   const view = createChatView({ context: ctx, state: st, parent, composer: 'slot' });
  *   st.transcript.history.seed(items);
@@ -32,7 +32,8 @@ export type { ChatContext, ChatContextOptions } from './chat-context';
 export type { ChatTranslator, ChatTranslationSubscriber, ChatTranslationValues } from './localization';
 
 export { connectSession, createChatState, tailMode, pinTopMode } from './state/chat-state';
-export { pendingPromptTurn } from './state/pending-prompt';
+export { pendingPromptTurn, pendingPromptLanded } from './state/pending-prompt';
+export { turnDiscardedId } from './state/flatten';
 export type {
   ChatState,
   ChatStateOptions,

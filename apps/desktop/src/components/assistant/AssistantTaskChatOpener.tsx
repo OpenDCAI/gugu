@@ -11,13 +11,12 @@ import { assistantSlotKey } from '../../lib/assistantShellBridge'
 import { readShellSlots } from '../../lib/shellSlots'
 import { AssistantTaskChatWindow } from './AssistantTaskChatWindow'
 import {AssistantWorkTaskWindow} from './AssistantWorkTaskWindow'
-import type { AssistantChatHandlers } from './AssistantChatSlot'
 import { readRequiredDisplayIdentities } from '../../lib/identityReadAdapter'
 import { rendererLogger } from '../../lib/log'
 
 const log = rendererLogger('assistant/task-chat-open')
 
-export function AssistantTaskChatOpener({ visible, ...handlers }: { visible: boolean } & AssistantChatHandlers) {
+export function AssistantTaskChatOpener({ visible }: { visible: boolean }) {
   const { user } = useAuth()
   const { contacts } = useContactsStore()
   const { toast } = useToast()
@@ -73,10 +72,8 @@ export function AssistantTaskChatOpener({ visible, ...handlers }: { visible: boo
   const agent = opened && user && opened.ownerId === user.id ? contacts.find((contact) => contact.id === opened.request.taskAgentId)
     ?? (resolved && resolved.ownerId === user.id && resolved.agent.id === opened.request.taskAgentId ? resolved.agent : null) : null
   if(!visible||!slot)return null
-  if(opened?.request.workId&&user?.id===opened.ownerId)return createPortal(<AssistantWorkTaskWindow ownerId={user.id} request={opened.request} {...handlers}/>,slot)
-  if (!agent) return null
+  if(opened?.request.workId&&user?.id===opened.ownerId)return createPortal(<AssistantWorkTaskWindow ownerId={user.id} request={opened.request}/>,slot)
+  if (!agent || !opened) return null
   const close = () => showAssistantTaskChat(null)
-  return createPortal(<AssistantTaskChatWindow agent={agent} onClose={close}
-    onOpenUserChat={handlers.onOpenUserChat ? (target) => { close(); handlers.onOpenUserChat?.(target) } : undefined}
-    onOpenSessionpageAgentFile={handlers.onOpenSessionpageAgentFile ? (id, path) => { close(); return handlers.onOpenSessionpageAgentFile!(id, path) } : undefined} />, slot)
+  return createPortal(<AssistantTaskChatWindow agent={agent} task={opened.request.task} onClose={close} />, slot)
 }

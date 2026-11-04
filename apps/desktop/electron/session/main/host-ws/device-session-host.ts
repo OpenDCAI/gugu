@@ -10,7 +10,6 @@
 // 帧就是会话页宿主协议(host-ws-protocol)的帧,装进 JSON 信封(frameToCarrier);超过 PIECE_CHARS 的帧分片。
 //
 // 成本:每条连接双向各一拍心跳(20s);一条帧的往返 = 一次设备 RPC(同一微任务里的帧合成一条)。
-import { FILE_PATCH_PROTOCOL, protocol14FileChanges } from '@gugu/session-core/session-record/contract';
 import {
   createPieceJoiner,
   createSeqOrderer,
@@ -21,14 +20,7 @@ import {
   type SessionHostPiece,
 } from '@shared/lib/ipc/session-host-device-frames';
 import type { DeviceRpcAskerContext, DeviceRpcHandlers, PublishDeviceRpcEvent } from '@gugu/core/cloud/deviceRpcResponder';
-import {
-  DESKTOP_REPORT_REFRESH_MS,
-  noteDesktopHello,
-  parseDesktopHello,
-  requestVersionRetry,
-  VERSION_RETRY_RPC,
-  type DesktopHello,
-} from '@gugu/core/cloud/serverDesktopVersions';
+import { parseDesktopHello, type DesktopHello } from '@gugu/core/cloud/serverDesktopVersions';
 import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth';
 import { SESSIONPAGE_PLATFORM_CATALOG_CHANNEL, SESSIONPAGE_PLATFORM_RETRY_CHANNEL } from '@shared/core/agents/platform-model';
 import { SESSIONPAGE_SESSION_RELOAD_CHANNEL } from '@shared/core/agents/session-reload';
@@ -44,7 +36,7 @@ import { ptySessionRegistry } from '../core/pty/pty-session-registry';
  * 以及只在桌面那一侧才有意义的 SSH 直连 / 端口转发。挡在这里还有一层用处:渲染层把本该留在本机的调用
  * 错发过来时,当场报错而不是悄悄在这台机器上执行。
  */
-const REMOTE_DENIED_NAMESPACES = new Set(['browser', 'remotePorts', 'viewState']);
+const REMOTE_DENIED_NAMESPACES = new Set(['browser', 'remotePorts', 'viewState', 'assistantHome']);
 const REMOTE_ALLOWED_APP = new Set([
   'app.getAppVersion',
   'app.getPlatform',
@@ -74,8 +66,12 @@ export const remoteInvokePolicy: FrameInvokePolicy = (channel) => {
 /** Read recovery entries, or explicitly clear them, from an owner-bound remote App page.
  * This is not a grant to the whole App dispatcher. The handler additionally checks the
  * expected owner against its current authenticated account before reading or writing. */
-export function remoteInvokePolicyForCaller(callerId: string | undefined): FrameInvokePolicy {
+export function remoteInvokePolicyForCaller(callerId: string | undefined, desktop: DesktopHello | null = null): FrameInvokePolicy {
   return (channel, args) => {
+    if (channel.startsWith('assistantHome.')) {
+      const input = args?.[0] as { ownerUserId?: unknown } | null
+      return !!desktop && !!callerId && args?.length === 1 && input?.ownerUserId === callerId
+    }
     if (channel !== 'app.assistantAppCall') return remoteInvokePolicy(channel, args);
     if (!callerId || args?.length !== 3 || args[0] !== 'callProgram' || args[2] !== callerId) return false;
     const input = args[1];
@@ -103,7 +99,6 @@ export const REMOTE_SHELL_CHANNELS: ReadonlySet<string> = new Set([
   SESSIONPAGE_SESSION_RELOAD_CHANNEL,
   SESSION_SHELL_CHANNELS.agentCard,
   SESSION_SHELL_CHANNELS.agentNames,
-  SESSION_SHELL_CHANNELS.renameAgent,
   SESSION_SHELL_CHANNELS.ensureAgentAddress,
   SESSION_SHELL_CHANNELS.sessionPeers,
 ]);
@@ -142,30 +137,6 @@ type ClientLink = {
 };
 
 /**
- * #6264 桌面开窗口时报「我是哪一版」(咕咕 server 上记进这个账号的数据目录,守护进程据此让这个账号跑匹配的版本,
- * 见 core/cloud/serverDesktopVersions.ts)。窗口开着时每小时续报一次:一直连着的桌面 ❌ 因为报告过期被当成不在了。
- * 桌面自己(非 server)什么也不记。记不下来 ❌ 挡开窗口 —— 那只影响「跑哪一版」,不影响这次连接。
- */
-function reportDesktop(hello: DesktopHello | null): () => void {
-  if (!hello) return () => undefined;
-  const note = () => {
-    try {
-      const noted = noteDesktopHello(process.env, hello);
-      if (noted.switchRequested) log.info('[session-host-device] desktop protocol outside window, version switch requested', { desktop: hello.id, version: hello.version, protocol: hello.protocol });
-    } catch (error) {
-      log.warn('[session-host-device] desktop version not recorded', { error: String(error) });
-    }
-  };
-  note();
-  let last = Date.now();
-  return () => {
-    if (Date.now() - last < DESKTOP_REPORT_REFRESH_MS) return;
-    last = Date.now();
-    note();
-  };
-}
-
-/**
  * 每条设备 RPC 频道一份(与 createSessionpageSessionDeviceRpcHandlers 同一条「按频道建、按频道拆」):
  * 频道没了,经它开的窗口一起收掉。
  */
@@ -183,10 +154,8 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     desktop: DesktopHello | null,
     asker: DeviceRpcAskerContext | undefined,
     callerId: string | undefined,
-    peerProtocol: number | undefined,
   ): void => {
     clients.get(client)?.close('replaced');
-    const refreshReport = reportDesktop(desktop);
     let frameCb: ((frame: string | Uint8Array) => void) | null = null;
     let closeCb: (() => void) | null = null;
     let closed = false;
@@ -231,7 +200,6 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     const stopWatchingAsker = asker?.onDetached(() => shut('asker detached'));
     const link: ClientLink = {
       receive: (seq, pieces) => {
-        refreshReport();
         order(seq, pieces);
       },
       close: shut,
@@ -243,9 +211,8 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     log.warn('[session-host-device] client opened', { client, desktop: desktop?.id ?? null });
     frameHost.attach(socket, {
       remote: `device:${client.slice(0, 8)}`,
-      policy: remoteInvokePolicyForCaller(callerId),
+      policy: remoteInvokePolicyForCaller(callerId, desktop),
       outgoing: createRemotePtyPacer({ screenSnapshot: (id) => ptySessionRegistry.screenSnapshot(id) }),
-      ...(peerProtocol !== undefined ? { peerProtocol } : {}),
     });
   };
   const readClient = (payload: unknown): string | null => {
@@ -260,14 +227,10 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
       const frameHost = host();
       if (!frameHost) return { error: { code: 'unavailable', message: 'session host is not running on this machine' } };
       const desktop = parseDesktopHello((payload as { desktop?: unknown }).desktop);
-      // 开窗口的一方说的协议:手机与桌面都报 `protocol`;只有桌面另报 `desktop`(咕咕 server 据此挑跑哪一版,手机不算)。
+      // Released peers may still carry protocol inside desktop; do not retain or select its version.
       const said = (payload as { protocol?: unknown }).protocol;
       const protocol = typeof said === 'number' ? said : desktop?.protocol;
-      // 比 MIN_CLIENT_PROTOCOL 旧的一方开窗口,只会在某个动作上半截失败:当场拒并说清。
-      // 咕咕 server 上照样先记下桌面的版本 —— 守护进程据此换成匹配的那一版,换完它就开得了。不报协议的不下结论。
-      // 它会一遍遍来开:记着的已是同一件事就不再写(noteDesktopHello)。
       if (protocol != null && protocol < MIN_CLIENT_PROTOCOL) {
-        reportDesktop(desktop);
         return {
           error: {
             code: 'client_outdated',
@@ -275,7 +238,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
           },
         };
       }
-      openClient(client, ctx.publishEvent, frameHost, desktop, ctx.asker, ctx.request?.user_id, protocol ?? undefined);
+      openClient(client, ctx.publishEvent, frameHost, desktop, ctx.asker, ctx.request?.user_id);
       return { result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } };
     },
     [SESSION_HOST_RPC.frame]: (payload) => {
@@ -293,25 +256,18 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     [SESSION_HOST_RPC.call]: async (payload, ctx) => {
       const frameHost = host();
       if (!frameHost) return { error: { code: 'unavailable', message: 'session host is not running on this machine' } };
-      const body = (payload ?? {}) as { channel?: unknown; args?: unknown; protocol?: unknown };
+      const body = (payload ?? {}) as { channel?: unknown; args?: unknown; protocol?: unknown; desktop?: unknown };
       if (typeof body.channel !== 'string' || !Array.isArray(body.args)) {
         return { error: { code: 'invalid_payload', message: 'channel 与 args 是必填的' } };
       }
       try {
-        const value = (await frameHost.invokeOnce(body.channel, body.args, remoteInvokePolicyForCaller(ctx.request?.user_id))) ?? null;
-        // A caller before protocol 15 never said its protocol here: absent = older (protocol14FileChanges, delete on next bump).
-        const peer = typeof body.protocol === 'number' ? body.protocol : FILE_PATCH_PROTOCOL - 1;
-        return { result: { value: protocol14FileChanges(value, peer, 'to-peer'), protocol: REMOTE_PROTOCOL_VERSION } };
+        const value = (await frameHost.invokeOnce(body.channel, body.args, remoteInvokePolicyForCaller(ctx.request?.user_id, parseDesktopHello(body.desktop)))) ?? null;
+        return { result: { value, protocol: REMOTE_PROTOCOL_VERSION } };
       } catch (error) {
         const failed = serializeHostWsError(error);
         return { error: { code: failed.code ?? 'call_failed', message: failed.message } };
       }
     },
-    // #6264 设备行「更新没成功 · 重试」:请守护进程不看冷却、再试一次换成和桌面匹配的那一版。
-    [VERSION_RETRY_RPC]: () =>
-      requestVersionRetry(process.env)
-        ? { result: { requested: true } }
-        : { error: { code: 'unavailable', message: 'not a gugu server' } },
     [SESSION_HOST_RPC.close]: (payload) => {
       const client = readClient(payload);
       if (client) clients.get(client)?.close();

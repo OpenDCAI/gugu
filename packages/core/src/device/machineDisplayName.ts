@@ -7,7 +7,7 @@
  *  · Linux 及其它:主机名第一段;
  *  · 任何一个候选长得像 IP(或 IP 截出来的那一截数字)都跳过;全不可用 = 空串,由库按平台起「Mac 1 / Linux 1」。
  */
-import { spawnSync } from 'node:child_process'
+import { spawnSync } from '../local/childProcess'
 import { hostname as osHostname, platform as osPlatform } from 'node:os'
 import { isIpLikeLabel } from '../shared/ipLikeLabel'
 

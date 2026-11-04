@@ -1,7 +1,7 @@
 import type { GitBranchRef, GitRemote } from '@gugu/session-core/git';
 import { RefreshCw } from '@/lib/icons'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
-import { GitBranch } from 'lucide-react'
+import { GitBranch } from '@/lib/icons'
 import React, { useMemo, useState } from 'react';
 import { Badge } from '@renderer/lib/ui/badge';
 import {

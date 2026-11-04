@@ -4,10 +4,12 @@ import { ChatSummariesHost } from '@/components/chat/ChatSummariesHost'
 import { useLocalSessionDirectory } from './useLocalSessionDirectory'
 import { useEffect, useRef } from 'react'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
+import { TASK_ATTACHMENT_PROTOCOL } from '@gugu/session-core/session-record/contract'
 import { useDevicesStore } from '@/store/devicesContext'
 import { getRendererSession } from '@/lib/sessionPublication'
 import { platform } from '@/platform'
-import { SessionInputOutbox, openSessionInputStorage } from '@/lib/sessionInputOutbox'
+import { SessionInputFailureError, SessionInputOutbox, openSessionInputStorage, withoutQueuedAttachments, type SessionInput } from '@/lib/sessionInputOutbox'
+import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { rendererLogger } from '@/lib/log'
 import { liveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 
@@ -24,6 +26,15 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
     own.rows = EMPTY
     const valid = () => active && own.accountId === accountId && getRendererSession()?.user.id === accountId
     own.valid = valid
+    const oldAttachmentHost = (input: Pick<SessionInput, 'deviceId' | 'sessionId' | 'files'>) => {
+      if (!input.files?.length || !input.deviceId) return false
+      const device = hosts.current.find(row => row.device_id === input.deviceId)
+      if (!device?.is_online || device.is_current_device) return false
+      const version = device.capabilities.remote_protocol
+      if (isPhoneDevice(device)) return typeof version !== 'number' || version < TASK_ATTACHMENT_PROTOCOL
+      const native = liveDeviceSessions()[input.deviceId]?.sessions.find(row => row.conversationId === input.sessionId)?.nativeInputVersion
+      return native === 1
+    }
     let queue: SessionInputOutbox | null = null
     const refresh = async () => {
       const rows = await queue?.list()
@@ -33,26 +44,37 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
       queue = new SessionInputOutbox(accountId, storage, async input => {
         if (!valid()) throw new Error('Session input account changed')
         const device = hosts.current.find(device => device.device_id === input.deviceId)
-        if (device && !device.is_online) throw new Error('Session host is offline')
-        if (input.deviceId && !device?.is_current_device && !(device && isPhoneDevice(device))) {
-          const summary = liveDeviceSessions()[input.deviceId]?.sessions.find(session => session.conversationId === input.sessionId)
-          if (summary?.nativeInputVersion !== 1) throw new Error('Session host has not advertised stable input acknowledgements')
+        // This computer is named either way (no device id, or its own id); either way its own host answers over IPC.
+        const remoteId = !input.deviceId || device?.is_current_device ? null : input.deviceId
+        if (remoteId && device && !device.is_online) throw new SessionInputFailureError({ code: 'host-offline' })
+        if (oldAttachmentHost(input)) {
+          const caption = withoutQueuedAttachments(input, input.files!.length)
+          input.text = caption.text
+          delete input.files
+          delete input.failure
+          await storage.put(input)
+        }
+        if (remoteId && !(device && isPhoneDevice(device))) {
+          const summary = liveDeviceSessions()[remoteId]?.sessions.find(session => session.conversationId === input.sessionId)
+          if (summary?.nativeInputVersion !== 1 && summary?.nativeInputVersion !== 2) throw new SessionInputFailureError({ code: 'host-not-ready' })
         }
         if (device && isPhoneDevice(device)) {
           const { invokePhoneHost } = await import('@/mobile/local-agent/phoneHostRpc')
-          const result = await invokePhoneHost<{ accepted?: boolean }>(device.device_id, 'sessionTimeline.sessionSend', [{ conversationId: input.sessionId, text: input.text, clientRequestId: input.id }], input.id)
-          if (!result.accepted) throw new Error('Phone host has not acknowledged the input')
+          const result = await invokePhoneHost<{ accepted?: boolean }>(device.device_id, 'sessionTimeline.sessionSend', [{ conversationId: input.sessionId, text: input.text, clientRequestId: input.id, ...(input.files?.length ? { files: input.files } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}) }], input.id)
+          if (!result.accepted) throw new SessionInputFailureError({ code: 'phone-unconfirmed' })
         } else if (platform.kind === 'electron') {
           const { rpcOn } = await import('@/session/renderer/lib/ipc')
-          const result = await rpcOn(input.deviceId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.attachments?.length ? { attachments: input.attachments } : {}) })
+          const result = await rpcOn(remoteId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.files?.length ? { files: input.files } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}) })
           if (!result.ok) throw new Error(result.error.message)
           if (result.value.clientMessageId !== input.id) throw new Error('Session host acknowledged another input')
         } else {
           const { sendSessionText } = await import('@/mobile/agent-watch/sessionpage-rpc')
           if (!input.deviceId) throw new Error('Remote session input has no device')
-          await sendSessionText(input.deviceId, input.sessionId, input.text, input.id, input.attachments)
+          await sendSessionText(input.deviceId, input.sessionId, input.text, input.id, input.files, input.attachments)
         }
-      }, valid, () => { void refresh().catch(report) })
+      }, valid, () => { void refresh().catch(report) }, input => {
+        if (oldAttachmentHost(input)) throw new Error(translateSessionMessage('composer.attachmentHostUpdateRequired'))
+      })
       void refresh().catch(report)
       return queue
     })

@@ -24,8 +24,8 @@ describe('lifecycle outbox entries left by an older version', () => {
     mocks.db = fixture.db
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-        VALUES ('conversation-1', 'project-1', 'Conversation', 'codex', 'acp',
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
+        VALUES ('conversation-1', 'project-1', 'codex', 'acp',
           '{"version":"1","type":"acp","messageOutbox":[{"id":"life-1","text":"stopped","kind":"lifecycle","state":"dispatching"},{"id":"msg-1","text":"hello","kind":"ordinary","state":"pending"},{"id":"life-2","text":"running","kind":"lifecycle","state":"pending"}]}');
       INSERT INTO messages (id, session_id, content, sender, metadata)
         VALUES ('life-1', 'conversation-1', 'stopped', 'system', '{"kind":"session-lifecycle","state":"dispatching"}');
@@ -55,8 +55,8 @@ describe('lifecycle outbox entries left by an older version', () => {
   it('a config that is not JSON, or does not parse without those entries, is logged and left as it is; the rest still migrate', () => {
     const broken = '{"version":"1","type":"acp","messageOutbox":[{"kind":"lifecycle"'
     const invalid = '{"version":"1","type":"nope","messageOutbox":[{"id":"life-3","text":"x","kind":"lifecycle"}]}'
-    fixture.sqlite.prepare(`INSERT INTO sessions (id, project_id, title, provider, runtime, config) VALUES (?, 'project-1', 'Broken', 'codex', 'acp', ?)`).run('broken-1', broken)
-    fixture.sqlite.prepare(`INSERT INTO sessions (id, project_id, title, provider, runtime, config) VALUES (?, 'project-1', 'Invalid', 'codex', 'acp', ?)`).run('invalid-1', invalid)
+    fixture.sqlite.prepare(`INSERT INTO sessions (id, project_id, provider, runtime, config) VALUES (?, 'project-1', 'codex', 'acp', ?)`).run('broken-1', broken)
+    fixture.sqlite.prepare(`INSERT INTO sessions (id, project_id, provider, runtime, config) VALUES (?, 'project-1', 'codex', 'acp', ?)`).run('invalid-1', invalid)
 
     expect(migrateStrandedLifecycleOutbox()).toBe(2)
     const raw = (id: string) => (fixture.sqlite.prepare('SELECT config FROM sessions WHERE id = ?').get(id) as { config: string }).config

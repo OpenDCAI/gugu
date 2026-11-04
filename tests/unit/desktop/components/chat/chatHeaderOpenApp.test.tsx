@@ -12,10 +12,9 @@ import { EXTENSION_API_VERSION, parseExtensionManifest } from '../../../../../ap
 import { UI_EVENTS } from '../../../../../apps/desktop/src/lib/uiEvents'
 
 const app = (id: string, name: string, tab: Record<string, unknown>) =>
-  parseExtensionManifest({ id, name, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: name, ...tab }] } })
+  parseExtensionManifest({ id, name, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: name, ...tab }] } })
 
-vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
-vi.mock('@/lib/chatPinSettings', () => ({ readChatPinSettings: async () => ({ appIds: [], topicIds: [] }), setChatPinPreference: vi.fn() }))
+vi.mock('@/lib/chatPinSettings', () => ({ readChatPinSettings: async () => ({ topicIds: [] }), setChatPinPreference: vi.fn(), watchChatPinSettings: () => () => {} }))
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
@@ -56,13 +55,13 @@ async function openMenu(mobile: boolean) {
     onCloseHeaderMenu: vi.fn(),
   }), { chat: { activeChatId: 'g', chats: [{ id: 'g', kind: 'group' }] as never } })
   const entry = mobile
-    ? [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === '群 Apps')!
-    : document.querySelector<HTMLElement>('button[aria-label="群 Apps"]')!
+    ? [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === '应用')!
+    : document.querySelector<HTMLElement>('button[aria-label="应用"]')!
   await clickElement(entry)
   return Array.from(document.querySelectorAll<HTMLElement>('[data-testid="group-apps-open"]'))
 }
 
-describe('群 Apps 打开本机的 App', () => {
+describe('应用 打开本机的 App', () => {
   for (const mobile of [false, true]) {
     it(`${mobile ? '手机' : '桌面'}:只列开着、有自己页面的 App;点一下 = openApp(它, 本对话)`, async () => {
       const rows = await openMenu(mobile)
@@ -80,7 +79,7 @@ describe('群 Apps 打开本机的 App', () => {
     })
   }
 
-  it('没有可打开的 App:群 Apps 列表为空', async () => {
+  it('没有可打开的 App:应用 列表为空', async () => {
     runInAction(() => { installedExtensionsStore.disabled = ['turtle-soup', 'paper-reader'] })
     expect(await openMenu(false)).toEqual([])
   })

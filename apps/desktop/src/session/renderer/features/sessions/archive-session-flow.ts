@@ -55,14 +55,14 @@ function stopAskingBeforeArchive(): void {
  *
  * fail-loud:每一条「归档没发生」的路径都要留下话,❌ 点了没反应。
  */
-export function archiveSessionNow(args: { projectId: string; sessionId: string; withChildren: boolean }): void {
-  const { projectId, sessionId, withChildren } = args;
+export function archiveSessionNow(args: { projectId: string; sessionId: string; withChildren: boolean; removeSocialIdentity?: boolean }): void {
+  const { projectId, sessionId, withChildren, removeSocialIdentity = true } = args;
   const manager = sessionRegistry.get(sessionId);
   if (!manager) {
     log.error('[gugu-archive] 会话未挂载,无法归档', { sessionId });
     return;
   }
-  manager.archiveSession(sessionId, { withChildren }).then(
+  manager.archiveSession(sessionId, { withChildren, removeSocialIdentity }).then(
     ({ archived, unreached }) => {
       // 只在归档**真的成功**之后走 —— ❌ 把人送走再让这条会话在原处活着。
       leaveSessionView(projectId, sessionId);
@@ -130,7 +130,7 @@ export function requestArchiveSession(args: { projectId: string; sessionId: stri
 
   confirmArchive({
     childCount,
-    proceed: (withChildren) => archiveSessionNow({ projectId, sessionId, withChildren }),
+    proceed: (withChildren, removeSocialIdentity) => archiveSessionNow({ projectId, sessionId, withChildren, removeSocialIdentity }),
   });
 }
 
@@ -140,12 +140,12 @@ export function requestArchiveSession(args: { projectId: string; sessionId: stri
  */
 export function confirmArchive(args: {
   childCount: number;
-  proceed: (withChildren: boolean) => void;
+  proceed: (withChildren: boolean, removeSocialIdentity: boolean) => void;
 }): void {
   const { childCount, proceed } = args;
   // 确认被「不再询问」关掉时按**默认范围**走:一个不弹的确认不能替用户勾上递归。
   if (!shouldConfirm()) {
-    proceed(false);
+    proceed(false, true);
     return;
   }
 
@@ -154,6 +154,7 @@ export function confirmArchive(args: {
     description: translateSessionMessage('task.archiveSessionDescription'),
     confirmLabel: translateSessionMessage('task.archiveTaskConfirm'),
     variant: 'default',
+    option: { label: translateSessionMessage('task.archiveRemoveSocialIdentity'), defaultChecked: true },
     // 名下没有子会话时不摆这个勾选 —— 勾了也不改变结果的开关比没有更坏。
     scopeLabel:
       childCount > 1
@@ -164,11 +165,11 @@ export function confirmArchive(args: {
     dontAskAgainLabel: canOfferDontAskAgain()
       ? translateSessionMessage('task.archiveDontAskAgain')
       : undefined,
-    onSuccess: ({ dontAskAgain, scopeChecked }) => {
+    onSuccess: ({ dontAskAgain, scopeChecked, optionChecked }) => {
       // 先落偏好再归档:归档会把这一行从列表里收起、连带卸掉触发它的组件,顺序反过来就赌一个正在
       // 消失的调用栈还能把设置写完。
       if (dontAskAgain) stopAskingBeforeArchive();
-      proceed(childCount > 0 && scopeChecked);
+      proceed(childCount > 0 && scopeChecked, optionChecked);
     },
   });
 }

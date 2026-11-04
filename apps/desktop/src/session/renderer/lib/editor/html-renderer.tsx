@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
 import type { FileTabResource } from '@renderer/features/sessions/editor/stores/file-tab-resource';
 import {
@@ -21,7 +21,6 @@ import {
   workspaceRpc,
 } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import { fileChangesChannel } from '@shared/core/fs/fsEvents';
-import { touchesPageAssets } from './page-assets';
 
 interface HtmlRendererProps {
   tab: FileTabResource;
@@ -57,37 +56,35 @@ export const HtmlRenderer = observer(function HtmlRenderer({ tab }: HtmlRenderer
       </div>
     );
   }
-  return <HtmlContentRenderer filePath={tab.path} rawContent={content} />;
+  return <HtmlContentRenderer filePath={tab.path} rawContent={content} scrollPosition={tab.htmlPreviewScroll} />;
 });
 
 interface HtmlContentRendererProps {
   filePath: string;
   rawContent: string;
+  scrollPosition?: { x: number; y: number };
 }
 
 /**
  * 会话工作区里的一份 HTML:登记走预览协议(别的机器上的,字节经那台机器取),页面里要离开预览的点击开这条会话的浏览器 / 文件页签。
- * 页面引用的文件(同目录的样式、脚本、图片)在盘上变了就重载一次 —— agent 改完 CSS 页面自己跟着变(本机与别的机器同一条)。
+ * 工作区变化交给登记表核实际取过的资源;本机与别的机器同一条,不按目录猜依赖。
  */
 export const HtmlContentRenderer = observer(function HtmlContentRenderer({
   filePath,
   rawContent,
+  scrollPosition,
 }: HtmlContentRendererProps) {
   const { projectId } = useSessionViewContext();
   const workspaceId = useWorkspaceId();
   const workspacePath = useWorkspace().path;
   const { pane } = usePaneContext();
-  const [reloadKey, setReloadKey] = useState(0);
-
-  useEffect(
-    () =>
+  const subscribeChanges = useCallback(
+    (changed: (paths?: readonly string[]) => void) =>
       workspaceEvents.on(fileChangesChannel, ({ workspaceId: changedWorkspace, update }) => {
         if (changedWorkspace !== workspaceId) return;
-        if (update.kind === 'resync' || touchesPageAssets(filePath, update.changes.map((change) => change.path))) {
-          setReloadKey((n) => n + 1);
-        }
+        changed(update.kind === 'resync' ? undefined : update.changes.map((change) => change.path));
       }),
-    [workspaceId, filePath]
+    [workspaceId]
   );
 
   const register = useCallback(
@@ -124,7 +121,8 @@ export const HtmlContentRenderer = observer(function HtmlContentRenderer({
       rawContent={rawContent}
       register={register}
       onLink={onLink}
-      reloadKey={reloadKey}
+      subscribeChanges={subscribeChanges}
+      scrollPosition={scrollPosition}
     />
   );
 });

@@ -5,7 +5,7 @@
  * 用量 / 活跃两页有自己的图表排版(usage.css,同样靠容器查询换列),这里只让它们的分区标题
  * 和其它页落在同一条左缘上。
  *
- * 写成类而不是行内样式:主渲染进程的行内几何棘轮只减不增(scripts/check-ui-visual-spec.mjs)。
+ * 写成类而不是行内样式:主渲染进程的行内几何棘轮只减不增(scripts/checks/check-ui-visual-spec.mts)。
  *
  * ⚠️ 带 padding 的几条都写成「元素 + 类」(div.gg-settings-row …):tokens.css 那条全局重置
  * `*:not(.gugu-skin …) { padding: 0 }` 与单类同权重,而它在打包顺序里排在本文件**后面**

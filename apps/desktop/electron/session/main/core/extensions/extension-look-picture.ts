@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { PHONE_VIEWPORT_WIDTH } from '@gugu/core/shared/ui/messageBubbleLayout';
 import { BrowserWindow, type WebContents } from 'electron';
 import { APP_RUNTIME_VERSION } from '@shared/extensions/app-runtime-protocol';
 import type { ExtensionPicture } from '@shared/extensions/extension-check';
@@ -24,6 +25,8 @@ import { appRuntimeDir } from './app-runtime-dir';
  */
 export interface PictureSize {
   width: number;
+  /** A widget slot has a fixed manifest height, even if its content is shorter or scrolls. */
+  height?: number;
   touch: boolean;
   says: string;
 }
@@ -33,7 +36,7 @@ export interface PictureSize {
  * as its pane — 952 in the 1280-wide window it opens at, beside the 260 sidebar (mac1 10-13, `session_open_in_tab`).
  */
 export const GROUP_PANEL: PictureSize = { width: 520, touch: false, says: '520 wide (a group\'s side panel)' };
-export const PHONE: PictureSize = { width: 412, touch: true, says: '412 wide (a phone, touch)' };
+export const PHONE: PictureSize = { width: PHONE_VIEWPORT_WIDTH, touch: true, says: '412 wide (a phone, touch)' };
 /** A tab on the task page: `shown`, its width there now if it is open, else one pane of the window it opens at. */
 export function taskPane(shown: number | null): PictureSize {
   return shown === null
@@ -94,7 +97,7 @@ export async function keepPainting(contents: WebContents): Promise<void> {
 export async function showAtSize(contents: WebContents, size: PictureSize): Promise<void> {
   const debug = contents.debugger;
   if (!debug.isAttached()) debug.attach('1.3');
-  await debug.sendCommand('Emulation.setDeviceMetricsOverride', { width: size.width, height: PICTURE_MAX_HEIGHT, deviceScaleFactor: 1, mobile: false });
+  await debug.sendCommand('Emulation.setDeviceMetricsOverride', { width: size.width, height: size.height ?? PICTURE_MAX_HEIGHT, deviceScaleFactor: 1, mobile: false });
   await debug.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: size.touch, maxTouchPoints: size.touch ? 5 : 1 });
 }
 
@@ -115,9 +118,9 @@ export async function pictureOf(contents: WebContents, size: PictureSize, label:
   const metrics = (height: number) =>
     debug.sendCommand('Emulation.setDeviceMetricsOverride', { width: size.width, height, deviceScaleFactor: 1, mobile: false });
   await delay(SETTLE_MS);
-  const full: unknown = await contents.executeJavaScript('document.documentElement.scrollHeight', false);
-  const height = Math.max(1, Math.min(maxHeight, typeof full === 'number' ? full : PICTURE_MAX_HEIGHT));
-  if (height !== PICTURE_MAX_HEIGHT) {
+  const full: unknown = size.height ?? await contents.executeJavaScript('document.documentElement.scrollHeight', false);
+  const height = size.height ?? Math.max(1, Math.min(maxHeight, typeof full === 'number' ? full : PICTURE_MAX_HEIGHT));
+  if (height !== (size.height ?? PICTURE_MAX_HEIGHT)) {
     await metrics(height);
     await delay(SETTLE_MS);
   }

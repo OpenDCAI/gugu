@@ -12,7 +12,7 @@ const app = (id: string, group: string[]) =>
     id,
     name: id,
     version: '1.0.0',
-    apiVersion: EXTENSION_API_VERSION,
+    apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
     entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: id, opensFiles: { chat: group } }] },
   });

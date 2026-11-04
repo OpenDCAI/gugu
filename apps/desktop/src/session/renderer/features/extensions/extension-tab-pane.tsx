@@ -1,3 +1,5 @@
+import { projectWorkspace, sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
+import { useTaskConversation } from '@/lib/taskConversation';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { rpc } from '@renderer/lib/ipc';
@@ -37,6 +39,7 @@ export function ExtensionTabPane({
   filePath,
   projectId,
   chatId,
+  resourceChat,
   itemId,
 }: {
   extensionId: string;
@@ -56,9 +59,18 @@ export function ExtensionTabPane({
   projectId?: string;
   /** Drawn for a chat (a chat's tab in a window of its own), and the chat file it was opened for. */
   chatId?: string;
+  resourceChat?: string;
   itemId?: string;
 }) {
   const { translate } = useSessionMessages();
+  // Where it is (`AppWhere`): a chat's tab is in that chat, a session's in the person's private chat with its agent.
+  const taskConversation = useTaskConversation(chatId ? null : sessionId);
+  // Read when it binds (a ref: the chat list coming in later must not re-attach the webview).
+  const conversationRef = useRef<string | null>(null);
+  conversationRef.current = chatId ?? taskConversation;
+  const resourceChatRef = useRef(resourceChat);
+  resourceChatRef.current = resourceChat;
+  const workspace = sessionId ? sessionWorkspace(sessionId) : projectId && filePath ? projectWorkspace(projectId) : null;
   const [surface, setSurface] = useState<ExtensionSurface | null>(null);
   const [failure, setFailure] = useState<SurfaceFailure | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -176,12 +188,12 @@ export function ExtensionTabPane({
           .bindSurface({
             webContentsId: element.getWebContentsId(),
             extensionId,
-            ...(sessionId ? { sessionId } : {}),
+            workspace,
+            conversation: conversationRef.current,
+            ...(resourceChatRef.current ? { resourceChat: resourceChatRef.current } : {}),
             tabId,
             tabKind,
             ...(filePath ? { filePath } : {}),
-            ...(projectId ? { projectId } : {}),
-            ...(chatId ? { chatId } : {}),
             ...(itemId ? { itemId } : {}),
           })
           .then((result) => {

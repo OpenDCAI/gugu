@@ -46,12 +46,14 @@ export function createGugu(
   const watchers = new Map<string, (change: ExtensionFileChangeBatch) => void>();
   let nextWatch = 0;
   let hearing: (() => void) | null = null;
-  const watch = (watchId: string, place: AppPlace, on: boolean) =>
+  const watch = (watchId: string, place: AppPlace & { folder?: string }, on: boolean) =>
     host.appFiles.watch({ watchId, place, on }).catch((error: unknown) => {
       if (on) void host.reportError(`gugu.files.onChanged(${placeKey(place)}): ${error instanceof Error ? error.message : String(error)}`).catch(() => undefined);
     });
   function onChanged(place: unknown, handler: (change: ExtensionFileChangeBatch) => void): () => void {
-    const where = placeOf(place);
+    // A working copy may name a folder (`'.spec'`): what changes anywhere below it.
+    const folder = (place as { folder?: unknown } | null)?.folder;
+    const where = { ...placeOf(place), ...(typeof folder === 'string' && folder ? { folder } : {}) };
     const watchId = String(++nextWatch);
     if (typeof handler !== 'function') throw guguError('invalid', 'files.onChanged(place, fn) takes a function');
     hearing ??= host.onFilesChanged((id, change) => watchers.get(id)?.(change));
@@ -63,7 +65,7 @@ export function createGugu(
   }
 
   // The gesture halves, where the host has them: a page's (`VerbFacts.only`), never a background page's or a program's.
-  const { upload, download, openWith } = host.appFiles;
+  const { upload, download, openWith, forward } = host.appFiles;
   /**
    * `files.replace(file, blob, { expectedVersion })` (G1): a stored file's next version; nothing to pick, so no gesture.
    * A chat's file needs `expectedVersion` (the entry's `version` as read): `content-changed` if it was replaced since,
@@ -77,12 +79,12 @@ export function createGugu(
     });
   // Every call names where its file is (真源原则 13): an entry or `ctx.file` carries it, a place says it.
   const files = Object.freeze({
-    open: (file: unknown, options?: { readOnly?: boolean; appData?: boolean }) => {
+    open: (file: unknown, options?: { readOnly?: boolean }) => {
       const counts = countsOf(host);
       counts?.opened();
       return withRef(file, (ref) => {
         const entry = (file as { entry?: { version?: unknown }; version?: unknown } | null)?.entry ?? file as { version?: unknown } | null;
-        const requested = host.appFiles.open({ ref, ...(options?.appData === true ? { appData: true } : {}), ...(!host.program ? { deferDetails: true } : {}), ...(typeof entry?.version === 'number' ? { expectedVersion: entry.version } : {}), ...(options?.readOnly === true ? { readOnly: true } : {}) });
+        const requested = host.appFiles.open({ ref, ...(!host.program ? { deferDetails: true } : {}), ...(typeof entry?.version === 'number' ? { expectedVersion: entry.version } : {}), ...(options?.readOnly === true ? { readOnly: true } : {}) });
         const opening = loadFiles().then((m) => m.openFile(host, requested));
         // Observe a fast refusal even while the runtime is still loading.
         return Promise.all([opening, requested]).then(([opened]) => opened);
@@ -92,7 +94,7 @@ export function createGugu(
     /** Across every chat the reader is in, needing `files:read`: by a piece of the path, newest first; what this person opened last. */
     search: (options?: unknown) => loadFiles().then((m) => m.searchEntries(host, options)),
     recent: (options?: unknown) => loadFiles().then((m) => m.recentEntries(host, options)),
-    create: (target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[]; appData?: boolean }) =>
+    create: (target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[] }) =>
       loadFiles().then((m) => m.createFile(host, target, content, options)),
     remove: (file: unknown) => loadFiles().then((m) => m.removeFile(host, file)),
     rename: (file: unknown, name: string) => loadFiles().then((m) => m.renameFile(host, file, name)),
@@ -104,6 +106,8 @@ export function createGugu(
     onChanged,
     viewPreferences: (place: unknown, options?: { showAppData?: boolean }) => withPlace(place, (where) => host.appFiles.viewPreferences({ place: where, ...options })),
     replace,
+    /** Whether whoever reads may delete each file (an entry, or a list of them), in order — ask as its menu opens. */
+    canDelete: (files: unknown) => withRefs(files, (refs) => host.appFiles.canDelete({ refs })),
     /** G2 A chat file's kept versions, newest first; one's content: a text file's as text, a stored file's as a Blob. */
     versions: (file: unknown) => withRef(file, (ref) => host.appFiles.versions({ ref })),
     readVersion: (file: unknown, n: number) =>
@@ -136,11 +140,13 @@ export function createGugu(
           download: (files: unknown) => (Array.isArray(files) ? withRefs(files, (refs) => download({ refs })) : withRef(files, (ref) => download({ ref }))),
           // `{ ask: true }`: 「用别的 App 打开」 — every App that opens it, the person picks. `{ at }`: the place in it (a pill's).
           // `{ peek: true }`: beside this page, which stays as it is (G1).
-          openWith: (file: unknown, options?: { ask?: boolean; at?: Record<string, string>; peek?: boolean }) =>
+          openWith: (file: unknown, options?: { ask?: boolean; at?: Record<string, string>; peek?: boolean; tab?: string }) =>
             withRef(file, (ref) =>
-              openWith({ ref, ...(options?.ask === true ? { ask: true } : {}), ...(options?.at ? { at: options.at } : {}), ...(options?.peek === true ? { peek: true } : {}) })),
+              openWith({ ref, ...(options?.ask === true ? { ask: true } : {}), ...(options?.at ? { at: options.at } : {}), ...(options?.peek === true ? { peek: true } : {}), ...(Object.hasOwn(options ?? {}, 'tab') ? { tab: options?.tab } : {}) })),
         }
       : {}),
+    // API 23: 「转发」 — one file or several, the host's forward page; resolves once it is up (what is sent is the person's).
+    ...(forward ? { forward: (files: unknown) => withRefs(files, (refs) => forward({ refs })) } : {}),
   });
 
   // Every v1 member; `appFiles`, `chats`, `checkPage`, `clipboard`, `messages`, `projects`, `theme` and `onFilesChanged` (it is

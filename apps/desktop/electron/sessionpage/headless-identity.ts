@@ -18,7 +18,6 @@ import { createRPCController, registerRPCRouter } from '../../src/session/shared
 import type { EventDefinition } from '../../src/session/shared/lib/ipc/events'
 import {
   sessionpageAgentProvisionedEvent,
-  sessionpageAgentRenamedEvent,
   type SessionpageIdentityAuth,
   type SessionpageIdentityRpc,
 } from '../../src/session/shared/lib/ipc/sessionpage-identity-contract'
@@ -26,7 +25,8 @@ import { onSessionpageAgentProvisioned } from './emdash-agent-provisioning'
 import { createSessionpageIdentityHost, type SessionpageIdentityAuthSnapshot } from './sessionpage-identity-host'
 import { createLocalDeviceIdResolver, detectDeviceCapabilities, type DeviceCapabilities, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
 import { makeIdentityClient } from '../supabase'
-import { setEmdashMcpInjector } from '../session/main/core/acp/emdash-mcp-injector'
+import { setEmdashIdentityProvisioner, setEmdashMcpInjector } from '../session/main/core/acp/emdash-mcp-injector'
+import { setSessionIdentityHost } from '../session/main/core/sessions/session-identity-host'
 import { setPlatformModelCatalogResolver } from '../session/main/core/agents/platform-model-catalog-hook'
 import {
   notifyProjectGroupBindingChanged,
@@ -50,7 +50,7 @@ import {
 import { SESSIONPAGE_PLATFORM_CATALOG_CHANNEL } from './sessionpage-platform-catalog'
 import { SESSIONPAGE_PLATFORM_RETRY_CHANNEL } from '../../src/session/shared/core/agents/platform-model'
 import { clearPlatformIssueBackoff } from './sessionpage-platform-model'
-import { announceEmdashSession, emdashSessionProvisionInput, emdashProjectName, emdashSessionpageSessionFacts, emdashTakeBirthGroup } from '../session/main/embedded-boot'
+import { adoptLegacyTaskNames, announceEmdashSession, emdashSessionProvisionInput, emdashProjectName, emdashSessionpageSessionFacts, emdashTakeBirthGroup, setTaskNamer, setTaskNameOwner } from '../session/main/embedded-boot'
 import { sessionpageRenameAnnouncement, type SessionpageAgentNameTaken } from './sessionpage-rename-announcement'
 import type { HostIpc } from '../session/main/lib/host-ipc'
 import { log } from '../session/main/lib/logger'
@@ -85,8 +85,13 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     }),
     resolveProjectName: (projectId) => emdashProjectName(projectId),
     takeBirthGroup: (sessionId) => emdashTakeBirthGroup(sessionId),
-    sessionFacts: (target) => emdashSessionProvisionInput(target),
+    sessionFacts: (target, options) => emdashSessionProvisionInput(target, options),
     listSessionFacts: () => emdashSessionpageSessionFacts(),
+  })
+  setSessionIdentityHost(identity)
+  setTaskNamer({
+    defaultName: (provider, taken) => identity.defaultTaskName(provider, taken),
+    renameBound: (sessionId, agentUserId, name) => identity.renameBound(sessionId, agentUserId, name),
   })
   const nativeInbox = startNativeConversationInboxHost({
     open: async target => (await identity.ensureAgentAddress(target)).chatId,
@@ -104,19 +109,8 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
 
   // 会话启动即开账号。两处都只落身份、不改启动参数:ACP 不注入 MCP(返回空表),PTY 不接管命令(返回 null)。
   // 供给失败按 fail-loud 抛出 —— 一条没有身份的会话在网页版就是一条坏会话(owner 定的产品预期:每个会话都是一个 agent)。
-  setEmdashMcpInjector(async (info) => {
-    await identity.provisionSessionStart({
-      sessionId: info.sessionId,
-      sourceSessionId: info.sourceSessionId,
-      providerId: info.providerId,
-      surface: 'acp',
-      cwd: info.cwd,
-      projectId: info.projectId,
-      displayName: info.agentDisplayName,
-      lifecycle: info.lifecycle,
-    })
-    return { mcpServers: [] }
-  })
+  setEmdashIdentityProvisioner(request => identity.provisionSessionStart({ ...request, surface: 'acp' }))
+  setEmdashMcpInjector(async () => ({ mcpServers: [] }))
   setEmdashPtySessionpageHook(async (info) => {
     await identity.provisionSessionStart({
       sessionId: info.sessionId,
@@ -173,17 +167,17 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
   const controller = createRPCController<SessionpageIdentityRpc>({
     setAuth: async (next) => {
       auth.set(next)
+      await setTaskNameOwner(next?.userId ?? null)
+      // The browser pushes auth when it reconnects: names renamed meanwhile are published now.
+      if (next) await identity.publishPendingNames()
+      if (next) await identity.adoptCloudNames()
+      // Once, after the cloud names: a legacy task's old title names its default-named identity (0043).
+      if (next) await adoptLegacyTaskNames()
       log.info('[session-host] identity auth ' + (next ? `set for ${next.userId}` : 'cleared'))
     },
     agentCard: (sessionId) => identity.agentCard(sessionId),
     agentNames: () => identity.agentNames(),
     sessionPeers: (...args) => identity.sessionPeers(...args),
-    // 改完名要让浏览器那头的侧栏身份卡 / 分享按钮当场换名 —— 与 provisioned 同一条广播口、同形载荷。
-    renameAgent: async (input) => {
-      const renamed = await identity.renameAgent(input)
-      broadcast(sessionpageAgentRenamedEvent, renamed)
-      return renamed
-    },
     ensureAgentAddress: (input) => identity.ensureAgentAddress(input),
   })
   registerRPCRouter({ sessionpageIdentity: controller }, hostIpc.ipcMain)
@@ -209,11 +203,14 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
   return {
     dispose() {
       nativeInbox.dispose()
+      setTaskNamer(null)
       unsubscribeProvisioned()
       unsubscribeGroupMapping()
       setUserLibraryOwner(null)
       setProjectGroupHost(null)
+      setSessionIdentityHost(null)
       setEmdashMcpInjector(null)
+      setEmdashIdentityProvisioner(null)
       setEmdashPtySessionpageHook(null)
       setEmdashPtySessionpageTeardown(null)
       setEmdashPlatformInjector(null)

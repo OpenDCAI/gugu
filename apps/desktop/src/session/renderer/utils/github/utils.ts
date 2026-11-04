@@ -1,4 +1,4 @@
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime as formatAppRelativeTime } from '@/i18n/format';
 import type { CheckRun, CheckRunsSummary } from './types';
 
 export type CheckRunBucket = 'pass' | 'fail' | 'pending' | 'skipping' | 'cancel';
@@ -60,9 +60,7 @@ export function computeCheckRunsSummary(checks: CheckRun[]): CheckRunsSummary {
 }
 
 export function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return '';
-  return formatDistanceToNow(date, { addSuffix: true });
+  return formatAppRelativeTime(dateStr, { mode: 'elapsed' }) ?? '';
 }
 
 export function formatCheckDuration(startedAt?: string, completedAt?: string): string | null {

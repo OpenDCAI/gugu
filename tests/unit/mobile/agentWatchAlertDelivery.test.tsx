@@ -42,9 +42,17 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   },
 }))
 
+const { setNotificationSettings } = await import('../../../apps/desktop/src/lib/notificationSettings')
+
 const { useAgentWatchAlerts, useAgentWatchFocus } = await import('../../../apps/desktop/src/mobile/agent-watch/useAgentWatchAlerts')
 
 const device = { device_id: 'machine-1', is_online: true, capabilities: {} } as unknown as Device
+const READINGS: Record<string, SessionpageSessionSummary['status']> = {
+  working: { status: 'working', detail: 'running' },
+  idle: { status: 'idle', detail: null },
+  needs_approval: { status: 'needs_user', detail: 'approval' },
+  error: { status: 'error', detail: null },
+}
 const session = (agentStatus: string): SessionpageSessionSummary => ({
   conversationId: 'conversation-1',
   projectId: 'project-1',
@@ -52,6 +60,7 @@ const session = (agentStatus: string): SessionpageSessionSummary => ({
   harness: 'claude',
   runtime: 'acp',
   agentStatus,
+  status: READINGS[agentStatus],
   lastInteractedAt: '2026-09-15T00:00:00.000Z',
   supported: true,
 } as SessionpageSessionSummary)
@@ -69,6 +78,7 @@ function Probe({ focus, page = true }: { focus: { deviceId: string; sessionId: s
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
+  setNotificationSettings({ sound: true })
   mocks.toast.mockReset()
   mocks.showNotification.mockReset().mockResolvedValue({ success: true, displayed: true })
   mocks.systemPermissions = ['notifications']
@@ -114,6 +124,13 @@ describe('agent watch alert delivery', () => {
       expect(mocks.toast).not.toHaveBeenCalled()
     })
   }
+
+  it('follows the existing sound switch without suppressing the banner', async () => {
+    setVisibility('hidden')
+    setNotificationSettings({ sound: false })
+    await mountAndAsk()
+    expect(mocks.showNotification).toHaveBeenCalledWith(expect.objectContaining({ silent: true }))
+  })
 
   it('a turn finishing or erroring is a state change and posts nothing (owner 10-30)', async () => {
     setVisibility('hidden')

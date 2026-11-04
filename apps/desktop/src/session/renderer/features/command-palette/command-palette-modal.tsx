@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Command } from 'cmdk';
-import { FolderOpen, MessageSquare } from '@/lib/icons';
+import { FolderOpen, MessageSquare, Search } from '@/lib/icons';
 import { useObserver } from 'mobx-react-lite';
 import { useState } from 'react';
 import { i18n } from '@/i18n';
@@ -20,9 +20,18 @@ import { getCommandIcon } from './command-icons';
 import { PALETTE_ITEM_CLASS } from './palette-item-styles';
 import { PaletteProjectsGroup } from './palette-projects-group';
 import { PaletteChatGroups } from './palette-chats';
+import { openGlobalSearch } from '@renderer/features/global-search/search-session';
 import { PaletteSessionItem } from './palette-session-item';
 import { rankPaletteMatches } from './palette-rank';
 import { followLink } from '@/lib/guguLinks';
+import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
+import { sidebarStore } from '@renderer/lib/stores/app-state';
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
+import { isAssistantSession } from '@renderer/features/assistant/assistant-lineage';
+import { paletteTasks } from './palette-tasks';
+import { recentTaskIds } from './recent-tasks';
+import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
+import { machineRegistry } from '@renderer/lib/machine-routing';
 
 interface CommandPaletteProps {
   initialQuery?: string;
@@ -66,7 +75,21 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
     , search, ({ title, description }) => [title, description]));
   // 本机索引负责召回(短查询的 LIKE 没有分数);排序与 @ 选人同一套,同分保留索引给的顺序。
   const ranked = rankPaletteMatches(results, search, (item) => [item.title], { recallOnly: true });
-  const tasks = ranked.filter((item) => item.kind === 'session');
+  const tasks = useObserver(() => {
+    const recent = commandsMode || search ? [] : recentTaskIds();
+    // Recall opened local tasks beyond the search RPC's newest ten, from existing task rows only.
+    const remembered = recent.flatMap(id => {
+      const data = sessionRegistry.get(id)?.sessions.get(id)?.data;
+      return data && !data.archivedAt && !data.automationRunId && !machineRegistry.machineOf(data.projectId)
+        ? [{ kind: 'session' as const, id, projectId: data.projectId, title: data.title, subtitle: '', score: 0, lastInteractedAt: data.lastInteractedAt }] : [];
+    });
+    return paletteTasks([...results, ...remembered].filter(item => {
+      const binding = sessionAgentBindings.bindingFor(item.id);
+      return !isAssistantSession({ agent: binding ? { userId: binding.agentUserId } : null }, sidebarStore.assistantAgentId);
+    }), remoteHostsStore.allListedSessions().map(item => ({
+      ...item, deviceLabel: remoteHostsStore.device(item.deviceId)!.label,
+    })), search, sidebarStore.assistantAgentId, recent);
+  });
   const projects = ranked.filter((item) => item.kind === 'project');
 
   return (
@@ -76,7 +99,7 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
           placeholder={commandsMode ? translate('palette.commandPlaceholder') : translate('palette.switchPlaceholder')}
           className="w-full bg-transparent px-3 py-3 text-sm outline-none placeholder:text-foreground/40" autoFocus />
       </div>
-      <Command.List className="h-96 overflow-y-auto p-1">
+      <Command.List className="max-h-96 overflow-y-auto p-1">
         <Command.Empty className="py-8 text-center text-sm text-foreground/40">
           {translate('palette.noResults', { query: search })}
         </Command.Empty>
@@ -97,10 +120,11 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
               <Command.Group heading={translate(search ? 'palette.tasks' : 'palette.recentTasks')} className={GROUP_CLASS}>
                 {tasks.map((item) => {
                   const open = () => { if (item.projectId) { onClose(); followLink({ kind: 'session', sessionId: item.id, projectId: item.projectId }); } };
-                  const store = item.projectId ? getSessionPageStore(item.projectId, item.id) : undefined;
+                  const store = !item.deviceId && item.projectId ? getSessionPageStore(item.projectId, item.id) : undefined;
                   return store ? <PaletteSessionItem key={item.id} value={`task:${item.id}`} sessionPageStore={store} onSelect={open} /> : (
                     <Command.Item key={item.id} value={`task:${item.id}`} onSelect={open} className={PALETTE_ITEM_CLASS}>
                       <MessageSquare size={14} /><span className="flex-1 truncate">{item.title}</span>
+                      {item.deviceId && <span className="shrink-0 text-xs text-foreground/40">{item.deviceLabel}</span>}
                     </Command.Item>
                   );
                 })}
@@ -117,6 +141,13 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
               </Command.Group>
             ) : <PaletteProjectsGroup currentProjectId={undefined} limit={5} onClose={onClose} navigate={navigate} />}
             <PaletteChatGroups query={search} groupClassName={GROUP_CLASS} onClose={onClose} />
+            {/* Switching is by name only; what was said is the search panel's: the last row hands the words over. */}
+            {search && (
+              <Command.Item value="search-messages" className={PALETTE_ITEM_CLASS} onSelect={() => { onClose(); openGlobalSearch({ text: search }); }}>
+                <Search size={14} className="shrink-0 text-foreground/40" />
+                <span className="flex-1 truncate">{translate('palette.searchMessages', { query: search })}</span>
+              </Command.Item>
+            )}
           </>
         )}
       </Command.List>

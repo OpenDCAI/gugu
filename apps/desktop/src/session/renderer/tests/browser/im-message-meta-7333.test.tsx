@@ -4,7 +4,7 @@ import { act } from 'react';
  * 系统消息、发送失败 = 标注 12/18;气泡里的引用条(回复引用,与已发出的 `> [名字]: 原话`)的标题和摘录 = 紧凑界面 14/20。
  * 输入框上方的引用预览是另一个元素,判据在 input-area-quote-7333.test.tsx。
  * 渲染的是真 MessageBubble(共享 testHarness 的 providers),判 getComputedStyle,❌ 读内联声明。
- * 引用条的省略与宽度上限照旧(长摘录要真的被截)。
+ * #1129 的来源预览为标题一行 + Markdown 摘录两行;保留字阶与宽度上限,长摘录要真的被截。
  */
 import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../../../../../tests/support/testHarness';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -80,13 +80,18 @@ describe('the IM bubble\'s meta and quote bars in the master\'s tiers (#7333)', 
     await act(async () => { await userEvent.hover(document.documentElement); });
     await act(async () => { await userEvent.hover(root.querySelector<HTMLElement>('.gg-chat-reply-jump')!); });
     await until('the mark discloses its source before measuring typography', () => document.querySelector('[data-chat-reply-preview-popup]') !== null);
-    const excerpt = byText(document.body, LONG_EXCERPT)!;
+    const excerpt = document.querySelector<HTMLElement>('[data-chat-reply-preview-popup] [data-conversation-source-markdown]')!;
     const title = excerpt.previousElementSibling as HTMLElement;
     expect(title.textContent).toBe('林知夏');
     expect(tier(title), 'the quote title').toEqual(COMPACT);
     expect(tier(excerpt), 'the quote excerpt').toEqual(COMPACT);
-    expect(excerpt.scrollWidth, 'the long excerpt was not cut: the ellipsis is untested').toBeGreaterThan(excerpt.clientWidth);
-    expect(getComputedStyle(excerpt).textOverflow).toBe('ellipsis');
+    expect(tier(excerpt.querySelector('p')), 'the rendered Markdown keeps the quote tier').toEqual(COMPACT);
+    await until('the long Markdown excerpt is visibly clipped', () => excerpt.hasAttribute('data-source-truncated'));
+    expect(excerpt.scrollHeight, 'the long excerpt was not cut: the ellipsis is untested').toBeGreaterThan(excerpt.clientHeight);
+    expect(getComputedStyle(excerpt).webkitLineClamp).toBe('2');
+    expect(excerpt.getBoundingClientRect().height, 'the excerpt stays within two compact lines').toBeLessThanOrEqual(40);
+    expect(getComputedStyle(title).whiteSpace).toBe('nowrap');
+    expect(title.getBoundingClientRect().height, 'the source title stays within one compact line').toBeLessThanOrEqual(20);
     expect(Math.round(excerpt.parentElement!.getBoundingClientRect().width), 'the quote bar outgrew its cap').toBeLessThanOrEqual(180);
     // The reply itself stays the message tier.
     expect(tier(byText(root, '好的,就按这个办。')?.closest('[style*="--font-prose"]'))).toEqual(PROSE);

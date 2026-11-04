@@ -2,7 +2,6 @@ import { isProviderSessionMissingError } from '@gugu/session-core/acp';
 import { HarnessStartupError, SessionRuntimeCompatibilityError } from '@gugu/session-core/agents/plugins';
 import { guguCatalogReasonCode, guguReasonInText } from '@gugu/session-core/session-record/contract';
 import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
-import { isAppFocused } from '@main/core/agent-hooks/app-focus';
 import { log } from '@main/lib/logger';
 import type { Session } from '@shared/core/sessions/sessions';
 import type { RuntimeUpgradeRequirement } from '@shared/core/sessions/runtime-upgrade';
@@ -117,7 +116,6 @@ export function emitSessionSpawnFailure(session: Session, error: unknown): void 
       sessionId: session.id,
       timestamp: Date.now(),
       payload: { message },
-    },
-    isAppFocused()
+    }
   );
 }

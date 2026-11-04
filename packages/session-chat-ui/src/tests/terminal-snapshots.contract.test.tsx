@@ -16,7 +16,7 @@ it('shows stored-only output and replaces it by entity identity, including an em
   const terminal: TerminalState = { terminalId: 't', owner: 'agent', canKill: false, command: 'echo', args: [], cwd: '/w',
     output: 'OFFLINE_418', truncated: false, exitStatus: { exitCode: 0, signal: null } };
   parser.pushEvent({ kind: 'terminal_snapshots', terminals: [terminal] });
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   const state = createChatState(context);
   state.transcript.history.seed(JSON.parse(JSON.stringify(parser.history)));
   const measure = makeContractCtx({ width: 420, isCollapsed: () => true });

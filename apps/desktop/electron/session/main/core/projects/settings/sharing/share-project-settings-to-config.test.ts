@@ -407,10 +407,10 @@ describe('shareProjectSettingsToConfig', () => {
       .mockReturnValueOnce({
         from: () => ({
           where: vi.fn().mockResolvedValue([
-            { title: 'Root Session', workspaceId: 'root-workspace' },
-            { title: 'Session Two', workspaceId: 'worktree-workspace' },
+            { id: 's-root', config: { version: '1', type: 'acp', agentDisplayName: 'Root Session' }, workspaceId: 'root-workspace' },
+            { id: 's-two', config: { version: '1', type: 'acp', agentDisplayName: 'Session Two' }, workspaceId: 'worktree-workspace' },
             // 同一个工作区上的第二条会话:目标只列一次。
-            { title: 'Session Two Fork', workspaceId: 'worktree-workspace' },
+            { id: 's-two-fork', config: { version: '1', type: 'acp', agentDisplayName: 'Session Two Fork' }, workspaceId: 'worktree-workspace' },
           ]),
         }),
       });

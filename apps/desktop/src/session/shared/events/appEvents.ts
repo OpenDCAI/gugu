@@ -132,6 +132,16 @@ export const remotePreviewReadChannel = defineEvent<{
   length: number;
 }>('session:remote-preview-read');
 
+/**
+ * A chat document's preview asked for a file kept on a machine that is off (`gugu-preview://` chat registration): the
+ * page around it says which machine, and reads again when that machine is back.
+ */
+export const previewHolderOfflineChannel = defineEvent<{
+  previewId: string;
+  deviceId: string;
+  machine: string;
+}>('session:preview-holder-offline');
+
 /** 渲染层取回来的那一块(base64,与读文件动词同形),或那台机器给的原因码。 */
 export const remotePreviewReadResultChannel = defineEvent<{
   requestId: string;

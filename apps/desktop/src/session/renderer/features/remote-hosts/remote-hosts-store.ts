@@ -29,7 +29,7 @@ import {
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { aliasFixedId, machineCodec, machineRegistry } from '@renderer/lib/machine-routing';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import { pageSessions } from '@renderer/features/sessions/stores/session-selectors';
 import { log } from '@renderer/utils/logger';
 import { hostConnectionState, type HostConnectionState } from './connection-status';
@@ -193,7 +193,7 @@ export class RemoteHostsStore {
           if (machineRegistry.machineOf(project.id)) return [];
           return [...(project.mountedProject?.sessionManager.sessions.values() ?? [])].flatMap((page) =>
             'archivedAt' in page.data && page.data.archivedAt ? [] : pageSessions(page).filter((session) => !session.data.archivedAt).map((session) => ({
-              projectId: project.id, sessionId: session.data.id, agentUserId: sessionAgentNames.identityFor(session.data.id)?.agentUserId,
+              projectId: project.id, sessionId: session.data.id, agentUserId: sessionAgentBindings.bindingFor(session.data.id)?.agentUserId,
             })));
         }),
         ...this.allListedSessions().map(({ summary }) => ({ projectId: summary.projectId, sessionId: summary.conversationId, agentUserId: summary.agent?.userId })),
@@ -389,6 +389,7 @@ export class RemoteHostsStore {
       }
       return [{
         sessionId: session.conversationId,
+        title: session.title,
         identity: { users: { id, display_name: identity.display_name, gugu_number: identity.gugu_number,
           ...(identity.session_archived_at != null ? { session_archived_at: identity.session_archived_at } : {}) } },
         engine: engineOf(session.harness),
@@ -519,13 +520,16 @@ export class RemoteHostsStore {
    * id 是固定 id 在那台机器上的别名(machine-routing),发过去时换回固定 id,那台机器认它是任务工作区。
    * 同一台机器同时只建一次(新建页与对话页创建框可能同时要)。
    */
-  ensureTaskWorkspace(deviceId: string): Promise<string> {
-    return this.once(`tasks:${deviceId}`, async () => {
+  ensureTaskWorkspace(deviceId: string, required = false): Promise<string> {
+    return this.once(`tasks:${deviceId}:${required}`, async () => {
       const id = aliasFixedId(IMPLICIT_SESSION_HOME_PROJECT_ID, deviceId);
       if (!appState.projects.projects.has(id)) {
         // 比这一版旧的咕咕 server 不回这一问(device-session-host 的白名单):照旧落在它的主目录项目里。
         const path = await rpcOn(deviceId).app.getSessionHomeDir().catch(() => null);
-        if (!path) return this.ensureHomeProject(deviceId);
+        if (!path) {
+          if (required) throw new Error('TASK_WORKSPACE_UNAVAILABLE');
+          return this.ensureHomeProject(deviceId);
+        }
         const created = await appState.projects.createProject(
           { type: 'local', machine: deviceId },
           { mode: 'pick', path, name: IMPLICIT_SESSION_HOME_PROJECT_NAME, initGitRepository: false, allowNonGit: true },
@@ -650,12 +654,17 @@ export class RemoteHostsStore {
   /** 读那台机器的项目清单并入项目表(连上时 / 那台机器上新建了项目时)。 */
   async syncProjects(deviceId: string): Promise<void> {
     try {
-      const [projects, home] = await Promise.all([
+      const [projects, home, catalog] = await Promise.all([
         rpcOn(deviceId).projects.getProjects(),
         rpcOn(deviceId).app.getHomeDirectory().catch(() => null),
+        Promise.resolve().then(() => rpcOn(deviceId).sessionTimeline.sessionsList()).catch((error: unknown) => {
+          log.warn('[machines] 读那台机器的会话列表失败', { deviceId, error: String(error) });
+          return null;
+        }),
       ]);
       if (home) this.rememberHomeDir(deviceId, home);
-      appState.projects.syncMachineProjects(deviceId, projects);
+      if (catalog?.sessions.length) appState.projects.syncMachineProjects(deviceId, projects, catalog.sessions);
+      else appState.projects.syncMachineProjects(deviceId, projects);
       runInAction(() => {
         const state = this.hosts.get(deviceId);
         if (state) state.synced = true;
@@ -722,7 +731,9 @@ export class RemoteHostsStore {
       return;
     }
     if (!this.accountIsNewer(deviceId)) return;
-    appState.projects.syncMachineProjects(deviceId, accountProjectsOf(deviceId, records));
+    const sessions = this.sessionsOf(deviceId).sessions;
+    if (sessions.length) appState.projects.syncMachineProjects(deviceId, accountProjectsOf(deviceId, records), sessions);
+    else appState.projects.syncMachineProjects(deviceId, accountProjectsOf(deviceId, records));
     projectGroupsStore.applyBindings(deviceId, accountBindingsOf(deviceId, records));
   }
 

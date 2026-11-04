@@ -2,7 +2,7 @@ import { connectDeliveredMessagePresentation, resolveDeliveredAttachment } from 
 import { rendererLogger } from '@/lib/log';
 import { nativeChatAppearance } from './native-chat-appearance.css';
 import { ChatComposer } from '@gugu/session-ui/react/components';
-import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChatTranscript, type ChatTranscriptProps } from './chat-transcript';
 
@@ -16,6 +16,11 @@ export type AgentConversationViewProps = ChatTranscriptProps & {
 export function AgentConversationView({ layout, composerContent, shown = true, onVisibleItems, style, className, onReady, ...props }: AgentConversationViewProps) {
   const root = useRef<HTMLDivElement>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const hostCommands = props.commands;
+  // Composer-only renders must not republish commands and remeasure history.
+  const commands = useMemo<NonNullable<ChatTranscriptProps['commands']>>(() => ({ ...hostCommands,
+    resolveAttachment: attachment => attachment.id.startsWith('gugu-message-file://') ? resolveDeliveredAttachment(attachment.id) : hostCommands?.resolveAttachment?.(attachment) ?? Promise.resolve(null),
+  }), [hostCommands]);
   useEffect(() => {
     if (!props.state?.session?.setDeliveredMessages) return;
     return connectDeliveredMessagePresentation(props.state, async id => {
@@ -35,13 +40,15 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     const readable = (element: Element) => {
       const viewport = host.getBoundingClientRect();
       if ((composerContent || props.composer === 'slot') && (!slot || slot.getBoundingClientRect().height <= 0)) return false;
-      const bottom = slot ? Math.min(viewport.bottom, slot.getBoundingClientRect().top) : viewport.bottom;
+      const process = element.closest('[data-slot="conversation-process-steps"]')?.getBoundingClientRect();
+      const top = process ? Math.max(viewport.top, process.top) : viewport.top;
+      const bottom = Math.min(viewport.bottom, slot ? slot.getBoundingClientRect().top : viewport.bottom, process?.bottom ?? viewport.bottom);
       const body = element.querySelector('[data-user-card], [data-attachment-chip]') ?? element;
       const content = body.getBoundingClientRect();
       // A covered short bubble has not been read. A reply taller than the
       // viewport becomes eligible when its end reaches the readable region.
-      return content.width > 0 && content.height > 0 && content.bottom > viewport.top && content.bottom <= bottom
-        && (content.top >= viewport.top || content.height > bottom - viewport.top)
+      return bottom > top && content.width > 0 && content.height > 0 && content.bottom > top && content.bottom <= bottom
+        && (content.top >= top || content.height > bottom - top)
         && content.right > viewport.left && content.left < viewport.right;
     };
     const report = (elements: readonly Element[]) => {
@@ -110,7 +117,7 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
   return <div ref={root} data-agent-conversation="" className={`${className ?? 'relative min-h-0 flex-1'} ${nativeChatAppearance}`} style={style}>
     <ChatTranscript stickToBottom pinUserMessages {...props}
       composer={composerContent ? 'slot' : props.composer}
-      commands={{ ...props.commands, resolveAttachment: attachment => attachment.id.startsWith('gugu-message-file://') ? resolveDeliveredAttachment(attachment.id) : props.commands?.resolveAttachment?.(attachment) ?? Promise.resolve(null) }}
+      commands={commands}
       onReady={view => { setSlot(view.composerSlot); onReady?.(view); }}
       onDisposed={() => { setSlot(null); props.onDisposed?.(); }}
       layout={{ preset: 'double', userGutter: 0, ...layout, agentConversation: true }} style={{ position: 'absolute', inset: 0 }} />

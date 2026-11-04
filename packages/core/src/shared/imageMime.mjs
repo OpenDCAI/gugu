@@ -20,11 +20,42 @@ const MIME_BY_EXT = {
   tif: 'image/tiff',
   tiff: 'image/tiff',
   md: 'text/markdown',
+  markdown: 'text/markdown',
   html: 'text/html',
   htm: 'text/html',
   txt: 'text/plain',
   json: 'application/json',
   csv: 'text/csv',
+  js: 'text/javascript',
+  mjs: 'text/javascript',
+  cjs: 'text/javascript',
+  jsx: 'text/javascript',
+  ts: 'text/typescript',
+  tsx: 'text/typescript',
+  py: 'text/x-python',
+  rb: 'text/x-ruby',
+  go: 'text/x-go',
+  rs: 'text/x-rust',
+  java: 'text/x-java',
+  c: 'text/x-c',
+  h: 'text/x-c',
+  cc: 'text/x-c++',
+  cpp: 'text/x-c++',
+  hpp: 'text/x-c++',
+  cs: 'text/x-csharp',
+  php: 'text/x-php',
+  sh: 'text/x-shellscript',
+  bash: 'text/x-shellscript',
+  zsh: 'text/x-shellscript',
+  sql: 'text/x-sql',
+  css: 'text/css',
+  scss: 'text/x-scss',
+  xml: 'text/xml',
+  yaml: 'text/yaml',
+  yml: 'text/yaml',
+  toml: 'text/toml',
+  ini: 'text/plain',
+  conf: 'text/plain',
   pdf: 'application/pdf',
   zip: 'application/zip',
   mp3: 'audio/mpeg',
@@ -50,6 +81,12 @@ export function normalizeMimeType(mimeType) {
 /** What a file's name says it is, or `null` when the table does not know its suffix. */
 export function mimeTypeFromName(fileName) {
   return MIME_BY_EXT[extensionOf(fileName)] ?? null
+}
+
+/** The table's first extension for a content type, or null when its type is unknown. */
+export function extensionFromMimeType(mimeType) {
+  const type = normalizeMimeType(mimeType)
+  return Object.keys(MIME_BY_EXT).find(extension => MIME_BY_EXT[extension] === type) ?? null
 }
 
 /** 扩展包(`.guguext`,#6646):聊天里画成扩展卡片;浏览器对这个后缀报空 type,只能按名补。 */

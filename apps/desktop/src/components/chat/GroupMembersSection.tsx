@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CSSProperties, ReactNode } from 'react'
 import { buildGroupInviteShareUrl } from '../../lib/groupInviteShareUrl'
@@ -13,14 +13,13 @@ import { useAgentLookPostersVersion } from '../agentAvatar/posters'
 import { SharePosterDialog } from '../SharePosterDialog'
 import { buildUnifiedMembers } from './groupMemberModels'
 import { chatService } from '../../lib/chat'
-import { isGroupManagerRole } from '../../lib/groupMemberPermissions'
-import { useToast } from '../toastContext'
+import { useGroupAvatarUpload } from './useGroupAvatarUpload'
 import { useChatStore } from '../../store/chatContext'
 import { ChatManagementActions } from './ChatManagementActions'
 import { GroupSettingsManagePage } from './GroupSettingsManagePage'
 import { MemberListPanel, type MemberListPanelProps } from './MemberListPanel'
 import { AnnouncementDrawer } from './AnnouncementDrawer'
-import { useGroupChatSettings } from './useGroupChatSettings'
+import { groupRoleRevision, useGroupChatSettings, type GroupChatSettingsState } from './useGroupChatSettings'
 import { useSettingsPages } from './useSettingsPages'
 import { MemberInviteLink, SettingsNavRow, SettingsPageFrame, SettingsPageHead } from './groupSettingsUi'
 import {
@@ -70,6 +69,7 @@ export function GroupMembersSection({
   initialPage,
   snapshot,
   snapshotError,
+  settingsState,
   currentUserId,
   onReload,
   onClose,
@@ -86,6 +86,7 @@ export function GroupMembersSection({
   /** Opened at the members' list or the announcement (the info tab's members button); back: the first page. */
   initialPage?: 'main' | 'members' | 'announcement'
   snapshot: GroupCollabSnapshot
+  settingsState?: GroupChatSettingsState
   snapshotError?: MemberListPanelProps['error']
   currentUserId: string | null
   onReload: () => Promise<void>
@@ -104,21 +105,21 @@ export function GroupMembersSection({
   const chatId = chat.id
   const { t } = useTranslation('messaging')
   const { identitiesById } = useChatStore('identitiesById')
-  const { toast } = useToast()
   const mobileShell = useMobileShell()
   const { page, push, pop } = useSettingsPages(chatId, initialPage)
 
-  const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = useGroupChatSettings(chatId)
-  const viewerRole = useMemo(
-    () => (currentUserId ? snapshot.humans.find((h) => h.id === currentUserId)?.role ?? null : null),
-    [currentUserId, snapshot.humans],
-  )
-  const viewerIsManager = isGroupManagerRole(viewerRole)
+  const ownSettings = useGroupChatSettings(settingsState ? null : chatId, groupRoleRevision(snapshot))
+  const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = settingsState ?? ownSettings
+  // A shared hook outlives this panel: opening the panel reads again (ownSettings has just read on its own mount).
+  const reloadShared = settingsState?.reload
+  useEffect(() => { reloadShared?.() }, [reloadShared])
+  const viewerRole = settings?.my_role ?? null
+  const viewerIsManager = settings?.can_manage === true
 
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [confirmExit, setConfirmExit] = useState(false)
-  const [avatarUploading, setAvatarUploading] = useState(false)
+  const { avatarUploading, handleAvatarFile } = useGroupAvatarUpload({ chatId, viewerIsManager, setAvatarUrl, setActionError })
   const [avatarDragOver, setAvatarDragOver] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const [showSharePoster, setShowSharePoster] = useState(false)
@@ -139,23 +140,6 @@ export function GroupMembersSection({
   useAgentLookPostersVersion()
   const posterMemberUrls = groupAvatarMembers.map((m) => identitiesById[m.id] ? displayAvatarUrl(m.avatar, m.id, `poster member "${m.name || m.id}"`, identitiesById[m.id].type) : null)
 
-  // @@@group-avatar (#1164 G1) manager 选/拖图 → 校验(image/* + ≤5MB) → 上传 → 即时换头像。
-  const handleAvatarFile = useCallback(async (file: File | null | undefined) => {
-    if (!viewerIsManager || avatarUploading || !file) return
-    if (!file.type.startsWith('image/')) { setActionError(t('group.settings.imageRequired')); return }
-    if (file.size > 5 * 1024 * 1024) { setActionError(t('group.settings.imageTooLarge')); return }
-    setAvatarUploading(true)
-    setActionError(null)
-    try {
-      setAvatarUrl(await chatService.uploadGroupAvatar(chatId, file))
-      toast(t('group.settings.avatarUpdated'), 'success')
-    } catch (err) {
-      setActionError(t('group.settings.avatarUploadFailed', { reason: String((err as Error)?.message ?? err) }))
-    } finally {
-      setAvatarUploading(false)
-    }
-  }, [avatarUploading, chatId, setAvatarUrl, t, toast, viewerIsManager])
-
   // @@@2070 群名就地编辑:只写 name。写失败要抛给 GroupNameInlineEdit —— 它据此留在编辑态并标出失败,
   // ❌ 当作改好了把输入框关掉(原因已由 update 放进错误行)。
   const handleRename = useCallback(async (next: string) => {
@@ -164,7 +148,7 @@ export function GroupMembersSection({
 
   // #1730/#1731 离开/解散都 await 回调,失败进错误行;busy 防双击并发。确认改为抽屉内确认(与单聊清空同一形态)。
   const handleExit = useCallback(async () => {
-    if (busy || !currentUserId) return
+    if (busy || !currentUserId || !settings) return
     setBusy(true)
     setActionError(null)
     try {
@@ -182,7 +166,7 @@ export function GroupMembersSection({
     } finally {
       setBusy(false)
     }
-  }, [busy, chatId, currentUserId, onDissolveGroup, onLeaveGroup, onReload, viewerRole])
+  }, [busy, chatId, currentUserId, onDissolveGroup, onLeaveGroup, onReload, settings, viewerRole])
 
   const openTextPage = useCallback((next: 'rules' | 'description') => {
     // 设置还没读到时不进编辑页:草稿会从空串起步,点「完成」就把库里原有的规则/描述清掉。
@@ -201,13 +185,13 @@ export function GroupMembersSection({
   const error = actionError ?? settingsError
   const errorLine = error ? <div role="alert" style={settingsErrorStyle}>{error}</div> : null
   const bodyStyle = mobileShell ? settingsMobileBodyStyle : settingsBodyStyle
-  const canExit = viewerRole !== 'owner' || Boolean(onDissolveGroup)
+  const canExit = !!settings && (viewerRole !== 'owner' || Boolean(onDissolveGroup))
   const groupName = settings?.name ?? chat.name ?? null
 
   const subHead = (title: ReactNode, action?: ReactNode) => <SettingsPageHead title={title} action={action} onBack={pop} onClose={mobileShell ? onClose : undefined} mobile={mobileShell} />
   let content: ReactNode
   if (page === 'members') {
-    content = <MemberListPanel chatId={chatId} chatKind="group" snapshot={snapshot} error={snapshotError} onReload={onReload} onOpenUserChat={onOpenUserChat} onWhisper={onWhisper} head={subHead} />
+    content = <MemberListPanel settingsState={settingsState ?? ownSettings} chatId={chatId} chatKind="group" snapshot={snapshot} error={snapshotError} onReload={onReload} onOpenUserChat={onOpenUserChat} onWhisper={onWhisper} head={subHead} />
   } else if (page === 'announcement') {
     content = <AnnouncementDrawer chatId={chatId} isAdmin={viewerIsManager} head={subHead} />
   } else if (page === 'manage' && settings) {

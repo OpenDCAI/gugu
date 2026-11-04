@@ -46,7 +46,8 @@ export function createJsonlTailSource<S>(
     const events = sink;
     const file = path;
     emitJsonLines(lines, format.name, warn, (entries) => events.onEntries(entries), (record) => format.decode(record, state),
-      file ? (entries, index) => locateImages(entries, lines[index], offsets[index], file) : undefined);
+      // Compressed offsets cannot address JSONL bytes. Keep those images inline for canonical storage.
+      file && !file.endsWith('.zst') ? (entries, index) => locateImages(entries, lines[index], offsets[index], file) : undefined);
   };
 
   return {
@@ -68,6 +69,12 @@ export function createJsonlTailSource<S>(
         },
         warn
       );
+      if (options?.readMode === 'snapshot') {
+        if (resume) events.onReset('source_replaced');
+        state = format.initial();
+        await reader.readSnapshot(emit);
+        return;
+      }
       const data = resume?.data as ResumeData<S> | undefined;
       const canResume = data?.version === format.resumeVersion && data.path === found;
       // 状态必须在 `resumeFrom` **之前**装回去:它当场就把「存档之后、重开之前」写进来的行读出来解码。
@@ -83,10 +90,10 @@ export function createJsonlTailSource<S>(
       }
       reader.start();
     },
-    catchUp: async () => reader?.catchUp(),
+    catchUp: async () => { if (options?.readMode !== 'snapshot') await reader?.catchUp(); },
     readImage: readRecordImage,
     async resumePoint() {
-      if (!reader || !path) return null;
+      if (!reader || !path || options?.readMode === 'snapshot') return null;
       const tail = await reader.resumePoint();
       if (!tail) return null;
       const data: ResumeData<S> = { version: format.resumeVersion, path, tail, state: structuredClone(state) };

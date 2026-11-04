@@ -63,8 +63,7 @@ export function sessionViewOfRuntime(runtime: SessionRuntime): SessionView {
  * 跨包共用,128 个文件在声明它 ⇒ 值不动)。只在这里互译,❌ 别在调用点再写一遍
  * `x ? 'acp' : 'tui'` —— 那样的三元曾散在五处。
  *
- * 叫「腿」不叫 surface:这个仓的注释一直说「两条腿」,而 surface 在本仓另有所指
- * (`SessionCreationSurface` = 从哪一面发起)。两个 surface 撞在一起正是误解的温床。
+ * 叫「腿」不叫 surface:这个仓的注释一直说「两条腿」。
  */
 export type SessionpageLeg = 'tui' | 'acp';
 
@@ -77,15 +76,18 @@ export function sessionViewOfLeg(leg: SessionpageLeg): SessionView {
 }
 
 /** spec session-fork-share: lineage marker — this conversation was forked from another one. */
+/** The parent session; its name is the parent's own (read live), never copied here. */
 export type SessionForkedFrom = {
   sessionId: string;
-  title: string;
 };
 
 export type InitialQueuePrompt = {
   text: string;
+  files?: import('@gugu/session-core/session-record/contract').TurnFileRef[];
   hiddenContext?: string;
   origin: NonNullable<PromptInput['origin']>;
+  /** A spawn's delegation is a session-direct message from its caller (a task exchange); absent = ordinary. */
+  kind?: 'session-direct';
 };
 
 /**
@@ -141,7 +143,7 @@ export type SessionMessage = {
  * this turn, as the next one (at once when idle); `coalesceKey` = a queued message of the same key is replaced, not
  * added to. Only the ACP adapter reads it — a terminal session is refused before anything is sent.
  */
-export type SessionMessageDelivery = { queue: true; coalesceKey?: string; origin?: 'manual'; attachments?: import('@gugu/session-core/acp/client').PromptAttachment[] };
+export type SessionMessageDelivery = { queue: true; coalesceKey?: string; origin?: 'manual'; files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]; attachments?: import('@gugu/session-core/acp/client').PromptAttachment[] };
 
 export type PendingRestart = {
   status: 'restart_failed';

@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
+import { SourcePreview } from '@/components/markdown/SourcePreview';
 
 /** The arrow alone opens the preview; touch opens it before the explicit source action navigates. */
 export function ConversationSourcePopover(props: { text: string; label: string; onOpenOriginal: () => void }) {
@@ -14,8 +15,10 @@ export function ConversationSourcePopover(props: { text: string; label: string; 
     <Popover.Portal><Popover.Positioner side="top" sideOffset={6} collisionPadding={8}>
       <Popover.Popup className="max-w-[min(320px,calc(100vw-16px))] rounded-lg border border-[var(--border)] bg-[var(--popover)] p-2 text-xs text-[var(--text-primary)] shadow-[var(--shadow-lift)]">
         <Popover.Title className="sr-only">{props.label}</Popover.Title>
-        <button type="button" data-slot="conversation-quote-preview" className="max-h-56 cursor-pointer overflow-auto whitespace-pre-wrap text-left"
-          onClick={props.onOpenOriginal}>{props.text}</button>
+        <div role="button" tabIndex={0} data-slot="conversation-quote-preview" className="min-w-0 cursor-pointer text-left"
+          onClick={props.onOpenOriginal} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); props.onOpenOriginal(); } }}>
+          <SourcePreview text={props.text} />
+        </div>
       </Popover.Popup>
     </Popover.Positioner></Popover.Portal>
   </Popover.Root>;

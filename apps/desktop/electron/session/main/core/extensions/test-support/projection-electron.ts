@@ -32,9 +32,9 @@ void app.whenReady().then(async () => {
     fs.mkdirSync(bundle, { recursive: true });
     fs.writeFileSync(path.join(bundle, 'index.html'), '<body>Projection fixture</body>');
     fs.writeFileSync(path.join(bundle, 'fixture.mjs'), 'process.stdin.resume();');
-    fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+    fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'], entry: 'index.html', permissions: { capabilities: ['agents:tools'], network: [] },
-      contributes: { tabs: [{ name: 'main', title: 'Projection' }], mcpServers: [{ name: 'fixture', command: 'node', args: ['fixture.mjs'] }] },
+      contributes: { instructions: 'Projection fixture tools.', tabs: [{ name: 'main', title: 'Projection' }], mcpServers: [{ name: 'fixture', command: 'node', args: ['fixture.mjs'] }] },
     }));
     service.installFromDirectory(bundle, service.inspectDirectory(bundle).manifestDigest, 'folder');
   }
@@ -115,7 +115,7 @@ void app.whenReady().then(async () => {
     preload: path.join(__dirname, 'preload.cjs'), backgroundThrottling: false,
   } });
   windows.push(viewer);
-  const page = { kind: 'page', extensionId: a.caller.extensionId, pageId: viewer.webContents.id, binding: { sessionId: 'task-a' },
+  const page = { kind: 'page', extensionId: a.caller.extensionId, pageId: viewer.webContents.id, binding: { workspace: 'session:task-a' },
     hear: (event: { type: string; watchId: string; packet: ProjectionHostPacket }) => {
       if (event.type === 'projection') { packets.push(event.packet); viewer.webContents.send('projection', event.watchId, event.packet); }
     },
@@ -150,7 +150,7 @@ void app.whenReady().then(async () => {
     await until(async () => await value(source) === '中文粘贴\n第二行');
     assert.deepEqual(inputs, [{ kind: 'text', text: '中文', source: 'ime' }, { kind: 'text', text: '粘贴\n第二行', source: 'paste' }]);
     assert.equal(await value(other), '');
-    for (const forged of [{ ...page, binding: { ...page.binding!, sessionId: 'task-b' } }, { ...page, extensionId: b.caller.extensionId }]) {
+    for (const forged of [{ ...page, binding: { ...page.binding!, workspace: 'session:task-b' } }, { ...page, extensionId: b.caller.extensionId }]) {
       await assert.rejects(bridge.call(forged, 'projectionWatch', { id: publisher.id, watchId: 'forged' }), /not in this App session/);
     }
   });

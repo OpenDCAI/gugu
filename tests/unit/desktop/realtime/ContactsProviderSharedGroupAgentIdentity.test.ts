@@ -46,12 +46,18 @@ vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
 }))
 vi.mock('../../../../apps/desktop/src/lib/contacts', () => ({ contactsService: contactsServiceMock }))
 
-const { renameLocal } = vi.hoisted(() => ({ renameLocal: vi.fn() }))
+const { renameLocal, notify } = vi.hoisted(() => ({ renameLocal: vi.fn(), notify: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { renameOwnedAgentLocalFootprint: renameLocal } }))
+vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify }))
+const { readRequiredDisplayIdentitiesMock } = vi.hoisted(() => ({ readRequiredDisplayIdentitiesMock: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/identityReadAdapter', () => ({ readRequiredDisplayIdentities: readRequiredDisplayIdentitiesMock }))
+// The private identity_removed channel is not under test here; keep it off the real realtime socket.
+vi.mock('../../../../apps/desktop/src/hooks/useIdentityLifecycle', () => ({ useIdentityLifecycle: vi.fn() }))
 
 import { ContactsProvider } from '../../../../apps/desktop/src/store/contacts'
 import { readPerfCounters } from '../../../../apps/desktop/src/lib/perfCounters'
 import { useContactsStore, type ContactsContextValue } from '../../../../apps/desktop/src/store/contactsContext'
+import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 
 let store: ContactsContextValue | null = null
 function Capture() {
@@ -86,6 +92,7 @@ const sharedGroupRow = {
 
 beforeEach(() => {
   renameLocal.mockReset().mockResolvedValue(undefined)
+  notify.mockReset()
   store = null
   for (const id of Object.keys(identitiesById)) delete identitiesById[id]
   putIdentitiesMock.mockReset().mockImplementation(async (identities: ContactUser[]) => {
@@ -101,6 +108,8 @@ beforeEach(() => {
   contactsServiceMock.getSentRequests.mockResolvedValue([])
   contactsServiceMock.updateContactAlias.mockResolvedValue(undefined)
   contactsServiceMock.removeOwnedAgent.mockResolvedValue(undefined)
+  readRequiredDisplayIdentitiesMock.mockReset().mockImplementation(async (ids: string[]) =>
+    ids.map((id) => ({ id, display_name: id, avatar: null, bio: null, type: 'agent', removed_at: '2026-10-31T00:00:00Z' })))
 })
 
 describe('ContactsProvider shared-group Agent projection', () => {
@@ -162,3 +171,54 @@ describe('agent rename canonical publication #6021', () => {
   })
 })
 vi.mock('../../../../apps/desktop/src/lib/groupInvitations', () => ({ listGroupInvitations: vi.fn(async () => []) }))
+
+// 3d93c66cf / 11bc42194: the task host owns archiving (incl. the local footprint); the renderer publishes the
+// archived identity, invalidates caches and re-reads authority. It never calls the local footprint release.
+describe('confirmed Agent deletion has one identity receipt', () => {
+  it('returns the archive receipt without emitting per-agent toasts during a compound user action', async () => {
+    let finishIdentityRead!: () => void
+    readRequiredDisplayIdentitiesMock.mockImplementationOnce((ids: string[]) => new Promise(resolve => {
+      finishIdentityRead = () => resolve(ids.map((id) => ({ id, display_name: id, avatar: null, bio: null, type: 'agent' })))
+    }))
+    const harness = await renderProvider()
+    try {
+      let removal!: Promise<void>
+      await act(async () => { removal = store!.removeOwnedAgent('agent-1', { removeSocialIdentity: true }); await Promise.resolve() })
+      expect(contactsServiceMock.removeOwnedAgent).toHaveBeenCalledExactlyOnceWith('agent-1', { removeSocialIdentity: true })
+      expect(notify).not.toHaveBeenCalled()
+      await act(async () => { finishIdentityRead(); await removal })
+      expect(putIdentitiesMock).toHaveBeenCalledWith([expect.objectContaining({ id: 'agent-1' })])
+      await act(async () => { await store!.removeOwnedAgent('agent-2') })
+      expect(contactsServiceMock.removeOwnedAgent).toHaveBeenLastCalledWith('agent-2', undefined)
+      expect(notify).not.toHaveBeenCalled()
+    } finally { harness.cleanup() }
+  })
+  it('does not report a rejected archive as success or publish/refresh anything', async () => {
+    contactsServiceMock.removeOwnedAgent.mockRejectedValue(new Error('identity denied'))
+    const harness = await renderProvider()
+    const invalidated: unknown[] = []
+    const onInvalidated = (event: Event) => invalidated.push((event as CustomEvent).detail)
+    window.addEventListener(UI_EVENTS.identityInvalidated, onInvalidated)
+    try {
+      const contactReads = contactsServiceMock.getContacts.mock.calls.length
+      const chatRefreshes = refreshChatsMock.mock.calls.length
+      await expect(store!.removeOwnedAgent('agent-1')).rejects.toThrow('identity denied')
+      expect(notify).not.toHaveBeenCalled()
+      expect(readRequiredDisplayIdentitiesMock).not.toHaveBeenCalledWith(['agent-1'])
+      expect(invalidated).toEqual([])
+      expect(contactsServiceMock.getContacts.mock.calls.length).toBe(contactReads)
+      expect(refreshChatsMock.mock.calls.length).toBe(chatRefreshes)
+    } finally {
+      window.removeEventListener(UI_EVENTS.identityInvalidated, onInvalidated)
+      harness.cleanup()
+    }
+  })
+  it('preserves the success receipt when post-archive refresh fails', async () => {
+    const harness = await renderProvider()
+    try {
+      refreshChatsMock.mockRejectedValue(new Error('refresh unavailable'))
+      await act(async () => { await expect(store!.removeOwnedAgent('agent-1')).resolves.toBeUndefined() })
+      expect(notify).not.toHaveBeenCalled()
+    } finally { harness.cleanup() }
+  })
+})

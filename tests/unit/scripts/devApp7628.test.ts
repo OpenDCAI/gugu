@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-const script = path.resolve(import.meta.dirname, '../../../scripts/dev-app.sh')
+const script = path.resolve(import.meta.dirname, '../../../scripts/dev/dev-app.sh')
 const roots: string[] = []
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })))
 

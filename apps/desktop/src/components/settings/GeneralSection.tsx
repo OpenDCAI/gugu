@@ -45,7 +45,7 @@ const NOTIFICATION_ROWS: ReadonlyArray<{
 
 // 前三种是**系统给的**结论(见 lib/notificationDiagnostics.ts)。
 // ⚠️ 系统给的原因**只进日志**(主进程 notificationLogger),❌ 不拼进用户可见文案 ——
-// scripts/user-copy-leak-check.mjs 的 copy-leaks-internal-detail 就是拦这个的:
+// scripts/checks/user-copy-leak-check.mts 的 copy-leaks-internal-detail 就是拦这个的:
 // "Notifications are not allowed for this application" 对用户不可操作,他要的是下一步怎么办。
 const NOTIFICATION_HINT_KEYS = {
   accepted: 'settings.general.notificationsTestSent',
@@ -103,14 +103,14 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
             </select>
           )}
         />
-        {/* 主题开关放在通用页。四种偏好(浅/深/跟随系统/素白)——选中态画的是**偏好**不是真值,
+        {/* 主题开关放在通用页。三种偏好(浅/深/跟随系统)——选中态画的是**偏好**不是真值,
             「跟随系统」在系统当下为浅色时解析出来也是 light,照真值画会把高亮落在「浅色」上。
             单选、每次只有一个选中 → Button variant="option"(#2987:IconButton 强制正方形,装不下两个汉字)。 */}
         <SettingsRow
           title={t('settings.general.theme')}
           control={(
             <div role="radiogroup" aria-label={t('settings.general.theme')} className="flex gap-[var(--spacing-xs)]">
-              {(['light', 'dark', 'system', 'plain-white'] as const).map((themeOption) => (
+              {(['light', 'dark', 'system'] as const).map((themeOption) => (
                 <Button
                   key={themeOption}
                   variant="option"

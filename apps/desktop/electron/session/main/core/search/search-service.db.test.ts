@@ -27,8 +27,8 @@ describe('SearchService · retired SSH projects', () => {
       { id: 'proj-ssh', name: 'alpha remote', path: '/srv/remote', workspaceProvider: 'ssh' },
     ]);
     await db.insert(sessions).values([
-      { id: 'session-local', projectId: 'proj-local', title: 'alpha session local' },
-      { id: 'session-ssh', projectId: 'proj-ssh', title: 'alpha session remote' },
+      { id: 'session-local', projectId: 'proj-local', config: { version: '1', type: 'acp', agentDisplayName: 'alpha session local' } },
+      { id: 'session-ssh', projectId: 'proj-ssh', config: { version: '1', type: 'acp', agentDisplayName: 'alpha session remote' } },
     ]);
     searchService.initialize();
   });
@@ -49,5 +49,26 @@ describe('SearchService · retired SSH projects', () => {
     const ids = searchService.search({ query: '' }).map((item) => item.id);
     expect(ids).toContain('session-local');
     expect(ids).not.toContain('session-ssh');
+  });
+
+  it('returns the interaction timestamp used to order local and remote recents', () => {
+    fixtureRef.current!.sqlite.prepare('UPDATE sessions SET last_interacted_at = ? WHERE id = ?')
+      .run('2026-11-02T06:00:00.000Z', 'session-local');
+    expect(searchService.search({ query: '' }).find(item => item.id === 'session-local'))
+      .toMatchObject({ lastInteractedAt: '2026-11-02T06:00:00.000Z' });
+  });
+
+  it('does not backfill archived projects and restores the project search entry with its task', async () => {
+    const { db, sqlite } = fixtureRef.current!;
+    sqlite.exec("UPDATE projects SET archived_at='2026-10-30' WHERE id='proj-local'; UPDATE sessions SET archived_at='2026-10-30' WHERE id='session-local'; DELETE FROM search_index;");
+    searchService.initialize();
+    expect(searchService.search({ query: 'alpha' }).map(item => item.id)).not.toContain('proj-local');
+    const { eq } = await import('drizzle-orm');
+    const { sessionEvents } = await import('../sessions/session-events');
+    const { mapSessionRowToSession } = await import('../sessions/utils');
+    sqlite.exec("UPDATE projects SET archived_at=NULL WHERE id='proj-local'; UPDATE sessions SET archived_at=NULL WHERE id='session-local';");
+    const row = db.select().from(sessions).where(eq(sessions.id, 'session-local')).get()!;
+    sessionEvents._emit('session:created', mapSessionRowToSession(row));
+    expect(searchService.search({ query: 'alpha' }).map(item => item.id)).toContain('proj-local');
   });
 });

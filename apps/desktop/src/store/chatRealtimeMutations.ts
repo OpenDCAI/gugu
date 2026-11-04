@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
 import { chatService } from '../lib/chat'
+import { cloudReadTarget, writeRead } from '../lib/readWriter'
 import { mergeMemberReadSeqs } from '@gugu/core/shared/ui/messageState'
 import { i18n } from '@/i18n'
 
@@ -166,7 +167,7 @@ function markChatReadUpTo(
   optimisticVersion: number,
   previousReadState: Pick<ChatItem, 'unread_count' | 'unread_locator' | 'last_read_seq' | 'is_marked_unread' | 'read_state_version'>,
 ): void {
-  chatService.markRead(chatId, seq).catch((err) => {
+  writeRead(cloudReadTarget(chatId, null, seq)).catch((err) => {
     console.error('[ChatStore] markRead failed', err)
     patchChat(chatId, previousReadState, optimisticVersion)
   })

@@ -2,7 +2,7 @@ import { Archive, Pin, PinOff } from '@/lib/icons'
 import React from 'react';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { AgentStatusGlyph } from '@renderer/lib/components/agent-status-indicator';
-import type { AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
+import { presentationAttention, type AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -26,6 +26,9 @@ import type { SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import { SidebarSessionTitle } from './sidebar-session-title';
 import { SidebarScheduleHoverMark, SidebarScheduleMark } from './sidebar-schedule-badge';
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract';
+import { SidebarSessionBranchCount } from './sidebar-session-branch-view';
+import type { SessionBranchSummary } from './sidebar-session-branch';
+import { SidebarUnreadCount } from './sidebar-list-switch';
 
 // 侧栏一行会话的**外观**。本机会话(sidebar-session-item)与别的机器上的会话
 // (#6264,sidebar-remote-conversation-item)共用这一份 —— 行长得一模一样,只有数据来源和动作落点不同。
@@ -47,6 +50,7 @@ export type SessionRowShellProps = {
   hasChildren: boolean;
   expanded: boolean;
   needsAttention: boolean;
+  treeSummary?: SessionBranchSummary;
   onToggle?: () => void;
   title: string;
   /** 跑这条会话的 harness;拿不到就整个不渲染(不留占位方块)。 */
@@ -67,6 +71,7 @@ export type SessionRowShellProps = {
    */
   schedule?: SessionpageScheduleDigest | null;
   doneUnread: boolean;
+  notificationCount?: number;
   isActive: boolean;
   isCursor: boolean;
   isPendingArchive: boolean;
@@ -107,6 +112,7 @@ export function SessionRowShell({
   hasChildren,
   expanded,
   needsAttention,
+  treeSummary,
   onToggle,
   title,
   harness,
@@ -116,6 +122,7 @@ export function SessionRowShell({
   lastInteractedAt,
   schedule = null,
   doneUnread,
+  notificationCount = 0,
   isActive,
   isCursor,
   isPendingArchive,
@@ -142,8 +149,7 @@ export function SessionRowShell({
   // 行尾那一格画的是定时那枚钟吗(owner 10-19 C:空闲时盖掉时间,别的状态的标志优先)。与下面那条状态链同一个次序。
   const scheduleAtRest =
     schedule != null &&
-    presentation?.tone !== 'error' &&
-    presentation?.tone !== 'needs_user' &&
+    presentationAttention(presentation) === null &&
     !needsAttention &&
     !statusUnavailable &&
     presentation?.tone !== 'running' && presentation?.tone !== 'parked';
@@ -178,6 +184,7 @@ export function SessionRowShell({
           title={disabled ? disabledReason : undefined}
           tabIndex={0}
           role="treeitem"
+          aria-expanded={hasChildren ? expanded : undefined}
           {...rowProps}
           onClick={(event) => onOpen({ beside: event.metaKey || event.ctrlKey })}
           onKeyDown={(e) => {
@@ -190,6 +197,7 @@ export function SessionRowShell({
         >
           {/* 折叠箭头的车道 —— 与项目行同一个原语、同一条车道,两条纪律都写在 sidebar-twisty.tsx。 */}
           <SidebarTwistyLane
+            alwaysVisible={treeSummary !== undefined}
             expanded={expanded}
             label={translate(expanded ? 'sidebar.collapseChildSessions' : 'sidebar.expandChildSessions')}
             onToggle={hasChildren ? () => onToggle?.() : undefined}
@@ -214,6 +222,7 @@ export function SessionRowShell({
             {badges}
             <SidebarSessionTitle title={title} className={titleClass} />
           </SidebarMenuAction>
+          {treeSummary && treeSummary.total > 0 ? <SidebarSessionBranchCount summary={treeSummary} expanded={expanded} onToggle={onToggle} /> : null}
           {/* @@@5642 这两个按钮在 Tab 序里(没有 tabIndex=-1),所以「只在 hover 时显形」= 键盘用户会停在一个
               看不见的「归档」上、Enter 直接归档。守住它的是**焦点**那一条:Tab 到哪一枚,哪一枚当场现形,
               按不到看不见的按钮。❌ 别改成 tabIndex=-1 了事:归档没有快捷键,那会让键盘上没有归档入口。
@@ -280,9 +289,9 @@ export function SessionRowShell({
                 </Tooltip>
               </span>
             ) : null}
-            <span className={sidebarRowRestActionsClass}>
+            <span className={cn(sidebarRowRestActionsClass, treeSummary && 'w-10 whitespace-nowrap')}>
               {/* 自己的「需要你」先于子树汇总:否则一条出错的会话只显示「树里有事」那颗黄点,红点永远轮不到。 */}
-              {presentation?.tone === 'error' || presentation?.tone === 'needs_user' ? (
+              {presentation && presentationAttention(presentation) ? (
                 <span className="flex size-5 items-center justify-center">
                   <AgentStatusGlyph presentation={presentation} label={translate(`agentStatus.${presentation.label}`)} variant="2" />
                 </span>
@@ -294,6 +303,8 @@ export function SessionRowShell({
                     title={translate('sidebar.sessionTreeNeedsAttention')}
                   />
                 </span>
+              ) : notificationCount > 0 ? (
+                <span className="flex size-5 items-center justify-center"><SidebarUnreadCount count={notificationCount} /></span>
               ) : statusUnavailable ? (
                 <span className="flex size-5 items-center justify-center">
                   <span

@@ -1,4 +1,6 @@
-import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
+import { EXTENSION_API_VERSION, parseExtensionManifest } from '@shared/extensions/manifest';
+import { consentPrompt } from '@renderer/features/extensions/extension-consent';
+import type { ExtensionInstallConsentRequest } from '@shared/extensions/host-actions';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -22,7 +24,10 @@ const revokedPermissions = vi.fn();
 const origins = vi.fn();
 const isEnabled = vi.fn();
 const setAutoUpdate = vi.fn();
+const olderInterface = vi.fn();
 const disclosure = vi.fn((_id: string) => 'progressive');
+const installAttachment = vi.hoisted(() => vi.fn());
+vi.mock('./extension-attachment-install', () => ({ installExtensionFromAttachment: installAttachment }));
 
 // A folder install is published by the account installing it (app-identity.ts).
 const INSTALLING_ACCOUNT = vi.hoisted(() => ({ id: '0a000000-0000-4000-8000-00000000000a' }));
@@ -37,6 +42,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
     isInstalled: (id: string) => list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     get: (id: string) => list().extensions.find((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     // One publisher throughout these cases: a first install is one not installed yet.
+    olderInterface,
     isFirstInstallOf: (id: string) => !list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     variants: () => ({ active: 'upstream', variants: [] }),
     inspectDirectory,
@@ -62,6 +68,9 @@ vi.mock('./app-given', async (importOriginal) => ({
 }));
 
 const { runExtensionAgentAction } = await import('./extension-agent-actions');
+const { setSessionHostLocale } = await import('@main/core/host-locale');
+// app_create writes the person's interface language as a new App's defaultLocale.
+setSessionHostLocale('zh-CN');
 const { CloudExtensionMarket } = await import('./market-catalog');
 const { claimedSuffixes, opensFilesSchema } = await import('@shared/extensions/manifest');
 
@@ -75,6 +84,8 @@ beforeEach(() => {
   revokedPermissions.mockReset();
   origins.mockReset();
   isEnabled.mockReset();
+  olderInterface.mockReset();
+  olderInterface.mockReturnValue(null);
   disclosure.mockReset();
   disclosure.mockReturnValue('progressive');
   // Nothing installed unless a test says so: `create` reads the inventory too, to say what `install` will do.
@@ -113,6 +124,12 @@ const ownTab = (tab: Record<string, unknown> = {}) => ({
 });
 
 describe('app_* 的动作分派', () => {
+  it.each([null, 'chat:read', [], { capabilities: 'chat:read' }])('a template keeps invalid permissions invalid (%j)', async (permissions) => {
+    const target = path.join(workDir, 'invalid-permissions');
+    await expect(runExtensionAgentAction({ action: 'create', target_dir: target, id: 'invalid-permissions', name: 'Invalid', template: 'group-json', manifest: { permissions } })).rejects.toThrow();
+    expect(existsSync(path.join(target, 'manifest.json'))).toBe(false);
+  });
+
   it('认领、菜单、工具栏一路走到 manifest —— 改名漏一个就等于没声明', async () => {
     const created = (await runExtensionAgentAction({
       action: 'create',
@@ -219,7 +236,7 @@ describe('app_* 的动作分派', () => {
 
   // 摩擦单 F107: the host asks for it when the group already holds this version's card with other bytes.
   it('bump: the patch number goes up by one in the bundle\'s manifest.json, the rest of it as it was', async () => {
-    const manifest = { id: 'dinner-vote', name: 'Dinner vote', version: '1.2.9', apiVersion: EXTENSION_API_VERSION, contributes: { tabs: [] } };
+    const manifest = { id: 'dinner-vote', name: 'Dinner vote', version: '1.2.9', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', contributes: { tabs: [] } };
     writeFileSync(path.join(workDir, 'manifest.json'), JSON.stringify(manifest));
     expect(await runExtensionAgentAction({ action: 'bump', source_dir: workDir })).toEqual({ version: '1.2.10' });
     expect(JSON.parse(readFileSync(path.join(workDir, 'manifest.json'), 'utf8'))).toEqual({ ...manifest, version: '1.2.10' });
@@ -234,7 +251,7 @@ describe('app_* 的动作分派', () => {
       id: 'reader',
       name: 'Reader',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       entry: 'main.html',
       permissions: { capabilities: ['files:read'] },
@@ -264,7 +281,33 @@ describe('app_* 的动作分派', () => {
     expect(notifyInstalledChanged).toHaveBeenCalled();
     // #6387 与设置页那条安装路径同一套善后:后台页要拉起来,否则它的工具一个也接不住。
     expect(afterInstall).toHaveBeenCalledWith({ manifest, rootDir: '/tmp/reader' });
-    expect(result).toEqual(expect.objectContaining({ installed: true, outcome: 'confirmed' }));
+    expect(result).toEqual(expect.objectContaining({ installed: true, outcome: 'confirmed', asked: true }));
+  });
+
+  it('carries the older interface version through the real consent prompt before installing', async () => {
+    const manifest = parseExtensionManifest({
+      id: 'reader', name: 'Reader', version: '2.1.24', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
+      platforms: ['desktop'], entry: 'main.html', permissions: { capabilities: ['files:read', 'files:write'] },
+      contributes: { tabs: [{ name: 'main', title: 'Read' }] },
+    });
+    olderInterface.mockReturnValue({ id: 'reader', version: '1.0.4', permissions: { capabilities: ['files:read'] } });
+    inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-new-interface' });
+    installFromDirectory.mockReturnValue({ manifest, rootDir: '/tmp/reader' });
+    const requestInstallConsent = vi.fn(async (request: ExtensionInstallConsentRequest) => {
+      expect(installFromDirectory).not.toHaveBeenCalled();
+      const prompt = consentPrompt(request.installed, request.revokedPermissions, manifest, key => key, 'en-US');
+      expect(request.installed).toEqual({ version: '1.0.4', permissions: { capabilities: ['files:read'] } });
+      expect(prompt.title).toBe('extensions.updateConfirmTitle');
+      expect(prompt.description).toBe('extensions.updateNewPermissions');
+      return { outcome: 'confirmed' as const };
+    });
+
+    await expect(runExtensionAgentAction({ action: 'install', source_dir: '/tmp/reader-source' }, {
+      requestInstallConsent, notifyInstalledChanged: vi.fn().mockResolvedValue(undefined), afterInstall: vi.fn(),
+    })).resolves.toMatchObject({ installed: true, outcome: 'confirmed', version: '2.1.24' });
+    expect(olderInterface).toHaveBeenCalledWith('reader');
+    expect(requestInstallConsent).toHaveBeenCalledOnce();
+    expect(installFromDirectory).toHaveBeenCalledWith('/tmp/reader-source', 'digest-new-interface', 'folder', INSTALLING_ACCOUNT, undefined);
   });
 
   it.each(['declined', 'dismissed', 'timeout'] as const)(
@@ -274,7 +317,7 @@ describe('app_* 的动作分派', () => {
         id: 'reader',
         name: 'Reader',
         version: '1.0.0',
-        apiVersion: EXTENSION_API_VERSION,
+        apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
         platforms: ['desktop'],
         entry: 'main.html',
         permissions: { network: ['api.example.com'] },
@@ -301,7 +344,7 @@ describe('app_* 的动作分派', () => {
 
 it('#6646 E-05: a folder install that would replace one from the market, a chat or from before origins were kept asks the person; one from a folder does not', async () => {
   const manifest = {
-    id: 'notes', name: 'Notes', version: '2.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+    id: 'notes', name: 'Notes', version: '2.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: 'Notes' }] },
   };
   inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-n' });
@@ -326,7 +369,7 @@ it('#6646 E-05: a folder install that would replace one from the market, a chat 
 
 describe('reinstalling its own folder extension (quiet upgrade)', () => {
   const v1 = {
-    id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+    id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
     permissions: { capabilities: ['files:read'] },
     contributes: { tabs: [{ name: 'main', title: 'Notes' }] },
   };
@@ -345,7 +388,7 @@ describe('reinstalling its own folder extension (quiet upgrade)', () => {
     const dependencies = { requestInstallConsent, notifyInstalledChanged: vi.fn().mockResolvedValue(undefined), afterInstall: vi.fn() };
 
     await expect(runExtensionAgentAction({ action: 'install', source_dir: '/tmp/notes-v2' }, dependencies))
-      .resolves.toMatchObject({ installed: true, version: '2.0.0' });
+      .resolves.toMatchObject({ installed: true, version: '2.0.0', asked: false });
     expect(requestInstallConsent).not.toHaveBeenCalled();
     expect(installFromDirectory).toHaveBeenCalledWith('/tmp/notes-v2', 'digest-2', 'folder', INSTALLING_ACCOUNT, undefined);
     // The same aftercare as an asked install: running sessions get the new version on their next call.
@@ -422,7 +465,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
   it('creates a tools-only App without a template, tabs or HTML, and keeps it editable by a second create', async () => {
     const target = path.join(workDir, 'tool-only');
     const request = { action: 'create', id: 'tool-only', name: 'Tool only', target_dir: target,
-      manifest: { permissions: { capabilities: ['agents:tools'] }, contributes: { mcpServers: [{ tools: 'tools.js' }] } },
+      manifest: { permissions: { capabilities: ['agents:tools'] }, contributes: { mcpServers: [{ tools: 'tools.js' }], instructions: 'tool-only tools.' } },
       files: { 'tools.js': 'export const ping = { run: async () => "pong" };' } };
     await runExtensionAgentAction(request);
     const first = JSON.parse(readFileSync(path.join(target, 'manifest.json'), 'utf8'));
@@ -445,6 +488,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
         tabs: [{ name: 'main', title: 'README' }],
         mcpServers: [{ name: 'readme-count', command: 'node', args: ['mcp/server.mjs'], env: { MODE: 'words' } }],
         skills: 'skills',
+        instructions: 'readme-count__count(path): words in a README; skill readme-count first.',
       },
     },
     files: {
@@ -510,7 +554,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
       id: 'readme-count',
       name: 'README Count',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       entry: 'main.html',
       permissions: { capabilities: ['agents:tools'] },
@@ -518,6 +562,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
         tabs: [{ name: 'main', title: 'README', entry: 'main.html' }],
         mcpServers: [{ name: 'readme-count', command: 'node', args: ['mcp/server.mjs'] }],
         skills: 'skills',
+        instructions: 'readme-count__count(path): words in a README; skill readme-count first.',
       },
     };
     inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-rc' });
@@ -551,11 +596,11 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
       id: 'searcher',
       name: 'Searcher',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       entry: 'main.html',
       permissions: { capabilities: ['agents:tools'] },
-      contributes: { tabs: [{ name: 'main', title: 'Searcher', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }], toolsListed: true },
+      contributes: { tabs: [{ name: 'main', title: 'Searcher', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }], toolsListed: true, instructions: 'Searcher tools.' },
     };
     inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-s' });
     installFromDirectory.mockReturnValue({ manifest, rootDir: '/tmp/s' });
@@ -570,6 +615,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
     )) as { for_agents: string };
     expect(result.for_agents).toContain('From the next session on they are listed natively (the person can switch that back).');
     expect(result.for_agents).not.toContain('can have them listed natively instead');
+    expect(result.for_agents).not.toContain('For the rest of this conversation,');
   });
 
   // D-30 A-B C4c: the person took the installing agent's group out on the sheet — its catalog then says not given.
@@ -578,11 +624,11 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
       id: 'searcher',
       name: 'Searcher',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       entry: 'main.html',
       permissions: { capabilities: ['agents:tools'] },
-      contributes: { tabs: [{ name: 'main', title: 'Searcher', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }] },
+      contributes: { tabs: [{ name: 'main', title: 'Searcher', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }], instructions: 'Searcher tools.' },
     };
     inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-s' });
     installFromDirectory.mockReturnValue({ manifest, rootDir: '/tmp/s' });
@@ -608,14 +654,19 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
     id: 'skillx-bad',
     name: '坏签探针',
     version: '1.0.0',
-    apiVersion: EXTENSION_API_VERSION,
+    apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
     platforms: ['desktop'],
     entry: 'main.html',
     permissions: { capabilities: ['agents:tools'] },
-    contributes: { tabs: [{ name: 'main', title: '坏签探针', entry: 'main.html' }], skills: 'skills' },
+    contributes: { tabs: [{ name: 'main', title: '坏签探针', entry: 'main.html' }], skills: 'skills', instructions: 'Read skill bad-stamp first.' },
   };
   const BAD = '---\nname: bad-stamp\ndescription: Use when someone asks for a red stamp (红签): run its script.\n---\n';
   const OK = '---\nname: ok-stamp\ndescription: "Use when someone asks for a green stamp (绿签): run its script."\n---\n';
+  const PLAIN = '---\nname: plain-stamp\ndescription: "Make a plain stamp without decoration."\n---\n';
+  const useLine = 'For the rest of this conversation, when a request fits the ok-stamp skill above (Use when someone asks for a green stamp (绿签): run its script.), ' +
+    'read its SKILL.md first instead of working it out with your own tools; the request does not have to name the App.';
+  const plainUseLine = 'For the rest of this conversation, when a request fits the plain-stamp skill above (Make a plain stamp without decoration.), ' +
+    'read its SKILL.md first instead of working it out with your own tools; the request does not have to name the App.';
 
   function installedWith(skills: Record<string, string>): string {
     const rootDir = path.join(workDir, 'installed', 'skillx-bad');
@@ -631,11 +682,54 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
   const install = () => runExtensionAgentAction(
     { action: 'install', source_dir: '/tmp/stamps-source' },
     { requestInstallConsent, notifyInstalledChanged: vi.fn().mockResolvedValue(undefined), afterInstall: vi.fn() }
-  ) as Promise<{ installed: boolean; next?: string }>;
+  ) as Promise<{ installed: boolean; next?: string; for_agents?: string }>;
 
   beforeEach(() => {
     requestInstallConsent.mockReset();
     requestInstallConsent.mockResolvedValue({ outcome: 'confirmed' });
+  });
+
+  const descriptionLines = (rootDir: string) => [
+    '- 坏签探针 (skillx-bad): Read skill bad-stamp first.',
+    `- ok-stamp (App skillx-bad): Use when someone asks for a green stamp (绿签): run its script.\n  ${path.join(rootDir, 'skills', 'ok-stamp', 'SKILL.md')}`,
+  ].join('\n');
+
+  it.each([false, true])('describes the installed App and parsed skill, including a quiet reinstall=%s', async (quiet) => {
+    const rootDir = installedWith({ 'ok-stamp': OK, 'plain-stamp': PLAIN });
+    if (quiet) {
+      list.mockReturnValue({ extensions: [{ manifest: stamps, rootDir }], invalid: [] });
+      origins.mockReturnValue({ 'skillx-bad': 'folder' });
+      revokedPermissions.mockReturnValue(['agents:tools']);
+    }
+    const answer = await install();
+    expect(answer.for_agents?.startsWith(descriptionLines(rootDir))).toBe(true);
+    expect(answer.for_agents).toContain('catalog_list');
+    for (const [name, line] of [['ok-stamp', useLine], ['plain-stamp', plainUseLine]] as const) {
+      expect(answer.for_agents!.split(line)).toHaveLength(2);
+      expect(answer.for_agents!.indexOf(line)).toBeGreaterThan(answer.for_agents!.indexOf(`- ${name} (App skillx-bad):`));
+      expect(answer.for_agents!.indexOf(line)).toBeLessThan(answer.for_agents!.indexOf('Its skills are in the catalog'));
+    }
+    expect(requestInstallConsent).toHaveBeenCalledTimes(quiet ? 0 : 1);
+
+    const denied = await runExtensionAgentAction(
+      { action: 'install', source_dir: '/tmp/stamps-source' },
+      { requestInstallConsent, notifyInstalledChanged: vi.fn().mockResolvedValue(undefined), afterInstall: vi.fn(), callerHasApp: async () => false },
+    ) as { for_agents?: string };
+    expect(denied.for_agents ?? '').not.toContain(descriptionLines(rootDir));
+    expect(denied.for_agents ?? '').not.toContain('catalog_list');
+    expect(denied.for_agents ?? '').not.toContain('For the rest of this conversation,');
+    if (quiet) expect(denied.for_agents).toBeUndefined();
+    else expect(denied.for_agents).toContain('Its owner did not give it to you');
+  });
+
+  it('describes the App and skill after a confirmed chat attachment install too', async () => {
+    const rootDir = installedWith({ 'ok-stamp': OK });
+    list.mockReturnValue({ extensions: [{ manifest: stamps, rootDir }], invalid: [] });
+    installAttachment.mockResolvedValueOnce({ installed: true, outcome: 'confirmed', id: stamps.id });
+    const answer = await runExtensionAgentAction({ action: 'install_attachment', message_id: 'app-card' }) as { for_agents: string };
+    expect(answer.for_agents.startsWith(descriptionLines(rootDir))).toBe(true);
+    expect(answer.for_agents.split(useLine)).toHaveLength(2);
+    expect(answer.for_agents.indexOf(useLine)).toBeGreaterThan(answer.for_agents.indexOf(path.join(rootDir, 'skills', 'ok-stamp', 'SKILL.md')));
   });
 
   it('the broken one by name, its SKILL.md and why — on the first (asked) install and on the quiet reinstall an author fixing it makes', async () => {
@@ -648,7 +742,7 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
     expect(first.next).toContain(said);
     expect(first.next).not.toContain('ok-stamp');
 
-    // Its own folder install again, asking nothing new: no consent, so no for_agents — said all the same.
+    // Its own folder install again, asking nothing new: no consent; the malformed skill is still reported.
     list.mockReturnValue({ extensions: [{ manifest: stamps }], invalid: [] });
     origins.mockReturnValue({ 'skillx-bad': 'folder' });
     revokedPermissions.mockReturnValue(['agents:tools']);
@@ -685,7 +779,7 @@ describe('#6264 咕咕 server(没有窗口)', () => {
   it('install 照装:问过人、装上,回答先说这台没有窗口,❌ 叫它 app_check', async () => {
     const { HEADLESS_INSTALLED_NOTE } = await import('./extension-agent-actions');
     const manifest = {
-      id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+      id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
       permissions: { capabilities: ['files:read'] },
       contributes: { tabs: [{ name: 'main', title: 'Notes', opensFiles: { chat: ['.notes.json'] } }] },
     };
@@ -706,7 +800,7 @@ describe('#6264 咕咕 server(没有窗口)', () => {
   it('人没点头:没装,也就没有那句', async () => {
     const { HEADLESS_INSTALLED_NOTE } = await import('./extension-agent-actions');
     const manifest = {
-      id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+      id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
       permissions: { capabilities: ['files:read'] }, contributes: { tabs: [{ name: 'main', title: 'Notes' }] },
     };
     inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-n' });
@@ -778,7 +872,7 @@ describe('agent 给的相对文件夹按它自己的工作副本解析 (#6634 �
 
   it('install:相对 source_dir 同样按工作副本', async () => {
     const manifest = {
-      id: 'todo-panel', name: 'Todo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'main.html',
+      id: 'todo-panel', name: 'Todo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'main.html',
       contributes: { tabs: [{ name: 'main', title: 'Todo', entry: 'main.html' }] },
     };
     inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-t' });
@@ -816,7 +910,7 @@ describe('agent 给的相对文件夹按它自己的工作副本解析 (#6634 �
         target_dir: path.join(workDir, 'tools'),
         manifest: { ...minimal.manifest, permissions: { capabilities: ['agents:tools'] } },
       })
-    ).rejects.toThrow(/no contributes\.mcpServers, contributes\.skills or contributes\.agentInstructions/);
+    ).rejects.toThrow(/no contributes\.mcpServers or contributes\.skills/);
   });
 });
 
@@ -836,6 +930,25 @@ describe('app_check', () => {
   /** The agent that asks (owner 10-14): the page is its to work. */
   const worker = { callerSessionId: 'session-1', callerAgent: async () => 'user:agent-1' };
   const asked = { caller: 'session-1', operator: { kind: 'agent', id: 'user:agent-1' } };
+
+  it('passes the checked widget binding and returns native unavailable metadata instead of throwing installation advice', async () => {
+    list.mockReturnValue({ extensions: [], invalid: [] });
+    const widget = { id: 'm1', messageId: 'm1', senderId: 'sender-1', text: 'Dinner', data: { poll: 'p1' } };
+    const metadata = { id: 'm1', message_id: 'm1', chat_id: 'chat-1' };
+    const checkSurface = vi.fn(async () => ({ ...clean, rendered: false, reason: 'missing' as const, text: 'Dinner\nApp is not installed.', widget: metadata }));
+    const result = await runExtensionAgentAction({ action: 'check', tab_kind: 'dinner-vote.main', chat_id: 'chat-1', widget, phone: true, look: false }, { checkSurface, ...worker });
+    expect(checkSurface).toHaveBeenCalledWith({ extensionId: 'dinner-vote', tabName: 'main', chatId: 'chat-1', widget, phone: true, look: false, timeoutMs: 15_000, ...asked });
+    expect(result).toMatchObject({ rendered: false, reason: 'missing', widget: metadata, text: 'Dinner\nApp is not installed.' });
+    expect(result).not.toHaveProperty('page');
+  });
+
+  it('h1 preserves message height when parsing and forwarding a widget check', async () => {
+    list.mockReturnValue({ extensions: [], invalid: [] });
+    const widget = { id: 'm1', messageId: 'm1', senderId: 'sender-1', text: 'Dinner', data: { poll: 'p1' }, height: 360 };
+    const checkSurface = vi.fn(async () => ({ ...clean, rendered: false, reason: 'missing' as const, text: 'Dinner\nApp is not installed.', widget: { id: 'm1', message_id: 'm1', chat_id: 'chat-1' } }));
+    await runExtensionAgentAction({ action: 'check', tab_kind: 'dinner-vote.main', chat_id: 'chat-1', widget }, { checkSurface, ...worker });
+    expect(checkSurface).toHaveBeenCalledWith(expect.objectContaining({ widget: expect.objectContaining({ height: 360 }) }));
+  });
 
   it('hands the host the tab and the context as asked, and says a clean run is ok', async () => {
     list.mockReturnValue({ extensions: [installed], invalid: [] });
@@ -1084,7 +1197,7 @@ describe('app_check', () => {
 
 // 摩擦单 F11:群里多人用的 App 从模板起 —— 投票这种 App,agent 只写几十行。
 describe('app_create { template: "group-json" }', () => {
-  it('writes a group App: claims the group\'s .<id>.json files, asks for nothing, page + style + app.js skeleton', async () => {
+  it('writes a group App with its explicit roster permission, page, style and app.js skeleton', async () => {
     const created = (await runExtensionAgentAction({
       action: 'create',
       target_dir: path.join(workDir, 'vote'),
@@ -1094,7 +1207,7 @@ describe('app_create { template: "group-json" }', () => {
     })) as { source_dir: string; tabs: string[]; next: string };
 
     const manifest = manifestAt(created.source_dir) as ScaffoldedManifest & { permissions?: unknown };
-    expect(manifest.permissions, '不要任何能力:装的时候不弹框').toBeUndefined();
+    expect(manifest.permissions).toEqual({ capabilities: ['chat:read'] });
     expect(manifest.contributes.tabs).toEqual([
       { name: 'main', title: 'Dinner <vote>', entry: 'main.html', opensFiles: { chat: ['.dinner-vote.json'] } },
     ]);
@@ -1223,7 +1336,7 @@ describe('app_create { template: "group-json" }', () => {
       files: { 'bg.html': '<!doctype html>' },
     })) as { source_dir: string; next: string };
     const manifest = manifestAt(created.source_dir) as ScaffoldedManifest & { background?: unknown };
-    expect(manifest.permissions).toEqual({ capabilities: ['chat:relay'] });
+    expect(manifest.permissions).toEqual({ capabilities: ['chat:read', 'chat:relay'] });
     expect(manifest.background).toEqual({ entry: 'bg.html' });
     expect(manifest.contributes.tabs[0]?.opensFiles).toEqual({ chat: ['.chess.json'] });
     expect(created.next, 'asks the person at install').toMatch(/chat:relay/);
@@ -1301,7 +1414,7 @@ describe('app_create { template } with files', () => {
 describe('app_install: what comes next', () => {
   const inspectedOf = (tabs: unknown[]) => ({
     manifest: {
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       id: 'dinner-vote', name: 'Dinner vote', version: '1.0.0', contributes: { tabs },
     },
@@ -1367,7 +1480,7 @@ describe('app_install: what comes next', () => {
 // checked and unpacked (`materialize`), then the same install as the market's App, the sheet saying where its code is.
 describe('app_install { market }', () => {
   const reader = {
-    id: 'reader', name: 'Reader', version: '1.2.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'main.html',
+    id: 'reader', name: 'Reader', version: '1.2.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'main.html',
     permissions: { capabilities: ['files:read'] },
     contributes: { tabs: [{ name: 'main', title: 'Read', entry: 'main.html' }] },
   };
@@ -1385,6 +1498,26 @@ describe('app_install { market }', () => {
     discard: vi.fn(),
   });
   const quietly = { notifyInstalledChanged: vi.fn().mockResolvedValue(undefined), afterInstall: vi.fn() };
+
+  it('a quiet market reinstall carries the App and parsed skill descriptions without another consent', async () => {
+    const rootDir = path.join(workDir, 'market-reader');
+    const skillDir = path.join(rootDir, 'skills', 'read');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: read\ndescription: Analyse a data file.\n---\n');
+    const app = { ...reader, permissions: { capabilities: ['agents:tools'] }, contributes: { ...reader.contributes, skills: 'skills', instructions: 'Read and chart data files.' } };
+    inspectDirectory.mockReturnValue({ manifest: app, manifestDigest: 'reader-digest' });
+    installFromDirectory.mockReturnValue({ manifest: app, rootDir });
+    list.mockReturnValue({ extensions: [{ manifest: app, rootDir }], invalid: [] });
+    origins.mockReturnValue({ reader: 'market' });
+    revokedPermissions.mockReturnValue(['agents:tools']);
+    const requestInstallConsent = vi.fn();
+    const answer = await runExtensionAgentAction({ action: 'install', market: 'reader' }, { ...quietly, market: marketWith({ reader: offered(app) }), requestInstallConsent }) as { for_agents: string };
+    expect(requestInstallConsent).not.toHaveBeenCalled();
+    expect(answer.for_agents).toContain('- Reader (reader): Read and chart data files.');
+    expect(answer.for_agents).toContain(`- read (App reader): Analyse a data file.\n  ${path.join(skillDir, 'SKILL.md')}`);
+    expect(answer.for_agents).toContain('For the rest of this conversation, when a request fits the read skill above (Analyse a data file.), read its SKILL.md first instead of working it out with your own tools; the request does not have to name the App.');
+    expect(answer.for_agents.split('For the rest of this conversation,')).toHaveLength(2);
+  });
 
   it('reads a device-scoped market App before it is installed (L11)', async () => {
     const market = marketWith({ reader: offered(reader) });
@@ -1410,7 +1543,7 @@ describe('app_install { market }', () => {
     // A market App is gugu's: no folder publisher.
     expect(installFromDirectory).toHaveBeenCalledWith('/tmp/market-staged/reader', 'digest-m', 'market', undefined, undefined);
     expect(market.discard).toHaveBeenCalledWith(expect.objectContaining({ sourceDir: '/tmp/market-staged/reader' }));
-    expect(result).toMatchObject({ installed: true, id: 'reader', version: '1.2.0' });
+    expect(result).toMatchObject({ installed: true, id: 'reader', version: '1.2.0', asked: true });
   });
 
   // owner 10-19 (VS Code's `--install-extension id@version`): that version, not this machine's; an older one stays there.
@@ -1527,7 +1660,7 @@ describe('app_install { market }', () => {
     installFromDirectory.mockReturnValue({ manifest: reader, rootDir: '/installed/reader' });
     const requestInstallConsent = vi.fn().mockResolvedValue({ outcome: 'declined' });
     await expect(runExtensionAgentAction({ action: 'install', market: 'reader' }, { ...quietly, market: marketWith({ reader: offered(reader) }), requestInstallConsent }))
-      .resolves.toMatchObject({ installed: true, outcome: 'confirmed' });
+      .resolves.toMatchObject({ installed: true, outcome: 'confirmed', asked: false });
     expect(requestInstallConsent).not.toHaveBeenCalled();
     // E-05: a folder over the market's copy is the person's call however little it asks.
     await expect(runExtensionAgentAction({ action: 'install', source_dir: '/tmp/reader-folder' }, { ...quietly, requestInstallConsent }))
@@ -1546,7 +1679,7 @@ describe('app_install { market }', () => {
 
   it('a group App from the market: the call that sends it into the chat names the market, never a folder', async () => {
     const vote = {
-      id: 'dinner-vote', name: 'Dinner vote', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'main.html',
+      id: 'dinner-vote', name: 'Dinner vote', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'main.html',
       contributes: { tabs: [{ name: 'main', title: 'Vote', entry: 'main.html', opensFiles: { chat: ['.dinner-vote.json'] } }] },
     };
     inspectDirectory.mockReturnValue({ manifest: vote, manifestDigest: 'digest-v' });

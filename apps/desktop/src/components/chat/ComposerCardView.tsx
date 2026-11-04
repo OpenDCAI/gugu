@@ -8,6 +8,8 @@ import { Check, Clock, Sparkles } from '@/lib/icons'
 import { AgentHarnessIcon, EngineIcon } from '../AgentHarnessIdentity'
 import { Avatar } from '../Avatar'
 import { useAgentDisplayStatuses } from '../../hooks/useAgentDisplayStatus'
+import { useShownAgentName } from '../../hooks/useShownAgentName'
+import { useAvatarIdentity } from '../../lib/avatarIdentity'
 import { listMyAgentJoinRequests } from '../../lib/groupAgentJoinService'
 import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
@@ -38,7 +40,7 @@ export function ComposerCardHead({ type, agentUserId }: { type: ComposerCard['ty
 }
 
 /**
- * gugu-dev#181 任务卡 / 已安排卡:一个面、三行 —— 是什么(右上时刻)、原话、交给谁(行尾一个状态标记,与侧栏同一套读数)。
+ * gugu-dev#181 任务卡 / 已安排卡:是什么(右上时刻)、原话、文件名(有附件时)、交给谁(行尾状态与侧栏同一套读数)。
  * 量值照聊天里的兄弟卡(App 安装包卡:12px 圆角、1px 边、12px 内边距、行距 8px);❌ 上下两截、❌ 另起状态条。
  */
 export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time, memberProfiles, onOpenTopic }: {
@@ -62,6 +64,12 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
   const task = card.type === 'task' ? card : null
   const agent = task && memberProfiles?.[task.agentUserId]
   const owned = agent?.ownerUserId ? agent.ownerUserId === user?.id : isMine
+  const identity = useAvatarIdentity(task?.agentUserId ?? '')
+  const agentName = useShownAgentName({
+    name: identity?.display_name ?? task?.agentName ?? '',
+    agentType: task?.agentType,
+    createdAt: identity?.created_at ?? undefined,
+  })
   const place = useTaskCardPlace(task, owned, agent?.ownerDisplayName || senderName)
   const seated = !!task && !!memberProfiles?.[task.agentUserId] && memberProfiles[task.agentUserId]!.membership !== 'former'
   const join = useMyAgentJoin(owned && isGroup && !seated ? chatId : null, task?.agentUserId ?? null)
@@ -77,12 +85,15 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
       text={card.text}
       onOpen={openable ? () => (onOpenTopic ? onOpenTopic() : openTaskCardSession(task, place.local)) : undefined}
     >
+      {task?.files?.length ? (
+        <span className="whitespace-pre-wrap break-words text-[var(--font-caption)] text-[var(--muted-fg)]">{task.files.map(file => file.name).join('\n')}</span>
+      ) : null}
       {task && !owned ? (
         <span className="break-words text-[var(--font-caption)] text-[var(--muted-fg)]">{place.label}</span>
       ) : task && (
         <TaskCardHandedTo
-          agentName={task.agentName}
-          agentAvatar={task.agentAvatar ?? null}
+          agentName={agentName}
+          agentAvatar={identity?.avatar ?? task.agentAvatar ?? null}
           agentUserId={task.agentUserId}
           note={join === 'pending' ? `· ${t('message.taskCard.awaitingApproval')}` : join === 'rejected' ? `· ${t('message.taskCard.rejected')}` : place.label ? `· ${place.label}` : ''}
           mark={join ? null : <TaskStatusMark status={status} />}
@@ -166,7 +177,7 @@ export function TaskCardHandedTo({ agentName, agentAvatar, agentUserId, note, ma
  */
 export function TaskStatusMark({ status }: { status: AgentDisplayStatus | undefined }) {
   const { t } = useTranslation('common')
-  if (!status || status === 'pending' || status === 'removed' || status === 'archived' || status === 'offline') return null
+  if (!status || status === 'pending' || status === 'starting' || status === 'removed' || status === 'archived' || status === 'offline') return null
   if (status === 'idle') return <Check role="img" aria-label={t('agentStatus.idle')} size={14} className="text-[var(--muted-fg)]" />
   const presentation = presentAgentStatus({
     reading: status === 'parked' ? { status: 'working', detail: 'parked' } : { status, detail: null },

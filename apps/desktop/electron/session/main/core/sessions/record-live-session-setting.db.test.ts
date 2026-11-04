@@ -44,9 +44,9 @@ describe('活会话设置落库:改完 → 记录 → 重开读到新值', () =>
     mocks.emit.mockReset();
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-        VALUES ('${CONV}', 'project-1', 'Task', 'claude', 'acp',
-                '{"version":"1","type":"acp","permissionMode":"full-access","model":"opus","effort":"high","firstUtterance":"hi","mcpSessionServers":["gugu"]}');
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
+        VALUES ('${CONV}', 'project-1', 'claude', 'acp',
+                '{"version":"1","type":"acp","agentDisplayName":"Task","permissionMode":"full-access","model":"opus","effort":"high","firstUtterance":"hi","mcpSessionServers":["gugu"]}');
     `);
   });
 

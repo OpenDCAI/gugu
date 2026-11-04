@@ -1,3 +1,4 @@
+import { knownTaskName, taskName } from './task-name';
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import { type SessionRow } from '@main/db/schema';
 import { readInterruptedTurn } from '@main/core/agent-status/interrupted-turns';
@@ -39,7 +40,7 @@ export function sessionParentId(row: Pick<SessionRow, 'parentSessionId' | 'confi
 export type SessionParent = { localSessionId: string } | { deviceId: string; sessionId: string } | null;
 
 /**
- * 父会话在行里的存法 —— 建行(spawn 的 nest)与改(session_set_parent)都经这一处:本机的进外键,
+ * 父会话在行里的存法 —— 建行(spawn)与改(session_set_parent)都经这一处:本机的进外键,
  * 别的机器上的进 config `parentRemote`,两格只有一格有值。
  */
 export function storedParent(parent: SessionParent): {
@@ -84,7 +85,8 @@ export function mapSessionRowToSession(
   const config = row.config;
   return {
     id: row.id,
-    title: row.title,
+    // The task's one name (task-name.ts): its identity's when bound, else its pending-bind record.
+    title: taskName(row),
     createdAt: row.createdAt,
     projectId: row.projectId,
     ...(row.workspaceId ? { workspaceId: row.workspaceId } : {}),
@@ -141,7 +143,8 @@ export function mapSessionRowToSession(
     forkFromProviderSessionId: config?.type === 'acp' ? config.forkFromProviderSessionId : undefined,
     providerSessionEndpoint: config?.providerSessionEndpoint,
     providerMintedSessionId: config?.providerMintedSessionId,
-    agentDisplayName: config?.agentDisplayName,
+    // Its one name: a bound task's pending-bind record is empty (task-name.ts).
+    agentDisplayName: knownTaskName({ id: row.id, config }),
     // 重来靠的那句话:载荷里还留着的优先(它本来就是要投递的那句),否则用创建时记下的事实。
     // 口径与 restartSession 完全一致 —— 界面据此决定摆「重来」还是「删掉」。
     firstUtterance: config?.initialPrompt?.trim() || config?.firstUtterance?.trim() || undefined,

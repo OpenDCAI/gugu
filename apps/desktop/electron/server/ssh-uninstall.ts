@@ -18,25 +18,35 @@ import type {
 import type { ServerSshInstallPrompt } from '../../src/lib/serverSshInstall'
 import { buildSshArgs, classifySshFailure, lastLines, type SshTarget } from './ssh-install/logic'
 import type { SpawnSsh, SshRunResult } from './ssh-install/runner'
+import { desktopServerChannel, remoteServerPaths, serverNames } from './server-names'
 
 export const INSPECT_BEGIN = '__GUGU_UNINSTALL_PROBE_BEGIN__'
 export const INSPECT_END = '__GUGU_UNINSTALL_PROBE_END__'
 export const UNINSTALLED_MARK = '__GUGU_UNINSTALLED__'
 
-const SERVER_HOME = '"${GUGU_SERVER_HOME:-$HOME/.gugu-server}"'
-const SERVER_BIN = '"$HOME/.local/bin/gugu-server"'
+/** 卸的是这台桌面那条通道的 server(server-names.ts),同一个用户下别的通道的那份不碰。 */
+const { home: SERVER_HOME, bin: SERVER_BIN } = remoteServerPaths(desktopServerChannel())
+
+// install.sh can preserve an older home under a newer channel's command name.
+// Read its literal assignment; never evaluate the launcher's shell contents.
+const installationPaths = [
+  `B=${SERVER_BIN}`,
+  `H=${SERVER_HOME}`,
+  'PINNED="$(sed -n \'s/^GUGU_SERVER_HOME="\\([^"]*\\)" exec .*/\\1/p\' "$B" 2>/dev/null | head -n 1)"',
+  'case "$PINNED" in /*) H="$PINNED" ;; esac',
+]
 
 /** 看一眼:装没装、哪个版本、登着哪些账号(账号 id、有没有登录态、邮箱)。输出夹在两行标记之间。 */
 export function inspectScript(): string {
   return [
     `echo ${INSPECT_BEGIN}`,
-    `H=${SERVER_HOME}`,
-    `B=${SERVER_BIN}`,
+    ...installationPaths,
     'if [ -d "$H" ] || [ -e "$B" ] || [ -L "$B" ]; then echo installed=1; fi',
     'echo "version=$(cat "$H/current/version" 2>/dev/null)"',
-    'for d in "$H"/accounts/*/; do',
+    'for d in "$H/account" "$H"/accounts/*/ "$H"/retired/*/; do',
+    '  [ -L "${d%/}" ] && continue',
     '  [ -f "$d/account.json" ] || continue',
-    '  id="$(basename "$d")"',
+    '  id="$(sed -n \'s/.*"userId": *"\\([^"]*\\)".*/\\1/p\' "$d/account.json" 2>/dev/null | head -n 1)"; [ -n "$id" ] || id="$(basename "$d")"',
     '  s=0; [ -f "$d/data/server-session.enc" ] && s=1',
     '  e="$(sed -n \'s/.*"email": *"\\([^"]*\\)".*/\\1/p\' "$d/account.json" | head -n 1)"',
     '  echo "account=$id $s $e"',
@@ -84,18 +94,19 @@ export function toInspection(result: InspectResult, currentUserId: string | null
 export function uninstallScript(options: { keepUserId?: string | null } = {}): string {
   const keep = options.keepUserId && /^[A-Za-z0-9_-]{1,128}$/.test(options.keepUserId) ? options.keepUserId : ''
   return [
-    `H=${SERVER_HOME}`,
-    `B=${SERVER_BIN}`,
+    ...installationPaths,
+    'if [ ! -d "$H" ]; then echo "卸载失败:安装目录不存在 $H (启动脚本 $B)" >&2; exit 1; fi',
     // #6264 先把这台机器上每个账号都注销(从账号里移除这台机器、续期令牌作废),照 `code tunnel unregister`:
     // ❌ 只删本地文件 —— 那样别人的账号里一直挂着一台永远离线的机器、云端的会话也一直有效。
     // 桌面自己那个账号(KEEP)由桌面在卸完后自己移除(它知道要不要连同智能体一起删)。老版本不认这条命令:照卸。
     `KEEP='${keep}'`,
     'if [ -x "$B" ]; then',
-    '  for d in "$H"/accounts/*/; do',
+    '  for d in "$H/account" "$H"/accounts/*/; do',
+    '    [ -L "${d%/}" ] && continue',
     '    [ -f "$d/data/server-session.enc" ] || continue',
-    '    id="$(basename "$d")"',
+    '    id="$(sed -n \'s/.*"userId": *"\\([^"]*\\)".*/\\1/p\' "$d/account.json" 2>/dev/null | head -n 1)"; [ -n "$id" ] || id="$(basename "$d")"',
     '    [ "$id" = "$KEEP" ] && continue',
-    '    "$B" unregister --account "$id" </dev/null 2>/dev/null',
+    '    if [ "${d%/}" = "$H/account" ]; then "$B" unregister </dev/null 2>/dev/null; else "$B" unregister --account "$id" </dev/null 2>/dev/null; fi',
     '  done',
     'fi',
     'if [ -x "$B" ]; then',
@@ -106,23 +117,31 @@ export function uninstallScript(options: { keepUserId?: string | null } = {}): s
     // 在它的数据目录被删掉之后还会接着跑、接着发心跳。按各把锁里的进程号收掉(命令行对得上才动,❌ 误杀复用了号的进程)。
     'own() { [ -r "/proc/$1/cmdline" ] || return 0; tr "\\000" " " < "/proc/$1/cmdline" | grep -q -e server.js -e gugu-server-keeper; }',
     'P=""',
-    'for f in "$H/data/keeper.pid" "$H/data/server.lock" "$H"/accounts/*/data/server.lock; do',
+    'for f in "$H/data/keeper.pid" "$H/data/server.lock" "$H/account/data/server.lock" "$H"/accounts/*/data/server.lock; do',
     '  [ -f "$f" ] || continue',
+    '  [ -L "${f%/data/server.lock}" ] && continue',
     '  p="$(cat "$f" 2>/dev/null)"; case "$p" in ""|*[!0-9]*) continue ;; esac',
     '  if kill -0 "$p" 2>/dev/null && own "$p"; then kill "$p" 2>/dev/null; P="$P $p"; fi',
     'done',
     'if [ -n "$P" ]; then sleep 3; for p in $P; do kill -0 "$p" 2>/dev/null && own "$p" && kill -9 "$p" 2>/dev/null; done; fi',
     'T="$H/current/app/tmux-bundle/tmux"; [ -x "$T" ] || T=tmux',
-    'for d in "$H"/accounts/*/; do',
+    'for d in "$H/account" "$H"/accounts/*/ "$H"/retired/*/; do',
+    '  [ -L "${d%/}" ] && continue',
     '  [ -d "$d" ] || continue',
-    '  id="$(basename "$d")"',
-    '  "$T" -L "gugu-server-$(printf %s "$id" | cut -c1-8)" kill-server >/dev/null 2>&1',
+    '  id="$(sed -n \'s/.*"userId": *"\\([^"]*\\)".*/\\1/p\' "$d/account.json" 2>/dev/null | head -n 1)"; [ -n "$id" ] || id="$(basename "$d")"',
+    `  "$T" -L "${serverNames(desktopServerChannel()).bin}-$(printf %s "$id" | cut -c1-8)" kill-server >/dev/null 2>&1`,
     'done',
-    'for l in "$B" "$HOME/.local/bin/node"; do',
-    '  if [ -L "$l" ]; then case "$(readlink "$l")" in "$H"/*) rm -f "$l" ;; esac; fi',
+    `for l in ${['stable', 'beta'].map(channel => `"$HOME/.local/bin/${serverNames(channel).bin}"`).join(' ')} "$HOME/.local/bin/node" ${SERVER_HOME}; do`,
+    '  remove=0',
+    '  if [ -L "$l" ]; then case "$(readlink "$l")" in "$H"|"$H"/*) remove=1 ;; esac',
+    '  elif [ -f "$l" ] && grep -qF "GUGU_SERVER_HOME=\\"$H\\"" "$l"; then remove=1; fi',
+    '  if [ "$remove" = 1 ]; then',
+    '    rm -f "$l"',
+    '    if [ -e "$l" ] || [ -L "$l" ]; then echo "卸载失败:删不掉 $l" >&2; exit 1; fi',
+    '  fi',
     'done',
     'rm -rf "$H"',
-    'if [ -e "$H" ]; then echo "卸载失败:删不掉 $H" >&2; exit 1; fi',
+    'if [ -e "$H" ] || [ -L "$H" ]; then echo "卸载失败:删不掉 $H" >&2; exit 1; fi',
     `echo ${UNINSTALLED_MARK}`,
     '',
   ].join('\n')

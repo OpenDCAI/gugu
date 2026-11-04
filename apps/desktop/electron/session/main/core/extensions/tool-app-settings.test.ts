@@ -8,9 +8,9 @@ import { ExtensionsService } from './extensions-service';
 import { scaffoldExtension } from './extension-authoring';
 
 const raw = {
-  id: 'tool-app', name: 'Tool App', version: '1.0.0', apiVersion: 5,
+  id: 'tool-app', name: 'Tool App', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
   permissions: { capabilities: ['agents:tools'] },
-  contributes: { mcpServers: [{ tools: 'tools.js' }] },
+  contributes: { mcpServers: [{ tools: 'tools.js' }], instructions: 'Test tools.' },
   settings: [
     { key: 'account', title: 'Account', type: 'string', default: 'personal' },
     { key: 'enabled', title: 'Enabled', type: 'boolean', default: true },
@@ -23,15 +23,15 @@ const work = () => { const dir = mkdtempSync(join(tmpdir(), 'gugu-tool-app-')); 
 
 describe('tool App host pages and settings', () => {
   it('accepts a native host program without inventing HTML or an executable file', () => {
-    const manifest = parseExtensionManifest({ ...raw, contributes: { mcpServers: [{ name: 'browser-use', host: 'browser-use' }] } });
+    const manifest = parseExtensionManifest({ ...raw, contributes: { mcpServers: [{ name: 'browser-use', host: 'browser-use' }], instructions: 'Test tools.' } });
     expect(manifest.contributes.mcpServers).toEqual([{ name: 'browser-use', host: 'browser-use' }]);
     expect(manifest.contributes.tabs[0]?.hostPage).toBe('settings');
-    expect(safeParseExtensionManifest({ ...raw, apiVersion: 4, contributes: { mcpServers: [{ name: 'browser-use', host: 'browser-use' }] } }).ok).toBe(false);
-    expect(safeParseExtensionManifest({ ...raw, contributes: { mcpServers: [{ name: 'desktop', host: 'arbitrary-host' }] } }).ok).toBe(false);
+    expect(safeParseExtensionManifest({ ...raw, apiVersion: 4, contributes: { mcpServers: [{ name: 'browser-use', host: 'browser-use' }], instructions: 'Test tools.' } }).ok).toBe(false);
+    expect(safeParseExtensionManifest({ ...raw, contributes: { mcpServers: [{ name: 'desktop', host: 'arbitrary-host' }], instructions: 'Test tools.' } }).ok).toBe(false);
   });
   it('creates and installs a real tools-only bundle with a host page and no HTML', () => {
     const dir = work();
-    const { sourceDir, manifest } = scaffoldExtension({ targetDir: join(dir, 'source'), manifest: { ...raw, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'] },
+    const { sourceDir, manifest } = scaffoldExtension({ targetDir: join(dir, 'source'), manifest: { ...raw, platforms: ['desktop'] },
       files: { 'tools.js': 'export const hello = {run: async () => ({content: []})};' } });
     expect(manifest.entry).toBeUndefined();
     expect(manifest.contributes.tabs).toEqual([{ name: 'settings', title: 'Settings', hostPage: 'settings' }]);
@@ -55,7 +55,7 @@ describe('tool App host pages and settings', () => {
   });
 
   it('keeps existing HTML Apps and mixed custom/host pages working', () => {
-    const legacy = { id: 'legacy-app', name: 'Legacy', version: '1.0.0', apiVersion: 3, entry: 'main.html',
+    const legacy = { id: 'legacy-app', name: 'Legacy', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'main.html',
       contributes: { tabs: [{ name: 'main', title: 'Main' }] } };
     expect(parseExtensionManifest(legacy)).toMatchObject(legacy);
     expect(parseExtensionManifest({ ...raw, entry: 'main.html', contributes: { ...raw.contributes,
@@ -76,7 +76,7 @@ describe('tool App host pages and settings', () => {
     const dir = work();
     const source = join(dir, 'source');
     mkdirSync(source);
-    writeFileSync(join(source, 'manifest.json'), JSON.stringify({ ...raw, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'] }));
+    writeFileSync(join(source, 'manifest.json'), JSON.stringify({ ...raw, apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'] }));
     writeFileSync(join(source, 'tools.js'), 'export const hello = {};');
     const root = join(dir, 'installed');
     const service = new ExtensionsService(root);
@@ -84,7 +84,7 @@ describe('tool App host pages and settings', () => {
     install();
     service.setSettings(raw.id, { account: 'work', enabled: false });
     expect(new ExtensionsService(root).settings(raw.id)).toEqual({ account: 'work', enabled: false, mode: 'local' });
-    writeFileSync(join(source, 'manifest.json'), JSON.stringify({ ...raw, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], version: '1.0.1' }));
+    writeFileSync(join(source, 'manifest.json'), JSON.stringify({ ...raw, apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], version: '1.0.1' }));
     install();
     expect(service.settings(raw.id).account).toBe('work');
     service.uninstall(raw.id);

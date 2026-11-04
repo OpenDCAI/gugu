@@ -229,7 +229,7 @@ export async function resumeTeam(record: ProvisionResumeRecord, deps: TeamProvis
 }
 
 // Governed cancel — phase-based operation/member cancel + compare-and-delete of pending create commands. The
-// full live-resource reclaim is #2219's remove_owned_agent path (see [[agent-identity]]), never a hard delete.
+// Explicit cancellation removes created identities so the backend can settle the operation.
 export interface CancelTeamProvisionResult {
   operation: AgentProvisionOperation
   /** true only when the DB advanced EVERY member (and the operation) to `cancelled`. */
@@ -264,7 +264,7 @@ async function clearCancelledRecovery(
 //   ① cancel_agent_provision_operation — phase-based: every not-yet-cancelled member (INCLUDING completed ones,
 //      or terminal cancel would be impossible) → `cancelling`, operation → `cleaning_up`, pending create commands
 //      compare-and-deleted, raw memory scrubbed, exact agent snapshotted.
-//   ② per member that reached identity creation: courtesy runtime stop, then #2219 `remove_owned_agent`.
+//   ② per member that reached identity creation: courtesy runtime stop, then permanent identity removal.
 //      A member that never bound an agent (queued-only) is NEVER removed — there is nothing to reclaim and settle
 //      terminals it directly. Per-member BEST-EFFORT: one member's failure is recorded and the rest still proceed,
 //      so a partial cleanup stays visible (`fullyCancelled=false`) and replay-recoverable rather than aborting.
@@ -274,7 +274,7 @@ export async function cancelTeamProvision(
   deps: CancelTeamProvisionDeps = {},
 ): Promise<CancelTeamProvisionResult> {
   const stopRuntime = deps.stopAgentRuntime ?? defaultStopAgentRuntime
-  const removeAgent = deps.removeOwnedAgent ?? defaultRemoveOwnedAgent
+  const removeOwnedAgent = deps.removeOwnedAgent ?? defaultRemoveOwnedAgent
 
   await cancelProvisionOperation(operationId)
 
@@ -316,7 +316,7 @@ export async function cancelTeamProvision(
       })
     }
     try {
-      await removeAgent(agentUserId)
+      await removeOwnedAgent(agentUserId)
     } catch (err) {
       cleanupErrors.push({
         provisionId: member.id,

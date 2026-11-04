@@ -8,7 +8,7 @@ test('a failed phone claim produces one verified owner message through ordinary 
     then(resolve){resolve({data,error:null})},maybeSingle(){checks++;return Promise.resolve({data:{id:[...posts.keys()][0]},error:null})}})
   const cloud={
     identity:{rpc:async(name)=>name==='assistant_work_outbox_claim'?{data:null,error:{code:'PGRST202',message:'private schema detail'}}:{data:{items:[]},error:null},
-      from:()=>query([{agent_user_id:'assistant',device_id:'home',member_key:'assistant',phase:'ready',created_at:'2026-10-26T00:00:00Z'}])},
+      from:()=>query([{agent_user_id:'assistant',agent:{removed_at:null},device_id:'home',member_key:'assistant',phase:'ready',created_at:'2026-10-26T00:00:00Z'}])},
     chat:{rpc:(name,args)=>({abortSignal:async()=>{
       if(name==='open_dm')return {data:'dm',error:null}
       posts.set(args.p_message_id,args);return {data:[{id:args.p_message_id}],error:null}

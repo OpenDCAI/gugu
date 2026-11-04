@@ -7,7 +7,7 @@
   --fc-edge: color-mix(in oklab, var(--fg) 14%, transparent);
   --fc-hi: color-mix(in oklab, var(--bg) 90%, transparent);
   --fc-cover-alpha: 1;
-  /* 时长、缓动一律取动效 token(scripts/ui-state-debt-check.mjs 的 css-magic-transition):换视觉母版时跟着走。 */
+  /* 时长、缓动一律取动效 token(scripts/checks/ui-state-debt-check.mjs 的 css-magic-transition):换视觉母版时跟着走。 */
   --fc-ease: var(--ease-spring);
   --rx: 0deg;
   --ry: 0deg;

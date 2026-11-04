@@ -10,7 +10,7 @@ import type { GuguHost } from './host';
  * Only what the phone offers is here: a verb that is missing is missing, and an App feature-
  * detects it (`typeof gugu.x`), exactly as it would on a host without a capability. Everything
  * here is a request; the outer page decides every answer from its own binding of this frame,
- * and reads the person's gesture itself.
+ * and takes the person's gesture from the App's gate, this window's parent (gate.ts) — never from this page.
  */
 export function framedHost(): GuguHost & Record<string, unknown> {
   const parent = window.parent;
@@ -44,9 +44,9 @@ const PHONE: ReadonlySet<HostMember> = new Set<HostMember>([
   'forum.subscribe', 'forum.unsubscribe', 'onForumChanged',
   'setTabTitle', 'setTabBadge', 'onCommand', 'onLink', 'showMessage', 'showSession', 'clipboard.writeText',
   'readData', 'writeData', 'listData',
-  'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.search', 'appFiles.recent', 'appFiles.create', 'appFiles.viewPreferences',
-  'appFiles.keep', 'appFiles.remove', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
-  'appFiles.versions', 'appFiles.readVersion', 'appFiles.upload', 'appFiles.openWith', 'appFiles.download',
+  'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.read', 'appFiles.search', 'appFiles.recent', 'appFiles.create', 'appFiles.viewPreferences',
+  'appFiles.keep', 'appFiles.remove', 'appFiles.canDelete', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
+  'appFiles.versions', 'appFiles.readVersion', 'appFiles.upload', 'appFiles.openWith', 'appFiles.download', 'appFiles.forward',
 ]);
 const IN_SESSION: ReadonlySet<HostMember> = new Set<HostMember>(['callProgram', 'onProgramNotification']);
 /** What main answers an App's MCP program (F16): its files and messages, an agent's word — no page, no data folder of a page. */
@@ -55,7 +55,7 @@ const PROGRAM: ReadonlySet<HostMember> = new Set<HostMember>([
   'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'messages.history', 'messages.search',
   'chats.list', 'chats.members', 'projects.list', 'linkTo',
   'sessions.index', 'sessions.read',
-  'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.search', 'appFiles.recent', 'appFiles.create',
+  'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.read', 'appFiles.search', 'appFiles.recent', 'appFiles.create',
   'appFiles.remove', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
   'appFiles.versions', 'appFiles.readVersion', 'appFiles.upload',
 ]);

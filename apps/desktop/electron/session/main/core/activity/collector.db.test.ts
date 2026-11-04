@@ -51,7 +51,7 @@ describe('boot-installed collector and real committed producers', () => {
   });
   it('separates completed App source writes from successful install/replacement, with no save watcher or failed-install fact', () => {
     const targetDir = join(home, 'source');
-    const manifest = { id: 'activity-demo', name: 'PRIVATE APP NAME', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+    const manifest = { id: 'activity-demo', name: 'PRIVATE APP NAME', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'PRIVATE TAB' }] } };
     const make = (version: string, update = false) => scaffoldExtension({ targetDir, manifest: { ...manifest, version },

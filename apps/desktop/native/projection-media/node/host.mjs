@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn } from '../../../../../packages/core/src/local/childProcess.ts'
 import { isAbsolute } from 'node:path'
 
 const MAX_JSON = 129 * 1024
@@ -45,7 +45,7 @@ export async function openMediaProcess(options) {
   signal?.throwIfAborted()
   const args = ['-ffmpeg', ffmpeg, '-width', String(width), '-height', String(height), '-fps', String(fps), '-bitrate', String(bitrate)]
   if (options.stun) args.push('-stun', options.stun)
-  const child = spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+  const child = spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'] })
   const offer = deferred()
   const exited = deferred()
   const waiting = new Map()

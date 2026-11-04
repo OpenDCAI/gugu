@@ -10,6 +10,11 @@ import type { AgentInstallProgress } from '@gugu/session-core/workspace-server';
 const installing = new Set<string>();
 const latest = new Map<string, AgentInstallProgress>();
 
+/** Runtime installation is work even before its first session can be created. */
+export function hasAgentInstallsInProgress(): boolean {
+  return installing.size > 0;
+}
+
 export function markInstallStarted(providerId: string): void {
   installing.add(providerId);
   latest.delete(providerId);

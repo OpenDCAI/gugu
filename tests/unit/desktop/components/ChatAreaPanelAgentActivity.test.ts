@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readComposer } from '../../../support/composerEditor'
-import { createElement } from 'react'
+import { act, createElement } from 'react'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import type { Device, MessageItem } from '@gugu/core/shared/types/chat'
@@ -18,9 +18,6 @@ import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
 
 
-vi.mock('../../../../apps/desktop/src/components/chat/AgentDmConversation', () => ({
-  AgentDmConversation: ({ chat }: { chat: { peer_user_id?: string } }) => createElement('div', { 'data-testid': 'agent-dm-conversation', 'data-agent-user-id': chat.peer_user_id }),
-}))
 
 // @@@store-status-mock - Overridable so tests can flip the store's reported status independently of the
 const presenceMock = vi.hoisted(() => ({
@@ -83,7 +80,6 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
         humans: [],
         agents: groupMock.agents,
         tasks: [],
-        outputs: [],
       },
       // 名册与身份同源同出(#5610):写入侧断言要求名册成员都带身份,这里按 groupMock 给全。
       identities: (groupMock.agents as Array<{ id: string; display_name: string; avatar?: string | null; owner_user_id?: string | null }>).map((agent) => ({
@@ -92,8 +88,9 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
         local_path: null, created_at: null, updated_at: null,
       })),
     })),
-    markMessageRead: vi.fn(async () => {}),
     getThreadMessages: vi.fn(async () => []),
+    // The chat surface reads the viewer's authority from the server projection (group_info_as).
+    getGroupChatSettings: vi.fn(async () => ({ id: 'chat-1', my_role: 'member', can_manage: false, can_dissolve: false, can_archive_topic: false, allow_member_invite: false })),
   },
 }))
 
@@ -135,11 +132,11 @@ describe('ChatAreaPanel agent activity placement', () => {
   // @@@1506 - owner: running 状态轻量浮动文字、在输入框上方（不再是消息列表内的最后一行 #1102）。
   // DM 的「运行中」从 in-list 移到 composer 上方的 agent-running-status 浮动条；流式正文仍留消息流。
   // 它显不显、显什么,只看那张 agent 表说这个 agent 在不在跑 —— ❌ 没有第二个来源可以让它单独亮或单独灭。
-  it('routes agent DMs to the unified conversation instead of the IM list', async () => {
+  // Owned agents open their task page before reaching here; an agent DM that still arrives (another owner's
+  // agent from before #509) is an ordinary IM conversation.
+  it('shows an agent DM that reaches the chat surface as an ordinary IM list', async () => {
     await renderChatArea({ activeChat: chat({ id: 'chat-1', kind: 'ai', name: 'Agent', peer_user_id: 'agent-1' }), messages: [mineMessage({})] })
-    expect(harness.container.querySelector('[data-testid="agent-dm-conversation"]')?.getAttribute('data-agent-user-id')).toBe('agent-1')
-    expect(harness.container.querySelector('[data-testid="agent-running-status"]')).toBeNull()
-    expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatMessageList}"]`)).toBeNull()
+    expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatMessageList}"]`)).not.toBeNull()
   })
 
   // 对话头的名字与对话列表、⌘K 面板、「来自 X」同一个函数(chatDisplayName):私聊写对方,备注优先。
@@ -185,15 +182,14 @@ describe('ChatAreaPanel agent activity placement', () => {
   })
 
   it.each([
-    ['pending', {}, 'active', '确认中'],
-    ['offline', { 'agent-1': 'offline' }, 'active', '不在线'],
-    ['removed', { 'agent-1': 'removed' }, 'removed', '已移除'],
-    ['working', { 'agent-1': 'working' }, 'active', '运行中'],
-    // #6448 同一张表:后台在跑、需要你、出错在群头也是那一句。
-    ['parked', { 'agent-1': 'parked' }, 'active', '后台运行中'],
-    ['needs_user', { 'agent-1': 'needs_user' }, 'active', '需要你处理'],
-    ['error', { 'agent-1': 'error' }, 'active', '出错了'],
-  ] as Array<[string, Record<string, string>, string, string]>)('uses the resolved %s group status in the accessible header indicator', async (status, statuses, accountStatus, label) => {
+    ['pending', {}, 'active'],
+    ['offline', { 'agent-1': 'offline' }, 'active'],
+    ['removed', { 'agent-1': 'removed' }, 'removed'],
+    ['working', { 'agent-1': 'working' }, 'active'],
+    ['parked', { 'agent-1': 'parked' }, 'active'],
+    ['needs_user', { 'agent-1': 'needs_user' }, 'active'],
+    ['error', { 'agent-1': 'error' }, 'active'],
+  ] as Array<[string, Record<string, string>, string]>)('[immediate] keeps only the member icon and count for %s group status', async (_status, statuses, accountStatus) => {
     groupMock.agents = [{ id: 'agent-1', display_name: 'Status Bot', type: 'agent', role: 'member', account_status: accountStatus, avatar: null, email: null }]
     groupMock.statuses = statuses
 
@@ -202,27 +198,29 @@ describe('ChatAreaPanel agent activity placement', () => {
       messages: [],
     })
 
-    const indicator = harness.container.querySelector(`[data-agent-display-status="${status}"]`)
-    expect(indicator).not.toBeNull()
-    expect(indicator?.getAttribute('role')).toBe('img')
-    expect(indicator?.getAttribute('aria-hidden')).toBeNull()
-    expect(indicator?.getAttribute('aria-label')).toBe(label)
+    const members = harness.container.querySelector<HTMLButtonElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMembersButton}"]`)!
+    expect(members).not.toBeNull()
+    expect(members.textContent).toBe('1')
+    expect(members.querySelectorAll('svg')).toHaveLength(1)
+    expect(members.querySelector('[data-agent-display-status]')).toBeNull()
+    expect(members.getAttribute('aria-label')).toBe('成员列表')
+    expect(members.title).toBe('成员列表')
   })
 
   it('reloads group collab when the same chat is reopened on mobile (openNonce bump) (#461)', async () => {
     const groupChat = chat({ id: 'chat-1', kind: 'group', name: 'Ops' })
     vi.mocked(chatService.getGroupCollab).mockClear()
 
-    await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0 }), {
-      chat: { getImRepository: getImRepositoryMock, activeChatId: 'chat-1', activeChat: groupChat, messages: [] },
+    await renderWithAppProviders(harness, createNode(ChatAreaPanel, { openNonce: 0 }), {
+      chat: { createTopic: topicServiceMock.createTopic, getImRepository: getImRepositoryMock, activeChatId: 'chat-1', activeChat: groupChat, messages: [] },
     })
     const before = vi.mocked(chatService.getGroupCollab).mock.calls.length
     expect(before).toBeGreaterThanOrEqual(1)
 
     // Reopening the SAME chat on mobile bumps openNonce without changing activeChatId — the reset clears the
     // collab snapshot, so the load effect must refire to refill it (the #461 asymmetry this guards).
-    await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 1 }), {
-      chat: { getImRepository: getImRepositoryMock, activeChatId: 'chat-1', activeChat: groupChat, messages: [] },
+    await renderWithAppProviders(harness, createNode(ChatAreaPanel, { openNonce: 1 }), {
+      chat: { createTopic: topicServiceMock.createTopic, getImRepository: getImRepositoryMock, activeChatId: 'chat-1', activeChat: groupChat, messages: [] },
     })
     expect(vi.mocked(chatService.getGroupCollab).mock.calls.length).toBeGreaterThan(before)
   })
@@ -242,8 +240,8 @@ describe('ChatAreaPanel agent activity placement', () => {
       })
       vi.mocked(chatService.getGroupCollab).mockClear()
 
-      await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0 }), {
-        chat: { getImRepository: getImRepositoryMock, subscribeAccountRevision, activeChatId: 'chat-1', activeChat: chat({ id: 'chat-1', kind: 'group', name: 'Ops' }), messages: [] },
+      await renderWithAppProviders(harness, createNode(ChatAreaPanel, { openNonce: 0 }), {
+        chat: { createTopic: topicServiceMock.createTopic, getImRepository: getImRepositoryMock, subscribeAccountRevision, activeChatId: 'chat-1', activeChat: chat({ id: 'chat-1', kind: 'group', name: 'Ops' }), messages: [] },
       })
       const afterOpen = vi.mocked(chatService.getGroupCollab).mock.calls.length
       expect(afterOpen).toBeGreaterThanOrEqual(1)
@@ -264,10 +262,43 @@ describe('ChatAreaPanel agent activity placement', () => {
     }
   })
 
+  it('re-reads topic settings for a source-group membership revision, ignoring other groups', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let onChange: AccountRevisionListener = () => {}
+      const subscribeAccountRevision = (event: string | readonly string[], listener: AccountRevisionListener) => {
+        if (event === 'chat_members_changed') onChange = listener
+        return () => undefined
+      }
+      await renderWithAppProviders(harness, createNode(ChatAreaPanel, {}), {
+        auth: { id: 'viewer-1' },
+        chat: { getImRepository: getImRepositoryMock, subscribeAccountRevision, setActiveChatId: vi.fn(), activeChatId: 'topic-1', activeChat: chat({ id: 'topic-1', kind: 'topic', source_chat_id: 'source-1' }), messages: [] },
+      })
+      const settings = vi.mocked(chatService.getGroupChatSettings)
+      const before = settings.mock.calls.length
+      await act(async () => {
+        onChange([{ revision: '1', event: 'chat_members_changed', payload: { chat_id: 'other-group', tombstone: false } }])
+        await vi.advanceTimersByTimeAsync(350)
+      })
+      expect(settings).toHaveBeenCalledTimes(before)
+      await act(async () => {
+        onChange([{ revision: 'other-reader', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'another-user', tombstone: false, kind: 'own' } }])
+        await vi.advanceTimersByTimeAsync(350)
+      })
+      expect(settings).toHaveBeenCalledTimes(before)
+      await act(async () => {
+        onChange([{ revision: '2', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'viewer-1', tombstone: false } }])
+        await vi.advanceTimersByTimeAsync(350)
+      })
+      expect(settings).toHaveBeenCalledTimes(before + 1)
+      expect(settings).toHaveBeenLastCalledWith('topic-1')
+    } finally { vi.useRealTimers() }
+  })
+
   it('uses public Gugu numbers in direct chat message profile popovers', async () => {
     await renderWithAppProviders(
       harness,
-      createNode(ChatAreaPanel, { activeTab: 'chats' }),
+      createNode(ChatAreaPanel, {}),
       {
         auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner', gugu_number: 100001 },
         chat: {
@@ -328,11 +359,11 @@ async function renderChatArea(chatState: {
     createElement(
       DevicesContext.Provider,
       { value: devicesStore(devices) },
-      createNode(ChatAreaPanel, { activeTab: 'chats', mobile: chatState.mobile }),
+      createNode(ChatAreaPanel, { mobile: chatState.mobile }),
     ),
     {
       chat: {
-        getImRepository: getImRepositoryMock,
+        createTopic: topicServiceMock.createTopic, getImRepository: getImRepositoryMock,
         identitiesById,
         activeChatId: 'chat-1',
         ...chatState,

@@ -52,7 +52,6 @@ export const EditorProvider = observer(function EditorProvider({
   // ⚠️ 同一个编辑器还要有一份**可观察**的引用:下面挂载模型的 autorun 必须能被「编辑器建好了」
   // 唤醒。编辑器改成 await Monaco 之后才创建,而 ref 不是可观察量 —— autorun 早在编辑器还是 null
   // 时就跑完了、之后再没有可观察量变化,于是模型永远挂不上:面板画得出行号,内容却是空的。
-  // (sticky-diff-editor 那边一直用的就是 observable box,同一个道理。)
   // ❌ 别把这里退回只用 ref。
   const editorBoxRef = useRef(
     observable.box<monacoNS.editor.IStandaloneCodeEditor | null>(null, { deep: false })
@@ -181,7 +180,6 @@ export const EditorProvider = observer(function EditorProvider({
       disposed = true;
       teardown?.();
     };
-    // oxlint-disable-next-line react/exhaustive-deps
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -259,7 +257,6 @@ export const EditorProvider = observer(function EditorProvider({
         modelRegistry.attach(editor, newBufUri, prevBufUriRef.current);
         prevBufUriRef.current = newBufUri;
       }),
-    // oxlint-disable-next-line react/exhaustive-deps
     []
   );
 
@@ -269,7 +266,6 @@ export const EditorProvider = observer(function EditorProvider({
   useEffect(() => {
     if (!sessionId) return;
     void editorView.restoreBuffers();
-    // oxlint-disable-next-line react/exhaustive-deps
   }, [sessionId]);
 
   // ---------------------------------------------------------------------------

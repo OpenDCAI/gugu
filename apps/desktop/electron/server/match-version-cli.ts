@@ -1,36 +1,19 @@
-/**
- * `gugu-server match-version`(#6264 远程 SSH 的桌面发现版本对不上时经 SSH 调,见 ssh-install/runner.ts 的 upgrade 模式):
- *
- *   match-version --account <id> --desktop <桌面 id> --version <版本> [--protocol <n>]
- *       记下这台桌面是哪一版,打出这个账号的目标版本(同一账号几台桌面取最新)、此刻在跑哪一版、目标装没装。
- *   match-version --account <id> --apply <版本> [--now]
- *       请守护进程把**这一个账号**换到这一版,等它真的换过去再返回。有 agent 在跑时守护进程等它空闲,这里当场退 8;
- *       `--now` = 人点了「现在重启更新」,有 agent 在跑也当场换。没装就由守护进程自己装(下载,或用桌面经 SSH
- *       放进 `versions/.incoming/` 的包,见 server-account-converge.ts)—— 装的只有它一个,桌面 ❌ 再装一份。
- *
- * 标准输出上机器可读的一行:`MATCH_MARK key=value …`。
- * 退出码:0 成;2 用法;3 守护进程没在跑;4 等不到换过去;6 守护进程装这一版失败了;8 有 agent 在跑、等空闲再换;
- * 7 它连不上下载站(要桌面把包的字节放进 `versions/.incoming/` 再来一次,见 ssh-install/runner.ts)。
- * ⚠️ 只在 CLI 里跑:不碰 electron、不加载主进程。
- */
+/** Compatibility for released desktops. Selection belongs to the installation updater. */
 import fs from 'node:fs'
 import path from 'node:path'
-import { SERVER_UPDATE_STATE_FILE } from '@gugu/core/cloud/deviceHostInfo'
-import {
-  isServerVersion,
-  pickTargetVersion,
-  recordDesktopReport,
-  requestVersionSwitch,
-} from '@gugu/core/cloud/serverDesktopVersions'
-import { MATCH_MARK, readAccountVersionPin, versionBinary } from './server-account-versions'
-import { pickAttachAccount } from './account-call'
-import { listAccounts, type ServerAccount } from './server-layout'
+import { isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
+import { VERSION_RESTART_RPC } from '@gugu/core/cloud/serverMachineHealth'
+import type { DeviceRpcResponse } from '@gugu/core/cloud/deviceRpcProtocol'
+import { MATCH_MARK, versionBinary } from './server-account-versions'
+import { callAccountProcess, accountRequestError } from './account-call'
+import { readServerAccount, type ServerAccount } from './server-layout'
+import { readUpdateRecord } from './server-update-state'
 
 const ID = /^[A-Za-z0-9:_-]{1,128}$/
 
 export type MatchArgs =
-  | { mode: 'report'; account: string; desktop: string; version: string; protocol: number | null }
-  | { mode: 'apply'; account: string; version: string; now: boolean }
+  | { mode: 'report'; account: string | null; desktop: string; version: string; protocol: number | null }
+  | { mode: 'apply'; account: string | null; version: string; now: boolean }
 
 export function parseMatchArgs(args: readonly string[]): MatchArgs | { error: string } {
   const values = new Map<string, string>()
@@ -40,13 +23,13 @@ export function parseMatchArgs(args: readonly string[]): MatchArgs | { error: st
     const [key, inline] = arg.slice(2).split(/=(.*)/s)
     values.set(key!, inline ?? (key === 'now' ? '1' : (args[++i] ?? '')))
   }
-  const account = values.get('account') ?? ''
-  if (!ID.test(account)) return { error: '--account 后面要写账号 id' }
+  const account = values.get('account') ?? null
+  if (account !== null && !ID.test(account)) return { error: '--account 后面要写账号 id' }
   const apply = values.get('apply')
   if (apply !== undefined) return isServerVersion(apply) ? { mode: 'apply', account, version: apply, now: values.has('now') } : { error: '--apply 后面要写版本号' }
   const desktop = values.get('desktop') ?? ''
   const version = values.get('version') ?? ''
-  if (!ID.test(desktop) || !isServerVersion(version)) return { error: '用法:gugu-server match-version --account <id> --desktop <桌面 id> --version <版本> [--protocol <n>]' }
+  if (!ID.test(desktop) || !isServerVersion(version)) return { error: '用法:gugu-server match-version --desktop <桌面 id> --version <版本> [--protocol <n>]' }
   const protocol = Number(values.get('protocol'))
   return { mode: 'report', account, desktop, version, protocol: Number.isInteger(protocol) && protocol > 0 ? protocol : null }
 }
@@ -59,89 +42,67 @@ export function formatMatchLine(fields: Record<string, string | number | boolean
 
 export type MatchDeps = {
   home: string
-  accounts?: () => ServerAccount[]
-  /** 这个账号此刻在跑的那一版(读它的进程);没在跑 = null。 */
+  account?: () => ServerAccount | null
   runningVersion: (account: ServerAccount) => string | null
   supervisorRunning: () => boolean
-  exists?: (file: string) => boolean
-  /** 这个账号的升级状态文件(守护进程写的,见 server-account-converge.ts);没有 = null。 */
-  readUpdateState?: (account: ServerAccount) => string | null
+  call?: (account: ServerAccount, type: string, payload: unknown) => Promise<DeviceRpcResponse<unknown>>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
   waitMs?: number
 }
 
+async function callUpdate(account: ServerAccount, type: string, payload: unknown): Promise<DeviceRpcResponse<unknown>> {
+  const answer = await callAccountProcess(account, { type, payload }, { timeoutMs: 15_000 })
+  if ('code' in answer) return { error: { code: 'unavailable', message: answer.message } }
+  return JSON.parse(answer.reply.toString('utf8')) as DeviceRpcResponse<unknown>
+}
+
 export async function runMatchVersion(args: readonly string[], out: (line: string) => void, err: (line: string) => void, deps: MatchDeps): Promise<number> {
   const parsed = parseMatchArgs(args)
-  if ('error' in parsed) {
-    err(parsed.error)
-    return 2
-  }
-  const account = pickAttachAccount((deps.accounts ?? listAccounts)(), parsed.account)
-  if ('error' in account) {
-    err(account.error)
-    return 5
-  }
-  const versionsDir = path.join(deps.home, 'versions')
-  const exists = deps.exists ?? ((file: string) => fs.existsSync(file))
-  const now = deps.now ?? Date.now
-  const running = () => deps.runningVersion(account) ?? readAccountVersionPin(account.dataDir)?.version ?? null
-
+  if ('error' in parsed) { err(parsed.error); return 2 }
+  const account = (deps.account ?? readServerAccount)()
+  const accountError = accountRequestError(account, parsed.account)
+  if (accountError || !account) { err(accountError ?? 'No current account'); return 5 }
+  let current: string | null = null
+  try {
+    const directory = fs.realpathSync(path.join(deps.home, 'current'))
+    if (path.dirname(directory) === fs.realpathSync(path.join(deps.home, 'versions')) && isServerVersion(path.basename(directory))) current = path.basename(directory)
+  } catch { /* An unresolved current is not an installed version. */ }
+  const record = readUpdateRecord(deps.home)
+  const ready = record?.state === 'ready' && fs.existsSync(versionBinary(path.join(deps.home, 'versions'), record.version)) ? record.version : null
   if (parsed.mode === 'report') {
-    const reports = recordDesktopReport(account.dataDir, { id: parsed.desktop, version: parsed.version, protocol: parsed.protocol }, now())
-    const target = pickTargetVersion(reports, now()) ?? parsed.version
-    out(formatMatchLine({ target, running: running(), installed: exists(versionBinary(versionsDir, target)), supervisor: deps.supervisorRunning() }))
+    const target = ready ?? current
+    out(formatMatchLine({ target, running: deps.runningVersion(account), installed: target !== null, supervisor: deps.supervisorRunning() }))
     return 0
   }
-
-  if (!deps.supervisorRunning()) {
-    err('咕咕 server 没在运行:执行 gugu-server service install')
-    return 3
+  if (!deps.supervisorRunning()) { err('咕咕 server 没在运行:执行 gugu-server start'); return 3 }
+  if (!parsed.now || ready !== parsed.version) {
+    err(`${parsed.version} 尚未准备好或未确认重启;请等待 server 准备完成后确认现在重启。`)
+    return 8
   }
-  const requestedAt = now()
-  requestVersionSwitch(account.dataDir, `desktop asked to switch to ${parsed.version}`, requestedAt, parsed.now)
-  const readState = deps.readUpdateState ?? ((a: ServerAccount) => {
-    try {
-      return fs.readFileSync(path.join(a.dataDir, SERVER_UPDATE_STATE_FILE), 'utf8')
-    } catch {
-      return null
-    }
-  })
-  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
-  // 没装的要先下载(上百 MB),所以等得比只换版久。
+  const answer = await (deps.call ?? callUpdate)(account, VERSION_RESTART_RPC, { version: ready, confirmed: true })
+  const receipt = answer.result as { requested?: unknown; at?: unknown } | undefined
+  if (answer.error || receipt?.requested !== true || typeof receipt.at !== 'number' || !Number.isFinite(receipt.at)) {
+    err(answer.error?.message ?? 'Server did not acknowledge this restart request')
+    return 6
+  }
+  const now = deps.now ?? Date.now
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)))
   const waitMs = deps.waitMs ?? 10 * 60_000
   const deadline = now() + waitMs
-  let seen = running()
   while (now() < deadline) {
-    seen = deps.runningVersion(account)
-    if (seen === parsed.version) {
-      out(formatMatchLine({ switched: parsed.version }))
-      return 0
-    }
-    // 守护进程在这次请求之后记下「装这一版失败」:当场说,❌ 干等到超时。原因在它的日志里。
-    const state = (() => {
-      try {
-        return JSON.parse(readState(account) ?? '') as { state?: unknown; version?: unknown; at?: unknown; reason?: unknown }
-      } catch {
-        return null
+    const outcome = readUpdateRecord(deps.home)?.lastOutcome
+    if (outcome?.request === receipt.at && outcome.kind !== 'waiting') {
+      if (outcome.kind === 'switched' && outcome.target === ready) {
+        out(formatMatchLine({ switched: ready }))
+        return 0
       }
-    })()
-    // 装好了、守护进程在等这个账号空闲(有 agent 在跑):当场说,桌面问人「现在重启更新 / 稍后」,❌ 干等 10 分钟。
-    if (!parsed.now && state?.state === 'ready' && state.version === parsed.version && typeof state.at === 'number' && state.at >= requestedAt) {
-      err(`这个账号有 agent 在跑,空闲后会自己换到 ${parsed.version}`)
-      return 8
-    }
-    if (state?.state === 'failed' && state.version === parsed.version && typeof state.at === 'number' && state.at >= requestedAt) {
-      if (state.reason === 'unreachable') {
-        err(`这台机器连不上下载站,装不了 ${parsed.version}:要把包传过来`)
-        return 7
-      }
-      err(`这台机器装 ${parsed.version} 失败了(原因在咕咕 server 的日志里),这个账号还在跑 ${seen ?? '(没在跑)'}`)
+      err(outcome.kind === 'rolledBack' ? `${outcome.bad} 启动失败，已回滚到 ${outcome.back ?? 'previous version'}`
+        : `换版请求 ${ready} 未完成: ${outcome.kind}`)
       return 6
     }
     await sleep(500)
   }
-  const installed = exists(versionBinary(versionsDir, parsed.version))
-  err(`等了 ${Math.round(waitMs / 1000)} 秒,这个账号还在跑 ${seen ?? '(没在跑)'}${installed ? '' : `(${parsed.version} 还没装好,装好后会自己换过去)`}`)
+  err(`等了 ${Math.round(waitMs / 1000)} 秒，未收到这次安装级换版请求的结论。`)
   return 4
 }

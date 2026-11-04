@@ -31,7 +31,7 @@ export async function loadSessionpageCanonicalAgentIdentities(
   const client = makeIdentityClient(auth.accessToken)
   const rows = await fetchInChunks(ids, async (chunk) => {
     const { data, error } = await client
-      .from('users')
+      .from('active_users')
       .select('id,gugu_number,display_name,session_archived_at')
       .eq('type', 'agent')
       .eq('owner_user_id', auth.userId)
@@ -43,7 +43,7 @@ export async function loadSessionpageCanonicalAgentIdentities(
   // Only a targeted drop needs a refusal reason; a filtered row must not break the full roster.
   const missing = reportPrivate ? ids.filter((id) => !rows.some((row) => row?.id === id)) : []
   const privateAgents = await fetchInChunks(missing, async (chunk) => {
-    const { data, error } = await client.from('users').select('id')
+    const { data, error } = await client.from('active_users').select('id')
       .eq('type', 'agent').neq('owner_user_id', auth.userId).eq('agent_public', false).in('id', chunk)
     if (error) throw new Error(`session-page identity visibility lookup failed: ${error.message}`)
     return Array.isArray(data) ? data : []

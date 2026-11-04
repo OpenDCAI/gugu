@@ -10,7 +10,7 @@
  *  · 渲染层(会话页经 gugu 侧的桥)问「哪些设备能直连」,决定新建时给不给「编程」、打开时用不用终端;
  *  · 会话页引擎开端口转发时问「这台怎么连」(DirectTerminalResolver)。
  */
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from '@gugu/core/local/childProcess'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -287,7 +287,7 @@ function tunnelForward(
 export function closeMachineMaster(machine: SshMachine, controlPath: string | null = terminalControlPath()): Promise<void> {
   if (!controlPath) return Promise.resolve()
   return new Promise((resolve) => {
-    const child = spawn('ssh', buildMuxControlArgs(sshTargetOf(machine), controlPath, 'exit'), { stdio: 'ignore', windowsHide: true })
+    const child = spawn('ssh', buildMuxControlArgs(sshTargetOf(machine), controlPath, 'exit'), { stdio: 'ignore' })
     child.on('error', () => resolve())
     child.on('exit', () => resolve())
   })
@@ -311,12 +311,12 @@ export function closeSshMasters(dir: string | null = sshControlDir(), run: (args
 }
 
 function defaultRunSync(args: string[]): void {
-  spawnSync('ssh', args, { stdio: 'ignore', timeout: 2_000, windowsHide: true })
+  spawnSync('ssh', args, { stdio: 'ignore', timeout: 2_000 })
 }
 
 /** 启动时那一次:不挡主进程(退出时才用同步的那一份,进程马上要走了)。 */
 export function runSshInBackground(args: string[]): void {
-  const child = spawn('ssh', args, { stdio: 'ignore', windowsHide: true })
+  const child = spawn('ssh', args, { stdio: 'ignore' })
   child.on('error', () => undefined)
 }
 

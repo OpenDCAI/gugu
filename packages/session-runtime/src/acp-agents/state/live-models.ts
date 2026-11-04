@@ -1,5 +1,6 @@
 import {
   acpApiContract,
+  acpRuntimeApiContract,
   initialSessionConfigState,
   type AgentState,
   type SessionPlans,
@@ -18,13 +19,13 @@ import {
   type LiveState,
 } from '@gugu/session-wire';
 
-export type AcpSessionLiveHost = LiveModelHost<typeof acpApiContract.session>;
+export type AcpSessionLiveHost = LiveModelHost<typeof acpRuntimeApiContract.session>;
 export type AcpSessionsLiveHost = LiveModelHost<typeof acpApiContract.sessions>;
-export type SessionLiveModels = LiveInstance<typeof acpApiContract.session>;
+export type SessionLiveModels = LiveInstance<typeof acpRuntimeApiContract.session>;
 export type SessionsListModel = LiveInstance<typeof acpApiContract.sessions>;
 
 export function createAcpSessionLiveHost(): AcpSessionLiveHost {
-  return createLiveModelHost(acpApiContract.session);
+  return createLiveModelHost(acpRuntimeApiContract.session);
 }
 
 export function createAcpSessionsLiveHost(): AcpSessionsLiveHost {
@@ -47,6 +48,7 @@ export function createSessionLiveModels(
       activeTurn: null,
       draft: null,
       terminals: [],
+      terminalChunks: [],
     }
   );
 }

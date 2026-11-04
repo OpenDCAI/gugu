@@ -2,7 +2,7 @@ import { messageItemFromRow, type RawMessageRow } from '@gugu/core/cloud/message
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { chatDb } from './supabase'
 import { rendererLogger } from './log'
-import { loadMessageOverlays } from './chatMessageRevalidation'
+import { foldMessageOverlays, type MessageOverlayRows } from './chatMessageRevalidation'
 
 const writerLog = rendererLogger('chat/message-writer')
 
@@ -17,6 +17,7 @@ export interface IdempotentChatMessageInput {
   threadRootId: string | null
   isThreadRoot: boolean
   isWhisper: boolean
+  forwardedFromMessageId?: string
 }
 
 interface MessageWriteRpc {
@@ -30,7 +31,7 @@ export async function writeIdempotentChatMessage(
   input: IdempotentChatMessageInput,
   client: MessageWriteRpc = chatDb as unknown as MessageWriteRpc,
 ): Promise<MessageItem> {
-  const { data, error } = await client.rpc('send_message_idempotent', {
+  const { data, error } = await client.rpc('send_message_with_overlays', {
     p_message_id: input.id,
     p_chat_id: input.chatId,
     p_sender_user_id: input.senderUserId,
@@ -41,14 +42,21 @@ export async function writeIdempotentChatMessage(
     p_thread_root_id: input.threadRootId,
     p_is_thread_root: input.isThreadRoot,
     p_is_whisper: input.isWhisper,
+    ...(input.forwardedFromMessageId ? { p_forwarded_from_message_id: input.forwardedFromMessageId } : {}),
   } as never)
   if (error) throw new Error(error.message, { cause: error })
-  const rows = Array.isArray(data) ? data : [data]
-  const message = rows.length === 1 && rows[0] && typeof rows[0] === 'object'
-    ? messageItemFromRow(rows[0] as RawMessageRow, input.senderUserId)
+  const row = data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : null
+  const message = row?.message && typeof row.message === 'object'
+    ? messageItemFromRow(row.message as RawMessageRow, input.senderUserId)
     : null
-  if (!message) throw new Error('send_message_idempotent returned an unexpected row shape', { cause: { data } })
-  Object.assign(message, (await loadMessageOverlays([message.id], input.senderUserId)).get(message.id))
+  if (!message || !row) throw new Error('send_message_with_overlays returned an unexpected row shape', { cause: { data } })
+  if (!('reactions' in row) || !('deliveries' in row) || !('delivery_blocks' in row)) {
+    throw new Error('send_message_with_overlays result has no reactions / deliveries / delivery_blocks: the database is older than this client')
+  }
+  if (!Array.isArray(row.reactions) || !Array.isArray(row.deliveries) || !Array.isArray(row.delivery_blocks)) {
+    throw new Error('send_message_with_overlays returned invalid message overlays')
+  }
+  Object.assign(message, foldMessageOverlays([message.id], input.senderUserId, row as unknown as MessageOverlayRows).get(message.id))
   // gugu-dev#181 ⑨ a reply to an agent's question card is its answer (questionCardAnswer.ts). The reply is sent either way;
   // an answer that does not land leaves the card waiting, where the owner sees it.
   if (message.reply_to_message_id) {

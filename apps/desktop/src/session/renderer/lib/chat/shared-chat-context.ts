@@ -7,7 +7,7 @@ import { advertisedCommandProvider } from './advertised-command-provider';
 import { senderAvatarUrl, subscribeSenderAvatars } from './sender-avatar';
 import { SESSION_CHAT_FONT_STACK } from './font-stack';
 import { chatMentionProvider, registerIssueMentionIcons } from './chat-mention-provider';
-import { subscribeSessionLocale, translateSessionMessage } from '../../localization/locale-store';
+import { getSessionLocaleSnapshot, subscribeSessionLocale, translateSessionMessage } from '../../localization/locale-store';
 import { subscribeChatSummaries } from '@/lib/chatSummariesBridge';
 import { chatDisplayName } from './chat-name';
 
@@ -45,6 +45,7 @@ export function initSharedChatContext(): ChatContext {
  */
 export function createSessionChatContext(): ChatContext {
   return createChatContext({
+    locale: () => getSessionLocaleSnapshot().resolvedLocale,
     config: SESSION_CHAT_CONFIG,
     mentionProvider: chatMentionProvider,
     commandProvider: advertisedCommandProvider,

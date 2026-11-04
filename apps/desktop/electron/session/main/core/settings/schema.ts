@@ -25,9 +25,6 @@ export const localProjectSettingsSchema = z.object({
 export const notificationSettingsSchema = z.object({
   enabled: z.boolean(),
   sound: z.boolean(),
-  customSoundPath: z.string(),
-  osNotifications: z.boolean(),
-  soundFocusMode: z.enum(['always', 'unfocused']),
 });
 
 export const sessionSettingsSchema = z.object({

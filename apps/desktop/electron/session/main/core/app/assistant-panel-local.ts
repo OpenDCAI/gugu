@@ -1,4 +1,6 @@
 import { configuredIntegrationIndex } from '../integrations/integration-resource-index'
+import { tapMainEvents } from '@main/lib/events'
+import { automationChangedChannel, automationRunChangedChannel } from '@shared/core/automations/automationEvents'
 import { integrationAccountSignature,panelIntegrationChecks } from './assistant-panel-integration-checks'
 import { eq } from 'drizzle-orm'
 import { db } from '@main/db/client'
@@ -13,7 +15,7 @@ import { buildIntegrationListPayload } from '@main/core/integrations/integration
 import { integrationConnectionService } from '@main/core/integrations/integration-connection-service'
 import { platformCredentials } from '@main/core/integrations/platform-credentials-instance'
 import { listAgents } from '@gugu/core'
-import { agentMayBelongTo } from '@gugu/core/local/state/agentOwner'
+import { agentsForOwner } from '@gugu/core/local/state/agentOwner'
 import type { AssistantPanelChange } from '@gugu/core/cloud/assistantPanel'
 import { readUserLibraryVolume, readUserLibraryEntry, writeUserLibraryEntry, removeUserLibraryEntry, onUserLibraryChanged } from './user-library'
 
@@ -23,16 +25,25 @@ export const assistantPanelLocal = {
   integrationIndex: configuredIntegrationIndex,
   onLibraryChanged: onUserLibraryChanged,
   onIntegrationsChanged(listener: () => void) { return providerAccountRegistry.onChanged(listener) },
-  async home(sessionId: string) {
+  onSchedulesChanged(listener: () => void) {
+    return tapMainEvents(channel => {
+      if (channel === automationChangedChannel.name || channel === automationRunChangedChannel.name) listener()
+    })
+  },
+  async home(sessionId: string, identity?: { assistantId: string; deviceId: string; ownerId: string }) {
     const row = (await getSessions()).find(row => row.id === sessionId && !row.archivedAt)
     if (!row?.workspaceId) throw new Error('PANEL_SESSION_HOME_UNAVAILABLE')
     const [workspace] = await db.select({ path: workspaceTable.path }).from(workspaceTable).where(eq(workspaceTable.id,row.workspaceId)).limit(1)
     if (!workspace?.path) throw new Error('PANEL_SESSION_HOME_UNAVAILABLE')
+    if (identity) {
+      const { noteAssistantProjectCandidate } = await import('../projects/operations/assistant-project-cleanup')
+      noteAssistantProjectCandidate({ ...identity, sessionId, projectId: row.projectId, path: workspace.path })
+    }
     return { cwd: workspace.path,projectId: row.projectId }
   },
   async sessions(ownerId: string) {
     const agents = await listAgents(process.env,{ includeGuests: true })
-    const identities = new Map(agents.filter(agent => agentMayBelongTo(agent,ownerId)).map(agent =>
+    const identities = new Map(agentsForOwner(agents,ownerId).map(agent =>
       [agent.cache?.emdash_session_id,agent.gugu_user_id]))
     return listSessionStates().sessions.map(summary => ({ summary,agentId: identities.get(summary.conversationId) ?? null }))
   },

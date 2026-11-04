@@ -11,12 +11,13 @@
  * Lifetime: process-long (singleton). Dispose only when tearing down the app.
  *
  * Usage:
- *   const ctx = createChatContext({ theme, highlighter });
+ *   const ctx = createChatContext({ locale, theme, highlighter });
  *   const state = createChatState(ctx);
  *   const view  = createChatView({ context: ctx, state, parent });
  */
 
 import { createRoot, createSignal } from 'solid-js';
+import type { SupportedLocale } from '@gugu/session-shared/format';
 import type { SharedCaches } from './core/caches';
 import { createSharedCaches } from './core/caches';
 import type { ChatConfig } from './core/config';
@@ -35,6 +36,8 @@ import {
 import type { SelfIdentity } from './lib/self-identity';
 
 export type ChatContextOptions = {
+  /** Resolved host locale. Changes use the existing translator subscription. */
+  locale: () => SupportedLocale;
   /**
    * Full resolved theme. When omitted, `config` is used to derive one.
    * Color changes are free (CSS-variable themed). Typography/font changes must
@@ -100,6 +103,8 @@ export type ChatContextOptions = {
 };
 
 export type ChatContext = {
+  /** Reactive host locale, sharing the translation epoch. */
+  readonly locale: () => SupportedLocale;
   /** Resolved theme (typography drives measurement geometry). Reactive under `setLayout`. */
   readonly theme: ChatTheme;
   /** Chat configuration that produced the theme. */
@@ -144,7 +149,7 @@ export type ChatContext = {
  * `clearTextMeasure()` flushes pretext's glyph cache and `bumpEpoch()`
  * invalidates all block geometry caches.
  */
-export function createChatContext(opts: ChatContextOptions = {}): ChatContext {
+export function createChatContext(opts: ChatContextOptions): ChatContext {
   const config = opts.config ?? DEFAULT_CONFIG;
   const initialTheme = opts.theme ?? buildChatTheme(config, opts.layout ?? DEFAULT_LAYOUT);
   let themeSignal!: ReturnType<typeof createThemeSignal>;
@@ -153,6 +158,7 @@ export function createChatContext(opts: ChatContextOptions = {}): ChatContext {
   let measureEpoch!: () => number;
   let bumpEpoch!: () => void;
   let translate!: ChatTranslator;
+  let locale!: () => SupportedLocale;
   let selfIdentity!: () => SelfIdentity | null;
   let senderAvatar!: (fromId: string | null) => string | null;
   let appName!: (appId: string) => string | null;
@@ -172,6 +178,10 @@ export function createChatContext(opts: ChatContextOptions = {}): ChatContext {
     measureEpoch = epoch;
     bumpEpoch = () => setEpoch((e) => e + 1);
     bumpTranslation = () => setTranslationEpoch((value) => value + 1);
+    locale = () => {
+      translationEpoch();
+      return opts.locale();
+    };
     const translator = opts.translator ?? defaultChatTranslator;
     translate = (key, values) => {
       translationEpoch();
@@ -238,6 +248,7 @@ export function createChatContext(opts: ChatContextOptions = {}): ChatContext {
     mentionProvider: opts.mentionProvider,
     commandProvider: opts.commandProvider,
     translate,
+    locale,
     selfIdentity,
     senderAvatar,
     appName,

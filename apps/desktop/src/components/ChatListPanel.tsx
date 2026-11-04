@@ -1,7 +1,8 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useNativeAgentChats } from '@/hooks/useNativeAgentChats'
 import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BellOff, Checklist, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Plus, SquarePen, UserRound, Users, X, Zap } from '@/lib/icons'
+import { BellOff, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Plus, Search, SquarePen, UserRound, Users, X, Zap } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
 import { DropdownMenu, MenuItem } from './ui/Menu'
 import { PaneEmptyState } from './ui/PaneEmptyState'
@@ -13,7 +14,6 @@ import { clearDraggedScreenContent, setDraggedScreenContent } from '../session/r
 import { Chip } from './ui/Chip'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
-import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { useAssistantShell } from '../session/renderer/features/assistant/assistant-shell'
 import { isDuplicateAssistantChat } from '../lib/assistantChatList'
 import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
@@ -21,7 +21,7 @@ import { useAssistantWorkrooms } from './assistant/useAssistantWorkrooms'
 import { useChatStore } from '../store/chatContext'
 import { ChatRowContextMenu } from './chat/ChatRowContextMenu'
 import { chatPreviewText } from '../lib/agentTurnFailure'
-import { formatCalendarDay } from '../lib/calendarTime'
+import { formatCalendarDay } from '@/i18n/format'
 import { CreateGroupChatForm, MEMBER_PICKER_SHEET } from './CreateGroupChatModal'
 import { AddFriendSearch } from './AddFriendSearch'
 import { Avatar } from './Avatar'
@@ -38,6 +38,9 @@ import { groupTopicsBySource, isTopLevelChatRow, splitSunkTopics } from './chatL
 import { useLongPress } from '../hooks/useLongPress'
 import { useRowContextMenu } from '../hooks/useRowContextMenu'
 import { useAgentDisplayStatuses } from '../hooks/useAgentDisplayStatus'
+import { useShellTabIs } from '../lib/shellTab'
+import { resetSearchSession } from '../session/renderer/features/global-search/search-session'
+import { PhoneMessageSearch } from '@/mobile/chat/PhoneMessageSearch'
 import { useShownAgentStatus, type ShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { AgentHostStaleBadge } from './AgentHostStaleBadge'
 import { aggregateGroupAgentStatus } from '../lib/groupAgentStatus'
@@ -77,17 +80,12 @@ function rowAgentStatus(
 }
 
 interface ChatListPanelProps {
-  activeTab?: SidebarTab
   mobile?: boolean
   /** 手机上列表被打开的会话 / 创建页整页盖住(隐藏不卸载)。 */
   hidden?: boolean
   onChatSelected?: (focusTarget?: 'composer' | 'sidebar') => void
   onScan?: () => void
   // #2549/#3195 对话页创建 Agent — all shells hand off to the shared Session Composer assembly.
-  // @@@4287 必填,不是可选:「哪套装配」是宿主的事,「有没有这个入口」不是。写成可选时,一个
-  // `sessionHostAvailable ? open : undefined` 就能在类型层面无声地把安卓出货面的创建入口整个摘掉
-  // (#3809 实际发生过)。必填让那种写法当场是编译错误 —— 比任何测试都早、也更便宜。
-  onOpenAgentCreateDraft?: () => void
   onOpenSessionCreate?: () => void
   /**
    * gugu-dev#181 `sidebar` = 画进会话页侧栏「对话」那一格(ChatListSlotHost):只有行。搜索框是侧栏那一个(一个框搜两边),
@@ -271,6 +269,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
   const isRoom = isRoomChat(chat.kind)
   const peerName = isRoom ? '' : resolveOrLoud(peerIdentity?.display_name, `chat-list peer ${chat.peer_user_id ?? 'missing'} for chat ${chat.id}`)
   const displayName = chatDisplayName(chat, peerName)
+  const shownName = useShownAgentName({ name: displayName, createdAt: isAgentChat ? peerIdentity?.created_at ?? undefined : undefined })
   const preview = chatPreviewText(chat)
   const hasBolt = isRoom || isAgentChat
 
@@ -303,7 +302,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
           // Avatar — agent status lives in the corner badge (AvatarStatusBadge); the old
           // top-right dot was consolidated into it (#793 follow-up).
           <PhoneProjectChatAvatar chat={chat} mobile={mobile}><Avatar
-            name={displayName}
+            name={shownName}
             avatarUrl={isRoom ? chat.avatar : peerIdentity?.avatar}
             seed={chat.peer_user_id ?? undefined}
             size={mobile ? 48 : 'sm'}
@@ -317,7 +316,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
         title={
           <>
             {isAgentChat && chat.peer_user_id && <AgentHostStaleBadge agentUserId={chat.peer_user_id} size={13} />}
-            {displayName}
+            {shownName}
           </>
         }
         accessory={
@@ -429,7 +428,7 @@ function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, onNe
     ...(onSessionCreate
       ? [{
           testid: AUTOMATION_TEST_IDS.mobileSessionCreateAction,
-          icon: <Checklist size={15} />,
+          icon: <Zap size={15} />,
           label: t('chatList.createTask'),
           onClick: onSessionCreate,
         }]
@@ -503,12 +502,10 @@ function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, onNe
 // ── Panel ──────────────────────────────────────────────────────────────────────
 
 export function ChatListPanel({
-  activeTab,
   mobile = false,
   hidden = false,
   onChatSelected,
   onScan,
-  onOpenAgentCreateDraft,
   onOpenSessionCreate,
   placement = 'page',
   lead,
@@ -517,6 +514,8 @@ export function ChatListPanel({
   onNewProject,
 }: ChatListPanelProps) {
   const inSidebar = placement === 'sidebar'
+  // The IM page's list (web / phone) is on screen when the shell shows 消息; the task page's sidebar copy never is.
+  const chatsShown = useShellTabIs('chats')
   const sidebarView = useSidebarChatView()
   const { t } = useTranslation('messaging')
   const { t: tMain } = useTranslation('main')
@@ -551,6 +550,8 @@ export function ChatListPanel({
   }, [inSidebar])
   const [showPlusMenu, setShowPlusMenu] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  // 手机:会话名之外,打的字还能去搜说过的话 —— 列表最后一行打开全屏的搜索页(桌面是侧栏搜索框与 Mod+O 的最后一行)。
+  const [messageSearch, setMessageSearch] = useState(false)
   const [focusedChatId, setFocusedChatId] = useState<string | null>(activeChatId)
   const [collapsedTopicSources, setCollapsedTopicSources] = useState<ReadonlySet<string>>(() => new Set())
   const [expandedTopicSources, setExpandedTopicSources] = useState<ReadonlySet<string>>(() => new Set())
@@ -782,7 +783,7 @@ export function ChatListPanel({
   }
 
   useEffect(() => {
-    if (activeTab !== 'chats') return
+    if (!chatsShown) return
     const handleGlobalShortcut = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
       if (
@@ -832,7 +833,7 @@ export function ChatListPanel({
 
     window.addEventListener('keydown', handleGlobalShortcut)
     return () => window.removeEventListener('keydown', handleGlobalShortcut)
-  }, [activeChatId, activeTopicChatId, activeTab, chats, selectChat, visibleChatIds])
+  }, [activeChatId, activeTopicChatId, chatsShown, chats, selectChat, visibleChatIds])
 
   const handleChatKeyDown = (event: Parameters<KeyboardEventHandler<HTMLDivElement>>[0], chat: ChatItem) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -907,10 +908,17 @@ export function ChatListPanel({
       {/* Normal chats */}
       {!loadingChats && normalRows}
 
+      {mobile && hasSearchQuery && (
+        <ListRow mobile role="button" tabIndex={0} data-testid="chat-list-search-messages" leading={<Search size={20} color="var(--text-tertiary)" />}
+          title={t('chatList.searchMessages', { query: listQuery.trim() })}
+          onClick={() => { resetSearchSession({ text: listQuery.trim() }); setMessageSearch(true) }} />
+      )}
+
     </div>
   )
   const dialogs = (
     <>
+      {mobile && <PhoneMessageSearch open={messageSearch} onClose={() => setMessageSearch(false)} />}
       <Sheet open={showAddFriendModal} onClose={() => setShowAddFriendModal(false)} desktopWidth="360px" desktopMaxHeight="480px" ariaLabel={t('chatList.addContact')}>
         {showAddFriendModal ? <AddFriendContent onClose={() => setShowAddFriendModal(false)} /> : null}
       </Sheet>
@@ -928,7 +936,7 @@ export function ChatListPanel({
 
   return (
     <Pane paneRole="nav" mobile={mobile} data-phone-root-list={mobile ? 'chats' : undefined} style={NAV_PANE_STYLE}>
-      <HeaderSearch mobile={mobile} externalTrigger={mobile ? 'chats' : undefined} active={activeTab === 'chats' && !hidden} value={searchQuery} onChange={setSearchQuery} placeholder={t('chatList.search')} testId={AUTOMATION_TEST_IDS.chatListSearchInput}>{(searchButton) => (
+      <HeaderSearch mobile={mobile} externalTrigger={mobile ? 'chats' : undefined} active={chatsShown && !hidden} value={searchQuery} onChange={setSearchQuery} placeholder={t('chatList.search')} testId={AUTOMATION_TEST_IDS.chatListSearchInput}>{(searchButton) => (
       <PaneHeader
         title={tMain(mobile ? 'shell.messagesMobile' : 'shell.chats')}
         leading={headerLeading}
@@ -938,26 +946,6 @@ export function ChatListPanel({
         actions={
           <>
             {searchButton}
-            {/*
-              「新建 Agent」**只留在桌面**。owner 2026-09-06:手机端这个入口挪到「任务」页右上角 ——
-              agent 是跑在某台机器上的东西,入口该和机器在同一屏。
-              ⚠️ 桌面不跟着摘:桌面的「任务」tab 是会话页那张 IDE 面,它自带新建入口,
-              而桌面对话页摘掉就等于把一个既有入口无声删掉 —— 那不是 owner 说的事。
-              空态提示按形态分两句(见 chatList.emptyHint / emptyHintMobile),❌ 不许让提示
-              指着一颗此形态下不渲染的按钮(#4221 的墓碑就立在那儿)。
-            */}
-            {!mobile && onOpenAgentCreateDraft ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                data-testid={AUTOMATION_TEST_IDS.chatCreateAgentDraftAction}
-                onClick={onOpenAgentCreateDraft}
-                title={t('chatList.createAgent')}
-              >
-                <Zap size={13} />
-                <span data-button-label="">{t('chatList.createAgent')}</span>
-              </Button>
-            ) : null}
 
             <DropdownMenu.Root
               open={showPlusMenu}

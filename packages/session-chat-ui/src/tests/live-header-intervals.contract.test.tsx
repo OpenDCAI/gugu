@@ -92,7 +92,7 @@ function liveTurn(chunks: number): TranscriptTurn {
 
 describe('live-turn header clocks', () => {
   it('owns one process clock while streaming; thinking does not start a duplicate clock', async () => {
-    const ctx = createChatContext({ layout: { preset: 'double', userGutter: 72 } });
+    const ctx = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', userGutter: 72 } });
     const state = createChatState(ctx);
     const host = document.createElement('div');
     host.style.cssText = 'position:fixed;top:0;left:0;width:800px;height:600px;';

@@ -2,13 +2,14 @@ import { readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import semver from 'semver';
+import type { AgentStatusView } from '@gugu/core/shared/agentStatus';
 import type { HarnessPresenceFile, HarnessPresenceStatus, HooksDescriptor } from '@gugu/session-core/agents/plugins';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import { log } from '@main/lib/logger';
+import { sessionBootTasks } from '../boot-tasks';
 import { isProcessAlive } from '../../../../server/process-alive';
 import { agentHookService } from './agent-hook-service';
 import { harnessConfigRootOf } from './harness-config-roots';
-import { isAppFocused } from './app-focus';
 
 /**
  * spec hook-status-derivation「打断边:会话在场文件」—— hooks 不报打断(在批准框上或回合中按 Esc,一条 hook 都不来),
@@ -38,6 +39,37 @@ const nodeFs: PresenceWatchFs = {
 export const PRESENCE_POLL_MS = 500;
 /** 在跑或在等了这么久还没有它的在场文件 = 声明的协议不成立。 */
 export const PRESENCE_APPEAR_WITHIN_MS = 10_000;
+/** One deadline for the complete boot scan, independent of the number of surviving sessions. */
+export const PRESENCE_BOOT_TIMEOUT_MS = 2_000;
+
+async function findBySession(presence: HarnessPresenceFile, roots: readonly string[], sessionId: string, fs: PresenceWatchFs, isAlive: (pid: number) => boolean, signal?: AbortSignal): Promise<{ pid: number; directory: string } | null> {
+  for (const root of roots) {
+    if (signal?.aborted) return null;
+    const dir = join(root, presence.directory);
+    const names = await fs.readdir(dir).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    });
+    for (const name of names.filter((n) => n.endsWith('.json'))) {
+      if (signal?.aborted) return null;
+      const text = await fs.readFile(join(dir, name)).catch(() => null);
+      if (text === null) continue;
+      try {
+        const record = presence.parse(text);
+        if (record.sessionId === sessionId && isAlive(record.pid)) return { pid: record.pid, directory: dir };
+      } catch {
+        // 别人的、正写到一半的文件不是这条会话的证据;这条会话自己的文件读不出会在锁定之后报。
+      }
+    }
+  }
+  return null;
+}
+
+function presenceConfigRoots(presence: HarnessPresenceFile, sessionId: string, spawnEnv: Record<string, string | undefined>): string[] {
+  const fromEnv = spawnEnv[presence.configDirEnvVar]?.trim();
+  const fallback = join(spawnEnv.HOME?.trim() || homedir(), presence.defaultConfigDirName);
+  return [...new Set([harnessConfigRootOf(sessionId), fromEnv, fallback].filter((root): root is string => Boolean(root)))];
+}
 
 export function watchPresenceInterrupt(options: {
   presence: HarnessPresenceFile;
@@ -57,6 +89,7 @@ export function watchPresenceInterrupt(options: {
   isAlive?: (pid: number) => boolean;
   now?: () => number;
   intervalMs?: number;
+  initialStatus?: HarnessPresenceStatus | null;
 }): () => void {
   const { presence, harnessSessionId, isActive, onInterrupted } = options;
   const fs = options.fs ?? nodeFs;
@@ -64,7 +97,7 @@ export function watchPresenceInterrupt(options: {
   const now = options.now ?? Date.now;
   let directory: string | null = null;
   let pid: number | null = null;
-  let last: HarnessPresenceStatus | null = null;
+  let last: HarnessPresenceStatus | null = options.initialStatus ?? null;
   let activeSince: number | null = null;
   let fault: string | null = null;
   let reading = false;
@@ -76,26 +109,6 @@ export function watchPresenceInterrupt(options: {
   };
   const overdue = () => activeSince !== null && now() - activeSince > PRESENCE_APPEAR_WITHIN_MS;
 
-  const findBySession = async (sessionId: string): Promise<{ pid: number; directory: string } | null> => {
-    for (const root of options.configRoots()) {
-      const dir = join(root, presence.directory);
-      const names = await fs.readdir(dir).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === 'ENOENT') return [];
-        throw error;
-      });
-      for (const name of names.filter((n) => n.endsWith('.json'))) {
-        const text = await fs.readFile(join(dir, name)).catch(() => null);
-        if (text === null) continue;
-        try {
-          const record = presence.parse(text);
-          if (record.sessionId === sessionId && isAlive(record.pid)) return { pid: record.pid, directory: dir };
-        } catch {
-          // 别人的、正写到一半的文件不是这条会话的证据;这条会话自己的文件读不出会在锁定之后报。
-        }
-      }
-    }
-    return null;
-  };
 
   const tick = async () => {
     const active = isActive();
@@ -109,7 +122,7 @@ export function watchPresenceInterrupt(options: {
     }
     if (pid === null || directory === null) {
       const sessionId = harnessSessionId();
-      const found = sessionId === undefined ? null : await findBySession(sessionId);
+      const found = sessionId === undefined ? null : await findBySession(presence, options.configRoots(), sessionId, fs, isAlive);
       if (found === null) {
         pid = null;
         if (overdue()) {
@@ -177,6 +190,8 @@ export function startPresenceInterrupt(input: {
   sessionId: string;
   projectId: string;
   providerId: string;
+  start?: 'fresh' | 'reattach';
+  reading?: AgentStatusView | null;
 }): (() => void) | undefined {
   const hooks = input.plugin.capabilities.hooks;
   const declared = hooks.kind === 'config' && 'presence' in hooks ? hooks.presence : undefined;
@@ -203,24 +218,92 @@ export function startPresenceInterrupt(input: {
     fault(`writes session presence since ${declared.sinceVersion}; this spawn is ${input.harnessVersion}, so Esc will not update the status`);
     return undefined;
   }
-  const fromEnv = input.spawnEnv[presence.configDirEnvVar]?.trim();
-  const fallback = join(input.spawnEnv.HOME?.trim() || homedir(), presence.defaultConfigDirName);
   return watchPresenceInterrupt({
     presence,
     // 第一次读在会话开始在跑之后(`isActive`),那一刻的 hook(UserPromptSubmit)已经带来了 harness 报的配置目录;
     // 还没报时照旧找 env / 默认目录,找不到也先等满 `PRESENCE_APPEAR_WITHIN_MS` 才判。
-    configRoots: () => [...new Set([harnessConfigRootOf(sessionId), fromEnv, fallback].filter((root): root is string => Boolean(root)))],
+    configRoots: () => presenceConfigRoots(presence, sessionId, input.spawnEnv),
+    initialStatus: input.start !== 'reattach' ? null : input.reading?.status === 'needs_user' ? 'waiting'
+      : input.reading?.status === 'working' ? input.reading.detail === 'parked' ? 'shell' : 'busy' : null,
     harnessSessionId: input.harnessSessionId,
     isActive: () => agentStatusWriter.isWorkingOrWaiting(sessionId),
     onInterrupted: () => {
       agentHookService.emitAgentEvent(
         { type: 'stop', providerId, projectId, sessionId, timestamp: Date.now(), payload: { outcome: 'cancelled' } },
-        isAppFocused(),
       );
     },
     onFault: (message) => {
       if (message !== null) fault(message);
       else agentStatusWriter.reportStatusSourceFault({ sessionId, projectId, message: null });
     },
+  });
+}
+
+/** One boot-time correction for surviving terminal engines, before deferred delivery reads the writer. */
+export async function reconcileSurvivorsWithPresence(tmuxSessionNames: ReadonlySet<string>, options: {
+  fs?: PresenceWatchFs;
+  isAlive?: (pid: number) => boolean;
+  spawnEnv?: (providerId: string) => Promise<Record<string, string | undefined>>;
+} = {}): Promise<void> {
+  await sessionBootTasks.run('presence-reconcile', '', async () => {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error(`Survivor presence reconciliation timed out after ${PRESENCE_BOOT_TIMEOUT_MS}ms; keeping stored readings`);
+        controller.abort(error);
+        reject(error);
+      }, PRESENCE_BOOT_TIMEOUT_MS);
+    });
+    const scan = async () => {
+      const [{ db }, { sessions }, { sessionsAliveInTmux }, { getPlugin }] = await Promise.all([
+        import('@main/db/client'), import('@main/db/schema'),
+        import('@main/core/sessions/session-process'), import('@main/core/agents/plugin-registry'),
+      ]);
+      if (controller.signal.aborted) return;
+      const alive = sessionsAliveInTmux(tmuxSessionNames);
+      const rows = await db.select({ id: sessions.id, runtime: sessions.runtime,
+        provider: sessions.provider, providerSessionId: sessions.providerSessionId }).from(sessions);
+      const fs = options.fs ?? nodeFs, isAlive = options.isAlive ?? isProcessAlive;
+      const spawnEnv = options.spawnEnv ?? (async (providerId: string) =>
+        (await import('@main/core/agents/agent-run-context')).resolveLocalAgentSpawnEnv(providerId));
+      const readings: Array<{ sessionId: string; status: HarnessPresenceStatus; writeVersion: symbol }> = [];
+      for (const row of rows) {
+        if (controller.signal.aborted) return;
+        if (row.runtime !== 'pty' || !alive.has(row.id)) continue;
+        try {
+          if (!row.provider) throw new Error('session has no provider');
+          const plugin = getPlugin(row.provider), hooks = plugin.capabilities.hooks;
+          const presence = plugin.behavior.hooks?.presence;
+          if (hooks.kind !== 'config' || !('presence' in hooks) || !hooks.presence || !presence)
+            throw new Error('harness does not provide a declared presence reader');
+          const writeVersion = await agentStatusWriter.presenceWriteVersion(row.id);
+          if (controller.signal.aborted) return;
+          const sessionId = row.providerSessionId || row.id;
+          const roots = presenceConfigRoots(presence, row.id, await spawnEnv(row.provider));
+          if (controller.signal.aborted) return;
+          const found = await findBySession(presence, roots, sessionId, fs, isAlive, controller.signal);
+          if (controller.signal.aborted) return;
+          if (!found) throw new Error('no presence file for a live harness process');
+          const record = presence.parse(await fs.readFile(join(found.directory, `${found.pid}.json`)));
+          if (controller.signal.aborted) return;
+          if (record.pid !== found.pid || record.sessionId !== sessionId || !isAlive(record.pid))
+            throw new Error('presence no longer belongs to this live harness process');
+          readings.push({ sessionId: row.id, status: record.status, writeVersion });
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          log.warn('PresenceInterrupt: keeping the stored survivor status because boot presence cannot be read', {
+            sessionId: row.id, providerId: row.provider, reason: String(error),
+          });
+        }
+      }
+      // A timed-out read must not leave the first half of the scan published and the rest stale.
+      for (const reading of readings) {
+        if (controller.signal.aborted) return;
+        await agentStatusWriter.reconcilePresence({ ...reading, signal: controller.signal });
+      }
+    };
+    try { await Promise.race([scan(), deadline]); }
+    finally { clearTimeout(timer!); controller.abort(); }
   });
 }

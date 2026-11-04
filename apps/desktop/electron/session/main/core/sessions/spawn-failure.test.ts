@@ -7,7 +7,6 @@ vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error:
 vi.mock('@main/core/agent-hooks/agent-hook-service', () => ({
   agentHookService: { emitAgentEvent: vi.fn() },
 }));
-vi.mock('@main/core/agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/settings/settings-service', () => ({ appSettingsService: { get: async () => ({}) } }));
 vi.mock('@main/core/agents/agent-home', () => ({ resolveAgentHomeRoot: async () => '/unused' }));
 // 一家把 hook 写进工作区 `.claude/settings.local.json` 的 harness(与 claude 同形)。

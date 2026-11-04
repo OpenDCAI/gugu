@@ -5,7 +5,7 @@
  * AES-256-GCM,见 session/headless/electron-shim.ts)。续期复用 core 的 createRefreshingRuntimeAuthProvider ——
  * 附加账号 host 已经在用的同一份,GoTrue 一次性轮换、唯一刷新者这些规矩都在里面。
  *
- * 这个进程只在账号有登录态时才被守护进程拉起(server-supervisor.ts);登录失效时 getAuth() 返回 null,
+ * 账号主体只在唯一账号已有登录态时进入;登录失效时 getAuth() 返回 null,
  * 进程随即退出,等人重新 `gugu-server login`。
  */
 import fs from 'node:fs'

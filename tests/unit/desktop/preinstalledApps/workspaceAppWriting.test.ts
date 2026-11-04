@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // Folder documents, Notion/Craft polish (owner 10-30): judged on the real app.js and the real CodeMirror (bound by a
 // stand-in that puts the file's text in). A task ticked where it is read ticks its line in the source; the source's
-// selection is wrapped in (and out of) a mark; the reading block's ⋯ cites it, copies a link to its lines and finds it in
-// the source; an empty document says what can be done; front matter is one block in the source, not a setext heading.
+// selection is wrapped in (and out of) a mark; the reading block's + inserts after its source span;
+// an empty document says what can be done; front matter is one block in the source, not a setext heading.
 // The preview is a stand-in that marks lines as gugu.markdown's `sourceLines` does (judged in markdown-entry.test.ts).
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -14,10 +14,11 @@ import * as cmView from '@codemirror/view'
 import { EditorView } from '@codemirror/view'
 import * as lezerHighlight from '@lezer/highlight'
 import { basicSetup } from 'codemirror'
+import * as autocomplete from '@codemirror/autocomplete'
 import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
-// @ts-expect-error — 内置 App 是不经构建的纯 ES module,没有类型;运行时 import 可用。
-import { fingerprint } from '../../../../apps/desktop/preinstalled-apps/workspace/lines.js'
 import { until } from '../../../support/awaitCondition'
+// @ts-expect-error — the built-in App's source-edit commands are plain ES modules.
+import { isFrontmatter, listInsertion, moveBlock, previewBlock, sourceBlocks, turnBlockChanges } from '../../../../apps/desktop/preinstalled-apps/workspace/blocks.js'
 
 const TEXT = ['# 计划', '', '- [ ] 写完', '- [x] 定了', '', '正文 一句'].join('\n')
 const entry = {
@@ -32,6 +33,8 @@ const file = {
   status: 'online',
   saved: true,
   text: TEXT,
+  anchor: (at: number) => at,
+  resolve: (anchor: number) => anchor,
   onChange: vi.fn((handler: (event: { local: boolean }) => void) => {
     changed = handler
     return () => {}
@@ -64,7 +67,7 @@ const gugu = {
   onLink: vi.fn(() => () => {}),
   dispatch: vi.fn(async (_text: string, _options: unknown) => ({ to: { chat: 'chat-1' } })),
   clipboard: { writeText: vi.fn(async (_text: string) => {}) },
-  codemirror: vi.fn(async () => ({ EditorView, EditorState: cmState.EditorState, basicSetup, markdown, markdownLanguage, view: cmView, state: cmState, language, lezerHighlight })),
+  codemirror: vi.fn(async () => ({ EditorView, EditorState: cmState.EditorState, basicSetup, markdown, markdownLanguage, view: cmView, state: cmState, language, autocomplete, lezerHighlight })),
   markdown: vi.fn(async () => md),
   bind: {
     codemirror: vi.fn((view: EditorView, f: typeof file) => {
@@ -80,6 +83,10 @@ const view = () => EditorView.findFromDOM(document.querySelector('.cm-editor') a
 const line = (n: number) => view().state.doc.line(n)
 const select = (from: number, to: number) => view().dispatch({ selection: EditorSelection.single(from, to) })
 const menuItems = () => [...$('menu').querySelectorAll('button')]
+function hoverBlock(block: Element) {
+  vi.spyOn(block, 'getBoundingClientRect').mockReturnValue(new DOMRect(56, 100, 600, 30))
+  block.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 80, clientY: 110 }))
+}
 /** The text changed in the source: the file says so and the preview draws it again. */
 async function redraw() {
   file.text = view().state.doc.toString()
@@ -119,31 +126,205 @@ describe('folder documents: reading', () => {
     await redraw()
   })
 
-  test('the block under the pointer gets a ⋯: cite it, keep it, copy a link to its lines, find it in the source', async () => {
-    const block = $('preview').querySelector('p[data-line="6-6"]')!
-    block.dispatchEvent(new MouseEvent('pointermove', { bubbles: true }))
-    expect($('block-handle').hidden).toBe(false)
-    $('block-handle').click()
-    expect(menuItems().map((item) => item.textContent)).toEqual(['Cite in the chat', 'Keep to cite', 'Copy a link to it', 'Find in the source'])
-    menuItems()[0]!.click()
-    await until('Cite has composed', () => gugu.dispatch.mock.calls.length > 0)
-    expect(gugu.dispatch).toHaveBeenCalledWith('', { draft: true, refs: [{ file: entry, at: { lines: '6', h: fingerprint('正文 一句') }, label: 'Line 6 · 正文 一句' }] })
-
-    $('block-handle').click()
-    menuItems()[2]!.click()
-    await until('the link is copied', () => gugu.clipboard.writeText.mock.calls.length > 0)
-    expect(gugu.linkTo).toHaveBeenCalledWith({ kind: 'file', file: entry, at: { lines: '6', h: fingerprint('正文 一句') } })
-    expect(gugu.clipboard.writeText).toHaveBeenCalledWith('gugu-file://plan#6')
-
-    $('block-handle').click()
-    menuItems()[3]!.click()
-    expect(document.body.dataset.mode, 'beside the reading when there is room').toBe('split')
-    expect([...document.querySelectorAll('.cm-line')].flatMap((l, i) => (l.classList.contains('cm-found') ? [i + 1] : []))).toEqual([6])
+  test.each([
+    ['Heading', '## ', 3], ['List', '* ', 2], ['To-do', '- [ ] ', 6],
+    ['Quote', '> ', 2], ['Code block', '```\n\n```', 4], ['Divider', '***', 3],
+  ])('%s inserts after the entire multi-line block, with its caret in the template', async (label, text, caret) => {
+    const block = $('preview').querySelector('ul[data-line="3-4"]')!
+    hoverBlock(block)
+    expect($('block-controls').hidden).toBe(false)
+    $('block-insert').click()
+    expect(menuItems().map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider'])
+    menuItems().find((item) => item.textContent === label)!.click()
+    const at = TEXT.indexOf('- [x] 定了') + '- [x] 定了'.length
+    const prefix = label === 'To-do' ? '\n' : '\n\n'
+    expect(view().state.doc.toString()).toBe(`${TEXT.slice(0, at)}${prefix}${text}${TEXT.slice(at)}`)
+    expect(view().state.selection.main.head).toBe(at + prefix.length + Number(caret))
+    expect(document.body.dataset.mode).toBe('split')
+    expect($('block-controls').hidden).toBe(true)
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
     $('mode-preview').click()
+  })
+
+  test('read-only documents do not offer insertion', () => {
+    file.readOnly = true
+    try {
+      hoverBlock($('preview').querySelector('p[data-line="6-6"]')!)
+      expect($('block-controls').hidden).toBe(false)
+      expect($('block-insert').hidden).toBe(true)
+      $('block-handle').click()
+      expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite in chat'])
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      view().focus()
+    } finally {
+      file.readOnly = false
+    }
+  })
+
+  test('leaving gets a short grace, returning to the preview or handle cancels it, and scrolling still hides immediately', () => {
+    const block = $('preview').querySelector('p[data-line="6-6"]')!
+    vi.useFakeTimers()
+    try {
+      hoverBlock(block)
+      $('preview').dispatchEvent(new MouseEvent('pointerleave'))
+      vi.advanceTimersByTime(149)
+      expect($('block-controls').hidden).toBe(false)
+      $('block-controls').dispatchEvent(new MouseEvent('pointerenter'))
+      vi.advanceTimersByTime(200)
+      expect($('block-controls').hidden).toBe(false)
+
+      $('block-controls').dispatchEvent(new MouseEvent('pointerleave'))
+      $('preview').dispatchEvent(new MouseEvent('pointerenter'))
+      vi.advanceTimersByTime(200)
+      expect($('block-controls').hidden).toBe(false)
+      $('preview').dispatchEvent(new MouseEvent('pointerleave'))
+      vi.advanceTimersByTime(150)
+      expect($('block-controls').hidden).toBe(true)
+
+      hoverBlock(block)
+      $('preview').dispatchEvent(new Event('scroll'))
+      expect($('block-controls').hidden).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('Escape keeps a focused handle through the hide grace; focus leaving hides it', () => {
+    vi.useFakeTimers()
+    try {
+      hoverBlock($('preview').querySelector('p[data-line="6-6"]')!)
+      $('block-handle').click()
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      expect(document.activeElement).toBe($('block-handle'))
+      $('block-controls').dispatchEvent(new MouseEvent('pointerleave'))
+      vi.advanceTimersByTime(150)
+      expect($('block-controls').hidden).toBe(false)
+      $('mode-edit').focus()
+      expect(document.activeElement).toBe($('mode-edit'))
+      vi.advanceTimersByTime(150)
+      expect($('block-controls').hidden).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
 describe('folder documents: writing', () => {
+  test.each([
+    ['## **Title** and `code`', '**Title** and `code`'],
+    ['Title\n=====', 'Title'],
+    ['- [ ] first\n- [x] second', 'first\nsecond'],
+    ['> - [ ] nested', 'nested'],
+    ['````js\nconst fence = "```"\n````', 'const fence = "```"'],
+    ['literal - item and # marks with `tick`', 'literal - item and # marks with `tick`'],
+  ])('conversion preserves content characters and only changes parsed block markers: %s', async (source, content) => {
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const block = sourceBlocks(view().state, { language })[0]
+    view().dispatch({ changes: turnBlockChanges(view().state, { language }, block, 'quote') })
+    expect(view().state.doc.toString()).toBe(content.split('\n').map((line) => line.trim() ? `> ${line}` : line).join('\n'))
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test('source neighbors include tables and invisible link definitions, with front matter kept as a boundary', async () => {
+    const source = '---\ntitle: Test\n---\n\nBefore.\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n[ref]: https://example.com\n\nAfter.'
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const blocks = sourceBlocks(view().state, { language })
+    expect(blocks.map((block: { name: string }) => block.name)).toEqual(['Frontmatter', 'Paragraph', 'Table', 'LinkReference', 'Paragraph'])
+    expect(isFrontmatter(blocks[0])).toBe(true)
+    const move = moveBlock(view().state.doc, blocks[1], blocks[2], true)
+    view().dispatch({ changes: move.changes })
+    expect(view().state.doc.toString()).toBe(source.replace('Before.\n\n| a | b |\n| - | - |\n| 1 | 2 |', '| a | b |\n| - | - |\n| 1 | 2 |\n\nBefore.'))
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test.each(['list', 'quote'])('converting to %s keeps blank lines blank', async (kind) => {
+    const source = '> one\n>\n> two'
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const block = sourceBlocks(view().state, { language })[0]
+    view().dispatch({ changes: turnBlockChanges(view().state, { language }, block, kind) })
+    const prefix = kind === 'list' ? '- ' : '> '
+    expect(view().state.doc.toString()).toBe(`${prefix}one\n\n${prefix}two`)
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test('a multi-line paragraph becomes one heading without replacing its content characters', async () => {
+    const source = 'First line\nsecond line\nthird line'
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const block = sourceBlocks(view().state, { language })[0]
+    const changes = turnBlockChanges(view().state, { language }, block, 'heading')
+    expect(changes.filter((change: { to: number; from: number }) => change.to > change.from).map((change: { from: number; to: number }) => view().state.doc.sliceString(change.from, change.to))).toEqual(['\n', '\n'])
+    view().dispatch({ changes })
+    expect(view().state.doc.toString()).toBe('## First line second line third line')
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test('preview lookup rejects invalid spans and parser disagreement, with local neighbor lookahead', async () => {
+    const source = 'First.\n\n$$\na+b\n\nc+d\n$$\n\n' + 'Later.\n\n'.repeat(200)
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const ensure = vi.fn(language.ensureSyntaxTree)
+    const cm = { language: { ensureSyntaxTree: ensure } }
+    expect(previewBlock(view().state, cm, [1, 1])?.name).toBe('Paragraph')
+    expect(ensure.mock.calls[0]).toEqual([view().state, 'First.\n'.length, 100])
+    expect(previewBlock(view().state, cm, [3, 7])).toBeNull()
+    ensure.mockClear()
+    expect(previewBlock(view().state, cm, [0, 1])).toBeNull()
+    expect(previewBlock(view().state, cm, [9999, 9999])).toBeNull()
+    expect(ensure).not.toHaveBeenCalled()
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test('a partial syntax tree retains the complete next block for Move down', async () => {
+    const source = 'Before.\n\n- One\n- Two\n- Three\n\nAfter.\n\n' + 'Later.\n\n'.repeat(200)
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const ensure = vi.fn((state: cmState.EditorState, upto: number) => {
+      const parse = markdownLanguage.parser.startParse(state.doc.toString())
+      parse.stopAt(upto)
+      let tree
+      while (!(tree = parse.advance())) { /* Complete this partial parse, not the whole document. */ }
+      return tree
+    })
+    const blocks = sourceBlocks(view().state, { language: { ensureSyntaxTree: ensure } }, 'Before.'.length)
+    expect(blocks.map((block: { name: string }) => block.name)).toEqual(['Paragraph', 'BulletList'])
+    expect(view().state.doc.sliceString(blocks[1].from, blocks[1].to)).toBe('- One\n- Two\n- Three')
+    const move = moveBlock(view().state.doc, blocks[0], blocks[1], true)
+    view().dispatch({ changes: move.changes })
+    expect(view().state.doc.toString()).toBe(source.replace('Before.\n\n- One\n- Two\n- Three', '- One\n- Two\n- Three\n\nBefore.'))
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test.each([
+    ['- One\n- Two', 'list', '- ', '\n'],
+    ['- - nested', 'list', '- ', '\n'],
+    ['* [ ] One\n* [x] Two', 'todo', '* [ ] ', '\n'],
+    ['- One\n- Two', 'todo', '* [ ] ', '\n\n'],
+    ['- [ ] One\n- [x] Two', 'list', '* ', '\n\n'],
+  ])('list insertion follows the last item’s type and marker: %s → %s', async (source, kind, expected, prefix) => {
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const block = sourceBlocks(view().state, { language })[0]
+    const template = kind === 'todo' ? '- [ ] ' : '- '
+    expect(listInsertion(view().state, { language }, block, kind, template)).toMatchObject({ text: expected, prefix })
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test.each(['```\n```', '```\n\n```'])('empty code keeps a target template on conversion: %s', async (source) => {
+    for (const [kind, expected] of [['heading', '## '], ['list', '- '], ['quote', '> ']]) {
+      view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+      const block = sourceBlocks(view().state, { language })[0]
+      view().dispatch({ changes: turnBlockChanges(view().state, { language }, block, kind) })
+      expect(view().state.doc.toString()).toBe(expected)
+    }
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
   test('the source\'s selection is wrapped in a mark and out of it again; a link leaves the caret in its ()', () => {
     $('mode-edit').click()
     const from = line(6).from

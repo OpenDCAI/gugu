@@ -32,7 +32,7 @@ const EXTENSION_TOOL_NAMES = ['app_manage', 'app_create', 'app_pack', 'app_insta
 // #7221 给自己排的已安排:与 session_* 同一个分派器、同一份 grant。
 const SCHEDULE_TOOL_NAMES = ['schedule_create', 'schedule_list', 'schedule_cancel'] as const
 // #6614 每条 grant 都有的两个域:guide_* 与渐进披露的 catalog_*。
-const ALWAYS_TOOL_NAMES = ['guide_topics', 'guide_read', 'catalog_list', 'catalog_describe', 'catalog_call', 'app_search'] as const
+const ALWAYS_TOOL_NAMES = ['guide_topics', 'guide_read', 'catalog_list', 'catalog_describe', 'catalog_call', 'app_search', 'widget_send'] as const
 
 const clients: Client[] = []
 const hosts: DesktopGuguMcpHost[] = []
@@ -88,6 +88,15 @@ const socialContext = (
 })
 
 describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
+  it('rejects legacy nest and malformed parent IDs on the new spawn tool before dispatch', async () => {
+    const seen: unknown[] = []
+    const client = await connectTo(socialContext(async action => { seen.push(action); return {} }))
+    for (const args of [{ nest: true }, { nest: false }, { parent_session_id: 'bare-parent' }, { parent_session_id: 'project:other' }]) {
+      expect((await client.callTool({ name: 'session_spawn', arguments: { prompt: 'p', ...args } })).isError).toBe(true)
+    }
+    expect(seen).toEqual([])
+  })
+
   it.each([false, true])('returns an Agent-ID receipt after exactly one delivery (remote: %s)', async (remote) => {
     const delivered: string[] = []
     const deliver = async (ids: string[]) => {
@@ -281,13 +290,19 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
       },
       // project:typed project: id 解成裸 id;别的都是那台机器上的目录,原样交过去(~ 由那台机器展开)。
       { tool: 'session_spawn', args: { prompt: 'p', project: 'project:proj-b' }, dispatched: { action: 'spawn', prompt: 'p', project_id: 'proj-b' } },
+      { tool: 'session_spawn', args: { prompt: 'p', project: 'project:proj-b', parent_session_id: null }, dispatched: { action: 'spawn', prompt: 'p', project_id: 'proj-b', parent_session_id: null } },
+      { tool: 'session_spawn', args: { prompt: 'p', project: 'project:proj-b', parent_session_id: 'session:parent' }, dispatched: { action: 'spawn', prompt: 'p', project_id: 'proj-b', parent_session_id: 'parent' } },
       {
         tool: 'session_spawn',
         args: { prompt: 'p', project: '~/Documents/gugu', device: 'device:dev-b' },
         dispatched: { action: 'spawn', prompt: 'p', project_path: '~/Documents/gugu', device: 'dev-b' },
       },
+      { tool: 'session_spawn', args: { prompt: 'p', project: 'project:proj-b', device: 'device:dev-b', parent_session_id: null }, dispatched: { action: 'spawn', prompt: 'p', project_id: 'proj-b', device: 'dev-b', parent_session_id: null } },
+      { tool: 'session_spawn', args: { prompt: 'p', device: 'device:dev-b', parent_session_id: 'session:parent' }, dispatched: { action: 'spawn', prompt: 'p', device: 'dev-b', parent_session_id: 'parent' } },
       { tool: 'session_list_models', args: {}, dispatched: { action: 'list_models' } },
       { tool: 'session_spawn', args: { prompt: 'inspect' }, dispatched: { action: 'spawn', prompt: 'inspect' } },
+      { tool: 'session_spawn', args: { prompt: 'inspect', thinking: 'native-level' }, dispatched: { action: 'spawn', prompt: 'inspect', thinking: 'native-level' } },
+      { tool: 'session_spawn', args: { prompt: 'inspect', device: 'device:dev-b', thinking: 'native-level' }, dispatched: { action: 'spawn', prompt: 'inspect', device: 'dev-b', thinking: 'native-level' } },
       { tool: 'session_ask_user', args: { questions: [{ question: 'Which?', options: [{ label: 'One' }, { label: 'Two' }] }] }, dispatched: { action: 'ask_user', questions: [{ question: 'Which?', options: [{ label: 'One' }, { label: 'Two' }] }] } },
       { tool: 'session_children', args: {}, dispatched: { action: 'children' } },
       {
@@ -704,9 +719,9 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
 })
 
 // #7221 schedule_*:给自己排的已安排。工具面只做两件事 —— 扁平参数原样交给会话分派器(动作名 = 工具名),
-// 结果原样回来(schedule_id 由宿主自己编成 schedule:,注册机不碰);没有任何「目标会话」参数。
+// 结果原样回来(schedule_id 由宿主自己编成 schedule:,注册机不碰)。建只给自己;看与取消可带 session_id。
 describe('schedule_* (#7221)', () => {
-  it('三把工具交给会话分派器,参数原样、没有目标会话;schedule_create 原生列出,另两把在目录', async () => {
+  it('三把工具交给会话分派器,参数原样、建没有目标会话;schedule_create 原生列出,另两把在目录', async () => {
     const seen: unknown[] = []
     const client = await connectTo({
       kind: 'session-only',
@@ -749,10 +764,16 @@ describe('schedule_* (#7221)', () => {
     expect(cancelled.isError).toBe(true)
     expect(responseText(cancelled)).toContain('no schedule schedule:zzz of yours')
 
+    // 看与取消可以指名主人的另一条会话:session:<id> 在宿主边界解成裸 id,交给分派器路由。
+    await client.callTool({ name: 'catalog_call', arguments: { tool: 'schedule_cancel', args: { schedule_id: 'schedule:zzz', session_id: 'session:other' } } })
+    await client.callTool({ name: 'catalog_call', arguments: { tool: 'schedule_list', args: { session_id: 'session:other' } } })
+
     expect(seen).toEqual([
       { action: 'schedule_create', prompt: 'remind them to drink water', at: '2026-10-16T08:00', tz: 'Asia/Shanghai' },
       { action: 'schedule_list' },
       { action: 'schedule_cancel', schedule_id: 'schedule:zzz' },
+      { action: 'schedule_cancel', schedule_id: 'schedule:zzz', session_id: 'other' },
+      { action: 'schedule_list', session_id: 'other' },
     ])
   })
 })

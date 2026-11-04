@@ -29,7 +29,7 @@ function reply(status: number, body: unknown) {
 }
 
 let clock = Date.parse('2026-10-16T19:00:00Z')
-const applyTitle = vi.fn((..._args: unknown[]) => true)
+const applyTitle = vi.fn(async (..._args: unknown[]) => true)
 const awaitAgentIdentity = vi.fn(async (_agentUserId: string) => undefined)
 let state = { fallback: true, firstUtterance: LONG as string | undefined }
 let model: string | null = 'glm-5.3-flash'
@@ -51,7 +51,7 @@ beforeEach(() => {
   state = { fallback: true, firstUtterance: LONG }
   model = 'glm-5.3-flash'
   instructions = ''
-  applyTitle.mockReset().mockReturnValue(true)
+  applyTitle.mockReset().mockResolvedValue(true)
   awaitAgentIdentity.mockReset().mockResolvedValue(undefined)
   issuePlatformModelAccess.mockReset().mockResolvedValue(ticket())
   revokePlatformModelAccess.mockClear()
@@ -143,7 +143,7 @@ describe('起名', () => {
   })
 
   it('模型回来时人已经改了名 / harness 已经起了名:不收,票照样结掉', async () => {
-    applyTitle.mockReturnValue(false)
+    applyTitle.mockResolvedValue(false)
     const n = namer()
     n.sessionCreated({ id: 's1' })
     await expect(n.agentProvisioned('s1', 'agent-1')).resolves.toBe('superseded')

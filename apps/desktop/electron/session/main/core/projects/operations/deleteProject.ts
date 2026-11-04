@@ -2,29 +2,39 @@ import { eq } from 'drizzle-orm';
 import { projectEvents } from '@main/core/projects/project-events';
 import { projectManager } from '@main/core/projects/project-manager';
 import { prSyncEngine } from '@main/core/pull-requests/pr-sync-engine';
-import { forgetSessionOutputs } from '@main/core/sessions/session-outputs';
-import { sessionWorkspaceManager } from '@main/core/sessions/session-workspace-manager';
 import { viewStateService } from '@main/core/view-state/view-state-service';
 import { db } from '@main/db/client';
-import { sessions, projects } from '@main/db/schema';
+import { automations, sessions, projects } from '@main/db/schema';
 
 export async function deleteProject(id: string): Promise<void> {
+  const archive = async (sessionId: string) =>
+    (await import('@main/core/sessions/archiveSession')).archiveSession(id, sessionId);
   const provider = projectManager.getProject(id);
   const sessionRows = await db
     .select({ id: sessions.id })
     .from(sessions)
     .where(eq(sessions.projectId, id));
-  // 会话随项目一起删(外键级联),它们的视图状态与「输出」就在这里一起收:启动时 ❌ 再按「不在本机表里」猜孤儿去删。
-  await Promise.allSettled([
-    ...(provider ? sessionRows.map((c) => sessionWorkspaceManager.teardownSession(c.id)) : []),
-    ...sessionRows.map((c) => viewStateService.del(`session:${c.id}`)),
-    ...sessionRows.map((c) => viewStateService.del(`session:${c.id}:tabs`)),
-    ...sessionRows.map((c) => forgetSessionOutputs(c.id)),
-  ]);
+  for (const row of sessionRows) await archive(row.id);
   if (provider) await projectManager.closeProject(id);
 
   await prSyncEngine.deleteProjectData(id);
-  const deleted = await db.delete(projects).where(eq(projects.id, id)).returning({ id: projects.id });
+  // Cleanup awaits can admit another task. Read the durable inventory at the delete
+  // write point; the empty check and project deletion must share one transaction.
+  const current = db.transaction(tx => {
+    const rows = tx.select({ id: sessions.id }).from(sessions).where(eq(sessions.projectId, id)).all();
+    const deleted = rows.length ? [] : tx.delete(projects).where(eq(projects.id, id)).returning({ id: projects.id }).all();
+    return { rows, deleted };
+  });
+  if (current.rows.length) {
+    for (const row of current.rows) await archive(row.id);
+    // Keep the original root and every attached folder, including folders with no
+    // tasks. Restore must expose those same memberships rather than reconstructing them.
+    await db.update(projects).set({ archivedAt: new Date().toISOString() }).where(eq(projects.id, id));
+    await db.update(automations).set({ projectId: null }).where(eq(automations.projectId, id));
+    void viewStateService.del(`project:${id}`);
+    projectEvents._emit('project:deleted', id);
+    return;
+  }
   void viewStateService.del(`project:${id}`);
-  if (deleted.length > 0) projectEvents._emit('project:deleted', id);
+  if (current.deleted.length > 0) projectEvents._emit('project:deleted', id);
 }

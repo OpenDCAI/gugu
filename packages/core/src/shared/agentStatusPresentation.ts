@@ -5,7 +5,7 @@
  * 会话页、聊天、手机都调同一个 `presentAgentStatus`,界面之间只在密度上不同(整句、点、字形),
  * ❌ 在界面里另写一份「这个状态叫什么、什么颜色、动不动」。
  */
-import type { AgentStatusView, AgentWaitKind } from './agentStatus'
+import type { AgentAttention, AgentStatusView, AgentWaitKind } from './agentStatus'
 
 /** 可达:只有聊天侧有这一轴(会话页与手机会话行上的会话就在那台机器上)。 */
 export type AgentReachability = 'online' | 'offline' | 'archived' | 'removed' | 'pending'
@@ -22,6 +22,7 @@ export const AGENT_STATUS_TONES = [
   'archived',
   'removed',
   'pending',
+  'starting',
   'none',
 ] as const
 export type AgentStatusTone = (typeof AGENT_STATUS_TONES)[number]
@@ -45,6 +46,7 @@ export const AGENT_STATUS_LABELS = [
   'archived',
   'removed',
   'pending',
+  'starting',
   'none',
 ] as const
 export type AgentStatusLabel = (typeof AGENT_STATUS_LABELS)[number]
@@ -56,6 +58,25 @@ export interface AgentStatusPresentation {
   animate: boolean
   /** 未读加粗:这一轮做完了、看的人还没看。做完不另上色。 */
   emphasis: boolean
+}
+
+/** 被动「需要你」列表与项目计数:等待人操作或任务失败。系统通知另按等待状态判定(#1165)。 */
+export function isNeedsYou(presentation: AgentStatusPresentation | null | undefined, hostOnline = true): boolean {
+  // Offline waits and errors remain visible on the row, but do not request attention in totals or filters.
+  return hostOnline && presentationAttention(presentation) !== null
+}
+
+/** 要人来处理:需要你或出错(与 `mostUrgentAttention` 同一个词)。行尾、头像角标这类提醒标记读它。 */
+export function presentationAttention(presentation: AgentStatusPresentation | null | undefined): AgentAttention {
+  return presentation?.tone === 'needs_user' || presentation?.tone === 'error' ? presentation.tone : null
+}
+
+type AgentStatusInput = {
+  reading: AgentStatusView | null
+  reachability?: AgentReachability
+  unseen?: boolean
+  /** A session-life session's lifecycle word, as `displayStatus` composed it; it answers before the reading. */
+  lifecycle?: 'starting' | 'archived' | null
 }
 
 const WAIT_LABEL: Readonly<Record<AgentWaitKind, AgentStatusLabel>> = {
@@ -78,14 +99,15 @@ const still = (tone: AgentStatusTone, label: AgentStatusLabel = tone as AgentSta
  * - 没有读数:可达时是「在线」,否则(会话页上没有状态源的终端会话)是 `none`,❌ 画成空闲。
  * - 读数:在跑(动)/ 后台在跑(静止)/ 需要你(按在等什么写)/ 出错 / 做完(未读才算,加粗不上色)/ 空闲
  *   (聊天侧可达时写「在线」)。
+ * - 没有身份的任务只有宿主的读数:宿主连不上时,「在干活」已经说不准,不画(`null`)。
  */
-export function presentAgentStatus(input: {
-  reading: AgentStatusView | null
-  reachability?: AgentReachability
-  unseen?: boolean
-}): AgentStatusPresentation {
-  const { reading, reachability, unseen = false } = input
+export function presentAgentStatus(input: AgentStatusInput & { hostOnline: boolean }): AgentStatusPresentation | null
+export function presentAgentStatus(input: AgentStatusInput): AgentStatusPresentation
+export function presentAgentStatus(input: AgentStatusInput & { hostOnline?: boolean }): AgentStatusPresentation | null {
+  const { reading, reachability, unseen = false, hostOnline = true, lifecycle } = input
   if (reachability === 'removed' || reachability === 'archived' || reachability === 'offline' || reachability === 'pending') return still(reachability)
+  if (lifecycle) return still(lifecycle)
+  if (!hostOnline && reading?.status === 'working') return null
   const idle = reachability === 'online' ? still('online') : still('idle')
   if (reading === null) return reachability === 'online' ? idle : still('none')
   switch (reading.status) {
@@ -120,6 +142,7 @@ export function agentStatusColorVar(tone: AgentStatusTone): string | null {
     case 'offline':
     case 'archived':
     case 'pending':
+    case 'starting':
       return 'var(--agent-tone-muted)'
     case 'done':
     case 'idle':

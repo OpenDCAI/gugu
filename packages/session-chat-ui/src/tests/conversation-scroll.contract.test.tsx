@@ -10,7 +10,7 @@ import { until, untilStable } from '../../../../tests/support/awaitCondition';
 const dispose: (() => void)[] = [];
 afterEach(() => dispose.splice(0).forEach(fn => fn()));
 function mount() {
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true });
   const state = createChatState(context);
   const host = document.createElement('div');

@@ -291,8 +291,8 @@ describe('importLocalSession', () => {
     it('同一条会话再导入一次就回到已有的那个，不建第二个', async () => {
       fixture.sqlite.exec(`
         INSERT INTO projects (id, name, path) VALUES ('project-1', 'webapp', '/work/webapp');
-        INSERT INTO sessions (id, project_id, title, provider, runtime, provider_session_id)
-          VALUES ('conv-1', 'project-1', '已导入', 'claude', 'pty', '${CLAUDE_SESSION}');
+        INSERT INTO sessions (id, project_id, provider, runtime, provider_session_id)
+          VALUES ('conv-1', 'project-1', 'claude', 'pty', '${CLAUDE_SESSION}');
       `);
 
       const result = await importLocalSession({

@@ -131,12 +131,14 @@ export {
   listAgents,
   matchAgentByProviderSessionId,
   removeAgents,
+  archiveAgents,
   updateAgent,
+  writeAgentName,
   type LocalAgentUpdate,
   type LocalAgentRecord
 } from './local/state/agents'
 export {
-  findReapedAgentForSession,
+  listReapedAgentsForSession,
   listReapedAgents,
   recordReapedAgents,
   reapedAgentsFile,
@@ -259,14 +261,7 @@ export {
   type ProvisionSessionpageAgentOneTripInput,
   type ProvisionedSessionpageAgentOneTrip
 } from './cloud/ownedAgent'
-export {
-  removeAgentCloudIdentity,
-  removeAgentCloudIdentityViaSupabase,
-  type AgentIdentityRemovalClient,
-  type RemoveAgentCloudIdentityInput,
-  type RemoveAgentCloudIdentityOutcome,
-  type RemoveAgentCloudIdentityViaSupabaseInput
-} from './cloud/agentIdentityRemoval'
+export { permanentlyRemove } from './cloud/agentIdentityRemoval'
 export {
   createDeviceRuntimeHostLoop,
   stopRuntimeHostWithTimeout,
@@ -277,7 +272,8 @@ export {
   type DeviceRuntimeIdentityClient,
   type RuntimeStopHost,
   type SubscribeDeviceCommandWake,
-  type SubscribeDeviceRpc
+  type SubscribeDeviceRpc,
+  type SubscribeOwnedAgentChanges
 } from './cloud/deviceRuntimeHost'
 export { listDevices, isPhoneDevice, normalizeDeviceRow, normalizeDeviceStatus, isDeviceRemovedError, DEVICE_REMOVED_PREFIX, recentMachineLimitRefusal, type DeviceTableClient, type MachineLimitRefusalRpcClient } from './cloud/devices'
 export {

@@ -1,5 +1,5 @@
-import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
-import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
+import { rpcQuery } from '../../../../../../tests/support/rpcQuery';
+import { verifiedFileHandle } from '../../../../../../tests/support/verifiedFileHandle';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -44,14 +44,15 @@ let capabilities = new Set<string>();
 const grants: unknown[] = [];
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 const openedOriginals: string[] = [];
+let missingStored = false;
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: PERSON }),
-  resolveFile: async (ref, _actor, options) => {
+  resolveFile: async (ref, actor, options) => {
     if (options.localOnly) return null;
     const row = 'id' in ref ? personSees.find(row => row.id === ref.id) : null;
-    if (!row) return { status: 'gone', sha256: null };
+    if (!row || missingStored && row.kind === 'file') return { status: 'gone', sha256: null };
     const file = await verifiedFileHandle(PNG, { item_id: row.id, version: row.version, file_name: row.filename, content_type: row.content_type });
-    return { ...file, async *stream() { openedOriginals.push(row.id); yield* file.stream(); } };
+    return { ...file, reader: { accountId: PERSON, actorId: actor ?? PERSON }, read: async (offset, length) => { openedOriginals.push(row.id); return file.read(offset, length); }, async *stream() { openedOriginals.push(row.id); yield* file.stream(); } };
   },
   hasCapability: (_extensionId, capability) => capabilities.has(capability),
   sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: (_page: unknown, grant: unknown) => void grants.push(grant), revoke: () => undefined, ungrant: () => undefined } as never,
@@ -66,6 +67,7 @@ beforeEach(() => {
   personSees = [rowOf(ITEM, CHAT), rowOf(OTHER_ITEM, OTHER_CHAT)];
   capabilities = new Set(['files:read', 'files:write']);
   grants.length = 0;
+  missingStored = false;
 });
 
 describe('a page opens the file a call names, of any chat the person is in (S15, 原则 13)', () => {
@@ -115,10 +117,20 @@ describe('a stored file — an image, a clip, a sound — opens read-only, as it
     openedOriginals.length = 0;
   });
 
+  it('refuses an unavailable current stored file at open, before returning a chunked handle', async () => {
+    missingStored = true;
+    await expect(files.open(page, { ref: { chat: CHAT, id: IMAGE } })).rejects.toMatchObject({ code: 'not-found' });
+    expect(openedOriginals).toEqual([]);
+    expect(files.readHandleCount()).toBe(0);
+  });
+
   it('even with files:write: read-only, its bytes, and nothing granted to sync', async () => {
     const opened = await files.open(page, { ref: { chat: CHAT, id: IMAGE } });
     expect(opened).toMatchObject({ docName: '', access: 'ro', entry: { name: 'shot.png', type: 'binary', contentType: 'image/png' } });
-    expect([...new Uint8Array(opened.bytes!)]).toEqual([...PNG]);
+    expect(opened.chunked).toBe(true); expect(opened).not.toHaveProperty('bytes');
+    expect(openedOriginals).toEqual([]);
+    const range = await files.read(page, { ref: { id: IMAGE, version: opened.entry.version! }, offset: 0, length: PNG.length });
+    expect([...range.data]).toEqual([...PNG]);
     expect(openedOriginals).toEqual([IMAGE]);
     expect(grants).toEqual([]);
   });

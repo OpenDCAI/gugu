@@ -165,6 +165,8 @@ export interface AppPlatform {
   subscribeIncomingShares?: (listener: (share: IncomingShare) => void) => () => void
   /** 系统交给 App 打开的 https 链接(安卓 App Links);拉起 App 的那一条在第一次订阅时补发。只有安卓壳有这个口。 */
   subscribeOpenedLinks?: (listener: (url: string) => void) => () => void
+  /** 用户点了咕咕发的系统通知;拉起 App 的那一次在首次订阅时补发。只有安卓壳有此口,桌面走 notificationClicked。 */
+  subscribeNotificationClicks?: (listener: (click: { chatId: string | null }) => void) => () => void
   writeHumanAuthSession: (session: HumanAuthSession) => Promise<void>
   /** 登出了,还是会话永久丢了(主进程据此决定 getAuth 是答「没登录」还是抛「会话丢了」)。 */
   clearHumanAuthSession: (reason: 'signed-out' | 'lost') => Promise<void>
@@ -175,11 +177,6 @@ export interface AppPlatform {
   notifyDeviceCommandsChanged?: () => void
   /** 渲染层建 / 改 / 删了定时任务:本机设备 runtime 当场重排(表上没有事件)。只有 Electron 有。 */
   notifyScheduledTasksChanged?: () => void
-  /**
-   * #6396 本账号的 agent 有变动(另一台设备建了 / 改名 / 删了)—— 告诉本机会话页起名那一层当场刷新「用到几号」。
-   * 可选:只有在本机起会话页会话的宿主(Electron)有这个口。
-   */
-  notifyOwnedAgentsChanged?: () => void
   /**
    * 重启整个应用。退出登录后调用 —— 理由见 App.tsx 的调用点。
    * 由 appRelaunch capability 把门;没有这个能力的平台抛错,❌ 不静默 no-op。
@@ -197,11 +194,6 @@ export interface AppPlatform {
   getLocalUsageSnapshot?: (request: LocalUsageRequest) => Promise<LocalUsageSnapshot>
   /** Electron main-process reachable agent creation tools; unavailable on web/mobile. */
   getAgentCreationTools?: () => Promise<unknown>
-  /**
-   * @@@4526 释放一个已删除 agent 在本机的足迹(花名册 / runtime session / 投递注册),并立墓碑阻止
-   * 它绑定的会话页会话重新开户。只有拥有本机足迹的宿主实现它;web 上没有这一半,所以是可选的。
-   */
-  releaseOwnedAgentLocalFootprint?: (agentUserId: string) => Promise<void>
   /**
    * @@@share-card-rename 改名的本机那半:把新名字写回花名册(会话页读它)。云端改名成功后调。
    * 与上面那条同理,只有拥有本机足迹的宿主实现它;web 上没有这一半,所以是可选的。

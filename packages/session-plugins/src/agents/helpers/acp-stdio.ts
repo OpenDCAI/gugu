@@ -1,4 +1,5 @@
 import { Writable } from 'node:stream';
+import { createAcpWorkSlice } from './acp-work-slice';
 import { ClientSideConnection, ndJsonStream } from '@agentclientprotocol/sdk';
 import { decodePermissionRequest, decodeSessionUpdate } from '@gugu/session-core/acp';
 import type { SessionNotification } from '@agentclientprotocol/sdk';
@@ -30,6 +31,7 @@ export function routeSessionUpdates(
 ): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
+  const checkpoint = createAcpWorkSlice();
   const routeLine = (line: string): string | null => {
     let message: { method?: string; params?: SessionNotification };
     try { message = JSON.parse(line) as typeof message; } catch { return line; }
@@ -46,19 +48,23 @@ export function routeSessionUpdates(
   };
   let buffered = '';
   return source.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
+    async transform(chunk, controller) {
       buffered += decoder.decode(chunk, { stream: true });
       const lines = buffered.split('\n');
       buffered = lines.pop() ?? '';
       for (const line of lines) {
         if (!line) continue;
+        const pending = checkpoint();
+        if (pending) await pending;
         const routed = routeLine(line);
         if (routed !== null) controller.enqueue(encoder.encode(routed + '\n'));
       }
     },
-    flush(controller) {
+    async flush(controller) {
       buffered += decoder.decode();
       if (buffered) {
+        const pending = checkpoint();
+        if (pending) await pending;
         const routed = routeLine(buffered);
         if (routed !== null) controller.enqueue(encoder.encode(routed));
       }
@@ -102,6 +108,7 @@ export function connectStdioAcp(io: AcpProcessIo, toClient: AcpClientFactory, op
 export function nodeReadableToWeb(source: NodeJS.ReadableStream): ReadableStream<Uint8Array> {
   let cleanup = () => {};
   let settled = false;
+  const checkpoint = createAcpWorkSlice();
 
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -127,8 +134,15 @@ export function nodeReadableToWeb(source: NodeJS.ReadableStream): ReadableStream
       source.once('end', onEnd);
       source.once('error', onError);
     },
-    pull() {
-      source.resume();
+    async pull() {
+      // Buffered replay otherwise advances entirely through promise/stream microtasks,
+      // starving other sessions and host IPC even though every read is awaited.
+      const pending = checkpoint();
+      if (pending) {
+        source.pause();
+        await pending;
+      }
+      if (!settled) source.resume();
     },
     cancel(reason) {
       if (settled) return;

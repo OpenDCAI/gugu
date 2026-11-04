@@ -12,6 +12,8 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { messageItemFromRow, type RawMessageRow } from '@gugu/core/cloud/messageItem'
 import { advanceMemberReadSeq, agentReaderUserId, applyDeliveryReceipt } from '@gugu/core/shared/ui/messageState'
 import { chatService } from './chat'
+import { UI_EVENTS } from './uiEvents'
+import { rendererLogger } from './log'
 import {
   readDeliveryRevision,
   readMemberReadRevision,
@@ -81,7 +83,16 @@ export function subscribeChatLineRevisions(subscribe: SubscribeAccountRevision, 
     subscribe('member_read_changed', applyMemberReadRevisions(line)),
     subscribe('chat_members_changed', applyMemberRosterRevisions(line)),
   ]
-  return () => { for (const unsubscribe of unsubscribes) unsubscribe() }
+  const invalidateMembers = (event: Event) => {
+    const chatId = line.chatId()
+    const id = (event as CustomEvent<{ id: string | null }>).detail.id
+    if (!chatId || (id !== null && !(id in line.readMemberReadSeqs()))) return
+    void chatService.getOtherMembersReadSeqs(chatId, line.userId).then(rows => {
+      if (line.chatId() === chatId) reconcileMemberReadSeqs(chatId, rows, line)
+    }).catch(error => rendererLogger('chat/members').error({ error }, 'Member identity invalidation failed'))
+  }
+  window.addEventListener(UI_EVENTS.identityInvalidated, invalidateMembers)
+  return () => { window.removeEventListener(UI_EVENTS.identityInvalidated, invalidateMembers); for (const unsubscribe of unsubscribes) unsubscribe() }
 }
 
 // @@@5649 已读回执直接吃 revision 事件里的水位(单调推进,#1529 口径),省掉那次 ~400 ms 的 chat_members 回读;

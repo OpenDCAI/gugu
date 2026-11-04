@@ -8,7 +8,7 @@ import { useLiveDeviceSessions,usePhoneTaskDirectory } from '@/session/shared/re
 import { useAgentDisplayStatus } from '../../hooks/useAgentDisplayStatus'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
-import { formatCalendarDay } from '../../lib/calendarTime'
+import { formatCalendarDay } from '@/i18n/format'
 import { recentChatActivity, searchContacts, type ContactSearchHit } from '../../lib/contactSearch'
 import { displayName, getPinyinInitial } from '../../lib/contactsListSort'
 import { rendererLogger } from '../../lib/log'

@@ -169,6 +169,8 @@ export const userMessageRoot = style({
 /** Message-level actions sit below the bubble and keep their space on hover. */
 export const userMessageActions = style({
   display: 'flex',
+  flexWrap: 'nowrap',
+  minWidth: 0,
   justifyContent: 'flex-end',
   alignItems: 'center',
   gap: '4px',
@@ -190,6 +192,7 @@ export const userMessageActions = style({
 
 export const userMessageActionButton = style({
   display: 'flex',
+  flexShrink: 0,
   alignItems: 'center',
   justifyContent: 'center',
   height: '100%',
@@ -214,11 +217,13 @@ export const userMessageExpandRow = style({
 
 export const userMessageExpand = style({
   padding: 0, border: 0, background: 'transparent', cursor: 'pointer',
+  minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 1, lineHeight: '16px',
   color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, whiteSpace: 'nowrap',
   selectors: { '&:hover': { color: vars.fg }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2, borderRadius: 3 } },
 });
 
 export const userMessageTime = style({
+  flexShrink: 0,
   alignSelf: 'center', marginRight: 8, color: vars.fgMuted,
   fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize,
   whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums',

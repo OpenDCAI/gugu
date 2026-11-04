@@ -1,6 +1,6 @@
 import { followLink, openLinkTarget } from '../../lib/guguLinks'
 import { reaction } from 'mobx'
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { readMemberRosterRevision, readWorkspaceChanges } from '../../lib/accountRevisionCoordinator'
 import { extensionSurfaceStore } from '../../session/renderer/features/extensions/extension-surface-store'
@@ -18,7 +18,11 @@ import { useDevicesStore } from '../../store/devicesContext'
 import { useTheme } from '../../store/theme'
 import { hostAppFrame, type PhoneAppBinding } from './phoneAppHost'
 import { phoneApps } from './phoneApps'
+import type { SessionpageOpenedFileChunk, SessionpageOpenedFileReadRequest } from '@gugu/session-core/session-record/contract'
+import { composeChatDraft } from '../../lib/composeDraft'
 import { peekStore } from '../../session/renderer/features/extensions/peek-store'
+
+const OpenedFilePreview = lazy(() => import('../../mobile/agent-watch/opened-file-preview').then((m) => ({ default: m.OpenedFilePreview })))
 
 /** The App a frame draws: its page, what it may do, and the version — a new one reloads the frame in place (摩擦单 F66). */
 interface FramedPage {
@@ -41,6 +45,7 @@ export function PhoneAppFrame({
   tabId,
   chatId,
   itemId,
+  widget,
   session,
   hidden = false,
   onOpenWith,
@@ -54,6 +59,7 @@ export function PhoneAppFrame({
   chatId: string | null
   /** Made for that file: keeps it for life (the slot keys the frame so). */
   itemId?: string
+  widget?: PhoneAppBinding['widget']
   /** owner 10-16 The session it is drawn in, on one of the person's computers: its context, and where its program runs. */
   session?: NonNullable<PhoneAppBinding['session']>
   /** Under a file opened over it: kept running, as it was, for the way back. */
@@ -68,6 +74,7 @@ export function PhoneAppFrame({
   const tabName = kind.slice(extensionId.length + 1)
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const hostRef = useRef<ReturnType<typeof hostAppFrame> | null>(null)
+  const [workingCopy, setWorkingCopy] = useState<{ path: string; readFileChunk: (input: SessionpageOpenedFileReadRequest) => Promise<SessionpageOpenedFileChunk> } | null>(null)
   const onOpenWithRef = useRef(onOpenWith)
   onOpenWithRef.current = onOpenWith
   // The person's computers, as the task tab lists them: `showSession` opens a row of that list.
@@ -118,6 +125,7 @@ export function PhoneAppFrame({
     chatId,
     ...(session ? { session } : {}),
     ...(itemId ? { itemId } : {}),
+    ...(widget ? { widget } : {}),
     locale: i18n.language,
     themeMode: theme === 'dark' ? 'dark' : 'light',
   }
@@ -137,6 +145,7 @@ export function PhoneAppFrame({
         return { shown: true }
       },
       openWith: (detail) => onOpenWithRef.current(detail),
+      openWorkingCopy: (path, read) => setWorkingCopy({ path, readFileChunk: ({ offset, length }) => read(offset, length) }),
       // The slot this frame is in draws it (AppPeekSlot), as main's peek on the desktop.
       peek: (target) => peekStore.open(null, bindingRef.current.tabId, target),
       // The phone's host is this page: what the App says about itself goes where main's relay puts it on the desktop.
@@ -210,23 +219,29 @@ export function PhoneAppFrame({
   }
   if (!app) return <div hidden={hidden} className="min-h-0 flex-1" />
   return (
-    <iframe
-      // Another version or another account is another document: a new frame, and a new host for it.
-      key={`${app.version}:${app.src}`}
-      ref={frameRef}
-      hidden={hidden}
-      title={extensionId}
-      // Tells the page's runtime it is in a session: its program calls go to that computer (framed-host.ts).
-      {...(session ? { name: APP_SESSION_FRAME_NAME } : {})}
-      // Its own origin (appOrigin.ts), never this page's: storage of its own, and still no way to this page or its
-      // credentials — it reaches gugu through its host alone. No popups or top navigation. Forms submit as on the desktop: the
-      // page's own submit handler runs, and a form that would go somewhere is stopped by the App's CSP (`form-action 'none'`).
-      sandbox="allow-scripts allow-same-origin allow-forms"
-      src={app.src}
-      className="min-h-0 w-full flex-1 border-0"
-      data-testid={testId}
-      data-app-item={itemId}
-      data-app-version={app.version}
-    />
+    <>
+      {workingCopy ? <Suspense fallback={null}><OpenedFilePreview
+        {...workingCopy} deviceId={session?.deviceId ?? ''} sessionId={session?.id ?? ''}
+        onQuote={(text) => { if (chatId) composeChatDraft({ chatId, text }) }}
+      /></Suspense> : null}
+      <iframe
+        // Another version or another account is another document: a new frame, and a new host for it.
+        key={`${app.version}:${app.src}`}
+        ref={frameRef}
+        hidden={hidden}
+        title={extensionId}
+        // Tells the page's runtime it is in a session: its program calls go to that computer (framed-host.ts).
+        {...(session ? { name: APP_SESSION_FRAME_NAME } : {})}
+        // Its own origin (appOrigin.ts), never this page's: storage of its own, and still no way to this page or its
+        // credentials — it reaches gugu through its host alone. No popups or top navigation. Forms submit as on the desktop: the
+        // page's own submit handler runs, and a form that would go somewhere is stopped by the App's CSP (`form-action 'none'`).
+        sandbox="allow-scripts allow-same-origin allow-forms"
+        src={app.src}
+        className="min-h-0 w-full flex-1 border-0"
+        data-testid={testId}
+        data-app-item={itemId}
+        data-app-version={app.version}
+      />
+    </>
   )
 }

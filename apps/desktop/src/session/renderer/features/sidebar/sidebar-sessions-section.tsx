@@ -1,4 +1,4 @@
-import { SquarePen } from '@/lib/icons'
+import { Zap } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
@@ -65,7 +65,7 @@ export const SidebarSessionsSection = observer(function SidebarSessionsSection()
                 onClick={() => navigate('new-session')}
                 className={sidebarHeaderIconButtonClass}
               >
-                <SquarePen />
+                <Zap />
               </button>
             } />
             <TooltipContent>{translate('sidebar.newTask')}</TooltipContent>

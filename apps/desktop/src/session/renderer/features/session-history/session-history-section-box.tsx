@@ -11,7 +11,7 @@ import { cn } from '@renderer/utils/utils';
  * 滚到窗底后滚轮照常传给页面(❌ overscroll-contain):一页全是小窗,光标停在哪个窗上都得能接着翻页。
  *
  * 样子与咕咕其它清单统一(设计同事 2026-09-25「不统一,参考 design.md」):
- * - 一组行 = 一块**密度面板**(bg-foreground/[0.02],暗色 /[0.03]),❌ 外框、❌ 逐行发丝线(docs/ui-visual-spec.md §6.6)
+ * - 一组行 = 一块**密度面板**(bg-foreground/[0.02],暗色 /[0.03]),❌ 外框、❌ 逐行发丝线(docs/design/ui-visual-spec.md §6.6)
  * - 圆角是印在页上的那一档 rounded-sm(= --radius-document 6px),❌ 12px —— 那是浮起来的卡片(§5.1)
  * - 滚动条用全应用同一条安静的悬浮细条(皮肤的 scrollbar-width: thin),❌ 这里单独改成常驻 ——
  *   design.md 的 Scrollbar:「A quiet overlay scrollbar for panes that keep their own scroll」

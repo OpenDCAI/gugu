@@ -32,7 +32,6 @@ vi.mock('../agent-hooks/hook-server', () => ({
   },
 }));
 vi.mock('../agent-hooks/event-enricher', () => ({ parseHookEvent: vi.fn() }));
-vi.mock('../agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/sessions/set-session-id', () => ({ setProviderSessionId: vi.fn() }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn(), on: vi.fn(() => () => {}) } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
@@ -73,12 +72,12 @@ describe('会话的最近活动跟着每一轮走', () => {
   const seed = (id: string, provider: string, runtime: 'pty' | 'acp', agentStatus: string | null) =>
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status, agent_status_seen, last_interacted_at)
-         VALUES (?, 'p1', 'C', ?, ?, ?, 1, ?)`
+        `INSERT INTO sessions (id, project_id, provider, runtime, agent_status, agent_status_seen, last_interacted_at)
+         VALUES (?, 'p1', ?, ?, ?, 1, ?)`
       )
       .run(id, provider, runtime, agentStatus, BORN);
   const deliver = async (e: AgentEvent) => {
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     return e.timestamp;
   };

@@ -6,14 +6,12 @@ import { onMachineEvent, rpc } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { PtySession } from '@renderer/lib/pty/pty-session';
 import { Resource } from '@renderer/lib/stores/resource';
-import { soundPlayer } from '@renderer/utils/soundPlayer';
 import { aggregateStatusDetail } from '@renderer/lib/components/agent-status-display';
 import type { AgentStatus, AgentStatusDetail, AgentStatusView } from '@gugu/core/shared/agentStatus';
 import {
   sessionAgentStatusChangedChannel,
   sessionChangedChannel,
   sessionCreatedChannel,
-  sessionDeletedChannel,
 } from '@shared/core/sessions/sessionEvents';
 import {
   type ArchiveOutcome,
@@ -22,11 +20,12 @@ import {
 } from '@shared/core/sessions/sessions';
 import { makePtySessionId } from '@shared/core/pty/ptySessionId';
 import { sessionDescendantIds } from './session-descendants';
+import { getRendererSession } from '@/lib/sessionPublication';
+import { rememberTask } from '@renderer/features/command-palette/recent-tasks';
 
 export class PageSessionsStore implements IDisposable {
   private offAgentStatusChanged: (() => void) | null = null;
   private offSessionCreated: (() => void) | null = null;
-  private offSessionDeleted: (() => void) | null = null;
   private offSessionChanges: (() => void) | null = null;
   private readonly _disposeReaction: () => void;
 
@@ -97,7 +96,6 @@ export class PageSessionsStore implements IDisposable {
 
     this.offAgentStatusChanged = this.listenToAgentStatusChanged();
     this.offSessionCreated = this.listenToSessionCreated();
-    this.offSessionDeleted = this.listenToSessionDeleted();
     this.offSessionChanges = this.listenToSessionChanges();
   }
 
@@ -110,7 +108,7 @@ export class PageSessionsStore implements IDisposable {
       const keep = new Set(sessions.map((session) => session.id));
       for (const session of sessions) {
         const store = this.sessions.get(session.id);
-        if (store) Object.assign(store.data, session);
+        if (store) store.applySession(session);
         else this.addSession(session);
       }
       for (const id of [...this.sessions.keys()]) {
@@ -144,9 +142,6 @@ export class PageSessionsStore implements IDisposable {
 
       sessionStore.applyStatus(payload);
 
-      if (payload.soundEvent) {
-        soundPlayer.play(payload.soundEvent, payload.appFocused, payload.sessionId);
-      }
     });
   }
 
@@ -156,17 +151,6 @@ export class PageSessionsStore implements IDisposable {
       if (session.id !== this.id || session.projectId !== this.projectId) return;
       runInAction(() => {
         this.addSession(session);
-      });
-    });
-  }
-
-  private listenToSessionDeleted(): () => void {
-    return this.onEvent(sessionDeletedChannel, ({ sessionId, projectId }) => {
-      if (sessionId !== this.id || projectId !== this.projectId) return;
-      runInAction(() => {
-        this.sessions.delete(sessionId);
-        this.ptySessions.get(sessionId)?.destroy();
-        this.ptySessions.delete(sessionId);
       });
     });
   }
@@ -288,10 +272,11 @@ export class PageSessionsStore implements IDisposable {
    */
   async archiveSession(
     sessionId: string,
-    scope: { withChildren?: boolean } = {}
+    scope: { withChildren?: boolean; removeSocialIdentity?: boolean } = {}
   ): Promise<ArchiveOutcome> {
     const store = this.sessions.get(sessionId);
     if (!store) return { archived: [], unreached: [] };
+    const recentOwner = getRendererSession()?.user.id ?? null;
 
     const removed = new Map<string, NonNullable<typeof store>>();
     const removedSessions = new Map<string, NonNullable<ReturnType<typeof this.ptySessions.get>>>();
@@ -299,7 +284,7 @@ export class PageSessionsStore implements IDisposable {
       ? [sessionId, ...sessionDescendantIds(this.sessions, sessionId)]
       : [sessionId];
 
-    runInAction(() => {
+    const hide = () => runInAction(() => {
       for (const id of ids) {
         const row = this.sessions.get(id);
         if (!row) continue;
@@ -311,9 +296,12 @@ export class PageSessionsStore implements IDisposable {
       }
     });
 
+    if (scope.removeSocialIdentity === false) hide();
     try {
       // 主进程报回这一次真正收走的行(含别的机器上的子会话):归档提示的「撤销」按它放回。
       const outcome = await rpc.sessions.archiveSession(this.projectId, sessionId, scope);
+      for (const ref of outcome.archived) rememberTask(ref.sessionId, true, recentOwner);
+      if (scope.removeSocialIdentity !== false) hide();
       for (const session of removedSessions.values()) session.destroy();
       return outcome;
     } catch (err) {
@@ -372,8 +360,6 @@ export class PageSessionsStore implements IDisposable {
     this.offAgentStatusChanged = null;
     this.offSessionCreated?.();
     this.offSessionCreated = null;
-    this.offSessionDeleted?.();
-    this.offSessionDeleted = null;
     this.offSessionChanges?.();
     this.offSessionChanges = null;
     for (const session of this.ptySessions.values()) {
@@ -400,29 +386,36 @@ export class SessionStore {
    * `null` = 宿主没有陈述任何一态。没有状态源的终端会话(#6206)恒为 `null`,由行上显示「状态不可用」;
    * ❌ 在这里把 `null` 归一成 `idle` —— 那正是「没证据却说空闲」。
    */
-  status: AgentStatus | null;
+  status!: AgentStatus | null;
   /** 附属态(spec agent-status-vocabulary,只给显示);`null` = 这一刻没有,画基础态。 */
-  detail: AgentStatusDetail | null;
-  seen: boolean;
+  detail!: AgentStatusDetail | null;
+  seen!: boolean;
   /** 声明了的状态来源读不出时写入者给的那句原因(随状态输出到达);`null` = 正常。 */
   statusSourceFault: string | null = null;
 
   constructor(session: Session) {
     this.data = session;
-    this.status = session.agentStatus ?? null;
-    this.detail = session.agentStatusDetail ?? null;
-    this.seen = session.agentStatusSeen ?? true;
+    this.applySession(session);
     makeObservable(this, {
       data: observable,
       status: observable,
       detail: observable,
       seen: observable,
       statusSourceFault: observable,
+      applySession: action,
       applyStatus: action,
       markSeen: action,
       indicatorStatus: computed,
       groupStatus: computed,
     });
+  }
+
+  /** Reconnect brings a complete host row, including status changes missed while disconnected. */
+  applySession(session: Session): void {
+    Object.assign(this.data, session);
+    this.status = session.agentStatus ?? null;
+    this.detail = session.agentStatusDetail ?? null;
+    this.seen = session.agentStatusSeen ?? true;
   }
 
   // @@@sessionpage otty-state — RAW (not seen-gated) projection used to bucket THIS conversation into a

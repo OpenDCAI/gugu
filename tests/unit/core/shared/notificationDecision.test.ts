@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentStatusView } from '@gugu/core/shared/agentStatus'
 import { shouldNotify } from '@gugu/core/shared/ui/notificationModels'
+import { chatAttention } from '@gugu/core/shared/ui/chatModels'
 import type { ChatItem, ChatKind } from '@gugu/core/shared/types/chat'
 import { chat } from '../../../support/testHarness'
 
@@ -45,5 +46,19 @@ describe('only someone needing your reply raises a notification (owner 10-30)', 
     expect(shouldNotify(ask, { enabled: false, onScreen: false })).toBe(false)
     expect(shouldNotify(ask, { enabled: true, onScreen: true })).toBe(false)
     expect(shouldNotify(chatChange(row('dm', 0, 0), row('dm', 1, 0, { is_muted: true })), on)).toBe(false)
+  })
+})
+
+// List rows keep their quiet unread count; the out-of-window badge uses the banner count.
+describe('chatAttention().askingYou', () => {
+  it('counts addressed group messages, not every unread group message', () => {
+    expect(chatAttention(row('group', 5, 0)).askingYou).toBe(0)
+    expect(chatAttention(row('group', 5, 1)).askingYou).toBe(1)
+    expect(chatAttention(row('topic', 5, 2)).askingYou).toBe(2)
+  })
+  it('keeps muted rows quiet, counts DMs, and counts a manual unread without a locator', () => {
+    expect(chatAttention(row('group', 5, 1, { is_muted: true })).askingYou).toBe(0)
+    expect(chatAttention(row('dm', 5, 0)).askingYou).toBe(5)
+    expect(chatAttention(row('group', 5, 0, { unread_locator: null })).askingYou).toBe(5)
   })
 })

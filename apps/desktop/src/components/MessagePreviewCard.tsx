@@ -1,6 +1,7 @@
 // @@@6357 working 栏悬浮卡 MessagePreview:版式照 assistant-ui SharedConversation,浮层档 tokens,
 // 承载信息的字只用 --text-primary / --text-secondary(tertiary 过不了 AA)。
 import { useEffect, useState } from 'react'
+import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useTranslation } from 'react-i18next'
 import type { MessagePreviewEntry } from '@gugu/session-core/session-record/message-preview'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
@@ -133,7 +134,7 @@ function BlockView({ block, senderName }: { block: Block; senderName: (id: strin
 export function MessagePreviewCard({
   chatId,
   token,
-  displayName,
+  displayName: rawDisplayName,
   open,
 }: {
   chatId: string
@@ -146,12 +147,15 @@ export function MessagePreviewCard({
   const state = useAgentMessagePreview(chatId, token.id, open)
   const preview = state.status === 'live' ? state.preview : null
   const { messages, threadMessages, identitiesById } = useChatStore()
+  const displayName = useShownAgentName({ name: rawDisplayName, createdAt: identitiesById[token.id]?.created_at ?? undefined })
   const promptIds = (preview?.entries ?? []).flatMap((entry) =>
     entry.kind === 'prompt' && entry.messageId ? [promptIdOf(entry.messageId)] : [],
   )
   const lookupPrompt = usePromptMessages(promptIds, [...messages, ...threadMessages])
   const blocks = preview ? toBlocks(preview.entries, lookupPrompt) : []
-  const senderName = (id: string | null) => (id ? identitiesById[id]?.display_name ?? '' : '')
+  const senderIds = [...new Set(blocks.flatMap(block => block.kind === 'prompt' && block.message?.sender_user_id ? [block.message.sender_user_id] : []))]
+  const senderNames = useShownAgentName(senderIds.map(id => ({ name: identitiesById[id]?.display_name ?? '', createdAt: identitiesById[id]?.type === 'agent' ? identitiesById[id]?.created_at ?? undefined : undefined })))
+  const senderName = (id: string | null) => id ? senderNames[senderIds.indexOf(id)] ?? '' : ''
   const rel = formatRelativeTime(token.lastActiveAt) ?? t('runtime.justNow')
   const meta = [
     t(`runtime.stateWord.${token.stateKey}`),

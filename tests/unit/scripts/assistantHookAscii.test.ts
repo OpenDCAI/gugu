@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { transformSync } from 'esbuild'
 import { parseAst } from 'vite'
 import { describe, expect, it } from 'vitest'
-import { taggedTemplateNonAsciiRanges } from '../../../scripts/renderer-chunking.mts'
+import { taggedTemplateNonAsciiRanges } from '../../../scripts/build/renderer-chunking.mts'
 
 describe('助理 hook 脚本的 String.raw 段只含 ASCII', () => {
   for (const name of ['note', 'pending', 'panel', 'resource']) {

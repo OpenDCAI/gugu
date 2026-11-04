@@ -14,7 +14,8 @@ import { makeIdentityClient } from './supabase'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
 // @ts-expect-error -- the MCP tool implementation is an untyped ESM module.
-import { createGuguImServer, serveToolsList } from './mcp/gugu-im-server.mjs'
+import { createGuguImServer, createSessionState, sendWidgetOf, serveToolsList } from './mcp/gugu-im-server.mjs'
+import { registerGuguWidgetTool } from './mcp/gugu-widget-tool'
 import { GUGU_MCP_SERVER_NAME } from './mcp/gugu-mcp-name.mjs'
 import { registerGuguScheduleTools } from './mcp/gugu-schedule-tool'
 import { registerGuguProjectTools } from './mcp/gugu-project-tool'
@@ -33,6 +34,7 @@ import type { McpServerOwner } from '@gugu/session-core/mcp'
 import { startupDiscovery } from './sessionpage/startup-discovery'
 import type { FileActor, FileRef, ResolvedFile } from '@gugu/core/shared/fileResolver'
 import type { GuguMcpRequestTracker } from './gugu-mcp-host'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 export type AcpMcpServer =
   | {
@@ -220,12 +222,13 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
         }
         return tracked
       }
+      const imState = createSessionState()
       const server = initial.kind === 'social'
         ? createGuguImServer(() => {
             const latest = getContext()
             if (latest.kind !== 'social') throw new Error('Gugu MCP grant changed context kind')
             return latest
-          }, { signal: grantSignal, trackRequest })
+          }, { signal: grantSignal, trackRequest, state: imState })
         : new McpServer({ name: GUGU_MCP_SERVER_NAME, version: '0.3.0' })
       // session_* 与 app_* 两个域(#4191)与社交域同 server 注册:
       // 一条 grant 只要拿得到其中任一半就两个域全部注册,缺的那一半在调用时报错 —— 工具清单不随
@@ -236,7 +239,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
           ? (action, requestSignal) => {
               const run = getContext().runSessionAction
               if (!run) throw new Error('session_* tools are unavailable for this grant')
-              const dispatch = (input: unknown) => run(input, AbortSignal.any([grantSignal, requestSignal]))
+              const dispatch = (input: unknown) => run(input, anySignal([grantSignal, requestSignal]))
               const work = initial.personalAssistant ? assistantExecutionAction(action) : action
               return initial.personalAssistant && initial.assistantWork ? coordinateAssistantAction(initial.assistantWork, work, dispatch) : dispatch(work)
             }
@@ -251,7 +254,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
             await context.getAccessToken(grantSignal)
             return context.expectedOwnerUserId
           },
-          run: (action, signal) => sessionDispatcher(action, AbortSignal.any([grantSignal, signal])),
+          run: (action, signal) => sessionDispatcher(action, anySignal([grantSignal, signal])),
           ...(initial.readAssistantResources ? { localSources: () => {
             const read = getContext().readAssistantResources
             if (!read) throw new Error('Personal assistant context is unavailable')
@@ -267,7 +270,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
             ? (action, requestSignal) => {
                 const run = getContext().runExtensionAction
                 if (!run) throw new Error('app_* tools are unavailable for this grant')
-                const signal = AbortSignal.any([grantSignal, requestSignal])
+                const signal = anySignal([grantSignal, requestSignal])
                 const runSession = getContext().runSessionAction
                 return runAppAction(
                   action,
@@ -287,7 +290,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
         run: (query, signal) => {
           const latest = getContext().webSearch
           if (!latest) throw new Error('Web search is unavailable for this session')
-          return latest.run(query, AbortSignal.any([grantSignal, signal]))
+          return latest.run(query, anySignal([grantSignal, signal]))
         },
       }, trackRequest)
       // 侧边聊天(分叉)不带扩展,与原生条目同一条规矩。
@@ -307,6 +310,11 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
       }, listedTools)
       // 10-19 Finding an App is app_search's alone (owner: catalog_list lists tools, not Apps); in the catalog, not the native list.
       registerGuguAppSearchTool(server, () => extensionsFor(getContext())?.apps(getContext().grantKey, true) ?? null)
+      registerGuguWidgetTool(server, () => extensionsFor(getContext())?.apps(getContext().grantKey, false) ?? null, async (args, content) => {
+        const context = getContext()
+        if (context.kind !== 'social') throw new Error('widget_send needs a Gugu identity')
+        return trackRequest(sendWidgetOf({ ...context, getAccessToken: () => context.getAccessToken(grantSignal) }, args, content, {}, imState), 'widget_send')
+      })
       serveToolsList(server, getContext, (name: string) => listedTools.has(name))
       return server
     },

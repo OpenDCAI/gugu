@@ -35,6 +35,8 @@ const gugu = {
   showMessage: vi.fn(async () => {}),
   clipboard: { writeText: vi.fn(async () => {}) },
   files: {
+    // Asked as a row's menu opens (a list carries no delete answer); the rig answers from its fixtures.
+    canDelete: vi.fn(async (files: unknown) => [files].flat().map((file) => (file as { canDelete?: boolean }).canDelete === true)),
     viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => ENTRIES.map((e) => ({ ...e }))),
     onChanged: vi.fn(() => () => {}),
@@ -160,13 +162,20 @@ describe('details', () => {
 })
 
 describe('a machine that is off', () => {
-  test('its file is faint; a press says it opens once the machine is back, and does not try', async () => {
+  // Whether the machine is on is read when the file is opened, never from the list as it was loaded (native #107: it came
+  // back online and the folder kept refusing until reloaded): the host opens it and says why if it cannot, and the list is
+  // read again so the mark follows the machine.
+  test('its file is faint; a press still hands it to the host and reads the list again', async () => {
     expect(row('ckpt').hasAttribute('data-offline')).toBe(true)
     expect(row('ckpt').querySelector<HTMLElement>('.file-host')!.dataset.online).toBe('false')
     gugu.files.openWith.mockClear()
+    const reads = gugu.files.list.mock.calls.length
     row('ckpt').querySelector<HTMLButtonElement>('.file-open')!.click()
-    await until('said', () => banner(), (text) => text === 'GF server 离线，上线后才能打开这个文件。')
-    expect(gugu.files.openWith).not.toHaveBeenCalled()
+    await until('handed to the host', () => gugu.files.openWith.mock.calls.length > 0)
+    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'ckpt' }))
+    expect(banner()).not.toContain('离线')
+    await until('the list read again', () => gugu.files.list.mock.calls.length > reads)
+    gugu.files.openWith.mockClear()
     expect(row('poster').hasAttribute('data-offline'), 'its cloud copy opens meanwhile').toBe(false)
     row('poster').querySelector<HTMLButtonElement>('.file-open')!.click()
     await until('handed to the host', () => gugu.files.openWith.mock.calls.length > 0)

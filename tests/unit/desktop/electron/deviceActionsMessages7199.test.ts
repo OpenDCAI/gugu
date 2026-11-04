@@ -109,7 +109,7 @@ function setup(jxaImpl: Jxa = async () => ({ sent: true }), execImpl: Exec = rea
     homedir: () => home,
     clipboardRead: () => '',
     clipboardWrite: () => undefined,
-    notify: () => undefined,
+    notify: async () => ({ shown: true }),
     openExternal: async () => undefined,
     trashItem: async () => undefined,
     jxa: jxa as unknown as FamilyDeps['jxa'],

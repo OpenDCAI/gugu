@@ -58,11 +58,25 @@ describe('conversation-turn-store', () => {
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
-      INSERT INTO sessions (id, project_id, title) VALUES ('c1', 'p1', 'C');
+      INSERT INTO sessions (id, project_id) VALUES ('c1', 'p1');
     `);
   });
 
   afterEach(() => { fixture.close(); vi.clearAllMocks(); });
+
+  it('reserves the source identity of an interrupted notified turn without treating notifications as provider replay history', async () => {
+    const notification: TranscriptTurn = { id: 'c1:turn:s0', seq: 0, initiator: 'agent', items: [
+      { kind: 'message', id: 'notice', seq: 0, role: 'assistant', text: 'Review', ownerNotification: {
+        requestId: '11111111-1111-4111-8111-111111111111', requestHash: 'hash', sourceTurnId: 'c1:turn:7',
+      } },
+    ] };
+    fixture.sqlite.prepare('INSERT INTO session_turns(id,session_id,seq,turn_id,data) VALUES(?,?,?,?,?)')
+      .run('c1:0', 'c1', 0, 'owner-notify:11111111-1111-4111-8111-111111111111', JSON.stringify(notification));
+    expect(await storedTurnIndexBase('c1')).toBe(8);
+    await persistCommittedTurn({ sessionId: 'c1', source: 'replay', turn: turn('provider-history:0', 'first replay', 0) });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'replay', turn: turn('provider-history:1', 'second replay', 1) });
+    expect(storedTexts(fixture).map(item => item?.kind === 'message' ? item.text : '')).toEqual(['Review', 'first replay', 'second replay']);
+  });
 
   it('requests the inbox address when a new task records its first real owner exchange', async () => {
     const open = vi.fn(async () => 'canonical-dm');
@@ -434,7 +448,7 @@ describe('conversation-turn-store · 跨重启的 id', () => {
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
-      INSERT INTO sessions (id, project_id, title) VALUES ('c1', 'p1', 'C');
+      INSERT INTO sessions (id, project_id) VALUES ('c1', 'p1');
     `);
   });
 
@@ -494,7 +508,7 @@ describe('conversation-turn-store · 对账读法', () => {
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
-      INSERT INTO sessions (id, project_id, title) VALUES ('c1', 'p1', 'C');
+      INSERT INTO sessions (id, project_id) VALUES ('c1', 'p1');
     `);
   });
 

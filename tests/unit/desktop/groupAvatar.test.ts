@@ -19,7 +19,7 @@ function settingsRow(over: Record<string, unknown> = {}) {
   return { id: 'g1', public_id: null, name: 'G', status: 'active', group_prompt: null,
     creator_user_id: 'uploader-1', default_agent_type: null, join_token: null, description: null,
     max_members: 100, allow_member_invite: false, invite_link_enabled: true,
-    agent_join_approval: false, join_mode: 'open', hide_history: false, can_manage: true, can_dissolve: true, ...over }
+    agent_join_approval: false, join_mode: 'open', hide_history: false, my_role: 'owner', can_manage: true, can_dissolve: true, can_archive_topic: false, ...over }
 }
 beforeEach(() => {
   mockUpload.mockReset().mockResolvedValue({ error: null })
@@ -59,5 +59,19 @@ describe('group settings avatar projection through group_info_as', () => {
     mockRpc.mockResolvedValueOnce({ data: settingsRow({ avatar_url }), error: null })
     expect((await chatService.getGroupChatSettings('g1')).avatar_url).toBe(avatar_url ?? null)
     expect(mockRpc).toHaveBeenCalledWith('group_info_as', { p_chat_id: 'g1', p_as_user_id: 'uploader-1' })
+  })
+})
+
+
+describe('authoritative group capability projection', () => {
+  it('keeps the backend actor role and capabilities in the settings view', async () => {
+    mockRpc.mockResolvedValueOnce({ data: settingsRow({ my_role: 'admin', can_dissolve: false, can_archive_topic: true }), error: null })
+    expect(await chatService.getGroupChatSettings('g1')).toMatchObject({ my_role: 'admin', can_manage: true, can_dissolve: false, can_archive_topic: true })
+  })
+  it('rejects an incomplete backend capability response', async () => {
+    const data: Record<string, unknown> = settingsRow()
+    delete data.can_archive_topic
+    mockRpc.mockResolvedValueOnce({ data, error: null })
+    await expect(chatService.getGroupChatSettings('g1')).rejects.toThrow('database returned no capabilities')
   })
 })

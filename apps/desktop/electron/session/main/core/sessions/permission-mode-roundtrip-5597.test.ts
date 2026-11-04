@@ -40,6 +40,7 @@ const base = {
   projectId: 'p1',
   workspaceId: 'w1',
   title: 'T',
+  agentDisplayName: 'Codex 1',
   provider: 'claude' as never,
   origin: { kind: 'create' as const, firstUtterance: 'hi' },
   claimsFirstSpawn: false,

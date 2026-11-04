@@ -12,7 +12,7 @@ const base = {
   id: 'notes',
   name: 'Notes',
   version: '1.0.0',
-  apiVersion: EXTENSION_API_VERSION,
+  apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
   entry: 'main.html',
   contributes: { tabs: [{ name: 'main', title: 'Notes' }] },
 };
@@ -28,15 +28,15 @@ describe('contributes.mcpServers / skills (#6387)', () => {
     const manifest = parseExtensionManifest({
       ...base,
       permissions: { capabilities: ['agents:tools', 'notifications'] },
-      contributes: { ...base.contributes, mcpServers: [{ ...server, env: { NOTES_MODE: 'strict' } }], skills: 'skills' },
+      contributes: { ...base.contributes, mcpServers: [{ ...server, env: { NOTES_MODE: 'strict' } }], skills: 'skills', instructions: 'Test tools.' },
     });
     expect(manifest.contributes.mcpServers?.[0]).toMatchObject({ command: 'node' });
     expect(manifest.contributes.skills).toBe('skills');
   });
 
   it('refuses MCP programs or skills the install sheet would not mention', () => {
-    expect(issues({ ...base, contributes: { ...base.contributes, mcpServers: [server] } })).toMatch(/must declare "agents:tools"/);
-    expect(issues({ ...base, contributes: { ...base.contributes, skills: 'skills' } })).toMatch(/must declare "agents:tools"/);
+    expect(issues({ ...base, contributes: { ...base.contributes, mcpServers: [server], instructions: 'Test tools.' } })).toMatch(/must declare "agents:tools"/);
+    expect(issues({ ...base, contributes: { ...base.contributes, skills: 'skills', instructions: 'Test tools.' } })).toMatch(/must declare "agents:tools"/);
   });
 
   it('refuses agents:tools with nothing to give, duplicate names, bad names and escaping skill paths', () => {
@@ -44,13 +44,13 @@ describe('contributes.mcpServers / skills (#6387)', () => {
     const withServers = (mcpServers: unknown[]) => ({
       ...base,
       permissions: { capabilities: ['agents:tools'] },
-      contributes: { ...base.contributes, mcpServers },
+      contributes: { ...base.contributes, mcpServers, instructions: 'Test tools.' },
     });
     expect(issues(withServers([server, server]))).toMatch(/duplicate MCP server name "notes"/);
     expect(issues(withServers([{ ...server, name: 'Notes!' }]))).not.toBe('');
     expect(issues(withServers([{ ...server, env: { 'bad-name': 'x' } }]))).not.toBe('');
     expect(
-      issues({ ...base, permissions: { capabilities: ['agents:tools'] }, contributes: { ...base.contributes, skills: '../outside' } }),
+      issues({ ...base, permissions: { capabilities: ['agents:tools'] }, contributes: { ...base.contributes, skills: '../outside', instructions: 'Test tools.' } }),
     ).not.toBe('');
   });
 
@@ -58,7 +58,7 @@ describe('contributes.mcpServers / skills (#6387)', () => {
     const withServers = (mcpServers: unknown[]) => ({
       ...base,
       permissions: { capabilities: ['agents:tools'] },
-      contributes: { ...base.contributes, mcpServers },
+      contributes: { ...base.contributes, mcpServers, instructions: 'Test tools.' },
     });
     const manifest = parseExtensionManifest(withServers([{ tools: 'lib/tools.mjs' }, { ...server, name: 'index' }]));
     expect(manifest.contributes.mcpServers?.map((one) => ('host' in one ? one.host : 'tools' in one ? one.tools : one.command))).toEqual(['lib/tools.mjs', 'node']);
@@ -74,7 +74,7 @@ describe('contributes.mcpServers / skills (#6387)', () => {
     const withServers = (mcpServers: unknown[]) => ({
       ...base,
       permissions: { capabilities: ['agents:tools'] },
-      contributes: { ...base.contributes, mcpServers },
+      contributes: { ...base.contributes, mcpServers, instructions: 'Test tools.' },
     });
     // L11 R9: said so, not a bare "Invalid input".
     expect(issues(withServers([{ name: 'signup', tools: 'tools.js' }]))).toMatch(/no name: it is the App's/);

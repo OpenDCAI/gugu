@@ -2,7 +2,7 @@
  * `claude-bridge.ts` 的真实现:读版本、读随包的包、跑随包的 npm、写缓存。逻辑与判断都在那边,
  * 这里只有 IO —— 那边的单测注入假件,不碰 electron、不连网。
  */
-import { execFile } from 'node:child_process';
+import { execFile } from '@gugu/core/local/childProcess';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
@@ -28,7 +28,7 @@ function execText(command: string, args: string[], env: Record<string, string>, 
   const shell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(command);
   const file = shell ? `"${command}"` : command;
   return new Promise((resolve, reject) => {
-    execFile(file, args, { env, timeout: timeoutMs, shell, windowsHide: true, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile(file, args, { env, timeout: timeoutMs, shell, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) reject(Object.assign(error, { stderr: String(stderr) }));
       else resolve(String(stdout));
     });

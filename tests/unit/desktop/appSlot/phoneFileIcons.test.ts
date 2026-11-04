@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { rpcQuery } from '../../../helpers/rpcQuery'
+import { rpcQuery } from '../../../support/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
 import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
@@ -46,7 +46,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
 }))
 
 const workspace = parseExtensionManifest({
-  id: 'workspace', name: '文件夹', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+  id: 'workspace', name: '文件夹', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html',
   contributes: { tabs: [{ name: 'main', title: '文件夹', icon: 'icon.png', opensFiles: { chat: ['.md', '.json'] }, fileIcons: { '.md': 'md.png' } }] },
 })
 

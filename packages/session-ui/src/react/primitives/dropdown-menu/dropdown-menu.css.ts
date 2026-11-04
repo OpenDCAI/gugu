@@ -5,7 +5,7 @@ import { tokenVars } from '@session-ui/theme/tokens.css';
 
 export const positioner = style({
   isolation: 'isolate',
-  zIndex: 50,
+  zIndex: 'var(--z-menu)',
   outline: 'none',
 });
 
@@ -19,7 +19,7 @@ export const menuContent = style([
   popupSurface,
   popupShadow,
   {
-    zIndex: 50,
+    zIndex: 'var(--z-menu)',
     maxHeight: 'var(--available-height)',
     width: 'var(--anchor-width)',
     minWidth: '12rem',

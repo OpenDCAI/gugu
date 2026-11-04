@@ -11,6 +11,14 @@ import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.
 import { CHAT_COMPOSER_EDGE_FADE_PX } from '@session-chat/layout-geometry';
 import { SEGMENTERS } from '@session-chat/components/engine/unit-registry';
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
+import '@gugu/session-ui/styles/global';
+import '@gugu/session-ui/theme/theme.css';
+import '@gugu/session-ui/theme/semantic.css';
+import '@gugu/session-ui/styles/base.css';
+import '@/styles/tokens.css';
+import '@renderer/index.css';
+import '@/session/renderer/features/assistant/assistant-today.css';
+import '@/mobile/phone-look.css';
 
 const TURN: TranscriptTurn = {
   id: 'tool-only', seq: 1, initiator: 'user', startedAt: 10_000,
@@ -24,10 +32,11 @@ let dispose: (() => void) | undefined;
 afterEach(() => { dispose?.(); dispose = undefined; vi.restoreAllMocks(); });
 
 function mount(composer: 'slot' | 'none' = 'none', agentConversation = false) {
-  const context = createChatContext({ layout: { preset: 'double', userGutter: 72, agentConversation }, translator: defaultChatTranslator });
+  const context = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', userGutter: 72, agentConversation }, translator: defaultChatTranslator });
   const state = createChatState(context);
   const host = document.createElement('div');
   host.className = nativeChatAppearance;
+  host.classList.add('gugu-skin');
   host.style.cssText = 'position:fixed;top:0;left:0;width:640px;height:500px';
   document.body.append(host);
   const writeClipboardText = vi.fn(async (_text: string) => {});
@@ -36,6 +45,41 @@ function mount(composer: 'slot' | 'none' = 'none', agentConversation = false) {
   const header = () => host.querySelector<HTMLElement>('[data-slot="turn-process"]');
   return { state, context, host, header, view, writeClipboardText };
 }
+
+it.each([false, true])('keeps the lower fade aligned without replacing phone glass (phone=%s)', async (phone) => {
+  await page.viewport(1200, 700);
+  const { state, host, view } = mount('slot', true);
+  if (phone) { host.dataset.phoneShell = ''; host.dataset.taScope = ''; }
+  state.transcript.history.seed([{ ...TURN, endedAt: 17_000, outcome: { kind: 'done' } }]);
+  await until('bottom composer slot mounts', () => view.composerSlot?.parentElement?.dataset.chatComposerPlacement === 'bottom');
+  const inner = view.composerSlot!;
+  const layer = inner.parentElement!;
+  const card = document.createElement('div');
+  card.style.height = '120px';
+  inner.append(card);
+  await until('composer occupies its slot', () => inner.getBoundingClientRect().height >= 120);
+  if (phone) {
+    const glass = getComputedStyle(inner, '::before');
+    expect(glass.backdropFilter).not.toBe('none');
+    expect(Number.parseFloat(glass.width)).toBe(innerWidth);
+    const fade = getComputedStyle(layer, '::before');
+    expect(fade.backgroundImage).toContain('linear-gradient');
+    expect(Number.parseFloat(fade.height)).toBe(CHAT_COMPOSER_EDGE_FADE_PX);
+    return;
+  }
+  expect(getComputedStyle(layer, '::before').content).toBe('none');
+  const fade = getComputedStyle(inner, '::before');
+  const box = inner.getBoundingClientRect();
+  const radius = Number.parseFloat(getComputedStyle(inner).getPropertyValue('--radius-thread'));
+  expect(fade.content).not.toBe('none');
+  expect(Number.parseFloat(fade.width)).toBe(box.width);
+  expect(box.left + Number.parseFloat(fade.left)).toBe(box.left);
+  expect(box.right - Number.parseFloat(fade.right)).toBe(box.right);
+  expect(Number.parseFloat(fade.height)).toBe(CHAT_COMPOSER_EDGE_FADE_PX + radius);
+  const bottom = box.bottom - Number.parseFloat(fade.bottom);
+  expect(bottom).toBe(box.top + radius);
+  expect(bottom - Number.parseFloat(fade.height)).toBe(box.top - CHAT_COMPOSER_EDGE_FADE_PX);
+});
 
 /** Park the pointer on a spot below the transcript, so no row is hovered. */
 async function hoverAway(host: HTMLElement) {

@@ -1,4 +1,4 @@
-import { GitBranch } from 'lucide-react'
+import { GitBranch } from '@/lib/icons'
 import { cn } from '@renderer/utils/utils';
 
 interface BranchDisplayProps {

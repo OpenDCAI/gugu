@@ -1,7 +1,7 @@
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { isMacHost } from '@shared/host-os';
 import { ChevronsUpDownIcon, Plus } from '@/lib/icons'
-import { Minus } from 'lucide-react'
+import { Minus } from '@/lib/icons'
 import React, { useCallback, useMemo, useState } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { cn } from '@renderer/utils/utils';

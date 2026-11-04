@@ -1,5 +1,5 @@
 import { isImageMimeType, resolveAttachmentMimeType } from '../imageMime.mjs'
-import type { FileRef } from '../fileResolver'
+import type { FileMetadata, FileRef } from '../fileResolver'
 
 export type AttachmentKind = 'image' | 'file'
 
@@ -41,6 +41,8 @@ export interface ParsedAttachment {
   sizeBytes: number
   caption?: string
   source: AttachmentSource
+  fileMetadata?: FileMetadata
+  imageDimensions?: { width: number; height: number }
 }
 
 /** 消息行上指向字节的列(messages_view 的 file_item_id / file_version / file_blob_id)和消息自己的 id。 */
@@ -50,6 +52,8 @@ export interface MessageFileRef {
   file_version?: number | null
   file_blob_id?: string | null
   local_send_state?: 'sending' | 'failed' | 'unknown' | null
+  file_metadata?: FileMetadata | null
+  image_dimensions?: { width: number; height: number }
 }
 
 /** 没定型的行(事件载荷、REST 原样回的 JSON)上读那两列。 */
@@ -71,6 +75,11 @@ const CAPTION_MARKER = '[Caption]'
 export function formatLegacyAttachmentContent(fileName: string, mimeType: string, textContent: string): string {
   const header = `${HEADER_PREFIX}${fileName}${mimeType ? ` (${mimeType})` : ''}`
   return textContent ? `${header}\n${textContent}` : header
+}
+
+/** The body of a new attachment message, as the server writes it (`chat.attachment_envelope`): a task turn's attachment reads the same. */
+export function attachmentEnvelope(fileName: string, sizeBytes: number, mimeType: string): string {
+  return `${HEADER_PREFIX}${fileName}${mimeType ? ` (${mimeType})` : ''}\n${SIZE_PREFIX}${sizeBytes}\n${KIND_PREFIX}${mimeType.startsWith('image/') ? 'image' : 'file'}`
 }
 
 // @@@attachment-line-count - Voice attachment content is exactly 3 lines; media attachment content stays 4 lines so parsers can disambiguate the shared `[附件]` header.
@@ -144,6 +153,8 @@ export function parseAttachmentContent(content: string | null, ref?: MessageFile
     sizeBytes: Math.round(sizeBytes),
     ...(caption ? { caption } : {}),
     source,
+    ...(ref?.file_metadata ? { fileMetadata: ref.file_metadata } : {}),
+    ...(ref?.image_dimensions ? { imageDimensions: ref.image_dimensions } : {}),
   }
 }
 

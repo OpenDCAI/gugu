@@ -67,6 +67,28 @@ describe('readRemotePreviewBytes', () => {
     const result = await readRemotePreviewBytes(read, '/p/a.png', 100);
     expect(result.ok && Array.from(result.bytes)).toEqual(Array.from(png));
   });
+
+  it('does not start a read for an already cancelled operation', async () => {
+    const operation = new AbortController();
+    operation.abort();
+    const read = remoteFile(Buffer.from('unused'));
+    await expect(readRemotePreviewBytes(read, '/p/a.css', 1024, operation.signal)).resolves.toMatchObject({ ok: false, code: 'aborted' });
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('stops after a pending chunk is cancelled, including a changed etag (%s)', async (changed) => {
+    const operation = new AbortController();
+    let finish!: (chunk: RemoteChunk) => void;
+    const first = { size: REMOTE_WORKSPACE_CHUNK_BYTES * 3, etag: 'old', data: Buffer.alloc(REMOTE_WORKSPACE_CHUNK_BYTES).toString('base64') };
+    const read = vi.fn().mockResolvedValueOnce(first)
+      .mockImplementationOnce(() => new Promise<RemoteChunk>(resolve => { finish = resolve; }));
+    const result = readRemotePreviewBytes(read, '/p/a.css', first.size, operation.signal);
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    operation.abort();
+    finish({ ...first, etag: changed ? 'new' : 'old' });
+    await expect(result).resolves.toMatchObject({ ok: false, code: 'aborted' });
+    expect(read).toHaveBeenCalledTimes(2); // Neither the next offset nor an etag retry may start.
+  });
 });
 
 describe('withUtf8Charset', () => {

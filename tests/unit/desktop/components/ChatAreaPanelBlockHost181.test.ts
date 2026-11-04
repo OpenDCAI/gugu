@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // gugu-dev#181 群聊画在会话页一块里(blockHost):块的页签条就是头 —— 这里不画群聊头,头上那排图标画进页签条右端那一格,
-// 对话的头像和名字画进页签那一格,人数挂在成员按钮上。不给 blockHost(对话页、手机、网页)时头栏照旧:每条带这个阳性对照。
+// The title slot keeps the conversation name; the shared members action owns its count in every layout.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
@@ -43,14 +43,13 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
           { id: 'user-1', role: 'owner', type: 'human', account_status: null },
           { id: 'user-2', role: 'member', type: 'human', account_status: null },
         ],
-        agents: [], tasks: [], outputs: [],
+        agents: [], tasks: [],
       },
       identities: [],
     })),
-    markMessageRead: vi.fn(async () => {}),
     getOtherMembersReadSeqs: vi.fn(async () => ({})),
     getThreadMessages: vi.fn(async () => []),
-    getGroupChatSettings: vi.fn(async () => ({ chat_id: 'group-1', max_members: 500, allow_member_invite: true, invite_link_enabled: false, agent_join_approval: false, join_mode: 'open', group_prompt: null, description: null, public_id: null, join_token: null })),
+    getGroupChatSettings: vi.fn(async () => ({ chat_id: 'group-1', my_role: 'owner', can_manage: true, can_dissolve: true, can_archive_topic: true, max_members: 500, allow_member_invite: true, invite_link_enabled: false, agent_join_approval: false, join_mode: 'open', group_prompt: null, description: null, public_id: null, join_token: null })),
     listGroupJoinRequests: vi.fn(async () => []),
   },
 }))
@@ -80,7 +79,7 @@ afterEach(() => {
 
 async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }, kind: 'group' | 'dm' | 'ai' = 'group', mobile = false, project = false, hideRunningStatus = false) {
   const chrome = hideRunningStatus ? { placeholder: 'Chat', attachGlyph: null, hideRunningStatus: true } : undefined
-  const panel = createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost, mobile, ...(chrome ? { chrome } : {}) })
+  const panel = createNode(ChatAreaPanel, { openNonce: 0, blockHost, mobile, ...(chrome ? { chrome } : {}) })
   await renderWithAppProviders(harness, project ? createNode(InChatSlot.Provider, { value: { projectName: 'Settings project' } }, panel) : panel, {
     chat: {
       getImRepository: getImRepositoryMock,
@@ -171,14 +170,16 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     expect(header(), 'chat page / phone / web: the header row is still there').not.toBeNull()
     expect(header()?.textContent).toContain('设计评审')
     expect(membersButtonIn(header()!)).not.toBeNull()
-    expect(harness.container.querySelector('[data-member-count]'), 'the count stays after the title, not on the button').toBeNull()
+    expect(membersButtonIn(header()!)?.textContent, 'the existing roster feeds the header member action').toContain('2')
+    expect(header()?.textContent, 'the title no longer duplicates the member count').not.toContain('(2)')
   })
 
   it('in a block draws no header; the icons go to the tab strip slot and the name to the tab slot', async () => {
     await renderPanel({ actions, title, tabs: null })
     expect(header(), 'the block tab strip is the header').toBeNull()
     expect(membersButtonIn(actions), 'the action icons are painted into the tab strip').not.toBeNull()
-    expect(actions.querySelector('[data-member-count]')?.textContent).toBe('2')
+    expect(membersButtonIn(actions)?.textContent, 'the block uses the same roster-backed member action').toContain('2')
+    expect(title.textContent, 'the block title contains only the conversation name').not.toContain('(2)')
     expect(title.textContent).toContain('设计评审')
   })
 
@@ -272,17 +273,7 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
   // 留着就是输入框上面一条 42px 的空带。
   it('reserves no running bar row when the chat hides running status (assistant)', async () => {
     await renderPanel(undefined, 'ai', false, false, true)
-    const conversation = harness.container.querySelector<HTMLElement>('[data-testid="agent-dm-conversation"]')!
-    expect(conversation).not.toBeNull()
-    expect(conversation.querySelector('[data-running-bar-slot]')).toBeNull()
-  })
-
-  it.each(['header', 'block', 'phone'] as const)('%s: agent DM uses the shared conversation without the legacy header or running bar', async layout => {
-    await renderPanel(layout === 'block' ? { actions, title, tabs: null } : undefined, 'ai', layout === 'phone')
-    expect(harness.container.querySelector('[data-testid="agent-dm-conversation"]')).not.toBeNull()
-    expect(harness.container.querySelector('[data-chat-bottom-dock]')).toBeNull()
     expect(harness.container.querySelector('[data-running-bar-slot]')).toBeNull()
-    expect(harness.container.textContent).not.toContain('在任务中打开')
   })
 
   it('keeps the agent avatar, title, folder and More in the block strip without a second content header', async () => {
@@ -294,8 +285,6 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
       expect(title.textContent).toBe('设计评审')
       expect(title.querySelector('[data-agent]'), 'the tab keeps the agent avatar').not.toBeNull()
       expect(header(), 'the strip is the only header').toBeNull()
-      const conversation = harness.container.querySelector('[data-testid="agent-dm-conversation"]')!
-      expect(conversation.querySelector('header')).toBeNull()
       expect(actions.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)).not.toBeNull()
       await clickElement(actions.querySelector<HTMLElement>('button[aria-label="文件夹"]')!)
       const shown = shownPanelTab('group-1')!
@@ -303,7 +292,6 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
       expect(isFolderItem(shown.item)).toBe(true)
       await act(async () => { readShellSlots()!.setSlot(chatTabSlotKey('group-1', folder!), slot) })
       expect(slot.querySelector('[data-testid="group-app-slot"]'), 'the folder button opens its real tab').not.toBeNull()
-      expect(harness.container.contains(conversation), 'opening a tab keeps the shared conversation mounted').toBe(true)
     } finally {
       await act(async () => {
         if (folder) { readShellSlots()?.setSlot(chatTabSlotKey('group-1', folder), null); closeChatTab('group-1', folder) }

@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from '@gugu/core/local/childProcess';
 import { existsSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 

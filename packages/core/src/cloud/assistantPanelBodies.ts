@@ -5,6 +5,7 @@ import { cloudFileProviders } from './fileProviders'
 import { createCachedFileSink, type FileChunkCache } from '../shared/fileCache'
 import { createFileResolver } from '../shared/fileResolver'
 import { AssistantPanelError, type AssistantPanelItem } from './assistantPanel'
+import { anySignal } from '../shared/anySignal'
 
 export type AssistantPanelBodyAccess = {
   signal?: AbortSignal; token: string; ownerId: string; chatId: string; accountId(): string | null | Promise<string | null>
@@ -21,7 +22,7 @@ async function sha256(bytes: Uint8Array): Promise<string> {
 /** Every network stage has a deadline, including direct object bytes. */
 function panelEndpoint(token: string, parentSignal?: AbortSignal) {
   return { ...configuredEndpoint(token),fetch: ((url,init) => withBoundedOperation(30_000,() => new AssistantPanelError('body-timeout','PANEL_BODY_TIMEOUT'),signal => fetch(url,{ ...init,
-    signal: AbortSignal.any([signal,...(parentSignal ? [parentSignal] : []),...(init?.signal ? [init.signal] : [])]),
+    signal: anySignal([signal, parentSignal, init?.signal]),
   }))) as typeof fetch }
 }
 
@@ -58,7 +59,7 @@ export async function readAssistantPanelBody(item: AssistantPanelItem, input: As
   if (item.deleted_at) throw new AssistantPanelError('deleted','This resource has been deleted')
   if (!item.body_item_id || !item.body_sha256) throw new AssistantPanelError('body-unavailable','Assistant panel resource content is unavailable')
   const client = createGuguSupabaseClient({ schema: 'chat',headers: { Authorization: `Bearer ${input.token}` } })
-  const { data,error,status } = await client.rpc('workspace_get_as',{ p_item_id: item.body_item_id,p_as_user_id: input.ownerId }).abortSignal(AbortSignal.any([AbortSignal.timeout(2000),...(input.signal ? [input.signal] : [])]))
+  const { data,error,status } = await client.rpc('workspace_get_as',{ p_item_id: item.body_item_id,p_as_user_id: input.ownerId }).abortSignal(anySignal([AbortSignal.timeout(2000), input.signal]))
   await assertOwner(input)
   const file = Array.isArray(data) ? data[0] as Record<string, unknown> | undefined : undefined
   if (error || !file || file.chat_id !== input.chatId || file.kind !== 'file' || typeof file.version !== 'number') {

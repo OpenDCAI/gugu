@@ -8,6 +8,7 @@ import { appState } from '@renderer/lib/stores/app-state';
 import { createUnmountedProject, isUnregisteredProject } from './project';
 import { ProjectPathConflictError } from './project-creation-error';
 import { ProjectManagerStore } from './project-manager';
+import { isWorkspaceProject } from '@renderer/features/sessions/session-home-project-constants';
 
 const mocks = vi.hoisted(() => ({
   cloneRepository: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   initializeRepository: vi.fn(),
   inspectProjectPath: vi.fn(),
   getProjects: vi.fn(),
+  attachProjectFolder: vi.fn(),
   getUnarchivedSession: vi.fn(),
   logError: vi.fn(),
   openProject: vi.fn(),
@@ -45,6 +47,7 @@ vi.mock('@renderer/lib/ipc', () => {
     projects: {
       createProject: mocks.createProject,
       getProjects: mocks.getProjects,
+      attachProjectFolder: mocks.attachProjectFolder,
       inspectProjectPath: mocks.inspectProjectPath,
       openProject: mocks.openProject,
       patchProjectSettings: mocks.patchProjectSettings,
@@ -83,6 +86,7 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
     navigation: {
       currentViewId: 'home',
       revalidate: vi.fn(),
+      updateViewParams: vi.fn(),
       viewParamsStore: {},
     },
   },
@@ -407,6 +411,53 @@ describe('ProjectManagerStore project creation', () => {
     expect(mocks.createProject).not.toHaveBeenCalled();
     expect(store.projects.has('optimistic-project')).toBe(false);
     expect(store.pendingCreationIds.has('optimistic-project')).toBe(false);
+  });
+
+  it.each([false, true])('reopens the original project through the host when archived: %s', async (archived) => {
+    const original = localProject({
+      id: 'retained-project',
+      repositoryWorkspaceId: 'original-root',
+      ...(archived ? { archivedAt: '2026-10-30T10:00:00Z' } : {}),
+    });
+    const restored = localProject({ id: original.id, repositoryWorkspaceId: 'original-root' });
+    mocks.inspectProjectPath.mockResolvedValueOnce({ isDirectory: true, isGitRepo: true, existingProject: original });
+    mocks.createProject.mockImplementation(async () => {
+      mocks.getProjects.mockResolvedValue([restored]);
+      return okProject(restored);
+    });
+    const store = new ProjectManagerStore();
+    // Exercise the real creation and store loading path; mounting Agent runtimes
+    // is covered separately and this suite deliberately leaves openProject pending.
+    const mount = vi.spyOn(store, 'mountProject').mockResolvedValue(undefined);
+    try {
+      const result = await store.startProjectCreation({ type: 'local' }, { mode: 'pick', name: 'Project', path: original.path });
+      expect(result).toEqual({ kind: 'existing', projectId: original.id });
+      expect(mocks.createProject).toHaveBeenCalledTimes(archived ? 1 : 0);
+      if (archived) {
+        expect(store.projects.has(original.id)).toBe(true);
+        expect(store.projects.get(original.id)?.data?.archivedAt).toBeUndefined();
+        expect(store.projects.get(original.id)?.data?.repositoryWorkspaceId).toBe('original-root');
+        expect(mount).toHaveBeenCalledWith(original.id);
+      }
+    } finally {
+      store.dispose();
+    }
+  });
+
+  it('does not restore or attach an archived project during automatic discovery', async () => {
+    const archived = localProject({ id: 'archived-project', archivedAt: '2026-10-30T10:00:00Z', rootFolderDetached: true });
+    mocks.inspectProjectPath.mockResolvedValueOnce({ isDirectory: true, isGitRepo: false, existingProject: archived });
+    mocks.attachProjectFolder.mockResolvedValueOnce({ success: true, data: {} });
+    const store = new ProjectManagerStore();
+    try {
+      await expect(store.startProjectCreation({ type: 'local' }, { mode: 'pick', name: 'History', path: archived.path, automatic: true }))
+        .resolves.toEqual({ kind: 'existing', projectId: archived.id });
+      expect(mocks.createProject).not.toHaveBeenCalled();
+      expect(mocks.attachProjectFolder).not.toHaveBeenCalled();
+      expect(store.projects.has(archived.id)).toBe(false);
+    } finally {
+      store.dispose();
+    }
   });
 
   it('#609 adding by hand a folder that is a workspace (~) asks the machine to make it a project; automatic entries do not', async () => {
@@ -793,6 +844,75 @@ describe('ProjectManagerStore project creation', () => {
   });
 });
 
+describe('remote project classification on reconnect', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.eventOn.mockReturnValue(vi.fn());
+  });
+
+  it.each([false, true])('refreshes a known project category without replacing its task state (mounted=%s)', async (mounted) => {
+    const { machineRegistry } = await import('@renderer/lib/machine-routing');
+    const deviceId = `classification-device-${mounted}`;
+    const project = localProject({ id: `classification-project-${mounted}` });
+    const store = new ProjectManagerStore();
+    store.syncMachineProjects(deviceId, [project]);
+    const known = store.projects.get(project.id)!;
+    if (mounted) {
+      known.state = 'mounted';
+      known.mountedProject = { sessionManager: { sessions: new Map([['task', { id: 'task' }]]) }, dispose: vi.fn() } as never;
+    }
+    const taskState = known.mountedProject;
+    try {
+      store.syncMachineProjects(deviceId, [{ ...project, kind: 'workspace' }]);
+      expect(isWorkspaceProject(known)).toBe(true);
+      expect(store.projects.get(project.id)).toBe(known);
+      expect(known.mountedProject).toBe(taskState);
+      if (taskState) expect(taskState.dispose).not.toHaveBeenCalled();
+      expect(mocks.openProject).not.toHaveBeenCalled();
+      const updated = known.data;
+      store.syncMachineProjects(deviceId, [{ ...project, kind: 'workspace' }]);
+      expect(known.data).toBe(updated);
+
+      // The user may later explicitly add this same folder as a real project.
+      store.syncMachineProjects(deviceId, [project]);
+      expect(isWorkspaceProject(known)).toBe(false);
+      expect(known.mountedProject).toBe(taskState);
+    } finally {
+      store.dispose();
+      machineRegistry.forgetMachine(deviceId);
+    }
+  });
+
+  it('aligns a moved task after registering its new project and before removing the old one or checking the route', async () => {
+    const { machineRegistry } = await import('@renderer/lib/machine-routing');
+    const deviceId = 'migrated-assistant-device';
+    const old = localProject({ id: 'legacy-assistant-project' });
+    const tasks = localProject({ id: 'machine-task-workspace', kind: 'workspace' });
+    const store = new ProjectManagerStore();
+    store.syncMachineProjects(deviceId, [old]);
+    const saved = appState.navigation.viewParamsStore;
+    appState.navigation.viewParamsStore = { session: { projectId: old.id, sessionId: 'moved-assistant' } };
+    const order: string[] = [];
+    vi.mocked(appState.navigation.updateViewParams).mockImplementation(() => {
+      expect(store.projects.has(old.id)).toBe(true);
+      expect(store.projects.has(tasks.id)).toBe(true);
+      order.push('align');
+    });
+    vi.mocked(appState.navigation.revalidate).mockImplementation(() => order.push('revalidate'));
+    try {
+      store.syncMachineProjects(deviceId, [tasks], [{ conversationId: 'moved-assistant', projectId: tasks.id }]);
+      expect(appState.navigation.updateViewParams).toHaveBeenCalledWith('session', { projectId: tasks.id, sessionId: 'moved-assistant' });
+      expect(order).toEqual(['align', 'revalidate']);
+      expect(store.projects.has(old.id)).toBe(false);
+    } finally {
+      appState.navigation.viewParamsStore = saved;
+      vi.mocked(appState.navigation.updateViewParams).mockReset();
+      vi.mocked(appState.navigation.revalidate).mockReset();
+      store.dispose(); machineRegistry.forgetMachine(deviceId);
+    }
+  });
+});
+
 // #581 实机复现:同一个库换了设备 id(换 tier / 重新登记),旧设备行的账号副本里写着这台电脑的项目 id ——
 // 它被记到那台名下:本机项目被错路由到那台(「Can't reach …」),那台一被移除,本机项目就从侧栏消失,而本机库里还在。
 describe('#581 这台电脑的项目不被别的机器认领', () => {
@@ -814,8 +934,9 @@ describe('#581 这台电脑的项目不被别的机器认领', () => {
     expect(machineRegistry.machineOf(mine.id)).toBeNull();
     expect(store.projects.get(mine.id)?.data).toEqual(mine);
 
-    store.syncMachineProjects('stale-row-1', [mine]);
+    store.syncMachineProjects('stale-row-1', [{ ...mine, kind: 'workspace' }]);
     expect(machineRegistry.machineOf(mine.id), '再登记也认领不走').toBeNull();
+    expect(store.projects.get(mine.id)?.data?.kind, '远端类别不能改写本机项目').toBeUndefined();
     store.dropMachine('stale-row-1');
     machineRegistry.forgetMachine('stale-row-1');
     expect(store.projects.has(mine.id)).toBe(true);

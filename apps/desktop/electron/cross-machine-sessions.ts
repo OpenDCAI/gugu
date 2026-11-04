@@ -21,18 +21,15 @@ import {
   type AppCallAction,
   appCallWaitMs,
   type AppMessageReceipt,
-  type AppReadFileAction,
   type RemoteAppCaller,
   type RemoteCaller,
   type RemoteSessionCaller,
   type SessionpageSessionsListResult,
 } from '@gugu/session-core/session-record/contract'
 import { SESSION_HOST_RPC } from '@shared/lib/ipc/session-host-device-frames'
-import { FILE_PATCH_PROTOCOL, protocol14FileChanges } from '@gugu/session-core/session-record/contract'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { dispatchCallOf } from '@shared/extensions/app-dispatch-core'
 import type { OtherMachines } from './session/main/core/sessions/session-family'
-import type { WorkspaceChunk } from './session/main/core/files/workspace-transfer'
 import { DeviceRpcChannelError, DeviceRpcTimeoutError, type DeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { UnifiedRecipientResult, UnifiedSessionMessageDeps } from './unified-session-message'
 
@@ -120,8 +117,6 @@ export type AgentSessionHost = {
   /** 另一台机器上的 App 发来的消息:与本机 App 发消息同一个函数,信封写那个 App。 */
   app(caller: RemoteAppCaller, action: AppMessageAction): Promise<AppMessageReceipt>
   appSpawn(caller: RemoteAppCaller, action: AppSpawnAction): Promise<{ agentId: string }>
-  /** 另一台机器上的 App 读这台机器上一条会话工作副本里的一块(那台机器判过 `files:read:all-machines`)。 */
-  appReadFile(caller: RemoteAppCaller, action: AppReadFileAction): Promise<WorkspaceChunk>
   /** 另一台机器上的 App 页面让这台机器做一个跟着会话机器的动词(它的数据目录、它的程序;页面在这台机器的一条会话里)。 */
   appCall(caller: RemoteAppCaller, action: AppCallAction): Promise<unknown>
 }
@@ -218,8 +213,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     // 对端的工具错误原样带回(那台机器上同一个工具会说的那句话),前面点名是哪台机器。
     if (response.error) throw new CrossMachineError(response.error.code || 'SESSION_REMOTE_ERROR', `on ${describe(device)}: ${response.error.message}`)
     const result = response.result as { value?: unknown; protocol?: number } | undefined
-    // A host before protocol 15 does not say its protocol here (protocol14FileChanges, delete on next bump).
-    return protocol14FileChanges(result?.value, result?.protocol ?? FILE_PATCH_PROTOCOL - 1, 'from-peer')
+    return result?.value
   }
 
   /**
@@ -248,8 +242,24 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     }
   }
 
-  const call = async (deviceId: string, caller: RemoteCaller, action: Action, signal?: AbortSignal): Promise<unknown> =>
-    request(await reachable(deviceId, !('kind' in caller), signal, action.action === 'message' || action.action === 'spawn'), action.action === 'spawn' && action.assistant_work ? 'assistantWork.prepare' : `agentSession.${action.action}`, [caller, action], remoteActionTimeoutMs(action), action.action, signal)
+  const call = async (deviceId: string, caller: RemoteCaller, action: Action, signal?: AbortSignal): Promise<unknown> => {
+    const sessionCaller = 'kind' in caller ? null : caller
+    // Older hosts understand default/spawner and root through nest. The new parent field stays authoritative.
+    const wire = sessionCaller && action.action === 'spawn' ? { ...action, nest: action.parent_session_id !== null } : action
+    // A separate method makes old hosts reject thinking before they can silently discard it.
+    const channel = action.action === 'spawn' && action.thinking !== undefined ? 'agentSession.spawnWithThinking'
+      : action.action === 'spawn' && action.assistant_work ? 'assistantWork.prepare' : `agentSession.${action.action}`
+    const result = await request(await reachable(deviceId, !!sessionCaller, signal, action.action === 'message' || action.action === 'spawn'), channel, [caller, wire], remoteActionTimeoutMs(action), action.action, signal)
+    if (sessionCaller && action.action === 'spawn' && typeof action.parent_session_id === 'string'
+      && action.parent_session_id !== sessionCaller.sessionId) {
+      const created = result as { session_id: string; parent_session_id?: string | null }
+      if (created?.parent_session_id !== action.parent_session_id) {
+        throw new CrossMachineError('SESSION_PARENT_UNSUPPORTED',
+          `${created?.session_id ? encodeTypedId('session', created.session_id) : 'The session'} was created, but that device's version does not support putting it under the given parent; update that device, or move it with session_set_parent. Do not spawn it again`)
+      }
+    }
+    return result
+  }
 
   const assertFileHandoffSupported = async (deviceIds: string[]) => {
     for (const id of new Set(deviceIds)) {
@@ -434,8 +444,8 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   }
 
   /** 那台机器上的一条会话:界面同一个方法,那边走的就是人在那台机器上点的归档。 */
-  const archiveOn = async (deviceId: string, sessionId: string) => {
-    const result = await request(await reachable(deviceId), 'sessionTimeline.sessionUpdate', [{ conversationId: sessionId, archived: true }], 30_000, 'archive') as
+  const archiveOn = async (deviceId: string, sessionId: string, removeSocialIdentity = true) => {
+    const result = await request(await reachable(deviceId), 'sessionTimeline.sessionUpdate', [{ conversationId: sessionId, archived: true, removeSocialIdentity }], 30_000, 'archive') as
       | { ok: true }
       | { ok: false; error: { code: string; message: string } }
     if (!result.ok) throw new CrossMachineError(result.error.code, `on device:${deviceId}: ${result.error.message}`)
@@ -446,12 +456,6 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     const here = await thisDevice()
     const caller: RemoteAppCaller = { kind: 'app', deviceId: here.deviceId, deviceLabel: here.label, ...app }
     return await call(deviceId, caller, { action: 'message', session_ids: [sessionId], text, ...how } satisfies AppMessageAction) as AppMessageReceipt
-  }
-
-  /** 这台机器上的一个 App 读别的机器上一条会话工作副本里的一块。 */
-  const appReadFile: OtherMachines['appReadFile'] = async (app, deviceId, action) => {
-    const here = await thisDevice()
-    return await call(deviceId, { kind: 'app', deviceId: here.deviceId, deviceLabel: here.label, ...app } satisfies RemoteAppCaller, action) as WorkspaceChunk
   }
 
   /** 这台机器上的一个 App 页面让别的机器做一个跟着会话机器的动词(页面所在的会话在那台机器上)。 */
@@ -472,7 +476,6 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     try {
       if ('kind' in parsed.caller) {
         if (parsed.action.action === 'spawn') return await host.appSpawn(parsed.caller, parsed.action as AppSpawnAction)
-        if (parsed.action.action === 'read_file') return await host.appReadFile(parsed.caller, parsed.action as AppReadFileAction)
         if (parsed.action.action === 'app_call') return await host.appCall(parsed.caller, parsed.action as AppCallAction)
         return await host.app(parsed.caller, parsed.action as AppMessageAction)
       }
@@ -549,7 +552,6 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     sessionsElsewhere,
     archiveOn,
     appMessage,
-    appReadFile,
     appCall,
     appSpawn,
     messageDeps,
@@ -573,8 +575,8 @@ export function parseAgentSessionRequest(
   const deviceId = text('deviceId')
   if (!deviceId) return { error: 'caller.deviceId is required' }
   if (caller.kind === 'app') {
-    if (name !== 'message' && name !== 'spawn' && name !== 'read_file' && name !== 'app_call') {
-      return { error: `an App may only send a message, start an agent, read a file, or have a page's call done on another machine, not ${name}` }
+    if (name !== 'message' && name !== 'spawn' && name !== 'app_call') {
+      return { error: `an App may only send a message, start an agent, or have a page's call done on another machine, not ${name}` }
     }
     const extensionId = text('extensionId')
     const extensionName = text('extensionName')
@@ -589,16 +591,6 @@ export function parseAgentSessionRequest(
         }
       } catch (error) {
         return { error: error instanceof Error ? error.message : String(error) }
-      }
-    }
-    if (name === 'read_file') {
-      const { session_id: sessionId, path, offset, length } = action
-      if (typeof sessionId !== 'string' || typeof path !== 'string' || typeof offset !== 'number' || typeof length !== 'number') {
-        return { error: 'read_file names a session (session_id), a path in its working copy, an offset and a length' }
-      }
-      return {
-        caller: { kind: 'app', deviceId, deviceLabel: text('deviceLabel'), extensionId, extensionName },
-        action: { action: 'read_file', session_id: sessionId, path, offset, length },
       }
     }
     if (name === 'app_call') {
@@ -633,10 +625,21 @@ export function parseAgentSessionRequest(
       },
     }
   }
-  if (name === 'read_file' || name === 'app_call') return { error: `${name} is for an App on another machine; an agent works on its own machine` }
+  if (name === 'app_call') return { error: `${name} is for an App on another machine; an agent works on its own machine` }
   const sessionId = text('sessionId')
   if (!sessionId) return { error: 'caller.sessionId is required' }
   if (caller.transport !== 'acp' && caller.transport !== 'pty') return { error: 'caller.transport must be acp or pty' }
+  let sessionAction = action as AgentSessionAction
+  if (name === 'spawn') {
+    // Older senders put nest on this wire. Keep that translation at the receiving boundary only.
+    const { nest, ...spawn } = action
+    if (spawn.parent_session_id === undefined && nest !== undefined && typeof nest !== 'boolean') return { error: 'nest must be a boolean' }
+    if (spawn.parent_session_id !== undefined && spawn.parent_session_id !== null
+      && (typeof spawn.parent_session_id !== 'string' || !spawn.parent_session_id)) {
+      return { error: 'parent_session_id must be a session id or null' }
+    }
+    sessionAction = { ...spawn, ...(spawn.parent_session_id === undefined && nest === false ? { parent_session_id: null } : {}) } as AgentSessionAction
+  }
   return {
     caller: {
       deviceId,
@@ -645,10 +648,12 @@ export function parseAgentSessionRequest(
       agentUserId: text('agentUserId'),
       name: text('name'),
       harness: text('harness'),
+      childHarness: text('childHarness'),
+      ...(text('groupChatId') ? { groupChatId: text('groupChatId')! } : {}),
       transport: caller.transport,
       model: text('model'),
       platformModel: text('platformModel'),
     },
-    action: action as AgentSessionAction,
+    action: sessionAction,
   }
 }

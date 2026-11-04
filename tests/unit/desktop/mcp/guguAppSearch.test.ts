@@ -14,16 +14,16 @@ const CATEGORIES = ['research', 'productivity', 'developer', 'games']
 const PERMISSIONS = [undefined, { capabilities: ['notifications'] }, { capabilities: ['files:read'] }, { network: ['arxiv.org'] }]
 
 /** App i: a state, a category, a risk (none / medium / high / high), opens .pdf every third, dated by i (later = newer). */
-function app(i: number, more: { description?: string; next?: string } = {}): AppSearchHit {
+function app(i: number, more: { subtitle?: string; instructions?: string; next?: string } = {}): AppSearchHit {
   const id = `app-${String(i).padStart(2, '0')}`
   const manifest = {
     id,
     name: `App ${String(i).padStart(2, '0')}`,
     version: `1.0.${i}`,
-    description: more.description ?? `Tool number ${i}.`,
+    subtitle: more.subtitle ?? `Tool number ${i}`,
     categories: i % 10 === 9 ? undefined : [CATEGORIES[i % CATEGORIES.length]],
     permissions: PERMISSIONS[i % PERMISSIONS.length],
-    contributes: { tabs: [{ name: 'main', title: 'Main', ...(i % 3 === 0 ? { opensFiles: { chat: ['.PDF'] } } : {}) }] },
+    contributes: { tabs: [{ name: 'main', title: 'Main', ...(i % 3 === 0 ? { opensFiles: { chat: ['.PDF'] } } : {}) }], instructions: more.instructions ?? `tool_${i}(x): the tool.` },
   } as unknown as ExtensionManifest
   const day = String(1 + (i % 28)).padStart(2, '0')
   return {
@@ -77,8 +77,8 @@ describe('searchApps (shared: the agent and the Apps page)', () => {
   })
 
   it('a Chinese phrase finds the App whose name it holds, first; a query nothing matches finds none', () => {
-    const soup = { ...app(60), manifest: { ...app(60).manifest, id: 'turtle-soup', name: '海龟汤', description: '海龟汤（情境推理）:大家一起问出关键。' } }
-    const together = { ...app(61), manifest: { ...app(61).manifest, id: 'together', name: '一起改', description: '大家一起改一个文件。' } }
+    const soup = { ...app(60), manifest: { ...app(60).manifest, id: 'turtle-soup', name: '海龟汤', subtitle: '大家一起问出关键' } }
+    const together = { ...app(61), manifest: { ...app(61).manifest, id: 'together', name: '一起改', subtitle: '大家一起改一个文件' } }
     expect(ids(searchApps([together, soup, ...SIXTY], { query: '一起玩海龟汤' }).items)).toEqual(['turtle-soup', 'together'])
     expect(searchApps(SIXTY, { query: '狼人杀' }).items).toEqual([])
   })
@@ -104,19 +104,19 @@ describe('app_search, the tool', () => {
     return call
   }
 
-  it('pages of at most ten, with next; a wider window is refused, naming the next page', async () => {
+  it('pages of at most seven, with next; a wider window is refused, naming the next page', async () => {
     const call = await connect(async () => ({ apps: SIXTY }))
     const first = await call({})
-    expect(first.body).toMatchObject({ total: 60, rows: '1-10', next: '11-20' })
+    expect(first.body).toMatchObject({ total: 60, rows: '1-7', next: '8-14' })
     expect(first.body.items).toHaveLength(APP_SEARCH_PAGE_ROWS)
     expect(first.body.items[0]).toEqual({
-      app: 'app-00', name: 'App 00', about: 'Tool number 0.', state: 'on', version: '1.0.0', category: ['research'],
+      app: 'app-00', name: 'App 00', subtitle: 'Tool number 0', instructions: 'tool_0(x): the tool.', state: 'on', version: '1.0.0', category: ['research'],
       risk: 'none', published: '2026-01-01', updated: '2026-10-01',
     })
-    expect((await call({ rows: '51-60' })).body).toMatchObject({ rows: '51-60', next: null })
+    expect((await call({ rows: '54-60' })).body).toMatchObject({ rows: '54-60', next: null })
     const wide = await call({ rows: '1-30' })
     expect(wide.isError).toBe(true)
-    expect(wide.text).toContain('app_search gives at most 10 rows a call; take the next page with rows "11-20"')
+    expect(wide.text).toContain('app_search gives at most 7 rows a call; take the next page with rows "8-14"')
   })
 
   it('the filters and facets reach the agent; a market not reached is said beside the rows', async () => {
@@ -130,26 +130,27 @@ describe('app_search, the tool', () => {
 
   it('offers conditional creation advice on every result without using the pagination next', async () => {
     const call = await connect(async () => ({ apps: SIXTY }))
-    for (const args of [{ query: '井字棋' }, { query: 'Tool' }, { rows: '71-80' }]) {
+    for (const args of [{ query: '井字棋' }, { query: 'Tool' }, { rows: '71-77' }]) {
       const found = await call(args)
       expect(found.body.note).toContain('If none fits and the person wants one made: guide_read apps')
       expect(found.body.note).toContain('chat: group-json')
       expect(found.body.note).toContain('app_install(chat_id, data) → app_check')
       expect(found.body.note).toContain('For a missing feature in an existing App: ask to fork')
     }
-    expect((await call({ query: 'Tool' })).body.next).toBe('11-20')
+    expect((await call({ query: 'Tool' })).body.next).toBe('8-14')
     expect((await call({ query: '井字棋' })).body).toMatchObject({ total: 0, items: [], next: null })
   })
 
   it('a page of the longest rows fits one output (8 000 bytes)', async () => {
     const long = Array.from({ length: 60 }, (_, i) => app(i, {
-      description: `${'很长的描述'.repeat(60)}。Second sentence.`,
+      subtitle: '很长的描述'.repeat(6),
+      instructions: '很长的描述'.repeat(32),
       next: `Not installed: catalog_call app_install { market: "app-${i}" } installs it from the market — the call itself asks your owner to confirm files:read, files:write, chat:relay, agents:tools before anything is installed`,
     }))
     const page = await connect(async () => ({ apps: long }))
     const { text, body } = await page({ query: '描述' })
-    expect(body.items).toHaveLength(10)
-    expect(body.items[0].about).toHaveLength(120)
+    expect(body.items).toHaveLength(APP_SEARCH_PAGE_ROWS)
+    expect(body.items[0].instructions).toHaveLength(160)
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(TOOL_OUTPUT_BYTE_BUDGET)
   })
 

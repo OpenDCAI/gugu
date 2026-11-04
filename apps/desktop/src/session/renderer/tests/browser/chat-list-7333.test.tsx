@@ -62,7 +62,7 @@ async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobi
   harness.container.style.cssText = 'width: 320px; height: 640px; display: flex;';
   await renderWithAppProviders(
     harness,
-    createNode(ChatListPanel, { activeTab: 'chats', mobile, placement, onOpenAgentCreateDraft: vi.fn(), onChatSelected }),
+    createNode(ChatListPanel, { activeTab: 'chats', mobile, placement, onChatSelected }),
     { chat: { chats, activeChatId, identitiesById: { 'peer-lin': displayIdentity('peer-lin', { display_name: '林知夏', avatar: peerAvatar }) } } },
   );
   await until('the chat rows rendered', () => harness.container.querySelector('[data-chat-row="dm-1"]') !== null);

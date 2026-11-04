@@ -46,7 +46,7 @@ const { PHONE_CAPABILITIES } = await import('../../../../apps/desktop/src/compon
 
 type Tab = { name: string; title: string; opensFiles?: Record<string, string[]> }
 const app = (tabs: Tab[], capabilities: string[] = []) =>
-  ({ id: 'board', name: 'Board', version: '1.0.0', apiVersion: 3, entry: 'index.html', contributes: { tabs }, permissions: { capabilities } }) as never
+  ({ id: 'board', name: 'Board', version: '1.0.0', apiVersion: 3, defaultLocale: 'en', entry: 'index.html', contributes: { tabs }, permissions: { capabilities } }) as never
 const OWN_PAGE: Tab = { name: 'main', title: 'Board' }
 const GROUP_FILES: Tab = { name: 'main', title: 'Board', opensFiles: { chat: ['.board.json'] } }
 const SESSION_FILES: Tab = { name: 'main', title: 'Board', opensFiles: { session: ['TODO.md'] } }

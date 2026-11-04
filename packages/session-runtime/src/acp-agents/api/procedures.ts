@@ -129,9 +129,8 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     async queuePrompt(input: {
       sessionId: string;
       prompt: PromptInput;
-      startInput?: AcpRuntimeStartInput;
     }): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
-      return runtime.queuePrompt(input.sessionId, input.prompt, input.startInput);
+      return runtime.queuePrompt(input.sessionId, input.prompt);
     },
     editQueuedPrompt(input: {
       sessionId: string;

@@ -1,4 +1,4 @@
-import { Github } from 'lucide-react'
+import { Github } from '@/lib/icons'
 import { Badge } from '@renderer/lib/ui/badge';
 import { SelectItem } from '@renderer/lib/ui/select';
 import type { SessionMessageKey } from '@renderer/localization/messages';

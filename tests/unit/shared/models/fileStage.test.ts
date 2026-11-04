@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { stageFileHandle, stageFileSource, FILE_CHUNK_BYTES, type FileStageCommand } from '@gugu/core/shared/fileResolver'
-import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
+import { verifiedFileHandle } from '../../../support/verifiedFileHandle'
 
 describe('verified originals cross a native bridge only in bounded frames', () => {
   it('sends the exact committed binary original and original filename, then only an opaque native id', async () => {

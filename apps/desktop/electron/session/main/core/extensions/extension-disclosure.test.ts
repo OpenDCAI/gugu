@@ -13,7 +13,7 @@ function installed(): ExtensionsService {
   mkdirSync(source, { recursive: true });
   writeFileSync(path.join(source, 'index.html'), '<p>demo</p>');
   writeFileSync(path.join(source, 'manifest.json'), JSON.stringify({
-    id: 'demo-ext', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+    id: 'demo-ext', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: 'Demo' }] },
   }));
   const service = new ExtensionsService(path.join(work, 'installed'));

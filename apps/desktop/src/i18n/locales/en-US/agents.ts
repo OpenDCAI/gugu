@@ -143,9 +143,7 @@ export default {
     },
     "title": "New Agent",
     "unfinishedSweep": {
-      "cancelled": "An Agent from last time was never finished and has been cancelled. Please create it again.",
       "cancelledWithWarning": "An Agent from last time was never finished and has been cancelled, but {{steps}} did not complete cleanly. Please create it again.",
-      "completed": "The unfinished Agent \"{{name}}\" from last time was actually created and is now in your messages.",
       "pending": "An Agent from last time was never finished; cancelling it is not done yet ({{steps}} did not complete cleanly). It will be retried on next launch.",
       "pendingError": "An Agent from last time was never finished and could not be cancelled this time. It will be retried on next launch."
     },
@@ -360,7 +358,7 @@ export default {
       "noDevice": "This Agent is not bound to a device, so a model selection has nowhere to take effect.",
       "catalogUnavailable": "Gugu's models are unavailable. Use the Agent's own model for now.",
       "noPlatformForEngine": "This Agent’s engine cannot use models provided by Gugu; it keeps its own configuration.",
-      "liveSessionHint": "If this Agent has a running task: it switches in place when it can; otherwise the task is reopened, interrupting the turn in flight. Switching between Gugu-provided and own models may start a new agent session for some engines; the conversation history in Gugu is kept either way."
+      "liveSessionHint": "If this Agent has a running task: it switches in place when it can; otherwise the task is reopened, interrupting the reply in progress. Switching between Gugu-provided and own models may start a new agent session for some engines; the conversation history in Gugu is kept either way."
     },
     "nav": {
       "aiModel": "AI model",
@@ -377,11 +375,9 @@ export default {
       "avatar": "Avatar",
       "bio": "Bio",
       "bioPlaceholder": "Describe this Agent’s capabilities (optional)",
-      "confirmDelete": "Delete Agent “{{name}}”? This cannot be undone.",
-      "deleteAgent": "Delete Agent",
-      "deleted": "Agent deleted",
-      "deleteFailed": "Could not delete the Agent. Try again.",
-      "deleting": "Deleting…",
+      "deleteAgent": "Archive task",
+      "deleteFailed": "Could not archive this task. Try again.",
+      "deleting": "Archiving…",
       "emptyFile": "Avatar files cannot be empty",
       "idLabel": "Agent ID",
       "invalidType": "Avatar must be a PNG, JPEG, GIF, or WebP image",
@@ -420,7 +416,7 @@ export default {
       "daysLater_one": "In {{count}} day",
       "daysLater_other": "In {{count}} days",
       "delete": "Delete task",
-      "deleteFailed": "Could not delete task",
+      "deleteFailed": "Could not archive this task. Try again.",
       "empty": "No scheduled tasks",
       "enable": "Enable",
       "everyDays": "Every {{count}} days",

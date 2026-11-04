@@ -23,6 +23,7 @@ export function toIdentityProfile(identity: DisplayIdentity, role: GroupMemberRo
     id: identity.id,
     guguNumber: identity.gugu_number,
     displayName: identity.display_name,
+    removedAt: identity.removed_at,
     avatar: identity.avatar,
     bio: identity.bio,
     email: null,
@@ -31,7 +32,7 @@ export function toIdentityProfile(identity: DisplayIdentity, role: GroupMemberRo
     ownerDisplayName: identity.type === 'agent' ? ownerDisplayName ?? null : undefined,
     role,
     profileScope: scope,
-    agentStatus: identity.type === 'agent' ? status : undefined,
+    agentStatus: identity.type === 'agent' ? identity.removed_at ? 'removed' : status : undefined,
     listenMode: agent?.listen_mode,
     agentMeta: agent ? { currentTaskTitle: agent.current_task_title, lastAction: agent.last_action } : undefined,
   }

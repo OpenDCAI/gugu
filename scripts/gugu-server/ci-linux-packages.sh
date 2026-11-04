@@ -30,7 +30,7 @@ here="$(dirname "$0")"
 bash "$here/../seed-mise-cache.sh" linux-arm64
 bash "$here/../seed-mise-cache.sh" --pin "$here/tmux-release.json" --base https://github.com/tmux/tmux-builds/releases/download \
   linux-x64 linux-arm64
-# 远程隧道的中转客户端 frpc(scripts/build-frpc-bundle.mjs),同一个缓存、同一条「容器里不联网」的规矩。
+# 远程隧道的中转客户端 frpc(scripts/build/build-frpc-bundle.mjs),同一个缓存、同一条「容器里不联网」的规矩。
 bash "$here/../seed-mise-cache.sh" --pin "$here/../frpc-release.json" --base https://github.com/fatedier/frp/releases/download \
   linux-x64 linux-arm64
 NODE_PIN="$(tr -d '[:space:]' < "$here/../../.node-version")"
@@ -39,7 +39,7 @@ NPM_CACHE_VOLUME=$("$DOCKER" inspect -f '{{range .Mounts}}{{if eq .Destination "
 NO_DOWNLOAD_ENV=(-e npm_config_cache=/npm-cache -e npm_config_nodedir=/usr/local -e GUGU_SERVER_NODE_PREFIX=/usr/local)
 
 "$DOCKER" exec -e "$VERSION_ENV" "${NO_DOWNLOAD_ENV[@]}" "$GUGU_LINUX_CONTAINER" \
-  bash -lc 'rm -rf release/server && node scripts/build-gugu-server.mjs'
+  bash -lc 'rm -rf release/server && node scripts/build/build-gugu-server.mjs'
 # arm64 那一趟:产物与打包脚本用 tar 流送进 arm64 容器,打完的包再用 tar 流送回构建容器 —— ❌ 经宿主目录 bind-mount:
 # mac1 上 colima 的共享目录里,node 24 的 fs.cpSync 报 EACCES(同样的拷贝 cp -r 没事;2026-09-25 实测),
 # 打包脚本拷 dist-electron 用的正是 cpSync。容器自己的文件系统里没有这个问题(x64 那一趟就是)。
@@ -56,7 +56,7 @@ NO_DOWNLOAD_ENV=(-e npm_config_cache=/npm-cache -e npm_config_nodedir=/usr/local
       bash -lc 'set -euo pipefail
                 [ "$(uname -m)" = aarch64 ] || { echo "::error::不是 aarch64 容器" >&2; exit 1; }
                 tar -xf -
-                GUGU_SERVER_EXTERNALS=release/server/externals.json node scripts/build-gugu-server.mjs 1>&2
+                GUGU_SERVER_EXTERNALS=release/server/externals.json node scripts/build/build-gugu-server.mjs 1>&2
                 cd release/server && tar -cf - gugu-server-*-linux-arm64.tar.gz*' \
   | "$DOCKER" exec -i "$GUGU_LINUX_CONTAINER" tar -C /work/release/server -xf -
 "$DOCKER" exec "$GUGU_LINUX_CONTAINER" bash -lc 'ls -lh release/server/*.tar.gz'
@@ -67,7 +67,8 @@ NO_DOWNLOAD_ENV=(-e npm_config_cache=/npm-cache -e npm_config_nodedir=/usr/local
 out="$RUNNER_TEMP/gugu-server-smoke"
 rm -rf "$out" && mkdir -p "$out"
 "$DOCKER" cp "$GUGU_LINUX_CONTAINER:/work/release/server/." "$out/"
-cp "$here/smoke-app-tools.mjs" "$out/"   # 预装 App 的 tools/list(见下)
+cp "$here/smoke-app-tools.mts" "$out/"   # 预装 App 的 tools/list(见下)
+cp "$here/smoke-legacy-account.mts" "$out/"
 chmod -R a+rX "$out"   # 同上:冒烟容器以只读挂载读这些包
 for arch in x64 arm64; do
   platform=$([ "$arch" = x64 ] && echo linux/amd64 || echo linux/arm64)
@@ -83,21 +84,46 @@ for arch in x64 arm64; do
       [ "$top" = GLIBC_2.34 ] || { echo "::error::$PKG 里 $f 要求 $got,高于 GLIBC_2.34"; exit 1; }
       echo "glibc ok: $f -> $got"
     done
-    su smoke -c "$d/bin/gugu-server status"
+    # 数据目录按包的通道定(正式版 ~/.gugu-server,Beta ~/.gugu-server-beta):问它自己,❌ 写死。
+    home=$(su smoke -c "$d/bin/gugu-server status" | sed -n "s/^数据目录:\(.*\)\$/\1/p")
+    [ -n "$home" ] || { echo "::error::$PKG 的 status 没报数据目录"; exit 1; }
+    # Beta 包必须带 GUGU_TIER=beta 出厂,否则目录、单元名、tmux 标签都按正式版走。
+    case "$PKG:$home" in *-beta.*:*.gugu-server-beta) ;; *-beta.*:*) echo "::error::$PKG 是 Beta 包,数据目录却是 $home(没带 GUGU_TIER=beta?)"; exit 1 ;; esac
+    # Exercise the shipped CLI through the symlink made by the pre-channel installer.
+    # This must retain its existing home without an explicit GUGU_SERVER_HOME.
+    case "$PKG" in *-beta.*)
+      legacy=/home/smoke/.gugu-server
+      version=$(cat "$d/version")
+      mkdir -p "$legacy/versions" /home/smoke/.local/bin
+      mv "$d" "$legacy/versions/$version"
+      d="$legacy/versions/$version"
+      ln -s "versions/$version" "$legacy/current"
+      echo beta > "$legacy/channel"
+      ln -s "$legacy/current/bin/gugu-server" /home/smoke/.local/bin/gugu-server
+      chown -R smoke:smoke "$legacy" /home/smoke/.local
+      got=$(su smoke -c "/home/smoke/.local/bin/gugu-server status" | sed -n "s/^数据目录:\(.*\)\$/\1/p")
+      [ "$got" = "$legacy" ] || { echo "::error::$PKG lost its legacy installation home: $got"; exit 1; }
+    ;; esac
+    # Exercise the old supervisor contract before any current CLI prepares the account home.
+    su smoke -c "$d/node/bin/node /pkg/smoke-legacy-account.mts $d/bin/gugu-server"
     su smoke -c "$d/bin/gugu-server run > /tmp/run.log 2>&1 &"
-    for i in $(seq 1 60); do grep -qs "咕咕 server 已启动" /tmp/run.log && break; sleep 1; done
-    grep -q "咕咕 server 已启动" /tmp/run.log || { cat /tmp/run.log; echo "::error::$PKG 起不来"; exit 1; }
+    for i in $(seq 1 60); do grep -qs "Not signed in; waiting for login" /tmp/run.log && break; sleep 1; done
+    grep -q "Not signed in; waiting for login" /tmp/run.log || { cat /tmp/run.log; echo "::error::$PKG 未进入等待登录"; exit 1; }
+    case "$PKG" in *-beta.*)
+      [ "$(readlink "$home")" = "$legacy" ] || { echo "::error::$PKG did not preserve its channel home"; exit 1; }
+      su smoke -c "/home/smoke/.local/bin/gugu-server-beta status" | grep -q "数据目录:$legacy" || exit 1
+    ;; esac
     # 守护进程不加载主进程;原生模块(任务库 better-sqlite3、终端 node-pty)是在账号进程里加载的。
     # 造一个没登录的空账号,直接起它的进程,看任务页后端起没起来 —— 这才证明原生模块在这台机器上能加载。
     acct=00000000-0000-4000-8000-000000000000
-    su smoke -c "mkdir -p ~/.gugu-server/accounts/$acct && echo {} > ~/.gugu-server/accounts/$acct/account.json"
+    su smoke -c "mkdir -p $home/accounts/$acct && echo {} > $home/accounts/$acct/account.json"
     su smoke -c "$d/bin/gugu-server run-account $acct > /tmp/acct.log 2>&1 &"
     for i in $(seq 1 90); do grep -qs "session page backend serving" /tmp/acct.log && break; sleep 1; done
     grep -q "session page backend serving" /tmp/acct.log || { cat /tmp/acct.log; echo "::error::$PKG 账号进程起不来(原生模块?)"; exit 1; }
     # 替身缺成员:server-entry 对 electron.X 缺了的会在 stderr 喊一句(这里两份日志都收了 stderr)。
     if grep -h "未在 server-electron-shim.ts 覆盖" /tmp/run.log /tmp/acct.log; then echo "::error::$PKG 用到了替身没有的 electron 成员(上面那几行)"; exit 1; fi
     # 预装 App 的程序照咕咕起程序的样子起一次、问 tools/list —— 程序在 server 的 node 上能不能起来。
-    su smoke -c "$d/node/bin/node /pkg/smoke-app-tools.mjs $d" || { echo "::error::$PKG 预装 App 的程序起不来(上面那几行)"; exit 1; }
+    su smoke -c "$d/node/bin/node /pkg/smoke-app-tools.mts $d" || { echo "::error::$PKG 预装 App 的程序起不来(上面那几行)"; exit 1; }
     echo "smoke ok: $PKG"
   '
 done

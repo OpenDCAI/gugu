@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /*
  * 设备 RPC 建会话在一台还没装所选 harness 的机器上(#6264 product spec 第 6 条):
@@ -18,6 +18,21 @@ const state = vi.hoisted(() => ({
   failures: new Map<string, string>(),
   startInputs: [] as Array<Record<string, unknown>>,
   hydrateError: null as Error | null,
+  /** session-life (owner of ACP sessions): creation turns become pending rows; an empty creation queue is a start. */
+  lifeEnqueued: [] as Array<Record<string, unknown>>,
+  lifeEnqueueError: null as Error | null,
+}));
+
+vi.mock('@main/core/sessions/session-life', () => ({
+  sessionLife: () => ({
+    enqueue: (input: Record<string, unknown>) => {
+      state.calls.push('life.enqueue');
+      if (state.lifeEnqueueError) throw state.lifeEnqueueError;
+      state.lifeEnqueued.push(input);
+      return { seq: state.lifeEnqueued.length, state: 'queued' };
+    },
+    start: () => { state.calls.push('life.start'); },
+  }),
 }));
 
 vi.mock('./start-failures', () => ({
@@ -39,7 +54,7 @@ vi.mock('@main/db/client', () => {
   const chain = {
     from: () => chain,
     where: () => chain,
-    limit: async () => [{ id: 'proj-1', repositoryWorkspaceId: 'ws-1' }],
+    limit: async () => [{ id: 'proj-1', repositoryWorkspaceId: 'ws-1', config: { agentDisplayName: 'Codex 1' } }],
   };
   return {
     db: {
@@ -122,13 +137,19 @@ vi.mock('@main/core/acp/controller', () => ({
 
 vi.mock('@main/core/sessions/session-orchestration', () => ({
   resolveCreateModelChoice: async (_provider: string, _runtime: string, model: string) =>
-    ({ model: null, platformModel: { modelId: model.replace(/^platform:/, '') } }),
+    model.startsWith('platform:')
+      ? { model: null, platformModel: { modelId: model.slice('platform:'.length) } }
+      : { model, platformModel: null },
 }));
 
 vi.mock('@main/embedded-boot', () => ({ acpStartInputFor: () => ({}) }));
 
+// The row maps back to a session carrying the creation facts createSession wrote (initialSession config).
 vi.mock('@main/core/sessions/getSessions', () => ({
-  getSessions: async () => [{ id: currentSessionId() }],
+  getSessions: async () => [{
+    id: currentSessionId(),
+    ...((state.createParams.at(-1) as { sessionConfig?: { initialSession?: Record<string, unknown> } } | undefined)?.sessionConfig?.initialSession ?? {}),
+  }],
 }));
 
 vi.mock('@main/core/sessions/hydrateSession', () => ({
@@ -158,19 +179,25 @@ function currentSessionId(): string {
 const probe = vi.hoisted(() => ({
   auth: { success: true, data: { kind: 'unauthenticated' } } as unknown,
   authThrows: false,
+  efforts: [] as string[],
+  modelEfforts: {} as Record<string, string[]>,
 }));
 vi.mock('@main/core/agents/session-discovery', () => ({
   listLocalModels: async () => ({
     harness_id: 'codex',
     transport: 'acp',
-    models: [{ id: 'gpt-6-astra', name: 'GPT-6-Astra', source: 'harness' }],
+    models: [
+      { id: 'gpt-6-astra', name: 'GPT-6-Astra', source: 'harness' },
+      { id: 'platform:deep', name: 'Deep', source: 'gugu', reasoning_efforts: ['high'] },
+      { id: 'platform:shallow', name: 'Shallow', source: 'gugu', reasoning_efforts: ['low'] },
+    ],
     selected: 'gpt-6-astra',
     efforts: [],
     selected_effort: null,
     harness_catalog: { source: 'live-acp', state: 'ready' },
     gugu_catalog: { available: true },
   }),
-  probeHarnessCatalogState: async () => ({ kind: 'ready', models: [], selected: null, efforts: [], selectedEffort: null }),
+  probeHarnessCatalogState: async (_harness: string, _transport: string, model?: string) => ({ kind: 'ready', models: [], selected: model ?? null, efforts: (model && probe.modelEfforts[model] || probe.efforts).map(id => ({ id, name: id })), selectedEffort: null }),
 }));
 vi.mock('@main/core/agent-config/runtime-process/host', () => ({
   getAgentConfigRuntimeClient: async () => ({ modelCredential: async () => ({ success: true, data: 'unknown' }) }),
@@ -187,6 +214,43 @@ const readAuth = async () => {
 const { createSession, createModels, startSession } = await import('./create-session');
 const { AgentInstallFailedError } = await import('@main/core/agents/ensure-agent-installed');
 
+describe('createSession reasoning effort validation', () => {
+  beforeEach(() => { state.agentStatus = 'available'; state.calls = []; state.createParams = []; probe.efforts = []; probe.modelEfforts = {}; });
+  afterEach(() => { probe.efforts = []; probe.modelEfforts = {}; });
+
+  it('keeps a harness-advertised level, including names outside any static list', async () => {
+    probe.efforts = ['native-level'];
+    const result = await createSession({ projectId: 'proj-1', harness: 'codex', model: 'gpt-6-astra', prompt: 'hi', effort: 'native-level' });
+    expect(result.ok).toBe(true);
+    expect(state.createParams[0]).toMatchObject({ sessionConfig: { initialSession: { effort: 'native-level' } } });
+  });
+
+  it.each([{ offered: [] }, { offered: ['low'] }])('rejects an unoffered level before creating a row (offered=$offered)', async ({ offered }) => {
+    probe.efforts = offered;
+    const result = await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi', effort: 'high' });
+    expect(result).toMatchObject({ ok: false, error: { code: 'effort_rejected', message: expect.stringContaining("'high'") } });
+    expect(state.createParams).toEqual([]);
+    expect(state.calls).not.toContain('acp.startSession');
+  });
+
+  it('validates the selected platform model rather than another model\'s levels', async () => {
+    probe.efforts = ['low', 'high'];
+    expect((await createSession({ projectId: 'proj-1', harness: 'codex', model: 'platform:deep', prompt: 'hi', effort: 'high' })).ok).toBe(true);
+    expect(await createSession({ projectId: 'proj-1', harness: 'codex', model: 'platform:shallow', prompt: 'hi', effort: 'high' }))
+      .toMatchObject({ ok: false, error: { code: 'effort_rejected' } });
+    expect(state.createParams).toHaveLength(1);
+  });
+
+  it('validates a non-default native model against its own live axis', async () => {
+    probe.efforts = ['low', 'high'];
+    probe.modelEfforts = { 'native-shallow': ['low'], 'native-deep': ['native-level'] };
+    expect(await createSession({ projectId: 'proj-1', harness: 'codex', model: 'native-shallow', prompt: 'hi', effort: 'high' }))
+      .toMatchObject({ ok: false, error: { code: 'effort_rejected' } });
+    expect((await createSession({ projectId: 'proj-1', harness: 'codex', model: 'native-deep', prompt: 'hi', effort: 'native-level' })).ok).toBe(true);
+    expect(state.createParams).toHaveLength(1);
+  });
+});
+
 describe('createSession:所选 harness 在这台机器上还没装', () => {
   beforeEach(() => {
     state.agentStatus = 'missing';
@@ -195,6 +259,8 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
     state.acpStart = { success: true };
     state.warnings = [];
     state.warned = Promise.withResolvers<void>();
+    state.lifeEnqueued = [];
+    state.lifeEnqueueError = null;
   });
 
   // #639 后续(owner 10-28):「终端」开关只管终端入口显不显示,新任务没说展示时永远走通用 —— 群里「新任务」卡片交给
@@ -202,8 +268,16 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
   it('没说展示:走通用(acp),❌ 跟终端开关进编程', async () => {
     const result = await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi' }, { ensureAgentInstalled: async () => {} });
     expect(result.ok).toBe(true);
-    expect(state.calls).toContain('acp.startSession');
+    // The ACP leg: the first sentence is the session's first pending row; session-life starts it (no direct runtime start).
+    expect(state.calls).toContain('life.enqueue');
+    expect(state.calls).not.toContain('acp.startSession');
     expect(state.calls).not.toContain('hydrateSession');
+    expect(state.lifeEnqueued).toEqual([{
+      sessionId: currentSessionId(), messageId: `${currentSessionId()}:creation:0`, text: 'hi', kind: 'ordinary',
+      turn: { kind: 'prompt', origin: 'manual' },
+    }]);
+    // Its startup outcome is the session's own lifecycle, not this call's answer.
+    expect(result.ok && result.value).not.toHaveProperty('startFailure');
   });
 
   for (const sessionView of ['general', 'code'] as const) {
@@ -220,7 +294,7 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
       expect(state.calls).toEqual([
         'ensureAgentInstalled',
         'prepareCreateSession',
-        sessionView === 'general' ? 'acp.startSession' : 'hydrateSession',
+        sessionView === 'general' ? 'life.enqueue' : 'hydrateSession',
       ]);
     });
   }
@@ -254,6 +328,10 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
       birthGroup: { chatId: 'chat-project-1', asTask: true },
       sessionConfig: { initialSession: { taskChatId: 'chat-project-1', initialMessageId: taskMessageId, startupOrigin: 'session-page' } },
     });
+    // The task's first sentence is admitted under the card's stable id, typed so its gugu message lands first.
+    expect(state.lifeEnqueued).toEqual([expect.objectContaining({
+      messageId: taskMessageId, text: '修好登录页', turn: { kind: 'chat-page-first-turn' },
+    })]);
   });
 
   it('不派任务:不铸卡的 id,回执里也没有这一格', async () => {
@@ -315,13 +393,17 @@ describe('createSession:会话行写下之后 agent 没起来(#6264 会话照样
     state.warned = Promise.withResolvers<void>();
     state.failures.clear();
     state.hydrateError = null;
+    state.lifeEnqueued = [];
+    state.lifeEnqueueError = null;
   });
 
+  // Retargeted to the terminal leg (sessionView code → hydrate): an ACP startup failure is now session-life's failed
+  // state and never comes back through createSession; the classification still applies where the start is synchronous.
   it('适配器模块解析不到:照常返回会话(带原因码 harness_runtime_missing),原因码记在这台机器上,原文只进日志', async () => {
     const raw = "Cannot find module '@agentclientprotocol/claude-agent-acp/dist/index.js'\nRequire stack:\n- /home/a/.gugu-server/versions/0.2.113/app/dist-electron/registry-x.js";
-    state.acpStart = { success: false, error: { type: 'spawn_failed', message: raw } };
+    state.hydrateError = new Error(raw);
     const result = await createSession(
-      { projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general' },
+      { projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'code' },
       { ensureAgentInstalled: async () => {} }
     );
     expect(result).toMatchObject({ ok: true, value: { conversationId: currentSessionId(), startFailure: 'harness_runtime_missing' } });
@@ -334,17 +416,18 @@ describe('createSession:会话行写下之后 agent 没起来(#6264 会话照样
 
   it('选了咕咕提供的模型、签平台额度那一趟连不上:原因码 platform_model_unreachable,❌ 把网关那句原文回给发起方', async () => {
     const raw = 'error sending request for url (http://gugu-newapi:3000/api/status): client error (Connect): dns error';
-    state.acpStart = { success: false, error: { type: 'spawn_failed', message: raw } };
+    state.hydrateError = new Error(raw);
     const result = await createSession(
-      { projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general', model: 'platform:gpt-x' },
+      { projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'code', model: 'platform:gpt-x' },
       { ensureAgentInstalled: async () => {} }
     );
     expect(result).toMatchObject({ ok: true, value: { startFailure: 'platform_model_unreachable' } });
     expect(JSON.stringify(result)).not.toContain('gugu-newapi');
   });
 
+  // ACP: the only synchronous start failure left is session-life refusing the admission itself.
   it('别的起不来原因:照常返回会话,原因码 session_start_failed', async () => {
-    state.acpStart = { success: false, error: { type: 'spawn_failed', message: 'spawn EACCES' } };
+    state.lifeEnqueueError = new Error('spawn EACCES');
     const result = await createSession(
       { projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general' },
       { ensureAgentInstalled: async () => {} }

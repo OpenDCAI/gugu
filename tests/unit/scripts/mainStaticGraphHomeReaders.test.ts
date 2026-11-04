@@ -18,7 +18,7 @@ describe('main.js static graph defers GUGU_HOME readers (@@@4865)', () => {
   }
 
   it('rejects a dependency manager reached through a static chunk require', async () => {
-    const { assertMainStaticGraphDefersHomeReaders } = await import('../../../scripts/verify-main-static-graph.mjs');
+    const { assertMainStaticGraphDefersHomeReaders } = await import('../../../scripts/build/verify-main-static-graph.mts');
     const dir = dist('static', {
       'main.js': '"use strict";\nconst workspaceTransfer = require("./activity-ZfG87fjs.js");\n',
       'activity-ZfG87fjs.js': '"use strict";\nrequire("./registry-5u_C33RA.js");\n',
@@ -29,7 +29,7 @@ describe('main.js static graph defers GUGU_HOME readers (@@@4865)', () => {
   });
 
   it('accepts the same chunk when main.js only reaches it through import()', async () => {
-    const { assertMainStaticGraphDefersHomeReaders } = await import('../../../scripts/verify-main-static-graph.mjs');
+    const { assertMainStaticGraphDefersHomeReaders } = await import('../../../scripts/build/verify-main-static-graph.mts');
     const dir = dist('dynamic', {
       'main.js': '"use strict";\nconst schemas = require("./schemas-BJ6vfLQl.js");\nconst load = () => Promise.resolve().then(() => require("./dependency-managers-DebuKmkA.js"));\n',
       'schemas-BJ6vfLQl.js': '"use strict";\n',

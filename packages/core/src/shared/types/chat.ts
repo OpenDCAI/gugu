@@ -4,6 +4,7 @@ import type { AgentStatusView } from '../agentStatus'
 import type { CloudComputerPresence, DeviceHostInfo } from './deviceHost'
 import type { DeviceProject } from './deviceProject'
 import type { AgentFailureReason } from '../agentQuotaReason'
+import type { FileMetadata } from '../fileResolver'
 export type { AgentType } from '@gugu/core/agentTypes'
 
 // @@@1514 channel 概念已抹除(collapse 进 group)：公开 agent 好友会话原是独立 'channel' kind，
@@ -36,9 +37,9 @@ export type ChatUnreadLocator = {
   unread_count: number
   /**
    * 未读里叫到你的条数:点名你、@all,或回复你说的那条(服务端 list_unread_locators.addressed_count)。手动标未读算 1。
-   * 缺 = 后端早于 gugu-supabase#73,或这一行是那之前的版本落的盘:按全部未读算(unreadForYou)。
+   * 必有:缺这一列是协议错误(chatProjection 读到就抛);本机缓存里缺它的行按无效缓存重建(localSyncDb)。
    */
-  addressed_count?: number
+  addressed_count: number
   cursor_seq: number
   version: number
   is_marked_unread: boolean
@@ -116,6 +117,10 @@ export interface MessageItem {
   file_version?: number | null
   /** #7290 悄悄话的附件:不进群文件夹,直接指字节;能读这条消息的人才签得到链接。 */
   file_blob_id?: string | null
+  /** Authorized pinned-file display metadata; original reads still use the file resolver. */
+  file_metadata?: FileMetadata | null
+  /** Local sending preview only; committed dimensions come from the verified file metadata. */
+  image_dimensions?: { width: number; height: number }
   seq: number
   content: string | null
   content_type: MessageContentType
@@ -134,6 +139,7 @@ export interface MessageItem {
   delivery_blocks?: Array<{ agent_user_id: string; reason: 'agent_archived' }>
   local_send_state?: 'sending' | 'failed' | 'unknown' | null
   local_send_error?: string | null
+  local_send_retryable?: boolean
   forwarded_from_message_id?: string | null
   // @@@threads (#957) — 非空 = 此消息是某话题(thread_root_id 指向的 root)下的回复；
   // 主时间线过滤掉这些(不刷屏主线)、thread 视图按 root 聚合。root 消息本身 thread_root_id 为 null。
@@ -146,8 +152,8 @@ export interface MessageItem {
   edited_at?: string | null
 }
 
-/** queued = persisted, but an agent it wakes has not taken it yet (shared/ui/systemNotice.ts queuedMessageIds). */
-export type MessageSendState = 'sending' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown'
+/** queued / undelivered = persisted, but an agent it wakes has not taken it yet (shared/ui/systemNotice.ts deliveryWaits). */
+export type MessageSendState = 'sending' | 'queued' | 'undelivered' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown'
 
 export interface ReactionGroup {
   emoji: string
@@ -167,7 +173,7 @@ export type AgentActivityStatus = 'idle' | 'running'
  * pending(spec agent-status)。「进程在不在内存」不让用户感知:没有活 runtime 但可达 = idle,会话正在起 = working。
  * 它是 `presentAgentStatus` 的输出折出来的(`displayStatusOf`),❌ 另有推导;文案与颜色读完整的 presentation。
  */
-export type AgentDisplayStatus = 'pending' | 'idle' | 'working' | 'parked' | 'needs_user' | 'offline' | 'archived' | 'removed' | 'error'
+export type AgentDisplayStatus = 'pending' | 'starting' | 'idle' | 'working' | 'parked' | 'needs_user' | 'offline' | 'archived' | 'removed' | 'error'
 export type AgentConversationActivityStatus =
   | Extract<AgentRuntimeStatus, 'starting'>
   | AgentActivityStatus
@@ -192,6 +198,10 @@ export interface GroupMemberItem {
 }
 
 export interface GroupChatSettings {
+  my_role: GroupMemberRole | null
+  can_manage: boolean
+  can_dissolve: boolean
+  can_archive_topic: boolean
   id: string
   public_id?: number | null
   creator_user_id: string | null
@@ -312,9 +322,10 @@ export interface Device {
 
 /** 摘要里的一条会话。只有状态，没有正文 —— 「内容不在手机落库」那条边界没有放开。 */
 export interface DeviceSessionSummary {
-  nativeInputVersion?: 1
+  nativeInputVersion?: 1 | 2
+  /** Client identity survives host queue admission and provider transcript IDs. */
+  nativeInputIdentity?: true
   runtime?: 'acp' | 'pty' | 'unknown'
-  nativeUnreadCount?: number
   conversationId: string
   projectId: string
   projectName: string
@@ -450,25 +461,11 @@ export interface GroupTaskItem {
   updated_at: string
 }
 
-export interface GroupOutputItem {
-  id: string
-  chat_id: string
-  task_id: string | null
-  name: string
-  file_type: string | null
-  asset_id: string | null
-  url: string | null
-  produced_by_user_id: string | null
-  size_label: string | null
-  created_at: string
-}
-
 export interface GroupCollabSnapshot {
   scheduler: GroupSchedulerState
   humans: GroupMemberItem[]
   agents: GroupAgentItem[]
   tasks: GroupTaskItem[]
-  outputs: GroupOutputItem[]
 }
 
 // @@@group-announcements (#986) — 群公告 posted by owner/admin in a group chat.

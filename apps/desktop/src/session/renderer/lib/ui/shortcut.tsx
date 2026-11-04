@@ -1,5 +1,5 @@
 import { detectPlatform, parseHotkey, type Hotkey } from '@tanstack/react-hotkeys';
-import { ArrowBigUp } from 'lucide-react'
+import { ArrowBigUp } from '@/lib/icons'
 import { useMemo } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import {

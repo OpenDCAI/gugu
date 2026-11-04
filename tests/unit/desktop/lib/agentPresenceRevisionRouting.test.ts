@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentPresenceState } from '@/lib/agentPresenceStore'
 import type { AgentStatusDetail } from '@gugu/core/shared/agentStatus'
+import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
 const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }))
 vi.mock('@/lib/supabase', () => ({
   dataClient: {
@@ -15,6 +16,7 @@ import {
   setPresenceBusContext,
   type LocalAgentStatus,
   subscribeAgentPresence,
+  subscribeAgentPresenceRevisions,
 } from '@/lib/agentPresenceStore'
 // @@@3841 批量 RPC 之后 data 的形状是 `{ results: { <id>: { status, presence } } }`。
 const payload = (
@@ -48,6 +50,7 @@ function answerAll(_method: string, args: { p_agent_user_ids: string[] }) {
 const local = (
   status: 'idle' | 'working' | 'needs_user' | 'error',
   detail: AgentStatusDetail | null = null,
+  life: LocalAgentStatus['life'] = null,
 ): LocalAgentStatus => ({
   sessionId: 'conversation-1',
   reading: { status, detail, running: status === 'working' || status === 'needs_user', background: null },
@@ -55,6 +58,7 @@ const local = (
   reviewGate: null,
   providerBlocker: null,
   statusSourceFault: null,
+  life,
 })
 async function settle(): Promise<void> {
   await vi.dynamicImportSettled()
@@ -245,6 +249,33 @@ describe('agent presence revision routing', () => {
       unsubscribe()
     }
   })
+  it('a session-life session shows its lifecycle first: starting, failed, archived, then the activity', async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: payload('active', '2026-08-15T00:00:05Z', {
+        device_id: 'device-1',
+        device_status: 'online',
+        device_last_seen_at: new Date().toISOString(),
+        desired_status: 'online',
+      }),
+      error: null,
+    })
+    const unsubscribe = subscribeAgentPresence('agent-1', () => undefined)
+    try {
+      await settle()
+      const stage = { at: 'cli', index: 4, total: 7, since: 1 } as const
+      setLocalAgentStatus('agent-1', local('working', 'running', { kind: 'starting', stage }))
+      expect(getAgentPresenceSnapshot('agent-1')?.status).toBe('starting')
+      expect(getAgentPresenceSnapshot('agent-1')?.presentation).toMatchObject({ tone: 'starting', label: 'starting', animate: false })
+      setLocalAgentStatus('agent-1', local('idle', 'plain', { kind: 'failed', stage: null }))
+      expect(getAgentPresenceSnapshot('agent-1')?.status, 'failed start is an error').toBe('error')
+      setLocalAgentStatus('agent-1', local('idle', 'plain', { kind: 'archived', stage: null }))
+      expect(getAgentPresenceSnapshot('agent-1')?.status).toBe('archived')
+      setLocalAgentStatus('agent-1', local('needs_user', 'approval', { kind: 'ready', stage: null }))
+      expect(getAgentPresenceSnapshot('agent-1')?.presentation).toMatchObject({ tone: 'needs_user', label: 'needsApproval' })
+    } finally {
+      unsubscribe()
+    }
+  })
   // 别的设备、群里的别人:这台机器不是宿主,读云端那一行上的读数;本机有条目时读本机的,❌ 两条比版本。
   it('reads the cloud reading when this machine is not the host, and the local entry when it is', async () => {
     rpcMock.mockResolvedValueOnce({
@@ -315,6 +346,26 @@ describe('agent presence revision routing', () => {
 
 // gugu-dev#181 80e:看不到一个 agent 只是那一刻的事 —— 它审批过后进了我在的群,成员变化一到就重问,状态(含类型)拿得到。
 describe('an agent this viewer could not see', () => {
+  it.each(['own', 'roster', undefined])('rechecks unseen presence only for roster kind %s', async kind => {
+    rpcMock.mockResolvedValue({ data: { results: { 'agent-1': { status: 'unauthorized' } } }, error: null })
+    const off = subscribeAgentPresence('agent-1', () => undefined)
+    const listeners = new Map<AccountRevisionEvent, AccountRevisionListener>()
+    const offRevisions = subscribeAgentPresenceRevisions((event, listener) => {
+      listeners.set(event, listener)
+      return () => { listeners.delete(event) }
+    })
+    try {
+      await settle()
+      expect(getAgentPresenceSnapshot('agent-1')?.error).toBeTruthy()
+      rpcMock.mockClear()
+      await listeners.get('chat_members_changed')!([{
+        revision: '1', event: 'chat_members_changed',
+        payload: { chat_id: 'group', user_id: 'agent-1', kind, tombstone: false },
+      }])
+      expect(rpcMock).toHaveBeenCalledTimes(kind === 'own' ? 0 : 1)
+    } finally { offRevisions(); off() }
+  })
+
   it('is asked again when a chat of mine changes members, and is seen once it is visible', async () => {
     rpcMock.mockResolvedValue({ data: { results: { 'agent-1': { status: 'unauthorized' } } }, error: null })
     const off = subscribeAgentPresence('agent-1', () => undefined)

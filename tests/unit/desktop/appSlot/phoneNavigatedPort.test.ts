@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { rpcQuery } from '../../../helpers/rpcQuery'
+import { rpcQuery } from '../../../support/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
 import { APP_FRAME_MARKER, SYNC_PORT_WINDOW_MESSAGE } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'

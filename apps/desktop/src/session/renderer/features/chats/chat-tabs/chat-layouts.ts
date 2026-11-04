@@ -244,11 +244,17 @@ export const setPanelFull = action(function setPanelFull(chatId: string, tabId: 
   pane.setActiveTab(tabId);
 });
 
-/** Whether this panel tab fills the block (on screen without the chat beside it). */
+/** Whether the visible panel is separated from the chat; fullscreen only changes visibility. */
 export function panelFull(chatId: string, tabId: string): boolean {
   const layout = chatLayoutOf(chatId);
-  const shown = paneOf(layout).shownTabIds;
-  return shown.includes(tabId) && !shown.includes(chatTabOf(layout) ?? '');
+  const pane = paneOf(layout);
+  const chatTab = chatTabOf(layout);
+  const pair = pane.livePair;
+  const pairedWithChat = pair && (
+    (pair.anchor === chatTab && pair.side === tabId) ||
+    (pair.side === chatTab && pair.anchor === tabId)
+  );
+  return pane.shownTabIds.includes(tabId) && !pairedWithChat;
 }
 
 /** The topic open beside this group, and whether it is on screen. */

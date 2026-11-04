@@ -9,7 +9,7 @@ import { until, untilStable } from '../../../../tests/support/awaitCondition';
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).forEach(dispose => dispose()));
 it.each([['ADJ', 900], ['DISTANT', 900], ['FILE', 900], ['FILE', 390]] as const)('shows direct output after a %s send at %spx in both process states and hides only silence', async (mode, width) => {
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true });
   const state = createChatState(context), host = document.createElement('div');
   host.style.cssText = `position:fixed;inset:0;width:${width}px;height:5000px`;

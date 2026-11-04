@@ -47,6 +47,14 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('remote task host pipe over device RPC', () => {
+  it('says by code that the machine did not answer the open or the attach before it', async () => {
+    for (const failure of [new DeviceRpcTimeoutError('no reply to taskhost.open within 15000 ms'), new DeviceRpcChannelError('no answer to taskhost.attach within 12000 ms', 'unreachable')]) {
+      const device = fakeDevice(() => { throw failure })
+      await expect(openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined }))
+        .rejects.toMatchObject({ code: 'timeout' })
+    }
+  })
+
   it('waits for the tunnel event before subscribing or starting the taskhost.open RPC budget', async () => {
     vi.useFakeTimers()
     try {
@@ -210,13 +218,12 @@ describe('remote task host pipe over device RPC', () => {
     answer({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } })
   })
 
-  it('#6264 开窗口时报这台桌面是哪一版(那台咕咕 server 据此让这个账号跑匹配的版本);拿不到就不报', async () => {
+  it('sends only the compatible protocol, without a desktop version or identity', async () => {
     const device = fakeDevice(() => ({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } }))
-    const desktop = { id: 'dev-self', version: '0.2.160', protocol: 2 }
-    await openRemoteSessionHostPipe('dev', { ...device.deps, desktop: async () => desktop })({ onFrame: () => undefined, onClose: () => undefined })
-    expect(device.calls[0]).toEqual({ type: 'taskhost.open', payload: { client: 'client00000001', protocol: REMOTE_PROTOCOL_VERSION, desktop } })
+    await openRemoteSessionHostPipe('dev', { ...device.deps, protocol: async () => MIN_SERVER_PROTOCOL })({ onFrame: () => undefined, onClose: () => undefined })
+    expect(device.calls[0]).toEqual({ type: 'taskhost.open', payload: { client: 'client00000001', protocol: MIN_SERVER_PROTOCOL } })
     const bare = fakeDevice(() => ({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } }))
-    await openRemoteSessionHostPipe('dev', { ...bare.deps, desktop: async () => null })({ onFrame: () => undefined, onClose: () => undefined })
+    await openRemoteSessionHostPipe('dev', bare.deps)({ onFrame: () => undefined, onClose: () => undefined })
     expect(bare.calls[0]).toEqual({ type: 'taskhost.open', payload: { client: 'client00000001', protocol: REMOTE_PROTOCOL_VERSION } })
   })
 

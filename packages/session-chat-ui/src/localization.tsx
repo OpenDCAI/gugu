@@ -1,5 +1,6 @@
 /** @jsxImportSource solid-js */
 import { createContext, useContext } from 'solid-js';
+import type { SupportedLocale } from '@gugu/session-shared/format';
 
 export type ChatTranslationValues = Readonly<Record<string, string | number>>;
 export type ChatTranslator = (key: string, values?: ChatTranslationValues) => string;
@@ -106,12 +107,23 @@ const fallbackMessages = {
   'transcript.running': 'Running',
   'transcript.completed': 'Completed',
   'transcript.failedPhase': 'Failed',
-  'transcript.turnCancelled': 'Turn cancelled{reason}',
-  'transcript.turnFailed': 'Turn failed{reason}',
-  'transcript.turnCompleted': 'Turn completed{reason}',
+  'transcript.turnCancelled': 'Cancelled{reason}',
+  'transcript.turnFailed': 'Failed{reason}',
+  'transcript.turnCompleted': 'Completed{reason}',
   'transcript.turnProcess': 'Process',
   'transcript.thinkingAndExecution': 'Thinking and execution',
   'transcript.thinkingLive': 'Thinking and working',
+  'transcript.starting': 'Starting',
+  'transcript.restoring': 'Restoring',
+  'transcript.sending': 'Sending',
+  'transcript.waitingToSend': 'Waiting to send',
+  'transcript.waitingHostOffline': 'Machine offline',
+  'transcript.waitingHostNotReady': 'Machine not ready',
+  'transcript.waitingSendInterrupted': 'Send interrupted',
+  'transcript.waitingAcknowledgement': 'Awaiting acknowledgement',
+  'transcript.sendFailed': 'Send failed',
+  'transcript.sendUnknown': 'Delivery unknown; not resent',
+  'transcript.retrySend': 'Retry',
   'transcript.processStepsOne': '{count} step',
   'transcript.processSteps': '{count} steps',
   'transcript.processEarlierParts': '{count} earlier parts',
@@ -158,6 +170,7 @@ const fallbackMessages = {
   'transcript.planProgress': 'Plan · {done} of {total} done',
   // agent 经 message_send / session_message 说的话,下面那一行去向(agent-send.def)。
   'transcript.agentSendTo': 'Sent to {chat}',
+  'transcript.agentSendToYou': 'Sent to you',
   'transcript.agentSendToChat': 'Sent · destination name unavailable',
   'transcript.agentSendToThreadIn': 'Sent to a topic in {chat}',
   'transcript.agentSendToThread': 'Sent to a topic',
@@ -197,7 +210,7 @@ const fallbackMessages = {
   'transcript.deliveryFact.messageContext': 'Message context',
   'transcript.deliveryFact.whisperTo': 'Whisper to',
   'transcript.deliveryFact.viaApp': 'App',
-  'transcript.turnFinished': 'Turn finished{reason}',
+  'transcript.turnFinished': 'Finished{reason}',
   'transcript.viewMermaid': 'View Mermaid diagram',
   'transcript.mermaidDiagram': 'Mermaid diagram',
   'transcript.mermaidError': "Couldn't render diagram",
@@ -211,9 +224,10 @@ const fallbackMessages = {
   'transcript.restorePrompt': 'Restore prompt',
   'transcript.restorePromptHint': 'Put this prompt back in the composer (it is not re-sent)',
   // turn-outcome 的失败原因（#3498）。**纯描述，不含行动建议** ——
-  // 这 11 个 reason 都没有「重试」这条路（同上），所以文案只说发生了什么；
-  // 用户能拿到的那一件事由上面那个按钮说，不由原因文案暗示。
-  'transcript.reasonPromptFailed': 'the turn could not be completed',
+  // send_failed 是启动前仍在宿主队列里的消息，它的重试在已有条件行；
+  // 其余失败仍没有重试能力。原因只描述事实，动作由各自已有入口说明。
+  'transcript.reasonPromptFailed': 'the reply could not be completed',
+  'transcript.reasonSendFailed': 'Could not send',
   'transcript.reasonSignInRequired': 'sign-in needed',
   'transcript.reasonProcessClosed': 'the agent process ended',
   'transcript.reasonSpawnFailed': 'the agent process could not start',
@@ -223,7 +237,7 @@ const fallbackMessages = {
   'transcript.reasonCancelFailed': 'the stop request was not accepted',
   'transcript.reasonSetConfigFailed': 'the configuration could not be applied',
   'transcript.reasonSetModeFailed': 'the mode could not be changed',
-  'transcript.reasonCancelledByUser': 'you stopped this turn',
+  'transcript.reasonCancelledByUser': 'Stopped',
   'transcript.reasonInterruptedForMessage': 'paused to take a new message',
   'transcript.continueTurn': 'Continue',
   'transcript.continueTurnHint': 'Ask the agent to pick up where it stopped (sends a new prompt)',
@@ -260,6 +274,7 @@ const fallbackMessages = {
     'The engine no longer has this session — everything above is still here',
   'transcript.condition.adapterLost': 'Lost the connection to the engine',
   'transcript.condition.startFailed': 'The engine could not start',
+  'transcript.condition.historyFailed': 'Could not load the conversation history',
   'transcript.condition.machineUnreachable': "Can't reach the machine this task runs on",
   'transcript.condition.machineAttention': 'The machine this task runs on needs attention',
   'transcript.condition.membershipRequired': 'This Gugu model needs a membership',
@@ -298,10 +313,17 @@ export const defaultChatTranslator: ChatTranslator = (key, values = {}) => {
   });
 };
 
-const ChatTranslationContext = createContext<ChatTranslator>(defaultChatTranslator);
+const ChatTranslationContext = createContext<{ translate: ChatTranslator; locale: () => SupportedLocale }>();
 
 export const ChatTranslationProvider = ChatTranslationContext.Provider;
 
 export function useChatTranslator(): ChatTranslator {
-  return useContext(ChatTranslationContext);
+  return useContext(ChatTranslationContext)?.translate ?? defaultChatTranslator;
+}
+
+const defaultChatLocale = (): SupportedLocale => 'en-US';
+
+/** Transcript dates use the same host capability and translation epoch as their text; without a host, the fallback messages' English. */
+export function useChatLocale(): () => SupportedLocale {
+  return useContext(ChatTranslationContext)?.locale ?? defaultChatLocale;
 }

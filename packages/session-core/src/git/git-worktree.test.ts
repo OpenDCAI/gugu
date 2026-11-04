@@ -148,6 +148,27 @@ function createReplayWatchService() {
 }
 
 describe('GitWorktree', () => {
+  it('distinguishes a missing git file from an invalid ref or failed index read', async () => {
+    const repo = await makeRepo();
+    const runtime = new GitRuntime();
+    try {
+      const lease = await runtime.openWorktree(repo);
+      const worktree = lease.value;
+      await expect(worktree.getFileAtRef('missing.txt', 'HEAD')).resolves.toBeNull();
+      await expect(worktree.getFileAtIndex('missing.txt')).resolves.toBeNull();
+      await expect(worktree.getFileAtRef('tracked.txt', 'missing-ref')).rejects.toThrow();
+      await writeFile(path.join(repo, 'brackets[1].txt'), 'literal path', 'utf8');
+      await execFileAsync('git', ['--literal-pathspecs', 'add', '--', 'brackets[1].txt'], { cwd: repo });
+      await expect(worktree.getFileAtIndex('brackets[1].txt')).resolves.toBe('literal path');
+      await writeFile(path.join(repo, '.git', 'index'), 'invalid index', 'utf8');
+      await expect(worktree.getFileAtIndex('tracked.txt')).rejects.toThrow();
+      await lease.release();
+    } finally {
+      await runtime.dispose();
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   // 这个 watch 只为「什么时候重算 git status」而存在,所以它的范围就是 git 的非忽略集。
   // 被忽略的文件不可能出现在 status 里,监听它们是可证明的浪费 —— 而在 macOS 上这份浪费
   // 是按文件数逐个开 fd 的,装了依赖的仓库直接把挂载预算烧穿。
@@ -761,6 +782,24 @@ describe('GitWorktree', () => {
       expect(secondChange?.indexOid).not.toBe(firstChange?.indexOid);
       await expect(worktree.getFileAtIndex('tracked.txt')).resolves.toBe('too\n');
 
+      await lease.release();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it('reads every path as absent at an unborn HEAD', async () => {
+    const repo = await mkdtemp(path.join(tmpdir(), 'emdash-shared-worktree-unborn-read-'));
+    await execFileAsync('git', ['init', '-b', 'main'], { cwd: repo });
+    await writeFile(path.join(repo, 'staged.txt'), 'new\n', 'utf8');
+    await execFileAsync('git', ['add', 'staged.txt'], { cwd: repo });
+
+    const runtime = new GitRuntime();
+    try {
+      const lease = await runtime.openWorktree(repo);
+      await expect(lease.value.getFileAtRef('staged.txt', 'HEAD')).resolves.toBeNull();
+      await expect(lease.value.getFileAtIndex('staged.txt')).resolves.toBe('new\n');
+      await expect(lease.value.getFileAtRef('staged.txt', 'main')).rejects.toThrow();
       await lease.release();
     } finally {
       await runtime.dispose();

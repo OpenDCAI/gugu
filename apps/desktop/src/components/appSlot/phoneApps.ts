@@ -7,9 +7,9 @@ import { askInShell, installConsentPrompt, type InstallConsentAsk } from '../../
 import { extensionContentSecurityPolicy } from '../../session/shared/extensions/app-csp'
 import { appDataTooLarge } from '../../session/shared/extensions/app-data'
 import { GUGU_PUBLISHER, publisherOf, type Publisher } from '../../session/shared/extensions/app-identity'
-import { appFrameChannel, appOrigin } from './appOrigin'
+import { appFrameChannel, appOrigin, gateOrigin } from './appOrigin'
 import { ICON_PIXELS, fileIconKey, iconSizeRefusal, iconTypeRefusal } from '../../session/shared/extensions/app-icon'
-import { APP_RUNTIME_FORGET_PAGE, injectAppRuntime, RUNTIME_SCRIPT_TAG } from '../../session/shared/extensions/app-runtime-protocol'
+import { APP_RUNTIME_FORGET_PAGE, APP_RUNTIME_GATE_PAGE, appRuntimeScriptTag, injectAppRuntime } from '../../session/shared/extensions/app-runtime-protocol'
 import {
   attachmentInstallPlan,
   couldUpdateUnasked,
@@ -151,8 +151,11 @@ function rememberedAll(): Record<string, string> {
   }
 }
 
-/** Every page is the gugu page's to frame (frame-ancestors): the phone draws each App in an iframe of it. */
-const cspOf = (manifest: ExtensionManifest) => extensionContentSecurityPolicy(location.origin, manifest.permissions?.network ?? [])
+/**
+ * Every page is the gugu page's to frame, through the App's own gate (frame-ancestors names every ancestor): the phone
+ * draws each App in its gate's iframe, in an iframe of this page.
+ */
+const cspOf = (manifest: ExtensionManifest) => extensionContentSecurityPolicy(`${location.origin} ${gateOrigin(manifest.id)}`, manifest.permissions?.network ?? [])
 
 function tell(): void {
   const installed = Object.values(index.installed)
@@ -271,7 +274,7 @@ async function load(): Promise<void> {
   }
   for (const record of Object.values(index.installed)) {
     index.serve[record.manifest.id] = { root: `file:${record.dir}`, csp: cspOf(record.manifest) }
-    if (!unreadable && record.runtimeTag !== RUNTIME_SCRIPT_TAG) await retag(record)
+    if (!unreadable && record.runtimeTag !== appRuntimeScriptTag(record.manifest.apiVersion)) await retag(record)
   }
   if (unreadable) {
     tell()
@@ -303,9 +306,9 @@ function reload(): Promise<void> {
 async function retag(record: InstalledRecord): Promise<void> {
   for (const page of record.pages) {
     const { text } = await appStore.readText({ dir: record.dir, path: page })
-    await appStore.writeText({ dir: record.dir, path: page, text: injectAppRuntime(text.split(record.runtimeTag).join('')) })
+    await appStore.writeText({ dir: record.dir, path: page, text: injectAppRuntime(text.split(record.runtimeTag).join(''), record.manifest.apiVersion) })
   }
-  record.runtimeTag = RUNTIME_SCRIPT_TAG
+  record.runtimeTag = appRuntimeScriptTag(record.manifest.apiVersion)
 }
 
 // ─── install ───────────────────────────────────────────────────────────────
@@ -670,7 +673,7 @@ async function store(
   try {
     for (const [path, data] of files) {
       // Every page of the App gets the runtime's line, as the desktop's protocol gives it to every page it serves.
-      const out = HTML.test(path) ? new TextEncoder().encode(injectAppRuntime(new TextDecoder().decode(data))) : data
+      const out = HTML.test(path) ? new TextEncoder().encode(injectAppRuntime(new TextDecoder().decode(data), manifest.apiVersion)) : data
       if (HTML.test(path)) pages.push(path)
       await appStore.stage({ stage, path, base64: base64(out) })
     }
@@ -688,7 +691,7 @@ async function store(
     manifestDigest: meta.manifestDigest,
     origin: meta.origin,
     installedAt: new Date().toISOString(),
-    runtimeTag: RUNTIME_SCRIPT_TAG,
+    runtimeTag: appRuntimeScriptTag(manifest.apiVersion),
     pages,
     icons,
   }
@@ -886,11 +889,11 @@ function setOpenWithDefault(args: { key: string; tabKind: string | null }): Resu
 }
 
 /**
- * Where an App's page is: its own origin (appOrigin.ts — never this page's, which is what makes `allow-same-origin` on
- * its frame harmless), and the page (`entry`, or a tab's own).
+ * Where an App's page is drawn: its gate (appOrigin.ts `gateOrigin`), which frames the page (`entry`, or a tab's own) in
+ * the App's own origin — never this page's, which is what makes `allow-same-origin` on its frame harmless.
  */
 function pageUrl(appId: string, page: string): string {
-  return `${appOrigin(appId)}/${page.replace(/^\/+/, '')}`
+  return `${gateOrigin(appId)}${APP_RUNTIME_GATE_PAGE}?page=${encodeURIComponent(page.replace(/^\/+/, ''))}`
 }
 
 /**

@@ -59,7 +59,7 @@ export function assessNativeWork(work: NativeWork, parent: readonly NativeCall[]
   const spawns = parent.filter(call => named(call, 'session_spawn') && call.outcome === 'succeeded')
   const accepted = spawns.filter(call => typeof (call.result as { session_id?: unknown })?.session_id === 'string')
   check('delegation', accepted.length >= work.minimumExecutors, accepted)
-  check('placement', accepted.length > 0 && accepted.every(call => call.input.project === work.project && call.input.nest === true), accepted)
+  check('placement', accepted.length > 0 && accepted.every(call => call.input.project === work.project && call.input.parent_session_id !== null), accepted)
   check('provenance', accepted.length > 0 && accepted.every(call => call.input.source_link === work.source
     || (call.result as { source_links?: string[] })?.source_links?.includes(work.source)), accepted)
   const handoff = accepted.map(call => String(call.input.prompt ?? '')).join('\n')

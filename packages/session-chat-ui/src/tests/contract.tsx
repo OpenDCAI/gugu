@@ -22,6 +22,7 @@ import type { ChatCommands } from '@session-chat/commands';
 import { CachesContext } from '@session-chat/components/contexts/CachesContext';
 import { CommandsContext } from '@session-chat/components/contexts/CommandsContext';
 import { ThemeContext } from '@session-chat/components/contexts/ThemeContext';
+import { ChatTranslationProvider, defaultChatTranslator } from '@session-chat/localization';
 import type { BlockDef } from '@session-chat/components/rows/markdown/block-def';
 import { createChatCaches } from '@session-chat/core/caches';
 import type { ThemeVarKey } from '@session-chat/core/config';
@@ -130,15 +131,17 @@ export async function renderAndMeasureUnit<D, V extends Record<string, number>>(
   let dispose: (() => void) | undefined;
 
   try {
-    // oxlint-disable-next-line typescript/no-explicit-any -- JSX typed per-def; safe at boundary
+    // JSX typed per-def; safe at boundary
     const Comp = def.Render as (p: any) => JSX.Element;
     dispose = render(
       () => (
         <ThemeContext.Provider value={() => ctx.theme}>
           <CachesContext.Provider value={renderCaches}>
-            <CommandsContext.Provider value={() => commands}>
-              <Comp data={data} ctx={renderCtx} vars={defVars} />
-            </CommandsContext.Provider>
+            <ChatTranslationProvider value={{ translate: defaultChatTranslator, locale: () => 'en-US' }}>
+              <CommandsContext.Provider value={() => commands}>
+                <Comp data={data} ctx={renderCtx} vars={defVars} />
+              </CommandsContext.Provider>
+            </ChatTranslationProvider>
           </CachesContext.Provider>
         </ThemeContext.Provider>
       ),

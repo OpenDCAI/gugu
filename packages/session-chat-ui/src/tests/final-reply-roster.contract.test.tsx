@@ -63,7 +63,7 @@ function turnOf(items: unknown[]): TranscriptTurn {
 }
 
 async function copyButtonsFor(items: unknown[]): Promise<number> {
-  const ctx = createChatContext();
+  const ctx = createChatContext({ locale: () => 'en-US' });
   const state = createChatState(ctx);
   state.session.setGenerating(false);
   state.transcript.history.seed([turnOf(items)]);

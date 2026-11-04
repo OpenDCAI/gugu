@@ -22,7 +22,7 @@ it.each(['read', 'read-with-location', 'execute'] as const)('#6020 %s keeps adap
     ...(kind === 'execute' ? { content: [{ type: 'content', content: { type: 'text', text: 'COMMAND_STDOUT' } }] } : {}) }));
   const id = parser.activeTurn!.items[0].id;
   parser.endTurn();
-  const ctx = createChatContext({ layout: { preset: 'single', userGutter: 0 } });
+  const ctx = createChatContext({ locale: () => 'en-US', layout: { preset: 'single', userGutter: 0 } });
   const state = createChatState(ctx);
   state.transcript.history.seed([...parser.history]);
   const host = document.createElement('div');

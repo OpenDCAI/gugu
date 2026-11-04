@@ -1,15 +1,20 @@
 import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
+import { startServerUsageSync } from './server/usage-sync'
 import { noteExitReason } from './lib/exit-reason'
+import { killAllWorkersSync } from '@gugu/session-wire/worker'
+import { killServerDescendantsSync } from './server/server-processes'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
 import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assistantWorkAvailability'
 import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { registerContentContextMenus } from './content-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
+import { renderFirstTurn, type FirstTurnRender } from '@gugu/core/local/agent/firstTurnRender'
 import { createDesktopFileAccess } from './desktopFileAccess'
 import { createNativeFileHost, registerNativeFileIpc } from './nativeFileHost'
 import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
+import { writeTaskCopy } from './projectFilePublication'
 import { resourceMonitorWindow } from './resource-monitor-window'
 import { linkProjectDevice } from './session/main/core/projects/project-device-link'
 import {
@@ -42,6 +47,7 @@ import { claimDeviceFreeCredits, readDeviceClaimStatus } from './device-free-cre
 import { createDeviceActionsRuntime, nativeComponentsDir, type DeviceActionsRuntime } from './device-actions/runtime'
 import { sampleCuaImage } from './device-actions/native/cua-image-sample'
 import { createComputerControlWindow } from './device-actions/computer-control-window'
+import { computerControlWindowReaders } from './device-actions/computer-control-foreground'
 import { installNativeAppearanceSync, installWindowMaterial, type WindowMaterialHost } from './window-material'
 import enDeviceStrings from '@/i18n/locales/en-US/settings'
 import zhDeviceStrings from '@/i18n/locales/zh-CN/settings'
@@ -58,6 +64,7 @@ import {
   RENDERER_LOG_CHANNEL,
 } from './lib/logger'
 import { autoApproveFromPermissionMode } from '@gugu/session-core/acp'
+import { signalProcessDescendantsSync } from '@gugu/session-core/acp/node'
 import { classifyFatal, recordFatalSync } from './lib/fatal-triage'
 import { pathToFileURL } from 'node:url'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
@@ -113,18 +120,21 @@ import {
 } from '../shared/update-policy'
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
-import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime, createElectronRealtimeClient } from './supabase'
+import { makeChatClient, makeIdentityClient, supabase, electronFetch, onElectronCloudAnswer, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime, createElectronRealtimeClient } from './supabase'
 import { createAccountResumeHandler, installNativeResumeSource, installNativeSleepActivity, watchHostResumeGap } from './server/account-resume-wiring'
 import { applyOwnerTimeZoneContext, ownerTimeZoneFromEnvironment } from './server/owner-timezone'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
 import { handOffLegacyWechat } from './wechat/handoff'
 import { LegacyWechatStore } from './wechat/store'
 import { createDesktopDeviceCommandWakeSubscription } from './device-command-wake'
+import { createDesktopOwnedAgentChangesSubscription } from './owned-agent-changes'
+import { createCloudTaskNameAdopter } from './sessionpage/cloud-task-names'
 import { createDesktopDeviceRpcSubscription, type OpenTopicPublisher } from './device-rpc-responder'
 import { deviceRpcAskerLimitsFromEnv } from './device-rpc-askers'
 import type { MessagePreviewHostDeps } from './session/main/core/session-timeline/preview-rpc'
 import { MESSAGE_PREVIEW_EVENT } from '@gugu/session-core/session-record/message-preview'
 import { createDeviceLinkHost } from './server/device-link-host'
+import { desktopServerChannel } from './server/server-names'
 import { serverDeviceLabel } from '@gugu/core/cloud/serverConnectVia'
 import {
   noteTunnelActivity,
@@ -184,17 +194,24 @@ import {
 } from './sessionpage/session-injection'
 import {
   agentInboxDepsFromBridge,
+  createDeviceCommandHoldingResolver,
   resolveGuguIds as resolveGuguIdsForInbox,
   type AgentRosterRemovalReason,
 } from '@gugu/core/local/agent/deviceCommandRuntime'
 import {
+  discloseInboxRowsFailed,
+  DisclosedFailure,
   kickAgentInboxPull,
+  markInboxRowsRead,
   readAgentInboxBatchAuditForTest,
+  type AgentInboxReaderDeps,
+  type AgentInboxSource,
 } from '@gugu/core/local/agent/agentInboxReader'
+import type { PendingRow as SessionLifePendingRow } from './session/main/core/sessions/session-life-adapter'
+import { displayStatus } from '@shared/core/sessions/session-life'
 import { fetchThreadMessagesViaRest } from '@gugu/core/cloud/threadMessagesRest'
 // #4280 —— 壳的唯一 producer 住在这里,三条渠道都从它出字节。
 import {
-  buildAgentDeliveryEnvelope,
   formatDeliveryTimestamp,
   type GuguIdentity,
 } from '@gugu/core/local/agent/deliveryEnvelope'
@@ -208,7 +225,7 @@ import { assistantWorkCoordinator } from '@gugu/core/cloud/assistantWorkRouting'
 import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
 import { enqueueAssistantWorkReport } from '@gugu/core/cloud/assistantWorkReports'
 import {withAssistantWorkReply} from '@gugu/core/shared/assistantWorkReply'
-import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
+import { ASSISTANT_PROVISION_SELECT, pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
 import { landTaskCardFirstTurn } from './sessionpage/task-card-first-turn'
 import { withQuestionCard } from './sessionpage/question-card'
 import {
@@ -241,6 +258,7 @@ import {
   openOwnerDirectChatForAgent,
   cacheString,
   SESSION_CACHE_KEY,
+  PARKED_SESSION_CACHE_KEY,
   PROJECT_CACHE_KEY,
   provisionSessionpageAgentForSession,
   sessionpageAgentSessionForStart,
@@ -267,7 +285,7 @@ import {
 import { resolveBootOwner, type BootOwnerAnswer } from './sessionpage/boot-owner'
 import { reconcileSessionpageAgents } from './sessionpage/sessionpage-agent-reaper'
 import { startSessionpageAgentArchivalSync } from './sessionpage/sessionpage-agent-archival'
-import { releaseDeletedOwnedAgent } from './sessionpage/owner-agent-deletion'
+import type { RemovedSessionIdentity } from '@gugu/core/shared/sessionArchival'
 import {
   createHostLocalSessionSource,
   type HostLocalSessionSource,
@@ -275,7 +293,7 @@ import {
 import { resolveSessionpageAgentCard } from './sessionpage/sessionpage-agent-card'
 import { loadSessionpageCanonicalAgentIdentities } from './sessionpage/sessionpage-agent-identity'
 import { SESSION_SHELL_CHANNELS, agentNamesFromPeers, type SessionShellAgentName } from '../src/session/shared/lib/ipc/shell-port'
-import { sessionpageAgentProvisionedEvent, sessionpageAgentRenamedEvent } from '../src/session/shared/lib/ipc/sessionpage-identity-contract'
+import { sessionpageAgentProvisionedEvent } from '../src/session/shared/lib/ipc/sessionpage-identity-contract'
 import type { EventDefinition } from '../src/session/shared/lib/ipc/events'
 import { MAIN_UI_EVENTS } from '../src/lib/mainUiEvents'
 import { createSessionpageIdentityHost } from './sessionpage/sessionpage-identity-host'
@@ -380,6 +398,7 @@ import {
 import { createComputerUsePreview, installedComputerUseApps, type ComputerUsePreview } from './computer-use-program'
 import { sessionOf as computerSessionOf } from './device-actions/families/computer'
 import { connectedSessionIntegrations } from './session/main/core/integrations/session-integrations'
+import { providerAccountRegistry } from './session/main/core/provider-accounts/provider-account-registry-instance'
 import { platformCredentials } from './session/main/core/integrations/platform-credentials-instance'
 import { connectedCliSkills } from './session/main/core/integrations/cli/cli-integrations'
 import { integrationCredentialStore } from './session/main/core/integrations/integration-credential-store-instance'
@@ -387,6 +406,7 @@ import { applySessionMaterialization } from './session-materialization'
 import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
 import { startupDiscovery } from './sessionpage/startup-discovery'
 import { createAssistantPanelRuntime } from './sessionpage/assistant-panel-runtime'
+import { isPersonalAssistantAgent, personalAssistantSessionBindings } from './sessionpage/assistant-agent-role'
 import { assistantWorkBinding, assistantWorkForAgent } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
@@ -412,8 +432,8 @@ import { EXTENSION_SCHEME } from '../src/session/shared/extensions/scheme'
 import { previewSchemePrivilege } from '../src/session/shared/preview/preview-url'
 import { setExtensionCheckAvailable } from './mcp/gugu-extension-tool'
 import { setGuideLookPicture } from './mcp/gugu-guide-tool'
-import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink'
-import { catalogAppsOf, extensionAgentPrograms } from './extension-session-mcp'
+import { guguLinkScheme, tierSuffix } from '@gugu/core/shared/ui/guguLink'
+import { agentAppsOf, extensionAgentPrograms } from './extension-session-mcp'
 // 仅类型:编译期擦除,不会把会话页主进程图提升到 app.setPath 之前(运行时加载见 whenReady 里的动态 import)。
 import type { SessionAction } from './sessionpage/emdash-main-bridge'
 import type { AgentEvent } from '../src/session/shared/core/agents/agentEvents'
@@ -465,7 +485,10 @@ import {
 import { createPushedRuntimeAuthProvider, type PushedRuntimeAuth } from './runtime-auth-provider'
 import { createServerAuthProvider, type ServerAuthProvider } from './server/server-auth'
 import { ensureUtf8Locale } from './server/server-locale'
-import { killAccountTmuxServer } from './server/server-layout'
+import { killAccountTmuxServer, SESSION_FILE } from './server/server-layout'
+import { EXIT_CONFIG, EXIT_RESTART, EXIT_SIGNED_OUT, isSingleServerRun } from './server/server-exit'
+import { singleServerUpdater, serverUpdateRpcHandlers, callServerUpdate } from './server/server-updater'
+import { markStopped } from './server/server-keeper'
 import { registerServerSshInstallIpc } from './server/ssh-install/ipc'
 import { registerServerSshUninstallIpc } from './server/ssh-uninstall-ipc'
 import { registerSshLinkIpc } from './server/ssh-link-ipc'
@@ -497,9 +520,9 @@ import {
 import { setAccountAccessTokenReader, setAccountFileResolver } from '@main/core/extensions/account-token'
 import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
 import { announceLocalDeviceIdentity } from './local-device-identity'
+import { setAssistantHomeDeviceResolver } from '@main/core/app/assistant-home-controller'
 import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
 import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
-import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
 import { emdashPlatformReleaseIntent } from './session/main/core/acp/emdash-platform-injector'
 import type {
   EmdashSessionStartInfo as EmdashStartInfo,
@@ -534,7 +557,7 @@ import {
   formatBadgeCount,
   paintBadgeOnBitmap,
 } from './tray-badge'
-import { HOST_SYSTEM_LANGUAGES_CHANNEL, hostCatalog, type HostCatalog } from '../shared/host-localization'
+import { HOST_SYSTEM_LANGUAGES_CHANNEL, hostCatalog, updateRestartCopy, type HostCatalog } from '../shared/host-localization'
 
 // ── Dual-instance support ────────────────────────────────────────────────────
 // CLI arg (preferred): --user-data-dir=/path/to/dir ; env fallback: GUGU_USER_DATA_DIR=/path/to/dir
@@ -672,8 +695,6 @@ registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) 
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
 declare const __GUGU_BUILD_DISTRIBUTION__: string
-// 给别的机器装哪条通道的 server,构建时按连的库定(vite.config.mts → scripts/build-env-preflight.mjs serverChannelForDb)。
-declare const __GUGU_SERVER_CHANNEL__: 'stable' | 'beta'
 
 // @@@home-unify - one account home shared by desktop, CLI, and runtime host. The DEFAULT instance's
 if (!process.env.GUGU_HOME) {
@@ -683,7 +704,7 @@ if (!process.env.GUGU_HOME) {
     const home =
       __GUGU_TIER__ === 'production'
         ? resolveGuguHome(process.env)
-        : join(homedir(), `.gugu-${__GUGU_TIER__}`)
+        : join(homedir(), `.gugu${tierSuffix(__GUGU_TIER__)}`)
     const legacy = join(app.getPath('userData'), 'gugu-home')
     if (legacy !== home && existsSync(legacy) && !existsSync(home)) {
       mkdirSync(dirname(home), { recursive: true })
@@ -694,7 +715,7 @@ if (!process.env.GUGU_HOME) {
 }
 // @@@tmux-socket-isolation - Gugu must not share tmux's default socket with a user's own Homebrew tmux
 if (!process.env.GUGU_TMUX_SOCKET_LABEL) {
-  process.env.GUGU_TMUX_SOCKET_LABEL = __GUGU_TIER__ === 'production' ? 'gugu' : `gugu-${__GUGU_TIER__}`
+  process.env.GUGU_TMUX_SOCKET_LABEL = `gugu${tierSuffix(__GUGU_TIER__)}`
 }
 // @@@spawn-tmux-bin - Prefer the self-contained tmux built by build:tmux in both packaged
 // and source-launched app instances. Source-launched Electron does not inherit the user's
@@ -822,6 +843,9 @@ function stableMcpPersistence(name: string): GuguMcpHostPersistence {
   })
 }
 let integrationMcpHost: IntegrationMcpHost | null = null
+// No credentials in notifications: each request re-reads authenticated connections.
+providerAccountRegistry.onChanged(() => { void integrationMcpHost?.notifyToolsListChanged() })
+platformCredentials.onConnectionChanged(() => { void integrationMcpHost?.notifyToolsListChanged() })
 
 /**
  * 这条会话该带哪些**已连接集成**的 MCP server。
@@ -829,7 +853,7 @@ let integrationMcpHost: IntegrationMcpHost | null = null
  * 集成 ≠ MCP:十二家里只有走托管 MCP 授权的那几家能这样递(见 session-integrations)。
  * 递过去的地址是咕咕自己的转发口,❌ 不是对方的地址加用户令牌 —— 理由见 integration-mcp-bridge。
  *
- * 一家都没连 ⇒ 空数组,会话照旧;取不到身份也只是不带,❌ 不把会话拖死:agent 少一台 server
+ * 一家都没连也带常驻 server,以后连接时通知工具变化;取不到身份时不带:agent 少一台 server
  * 是能用的,起不来是不能用的。
  */
 async function integrationMcpServersFor(grantKey: string, subjectId: string): Promise<AcpMcpServer[]> {
@@ -842,10 +866,13 @@ async function integrationMcpServersFor(grantKey: string, subjectId: string): Pr
       { grantKey, integrations: entries.map((entry) => entry.integrationId) },
       'integrations available to this session',
     )
-    if (entries.length === 0) return []
     const { userId } = await requireRuntimeAuth(authProvider, 'gugu integration MCP bridge')
     integrationMcpHost ??= createIntegrationMcpHost(stableMcpPersistence('integration-mcp'))
-    return await buildIntegrationBridge(integrationMcpHost, grantKey, userId, subjectId, entries)
+    return await buildIntegrationBridge(integrationMcpHost, grantKey, userId, subjectId, async () => {
+      const auth = await requireRuntimeAuth(authProvider!, 'gugu integration MCP bridge')
+      if (auth.userId !== userId) throw new Error('This session belongs to a different signed-in account.')
+      return connectedSessionIntegrations()
+    })
   } catch (error) {
     integrationMcpLogger.warn(
       { error: (error as Error).message },
@@ -917,6 +944,11 @@ function createDeviceSessionpageBridge() {
     retireAgent: retireSessionpageAgent,
     ensureSessionReady: ensureSessionpageSessionReady,
     providerSessionIdForSession,
+    claimedSessionSources: (sessionId, messageIds) => {
+      const emdash = loadEmdashBridge()
+      if (!emdash) throw new Error('session-life: the session page module is not loaded')
+      return emdash.claimedSessionSources(sessionId, messageIds)
+    },
     applyAgentModelSelection: applyAgentModelSelectionOnDevice,
     // #6264 远端建 agent:目标机器(比如刚装好的咕咕 server)还没装这个 agent 时先装上,再进启动预算。
     ensureAgentInstalled: async (agentType, signal) => {
@@ -946,12 +978,15 @@ function createDeviceSessionpageBridge() {
       if (!emdash) throw new Error('session-page agent session runtime is unavailable')
       bmark('sessionpage-loaded')
       const existingSessionId = await sessionpageAgentSessionForStart(input.agentUserId, auth.userId)
+      const assistant = await isPersonalAssistantAgent(auth, input.agentUserId)
+      if ((await authProvider?.getAuth())?.userId !== auth.userId) throw new Error('Agent creation account changed')
       return emdash.startSessionpageAgentSession({
         agentUserId: input.agentUserId,
         existingSessionId,
         displayName: input.displayName,
         agentType: input.agentType,
         projectPath: input.projectPath,
+        assistant: assistant ? { deviceId, ownerId: auth.userId } : undefined,
         chatId: input.chatId,
         initialText: input.initialText,
         initialPrompt: input.initialPrompt,
@@ -999,6 +1034,20 @@ function createDeviceSessionpageBridge() {
   return {
     ...bridge,
     downloadAttachment: desktopFiles.download,
+    rejectAgentInbox: async (input: import('@gugu/core/local/agent/agentInboxReader').AgentInboxInjectionInput, cause: unknown) => {
+      const local = (input.sources ?? []).filter(source => source.row.localSessionDirect);
+      if (local.length) {
+        const emdash = loadEmdashBridge();
+        if (!emdash) throw new Error('session-page session runtime is unavailable');
+        for (const source of local) emdash.rejectPendingSessionDirectMessage(source.row.localSessionDirect!.sessionId, source.row.id, cause);
+      }
+      const sessionId = getSessionpageLocalDelivery().sessionIdForAgent(input.agentUserId);
+      if (!sessionId) throw new Error(`No recipient session owns rejected inbox input for ${input.agentUserId}`);
+      const emdash = loadEmdashBridge();
+      if (!emdash) throw new Error('session-page session runtime is unavailable');
+      emdash.sessionLife().rejectInbox({ sessionId, text: input.text, kind: 'inbox-batch',
+        sources: (input.sources ?? []).map(source => ({ ...source, agentUserId: input.agentUserId })) }, cause);
+    },
     fetchLocalSessionDirectInbox: async (agentUserId: string) => {
       // @@@4629 属主解析走认领者注册表 —— ❌ 别退回「查会话页 agent 注册表,查不到再查 local-session」:
       // 那两个是内核角色,promote 把 native 认领者(codex app-server / opencode serve-attach)扶正时正好
@@ -1104,17 +1153,28 @@ async function revokeAgentCards(agentUserId: string): Promise<void> {
 /**
  * 设备 runtime 删掉了名册上的一行(主账号与附加账号的宿主同用这一个)。
  * `owner-change`:换账号时归属未知的老行,连会话一起拆(原样)。
- * `cloud-gone`(#6938):云端已经没有这个 agent —— 只收回发给它的卡,❌ 不拆会话(会话是用户的工作,#4526)。
- * 会话下一次起来以新身份要卡;旧卡不撤,那一次就撞上 grant 里「同主人改 subject」的检查,点几次重试都一样。
+ * `cloud-gone`:不可写只撤投递和卡;`cloud-removed`:先用云收据归档同一任务,保留历史。
  */
 async function onLocalAgentRosterRemoved(
   agent: { gugu_user_id: string | null; cache?: Record<string, unknown> | null },
   reason: AgentRosterRemovalReason,
+  receipt?: RemovedSessionIdentity,
 ): Promise<void> {
   const agentUserId = agent.gugu_user_id
   if (!agentUserId) return
-  if (reason === 'cloud-gone') {
+  if (reason === 'cloud-gone' || reason === 'cloud-removed') {
+    const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY) || cacheString(agent.cache, PARKED_SESSION_CACHE_KEY)
+    if (reason === 'cloud-removed' && receipt?.userId !== agentUserId) throw new Error('Confirmed removal receipt does not match the Agent')
+    await unregisterSessionpageDeliveryOwners(agentUserId)
     await revokeAgentCards(agentUserId)
+    if (reason === 'cloud-removed') {
+      if (sessionId) {
+        const emdash = loadEmdashBridge()
+        if (!emdash) throw new Error('Task runtime is unavailable for confirmed identity removal')
+        const task = (await emdash.emdashSessionpageSessionFacts()).find(row => row.sessionId === sessionId)
+        if (task) await emdash.archiveSession(task.projectId, sessionId, { removeSocialIdentity: true }, receipt)
+      }
+    }
     return
   }
   unregisterSessionpageDeliveryOwners(agentUserId)
@@ -1635,7 +1695,7 @@ function createPrimaryDeviceRpcHandlers(io?: { openTopicPublisher: OpenTopicPubl
   const base = projectionDeviceRuntime.track(bridge.createSessionpageSessionDeviceRpcHandlers(io
     ? { preview: messagePreviewHostDeps(io), projection: projectionDeviceRuntime.options } : undefined))
   // #7199 第二步:别的机器上的 agent 调这台电脑的单个动作(请执行 / 结果收到)。
-  return { ...base, handlers: { ...base.handlers, ...assistantWorkDeliveryHost().rpcHandlers(), ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
+  return { ...base, handlers: { ...base.handlers, ...serverUpdateRpcHandlers(), ...assistantWorkDeliveryHost().rpcHandlers(), ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
 }
 
 let assistantWorkOutbox: AssistantWorkOutboxHost | null = null
@@ -1652,7 +1712,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       if (assistantCache?.ownerId === current.ownerId && assistantCache.until > Date.now()) return assistantCache.value
       const auth = await desktopAuthProvider().getAuth()
       if (!auth?.accessToken || auth.userId !== current.ownerId) return null
-      const {data,error} = await makeIdentityClient(auth.accessToken).from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+      const {data,error} = await makeIdentityClient(auth.accessToken).from('agent_provisions').select(ASSISTANT_PROVISION_SELECT)
         .eq('owner_user_id',current.ownerId).eq('member_key','assistant')
       if (error) throw error
       const value = pickAssistant((data ?? []) as AssistantProvisionRow[])
@@ -1955,7 +2015,10 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
         }
         return null
       },
-      notify: (title, body) => { new Notification({ title, body }).show() },
+      notify: async (...args) => {
+        const { showDeviceNotification } = await import('./session/main/core/extensions/extension-notifications')
+        return showDeviceNotification(...args)
+      },
       openExternal: (url) => shell.openExternal(url),
       trashItem: (target) => shell.trashItem(target),
       sampleImage: data => sampleCuaImage(nativeImage.createFromBuffer, data),
@@ -1994,14 +2057,13 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
       ? {}
       : {
           computerControlView: (cua) => createComputerControlWindow({
-            readWindows: (pid, signal) => cua().callTool('list_windows', { pid, on_screen_only: true }, { signal, timeoutMs: 2_000, lane: 'gugu-computer-indicator' }),
+            ...computerControlWindowReaders(cua),
             strings: () => {
               const bar = (hostLocaleStore?.current() === 'en-US' ? enDeviceStrings : zhDeviceStrings).devices.deviceActions.computerBar
-              const fill = (template: string, name: string, app?: string) => template.replace('{{name}}', name).replace('{{app}}', app ?? '')
+              const fill = (template: string, name: string) => template.replace('{{name}}', name)
               return {
-                driving: (name, app) => fill(app === undefined ? bar.drivingComputer : bar.drivingApp, name, app),
-                paused: (name, app) => fill(app === undefined ? bar.pausedComputer : bar.pausedApp, name, app),
-                someApp: bar.someApp,
+                driving: (name) => fill(bar.drivingApp, name),
+                paused: (name) => fill(bar.pausedApp, name),
                 stop: bar.stop,
                 resume: bar.resume,
                 someone: bar.someone,
@@ -2091,6 +2153,19 @@ function startDeviceRuntimeWhenRendererReady(): void {
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,
     subscribeCommandWake: createDesktopDeviceCommandWakeSubscription({ supabase }),
+    subscribeOwnedAgentChanges: createDesktopOwnedAgentChangesSubscription({
+      supabase,
+      warn: message => createLogger('device-runtime').warn({}, message),
+    }),
+    onOwnedAgentsChanged: async () => {
+      void adoptCloudTaskNames?.()
+      try {
+        const auth = await hostAuthProvider.getAuth()
+        if (auth?.accessToken && auth.userId) refreshAgentNamingFacts(auth)
+      } catch (error) {
+        createLogger('sessionpage/provision').warn({ error: String(error) }, 'Owned agents changed: naming facts auth unavailable')
+      }
+    },
     // 会话页会话时间线只挂**主账号**这条频道:任务本地库是这个桌面实例自己的库,
     // 而多账号 host 的频道属于另一个人的 device id —— 给它装等于把本机会话开给别的账号读写。
     // ⚠️ 经桥拿,❌ 别静态 import `session-timeline/device-rpc`:那会把整条链一起打进
@@ -2101,8 +2176,8 @@ function startDeviceRuntimeWhenRendererReady(): void {
       supabase,
       createHandlers: (io) => createPrimaryDeviceRpcHandlers(io),
       askerLimits: deviceRpcAskerLimitsFromEnv(process.env),
-      broadcastEvents: { 'files.transfer': () => drainProjectFiles(), 'files.handoff': () => drainVersionHandoffs() },
-      onSubscribed: () => { drainProjectFiles(); drainVersionHandoffs() },
+      broadcastEvents: { 'files.transfer': () => drainProjectFiles() },
+      onSubscribed: () => { drainProjectFiles() },
     }),
     ...heartbeatRowSources,
     // server 首次注册报的名字(deviceLabelOption):经远程 SSH 装上的报人填的 SSH 别名 / 主机(登录时记在 connect-via.json);
@@ -2138,30 +2213,6 @@ function startDeviceRuntimeWhenRendererReady(): void {
     warn: (message) => console.warn(message),
     onAuthExpired: (message) => { void showAuthExpiredNotification(message) },
     ...(serverAuth ? { onDeviceRemoved: serverDeviceRemovedHandler(serverAuth) } : {}),
-    onAgentDeliverFailure: (failure) => {
-      console.error(
-        `[agent-turn] deliver ${failure.commandId} failed terminally (agent=${failure.agentUserId} chat=${failure.chatId} thread=${failure.threadRootId ?? 'main'}): ${failure.error}`
-        + (failure.cause ? ` (cause: ${failure.cause})` : '')
-      )
-      sendUiEvent(MAIN_UI_EVENTS.agentStream, {
-        agentUserId: failure.agentUserId,
-        conversationId: failure.chatId,
-        threadRootId: failure.threadRootId,
-        event: { type: 'error', message: failure.error, commandId: failure.commandId }
-      } satisfies AgentStreamPayload)
-      // @@@no-auto-dm — 判据是「这个 agent 是不是会话页 agent」,那是 liveSessionIdByAgent 的
-      // 定义(非 null = 投递归会话页)。曾经拿 chatIdForAgent 顶替:私聊一律在 provision 时开,于是
-      // 「有 chatId」恰好等价于「是会话页 agent」—— 现在私聊只找不建,没开过私聊的会话页 agent
-      // chatId 就是 null,再按它判就会把该报给会话页的投递失败**静默吞掉**。
-      const sessionpageSessionId = emdashAgentRegistry.liveSessionIdByAgent(failure.agentUserId)
-      if (sessionpageSessionId) {
-        sendUiEvent(MAIN_UI_EVENTS.sessionpageDeliverFailed, {
-          agentUserId: failure.agentUserId,
-          messageId: failure.messageId,
-          error: failure.error,
-        })
-      }
-    },
   })
   // server 没有窗口可等:登录态在主进程手里,设备循环直接起。
   if (SERVER_MODE || !mainWindow) {
@@ -2223,6 +2274,7 @@ const localDeviceId = announceLocalDeviceIdentity(resolveLocalDeviceId, (deviceI
     if (!window.isDestroyed()) window.webContents.send('device:self-identified', deviceId)
   }
 })
+setAssistantHomeDeviceResolver(localDeviceId)
 
 async function getLocalDeviceSelfSnapshot(): Promise<LocalDeviceSelfSnapshot | null> {
   if (!deviceRuntimeHost) return null
@@ -2348,16 +2400,17 @@ ipcMain.handle('app:get-version', () => app.getVersion())
 const remoteFileTempRoot = join(app.getPath('userData'), 'cache', 'remote-files')
 const remoteFileOpenDirectories = new Set<string>()
 const desktopFiles = createDesktopFileAccess({ auth: () => desktopAuthProvider().getAuth(), tempRoot: remoteFileTempRoot,
-  rpc: async (name, args) => { const auth = await desktopAuthProvider().getAuth(); if (!auth) throw new Error('File reader is not signed in'); const { data, error } = await makeChatClient(auth.accessToken).rpc(name, args); if (error) throw error; return data },
+  rpc: async (name, args) => { const auth = await desktopAuthProvider().getAuth(); if (!auth) throw new Error('File reader is not signed in'); const { data, error } = await makeChatClient(auth.accessToken).rpc(name, args); if (error) throw Object.assign(new Error(error.message, { cause: error }), { code: error.code, details: error.details, hint: error.hint }); return data },
   downloads: join(resolveGuguHome(process.env), 'attachments'), fetch: electronFetch, links: () => sshLinks,
   root: async projectId => { const bridge = loadEmdashBridge(); if (!bridge) throw new Error('Project registry is unavailable'); return bridge.emdashProjectRoot(projectId) },
+  deviceStore: join(resolveGuguHome(process.env), 'project-files'), identityDb: makeIdentityClient,
 })
 function drainProjectFiles() { void desktopFiles.drain().catch(error => createLogger('files').warn({ error: String(error) }, 'Project transfer reconciliation failed')) }
-function drainVersionHandoffs() { void desktopFiles.handoffs().catch(error => createLogger('files').warn({ error: String(error) }, 'Next version handoffs failed')) }
 const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
   alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
-  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, { message }), publication: desktopFiles.publish.local,
+  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message, task) => desktopFiles.publish(chat, file, null, actor, undefined, { message, ...(task ? { task: true, itemId: task.itemId } : {}) }),
+  taskCopy: (name, bytes, mimeType) => writeTaskCopy(join(resolveGuguHome(process.env), 'attachments'), name, bytes, mimeType), publication: desktopFiles.publish.local,
   openPath: path => shell.openPath(path), published: directory => trackRemoteFileDirectory(remoteFileOpenDirectories, directory),
 })
 registerNativeFileIpc(ipcMain, nativeFiles, error => createLogger('files').warn({ error: String(error) }, 'Native file operation failed'))
@@ -2512,9 +2565,18 @@ ipcMain.handle('clipboard:write-text', async (_event, value: unknown) => {
 ipcMain.handle('notifications:show', (_event, params: unknown) => showAppNotification(params))
 // #5906 —— 登录态的变化是**事件**,设备 runtime 靠它当场重新确立 owner 边界 / 订上命令 wake / 登出时撤订阅。
 // 宿主不再有 2 秒一轮的 tick 去「碰巧发现」登录了;不通知的话,要等一个对账周期(30 s)设备才跟上。
+let adoptCloudTaskNames: (() => Promise<void>) | null = null
+
+function humanAuthUserId(): string | null {
+  return typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null
+}
+
 function onHumanAuthSessionChanged(): void {
   projectionDeviceRuntime.invalidate()
-  void nativeFiles.ownerChanged(typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null).catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))
+  void emdashBridgeModule?.setTaskNameOwner(humanAuthUserId())
+    .then(() => adoptCloudTaskNames?.())
+    .catch(error => createLogger('sessionpage/names').error({ error: String(error) }, 'Task name owner change failed'))
+  void nativeFiles.ownerChanged(humanAuthUserId()).catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))
   void refreshElectronSupabaseAuth().catch((error: unknown) => {
     createLogger('device-runtime/auth').warn({ error: String(error) }, 'Realtime account auth update failed')
   })
@@ -2561,18 +2623,42 @@ function handOffWechatIfAny(): void {
 // F33 渲染进程的协调器每接受一次会话(登录、每次续期)都写这份镜像,登出 / 会话永久丢失时清掉 ——
 // 这就是它把令牌推给主进程的那一条路,主进程记下来,平时的 getAuth 就不再问渲染进程。
 // 先记再写盘:落盘失败也不该让主进程继续用续期前的那份。
+// session-life runs for exactly one account. Its sign-out tears sessions down with the old credentials, so it is
+// awaited before they are replaced or cleared (contract v3.1 #10); a renewal of the same account changes nothing.
+let sessionLifeBooted = false
+/** Booted ⇒ the bridge is loaded; a missing bridge here is a broken boot, said loudly. */
+function bootedSessionLife() {
+  const bridge = loadEmdashBridge()
+  if (!bridge) throw new Error('session-life: the session page module is not loaded')
+  return bridge.sessionLife()
+}
+function pushedUserId(): string | null {
+  return typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null
+}
+async function sessionLifeLeaveIfChanging(nextUserId: string | null): Promise<void> {
+  const current = pushedUserId()
+  if (sessionLifeBooted && current && current !== nextUserId) await bootedSessionLife().signOut()
+}
+async function sessionLifeEnter(): Promise<void> {
+  const userId = pushedUserId()
+  if (sessionLifeBooted && userId) await bootedSessionLife().signIn(userId)
+}
 ipcMain.handle('human-auth-session:write', async (_event, session: unknown) => {
+  const mirror = session as Parameters<typeof writeHumanAuthSession>[0]
+  const next = runtimeAuthFromSupabaseTokens({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
+  await sessionLifeLeaveIfChanging(next?.userId ?? null)
   try {
-    const mirror = session as Parameters<typeof writeHumanAuthSession>[0]
     pushedHumanAuth = undefined
-    pushedHumanAuth = runtimeAuthFromSupabaseTokens({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
+    pushedHumanAuth = next
     projectionDeviceRuntime.invalidate() // Revoke the old identity before awaiting persistence.
     return await writeHumanAuthSession(mirror)
   } finally {
     onHumanAuthSessionChanged()
+    await sessionLifeEnter()
   }
 })
 ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
+  await sessionLifeLeaveIfChanging(null)
   try {
     pushedHumanAuth = reason === 'lost' ? 'lost' : null
     projectionDeviceRuntime.invalidate() // Disk deletion must not extend the old account's authority.
@@ -2590,57 +2676,10 @@ ipcMain.on('device-runtime:commands-changed', () => {
 ipcMain.on('device-runtime:scheduled-tasks-changed', () => {
   deviceRuntimeHost?.notifyScheduledTasksChanged()
 })
-// #6396 这个账号的 agent 有变动(常见是另一台设备刚建了一个,用掉了一个号)。服务端给本账号每台设备推
-// agent_changed,收它的是渲染层的修订总线;主进程不另开一条订阅,由渲染层转一声。本机下一条会话页会话起名时
-// 「用到几号」就已跟上 —— ❌ 否则要等它落地被服务端改名,会话起来一秒就换名字。
-ipcMain.on('owned-agents:changed', () => {
-  void authProvider?.getAuth()
-    .then((auth) => {
-      if (auth?.accessToken && auth.userId) refreshAgentNamingFacts({ accessToken: auth.accessToken, userId: auth.userId })
-    })
-    .catch((error: unknown) => {
-      createLogger('sessionpage/provision').warn(
-        { error: error instanceof Error ? error.message : String(error) },
-        '#6396 owned-agents changed: auth unavailable — naming facts refresh on the next change or session',
-      )
-    })
-})
 // @@@local-device-self - The renderer should not ask the cloud whether its own machine
 ipcMain.handle('device:get-self-snapshot', () => getLocalDeviceSelfSnapshot())
 
-// @@@4526 owner 删除一个自己的 agent 之后,释放它在这台机器上的足迹(花名册 / runtime session / 投递注册),
-// 并立一块按 conversation 记账的墓碑,让那条仍然活着的会话页会话不再被重新开户。
-//
-// 渲染层在 `remove_owned_agent` **成功之后**调它:云端身份确认没了,才轮得到"本机永久不可达"这个结论。
-// ❌ 不吞错。本机足迹没释放干净却让 UI 继续说「Agent deleted」,正是这张票要修的那个形状。
-ipcMain.handle('owned-agent:release-local-footprint', async (_e, arg: unknown) => {
-  const agentUserId = (arg as { agentUserId?: unknown } | null)?.agentUserId
-  if (typeof agentUserId !== 'string' || !agentUserId.trim()) {
-    throw new Error('owned-agent release 缺 agentUserId')
-  }
-  // @@@4526B ① 先取消在飞的那一轮。删除是用户唯一能想到的「停下它」的动作,UI 也确实回了
-  // `Agent deleted` —— 而实测里那一轮一路跑到 61.8s 正常回了 DONE,继续烧上游配额、产出写进一条
-  // 用户已经看不见的会话。取消走 conversation 键控 resolver(❌ 宿主不按 provider 名分支);
-  // 空闲时它是 no-op。❌ 不 catch:没停下来却回报已删除,正是这条缺陷本身。
-  // 进出各记一行。理由不是调试顺手:这条 IPC 一旦不生效,产品表现与"删干净了"**完全同形**——
-  // 联系人照样从通讯录消失(那是云端 RPC 删掉 identity.users 造成的,与本机这半无关),
-  // 于是"没释放足迹"就成了一次看不见的失败。这正是本票的形状,所以它必须留下痕迹。
-  const log = createLogger('sessionpage/turn-cancel')
-  log.info({ agentUserId }, 'owner delete: release-local-footprint entered')
-  try {
-    const result = await releaseDeletedOwnedAgent(agentUserId, { env: process.env })
-    log.info({ agentUserId, ...result }, 'owner delete: release-local-footprint done')
-    return result
-  } catch (error) {
-    log.error(
-      { agentUserId, error: (error as Error).message },
-      'owner delete: local footprint released, but the in-flight turn could NOT be cancelled',
-    )
-    throw error
-  }
-})
-
-// @@@share-card-rename 改名也有两半,云端与本机 —— 与删除(release-local-footprint)对称。
+// @@@share-card-rename 改名也有两半,云端与本机。
 // 云端那半是 identity.users.display_name(聊天页 / 通讯录 / 名片海报读它);本机那半是花名册 agents.json
 // 上的 name,会话页读它(分享按钮的提示、分享卡片里那个名字、按名字寻址)。provisioning 复用花名册上的
 // existing.name 且**从不**回读云端,所以只改云端 = 同一个 agent 在两页叫两个名字,而这正是
@@ -2654,19 +2693,18 @@ ipcMain.handle('owned-agent:rename-local-footprint', async (_e, arg: unknown) =>
   if (!agentUserId) throw new Error('owned-agent rename 缺 agentUserId')
   // 空名不是「不改」,是一个会把花名册写坏的值 —— 调用方本就不该发出来,发出来就响亮拒绝。
   if (!name) throw new Error('owned-agent rename 缺 name')
-  const { listAgents, updateAgent } = await import('@gugu/core/local/state/agents')
+  const { listAgents, writeAgentName } = await import('@gugu/core/local/state/agents')
   // includeGuests:会话页会话的身份可能还挂在 guest 记录上,漏掉它就等于「这台机器上没有」而静默不改。
   const roster = await listAgents(process.env, { includeGuests: true })
   const existing = roster.find((agent) => agent.gugu_user_id === agentUserId)
   if (!existing) return false
-  await updateAgent({ guguUserId: agentUserId }, { name }, process.env)
-  // 分享按钮 / 侧栏身份卡的名字是查一次存下来的,不播这一下就还挂着旧名。按 conversationId 认领(同一个 task 里
-  // N 条会话 N 个 agent,按 agent 认领会让兄弟会话跟着改名);花名册上没记会话绑定(还没起会话)就没人要听,不播。
+  // The cloud already took this person's rename: it is this device's latest name and it is published.
+  await writeAgentName(agentUserId, name, 'local', process.env)
+  await writeAgentName(agentUserId, name, 'published', process.env)
+  // The roster write renames the bound task (task-name.ts announces it to every surface). Its agent is told
+  // only when it has a session to hear it (no session binding = nothing is running under that name yet).
   const sessionId = existing.cache?.[SESSION_CACHE_KEY]
-  if (typeof sessionId === 'string' && sessionId) {
-    sendSessionpageIdentityEvent(sessionpageAgentRenamedEvent, { conversationId: sessionId, agentUserId, displayName: name })
-    if (existing.name !== name) tellRenamedAgentsSession({ agentUserId, displayName: name })
-  }
+  if (typeof sessionId === 'string' && sessionId && existing.name !== name) tellRenamedAgentsSession({ agentUserId, displayName: name })
   return true
 })
 
@@ -2755,7 +2793,7 @@ const updateFeedConfig = updateFeedOptions(updateChannel, process.platform)
 
 // #6264「从桌面用 SSH 一步装好」(设置 → 设备 → 添加一台机器)。server 模式没有窗口、也没人在界面上点,不挂。
 // 装哪条通道跟这台桌面连的库走:连生产库装正式版,别的库装 Beta(❌ 跟 tier 走:开发构建的 tier 也是 production)。
-const serverChannel = __GUGU_SERVER_CHANNEL__
+const serverChannel = desktopServerChannel()
 // #6264「别的机器上的编程只给用 SSH 装上的机器」:这台桌面上用 SSH 装上的机器(本机映射,不上云)。
 const sshMachineStore = SERVER_MODE ? null : createSshMachineStore(defaultSshMachinesFile(app.getPath('userData')))
 // 这台桌面到远程 SSH 机器的设备连接,一台机器一条:窗口(经 ssh-link-ipc)与主进程(agent 的 session_* 跨机器)共用。
@@ -2837,8 +2875,16 @@ if (sshMachineStore) {
     log: (message, fields) => createLogger('server/ssh-link').info(fields ?? {}, message),
     // 那台机器的 server 太旧、连不上:当场替它升级(与添加时装同一条通道);#6264 换成和这台桌面(按设备 id 报)匹配的那一版。
     upgradeChannel: serverChannel,
-    published: parseBuildDistribution(__GUGU_BUILD_DISTRIBUTION__) === 'published',
-    desktopId: async () => (await getLocalDeviceSelfSnapshot())?.device_id ?? null,
+    readCapabilities: async deviceId => {
+      const auth = await desktopAuthProvider().getAuth()
+      if (!auth?.userId || !auth.accessToken) throw new Error('This desktop is not signed in')
+      return (await listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId, { deviceIds: [deviceId] }))[0]?.capabilities ?? null
+    },
+    callUpdate: (...args) => {
+      crossMachine()
+      if (!crossMachineRequester) throw new Error('The shared device requester is unavailable')
+      return crossMachineRequester.call(...args)
+    },
     ...(tunnelMachines ? { tunnels: tunnelMachines } : {}),
   })
   sshLinks = links
@@ -3109,6 +3155,23 @@ const updateFlow = createUpdateFlow({
     start: startMacDmgDownload,
   },
   updateQuit,
+  busyAgents: () => loadEmdashBridge()?.sessionpageVersionSwitchActivity().busyAgents ?? null,
+  confirmInterrupt: async (count) => {
+    focusMainWindow()
+    const copy = updateRestartCopy(currentHostCatalog(), count)
+    const options = {
+      type: 'question' as const,
+      message: copy.title,
+      detail: copy.detail,
+      buttons: [copy.restart, copy.later],
+      defaultId: 1,
+      cancelId: 1,
+    }
+    const { response } = await (mainWindow && !mainWindow.isDestroyed()
+      ? dialog.showMessageBox(mainWindow, options)
+      : dialog.showMessageBox(options))
+    return response === 0
+  },
   logInfo: (message, detail) => updaterLogger.info(detail ?? {}, message),
   logWarn: (message, detail) => updaterLogger.warn(detail ?? {}, message),
 })
@@ -3299,6 +3362,8 @@ const killEnginesOnCrash = (label: string): void => {
     appendFileSync(join(logDir, 'reap-probe.log'), `${new Date().toISOString()} reap-begin label=${label}\n`)
   } catch { /* 探针不许反噬关停 */ }
   shutdownLogger.info({ label }, 'native leg reap: begin')
+  reap('host-processes', () => killAllWorkersSync(pids => SERVER_MODE
+    ? killServerDescendantsSync(pids) : signalProcessDescendantsSync(pids, 'SIGKILL')))
   reap('codex-app-server', killAllCodexAppServerProcessGroupsSync)
   reap('opencode-serve-attach', () => opencodeServeAttachSessionDelivery.disposeSync())
   reap('droid-daemon', () => droidDaemonSessionDelivery.disposeSync())
@@ -3317,7 +3382,14 @@ const killEnginesOnCrash = (label: string): void => {
 // 有上限(停不下来照样退);再来一个信号 = 不等了。桌面上信号仍是立即终止(正常退出走 before-quit)。
 const SERVER_SIGNAL_STOP_TIMEOUT_MS = 5_000
 let signalStopping = false
-const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
+let stopServerActivity = (): void => {}
+let startServerActivity = (): void => {}
+const exitOnSignal = (label: 'SIGINT' | 'SIGTERM' | 'SIGUSR2', code: number): void => {
+  stopServerActivity()
+  if (isSingleServerRun()) {
+    if (code === 143 && !existsSync(join(app.getPath('userData'), SESSION_FILE))) code = EXIT_SIGNED_OUT
+    if (code !== EXIT_RESTART && !['systemd', 'launchd'].includes(process.env.GUGU_SERVER_SUPERVISED ?? '')) markStopped(process.env.GUGU_SERVER_HOME!)
+  }
   // 有人要它停(stop / systemd / 守护进程收账号进程):留一句,开机收残据此说「重启打断了这一轮」(守护进程换版时先写了 update,不改)。
   noteExitReason(app.getPath('userData'), 'restart')
   const finish = (): void => {
@@ -3333,6 +3405,18 @@ const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
 }
 process.on('SIGINT', () => exitOnSignal('SIGINT', 130)) // 128 + SIGINT(2)
 process.on('SIGTERM', () => exitOnSignal('SIGTERM', 143)) // 128 + SIGTERM(15)
+if (SERVER_MODE) process.on('SIGUSR2', () => exitOnSignal('SIGUSR2', EXIT_RESTART))
+const serverVersionSwitchActivity = () => loadEmdashBridge()?.sessionpageVersionSwitchActivity?.()
+if (isSingleServerRun()) singleServerUpdater()?.bindRuntime({
+  // A5 includes work pending hydration and authorization; do not sample activity.json.
+  isBusy: () => serverVersionSwitchActivity()?.busy ?? true,
+  versionSwitchActivity: serverVersionSwitchActivity,
+  beforeSwitch: () => { stopServerActivity(); return () => startServerActivity() },
+  shutdown: () => {
+    noteExitReason(app.getPath('userData'), 'update')
+    exitOnSignal('SIGTERM', EXIT_RESTART)
+  },
+})
 process.on('SIGCONT', () => {
   // Node timers resume with wall-clock debt after SIGSTOP. Provider turn
   // completion waiters must not consume that debt as a lost turn.
@@ -3624,7 +3708,7 @@ function crossMachine(): CrossMachineSessions {
     lookupAgents: async ({ userIds, numbers }) => {
       const auth = await requireAuth()
       const query = (column: 'id' | 'gugu_number', values: Array<string | number>) => makeIdentityClient(auth.accessToken)
-        .from('users').select('id, device_id, gugu_number')
+        .from('active_users').select('id, device_id, gugu_number')
         .eq('type', 'agent').eq('owner_user_id', auth.userId).in(column, values)
       const results = await Promise.all([userIds.length ? query('id', userIds) : null, numbers.length ? query('gugu_number', numbers) : null])
       return results.flatMap((result) => {
@@ -3690,38 +3774,54 @@ async function cloudComputerClient() {
  * S2b 读者触发装配:四个触发(nudge 在 device runtime 里;这里接②回合结束/③唤醒完成/④开机扫)
  * 都收敛到同一个 core 读者入口。deps 每次现装(token 会轮换);没登录就不拉(loud debug,不静默)。
  */
-function kickInboxForAgent(agentUserId: string, trigger: string): void {
+function kickInboxForAgent(agentUserId: string, trigger: string, bootTaskId = ''): void {
   // #7225 不等它的一脚:拿不到登录态(含续期被拒的 RuntimeAuthExpiredError)由 kickInboxWhenAuthed 记一行收掉。
   void kickInboxWhenAuthed({
     agentUserId,
     trigger,
+    onFailure: trigger === 'boot-scan' ? error => loadEmdashBridge()?.sessionBootTasks.record('inbox-wake', bootTaskId, error) : undefined,
     getAuth: () => authProvider?.getAuth(),
     log: createLogger('agent-inbox'),
-    kick: (auth) => {
-      const accessToken = auth.accessToken
-      const deps = agentInboxDepsFromBridge({
-        accessToken,
-        ownerUserId: auth.userId,
-        env: process.env,
-        runtimeBridge: createDeviceSessionpageBridge(),
-        resolveGuguIds: resolveGuguIdsForInbox,
-        fetchThreadMessages: (chatId, threadRootId) => fetchThreadMessagesViaRest(chatId, threadRootId, accessToken),
-        overrides: {
-          onBatch: ({ agentUserId: batchAgentUserId, rows, units }) => {
-            if (process.env.GUGU_SESSION_TEST_HOOKS === '1') {
-              createLogger('agent-inbox').info({
-                agentUserId: batchAgentUserId,
-                rows,
-                units,
-                trigger,
-              }, 'injectBatch')
-            }
-          },
-        },
-      })
-      kickAgentInboxPull(agentUserId, deps, trigger)
+    kick: (auth) => kickAgentInboxPull(agentUserId, inboxDepsFor(auth, trigger), trigger),
+  })
+}
+
+/** The reader's deps for one signed-in account, assembled fresh each time (tokens rotate). */
+function inboxDepsFor(auth: { accessToken: string; userId: string }, trigger: string) {
+  const accessToken = auth.accessToken
+  return agentInboxDepsFromBridge({
+    accessToken,
+    ownerUserId: auth.userId,
+    env: process.env,
+    runtimeBridge: createDeviceSessionpageBridge(),
+    resolveGuguIds: resolveGuguIdsForInbox,
+    fetchThreadMessages: (chatId, threadRootId) => fetchThreadMessagesViaRest(chatId, threadRootId, accessToken),
+    overrides: {
+      onBatch: ({ agentUserId: batchAgentUserId, rows, units }) => {
+        if (process.env.GUGU_SESSION_TEST_HOOKS === '1') {
+          createLogger('agent-inbox').info({
+            agentUserId: batchAgentUserId,
+            rows,
+            units,
+            trigger,
+          }, 'injectBatch')
+        }
+      },
     },
   })
+}
+
+/**
+ * session-life's pending inbox batches settle their cloud rows here, through the reader's own settle and disclosure:
+ * marked read once the agent accepted the batch, told in their chats once it could not be delivered.
+ */
+async function settleSessionLifeSources(rows: readonly SessionLifePendingRow[], settle: (agentUserId: string, sources: AgentInboxSource[], deps: AgentInboxReaderDeps) => Promise<void>): Promise<void> {
+  if (!rows.some(row => row.sources.length)) return
+  const auth = await authProvider?.getAuth()
+  if (!auth?.accessToken) throw new Error('session-life: the inbox rows of a pending batch cannot be settled while signed out')
+  const byAgent = new Map<string, AgentInboxSource[]>()
+  for (const { agentUserId, ...source } of rows.flatMap(row => row.sources)) byAgent.set(agentUserId, [...byAgent.get(agentUserId) ?? [], source])
+  for (const [agentUserId, sources] of byAgent) await settle(agentUserId, sources, inboxDepsFor(auth, 'session-life'))
 }
 
 const inheritedOwnerTimeZone = ownerTimeZoneFromEnvironment()
@@ -3994,9 +4094,9 @@ async function applyAgentModelSelectionOnDevice(input: {
 }
 
 /**
- * #7199 个人助理搬去了别的设备(agent.retire):这台拆它的运行时 —— 停会话、删会话行、撤它排的已安排、摘花名册与缓存、
+ * #7199 个人助理搬去了别的设备(agent.retire):这台归档它的任务和名册、停运行时、撤它排的已安排、
  * 作废发给它的卡。❌ 删文件(工作目录、记忆都留着:搬坏了还有退路)。幂等:这台上本来就没有它 = `found:false`。
- * 顺序:先撤已安排(会话还在,才查得到它们挂在哪条会话上),再拆会话,最后摘名册记录(它是「这个绑定还看得见」的开关,留到最后让失败的一轮可重试)。
+ * 顺序:先撤已安排(会话还在,才查得到它们挂在哪条会话上),再归档名册与任务,保留绑定和历史以便恢复。
  */
 async function retireSessionpageAgent(agentUserId: string): Promise<{ found: boolean; schedulesRemoved: number }> {
   const roster = await listAgents(process.env, { includeGuests: true })
@@ -4012,7 +4112,7 @@ async function retireSessionpageAgent(agentUserId: string): Promise<{ found: boo
   )
   // 等它写完(它是 async):不等的话下面拆会话时登记表里这个 agent 还在,投递可能又落到刚要停的会话上。
   await unregisterSessionpageDeliveryOwners(agentUserId)
-  // 先摘花名册(云端 presence 的周期写只遍历花名册),再停会话:停会话时冒出来的状态变化不会再被写成云端的「离线」。
+  // 先归档名册(云端 presence 的周期写只遍历活动视图),再停任务:停会话时冒出来的状态变化不会再被写成云端的「离线」。
   // 身份已经属于新家 —— 旧家 ❌ 报 offline、❌ 删云端身份(运行态按时间单调,后写的赢,旧家后写的 offline 会盖掉新家的 online)。
   await releaseAgentLocalFootprint({ agentUserId, identityRemoved: false, env: process.env })
   await disposeSessionpageAgentFromRoster(agent)
@@ -4075,6 +4175,27 @@ ipcMain.handle('sessionpage:retry-platform-recovery', async (_event, sessionId: 
 })
 
 // (重)连接时的那一次对账:这台机器上每个 agent 此刻的条目。之后渲染层只吃 `agent-status-feed`。
+// Local reachability uses the command queue's holding fact, including live sibling instances.
+ipcMain.handle('agent-status-feed:holding', async (_event, agents: unknown) => {
+  if (!Array.isArray(agents)) throw new Error('Agent holding request must be an array')
+  const deviceId = await localDeviceId()
+  if (!deviceId) throw new Error('This computer is not identified')
+  const local = agents.filter(row => row?.deviceId === deviceId)
+  if (!local.length) return {}
+  const lease = deviceRuntimeHost?.getRuntimeLease()
+  const auth = await desktopAuthProvider().getAuth()
+  if (!lease || lease.deviceId !== deviceId || !auth || auth.userId !== lease.ownerId) throw new Error('Local agent host is not ready')
+  const resolve = createDeviceCommandHoldingResolver({
+    client: makeIdentityClient(auth.accessToken) as unknown as DeviceRuntimeIdentityClient,
+    deviceId, instanceId: lease.runtimeInstanceId, env: process.env,
+  })
+  const holdings = await Promise.all(local.map(async row => {
+    const id = requiredSessionpageAgentId(row.agentUserId)
+    return [id, await resolve({ type: 'agent.deliver', payload: { agent_user_id: id } })] as const
+  }))
+  if (deviceRuntimeHost?.getRuntimeLease()?.ownerId !== auth.userId) throw new Error('Agent holding owner changed')
+  return Object.fromEntries(holdings)
+})
 ipcMain.handle('agent-status-feed:snapshot', () => agentStatusFeed.snapshot())
 
 ipcMain.handle('sessionpage:open-agent-file', async (
@@ -4193,6 +4314,7 @@ function loadEmdashBridge(): EmdashBridgeModule | null {
     // @@@5301 同理,加载即注入:会话页 agent 通知的正文。不注入的后果是所有人收到英文兜底,
     // 而且不报错 —— 与上面那条 webview 策略同一类「失败时静默退化」的坑。
     publishSessionHostLocale()
+    emdashBridge.setSystemNotificationsUsable(() => notificationGate.usable())
     // @@@2374 — 同理,加载即注入:扩展的宿主动作(改标题/角标、开浏览器 tab、报错、投进对话)
     // 全要走宿主这个 renderer 通道,而通道的实现住在 main.js。传函数不传值,所以此刻窗口还没建
     // 也没关系——调用时才读。
@@ -4525,6 +4647,7 @@ app.whenReady().then(async () => {
   // The session backend and its session actions are required session-page
   // components: either failing aborts app startup through fatalSessionpageBoot.
   const emdash = loadEmdashBridge()
+  let sessionHostBoot: Promise<void> | undefined
   if (emdash) {
     const localDelivery = getSessionpageLocalDelivery()
     // The session-page PTY provider is a separately bundled module graph. Install the host-owned registry before
@@ -4611,26 +4734,6 @@ app.whenReady().then(async () => {
       }
     }
     emdash.setSessionMessageRouter(sessionMessageRouter)
-    // ACP 腿的 live 转换 = 运行时登记好这条会话(启动成功)。与 codex / claude 的 onLive 同一个形状。
-    emdash.setSessionLiveNotifier((sessionId) => {
-      // @@@4629 conversation → agent 走 roster(那份 cache 就是这层绑定的 SSOT,见 agent-provisioning)。
-      void guguAgentUserIdForSession(sessionId, process.env).then(
-        (agentUserId) => {
-          if (agentUserId) return onSessionpageSessionLive(agentUserId, sessionId, 'acp-started')
-          // ❌ 不静默丢:排着的消息要等下一个触发。
-          createLogger('sessionpage/deliver').warn(
-            { sessionId },
-            'ACP 会话已起,却无处可投:这条会话在 roster 上没有 agent(还没 provision / 已被 reap)',
-          )
-        },
-        (error: unknown) => {
-          createLogger('sessionpage/deliver').error(
-            { sessionId, err: error instanceof Error ? error.message : String(error) },
-            'ACP 会话已起,解析不出它的 agent(未读留在本机 outbox,等下一个触发)',
-          )
-        },
-      )
-    })
     const senderBinding = async (context: LocalSessionBridgeContext, ownerUserId: string | null) => {
       return resolveSessionpageSenderBinding(context.sessionId, {
         listRoster: () => listAgents(process.env, { includeGuests: true }),
@@ -4720,7 +4823,7 @@ app.whenReady().then(async () => {
           const current = await assistantWorkDeliveryHost().context()
           if (!current || current.ownerId !== auth.userId) throw new Error('Work account changed')
           const identity = makeIdentityClient(auth.accessToken!)
-          const { data, error } = await identity.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+          const { data, error } = await identity.from('agent_provisions').select(ASSISTANT_PROVISION_SELECT)
             .eq('owner_user_id', auth.userId).eq('member_key', 'assistant')
           if (error) throw error
           const assistant = pickAssistant((data ?? []) as AssistantProvisionRow[])
@@ -4766,6 +4869,18 @@ app.whenReady().then(async () => {
         return emdash.runSessionAction(context, action as SessionAction, signal)
       }
       let record = action as Record<string, unknown>
+      if (record.action === 'owner-notify') {
+        const input = record as unknown as Parameters<typeof emdash.commitOwnerNotification>[1]
+        const verify = async () => {
+          if (!authProvider) throw new Error('owner notification runtime auth is unavailable')
+          const current = await requireRuntimeAuth(authProvider, 'owner notification commit')
+          if (current.userId !== auth.userId) throw new Error('owner notification account changed')
+          const binding = await senderBinding(context, auth.userId)
+          if (binding.guguAgentUserId !== input.agent_user_id) throw new Error('owner notification sender is not bound to this native session')
+        }
+        await verify()
+        return emdash.commitOwnerNotification(context, input, verify, signal)
+      }
       const projectResult = (result: unknown) => typeof record.action === 'string' && record.action.startsWith('project_')
         ? prepareProjectAgentNotice(result, {
           agentUserId: () => senderBinding(context, auth.userId).then((binding) => binding.guguAgentUserId),
@@ -4881,7 +4996,9 @@ app.whenReady().then(async () => {
         return ids.flatMap<{ agentUserId: string; status: string | null; detail: string | null }>((agentUserId) => {
           const entry = agentStatusFeed.get(agentUserId)
           const archived = getSessionpageLocalDelivery().sessionArchivalForAgent(agentUserId)?.archivedAt
-          return archived ? [{ agentUserId, status: 'archived', detail: null }] : entry ? [{ agentUserId, status: entry.reading?.status ?? null, detail: entry.reading?.detail ?? null }] : []
+          // A session-life session composes its lifecycle first, the same displayStatus as session_get and the pill.
+          const status = entry?.life ? displayStatus(entry.life, entry.reading?.status ?? null) : entry?.reading?.status ?? null
+          return archived ? [{ agentUserId, status: 'archived', detail: null }] : entry ? [{ agentUserId, status, detail: entry.reading?.detail ?? null }] : []
         })
       }
       if (record.action === 'message') return unifiedSessionMessage(auth, context, record, signal)
@@ -4893,7 +5010,7 @@ app.whenReady().then(async () => {
         const local = await emdash.runSessionAction(context, record as SessionAction, signal)
         return crossMachine().withRemoteChildren(local, sessionId, () => remoteCaller(auth, context), signal)
       }
-      if (['get', 'stop', 'archive', 'set_parent'].includes(String(record.action)) && elsewhere) {
+      if (['get', 'stop', 'archive', 'set_parent', 'schedule_list', 'schedule_cancel'].includes(String(record.action)) && elsewhere) {
         return crossMachine().runOnSession(sessionId, await remoteCaller(auth, context), record as { action: string }, signal)
       }
       return projectResult(await emdash.runSessionAction(context, record as SessionAction, signal))
@@ -4917,7 +5034,6 @@ app.whenReady().then(async () => {
             : emdash.runRemoteSessionAction(caller, action as never, signal),
         app: (caller, action) => emdash.answerAppMessage(caller, action),
         appSpawn: (caller, action) => emdash.spawnAgentForExtension({ extensionId: caller.extensionId, extensionName: caller.extensionName, prompt: action.prompt, ...action.spawn }),
-        appReadFile: (caller, action) => emdash.answerAppReadFile(caller, action),
         appCall: (caller, action) => emdash.answerAppCall(caller, action),
       })
     })
@@ -4927,9 +5043,8 @@ app.whenReady().then(async () => {
       isThisDevice: (deviceId) => crossMachine().isThisDevice(deviceId),
       appSpawn: (app, deviceId, action) => crossMachine().appSpawn(app, deviceId, action),
       sessions: (since, options) => crossMachine().sessionsElsewhere(since, options),
-      archive: (deviceId, sessionId) => crossMachine().archiveOn(deviceId, sessionId),
+      archive: (deviceId, sessionId, removeSocialIdentity) => crossMachine().archiveOn(deviceId, sessionId, removeSocialIdentity),
       appMessage: (app, deviceId, sessionId, text, how) => crossMachine().appMessage(app, deviceId, sessionId, text, how),
-      appReadFile: (app, deviceId, action) => crossMachine().appReadFile(app, deviceId, action),
       appCall: (app, deviceId, action) => crossMachine().appCall(app, deviceId, action),
     })
     // 打开会话只有一条路(gugu-links.openLink):agent 的会话先看本机映射,再到它所在的机器上找;本机会话打开前先做平台恢复。
@@ -4954,9 +5069,24 @@ app.whenReady().then(async () => {
     // surface, so an agent.deliver addressed to a live session-page agent injects a new ACP turn; a
     // mapped offline target is queued, while transport errors remain fail-loud. Never a pty write.
     emdashAgentRegistry.setBridge(emdash)
-    // 编号 5: the reconnect a delivery kicked for a lost session ended (up, failed, or over budget): pull its inbox again —
-    // up, the batch goes in; not, it fails in its chat. The same shape as the claude TUI leg's onOverdue.
-    emdashAgentRegistry.setReconnectSettledHook((agentUserId) => kickInboxForAgent(agentUserId, 'reconnect-settled'))
+    emdash.setSessionLifeSourceHost({
+      // The agent accepted the row: its unit's delivery succeeded, whether or not the read receipt then lands.
+      markRead: async (row) => {
+        emdashAgentRegistry.settleInbox([row])
+        await settleSessionLifeSources([row], markInboxRowsRead)
+      },
+      // By the row's state: failed and unknown are final (Life never redelivers them) and fail the unit's delivery with what
+      // was disclosed, so its command records it; a start failure's rows stay queued and their units wait for the retry.
+      reportFailure: async (rows, cause) => {
+        for (const [state, outcome] of [['failed', { kind: 'failed', cause }], ['unknown', { kind: 'unknown' }], ['queued', { kind: 'retained' }]] as const) {
+          const settled = rows.filter(row => row.state === state)
+          await settleSessionLifeSources(settled, async (agent, sources, deps) => {
+            const disclosure = await discloseInboxRowsFailed(agent, sources, deps, outcome)
+            if (state !== 'queued') emdashAgentRegistry.settleInbox(settled.filter(row => row.sources.some(source => source.agentUserId === agent)), new DisclosedFailure(cause, disclosure))
+          })
+        }
+      },
+    })
     // @@@sessionpage TASKPAGE-FUSION — re-map every persisted session-page agent binding at boot so it stays
     // addressable BEFORE its session-page session reopens: a deliver to a mapped-but-not-live agent becomes
     // ordered local debt instead of silently passing through to a gugu-native engine spawn.
@@ -4981,10 +5111,37 @@ app.whenReady().then(async () => {
       resolveDeviceId: localDeviceId,
       resolveProjectName: (projectId: string) => emdash.emdashProjectName(projectId),
       takeBirthGroup: (sessionId: string) => emdash.emdashTakeBirthGroup(sessionId),
-      sessionFacts: (target) => emdash.emdashSessionProvisionInput(target),
+      sessionFacts: (target, options) => emdash.emdashSessionProvisionInput(target, options),
       listSessionFacts: () => emdash.emdashSessionpageSessionFacts(),
     })
     const sessionpageIdentityDeps = sessionpageIdentityHost.provisionDeps
+    emdash.setSessionIdentityHost(sessionpageIdentityHost)
+    emdash.setTaskNamer({
+      defaultName: (provider, taken) => sessionpageIdentityHost.defaultTaskName(provider, taken),
+      // A task rename renames its agent: the shell's contacts re-read the published name.
+      renameBound: async (sessionId, agentUserId, name, source) => {
+        await sessionpageIdentityHost.renameBound(sessionId, agentUserId, name)
+        // A person renamed the task: its agent learns its new name (an automatic first name is not news to it).
+        if (source === 'manual') tellRenamedAgentsSession({ agentUserId, displayName: name })
+        sendUiEvent(MAIN_UI_EVENTS.ownedAgentRenamed, { agentUserId, displayName: name })
+      },
+    })
+    await emdash.setTaskNameOwner(humanAuthUserId())
+    // A name renamed offline is published once the backend answers this process again (no timer).
+    let publishing: Promise<void> | null = null
+    const publishPendingTaskNames = () => {
+      publishing ??= sessionpageIdentityHost.publishPendingNames()
+        .catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Publishing pending task names failed'))
+        .finally(() => { publishing = null })
+    }
+    onElectronCloudAnswer(() => { if (emdash.hasPendingTaskNames()) publishPendingTaskNames() })
+    publishPendingTaskNames()
+    // Cloud names first (a rename on another device is a person's), then the one-time legacy names (0043).
+    // Both need the projected roster, so they become available once the session host booted (below).
+    const adoptTaskNames = createCloudTaskNameAdopter({
+      adopt: () => sessionpageIdentityHost.adoptCloudNames().then(() => emdash.adoptLegacyTaskNames()).then(() => undefined),
+      failed: (error) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting cloud task names failed'),
+    })
     const nativeInbox = emdash.startNativeConversationInboxHost({
       open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),
@@ -5002,6 +5159,15 @@ app.whenReady().then(async () => {
     })
     emdash.setSessionAdmissionPreparation((sessionId,text) => assistantPanel.prepare(sessionId,text))
     emdash.setProjectGroupHost(createSessionpageProjectGroupHost({ getAuth: getSessionpageAuth, env: process.env }))
+    emdash.setAssistantProjectCleanupOwner(async () => (await getSessionpageAuth())?.userId ?? null, localDeviceId, async () => {
+      const auth = await getSessionpageAuth()
+      if (!auth) return []
+      const bindings = await personalAssistantSessionBindings(auth, await listAgents(process.env, { includeGuests: true }))
+      if ((await getSessionpageAuth())?.userId !== auth.userId) throw new Error('Assistant cleanup account changed')
+      return bindings
+    })
+    onElectronCloudAnswer(() => { void emdash.runPendingAssistantProjectCleanup().catch(error =>
+      createLogger('assistant-project-cleanup').error({ error: String(error) }, 'Project cleanup remains pending')) })
     onProjectGroupMappingChanged(({ projectId }) => emdash.notifyProjectGroupBindingChanged(projectId))
     setSessionpageAgentCardRevoker(revokeAgentCards)
     // @@@task-shell-port (#5057) 「咕咕自营模型」那五个钩子的实现与网页版无头宿主共用一份
@@ -5057,6 +5223,7 @@ app.whenReady().then(async () => {
       return session?.providerId === target.providerId && session.surface === target.surface ? owner!.target : null
     }
     const recovery = new SessionpagePlatformRecoveryCoordinator({
+      bootTasks: emdash.sessionBootTasks,
       isExpired: (sessionId) => expiredPlatformModelSessions().includes(sessionId),
       resolveTarget: (sessionId) => sessionpagePlatformRecoveryHooks?.targetForSession(sessionId) ?? null,
       currentGeneration: platformCredentialGenerationForSession,
@@ -5136,10 +5303,11 @@ app.whenReady().then(async () => {
       knownChatId: string | null | undefined
       messageId: string
       text: string
+      files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]
       /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡(task-card-first-turn.ts),❌ 进 agent 私聊。 */
       taskChatId?: string
       projectId: string
-    }): Promise<{ chatId: string; firstTurn: string; envelope: boolean }> => {
+    }): Promise<{ chatId: string; render: FirstTurnRender }> => {
       const content = input.text.trim()
       if (!content) {
         throw new Error(`chat-page first turn for ${input.sessionId} has no text`)
@@ -5157,6 +5325,7 @@ app.whenReady().then(async () => {
           chatId: input.taskChatId,
           messageId: input.messageId,
           text: content,
+          files: input.files,
           deviceId,
           machineLabel: (await getLocalDeviceSelfSnapshot())?.label || hostname(),
           senderIdentities: await envelopeSenderIdentities(auth.userId, auth.accessToken),
@@ -5169,20 +5338,14 @@ app.whenReady().then(async () => {
         auth.accessToken,
         process.env,
       )
-      const envelope = buildAgentDeliveryEnvelope(
-        {
-          guguUserId: input.guguAgentUserId,
-          chatId,
-          messageId: input.messageId,
-          senderUserId: auth.userId,
-          content,
-          replyTo: null,
-          threadRootId: null,
-        },
-        await envelopeSenderIdentities(auth.userId, auth.accessToken),
-        { publicId: null, name: null, kind: 'dm' },
-        formatDeliveryTimestamp(new Date().toISOString()),
-      )
+      // The row's own text is rendered later (renderFirstTurn); landing fixes the chat facts it renders with.
+      const render: FirstTurnRender = {
+        kind: 'envelope',
+        envelope: { guguUserId: input.guguAgentUserId, chatId, messageId: input.messageId, senderUserId: auth.userId, replyTo: null, threadRootId: null },
+        identities: await envelopeSenderIdentities(auth.userId, auth.accessToken),
+        chat: { publicId: null, name: null, kind: 'dm' },
+        timestamp: formatDeliveryTimestamp(new Date().toISOString()),
+      }
       const { error: messageError } = await makeChatClient(auth.accessToken).rpc('send_message_idempotent', {
         p_message_id: input.messageId,
         p_chat_id: chatId,
@@ -5202,29 +5365,15 @@ app.whenReady().then(async () => {
         p_user_id: input.guguAgentUserId,
       })
       if (readError) throw new Error(`chat-page initial message read mark failed: ${readError.message}`)
-      return { chatId, firstTurn: envelope, envelope: true }
+      return { chatId, render }
     }
     ipcMain.removeHandler(SESSION_SHELL_CHANNELS.ensureAgentAddress)
     handleShellChannel(SESSION_SHELL_CHANNELS.ensureAgentAddress, (_event, input: unknown) =>
       sessionpageIdentityHost.ensureAgentAddress(input as Parameters<typeof sessionpageIdentityHost.ensureAgentAddress>[0]),
     )
-    // #6091 会话页「重命名」弹窗里改 agent 名。改完两处要知道:会话页(侧栏身份卡 / 分享按钮提示,按 conversationId
-    // 认领)与 gugu 渲染层的通讯录(它缓存着 display_name,不叫它刷新,聊天页就还挂着旧名)。
-    ipcMain.removeHandler(SESSION_SHELL_CHANNELS.renameAgent)
-    handleShellChannel(SESSION_SHELL_CHANNELS.renameAgent, async (_event, input: unknown) => {
-      const renamed = await sessionpageIdentityHost.renameAgent(
-        input as Parameters<typeof sessionpageIdentityHost.renameAgent>[0],
-      )
-      sendSessionpageIdentityEvent(sessionpageAgentRenamedEvent, renamed)
-      sendUiEvent(MAIN_UI_EVENTS.ownedAgentRenamed, { agentUserId: renamed.agentUserId, displayName: renamed.displayName })
-      tellRenamedAgentsSession({ agentUserId: renamed.agentUserId, displayName: renamed.displayName })
-      return renamed
-    })
-    const runSessionpageReap = (reason: string, info?: { deadSessionId?: string }): void => {
+    const runSessionpageReap = (reason: string): void => {
       void reconcileSessionpageAgents({
-        // 真删除时会话页后端才点名:归档会话与原身份仍在清单里,不会进入删除路径;
-        // detach 不点名(会话还活着)。
-        deadSessionIds: info?.deadSessionId ? [info.deadSessionId] : undefined,
+        onFailure: (operation, taskId, error) => emdash.sessionBootTasks.record(operation, taskId, error),
         getAuth: getSessionpageAuth,
         resolveDeviceId: localDeviceId,
         getInventory: () => emdash.emdashSessionpageInventory(),
@@ -5254,24 +5403,13 @@ app.whenReady().then(async () => {
       sessionpageLocalSessionSource = createHostLocalSessionSource(app.getPath('userData'))
       emdash.setEmdashLocalSessionSource(sessionpageLocalSessionSource)
     }
-    emdash.setEmdashMcpInjector(async (info) => {
+    // 运行时分叉(侧边聊天)递自己的 view id + 来源会话:它没有会话页身份,provisioning 据此
+    // 返回 null,归属与绑定一格都不动(见 SessionpageSessionInfo.sourceConversationId)。
+    // spec agent-provisioning:显式命名过的会话用那个名字开户;缺席才落到「<引擎 label> <序号>」。
+    emdash.setEmdashIdentityProvisioner(request =>
+      provisionSessionpageAgentForSession({ ...request, surface: 'acp' }, sessionpageIdentityDeps))
+    emdash.setEmdashMcpInjector(async (info, provisioned) => {
       const persistedSessionId = info.sourceSessionId ?? info.sessionId
-      const provisioned = await provisionSessionpageAgentForSession(
-        {
-          // 运行时分叉(侧边聊天)递自己的 view id + 来源会话:它没有会话页身份,provisioning 据此
-          // 返回 null,归属与绑定一格都不动(见 SessionpageSessionInfo.sourceConversationId)。
-          sessionId: info.sessionId,
-          sourceSessionId: info.sourceSessionId,
-          providerId: info.providerId,
-          surface: 'acp',
-          cwd: info.cwd,
-          projectId: info.projectId,
-          // spec agent-provisioning:显式命名过的会话用那个名字开户;缺席才落到「<引擎 label> <序号>」。
-          displayName: info.agentDisplayName,
-          lifecycle: info.lifecycle,
-        },
-        sessionpageIdentityDeps,
-      )
       if (!provisioned) {
         if (!authProvider) throw new Error('[sessionpage] MCP injector: runtime auth provider not ready')
         if (!primaryGuguMcpHost) throw new Error('[sessionpage] MCP injector: Gugu MCP host not ready')
@@ -5489,7 +5627,7 @@ app.whenReady().then(async () => {
             : {}),
         }
       }
-      let startupQueue: Array<{ text: string; origin: 'communication' | 'manual' }> | undefined
+      let firstTurn: FirstTurnRender | undefined
       let provisionedChatId = provisioned.chatId
       if (info.initialMessageId && !info.startupOrigin) {
         throw new Error(`startup first turn for ${info.sessionId} requires an explicit creation surface`)
@@ -5539,10 +5677,11 @@ app.whenReady().then(async () => {
           messageId: info.initialMessageId,
           text: chatPageFirstTurnText,
           taskChatId: info.taskChatId,
+          files: info.initialMessageFiles,
           projectId: info.projectId,
         })
         provisionedChatId = delivered.chatId
-        startupQueue = [{ text: delivered.firstTurn, origin: delivered.envelope ? 'communication' : 'manual' }]
+        firstTurn = delivered.render
       }
       // #5323 能力注入这一段过去是个黑盒(真机实测 1.5 s,是 gugu 侧最大的一块)。逐步计时,
       // 才判得出哪一步真的必须挡在用户前面。
@@ -5713,7 +5852,7 @@ app.whenReady().then(async () => {
         return {
           mcpServers: mapped,
           extensionDelivery: sessionExtensionDelivery(bundle),
-          ...(startupQueue ? { initialQueue: startupQueue } : {}),
+          ...(firstTurn ? { firstTurn } : {}),
           spawnEnv: capabilities.spawnEnv,
           spawnArgs: capabilities.extraArgs,
           sessionMeta: capabilities.sessionNewPatch?.meta,
@@ -5955,7 +6094,8 @@ app.whenReady().then(async () => {
         taskChatId: request.taskChatId,
         projectId: request.projectId,
       })
-      return delivered.firstTurn
+      // The terminal leg is not in session-life yet (⑤): its first turn is rendered here, once.
+      return renderFirstTurn(request.text.trim(), delivered.render).text
     })
     // Dispose host-owned native inference transports whenever stopSession tears down the PTY.
     // A controlled platform restart uses this same boundary: the replacement must not reuse an
@@ -6065,8 +6205,19 @@ app.whenReady().then(async () => {
     const emdashBoot = emdash.bootEmdashModule(ipcMain, {
       scheduleDiscovery: (work) => startupDiscovery.schedule(work),
     })
+    sessionHostBoot = emdashBoot
     platformCredentialsBoot = emdashBoot.catch(() => undefined)
+    // Task names are projected during boot; adopting names (cloud, then the one-time legacy ones) follows it.
+    void emdashBoot
+      .then(() => { adoptCloudTaskNames = adoptTaskNames; return adoptTaskNames() })
+      .catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting task names failed'))
     refreshPlatformCredentials()
+    // session-life signs in once the backend that owns it is up; later account changes come through the auth IPC.
+    void emdashBoot.then(async () => {
+      sessionLifeBooted = true
+      const auth = await desktopAuthProvider().getAuth()
+      if (auth?.userId) await bootedSessionLife().signIn(auth.userId)
+    }).catch((error: unknown) => createLogger('session-life').error({ error: String(error) }, 'session-life could not sign in at boot'))
     void emdashBoot.then(() => {
       emdash.onAgentStatus(change => {
         if (change.reading?.status !== 'working') void assistantPanel.publish(change.sessionId).catch(() => {
@@ -6078,7 +6229,7 @@ app.whenReady().then(async () => {
     // (task-to-session 改 tmux 名、session-naming 改账本键)—— 先读就把旧名下活着的会话判死、删掉它的取票文件。
     // 所以与下面的开机重注册一样排在 boot 之后。只读本机、不等登录;boot 失败也照样跑,终端腿与启动结清都在等它落定。
     void emdashBoot.catch(() => undefined)
-      .then(() => restorePlatformRelaySessions({ authProvider: desktopAuthProvider(), liveSessions: liveTmuxSessionIds }))
+      .then(() => restorePlatformRelaySessions({ authProvider: desktopAuthProvider(), liveSessions: liveTmuxSessionIds, bootTasks: emdash.sessionBootTasks }))
       .catch((error: unknown) => createLogger('stable-endpoint').error({ err: error }, '认回重启前的平台会话失败'))
     // 开机重注册读名册,而名册的键名是 boot 里那段名字迁移改的(embedded-boot.ts runSessionNamingOnce):
     // 先读就读到旧键,一条也登记不上,冷会话从此唤不醒。所以和下面的收残一样排在 boot 之后。
@@ -6087,7 +6238,7 @@ app.whenReady().then(async () => {
     // #4277/#5025 重注册**不等**归属:真问一次归属要等渲染进程就绪(真机实测约 2.7s),让路由多等那 2.7s
     // 不值。所以先按老行为全注册,再在归属定下来之后把别家的行摘掉(见下)。
     sessionpageAgentRehydration = emdashBoot.then(() =>
-      registerExistingSessionpageAgents(process.env, { ownerUserId: null })
+      registerExistingSessionpageAgents(process.env, { ownerUserId: null, bootTasks: emdash.sessionBootTasks })
         .then((n) => {
           if (n > 0) console.log(`[sessionpage] re-registered ${n} persisted session-page agent binding(s)`)
         })
@@ -6101,7 +6252,7 @@ app.whenReady().then(async () => {
     // 补偿:归属一确定就把明确属于别的账号的行摘掉。不挂在路由的关键路径上。
     void sessionpageAgentRehydration
       .then(() => bootOwnerWithin(60_000))
-      .then((ownerUserId) => (ownerUserId ? unregisterForeignSessionpageAgents(process.env, ownerUserId) : 0))
+      .then((ownerUserId) => (ownerUserId ? unregisterForeignSessionpageAgents(process.env, ownerUserId, emdash.sessionBootTasks) : 0))
       .then((released) => {
         if (released > 0)
           createLogger('sessionpage/boot').info(
@@ -6124,7 +6275,8 @@ app.whenReady().then(async () => {
         // #4277 只扫当前账号(与老行)的 agent —— 别家的行这个账号拉不到,只会扫出一行 400。
         const roster = agentsForOwner(await listAgents(process.env), await bootOwnerWithin(60_000))
         for (const agent of roster) {
-          if (agent.gugu_user_id) kickInboxForAgent(agent.gugu_user_id, 'boot-scan')
+          const taskId = cacheString(agent.cache, SESSION_CACHE_KEY) ?? ''
+          if (agent.gugu_user_id) emdash.sessionBootTasks.runSync('inbox-wake', taskId, () => kickInboxForAgent(agent.gugu_user_id, 'boot-scan', taskId))
         }
       })
       .catch((err) => createLogger('agent-inbox').warn({ err: (err as Error).message }, 'boot scan skipped'))
@@ -6153,7 +6305,7 @@ app.whenReady().then(async () => {
             // #7199 心跳随行报「隧道最近一次有流量」(会话页宿主的心跳不算):云电脑的管家据此判闲置。
             onActivity: () => noteTunnelActivity(),
           })
-          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link,
+          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link, serverUpdate: callServerUpdate,
             timeZone: context => applyOwnerTimeZoneContext(context), resume: since => {
             if (since !== undefined) recordDeviceSleep({ since, until: Date.now(), source: 'fc-confirmed' })
             resumeAccountMessaging('controller')
@@ -6276,12 +6428,12 @@ app.whenReady().then(async () => {
           // D-10:开场只给「完全披露」的扩展开网关卡,其余经 catalog_*。
           const full = new Set(contributions.filter((c) => c.disclosure === 'full').map((c) => c.extensionId))
           const programs = installed.filter((program) => full.has(program.extensionId))
-          // 上下文工程第二批 P3 (D-27, owner 10-07 chose (c)): the opening names the Apps whose tools this session reaches
-          // through the catalog — now or never, like a skill, so their scope is waited for too.
-          const catalogApps = catalogAppsOf(contributions, installed)
-          const appsKept = await Promise.all(catalogApps.map((app) => inScope(app.extensionId)))
+          // 上下文工程第二批 P3 (D-27, owner 10-07 chose (c)): the opening names the Apps that give this session programs or
+          // skills — now or never, like a skill, so their scope is waited for too.
+          const agentApps = agentAppsOf(contributions, installed)
+          const appsKept = await Promise.all(agentApps.map((app) => inScope(app.extensionId)))
           // Computer Use is this computer's, not a place's (#7317).
-          const apps = catalogApps.filter((app, index) => app.computerUse || appsKept[index])
+          const apps = agentApps.filter((app, index) => app.computerUse || appsKept[index])
           // 网关起不来只让扩展工具缺席,❌ 把会话拖死 —— 会话永远要能开。
           const gateway = programs.length === 0 || !authProvider
             ? { servers: [], origins: [] }
@@ -6347,6 +6499,8 @@ app.whenReady().then(async () => {
             onAgentStatus: (cb) => emdash.onAgentStatus(cb),
             agentStatusSnapshot: () => emdash.agentStatusSnapshot(),
             onSessionsGone: (cb) => emdash.onSessionsGone(cb),
+            onSessionLifeView: (cb) => emdash.onSessionLifeView(cb),
+            sessionLifeStatusOf: (sessionId) => emdash.sessionLifeStatusOf(sessionId),
           },
           { env: process.env, warn: (message) => sessionpageActivityLogger.warn(message) },
         )
@@ -6388,7 +6542,12 @@ app.whenReady().then(async () => {
       },
     )
   }
-  if (!SERVER_MODE) loadMainWindowContents()
+  if (!SERVER_MODE) {
+    loadMainWindowContents()
+    void sessionHostBoot?.then(() => {
+      loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
+    }).catch((error: unknown) => createLogger('search/backfill').error({ error: String(error) }, 'Search backfill could not start after backend boot'))
+  }
   startDeviceRuntimeWhenRendererReady()
   // server 的升级另有一套(后台下好、没有 agent 在跑时切换),❌ 走桌面这套弹界面的更新器。
   if (!SERVER_MODE) {
@@ -6406,32 +6565,83 @@ app.whenReady().then(async () => {
   // @@@tray-icon-blank — 图标按 app 根解析(`app.getAppPath()`:开发态=仓库根,打包=Resources/app),
   // ❌ 别再按 `__dirname/../build-resources` 拼:main.js 在 apps/desktop/dist-electron/ 下,那条路指向不存在的
   // apps/desktop/build-resources/,于是 nativeImage 静默给空图 → 所有 mac 用户的菜单栏挂着一个透明空槽(owner 实机圈出)。
-  // 空图直接抛,别再静默。资源规格见 scripts/gen-tray-icons.py:mac 模板图 16 + @2x 32(文件名以 Template
+  // 空图直接抛,别再静默。资源规格见 scripts/build/gen-tray-icons.py:mac 模板图 16 + @2x 32(文件名以 Template
   // 结尾,系统按亮/暗/毛玻璃自己着色);Windows ICO / Linux PNG 各出黑白两套,按系统深浅色换。
   if (SERVER_MODE) {
+    // 心跳 = 这个账号进程真的起来了(守护进程据此判新版本站稳):后端没起完、或起不来,❌ 先报心跳。
+    if (!sessionHostBoot) throw new Error('Session backend boot was not started')
+    await sessionHostBoot
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
-    // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
+    const usageLog = createLogger('server/usage-sync')
+    app.once('will-quit', startServerUsageSync({
+      userData: app.getPath('userData'),
+      identity: async () => {
+        const auth = await serverAuth?.getAuth()
+        const deviceId = await localDeviceId()
+        const reason = !auth?.userId ? 'signed-out'
+          : auth.userId !== process.env.GUGU_SERVER_ACCOUNT ? 'account-mismatch'
+            : !deviceId ? 'device-unavailable' : null
+        if (reason) { usageLog.info({ reason }, 'Usage sync deferred'); return null }
+        return { userId: auth!.userId, deviceId: deviceId! }
+      },
+      snapshot: request => {
+        const bridge = loadEmdashBridge()
+        if (!bridge) throw new Error('Session backend unavailable for usage sync')
+        return bridge.emdashRpcRouter.usage.localDaily(request)
+      },
+      client: supabase.schema('public'),
+      report: (result, error) => error
+        ? usageLog.warn({ reason: error instanceof Error ? error.name : 'unknown' }, 'Usage sync failed; next scheduled run will retry')
+        : usageLog.info({ result }, 'Usage sync completed'),
+    }))
+    loadEmdashBridge()?.startSessionpageSearchBackfill(createLogger('search/backfill'))
+    // Status and legacy readers retain this activity projection; the updater reads live session activity directly.
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
     const activityFile = join(app.getPath('userData'), 'activity.json')
-    // #6264 同一份读数也是升级看门狗判「新版本站稳了没有」的依据(server-upgrade-guard.ts):带上自己的版本与起始时刻。
+    const { markServerReady, ownsHomeLock } = await import('./server/server-startup')
+    // Already shipped watchdogs still read this PID-bound version and start time during the transition.
     const activityStartedAt = Date.now()
+    let activityStopped = false
     const reportActivity = (): void => {
-      const busy = loadEmdashBridge()?.sessionpageBusyForVersionSwitch?.() ?? false
+      if (activityStopped || signalStopping) return
+      if (isSingleServerRun() && ownsHomeLock(process.env.GUGU_SERVER_HOME!) === false) {
+        createLogger('server').error('Installation lock ownership was lost; stopping this server.')
+        killEnginesOnCrash('lock-lost')
+        process.exit(EXIT_CONFIG)
+      }
+      const activity = loadEmdashBridge()?.sessionpageVersionSwitchActivity?.()
       try {
         writeFileSync(activityFile, JSON.stringify({
-          busy,
+          busy: activity?.busy ?? false,
+          busyAgents: activity?.busyAgents,
+          bootFailures: loadEmdashBridge()?.sessionpageBootFailures(),
           at: Date.now(),
           version: process.env.GUGU_TASK_HOST_VERSION ?? null,
           pid: process.pid,
           startedAt: activityStartedAt,
         }))
+        if (isSingleServerRun()) markServerReady(process.env.GUGU_SERVER_HOME!)
       } catch (error) {
         createLogger('server').warn({ err: error }, '忙闲写不进去')
       }
     }
-    loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
-    reportActivity()
-    setInterval(reportActivity, 10_000).unref()
+    let unsubscribeActivity: (() => void) | undefined
+    let activityTimer: ReturnType<typeof setInterval> | undefined
+    stopServerActivity = () => {
+      activityStopped = true
+      if (activityTimer) clearInterval(activityTimer)
+      activityTimer = undefined
+      unsubscribeActivity?.(); unsubscribeActivity = undefined
+    }
+    startServerActivity = () => {
+      if (signalStopping || activityTimer) return
+      activityStopped = false
+      unsubscribeActivity = loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
+      activityTimer = setInterval(reportActivity, 10_000)
+      activityTimer.unref()
+      reportActivity()
+    }
+    startServerActivity()
     return
   }
   tray = new Tray(loadTrayIcon())

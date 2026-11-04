@@ -189,8 +189,8 @@ describe('withDeniedTools', () => {
 
 describe('主人的称呼和基本信息', () => {
   it('称呼必有,介绍可空', () => {
-    expect(ownerProfileMarkdown({ preferredName: ' 小明 ', about: '' })).toBe('称呼：小明')
-    expect(ownerProfileMarkdown({ preferredName: '小明', about: '做设计' })).toBe('做设计\n\n称呼：小明')
+    expect(ownerProfileMarkdown({ preferredName: ' 小明 ', about: '', language: 'en-US' })).toBe('称呼：小明\n开通时的界面语言：en-US')
+    expect(ownerProfileMarkdown({ preferredName: '小明', about: '做设计', language: 'zh-CN' })).toBe('做设计\n\n称呼：小明\n开通时的界面语言：zh-CN')
   })
   it('记忆文件是 Claude Code 的记忆格式:name 是主人看得懂的短标题', () => {
     const file = ownerProfileMemoryFile('- 称呼：小明')
@@ -211,7 +211,9 @@ describe('ASSISTANT_FIRST_TASK', () => {
   it('幂等(已有 today.json 就什么都不做)、先读「关于主人」再开口', () => {
     expect(ASSISTANT_FIRST_TASK).toContain('已经有 today.json 就是初始化过了')
     expect(ASSISTANT_FIRST_TASK).toContain('owner-profile.md')
-    expect(ASSISTANT_FIRST_TASK.indexOf('owner-profile.md')).toBeGreaterThan(ASSISTANT_FIRST_TASK.indexOf('schedule_create'))
+    // 先读档案:定时的标题和开场问候都跟档案里开通时的界面语言。
+    expect(ASSISTANT_FIRST_TASK.indexOf('owner-profile.md')).toBeLessThan(ASSISTANT_FIRST_TASK.indexOf('schedule_create'))
+    expect(ASSISTANT_FIRST_TASK.indexOf('owner-profile.md')).toBeLessThan(ASSISTANT_FIRST_TASK.indexOf('message_send'))
   })
 })
 

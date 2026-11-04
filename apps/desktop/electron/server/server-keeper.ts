@@ -18,12 +18,13 @@
  * 开销:守护进程活着时看门人阻塞在 wait 上,零轮询;只有「接手一个已在跑的守护进程」那一段每 10 秒读一次
  * /proc/<pid>/stat(一次 sed,微秒级)。
  */
-import { spawn } from 'node:child_process'
+import { execFileSync } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { isProcessAlive, readProcCmdline } from './process-alive'
 import { quoteShellArg } from '../session/main/utils/shellEscape'
+import { EXIT_CONFIG, EXIT_RESTART, EXIT_SIGNED_OUT } from './server-exit'
 
 /** 守护进程发现锁被另一个活着的守护进程占着时的退出码:看门人见到它就收手。 */
 export const SUPERVISOR_EXIT_ALREADY_RUNNING = 4
@@ -60,9 +61,11 @@ export function keeperScript(home: string, options: { adoptPid?: number; waitPid
     '  if [ -z "$first" ]; then [ -f "$D/stopped" ] && break; mine || break; fi; first=',
     '  GUGU_SERVER_HOME="$H" GUGU_SERVER_SUPERVISED=keeper GUGU_SERVER_WAIT_PID="$W" "$E" run',
     '  code=$?; W=\'\'',
+    '  printf "[keeper] server exited with status %s\\n" "$code"',
     '  [ -f "$D/stopped" ] && break',
     '  mine || break',
     `  [ "$code" = ${SUPERVISOR_EXIT_ALREADY_RUNNING} ] && break`,
+    `  case "$code" in 0|143|${EXIT_CONFIG}|${EXIT_SIGNED_OUT}) break;; ${EXIT_RESTART}) continue;; esac`,
     `  sleep ${KEEPER_RESTART_DELAY_S}`,
     'done',
     'if mine; then rm -f "$D/keeper.pid"; fi',
@@ -80,18 +83,25 @@ export function startKeeper(input: {
   env?: NodeJS.ProcessEnv
 }): number | undefined {
   fs.mkdirSync(path.join(input.home, 'data'), { recursive: true })
+  fs.mkdirSync(path.dirname(input.logFile), { recursive: true })
   // 新的看门人就是「要它跑」:以前 stop 留下的记号作废。
   fs.rmSync(stopFlagFile(input.home), { force: true })
   const fd = fs.openSync(input.logFile, 'a')
   try {
-    const child = spawn('/bin/sh', ['-c', keeperScript(input.home, input)], {
-      detached: true,
-      stdio: ['ignore', fd, fd],
+    // The short-lived parent exits before returning the actual keeper PID. Its detached
+    // child is then outside the server's descendant tree, including during crash cleanup.
+    const pid = Number(execFileSync(process.execPath, ['-e', `
+      const child = require('node:child_process').spawn('/bin/sh', ['-c', process.argv[1]], {
+        detached: true, stdio: ['ignore', 2, 2],
+      });
+      child.on('error', error => { process.stderr.write(error.message); process.exitCode = 1; });
+      child.unref();
+      process.stdout.write(String(child.pid ?? ''));
+    `, keeperScript(input.home, input)], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', fd],
       env: { ...(input.env ?? process.env), GUGU_SERVER_SUPERVISED: '' },
-    })
-    child.on('error', () => undefined)
-    child.unref()
-    return child.pid
+    }).trim())
+    return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined
   } finally {
     fs.closeSync(fd)
   }

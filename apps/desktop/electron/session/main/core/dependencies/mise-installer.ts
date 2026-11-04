@@ -1,10 +1,11 @@
 import { execInProcessGroup } from '@gugu/session-core/exec';
 import { constants as fsConstants } from 'node:fs';
-import { access, chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { app } from 'electron';
 import { log } from '@main/lib/logger';
 import lockfile from 'proper-lockfile';
+import { replaceManagedLauncher, withManagedLauncherPublication } from './managed-launcher-publication';
 import { INSTALL_PHASES, type InstallProgressReport } from '@gugu/session-core/deps';
 import { DOWNLOAD_STAGE } from '@gugu/session-core/deps/runtime';
 import type { InstallCommandContext, InstallCommandError } from '@gugu/session-core/deps/runtime';
@@ -15,6 +16,7 @@ import { resolveMiseDistribution, type MiseTarget } from './mise-distribution';
 import { miseProgress, runMiseProcess } from './mise-process';
 import { startInstallProgressMeter } from './install-progress-meter';
 import { buildAgentEnv } from '@main/core/pty/pty-env';
+import { anySignal } from '@gugu/core/shared/anySignal';
 
 const IDLE_MS = 60_000;
 /** 装到一半时多久往日志里记一笔进度:卡住时日志里要看得出停在哪一步(#7199 那次 2.5 分钟一行都没有)。 */
@@ -147,7 +149,7 @@ export async function runMiseOperation(context: InstallCommandContext, preparati
   const mise = bundledMisePath();
   const started = Date.now();
   const abort = new AbortController();
-  const signal = context.signal ? AbortSignal.any([context.signal, abort.signal]) : abort.signal;
+  const signal = anySignal([context.signal, abort.signal]);
   let releaseLock: (() => Promise<void>) | undefined;
   let meter: ReturnType<typeof startInstallProgressMeter> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -196,7 +198,7 @@ export async function runMiseOperation(context: InstallCommandContext, preparati
   const run = (args: string[], cancellable = true, onOutput?: (line: string) => void) => {
     const deadline = args[0] === 'install' ? undefined : AbortSignal.timeout(cancellable && args[0] === 'uninstall' ? 60_000 : 15_000);
     const signals = [...(cancellable ? [signal] : []), ...(deadline ? [deadline] : [])];
-    return runMiseProcess(mise, args, { cwd: work, env, ...(signals.length ? { signal: AbortSignal.any(signals) } : {}), onOutput });
+    return runMiseProcess(mise, args, { cwd: work, env, ...(signals.length ? { signal: anySignal(signals) } : {}), onOutput });
   };
   const inventory = async (toolName: string = tool): Promise<Array<{ version: string; install_path: string; installed: boolean }>> => {
     const output = await run(['ls', '--json', toolName]);
@@ -236,10 +238,13 @@ export async function runMiseOperation(context: InstallCommandContext, preparati
         const legacyBin = managedAgentBinDir();
         const isLegacy = selected && path.dirname(selected).toLowerCase() !== path.dirname(launcher).toLowerCase();
         if (!isLegacy) {
-          await run(['uninstall', '--all', tool]);
-          if ((await inventory()).some((entry) => entry.installed)) throw new Error('Mise still reports an installed version after removal');
-          await rm(launcher, { force: true });
-          await writeFile(config, '');
+          await withManagedLauncherPublication(async assertOwned => {
+            await run(['uninstall', '--all', tool]);
+            if ((await inventory()).some((entry) => entry.installed)) throw new Error('Mise still reports an installed version after removal');
+            assertOwned();
+            await rm(launcher, { force: true });
+            await writeFile(config, '');
+          });
         } else {
           // Legacy Gugu npm copies predate mise's inventory. Retire only their private package and launchers.
           const packageRoot = path.join(managedAgentNpmRoot(), target.package);
@@ -346,13 +351,18 @@ export async function runMiseOperation(context: InstallCommandContext, preparati
       signal.throwIfAborted();
       await mkdir(path.dirname(launcher), { recursive: true });
       // 换启动器之前记下它原来指着哪一版:那一版可能正被一条还开着的会话用着,收旧版本时留下它。
-      const previousLauncher = await readFile(launcher, 'utf8').catch(() => '');
-      const temporaryLauncher = path.join(work, 'launcher.tmp');
-      await writeFile(temporaryLauncher, managedLauncher(executable, nodeBin, distribution.version, distribution.kind === 'npm' ? [] : distribution.args));
-      await chmod(temporaryLauncher, 0o755);
-      signal.throwIfAborted();
-      await rename(temporaryLauncher, launcher);
-      published = true;
+      const publish = async (assertOwned: () => void) => {
+        const previous = await readFile(launcher, 'utf8').catch(() => '');
+        const temporaryLauncher = path.join(work, 'launcher.tmp');
+        await writeFile(temporaryLauncher, managedLauncher(executable, nodeBin, distribution.version, distribution.kind === 'npm' ? [] : distribution.args));
+        await chmod(temporaryLauncher, 0o755);
+        signal.throwIfAborted();
+        assertOwned();
+        await replaceManagedLauncher(temporaryLauncher, launcher);
+        published = true;
+        return previous;
+      };
+      const previousLauncher = preparation ? await publish(() => {}) : await withManagedLauncherPublication(publish);
       await pruneStaleVersions(previousLauncher);
       return ok();
     } catch (error) {

@@ -26,7 +26,7 @@ function bundle(dir: string, id: string, version: string, capabilities: string[]
       name: id,
       author: 'gugu official',
       version,
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       entry: 'index.html',
       permissions: { capabilities },
@@ -62,6 +62,16 @@ describe('preinstalled Apps', () => {
     writeFileSync(path.join(shipped, 'workspace', 'index.html'), '<!doctype html><p>new code, same version</p>');
     ensurePreinstalledApps(service, shipped);
     expect(readFileSync(path.join(root, 'workspace', 'index.html'), 'utf8')).toContain('new code');
+  });
+
+  it('startup upgrades a shipped App with chat:read through the same noninteractive install', () => {
+    bundle(path.join(shipped, 'workspace'), 'workspace', '1.0.0', ['files:read']);
+    ensurePreinstalledApps(service, shipped);
+    expect(service.hasCapability('workspace', 'chat:read')).toBe(false);
+    bundle(path.join(shipped, 'workspace'), 'workspace', '1.0.1', ['files:read', 'chat:read']);
+    expect(ensurePreinstalledApps(service, shipped)).toMatchObject({ installed: ['workspace'], failed: [] });
+    expect(service.get('workspace').manifest.version).toBe('1.0.1');
+    expect(service.hasCapability('workspace', 'chat:read')).toBe(true);
   });
 
   it('cannot be uninstalled, switched off, or replaced by another package', () => {

@@ -13,20 +13,25 @@
  * (behavior 第 5 条「急用可在那台机器上重新执行安装命令」)时,机器上往往已经有一个旧版本在跑,
  * 这里负责把它换下来,最后以单实例锁里那个进程的真实版本为准报出结果,没换成就说清怎么办。
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { isProcessAlive } from './process-alive'
 import { readAccountRuntime } from './server-account-runtime'
-import { recordLoginShell, startKeeper } from './server-keeper'
-import { accountIsBusy, listAccounts, supervisorDataDir } from './server-layout'
+import { clearStopped, liveKeeperPid, recordLoginShell, startKeeper } from './server-keeper'
+import { activityProof, readServerAccount } from './server-layout'
 import { SERVICE_UMASK } from './server-permissions'
-import { spawnUpgradeGuard, writeUpgradeMarker } from './server-upgrade-guard'
+import { assertPackageEnvironment, controllerOwnsUpdates } from './server-package-environment.mts'
+import { homeLockHolder, readPendingVerify, writePendingVerify } from './server-startup'
+import { createServerUpdateStateWriter } from './server-update-state'
+import { installationServerNames } from './server-installation'
+import { EXIT_RESTART, EXIT_CONFIG, EXIT_SIGNED_OUT } from './server-exit'
 
-const UNIT_NAME = 'gugu-server.service'
-const LAUNCHD_LABEL = 'space.nextmind.gugu-server'
-const CRON_MARK = '# gugu-server'
+/** 这一份 server 的通道名字(server-names.ts):正式版 `gugu-server.service`,Beta `gugu-server-beta.service`,其余同理。 */
+const names = (home = process.env.GUGU_SERVER_HOME ?? '') => installationServerNames(home)
+/** crontab 里属于这条通道的那一行:按行尾的标记整串比(`# gugu-server` 是 `# gugu-server-beta` 的前缀,❌ includes)。 */
+const isCronLine = (line: string): boolean => line.trimEnd().endsWith(` ${names().cronMark}`)
 
 type Out = (line: string) => void
 
@@ -51,13 +56,14 @@ function logFile(): string {
   return path.join(dir, 'service.log')
 }
 
-function tryRun(cmd: string, args: string[]): { ok: boolean; out: string } {
+function tryRun(cmd: string, args: string[]): { ok: boolean; out: string; status: number | null; stdout: string; stderr: string } {
   try {
     const out = execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-    return { ok: true, out: out.trim() }
+    return { ok: true, out: out.trim(), status: 0, stdout: out, stderr: '' }
   } catch (error) {
-    const e = error as { stdout?: string; stderr?: string; message: string }
-    return { ok: false, out: `${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || e.message }
+    const e = error as { status?: number; stdout?: string; stderr?: string; message: string }
+    return { ok: false, out: `${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || e.message,
+      status: e.status ?? null, stdout: e.stdout ?? '', stderr: e.stderr ?? e.message }
   }
 }
 
@@ -114,7 +120,10 @@ Environment=GUGU_SERVER_SUPERVISED=systemd
 # 不写的话继承用户管理器的 umask(Ubuntu 每用户同名组的系统上是 0002,组可写)。0022 = 跟登录 shell 一样:
 # agent 与编程终端在项目里建的文件照常是 0644;server 自己的数据目录另由 0700 的根保证私有。
 UMask=0${SERVICE_UMASK.toString(8).padStart(3, '0')}
-Restart=always
+Restart=on-failure
+SuccessExitStatus=143
+RestartForceExitStatus=${EXIT_RESTART}
+RestartPreventExitStatus=${EXIT_CONFIG} ${EXIT_SIGNED_OUT}
 RestartSec=3
 # 只停 server 本身:tmux 里的终端会话要活过重启和升级。
 KillMode=process
@@ -124,22 +133,34 @@ WantedBy=default.target
 `
 }
 
+const LAUNCHD_EXIT_TIMEOUT_S = 30
 export function launchdPlist(executable: string, home: string, log: string): string {
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const launcher = [
+    '[ -f "$GUGU_SERVER_HOME/data/stopped" ] && exit 0',
+    `stop_child() { trap '' TERM INT; kill -TERM "$child" 2>/dev/null; set -m; ( sleep ${LAUNCHD_EXIT_TIMEOUT_S - 5}; if kill -0 "$child" 2>/dev/null; then printf '[server] Server did not exit in ${LAUNCHD_EXIT_TIMEOUT_S - 5} seconds; KILL pid %s\\n' "$child" >&2; kill -KILL "-$child" 2>/dev/null; kill -KILL "$child" 2>/dev/null; fi ) & timer=$!; set +m; wait "$child" 2>/dev/null; code=$?; kill -KILL "-$timer" 2>/dev/null; wait "$timer" 2>/dev/null; case "$code" in 0|143|${EXIT_CONFIG}|${EXIT_SIGNED_OUT}) exit 0;; *) exit "$code";; esac; }`,
+    'trap stop_child TERM INT',
+    'set -m',
+    '"$1" run & child=$!',
+    'set +m',
+    'wait "$child" 2>/dev/null; code=$?',
+    `case "$code" in 0|143|${EXIT_CONFIG}|${EXIT_SIGNED_OUT}) exit 0;; *) exit "$code";; esac`,
+  ].join('; ')
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>${LAUNCHD_LABEL}</string>
-  <key>ProgramArguments</key><array><string>${esc(executable)}</string><string>run</string></array>
+  <key>Label</key><string>${names(home).launchdLabel}</string>
+  <key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>${esc(launcher)}</string><string>gugu-server-launcher</string><string>${esc(executable)}</string></array>
   <key>EnvironmentVariables</key><dict>
     <key>GUGU_SERVER_HOME</key><string>${esc(home)}</string>
     <key>GUGU_SERVER_SUPERVISED</key><string>launchd</string>
   </dict>
   <key>Umask</key><integer>${SERVICE_UMASK}</integer>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>AbandonProcessGroup</key><true/>
+  <key>ExitTimeOut</key><integer>${LAUNCHD_EXIT_TIMEOUT_S}</integer>
   <key>StandardOutPath</key><string>${esc(log)}</string>
   <key>StandardErrorPath</key><string>${esc(log)}</string>
 </dict>
@@ -148,11 +169,55 @@ export function launchdPlist(executable: string, home: string, log: string): str
 }
 
 function unitPath(): string {
-  return path.join(os.homedir(), '.config', 'systemd', 'user', UNIT_NAME)
+  return path.join(os.homedir(), '.config', 'systemd', 'user', names().systemdUnit)
 }
 
 function plistPath(): string {
-  return path.join(os.homedir(), 'Library', 'LaunchAgents', `${LAUNCHD_LABEL}.plist`)
+  return path.join(os.homedir(), 'Library', 'LaunchAgents', `${names().launchdLabel}.plist`)
+}
+
+/** Upgrade an existing unit in place; reloading its definition must not restart this process. */
+export function repairServiceDefinition(warn: Out): void {
+  if (process.platform !== 'linux' || !fs.existsSync(unitPath())) return
+  try {
+    const content = systemdUnit(serviceExecutable(), serverHome())
+    if (fs.readFileSync(unitPath(), 'utf8') !== content) writeSystemdDefinition(content)
+    if (!reachSystemdUserSession()) throw new Error('The systemd user session is unavailable')
+    const result = tryRun('systemctl', ['--user', 'daemon-reload'])
+    if (!result.ok) throw new Error(result.out)
+  } catch (error) { warn(`Could not update the service definition: ${String(error)}`) }
+}
+
+/** A renewed login wakes the existing manager; a live server discovers it in its login wait. */
+export function restartServerAfterLogin(out: Out): void {
+  if (!process.env.GUGU_SERVER_HOME) return
+  const home = serverHome()
+  clearStopped(home)
+  const running = readRunningServer()
+  if (running) { out(`An active process already holds the server lock (pid ${running.pid}). Run gugu-server status for details.`); return }
+  let result: { ok: boolean; out: string }
+  if (process.platform === 'linux' && fs.existsSync(unitPath())) {
+    result = reachSystemdUserSession()
+      ? tryRun('systemctl', ['--user', 'start', names().systemdUnit])
+      : { ok: false, out: 'The systemd user session is unavailable' }
+  } else if (process.platform === 'darwin' && fs.existsSync(plistPath())) {
+    const uid = os.userInfo().uid
+    result = tryRun('launchctl', ['kickstart', `gui/${uid}/${names().launchdLabel}`])
+    if (!result.ok) result = tryRun('launchctl', ['kickstart', `user/${uid}/${names().launchdLabel}`])
+  } else {
+    const keeper = liveKeeperPid(home)
+    if (keeper) { out(`The server keeper is already running (pid ${keeper}). Run gugu-server status for details.`); return }
+    result = { ok: Boolean(startDetached(serviceExecutable())), out: 'The background server could not be started' }
+  }
+  if (!result.ok) out(`Signed in, but the server could not be started: ${result.out}. Run gugu-server start.`)
+  else out('Server start requested. Run gugu-server status to check its PID and version.')
+}
+
+/** A manager-owned stop must inhibit its restart policy, including TERM escalation. */
+export function stopSystemdService(): void {
+  if (!reachSystemdUserSession()) throw new Error('无法连接 systemd 用户会话，server 尚未停止。')
+  const result = tryRun('systemctl', ['--user', 'stop', names().systemdUnit])
+  if (!result.ok) throw new Error(`systemd 停止 server 失败:${result.out}`)
 }
 
 function lingerEnabled(user: string): boolean {
@@ -188,13 +253,17 @@ export function startDetached(executable: string, extraEnv: NodeJS.ProcessEnv = 
 }
 
 /** 写用户服务并 `restart`(没在跑就是启动)。只说注册了什么;在跑的是不是新版本,由调用方看锁里那个进程再报。 */
-function registerSystemd(out: Out, executable: string, home: string): void {
+function writeSystemdDefinition(content: string): void {
   fs.mkdirSync(path.dirname(unitPath()), { recursive: true })
-  fs.writeFileSync(unitPath(), systemdUnit(executable, home))
+  fs.writeFileSync(unitPath(), content)
+}
+
+function registerSystemd(out: Out, executable: string, home: string): void {
+  writeSystemdDefinition(systemdUnit(executable, home))
   const steps: Array<[string, string[]]> = [
     ['systemctl', ['--user', 'daemon-reload']],
-    ['systemctl', ['--user', 'enable', UNIT_NAME]],
-    ['systemctl', ['--user', 'restart', UNIT_NAME]],
+    ['systemctl', ['--user', 'enable', names().systemdUnit]],
+    ['systemctl', ['--user', 'restart', names().systemdUnit]],
   ]
   for (const [cmd, args] of steps) {
     const r = tryRun(cmd, args)
@@ -227,9 +296,10 @@ function writeCrontab(lines: string[]): void {
 function removeCronEntry(): void {
   if (!hasCrontab()) return
   const existing = tryRun('crontab', ['-l'])
-  if (!existing.ok || !existing.out.includes(CRON_MARK)) return
+  const lines = existing.ok ? existing.out.split('\n') : []
+  if (!lines.some(isCronLine)) return
   try {
-    writeCrontab(existing.out.split('\n').filter((l) => l && !l.includes(CRON_MARK)))
+    writeCrontab(lines.filter((l) => l && !isCronLine(l)))
   } catch {
     // 删不掉只是开机时多起一个,它会撞在单实例锁上自己退出
   }
@@ -239,9 +309,9 @@ function removeCronEntry(): void {
 function registerCron(executable: string, home: string): boolean {
   if (!hasCrontab()) return false
   // #6264 开机起的是看门人(`keep`),不是守护进程本身:之后崩了也有人拉起。路径照 crontab 的规矩转义(空格、引号、%)。
-  const line = `@reboot umask 022; GUGU_SERVER_HOME=${cronQuote(home)} ${cronQuote(executable)} keep >> ${cronQuote(logFile())} 2>&1 ${CRON_MARK}`
+  const line = `@reboot umask 022; GUGU_SERVER_HOME=${cronQuote(home)} ${cronQuote(executable)} keep >> ${cronQuote(logFile())} 2>&1 ${names().cronMark}`
   const existing = tryRun('crontab', ['-l'])
-  const kept = (existing.ok ? existing.out : '').split('\n').filter((l) => l && !l.includes(CRON_MARK))
+  const kept = (existing.ok ? existing.out : '').split('\n').filter((l) => l && !isCronLine(l))
   try {
     writeCrontab([...kept, line])
     return true
@@ -250,19 +320,45 @@ function registerCron(executable: string, home: string): boolean {
   }
 }
 
-function registerLaunchd(out: Out, executable: string, home: string): void {
+async function registerLaunchd(out: Out, executable: string, home: string): Promise<void> {
+  const uid = String(os.userInfo().uid)
+  const domains = [`gui/${uid}`, `user/${uid}`]
+  const trace: string[] = []
+  const run = (args: string[]) => {
+    const r = tryRun('launchctl', args)
+    trace.push(`launchctl ${args.join(' ')}: status=${r.status}\nstdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
+    return r
+  }
+  const fail = (reason: string): never => { throw new Error(`${reason}\n${trace.join('\n')}`) }
+  const absent = (r: ReturnType<typeof tryRun>) => !r.ok && /Could not find (?:service|domain)\b/.test(r.stderr)
+  // Remove every old registration before publishing a new one in either domain.
+  for (const domain of domains) {
+    const target = `${domain}/${names().launchdLabel}`
+    const before = run(['print', target])
+    if (absent(before)) continue
+    if (!before.ok) fail('Could not inspect the existing launchd service')
+    const seconds = Number(before.stdout.match(/exit timeout\s*=\s*(\d+)/)?.[1])
+    const deadline = Date.now() + (seconds > 0 ? seconds * 1000 + 5000 : CONFIRM_TIMEOUT_MS)
+    if (!run(['bootout', target]).ok) fail('Could not unload the existing launchd service')
+    for (;;) {
+      const state = run(['print', target])
+      if (absent(state)) break
+      if (!state.ok) fail('Could not confirm that the launchd service unloaded')
+      if (Date.now() >= deadline) fail('The launchd service did not unload before its exit deadline')
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
   fs.mkdirSync(path.dirname(plistPath()), { recursive: true })
   fs.writeFileSync(plistPath(), launchdPlist(executable, home, logFile()))
-  const uid = String(os.userInfo().uid)
-  for (const domain of [`gui/${uid}`, `user/${uid}`]) {
-    tryRun('launchctl', ['bootout', `${domain}/${LAUNCHD_LABEL}`])
-    const r = tryRun('launchctl', ['bootstrap', domain, plistPath()])
+  clearStopped(home)
+  for (const domain of domains) {
+    const r = run(['bootstrap', domain, plistPath()])
     if (r.ok) {
       out(`已注册为 launchd 用户代理(${plistPath()})。`)
       return
     }
   }
-  throw new Error('launchctl bootstrap 失败')
+  fail('launchctl bootstrap failed')
 }
 
 // ── 此刻在跑的那一个 ─────────────────────────────────────────────────────────────
@@ -292,7 +388,7 @@ export function describeProcess(pid: number, environ: string | null, cmdline: st
   const supervised = env.get('GUGU_SERVER_SUPERVISED')
   return {
     pid,
-    ...(env.get('GUGU_CLOUD_COMPUTER') === '1' ? { managedCloud: true } : {}),
+    ...(controllerOwnsUpdates(env.get('GUGU_SERVER_HOME') ?? '', Object.fromEntries(env)) ? { managedCloud: true } : {}),
     version: env.get('GUGU_TASK_HOST_VERSION') || fromPath,
     supervisedBy:
       environ === null
@@ -312,8 +408,8 @@ function readText(file: string): string | null {
 }
 
 export function readRunningServer(): RunningServer | null {
-  const pid = Number(readText(path.join(supervisorDataDir(), 'server.lock'))?.trim())
-  if (!isProcessAlive(pid)) return null
+  const pid = homeLockHolder(serverHome())
+  if (pid === null) return null
   if (process.platform === 'linux') {
     return describeProcess(pid, readText(`/proc/${pid}/environ`), readText(`/proc/${pid}/cmdline`)?.replace(/\0/g, ' ') ?? null)
   }
@@ -337,7 +433,7 @@ export function chooseServiceMode(input: { platform: NodeJS.Platform; systemdRea
   return input.unitExists ? 'systemdUnreachable' : 'fallback'
 }
 
-/** 起来之后最多等这么久确认「在跑的是新版本」:旧的收子进程最多 30 秒(server-supervisor.ts),新的再起来。 */
+/** 起来之后最多等这么久确认「在跑的是新版本」:旧进程收会话最多 30 秒,新的再起来。 */
 const CONFIRM_TIMEOUT_MS = 75_000
 const CONFIRM_POLL_MS = 500
 
@@ -351,12 +447,16 @@ export type InstallServiceDeps = {
   isAlive: (pid: number) => boolean
   /** 这台机器上有没有 agent 正在干活(跑一轮或等人批准)。 */
   isBusy: () => boolean
+  /** A controller may wait for idle, but cannot interrupt an account to enforce a package target. */
+  requireIdle?: boolean
   /** 让在跑的那个正常退出(SIGTERM:收子进程、放锁)。 */
   stop: (pid: number) => void
+  /** Ask the existing manager to restart through the server's exit-75 path. */
+  restart: (pid: number) => void
   /** 马上要把在跑的旧版本换下来(重新执行安装命令 = 现在就升级):请升级看门狗盯着,新版本站不稳就退回去。 */
   beforeReplace?: (before: RunningServer) => void
   registerSystemd: (out: Out) => void
-  registerLaunchd: (out: Out) => void
+  registerLaunchd: (out: Out) => void | Promise<void>
   /** 兜底开机自启(crontab @reboot);返回有没有写成。 */
   registerCron: () => boolean
   /** 后台起一个新的;给了 waitPid 就让它等那个进程退干净(放掉单实例锁)再启动 —— 与自动升级换版同一招。 */
@@ -379,6 +479,7 @@ const expectedSupervisor = (mode: ServiceMode): RunningServer['supervisedBy'] =>
  */
 export async function installServiceWith(out: Out, deps: InstallServiceDeps): Promise<boolean> {
   const { mode, targetVersion } = deps
+  const deadline = deps.now() + CONFIRM_TIMEOUT_MS
   const before = deps.running()
   const label = (version: string | null) => (version ? `咕咕 server ${version}` : '咕咕 server')
   const accountsReady = (running: RunningServer): boolean => !running.managedCloud || !targetVersion || deps.accountsMatchPackage?.(targetVersion) === true
@@ -388,23 +489,39 @@ export async function installServiceWith(out: Out, deps: InstallServiceDeps): Pr
     out(`${label(targetVersion)} 已在运行(进程 ${before.pid})。`)
     return true
   }
+  if (before && !alreadyRunning && deps.requireIdle && deps.isBusy()) {
+    out('账号尚未确认空闲,保留正在运行的版本,等待下次换版。')
+    return false
+  }
   if (!alreadyRunning) {
     if (before) {
       out(`正在把 ${label(before.version)}(进程 ${before.pid})换成 ${targetVersion ?? '这一版'}。`)
       if (deps.isBusy()) {
-        out('⚠ 有 agent 正在运行,这一轮会被中断。')
+        out('⚠ 有 agent 正在运行,正在进行的回复会被中断。')
       }
     }
 
     if (before && targetVersion && before.version && before.version !== targetVersion && mode !== 'systemdUnreachable') {
       deps.beforeReplace?.(before)
     }
+    // A same-owner restart already waits for its old process. A takeover has no such
+    // ordering: release the old lock before the manager makes its first start attempt.
+    if (before && (mode === 'systemd' || mode === 'launchd') && before.supervisedBy !== expectedSupervisor(mode)) {
+      deps.stop(before.pid)
+      while (deps.isAlive(before.pid) || deps.running() !== null) {
+        if (deps.now() >= deadline) {
+          out(`⚠ 旧的 ${label(before.version)}(进程 ${before.pid})没有退出或释放锁。请执行 gugu-server stop,再执行 gugu-server service install。`)
+          return false
+        }
+        await deps.sleep(CONFIRM_POLL_MS)
+      }
+    }
     switch (mode) {
       case 'systemd':
         deps.registerSystemd(out)
         break
       case 'launchd':
-        deps.registerLaunchd(out)
+        await deps.registerLaunchd(out)
         break
       case 'fallback': {
         const cronOk = deps.registerCron()
@@ -425,15 +542,11 @@ export async function installServiceWith(out: Out, deps: InstallServiceDeps): Pr
         out('当前 shell 连不上 systemd 用户会话,改由 systemd 以新版本重启。')
         // 旧的那个不归 systemd 管(以前兜底起的):照兜底的办法自己接上。
         if (before.supervisedBy === 'none') deps.startDetached(before.pid)
-        deps.stop(before.pid)
+        deps.restart(before.pid)
         break
       }
     }
-    // 管理器重启完旧进程还在 = 它不归这个管理器管(以前兜底起的、手动起的):停掉它,管理器那一份会接上。
-    if (before && (mode === 'systemd' || mode === 'launchd') && deps.isAlive(before.pid)) deps.stop(before.pid)
-
   }
-  const deadline = deps.now() + CONFIRM_TIMEOUT_MS
   let now: RunningServer | null = null
   for (;;) {
     now = deps.running()
@@ -467,20 +580,24 @@ export async function installService(out: Out): Promise<boolean> {
     systemdReachable: reachSystemdUserSession(),
     unitExists: fs.existsSync(unitPath()),
   })
-  const supervisorLog = path.join(supervisorDataDir(), 'logs', 'supervisor.log')
   return installServiceWith(out, {
     mode,
     targetVersion: process.env.GUGU_TASK_HOST_VERSION ?? null,
     running: readRunningServer,
-    accountsMatchPackage: (version) => listAccounts().filter((account) => account.signedIn).every((account) => readAccountRuntime(account.dataDir).version === version),
+    accountsMatchPackage: (version) => { const account = readServerAccount(); return !account?.signedIn || readAccountRuntime(account.dataDir).version === version },
     isAlive: isProcessAlive,
-    isBusy: () => listAccounts().some((account) => account.signedIn && accountIsBusy(account.dataDir)),
+    isBusy: () => { const account = readServerAccount(); return Boolean(account?.signedIn && activityProof(account.dataDir) !== 'idle') },
+    requireIdle: controllerOwnsUpdates(home),
     stop: (pid) => {
       try {
         process.kill(pid, 'SIGTERM')
       } catch {
         // 已经退出了
       }
+    },
+    restart: (pid) => {
+      try { process.kill(pid, 'SIGUSR2') }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error }
     },
     beforeReplace: (before) => guardReplacement(home, before, process.env.GUGU_TASK_HOST_VERSION ?? null),
     registerSystemd: (o) => registerSystemd(o, executable, home),
@@ -489,31 +606,40 @@ export async function installService(out: Out): Promise<boolean> {
     startDetached: (waitPid) =>
       startDetached(executable, { GUGU_SERVER_HOME: home, ...(waitPid ? { GUGU_SERVER_WAIT_PID: String(waitPid) } : {}) }),
     logHint: mode === 'systemd' || mode === 'systemdUnreachable'
-      ? `journalctl --user -u ${UNIT_NAME},以及 ${supervisorLog}`
-      : `${logFile()},以及 ${supervisorLog}`,
+      ? `journalctl --user -u ${names().systemdUnit}`
+      : logFile(),
     user: os.userInfo().username,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     now: Date.now,
   })
 }
 
-/** 重新执行安装命令换版本时,与自动升级同一个看门狗(server-upgrade-guard.ts)。旧版本不在盘上就退不回去,不请。 */
-function guardReplacement(home: string, before: RunningServer, target: string | null): void {
+/** Service replacement uses the same launch-count verification as automatic updates. */
+export function guardReplacement(home: string, before: RunningServer, target: string | null): void {
   if (!before.version || !target) return
+  const pending = readPendingVerify(home)
+  if (pending?.to === target) {
+    assertPackageEnvironment(home, path.join(home, 'versions', pending.from))
+    assertPackageEnvironment(home, path.join(home, 'versions', pending.to))
+    return
+  }
   const fromDir = path.join(home, 'versions', before.version)
   const toDir = path.join(home, 'versions', target)
   if (!fs.existsSync(path.join(fromDir, 'bin', 'gugu-server')) || !fs.existsSync(toDir)) return
-  if (writeUpgradeMarker(home, { from: before.version, to: target, fromDir, toDir, switchedAt: Date.now() })) spawnUpgradeGuard(home)
+  assertPackageEnvironment(home, fromDir)
+  assertPackageEnvironment(home, toDir)
+  writePendingVerify(home, { from: before.version, to: target, attempts: 0 })
+  createServerUpdateStateWriter(home).set('switching', target)
 }
 
 export function uninstallService(out: Out): void {
   if (process.platform === 'darwin') {
     const uid = String(os.userInfo().uid)
-    for (const domain of [`gui/${uid}`, `user/${uid}`]) tryRun('launchctl', ['bootout', `${domain}/${LAUNCHD_LABEL}`])
+    for (const domain of [`gui/${uid}`, `user/${uid}`]) tryRun('launchctl', ['bootout', `${domain}/${names().launchdLabel}`])
     fs.rmSync(plistPath(), { force: true })
   } else {
     if (fs.existsSync(unitPath())) {
-      tryRun('systemctl', ['--user', 'disable', '--now', UNIT_NAME])
+      tryRun('systemctl', ['--user', 'disable', '--now', names().systemdUnit])
       fs.rmSync(unitPath(), { force: true })
       tryRun('systemctl', ['--user', 'daemon-reload'])
     }
@@ -528,11 +654,12 @@ export function describeService(): string {
     return fs.existsSync(plistPath()) ? `launchd 用户代理(${plistPath()})` : '未注册常驻服务'
   }
   if (fs.existsSync(unitPath())) {
-    const active = tryRun('systemctl', ['--user', 'is-active', UNIT_NAME]).out || 'unknown'
+    const active = tryRun('systemctl', ['--user', 'is-active', names().systemdUnit]).out || 'unknown'
     const linger = lingerEnabled(os.userInfo().username) ? '断开 SSH 后继续运行' : '⚠ 未开启 linger,断开 SSH 后会停'
     return `systemd 用户服务,${active},${linger}`
   }
   const cron = hasCrontab() ? tryRun('crontab', ['-l']) : { ok: false, out: '' }
-  if (cron.ok && cron.out.includes(CRON_MARK)) return 'crontab @reboot 自启(无 systemd 用户会话)'
+  if (cron.ok && cron.out.split('\n').some(isCronLine)) return 'crontab @reboot 自启(无 systemd 用户会话)'
+  if (liveKeeperPid(serverHome()) !== null) return 'keeper 正在守护,未登记开机自启(执行 gugu-server service install)'
   return '未注册常驻服务(执行 gugu-server service install)'
 }

@@ -621,14 +621,12 @@ export class LocalSessionProvider implements SessionProvider {
           ? { tmuxSessionName: makeTmuxSessionName(ptySessionId) }
           : {}),
         onHarnessTitle: (title) => {
-          try {
-            applyHarnessTitle(session.id, title);
-          } catch (error) {
+          void applyHarnessTitle(session.id, title).catch((error: unknown) => {
             log.warn('LocalSession: failed to apply the harness session title', {
               sessionId: session.id,
               error: String(error),
             });
-          }
+          });
         },
         onProviderSessionId: async (providerSessionId) => {
           const result = await setProviderSessionId(session.id, providerSessionId);
@@ -959,6 +957,9 @@ export class LocalSessionProvider implements SessionProvider {
         },
       });
       stopPresence = startPresenceInterrupt({
+        start,
+        reading: agentStatusWriter.currentReading(session.id)
+          ?? (session.agentStatus ? { status: session.agentStatus, detail: session.agentStatusDetail ?? null } : null),
         plugin,
         harnessVersion: compatibleRuntime.harnessVersion,
         spawnEnv,

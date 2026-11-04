@@ -192,6 +192,7 @@ interface SessionRecordBase {
     activeTurn?: TranscriptTurn | null;
     draft?: PromptDraft | null;
     terminals?: TerminalState[];
+    terminalChunks?: TerminalState[];
   };
 }
 
@@ -677,6 +678,7 @@ export class SessionManager implements InboundRouter {
     record.cell.setAcceptsImagePrompts(connection.supportsImagePrompt);
     record.cell.setSupportsSteering(connection.supportsSteering);
     record.cell.setSupportsLoadSession(connection.supportsLoadSession);
+    this.deps.onForkHandshake?.(input.providerId, connection.supportsForkSession);
 
     try {
       // Provider-specific runtime forks may need a control plane outside ACP. The provider owns
@@ -1147,30 +1149,9 @@ export class SessionManager implements InboundRouter {
     });
   }
 
-  async queuePrompt(
-    input: SendPromptInput,
-    startInput?: AcpStartInput,
-  ): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
+  async queuePrompt(input: SendPromptInput): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
     let record = this.cells.get(input.sessionId);
     if (record?.closing) return acpErr.invalidState('Session is closing; resume it after teardown');
-    if ((!record || record.phase === 'lost') && startInput) {
-      if (startInput.sessionId !== input.sessionId) {
-        return acpErr.invalidState(
-          `Queue prompt session ${input.sessionId} does not match startup session ${startInput.sessionId}`
-        );
-      }
-      const started = this.start(startInput);
-      record = this.cells.get(input.sessionId);
-      if (!record) {
-        const result = await started;
-        if (!result.success) {
-          return acpErr.invalidState(
-            `Cannot queue prompt while session startup failed: ${result.error.message ?? result.error.type}`
-          );
-        }
-        record = this.cells.get(input.sessionId);
-      }
-    }
     if (!record) {
       const starting = this.startingSessions.get(input.sessionId);
       if (starting) {
@@ -1828,12 +1809,26 @@ export class SessionManager implements InboundRouter {
     return this.cells.get(sessionId)?.live ?? null;
   }
 
+  onTerminalsChanged(sessionId: string): void {
+    const record = this.cells.get(sessionId);
+    if (!record) return;
+    // Replayed exits arrive in a burst. Keep every update in the registry, but publish
+    // snapshots on the existing display tick instead of rebuilding all terminals per exit.
+    // Live exits still flush immediately, including any pending output tail.
+    if (record.replaying) this.publishOnTick(record);
+    else this.syncTerminals(sessionId);
+  }
+
   syncTerminals(sessionId: string): void {
     const record = this.cells.get(sessionId);
     if (!record) return;
     const terminals = this.getTerminals(sessionId);
-    publishLiveModelState(record.live.states.terminals, terminals, record.lastSynced.terminals);
-    record.lastSynced.terminals = terminals;
+    const wireTerminals = this.terminalLiveRegistry.snapshotSession(sessionId, true);
+    publishLiveModelState(record.live.states.terminalChunks, wireTerminals, record.lastSynced.terminalChunks);
+    record.lastSynced.terminalChunks = wireTerminals;
+    const legacyTerminals = this.terminalLiveRegistry.snapshotSession(sessionId, 'legacy');
+    publishLiveModelState(record.live.states.terminals, legacyTerminals, record.lastSynced.terminals);
+    record.lastSynced.terminals = legacyTerminals;
     this.emitCommittedTurns(record, terminals);
   }
 
@@ -2480,11 +2475,11 @@ export class SessionManager implements InboundRouter {
   }
 
   /** Push new turns and in-place revisions to the single durable history writer. */
-  private emitCommittedTurns(record: SessionRecord, terminals = this.getTerminals(record.input.sessionId)): void {
+  private emitCommittedTurns(record: SessionRecord, terminals?: TerminalState[]): void {
     // Later replayed child records can revise an earlier parent turn. Publish the complete
     // replay at endReplay; intermediate replay turns cannot safely revise existing storage.
     if (record.replaying && record.cell.sessionState.lifecycle === 'replaying') return;
-    record.cell.push({ kind: 'terminal_snapshots', terminals });
+    record.cell.push({ kind: 'terminal_snapshots', terminals: terminals ?? this.getTerminals(record.input.sessionId) });
     const emit = this.deps.onTurnCommitted;
     if (!emit) return;
     // 运行时视图(侧边对话,由运行时分叉实现)不落盘。它的 `conversationId` 是个**视图 id**,

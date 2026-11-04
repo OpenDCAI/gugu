@@ -2,46 +2,9 @@ import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTopicsOfChat } from '../../hooks/useTopics'
-import { chatService, GroupCollabEmptyError } from '../../lib/chat'
-import { rendererLogger } from '../../lib/log'
-import { useAuth } from '../../store/auth'
 import { useChatStore } from '../../store/chatContext'
 import { Button } from '../ui/Button'
 import { AgentFloodThresholdSetting } from './AgentFloodThresholdSetting'
-
-const log = rendererLogger('chat/group-agent-flood-settings')
-
-// A source manager does not gain permission to edit a topic owned by somebody else.
-function TopicThreshold({ chatId, revision }: { chatId: string; revision: number }) {
-  const { user } = useAuth()
-  const { t } = useTranslation('messaging')
-  const [editable, setEditable] = useState(false)
-  const [failed, setFailed] = useState('')
-  const [attempt, setAttempt] = useState(0)
-  useEffect(() => {
-    let cancelled = false
-    setFailed('')
-    void chatService.getGroupCollab(chatId).then(({ snapshot }) => {
-      if (cancelled) return
-      const role = snapshot.humans.find((member) => member.id === user?.id)?.role
-      setEditable(role === 'owner' || role === 'admin')
-    }).catch((error: unknown) => {
-      if (cancelled) return
-      setEditable(false)
-      if (error instanceof GroupCollabEmptyError) return
-      log.error({ error, chatId }, 'topic threshold permissions load failed')
-      setFailed(messageForUser(error))
-    })
-    return () => { cancelled = true }
-  }, [chatId, user?.id, attempt, revision])
-  return <>
-    <AgentFloodThresholdSetting chatId={chatId} editable={editable} inherits revision={revision} />
-    {failed ? <div role="alert">
-      {failed}
-      <Button variant="ghost" size="sm" onClick={() => setAttempt((value) => value + 1)}>{t('common.retry')}</Button>
-    </div> : null}
-  </>
-}
 
 function useChatChangedSubscription() {
   const { subscribeAccountRevision } = useChatStore('subscribeAccountRevision')
@@ -55,13 +18,13 @@ function useChatChangedSubscription() {
   ), [subscribeAccountRevision])
 }
 
-function GroupThreshold({ chatId, editable }: { chatId: string; editable: boolean }) {
+function GroupThreshold({ chatId }: { chatId: string }) {
   const subscribeChatChanged = useChatChangedSubscription()
   const [revision, setRevision] = useState(0)
   useEffect(() => subscribeChatChanged((ids) => {
     if (ids.includes(chatId)) setRevision((value) => value + 1)
   }), [chatId, subscribeChatChanged])
-  return <AgentFloodThresholdSetting chatId={chatId} editable={editable} inherits={false} revision={revision} />
+  return <AgentFloodThresholdSetting chatId={chatId} inherits={false} revision={revision} />
 }
 
 function TopicThresholds({ chatId }: { chatId: string }) {
@@ -87,14 +50,14 @@ function TopicThresholds({ chatId }: { chatId: string }) {
         className="w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-2 py-1 text-sm text-[var(--text-primary)]">
         {topics.map((topic) => <option key={topic.chat_id} value={topic.chat_id}>{topic.name}</option>)}
       </select>
-      <TopicThreshold key={selected.chat_id} chatId={selected.chat_id} revision={revision} />
+      <AgentFloodThresholdSetting key={selected.chat_id} chatId={selected.chat_id} inherits revision={revision} />
     </> : null}
   </>
 }
 
 /** A group's settings carry only the group's own value; its topics follow it. DMs have topics only. */
-export function GroupAgentFloodSettings({ chatId, editable }: { chatId: string; editable?: boolean }) {
+export function GroupAgentFloodSettings({ chatId, scope = 'topics' }: { chatId: string; scope?: 'group' | 'topics' }) {
   return <section data-testid="group-agent-flood-settings">
-    {editable === undefined ? <TopicThresholds chatId={chatId} /> : <GroupThreshold chatId={chatId} editable={editable} />}
+    {scope === 'topics' ? <TopicThresholds chatId={chatId} /> : <GroupThreshold chatId={chatId} />}
   </section>
 }

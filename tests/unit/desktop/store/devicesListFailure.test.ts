@@ -28,8 +28,7 @@ vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
 const rowChanged = (deviceId: string) => ({ revision: '1', event: 'device_changed', payload: { device_id: deviceId, kind: 'row', tombstone: false } })
 
 /**
- * #4891 的另一半判据。用户那句话不许带下层原文(判据在
- * `tests/unit/desktop/hooks/useAgentCreateContextBridge.test.ts`),但原因**必须**落在日志里 ——
+ * #4891 的另一半判据。用户那句话不许带下层原文,但原因**必须**落在日志里 ——
  * ❌ 只钉「不外泄」的话,把 store 里那行 logger 删掉也能绿,那时两边都看不到原因,比原样外泄更糟。
  *
  * (rendererLogger 拿不到 electron 桥时退化成 console.*,所以这里 spy 得到;

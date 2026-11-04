@@ -1,15 +1,6 @@
 /** @jsxImportSource solid-js */
 /**
- * Repro: scroll jump on expand in a short, reserve-active transcript.
- *
- * Symptoms (before fix):
- *   Expanding a thinking row in a transcript that:
- *     (a) has `pinUserMessages` active, and
- *     (b) has fewer items than one viewport height of content
- *   would snap the header out of view because readPhase re-derived intent from
- *   scrollTop on every idle frame. With the reserve active the transcript rests
- *   at `scrollTop === maxScrollTop`, so stuckIntent() was true, and the anchor
- *   set on the expand click was immediately overwritten with `{kind:'bottom'}`.
+ * Repro: expanding a thinking row in a short transcript keeps its header in place.
  *
  * After fix:
  *   readPhase only re-derives intent when `userDelta !== 0`, so the top-edge
@@ -17,7 +8,7 @@
  *   stays put as the row expands downward.
  *
  * Instructions:
- *   1. Open the "Short / ReserveActiveExpand" story.
+ *   1. Open the "Repro/ShortTranscriptExpand" story.
  *   2. Click the thinking header to expand it.
  *   3. Verify the header stays at its current viewport position.
  *   4. Collapse it again — same thing, header stays put.
@@ -34,7 +25,7 @@ import { createChatState } from '@session-chat/state/chat-state';
 import { storyViewport } from '@session-chat/stories/_harness/chat-host.css';
 
 const meta: Meta = {
-  title: 'Repro/ReserveActiveExpand',
+  title: 'Repro/ShortTranscriptExpand',
   parameters: { layout: 'centered' },
 };
 export default meta;
@@ -91,15 +82,14 @@ function makeShortTranscript(): TranscriptTurn[] {
 // ── Story component ───────────────────────────────────────────────────────────
 
 function ReserveExpandHarness() {
-  const ctx = createChatContext({ theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
+  const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
   onCleanup(() => ctx.dispose());
 
   const state = createChatState(ctx, { uri: 'story-reserve-expand' });
   onCleanup(() => state.dispose());
 
   // Seed a SHORT transcript — fewer rows than one viewport height.
-  // With pinUserMessages this creates a non-zero activeTurnReserve so the
-  // transcript rests at scrollTop === maxScrollTop even without streaming.
+  // The transcript rests at its real bottom without extra trailing space.
   state.transcript.history.seed(makeShortTranscript());
 
   let viewport: HTMLElement | undefined;
@@ -151,6 +141,6 @@ function ReserveExpandHarness() {
  * viewport height, activating the reserve. Expand/collapse the thinking row —
  * the header must remain stable (no scroll jump).
  */
-export const ReserveActiveExpand: Story = {
+export const ShortTranscriptExpand: Story = {
   render: () => <ReserveExpandHarness />,
 };

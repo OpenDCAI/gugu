@@ -135,6 +135,11 @@ export async function markAgentAuthExpired(providerId: string, sessionId?: strin
   if (sessionId && !connectionId) return;
   const reading = await (await getAgentConfigRuntimeClient()).refreshAuthStatus({ providerId, connectionId });
   if (reading.success && reading.data.kind === 'unauthenticated' && reading.data.reason !== 'expired') return;
+  // #1163 凭据是**用户自己递进来的**(API key / 中转令牌)时更没有「登录」可续:被拒的是他手上那把钥匙
+  // (或它指的那台服务),不是这家的账号登录。❌ 标上 —— 标了的后果不只是措辞:界面把唯一动作换成
+  // 「重新登录」(一条他根本没有的路),他自家的模型清单也一起被顶掉(见 renderer 的 `withAuthExpiry`)。
+  // 那一轮被拒这件事由会话自己说。
+  if (reading.success && reading.data.kind === 'authenticated' && reading.data.credentialKind === 'api-key') return;
   const handle = await getAgentConfigRuntimeHandle();
   const result = await handle.client.markAuthExpired({ providerId, connectionId });
   if (!result.success) throw new Error(`markAuthExpired: ${JSON.stringify(result.error)}`);

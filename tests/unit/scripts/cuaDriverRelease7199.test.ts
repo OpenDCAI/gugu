@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { assertPeMachine, CUA_DRIVER_MAC_REVISION, CUA_DRIVER_VERSION, cuaDriverArchiveInfo, obtainVerifiedArchive, parseCuaTools } from '../../../scripts/cua-driver-release.mjs'
+import { assertPeMachine, CUA_DRIVER_MAC_REVISION, CUA_DRIVER_VERSION, cuaDriverArchiveInfo, obtainVerifiedArchive, parseCuaTools } from '../../../scripts/build/cua-driver-release.mts'
 
 // #7199 打包带的 cua-driver:归档按钉住的 sha256 校验、内容寻址缓存;工具清单与 exe 架构对不上就响亮失败。
 const CONTENT = 'fake cua-driver archive bytes'

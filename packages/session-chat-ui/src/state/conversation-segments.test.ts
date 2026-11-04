@@ -24,6 +24,18 @@ const context = (active: boolean, toggles: string[] = []): SegmentCtx => ({ cach
 } as unknown as SegmentCtx);
 
 describe('replay conversation segment boundaries', () => {
+  it('keeps a committed owner notification in its own bubble when the agent continues the active turn', () => {
+    const notification: ChatMessage = { ...message('owner-notify', 'assistant', 3000), ownerNotification: {
+      requestId: '11111111-1111-4111-8111-111111111111', requestHash: 'hash', sourceTurnId: 't',
+    } };
+    const record = turn([message('u', 'user', 1000), call('send'), notification, call('continued'), message('later', 'assistant', 5000)]);
+    for (const active of [true, false]) {
+      const blocks = planConversationSegments(record, active).filter(block => block.kind === 'segment');
+      expect(blocks.map(segment => conversationOutput(segment.items).reply?.id)).toEqual(['owner-notify', 'later']);
+      const rows = flattenTier([record], context(active), segmenters);
+      expect((rows.find(row => row.itemId === notification.id)!.data as ChatMessage).conversationNarration).toBeUndefined();
+    }
+  });
   it('uses attachment labels in an explicit native quote without changing the input or its anchor', () => {
     const text = '看下文件\n@[tri19-file.txt](/Users/host/task-attachments/c/tri19-file.txt)';
     const input = { ...message('u', 'user'), text };
@@ -52,7 +64,7 @@ describe('replay conversation segment boundaries', () => {
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.map(row => row.itemId)).toEqual(['t:day', 'u', 't:process:head', 't:run:one', 'first', 't:run:two', 'latest']);
     expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationNarration).toBeUndefined();
-    expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationCaret).toBe(true);
+    expect(rows.find(row => row.itemId === 'latest')!.data).not.toHaveProperty('conversationCaret');
     expect((rows.find(row => row.itemId === 'first')!.data as ChatMessage).conversationNarration).toBe(true);
   });
 
@@ -70,7 +82,7 @@ describe('replay conversation segment boundaries', () => {
       expect(before.conversationProcess).toMatchObject({ startedAt: 1000, endedAt: 4000 });
       expect(before.conversationProcess?.live).toBeUndefined();
       const after = rows.find(row => row.itemId === 't:process@steer:head')!.data as ChatMessage;
-      expect(after.conversationProcess?.startedAt).toBe(5000);
+      expect(after.conversationProcess?.startedAt).toBe(active ? 1000 : 5000);
     }
   });
 
@@ -78,7 +90,7 @@ describe('replay conversation segment boundaries', () => {
     const record = turn([message('u', 'user', 1000), message('ready', 'assistant', 2000), message('steer', 'user', 5000)]);
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.at(-1)?.itemId).toBe('t:process@steer');
-    expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true, placeholder: true, startedAt: 5000 });
+    expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true, placeholder: true, startedAt: 1000 });
     expect(conversationBackgroundOwner(rows)).toBe('t:process@steer');
     expect(rows.some(row => row.kind === 'background-tasks')).toBe(false);
   });
@@ -105,14 +117,22 @@ describe('replay conversation segment boundaries', () => {
     expect(segments).toHaveLength(2);
     expect(conversationOutput(segments[0].items, true).reply?.id).toBe(sent.id);
     expect(segments[0]).toMatchObject({ live: false, endedAt: 4000 });
-    expect(segments[1]).toMatchObject({ live: true, startedAt: 4000 });
+    expect(segments[1], 'the live line keeps the turn origin').toMatchObject({ live: true, startedAt: 1000 });
+  });
+
+  it('counts the first process line from the turn origin even if the first message arrived later', () => {
+    // The turn's clock is the send; the prompt reached the runtime 2 s later (a session that was starting).
+    const [segment] = planConversationSegments(turn([message('u', 'user', 3000)]), true).filter(block => block.kind === 'segment');
+    expect(segment).toMatchObject({ live: true, startedAt: 1000 });
+    const closed = planConversationSegments({ ...turn([message('u', 'user', 3000), message('reply', 'assistant', 4000)]) }, false).filter(block => block.kind === 'segment');
+    expect(closed[0]).toMatchObject({ startedAt: 1000 });
   });
 
   it('keeps an active process after a standalone completion without turning it into a quote', () => {
     const source = notice('wake', 5000);
     const rows = flattenTier([turn([source])], context(true), segmenters);
     expect(rows.map(row => row.itemId)).toEqual(['t:day', 'wake', 't:process@wake']);
-    expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true, placeholder: true, startedAt: 5000 });
+    expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true, placeholder: true, startedAt: 1000 });
     expect(rows.some(row => (row.data as ChatMessage).conversationReply)).toBe(false);
   });
 
@@ -124,7 +144,7 @@ describe('replay conversation segment boundaries', () => {
     expect(rows.map(row => row.itemId)).toContain('a');
     expect(rows.map(row => row.itemId)).not.toContain('silent');
     expect(rows.filter(row => row.itemId === 'latest')).toHaveLength(1);
-    expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationCaret).toBe(false);
+    expect(rows.find(row => row.itemId === 'latest')!.data).not.toHaveProperty('conversationCaret');
   });
 
   it('does not infer process labels from runtime triggers or invent historical clocks', () => {

@@ -37,7 +37,7 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
   const root = createJsonlTailSource<Ordinals>(locator, options, {
     name: 'codex',
     resumeVersion: 6,
-    resolve: () => resolveRolloutFile(locator),
+    resolve: () => resolveRolloutFile(locator, options?.readMode === 'snapshot'),
     initial: () => ({ turn: 0, item: -1, userSeen: false, calls: {}, children: {} }),
     decode(record, ordinals) {
       const codex = readCodexRecord(record);
@@ -125,11 +125,14 @@ function decode(record: CodexRecord, key: string): RecordEntry | null {
  * 日期目录并发下钻的做法照抄 `packages/core/src/local/agent/transcriptInventory.ts`：
  * 串行递归光 readdir 就要几秒，那是"打开会话"这件事最大的一块墙钟。
  */
-async function resolveRolloutFile(locator: SessionRecordLocator): Promise<string> {
+async function resolveRolloutFile(locator: SessionRecordLocator, snapshot: boolean): Promise<string> {
   const suffix = `-${locator.providerSessionId}.jsonl`;
-  for (const root of locator.roots) {
-    const hit = await findBySuffix(root, suffix);
-    if (hit) return hit;
+  // Prefer the live file across all roots. Only a historical read may open an archive.
+  for (const extension of snapshot ? [suffix, `${suffix}.zst`] : [suffix]) {
+    for (const root of locator.roots) {
+      const hit = await findBySuffix(root, extension);
+      if (hit) return hit;
+    }
   }
   throw new SessionRecordNotFoundError(
     `找不到 codex rollout 记录：threadId=${locator.providerSessionId}`,

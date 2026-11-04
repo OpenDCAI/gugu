@@ -36,7 +36,7 @@ function table(name: string) {
     select: () => query,
     eq: (key: string, value: unknown) => (filters.push([key, value]), query),
     maybeSingle: async () => ({ data: name === 'chats' ? (matching(chats)[0] ?? null) : null, error: null }),
-    then: (resolve: (result: unknown) => void) => resolve({ data: name === 'chat_members' ? matching(members) : [], error: null }),
+    then: (resolve: (result: unknown) => void) => resolve({ data: name === 'active_members' ? matching(members) : [], error: null }),
   };
   return query;
 }

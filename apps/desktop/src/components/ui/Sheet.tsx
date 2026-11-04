@@ -1,6 +1,7 @@
 import { type CSSProperties, type ReactNode } from 'react'
 import type { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { useTranslation } from 'react-i18next'
+import { UiPortalContainerProvider } from '@gugu/session-ui/react/primitives'
 import { cn } from '@/lib/cn'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { Dialog } from './Dialog'
@@ -113,7 +114,7 @@ export function Sheet({
     // 85dvh rounded bottom-sheet; fit-content wizards hug their content (mobileHeight = cap only).
     height: fullScreenMobile ? '100dvh' : mobileFitContent ? 'auto' : mobileHeight,
     maxHeight: fullScreenMobile ? undefined : mobileHeight,
-    borderRadius: fullScreenMobile ? '0' : '32px 32px 0 0',
+    borderRadius: fullScreenMobile ? '0' : 'calc(var(--radius-control) + var(--spacing-lg)) calc(var(--radius-control) + var(--spacing-lg)) 0 0',
     paddingBlockEnd: 'env(safe-area-inset-bottom)',
   }
 
@@ -170,12 +171,12 @@ export function Sheet({
             data-testid={testId}
             data-sheet-mobile={mobile ? 'true' : 'false'}
             data-sheet-fullscreen={fullScreenMobile ? 'true' : 'false'}
-            style={{ ...(mobile ? mobileStyle : desktopStyle), background: 'var(--modal-bg)' }}
+            style={{ ...(mobile ? mobileStyle : desktopStyle), background: mobile && fullScreenMobile ? 'var(--bg)' : 'var(--modal-bg)' }}
           >
             {!titleId && (
               <Dialog.Title className={visuallyHidden}>{ariaLabel ?? t('dialog.label')}</Dialog.Title>
             )}
-            {children}
+            <UiPortalContainerProvider zIndex={zIndex}>{children}</UiPortalContainerProvider>
             <Dialog.Close
               className={visuallyHidden}
               aria-label={t('dialog.close')}

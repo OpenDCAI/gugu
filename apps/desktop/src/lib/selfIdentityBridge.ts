@@ -3,7 +3,7 @@
 // 会话页投递卡显示发信人时,对**自己发的**消息不信信封:信封的 `from` 是发送那一刻冻结的事实,历史转录里还有
 // 没带 `from` 的旧壳(owner 2026-09-05 在会话页看到自己的消息显示成 `user:<uuid>`),而「我是谁」渲染层自己
 // 知道。会话页是另一个 bundle 里的另一棵 React 树,gugu 的 AuthContext 跨不过去 ⇒ 沿用 #2549/#2525 确立的
-// `window.__GUGU_*` 全局适配对象(getSnapshot + subscribe,与 agentCreateContextBridge 同形)。
+// `window.__GUGU_*` 全局适配对象(getSnapshot + subscribe)。
 //
 // 只送三格:canonical user id(与信封 `from_id` 的 `user:<id>` 比对)、昵称、咕咕号。❌ 不送 token、邮箱。
 

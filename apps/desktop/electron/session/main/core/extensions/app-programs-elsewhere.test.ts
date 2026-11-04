@@ -16,6 +16,9 @@ const folder = vi.hoisted(() => ({ root: '' }));
 const callFromPage = vi.hoisted(() => vi.fn());
 const appCall = vi.hoisted(() => vi.fn());
 const sessionsElsewhere = vi.hoisted(() => vi.fn());
+const fileCapabilities = vi.hoisted(() => ({ granted: null as Set<string> | null }));
+const readWorkingCopy = vi.hoisted(() => vi.fn());
+vi.mock('@main/core/extensions/working-copy-files', () => ({ readWorkingCopy }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: () => undefined, error: () => undefined, info: () => undefined } }));
 vi.mock('@main/core/extensions/extensions-root', () => ({
   extensionsService: () => ({
@@ -24,7 +27,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
       return { manifest: { name: 'SpexCode', version: installed.version, contributes: { tabs: [], mcpServers: installed.servers } } };
     },
     isEnabled: () => installed.enabled,
-    hasCapability: () => true,
+    hasCapability: (_id: string, capability: string) => fileCapabilities.granted === null || fileCapabilities.granted.has(capability),
   }),
   extensionDataRoot: (id: string) => join(folder.root, id),
 }));
@@ -57,6 +60,8 @@ beforeEach(() => {
   callFromPage.mockReset();
   appCall.mockReset();
   sessionsElsewhere.mockReset();
+  fileCapabilities.granted = null;
+  readWorkingCopy.mockReset();
 });
 afterEach(() => rmSync(folder.root, { recursive: true, force: true }));
 
@@ -69,9 +74,30 @@ it('the verbs done on the session machine are the table rows that say machine, e
 });
 
 describe('the machine that has the session does the call', () => {
+  it.each([{ capabilities: [] }, { capabilities: ['files:write'] }])('refuses workspace ranges without files:read before reading bytes (%j)', async ({ capabilities }) => {
+    fileCapabilities.granted = new Set(capabilities);
+    readWorkingCopy.mockResolvedValue({ size: 3, offset: 0, data: 'AP+A' });
+    expect(await refusal(elsewhere.answerAppCall(CALLER,
+      action({ call_id: `workspace-no-read-${capabilities.length}`, method: 'filesRead' },
+        { ref: { workspace: 'session:s-here', id: 'data.bin' }, offset: 0, length: 3 })))).toEqual({
+      code: 'denied', message: 'Not permitted: this App does not have "files:read"',
+    });
+    expect(readWorkingCopy).not.toHaveBeenCalled();
+  });
+
+  it('keeps workspace range reads available with files:read alone', async () => {
+    fileCapabilities.granted = new Set(['files:read']);
+    readWorkingCopy.mockResolvedValue({ size: 3, offset: 0, data: 'AP+A' });
+    expect(await elsewhere.answerAppCall(CALLER,
+      action({ call_id: 'workspace-with-read', method: 'filesRead' },
+        { ref: { workspace: 'session:s-here', id: 'data.bin' }, offset: 0, length: 3 })))
+      .toEqual({ size: 3, offset: 0, data: 'AP+A' });
+    expect(readWorkingCopy).toHaveBeenCalledWith({ workspace: 'session:s-here', id: 'data.bin' }, 'data.bin', 0, 3);
+  });
+
   it('calls a selected machine without finding or manufacturing a session', async () => {
     appCall.mockResolvedValue(OK);
-    const app = { extensionId: 'spexcode', manifest: { id: 'spexcode', apiVersion: 17, name: 'SpexCode', version: '0.7.0', contributes: { tabs: [], mcpServers: [{ tools: 'tools.js' }] } } };
+    const app = { extensionId: 'spexcode', manifest: { id: 'spexcode', apiVersion: 25, defaultLocale: 'en', name: 'SpexCode', version: '0.7.0', contributes: { tabs: [], mcpServers: [{ tools: 'tools.js' }] } } };
     expect(await elsewhere.callOnSessionMachine(app as Parameters<typeof elsewhere.callOnSessionMachine>[0], { deviceId: 'dev-there' }, 'callProgram', { name: 'graph' }, false)).toEqual({ there: true, value: OK });
     const sent = appCall.mock.calls[0]![2];
     expect(sent).toMatchObject({ device_id: 'dev-there', method: 'callProgram' });

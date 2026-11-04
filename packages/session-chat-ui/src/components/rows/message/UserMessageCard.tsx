@@ -31,6 +31,7 @@ import { ConversationDestination } from './ConversationDestination';
 import { UserMessageActions } from './UserMessageActions';
 import { CONVERSATION_EXPAND_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
 import { UserMessageEditor } from './UserMessageEditor';
+import { InputSendStatus } from './InputSendStatus';
 import { messageEditorMetrics } from './message-editor-metrics';
 import {
   attachChip,
@@ -184,6 +185,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       data-conversation-body={props.conversation ? props.data.role : undefined}
       class={userMessageRoot}
       style={{
+        position: 'relative',
         ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: 0 })),
         // `base`:整条右对齐到与气泡同一条边(owner 给的参考是 Kimi 那个形状)。
         ...(isDoubleColumnLayout(layout())
@@ -215,7 +217,6 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       data-user-card={props.data.id}
       data-conversation-bubble-key={props.conversation ? conversationBubbleKey(props.data) : undefined}
       data-user-card-expandable={props.conversation && !isExpanded() && isOverflowing() ? 'true' : undefined}
-      data-conversation-caret={props.data.conversationCaret ? 'true' : undefined}
       class={`${card({ state: isOverflowing() && !isExpanded() ? 'overflowing' : 'static', current: isGenerating() })} ${cardRoot} ${userCardGroup}`}
       style={{
         ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: cardH() + (destination()?.height ?? 0) })),
@@ -269,21 +270,17 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
           data-conversation-bubble-key={conversationBubbleKey(props.data)}>{translate('transcript.showFullText')}</button>
       </div>
     </Show>
-    <Show when={canCollapse()}>
-      <div class={userMessageExpandRow} style={{ height: `${CONVERSATION_EXPAND_H}px` }}>
-        <button type="button" class={userMessageExpand} data-collapse-id={conversationBubbleKey(props.data)}
-          data-collapse-anchor={props.data.id}>{translate('transcript.collapseFullText')}</button>
-      </div>
-    </Show>
-    <Show when={!props.conversation || hasConversationActions(props.data) || props.footerReference}>
+    <Show when={!props.conversation || hasConversationActions(props.data) || props.footerReference || canCollapse()}>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
       reference={props.footerReference}
-      onQuote={props.conversation && props.data.sourceItemId && commands().onQuoteMessage && commands().canQuoteMessage?.(props.data) !== false ? () => commands().onQuoteMessage?.({ message: props.data, sender: props.sender?.() ?? '' }) : undefined}
+      collapse={canCollapse() ? { bubbleKey: conversationBubbleKey(props.data), anchorId: props.data.id } : undefined}
       generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} />
     </Show>
     </>}>
       {(editing) => <UserMessageEditor edit={editing()} height={editorMetrics().height} textHeight={editorMetrics().textHeight} />}
     </Show>
+    <InputSendStatus item={props.data} right={isDoubleColumnLayout(layout()) ? paintedWidth() + 6 : 0}
+      top={attachStripH() + (isDoubleColumnLayout(layout()) ? Math.max(0, cardH() - 15) : cardH() + 2)} />
     </div>
   );
 }

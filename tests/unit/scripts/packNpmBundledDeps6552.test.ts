@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 const require = createRequire(import.meta.url)
-const { packNpmBundledDependencies, packedAppDir } = require('../../../scripts/pack-npm-bundled-deps.cjs') as {
+const { packNpmBundledDependencies, packedAppDir } = require('../../../scripts/build/pack-npm-bundled-deps.cjs') as {
   packNpmBundledDependencies: (opts: { appDir: string; repoRoot: string }) => number
   packedAppDir: (context: unknown) => string
 }
@@ -34,6 +34,15 @@ describe('包里的 npm 带上它自己的依赖 (#6552)', () => {
     const count = packNpmBundledDependencies({ appDir, repoRoot })
     expect(count).toBeGreaterThan(0)
     expect(fs.existsSync(path.join(appDir, 'node_modules', 'npm', 'node_modules', 'graceful-fs', 'package.json'))).toBe(true)
+  })
+
+  test('npm bundled dependencies do not reintroduce nested source maps after files filtering', () => {
+    const sourceModules = path.join(sourceNpm, 'node_modules')
+    const sourceMaps = fs.readdirSync(sourceModules, { recursive: true, encoding: 'utf8' }).filter((file) => file.endsWith('.map'))
+    expect(sourceMaps.length).toBeGreaterThan(0)
+    packNpmBundledDependencies({ appDir, repoRoot })
+    const packedModules = path.join(appDir, 'node_modules', 'npm', 'node_modules')
+    expect(fs.readdirSync(packedModules, { recursive: true, encoding: 'utf8' }).filter((file) => file.endsWith('.map'))).toEqual([])
   })
 
   test('包里没有 npm 就让打包失败', () => {

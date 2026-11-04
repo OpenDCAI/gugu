@@ -31,10 +31,6 @@ vi.mock('@renderer/features/sessions/diff-view/diff-tab-item', () => ({
   DiffTabBarItemDragPreview: () => null,
   diffGroupSuffix: (group: string) => `(${group})`,
 }));
-vi.mock('@renderer/features/sessions/session-title-utils', () => ({
-  formatSessionTitleForDisplay: (_providerId: unknown, title: unknown) =>
-    (title as string) ?? 'Conversation',
-}));
 
 
 const mocks = vi.hoisted(() => ({
@@ -274,7 +270,7 @@ describe('createSessionCommandProvider', () => {
   // #6780 旧侧栏两个页签的接班人:走空态 /「+」菜单同一个开页签入口,开在这个会话自己的页签条里。
   it.each([
     ['session.sidebarChanges', 'sidebarChanges', ['review', {}]],
-    ['session.sidebarFiles', 'sidebarFiles', ['file-browser', {}, { preview: false }]],
+    ['session.sidebarFiles', 'sidebarFiles', ['workspace.main', {}, { preview: false }]],
   ] as const)('%s 打开对应页签', (id, _shortcutKey, openArgs) => {
     const view = {
       ...mocks.getSessionView(),
@@ -415,7 +411,7 @@ describe('createSessionCommandProvider', () => {
     await Promise.resolve();
 
     // 按键静默归档时按**默认范围**走:一个不弹的确认不能替用户勾上递归。
-    expect(archiveSession).toHaveBeenCalledWith('conversation-1', { withChildren: false });
+    expect(archiveSession).toHaveBeenCalledWith('conversation-1', { withChildren: false, removeSocialIdentity: true });
     // 这条会话就是此刻打开的那一条:归档成功后离开它的视图。
     expect(mocks.navigate).toHaveBeenCalledWith('project', { projectId: 'project-1' });
   });
@@ -438,9 +434,9 @@ describe('createSessionCommandProvider', () => {
     const call = mocks.showModal.mock.calls.at(-1);
     expect(call?.[0]).toBe('confirmActionModal');
     (
-      call?.[1] as { onSuccess: (r: { dontAskAgain: boolean; scopeChecked: boolean }) => void }
-    ).onSuccess({ dontAskAgain: false, scopeChecked: false });
-    expect(archiveSession).toHaveBeenCalledWith('conversation-1', { withChildren: false });
+      call?.[1] as { onSuccess: (r: { dontAskAgain: boolean; scopeChecked: boolean; optionChecked: boolean }) => void }
+    ).onSuccess({ dontAskAgain: false, scopeChecked: false, optionChecked: true });
+    expect(archiveSession).toHaveBeenCalledWith('conversation-1', { withChildren: false, removeSocialIdentity: true });
   });
 
   it('keeps archived tasks from running the archive command', () => {

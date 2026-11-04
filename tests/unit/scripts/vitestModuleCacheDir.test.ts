@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from '
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { lockfileScopedModuleCacheDir } from '../../../scripts/vitest-module-cache-dir'
+import { lockfileScopedModuleCacheDir } from '../../../scripts/test-infra/vitest-module-cache-dir'
 
 describe('vitest fs module cache is scoped to the lockfile (#6517)', () => {
   it('never hands a run the cache that was transformed under another lockfile', () => {

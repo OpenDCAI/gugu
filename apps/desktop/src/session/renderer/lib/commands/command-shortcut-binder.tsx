@@ -23,8 +23,9 @@ function CapturedCommandKey({ id }: { id: CommandId }) {
     const platform = detectPlatform();
     const onCommandKey = (event: KeyboardEvent) => {
       if (event.isComposing || !matchesKeyboardEvent(event, hotkey, platform)) return;
-      const active = document.activeElement;
-      if (!(active instanceof HTMLElement) || (id === 'app.find' && active.closest('.monaco-editor, [cmdk-root], [role=menu]'))) return;
+      const active = event.composedPath().find(node => node instanceof HTMLElement);
+      // @@@native-editor-find — Monaco/CodeMirror own replacement, regex and selection search; only app.find yields.
+      if (!(active instanceof HTMLElement) || (id === 'app.find' && active.closest('.monaco-editor, .cm-editor, [cmdk-root], [role=menu]'))) return;
       if (!commandRegistry.dispatch(id)) return;
       event.preventDefault();
       event.stopImmediatePropagation();

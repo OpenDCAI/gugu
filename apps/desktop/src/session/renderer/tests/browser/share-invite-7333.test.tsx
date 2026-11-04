@@ -115,6 +115,7 @@ describe('share and invite surfaces use the approved roles without changing acti
     expect(copyQr.disabled).toBe(true);
     expect(copyQr.dataset.qrPayload).toBe('');
     await act(async () => settings.resolve({
+      my_role: 'member', can_manage: false, can_dissolve: false, can_archive_topic: false,
       id: group.id, public_id: 7333, creator_user_id: 'user-1', name: group.name, status: 'active', group_prompt: null, default_agent_type: null,
       join_token: 'invite-fixture-token', description: null, max_members: 100, allow_member_invite: true, invite_link_enabled: true,
       agent_join_approval: false, join_mode: 'approval', hide_history: false, avatar_url: null, is_discoverable: false,

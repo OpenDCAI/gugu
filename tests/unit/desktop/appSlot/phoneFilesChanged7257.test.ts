@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { rpcQuery } from '../../../helpers/rpcQuery'
+import { rpcQuery } from '../../../support/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
 import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
@@ -68,7 +68,6 @@ vi.mock('@gugu/core/cloud/supabase', () => {
   }
 })
 
-const activation = Object.getOwnPropertyDescriptor(navigator, 'userActivation')
 const opened = vi.fn()
 const peeked = vi.fn()
 let frame: HTMLIFrameElement
@@ -99,14 +98,12 @@ afterEach(() => {
   host?.dispose()
   host = undefined
   frame.remove()
-  if (activation) Object.defineProperty(navigator, 'userActivation', activation)
-  else Reflect.deleteProperty(navigator, 'userActivation')
 })
 
 let nextId = 1
 async function call(method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const id = nextId++
-  window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method, args }, source: frame.contentWindow, origin: ORIGIN }))
+  window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method, args, gesture: true }, source: frame.contentWindow, origin: ORIGIN }))
   await until(`the host answered ${method}`, () => posted.mock.calls.some(([message]) => (message as { id?: number }).id === id))
   return posted.mock.calls.map(([message]) => message as Record<string, unknown>).find((message) => message.id === id)!
 }
@@ -222,7 +219,6 @@ describe('a watched chat\'s files changed: the page hears those files (#7257)', 
 describe('the phone openWith bridge hands unclaimed files to the host preview (#7663)', () => {
   it.each([false, true])('ordinary and peek openings carry the same file metadata (peek=%s)', async (peek) => {
     db.openingName = 'clip.mp4'
-    Object.defineProperty(navigator, 'userActivation', { configurable: true, value: { isActive: true } })
     const result = await call('filesOpenWith', { ref: { id: A }, ...(peek ? { peek: true } : {}) })
     expect(result).toMatchObject({ ok: true })
     const detail = { chatId: CHAT, itemId: A, name: 'clip.mp4', choice: { kind: 'none' }, file: { document: false, contentType: 'video/mp4', version: 5, size: 3276 } }

@@ -77,6 +77,16 @@ describe('account-scoped normalized IM repository', () => {
     window.localStorage.clear()
     adapter = createMemoryLocalSyncDb()
   })
+  it('keeps a removed identity removed when an older observation of it is published', async () => {
+    const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
+    const live = identity('agent-1', { type: 'agent', display_name: 'Codex 1' })
+    await repository.putIdentities([live])
+    await repository.putIdentities([{ ...live, removed_at: '2026-10-31T06:46:30.189Z' }])
+    // A conversation-list snapshot still holding the pre-removal row, plus an unrelated identity.
+    await replaceChatRowsAndIdentities(repository, [], [live, identity('human-2')])
+    expect(imSelectors.identitiesById(repository.snapshot())['agent-1']?.removed_at).toBe('2026-10-31T06:46:30.189Z')
+    expect(imSelectors.identitiesById(repository.snapshot())['human-2']).toBeTruthy()
+  })
   it('counts started transaction attempts including a rejected mutation', async () => {
     const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
     const before = readPerfCounters().imTransactions

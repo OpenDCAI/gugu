@@ -1,3 +1,5 @@
+import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { useEffect, useState, type ReactNode } from 'react'
 import type { AgentDisplayStatus, GroupMemberRole, GroupMemberType, ListenMode } from '@gugu/core/shared/types/chat'
 import { LISTEN_MODES } from '@gugu/core/shared/types/chat'
@@ -98,7 +100,7 @@ const IconShare = () => (
 export interface MemberProfileCardModel {
   id: string
   guguNumber?: number | null
-  displayName: string
+  displayName: string; removedAt?: string | null
   avatar: string | null
   email: string | null
   /** Bio text from ContactUser.bio or agent profile. Null = no bio set. */
@@ -138,6 +140,7 @@ export interface MemberProfileEditControls {
   // @@@1208 (#857 收尾) listen-mode 变更:agent 的主人看它时父级才给这个回调,分段控件变可交互(否则只读镜像)。
   onChangeListenMode?: (mode: ListenMode) => Promise<void> | void
   canRemove?: boolean
+  removeLabel?: string
   onRemove?: () => Promise<void> | void
   busy?: boolean
   // @@@2247 - error text for the last manage-control mutation (remove / role / listen). The
@@ -220,6 +223,8 @@ export function MemberProfileCard({
 }) {
   const { t } = useTranslation('contacts')
   const isAgent = member.type === 'agent'
+  const identity = useAvatarIdentity(isAgent ? member.id : '')
+  const shownName = useShownAgentName({ name: member.displayName, createdAt: isAgent ? identity?.created_at ?? undefined : undefined })
   // single = direct scope (not in a group) → matches prototype .pop.single
   const isSingle = member.profileScope !== 'group'
   const isGroupProfile = !isSingle
@@ -284,7 +289,7 @@ export function MemberProfileCard({
       <div className={profileHeaderClass}>
         <div style={{ width: avatarSize, height: avatarSize, flexShrink: 0, position: 'relative' }}>
           <Avatar
-            name={member.displayName}
+            name={shownName}
             avatarUrl={member.avatar}
             seed={member.id}
             size={avatarSize}
@@ -293,7 +298,7 @@ export function MemberProfileCard({
           />
         </div>
         <div className={profileHeaderTextClass} style={{ flex: 1, minWidth: 0 }}>
-          {isAgent ? <OwnedAgentNameEditor key={member.id} agentId={member.id} name={member.displayName} ownerUserId={member.ownerUserId} status={status} membership={member.membership} className="text-base font-semibold"><span className={profileNameClass}>{member.displayName}</span></OwnedAgentNameEditor> : <div className={profileNameClass}>{member.displayName}</div>}
+          {isAgent ? <OwnedAgentNameEditor key={member.id} agentId={member.id} name={member.displayName} ownerUserId={member.ownerUserId} status={status} membership={member.membership} className="text-base font-semibold"><span className={profileNameClass}>{shownName}</span></OwnedAgentNameEditor> : <div className={profileNameClass}>{member.displayName}</div>}
           {/* One metadata line, the same cells-with-gap idiom as the agent's row in the member list. */}
           {isAgent ? (
             <div data-profile-agent-meta className={profileAgentMetaClass}>
@@ -385,9 +390,8 @@ export function MemberProfileCard({
       ) : null}
 
       {/* ── 倾听模式 segmented control (prototype .lm/.lmseg, lines 453-457)
-          Agent-only, group scope. @@@1208 (#857 收尾): agent 的主人看它时父级经 editControls.onChangeListenMode
-          提供回调,控件可交互(点击改档→真 mutation chat_members.listen_mode);其余人(含群主 / 管理员)
-          是只读镜像(cursor default)。 ── */}
+          Agent-only, room scope. The parent supplies onChangeListenMode for the agent owner
+          or a current source-group manager. Other viewers retain the read-only projection. ── */}
       {showListenMode ? (
         <div className={profileListenClass}>
           <div className={profileListenLabelClass}>{t('profile.listenModeDescription')}</div>
@@ -439,7 +443,7 @@ export function MemberProfileCard({
               onClick={() => editControls.onRemove?.()}
               disabled={editBusy}
             >
-              {isAgent && member.ownerUserId === user?.id ? t('profile.agentLeaveGroup') : t('profile.removeFromGroup')}
+              {editControls?.removeLabel ?? (isAgent && member.ownerUserId === user?.id ? t('profile.agentLeaveGroup') : t('profile.removeFromGroup'))}
             </button>
           ) : null}
           {editControls?.editError ? (

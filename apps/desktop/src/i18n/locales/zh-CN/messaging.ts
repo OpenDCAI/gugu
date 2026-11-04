@@ -59,21 +59,21 @@ export default {
     },
     "turnFailure": {
       "card": {
+        "deliveryRejected": "消息未送达",
         "generic": "回复没有完成",
         "authentication": "模型服务拒绝了授权",
         "network": "连不上模型服务",
         "timeout": "太久没有响应",
-        "offline": "运行它的设备断开了",
         "rateLimited": "请求太频繁",
         "nextMessage": "下条消息会自动再试",
         "recovered": "{{name}} 之前 {{count}} 次没有完成 · 已恢复",
         "settings": "去设置"
       },
       "state": {
-        "exhausted": "额度已用完",
-        "weekly": "周限额度已满",
-        "monthly": "月限额度已满",
-        "model-unavailable": "模型不可用"
+        "quota": "额度已用完",
+        "weeklyQuota": "周限额度已满",
+        "monthlyQuota": "月限额度已满",
+        "modelUnavailable": "模型不可用"
       },
       "stateAction": "{{name}} {{state}}，点击切换模型",
       "authentication": "模型服务拒绝了本次请求的授权，回复未完成。",
@@ -87,9 +87,10 @@ export default {
       "changeModel": "切换模型",
       "close": "关闭",
       "generic": "Agent 本次回复出错，未能完成",
+      "deliveryRejected": "这条消息未送达，请重发。",
       "notAdmitted": "消息已保留，助理就绪后回复。",
+      "outcomeUnknown": "投递结果未知：消息可能已经送到助理，没有重投。",
       "undelivered": "消息暂未送达：没有运行中的咕咕实例持有这个 Agent，打开那个实例后会由它读取。",
-      "offline": "设备连接中断，本次回复未完成",
       "retry": "重试",
       "retrying": "重试中…",
       "timeout": "Agent 长时间未响应，本次回复未完成"
@@ -267,7 +268,6 @@ export default {
     "clearSearch": "清除搜索",
     "create": "新建",
     "createTask": "新建任务",
-    "createAgent": "新建 Agent",
     "createGroup": "新建群聊",
     "createGroupMobile": "发起群聊",
     "newProject": "新项目",
@@ -292,6 +292,8 @@ export default {
     "markUnreadFailed": "标记未读失败，请重试",
     "muted": "消息免打扰",
     "noResults": "未找到对话",
+    "searchMessages": "搜索消息「{{query}}」",
+    "searchMessagesTitle": "搜索消息",
     "listLabel": "对话列表",
     "pin": "置顶",
     "scan": "扫一扫",
@@ -360,6 +362,12 @@ export default {
     "usageUnavailable": "文件用量暂不可用。",
 
     "fileUnavailable": "文件暂时打不开",
+    "holderOffline": "{{machine}} 离线，上线后才能打开这个文件。",
+    "holderMachine": "保存它的那台电脑",
+    "besideOffline": "在「{machine}」上，未连接",
+    "besideOfflineNotice": "这页里有文件存在「{{machine}}」上，它现在未连接；它上线后会自动显示。",
+    "besideUnavailable": "这个文件现在取不到。",
+    "besideOutside": "只能取到这份文档所在文件夹里的文件。",
     "imageUnavailable": "图片暂时打不开",
     "newerInFolder": "文件夹里有新版",
     "retry": "重试"
@@ -449,10 +457,14 @@ export default {
     "reactWith": "回应 {{emoji}}"
   },
   "forward": {
+    "fileFailed": "{{name}} 没能一起转发",
     "batchPreview": "转发 {{count}} 条消息",
     "batchPreview_one": "转发 {{count}} 条消息",
     "batchPreview_other": "转发 {{count}} 条消息",
     "failed": "转发失败",
+    "filesPreview": "转发 {{count}} 个文件",
+    "filesPreview_one": "转发 {{count}} 个文件",
+    "filesPreview_other": "转发 {{count}} 个文件",
     "forwarding": "转发中…",
     "noResults": "未找到对话",
     "noTargets": "暂无可转发的对话",
@@ -650,14 +662,14 @@ export default {
     }
   },
   "header": {
-    "groupApps": "群 Apps",
-    "personalPins": "仅自己",
-    "pinGroupApp": "将{{name}}固定到本群头栏",
-    "unpinGroupApp": "从本群头栏移除{{name}}",
-    "appPinsLoadFailed": "无法读取固定的 App。",
-    "appPinsSaveFailed": "无法保存固定的 App。",
+    "groupApps": "应用",
+    "members": "{{count}} 位成员",
+    "invite": "邀请",
+    "mute": "消息免打扰",
+    "pinConversation": "置顶对话",
+    "searchHistory": "搜索聊天记录",
+    "groupInfoAndSettings": "群信息与设置",
     "noGroupApps": "本设备暂无可用的 App。",
-    "openInGroup": "在这个群里打开…",
     "announcement": "群公告",
     "groupInfo": "群信息",
     "chatInfo": "会话信息",
@@ -711,14 +723,15 @@ export default {
   },
   "message": {
     "myAgentTag": "我的 agent",
+    "removedIdentityTag": "已移除",
     "agentOwnerUnavailableTag": "主人信息不可用",
     "agentOwnerTag": "{{owner}} 的 agent",
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
       "keepTemporary": "设为临时",
-      "keepPermanent": "一直保留",
+      "keepPermanent": "持续保存",
       "keptTemporary": "已设为临时：到期后删除云端那份",
-      "keptPermanent": "已设为一直保留",
+      "keptPermanent": "已设为持续保存",
       "keepFailed": "没改成",
       "copy": "复制文本",
       "copyLink": "复制链接",
@@ -748,6 +761,7 @@ export default {
       "title": "已读回执"
     },
     "retracted": "消息已撤回",
+    "deliveredFrom": "来自 {{name}}",
     "sendStatus": {
       "unknown": "状态待确认",
       "unknownHint": "正在等待发布结果，消息到达后会自动更新，无需重发。",
@@ -756,9 +770,23 @@ export default {
       "failedActions": "未送达消息操作",
       "failedHint": "未送达，点击重试或丢弃",
       "queued": "发送中，助理就绪后回复",
-      "sending": "发送中"
+      "undelivered": "所在实例未运行、未送达",
+      "sending": "发送中",
+      "stopped": "已停止，下一句发出时一起发送",
+      "unknownNotResent": "结果未知，没有重发",
+      "failure": {
+        "hostOffline": "这个任务所在的电脑现在不在线，它上线后会自动发出",
+        "hostNotReady": "这个任务所在的电脑还没准备好接收消息，稍后点重试",
+        "phoneUnconfirmed": "手机还没确认收到这条消息，稍后点重试",
+        "noAcknowledgement": "任务没有回应，稍后点重试"
+      }
     },
     "showQuoted": "跳到被引用的消息",
+    "svgFigure": {
+      "invalid": "这段 SVG 无法显示：不是格式正确的 SVG 文档",
+      "noViewbox": "这段 SVG 无法显示：根元素缺少 viewBox",
+      "tooLarge": "这段 SVG 无法显示：超过 64 KB"
+    },
     "taskCard": {
       "task": "新任务",
       "schedule": "已安排",
@@ -788,12 +816,12 @@ export default {
     "whisperOnlyYou": "悄悄话 · 仅你可见",
     "whisperTo": "悄悄话给 {{name}} · 仅你与对方可见",
     "widget": "[Widget]",
-    "widgetCard": {
-      "empty": "无内容",
-      "loading": "加载中"
-    }
+    "widgetUnavailable": { "missing": "尚未安装 App。", "disabled": "App 已关闭。", "view": "此 App 视图不可用。", "platform": "此设备无法运行此 App。" }
   },
   "outbox": {
+    "selectFileAgain": "上传已中断，请重新选择文件。",
+    "sourceNotSent": "原消息尚未送达，请先重试原消息再转发。",
+    "sourceDiscarded": "原消息未发出，已被丢弃",
     "deliveryTimeout": "投递超时 {{seconds}}s（网络挂起）",
     "discarded": "已丢弃",
     "offscreenFailure": "有消息未送达，回到对应对话可重试或丢弃",

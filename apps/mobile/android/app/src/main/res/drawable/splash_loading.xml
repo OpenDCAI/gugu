@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   ⚠️ 生成物,❌ 别手改。改动效要改 packages/session-ui/src/react/components/loading-indicator/loading-animation.data.ts,
-  再跑 `node scripts/gen-mobile-splash-avd.mjs` 重新生成。
+  再跑 `node scripts/build/gen-mobile-splash-avd.mjs` 重新生成。
   源素材 loading-animation.data.ts sha256: 5fb9663b57d2ef49a6080cf25925eec34f239abd17a48f411e4c9e64442435ff
   @@@mobile-launch-loading (#5714) —— 安卓系统启动画面里播的就是「咕咕唯一的加载态」那一段,
   于是点开 App 到界面画出来,从头到尾只有一个加载动效,中间不换脸。

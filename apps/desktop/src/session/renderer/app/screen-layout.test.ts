@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { contentKey, MAX_SCREEN_BLOCKS, ScreenLayoutStore } from './screen-layout';
+import { alignSessionProjectReferences } from '@shared/core/projects/session-project-references';
 
 const s = (sessionId: string) => ({ projectId: 'p', sessionId });
 /** 左边列表认一块的那个键。 */
@@ -8,6 +9,31 @@ const sessionsOn = (screen: ScreenLayoutStore) => screen.sessions.map((entry) =>
 const focusedSession = (screen: ScreenLayoutStore) => screen.focusedSession?.sessionId;
 
 describe('一屏几块(spec session-page,#7052)', () => {
+  it('cold-restores a split with ordinary local and remote tasks unchanged while relocating only the migrated task', () => {
+    const screen = new ScreenLayoutStore();
+    screen.show({ sessionId: 'ordinary', projectId: 'user-project' });
+    screen.showBeside({ sessionId: 'remote', projectId: 'remote-project~device' });
+    screen.showBeside({ sessionId: 'assistant', projectId: 'legacy' });
+    const saved = screen.snapshot;
+    if (!saved) throw new Error('Expected a saved split layout');
+    const aligned = alignSessionProjectReferences(saved, [
+      { conversationId: 'ordinary', projectId: 'user-project' },
+      { conversationId: 'remote', projectId: 'remote-project~device' },
+      { conversationId: 'assistant', projectId: 'tasks' },
+    ]);
+    expect(aligned.layout).toBe(saved.layout);
+    expect(aligned.focused).toBe(saved.focused);
+    const again = new ScreenLayoutStore();
+    again.restore(aligned);
+    expect(again.sessions.map(({ sessionId, projectId }) => ({ sessionId, projectId }))).toEqual([
+      { sessionId: 'ordinary', projectId: 'user-project' },
+      { sessionId: 'remote', projectId: 'remote-project~device' },
+      { sessionId: 'assistant', projectId: 'tasks' },
+    ]);
+    expect(again.focusedSession?.sessionId).toBe('assistant');
+    expect(again.snapshot?.layout).toEqual(saved.layout);
+  });
+
   it('第一次看一条会话:屏上一块,就是它', () => {
     const screen = new ScreenLayoutStore();
     screen.show(s('a'));

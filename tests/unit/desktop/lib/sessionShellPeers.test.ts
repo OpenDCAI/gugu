@@ -5,7 +5,7 @@ import { answerSessionShellChannels, createSessionShellPort, type SessionShellPe
 describe('web task reference directory', () => {
   it('returns the host canonical peers through the same shell port as desktop', async () => {
     const peers: SessionShellPeer[] = [{
-      sessionId: 'private-task', engine: 'claude',
+      sessionId: 'private-task', title: 'Private task', engine: 'claude',
       identity: { users: { id: 'agent-id', display_name: 'Private task', gugu_number: null } },
     }]
     const hostInvoke = vi.fn(async () => peers)

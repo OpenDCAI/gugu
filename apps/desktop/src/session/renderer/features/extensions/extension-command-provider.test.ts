@@ -16,7 +16,7 @@ const { appState } = await import('@renderer/lib/stores/app-state');
 const { appPlacementStore } = await import('./app-placement-store');
 const provider = createExtensionCommandProvider();
 const command = { id: 'new', title: 'New card' };
-const app = (id = 'board') => ({ id, name: 'Board', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+const app = (id = 'board') => ({ id, name: 'Board', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
   localized: { zh: { name: '看板' } }, entry: 'index.html', contributes: { tabs: [
     { name: 'main', title: 'Board', menu: [command], toolbar: [command, { id: 'refresh', title: 'Refresh' }] },
     { name: 'file', title: 'File', opensFiles: { chat: ['.board.json'] }, menu: [command] },

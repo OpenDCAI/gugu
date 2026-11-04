@@ -44,6 +44,6 @@ export declare const agentStatusFilterSchema: z.ZodOptional<z.ZodString>
 export declare const pinnedFilterSchema: z.ZodOptional<z.ZodBoolean>
 export declare function assertAgentStatusWord(word: unknown): void
 export declare function matchesAgentStatus(
-  row: { status?: string | null; detail?: string | null } | null | undefined,
+  row: { status?: string | null; detail?: string | null; host_online?: boolean } | null | undefined,
   word: string | undefined,
 ): boolean

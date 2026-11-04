@@ -3,7 +3,7 @@
  * #4314 —— 「在对话页新建 agent 之后，概率性不跳转到那个 agent 的会话」。
  *
  * 产品里那一跳的落点是 chat store 的 `activeChatId`：创建流拿到新会话地址后
- * （MainLayout 的 `__GUGU_SESSIONPAGE_MESSAGES__.openAgentChat`）登记乐观行 + 选中它。
+ * 登记乐观行 + 选中它(这一跳的入口已随对话页创建删掉;选中意图本身仍是 store 的契约)。
  * 「概率性」= 竞态：`open_dm` 写 chat_members 会广播 `chat_members_changed`，
  * 它驱动的那次列表刷新可能**在导航发生之前就发出**、却**在导航之后才落地**；
  * 落地时它的快照里还没有这条新会话，store 于是把用户刚表达的选择清掉。
@@ -35,6 +35,7 @@ const {
     fetchMessageOverlays: vi.fn(),
     revalidateWindow: vi.fn(),
     markRead: vi.fn(),
+    archiveChat: vi.fn(),
   },
   openImRepositoryMock: vi.fn(),
   readDisplayIdentitiesMock: vi.fn(),
@@ -52,6 +53,7 @@ const {
 vi.mock('../../../../apps/desktop/src/store/auth', () => ({
   useAuth: () => ({ user: authUser, loading: false, setUser: vi.fn() }),
 }))
+vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ chatDb: {}, getCurrentAuthUserId: async () => authUser.id }))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: chatServiceMock }))
 vi.mock('../../../../apps/desktop/src/lib/chatSnapshotPublication', async () => {
   const actual = await vi.importActual<typeof import('../../../../apps/desktop/src/lib/chatSnapshotPublication')>(
@@ -96,11 +98,13 @@ const projectionStub = {
   rows: [] as unknown[],
   identityRows: [] as unknown[],
   revoked: new Set<string>(),
+  deleted: new Set<string>(),
   advanceImpl: null as null | (() => Promise<unknown[] | null>),
   reset() {
     projectionStub.rows = []
     projectionStub.identityRows = []
     projectionStub.revoked = new Set()
+    projectionStub.deleted = new Set()
     projectionStub.advanceImpl = null
   },
 }
@@ -112,6 +116,7 @@ const PROJECTED_EVENTS_STUB = [
 ] as const
 vi.mock('../../../../apps/desktop/src/lib/chatProjection', () => ({
   createChatProjection: () => ({
+    confirmPersonalDeletion: ({chat_id}: {chat_id:string}) => { projectionStub.deleted.add(chat_id) },
     hydrate: async () => {
       const snapshot = await serverChatList()
       projectionStub.identityRows = snapshot.identities
@@ -135,6 +140,7 @@ vi.mock('../../../../apps/desktop/src/lib/chatProjection', () => ({
     current: () => projectionStub.rows,
     identities: () => projectionStub.identityRows,
     isMembershipRevoked: (chatId: string) => projectionStub.revoked.has(chatId),
+    isConversationDeleted: (chatId: string) => projectionStub.deleted.has(chatId),
     ledger: () => [],
     reset: () => undefined,
   }),
@@ -149,11 +155,12 @@ vi.mock('../../../../apps/desktop/src/lib/notificationSettings', () => ({
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
   platform: {
-    capabilities: { notifications: false, badge: false },
+    capabilities: { notifications: false, badge: true },
     showNotification: vi.fn(),
     setBadge: vi.fn(),
   },
 }))
+import { platform } from '../../../../apps/desktop/src/platform'
 import { ChatProvider } from '../../../../apps/desktop/src/store/chat'
 import { useChatStore } from '../../../../apps/desktop/src/store/chatContext'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
@@ -202,7 +209,7 @@ async function renderStore(): Promise<void> {
   await harness.render(createNode(Provider, { active: true }, createNode(Probe)))
   await flushReact()
 }
-/** 产品里那一步：创建流拿到新会话地址后原地进入它（MainLayout 的 openAgentChat 同一序列）。 */
+/** 创建流拿到新会话地址后原地进入它:登记乐观行 + 选中。 */
 async function openCreatedAgentChat(): Promise<void> {
   await act(async () => {
     latestStore?.upsertChat(createOptimisticAgentChat(NEW_CHAT_ID, AGENT_ID))
@@ -220,6 +227,8 @@ function fireMembershipRevision(tombstone = false): void {
   for (const listener of listeners) void Promise.resolve(listener(operations)).catch(() => undefined)
 }
 beforeEach(async () => {
+  authUser.id = 'user-1'
+  projectionStub.reset()
   publishGate.current = null
   latestStore = null
   harness = null
@@ -342,3 +351,83 @@ describe('#4314 新建 agent 后的会话选中是导航意图，不是列表刷
     expect(latestStore?.activeChatId, '被移出会话时必须让位').toBeNull()
   })
 })
+
+
+describe('system badge follows addressed unread, while list rows stay complete', () => {
+  it('keeps a non-addressed group message quiet and badges the next addressed message', async () => {
+    serverChatList.mockResolvedValue({ chats: [], identities: [] });
+    await renderStore();
+    const group = chat({ id: 'badge-group', kind: 'group', unread_count: 5, unread_locator: {
+      stream_id: 'main:badge-group', stream_kind: 'main', thread_root_id: null, message_id: 'm1', message_seq: 1,
+      unread_count: 5, addressed_count: 0, cursor_seq: 0, version: 1, is_marked_unread: false,
+    } });
+    await act(async () => { latestStore!.upsertChat(group); });
+    await flushReact();
+    expect(latestStore!.chats.find((row) => row.id === group.id)?.unread_count).toBe(5);
+    expect(platform.setBadge).toHaveBeenLastCalledWith(0);
+    await act(async () => { latestStore!.upsertChat({ ...group, unread_count: 6, unread_locator: { ...group.unread_locator!, unread_count: 6, addressed_count: 1 } }); });
+    await flushReact();
+    expect(platform.setBadge).toHaveBeenLastCalledWith(1);
+  });
+});
+
+it.each(['revision','refresh'])('clears an open personally deleted DM through %s even when the server list becomes empty', async (path) => {
+  await renderStore();
+  await act(async () => { latestStore!.setActiveChatId('chat-1') });
+  await flushReact();
+  projectionStub.deleted.add('chat-1');
+  expect(projectionStub.revoked.has('chat-1')).toBe(false);
+  if (path === 'revision') {
+    projectionStub.rows = [];
+    await act(async () => { fireMembershipRevision(false) });
+  } else {
+    serverChatList.mockResolvedValue({chats:[],identities:[]});
+    await act(async () => { await latestStore!.refreshChats() });
+  }
+  await flushReact(20);
+  expect(latestStore!.chats).toEqual([]);
+  expect(latestStore!.activeChatId).toBeNull();
+});
+
+it('keeps a successful local deletion out of a same-cursor refresh and an already pending snapshot before its revision arrives', async () => {
+  await renderStore();
+  await act(async () => { latestStore!.setActiveChatId('chat-1') });
+  await flushReact();
+  const gate = deferred<void>();
+  publishGate.current = gate.promise;
+  let olderRead!: Promise<void>;
+  await act(async () => { olderRead = latestStore!.refreshChats() });
+  await flushReact();
+  chatServiceMock.archiveChat.mockResolvedValue({chat_id:'chat-1',deleted_at:'2026-11-03T03:48:01Z'});
+  await act(async () => { await latestStore!.deleteChat('chat-1', true) });
+  expect(projectionStub.deleted.has('chat-1')).toBe(true);
+  expect(projectionStub.revoked.has('chat-1')).toBe(false);
+  expect(latestStore!.chats).toEqual([]);
+  expect(latestStore!.activeChatId).toBeNull();
+  await act(async () => { await latestStore!.refreshChats() }); // Same server cursor, still returning the old row.
+  expect(latestStore!.chats).toEqual([]);
+  await act(async () => { gate.resolve(); await olderRead });
+  expect(latestStore!.chats).toEqual([]);
+  expect(memRepository.snapshot().chat).toEqual([]);
+  projectionStub.rows = [];
+  await act(async () => { fireMembershipRevision(false) });
+  await flushReact(20);
+  expect(latestStore!.chats).toEqual([]);
+  expect(memRepository.snapshot().chat).toEqual([]);
+});
+
+it('does not apply a late local deletion receipt to a different account', async () => {
+  await renderStore();
+  const receipt = deferred<{chat_id:string;deleted_at:string}>();
+  chatServiceMock.archiveChat.mockReturnValue(receipt.promise);
+  let pending!: Promise<void>;
+  await act(async () => { pending = latestStore!.deleteChat('chat-1', true) });
+  authUser.id = 'user-2';
+  const actualRepository = await vi.importActual<typeof import('../../../../apps/desktop/src/lib/imRepository')>('../../../../apps/desktop/src/lib/imRepository');
+  memRepository = await actualRepository.openImRepository('user-2', {adapter:createMemoryLocalSyncDb()});
+  await harness!.render(createNode(ChatProvider, {active:true}, createNode(Probe)));
+  await flushReact(20);
+  await act(async () => { receipt.resolve({chat_id:'chat-1',deleted_at:'2026-11-03T03:48:01Z'}); await pending });
+  expect(projectionStub.deleted.has('chat-1')).toBe(false);
+  expect(latestStore!.chats.map(row => row.id)).toEqual(['chat-1']);
+});

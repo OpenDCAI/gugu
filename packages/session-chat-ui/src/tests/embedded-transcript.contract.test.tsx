@@ -27,7 +27,7 @@ const thought: ChatThinking = {
 const turn = { id: 'embed-1', seq: 0, initiator: 'agent', items: [thought] } as unknown as TranscriptTurn;
 
 async function mount(embedded: boolean) {
-  const ctx = createChatContext();
+  const ctx = createChatContext({ locale: () => 'en-US' });
   const state = createChatState(ctx, { uri: `embed:${embedded}` });
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;top:0;left:0;width:340px;';

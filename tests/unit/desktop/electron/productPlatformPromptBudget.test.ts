@@ -3,7 +3,7 @@ import {
   GUGU_PLATFORM_BLOCK,
   GUGU_PLATFORM_PROMPT_TOKEN_BUDGET,
   estimatePromptTokens,
-  GUGU_ACKNOWLEDGEMENT, personalAssistantPlatformPrompt,
+  GUGU_ACKNOWLEDGEMENT, GUGU_OWNER_DM_TRANSPORT, personalAssistantPlatformPrompt,
 } from '../../../../apps/desktop/electron/product-platform-prompt'
 import { GUGU_APPS_SEARCH_LINE, guguSessionSurfaceBlock } from '../../../../apps/desktop/electron/capability-bundle'
 import { z } from 'zod'
@@ -26,7 +26,7 @@ describe('platform block carries no per-harness tool naming (#6192)', () => {
   it('keeps harness tool-name decoration out of the constant platform block', () => {
     expect(GUGU_PLATFORM_BLOCK).not.toMatch(/mcp__|gugu_<tool>|Pi `|Claude `|Codex `/)
     expect(GUGU_PLATFORM_BLOCK).not.toContain('canonical suffix')
-    expect(guguSessionSurfaceBlock('acp', 'claude', true)).toContain("follow that tool definition's invocation form")
+    expect(guguSessionSurfaceBlock('acp', 'claude', true)).toContain('Your harness lists each 咕咕 tool as')
     const fallback = 'Call the tool exactly as your tool list names it, not by the bare suffix.'
     expect(GUGU_PLATFORM_BLOCK).not.toContain(fallback)
     for (const provider of ['amp', 'antigravity']) {
@@ -59,6 +59,12 @@ describe('a routing or usage sentence has one owner (#6634 问题 15)', () => {
     ['instead of only reporting its path', 'surface routing'],
     // A typed turn is answered in printed output: said once, in <gugu_transport>.
     ['answered in your own printed output', '<gugu_transport>'],
+    // How to call a 咕咕 tool: said once, in <gugu_tools>; the surface block only names where the tools are.
+    ['as their definitions specify', '<gugu_tools>'],
+    // Who a message addresses: said once, in <gugu_collaboration>; to_user_ids keeps only its own constraint.
+    ['a remembered name is not an address', '<gugu_collaboration>'],
+    // Who a topic notifies: topic_open's.
+    ['Only participants are notified', 'topic_open description'],
   ])('%s — only in the %s', (phrase) => {
     expect(count(phrase)).toBe(1)
   })
@@ -67,6 +73,9 @@ describe('a routing or usage sentence has one owner (#6634 问题 15)', () => {
     for (const gone of [
       'Sending tools refuse', 'also waits for the human friend', 'people accept for themselves', 'what you print IS the answer',
       'intent=preview', 'A harness Task, Agent', 'GUI-visible Gugu conversation',
+      // 2026-10-31 startup-context duplication pass: each said in a tool description or the delivery's arrival line already.
+      'Invite with', 'use `owner_friends_list` then', 'for another of your sessions)', 'Plain names in text address nobody',
+      'Check here before opening a second line', 'or installed Apps', 'the workspace App, `workspace__*`', 'invocation form',
     ]) {
       expect(everything).not.toContain(gone)
     }
@@ -102,20 +111,29 @@ describe('tool usage belongs to schemas and assistant duplicates keep one owner'
 
   it('keeps all group guidance and general style when suppressing only the assistant acknowledgement duplicate', () => {
     const assistant = personalAssistantPlatformPrompt(GUGU_PLATFORM_BLOCK)
-    for (const tag of ['gugu_transport', 'gugu_silence', 'gugu_collaboration', 'gugu_examples']) {
+    for (const tag of ['gugu_silence', 'gugu_collaboration', 'gugu_examples']) {
       const section = GUGU_PLATFORM_BLOCK.match(new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`))![0]
       expect(assistant).toContain(section)
     }
+    // Same mechanism, different prompt (scenario 09): an agent answers its owner's private chat in its session,
+    // the assistant speaks there through message_send. Only that one transport line differs.
+    expect(GUGU_PLATFORM_BLOCK).toContain(GUGU_OWNER_DM_TRANSPORT)
+    expect(assistant).not.toContain(GUGU_OWNER_DM_TRANSPORT)
+    expect(assistant).toContain('private chat with you is answered with `message_send`')
+    expect(assistant.match(/<gugu_transport>[\s\S]*?<\/gugu_transport>/)![0].split('\n').length)
+      .toBe(GUGU_PLATFORM_BLOCK.match(/<gugu_transport>[\s\S]*?<\/gugu_transport>/)![0].split('\n').length)
     expect(assistant).toContain('Short. Lead with the answer')
     expect(assistant).toContain('In mathematical prose')
     expect(assistant).not.toContain(GUGU_ACKNOWLEDGEMENT)
     expect(GUGU_PLATFORM_BLOCK).toContain(GUGU_ACKNOWLEDGEMENT)
     const brief = assistantBrief('cloud', '/reference', '/memory')
     expect(brief).toContain('多步工作先用 message_send 短句承接')
-    expect(brief).toContain('中文。')
+    expect(brief).toContain('用对方在用的语言；还没对话时用档案里开通时的界面语言')
+    expect(brief).not.toContain('中文。')
     expect(brief).not.toContain('简洁，先说结果')
     expect(brief).not.toContain('schedule_create')
-    expect(brief).toContain('session_spawn(nest:true)')
+    expect(brief).toContain('session_spawn，默认挂在你名下')
+    expect(brief).not.toContain('session_spawn(nest:')
     for (const name of ['session_spawn', 'session_message']) {
       const schema = SESSION_TOOL_DEFS.find(tool => tool.name === name)!.schema
       const json = z.toJSONSchema(schema, { io: 'input' })

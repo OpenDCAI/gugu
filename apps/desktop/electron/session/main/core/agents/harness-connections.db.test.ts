@@ -44,8 +44,8 @@ beforeEach(async () => {
   vi.stubEnv('CLAUDE_CONFIG_DIR', state.claudeRoot);
   state.fixture = await openRegistryFixture('empty');
   state.fixture.sqlite.exec(`INSERT INTO projects (id, name, path) VALUES ('project', 'Project', '/repo');
-    INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-    VALUES ('old', 'project', 'Existing', 'codex', 'pty', '{"version":"1","type":"pty"}');`);
+    INSERT INTO sessions (id, project_id, provider, runtime, config)
+    VALUES ('old', 'project', 'codex', 'pty', '{"version":"1","type":"pty"}');`);
 });
 afterEach(async () => {
   vi.unstubAllEnvs();
@@ -164,9 +164,9 @@ it('keeps a copy of an unrecognized sign-in and refuses keychain-backed Codex cr
 
 it('moves every Codex session, including ones pinned before the fix, onto the default subscription', async () => {
   const work = await createHarnessConnection({ providerId: 'codex', kind: 'account' });
-  state.fixture!.sqlite.exec(`INSERT INTO sessions (id, project_id, title, provider, runtime, config, provider_session_id)
-    VALUES ('ran', 'project', 'Ran', 'codex', 'acp', '{"version":"1","type":"acp","subscriptionConnectionId":"${work.id}"}', 'thread-1'),
-           ('fork', 'project', 'Fork', 'codex', 'acp', '{"version":"1","type":"acp","forkedFrom":{"sessionId":"ran","title":"Ran"}}', NULL);`);
+  state.fixture!.sqlite.exec(`INSERT INTO sessions (id, project_id, provider, runtime, config, provider_session_id)
+    VALUES ('ran', 'project', 'codex', 'acp', '{"version":"1","type":"acp","subscriptionConnectionId":"${work.id}"}', 'thread-1'),
+           ('fork', 'project', 'codex', 'acp', '{"version":"1","type":"acp","forkedFrom":{"sessionId":"ran","title":"Ran"}}', NULL);`);
   for (const sessionId of ['ran', 'fork', 'old']) {
     const context = await resolveHarnessConnection('codex', { sessionId });
     expect(context.connectionId).toBe('native');
@@ -271,8 +271,8 @@ it('switches Claude by moving the sign-in through the user root and runs every s
     credentialHome: join(state.home, 'harness-connections', 'claude', work.id),
     configRootEnv: { CLAUDE_CONFIG_DIR: claudeVault(work.id) },
   });
-  state.fixture!.sqlite.exec(`INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-    VALUES ('pinned', 'project', 'Pinned', 'claude', 'acp', '{"version":"1","type":"acp","subscriptionConnectionId":"native"}');`);
+  state.fixture!.sqlite.exec(`INSERT INTO sessions (id, project_id, provider, runtime, config)
+    VALUES ('pinned', 'project', 'claude', 'acp', '{"version":"1","type":"acp","subscriptionConnectionId":"native"}');`);
 
   await selectHarnessConnection('claude', work.id);
   expect(await accessAt(state.claudeRoot)).toBe('work');

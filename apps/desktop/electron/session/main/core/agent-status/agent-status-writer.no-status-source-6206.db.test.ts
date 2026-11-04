@@ -33,7 +33,6 @@ vi.mock('../agent-hooks/hook-server', () => ({
   },
 }));
 vi.mock('../agent-hooks/event-enricher', () => ({ parseHookEvent: vi.fn() }));
-vi.mock('../agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/sessions/set-session-id', () => ({ setProviderSessionId: vi.fn() }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn(), on: vi.fn(() => () => {}) } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
@@ -70,19 +69,19 @@ describe('#6206 没有状态源的终端会话不写派生活动', () => {
   const seed = (id: string, provider: string, runtime: 'pty' | 'acp', agentStatus: string | null) =>
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status, agent_status_seen)
-         VALUES (?, 'p1', 'C', ?, ?, ?, 1)`
+        `INSERT INTO sessions (id, project_id, provider, runtime, agent_status, agent_status_seen)
+         VALUES (?, 'p1', ?, ?, ?, 1)`
       )
       .run(id, provider, runtime, agentStatus);
   const deliver = async (e: AgentEvent) => {
     const before = published.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(published.length).toBe(before + 1);
   };
   const deliverNoop = async (e: AgentEvent) => {
     const before = published.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(published.length, `${e.providerId}/${e.type} must not publish a status`).toBe(before);
   };

@@ -15,7 +15,7 @@ const config: CapacitorConfig = {
   },
   plugins: {
     App: { disableBackButtonHandler: true },
-    // 状态栏小图标 = 单色字形(scripts/gen-tray-icons.py 与托盘图标同源生成);不配会退回安卓自带的「i」。着色用 App 自己的 colorAccent,与「后台守着」那条常驻通知同色。
+    // 状态栏小图标 = 单色字形(scripts/build/gen-tray-icons.py 与托盘图标同源生成);不配会退回安卓自带的「i」。着色用 App 自己的 colorAccent,与「后台守着」那条常驻通知同色。
     LocalNotifications: { smallIcon: 'ic_stat_gugu', iconColor: '#07C160' },
   },
 }

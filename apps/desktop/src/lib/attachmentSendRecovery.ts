@@ -50,10 +50,11 @@ export function observeAttachmentMessage(
 
 /** Commit already returns messages_view. A second read is recovery, never a prerequisite for displaying success. */
 export async function settleAttachmentSend(args: {
-  endpoint: AttachmentsEndpoint; prepared: PreparedChatAttachment; commit: Omit<CommitArgs, 'staging_key'>
+  endpoint?: AttachmentsEndpoint; prepared?: PreparedChatAttachment; commit: Omit<CommitArgs, 'staging_key'>
   timing: AttachmentSendTiming; observeMessage?: ObserveAttachmentMessage; onLateMessage?: (row: MessageItem) => void
 }): Promise<MessageItem | null> {
   const { endpoint, prepared, commit, timing } = args
+  const native = !prepared || 'local' in prepared
   const cancellation = new AbortController()
   const authoritative = (row: MessageItem | null): row is MessageItem => !!row && row.id === commit.message_id
     && row.chat_id === commit.chat_id && row.sender_user_id === commit.sender_user_id && row.seq > 0 && row.content_type === 'attachment'
@@ -66,6 +67,7 @@ export async function settleAttachmentSend(args: {
   const stop = args.observeMessage?.(commit.message_id, receive)
   const readback = (attempt: number, quiet = false) => timing.stage('readback', attempt, () => chatService.getMessageById(commit.message_id, commit.sender_user_id), cancellation.signal, quiet ? { logResult: authoritative } : undefined)
   const publish = async () => {
+    if (!prepared || !endpoint) throw new Error('No bytes to publish during recovery')
     let failure: unknown
     for (let attempt = 1; ; attempt++) {
       try {
@@ -118,7 +120,7 @@ export async function settleAttachmentSend(args: {
       }
     }
     const nativeLimit = new Promise<null>(resolve => { observationLimit = setTimeout(() => resolve(null), NATIVE_OBSERVATION_MS) })
-    const row = observed ?? await Promise.race([confirmed, publish(), ...('local' in prepared ? [pollNative(), nativeLimit] : [])])
+    const row = observed ?? await Promise.race([confirmed, ...(prepared ? [publish()] : []), ...(native ? [pollNative(), nativeLimit] : [])])
     if (!row) { unknown = true; timing.finish('unknown', 'native-observation-limit'); return null }
     timing.finish('success', source)
     return { ...row, local_send_state: null, local_send_error: null }

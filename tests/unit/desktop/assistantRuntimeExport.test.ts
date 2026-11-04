@@ -11,7 +11,7 @@ it.skipIf(process.platform === 'win32')('exports a verified managed release and 
   const root = await mkdtemp(join(tmpdir(), 'assistant-runtime-export-')); roots.push(root)
   const dir = join(root, 'agents', 'mise-bin'); await mkdir(dir, { recursive: true })
   const launcher = join(dir, 'claude'), output = join(root, 'manifest.json')
-  const run = (file: string) => promisify(execFile)(process.execPath, [resolve('scripts/export-assistant-runtime.mjs'), '--launcher', file, '--output', output, '--client-sha', 'a'.repeat(40)])
+  const run = (file: string) => promisify(execFile)(process.execPath, [resolve('scripts/build/export-assistant-runtime.mjs'), '--launcher', file, '--output', output, '--client-sha', 'a'.repeat(40)])
   await writeFile(launcher, '#!/bin/sh\n# gugu-release: 2.1.308\nprintf "2.1.308 (Claude Code)\\n"\n', { mode: 0o700 })
   await run(launcher)
   expect(JSON.parse(await readFile(output, 'utf8'))).toMatchObject({ format: 1, claude: '2.1.308', client_sha: 'a'.repeat(40), source: 'gugu-managed-runtime' })

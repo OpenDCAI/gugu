@@ -1,25 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { APP_PLATFORMS_API_VERSION, appPlatformProblems, PHONE_CAPABILITIES, PHONE_CAPABILITY_SUPPORT, requireAppPlatform } from './app-platforms';
-import { EXTENSION_API_VERSION, EXTENSION_CAPABILITIES, safeParseExtensionManifest } from './manifest';
+import { EXTENSION_API_VERSION, EXTENSION_API_VERSION_MIN_SUPPORTED, EXTENSION_CAPABILITIES, safeParseExtensionManifest } from './manifest';
 import { marketEntriesFrom, marketHistoryFrom, marketUpdatesFrom } from './market-entries';
 import { currentMarketHost, type MarketIndexApp } from './market';
 
 const manifest = (version = '1.0.0', platforms?: ('desktop' | 'phone')[]) => ({
-  id: 'reader', name: 'Reader', version, apiVersion: platforms ? APP_PLATFORMS_API_VERSION : 3,
+  id: 'reader', name: 'Reader', version, apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
   ...(platforms ? { platforms } : {}),
   entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Reader' }] },
 });
 const row = (version: string, platforms?: ('desktop' | 'phone')[]): MarketIndexApp['versions'][number] => ({
-  version, manifest: manifest(version, platforms), apiVersion: platforms ? APP_PLATFORMS_API_VERSION : 3, minAppVersion: '0.2.57',
+  version, manifest: manifest(version, platforms), apiVersion: EXTENSION_API_VERSION, minAppVersion: '0.2.57',
   releaseNotes: '', publishedAt: '2026-10-24', sha256: 'a'.repeat(64), bytes: 100, bundle: 'bundle.zip',
-  icon: null, readme: null, source: { repo: 'author/reader', path: '.', commit: 'a'.repeat(40) }, yanked: null,
+  icon: null, source: { repo: 'author/reader', path: '.', commit: 'a'.repeat(40) }, yanked: null,
 });
 const app = (versions: MarketIndexApp['versions']): MarketIndexApp => ({ id: 'reader', deprecated: null, versions });
 
 describe('App platform boundaries', () => {
-  it('keeps an installed old App readable but refuses it as a new installation', () => {
+  it('reads an App that declares no platforms but refuses it as a new installation', () => {
     expect(safeParseExtensionManifest(manifest())).toMatchObject({ ok: true });
-    expect(currentMarketHost('0.2.58', 'desktop')).toMatchObject({ apiVersionMin: 3, apiVersionMax: EXTENSION_API_VERSION });
+    expect(currentMarketHost('0.2.58', 'desktop')).toMatchObject({ apiVersionMin: EXTENSION_API_VERSION_MIN_SUPPORTED, apiVersionMax: EXTENSION_API_VERSION });
     expect(() => requireAppPlatform(manifest(), 'desktop')).toThrow('declare desktop, phone, or both');
   });
 

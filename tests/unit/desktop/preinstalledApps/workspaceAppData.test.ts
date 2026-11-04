@@ -3,9 +3,8 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { beforeAll, expect, test, vi } from 'vitest'
 
-const marked = { publisher: 'gugu', id: 'kanban' }
-const entry = (id: string, name: string, metadata = {}) => ({ id, name, displayName: name, path: name, type: 'json', contentType: 'application/json', parentId: null, sourceMessageIds: [], metadata })
-const entries = [entry('board', 'renamed.txt', { app: marked }), entry('old', 'legacy.board.json'), entry('office', 'Budget.xlsx'), entry('document', 'notes.md', { document: { epoch: 1 } })]
+const entry = (id: string, name: string, appState = false) => ({ id, name, displayName: name, path: name, type: 'json', contentType: 'application/json', parentId: null, sourceMessageIds: [], metadata: {}, appState })
+const entries = [entry('board', '协作看板.board.json', true), entry('old', 'legacy.board.json'), entry('office', 'Budget.xlsx'), entry('document', 'notes.md')]
 const context = { chat: { id: 'chat-1', name: 'Group', kind: 'group', groupId: 'chat-1' }, locale: 'en', capabilities: ['files:read', 'files:write'] }
 let show = false
 let change = (_change: { kind: string; entries: ReturnType<typeof entry>[]; gone: string[] }) => {}
@@ -28,11 +27,11 @@ beforeAll(async () => {
   await vi.waitFor(() => expect(ids()).toHaveLength(3))
 })
 
-test('defaults to hiding the metadata marker, without guessing from name or opener', () => {
+test('defaults to hiding what the host derives as App state (a tab\'s chatFile); suffix claims are documents', () => {
   expect(ids()).toEqual(expect.arrayContaining(['old', 'office', 'document']))
   expect(ids()).not.toContain('board')
 })
-test('blank-area context action uses the host menu, persists the person preference, and follows renames/moves', async () => {
+test('blank-area context action uses the host menu, persists the person preference, and follows what the host says', async () => {
   blank().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 50, cancelable: true }))
   await vi.waitFor(() => expect(ids()).toHaveLength(4))
   expect(menu).toHaveBeenLastCalledWith({ x: 40, y: 50, items: [{ id: 'app-data', label: 'Show App data' }] })
@@ -40,12 +39,12 @@ test('blank-area context action uses the host menu, persists the person preferen
   blank().dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'F10', shiftKey: true }))
   await vi.waitFor(() => expect(ids()).toHaveLength(3))
   expect(menu.mock.calls.at(-1)?.[0]).toMatchObject({ items: [{ label: 'Hide App data' }] })
-  change({ kind: 'entries', entries: [entry('board', 'another-name.md', { app: marked })], gone: [] })
+  change({ kind: 'entries', entries: [entry('board', '协作看板.board.json', true)], gone: [] })
   expect(ids()).not.toContain('board')
 })
 test('name search follows visibility and a dismissed menu does not change preferences', async () => {
   const filter = document.getElementById('filter') as HTMLInputElement
-  filter.value = 'renamed'
+  filter.value = '协作看板'
   filter.dispatchEvent(new Event('input', { bubbles: true }))
   await vi.waitFor(() => expect(ids()).toEqual([]))
   filter.value = ''; filter.dispatchEvent(new Event('input', { bubbles: true }))

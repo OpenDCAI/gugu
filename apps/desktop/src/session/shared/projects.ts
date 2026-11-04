@@ -18,6 +18,7 @@ export type LocalProject = {
   repositoryWorkspaceId: string | null;
   /** Directory membership only; the original workspace and sessions remain available. */
   rootFolderDetached?: boolean;
+  archivedAt?: string;
   /**
    * #609 'workspace' = a directory the app keeps for itself (task-home, the assistant's directories, App directories, a
    * session started in ~): never listed as a project, its sessions are Tasks. Absent = a project the person created or

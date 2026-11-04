@@ -6,7 +6,7 @@ import { describe, expect, test } from 'vitest'
 
 type Fragment = { version: string; platform: { platform: string } }
 const require = createRequire(import.meta.url)
-const { buildManifest, parseExpected, readFragment } = require('../../../scripts/aggregate-release-manifest.cjs') as {
+const { buildManifest, parseExpected, readFragment } = require('../../../scripts/release/aggregate-release-manifest.cjs') as {
   buildManifest(input: {
     productName: string
     version: string

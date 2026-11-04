@@ -47,7 +47,7 @@ export async function appsGivenTo(token: string, ownerId: string, agentUserId: s
   const rows = await readEnablements(token, ownerId);
   if (rows.length === 0) return new Set();
   const { data, error } = await chat(token)
-    .from('chat_members')
+    .from('active_members')
     .select('chat_id')
     .eq('user_id', agentUserId)
     .in('chat_id', [...new Set(rows.map((row) => row.chatId))]);

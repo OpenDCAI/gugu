@@ -17,7 +17,7 @@ const rpc = vi.fn((name: string) => {
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => ({ rpc }) }));
 const { createAppFiles } = await import('./app-files-core');
 const identities = vi.fn(async () => [{ id: PERSON, name: 'Creator', kind: 'human' as const, avatar: null }]);
-const claimant = vi.fn(() => ({ suffix: '.md', app: { id: 'workspace', name: 'Folder', icon: null } }));
+const claimant = vi.fn(() => ({ suffix: '.md', app: { id: 'workspace', name: 'Folder', icon: null }, state: false }));
 const warn = vi.fn();
 const grant = vi.fn<(page: unknown, grant: Grant) => void>();
 const ensureFor = vi.fn();
@@ -44,16 +44,16 @@ it('hands the click authorization to the bound file without reading its row twic
   expect(JSON.stringify(target.opening)).not.toContain('must-not-cross');
   expect(JSON.stringify(target.opening)).not.toContain('DOCUMENT MUST NOT CROSS');
   const opened = await files.open(page, { ref: { chat: CHAT, id: ITEM }, expectedVersion: 3, deferDetails: true }, target.opening);
-  expect(opened).toMatchObject({ docName: `${ITEM}@2`, access: 'rw', entry: { detailsPending: true, canDelete: false } });
+  expect(opened).toMatchObject({ docName: `${ITEM}@2`, access: 'rw', entry: { detailsPending: true } });
   expect(rpc.mock.calls.map(([name]) => name)).toEqual(['workspace_get_as']);
   expect(claimant).toHaveBeenCalledOnce();
   expect(opened.entry.claimedBy).toMatchObject({ id: 'workspace' });
-  // Only the sync identity is needed to render. Author/delete decoration waits for the page's acknowledgement.
+  // Only the sync identity is needed to render. Author decoration waits for the page's acknowledgement.
   expect(identities).toHaveBeenCalledTimes(1);
   const decorated = await grant.mock.calls[0]![1].details!();
-  expect(decorated).toMatchObject({ createdBy: { name: 'Creator' }, updatedBy: { name: 'Creator' }, canDelete: true });
+  expect(decorated).toMatchObject({ createdBy: { name: 'Creator' }, updatedBy: { name: 'Creator' } });
   expect(decorated).not.toHaveProperty('detailsPending');
-  expect(rpc.mock.calls.map(([name]) => name)).toEqual(['workspace_get_as', 'workspace_deletable_as']);
+  expect(rpc.mock.calls.map(([name]) => name), 'whether it may be deleted is asked as its menu opens').toEqual(['workspace_get_as']);
   expect(warn).not.toHaveBeenCalled();
 });
 

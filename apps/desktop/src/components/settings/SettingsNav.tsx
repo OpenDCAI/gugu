@@ -20,6 +20,9 @@ import {
   Activity,
   Folder,
   FolderFilled,
+  SquarePen,
+  SquarePenFilled,
+  SidebarMinimalistic,
 } from '@/lib/icons'
 import { useTranslation } from 'react-i18next'
 
@@ -29,6 +32,17 @@ interface NavItem {
   il: JSX.Element | null  // Solar linear (inactive)
   ib: JSX.Element | null  // Solar bold/filled (active)
 }
+
+type NavGroupId = SettingsGroupId | 'diagnostics'
+
+// Desktop organization is independent of the existing mobile Settings order.
+const DESKTOP_NAV_GROUPS: readonly { id: NavGroupId; sections: readonly ActiveSection[] }[] = [
+  { id: 'account', sections: ['account', 'subscriptions', 'usage'] },
+  { id: 'assistant', sections: ['assistant', 'connectors'] },
+  { id: 'preferences', sections: ['general', 'interface', 'model', 'permissions'] },
+  { id: 'work', sections: ['sessions', 'devices', 'browser', 'files'] },
+  { id: 'diagnostics', sections: ['resource-monitor', 'about'] },
+]
 
 interface SettingsNavProps {
   activeSection: ActiveSection
@@ -65,9 +79,6 @@ function IbDevices() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><path fill="currentColor" fillRule="evenodd" d="M16 3H8C5.172 3 3.757 3 2.879 3.879C2 4.757 2 6.172 2 9s0 4.243.879 5.121C3.757 15 5.172 15 8 15h3.25v3.5H8a.75.75 0 0 0 0 1.5h8a.75.75 0 0 0 0-1.5h-3.25V15H16c2.828 0 4.243 0 5.121-.879C22 13.243 22 11.828 22 9s0-4.243-.879-5.121C20.243 3 18.828 3 16 3" clipRule="evenodd"/></svg>
 }
 
-function IlModel() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 11c0-3.771 0-5.657 1.172-6.828S6.229 3 10 3h4c3.771 0 5.657 0 6.828 1.172S22 7.229 22 11v2c0 3.771 0 5.657-1.172 6.828S17.771 21 14 21h-4c-3.771 0-5.657 0-6.828-1.172S2 16.771 2 13z"/><path strokeLinecap="round" d="M15 21V3"/></g></svg>
-}
 function IbModel() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><path fill="currentColor" fillRule="evenodd" d="M3.172 4.172C2 5.343 2 7.229 2 11v2c0 3.771 0 5.657 1.172 6.828S6.229 21 10 21h4.25V3H10C6.229 3 4.343 3 3.172 4.172M15.75 3.006v17.988c2.636-.027 4.104-.191 5.078-1.166C22 18.657 22 16.771 22 13v-2c0-3.771 0-5.657-1.172-6.828c-.974-.975-2.442-1.139-5.078-1.166" clipRule="evenodd"/></svg>
 }
@@ -128,7 +139,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'general', labelKey: 'settings.nav.general', il: <IlGeneral />, ib: <IbGeneral /> },
   { key: 'permissions', labelKey: 'settings.nav.permissions', il: <IlPermissions />, ib: <IbPermissions /> },
   { key: 'devices', labelKey: 'settings.nav.devices', il: <IlDevices />, ib: <IbDevices /> },
-  { key: 'model',   labelKey: 'settings.nav.model', il: <IlModel />,   ib: <IbModel />   },
+  { key: 'model',   labelKey: 'settings.nav.model', il: <SidebarMinimalistic size={15} />,   ib: <IbModel />   },
   { key: 'usage',   labelKey: 'settings.nav.usage', il: <IlUsage />,   ib: <IbUsage />   },
   { key: 'files', labelKey: 'settings.nav.files', il: <Folder size={15} />, ib: <FolderFilled size={15} /> },
   { key: 'subscriptions', labelKey: 'settings.nav.subscriptions', il: <IlSubscriptions />, ib: <IbSubscriptions /> },
@@ -136,7 +147,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'phone',   labelKey: 'settings.nav.phone', il: <IlPhone />,   ib: <IbPhone />   },
   { key: 'about',   labelKey: 'settings.nav.about', il: <IlAbout />,   ib: <IbAbout />   },
   // 会话页画的那几格(product spec)。同一套 Solar linear / bold,尺寸与上面这些一样。
-  { key: 'sessions', labelKey: 'settings.nav.sessions', il: null, ib: null },
+  { key: 'sessions', labelKey: 'settings.nav.sessions', il: <SquarePen size={15} />, ib: <SquarePenFilled size={15} /> },
   { key: 'interface', labelKey: 'settings.nav.interface', il: <Palette size={15} />, ib: <PaletteFilled size={15} /> },
   { key: 'resource-monitor', labelKey: 'settings.nav.resource-monitor', il: <Activity size={15} />, ib: <Activity size={15} /> },
   { key: 'browser', labelKey: 'settings.nav.browser', il: <Globe size={15} />, ib: <GlobeFilled size={15} /> },
@@ -144,14 +155,22 @@ const NAV_ITEMS: NavItem[] = [
 
 export function SettingsNav({ activeSection, sections, mobile = false, user, assistantName, onSelect, onBack }: SettingsNavProps) {
   const { t } = useTranslation('main')
-  // 按 core 那份分组排(桌面左栏与手机「我的」同一份);这台宿主不显示的格(sections 里没有)连同空组一起不画。
-  const navGroups = SETTINGS_GROUPS
+  if (!mobile && import.meta.env.DEV) {
+    const missing = sections.filter((section) => !DESKTOP_NAV_GROUPS.some((group) => group.sections.includes(section)))
+    if (missing.length > 0) throw new Error(`SettingsNav: desktop sections missing a group: ${missing.join(', ')}`)
+  }
+  // 手机沿用 core 的分组;只在桌面呈现层重排。宿主不显示的格连同空组一起不画。
+  const navGroups = (mobile ? SETTINGS_GROUPS : DESKTOP_NAV_GROUPS)
     .map((group) => ({ id: group.id, items: group.sections.flatMap((key) => (sections.includes(key) ? NAV_ITEMS.filter((item) => item.key === key) : [])) }))
     .filter((group) => group.items.length > 0)
   // 组名:「关于」组只有一格、名字与那一格同名,不画;其余都画(手机上咕咕组只剩「资料」一格,没有组名就不知道是谁的资料)。
   // 咕咕那组用它现在的名字。
-  const captionFor = (id: SettingsGroupId): string | null =>
-    id === 'about' ? null : id === 'assistant' ? (assistantName || t('settings.group.assistant')) : t(`settings.group.${id}`)
+  const captionFor = (id: NavGroupId): string | null => {
+    if (id === 'about') return null
+    if (id === 'assistant') return assistantName || t('settings.group.assistant')
+    if (id === 'account' && !mobile) return t('settings.nav.account')
+    return t(`settings.group.${id}`)
+  }
 
   return (
     // @@@ui-ruler 设置导航比会话列表窄是合理的(216 vs 240 --nav-col-w,#7333 视觉规范),但仍是同一把尺子的产物 —— 用

@@ -25,7 +25,7 @@ function ComposerPlacementDemo() {
   let composerEl: HTMLFormElement | null = null;
   let sent = false;
 
-  const context = createChatContext({ theme: DEFAULT_THEME });
+  const context = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
   const state = createChatState(context);
 
   const toggleMessage = () => {

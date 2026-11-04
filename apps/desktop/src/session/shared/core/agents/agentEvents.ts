@@ -1,3 +1,5 @@
+import { defineEvent } from '@shared/lib/ipc/events';
+
 export type AgentEventType =
   | 'notification'
   | 'stop'
@@ -54,5 +56,5 @@ export interface AgentEvent {
   };
 }
 
-export type SoundEvent = 'needs_attention' | 'task_complete';
-
+/** A provider's capabilities on this machine changed after boot (an ACP handshake's fork reading); re-read agents. */
+export const agentCapabilitiesChangedChannel = defineEvent<{ providerId: string }>('agent:capabilities-changed');

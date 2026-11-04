@@ -6,10 +6,14 @@
 // → dist-electron/taskpage/emdash-main-bridge.cjs. The host (gugu main.ts) requires that .cjs and calls
 // the ONE entry + bridges IPC — it never reaches into the session backend's DB / pty / services individually.
 export { injectEmdashPromptDetached } from '../session/main/core/acp/inject-prompt'
+export { setSessionIdentityHost } from '../session/main/core/sessions/session-identity-host'
 export { recordConfirmedDeviceSleep } from '../session/main/core/activity/collector'
 export { readAssistantWorkOwnerReceipts } from '../session/main/core/sessions/assistant-work-owner-receipts'
+export { commitOwnerNotification } from '../session/main/core/sessions/owner-notifications'
+export { archiveSession } from '../session/main/core/sessions/archiveSession'
 export {
   bootEmdashModule,
+  startSessionpageSearchBackfill,
   startNativeConversationInboxHost,
   setSessionAdmissionPreparation,
   assistantPanelLocal,
@@ -71,18 +75,24 @@ export {
   // 宿主的唤醒入口要读它:引擎进程在不在跑、归宿主还是 tmux(漏在这里只会在唤醒时才发现)。
   sessionProcess,
   setOtherMachines,
+  // A session is named at creation; the identity host numbers default names (task-name.ts).
+  setTaskNamer,
+  setTaskNameOwner,
+  hasPendingTaskNames,
+  adoptLegacyTaskNames,
   // 打开会话那一条路上只有宿主知道的两件事(agent 的会话在哪、本机会话的平台恢复)。
   setSessionOpening,
   // #7341 第二步 项目跨设备:`projects.*` 的项目群四件事由宿主实现(sessionpage-project-group-binding.ts),
   // 对照变了经 notify 让渲染层重读。漏在这张清单外只会在有人「并进来」时才炸。
   setProjectGroupHost,
+  setAssistantProjectCleanupOwner,
+  runPendingAssistantProjectCleanup,
   notifyProjectGroupBindingChanged,
   type ProjectGroupHost,
   // agent 的 session_* 跨机器:别的机器问 `agentSession.*` 时由宿主答;别的机器上的 App 发来的消息由这台的 App 发信答。
   setAgentSessionHost,
   answerAppMessage,
   spawnAgentForExtension,
-  answerAppReadFile,
   answerAppCall,
   // @@@2374 —— `gugu_session` 的 app_* 动作分派。宿主(main.ts)按 `EmdashBridgeModule`
   // 调它,而那只是个 TS 类型:漏在这张清单外**不会**有任何编译期或加载期报错,直到 agent 真
@@ -107,6 +117,9 @@ export {
   onAgentStatus,
   agentStatusSnapshot,
   onSessionsGone,
+  // The pill's lifecycle: each session-life transition, and a session's current view.
+  onSessionLifeView,
+  sessionLifeStatusOf,
   // TEST-ONLY (host exposes env-gated) — feed a real AgentEvent into the real pipeline for the otty e2e.
   emitSessionpageAgentEventForTest,
   emitSessionpageAgentEvent,
@@ -114,9 +127,15 @@ export {
   // the gugu MCP send tool + gugu identity at session start (enables the target agent to reply).
   // @@@5301 会话页 agent 通知正文的注入口(见 notification-copy.ts)。
   setSessionAgentNotificationCopy,
+  setSystemNotificationsUsable,
   // 宿主的界面语言的注入口(见 host-locale.ts)。
   setSessionHostLocale,
   setEmdashMcpInjector,
+  setEmdashIdentityProvisioner,
+  // session-life: the ACP lifecycle owner, and the host's cloud-source hooks for its pending rows.
+  sessionLife,
+  setSessionLifeSourceHost,
+  claimedSessionSources,
   // @@@2503 平台额度:给走咕咕模型的 Chat UI(ACP)会话按会话签发中转令牌并随 `_meta` 送进适配器。
   setEmdashPlatformInjector,
   setPlatformRecoveryReadyGate,
@@ -145,10 +164,12 @@ export {
   sessionpageSessionDigest,
   // server 换版看的忙闲(activity.json)。同上,经桥拿。
   sessionpageBusyForVersionSwitch,
+  sessionpageVersionSwitchActivity,
+  sessionpageBootFailures,
   onSessionpageAuthorizationActivityChange,
-  setSessionLiveNotifier,
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,
+  rejectPendingSessionDirectMessage,
   recordFailedSessionDirectMessage,
   // 会话可用那一刻要排一次 outbox：收件箱 pull 的本机投影只捞 session-direct 行，
   // 用户打的第一句是 ordinary，只有 drain 能送出去（codex 的 90s 死锁即出在这一格）。
@@ -177,7 +198,7 @@ export {
 // 不必等 bootEmdashModule 成功(它可失败,失败后宿主继续跑)。注册幂等。
 export { registerWebviewAttachPolicy } from '@main/app/webview-policy'
 // #6615 问题 11 扩展网关给程序盖的调用方上下文(任务、工作副本),每次调用现读。
-export { agentSessionContext as emdashAgentSessionContext } from '@main/core/extensions/extension-agent-context'
+export { callerSessionContext as emdashAgentSessionContext } from '@main/core/extensions/extension-programs'
 // #7191 会话的 agent 操作它会话页里的浏览器页签:宿主的 MCP 层(Playwright 工具)经它拿到连那个页签的 transport。
 export { agentBrowserBridge as emdashAgentBrowser } from '@main/core/browser/agent-browser'
 // @@@touchid-passkey 网页要选通行密钥时,对话框挂在那张网页此刻所在、看得见的咕咕窗口上(停放着 / 窗口收起 ⇒ 无)。
@@ -195,3 +216,4 @@ export { broadcastDeviceSessionHostEvent, setDeviceSessionHostShellHandlers } fr
 export { setDirectTerminalResolver, type DirectTerminalResolver } from '@main/core/pty/direct-terminal/controller'
 // #113 这台机器的项目记到账号上:那一份,与「它可能变了」的信号(订阅在 boot 之后,同 onEmdashSessionpageReapTrigger)。
 export { listDeviceProjectRecords, onDeviceProjectsMaybeChanged } from '@main/core/projects/operations/device-project-records'
+export { sessionBootTasks } from '../session/main/core/boot-tasks'

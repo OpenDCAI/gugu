@@ -9,10 +9,13 @@ vi.mock('node:fs', async importOriginal => ({ ...await importOriginal<typeof imp
   watch: () => ({ on() { return this }, close() {} }),
 }))
 
-const calls = vi.hoisted(() => ({ signals: [] as AbortSignal[],domains:[] as string[], stalled:true,collectIntegrations: false,blockedDomain:null as string|null,hold: null as Promise<void> | null }))
+const calls = vi.hoisted(() => ({ signals: [] as AbortSignal[],domains:[] as string[],rpcNames:[] as string[],readable:false,stalled:true,collectIntegrations: false,blockedDomain:null as string|null,hold: null as Promise<void> | null }))
 vi.mock('../../apps/desktop/electron/sessionpage/assistant-panel-admission',async importOriginal=>{
   const original=await importOriginal<typeof import('../../apps/desktop/electron/sessionpage/assistant-panel-admission')>()
-  return {...original,prepareAssistantPanelAdmission:(input:Parameters<typeof original.prepareAssistantPanelAdmission>[0])=>calls.stalled ? original.prepareAssistantPanelAdmission(input) : Promise.resolve({text:'',accepted:async()=>{}})}
+  return {...original,
+    prepareAssistantPanelAdmission:(input:Parameters<typeof original.prepareAssistantPanelAdmission>[0])=>calls.stalled ? original.prepareAssistantPanelAdmission(input) : Promise.resolve({text:'',accepted:async()=>{}}),
+    applyAssistantPanelPending:(input:Parameters<typeof original.applyAssistantPanelPending>[0])=>calls.readable ? original.applyAssistantPanelPending(input) : Promise.resolve({revision:'0',settledFailure:false,superseded:false}),
+  }
 })
 vi.mock('../../apps/desktop/electron/sessionpage/assistant-panel-publisher',()=>({collectAssistantPanelFiles:async()=>[],publishAssistantPanelCollection:async({domain,collect}:{domain:string;collect: (previous: never[]) => Promise<unknown>})=>{
   calls.domains.push(domain)
@@ -20,7 +23,13 @@ vi.mock('../../apps/desktop/electron/sessionpage/assistant-panel-publisher',()=>
   if (domain === 'integrations' && calls.collectIntegrations) { await collect([]); await calls.hold }
 }}))
 vi.mock('@gugu/core/cloud/supabase',() => ({ createGuguSupabaseClient: () => ({
-  rpc() {
+  rpc(name: string) {
+    calls.rpcNames.push(name)
+    if (calls.readable || name === 'assistant_panel_snapshot') return { abortSignal: async () => ({ error: null,data:
+      name === 'assistant_panel_pending' ? { revision: '0',changes: [],notices: [] }
+        : name === 'assistant_panel_admit' ? { admitted: true,revision: '0' }
+          : { version: 1,revision: '0',items: [],application: [] },
+    }) }
     const never = Promise.withResolvers<never>()
     return { then: never.promise.then.bind(never.promise),abortSignal(signal: AbortSignal) {
       calls.signals.push(signal)
@@ -29,7 +38,23 @@ vi.mock('@gugu/core/cloud/supabase',() => ({ createGuguSupabaseClient: () => ({
     } }
   },
 }) }))
-afterEach(() => { vi.useRealTimers(); calls.signals.length = 0; calls.domains.length=0; calls.stalled=true; calls.collectIntegrations=false; calls.blockedDomain=null; calls.hold=null })
+afterEach(() => { vi.useRealTimers(); calls.signals.length = 0; calls.domains.length=0; calls.rpcNames.length=0; calls.readable=false; calls.stalled=true; calls.collectIntegrations=false; calls.blockedDomain=null; calls.hold=null })
+
+it('keeps the idle thirty-second pull to pending without admission or inventory publication',async () => {
+  calls.readable=true
+  const cwd=await mkdtemp(join(tmpdir(),'panel-idle-budget-'))
+  vi.useFakeTimers()
+  const runtime=createAssistantPanelRuntime({getAuth:async()=>({accessToken:'fixture',userId:'owner'}),instanceId:()=> 'runtime',deviceId:async()=> 'device',
+    local:{} as never,guguHome:cwd,kind:'computer',env:{},failed:vi.fn(),locale:()=> 'zh-CN'})
+  try {
+    await runtime.bind({sessionId:'session',assistantId:'assistant',ownerId:'owner',cwd})
+    await vi.advanceTimersByTimeAsync(1000)
+    calls.rpcNames.length=0; calls.domains.length=0
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(calls.rpcNames).toEqual(['assistant_panel_pending'])
+    expect(calls.domains).toEqual([])
+  } finally {runtime.dispose();vi.useRealTimers();await rm(cwd,{recursive:true,force:true})}
+})
 
 it('prepares stale profiles at each actual personal-assistant turn, independently of native startup', async () => {
   calls.stalled = false
@@ -109,13 +134,38 @@ async function libraryFixture() {
   const cwd=await mkdtemp(join(tmpdir(),'panel-library-publication-'))
   let changed:((owner:string,kind:'capabilities'|'devices')=>void)|undefined
   let integrationChanged:(()=>void)|undefined
-  const unsubscribe=vi.fn(),unsubscribeIntegrations=vi.fn()
+  let schedulesChanged:(()=>void)|undefined
+  const unsubscribe=vi.fn(),unsubscribeIntegrations=vi.fn(),unsubscribeSchedules=vi.fn()
   const runtime=createAssistantPanelRuntime({getAuth:async()=>({accessToken:'fixture',userId:'owner'}),instanceId:()=> 'runtime',deviceId:async()=> 'device',
-    local:{onLibraryChanged:(listener:typeof changed)=>{changed=listener;return unsubscribe},onIntegrationsChanged:(listener:()=>void)=>{integrationChanged=listener;return unsubscribeIntegrations}} as never,guguHome:cwd,kind:'computer',env:{},failed:vi.fn(),locale:()=> 'zh-CN'})
+    local:{onLibraryChanged:(listener:typeof changed)=>{changed=listener;return unsubscribe},onIntegrationsChanged:(listener:()=>void)=>{integrationChanged=listener;return unsubscribeIntegrations},onSchedulesChanged:(listener:()=>void)=>{schedulesChanged=listener;return unsubscribeSchedules}} as never,guguHome:cwd,kind:'computer',env:{},failed:vi.fn(),locale:()=> 'zh-CN'})
   await runtime.bind({sessionId:'session',assistantId:'assistant',ownerId:'owner',cwd})
-  return {runtime,changed:(owner:string,kind:'capabilities'|'devices')=>changed?.(owner,kind),integrationChanged:()=>integrationChanged?.(),unsubscribe,unsubscribeIntegrations,
+  return {runtime,changed:(owner:string,kind:'capabilities'|'devices')=>changed?.(owner,kind),integrationChanged:()=>integrationChanged?.(),schedulesChanged:()=>schedulesChanged?.(),unsubscribe,unsubscribeIntegrations,unsubscribeSchedules,
     async cleanup(){runtime.dispose();await rm(cwd,{recursive:true,force:true})}}
 }
+
+it('shares one snapshot across the nine publication domains',async()=>{
+  const f=await libraryFixture()
+  try {
+    calls.rpcNames.length=0
+    await f.runtime.publish('session')
+    expect(calls.rpcNames).toEqual(['assistant_panel_snapshot'])
+    expect(calls.domains).toEqual(['memory','personality','files','skills','voice-notes','schedules','capabilities','device-notes','integrations'])
+  }finally{await f.cleanup()}
+})
+
+it('publishes scheduler events in their independent domain and disposes the bridge',async()=>{
+  vi.useFakeTimers();const f=await libraryFixture()
+  try {
+    await f.runtime.publish('session');calls.domains.length=0
+    f.schedulesChanged();f.schedulesChanged()
+    await vi.advanceTimersByTimeAsync(300)
+    expect(calls.domains).toEqual(['schedules'])
+    f.runtime.dispose();f.schedulesChanged()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(calls.domains).toEqual(['schedules'])
+    expect(f.unsubscribeSchedules).toHaveBeenCalledOnce()
+  }finally{await f.cleanup()}
+})
 
 it('publishes a durable library change promptly without scanning unrelated panel collections',async()=>{
   vi.useFakeTimers()
@@ -159,9 +209,11 @@ it('does not queue library publication behind an unrelated slow collection',asyn
 })
 
 it('publishes again when a second library write arrives during the first publication',async()=>{
-  vi.useFakeTimers();const held=Promise.withResolvers<void>();calls.blockedDomain='capabilities';calls.hold=held.promise
+  vi.useFakeTimers();const held=Promise.withResolvers<void>()
   const f=await libraryFixture()
   try{
+    await f.runtime.publish('session');calls.domains.length=0
+    calls.blockedDomain='capabilities';calls.hold=held.promise
     f.changed('owner','capabilities');await vi.advanceTimersByTimeAsync(300)
     expect(calls.domains).toEqual(['capabilities'])
     f.changed('owner','capabilities');await vi.advanceTimersByTimeAsync(300)

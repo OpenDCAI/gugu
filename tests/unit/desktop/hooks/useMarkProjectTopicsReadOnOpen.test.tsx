@@ -41,6 +41,14 @@ const CHATS: ChatItem[] = [
 ]
 
 describe('topicsReadOnOpen', () => {
+  it('includes the project group itself when its remaining unread belongs to a thread stream', () => {
+    const group = chat({ id: GROUP, kind: 'group', last_read_seq: 1, next_message_seq: 5, unread_count: 3,
+      unread_locator: { stream_id: `thread:${GROUP}:root`, stream_kind: 'thread', thread_root_id: 'root', message_id: 'reply-1', message_seq: 2,
+        unread_count: 3, addressed_count: 3, cursor_seq: 0, version: 1, is_marked_unread: false } })
+    expect(topicsReadOnOpen([group, ...CHATS.slice(1)], GROUP).map(c => c.id)).toEqual([GROUP, 'topic-17', 'topic-2'])
+    expect(topicsReadOnOpen([{ ...group, is_marked_unread: true }], GROUP)).toEqual([])
+  })
+
   it('picks the topics of this group that still mention you, and leaves a manual mark alone', () => {
     expect(topicsReadOnOpen(CHATS, GROUP).map((c) => c.id)).toEqual(['topic-17', 'topic-2'])
   })

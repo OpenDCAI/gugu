@@ -1,11 +1,11 @@
-import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
+import { verifiedFileHandle } from '../../../support/verifiedFileHandle'
 import { EXTENSION_API_VERSION } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 import JSZip from 'jszip'
 import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { appOrigin } from '../../../../apps/desktop/src/components/appSlot/appOrigin'
+import { appOrigin, gateOrigin } from '../../../../apps/desktop/src/components/appSlot/appOrigin'
 import { extensionContentSecurityPolicy } from '../../../../apps/desktop/src/session/shared/extensions/app-csp'
-import { APP_RUNTIME_FORGET_PAGE, RUNTIME_SCRIPT_TAG } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { APP_RUNTIME_FORGET_PAGE, APP_RUNTIME_GATE_PAGE, appRuntimeScriptTag, RUNTIME_SCRIPT_TAG } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { fileIconKey } from '../../../../apps/desktop/src/session/shared/extensions/app-icon'
 
 // L9 (摩擦单 F76): the phone's App store (phoneApps.ts) — install, update, uninstall, re-tag, where an App's page is,
@@ -148,7 +148,7 @@ function jwt(sub: string): string {
 }
 
 function manifest(id: string, version: string, capabilities: string[] = []) {
-  return { id, name: id === 'vote' ? 'Vote' : 'Workspace', version, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop', 'phone'], entry: 'index.html', permissions: { capabilities }, contributes: { tabs: [{ name: 'main', title: 'Main' }] } }
+  return { id, name: id === 'vote' ? 'Vote' : 'Workspace', version, apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop', 'phone'], entry: 'index.html', permissions: { capabilities }, contributes: { tabs: [{ name: 'main', title: 'Main' }] } }
 }
 
 /** A card carrying a package `uploader` published: two pages, a script, a data file. Its message id. */
@@ -238,11 +238,11 @@ describe('U3 the phone App store: install, update, uninstall, re-tag', () => {
     expect(result).toMatchObject({ success: true, data: { installed: true, outcome: 'confirmed', id: 'vote', version: '1.0.0' } })
     expect(shell.asked).toEqual([])
     expect([...shell.versions.keys()]).toEqual(['vote@1.0.0'])
-    for (const page of ['index.html', 'more/page.html']) expect(text('vote@1.0.0', page).split(RUNTIME_SCRIPT_TAG)).toHaveLength(2)
+    for (const page of ['index.html', 'more/page.html']) expect(text('vote@1.0.0', page).split(appRuntimeScriptTag(EXTENSION_API_VERSION))).toHaveLength(2)
     // After the doctype, before the App's own script (injectAppRuntime).
-    expect(text('vote@1.0.0', 'index.html')).toBe(`<!doctype html>${RUNTIME_SCRIPT_TAG}<title>1.0.0</title><script src="app.js"></script>`)
+    expect(text('vote@1.0.0', 'index.html')).toBe(`<!doctype html>${appRuntimeScriptTag(EXTENSION_API_VERSION)}<title>1.0.0</title><script src="app.js"></script>`)
     expect(text('vote@1.0.0', 'app.js')).toBe("document.title = '1.0.0'")
-    expect(index().serve.vote).toEqual({ root: 'file:vote@1.0.0', csp: extensionContentSecurityPolicy(SHELL, []) })
+    expect(index().serve.vote).toEqual({ root: 'file:vote@1.0.0', csp: extensionContentSecurityPolicy(`${SHELL} ${gateOrigin('vote')}`, []) })
     // The one store the card, the group's panel and 「用 X 打开」 read on both platforms.
     expect(lastList().extensions.map((app) => app.id)).toEqual(['workspace', 'vote'])
     expect(lastList().origins).toEqual({ workspace: 'preinstalled', vote: 'attachment' })
@@ -412,8 +412,8 @@ describe('U3 the phone App store: install, update, uninstall, re-tag', () => {
     shell.index = JSON.stringify({ version: 1, installed: { vote: record }, serve: {} })
 
     await (await start()).ready()
-    expect(text('vote@1.0.0', 'index.html')).toBe(`<!doctype html>${RUNTIME_SCRIPT_TAG}<script src="app.js"></script>`)
-    expect(index().installed.vote!.runtimeTag).toBe(RUNTIME_SCRIPT_TAG)
+    expect(text('vote@1.0.0', 'index.html')).toBe(`<!doctype html>${appRuntimeScriptTag(EXTENSION_API_VERSION)}<script src="app.js"></script>`)
+    expect(index().installed.vote!.runtimeTag).toBe(appRuntimeScriptTag(EXTENSION_API_VERSION))
 
     // The same line: the page is not written again.
     shell.versions.get('vote@1.0.0')!.set('index.html', new Uint8Array(Buffer.from('untouched')))
@@ -471,15 +471,16 @@ describe('the phone draws a tab without an icon of its own with its App\'s (owne
 })
 
 describe('pageUrl: where an App page is on the phone (L3 review)', () => {
-  it("is the App's own origin, the same whoever is signed in — never the shell page's", async () => {
+  it("is the App's gate, which frames the page in the App's own origin — the same whoever is signed in, never the shell page's", async () => {
     const apps = await start()
     for (const token of [jwt(ALICE), jwt(BOB), null]) {
       shell.token = token
       for (const id of ['vote', 'workspace', 'localhost']) {
         const url = new URL(apps.pageUrl(id, '/more/page.html'))
-        expect(url.origin).toBe(appOrigin(id))
-        expect(url.origin).not.toBe(SHELL)
-        expect(url.pathname).toBe('/more/page.html')
+        expect(url.origin).toBe(gateOrigin(id))
+        expect([SHELL, appOrigin(id)]).not.toContain(url.origin)
+        expect(url.pathname).toBe(APP_RUNTIME_GATE_PAGE)
+        expect(url.searchParams.get('page')).toBe('more/page.html')
       }
     }
   })
@@ -645,23 +646,22 @@ describe('the phone installs Apps from the market', () => {
   }
 
   // owner 10-19: market Apps update by themselves on the phone too (phoneApps `autoUpdate`), as on the desktop.
-  it('keeps an installed API 10 App without platforms readable and updates it; one asking for more waits', async () => {
+  it('moves an installed App written for the older interface to the market version for this one; one asking for more waits', async () => {
     await listAll('notes', [{ version: '1.0.0' }])
     let apps = await start()
     await apps.installFromMarket({ ref: { extensionId: 'notes' } })
     // A phone profile kept by the old client: runtime must not apply the new installation rule to it.
     const kept = JSON.parse(shell.index!)
     const record = kept.installed.notes
-    record.manifest.apiVersion = 10
-    delete record.manifest.platforms
+    record.manifest.apiVersion = 22
+    delete record.manifest.defaultLocale
     const oldManifest = JSON.stringify(record.manifest)
     record.manifestDigest = createHash('sha256').update(oldManifest).digest('hex')
     shell.versions.get(record.dir)!.set('manifest.json', new TextEncoder().encode(oldManifest))
     shell.index = JSON.stringify(kept)
     apps = await start()
     await apps.ready()
-    expect(lastList().extensions.find((entry) => entry.id === 'notes')).toMatchObject({ apiVersion: 10, version: '1.0.0' })
-    expect(apps.installedFromChats().find((entry) => entry.id === 'notes')?.platforms).toBeUndefined()
+    expect(lastList().extensions.find((entry) => entry.id === 'notes')).toBeUndefined()
 
     await listAll('notes', [{ version: '1.0.0' }, { version: '1.1.0' }])
     expect(await apps.market.refresh()).toMatchObject({ outcome: 'changed' })

@@ -1,4 +1,5 @@
 import { HocuspocusProvider, type HocuspocusProviderWebsocket } from '@hocuspocus/provider';
+import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import {
   BUSY_SECONDS,
@@ -62,7 +63,7 @@ export interface FileInternals {
   readonly keyboardSession: boolean;
 }
 
-export const internals = new WeakMap<object, OpenFile | FieldText>();
+export const internals = new WeakMap<object, OpenFile | FieldText | StoredTextSnapshot>();
 
 /** A `textAt` handle's subscription: the field it follows, and the Y.Text it was last seen as. */
 interface FieldWatcher {
@@ -1179,6 +1180,10 @@ export class OpenFile {
   }
 
   private base(handle: Handle): Record<string, unknown> {
+    const bytes = (): Uint8Array<ArrayBuffer> => {
+      const text = this.type === 'json' ? JSON.stringify(this.doc.getMap('root').toJSON(), null, 2) : this.content().toString();
+      return new TextEncoder().encode(text);
+    };
     const presence = Object.freeze(
       liveObject({
         self: { get: () => ({ ...this.self, state: this.presenceState }) },
@@ -1200,6 +1205,9 @@ export class OpenFile {
     return liveObject({
       entry: { get: () => ({ ...this.entry }) },
       readOnly: { get: () => this.readOnly },
+      size: { get: () => bytes().byteLength },
+      bytes: { value: async () => { this.live(handle); return bytes(); } },
+      blob: { value: async () => { this.live(handle); return new Blob([bytes()], { type: this.entry.contentType }); } },
       // A closed handle reads `gone`; the file's other handles carry on.
       status: { get: () => (handle.closed ? 'gone' : this.status) },
       saved: { get: () => this.saved },
@@ -1515,6 +1523,118 @@ export class FieldText {
 /** `f.snapshot()`'s answers → the replica and the Yjs snapshot taken with them (opaque to the App). */
 const snapshots = new WeakMap<object, { doc: Y.Doc; snapshot: Y.Snapshot }>();
 
+/** A read-only, local text view over historical stored bytes; it has no collaborative file-service document. */
+export class StoredTextSnapshot {
+  readonly type = 'text' as const;
+  readonly doc = new Y.Doc();
+  readonly text = this.doc.getText('content');
+  readonly awareness = new Awareness(this.doc);
+  private closed = false;
+
+  constructor(
+    private readonly host: GuguHost,
+    private readonly entry: AppFileEntry,
+    content: string,
+  ) {
+    if (content) this.text.insert(0, content);
+  }
+
+  content(): Y.Text {
+    return this.text;
+  }
+
+  /** Stored bytes never swap under a binding. */
+  onSwap(): () => void {
+    return () => undefined;
+  }
+
+  internalsForBinding(): FileInternals {
+    const noop = () => () => undefined;
+    return {
+      doc: this.doc,
+      text: this.text,
+      awareness: this.awareness,
+      readOnly: true,
+      onSwap: noop,
+      holdRemote: noop,
+      inspectRemote: noop,
+      keyboardSession: false,
+    };
+  }
+
+  warn(message: string): void {
+    void this.host.reportError(message);
+  }
+
+  private writable(): never {
+    if (this.closed) throw guguError('failed', `${this.entry.name} was closed here; open it again with gugu.files.open(…)`);
+    throw guguError('read-only', `${this.entry.name} is stored text and can only be read here`);
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.awareness.destroy();
+    this.doc.destroy();
+  }
+
+  handle(blob: Blob): object {
+    const file = Object.defineProperties(liveObject({
+      entry: { get: () => ({ ...this.entry }) },
+      readOnly: { value: true },
+      readOnlyReason: { value: 'stored-bytes' },
+      status: { get: () => (this.closed ? 'gone' : 'online') },
+      saved: { value: true },
+      onChange: { value: () => () => false },
+      onStatus: { value: () => () => false },
+      onRefused: { value: () => () => false },
+      presence: { value: Object.freeze(liveObject({
+        self: { get: () => ({ id: '', userId: '', name: '', color: '', state: null }) },
+        others: { get: () => [] },
+        set: { value: () => this.writable() },
+        onChange: { value: () => () => false },
+      })) },
+      close: { value: () => this.close() },
+      text: { get: () => this.text.toString() },
+      length: { get: () => this.text.length },
+      insert: { value: () => this.writable() },
+      delete: { value: () => this.writable() },
+      edit: { value: () => this.writable() },
+      snapshot: { value: () => {
+        if (this.closed) throw guguError('failed', `${this.entry.name} was closed here; open it again with gugu.files.open(…)`);
+        const taken = Object.freeze({ text: this.text.toString() });
+        snapshots.set(taken, { doc: this.doc, snapshot: Y.snapshot(this.doc) });
+        return taken;
+      } },
+      applyFrom: { value: () => this.writable() },
+      anchor: { value: (index: number, assoc: -1 | 1 = 1) => {
+        if (!Number.isInteger(index) || index < 0 || index > this.text.length) throw guguError('invalid', `index ${index} is outside 0…${this.text.length}`);
+        const position = Y.createRelativePositionFromTypeIndex(this.text, index, assoc < 0 ? -1 : 0);
+        return `stored:${toBase64(Y.encodeRelativePosition(position))}`;
+      } },
+      resolve: { value: (anchor: string) => {
+        if (typeof anchor !== 'string' || !anchor.startsWith('stored:')) return null;
+        try {
+          const position = Y.decodeRelativePosition(fromBase64(anchor.slice('stored:'.length)));
+          const absolute = Y.createAbsolutePositionFromRelativePosition(position, this.doc);
+          return absolute && absolute.type === this.text ? absolute.index : null;
+        } catch {
+          return null;
+        }
+      } },
+      blob: { value: async () => blob },
+      bytes: { value: async () => new Uint8Array(await blob.arrayBuffer()) },
+      size: { get: () => blob.size },
+    }), { type: { value: 'text', enumerable: true } });
+    internals.set(file, this);
+    return Object.freeze(file);
+  }
+}
+
+export function storedTextFile(host: GuguHost, entry: AppFileEntry, content: string, bytes: ArrayBuffer): object {
+  return new StoredTextSnapshot(host, entry, content).handle(new Blob([bytes], { type: entry.contentType }));
+}
+
 /**
  * One replica per file per page: opening the same file again is another handle on it (摩擦单 F46). Keyed by where it lives
  * and its id there (`fileKey`): a path is only unique in its session, and a page may hold two sessions' files.
@@ -1522,7 +1642,7 @@ const snapshots = new WeakMap<object, { doc: Y.Doc; snapshot: Y.Snapshot }>();
 export const openFiles = new Map<string, OpenFile>();
 
 /** What a file is kept under on this page: its place and its id there. */
-export function fileKey(entry: Pick<AppFileEntry, 'id' | 'chat' | 'session'>): string {
+export function fileKey(entry: Pick<AppFileEntry, 'id' | 'chat' | 'workspace'>): string {
   return `${placeKey(placeOfFile(entry))}#${entry.id}`;
 }
 

@@ -4,13 +4,38 @@ const mocks = vi.hoisted(() => ({
   summaries: new Map<string, Record<string, unknown>>(),
   calls: [] as string[],
   progress: [] as string[],
+  /** side chat id → its session. */
+  forks: new Map<string, string>(),
+  /** Terminal sessions with a live PTY on this provider. */
+  ptys: [] as Array<{ ptySessionId: string; metadata: { providerId: string } }>,
+  /** ACP session rows of codex that have no run right now. */
+  resting: [] as string[],
 }));
 
 vi.mock('@main/core/acp/agent-status-bridge', () => ({
   acpAgentStatusBridge: { current: () => mocks.summaries },
 }));
-vi.mock('@main/core/pty/pty-session-registry', () => ({ ptySessionRegistry: { listActiveSessions: () => [] } }));
-vi.mock('@main/db/client', () => ({ db: {} }));
+vi.mock('@main/core/pty/pty-session-registry', () => ({ ptySessionRegistry: { listActiveSessions: () => mocks.ptys } }));
+// session-life says which sessions run (here: every summarized one); the row says its project and provider.
+vi.mock('./session-life', () => ({ sessionLife: () => ({
+  running: () => [...mocks.summaries.keys()].map(sessionId => ({ sessionId, parentId: mocks.forks.get(sessionId) ?? null })),
+  // The scoped sign-out window: each session is held (recorded as its stop) before the swap runs.
+  rotate: async (ids: string[], swap: () => Promise<void>) => { for (const id of ids) mocks.calls.push(`stop:${id}`); await swap(); },
+}) }));
+vi.mock('drizzle-orm', () => ({ eq: (_column: unknown, value: string) => value, and: (...values: string[]) => values }));
+vi.mock('./session-life-forks', () => ({ runtimeForksOf: (id: string) => [...mocks.forks].filter(([, parent]) => parent === id).map(([fork]) => fork) }));
+vi.mock('@main/db/schema', () => ({ sessions: { id: 'id' } }));
+vi.mock('@main/db/client', () => ({ db: {
+  select: () => ({ from: () => ({ where: (key: string | string[]) => ({
+    get: () => {
+      const found = mocks.summaries.get(key as string);
+      return found && { projectId: found.projectId, provider: found.providerId };
+    },
+    // and(runtime = 'acp', provider = p): every ACP session row of that provider (side chats have none).
+    all: () => [...[...mocks.summaries].filter(([id, found]) => !mocks.forks.has(id) && found.providerId === (key as string[])[1]).map(([id]) => id),
+      ...((key as string[])[1] === 'codex' ? mocks.resting : [])].map((id) => ({ id })),
+  }) }) }),
+} }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('@main/lib/events', () => ({
   events: {
@@ -55,6 +80,9 @@ beforeEach(() => {
   mocks.summaries.clear();
   mocks.calls.length = 0;
   mocks.progress.length = 0;
+  mocks.forks.clear();
+  mocks.ptys = [];
+  mocks.resting = [];
 });
 
 it('stops idle Codex sessions before the credentials change and hands them back afterwards', async () => {
@@ -112,8 +140,8 @@ it('closes working sessions too when the user chose to close them and switch', a
   summary('idle');
   await switchSubscription('codex', 'work', {}, { stopBusySessions: true });
   expect(mocks.calls).toEqual(['stop:busy', 'stop:idle', 'select:codex:work', 'reclaimed:busy', 'reclaimed:idle']);
-  // 进度条读的是真关掉了几个:开始时 0/2,每关完一个推一次。
-  expect(mocks.progress).toEqual(['0/2', '1/2', '2/2']);
+  // 进度条读的是真关掉了几个:开始时 0/2;ACP 会话在 session-life 的窗口里一起停下,停完一次推到 2/2。
+  expect(mocks.progress).toEqual(['0/2', '2/2']);
 });
 
 it('reports no progress when there is nothing to close', async () => {
@@ -122,8 +150,10 @@ it('reports no progress when there is nothing to close', async () => {
   expect(mocks.progress).toEqual([]);
 });
 
-it('waits out a process that is still exiting instead of failing the switch', async () => {
-  summary('slow', { isGenerating: true });
+const terminal = (id: string) => mocks.ptys.push({ ptySessionId: `project:${id}:${id}`, metadata: { providerId: 'codex' } });
+
+it('waits out a terminal process that is still exiting instead of failing the switch', async () => {
+  terminal('slow');
   const { stopExactSessionpageSession } = await import('./session-orchestration');
   vi.mocked(stopExactSessionpageSession).mockClear();
   const pending = () => Object.assign(new Error('stop_pending'), { code: 'stop_pending' });
@@ -133,8 +163,8 @@ it('waits out a process that is still exiting instead of failing the switch', as
   expect(vi.mocked(stopExactSessionpageSession)).toHaveBeenCalledTimes(3);
 });
 
-it('gives up and keeps the old subscription when a process never exits', async () => {
-  summary('stuck');
+it('gives up and keeps the old subscription when a terminal process never exits', async () => {
+  terminal('stuck');
   const { stopExactSessionpageSession } = await import('./session-orchestration');
   vi.mocked(stopExactSessionpageSession).mockClear();
   const pending = Object.assign(new Error('stop_pending'), { code: 'stop_pending' });
@@ -163,4 +193,19 @@ it('keeps running sessions alive when the target connection cannot be switched t
   vi.mocked(assertHarnessConnectionSelectable).mockRejectedValueOnce(new Error('no saved sign-in'));
   await expect(switchSubscription('codex', 'work', {})).rejects.toThrow('no saved sign-in');
   expect(mocks.calls).toEqual([]);
+});
+
+it('rests a side chat of a session on that provider too: it runs on the same config root', async () => {
+  summary('a');
+  summary('view-a');
+  mocks.forks.set('view-a', 'a');
+  await switchSubscription('codex', 'work', {});
+  expect(mocks.calls).toEqual(['stop:a', 'stop:view-a', 'select:codex:work', 'reclaimed:a', 'reclaimed:view-a']);
+});
+
+it('holds a resting session of that provider through the swap too: a delivery mid-swap must not start it', async () => {
+  summary('a');
+  mocks.resting = ['resting'];
+  await switchSubscription('codex', 'work', {});
+  expect(mocks.calls).toEqual(['stop:a', 'stop:resting', 'select:codex:work', 'reclaimed:a']);
 });

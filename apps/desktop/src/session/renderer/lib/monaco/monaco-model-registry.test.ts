@@ -5,11 +5,13 @@ import {
   EDITOR_HARD_MAX_FILE_BYTES,
 } from '@renderer/lib/editor/file-size-limits';
 import { MonacoModelRegistry } from './monaco-model-registry';
-import { EXTERNAL_MODEL_ROOT } from './monacoModelPath';
+import { buildMonacoModelPath, EXTERNAL_MODEL_ROOT } from './monacoModelPath';
 
 const rpcState = vi.hoisted(() => ({
   indexContent: 'base' as string | null,
   refContent: 'base' as string | null,
+  indexError: null as string | null,
+  refError: null as string | null,
 }));
 
 const fileMocks = vi.hoisted(() => ({
@@ -29,11 +31,11 @@ vi.mock('@renderer/lib/ipc', () => ({
   rpc: {
     workspace: {
       gitWorktree: {
-        getFileAtIndex: vi.fn(async () => ({
+        getFileAtIndex: vi.fn(async () => rpcState.indexError ? ({ success: false, error: { type: 'git_error', message: rpcState.indexError } }) : ({
           success: true,
           data: { content: rpcState.indexContent },
         })),
-        getFileAtRef: vi.fn(async () => ({
+        getFileAtRef: vi.fn(async () => rpcState.refError ? ({ success: false, error: { type: 'git_error', message: rpcState.refError } }) : ({
           success: true,
           data: { content: rpcState.refContent },
         })),
@@ -156,6 +158,8 @@ describe('MonacoModelRegistry', () => {
   beforeEach(() => {
     rpcState.indexContent = 'base';
     rpcState.refContent = 'base';
+    rpcState.indexError = null;
+    rpcState.refError = null;
     fileMocks.readFile.mockClear();
     fileMocks.readExternalFile.mockClear();
   });
@@ -343,6 +347,33 @@ describe('MonacoModelRegistry', () => {
     );
     expect(registry.modelStatus.get(diskUri)).toBe('ready');
     expect(registry.getText(diskUri)).toHaveLength(1000);
+  });
+
+  it.each([STAGED_REF, HEAD_REF])('shows a read error rather than an empty diff for %j', async ref => {
+    const registry = new MonacoModelRegistry();
+    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const uri = buildMonacoModelPath('workspace:workspace', 'file.ts');
+    if (ref.kind === 'staged') rpcState.indexError = 'permission denied';
+    else rpcState.refError = 'transport failed';
+    await expect(registry.registerModel('project', 'workspace', 'workspace:workspace', 'file.ts', 'typescript', 'git', ref)).rejects.toThrow();
+    expect(registry.modelStatus.get(registry.toGitUri(uri, ref))).toBe('error');
+    expect(registry.getModelByUri(registry.toGitUri(uri, ref))).toBeUndefined();
+  });
+
+  it('keeps a failed git refresh in error state and recovers on the next successful refresh', async () => {
+    const registry = new MonacoModelRegistry();
+    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const uri = await registry.registerModel('project', 'workspace', 'workspace:workspace', 'file.ts', 'typescript', 'git', HEAD_REF);
+    const gitUri = registry.toGitUri(uri, HEAD_REF);
+    rpcState.refError = 'connection failed';
+    await expect(registry.invalidateModel(gitUri)).rejects.toThrow();
+    expect(registry.modelStatus.get(gitUri)).toBe('error');
+    expect(registry.getModelByUri(gitUri)?.getValue()).toBe('base');
+    rpcState.refError = null;
+    rpcState.refContent = null;
+    await registry.invalidateModel(gitUri);
+    expect(registry.modelStatus.get(gitUri)).toBe('ready');
+    expect(registry.getModelByUri(gitUri)?.getValue()).toBe('');
   });
 
   it('clears a staged git model when the index no longer contains the file', async () => {

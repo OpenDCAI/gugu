@@ -1,6 +1,6 @@
 import type { GitBranchRef } from '@gugu/session-core/git';
 import { ChevronDown, CircleAlert } from '@/lib/icons'
-import { GitBranch, GitPullRequest } from 'lucide-react'
+import { GitBranch, GitPullRequest } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { useMemo, useState } from 'react';
 import { getGitRepositoryStore } from '@renderer/features/projects/stores/project-selectors';

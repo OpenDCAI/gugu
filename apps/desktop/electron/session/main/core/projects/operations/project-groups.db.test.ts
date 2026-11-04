@@ -32,6 +32,7 @@ import {
   bindProjectToGroup,
   ensureProjectGroup,
   listProjectGroupBindings,
+  localProjectOfGroup,
   unbindProjectGroup,
 } from './project-groups';
 
@@ -77,10 +78,10 @@ describe('project groups (会话页一侧)', () => {
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-a', 'gugu', '/w/gugu');
       INSERT INTO projects (id, name, path) VALUES ('project-b', 'other', '/w/other');
-      INSERT INTO sessions (id, project_id, title, created_at) VALUES ('s-live-1', 'project-a', 'one', '2026-10-01 00:00:01');
-      INSERT INTO sessions (id, project_id, title, created_at) VALUES ('s-live-2', 'project-a', 'two', '2026-10-01 00:00:02');
-      INSERT INTO sessions (id, project_id, title, archived_at) VALUES ('s-archived', 'project-a', 'old', '2026-10-02');
-      INSERT INTO sessions (id, project_id, title) VALUES ('s-other', 'project-b', 'elsewhere');
+      INSERT INTO sessions (id, project_id, created_at) VALUES ('s-live-1', 'project-a', '2026-10-01 00:00:01');
+      INSERT INTO sessions (id, project_id, created_at) VALUES ('s-live-2', 'project-a', '2026-10-01 00:00:02');
+      INSERT INTO sessions (id, project_id, archived_at) VALUES ('s-archived', 'project-a', '2026-10-02');
+      INSERT INTO sessions (id, project_id) VALUES ('s-other', 'project-b');
     `);
   });
 
@@ -126,6 +127,21 @@ describe('project groups (会话页一侧)', () => {
     setProjectGroupHost(host);
     await listProjectGroupBindings();
     expect(calls).toEqual([{ op: 'list', projectIds: ['project-a'] }]);
+  });
+
+  it('resolves a group to this machine’s project and reports missing associations', async () => {
+    const { host } = fakeHost();
+    setProjectGroupHost(host);
+    expect(await localProjectOfGroup('chat-of-project-b')).toEqual(ok('project-b'));
+    expect(await localProjectOfGroup('not-linked-here')).toEqual(ok(undefined));
+    fixture.sqlite.exec(`UPDATE projects SET kind = 'workspace' WHERE id = 'project-b'`);
+    expect(await localProjectOfGroup('chat-of-project-b')).toEqual(ok(undefined));
+  });
+
+  it('preserves binding errors instead of reporting a missing local project', async () => {
+    const failure = { type: 'not-signed-in' as const, message: 'Sign in first' };
+    setProjectGroupHost(fakeHost({ listBindings: async () => err(failure) }).host);
+    expect(await localProjectOfGroup('chat-of-project-a')).toEqual(err(failure));
   });
 
   it('预留群:交给宿主的是项目名与没归档的会话;改了才叫渲染层重读,结果里不带 changed', async () => {

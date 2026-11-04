@@ -5,11 +5,18 @@ export interface SessionArchiveInterval {
   restoredAt: string | null
 }
 
+/** Cloud receipt for the identity removed by this archive, retained until identity replacement succeeds. */
+export interface RemovedSessionIdentity {
+  userId: string
+  removedAt: string
+}
+
 export interface SessionArchivalState {
   sessionId: string
   archivedAt: string | null
   revision: number
   intervals: SessionArchiveInterval[]
+  removedIdentity?: RemovedSessionIdentity | null
 }
 
 export class SessionArchivedError extends Error {

@@ -71,7 +71,7 @@ describe('session quote navigation', () => {
     } finally { root.unmount(); host.remove(); }
   });
   it('centers a source after real history rows have been prepended and laid out', async () => {
-    const context = createChatContext({ theme: buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true }) });
+    const context = createChatContext({ locale: () => 'en-US', theme: buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true }) });
     const state = createChatState(context);
     state.transcript.history.seed([turn('latest', 20)]);
     const pages = [[turn('middle', 19)], Array.from({ length: 12 }, (_, i) => ({ ...turn(i === 8 ? 'source' : `older-${i}`, i), items: [...turn(i === 8 ? 'source' : `older-${i}`, i).items, { kind: 'message' as const, id: `answer-${i}`, seq: 1, role: 'assistant' as const, text: 'An earlier response' }] }))];

@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const PAGE = 7;
 const BACKGROUND = 9;
 const CHECK = 11;
+const WIDGET = 13;
 const contentsOf = (id: number) => ({ id, isDestroyed: () => false, hostWebContents: { id: 42 }, session: {}, once: () => undefined, on: () => undefined, send: () => undefined });
 
 const handlers = new Map<string, (event: unknown, raw: unknown) => Promise<unknown>>();
@@ -17,7 +18,7 @@ vi.mock('electron', () => ({
     handle: (channel: string, fn: (event: unknown, raw: unknown) => Promise<unknown>) => handlers.set(channel, fn),
     on: vi.fn(),
   },
-  webContents: { fromId: (id: number) => (id === PAGE || id === BACKGROUND || id === CHECK ? contentsOf(id) : undefined) },
+  webContents: { fromId: (id: number) => ([PAGE, BACKGROUND, CHECK, WIDGET].includes(id) ? contentsOf(id) : undefined) },
 }));
 vi.mock('@main/core/extensions/extension-session', () => ({
   extensionIdForSession: () => 'chess',
@@ -49,13 +50,13 @@ vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({ agentIdsByS
 vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
-const { bindExtensionSurface, registerExtensionBridge, checkReadingsOf } = await import('./extension-bridge');
+const { bindExtensionSurface, registerExtensionBridge, checkReadingsOf, extensionSurfaceBindingForTests, retargetExtensionSurface } = await import('./extension-bridge');
 const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-protocol');
 
 registerExtensionBridge();
 const handle = handlers.get(EXTENSION_BRIDGE_CHANNEL)!;
 const call = (sender: number, args: Record<string, unknown>, method = 'dispatch') =>
-  handle({ sender: { id: sender, session: {} } }, { method, args });
+  handle({ sender: { id: sender, session: {} } }, { method, args, gesture: true });
 
 const AGENT = 'user:0a000000-0000-4000-8000-000000000016';
 const CHAT = '0b000000-0000-4000-8000-000000000016';
@@ -65,7 +66,7 @@ const ENTRY = { chat: CHAT, id: ITEM, name: 'game.chess.json' };
 beforeEach(async () => {
   granted.clear();
   dispatchForApp.mockReset();
-  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'chess', tabId: 'tab-1', tabKind: 'chess.main', chatId: CHAT });
+  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'chess', tabId: 'tab-1', tabKind: 'chess.main', conversation: CHAT });
 });
 
 const MEMBER = { chat: CHAT, member: AGENT };
@@ -73,6 +74,20 @@ const MEMBER = { chat: CHAT, member: AGENT };
 const handed = () => dispatchForApp.mock.calls.at(-1) as [string, Record<string, unknown>, Record<string, unknown>, { from?: string }];
 
 describe('gugu.dispatch over the bridge', () => {
+  it('requires the preload gesture for every widget dispatch, including an explicit recipient, without trusting args', async () => {
+    granted.add('chat:relay');
+    const widget = { messageId: 'message', data: { count: 1 }, senderId: 'sender' };
+    await bindExtensionSurface({ webContentsId: WIDGET, extensionId: 'chess', tabId: 'widget:message', tabKind: 'chess.main', conversation: CHAT, widget });
+    widget.data.count = 99;
+    expect(extensionSurfaceBindingForTests(WIDGET)?.widget?.data.count).toBe(1);
+    for (const gesture of [undefined, false]) {
+      expect(await handle({ sender: contentsOf(WIDGET) }, { method: 'dispatch', args: { to: MEMBER, text: 'onload', gesture: true }, gesture })).toMatchObject({ ok: false, code: 'denied' });
+    }
+    expect(dispatchForApp).not.toHaveBeenCalled();
+    dispatchForApp.mockResolvedValue({ id: 'sent' });
+    expect(await handle({ sender: contentsOf(WIDGET) }, { method: 'dispatch', args: { to: MEMBER, text: 'clicked' }, gesture: true })).toEqual({ ok: true, value: { id: 'sent' } });
+    await expect(retargetExtensionSurface({ webContentsId: WIDGET, tabId: 'other', conversation: CHAT })).rejects.toThrow('cannot be retargeted');
+  });
   it('to a member, with chat:relay: handed over as the call names it, the page\'s chat for the sheet, and the id comes back', async () => {
     granted.add('chat:relay');
     dispatchForApp.mockResolvedValue({ to: MEMBER, id: 'm-1' });
@@ -122,7 +137,7 @@ describe('the check’s page, worked by the agent that asks (owner 10-14)', () =
     roster.set('session-f', WORKER);
     spawnAgentForExtension.mockReset();
     stopAgentForExtension.mockReset();
-    await bindExtensionSurface({ webContentsId: CHECK, extensionId: 'chess', tabId: 'check', tabKind: 'chess.main', chatId: CHAT, operator: { kind: 'agent', id: WORKER } });
+    await bindExtensionSurface({ webContentsId: CHECK, extensionId: 'chess', tabId: 'check', tabKind: 'chess.main', conversation: CHAT, operator: { kind: 'agent', id: WORKER } });
   });
 
   it('a named target goes, as that agent: written as it to a chat, told and started from its session; the sheet is handed back', async () => {

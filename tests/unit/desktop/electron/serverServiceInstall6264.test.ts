@@ -1,11 +1,17 @@
 // #6264 `gugu-server service install` 的交付是「结束时在跑的就是这一版」(product spec 第 5 条:
 // 急用可在那台机器上重新执行安装命令)。实机踩到:旧版本在跑,兜底模式新起的进程撞在单实例锁上退出,却报了「已在后台启动」。
 import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { spawn, spawnSync } from 'node:child_process'
+import { once } from 'node:events'
 import {
   chooseServiceMode,
   cronQuote,
   systemdQuote,
   systemdUnit,
+  launchdPlist,
   describeProcess,
   installServiceWith,
   type InstallServiceDeps,
@@ -14,6 +20,81 @@ import {
 } from '../../../../apps/desktop/electron/server/server-service'
 
 type Proc = { pid: number; version: string; supervisedBy: RunningServer['supervisedBy']; alive: boolean; waitFor?: number }
+
+it('keeps intentional stops out of the systemd restart loop and lets update exit 75 restart', () => {
+  const unit = systemdUnit('/home/user/server/current/bin/gugu-server', '/home/user/server')
+  expect(unit).toContain('Restart=on-failure\nSuccessExitStatus=143\nRestartForceExitStatus=75\nRestartPreventExitStatus=78 79\n')
+  expect(unit).toContain('KillMode=process')
+})
+
+it('launchd restarts failed updates but exits successfully when stopped before starting the server', () => {
+  const plist = launchdPlist('/home/user/server/current/bin/gugu-server', '/home/user/server', '/home/user/server.log')
+  expect(plist).toContain('<key>SuccessfulExit</key><false/>')
+  expect(plist).toContain('data/stopped')
+  expect(plist).toContain('"$1" run &amp; child=$!')
+  expect(plist).toContain('<key>AbandonProcessGroup</key><true/>')
+})
+
+it.each([0, 75, 78, 79, 143, 1])('launchd wrapper classifies the actual server exit (%s)', code => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-launchd-exit-'))
+  try {
+    const executable = path.join(home, 'fake-server')
+    fs.writeFileSync(executable, `#!/bin/sh\nexit ${code}\n`, { mode: 0o700 })
+    const plist = launchdPlist(executable, home, path.join(home, 'service.log'))
+    const argumentsXml = plist.match(/<key>ProgramArguments<\/key><array>(.*?)<\/array>/s)![1]!
+    const args = [...argumentsXml.matchAll(/<string>(.*?)<\/string>/gs)].map(match => match[1]!.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'))
+    // macOS /bin/sh is Bash; Linux /bin/sh can be dash without noninteractive job control.
+    const result = spawnSync(process.platform === 'linux' ? '/bin/bash' : args[0]!, args.slice(1), { env: { ...process.env, GUGU_SERVER_HOME: home }, encoding: 'utf8' })
+    expect(result.status, result.stderr).toBe([0, 78, 79, 143].includes(code) ? 0 : code)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toBe('')
+  } finally { fs.rmSync(home, { recursive: true, force: true }) }
+})
+
+it.runIf(process.platform === 'darwin').each(['hang', 'normal'] as const)('launchd handles %s TERM without leaving its deadline process alive', async mode => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-launchd-hang-'))
+  let childPid: number | undefined
+  const executable = path.join(home, 'fake-server')
+  const sleepPidFile = path.join(home, 'sleep.pid')
+  const onTerm = mode === 'hang' ? '' : `const timer=setInterval(()=>{if(require('node:fs').existsSync(${JSON.stringify(sleepPidFile)})){clearInterval(timer);process.exit(143)}},5)`
+  fs.writeFileSync(executable, `#!${process.execPath}\nprocess.on('SIGTERM',()=>{${onTerm}});process.stdout.write(String(process.pid));setInterval(()=>{},1000)`, { mode: 0o700 })
+  const fakebin = path.join(home, 'bin')
+  fs.mkdirSync(fakebin)
+  fs.writeFileSync(path.join(fakebin, 'sleep'), `#!/bin/sh\nprintf '%s' "$1" > '${home}/sleep-seconds'\n${mode === 'normal' ? `echo $$ > '${sleepPidFile}'; exec /bin/sleep 3600` : ''}\n`, { mode: 0o700 })
+  const plist = launchdPlist(executable, home, path.join(home, 'service.log'))
+  const xml = plist.match(/<key>ProgramArguments<\/key><array>(.*?)<\/array>/s)![1]!
+  const args = [...xml.matchAll(/<string>(.*?)<\/string>/gs)].map(match => match[1]!.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'))
+  const wrapper = spawn(args[0]!, args.slice(1), { env: { ...process.env, GUGU_SERVER_HOME: home, PATH: `${fakebin}:${process.env.PATH}` } })
+  const guard = setTimeout(() => {
+    if (childPid) try { process.kill(childPid, 'SIGKILL') } catch { /* already stopped */ }
+    if (fs.existsSync(sleepPidFile)) try { process.kill(Number(fs.readFileSync(sleepPidFile, 'utf8')), 'SIGKILL') } catch { /* already stopped */ }
+    wrapper.kill('SIGKILL')
+  }, 10_000)
+  let stderr = ''
+  wrapper.stderr!.on('data', value => { stderr += String(value) })
+  try {
+    childPid = Number(String((await once(wrapper.stdout!, 'data'))[0]))
+    console.info('Launchd hang fixture PID:', childPid)
+    const closed = once(wrapper, 'close')
+    wrapper.kill('SIGTERM')
+    expect(await closed).toEqual([mode === 'hang' ? 137 : 0, null])
+    const timeout = Number(plist.match(/<key>ExitTimeOut<\/key><integer>(\d+)<\/integer>/)![1])
+    expect(Number(fs.readFileSync(path.join(home, 'sleep-seconds'), 'utf8'))).toBe(timeout - 5)
+    if (mode === 'hang') expect(stderr).toContain(`KILL pid ${childPid}`)
+    else {
+      expect(stderr).not.toContain('did not exit')
+      expect(() => process.kill(Number(fs.readFileSync(sleepPidFile, 'utf8')), 0)).toThrow()
+    }
+    expect(() => process.kill(childPid!, 0)).toThrow()
+  } finally {
+    clearTimeout(guard)
+    if (childPid) try { process.kill(childPid, 'SIGKILL') } catch { /* already stopped */ }
+    if (fs.existsSync(sleepPidFile)) try { process.kill(Number(fs.readFileSync(sleepPidFile, 'utf8')), 'SIGKILL') } catch { /* already stopped */ }
+    console.info('Launchd hang fixture cleanup:', home)
+    expect(home.startsWith(path.join(os.tmpdir(), 'gugu-launchd-hang-'))).toBe(true)
+    fs.rmSync(home, { recursive: true, force: true })
+  }
+})
 
 /**
  * 一台假机器:进程表 + 单实例锁 + 一个按 Restart=always / KeepAlive 行事的服务管理器。
@@ -85,6 +166,7 @@ function fakeMachine(options: {
     isAlive: (pid) => procs.some((p) => p.pid === pid && p.alive),
     isBusy: () => options.busy ?? false,
     stop,
+    restart: (pid) => { calls.push(`restart ${pid}`); stopping.set(pid, options.stopTicks ?? 2) },
     registerSystemd: (out) => {
       calls.push('systemd restart')
       managerWants = true
@@ -128,13 +210,20 @@ function fakeMachine(options: {
 }
 
 describe('service install:结束时在跑的就是这一版', () => {
+  it('受控云换版遇到忙碌账号时不停止进程或改服务', async () => {
+    const m = fakeMachine({ mode: 'systemd', old: { version: '0.2.111', supervisedBy: 'systemd' }, current: '0.2.112', busy: true })
+    m.deps.requireIdle = true
+    expect(await installServiceWith(m.out, m.deps)).toBe(false)
+    expect(m.calls).toEqual([])
+    expect(m.running()?.version).toBe('0.2.111')
+  })
   it('兜底模式、旧版本在跑且有 agent 在干活:先明说会中断,新的等旧的退干净再接上,报出真实的版本与进程号', async () => {
     const m = fakeMachine({ mode: 'fallback', old: { version: '0.2.111', supervisedBy: 'none' }, current: '0.2.112', busy: true })
     expect(await installServiceWith(m.out, m.deps)).toBe(true)
     expect(m.calls).toEqual(['cron', 'detached wait=100', 'stop 100'])
     const text = m.lines.join('\n')
     expect(text).toContain('正在把 咕咕 server 0.2.111(进程 100)换成 0.2.112')
-    expect(text).toContain('这一轮会被中断')
+    expect(text).toContain('正在进行的回复会被中断')
     expect(m.running()).toMatchObject({ version: '0.2.112', supervisedBy: 'none' })
     expect(m.lines.at(-1)).toBe(`咕咕 server 0.2.112 已在运行(进程 ${m.running()?.pid})。`)
     // ❌ 在确认之前就说「已在后台启动」
@@ -180,7 +269,7 @@ describe('service install:结束时在跑的就是这一版', () => {
   it('systemd 可用了,但在跑的是以前兜底起的那个:停掉它,systemd 那一份接上(❌ 两份抢锁)', async () => {
     const m = fakeMachine({ mode: 'systemd', old: { version: '0.2.111', supervisedBy: 'none' }, current: '0.2.112' })
     expect(await installServiceWith(m.out, m.deps)).toBe(true)
-    expect(m.calls).toEqual(['systemd restart', 'stop 100'])
+    expect(m.calls).toEqual(['stop 100', 'systemd restart'])
     expect(m.running()).toMatchObject({ version: '0.2.112', supervisedBy: 'systemd' })
   })
 
@@ -188,14 +277,14 @@ describe('service install:结束时在跑的就是这一版', () => {
     const m = fakeMachine({ mode: 'launchd', old: { version: '0.2.111', supervisedBy: 'unknown' }, current: '0.2.112' })
     // macOS 读不到别的进程的环境:托管方 unknown,旧的不归 launchd 管时同样被停掉、由 KeepAlive 接上
     expect(await installServiceWith(m.out, m.deps)).toBe(true)
-    expect(m.calls[0]).toBe('launchd bootstrap')
+    expect(m.calls[0]).toBe('stop 100')
     expect(m.running()?.version).toBe('0.2.112')
   })
 
   it('注册过 systemd 用户服务、当前 shell 连不上(su / docker exec):停掉旧的让 systemd 按新版本拉起,❌ 另起一份、❌ 写 crontab', async () => {
     const m = fakeMachine({ mode: 'systemdUnreachable', old: { version: '0.2.111', supervisedBy: 'systemd' }, current: '0.2.112' })
     expect(await installServiceWith(m.out, m.deps)).toBe(true)
-    expect(m.calls).toEqual(['stop 100'])
+    expect(m.calls).toEqual(['restart 100'])
     expect(m.running()).toMatchObject({ version: '0.2.112', supervisedBy: 'systemd' })
     expect(m.lines.join('\n')).toContain('改由 systemd 以新版本重启')
   })

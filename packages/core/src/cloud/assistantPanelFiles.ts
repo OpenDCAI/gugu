@@ -149,7 +149,7 @@ export function createAssistantPanelFiles(input: {
         return receipt
       } catch (failure) {
         error = failure
-        if (['40001','42501','55000','22023','54000'].includes(String((failure as { code?: string }).code))) break
+        if (['PT409','42501','55000','22023','54000'].includes(String((failure as { code?: string }).code))) break
       }
     }
     if (body) await input.discard(body.itemId).catch(() => undefined)

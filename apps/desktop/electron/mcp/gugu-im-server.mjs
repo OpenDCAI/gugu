@@ -19,8 +19,9 @@ import { saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
 import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '../../../../packages/core/src/shared/typedId.mjs'
 import { workspaceUploadKind } from '../../../../packages/core/src/shared/workspaceUpload.mjs'
 import { parseAttachmentContent } from '../../../../packages/core/src/shared/ui/attachmentModels'
+import { parseWidgetMessage } from '../../../../packages/core/src/shared/ui/widgetModels'
 import { attachmentFolderLine } from '../../../../packages/core/src/shared/attachmentFolderLine'
-import { AttachmentsError, commitAttachment, sendFileAsOwner, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
+import { AttachmentsError, commitAttachment, sendFileAsOwner, shareAttachment, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
 import { createGroupWithInvitations } from '../../../../packages/core/src/cloud/groupChat'
 import { createGroupAdmin, setGroupAvatar } from '../../../../packages/core/src/cloud/groupAdmin'
 import { registerGuguTool } from './register-gugu-tool.mjs'
@@ -36,6 +37,7 @@ import { GUGU_MCP_SERVER_NAME } from './gugu-mcp-name.mjs'
 import { chatActivityTool } from './chat-activity.mjs'
 import { createLogger } from '../lib/logger'
 import { effectiveGroupRules, groupRulesLedgerAt, groupRulesVersion } from '../../../../packages/core/src/local/agent/groupRulesDelivery'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 const log = createLogger('gugu-mcp-host')
 
@@ -522,14 +524,12 @@ async function restGetInBatches(ids, readBatch) {
 // 参数说明会随每个工具重复一遍,只写这一格独有的事;「目标从不推断」这类通用规则在平台提示词里讲一次。
 // chat_id 从哪来(投递信封的 chat=,或 public_id)只在 message_send 的 chat_id 上讲一次:每个列出的工具都重复同一句时,
 // 开场为它付 ≈200 token(上下文工程第一批 P5,2026-10-07 实测)。
-const CHAT_ID_DESCRIPTION = 'The target chat: the chat= value from your gugu_delivery envelope, a public_id, or your owner\'s address for your private chat with them.'
+const CHAT_ID_DESCRIPTION = 'The target chat: the chat= value from your gugu_delivery envelope, a public_id, or your owner\'s address to notify them in your native session.'
 const chatIdSchema = z.string().trim().min(1)
 
 /**
- * @@@owner-address-is-dm — chat_id 写主人的身份地址 = 和主人的私聊(#7351)。会话页 agent 默认没有这条私聊
- * (@@@no-auto-dm),它真要对主人说话的那一刻才开。这条 server 拿的是主人的 JWT ⇒ `open_dm(本 agent)` 开出来的
- * 就是主人 ↔ 本 agent 那一条,与主人在界面上点开同一个 RPC、同一形态;已有就是那条(幂等)。
- * 只认主人:别人的地址不是一个 chat,参数恒为本 agent 自己,开不出任何别人的私聊。
+ * Identity-address reads and the personal assistant's real IM conversation retain their existing DM lookup.
+ * Ordinary agent writes are resolved by resolveWriteTarget before reaching this function.
  */
 async function ownerDirectChatId(address, deps) {
   const decoded = decodeIdentityAddress(address, 'chat_id')
@@ -562,6 +562,43 @@ async function requireChat(args, deps) {
   const explicit = args && typeof args.chat_id === 'string' ? args.chat_id.trim() : ''
   if (explicit) return await resolveChatIdInput(explicit, deps)
   throw new Error('chat_id is required; the gugu MCP server never infers a conversation target')
+}
+
+/** Personal writes use the caller's native session; a DM is only an older spelling of that same destination. */
+async function resolveWriteTarget(args, deps) {
+  const address = typeof args?.chat_id === 'string' ? args.chat_id.trim() : ''
+  if (!address) throw new Error('chat_id is required; the gugu MCP server never infers a conversation target')
+  if (deps.context.personalAssistant) return { chatId: await requireChat(args, deps) }
+  if (/^(aid|user|gugu):/.test(address)) {
+    const decoded = decodeIdentityAddress(address, 'chat_id')
+    const userId = decoded.kind === 'user' ? decoded.id : (await lookupGuguNumber(decoded.number, deps)).id
+    const owner = await currentAuthUserId(deps)
+    if (userId !== owner) throw new Error(`chat_id ${address} is not a chat: an identity address works here only for your owner; for anyone else use an id from message_conversations`)
+    return { owner }
+  }
+  const chatId = await requireChat(args, deps)
+  if (UUID_RE.test(chatId)) {
+    const kind = await chatKindOf(deps, chatId)
+    if (kind === 'dm' || kind === 'ai') {
+      const members = await memberRowsOfMyChat(chatId, deps)
+      const ids = new Set(members.map(row => row.user_id))
+      const owner = await currentAuthUserId(deps)
+      if (ids.size === 2 && ids.has(owner) && ids.has(deps.context.agentId)) return { owner, chatId }
+    }
+  }
+  return { chatId }
+}
+
+async function sendOwnerNotification(args, deps, target, recipients, file) {
+  if (!deps.context.runHostAction) throw new Error('The sending native session host is unavailable; no owner notification was sent')
+  if (recipients?.some(id => id !== target.owner)) throw new Error('An owner notification can address only your owner')
+  if (args.reply_to_message_id) throw new Error('A proactive owner notification has no IM reply_to_message_id; omit that field')
+  const requestId = randomUUID()
+  const receipt = await deps.context.runHostAction({ action: 'owner-notify', request_id: requestId,
+    agent_user_id: deps.context.agentId, text: args.text ?? '', ...(file ? { file } : {}) })
+  if (receipt?.status !== 'sent' || receipt.message_id !== requestId || typeof receipt.session_id !== 'string'
+    || !receipt.session_id || !Number.isSafeInteger(receipt.seq) || receipt.seq < 0) throw new Error('The native session did not confirm the owner notification commit')
+  return JSON.stringify({ ...receipt, delivery: 'owner-native' })
 }
 function normalizeRecipientInput(v) {
   if (typeof v !== 'string') return v
@@ -638,7 +675,7 @@ async function currentAuthUserId(deps) {
 // created_by 写 agent。❌ 以主人的 JWT 直读直写 workspace_items —— 那是主人的可见域,agent 不在的群也读得到。
 // 读写文件本身是群文件夹 App 的工具(preinstalled-apps/workspace/folder.mjs);这里只剩 App 平台以 agent 身份做的两件事:
 // app_install 的数据文件(groupDataFileOf)、app_check 的范围(extensionCheckScopeOf)。
-// CI 闸 scripts/check-im-server-direct-access.mjs 钉着:本文件不许出现 workspace_items 的 REST 路径。
+// CI 闸 scripts/checks/check-im-server-direct-access.mts 钉着:本文件不许出现 workspace_items 的 REST 路径。
 async function workspaceRpcRows(deps, name, body, label) {
   const rows = await deps.restRpc(name, { ...body, p_as_user_id: deps.context.agentId })
   if (!Array.isArray(rows)) throw new Error(`${label}: ${name} returned a non-list result`)
@@ -839,6 +876,27 @@ export async function extensionAttachmentOf(context, messageId, injected = {}) {
   // The message itself (#7290), old cards and new: the install reads it as the owner — its publisher is its sender (owner
   // 10-17), its bytes from attachments/urls — never from here, never a URL.
   return { message_id: String(message.id) }
+}
+
+/** A widget is one readable message in a chat this agent belongs to, just like an App attachment. */
+export async function widgetCheckScopeOf(context, messageId, injected = {}) {
+  const deps = createDeps(context, injected)
+  const unreadable = () => new Error(`app_check: there is no widget message ${messageId} you can read`)
+  if (typeof messageId !== 'string' || !UUID_RE.test(messageId)) throw unreadable()
+  const [message] = await deps.restGet(`messages?id=eq.${enc(messageId)}&select=id,chat_id,content,content_type,sender_user_id`)
+  if (!message || !(await agentCanSee(deps, message))) throw unreadable()
+  const members = await memberRowsOfMyChat(message.chat_id, deps)
+  if (!members.some((row) => String(row.user_id) === context.agentId)) throw unreadable()
+  const references = (message.content ?? '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+  if (references.length > 0 && references.length <= 4 && references.every(line => /^gugu-widget:\/\/\S+$/.test(line))) throw new Error('app_check: this message is a widget reference; pass its widget_id')
+  const widget = message.content_type === 'widget' ? parseWidgetMessage(message.content) : null
+  if (!widget) throw unreadable()
+  const { wid } = JSON.parse(message.content)
+  if (wid !== undefined && (typeof wid !== 'string' || !wid.length)) throw unreadable()
+  return {
+    tabKind: `${widget.app}.${widget.view}`, chatId: String(message.chat_id),
+    widget: { id: wid ?? String(message.id), messageId: String(message.id), senderId: String(message.sender_user_id), text: widget.text, data: widget.data ?? {}, ...(widget.height === undefined ? {} : { height: widget.height }) },
+  }
 }
 async function assertRecipientsAreMembers(chatId, toUserIds, deps) {
   if (!toUserIds || !toUserIds.length) return
@@ -1329,7 +1387,9 @@ async function handleMessage(args, deps) {
     }
   }
   const requestedRecipients = await resolveRecipientAddresses(normToList(args.to_user_ids), deps)
-  const chatId = await requireChat(args, deps)
+  const target = args.action === 'send' ? await resolveWriteTarget(args, deps) : { chatId: await requireChat(args, deps) }
+  if (target.owner) return sendOwnerNotification(args, deps, target, requestedRecipients)
+  const chatId = target.chatId
   if (args.action === 'send') {
     // @@@1244 — thread 归属由会话绑定决定，模型不可覆盖（防 thread 串话）。
     // 入站已按 acpSessionKey(agent,conv,threadRoot) 隔离到每 thread 一个 session；若出站让模型自由填
@@ -1371,6 +1431,9 @@ async function handleMessage(args, deps) {
         const friendId = await ownerFriendAmong(deps, new Set(memberRows.map((row) => String(row.user_id))))
         if (friendId) throw ownerFriendDmWriteError(chatId, friendId, 'message_send', 'message_send_as_owner')
       }
+      if (kind === 'group' && !memberRows.some((row) => String(row.user_id) === deps.context.agentId)) {
+        throw new Error(`message_send: you are not a member of group ${chatId}. Reply in your own session or use session_message to contact another session.`)
+      }
       // #849 非成员收件人 fail-loud(复用上面同一次成员查询;话题另收来源线成员,见 addressableUserIds)
       // addressableUserIds 回 null = 它算不出可点名集合(来源线名单读不到)⇒ 这一关跳过,交给服务端判。
       const addressable = await addressableUserIds(deps, chatId, kind, memberRows)
@@ -1394,7 +1457,7 @@ async function handleMessage(args, deps) {
         throw new Error('message_send: a reply in a group chat requires explicit to_user_ids')
       }
       // 寻址表达一致性（spec「寻址的表达」）：群聊里校验并修补正文 @ 与 to_user_ids。DM 的寻址隐含
-      // （对端唯一），不适用；widget 是 HTML 不适用。零寻址的 group send 还须加载 agent 名册，阻止正文
+      // （对端唯一），不适用；widget 有独立的 App 视图发送入口。零寻址的 group send 还须加载 agent 名册，阻止正文
       // 裸名形成“看得见但没唤醒”的静默断链；reply 或已寻址消息不让系统替作者重判意图。
       let sendText = args.text
       const addressesNobody = !toUserIds?.length && !isReply
@@ -1498,7 +1561,7 @@ async function myChats(deps) {
  */
 async function ownerFriendIds(deps, ownerUserId) {
   const friendships = await deps.restGet(
-    `friendships?or=(user_a_id.eq.${enc(ownerUserId)},user_b_id.eq.${enc(ownerUserId)})&select=user_a_id,user_b_id`,
+    `active_friendships?or=(user_a_id.eq.${enc(ownerUserId)},user_b_id.eq.${enc(ownerUserId)})&select=user_a_id,user_b_id`,
     'identity',
   )
   const ids = new Set()
@@ -1545,7 +1608,7 @@ async function ownerFriendDms(deps) {
   const dms = (Array.isArray(chats) ? chats : []).filter((chat) => chat.kind === 'dm')
   if (!dms.length || !friendIds.size) return []
   const memberRows = await restGetInBatches(dms.map((chat) => chat.chat_id), (batch) =>
-    deps.restGet(`chat_members?chat_id=in.(${batch.map(enc).join(',')})&select=chat_id,user_id`))
+    deps.restGet(`active_members?chat_id=in.(${batch.map(enc).join(',')})&select=chat_id,user_id`))
   const membersByChat = new Map()
   for (const row of memberRows) {
     if (!membersByChat.has(row.chat_id)) membersByChat.set(row.chat_id, new Set())
@@ -1621,7 +1684,7 @@ async function assertNotOwnerFriendDm(deps, chatId, toolName, ownerToolName) {
  */
 async function ownerPinnedChatIds(deps) {
   const ownerUserId = await currentAuthUserId(deps)
-  const rows = await deps.restGet(`chat_members?user_id=eq.${enc(ownerUserId)}&is_pinned=is.true&select=chat_id`)
+  const rows = await deps.restGet(`active_members?user_id=eq.${enc(ownerUserId)}&is_pinned=is.true&select=chat_id`)
   return new Set((Array.isArray(rows) ? rows : []).map((row) => row.chat_id))
 }
 
@@ -1780,7 +1843,7 @@ async function handleConv(args, deps) {
     // 好友关系的唯一真值是 identity.friendships（无 status 列，行存在即已接受；#1985 收敛后 chat.contacts 是死表）。
     // owner token + fs_select RLS 只回当事人两行，两向匹配即「是 owner 的好友」。❌ 吞错：查失败要响亮报错。
     const friendships = await deps.restGet(
-      `friendships?or=(user_a_id.eq.${enc(hit.id)},user_b_id.eq.${enc(hit.id)})&select=user_a_id,user_b_id`,
+      `active_friendships?or=(user_a_id.eq.${enc(hit.id)},user_b_id.eq.${enc(hit.id)})&select=user_a_id,user_b_id`,
       'identity',
     )
     return JSON.stringify({
@@ -1990,7 +2053,7 @@ async function friendsWithPinnedDm(deps, ownerUserId, friendIds) {
     deps.restGet(`chats?id=in.(${batch.map(enc).join(',')})&kind=eq.dm&select=id`))
   if (!dms.length) return new Set()
   const peers = await restGetInBatches(dms.map((row) => row.id), (batch) =>
-    deps.restGet(`chat_members?chat_id=in.(${batch.map(enc).join(',')})&user_id=neq.${enc(ownerUserId)}&select=chat_id,user_id`))
+    deps.restGet(`active_members?chat_id=in.(${batch.map(enc).join(',')})&user_id=neq.${enc(ownerUserId)}&select=chat_id,user_id`))
   const friends = new Set(friendIds)
   return new Set(peers.map((row) => row.user_id).filter((id) => friends.has(id)))
 }
@@ -2062,10 +2125,17 @@ async function handleProfile(args, deps) {
 
 
 
+/** The bytes of a file on this computer that the shared classifier makes a text document; `null` for stored bytes. */
+async function documentUploadBytes(args) {
+  const bytes = await readUploadBytes('message_send_file', args, ATTACHMENT_MAX_BYTES)
+  const contentType = resolveAttachmentMimeType(basename(String(args.file_path)), args.mime_type)
+  return workspaceUploadKind(resolveUploadName(args), contentType, new Uint8Array(bytes)).kind === 'document' ? bytes : null
+}
+
 // gugu_file:send-file = 字节经 attachments/upload 直传 OSS,attachments/commit 放进会话的「附件」、发一条附件消息(#7290 gugu-3,
 // 和人发附件同一条路);download = 按消息 id 把附件下到本机(downloadAttachment)。
-async function uploadForSend(args, deps, label, chatId) {
-  const bytes = await readUploadBytes(label, args, ATTACHMENT_MAX_BYTES)
+async function uploadForSend(args, deps, label, chatId, read) {
+  const bytes = read ?? await readUploadBytes(label, args, ATTACHMENT_MAX_BYTES)
   const fileName = resolveUploadName(args)
   const contentType = resolveAttachmentMimeType(basename(String(args.file_path)), args.mime_type)
   const endpoint = await deps.attachmentsEndpoint()
@@ -2073,13 +2143,12 @@ async function uploadForSend(args, deps, label, chatId) {
 }
 
 /**
- * A project chat that keeps its files on its machine (file storage policy): on that machine a file other than an image is
- * published by the host, through the one publisher the composer uses — it stays on the machine, the message pins it.
- * `next` (a folder file and the version it started from) makes it that file's next version — an image too: a file kept
- * on the machine changes only there. Null when this is not that machine or chat, or for a new image (uploaded when
- * sent): the ordinary upload then decides.
+ * A project chat: a file other than an image stays on this machine, through the one publisher the composer uses — the
+ * message pins it. `next` (a folder file and the version it started from) makes it that file's next version, kept here
+ * too, an image included. Null when this is not a project chat, the account uploads its files, or for a new image
+ * (uploaded when sent): the ordinary upload then decides.
  */
-async function publishOnHost(args, deps, chatId, message, next) {
+async function publishHere(args, deps, chatId, message, next) {
   const publish = deps.context.publishFile
   if (!publish) return null
   const fileName = resolveUploadName(args)
@@ -2093,48 +2162,6 @@ async function publishOnHost(args, deps, chatId, message, next) {
   const sent = await publish(chatId, { name: fileName, path: target, size: info.size, contentType }, deps.context.agentId,
     { ...message, file_name: fileName, content_type: contentType }, next)
   return sent?.message ?? null
-}
-
-/** Every layer's way of saying only the machine that keeps a project chat's files may add or change them. */
-const KEPT_ON_HOST = /Only the bound (file )?host|not uploaded proactively|Remote project files are read-only|Local revisions must be published by the host/
-
-/**
- * The machine that keeps a project chat's files, as people know it: its name and whose computer it is (the name is in
- * file_project_policy_for, or already in a handoff's answer), the way a project file's mark names it to the chat's members.
- */
-async function hostMachineOf(deps, chatId, known = null) {
-  const policy = known?.host_account_id ? known : await deps.restRpc('file_project_policy_for', { p_chat: chatId, p_as: deps.context.agentId }).catch(() => null)
-  const account = typeof policy?.host_account_id === 'string' ? policy.host_account_id : null
-  const label = typeof policy?.host_label === 'string' && policy.host_label.trim() ? policy.host_label.trim() : null
-  const [owner] = account ? await deps.restGet(`users?id=eq.${enc(account)}&select=display_name`, 'identity').catch(() => []) : []
-  const ownerName = owner?.display_name || null
-  const computer = ownerName ? `${ownerName}'s computer` : 'another computer', computerZh = ownerName ? `${ownerName} 的电脑` : '另一台电脑'
-  return label ? { en: `"${label}" (${computer})`, zh: `「${label}」（${computerZh}）` } : { en: computer, zh: computerZh }
-}
-
-/**
- * The refusal said for people: whose computer keeps this project chat's files, that only an agent there can add or change
- * them, and that nothing was sent — never the layers' words for it ("published by the host").
- */
-async function keptOnHostRefusal(deps, chatId, fileName) {
-  const machine = await hostMachineOf(deps, chatId)
-  return `message_send_file: ${fileName} was not sent, and nothing was changed. This project chat keeps its files on ${machine.en}, `
-    + `and only an agent on that computer can add or change them here.\n`
-    + `${fileName} 没有发出去，什么都没改。这个项目群的文件存在${machine.zh}上，只有那台电脑上的 agent 能在这里添加或修改。`
-}
-
-/**
- * #791: the publisher handed a next version to the machine that keeps the file, and that machine did not write it (offline,
- * or not in time): which machine, that the changed copy is where it was, and what to do.
- */
-async function handoffRefusal(deps, chatId, args, outcome) {
-  const fileName = resolveUploadName(args), machine = await hostMachineOf(deps, chatId, outcome)
-  const why = outcome.status === 'host_offline'
-    ? { en: `${machine.en} keeps this project chat's files and is offline`, zh: `这个项目群的文件存在${machine.zh}上，它现在离线` }
-    : { en: `${machine.en} keeps this project chat's files and did not take the new version in time`, zh: `这个项目群的文件存在${machine.zh}上，它没有及时收下新版本` }
-  return `message_send_file: ${fileName} was not sent, and nothing was changed: ${why.en}. Your changed copy is still at ${args.file_path}. `
-    + `Send it again with file ${args.file} once that computer is online, or ask an agent on that computer to make the change.\n`
-    + `${fileName} 没有发出去，什么都没改：${why.zh}。改好的副本还在 ${args.file_path}。等那台电脑上线以后用同一个 file（${args.file}）再发一次，或者请那台电脑上的 agent 来改。`
 }
 
 /** A next version that started from a version the file is no longer at: nothing was sent, and what to do. */
@@ -2251,7 +2278,30 @@ function withFolderFile(row) {
 
 async function handleFile(args, deps) {
   if (args.action === 'send-file') {
-    const chatId = await requireChat(args, deps)
+    const target = await resolveWriteTarget(args, deps)
+    if (target.owner) {
+      const recipients = await resolveRecipientAddresses(normToList(args.to_user_ids), deps)
+      let filePath = args.file_path
+      let name = args.file_name
+      let mime = args.mime_type
+      const folder = folderFileArg(args.file)
+      if (folder && filePath) throw new Error('An owner notification keeps a task-file snapshot; replacing a conversation-folder revision needs that folder\'s file operation')
+      if (folder) {
+        const resolved = await deps.resolveFile({ item_id: folder.itemId, ...(folder.version ? { version: folder.version } : {}) })
+        if (resolved.status !== 'ready') throw new Error('The file version for this owner notification is not readable')
+        const home = String(deps.context.guguHome ?? '').trim()
+        if (!home) { await resolved.dispose(); throw new Error('The native session file cache is unavailable') }
+        mime ??= resolved.revision.content_type
+        name ??= resolved.revision.file_name
+        const saved = await saveFileHandle(resolved, joinPath(home, 'session-media'), name)
+        filePath = saved.file_path
+      }
+      if (!filePath) throw new Error('message_send_file: give file_path or an existing folder file')
+      name ??= basename(filePath)
+      mime ??= resolveAttachmentMimeType(name, undefined)
+      return sendOwnerNotification(args, deps, target, recipients, { path: filePath, name, mime_type: mime })
+    }
+    const chatId = target.chatId
     await assertNotOwnerFriendDm(deps, chatId, 'message_send_file', 'message_send_file_as_owner')
     const toUserIds = await resolveRecipientAddresses(normToList(args.to_user_ids), deps)
     const folderFile = folderFileArg(args.file)
@@ -2266,29 +2316,26 @@ async function handleFile(args, deps) {
     const thread = { thread_root_id: deps.context.threadRootId ?? null }
     let message
     let fileName
+    // A text file the shared classifier makes a document goes up through the attachments commit, where the server makes it
+    // one (as a person's upload does); only stored bytes are published from a project.
+    let documentBytes = null
     if (folderFile && !args.file_path) {
-      // 按引用发:消息钉住群文件夹里那个文件的那一版,不传字节(gugu-supabase attachment_share)。
-      const [row] = await deps.restRpc('attachment_share', {
-        p_item_id: folderFile.itemId, p_version: folderFile.version ?? null, p_message_id: messageId, p_chat_id: chatId,
-        p_sender_user_id: deps.context.agentId, p_to_user_ids: toUserIds ?? [], p_thread_root_id: thread.thread_root_id,
+      // 按引用发(attachments/share):消息钉住群文件夹里那个文件的那一版,不传字节;文本文件钉住它此刻的正文。
+      message = await shareAttachment(await deps.attachmentsEndpoint(), {
+        item_id: folderFile.itemId, version: folderFile.version ?? null, message_id: messageId, chat_id: chatId,
+        sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread,
       })
-      message = row
-      fileName = attachmentNameOf(row ?? {})
-    } else if ((message = await publishOnHost(args, deps, chatId, { message_id: messageId, chat_id: chatId,
+      fileName = attachmentNameOf(message)
+    } else if (!(documentBytes = folderFile ? null : await documentUploadBytes(args)) && (message = await publishHere(args, deps, chatId, { message_id: messageId, chat_id: chatId,
       sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread },
       folderFile ? { itemId: folderFile.itemId, expectedVersion: folderFile.version } : undefined).catch(async (error) => {
       const said = String(error?.message ?? error)
-      if (error?.name === 'NextVersionHandoffRefused') throw new Error(await handoffRefusal(deps, chatId, args, error.outcome))
-      if (KEPT_ON_HOST.test(said)) throw new Error(await keptOnHostRefusal(deps, chatId, resolveUploadName(args)))
       if (folderFile && /File revision conflict/.test(said)) throw new Error(newerVersionRefusal(args.file, folderFile.version))
       throw error
     }))) {
       fileName = resolveUploadName(args)
     } else {
-      const upload = await uploadForSend(args, deps, 'message_send_file', chatId).catch(async (error) => {
-        if (!(error instanceof AttachmentsError && KEPT_ON_HOST.test(error.message))) throw error
-        throw new Error(await keptOnHostRefusal(deps, chatId, resolveUploadName(args)))
-      })
+      const upload = await uploadForSend(args, deps, 'message_send_file', chatId, documentBytes ?? undefined)
       const { endpoint, contentType, stagingKey } = upload
       fileName = upload.fileName
       const commit = {
@@ -2306,7 +2353,6 @@ async function handleFile(args, deps) {
         ...(args.temporary === true ? { keep: 'temporary' } : {}),
       }
       message = await commitWithReplay(() => commitAttachment(endpoint, commit)).catch(async (error) => {
-        if (error instanceof AttachmentsError && KEPT_ON_HOST.test(error.message)) throw new Error(await keptOnHostRefusal(deps, chatId, fileName))
         if (!(error instanceof AttachmentsError && error.code === 'version_conflict')) throw error
         throw new Error(newerVersionRefusal(args.file, folderFile.version))
       })
@@ -2344,7 +2390,7 @@ const toUserIdsSchema = z.preprocess(normalizeRecipientInput, z.array(
 // 正文的规矩只在 message_send 上写一次(P5);别的工具拒收时,报错原话会说清楚。
 const CHAT_MESSAGE_TEXT_RULES = 'Message body in Markdown. Visible escaped line breaks and malformed math are rejected.'
 const chatMessageTextSchema = z.string()
-const chatRecipientsSchema = toUserIdsSchema.describe(`Who you address and notify; multiple recipients allowed. ${RECIPIENT_ADDRESS_FORMS} Plain names in text address nobody; @mentions must match this list.`)
+const chatRecipientsSchema = toUserIdsSchema.describe(`Who you address and notify; multiple recipients allowed. ${RECIPIENT_ADDRESS_FORMS} @mentions must match this list.`)
 // 话题里点名 = 把人拉进来,所以收件人**必填**:一条谁也没点名的邀请消息拉不进任何人,是静默的空动作。
 // 地址形态与 chatRecipientsSchema 同一份契约(RECIPIENT_ADDRESS_FORMS),只是去掉 optional。
 const topicInviteeIdsSchema = z.preprocess(normalizeRecipientInput, z.array(recipientIdSchema).min(1)).describe(
@@ -2554,7 +2600,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'topic_list',
-    description: 'The topics of one chat; is_participant: whether you are in it (only participants are notified). Check here before opening a second line for a question.',
+    description: 'The topics of one chat; is_participant: whether you are in it.',
     schema: z.object({
       chat_id: chatIdSchema.describe('The source chat.'),
       ...listWindowShape,
@@ -2711,7 +2757,7 @@ export const TOOL_DEFS = [
   // ── profile_ ── 自己的资料 + 咕咕号解析
   {
     name: 'profile_whoami',
-    description: 'Your profile, owner, and groups with your role and listen_mode. Your name can change: read it here.',
+    description: 'Your profile, owner, and groups with your role and listen_mode.',
     schema: z.object({}),
     handler: (args, deps) => handleProfile({ ...args, action: 'whoami' }, deps),
   },
@@ -2831,17 +2877,34 @@ export async function callToolWithState(context, name, args, deps, state) {
   return dispatchTool(context, name, args, deps, state)
 }
 
+/** App widgets use the same message identity, group-rules and thread boundaries as text sends, without recipients. */
+export async function sendWidgetOf(context, args, content, injected = {}, state = createSessionState()) {
+  if (context.forkOf !== undefined) throw new Error('widget_send is unavailable in a side chat')
+  const deps = createDeps(context, injected, state)
+  const decoded = decodeImArgs(args)
+  const chatId = await requireChat(decoded, deps)
+  await assertGroupRulesSeen(deps, chatId, 'widget_send')
+  const replyToMessageId = decoded.reply_to_message_id ?? null
+  if (replyToMessageId) {
+    const source = await replySourceOf(deps, chatId, replyToMessageId, context.threadRootId ?? null)
+    if (source.is_whisper) throw new Error('widget_send cannot publish a reply to a whisper')
+  }
+  const members = await memberRowsOfMyChat(chatId, deps)
+  if (!members.some(member => String(member.user_id) === context.agentId)) throw new Error('widget_send: the agent must be a member of this chat')
+  const row = buildMessageRow(context, { id: randomUUID(), chatId, content, contentType: 'widget', replyToMessageId, threadRootId: context.threadRootId ?? null })
+  await postCommandMessageRow(deps, row)
+  return `sent (id=${row.id})`
+}
+
 // ── MCP server（官方 SDK） ─────────────────────────────────────────
 // 不连 transport——便于单测用 InMemoryTransport 接客户端；deps 可注入免 live REST。
 export function createGuguImServer(getContext, deps = {}) {
   const server = new McpServer({ name: GUGU_MCP_SERVER_NAME, version: '0.3.0' })
-  const state = createSessionState()
+  const state = deps.state ?? createSessionState()
   for (const def of TOOL_DEFS) {
     const permissive = MESSAGE_WRITER_TOOLS.has(def.name)
     registerGuguTool(server, { ...def, permissive, preflight: permissive ? preflightGuguMessageArgs : undefined }, async (toolArgs, requestSignal) => {
-      const signal = deps.signal
-        ? AbortSignal.any([deps.signal, requestSignal])
-        : requestSignal
+      const signal = anySignal([deps.signal, requestSignal])
       const current = getContext()
       const context = {
         ...current,

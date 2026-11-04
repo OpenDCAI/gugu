@@ -1,3 +1,4 @@
+import { SessionBootTasks } from '../../../../packages/core/src/shared/sessionBootTasks'
 /**
  * #7225 拉收件箱那一脚是 fire-and-forget:登录态拿不到(含续期被拒的 RuntimeAuthExpiredError)时只记一行 warn,
  * ❌ 漏成「未处理的 Promise 拒绝」。云电脑实撞:server 的续期令牌作废后开机,开机扫对每个 agent 踢一脚,
@@ -77,4 +78,13 @@ describe('kickInboxWhenAuthed (#7225)', () => {
     expect(warn).not.toHaveBeenCalled()
     expect(unhandled).toEqual([])
   })
+  it('reports boot failure through the shared owner without rejecting startup', async () => {
+    const tasks = new SessionBootTasks(vi.fn())
+    await expect(kickInboxWhenAuthed({ agentUserId: 'bad-agent', trigger: 'boot-scan', getAuth: async () => auth,
+      kick: () => { throw new Error('boot inbox refusal') }, log: { warn: vi.fn() },
+      onFailure: error => tasks.record('inbox-wake', 'bad-agent', error),
+    })).resolves.toBeUndefined()
+    expect(tasks.snapshot()).toEqual([{ operation: 'inbox-wake', taskId: 'bad-agent', message: 'boot inbox refusal' }])
+  })
+
 })

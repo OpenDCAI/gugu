@@ -3,7 +3,8 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { zstdCompressSync } from 'node:zlib';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { awaitPending } from '../../../../../tests/support/awaitFact';
 
 import type { RecordEntry, SessionRecordSource, TimelineAfterResult } from '../contract';
@@ -57,6 +58,106 @@ function start(source: SessionRecordSource): Promise<ContentEntry[]> {
 }
 
 describe('codex rollout 记录源', () => {
+  it('reads archived zstd through the same decoder only in snapshot mode', async () => {
+    const { root, file } = await stage();
+    const expected = await startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }));
+    await writeFile(`${file}.zst`, zstdCompressSync(await readFile(file)));
+    await rm(file);
+    const locator = { harness: 'codex' as const, providerSessionId: THREAD_ID, roots: [root] };
+    await expect(startAll(createCodexJsonlSource(locator))).rejects.toBeInstanceOf(SessionRecordNotFoundError);
+    const source = createCodexJsonlSource(locator, { readMode: 'snapshot' });
+    const entries = await startAll(source);
+    expect(recordProjection(entries)).toEqual(recordProjection(expected));
+    await source.catchUp?.();
+    expect(recordProjection(entries)).toEqual(recordProjection(expected));
+    expect(await source.resumePoint?.()).toBeNull();
+    expect(entries.every(entry => !entry.imageOrigins)).toBe(true);
+  });
+
+  it('keeps compressed tool images inline instead of assigning unreadable compressed-file offsets', async () => {
+    const line = (payload: unknown) => JSON.stringify({ type: 'response_item', payload });
+    const { root, file } = await stage([
+      line({ type: 'function_call', name: 'catalog_call', namespace: 'mcp__gugu', arguments: '{}', call_id: 'picture' }),
+      line({ type: 'function_call_output', call_id: 'picture', output: [{ type: 'input_image', image_url: 'data:image/png;base64,aGVsbG8=' }] }),
+    ]);
+    await writeFile(`${file}.zst`, zstdCompressSync(await readFile(file)));
+    await rm(file);
+    const timeline = await createSessionTimeline(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID,
+      roots: [root] }, { readMode: 'snapshot' }), { sessionId: 'compressed' });
+    disposers.push(() => timeline.dispose());
+    const tool = collectItems(timeline.getSnapshot().turns).find((item): item is ToolCallItem => item.kind.endsWith('-tool-call'));
+    expect(tool?.images).toEqual([{ mimeType: 'image/png', data: 'aGVsbG8=' }]);
+    expect(tool).not.toHaveProperty('imageRefs');
+  });
+
+  it('prefers an available JSONL in another root over a compressed archive', async () => {
+    const archived = await stage([]), live = await stage();
+    await writeFile(`${archived.file}.zst`, zstdCompressSync(await readFile(archived.file)));
+    await rm(archived.file);
+    const entries = await startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID,
+      roots: [archived.root, live.root] }, { readMode: 'snapshot' }));
+    expect(entries.length).toBeGreaterThan(0);
+  });
+
+  it.each(['damaged', 'truncated'])('fails a %s zstd snapshot rather than returning empty history', async damage => {
+    const { root, file } = await stage();
+    const compressed = zstdCompressSync(await readFile(file));
+    await writeFile(`${file}.zst`, damage === 'damaged' ? Buffer.from('not zstd') : compressed.subarray(0, compressed.length - 4));
+    await rm(file);
+    await expect(startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] },
+      { readMode: 'snapshot' }))).rejects.toThrow();
+  });
+
+  it('rejects a zero-byte zstd archive as damaged history', async () => {
+    const { root, file } = await stage();
+    await writeFile(`${file}.zst`, Buffer.alloc(0)); await rm(file);
+    await expect(startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] },
+      { readMode: 'snapshot' }))).rejects.toThrow('Empty zstd snapshot');
+  });
+
+  it.each(['half-line', 'unterminated-object'])('reads only newline-terminated JSONL records before a %s', async kind => {
+    const { root, file } = await stage();
+    const expected = recordProjection(await startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] })));
+    const fragment = kind === 'half-line' ? '{"type":' : JSON.stringify({ type: 'event_msg',
+      payload: { type: 'user_message', message: 'not a newline-terminated record' } });
+    await appendFile(file, fragment);
+    const warn = vi.fn();
+    const source = createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }, { readMode: 'snapshot', warn });
+    expect(recordProjection(await startAll(source))).toEqual(expected);
+    expect(warn).toHaveBeenCalledExactlyOnceWith('Ignored unterminated JSONL snapshot fragment', { bytes: Buffer.byteLength(fragment) });
+    await source.catchUp?.();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['empty', 'no-newline', 'half-line', 'wrong-size'])('rejects a %s compressed snapshot instead of claiming complete history', async kind => {
+    const { root, file } = await stage();
+    const complete = await readFile(file);
+    const content = kind === 'empty' ? Buffer.alloc(0) : kind === 'no-newline' ? complete.subarray(0, complete.length - 1)
+      : kind === 'half-line' ? Buffer.concat([complete, Buffer.from('{"type":')]) : complete;
+    const compressed = zstdCompressSync(content);
+    if (kind === 'wrong-size') {
+      const descriptor = compressed[4];
+      const offset = 5 + (descriptor & 32 ? 0 : 1) + [0, 1, 2, 4][descriptor & 3];
+      compressed[offset] ^= 1;
+    }
+    await writeFile(`${file}.zst`, compressed); await rm(file);
+    await expect(startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] },
+      { readMode: 'snapshot' }))).rejects.toThrow();
+  });
+
+  it('reads concatenated complete frames, including a skipped metadata frame, through the same UTF-8 decoder', async () => {
+    const { root, file } = await stage();
+    const content = await readFile(file);
+    const expected = await startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }));
+    const metadata = Buffer.alloc(11);
+    metadata.writeUInt32LE(0x184d2a50, 0); metadata.writeUInt32LE(3, 4); metadata.fill(1, 8);
+    const split = Math.floor(content.length / 2);
+    await writeFile(`${file}.zst`, Buffer.concat([zstdCompressSync(content.subarray(0, split)), metadata, zstdCompressSync(content.subarray(split))]));
+    await rm(file);
+    const entries = await startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }, { readMode: 'snapshot' }));
+    expect(recordProjection(entries)).toEqual(recordProjection(expected));
+  });
+
   it('resets an old client after restoring a stale archive, even after the publisher passes its old seq', async () => {
     const { root, file } = await stage();
     const open = async (epoch: string, archive?: TimelineArchive | null) => {

@@ -1,106 +1,27 @@
-import { createGuguSupabaseClient } from './supabase'
+export const PERMANENT_REMOVAL_RPCS = { agent: 'remove_owned_agent', device: 'remove_device' } as const
 
-// @@@ cloud — see git history for full context.
-
-// Narrow port over the two supabase ops this needs, so the decision logic is unit-testable without a
-// real client. A missing active row is indeterminate: the owner-scoped removal RPC distinguishes an
-// owned tombstone (idempotent success) from an unauthorized/unknown id (explicit error).
-export interface AgentIdentityRemovalClient {
-  getAgentHomeDevice(agentUserId: string): Promise<{ deviceId: string | null } | null>
-  removeOwnedAgent(agentUserId: string): Promise<{ error: string | null }>
+/** The retained identity row is the removal fact; membership rows are never written here. */
+export async function archiveIdentity(client: {
+  rpc(name: 'archive_user', args: { p_user_id: string; p_remove_social_identity: boolean }): PromiseLike<{ data: unknown; error: { message: string } | null }>
+}, userId: string, removeSocialIdentity = true): Promise<{ userId: string; removedAt: string | null }> {
+  const { data, error } = await client.rpc('archive_user', { p_user_id: userId, p_remove_social_identity: removeSocialIdentity })
+  if (error) throw new Error(error.message, { cause: error })
+  const receipt = data as { user_id?: unknown; removed_at?: unknown; remove_social_identity?: unknown } | null
+  if (receipt?.user_id !== userId || receipt.remove_social_identity !== removeSocialIdentity
+    || (removeSocialIdentity ? typeof receipt.removed_at !== 'string' || !Number.isFinite(Date.parse(receipt.removed_at)) : receipt.removed_at !== null)) {
+    throw new Error('Identity archival receipt does not match the requested identity and option')
+  }
+  return { userId, removedAt: receipt.removed_at as string | null }
 }
 
-export interface RemoveAgentCloudIdentityInput {
-  agentUserId: string
-  deviceId: string
-  client: AgentIdentityRemovalClient
-}
+type RemovalResult = PromiseLike<{ error: { message: string } | null }>
+type AgentRemoval = { agentId: string; client: { rpc(name: 'remove_owned_agent', args: { p_agent_user_id: string }): RemovalResult } }
+type DeviceRemoval = { deviceId: string; cascade?: boolean; client: { rpc(name: 'remove_device', args: { p_device_id: string; p_cascade: boolean }): RemovalResult } }
 
-export type RemoveAgentCloudIdentityOutcome =
-  | { removed: true }
-  | { removed: false; reason: 'not-owned'; message?: string }
-  | { removed: false; reason: 'not-homed'; message?: string }
-  | { removed: false; reason: 'error'; message?: string }
-
-// Pure decision logic over the injected client. Home-guard: only delete when we POSITIVELY know this
-// device is the agent's home. A read that comes back indeterminate (network/RLS hiccup) proceeds —
-// remove_owned_agent is itself owner-scoped, so proceeding is still safe.
-export async function removeAgentCloudIdentity(
-  input: RemoveAgentCloudIdentityInput
-): Promise<RemoveAgentCloudIdentityOutcome> {
-  let homeDeviceId: string | null = null
-  let readIndeterminate = false
-  try {
-    const row = await input.client.getAgentHomeDevice(input.agentUserId)
-    if (row !== null) homeDeviceId = row.deviceId
-    else readIndeterminate = true
-  } catch {
-    readIndeterminate = true
-  }
-
-  if (!readIndeterminate && homeDeviceId && homeDeviceId !== input.deviceId) {
-    return {
-      removed: false,
-      reason: 'not-homed',
-      message: `agent is homed on device ${homeDeviceId}, not this device (${input.deviceId}); cloud identity left intact`
-    }
-  }
-
-  try {
-    const { error } = await input.client.removeOwnedAgent(input.agentUserId)
-    if (error) {
-      // "Agent is not owned by current user" means it's already gone (or never ours) — idempotent no-op.
-      if (/\bnot owned\b/i.test(error)) {
-        return { removed: false, reason: 'not-owned', message: error }
-      }
-      return { removed: false, reason: 'error', message: error }
-    }
-    return { removed: true }
-  } catch (err) {
-    return { removed: false, reason: 'error', message: (err as Error).message }
-  }
-}
-
-// Thin supabase adapter: builds an owner-authenticated identity-schema client and the two port methods.
-// `getAgentHomeDevice` returns null when no active row is visible; the RPC remains the authority for
-// deciding whether that means an owned tombstone or an unauthorized id.
-export interface RemoveAgentCloudIdentityViaSupabaseInput {
-  agentUserId: string
-  accessToken: string
-  deviceId: string
-  fetch?: typeof fetch
-}
-
-export async function removeAgentCloudIdentityViaSupabase(
-  input: RemoveAgentCloudIdentityViaSupabaseInput
-): Promise<RemoveAgentCloudIdentityOutcome> {
-  const client = createGuguSupabaseClient({
-    schema: 'identity',
-    headers: { Authorization: `Bearer ${input.accessToken}` },
-    fetch: input.fetch
-  })
-
-  const port: AgentIdentityRemovalClient = {
-    async getAgentHomeDevice(agentUserId: string) {
-      const { data, error } = await client
-        .from('users')
-        .select('device_id')
-        .eq('id', agentUserId)
-        .eq('type', 'agent')
-        .maybeSingle()
-      if (error) throw new Error(error.message)
-      if (!data) return null
-      return { deviceId: (data as { device_id?: string | null }).device_id ?? null }
-    },
-    async removeOwnedAgent(agentUserId: string) {
-      const { error } = await client.rpc('remove_owned_agent', { p_agent_user_id: agentUserId })
-      return { error: error ? (error as { message?: string }).message ?? String(error) : null }
-    }
-  }
-
-  return removeAgentCloudIdentity({
-    agentUserId: input.agentUserId,
-    deviceId: input.deviceId,
-    client: port
-  })
+/** Explicit permanent removal. Callers use their existing confirmation UI and backend authorization. */
+export async function permanentlyRemove(target: AgentRemoval | DeviceRemoval): Promise<void> {
+  const { error } = 'agentId' in target
+    ? await target.client.rpc(PERMANENT_REMOVAL_RPCS.agent, { p_agent_user_id: target.agentId })
+    : await target.client.rpc(PERMANENT_REMOVAL_RPCS.device, { p_device_id: target.deviceId, p_cascade: target.cascade ?? false })
+  if (error) throw new Error(error.message, { cause: error })
 }

@@ -52,14 +52,14 @@ export async function baseline(db: AppDb): Promise<void> {
     {
       id: CONV_A1_ID,
       projectId: PROJECT_A_ID,
-      title: 'Plan workspace schema',
+      config: { version: '1', type: 'pty', agentDisplayName: 'Plan workspace schema' },
       provider: 'anthropic',
       workspaceId: `local:${PROJECT_A_ID}:branch:feat/workspace-db`,
     },
     {
       id: CONV_A2_ID,
       projectId: PROJECT_A_ID,
-      title: 'Design fixture tooling',
+      config: { version: '1', type: 'pty', agentDisplayName: 'Design fixture tooling' },
       provider: 'anthropic',
       workspaceId: `local:${PROJECT_A_ID}:branch:feat/migration-testing`,
     },

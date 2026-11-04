@@ -1,4 +1,4 @@
-import { verifiedFileHandle } from '../../helpers/verifiedFileHandle'
+import { verifiedFileHandle } from '../../support/verifiedFileHandle'
 // @@@share-with-apps 与其他 App 互传(product spec)。
 //
 // 原生插件只搬运,判据在渲染层 —— 这里判的是判据:一条消息交出去的是什么、分享进来的内容接到哪条草稿上、
@@ -340,8 +340,10 @@ describe('原生那一侧接上了', () => {
     expect(has('SEND_MULTIPLE', /android:mimeType="\*\/\*"/)).toBe(true)
     const view = filters.find((f) => f.includes('action.VIEW') && f.includes('android:scheme="content"'))
     expect(view).toBeDefined()
-    // 只认真文件的五个大类:*/* 会连文件夹、存储根(vnd.android.document/*)一起匹配。
-    expect(view!.match(/android:mimeType="([^"]+)"/g)).toEqual(['application/*', 'image/*', 'video/*', 'audio/*', 'text/*'].map((t) => `android:mimeType="${t}"`))
+    // VIEW 只接现有文件类型,不能把 APK 或存储根列进「用咕咕打开」;具体支持边界见 androidOpenWithMime.test.ts。
+    expect(view).not.toContain('android:mimeType="application/*"')
+    expect(view).not.toContain('android:mimeType="*/*"')
+    for (const type of ['application/pdf', 'image/*', 'video/*', 'audio/*', 'text/*']) expect(view).toContain(`android:mimeType="${type}"`)
     // 「打开方式」里那一项叫「发送到咕咕」,资源由 build.gradle 按档位生成。
     expect(filters.find((f) => f.includes('action.VIEW'))).toContain('android:label="@string/share_target_open_with"')
     expect(read('apps/mobile/android/app/build.gradle')).toMatch(/resValue "string", "share_target_open_with", "发送到\$\{guguAppLabel\}"/)

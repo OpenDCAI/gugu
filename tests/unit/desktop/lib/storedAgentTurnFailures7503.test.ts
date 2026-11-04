@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ identityDb: {} }))
 import { storedAgentRecoveries, storedAgentTurnFailures } from '../../../../apps/desktop/src/lib/storedAgentTurnFailures'
 
-const row = (id: string, agent = 'agent', status = 'error', extra = {}) => ({ id, payload: { agent_user_id: agent }, status, error: 'weekly limit reached', completed_at: '2026-10-19T08:00:00Z', ...extra })
+const context = { reply_notice: 'context', reason: 'weeklyQuota' }
+const row = (id: string, agent = 'agent', status = 'error', extra = {}) => ({ id, payload: { agent_user_id: agent }, status, result: context, completed_at: '2026-10-19T08:00:00Z', ...extra })
 describe('持久投递结果在其他设备上的投影', () => {
   it('后来的成功/重试盖掉同一Agent的旧失败', () => {
     expect(storedAgentTurnFailures([row('new', 'agent', 'done'), row('old')], ['agent'])).toEqual([])
@@ -11,14 +12,27 @@ describe('持久投递结果在其他设备上的投影', () => {
   it('其他Agent的成功不会清掉这一位的失败，且忽略不在当前成员里的Agent', () => {
     expect(storedAgentTurnFailures([row('foreign', 'x'), row('ok', 'other', 'done'), row('failed')], ['agent', 'other']).map((failure) => failure.commandId)).toEqual(['failed'])
   })
-  it('已在聊天披露的失败不再叠通知；额度类例外，它是 agent 的状态位（#7685）', () => {
-    expect(storedAgentTurnFailures([row('failed', 'agent', 'error', { error: 'failed batch', result: { reply_notice: 'in-chat' } })], ['agent'])).toEqual([])
-    expect(storedAgentTurnFailures([row('failed', 'agent', 'error', { result: { reply_notice: 'in-chat' } })], ['agent'])).toHaveLength(1)
+  it('说宿主落的原因码，不读原文', () => {
+    expect(storedAgentTurnFailures([row('failed')], ['agent'])).toEqual([
+      { agentUserId: 'agent', commandId: 'failed', reason: 'weeklyQuota', at: Date.parse('2026-10-19T08:00:00Z'), revision: '2026-10-19T08:00:00Z' },
+    ])
   })
-  it('旧宿主补明确额度原因；未标记的旧通用错误不重复披露', () => {
-    expect(storedAgentTurnFailures([row('quota')], ['agent'])).toHaveLength(1)
-    expect(storedAgentTurnFailures([row('old', 'agent', 'error', { error: 'failed batch' })], ['agent'])).toEqual([])
-    expect(storedAgentTurnFailures([row('new', 'agent', 'error', { error: 'failed batch', result: { reply_notice: 'context' } })], ['agent'])).toHaveLength(1)
+  it('已在聊天披露的失败由聊天说，这一槽不再说', () => {
+    expect(storedAgentTurnFailures([row('failed', 'agent', 'error', { result: { reply_notice: 'in-chat', reason: 'generic' } })], ['agent'])).toEqual([])
+  })
+  it('认不出的原因不显示', () => {
+    expect(storedAgentTurnFailures([row('odd', 'agent', 'error', { result: { reply_notice: 'context', reason: 'notYetKnown' } })], ['agent'])).toEqual([])
+  })
+  // 向下兼容一档(宿主 ≤ 0.3.1 不记 reason;0.3.3 随 olderHostReason 一起删)。
+  it('旧宿主行:留给 composer 的按原文分类;额度类在聊天里写过或没标位置也照亮;在聊天里说过的别的失败不重复', () => {
+    const old = (extra: object) => row('old', 'agent', 'error', extra)
+    expect(storedAgentTurnFailures([old({ result: { reply_notice: 'context' }, error: 'fetch failed' })], ['agent'])).toMatchObject([{ reason: 'network' }])
+    expect(storedAgentTurnFailures([old({ result: { reply_notice: 'in-chat' }, error: 'weekly limit reached' })], ['agent'])).toMatchObject([{ reason: 'weeklyQuota' }])
+    expect(storedAgentTurnFailures([old({ result: null, error: 'weekly limit reached' })], ['agent'])).toMatchObject([{ reason: 'weeklyQuota' }])
+    expect(storedAgentTurnFailures([old({ result: { reply_notice: 'in-chat' }, error: 'failed batch' })], ['agent'])).toEqual([])
+    expect(storedAgentTurnFailures([old({ result: null, error: 'failed batch' })], ['agent'])).toEqual([])
+    // The RPC projection names the key for every row; an old host's row has it null.
+    expect(storedAgentTurnFailures([old({ result: { reply_notice: 'context', reason: null }, error: 'fetch failed' })], ['agent'])).toMatchObject([{ reason: 'network' }])
   })
   it('只有最新一次投递成功才算恢复', () => {
     expect(storedAgentRecoveries([row('new', 'agent', 'done'), row('old')], ['agent', 'other'])).toEqual(['agent'])

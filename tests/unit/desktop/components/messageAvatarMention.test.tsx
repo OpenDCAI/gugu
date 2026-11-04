@@ -4,6 +4,8 @@
 import { topicHistoryStub } from '../../../support/chatWindowStub'
 import { readComposer } from '../../../support/composerEditor'
 import { act, createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { Info } from '../../../../apps/desktop/src/lib/icons'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { MemberProfileCardModel } from '../../../../apps/desktop/src/components/MemberProfileCard'
@@ -36,10 +38,11 @@ beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup() })
 
 async function renderList(overrides: Partial<MessageListRowProps> = {}) {
-  const rows: ChatListRowItem[] = messages.map((msg) => ({ type: 'message', message: msg }))
+  const listMessages = overrides.messages ?? messages
+  const rows: ChatListRowItem[] = listMessages.map((msg) => ({ type: 'message', message: msg }))
   const onMentionMember = vi.fn()
   const rowProps: MessageListRowProps = {
-    rows, messages, isFiltering: false, mobile: false, memberReadSeqs: {}, queuedIds: new Set(), isGroupChat: true, memberProfiles,
+    rows, messages: listMessages, isFiltering: false, mobile: false, memberReadSeqs: {}, deliveryWaits: new Map(), isGroupChat: true, memberProfiles,
     onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, onOpenMemberProfile: noop, onMentionMember,
     highlight: undefined, flashMessageId: undefined, threeParty: undefined, onShowReadReceipt: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
     agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined,
@@ -60,6 +63,38 @@ function rightClick(target: Element): boolean {
   act(() => { target.dispatchEvent(event) })
   return event.defaultPrevented
 }
+
+describe('a deleted group sender keeps a visible neutral identity', () => {
+  it('renders the shared Info glyph through the real message list while preserving human and Agent avatars', async () => {
+    const erased = message({ id: 'm-erased', seq: 5, sender_user_id: null, content_type: 'text', content: 'sent before the account was erased' })
+    const onOpenMemberProfile = vi.fn()
+    const onMentionMember = await renderList({
+      messages: [...messages, erased],
+      memberProfiles: { ...memberProfiles, 'u-alice': profile('u-alice', 'Alice', { avatar: 'https://example.test/alice.png' }) },
+      onOpenMemberProfile,
+    })
+    const row = harness.container.querySelector('[data-msg-id="m-erased"]')!
+    expect(row.textContent).toContain(erased.content)
+    const avatarSlot = row.querySelector('.sticky')!
+    const info = document.createElement('div')
+    info.innerHTML = renderToStaticMarkup(createElement(Info))
+    const neutralGlyph = avatarSlot.querySelector('svg')
+    expect(neutralGlyph, 'a removed sender still has a visible neutral avatar').not.toBeNull()
+    expect(neutralGlyph!.innerHTML).toBe(info.querySelector('svg')!.innerHTML)
+    expect(avatarSlot.querySelector('img')).toBeNull()
+    expect(avatarSlot.textContent).toBe('')
+    expect(row.querySelector('[data-message-sender-id]')).toBeNull()
+    expect(rightClick(neutralGlyph!)).toBe(false)
+    await act(async () => neutralGlyph!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(onOpenMemberProfile).not.toHaveBeenCalled()
+    expect(onMentionMember).not.toHaveBeenCalled()
+    expect(harness.container.querySelector<HTMLImageElement>('[data-msg-id="m-alice"] img')?.getAttribute('src')).toBe('https://example.test/alice.png')
+    expect(harness.container.querySelector('[data-msg-id="m-claude"] [data-agent]')).not.toBeNull()
+    expect(rightClick(avatarOf('m-alice'))).toBe(true)
+    expect(rightClick(avatarOf('m-claude'))).toBe(true)
+    expect(onMentionMember.mock.calls).toEqual([[{ id: 'u-alice', name: 'Alice' }], [{ id: 'u-claude', name: 'Claude 5' }]])
+  })
+})
 
 describe('右键群聊消息头像 → @ 他', () => {
   it('在群的人和 agent:以他的 id 和名字插 @,并吞掉原生菜单', async () => {
@@ -121,7 +156,7 @@ describe('group avatar sits on the last message of a run', () => {
     ]
     const rows: ChatListRowItem[] = run.map((msg) => ({ type: 'message', message: msg }))
     const rowProps: MessageListRowProps = {
-      rows, messages: run, isFiltering: false, mobile: false, memberReadSeqs: {}, queuedIds: new Set(), isGroupChat: true, memberProfiles,
+      rows, messages: run, isFiltering: false, mobile: false, memberReadSeqs: {}, deliveryWaits: new Map(), isGroupChat: true, memberProfiles,
       onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, onOpenMemberProfile: noop, onMentionMember: noop,
       highlight: undefined, flashMessageId: undefined, threeParty: undefined, onShowReadReceipt: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
       agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined,

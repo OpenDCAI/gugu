@@ -1,4 +1,6 @@
 import { parseAgentStatusReading } from '@gugu/core/shared/agentStatus'
+import { STAGES } from '@gugu/core/local/session-life/types'
+import type { LifeStatus, LifeView } from '@/session/shared/core/sessions/session-life'
 import { setLocalAgentStatus, type LocalAgentStatus } from './agentPresenceStore'
 import { parseProviderBlocker, parseProviderReviewGate } from './sessionpageAgentProjection'
 import { desktopIpc, type DesktopIpc } from '../platform/desktopIpc'
@@ -38,6 +40,28 @@ function readStatusSourceFault(value: unknown): string | null {
   return value
 }
 
+const LIFE_KINDS: readonly LifeView['kind'][] = ['dormant', 'starting', 'ready', 'stopping', 'failed', 'archived']
+
+/** The bound session's lifecycle: `null` = session-life does not own it; anything else malformed throws. */
+function readLife(value: unknown): LifeStatus | null {
+  if (value === null) return null
+  const life = value as { kind?: unknown; stage?: unknown } | undefined
+  if (!life || typeof life !== 'object' || !LIFE_KINDS.includes(life.kind as LifeView['kind'])) {
+    throw new Error('agent status feed entry carries a malformed life')
+  }
+  return { kind: life.kind as LifeView['kind'], stage: readStage(life.stage) }
+}
+
+function readStage(value: unknown): LifeView['stage'] {
+  if (value === null) return null
+  const stage = value as { at?: unknown; index?: unknown; total?: unknown; since?: unknown } | undefined
+  if (!stage || typeof stage !== 'object' || !STAGES.includes(stage.at as (typeof STAGES)[number])
+    || typeof stage.index !== 'number' || stage.total !== 7 || typeof stage.since !== 'number') {
+    throw new Error('agent status feed entry carries a malformed life stage')
+  }
+  return { at: stage.at as (typeof STAGES)[number], index: stage.index, total: 7, since: stage.since }
+}
+
 /** 流里的一条。`null` = 这个 agent 不再绑在这台机器的任何会话上。形状不对响亮地抛。 */
 function readLocal(value: unknown): LocalAgentStatus | null {
   if (value === null) return null
@@ -54,6 +78,7 @@ function readLocal(value: unknown): LocalAgentStatus | null {
     reviewGate: parseProviderReviewGate(row.reviewGate ?? null),
     providerBlocker: parseProviderBlocker(row.providerBlocker),
     statusSourceFault: readStatusSourceFault(row.statusSourceFault),
+    life: readLife(row.life),
   }
 }
 

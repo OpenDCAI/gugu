@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { capabilityCovered, grantedReach, safeParseExtensionManifest, withCoveredCapabilities } from './manifest';
+import { capabilityCovered, EXTENSION_API_VERSION, grantedReach, safeParseExtensionManifest, withCoveredCapabilities } from './manifest';
 import { permissionSide } from './catalog';
 
 /**
@@ -38,7 +38,8 @@ describe('a manifest declares one word per family', () => {
     id: 'radar-test',
     name: 'Radar test',
     version: '0.1.0',
-    apiVersion: 3,
+    apiVersion: EXTENSION_API_VERSION,
+    defaultLocale: 'en',
     entry: 'index.html',
     permissions: { capabilities, network: [] },
     contributes: { tabs: [{ name: 'main', title: 'Radar' }] },

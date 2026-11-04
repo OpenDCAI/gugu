@@ -6,7 +6,6 @@ import { Button } from '@renderer/lib/ui/button';
 import type { SessionTranslate } from '../extension-consent';
 import { AppLifecycleButton, type AppLifecycle } from './app-lifecycle-button';
 import type { ProductPageApi } from './app-product-page';
-import { splitReadme } from './app-product-page';
 import { ExtensionMonogram } from './extension-monogram';
 import { decodeShot, isDecoded, keepShot, keptShot, type Shot } from './kept-shelf';
 import type { ExtensionPendingAction } from './extension-pending';
@@ -42,25 +41,24 @@ async function placeholderOf(api: Pick<ProductPageApi, 'marketRead'>, src: strin
 }
 
 /**
- * 精选卡的底图:这一版 README 的第一张图,解码好了才算取到。一版的 README 不会变,所以按机器 + App + 版本记在查询缓存里,
- * 这次运行里不丢(❌ 默认的 5 分钟回收:离开 Apps 一会儿再进来,又是骨架 + 重取 README,owner 10-30「既然曾经缓存过,为什么又要失效」),
+ * 精选卡的底图:这一版产品页的第一张截图(`marketListing`),解码好了才算取到。一版的截图不会变,所以按机器 + App + 版本记在查询缓存里,
+ * 这次运行里不丢(❌ 默认的 5 分钟回收:离开 Apps 一会儿再进来,又是骨架 + 重取,owner 10-30「既然曾经缓存过,为什么又要失效」),
  * 也留到下次启动(kept-shelf.ts)。
  */
-export function featuredShotQuery(api: Pick<ProductPageApi, 'marketReadme' | 'marketRead'>, hostKey: string, id: string, version: string) {
+export function featuredShotQuery(api: Pick<ProductPageApi, 'marketListing' | 'marketRead'>, hostKey: string, id: string, version: string) {
   return queryOptions({
-    queryKey: ['market-readme-shot', hostKey, id, version],
+    queryKey: ['market-listing-shot', hostKey, id, version],
     // 没读到就抛:失败不进缓存,下次再取(主进程那边已记日志)。
     queryFn: async () => {
-      const result = await api.marketReadme({ extensionId: id, version });
-      if (!result.success) throw new Error(result.error ?? 'featured App README unreadable');
-      const artwork = result.data?.readme ? (splitReadme(result.data.readme).images[0] ?? null) : null;
-      if (artwork) await decodeShot(artwork.src);
+      const result = await api.marketListing({ extensionId: id, version });
+      if (!result.success) throw new Error(result.error);
+      const artwork = { src: result.data.screenshots[0]! };
+      await decodeShot(artwork.src);
       // 留到下次启动的那份带上占位图;缩图在后台,不挡这一次上屏。
-      if (artwork) void placeholderOf(api, artwork.src).then((placeholder) => keepShot(hostKey, id, version, { ...artwork, placeholder }));
-      else keepShot(hostKey, id, version, null);
+      void placeholderOf(api, artwork.src).then((placeholder) => keepShot(hostKey, id, version, { ...artwork, placeholder }));
       return artwork as Shot;
     },
-    // 重启后的第一帧:上次取到的这一版底图(下载站的地址是内容哈希的,图在 HTTP 缓存里),❌ 先画骨架再问一遍 README。
+    // 重启后的第一帧:上次取到的这一版底图(下载站的地址是内容哈希的,图在 HTTP 缓存里),❌ 先画骨架再问一遍。
     initialData: () => keptShot(hostKey, id, version),
     staleTime: Infinity,
     gcTime: Infinity,
@@ -73,7 +71,7 @@ export function featuredShotQuery(api: Pick<ProductPageApi, 'marketReadme' | 'ma
  */
 export async function featuredShotsReady(
   client: QueryClient,
-  api: Pick<ProductPageApi, 'marketReadme' | 'marketRead'>,
+  api: Pick<ProductPageApi, 'marketListing' | 'marketRead'>,
   hostKey: string,
   featured: readonly { manifest: { id: string; version: string } }[]
 ): Promise<void> {
@@ -81,9 +79,9 @@ export async function featuredShotsReady(
 }
 
 /**
- * A market feature uses its README's first image as complete artwork. App identity and
+ * A market feature uses its listing's first screenshot as complete artwork. App identity and
  * lifecycle controls sit below it; the image remains a keyboard-accessible detail entry.
- * Without artwork, the existing icon card supplies the title and description.
+ * Without artwork, the icon card supplies the title.
  * `card` uses the same image in the smaller 16:9 tiles on the newest shelf.
  */
 export function AppFeaturedCard({
@@ -93,7 +91,6 @@ export function AppFeaturedCard({
   version,
   name,
   subtitle,
-  body,
   meta,
   iconUrl,
   lifecycle,
@@ -106,21 +103,19 @@ export function AppFeaturedCard({
   resource,
 }: {
   variant?: 'hero' | 'card';
-  /** 哪台机器的市场(README 由那台机器答)。 */
+  /** 哪台机器的市场(截图由那台机器答)。 */
   hostKey: string;
   id: string;
   version: string;
   name: string;
   subtitle: string;
-  /** 大字下面那两行:简介里副标题以外的话。 */
-  body: string;
   /** 名字下面那一小行:精选是「类别 · 发布方」,小卡是副标题。 */
   meta: string;
   iconUrl?: string | null;
   lifecycle: AppLifecycle;
   pending?: ExtensionPendingAction;
   pendingPercent?: number;
-  api: Pick<ProductPageApi, 'marketReadme' | 'marketRead'>;
+  api: Pick<ProductPageApi, 'marketListing' | 'marketRead'>;
   translate: SessionTranslate;
   onOpen: () => void;
   onAction: () => void;
@@ -206,7 +201,6 @@ export function AppFeaturedCard({
           <button type="button" className="mk-hero-title" aria-label={translate('extensions.detailsOf', { name })}>
             {subtitle || name}
           </button>
-          {body ? <p className="mk-hero-body">{body}</p> : null}
         </div>
       )}
       <div className="mk-hero-foot">
