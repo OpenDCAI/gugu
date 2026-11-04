@@ -259,7 +259,9 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
     qStarted = true; nativeUserId = itemId;
     // Native ID intentionally differs from client ID, as the unmodified d5 runtime does.
     const native = turn(turnId, itemId, q!.text);
-    native.items[0] = { ...native.items[0]!, _meta: { guguClientMessageId: q!.id } };
+    const user = native.items[0];
+    if (user?.kind !== 'message' || user.role !== 'user') throw new Error('Fixture user message is missing');
+    native.items[0] = { ...user, _meta: { guguClientMessageId: q!.id } };
     session.activeTurn.set({ ...native, seq: turnId === 'previous-same' ? 0 : 1, startedAt: q!.createdAt - 5_000 });
     session.sessionState.set({ ...session.sessionState.current(), lifecycle: 'working', activeTurnId: turnId, isGenerating: true, queuedPrompts: [] });
     await paint('native-Q-started');
