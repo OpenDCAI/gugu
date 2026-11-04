@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { EXISTING_IDENTITY_BEGIN, EXISTING_IDENTITY_END } from '../../../../apps/desktop/electron/server/ssh-install/existing-account'
 import {
   buildForwardSshArgs,
   buildSshArgs,
@@ -787,6 +788,13 @@ function fakeSsh(machine: Machine, seen: string[], calls: string[][] = []): Spaw
     calls.push(args)
     if (machine.connectFailure) return { code: 255, stdout: '', stderr: machine.connectFailure }
     onStderr?.('Authenticated to box ([10.0.0.5]:22) using "publickey".\n')
+    if (text.includes(EXISTING_IDENTITY_BEGIN)) {
+      const accounts = (machine.accounts ?? []).map(value => {
+        const [userId, email] = value.split(' ')
+        return { userId, email: email || null, signedIn: true, signedOut: null, running: true }
+      })
+      return { code: 0, stdout: `${EXISTING_IDENTITY_BEGIN}\n${formatStatusJson({ version: '1149', accounts })}\nmachine_id=${'a'.repeat(32)}\n${EXISTING_IDENTITY_END}\n`, stderr: '' }
+    }
     if (args[args.length - 1].startsWith('cat > ')) {
       if (typeof stdin !== 'string') stdin.onProgress?.(4096)
       return { code: 0, stdout: '', stderr: '' }
@@ -850,6 +858,8 @@ function deps(overrides: Partial<SshInstallDeps>): SshInstallDeps {
     mintGrant: async () => ({ deviceCode: 'ZGV2aWNlY29kZTEyMzQ1Njc4' }),
     desktopDownload: async () => ({ version: '0.2.99', sha256: 'a'.repeat(64), file: '/tmp/pkg.tgz', size: 4096, installSh: '#!/bin/sh\n' }),
     currentUserId: async () => 'u1',
+    existingDevice: async () => 'dev-existing',
+    rememberExistingDevice: async () => undefined,
     controlPath: null,
     downloadBase: 'https://d',
     customDownloadBase: false,
@@ -875,7 +885,7 @@ describe('runSshInstall', () => {
     const { final, seen, states } = await install({ installed: false, grant: false, running: false })
     expect(statuses(final)).toEqual({ connect: 'done', detect: 'done', download: 'done', service: 'done', login: 'done' })
     expect(final.machine).toMatchObject({ distro: 'Ubuntu 22.04.4 LTS', arch: 'x86_64', libc: 'glibc 2.35', others: [], alreadySignedIn: false })
-    expect(final.result).toEqual({ email: 'me@x.y', others: [], hostname: 'box', userId: 'u1', deviceId: null, alreadySignedIn: false })
+    expect(final.result).toEqual({ email: 'm… · u1', others: [], hostname: 'box', userId: 'u1', deviceId: null, alreadySignedIn: false })
     expect(final.failure).toBeNull()
     expect(states.some((s) => s.steps[2].status === 'running' && s.steps[2].version === '0.2.99' && s.steps[2].progress?.done === 500 && s.steps[2].progress.total === 1000)).toBe(true)
     // 认证通过那一刻就切到「识别系统」
@@ -900,7 +910,7 @@ describe('runSshInstall', () => {
   it.each(['install', 'upgrade'] as const)('refuses a second account before changing the installation (%s)', async mode => {
     const { final, seen } = await install({ installed: true, grant: true, running: true, accounts: ['u9 colleague@lab.edu'] }, { mode })
     expect(final.failure).toMatchObject({ step: 'detect', reason: 'loginFailed', detail: expect.stringContaining('another Gugu account') })
-    expect(final.machine?.others).toEqual(['colleague@lab.edu'])
+    expect(final.machine?.others).toEqual(['c… · u9'])
     expect(seen).toHaveLength(1)
     expect(seen.some(stdin => stdin.includes('service install') || stdin.includes('--no-login') || stdin.includes('login --grant-stdin'))).toBe(false)
   })
