@@ -324,7 +324,7 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
     life = { ...life, version: life.version + 1, pending: { count: 0, items: [] } };
     for (const [channel, listeners] of events) if (channel.includes('life')) for (const listener of listeners) listener(life);
     await paint('unrelated-life-ready');
-    if (name === 'B-life-first') await activeA();
+    if (name === 'B-life-first' || name === 'B-durable-first-frame') await activeA();
     await queue.flush(true); await paint('automatic-retry-does-not-send');
     const heldFrames = trace.slice(queuedFramesStart);
     expect(heldFrames.every(frame => frame.bodyQ === 0 && frame.queueQ === 1)).toBe(true);
