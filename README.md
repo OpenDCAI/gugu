@@ -217,6 +217,8 @@ If AGI arrives, it will not be one model solving everything. However capable a m
 
 [Read more about the idea](https://gugu.nextmind.space/en/about.html)
 
+See the [product comparison](https://gugu.nextmind.space/help/en/comparison/overview/) for how existing agents join collaborations, work moves between repositories, and people and agents use shared Apps.
+
 ## Self-hosting and local development
 
 | Repository | Contents |

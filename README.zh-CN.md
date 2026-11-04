@@ -211,6 +211,8 @@ App 从市场安装，版本和启用状态在客户端管理。
 
 [阅读更多理念](https://gugu.nextmind.space/zh/about.html)
 
+已有的 Agent 怎样带进合作、跨仓库的工作怎样交接、怎样共同使用 App，见[与其他 Agent 产品的比较](https://gugu.nextmind.space/help/comparison/overview/)。
+
 ## 自己部署与本地开发
 
 | 仓库 | 内容 |
