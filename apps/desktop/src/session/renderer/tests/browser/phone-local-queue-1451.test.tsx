@@ -1,10 +1,10 @@
 import { act, useLayoutEffect, useState } from 'react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, onTestFailed, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { SessionConversation } from '@/mobile/agent-watch/SessionConversation'
 import { emptyAgentWatchTimeline } from '@/mobile/agent-watch/agent-watch-store'
 import { state, changed, EMPTY } from '@/lib/sessionInputOutboxBridge'
-import { createReactHarness, renderWithAppProviders } from '../../../../../../../tests/support/testHarness'
+import { chatStore, createReactHarness, renderWithAppProviders } from '../../../../../../../tests/support/testHarness'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue'
@@ -13,7 +13,29 @@ import { PhoneViewportShell } from '@/mobile/PhoneViewportShell'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
 import { readComposer, writeComposer } from '../../../../../../../tests/support/composerEditor'
+import { phoneDraftTrace } from '../../../../../../../tests/support/phoneDraftTrace'
 import type { LifeView } from '@shared/core/sessions/session-life'
+
+vi.mock('@/components/chat/useChatDraft', async original => {
+  const actual = await original<typeof import('@/components/chat/useChatDraft')>()
+  const { useCallback, useEffect, useLayoutEffect } = await import('react')
+  const { phoneDraftTrace: trace } = await import('../../../../../../../tests/support/phoneDraftTrace')
+  return { ...actual, useChatDraft: (...args: Parameters<typeof actual.useChatDraft>) => {
+    const value = actual.useChatDraft(...args)
+    trace.note('mirror.render', { text: value.text, setter: trace.id(value.setText), flush: trace.id(value.flush) })
+    const setText = useCallback((update: Parameters<typeof value.setText>[0]) => {
+      trace.note('onChange.enter', typeof update === 'string' ? update : 'functional', true)
+      value.setText(update)
+      trace.note('onChange.sync-mirror-return')
+    }, [value.setText])
+    useLayoutEffect(() => { trace.note('mirror.layout', value.text) }, [value.text])
+    useEffect(() => {
+      trace.note('flush-effect.setup', trace.id(value.flush))
+      return () => { trace.note('flush-effect.cleanup', trace.id(value.flush), true) }
+    }, [value.flush])
+    return { ...value, setText }
+  } }
+})
 
 const life = vi.hoisted(() => ({ view: null as LifeView | null }))
 const release = vi.hoisted(() => vi.fn(async () => null))
@@ -30,6 +52,7 @@ vi.mock('@/mobile/agent-watch/useSessionLifeView', () => ({ useSessionLifeView: 
 let harness: ReturnType<typeof createReactHarness>
 afterEach(() => {
   harness?.cleanup()
+  phoneDraftTrace.end()
   const own = state()
   own.accountId = null; own.queue = null; own.rows = EMPTY; own.valid = () => false; changed()
   life.view = null; release.mockClear()
@@ -188,7 +211,13 @@ it.each((['accepted', 'failed'] as const).flatMap(result => (['unchanged', 'shar
   const own = state()
   own.accountId = 'owner'; own.rows = EMPTY; own.valid = () => true
   const drafts: Record<string, string> = {}
-  const setDraft = (key: string, update: string | ((text: string) => string)) => { drafts[key] = typeof update === 'function' ? update(drafts[key] ?? '') : update }
+  const capture = phoneDraftTrace.begin(`${result}/${edit}`, () => drafts['session:host/session'] ?? '')
+  onTestFailed(() => phoneDraftTrace.report(capture))
+  const setDraft = (key: string, update: string | ((text: string) => string)) => {
+    phoneDraftTrace.note('store.write.before', { key, previous: drafts[key], update: typeof update === 'string' ? update : 'functional' }, true)
+    drafts[key] = typeof update === 'function' ? update(drafts[key] ?? '') : update
+    phoneDraftTrace.note('store.write.after', { key, text: drafts[key] })
+  }
   let commit!: () => void
   const durable = new Promise<void>(resolve => { commit = resolve })
   const send = vi.fn(async (text: string) => {
@@ -199,9 +228,13 @@ it.each((['accepted', 'failed'] as const).flatMap(result => (['unchanged', 'shar
   })
   harness = createReactHarness()
   harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
-  const render = (epoch: number | null) => renderWithAppProviders(harness, epoch === null ? null : <SessionConversation key={epoch} timeline={emptyAgentWatchTimeline()} deviceId="host" sessionId="session" agentName="Agent" nativeRecord
+  const render = (epoch: number | null) => {
+    const store = chatStore({ drafts, setDraft })
+    phoneDraftTrace.note('fixture.render', { epoch, setDraft: phoneDraftTrace.id(store.setDraft), mentions: phoneDraftTrace.id(store.setDraftMentions), attachments: phoneDraftTrace.id(store.setDraftAttachments) })
+    return renderWithAppProviders(harness, epoch === null ? null : <SessionConversation key={epoch} timeline={emptyAgentWatchTimeline()} deviceId="host" sessionId="session" agentName="Agent" nativeRecord
     sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={send} pendingSends={[]} sending={false} agentWorking
-    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {}, chat: { drafts, setDraft } })
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {}, chat: store })
+  }
   await render(1)
   await page.getByTestId('prompt-editor').fill('Hi')
   await page.getByRole('button', { name: translateSessionMessage('composer.sendMessage'), exact: true }).click()
@@ -212,6 +245,7 @@ it.each((['accepted', 'failed'] as const).flatMap(result => (['unchanged', 'shar
   if (edit !== 'closed') {
     await render(2)
     expect(page.getByTestId('prompt-editor').element().textContent).toBe('Hi')
+    phoneDraftTrace.observeEditor(page.getByTestId('prompt-editor').element())
     if (edit === 'clear') {
       // fill('') uses separate DOM selection/delete commands; use the real editor keymap.
       // The same AllSelection path is exercised in input-area-hidden-empty.test.tsx.
@@ -224,7 +258,9 @@ it.each((['accepted', 'failed'] as const).flatMap(result => (['unchanged', 'shar
       return readComposer(editor) === live && editor.textContent === live
     })
   }
+  phoneDraftTrace.note('commit.release')
   await act(async () => { commit(); await send.mock.results[0].value.catch(() => {}) })
+  phoneDraftTrace.note('commit.settled')
   await render(2)
   if (result === 'accepted') await until('the committed input is visible after reopening', () => !!harness.container.querySelector('[data-queued-prompt-id="remount"]'))
   else expect(own.rows).toHaveLength(0)
