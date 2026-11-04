@@ -30,8 +30,8 @@ export const sessionComposerEmptyHeightPx =
   sessionComposerBox.editorMinHeightPx + sessionComposerBox.toolbarControlPx + sessionComposerBox.toolbarInsetPx + 2;
 
 // ── Context tray ──────────────────────────────────────────────────────────────
-// Same outline as the notice/permission band: full column width, radius-thread
-// top corners and one border with no bottom edge. The card uses hasBand below it.
+// The project/device/folder tray sits behind the input: inset 13px on each side,
+// borderless, with its lower 10px covered by the composer's rounded card.
 //
 // ⚠️ 颜色必须走 --em-* 且用 arbitrary value,不能写 bg-background-secondary /
 // text-foreground-muted 这类 color key。实测(CDP 读 computed style):嵌进 gugu 会话页的
@@ -40,6 +40,10 @@ export const sessionComposerEmptyHeightPx =
 // 样式无声透明(托盘会和页面一样白,布局却是对的,极难一眼看出)。
 // 改任何颜色后都得回真 app 读一次 computed style,别信截图。
 export const sessionComposerTrayClassName =
+  'mx-[13px] flex items-center gap-4 rounded-t-lg px-4 pt-1.5 pb-3 text-xs text-[var(--em-foreground-muted)]';
+
+// Scheduled content stays in the input's connected permission/notice band stack.
+export const sessionComposerBandClassName =
   'flex w-full items-center gap-4 rounded-t-[var(--radius-thread)] border border-solid border-[var(--em-border)] border-b-0 px-4 py-1.5 text-xs text-[var(--em-foreground-muted)]';
 
 /**
@@ -61,10 +65,17 @@ export const sessionComposerTrayClassName =
  * arbitrary 的 color-mix() 不出规则(也实测过,同样是无声透明)。
  */
 export const sessionComposerTrayStyle = {
-  borderColor: 'var(--composer-outline-border, var(--em-border))',
   backgroundColor:
     'color-mix(in srgb, var(--em-surface-base) 60%, var(--em-surface-base-hover) 40%)',
 } as const;
+
+export const sessionComposerBandStyle = {
+  ...sessionComposerTrayStyle,
+  borderColor: 'var(--composer-outline-border, var(--em-border))',
+} as const;
+
+/** Covers the lower edge of the inset context tray with the input card. */
+export const sessionComposerFrameLiftClassName = 'relative z-10 -mt-2.5';
 
 /** Read-only chip inside the tray (环境 / 分支) — not interactive, so no hover affordance. */
 export const sessionComposerTrayChipClassName =

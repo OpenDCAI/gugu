@@ -100,7 +100,7 @@ import { droppedDirectoryMention } from '@renderer/lib/drag-files';
 import { pathAttachmentTarget } from '@gugu/session-chat-ui/markdown-attachment-mentions';
 import { readMermaidTheme } from '@gugu/session-chat-ui/mermaid';
 import { SessionScheduleChip } from '../session-schedule-chip';
-import { sessionComposerTrayClassName, sessionComposerTrayStyle } from '../session-composer-styles';
+import { sessionComposerBandClassName, sessionComposerBandStyle } from '../session-composer-styles';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
@@ -1449,7 +1449,7 @@ const ComposerForStore = observer(function ComposerForStore({
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         bandAbove={schedules.length > 0 ? (
-          <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
+          <div className={sessionComposerBandClassName} style={sessionComposerBandStyle}>
             <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
           </div>
         ) : null}
