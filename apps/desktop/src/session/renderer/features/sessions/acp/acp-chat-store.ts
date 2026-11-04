@@ -2461,14 +2461,27 @@ export class AcpChatStore {
     this._unsubs.splice(0).forEach((unsub) => unsub());
     let lastTurn = session.activeTurn.current();
     const machine = machineRegistry.machineOf(this.runtimeSessionId);
+    let historyFailure: AcpLoadError | null = null;
     // Runtime-only forks have no durable record by contract; their original live-history path stays separate.
     const finalHistory = this.isTransient ? null : observeClosedTurnHistory({
       sessionId: this.runtimeSessionId,
-      reference: () => lastTurn?.referenceId,
+      turn: () => lastTurn,
       subscribe: accept => onMachineEvent(machine, sessionTurnSettledChannel, accept),
       read: referenceId => rpcOn(machine).sessions.getStoredSettledTurn({ sessionId: this.runtimeSessionId, referenceId }),
-      apply: row => this._applyClosedSettledTurn(row),
-      failed: error => this._toastError('acpFailure.refreshHistory', error),
+      apply: row => {
+        if (historyFailure && this.loadError === historyFailure) runInAction(() => { this.loadError = null; this._reopenOnRetry = false; });
+        this._applyClosedSettledTurn(row);
+      },
+      failed: error => {
+        runInAction(() => {
+          if (!this.loadError || this.loadError === historyFailure) {
+            this.loadError = { kind: 'history_unavailable', message: resultError(error).message };
+            historyFailure = this.loadError;
+            this._reopenOnRetry = true;
+          }
+        });
+        this._toastError('acpFailure.refreshHistory', error);
+      },
     });
     this._closedHistory = finalHistory;
     if (finalHistory) this._unsubs.push(finalHistory.dispose);
@@ -2991,7 +3004,7 @@ export class AcpChatStore {
       this._storedOrigins = stored.map(value => value.origin);
       this._storedBaseSeq = this._storedHistoryTurns[0]?.seq ?? null;
       this._storedBootstrapMaxSeq = Math.max(this._storedBootstrapMaxSeq, row.turn.seq);
-      this._persistedRuntimeTurnIds.add(row.originTurnId);
+      this._persistedRuntimeTurnIds = new Set([...this._persistedRuntimeTurnIds, row.originTurnId]);
       this.chatState.transcript.history.seed(this._composedHistory());
       if (active && active.referenceId !== row.turn.referenceId) this.chatState.transcript.activeTurn.set(active);
       this._syncMessageCount();

@@ -3,7 +3,7 @@ import type { StoredSettledTurn, TurnSettlement } from '@shared/core/sessions/se
 /** Subscribe while the handle is alive; closed then waits on facts, not the order of live-model updates. */
 export function observeClosedTurnHistory(input: {
   sessionId: string;
-  reference: () => string | undefined;
+  turn: () => { referenceId?: string } | null;
   subscribe: (accept: (receipt: TurnSettlement) => void) => () => void;
   read: (referenceId: string) => Promise<StoredSettledTurn | null>;
   apply: (row: StoredSettledTurn) => void;
@@ -16,7 +16,10 @@ export function observeClosedTurnHistory(input: {
   let reading = false;
   let dirty = false;
   const alive = () => !disposed && current?.() === true;
-  const failedReceipt = () => receipt?.referenceId === referenceId && receipt.status === 'failed' ? receipt.reason : null;
+  const failedReceipt = () => {
+    const next = receipt;
+    return next && next.referenceId === referenceId && next.status === 'failed' ? next.reason : null;
+  };
   const read = async () => {
     dirty = true;
     if (reading) return;
@@ -34,14 +37,14 @@ export function observeClosedTurnHistory(input: {
           if (!alive() || failedReceipt() !== null) continue;
           if (row?.turn.referenceId === referenceId && row.turn.outcome) input.apply(row);
           else if (receipt?.referenceId === referenceId && receipt.status === 'persisted') {
-            input.failed(new Error('The saved terminal turn could not be read by its immutable origin.'));
+            input.failed(new Error('The saved conversation entry could not be loaded.'));
           }
-        } catch (error) { if (alive()) input.failed(error); }
+        } catch (error) { if (alive() && failedReceipt() === null) input.failed(error); }
       }
     } finally { reading = false; }
   };
   const unsubscribe = input.subscribe(next => {
-    if (next.sessionId !== input.sessionId || next.referenceId !== (referenceId ?? input.reference())) return;
+    if (next.sessionId !== input.sessionId || next.referenceId !== (referenceId ?? input.turn()?.referenceId)) return;
     receipt = next;
     if (alive()) void read();
   });
@@ -50,8 +53,13 @@ export function observeClosedTurnHistory(input: {
     dispose,
     close: (isCurrent: () => boolean) => {
       current = isCurrent;
-      referenceId = input.reference();
-      if (!referenceId) { dispose(); return; }
+      const turn = input.turn();
+      if (!turn) { dispose(); return; }
+      referenceId = turn.referenceId;
+      if (!referenceId) {
+        if (alive()) input.failed(new Error('The closing turn has no stable history reference.'));
+        dispose(); return;
+      }
       void read();
     },
   };

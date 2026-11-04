@@ -4,6 +4,7 @@ import { runInAction } from 'mobx';
 import { createChatView, type TranscriptTurn } from '@gugu/session-chat-ui';
 import { i18n } from '@/i18n';
 import { registerSessionLocaleResources } from '@renderer/localization/locale-store';
+import { renumberStoredTurn } from '@main/core/sessions/session-turn-identity';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 import '@gugu/session-ui/styles/global';
 import '@gugu/session-ui/theme/theme.css';
@@ -45,7 +46,7 @@ it.each(['closed-first', 'active-null-first', 'late-persistence'] as const)('%s:
       { kind: 'message', id: id + ':user', seq: 0, role: 'user', text: 'Keep this original request' },
       { kind: 'unknown-tool-call', id: id + ':tool', seq: 1, toolCallId: 'tool', title: 'Bash', name: 'Bash', toolKind: 'execute', status: 'running' },
     ] };
-  const ready = { lifecycle: 'working', activeTurnId: live.id, queuedPrompts: [], pendingPermissions: [],
+  const ready = { lifecycle: 'working', activeTurnId: live.id as string | null, queuedPrompts: [], pendingPermissions: [],
     isGenerating: true, backgroundAgentCount: 0, backgroundCommandCount: 0, lastTurnOutcome: 'none', lastStopReason: null };
   const session = {
     activeTurn: replica<TranscriptTurn | null>(live), sessionState: replica(ready), agents: replica([]), config: replica({}),
@@ -63,8 +64,8 @@ it.each(['closed-first', 'active-null-first', 'late-persistence'] as const)('%s:
   cleanup.push(() => { view.dispose(); host.remove(); });
   await until('the actual working process is visible', () => host.textContent?.includes('Thinking and working') === true);
   const finish = () => {
-    const turn: TranscriptTurn = { ...live, id: id + ':turn:s0', outcome: { kind: 'cancelled', reason: 'cancelled' },
-      items: live.items.map(item => item.kind === 'unknown-tool-call' ? { ...item, status: 'error' as const } : item) };
+    const turn = renumberStoredTurn({ ...live, outcome: { kind: 'cancelled', reason: 'cancelled' },
+      items: live.items.map(item => item.kind === 'unknown-tool-call' ? { ...item, status: 'error' as const } : item) }, id, 0);
     persisted = { originTurnId: live.id, turn };
     for (const callback of listeners.get('session:turn-settled') ?? []) callback({ sessionId: id, referenceId: live.referenceId, status: 'persisted' });
   };

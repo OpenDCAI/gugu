@@ -86,7 +86,9 @@ it('retains the last real frame until a late matching persistence receipt arrive
 });
 
 it('accepts a persisted receipt that arrived before closed', async () => {
-  const { store, close } = attached(); receipt(); close();
+  const { store, close } = attached(); receipt();
+  expect(read).not.toHaveBeenCalled();
+  close();
   await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns.at(-1)?.outcome?.kind).toBe('cancelled'));
   expect(read).toHaveBeenCalledTimes(1);
 });
@@ -101,6 +103,7 @@ it.each(['before', 'after'])('reports actual persistence failure %s closed witho
   close();
   if (order === 'after') { await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1)); fail(); }
   await vi.waitFor(() => expect(JSON.stringify(toasts)).toContain('disk write denied'));
+  expect(store.loadError).toMatchObject({ kind: 'history_unavailable', message: 'disk write denied' });
   expect(store.chatState.transcript.state.committedTurns.some(turn => turn.outcome?.kind === 'cancelled')).toBe(false);
   expect(store.chatState.transcript.state.activeTurnSnapshot?.items).toEqual(live.items);
 });
@@ -141,4 +144,39 @@ it('does not wait for a turn that never existed', () => {
   runInAction(() => { store.session = idle as unknown as typeof store.session; (store as unknown as Internal)._subscribeLiveSession(idle); });
   close();
   expect(read).not.toHaveBeenCalled();
+});
+
+it('reports a real history read failure, preserving the original evidence', async () => {
+  read.mockRejectedValue(new Error('history read denied'));
+  const { store, close } = attached(); close();
+  await vi.waitFor(() => expect(store.loadError).toMatchObject({ kind: 'history_unavailable', message: 'history read denied' }));
+  expect(store.chatState.transcript.state.activeTurnSnapshot?.items).toEqual(live.items);
+  expect(store.chatState.transcript.state.committedTurns).toHaveLength(0);
+});
+
+it('clears only its own read failure after a real settlement becomes readable', async () => {
+  read.mockRejectedValueOnce(new Error('history read denied')).mockResolvedValue(stored);
+  const { store, close } = attached(); close();
+  await vi.waitFor(() => expect(store.loadError?.kind).toBe('history_unavailable'));
+  receipt();
+  await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns).toHaveLength(1));
+  expect(store.loadError).toBeNull();
+});
+
+it('accepts a late real failure revision without adding a second turn', async () => {
+  const { store, close } = attached(); close();
+  await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns).toHaveLength(1));
+  const failure = { kind: 'error', reason: 'process_closed', detail: 'signal=SIGKILL' };
+  read.mockResolvedValue({ ...stored, turn: { ...stored.turn, outcome: failure } }); receipt();
+  await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns[0]?.outcome).toEqual(failure));
+  expect(store.chatState.transcript.state.committedTurns).toHaveLength(1);
+});
+
+it('ignores a read completing after the view has been disposed', async () => {
+  let finish!: (value: typeof stored) => void;
+  read.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const { store, close } = attached(); close();
+  store.dispose(); stores.splice(stores.indexOf(store), 1);
+  finish(stored); await Promise.resolve(); await Promise.resolve();
+  expect(store.chatState.transcript.state.committedTurns).toHaveLength(0);
 });
