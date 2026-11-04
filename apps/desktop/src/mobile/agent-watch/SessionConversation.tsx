@@ -180,6 +180,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   }
   const submit = async (value: string) => {
     if (sending || stopping || inFlight.current || !checkBeforeSend()) return
+    const ownerId = getRendererSession()?.user.id
     let cancelWait!: () => void
     const cancelled = new Promise<false>(resolve => { cancelWait = () => resolve(false) })
     const submission = { attachments: new Set(attachments.map(file => file.id)), waiting: uploads.unsettled(), cancelWait }
@@ -193,15 +194,19 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       const files = uploads.files(sentAttachments.map(file => file.id))
       const text = value.trim()
       if ((!text && !files.length) || !checkBeforeSend()) return
-      composerDraft.setText(''); composerDraft.flush(); editor.current?.setText('')
-      setAttachments(current => current.filter(file => !sentAttachments.some(sent => sent.id === file.id)))
       try {
         await currentSendTarget().onSend(text, files)
+        if (getRendererSession()?.user.id !== ownerId) return
+        const live = editor.current?.getText() ?? value
+        const remaining = live.startsWith(value) ? live.slice(value.length) : live
+        composerDraft.setText(remaining); composerDraft.flush(); editor.current?.setText(remaining)
+        setAttachments(current => current.filter(file => !sentAttachments.some(sent => sent.id === file.id)))
         view.current?.setScrollMode({ kind: 'tail' })
         for (const file of sentAttachments) uploads.forget(file.id)
       } catch (error) {
-        const live = editor.current?.getText() ?? ''
-        const restored = appendToDraft(value, live)
+        if (getRendererSession()?.user.id !== ownerId) return
+        const live = editor.current?.getText() ?? value
+        const restored = live.startsWith(value) ? live : appendToDraft(value, live)
         composerDraft.setText(restored); editor.current?.setText(restored)
         setAttachments(current => [...sentAttachments.filter(file => !current.some(kept => kept.id === file.id)), ...current])
         toast({ title: translateSessionMessage('acpFailure.sendMessage'), description: messageForUser(error), variant: 'destructive' })

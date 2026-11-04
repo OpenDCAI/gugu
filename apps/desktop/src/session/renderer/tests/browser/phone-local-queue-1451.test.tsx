@@ -82,8 +82,10 @@ it('keeps a held input editable from its first frame, then keeps the sent input 
   await page.getByRole('button', { name: translateSessionMessage('composer.sendMessage'), exact: true }).click()
   await until('submission has started', () => send.mock.calls.length === 1)
   expect(harness.container.querySelector('[data-queued-prompt-id="local"]')).toBeNull()
+  expect(page.getByTestId('prompt-editor').element().textContent).toBe('local queue appears now')
   await act(async () => { commit(); await durable })
   await until('durable local queue is visible before the host responds', () => !!harness.container.querySelector('[data-queued-prompt-id="local"]'))
+  await until('the committed input is handed off from the editor', () => page.getByTestId('prompt-editor').element().textContent === '')
   expect(harness.container.querySelector('[data-queued-prompt-id="local"]')?.textContent).toContain('local queue appears now')
   expect(harness.container.querySelector('[data-native-input-id="local"]')).toBeNull()
   expect(harness.container.querySelector('[data-queued-prompt-id="local"] [data-locked="true"]')).toBeNull()
@@ -103,6 +105,44 @@ it('keeps a held input editable from its first frame, then keeps the sent input 
   ] }]
   await render()
   expect(harness.container.querySelector('[data-queued-prompt-id]')).toBeNull()
+})
+
+it.each((['accepted', 'failed'] as const).flatMap(result => (['append', 'replace'] as const).map(edit => ({ result, edit }))))('preserves words typed during durable custody ($result / $edit)', async ({ result, edit }) => {
+  await page.viewport(390, 844)
+  const timeline = emptyAgentWatchTimeline()
+  const own = state()
+  own.accountId = 'owner'; own.rows = EMPTY; own.valid = () => true
+  const submitted = 'queued original'
+  const live = edit === 'append' ? `${submitted} appended words` : 'new draft'
+  let commit!: () => void
+  const durable = new Promise<void>(resolve => { commit = resolve })
+  const send = vi.fn(async (text: string) => {
+    await durable
+    if (result === 'failed') throw Error('storage unavailable')
+    own.rows = [{ id: 'local', accountId: 'owner', deviceId: 'host', sessionId: 'session', text, createdAt: 1, queued: true, sendQueue: { order: 1 } }]
+    changed()
+  })
+  harness = createReactHarness()
+  harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
+  await renderWithAppProviders(harness, <SessionConversation timeline={timeline} deviceId="host" sessionId="session" agentName="Agent" nativeRecord
+    sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={send} pendingSends={[]} sending={false} agentWorking
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} })
+  await page.getByTestId('prompt-editor').fill(submitted)
+  await page.getByRole('button', { name: translateSessionMessage('composer.sendMessage'), exact: true }).click()
+  await until('durable custody has started', () => send.mock.calls.length === 1)
+  expect(page.getByTestId('prompt-editor').element().textContent).toBe(submitted)
+  await page.getByTestId('prompt-editor').fill(live)
+  await act(async () => { commit(); await durable })
+  const expected = result === 'accepted' ? edit === 'append' ? ' appended words' : live : live
+  await until('the live draft settles without losing new words', () => page.getByTestId('prompt-editor').element().textContent?.includes(expected.trim()) === true)
+  const current = page.getByTestId('prompt-editor').element().textContent!
+  if (result === 'accepted') expect(current).toBe(expected)
+  else {
+    expect(current).toContain(submitted)
+    expect(current.match(/queued original/g)).toHaveLength(1)
+    expect(own.rows).toHaveLength(0)
+  }
+  expect(send).toHaveBeenCalledTimes(1)
 })
 
 it('shows and retries an online host refusal outside the normal locked queue', async () => {

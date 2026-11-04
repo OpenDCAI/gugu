@@ -14,5 +14,5 @@ export function PeekSessionTimeline({ sessionId, local, nativeOnly = false, fall
   const listed = listedSession(devices, useLiveDeviceSessions(), sessionId)
   const device = 'row' in listed ? devices.find((one) => one.device_id === listed.row.deviceId) : undefined
   if (!('row' in listed) || !device || (nativeOnly && listed.row.session.nativeInputVersion !== 1 && listed.row.session.nativeInputVersion !== 2)) return fallback
-  return <SessionTimelinePage device={device} session={listed.row.session} local={local} onBack={onBack} />
+  return <SessionTimelinePage key={`${device.device_id}:${sessionId}`} device={device} session={listed.row.session} local={local} onBack={onBack} />
 }
