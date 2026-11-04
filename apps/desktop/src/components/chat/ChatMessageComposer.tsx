@@ -35,6 +35,8 @@ import { mentionOptionStatusProps } from './agentMentionStatusModels'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 import { AgentConversationComposer } from '@renderer/lib/chat/agent-conversation-view'
 import { usePhoneNewTask } from '../../mobile/chat/PhoneNewTask'
+import { useGroupMentionHint } from './useGroupMentionHint'
+import './group-mention-hint.css'
 export type { ComposerAttachAction } from './ComposerAttachButton'
 export type { ChatMessageComposerProps } from './chatComposerModels'
 
@@ -75,7 +77,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const projectName = useChatSlotProjectName()
   const takenOver = useComposerVerbTakeover(chatId)
   const { contacts } = useContactsStore()
-  const { chats, writeDraft, registerDraftEditor } = useChatStore('chats', 'writeDraft', 'registerDraftEditor')
+  const { chats, identitiesById, writeDraft, registerDraftEditor } = useChatStore('chats', 'identitiesById', 'writeDraft', 'registerDraftEditor')
   // 手机项目群的「新任务」(电脑上是 ComposerVerbs 换上会话页那一侧的框;手机就地换成新任务的框)。
   const phoneTask = usePhoneNewTask({ chatId, enabled: mobile && isMain && !!isGroupChat, clear: () => writeDraft(chatId, '') })
   const projectMembers = useProjectGroupMembers()
@@ -158,12 +160,17 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     const userId = member.type === 'all' ? MENTION_ALL_USER_ID : member.id
     setMentionTargets((picks) => picks.some((pick) => pick.userId === userId) ? picks : [...picks, { userId, displayName: member.name }])
   }
+  // Aside candidates also include invitees from the source line; only actual topic members may be recalled.
+  const recallMembers = members.filter((member) => !identitiesById[member.id]?.removed_at && (surface !== 'aside' || participantIds?.includes(member.id)))
+  const { hint, ...hintEvents } = useGroupMentionHint({ accountId: currentUserId, chatId, members: recallMembers, text,
+    enabled: !!isGroupChat && !props.conversation && !disabled && !sending && !hidden && !takenOver && !phoneTask.active && !whisperTarget,
+    editor: editorApiRef, input: inputRef })
   const editorOptions = { inputTestId: surface === 'aside' ? AUTOMATION_TEST_IDS.chatComposerAside : AUTOMATION_TEST_IDS.chatComposer,
-    inputRef: receiveInput, clearOnSubmit: false, enterBehavior: mobile ? 'newline' as const : 'submit' as const }
+    inputRef: receiveInput, clearOnSubmit: false, enterBehavior: mobile ? 'newline' as const : 'submit' as const, emptyHint: hint }
   const Composer = props.conversation ? AgentConversationComposer : ChatComposer
   return <ThemeProvider theme={theme} target="documentElement">
     <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
-      <div title={disabledReason} data-chat-composer-host="" data-mobile-group={mobile && isGroupChat || undefined} data-phone-task={phoneTask.active || undefined} data-sending={sending} hidden={hidden || takenOver}>
+      <div {...hintEvents} title={disabledReason} data-chat-composer-host="" data-mobile-group={mobile && isGroupChat || undefined} data-phone-task={phoneTask.active || undefined} data-sending={sending} hidden={hidden || takenOver}>
         <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => { enqueueFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
         <ChatComposerContextBands {...deliveryProps} />
         <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />

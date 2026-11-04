@@ -153,6 +153,8 @@ export interface PromptEditorProps {
   enterBehavior?: 'submit' | 'newline';
   /** Controlled placeholder text when the editor is empty. */
   placeholder?: string;
+  /** Optional interactive hint at the normal placeholder position; never part of the document. */
+  emptyHint?: ReactNode;
   /** Whether the editor is disabled (read-only, no input). */
   disabled?: boolean;
   /** Called with the serialized plain-text value on every change. */

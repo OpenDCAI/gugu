@@ -217,6 +217,7 @@ function makeSuggestionRender<T>(
 export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(function PromptEditor(
   {
     placeholder = 'Message…',
+    emptyHint,
     inputTestId = 'prompt-editor',
     inputRef,
     enterBehavior = 'submit',
@@ -594,8 +595,8 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
       <div className={cx(styles.editorWrapper, className)}>
         <EditorContent editor={editor} className={styles.editorContent} aria-disabled={disabled} />
         {isEmpty && (
-          <span aria-hidden className={styles.editorPlaceholder}>
-            {placeholder}
+          <span aria-hidden={emptyHint ? undefined : true} className={styles.editorPlaceholder} style={emptyHint ? { right: 0 } : undefined}>
+            {emptyHint ?? placeholder}
           </span>
         )}
       </div>
