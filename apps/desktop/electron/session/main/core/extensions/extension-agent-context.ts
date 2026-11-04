@@ -34,8 +34,9 @@ export interface AgentSessionContext {
   model: string | null;
   /** That model's name as the model menu shows it (`sessionModelLabel`, kept with the decision); null for an engine's own. */
   modelLabel: string | null;
-  /** The actual assistant name and task title, never inferred from the model label. */
+  /** The canonical task/agent name, never inferred from the model label. */
   agentName?: string;
+  /** Compatibility alias for the same task name; there is no separate session title. */
   taskTitle?: string;
 }
 
@@ -47,7 +48,7 @@ const isFolder = (path: string) => fs.stat(path).then((found) => found.isDirecto
  */
 export async function agentSessionContext(agentId: string): Promise<AgentSessionContext | null> {
   const [session] = await db
-    .select({ workspaceId: sessions.workspaceId, projectId: sessions.projectId, config: sessions.config, provider: sessions.provider, runtime: sessions.runtime, title: sessions.title })
+    .select({ workspaceId: sessions.workspaceId, projectId: sessions.projectId, config: sessions.config, provider: sessions.provider, runtime: sessions.runtime })
     .from(sessions)
     .where(eq(sessions.id, agentId))
     .limit(1);
@@ -58,7 +59,6 @@ export async function agentSessionContext(agentId: string): Promise<AgentSession
   const model = sessionModelFromDecision(decision, session.config?.model ?? null).spawn_model_id ?? null;
   const modelLabel = await sessionModelLabel(agentId, decision, session.provider, session.runtime);
   const agentName = knownTaskName({ id: agentId, config: session.config });
-  const taskTitle = session.title?.trim();
   return { sessionId: agentId, projectId: session.projectId, workspaceId: session.workspaceId ?? null, workspaceRoot, model, modelLabel,
-    ...(agentName ? { agentName } : {}), ...(taskTitle ? { taskTitle } : {}) };
+    ...(agentName ? { agentName, taskTitle: agentName } : {}) };
 }

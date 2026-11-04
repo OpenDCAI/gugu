@@ -263,7 +263,7 @@ export class ExtensionTaskPages {
   unmount(caller: BridgeCaller, id: unknown): void {
     if (caller.kind !== 'page') throw new Error('Only the mounted App page may unmount');
     const mounted = this.mounted.get(caller.pageId);
-    if (mounted?.id === id) mounted.close();
+    if (mounted && mounted.id === id) mounted.close();
   }
 
   private close(page: RecordOfPage, reason: string): Promise<void> {

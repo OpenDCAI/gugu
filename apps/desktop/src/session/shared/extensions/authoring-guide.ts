@@ -445,7 +445,7 @@ API 30 shared task resources (desktop, \`agents:tools\`):
   No task argument; needs a live task call. Returns tab kinds. Your App chooses first-use/retry policy; the host never reopens on its own.
 - Custom stdio MCP adapters enter \`gugu.withCall(request.params._meta, () => work())\` in their tool handler;
   tools modules already enter it. Main checks the random call ID against this program's live calls, never tool arguments.
-  Tools modules also receive \`call.agentName\`, \`call.taskTitle\` and \`call.callId\` when stamped.
+  Tools modules also receive \`call.agentName\`, \`call.taskTitle\` (a compatibility alias for the same canonical task name) and \`call.callId\` when stamped.
 - Program: \`gugu.pages.acquire({ url? })\` returns \`{ id, title, url, send, onMessage, onClose, close }\`.
   Main selects the calling task's real page, never an App-supplied contents ID or partition. Adapt your own driver with
   \`lease.send(method, params?, cdpSessionId?)\`, \`lease.onMessage(fn)\` and \`lease.onClose(fn)\` (both return unsubscribe).
@@ -519,7 +519,7 @@ export const follow = {
   as an absolute path; installation shows the command verbatim. Every reply, including errors, needs its request's
   \`id\`; omitting it fails all in-flight calls. Host-stamped \`_meta\`: \`gugu/agent\`, \`gugu/sessionId\`,
   \`gugu/conversation\` (its private chat), \`gugu/workspaceRoot\`, \`gugu/model\`, \`gugu/modelLabel\`,
-  optional \`gugu/agentName\` / \`gugu/taskTitle\` (real name/title). Task stop cancels that task's calls;
+  optional \`gugu/agentName\` / \`gugu/taskTitle\` (the same canonical task name, never a rollback title or model label). Task stop cancels that task's calls;
   honor the signal and finish input cleanup. Report progress on \`progressToken\` every 60 seconds or Claude aborts at 300.
 - Either way the working directory is your bundle, with \`GUGU_EXTENSION_ID\` and
   \`GUGU_EXTENSION_DATA_DIR\` — the folder pages use via \`readData\`/\`writeData\`. One process serves all sessions;

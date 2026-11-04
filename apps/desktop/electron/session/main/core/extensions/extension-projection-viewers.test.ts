@@ -7,7 +7,7 @@ import type { ProjectionViewerClient } from './projection-viewer-provider';
 const page = (id = 340, app = 'app-a', session = 'task-a') => ({ kind: 'page', pageId: id, extensionId: app,
   binding: { workspace: `session:${session}` } }) as unknown as BridgeCaller;
 const client = (): ProjectionViewerClient => ({ signal: new AbortController().signal,
-  open: vi.fn(async () => ({ id: 'native-stream', offer: { type: 'offer', sdp: 'offer bytes' } })),
+  open: vi.fn(async () => ({ id: 'native-stream', offer: { type: 'offer' as const, sdp: 'offer bytes' } })),
   answer: vi.fn(async () => {}), sign: vi.fn(() => 'signed opaque packet'), close: vi.fn(async () => {}) });
 afterEach(() => { closeAppPageResources(340); closeAppPageResources(341); });
 

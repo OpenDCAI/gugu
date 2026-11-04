@@ -24,7 +24,7 @@ vi.mock('@main/core/sessions/task-name', () => ({ knownTaskName: (row: { id: str
 
 vi.mock('drizzle-orm', () => ({ eq: (column: { name: string }, value: unknown) => ({ column: column.name, value }) }));
 vi.mock('@main/db/schema', () => ({
-  sessions: { __table: 'conversations', id: { name: 'id' }, workspaceId: { name: 'workspaceId' }, projectId: { name: 'projectId' }, config: { name: 'config' }, provider: { name: 'provider' }, runtime: { name: 'runtime' }, title: { name: 'title' } },
+  sessions: { __table: 'conversations', id: { name: 'id' }, workspaceId: { name: 'workspaceId' }, projectId: { name: 'projectId' }, config: { name: 'config' }, provider: { name: 'provider' }, runtime: { name: 'runtime' } },
 }));
 vi.mock('@main/db/client', () => ({
   db: {
@@ -73,10 +73,10 @@ beforeEach(() => {
 afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));
 
 describe('agentSessionContext (#6615 问题 11)', () => {
-  it('keeps the real assistant name separate from the task title and model label', async () => {
+  it('uses the canonical task name for both name metadata keys and ignores a rollback-only title', async () => {
     names.set('conv-a', '论文助理');
-    rows.conversations![0]!.title = '核对参考文献';
-    expect(await agentSessionContext('conv-a')).toMatchObject({ agentName: '论文助理', taskTitle: '核对参考文献', modelLabel: 'menu:glm-5.3-flash' });
+    rows.conversations![0]!.legacyTitle = '过期回滚标题';
+    expect(await agentSessionContext('conv-a')).toMatchObject({ agentName: '论文助理', taskTitle: '论文助理', modelLabel: 'menu:glm-5.3-flash' });
     expect(await agentSessionContext('conv-b')).not.toHaveProperty('agentName');
     expect(await agentSessionContext('conv-b')).not.toHaveProperty('taskTitle');
   });

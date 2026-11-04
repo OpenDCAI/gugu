@@ -28,6 +28,12 @@ function setup(choose: ConstructorParameters<typeof ExtensionTaskPages>[1] = asy
   instances.push(pages);
   return { pages, select, authorize };
 }
+it('unmounting a page with no mounted lease is a no-op, including an omitted lease id', () => {
+  const { pages } = setup();
+  const page = { kind: 'page', pageId: 340, extensionId: 'app-a' } as unknown as BridgeCaller;
+  expect(() => pages.unmount(page, undefined)).not.toThrow();
+  expect(() => pages.unmount(page, 'previous-lease')).not.toThrow();
+});
 it('derives the selected task from its live call and restricts each opaque lease to its App/program/task', async () => {
   const page = native();
   const { pages, select } = setup(vi.fn(async () => page.value));

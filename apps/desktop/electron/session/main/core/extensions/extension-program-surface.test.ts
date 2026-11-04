@@ -703,7 +703,7 @@ it('keeps a program alive for owned host resources and waits for every cleanup a
   await releaseCall();
   expect(program.openFiles()).toBe(1); expect(close).not.toHaveBeenCalled();
   let done = false;
-  const exit = program.close().then(() => { done = true; });
+  const exit = Promise.resolve(program.close()).then(() => { done = true; });
   expect(close).toHaveBeenCalledTimes(1);
   await Promise.resolve(); expect(done).toBe(false);
   cleanup.resolve(); await exit;
