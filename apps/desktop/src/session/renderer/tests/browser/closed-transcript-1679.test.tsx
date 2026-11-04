@@ -43,8 +43,8 @@ it.each(['closed-first', 'active-null-first', 'late-persistence'] as const)('%s:
   const id = 'browser-close-' + crypto.randomUUID();
   const live: TranscriptTurn = { id: id + ':turn:0', referenceId: 'source:' + crypto.randomUUID(), seq: 0,
     initiator: 'user', startedAt: Date.now() - 2000, items: [
-      { kind: 'message', id: id + ':user', seq: 0, role: 'user', text: 'Keep this original request' },
-      { kind: 'unknown-tool-call', id: id + ':tool', seq: 1, toolCallId: 'tool', title: 'Bash', name: 'Bash', toolKind: 'execute', status: 'running' },
+      { kind: 'message', id: id + ':turn:0:user', seq: 0, role: 'user', text: 'Keep this original request' },
+      { kind: 'unknown-tool-call', id: id + ':turn:0:tool', seq: 1, toolCallId: 'tool', title: 'Bash', name: 'Bash', toolKind: 'execute', status: 'running' },
     ] };
   const ready = { lifecycle: 'working', activeTurnId: live.id as string | null, queuedPrompts: [], pendingPermissions: [],
     isGenerating: true, backgroundAgentCount: 0, backgroundCommandCount: 0, lastTurnOutcome: 'none', lastStopReason: null };
@@ -64,6 +64,10 @@ it.each(['closed-first', 'active-null-first', 'late-persistence'] as const)('%s:
   store.chatContext.setLayout({ preset: 'double', userGutter: 0, agentConversation: true });
   cleanup.push(() => { view.dispose(); host.remove(); });
   await until('the actual working process is visible', () => host.textContent?.includes('Thinking and working') === true);
+  // Count rendered cards, not the screen-reader text mirror inside each card.
+  const promptCards = () => [...host.querySelectorAll('[data-user-card]')]
+    .filter(card => card.textContent?.includes('Keep this original request')).length;
+  expect(promptCards()).toBe(1);
   const finish = () => {
     const turn = renumberStoredTurn({ ...live, outcome: { kind: 'cancelled', reason: 'cancelled' },
       items: live.items.map(item => item.kind === 'unknown-tool-call' ? { ...item, status: 'error' as const } : item) }, id, 0);
@@ -77,7 +81,7 @@ it.each(['closed-first', 'active-null-first', 'late-persistence'] as const)('%s:
   const frames: number[] = [];
   for (let frame = 0; frame < 8; frame++) {
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-    frames.push((host.textContent?.match(/Keep this original request/g) ?? []).length);
+    frames.push(promptCards());
     if (frame === 2 && order === 'late-persistence') finish();
   }
   await until('actual terminal outcome renders', () => host.textContent?.includes('Stopped') === true);

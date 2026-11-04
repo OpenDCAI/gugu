@@ -25,3 +25,12 @@ it.each(['replay', 'live'])('does not claim an uncommitted/replayed turn is a ne
   await persistWithTurnSettlement({ sessionId: 'A', source, turn: source === 'live' ? { ...turn, outcome: undefined } : turn }, async () => {}, publish);
   expect(publish).not.toHaveBeenCalled();
 });
+
+it('preserves the structured protocol cause for the existing renderer failure outlet', async () => {
+  const failure = Object.assign(new Error('Internal error'), { code: 'SQLITE_READONLY', data: { details: 'history database is read only' } });
+  const publish = vi.fn();
+  await expect(persistWithTurnSettlement({ sessionId: 'A', source: 'live', turn }, async () => { throw failure; }, publish)).rejects.toBe(failure);
+  expect(publish.mock.calls[0]?.[0]).toMatchObject({ status: 'failed', cause: {
+    name: 'Error', code: 'SQLITE_READONLY', data: { details: 'history database is read only' },
+  } });
+});
