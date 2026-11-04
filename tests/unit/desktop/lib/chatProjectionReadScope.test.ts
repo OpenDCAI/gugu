@@ -32,15 +32,16 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
 vi.mock('../../../../apps/desktop/src/lib/identityReadAdapter', () => ({
   readDisplayIdentities: async (ids: readonly string[]) => ids.map((id) => ({ id, display_name: `name-${id}`, type: 'human' })),
 }))
-const { createChatProjection } = await import('../../../../apps/desktop/src/lib/chatProjection')
+const { createChatProjection, toProjectionOperations } = await import('../../../../apps/desktop/src/lib/chatProjection')
 
 const VIEWER = 'u-viewer'
 const chats = ['c-1', 'c-2', 'c-3']
 function seed(): void {
-  rowsByKey.set('chat_members', chats.map((chat_id) => ({
+  const seats = chats.map((chat_id) => ({
     chat_id, user_id: VIEWER, last_read_seq: 0, is_marked_unread: false, version: 1, notification_level: 'all', is_pinned: false,
     updated_at: '2026-10-29T00:00:00Z', joined_at: '2026-10-29T00:00:00Z', inbox_published_at: '2026-10-29T00:00:00Z',
-  })))
+  }))
+  rowsByKey.set('chat_members', seats); rowsByKey.set('active_members', seats)
   rowsByKey.set('chats', chats.map((id) => ({
     id, public_id: null, kind: 'group', status: 'active', name: id, avatar_url: null, created_at: '2026-10-29T00:00:00Z',
     last_message_at: null, last_message_preview: null, next_message_seq: 1, pinned_message_id: null,
@@ -93,5 +94,31 @@ describe('chat projection read scope', () => {
     expect(keys).not.toContain('chats')
     expect(keys).toContain('messages_view')
     expect(unreadArgs()).toEqual(['c-1'])
+  })
+
+  it('clearing a manual unread mark on my own seat re-reads that chat\'s unread, though the read cursor did not move', async () => {
+    // mark_stream_read on a chat marked unread at its tail: last_read_seq stays, so no member_read_changed —
+    // the only journal entry is chat_members_changed kind 'own' (20261102035000_membership_revision_kind).
+    rowsByKey.set('rpc:list_unread_locators', [{ chat_id: 'c-2', stream_id: 'main:c-2', stream_kind: 'main', thread_root_id: null,
+      message_id: 'm-1', message_seq: 1, unread_count: 1, addressed_count: 1, cursor_seq: 1, version: 2, is_marked_unread: true }])
+    const projection = createChatProjection(VIEWER)
+    const signal = new AbortController().signal
+    expect((await projection.hydrate('0', signal)).find((row) => row.id === 'c-2')?.unread_count).toBe(1)
+    rowsByKey.set('rpc:list_unread_locators', [])
+    calls.length = 0
+    const rows = await projection.advance(toProjectionOperations([{ revision: '1', event: 'chat_members_changed',
+      payload: { chat_id: 'c-2', user_id: VIEWER, kind: 'own', tombstone: false } }]), '1', signal)
+    expect(unreadArgs()).toEqual(['c-2'])
+    expect(rows?.find((row) => row.id === 'c-2')?.unread_count).toBe(0)
+  })
+
+  it('another member\'s roster change does not re-read my unread', async () => {
+    const projection = createChatProjection(VIEWER)
+    const signal = new AbortController().signal
+    await projection.hydrate('0', signal)
+    calls.length = 0
+    await projection.advance(toProjectionOperations([{ revision: '1', event: 'chat_members_changed',
+      payload: { chat_id: 'c-2', user_id: 'u-other', kind: 'roster', tombstone: false } }]), '1', signal)
+    expect(unreadArgs()).toEqual([])
   })
 })
