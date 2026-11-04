@@ -13,13 +13,14 @@ import { ExtensionPage } from '../extensions/extension-view-layer';
 import { extensionViewStore } from '../extensions/extension-view-store';
 import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-binder';
 import { commandRegistry } from '@renderer/lib/commands/registry';
+import { rpc } from '@renderer/lib/ipc';
 
 const native = vi.hoisted(() => ({ guest: null as HTMLElement | null, focusHost: vi.fn() }));
 vi.mock('@renderer/lib/ipc', () => ({ rpc: {
   browser: { focusHost: native.focusHost },
   extensions: {
     activate: async () => ({ success: true, data: { partition: 'test', entryUrl: 'about:blank' } }),
-    bind: async () => ({ success: true }), retarget: async () => ({ success: true }),
+    bindSurface: vi.fn(async () => ({ success: true })), retargetSurface: vi.fn(async () => ({ success: true })),
     reportLayout: async () => ({ success: true }),
   },
 } }));
@@ -93,6 +94,8 @@ async function readyGuest() {
     Object.defineProperty(guest, 'getWebContentsId', { configurable: true, value: () => id });
     await act(async () => guest.dispatchEvent(new Event('dom-ready')));
   }
+  const claim = [...extensionViewStore.claims.values()].find(claim => claim.element.isConnected)!;
+  expect(extensionViewStore.surfaceFor(claim.token), 'the actual bindSurface route is bound').toBe((guest as HTMLElement & { getWebContentsId(): number }).getWebContentsId());
   return guest;
 }
 async function clickFile(guest: HTMLElement, tabId: string) {
@@ -110,6 +113,7 @@ async function press(key: '[' | ']', tabId: string, page: string) {
     if (!native.guest) await act(async () => target.dispatchEvent(new KeyboardEvent('keydown', { key, code: key === '[' ? 'BracketLeft' : 'BracketRight', metaKey: true, bubbles: true, cancelable: true })));
     await settle();
     expect(received, `host keydown ${key}`).toHaveBeenCalledOnce();
+    expect(document.activeElement?.tagName, 'host activeElement after the key').not.toBe('WEBVIEW');
     expect(layout.focusedPane.resolvedActiveTabId).toBe(tabId);
     expect(layout.focusedPane.entries.get(tabId)?.kind).toBe(page);
     expect(layout.focusedPane.navigationOf(tabId)?.pages.map(page => page.kind)).toEqual([kind, 'file']);
@@ -124,12 +128,15 @@ it('keeps host key routing, tab identity and forward history through four keys a
   await clickFile(guest, tabId);
   for (const key of ['[', ']', '[', ']'] as const) await press(key, tabId, key === '[' ? kind : 'file');
   await press('[', tabId, kind);
-  guest = await readyGuest();
+  const restoredGuest = await readyGuest();
+  expect(restoredGuest, 'a genuinely bound guest survives history').toBe(guest);
+  guest = restoredGuest;
   native.guest = guest; guest.focus();
   expect(document.activeElement, 'the visible folder guest before closing').toBe(guest);
   expect(extensionViewStore.claims.size, 'one visible folder claim before closing').toBe(1);
   await act(async () => layout.focusedPane.requestCloseTab(tabId)); await settle();
   expect(native.guest).toBeNull();
+  expect(document.activeElement?.tagName, 'closed guest cannot own host focus').not.toBe('WEBVIEW');
   expect(extensionViewStore.claims.size).toBe(0);
   expect(guest.closest<HTMLElement>('[data-extension-view]')?.style.visibility).toBe('hidden');
   const closed = tabId;
@@ -188,4 +195,31 @@ it('rejects a closed guest source and distinguishes fresh navigation from saved 
     expect(fresh).toBe(folder);
     expect(remembered.focusedPane.entries.get(folder)?.state).toMatchObject({ id: 'fresh.txt' });
   } finally { remembered.dispose(); }
+});
+
+it.each(['forward', 'close'] as const)('returns host activeElement to the owning pane after %s from a bound guest', async action => {
+  const id = layout.open(kind, { id: 'folder' }, { from: null, intent: 'newTab' })!;
+  await render();
+  const guest = await readyGuest();
+  expect(rpc.extensions.bindSurface).toHaveBeenCalled();
+  await clickFile(guest, id);
+  await act(async () => { await layout.focusedPane.go(id, -1); }); await settle();
+  expect(await readyGuest()).toBe(guest);
+  // Electron restores its guest input owner when the folder is shown. Set up
+  // that actual DOM focus, then exercise the real history/close lifecycle.
+  guest.focus(); expect(document.activeElement).toBe(guest);
+  if (action === 'forward') await act(async () => { await layout.focusedPane.go(id, 1); });
+  else await act(async () => { layout.focusedPane.requestCloseTab(id); });
+  await settle();
+  const content = mount.querySelector<HTMLElement>('[data-pane-content]')!;
+  expect(content.contains(document.activeElement), `host activeElement belongs to the pane after ${action}`).toBe(true);
+  expect(document.activeElement).not.toBe(guest);
+  if (action === 'forward') {
+    expect(layout.focusedPane.resolvedActiveTabId).toBe(id);
+    expect(layout.focusedPane.entries.get(id)?.kind).toBe('file');
+    expect(layout.focusedPane.navigationOf(id)?.index).toBe(1);
+  } else {
+    expect(layout.focusedPane.entries.has(id)).toBe(false);
+    expect(extensionViewStore.claims.size).toBe(0);
+  }
 });
