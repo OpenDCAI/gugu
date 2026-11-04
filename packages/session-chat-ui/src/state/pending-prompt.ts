@@ -86,10 +86,10 @@ export function pendingPromptNativeEcho(prompt: PendingPrompt, turns: readonly T
 }
 
 /** Keep the input visible when a native turn starts before its user-message echo arrives. */
-export function activeTurnWithPending(turn: TranscriptTurn | null, prompt: PendingPrompt | null): TranscriptTurn | null {
+export function activeTurnWithPending(turn: TranscriptTurn | null, prompt: PendingPrompt | null, committed: readonly TranscriptTurn[] = []): TranscriptTurn | null {
   if (!prompt) return turn;
   if (!turn) return pendingPromptTurn(prompt);
-  if (!prompt.delivery || pendingPromptLanded(prompt, [turn])) return turn;
+  if (!prompt.delivery || pendingPromptLanded(prompt, [...committed, turn])) return turn;
   if (turn.items.some(item => item.kind === 'message' && item.role === 'user')) {
     return { ...turn, items: [...turn.items, ...pendingPromptTurn(prompt).items] };
   }
@@ -105,9 +105,9 @@ export function latestVisibleTurnId(active: TranscriptTurn | null, committed: re
 }
 
 /** Incoming deliveries occupy their native position after the current turn's already visible items. */
-export function activeTurnWithInputs(turn: TranscriptTurn | null, prompt: PendingPrompt | null, incoming: readonly PendingPrompt[]): TranscriptTurn | null {
+export function activeTurnWithInputs(turn: TranscriptTurn | null, prompt: PendingPrompt | null, incoming: readonly PendingPrompt[], committed: readonly TranscriptTurn[] = []): TranscriptTurn | null {
   const waiting = incoming.filter(input => !pendingPromptLanded(input, turn ? [turn] : []));
-  const active = activeTurnWithPending(turn, prompt);
+  const active = activeTurnWithPending(turn, prompt, committed);
   if (!active) return waiting.length ? { ...pendingPromptTurn(waiting[0]!), items: waiting.flatMap(input => pendingPromptTurn(input).items) } : null;
   if (!waiting.length) return active;
   return { ...active, items: [...active.items, ...waiting.flatMap(input => pendingPromptTurn(input).items)] };

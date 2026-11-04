@@ -29,7 +29,10 @@ export function sessionInputWaitingReason(failure: SessionInputFailure): string 
 export function projectSessionPendingInput(previous: PendingPrompt | null, sender: readonly SessionInput[],
   host: readonly HostPendingRow[], turns: readonly TranscriptTurn[]): PendingPrompt | null {
   if (sender.some(row => row.id === previous?.id && row.admission === 'rejected')) previous = null
-  const input = sender.find(row => row.admission !== 'rejected' && row.queued === false && (!previous?.delivery || row.id === previous.id))
+  const ordinary = sender.filter(row => row.admission !== 'rejected' && row.queued === false && !row.sendQueue)
+  const terminal = previous?.delivery?.state === 'failed' || previous?.delivery?.state === 'unknown'
+  const input = ordinary.find(row => !previous?.delivery || row.id === previous.id)
+    ?? (terminal ? ordinary.find(row => row.id !== previous?.id) : undefined)
   let prompt: PendingPrompt | null = input ? {
     id: input.id, text: input.text, sentAt: input.createdAt, baselineMessageIds: input.baseline, afterTurnId: input.afterTurnId,
     attachments: input.files?.map(file => ({ id: file.itemId, name: file.name, href: `gugu-file://${file.itemId}?v=${file.version}`, kind: file.mimeType.startsWith('image/') ? 'image' : 'file' })),

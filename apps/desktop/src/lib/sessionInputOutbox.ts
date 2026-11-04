@@ -79,6 +79,7 @@ export interface SessionInputStorage {
   list(accountId: string): Promise<SessionInput[]>
   put(input: SessionInput): Promise<void>
   remove(accountId: string, id: string): Promise<void>
+  writeBatch?(accountId: string, puts: readonly SessionInput[], removes: readonly string[]): Promise<void>
 }
 
 /** Sender-owned durable requests. Only a host acceptance removes a request; reconnects reuse its identity. */
@@ -159,6 +160,12 @@ export class SessionInputOutbox {
     return written
   }
 
+  private async persist(puts: readonly SessionInput[], removes: readonly string[] = []): Promise<void> {
+    if (this.storage.writeBatch) return this.storage.writeBatch(this.accountId, puts, removes)
+    for (const input of puts) await this.storage.put(input)
+    for (const id of removes) await this.storage.remove(this.accountId, id)
+  }
+
   changeQueued(id: string, change: { text: string; edit?: { draftText: string; originalDraftText: string } | null } | 'delete'): Promise<boolean> {
     return this.write(async () => {
       const input = (await this.list()).find(row => row.id === id && row.sendQueue)
@@ -178,10 +185,11 @@ export class SessionInputOutbox {
       if (ids.length !== inputs.length || new Set(ids).size !== ids.length || ids.some(id => !inputs.some(input => input.id === id))) {
         throw new Error('Send queue identities changed; reload its order')
       }
-      for (let index = 0; index < ids.length; index++) {
-        const input = inputs.find(row => row.id === ids[index])!
-        await this.storage.put({ ...input, sendQueue: { ...input.sendQueue!, order: inputs[index]!.sendQueue!.order } })
-      }
+      const reordered = ids.map((id, index) => {
+        const input = inputs.find(row => row.id === id)!
+        return { ...input, sendQueue: { ...input.sendQueue!, order: inputs[index]!.sendQueue!.order } }
+      })
+      await this.persist(reordered)
       this.changed()
     })
   }
@@ -196,12 +204,10 @@ export class SessionInputOutbox {
       const input = nowId ? queued.find(row => row.id === nowId) : queued[0]
       if (!input || input.sendQueue!.edit || (!nowId && input.sendQueue!.afterInputId && !completed.has(input.sendQueue!.afterInputId!))) return null
       // Remaining entries wait for this exact input to finish, including across a shell restart.
-      for (const following of queued) if (following.id !== input.id) {
-        await this.storage.put({ ...following, sendQueue: { ...following.sendQueue!, afterInputId: input.id } })
-      }
+      const following = queued.filter(row => row.id !== input.id).map(row => ({ ...row, sendQueue: { ...row.sendQueue!, afterInputId: input.id } }))
       const { sendQueue: _queue, ...released } = input
       const sent: SessionInput = { ...released, ...baseline, queued: false, ...(steers ? { steerIfBusy: true } : {}) }
-      await this.storage.put(sent)
+      await this.persist([...following, sent])
       this.changed()
       return sent
     })
@@ -333,5 +339,9 @@ export async function openSessionInputStorage(factory: IDBFactory = indexedDB): 
     },
     put: input => mutate(store => { store.put(input) }),
     remove: (accountId, id) => mutate(store => { store.delete([accountId, id]) }),
+    writeBatch: (accountId, puts, removes) => mutate(store => {
+      for (const input of puts) store.put(input)
+      for (const id of removes) store.delete([accountId, id])
+    }),
   }
 }
