@@ -571,6 +571,9 @@ export function ChatComposer({
     if (phoneActions) { phoneSubmittingRef.current = true; setPhoneSubmitting(true); }
     try {
       const committed = submit(text);
+      // Settle focus synchronously; a deferred refocus reopens the keyboard.
+      const active = rootRef.current?.ownerDocument.activeElement;
+      if (active instanceof HTMLElement && rootRef.current?.contains(active)) active.blur();
       if (phoneActions) await committed;
     } finally {
       if (phoneActions) { phoneSubmittingRef.current = false; setPhoneSubmitting(false); }
@@ -1024,7 +1027,6 @@ export function ChatComposer({
                     size="base"
                     icon
                     className={cx(styles.sendButtonRound, styles.sendButtonInk)}
-                    onPointerDown={mobile ? (event) => event.preventDefault() : undefined}
                     onClick={() => handleSubmit(editorRef.current?.getText() ?? '')}
                     disabled={disabled || !canSubmit}
                     aria-label={translate('composer.sendMessage')}

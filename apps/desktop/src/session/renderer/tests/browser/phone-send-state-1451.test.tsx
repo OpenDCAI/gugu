@@ -39,15 +39,15 @@ it('a running phone composer sends once and becomes Stop only after local commit
   expect(host.querySelector('[data-composer-action="stop"]')).toBeNull()
   const pending = host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!
   expect(pending.disabled).toBe(true)
-  expect(document.activeElement).toBe(editor)
+  expect(document.activeElement).toBe(document.body)
   pending.click(); pending.click()
   expect(submit).toHaveBeenCalledTimes(1)
   expect(stop).not.toHaveBeenCalled()
   commit()
   await until('local commit allows Stop', () => !!host?.querySelector('[data-composer-action="stop"]'))
   expect(stop).not.toHaveBeenCalled()
-  expect(document.activeElement).toBe(editor)
-  expect(blurred).not.toHaveBeenCalled()
+  expect(document.activeElement).toBe(document.body)
+  expect(blurred).toHaveBeenCalledTimes(1)
 })
 
 

@@ -16,7 +16,7 @@ let root: Root | null = null
 let host: HTMLDivElement | null = null
 afterEach(() => { root?.unmount(); host?.remove(); root = null; host = null })
 
-it.each(['pointer', 'programmatic'] as const)('390px phone composer keeps focus after a %s send, while Enter keeps editing', async (method) => {
+it.each(['pointer', 'programmatic'] as const)('390px phone composer dismisses focus after a %s send, while Enter keeps editing', async (method) => {
   await page.viewport(390, 844)
   const onSend = vi.fn(async () => {})
   host = document.body.appendChild(document.createElement('div'))
@@ -38,10 +38,10 @@ it.each(['pointer', 'programmatic'] as const)('390px phone composer keeps focus 
   if (method === 'pointer') await button.click()
   else host.querySelector<HTMLButtonElement>(`button[aria-label="${translateSessionMessage('composer.sendMessage')}"]`)!.click()
   await until('send reached chat host', () => onSend.mock.calls.length === 1)
-  expect(blurred).not.toHaveBeenCalled()
-  expect(document.activeElement).toBe(editor)
+  expect(blurred).toHaveBeenCalledTimes(1)
+  expect(document.activeElement).toBe(document.body)
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-  expect(document.activeElement).toBe(editor)
+  expect(document.activeElement).toBe(document.body)
   expect(focused).not.toHaveBeenCalled()
   expect(editor.textContent).toBe('')
 })
