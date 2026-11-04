@@ -8,6 +8,7 @@ import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
 import { ProjectFolderCard, shortHome, FAN_MAX_ROWS, FAN_ROW_MAX, fanPlace } from './project-folder-card';
 import { UNANSWERED_AFTER_MS, useProjectFolders, type ProjectFoldersState } from './project-folders';
+import { foldersInScope } from './project-device-scope';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 
 const mocks = vi.hoisted(() => ({
@@ -21,12 +22,14 @@ const mocks = vi.hoisted(() => ({
   account: new Map<string, ProjectFolder[]>(),
   // 账号上那份在那台机器经连接答过之后没再变的机器(其余 = 账号上那份更新)。
   accountNotNewer: new Set<string>(),
+  connections: new Map<string, string>(),
 }));
 
 vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({
   remoteHostsStore: {
     accountFolders: (machine: string, projectId: string) => mocks.account.get(`${machine}:${projectId}`) ?? null,
     accountIsNewer: (machine: string) => !mocks.accountNotNewer.has(machine),
+    connectionState: (machine: string) => mocks.connections.get(machine) ?? null,
   },
 }));
 
@@ -338,6 +341,7 @@ describe('useProjectFolders', () => {
     mocks.detach.mockReset();
     mocks.account.clear();
     mocks.accountNotNewer.clear();
+    mocks.connections.clear();
   });
 
   afterEach(() => {
@@ -369,6 +373,85 @@ describe('useProjectFolders', () => {
     expect(latest?.folders).toEqual([]);
     expect(latest?.chosen).toBeNull();
     expect(latest?.loadError).toBe(false);
+  });
+
+  it('re-reads the selected cloud project after waking, without a folder-change event', async () => {
+    const mapping = vi.spyOn(machineRegistry, 'machineOf').mockReturnValue('cloud-device');
+    try {
+      mocks.connections.set('cloud-device', 'asleep');
+      mocks.list.mockResolvedValue({ success: true, data: [] });
+      await mount('p-waking');
+      expect(latest?.folders).toEqual([]);
+      expect(mocks.list).toHaveBeenCalledTimes(1);
+      mocks.connections.set('cloud-device', 'connected');
+      mocks.list.mockResolvedValue({ success: true, data: [ROOT] });
+      await mount('p-waking');
+      expect(mocks.list).toHaveBeenCalledTimes(2);
+      expect(latest?.folders?.map((item) => item.workspaceId)).toEqual(['ws-root']);
+    } finally {
+      mapping.mockRestore();
+    }
+  });
+
+  it('keeps a pre-wake empty answer pending until the new connection actually replies', async () => {
+    const mapping = vi.spyOn(machineRegistry, 'machineOf').mockReturnValue('cloud-device');
+    try {
+      mocks.connections.set('cloud-device', 'asleep');
+      mocks.list.mockResolvedValue({ success: true, data: [] });
+      await mount('p-slow-wake');
+      expect(latest?.folders).toEqual([]);
+      const reply = Promise.withResolvers<unknown>();
+      mocks.connections.set('cloud-device', 'connected');
+      mocks.list.mockReturnValue(reply.promise);
+      await mount('p-slow-wake');
+      expect(latest?.folders).toBeNull();
+      expect(latest?.chosen).toBeNull();
+      await act(async () => reply.resolve({ success: true, data: [] }));
+      // Only a real empty reply from the new connection may block this scope.
+      expect(latest?.folders).toEqual([]);
+    } finally {
+      mapping.mockRestore();
+    }
+  });
+
+  it('retains known nonempty folders while a reconnect read is pending', async () => {
+    const mapping = vi.spyOn(machineRegistry, 'machineOf').mockReturnValue('cloud-device');
+    try {
+      mocks.connections.set('cloud-device', 'asleep');
+      mocks.list.mockResolvedValue({ success: true, data: [ROOT] });
+      await mount('p-cached-wake');
+      const reply = Promise.withResolvers<unknown>();
+      mocks.connections.set('cloud-device', 'connected');
+      mocks.list.mockReturnValue(reply.promise);
+      await mount('p-cached-wake');
+      expect(latest?.folders?.map((item) => item.workspaceId)).toEqual(['ws-root']);
+      await act(async () => reply.resolve({ success: true, data: [ROOT, WT] }));
+      expect(latest?.folders?.map((item) => item.workspaceId)).toEqual(['ws-root', 'ws-wt']);
+    } finally {
+      mapping.mockRestore();
+    }
+  });
+
+  it('keeps a pending remote-only scope unknown when the same row already has local folders', async () => {
+    const mapping = vi.spyOn(machineRegistry, 'machineOf').mockImplementation((id) => id === 'p-cloud-mixed' ? 'cloud-device' : null);
+    try {
+      mocks.connections.set('cloud-device', 'asleep');
+      mocks.list.mockImplementation(async (id: string) => ({ success: true, data: id === 'p-local-mixed' ? [ROOT] : [] }));
+      const members = ['p-local-mixed', 'p-cloud-mixed'];
+      await mount('p-local-mixed', members);
+      expect(latest?.folders).toHaveLength(1);
+      const reply = Promise.withResolvers<unknown>();
+      mocks.connections.set('cloud-device', 'connected');
+      mocks.list.mockImplementation((id: string) => id === 'p-cloud-mixed' ? reply.promise : Promise.resolve({ success: true, data: [ROOT] }));
+      await mount('p-local-mixed', members);
+      expect(latest?.folders).toHaveLength(1);
+      expect(latest?.unanswered).toContain('p-cloud-mixed');
+      expect(foldersInScope(latest!, ['cloud-device'], (id) => id === 'p-cloud-mixed' ? 'cloud-device' : null).folders).toBeNull();
+      await act(async () => reply.resolve({ success: true, data: [] }));
+      expect(foldersInScope(latest!, ['cloud-device'], (id) => id === 'p-cloud-mixed' ? 'cloud-device' : null).folders).toEqual([]);
+    } finally {
+      mapping.mockRestore();
+    }
   });
 
   it('defaults to the root folder and follows the choice', async () => {

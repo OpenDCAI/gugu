@@ -83,13 +83,11 @@ export type ProjectFoldersState = {
  * @param memberIds 这个项目在各台机器上的本地项目(含 rowId;没合并就只有它)
  */
 export function useProjectFolders(rowId: string, memberIds: readonly string[] = [rowId]): ProjectFoldersState {
-  const [snapshot, setSnapshot] = useState<{ rowId: string; folders: ShownFolder[] | null; loadError: boolean; unanswered?: readonly string[] }>(
+  const [snapshot, setSnapshot] = useState<{ rowId: string; connectionKey?: string; folders: ShownFolder[] | null; loadError: boolean; unanswered?: readonly string[] }>(
     () => ({ rowId, folders: null, loadError: false })
   );
   // Switching projects must never expose the previous project's folders, even
   // during the render before the new request's effect starts.
-  const folders = snapshot.rowId === rowId ? snapshot.folders : null;
-  const loadError = snapshot.rowId === rowId && snapshot.loadError;
   const [generation, setGeneration] = useState(0);
   const [fresh, setFresh] = useState<string | undefined>(() => freshFolders.get(rowId));
   // 上一次读到的那份:重读后多出来的文件夹就是刚挂上的(product spec:几条路挂上的都看得见它落进去)。
@@ -101,6 +99,19 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
   // 账号上记着的那几份变了(那台机器离线时挂 / 摘了文件夹之后记上来、这一端刚读到账号上的那份):重读一遍。
   // 读的是 mobx 里的设备行 —— 项目首页是 observer,那一份变了这里才重算。
   const accountKey = JSON.stringify(memberIds.map((projectId) => [accountFolders(projectId), accountIsNewer(projectId)]));
+  // A cloud host can wake without changing its recorded folder metadata. Read
+  // again when its actual connection returns, rather than retaining an empty
+  // pre-wake response and leaving the composer blocked indefinitely.
+  const connectionKey = JSON.stringify(memberIds.map((projectId) => {
+    const deviceId = machineRegistry.machineOf(projectId);
+    return [projectId, deviceId, deviceId ? remoteHostsStore.connectionState(deviceId) === 'connected' : true];
+  }));
+  // A known empty answer belongs to the connection that produced it. During a
+  // reconnect, keep nonempty recorded folders visible, but do not present the
+  // previous empty answer as the new connection's result before it has replied.
+  const canShowFolders = snapshot.connectionKey === connectionKey || snapshot.folders?.length !== 0;
+  const folders = snapshot.rowId === rowId && canShowFolders ? snapshot.folders : null;
+  const loadError = snapshot.rowId === rowId && snapshot.connectionKey === connectionKey && snapshot.loadError;
   // 换了项目:「刚挂上」跟着换成那个项目的(❌ 把上一个项目的那张带过来)。
   useEffect(() => setFresh(freshFolders.get(rowId)), [rowId]);
 
@@ -141,7 +152,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
       if (known.length === 0) {
         // 还有没答的就再等;都答了(或都过了时限)也一份都没有:如实说读不到。
         if (lists.some((list) => list === undefined)) return;
-        setSnapshot({ rowId, folders: null, loadError: true });
+        setSnapshot({ rowId, connectionKey, folders: null, loadError: true });
         return;
       }
       const merged = known.flat();
@@ -172,7 +183,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
       });
       previous.current = { rowId, members };
       shown.current = { rowId, lists: new Map(ids.flatMap((projectId, index) => { const list = lists[index]; return Array.isArray(list) ? [[projectId, list] as const] : []; })) };
-      setSnapshot({ rowId, folders: merged, loadError: false, unanswered: ids.filter((_, index) => lists[index] === undefined) });
+      setSnapshot({ rowId, connectionKey, folders: merged, loadError: false, unanswered: ids.filter((id) => !answered.has(id) && !late.has(id)) });
     };
 
     for (const projectId of ids) {
@@ -207,7 +218,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
       cancelled = true;
       clearTimeout(deadline);
     };
-  }, [rowId, membersKey, generation, accountKey]);
+  }, [rowId, membersKey, generation, accountKey, connectionKey]);
 
   // 别处挂上 / 摘下 / 并进来(另一个窗口、agent、撤销)也要跟着变:在各成员项目所在的机器上订,那台推一声就重读。
   useEffect(() => {
@@ -273,7 +284,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
   return {
     folders,
     loadError,
-    unanswered: (snapshot.rowId === rowId && snapshot.unanswered) || [],
+    unanswered: snapshot.rowId !== rowId || snapshot.connectionKey !== connectionKey ? memberIds : snapshot.unanswered ?? [],
     chosen: chosenFolderOf(rowId, folders),
     fresh,
     choose,

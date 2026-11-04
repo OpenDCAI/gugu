@@ -1,3 +1,4 @@
+import { isAssistantHostProject } from '@renderer/features/projects/assistant-project-presentation';
 import { computed, makeAutoObservable, observable } from 'mobx';
 import { projectSessionTreeRows, summarizeSessionBranches, type ProjectSessionTreeRow } from './sidebar-session-branch';
 import {
@@ -254,7 +255,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
    */
   get sidebarProjects(): SidebarProjectRef[] {
     // #609 workspace(任务工作区、主目录等咕咕自己要用的目录;哪台机器上的都算)不是项目:不单列,会话在「任务」里。
-    // 只按真实的项目群绑定合并;个人助理所在设备也没有工作区例外。
+    // 云助理宿主不展示目录项目,其中的会话保留在任务列表;其它项目仍按真实项目群绑定合并。
     const { rowOf } = this.homeLayout;
     const all: SidebarProjectRef[] = Array.from(this.projectManager.projects.values())
       .filter((project) => !isWorkspaceProject(project) && !rowOf.has(project.id))
@@ -392,7 +393,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     return nodes;
   }
 
-  /** 同一个项目群绑定的本地项目合成一行;助理的设备与其它设备遵循同一规则。 */
+  /** 同一个项目群绑定的目录项目合成一行;云助理的任务投影不参与目录项目折叠。 */
   get homeLayout(): MachineHomeLayout {
     // #7341 绑在同一个项目群上的本地项目(各台机器上的)合成一行。
     return foldProjectGroups(EMPTY_MACHINE_HOME_LAYOUT, this.projectGroups);
@@ -403,7 +404,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     const machines = this.machines;
     if (!machines?.projectGroupOf) return EMPTY_PROJECT_GROUP_LAYOUT;
     return projectGroupLayout(
-      Array.from(this.projectManager.projects.values(), (p) => {
+      Array.from(this.projectManager.projects.values()).filter(p => !isAssistantHostProject(p)).map((p) => {
         const machine = machines.machineOf(p.id);
         return { id: p.id, machine, online: machine === null || machines.connected?.(machine) === true, createdAt: p.createdAt };
       }),
