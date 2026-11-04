@@ -22,7 +22,7 @@ export type PendingPrompt = {
   /** Its session is still starting (the lifecycle's own state): the live line says so instead of the working label. */
   starting?: TurnProcessItem['starting'];
   /** Ordinary sender custody, kept here until this exact input is visible in the transcript. */
-  delivery?: { state: 'sending' | 'waiting' | 'accepted' | 'failed' | 'unknown'; error?: string; reason?: string; retryable?: boolean };
+  delivery?: { state: 'sending' | 'receiving' | 'waiting' | 'accepted' | 'failed' | 'unknown'; error?: string; reason?: string; retryable?: boolean };
   /** Existing user identities cannot acknowledge this input when older history is loaded. */
   baselineMessageIds?: readonly string[];
   afterTurnId?: string;
@@ -61,6 +61,7 @@ function findPendingPromptEcho(prompt: PendingPrompt, turns: readonly Transcript
     const matches = () => {
       if (item.kind !== 'message' || item.role !== 'user') return false;
       if (prompt.nativeEcho) return nativeMessageKey(item.id) === nativeMessageKey(prompt.nativeEcho.itemId);
+      if (item._meta?.guguClientMessageId === prompt.id) return true;
       if (item.id === prompt.id || (prompt.id.length >= 16 && item.id.includes(prompt.id))) return true;
       if (deliveryIds.length) {
         const nativeIds = new Set(sourceMessageIds(item.text));
@@ -89,8 +90,18 @@ export function activeTurnWithPending(turn: TranscriptTurn | null, prompt: Pendi
   if (!prompt) return turn;
   if (!turn) return pendingPromptTurn(prompt);
   if (!prompt.delivery || pendingPromptLanded(prompt, [turn])) return turn;
-  if (turn.items.some(item => item.kind === 'message' && item.role === 'user')) return turn;
+  if (turn.items.some(item => item.kind === 'message' && item.role === 'user')) {
+    return { ...turn, items: [...turn.items, ...pendingPromptTurn(prompt).items] };
+  }
   return { ...turn, items: [...pendingPromptTurn(prompt).items, ...turn.items] };
+}
+
+/** Empty previous process headers must collapse when the pending row first becomes visible, not at native echo. */
+export function latestVisibleTurnId(active: TranscriptTurn | null, committed: readonly TranscriptTurn[],
+  prompt: PendingPrompt | null, incoming: readonly PendingPrompt[] = []): string | undefined {
+  if (active) return active.id
+  const pending = prompt ?? incoming.find(input => !pendingPromptLanded(input, committed))
+  return pending ? `pending:${pending.id}:turn` : committed.at(-1)?.id
 }
 
 /** Incoming deliveries occupy their native position after the current turn's already visible items. */
