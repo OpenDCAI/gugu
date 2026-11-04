@@ -31,6 +31,11 @@ import { getCreditsBalance } from '../../../../apps/desktop/src/lib/billing/bala
 import { getQuotaWindows } from '../../../../apps/desktop/src/lib/billing/quota'
 import { fetchLedgerPage, type LedgerRow } from '../../../../apps/desktop/src/lib/usage/cloud'
 
+// Keep the real card, totals and format callback; the chart canvas is irrelevant to amount text.
+vi.mock('../../../../apps/desktop/src/components/usage/UsageCharts', () => ({
+  StackedChart: () => null, ShareChart: () => null, RankChart: () => null,
+}))
+
 const ledger = (rows: LedgerRow[]) => ({ rows, total: rows.length })
 const RANGE = { from: '2026-08-25', to: '2026-09-23', days: 30 }
 const props = { credits: { status: 'ready' as const, value: [] }, range: RANGE }
@@ -79,11 +84,13 @@ const flush = () => act(async () => {
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
 })
 
-async function render() {
+async function render(credits?: number) {
   const harness = createReactHarness()
   await renderWithAppProviders(
     harness,
-    createNode(UsageCredits, props),
+    createNode(UsageCredits, credits === undefined ? props : { ...props, credits: { status: 'ready', value: [{
+      day: RANGE.from, model: 'display-fixture', credits, inputTokens: 0, outputTokens: 0, requests: 1,
+    }] } }),
     { auth: { id: 'u1', email: 'u@e.com', nickname: 'U' } },
   )
   await flush()
@@ -109,6 +116,32 @@ beforeEach(() => {
 })
 
 describe('#2503 用量与订阅积分的诚实性', () => {
+  it('keeps tiny available, reserved, period and wallet credits visible in the shared subscription row', async () => {
+    vi.mocked(getCreditsBalance).mockResolvedValue(0.0001)
+    vi.mocked(getQuotaWindows).mockResolvedValue(windows({ period_credits: 0.0004, period_used: 0.0001, outstanding_credits: 0.0001 }))
+    const harness = await renderMembership()
+    try {
+      for (const field of ['subscription-credits-balance', 'subscription-period-credits', 'subscription-wallet-credits']) {
+        expect(harness.container.querySelector(`[data-testid="${field}"]`)?.textContent?.trim()).toBe('<0.01')
+      }
+      expect(harness.container.querySelector('.subscription-credit-summary')?.textContent).toContain('预留 <0.01')
+      expect(harness.container.querySelector('[data-testid="subscription-period"]')?.textContent).toContain('/ <0.01')
+    } finally { harness.cleanup() }
+  })
+
+  it('shows the same nonzero tiny amount in the consumption total and ledger', async () => {
+    vi.mocked(fetchLedgerPage).mockResolvedValue(ledger([{
+      id: 'tiny', model: 'display-fixture', agent_user_id: null, credits_charged: 0.0001,
+      input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_creation_tokens: 0,
+      created_at: new Date().toISOString(),
+    }]))
+    const harness = await render(0.0001)
+    try {
+      expect(harness.container.querySelector('[data-testid="usage-consumption"]')?.textContent).toContain('<0.01')
+      expect(harness.container.querySelector('[data-field="cost"]')?.textContent).toBe('<0.01')
+    } finally { harness.cleanup() }
+  })
+
   it('#986 用量只保留消耗与流水，撤余额卡、邀请和五项总统计', async () => {
     const harness = await render()
     try {
