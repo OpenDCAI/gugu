@@ -1,3 +1,4 @@
+import { agentSupportsConnectionManagement } from '@shared/core/agents/agent-payload';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
 import { useLibraryHost } from '@renderer/features/library/library-host';
@@ -95,7 +96,7 @@ function hintText(translate: Translate, row: MergedAccountRow): string | null {
  */
 export function AgentAccountSection({ agent }: { agent: AgentPayload }) {
   const host = useLibraryHost();
-  if (agent.id === 'claude' || agent.id === 'codex') {
+  if (agentSupportsConnectionManagement(agent.capabilities)) {
     return <AgentConnectionDetails agent={agent} machine={host.remote?.deviceId ?? null} />;
   }
   const targets = resolveAccountTargets(agent);

@@ -2218,7 +2218,7 @@ describe('InitialSessionField', () => {
     const previousAgents = agentFixtureRef.current;
     const template = previousAgents?.find(item => (item as { id: string }).id === 'claude') as { capabilities: object };
     agentFixtureRef.current = [{ ...template, id: provider, name: provider,
-      capabilities: { ...template.capabilities, auth: { kind: 'supported', methods: [{ kind: 'cli-login', id: `${provider}-login`, name: provider, args: ['login'] }] } },
+      capabilities: { ...template.capabilities, auth: { kind: 'supported', connections: { kind: 'managed' }, methods: [{ kind: 'cli-login', id: `${provider}-login`, name: provider, args: ['login'] }] } },
     }];
     harnessCatalog({ kind: 'auth-required', authMethods: [], efforts: [], selectedEffort: null });
     platformCatalog({ models: [GLM], agentDefault: null });

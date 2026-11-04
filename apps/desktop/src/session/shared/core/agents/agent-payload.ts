@@ -168,6 +168,11 @@ export function agentSupportsAcp(capabilities: AgentCapabilities | undefined | n
   return capabilities?.acp.kind === 'supported';
 }
 
+/** Saved-connection UI is offered only by an adapter that explicitly declares its support. */
+export function agentSupportsConnectionManagement(capabilities: AgentCapabilities | undefined | null): boolean {
+  return capabilities?.auth.kind === 'supported' && capabilities.auth.connections?.kind === 'managed';
+}
+
 /**
  * 这一家给不给**这一种展示**(spec session-page 会话页:编程 / 通用)。
  *

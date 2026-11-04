@@ -174,6 +174,7 @@ export const plugin = definePlugin(
     },
     auth: {
       kind: 'supported',
+      connections: { kind: 'managed' },
       methods: [
         {
           kind: 'cli-login',

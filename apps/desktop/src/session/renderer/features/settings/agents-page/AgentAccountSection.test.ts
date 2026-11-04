@@ -183,7 +183,7 @@ describe('AgentAccountSection', () => {
 
   it('native 未登录时提供配置入口，不把用户送进会被拒绝的 native 登录', async () => {
     mocks.auth = { status: { kind: 'unauthenticated' }, login: null };
-    await render({ ...agent(CLI_LOGIN), id: 'codex', name: 'Codex' });
+    await render({ ...agent({ ...CLI_LOGIN, connections: { kind: 'managed' } }), id: 'codex', name: 'Codex' });
     await act(async () => {
       await vi.waitFor(() => expect(container.querySelector('[data-testid="agent-account-configure"]')).not.toBeNull());
     });

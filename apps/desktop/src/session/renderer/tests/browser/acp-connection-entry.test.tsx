@@ -57,7 +57,7 @@ function harness(id: string): AgentPayload {
   return { id, name: id, status: 'available', reading: 'installed', command: id, capabilities: {
     acp: { kind: 'supported' }, autoApprove: { kind: 'none' }, models: { kind: 'none' }, effort: { kind: 'none' },
     sessionpage: { acp: { identity: 'addressable', messageTransport: 'router' } },
-    auth: { kind: 'supported', methods: [{ kind: 'cli-login', id: `${id}-login`, name: id, args: ['login'] }] },
+    auth: { kind: 'supported', connections: { kind: 'managed' }, methods: [{ kind: 'cli-login', id: `${id}-login`, name: id, args: ['login'] }] },
   } } as unknown as AgentPayload
 }
 

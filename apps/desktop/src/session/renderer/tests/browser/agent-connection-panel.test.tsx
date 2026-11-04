@@ -32,7 +32,7 @@ function agent(id: string): AgentPayload {
     command: id, installOptions: [], capabilities: {
       hostDependency: { updates: { kind: 'none' }, uninstall: { kind: 'none' } },
       hooks: { kind: 'none' }, sessions: { kind: 'stateless' },
-      auth: { kind: 'supported', methods: [{ kind: 'cli-login', id: `${id}-login`, name: id, args: ['login'] }] },
+      auth: { kind: 'supported', connections: { kind: 'managed' }, methods: [{ kind: 'cli-login', id: `${id}-login`, name: id, args: ['login'] }] },
     },
   } as unknown as AgentPayload;
 }

@@ -1,3 +1,4 @@
+import { agentSupportsConnectionManagement } from '@shared/core/agents/agent-payload';
 import { useConnectionPanel } from '@renderer/features/settings/subscriptions/use-connection-panel';
 import { DEFAULT_FREE_PLATFORM_MODEL, DEFAULT_PLATFORM_MODEL_BY_PROVIDER } from '@shared/core/sessions/new-session-defaults';
 import {
@@ -880,9 +881,8 @@ export function useInitialSessionState(
   const remoteAgentCommand = agents?.find((agent) => agent.id === providerId)?.command ?? null;
   const openAgentAccount = useCallback((anchor?: HTMLElement) => {
     if (!providerId || !cliLoginMethod) return;
-    if (providerId === 'claude' || providerId === 'codex') {
-      const selectedAgent = agents?.find(item => item.id === providerId);
-      if (!selectedAgent) throw new Error('The selected harness is unavailable');
+    const selectedAgent = agents?.find(item => item.id === providerId);
+    if (selectedAgent && agentSupportsConnectionManagement(selectedAgent.capabilities)) {
       connections.show(selectedAgent, machine, anchor);
       return;
     }

@@ -1,3 +1,4 @@
+import { agentSupportsConnectionManagement } from '@shared/core/agents/agent-payload';
 import { useConnectionPanel } from '@renderer/features/settings/subscriptions/use-connection-panel';
 import { isTranscriptDelivery } from '@/lib/pendingSessionDeliveries';
 import { resolveDeliveredAttachment } from '@renderer/lib/chat/delivered-message-presentation';
@@ -1728,8 +1729,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const machine = store ? machineRegistry.machineOf(store.projectId) : null;
   const openAgentAccount = useCallback((anchor?: HTMLElement) => {
     if (!providerId || !cliAuthMethod) return;
-    if (providerId === 'claude' || providerId === 'codex') {
-      if (!agent) throw new Error('The session harness is unavailable');
+    if (agent && agentSupportsConnectionManagement(agent.capabilities)) {
       connections.show(agent, machine, anchor);
       return;
     }
@@ -1749,11 +1749,10 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const signInMissing = lastTurnSignIn && !signInExpired && harnessAuth?.status?.kind === 'unauthenticated';
   const showSignIn = useShowModal('agentSignInModal');
   const queryClient = useQueryClient();
-  /** Claude/Codex 进入同一连接面板；其他家沿用既有登录方式与所属机器。 */
+  /** 声明连接管理能力的适配器进入共享面板；其他适配器沿用既有登录方式与所属机器。 */
   const signInAgain = useCallback((anchor?: HTMLElement) => {
     if (!providerId || !cliAuthMethod) return;
-    if (providerId === 'claude' || providerId === 'codex') {
-      if (!agent) throw new Error('The session harness is unavailable');
+    if (agent && agentSupportsConnectionManagement(agent.capabilities)) {
       connections.show(agent, machine, anchor);
       return;
     }
