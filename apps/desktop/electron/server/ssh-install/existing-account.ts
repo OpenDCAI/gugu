@@ -28,7 +28,17 @@ export function existingIdentityScript(): string {
     `echo ${EXISTING_IDENTITY_BEGIN}`,
     '"$B" status --json || exit 1',
     'if [ ! -e "$H/install-id" ]; then echo identity_missing=1; else',
-    '  I="$(cat "$H/install-id")" || exit 1',
+    // Validate every byte before framing; shell variables cannot preserve NUL bytes.
+    '  BYTES="$(od -An -v -t u1 "$H/install-id")" || exit 1',
+    `  I="$(printf '%s\\n' "$BYTES" | LC_ALL=C awk '`,
+    '    { for (i = 1; i <= NF; i++) {',
+    '      n = $i + 0',
+    '      if (n == 9 || n == 10 || n == 11 || n == 12 || n == 13 || n == 32) { if (length(id)) trailing = 1 }',
+    '      else if (!trailing && ((n >= 48 && n <= 57) || (n >= 65 && n <= 70) || (n >= 97 && n <= 102))) id = id sprintf("%c", n)',
+    '      else invalid = 1',
+    '    } }',
+    '    END { if (invalid || length(id) != 32) exit 1; print id }',
+    `  ')" || { echo 'The server installation identity is empty or invalid' >&2; exit 1; }`,
     '  printf \'machine_id=%s\\n\' "$I"',
     'fi',
     `echo ${EXISTING_IDENTITY_END}`,
@@ -50,7 +60,7 @@ export function parseExistingIdentity(stdout: string, userId: string): { machine
   if (account.userId !== userId) throw new Error(`This server is signed in as ${sshAccountLabel(account)}. Sign out on that server or use another system user.`)
   if (/^identity_missing=1$/m.test(text)) throw new Error('This server has no installation identity. Update the server before adding it; its existing login was preserved.')
   const ids = [...text.matchAll(/^machine_id=([^\r\n]*)\r?$/gm)]
-  if (ids.length !== 1 || !/^[a-f0-9]{32}$/i.test(ids[0][1])) throw new Error('The server installation identity is empty or invalid')
+  if (ids.length !== 1 || !/^machine_id=[a-f0-9]{32}\r?\n$/i.test(text.slice(ids[0].index))) throw new Error('The server installation identity is empty or invalid')
   return { machineId: ids[0][1], email: account.email }
 }
 
