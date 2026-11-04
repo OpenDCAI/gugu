@@ -20,11 +20,20 @@ export function isCreditExhaustion(outcome: TranscriptTurnOutcome): boolean {
 
 export function creditExhaustionLayout(ctx: MeasureCtx, commands?: ChatCommands) {
   const t = rowTranslator(ctx);
-  const message = t('transcript.creditsExhausted');
-  const action = commands?.onRechargeCredits ? t('transcript.rechargeCredits') : '';
+  const action = t('transcript.rechargeCredits');
+  const message = t('transcript.creditsExhausted', { recharge: action });
   const body = ctx.theme.config.roles.body;
-  const label = readableLabel(`${message}${action ? ` ${action}` : ''}`, ctx, ctx.width, body.size, body.lineHeight, body.weight);
-  return { ...label, message: action ? label.text.slice(0, -action.length) : label.text, action };
+  const label = readableLabel(message, ctx, ctx.width, body.size, body.lineHeight, body.weight);
+  if (!commands?.onRechargeCredits) return { ...label, before: label.text, action: '', after: '' };
+  // The link stays inside the sentence, including the measurer's exact soft wraps.
+  const wrappedOffset = (sourceOffset: number) => {
+    let offset = sourceOffset;
+    for (let i = 0; i < offset; i++) if (label.text[i] === '\n') offset++;
+    return offset;
+  };
+  const start = wrappedOffset(message.indexOf(action));
+  const end = wrappedOffset(message.indexOf(action) + action.length);
+  return { ...label, before: label.text.slice(0, start), action: label.text.slice(start, end), after: label.text.slice(end) };
 }
 
 /** One ordinary body row replaces the failure badge, warning color, and duplicate explanation. */
@@ -36,11 +45,11 @@ export function CreditExhaustionRow(props: { outcome: TranscriptTurnOutcome; ctx
     style={{ height: `${layout().height}px`, color: vars.fgBody, 'font-family': vars.typeBodyFontFamily,
       'font-size': vars.typeBodyFontSize, 'font-weight': vars.typeBodyFontWeight, 'line-height': vars.typeBodyLineHeight,
       'white-space': 'pre-wrap', 'overflow-wrap': 'normal', 'word-break': 'normal', 'user-select': 'text' }}>
-    {layout().message}<Show when={layout().action}>
-      <button type="button" data-slot="credit-recharge" onClick={() => commands().onRechargeCredits?.()}
-        style={{ border: 'none', padding: 0, background: 'transparent', color: 'inherit', font: 'inherit', 'text-decoration': 'underline', cursor: 'pointer' }}>
+    {layout().before}<Show when={layout().action}>
+      <a href="#recharge-credits" data-slot="credit-recharge" onClick={event => { event.preventDefault(); commands().onRechargeCredits?.(); }}
+        style={{ color: 'inherit', font: 'inherit', 'text-decoration': 'underline', cursor: 'pointer' }}>
         {layout().action}
-      </button>
-    </Show>
+      </a>
+    </Show>{layout().after}
   </div>;
 }

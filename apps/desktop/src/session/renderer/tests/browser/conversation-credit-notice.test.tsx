@@ -63,7 +63,11 @@ it.each([360, 800])('renders the real interrupted turn once as ordinary body tex
   </SessionLocalizationProvider></ThemeProvider>)
   await until('the interrupted turn and real composer have mounted', () => !!harness.container.querySelector('[data-credit-exhausted]') && !!harness.container.querySelector('[data-slot="composer"]'))
   expect(harness.container.querySelectorAll('[data-credit-exhausted]')).toHaveLength(1)
-  expect(harness.container.textContent).toContain('积分用完了，充值后可以继续')
+  const exhausted = harness.container.querySelector<HTMLElement>('[data-credit-exhausted]')!
+  expect(exhausted.textContent?.replace(/\n/g, '')).toBe('积分用完了，充值后继续')
+  expect(exhausted.textContent?.match(/充值/g)).toHaveLength(1)
+  expect(exhausted.querySelectorAll('a')).toHaveLength(1)
+  expect(exhausted.querySelector('a')?.textContent?.trim()).toBe('充值')
   expect(harness.container.querySelector('[data-testid="conversation-credit-notice"]')).toBeNull()
   expect(harness.container.querySelector('[data-credit-exhausted] [role="alert"], [data-credit-exhausted] [data-slot="turn-outcome-badge"]')).toBeNull()
   expect(harness.container.querySelector('[data-slot="credit-recharge"]')).not.toBeNull()
