@@ -8,6 +8,7 @@ import { parseArgs } from 'node:util'
 
 import picomatch from 'picomatch'
 import YAML from 'yaml'
+import { hasVerifiedDocsClassifier } from './docs-filter-contract.mts'
 
 /** Parsed workflow YAML / GitHub JSON: untyped input, validated where each field is read. */
 type Parsed = ReturnType<typeof JSON.parse>
@@ -382,6 +383,9 @@ function pathFilterCondition(workflow: Parsed, jobId: string, job: Parsed, label
   }
   if (decider.strategy?.matrix !== undefined) {
     throw new Error(`${label} job ${jobId} is conditioned on matrix job ${deciderId}`)
+  }
+  if (output === 'tests' && (deciderId !== 'changes' || !hasVerifiedDocsClassifier(workflow))) {
+    throw new Error(`${label} job ${jobId}: tests filter lacks the verified documentation classifier`)
   }
   return {
     decider: expandJobName(String(decider.name ?? deciderId), {}, `${label} job ${deciderId} name`),

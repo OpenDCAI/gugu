@@ -47,12 +47,12 @@ describe('PR macOS path classification', () => {
     '.node-version', '.npmrc', 'package.json', 'packages/core/package.json',
     'apps/desktop/package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'patches/native.patch',
   ])('%s requires every platform build', file => {
-    expect(classify([file])).toEqual({ build: 'true', 'desktop-mac': 'true', android: 'true' })
+    expect(classify([file])).toEqual({ build: 'true', 'desktop-mac': 'true', 'desktop-linux': 'true', android: 'true', tests: 'true' })
   })
 
   it.each(['apps/desktop/native/addon.cc', 'apps/desktop/session-tooling/node-deps/package-lock.json'])(
     '%s requires Mac without adding Android', file => {
-      expect(classify([file])).toEqual({ build: 'true', 'desktop-mac': 'true', android: 'false' })
+      expect(classify([file])).toEqual({ build: 'true', 'desktop-mac': 'true', 'desktop-linux': 'true', android: 'false', tests: 'true' })
     },
   )
 
@@ -61,31 +61,31 @@ describe('PR macOS path classification', () => {
     'vite.config.mts', 'electron-builder.cjs', 'build-resources/icon.icns',
     '.github/workflows/ci-dev-mac.yml', '.github/workflows/ci-dev-linux.yml',
   ])('%s still builds Linux/web without requiring PR Mac', file => {
-    expect(classify([file])).toEqual({ build: 'true', 'desktop-mac': 'false', android: 'false' })
+    expect(classify([file])).toEqual({ build: 'true', 'desktop-mac': 'false', 'desktop-linux': 'true', android: 'false', tests: 'true' })
   })
 
   it.each(['apps/mobile/src/main.ts', 'capacitor.config.ts', 'scripts/build/android-gradle-build.sh', 'scripts/build/phone-web-dir.mts'])(
     '%s preserves Android without requiring Mac', file => {
-      expect(classify([file])).toEqual({ build: 'true', 'desktop-mac': 'false', android: 'true' })
+      expect(classify([file])).toEqual({ build: 'true', 'desktop-mac': 'false', 'desktop-linux': 'false', android: 'true', tests: 'true' })
     },
   )
 
   it('preserves documentation skips and combines mixed file lists', () => {
     expect(classify(['README.md', 'docs/guide.txt', '.github/actions/README.md']))
-      .toEqual({ build: 'false', 'desktop-mac': 'false', android: 'false' })
+      .toEqual({ build: 'false', 'desktop-mac': 'false', 'desktop-linux': 'false', android: 'false', tests: 'false' })
     expect(classify(['apps/desktop/src/App.tsx', 'apps/desktop/native/addon.cc', 'apps/mobile/src/main.ts']))
-      .toEqual({ build: 'true', 'desktop-mac': 'true', android: 'true' })
+      .toEqual({ build: 'true', 'desktop-mac': 'true', 'desktop-linux': 'true', android: 'true', tests: 'true' })
   })
 
-  it('retains the exact canonical integration bypass and manual full build', () => {
-    const full = { build: 'true', 'desktop-mac': 'true', android: 'true' }
+  it('preserves the exact integration bypass and manual full build', () => {
+    const full = { build: 'true', 'desktop-mac': 'true', 'desktop-linux': 'true', android: 'true', tests: 'true' }
     expect(classify(['README.md'], { PR_HEAD_REF: 'integration/beta-20261103' })).toEqual(full)
     expect(classify([], { EVENT_NAME: 'workflow_dispatch' })).toEqual(full)
     expect(classify(['README.md'], {
       PR_HEAD_REF: 'integration/beta-20261103', PR_HEAD_REPOSITORY: 'contributor/gugu',
-    })).toEqual({ build: 'false', 'desktop-mac': 'false', android: 'false' })
+    })).toEqual({ build: 'false', 'desktop-mac': 'false', 'desktop-linux': 'false', android: 'false', tests: 'false' })
     expect(classify(['README.md'], { PR_HEAD_REF: 'Integration/beta-20261103' }))
-      .toEqual({ build: 'false', 'desktop-mac': 'false', android: 'false' })
+      .toEqual({ build: 'false', 'desktop-mac': 'false', 'desktop-linux': 'false', android: 'false', tests: 'false' })
   })
 })
 
@@ -125,7 +125,7 @@ describe('dev verification workflow contracts', () => {
     expect(linux['runs-on']).toBe(original['runs-on'])
     expect(linux.strategy).toEqual(original.strategy)
     expect(linux.env).toEqual(original.env)
-    expect(linux.steps.slice(0, -1)).toEqual(original.steps)
+    expect(linux.steps.slice(0, -1)).toEqual(original.steps.map(({ if: _condition, ...step }: { if?: unknown }) => step))
     expect(linux.permissions).toEqual({ contents: 'read', actions: 'read', issues: 'write' })
     expect(linux.steps.at(-1).if).toBe('failure()')
     const typecheck = devLinux.jobs.typecheck

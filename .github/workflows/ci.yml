@@ -17,8 +17,8 @@ env:
   # Match pnpm-lock.yaml; update the version and digest together when Playwright changes.
   PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:b0ab6f3cb99aa7803adbc14d9027ec1785fc6e433b97e134e0f8fe61683b6b53
 jobs:
-  # Decides which packaging jobs a pull request needs. Test jobs never depend on this: they run on
-  # every event (scripts/ci/ci-spec-coverage.mts rejects conditions on any job that runs a test runner).
+  # Docs-only PRs skip tests and packaging; mixed/source PRs retain every test.
+  # ci-spec-coverage accepts only this exact tests output guard, not arbitrary test conditions.
   # Manual diagnostic runs always build everything; ci-dev-mac.yml compiles merged dev changes.
   changes:
     name: Detect changed areas
@@ -27,6 +27,8 @@ jobs:
     outputs:
       build: ${{ steps.classify.outputs.build }}
       desktop-mac: ${{ steps.classify.outputs.desktop-mac }}
+      desktop-linux: ${{ steps.classify.outputs.desktop-linux }}
+      tests: ${{ steps.classify.outputs.tests }}
       android: ${{ steps.classify.outputs.android }}
     steps:
       # A pull_request run checks out the merge commit; its first parent is the base branch tip,
@@ -44,8 +46,10 @@ jobs:
         run: |
           build=true
           desktop_mac=true
+          desktop_linux=true
           android=true
-          # Only this repository's exact integration branch bypasses the PR path filters.
+          tests=true
+          # Preserve the approved exact same-repository integration full-validation window.
           if [ "$EVENT_NAME" = pull_request ] && {
             [ "$GITHUB_REPOSITORY" != GUYI-AI/gugu ] ||
               [ "$PR_HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ] ||
@@ -53,33 +57,36 @@ jobs:
           }; then
             build=false
             desktop_mac=false
+            desktop_linux=false
             android=false
+            tests=false
             changed=$(git diff --name-only HEAD^1 HEAD)
+            # An empty/unavailable change list must never silently exempt a source PR.
+            test -n "$changed"
             while IFS= read -r file; do
               [ -n "$file" ] || continue
-              # Markdown and docs/ feed no build or package.
               case "$file" in
                 *.md|docs/*) continue ;;
               esac
+              tests=true
               build=true
-              # Toolchain, dependencies and CI itself can break any platform build.
+              # Mobile-only inputs still build the web renderer and Android, but no desktop app.
+              case "$file" in
+                apps/mobile/*|capacitor.config.ts|scripts/build/android-gradle-build.sh|scripts/build/phone-web-dir.mts)
+                  android=true
+                  continue
+                  ;;
+              esac
+              desktop_linux=true
               case "$file" in
                 .github/workflows/ci.yml|.github/actions/*|.node-version|.npmrc|package.json|*/package.json|pnpm-lock.yaml|pnpm-workspace.yaml|patches/*)
                   desktop_mac=true
                   android=true
                   ;;
               esac
-              # Other source/build-script changes are compiled on macOS after merging to dev.
-              # PRs still check macOS dependency and native-module inputs before merging.
               case "$file" in
                 apps/desktop/native/*|apps/desktop/session-tooling/node-deps/*)
                   desktop_mac=true
-                  ;;
-              esac
-              # The web bundle the Android shell wraps is built by renderer-build on every PR.
-              case "$file" in
-                apps/mobile/*|capacitor.config.ts|scripts/build/android-gradle-build.sh|scripts/build/phone-web-dir.mts)
-                  android=true
                   ;;
               esac
             done <<< "$changed"
@@ -87,11 +94,11 @@ jobs:
           {
             echo "build=$build"
             echo "desktop-mac=$desktop_mac"
+            echo "desktop-linux=$desktop_linux"
             echo "android=$android"
+            echo "tests=$tests"
           } >> "$GITHUB_OUTPUT"
-          # scripts/ci/check-verdict.mts reads this annotation (JOB_OUTPUTS_MARKER) to tell a build
-          # skipped by design from an unexpected skip; keep it in step with the outputs above.
-          echo "::notice title=ci-job-outputs::build=$build desktop-mac=$desktop_mac android=$android"
+          echo "::notice title=ci-job-outputs::build=$build desktop-mac=$desktop_mac desktop-linux=$desktop_linux android=$android tests=$tests"
   policy:
     name: Source checks
     runs-on: ubuntu-24.04
@@ -146,6 +153,7 @@ jobs:
           node scripts/ci/ci-spec-coverage.mts "${args[@]}"
   unit:
     name: Unit tests (${{ matrix.shard }}/4)
+    needs: changes
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -155,16 +163,20 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@v4
-      - id: setup
+      - if: needs.changes.outputs.tests == 'true'
+        uses: actions/checkout@v4
+      - if: needs.changes.outputs.tests == 'true'
+        id: setup
         uses: ./.github/actions/setup-community
       # Each shard is the sole writer of its own content-addressed module snapshot.
-      - uses: actions/cache@v4
+      - if: needs.changes.outputs.tests == 'true'
+        uses: actions/cache@v4
         with:
           path: node_modules/.experimental-vitest-cache
           key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
           restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-
-      - run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/4
+      - if: needs.changes.outputs.tests == 'true'
+        run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/4
   renderer-build:
     name: Renderer build (web target)
     needs: changes
@@ -185,7 +197,7 @@ jobs:
   desktop-build-linux:
     name: Desktop app build (ubuntu-24.04)
     needs: changes
-    if: needs.changes.outputs.build == 'true'
+    if: needs.changes.outputs.desktop-linux == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -201,9 +213,8 @@ jobs:
       - uses: ./.github/actions/setup-community
       - run: pnpm build:app:ci
       - run: pnpm rebuild:native
-  # PRs compile on macOS for dependency, toolchain, native-module or CI input changes (see `changes`).
-  # The exact integration branch and manual diagnostics retain full builds. After merging, the
-  # dedicated ci-dev-mac.yml workflow compiles every dev push; main does not trigger this job.
+  # PR macOS compilation retains its original dependency/native input filter;
+  # mobile-only PRs do not compile either desktop app.
   desktop-build-mac:
     name: Desktop app build (macos-15)
     needs: changes
@@ -257,6 +268,8 @@ jobs:
         run: bash scripts/build/android-gradle-build.sh testDebugUnitTest
   session-db:
     name: Session database, chat UI browser and tooling
+    needs: changes
+    if: needs.changes.outputs.tests == 'true'
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -301,6 +314,8 @@ jobs:
         run: pnpm exec vitest run --project session-main apps/desktop/electron/session/main/core/extensions/projection-media.real-electron.test.ts
   projection-media:
     name: Projection native media
+    needs: changes
+    if: needs.changes.outputs.tests == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -345,6 +360,8 @@ jobs:
           done
   session-browser:
     name: Session browser project
+    needs: changes
+    if: needs.changes.outputs.tests == 'true'
     # On GitHub-hosted macOS (macos-14 and macos-15 alike) a full session-browser run turns animation,
     # IME and tab-density cases red that pass there in isolation, on Linux runners and on local Macs;
     # until that host difference is understood this project runs on Linux (87/87 green there).
@@ -360,6 +377,7 @@ jobs:
         shell: bash .github/actions/setup-playwright/run-in-container.sh {0}
   web-smoke:
     name: Web E2E (${{ matrix.id }})
+    needs: changes
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -378,21 +396,26 @@ jobs:
       # The vite dev server serving the renderer needs the same heap headroom as the build.
       NODE_OPTIONS: --max-old-space-size=6144
     steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-community
-      - name: Bind run-owned web resources
+      - if: needs.changes.outputs.tests == 'true'
+        uses: actions/checkout@v4
+      - if: needs.changes.outputs.tests == 'true'
+        uses: ./.github/actions/setup-community
+      - if: needs.changes.outputs.tests == 'true'
+        name: Bind run-owned web resources
         run: echo "GUGU_E2E_RUN_ID=community-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
-      - uses: ./.github/actions/setup-playwright
+      - if: needs.changes.outputs.tests == 'true'
+        uses: ./.github/actions/setup-playwright
         with:
           container-image: ${{ env.PLAYWRIGHT_IMAGE }}
-      - name: Run automatically discovered CI web specs
+      - if: needs.changes.outputs.tests == 'true'
+        name: Run automatically discovered CI web specs
         run: pnpm exec playwright test --project=${{ matrix.playwright_project }} ${{ matrix.shard_arg }} --workers=1
         shell: bash .github/actions/setup-playwright/run-in-container.sh {0}
-      - name: Verify local Playwright artifacts exist
-        if: ${{ always() }}
+      - if: ${{ always() && needs.changes.outputs.tests == 'true' }}
+        name: Verify local Playwright artifacts exist
         run: test -d playwright-report && test -d test-results
-      - name: Upload Playwright report and test artifacts
-        if: ${{ always() }}
+      - if: ${{ always() && needs.changes.outputs.tests == 'true' }}
+        name: Upload Playwright report and test artifacts
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
@@ -404,6 +427,8 @@ jobs:
           retention-days: 14
   supabase-contract:
     name: Client and community database contracts
+    needs: changes
+    if: needs.changes.outputs.tests == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -461,23 +486,35 @@ jobs:
     needs: [changes, policy, unit, renderer-build, desktop-build-linux, desktop-build-mac, android-build, session-db, session-browser, projection-media, web-smoke, supabase-contract]
     runs-on: ubuntu-24.04
     steps:
-      - name: Require all upstream jobs to have passed
+      - name: Require every due test job to have passed
         run: |
-          if [ "${{ needs.changes.result }}" != "success" ] ||
-             [ "${{ needs.policy.result }}" != "success" ] ||
-             [ "${{ needs.unit.result }}" != "success" ] ||
-             [ "${{ needs.session-db.result }}" != "success" ] ||
-             [ "${{ needs.session-browser.result }}" != "success" ] ||
-             [ "${{ needs.projection-media.result }}" != "success" ] ||
-             [ "${{ needs.web-smoke.result }}" != "success" ] || \
-             [ "${{ needs.supabase-contract.result }}" != "success" ]; then
-            exit 1
-          fi
+          test "${{ needs.changes.result }}" = success
+          test "${{ needs.policy.result }}" = success
+          case "${{ needs.changes.outputs.tests }}" in
+            true)
+              if [ "${{ needs.unit.result }}" != "success" ] ||
+                 [ "${{ needs.session-db.result }}" != "success" ] ||
+                 [ "${{ needs.session-browser.result }}" != "success" ] ||
+                 [ "${{ needs.projection-media.result }}" != "success" ] ||
+                 [ "${{ needs.web-smoke.result }}" != "success" ] || \
+                 [ "${{ needs.supabase-contract.result }}" != "success" ]; then
+                exit 1
+              fi
+              ;;
+            false)
+              for result in "${{ needs.unit.result }}" "${{ needs.session-db.result }}" "${{ needs.session-browser.result }}" "${{ needs.projection-media.result }}" "${{ needs.web-smoke.result }}" "${{ needs.supabase-contract.result }}"; do
+                # Only a successful classifier may exempt docs-only test payloads.
+                case "$result" in success|skipped) ;; *) exit 1 ;; esac
+              done
+              ;;
+            *) exit 1 ;;
+          esac
       # A path-filtered build may be skipped only when `changes` (which passed above) said it was
       # not due; when it was due, only success counts.
       - name: Require every due packaging build to have passed
         env:
           BUILD_DUE: ${{ needs.changes.outputs.build }}
+          DESKTOP_LINUX_DUE: ${{ needs.changes.outputs.desktop-linux }}
           DESKTOP_MAC_DUE: ${{ needs.changes.outputs.desktop-mac }}
           ANDROID_DUE: ${{ needs.changes.outputs.android }}
           RENDERER_BUILD: ${{ needs.renderer-build.result }}
@@ -485,6 +522,9 @@ jobs:
           DESKTOP_BUILD_MAC: ${{ needs.desktop-build-mac.result }}
           ANDROID_BUILD: ${{ needs.android-build.result }}
         run: |
+          for due in "$BUILD_DUE" "$DESKTOP_LINUX_DUE" "$DESKTOP_MAC_DUE" "$ANDROID_DUE"; do
+            case "$due" in true|false) ;; *) exit 1 ;; esac
+          done
           failed=0
           require() {
             if [ "$2" = success ] || { [ "$3" != true ] && [ "$2" = skipped ]; }; then
@@ -495,7 +535,7 @@ jobs:
             fi
           }
           require renderer-build "$RENDERER_BUILD" "$BUILD_DUE"
-          require desktop-build-linux "$DESKTOP_BUILD_LINUX" "$BUILD_DUE"
+          require desktop-build-linux "$DESKTOP_BUILD_LINUX" "$DESKTOP_LINUX_DUE"
           require desktop-build-mac "$DESKTOP_BUILD_MAC" "$DESKTOP_MAC_DUE"
           require android-build "$ANDROID_BUILD" "$ANDROID_DUE"
           exit "$failed"
