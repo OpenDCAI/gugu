@@ -120,3 +120,18 @@ it('task Stop and permission loss fence output after a download started', async 
     visible = true; await done();
   }
 });
+
+it('releasing the actual IPC page lease replies to a pending upload before the file service returns', async () => {
+  const done = hand('held'), id = await lease('held');
+  const held = Promise.withResolvers<string>(), entered = Promise.withResolvers<void>();
+  readText = () => { entered.resolve(); return held.promise; };
+  const resultId = serial + 1, result = call('taskPageFilePayloads', { id, refs: [{ file: ITEM }] }, 'held');
+  try {
+    await entered.promise;
+    expect(await call('taskPageRelease', { id }, 'held')).toMatchObject({ ok: true });
+    await new Promise(resolve => setImmediate(resolve));
+    const reply = child.send.mock.calls.map(([frame]) => frame).find(frame => frame.t === 'result' && frame.id === resultId);
+    expect(reply).toMatchObject({ ok: false });
+    cancelExtensionSessionCalls('task-a');
+  } finally { held.resolve('hello'); await result; await done(); }
+});

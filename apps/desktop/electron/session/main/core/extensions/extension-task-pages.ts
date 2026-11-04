@@ -27,7 +27,7 @@ export interface TaskPageNative {
 }
 type RecordOfPage = {
   id: string; owner: number; extensionId: string; sessionId: string; watchId: string;
-  native: TaskPageNative; closed: boolean; active: number;
+  native: TaskPageNative; closed: boolean; active: number; lifetime: AbortController;
   access: ReturnType<typeof openExtensionProgramAccess>;
   hear(event: TaskPageEvent): void;
   listen(): void;
@@ -118,7 +118,7 @@ export class ExtensionTaskPages {
       }
       const page: RecordOfPage = {
         id: randomUUID(), owner: caller.pageId, extensionId: caller.extensionId, sessionId: from.sessionId,
-        watchId: args.watchId, native, access, closed: false, active: 0,
+        watchId: args.watchId, native, access, closed: false, active: 0, lifetime: new AbortController(),
         hear: event => caller.hear({ type: 'taskPage', event }), off: () => {}, listen: () => {},
       };
       admitted = page;
@@ -219,7 +219,7 @@ export class ExtensionTaskPages {
     const page = this.own(caller, args.id);
     if (Object.keys(args).length !== 2 || !Object.hasOwn(args, 'id') || !Object.hasOwn(args, 'refs')) throw new Error('File payloads take only a page lease and file cards');
     if (!this.files) throw new Error('This host cannot read task file payloads');
-    const signal = anySignal([caller.signal, page.access.signal]);
+    const signal = anySignal([caller.signal, page.access.signal, page.lifetime.signal]);
     signal.throwIfAborted();
     const payloads = await this.files(caller, args.refs, signal);
     signal.throwIfAborted(); this.own(caller, args.id);
@@ -269,6 +269,9 @@ export class ExtensionTaskPages {
   private close(page: RecordOfPage, reason: string): Promise<void> {
     if (page.closed) return page.closing ?? Promise.resolve();
     page.closed = true;
+    // Revoke this lease before native cleanup can wait. Its file service may
+    // never reply; neither the calling tool nor another lease needs to end.
+    page.lifetime.abort(new Error(reason));
     this.pages.delete(page.id);
     const failures: unknown[] = [];
     for (const work of [() => page.unmount?.(), () => page.off()]) {
