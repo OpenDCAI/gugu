@@ -50,4 +50,18 @@ describe('project device scope', () => {
     // Answered (or past the deadline) and still nothing in scope: that is a real empty scope.
     expect(foldersInScope({ ...waiting, unanswered: [] }, ['device-b'], deviceOf).folders).toEqual([]);
   });
+
+  it('does not call a resting cloud scope unavailable while its folders cannot answer', () => {
+    const unavailable = { ...state, folders: [local], unanswered: [] };
+    const sleeping = foldersInScope(unavailable, ['device-b'], deviceOf, (id) => id === 'device-b');
+    expect(sleeping.folders).toBeNull();
+    expect(sleeping.chosen).toBeNull();
+    // A real unavailable/empty scope must still block, including after waking.
+    expect(foldersInScope(unavailable, ['device-b'], deviceOf, () => false).folders).toEqual([]);
+  });
+
+  it('does not hide another scope failure or discard recorded folders because a cloud device rests', () => {
+    expect(foldersInScope({ ...state, folders: [] }, ['local'], deviceOf, (id) => id === 'device-b').folders).toEqual([]);
+    expect(foldersInScope(state, ['device-b'], deviceOf, () => true).folders).toEqual([remote]);
+  });
 });

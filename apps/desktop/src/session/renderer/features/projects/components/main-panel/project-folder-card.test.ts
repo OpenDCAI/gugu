@@ -21,12 +21,14 @@ const mocks = vi.hoisted(() => ({
   account: new Map<string, ProjectFolder[]>(),
   // 账号上那份在那台机器经连接答过之后没再变的机器(其余 = 账号上那份更新)。
   accountNotNewer: new Set<string>(),
+  connections: new Map<string, string>(),
 }));
 
 vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({
   remoteHostsStore: {
     accountFolders: (machine: string, projectId: string) => mocks.account.get(`${machine}:${projectId}`) ?? null,
     accountIsNewer: (machine: string) => !mocks.accountNotNewer.has(machine),
+    connectionState: (machine: string) => mocks.connections.get(machine) ?? null,
   },
 }));
 
@@ -338,6 +340,7 @@ describe('useProjectFolders', () => {
     mocks.detach.mockReset();
     mocks.account.clear();
     mocks.accountNotNewer.clear();
+    mocks.connections.clear();
   });
 
   afterEach(() => {
@@ -369,6 +372,24 @@ describe('useProjectFolders', () => {
     expect(latest?.folders).toEqual([]);
     expect(latest?.chosen).toBeNull();
     expect(latest?.loadError).toBe(false);
+  });
+
+  it('re-reads the selected cloud project after waking, without a folder-change event', async () => {
+    const mapping = vi.spyOn(machineRegistry, 'machineOf').mockReturnValue('cloud-device');
+    try {
+      mocks.connections.set('cloud-device', 'asleep');
+      mocks.list.mockResolvedValue({ success: true, data: [] });
+      await mount('p-waking');
+      expect(latest?.folders).toEqual([]);
+      expect(mocks.list).toHaveBeenCalledTimes(1);
+      mocks.connections.set('cloud-device', 'connected');
+      mocks.list.mockResolvedValue({ success: true, data: [ROOT] });
+      await mount('p-waking');
+      expect(mocks.list).toHaveBeenCalledTimes(2);
+      expect(latest?.folders?.map((item) => item.workspaceId)).toEqual(['ws-root']);
+    } finally {
+      mapping.mockRestore();
+    }
   });
 
   it('defaults to the root folder and follows the choice', async () => {

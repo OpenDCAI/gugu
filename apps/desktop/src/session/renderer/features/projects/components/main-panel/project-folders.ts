@@ -101,6 +101,13 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
   // 账号上记着的那几份变了(那台机器离线时挂 / 摘了文件夹之后记上来、这一端刚读到账号上的那份):重读一遍。
   // 读的是 mobx 里的设备行 —— 项目首页是 observer,那一份变了这里才重算。
   const accountKey = JSON.stringify(memberIds.map((projectId) => [accountFolders(projectId), accountIsNewer(projectId)]));
+  // A cloud host can wake without changing its recorded folder metadata. Read
+  // again when its actual connection returns, rather than retaining an empty
+  // pre-wake response and leaving the composer blocked indefinitely.
+  const connectionKey = JSON.stringify(memberIds.map((projectId) => {
+    const deviceId = machineRegistry.machineOf(projectId);
+    return [deviceId, deviceId ? remoteHostsStore.connectionState(deviceId) === 'connected' : true];
+  }));
   // 换了项目:「刚挂上」跟着换成那个项目的(❌ 把上一个项目的那张带过来)。
   useEffect(() => setFresh(freshFolders.get(rowId)), [rowId]);
 
@@ -207,7 +214,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
       cancelled = true;
       clearTimeout(deadline);
     };
-  }, [rowId, membersKey, generation, accountKey]);
+  }, [rowId, membersKey, generation, accountKey, connectionKey]);
 
   // 别处挂上 / 摘下 / 并进来(另一个窗口、agent、撤销)也要跟着变:在各成员项目所在的机器上订,那台推一声就重读。
   useEffect(() => {
