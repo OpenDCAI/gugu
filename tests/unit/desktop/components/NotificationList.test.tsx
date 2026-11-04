@@ -85,7 +85,10 @@ async function see(id: string, ratio = 1) {
   const target = rows().find(row => row.dataset.sessionLine === id)!
   expect(target).toBeDefined()
   await act(async () => {
-    for (const observation of [...observations]) if (observation.targets.has(target)) observation.callback([{ target, isIntersecting: ratio > 0, intersectionRatio: ratio, intersectionRect: { height: 20 }, rootBounds: { height: 500 } } as IntersectionObserverEntry], {} as IntersectionObserver)
+    for (const observation of [...observations]) if (observation.targets.has(target)) observation.callback([{
+      target, time: performance.now(), isIntersecting: ratio > 0, intersectionRatio: ratio,
+      boundingClientRect: target.getBoundingClientRect(), intersectionRect: new DOMRect(0, 0, 20, 20), rootBounds: new DOMRect(0, 0, 500, 500),
+    }], {} as IntersectionObserver)
   })
 }
 
