@@ -213,8 +213,8 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
         // A delivery into a harness that takes input at its next tool call steers the running turn, unless the
         // sender asked to queue or it is a person's own DM (moved here from the old ACP delivery target, #4708).
         const backlog = backlogThrough !== null && pending.seq <= backlogThrough;
-        const steerIfBusy = !backlog && !delivery?.queue && !isHumanDmDelivery(pending.message.text)
-          && declaredInjectionTiming(resolveSessionpageSessionIntegration(known().providerId, 'acp')) === 'next-tool-call';
+        const steerIfBusy = delivery?.steerIfBusy || (!backlog && !delivery?.queue && !isHumanDmDelivery(pending.message.text)
+          && declaredInjectionTiming(resolveSessionpageSessionIntegration(known().providerId, 'acp')) === 'next-tool-call');
         sent = await injectEmdashPromptDetached(sessionId, pending.message.text, {
           clientMessageId: pending.message.id,
           sentAt: pending.sentAt,
@@ -295,4 +295,3 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     },
   };
 }
-

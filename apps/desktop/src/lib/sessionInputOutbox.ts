@@ -13,8 +13,12 @@ export type SessionInput = {
   admission?: Exclude<SessionInputAdmission, 'accepted'>
   /** Presentation only: an explicitly queued input remains in the composer queue. */
   queued?: boolean
+  /** Composer-owned, not yet sent. Legacy/mobile `queued` alone is only presentation. */
+  sendQueue?: { order: number; afterInputId?: string; edit?: { draftText: string; originalDraftText: string } }
   baseline?: string[]
   afterTurnId?: string
+  /** Explicit send-now insertion, never used by automatic queue release. */
+  steerIfBusy?: true
 }
 /** Failures the sender itself names; any other send error keeps the host's own words. */
 export type SessionInputFailure =
@@ -75,6 +79,7 @@ export interface SessionInputStorage {
   list(accountId: string): Promise<SessionInput[]>
   put(input: SessionInput): Promise<void>
   remove(accountId: string, id: string): Promise<void>
+  writeBatch?(accountId: string, puts: readonly SessionInput[], removes: readonly string[]): Promise<void>
 }
 
 /** Sender-owned durable requests. Only a host acceptance removes a request; reconnects reuse its identity. */
@@ -86,18 +91,27 @@ export class SessionInputOutbox {
   private readonly generations = new Map<string, object>()
   constructor(readonly accountId: string, private readonly storage: SessionInputStorage,
     private readonly send: (input: SessionInput) => Promise<void>, private readonly current: () => boolean,
-    private readonly changed: () => void = () => {},
+    private readonly changed: (persisted?: readonly SessionInput[]) => void = () => {},
     private readonly beforeEnqueue: (input: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments'>) => void = () => {}) {}
 
-  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId'>): Promise<SessionInput> {
+  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId' | 'sendQueue'> & { composer?: true }): Promise<SessionInput> {
     if (!this.current()) throw new Error('Session input account changed')
     const written = this.writing.catch(() => undefined).then(async () => {
       if (!this.current()) throw new Error('Session input account changed')
       this.beforeEnqueue(target)
-      const last = Math.max(0, ...(await this.list()).map(input => input.createdAt))
-      const input: SessionInput = { ...target, accountId: this.accountId, id: crypto.randomUUID(), createdAt: Math.max(Date.now(), last + 1) }
+      const rows = await this.list()
+      const last = Math.max(0, ...rows.map(input => input.createdAt))
+      const at = Math.max(Date.now(), last + 1)
+      const { composer, ...body } = target
+      const previous = rows.filter(row => row.sessionId === target.sessionId && row.deviceId === target.deviceId && row.admission !== 'rejected')
+      const afterInputId = previous.find(row => !row.sendQueue)?.id ?? previous.find(row => row.sendQueue)?.sendQueue?.afterInputId
+      const sendQueue = target.sendQueue ?? (composer && previous.length ? { order: at, ...(afterInputId ? { afterInputId } : {}) } : undefined)
+      const input: SessionInput = { ...body, ...(sendQueue ? { queued: true, sendQueue: { ...sendQueue, order: at } } : {}),
+        accountId: this.accountId, id: crypto.randomUUID(), createdAt: at }
       await this.storage.put(input)
-      this.changed()
+      // Publish the committed snapshot before the composer relinquishes its draft.
+      // A second asynchronous read would leave neither draft nor queue on screen.
+      this.changed([...rows, input])
       return input
     })
     this.writing = written
@@ -131,11 +145,82 @@ export class SessionInputOutbox {
       const next = change(input)
       this.generations.delete(id)
       if (next) await this.storage.put(next)
-      else await this.storage.remove(this.accountId, id)
+      else {
+        const following = (await this.list()).filter(row => row.sendQueue?.afterInputId === id).map(row => {
+          const { afterInputId: _after, ...sendQueue } = row.sendQueue!
+          return { ...row, sendQueue }
+        })
+        await this.persist(following, [id])
+      }
       this.changed()
     })
     this.writing = written
     await written
+  }
+
+  /** Queue edits and release share the enqueue lane: a deleted/edited input cannot race into send. */
+  private write<T>(operation: () => Promise<T>): Promise<T> {
+    const written = this.writing.catch(() => undefined).then(async () => {
+      if (!this.current()) throw new Error('Session input account changed')
+      return operation()
+    })
+    this.writing = written
+    return written
+  }
+
+  private async persist(puts: readonly SessionInput[], removes: readonly string[] = []): Promise<void> {
+    if (this.storage.writeBatch) return this.storage.writeBatch(this.accountId, puts, removes)
+    for (const input of puts) await this.storage.put(input)
+    for (const id of removes) await this.storage.remove(this.accountId, id)
+  }
+
+  changeQueued(id: string, change: { text: string; edit?: { draftText: string; originalDraftText: string } | null } | 'delete'): Promise<boolean> {
+    return this.write(async () => {
+      const input = (await this.list()).find(row => row.id === id && row.sendQueue)
+      if (!input) return false
+      if (change === 'delete') await this.storage.remove(this.accountId, id)
+      else await this.storage.put({ ...input, text: change.text, sendQueue: { ...input.sendQueue!,
+        ...(change.edit === undefined ? {} : { edit: change.edit ?? undefined }) } })
+      this.changed()
+      return true
+    })
+  }
+
+  reorderQueued(sessionId: string, ids: readonly string[]): Promise<void> {
+    return this.write(async () => {
+      const inputs = (await this.list()).filter(row => row.sessionId === sessionId && row.sendQueue)
+        .sort((a, b) => a.sendQueue!.order - b.sendQueue!.order)
+      if (ids.length !== inputs.length || new Set(ids).size !== ids.length || ids.some(id => !inputs.some(input => input.id === id))) {
+        throw new Error('Send queue identities changed; reload its order')
+      }
+      const reordered = ids.map((id, index) => {
+        const input = inputs.find(row => row.id === id)!
+        return { ...input, sendQueue: { ...input.sendQueue!, order: inputs[index]!.sendQueue!.order } }
+      })
+      await this.persist(reordered)
+      this.changed()
+    })
+  }
+
+  /** One foreground completion releases one input, never all of a session's queue. */
+  releaseQueued(sessionId: string, baseline: Pick<SessionInput, 'baseline' | 'afterTurnId'>,
+    completed: ReadonlySet<string>, nowId?: string, steers = false, canRelease: () => boolean = () => true): Promise<SessionInput | null> {
+    return this.write(async () => {
+      const rows = (await this.list()).filter(row => row.sessionId === sessionId)
+      if (!canRelease() || (!nowId && rows.some(row => !row.sendQueue && row.admission !== 'rejected'))) return null
+      const queued = rows.filter(row => row.sendQueue).sort((a, b) => a.sendQueue!.order - b.sendQueue!.order)
+      const input = nowId ? queued.find(row => row.id === nowId) : queued[0]
+      const predecessor = input?.sendQueue?.afterInputId
+      if (!input || input.sendQueue!.edit || (!nowId && predecessor && !completed.has(predecessor)
+        && !rows.some(row => row.id === predecessor && row.admission === 'rejected'))) return null
+      // Remaining entries wait for this exact input to finish, including across a shell restart.
+      const following = queued.filter(row => row.id !== input.id).map(row => ({ ...row, sendQueue: { ...row.sendQueue!, afterInputId: input.id } }))
+      const { sendQueue: _queue, ...released } = input
+      const sent: SessionInput = { ...released, ...baseline, queued: false, ...(steers ? { steerIfBusy: true } : {}) }
+      await this.persist([...following, sent])
+      this.changed()
+      return sent
+    })
   }
 
   flush(retryFailures = false): Promise<void> {
@@ -159,6 +244,7 @@ export class SessionInputOutbox {
     const rows = (await this.list()).sort((a, b) => a.createdAt - b.createdAt)
     for (const input of rows) {
       if (!this.current()) return
+      if (input.sendQueue) continue
       const target = `${input.deviceId ?? 'local'}/${input.sessionId}`
       // A definitive refusal belongs to the person, including after reopening the application.
       // It does not prevent independent, later inputs for this target from being admitted.
@@ -167,7 +253,7 @@ export class SessionInputOutbox {
       const prepared = this.writing.catch(() => undefined).then(async () => {
         if (!this.current()) return null
         const live = (await this.list()).find(row => row.id === input.id)
-        if (!live || live.admission === 'rejected') return null
+        if (!live || live.sendQueue || live.admission === 'rejected') return null
         if (live.failure && retryFailures) {
           delete live.failure
           await this.storage.put(live)
@@ -263,5 +349,9 @@ export async function openSessionInputStorage(factory: IDBFactory = indexedDB): 
     },
     put: input => mutate(store => { store.put(input) }),
     remove: (accountId, id) => mutate(store => { store.delete([accountId, id]) }),
+    writeBatch: (accountId, puts, removes) => mutate(store => {
+      for (const input of puts) store.put(input)
+      for (const id of removes) store.delete([accountId, id])
+    }),
   }
 }

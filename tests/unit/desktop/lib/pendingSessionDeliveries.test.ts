@@ -2,6 +2,8 @@ import { renumberStoredTurn } from '../../../../apps/desktop/electron/session/ma
 import { describe, expect, it, vi } from 'vitest'
 import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries'
+import { projectSessionPendingInput } from '@/lib/pendingSessionInput'
+import type { SessionInput } from '@/lib/sessionInputOutbox'
 import { activeTurnWithInputs, projectPendingMessages, type PendingMessageProjectionCache } from '@session-chat/state/pending-prompt'
 import type { LifeView } from '@/session/shared/core/sessions/session-life'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
@@ -15,6 +17,37 @@ const turn = (id: string, text: string): TranscriptTurn => ({ id, seq: 1, initia
 const work = (id: string, at: number): Extract<TranscriptTurn['items'][number], { kind: 'execute-tool-call' }> => ({ kind: 'execute-tool-call', id, seq: at,
   toolCallId: id, title: id, status: 'done', at })
 const segments = (record: TranscriptTurn) => planConversationSegments(record, true).filter(block => block.kind === 'segment')
+
+describe('side-window sender and host custody overlap', () => {
+  it.each(['queued', 'dispatching', 'accepted'] as const)('draws one ordinary input while its host receipt is %s', state => {
+    const receipt = { ...row('same-client-id', 1, state), text: 'ordinary side-window input' }
+    const sender: SessionInput = { id: receipt.messageId, text: receipt.text, accountId: 'owner', sessionId: 's',
+      deviceId: null, createdAt: 10000, queued: false, baseline: [] }
+    const life = view([receipt])
+    const own = projectSessionPendingInput(null, [sender], life.pending.items, [])
+    const received = projectSessionPendingDeliveries([], life, [])
+    const incoming = projectPendingMessages([], null, received).waiting
+    const drawn = activeTurnWithInputs(null, own, incoming)
+    expect(drawn?.items.filter(item => item.kind === 'message' && item.role === 'user')).toHaveLength(1)
+    expect(drawn?.items[0]).toMatchObject({ id: sender.id, text: sender.text })
+
+    // Releasing sender custody before native echo must not expose a second host bubble.
+    const retained = projectSessionPendingInput(own, [], life.pending.items, [])
+    expect(activeTurnWithInputs(null, retained, incoming)?.items).toHaveLength(1)
+    expect(activeTurnWithInputs(null, null, incoming)?.items).toHaveLength(1)
+  })
+
+  it('keeps a distinct client input even when its text is identical', () => {
+    const receipt = { ...row('same-client-id', 1), text: 'same words' }
+    const sender: SessionInput = { id: receipt.messageId, text: receipt.text, accountId: 'owner', sessionId: 's',
+      deviceId: null, createdAt: 10000, queued: false, baseline: [] }
+    const life = view([receipt, { ...receipt, messageId: 'different-client-id', seq: 2 }])
+    const own = projectSessionPendingInput(null, [sender], life.pending.items, [])
+    const received = projectSessionPendingDeliveries([], life, [])
+    expect(activeTurnWithInputs(null, own, projectPendingMessages([], null, received).waiting)?.items.map(item => item.id))
+      .toEqual(['same-client-id', 'different-client-id'])
+  })
+})
 
 describe('incoming delivery custody', () => {
   it('freezes the process before a mid-turn delivery while later tools belong below it', () => {
@@ -117,14 +150,14 @@ describe('incoming delivery custody', () => {
     const a = row('a', 1), b = row('b', 2)
     const result = projectSessionPendingDeliveries([], view([b, { ...row('manual', 0), kind: 'ordinary' }, a]), [])
     expect(result.map(input => input.id)).toEqual(['a', 'b'])
-    expect(result[0]).toMatchObject({ text: a.text, received: true, delivery: { state: 'sending' } })
+    expect(result[0]).toMatchObject({ text: a.text, received: true, delivery: { state: 'receiving' } })
     expect(activeTurnWithInputs(null, null, result)?.items).toMatchObject([{ text: a.text }, { text: b.text }])
   })
 
   it('holds accepted-before-echo through a history prepend and replaces only the matching receipt', () => {
     const initial = projectSessionPendingDeliveries([], view([row('a', 1), row('b', 2)]), [])
     const accepted = projectSessionPendingDeliveries(initial, view([]), [turn('older', envelope('unrelated'))])
-    expect(accepted.map(input => input.delivery?.state)).toEqual(['accepted', 'accepted'])
+    expect(accepted.map(input => input.delivery?.state)).toEqual(['receiving', 'receiving'])
     const history = [turn('old', 'old input'), turn('first', envelope('a'))]
     expect(projectSessionPendingDeliveries(accepted, view([]), history).map(input => input.id)).toEqual(['b'])
     expect(projectSessionPendingDeliveries(accepted, view([]), [...history, turn('second', envelope('b'))])).toEqual([])
@@ -263,10 +296,10 @@ it('ends the supplemental read at its UI deadline without waiting for a slow hos
 })
 
 
-it('leaves plain human session-direct sends and manual queues out of the incoming projection', () => {
+it('keeps already-sent human inputs in the transcript while their receiver retains them', () => {
   const human = { ...row('human', 1), text: 'human input', kind: 'session-direct' as const }
-  expect(projectSessionPendingDeliveries([], view([human]), [])).toEqual([])
-  expect(projectSessionPendingDeliveries([], view([{ ...human, state: 'accepted' }]), [])).toEqual([])
+  expect(projectSessionPendingDeliveries([], view([human]), [])[0]).toMatchObject({ id: 'human', received: false, delivery: { state: 'receiving' } })
+  expect(projectSessionPendingDeliveries([], view([{ ...human, state: 'accepted' }]), [])[0]).toMatchObject({ id: 'human', received: false, delivery: { state: 'receiving' } })
   expect(projectSessionPendingDeliveries([], view([{ ...human, state: 'unknown' }]), [])[0]).toMatchObject({ received: false, delivery: { state: 'unknown' } })
 })
 

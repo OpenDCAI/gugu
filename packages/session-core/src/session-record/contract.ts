@@ -654,6 +654,8 @@ export type SessionpageSessionSummary = {
   nativeInputVersion?: 1 | 2;
   /** Client identity survives host queue admission and provider transcript IDs. */
   nativeInputIdentity?: true;
+  /** Explicit insert-now intent is preserved through durable host custody. */
+  nativeInputSteering?: true;
   /** Live native activity, not a second IM row. Offline heartbeat digests carry no message text. */
   nativeLastMessage?: { text: string; at: string } | null;
   /** Raw personal conversation replies. IM deliveries keep their existing unread counter. */
@@ -1139,6 +1141,8 @@ export type SessionpageSessionSendRequest = {
   text: string;
   /** Stable across reconnects and client restarts; the host's existing durable message router deduplicates it. */
   clientMessageId?: string;
+  /** The person's explicit insert-now action; ordinary sends never set this. */
+  steerIfBusy?: true;
   /** The turn's attachments: files of the agent's DM folder (P3), resolved on the host. */
   files?: TurnFileRef[];
   /** Existing runtime-store images, used only when replaying an edited turn. */

@@ -1,4 +1,4 @@
-import { state, changed, EMPTY } from '@/lib/sessionInputOutboxBridge'
+import { state, changed, EMPTY, sessionInputSteeringAvailable } from '@/lib/sessionInputOutboxBridge'
 import { SessionInputAdmissionError, sessionInputAdmission } from '@gugu/core/shared/sessionInputAdmission'
 import { NativeConversationReadHost } from '@/components/chat/NativeConversationReadHost'
 import { ChatSummariesHost } from '@/components/chat/ChatSummariesHost'
@@ -13,6 +13,7 @@ import { SessionInputFailureError, SessionInputOutbox, openSessionInputStorage, 
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { rendererLogger } from '@/lib/log'
 import { liveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { watchSessionSendQueues } from '@/lib/sessionSendQueueHost'
 
 /** Runs with the signed-in shell, including while the conversation itself is closed. */
 export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
@@ -37,13 +38,16 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
       return native === 1
     }
     let queue: SessionInputOutbox | null = null
-    const refresh = async () => {
-      const rows = await queue?.list()
-      if (valid() && rows) { own.rows = rows; changed() }
+    let refreshRevision = 0
+    const refresh = async (persisted?: readonly SessionInput[]) => {
+      const revision = ++refreshRevision
+      const rows = persisted ?? await queue?.list()
+      if (revision === refreshRevision && valid() && rows) { own.rows = rows; changed() }
     }
     own.queue = openSessionInputStorage().then(storage => {
       queue = new SessionInputOutbox(accountId, storage, async input => {
         if (!valid()) throw new Error('Session input account changed')
+        if (input.steerIfBusy && !sessionInputSteeringAvailable(input.sessionId)) throw new SessionInputFailureError({ code: 'host-not-ready' })
         const device = hosts.current.find(device => device.device_id === input.deviceId)
         // This computer is named either way (no device id, or its own id); either way its own host answers over IPC.
         const remoteId = !input.deviceId || device?.is_current_device ? null : input.deviceId
@@ -65,7 +69,7 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
           if (!result.accepted) throw new SessionInputFailureError({ code: 'phone-unconfirmed' })
         } else if (platform.kind === 'electron') {
           const { rpcOn } = await import('@/session/renderer/lib/ipc')
-          const result = await rpcOn(remoteId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.files?.length ? { files: input.files } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}) })
+          const result = await rpcOn(remoteId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.steerIfBusy ? { steerIfBusy: true } : {}), ...(input.files?.length ? { files: input.files } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}) })
           if (!result.ok) throw new SessionInputAdmissionError(result.error.message, sessionInputAdmission(result.error), result.error.code)
           if (result.value.clientMessageId !== input.id) throw new Error('Session host acknowledged another input')
         } else {
@@ -73,14 +77,14 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
           if (!input.deviceId) throw new Error('Remote session input has no device')
           await sendSessionText(input.deviceId, input.sessionId, input.text, input.id, input.files, input.attachments)
         }
-      }, valid, () => { void refresh().catch(report) }, input => {
+      }, valid, persisted => { void refresh(persisted).catch(report) }, input => {
         if (oldAttachmentHost(input)) throw new Error(translateSessionMessage('composer.attachmentHostUpdateRequired'))
       })
       void refresh().catch(report)
       return queue
     })
     const report = (error: unknown) => rendererLogger('session/input-outbox').warn({ error: String(error) }, 'Native input queue could not be reconciled')
-    const flush = () => { void own.queue?.then(queue => queue.flush()).catch(report) }
+    const flush = () => { void own.queue?.then(queue => queue.flush()).then(changed).catch(report) }
     const timer = setInterval(flush, 15_000)
     window.addEventListener('online', flush)
     flush()
@@ -92,6 +96,9 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
       if (own.accountId === accountId) { own.accountId = null; own.queue = null; own.rows = EMPTY; changed() }
     }
   }, [accountId])
+  useEffect(() => platform.kind === 'electron'
+    ? watchSessionSendQueues(accountId, () => hosts.current.find(device => device.is_current_device)?.device_id)
+    : undefined, [accountId])
   useEffect(() => { void state().queue?.then(queue => queue.flush()).catch(() => undefined) }, [devices, phones])
   return <><ChatSummariesHost /><NativeConversationReadHost /></>
 }
