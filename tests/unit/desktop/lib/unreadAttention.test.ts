@@ -159,3 +159,33 @@ describe('a failed mark-read puts the topic locator back', () => {
     quiet.mockRestore()
   })
 })
+
+describe('open-chat 的确认不会越过可见进度与手工未读', () => {
+  it('手工标未读(同版本)不被旧投影回放清掉', () => {
+    const fetched = chat({ id: 'manual-race', kind: 'group', unread_count: 1, last_read_seq: 4, next_message_seq: 6, read_state_version: 7 })
+    const manual = { ...fetched, is_marked_unread: true }
+    const [kept] = acknowledgeOnScreenChatRows([fetched], {
+      current: [manual], onScreen: () => true, patchChat: vi.fn(),
+    })
+    expect(kept.is_marked_unread).toBe(true)
+    expect(kept.last_read_seq).toBe(4)
+    expect(reads.write).not.toHaveBeenCalled()
+  })
+
+  it('尾消息还没加载时只确认到真正可见的 seq', () => {
+    const fetched = chat({ id: 'tail-pending', kind: 'group', unread_count: 2, last_read_seq: 4, next_message_seq: 8, read_state_version: 7,
+      unread_locator: { ...locator(2, 2), stream_id: 'main:tail-pending', message_seq: 7 } })
+    const [shown] = acknowledgeOnScreenChatRows([fetched], {
+      onScreen: () => true, visibleSeqOf: () => 5, patchChat: vi.fn(),
+    })
+    expect(shown.last_read_seq).toBe(5)
+    expect(reads.write).toHaveBeenCalledWith({ kind: 'main', chatId: fetched.id, seq: 5 })
+  })
+
+  it('可见进度没有前进时不凭空推进水位', () => {
+    const fetched = chat({ id: 'nothing-visible', kind: 'group', unread_count: 1, last_read_seq: 4, next_message_seq: 6, read_state_version: 7 })
+    const [same] = acknowledgeOnScreenChatRows([fetched], { onScreen: () => true, visibleSeqOf: () => 4, patchChat: vi.fn() })
+    expect(same).toBe(fetched)
+    expect(reads.write).not.toHaveBeenCalled()
+  })
+})

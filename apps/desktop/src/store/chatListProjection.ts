@@ -93,6 +93,8 @@ export function acknowledgeOnScreenChatRows(
     current?: readonly ChatItem[]
     onScreen: (chatId: string) => boolean
     canAcknowledge?: (chatId: string) => boolean
+    /** 屏幕上真正可见的最大 seq(已落地的窗口消息);确认不得越过它。 */
+    visibleSeqOf?: (chatId: string) => number
     patchChat: PatchChat
     deferPersist?: (persist: () => void) => void
   },
@@ -101,13 +103,18 @@ export function acknowledgeOnScreenChatRows(
   return rows.map((chat) => {
     if (!context.onScreen(chat.id) || context.canAcknowledge?.(chat.id) === false || chat.unread_count <= 0 || chat.is_marked_unread) return chat
     if (chat.unread_locator && chat.unread_locator.stream_kind !== 'main') return chat
-    const seq = Math.max(chat.last_read_seq, chat.next_message_seq - 1)
+    // 只确认真的看到的进度:尾消息还没加载时按可见的 seq 推进(评审)。
+    const visible = context.visibleSeqOf ? context.visibleSeqOf(chat.id) : Number.POSITIVE_INFINITY
+    const seq = Math.min(Math.max(chat.last_read_seq, chat.next_message_seq - 1), visible)
     const current = currentById.get(chat.id)
-    // mark_read 还在路上时，旧投影可能重复到达；沿用本地更新的整组读状态，❌ 每一发再写一次。
-    if (current && current.last_read_seq >= seq && (current.read_state_version ?? 0) > (chat.read_state_version ?? 0)) {
+    // mark_read 还在路上时，旧投影可能重复到达；本地更新过的读状态(更高版本,或同版本上手工标了未读)优先,❌ 投影回放把它清掉。
+    const currentIsNewerProgress = !!current && current.last_read_seq >= seq && (current.read_state_version ?? 0) > (chat.read_state_version ?? 0)
+    const currentManualUnread = !!current?.is_marked_unread && (current.read_state_version ?? 0) >= (chat.read_state_version ?? 0)
+    if (current && (currentIsNewerProgress || currentManualUnread)) {
       return { ...chat, last_read_seq: current.last_read_seq, is_marked_unread: current.is_marked_unread,
         read_state_version: current.read_state_version, unread_count: current.unread_count, unread_locator: current.unread_locator }
     }
+    if (seq <= chat.last_read_seq) return chat
     const prepared = prepareProjectedReadWatermark(chat, seq, context.patchChat)
     if (context.deferPersist) context.deferPersist(prepared.persist)
     else prepared.persist()
@@ -127,11 +134,13 @@ export function useChatProjectionBinding(deps: {
   requestSeqRef: MutableRefObject<number>
   notifications: { chatMessages: boolean; sound: boolean }
   canAcknowledge: (chatId: string) => boolean
+  /** 屏幕上真正可见的最大 seq(已落地的窗口消息);确认不得越过它。 */
+  visibleSeqOf: (chatId: string) => number
   setChats: (rows: ChatItem[]) => void
   /** 当前选中被权威地撤销了 —— store 自己决定怎么清空那一侧的状态。 */
   onActiveRevoked: (chatId: string) => void
 }) {
-  const { ledger, repositoryRef, getRepository, chatsRef, activeChatIdRef, requestSeqRef, setChats, onActiveRevoked, canAcknowledge } = deps
+  const { ledger, repositoryRef, getRepository, chatsRef, activeChatIdRef, requestSeqRef, setChats, onActiveRevoked, canAcknowledge, visibleSeqOf } = deps
   const { chatMessages: notifyMessages, sound: notifySound } = deps.notifications
   const ownerRef = useRef<{ accountId: string; owner: ChatProjection } | null>(null)
   const patchChat: PatchChat = useCallback((chatId, partial, expectedReadStateVersion) =>
@@ -162,14 +171,14 @@ export function useChatProjectionBinding(deps: {
     }
     const pendingReads: Array<() => void> = []
     const acknowledged = acknowledgeOnScreenChatRows(fetched, {
-      current: chatsRef.current, onScreen: isChatOnScreen, canAcknowledge, patchChat,
+      current: chatsRef.current, onScreen: isChatOnScreen, canAcknowledge, visibleSeqOf, patchChat,
       deferPersist: (persist) => pendingReads.push(persist),
     })
     setChats(await applyFetchedChatList(ledger, await getRepository(), { fetched: acknowledged, identities },
       { currentChats: chatsRef.current, activeChatId, revokeMissingActive }))
     for (const persist of pendingReads) persist()
     if (revokeMissingActive && activeChatId) onActiveRevoked(activeChatId)
-  }, [ledger, activeChatIdRef, canAcknowledge, chatsRef, getRepository, notifyMessages, notifySound, onActiveRevoked, patchChat, setChats])
+  }, [ledger, activeChatIdRef, canAcknowledge, visibleSeqOf, chatsRef, getRepository, notifyMessages, notifySound, onActiveRevoked, patchChat, setChats])
 
   /** 冷启快照:一次「哪些会话属于我」的读 + 与增量同一套族读 ⇒ 2 波(spec I7,没有第二条拉取路)。 */
   const hydrate = useCallback((accountId: string) => ownerFor(accountId)
