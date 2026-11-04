@@ -43,6 +43,7 @@ import type { DeviceActionPermit } from '@gugu/core/cloud/deviceActionHost'
 import type { CuaClient, CuaToolResult } from '../native/cua-client'
 import { cursorOnWindow } from '../native/cua-window-cursor'
 import { anySignal } from '@gugu/core/shared/anySignal'
+import { resolveComputerWindow } from '../computer-control-placement'
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
@@ -225,7 +226,7 @@ function refusal(tool: string, args: Args, self: SelfApp, inherited: { pid?: num
   if (!hasWindow) {
     return typeof args.window === 'string'
       ? 'Name the app too (app or pid): a window title alone could match 咕咕 or a window the person is using.'
-      : 'Name the window to act on (pid and window_id, or an element_token from computer.get_window_state): input without a window would land on whatever the person is using.'
+      : 'First use computer.launch_app to open the target app, or computer.list_windows to find it. Then specify the target app, pid/window_id or an element_token from computer.get_window_state before clicking or typing; input without a target window is refused.'
   }
   return null
 }
@@ -396,6 +397,7 @@ export function createAppDirectory() {
   const fileNames = new Map<number, string>()
   const listed = new Map<number, string>()
   const snapshots = new Map<string, { pid: number; windowId?: number }>()
+  const appPids = new Map<string, number>()
   const askedWindows = new Set<number>()
   const askedDescription = new Set<number>()
   const isFileName = (name: string) => /\.exe$/i.test(name)
@@ -416,7 +418,7 @@ export function createAppDirectory() {
       if (pid !== undefined) return pid
       const token = typeof args.element_token === 'string' ? args.element_token : ''
       const snapshot = token.includes(':') ? token.slice(0, token.lastIndexOf(':')) : ''
-      return snapshot ? snapshots.get(`${session}|${snapshot}`)?.pid : undefined
+      return snapshot ? snapshots.get(`${session}|${snapshot}`)?.pid : appPids.get(`${session}|${lower(args.app)}`)
     },
     windowOf(session: string, args: Args): number | undefined {
       const target = isRecord(args.target) ? args.target : args
@@ -440,6 +442,14 @@ export function createAppDirectory() {
       const target = isRecord(args.target) ? args.target : args
       const windowId = isNum(data.window_id) ? data.window_id : isNum(target.window_id) ? target.window_id : undefined
       if (pid !== undefined && typeof data.snapshot_id === 'string') snapshots.set(`${session}|${data.snapshot_id}`, { pid, ...(windowId !== undefined ? { windowId } : {}) })
+      const remember = (entry: unknown, aliases: unknown[] = []) => {
+        if (!isRecord(entry) || !isNum(entry.pid) || entry.pid <= 0) return
+        for (const name of [entry.app_name, entry.name, entry.bundle_id, ...aliases]) {
+          if (lower(name)) appPids.set(`${session}|${lower(name)}`, entry.pid)
+        }
+      }
+      remember(data, [args.app])
+      for (const list of [data.windows, data.apps]) if (Array.isArray(list)) list.forEach(entry => remember(entry))
       learnOne(data)
       for (const list of [data.windows, data.apps]) if (Array.isArray(list)) list.forEach(learnOne)
     },
@@ -501,27 +511,99 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
       const session = sessionOf(ctx)
       // Inspection must not open or refresh either activity indicator.
       const control = t.kind === 'act' ? ctx.deps.computerControl : undefined
-      const pid = apps.pidOf(session, forward)
-      const windowId = apps.windowOf(session, forward)
+      const launching = t.cua === 'launch_app'
+      const namedTargets = new Map<string, Promise<{ pid?: number; windowId?: number }>>()
+      const targetOf = async (args: Args): Promise<{ pid?: number; windowId?: number }> => {
+        if (!launching && control && str(args, 'app') && targetPid(args) === undefined && typeof args.element_token !== 'string') {
+          // App-name actions resolve afresh: a previously launched PID may have
+          // exited, while the driver will operate the app that is running now.
+          const key = JSON.stringify([args.app, args.window])
+          let pending = namedTargets.get(key)
+          if (!pending) {
+            pending = (async () => {
+              try {
+                const listed = await ctx.deps.cua().callTool('list_windows', { app: args.app, on_screen_only: true }, { signal: ctx.signal, timeoutMs: 5_000, lane: session })
+                const raw = listed.structuredContent
+                if (listed.isError || !isRecord(raw) || !Array.isArray(raw.windows)) return {}
+                const data = { ...raw, windows: raw.windows.filter(w => !str(args, 'window') || (isRecord(w) && lower(w.title).includes(lower(args.window)))) }
+                const pids = new Set(data.windows.flatMap(w => isRecord(w) && isNum(w.pid) && w.pid > 0 ? [w.pid] : []))
+                if (pids.size !== 1) return {}
+                const pid = [...pids][0]!
+                apps.learn(session, data, args)
+                const window = resolveComputerWindow(data, { pid, ...(isNum(args.window_id) ? { windowId: args.window_id } : {}) })
+                return { pid, ...(window ? { windowId: window.windowId } : {}) }
+              } catch {
+                // This read only locates the indicator. Unknown input still
+                // requires the existing foreground attachment below.
+                return {}
+              }
+            })()
+            namedTargets.set(key, pending)
+          }
+          return pending
+        }
+        return { pid: apps.pidOf(session, args), windowId: apps.windowOf(session, args) }
+      }
+      // The driver's batch accepts targets on each step. Use the actual step
+      // targets for the indicator too, instead of treating the batch as desktop input.
+      const targets = t.cua === 'run_steps'
+        ? await Promise.all(stepsOf(forward).map(step => {
+            const ownsTarget = ['target', 'pid', 'app', 'element_token'].some(key => step.args[key] !== undefined)
+            const args = ownsTarget ? step.args : { ...forward, ...step.args }
+            return targetOf(args)
+          }))
+        : [await targetOf(forward)]
+      const first = targets[0]
+      const target = first && targets.every(other => other.pid === first.pid && other.windowId === first.windowId) ? first : undefined
+      const pid = target?.pid ?? (launching ? apps.pidOf(session, { app: forward.name ?? forward.bundle_id }) : undefined)
+      const windowId = target?.windowId
+      const protectedTarget = [...targets, { pid }].find(target => target.pid !== undefined && self.pids.has(target.pid))
+      if (t.kind === 'act' && protectedTarget) {
+        return fail('invalid_args', refusal(t.cua, { pid: protectedTarget.pid }, self)!)
+      }
       const appName = control && pid !== undefined ? await appNameOf(ctx, apps, pid) : undefined
-      const handle = control?.begin({
+      const identity = {
         ...(ctx.caller?.name ? { callerName: ctx.caller.name } : {}),
         ...(ctx.caller?.task_title ? { taskTitle: ctx.caller.task_title } : {}),
+      }
+      // A cold launch has no window to attach to yet. Do not query the
+      // foreground or start its indicator until the driver returns the app.
+      const initial = control?.begin({
+        ...identity,
+        ...(launching ? { deferAttachment: true } : {}),
         ...(pid !== undefined ? { pid } : {}),
         ...(windowId !== undefined ? { windowId } : {}),
         ...(appName ? { appName } : {}),
       })
-      if (handle && 'refused' in handle) return fail('revoked', handle.refused)
+      if (initial && 'refused' in initial) return fail('revoked', initial.refused)
+      let handle = initial
       const signal = anySignal([ctx.signal, handle?.signal])
       // 人按了停止:这个 App 上在途的这一下被撤,报错其实是「人接过去了」。
       const stopped = () => (handle?.signal.aborted ? fail('revoked', String(handle.signal.reason)) : null)
       try {
-        // An unresolved input must have an attached Stop button before it runs.
-        if (pid === undefined && handle?.ready && !await handle.ready) {
-          return stopped() ?? fail('execution_failed', 'Computer Use could not attach its Stop control to a foreground window. Open a visible app window and try again.')
+        const needsAttachment = pid === undefined || (targetPid(forward) === undefined && typeof forward.element_token !== 'string')
+        if (!launching && needsAttachment && handle?.ready && !await handle.ready) {
+          const next = t.cua === 'run_steps'
+            ? 'Use one target window per computer.run_steps call; split steps by window. First use computer.launch_app or computer.list_windows, then specify each step’s app, pid/window_id or element_token.'
+            : 'First use computer.launch_app to open the target app, or computer.list_windows to find it; then specify app, pid/window_id or element_token before clicking or typing.'
+          return stopped() ?? fail('execution_failed', `Computer Use could not attach its Stop control. ${next}`)
         }
         const outcome = await callCua(ctx, name, t.cua, takesSession ? { ...forward, session } : forward, t.timeoutMs?.(args), signal)
-        if (outcome.ok) apps.learn(session, outcome.data, forward)
+        if (outcome.ok) {
+          apps.learn(session, outcome.data, launching ? { ...forward, app: forward.name ?? forward.bundle_id ?? forward.app } : forward)
+          if (launching && control && isRecord(outcome.data)) {
+            const cancelled = stopped()
+            if (cancelled) return cancelled
+            const launchedPid = apps.pidOf(session, outcome.data)
+            if (launchedPid !== undefined) {
+              const launchedWindow = resolveComputerWindow(outcome.data, { pid: launchedPid })
+              handle?.end()
+              const attached = control.begin({ ...identity, pid: launchedPid, ...(launchedWindow ? { windowId: launchedWindow.windowId } : {}) })
+              if ('refused' in attached) return fail('revoked', attached.refused)
+              handle = attached
+            }
+          }
+        }
         return stopped() ?? outcome
       } catch (error) {
         const byPerson = stopped()

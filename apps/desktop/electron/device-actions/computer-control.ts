@@ -17,6 +17,8 @@ export interface ComputerControlView {
 
 /** 一个动作:针对哪个 App(pid;不指定 App 的动作没有)。 */
 export interface ComputerCall {
+  /** Cold launch is cancellable before the target has a window to show on. */
+  deferAttachment?: boolean
   callerName?: string
   taskTitle?: string
   pid?: number
@@ -106,7 +108,7 @@ export function createComputerControl(input: { view: ComputerControlView; linger
       // Every begin is an act. Untargeted input must replace an old App's
       // identity too, so Stop aborts this subject instead of the previous App.
       const windowId = call.windowId
-      const ready = show({ subject, ...identity, ...(call.appName ? { appName: call.appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'driving' })
+      const ready = call.deferAttachment ? undefined : show({ subject, ...identity, ...(call.appName ? { appName: call.appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'driving' })
       let ended = false
       return {
         signal: controller.signal,

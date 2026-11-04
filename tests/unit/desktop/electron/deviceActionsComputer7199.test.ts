@@ -114,6 +114,60 @@ describe('电脑控制:登记', () => {
     expect(begin).toHaveBeenLastCalledWith({ pid: 77, windowId: 502, callerName: 'Agent A' })
   })
 
+  it('learns a launched App name only in its caller lane and preserves explicit target precedence', () => {
+    const apps = createAppDirectory()
+    apps.learn('a', { pid: 77, app_name: 'Calculator' }, { app: 'com.apple.calculator' })
+    expect(apps.pidOf('a', { app: 'calculator' })).toBe(77)
+    expect(apps.pidOf('a', { app: 'com.apple.calculator' })).toBe(77)
+    expect(apps.pidOf('b', { app: 'Calculator' })).toBeUndefined()
+    expect(apps.pidOf('a', { app: 'Calculator', pid: 88 })).toBe(88)
+    apps.learn('a', { pid: 0, app_name: 'Not running' })
+    expect(apps.pidOf('a', { app: 'Not running' })).toBeUndefined()
+  })
+
+  it('keeps protected-host refusal after resolving an App alias learned from a read-only result', async () => {
+    const { invoke, callTool } = setup({ callTool: async () => ({ structuredContent: { windows: [{ pid: GUGU_PID, app_name: 'Host alias' }] } }) })
+    await invoke('computer.list_windows', {})
+    callTool.mockClear()
+    expect(await invoke('computer.click', { app: 'Host alias', role: 'button', name: 'Open' })).toMatchObject({ code: 'invalid_args', message: expect.stringContaining('咕咕 itself') })
+    expect(callTool).not.toHaveBeenCalled()
+  })
+
+  it('does not let cold launch bypass a person’s existing global Stop', async () => {
+    const control = createComputerControl({ view: { show: vi.fn(), hide: vi.fn() } })
+    const prior = control.begin({})
+    control.stop()
+    if ('end' in prior) prior.end()
+    const { invoke, callTool } = setup({ control })
+    expect(await invoke('computer.launch_app', { name: 'Calculator' })).toMatchObject({ code: 'revoked' })
+    expect(callTool).not.toHaveBeenCalled()
+    control.dispose()
+  })
+
+  it('keeps a cold launch cancellable while its window attachment is deferred', async () => {
+    const show = vi.fn()
+    const control = createComputerControl({ view: { show, hide: vi.fn() } })
+    const prior = control.begin({})
+    const { invoke } = setup({ control, callTool: async () => {
+      control.stop()
+      return { structuredContent: { pid: 77, name: 'Calculator' } }
+    } })
+    expect(await invoke('computer.launch_app', { name: 'Calculator' })).toMatchObject({ code: 'revoked' })
+    expect(show.mock.calls.filter(([view]) => view.app?.pid === 77)).toHaveLength(0)
+    if ('end' in prior) prior.end()
+    control.dispose()
+  })
+
+  it('resolves app-name input against live windows when the launched process has changed', async () => {
+    const begin = vi.fn(() => ({ signal: new AbortController().signal, ready: Promise.resolve(true), end: vi.fn() }))
+    const { invoke } = setup({ control: { begin }, callTool: async name => name === 'launch_app'
+      ? { structuredContent: { pid: 77, name: 'Calculator' } }
+      : { structuredContent: { windows: [{ pid: 88, window_id: 6, app_name: 'Calculator', is_on_screen: true, layer: 0, bounds: { x: 0, y: 0, width: 300, height: 400 } }] } } })
+    await invoke('computer.launch_app', { name: 'Calculator' })
+    expect(await invoke('computer.click', { app: 'Calculator', role: 'button', name: '1' })).toHaveProperty('ok', true)
+    expect(begin).toHaveBeenLastCalledWith(expect.objectContaining({ pid: 88, windowId: 6 }))
+  })
+
   it.each([
     ['computer.list_apps', {}],
     ['computer.list_windows', {}],
