@@ -51,6 +51,9 @@ const PHONE: ReadonlySet<HostMember> = new Set<HostMember>([
 const IN_SESSION: ReadonlySet<HostMember> = new Set<HostMember>(['callProgram', 'onProgramNotification']);
 /** What main answers an App's MCP program (F16): its files and messages, an agent's word — no page, no data folder of a page. */
 const PROGRAM: ReadonlySet<HostMember> = new Set<HostMember>([
+  'showTaskPages',
+  'surfaces.open', 'surfaces.screen', 'surfaces.update', 'surfaces.close', 'onSurface',
+  'pages.acquire', 'pages.send', 'pages.release', 'onTaskPage',
   'projection.create', 'projection.publish', 'projection.close', 'projection.closed', 'projection.inputResult', 'onProjectionSource',
   'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'messages.history', 'messages.search',
   'chats.list', 'chats.members', 'projects.list', 'linkTo',

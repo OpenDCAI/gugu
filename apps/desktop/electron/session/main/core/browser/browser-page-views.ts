@@ -78,6 +78,8 @@ type BrowserPage = {
   /** 鼠标那层要不要露(agent 在操作、页签那边画着鼠标)。 */
   cursorShown: boolean;
   dialogs: PageDialogs | null;
+  /** An App's host-authorized presentation lease, independent of the browser tab's box. */
+  presentation?: { host: BrowserWindow; rect: Rect | null };
 };
 
 /** 占位卸下(页签挪去别的窗、分栏重排)后,网页留这么久等它在新位置挂回来 —— 挪动 ❌ 重新载入网页。 */
@@ -145,6 +147,7 @@ function contentRect(host: BrowserWindow): Rect {
 }
 
 function pageIsShown(page: BrowserPage): boolean {
+  if (page.presentation) return !!page.presentation.rect && page.presentation.rect.width > 0 && page.presentation.rect.height > 0;
   const rect = page.rect;
   return page.fullscreen || (page.mode === 'shown' && !!rect && rect.width > 0 && rect.height > 0);
 }
@@ -152,6 +155,12 @@ function pageIsShown(page: BrowserPage): boolean {
 /** 页面始终留在所属宿主;只改变视口与显示状态。 */
 function applyLayout(page: BrowserPage): void {
   if (page.webContents.isDestroyed()) return;
+  if (page.presentation) {
+    const { host, rect } = page.presentation;
+    if (host.isDestroyed()) return;
+    page.runtime.moveTo(host); page.runtime.layout(rect, !!rect && rect.width > 0 && rect.height > 0);
+    page.dialogs?.pageShown(); return;
+  }
   const host = page.runtime.host;
   if (!host || host.isDestroyed()) return;
   const sized = page.rect !== null && page.rect.width > 0 && page.rect.height > 0;
@@ -255,6 +264,7 @@ export function mountBrowserPage(args: {
 }
 
 function moveToHost(page: BrowserPage, windowName: string): void {
+  if (page.presentation) { page.windowName = windowName; return; }
   const host = resolveHost(windowName);
   const moved = page.runtime.host !== host;
   if (moved) {
@@ -367,12 +377,35 @@ export function layoutBrowserPage(args: {
   const page = pages.get(args.browserId);
   if (!page || page.webContents.isDestroyed()) return false;
   if (args.windowName !== page.windowName) moveToHost(page, args.windowName);
-  const host = page.runtime.host;
+  const host = resolveHost(args.windowName);
   const zoom = host && !host.isDestroyed() ? host.webContents.getZoomFactor() : 1;
   page.rect = args.rect ? toDip(args.rect, zoom) : null;
   page.mode = args.mode;
   applyLayout(page);
   return true;
+}
+
+/** Main supplies the actual App embedder. Apps never choose native windows or browser partitions. */
+export function leaseBrowserPagePresentation(browserId: string, host: BrowserWindow) {
+  const page = pages.get(browserId);
+  if (!page || page.webContents.isDestroyed() || host.isDestroyed()) throw new Error('The task page cannot be mounted');
+  if (page.presentation) throw new Error('The task page is already mounted by an App');
+  const presentation = { host, rect: null as Rect | null };
+  page.presentation = presentation; wireHost(host);
+  let closed = false;
+  return {
+    layout(rect: Rect | null) {
+      if (closed || page.presentation !== presentation || page.webContents.isDestroyed() || host.isDestroyed()) throw new Error('The task page mount closed');
+      presentation.rect = rect ? toDip(rect, host.webContents.getZoomFactor()) : null;
+      applyLayout(page);
+    },
+    close() {
+      if (closed) return; closed = true;
+      if (page.presentation !== presentation) return;
+      delete page.presentation;
+      if (!page.webContents.isDestroyed()) { moveToHost(page, page.windowName); applyLayout(page); }
+    },
+  };
 }
 
 export function toDip(rect: Rect, zoom: number): Rect {

@@ -4,9 +4,10 @@ import type { ProjectionHost } from './projection-source';
 
 /** Renderers ACK after paint, not after receiving bytes. No queued input survives a lost generation. */
 export async function projectionClient(host: ProjectionHost, id: string, options: {
-  paint(frame: ProjectionFrame): Promise<void>;
+  paint(frame: ProjectionFrame, current: () => boolean): Promise<void>;
   state?(state: 'connecting' | 'live' | 'closed', reason?: string): void;
   error?(error: unknown): void;
+  painted?(frame: Pick<ProjectionFrame, 'sequence' | 'width' | 'height'> | null): void;
 }) {
   const watchId = crypto.randomUUID();
   const bridge = host.projection!;
@@ -15,10 +16,13 @@ export async function projectionClient(host: ProjectionHost, id: string, options
   let sequence = 0;
   let closed = false;
   let ready = false;
+  let painting = Promise.resolve();
+  let paintEpoch = 0;
   let resetting: Promise<void> | null = null;
   const inputs = new ProjectionInputQueue(packet => bridge.send({ watchId, packet }), () => reset());
   const state = (value: 'connecting' | 'live' | 'closed', reason?: string) => {
     ready = value === 'live';
+    if (!ready) { paintEpoch++; options.painted?.(null); }
     options.state?.(value, reason);
   };
   const receive = async (packet: ProjectionHostPacket) => {
@@ -38,14 +42,30 @@ export async function projectionClient(host: ProjectionHost, id: string, options
       return;
     }
     if (packet.generation !== generation || packet.frame.sequence <= painted) return;
-    try {
-      await options.paint(packet.frame);
-      if (closed || packet.generation !== generation) return;
-      painted = packet.frame.sequence;
-      await bridge.send({ watchId, packet: { type: 'ack', generation, frame: painted } });
-      if (!closed && packet.generation === generation) state('live');
-    } catch (error) {
+    const current = () => !closed && packet.generation === generation && packet.frame.sequence > painted;
+    let epoch = 0;
+    const work = painting.then(async () => {
+      if (!current()) return false;
+      epoch = ++paintEpoch;
       ready = false;
+      // Serial painting prevents an older decode from replacing a newer picture.
+      options.painted?.(null);
+      await options.paint(packet.frame, current);
+      if (!current()) return false;
+      painted = packet.frame.sequence;
+      options.painted?.({ sequence: painted, width: packet.frame.width, height: packet.frame.height });
+      return true;
+    });
+    // An ACK may stall independently of decoding the next generation's picture.
+    painting = work.then(() => {}, () => {});
+    try {
+      if (!await work) return;
+      await bridge.send({ watchId, packet: { type: 'ack', generation: packet.generation, frame: packet.frame.sequence } });
+      if (!closed && packet.generation === generation && paintEpoch === epoch) state('live');
+    } catch (error) {
+      if (closed || packet.generation !== generation || paintEpoch !== epoch) return;
+      ready = false;
+      options.painted?.(null);
       options.error?.(error);
     }
   };

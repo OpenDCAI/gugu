@@ -2,6 +2,8 @@ import { fileRefOf, type AppFileChunk, type AppFileEntry, type AppFileOpened, ty
 import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts } from '@shared/extensions/bridge-protocol';
 import type { AppSessionIndexOptions, AppSessionIndex, AppSessionReadOptions, AppSessionRead } from '@shared/extensions/app-sessions';
 import type { ProjectionHost } from './projection-source';
+import type { TaskPageHost } from '@shared/extensions/task-page-protocol';
+import type { AppSurfaceHost } from '@shared/extensions/app-surface';
 
 /**
  * What the preload exposes as `window.__guguHost` and the runtime builds `window.gugu` from.
@@ -9,7 +11,7 @@ import type { ProjectionHost } from './projection-source';
  * Only the part the runtime itself calls is typed here; every other member is copied onto
  * `window.gugu` verbatim (`gugu-entry.ts`), so the v1 verbs keep their preload-side types.
  */
-export interface GuguHost extends ProjectionHost {
+export interface GuguHost extends ProjectionHost, TaskPageHost, AppSurfaceHost {
   readonly sessions?: {
     index(options?: AppSessionIndexOptions): Promise<AppSessionIndex>;
     read(options: AppSessionReadOptions): Promise<AppSessionRead>;

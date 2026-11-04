@@ -1,6 +1,13 @@
 import type { ProjectionFrame, ProjectionInput, ProjectionHostPacket, ProjectionSourceEvent, ProjectionViewerPacket, ProjectionInputOutcome } from '@shared/extensions/projection-protocol';
 
 export interface ProjectionHost {
+  getContext?(): Promise<{ workspace?: { deviceId?: string } }>;
+  projectionMedia?: {
+    open(args: { sourceId: string }): Promise<{ id: string; offer: { type: 'offer'; sdp: string } }>;
+    answer(args: { id: string; answer: { type: 'answer'; sdp: string } }): Promise<void>;
+    sign(args: { id: string; data: string }): Promise<string>;
+    close(args: { id: string }): Promise<void>;
+  };
   projection?: {
     create(args: Record<string, never>): Promise<{ id: string }>;
     publish(args: { id: string; frame: ProjectionFrame }): Promise<void>;

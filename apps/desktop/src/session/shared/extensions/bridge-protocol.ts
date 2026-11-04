@@ -83,9 +83,10 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 27: pages read members explicitly with chats.members(); context keeps the chat summary without a roster.
 // Pages declaring 26 or earlier retain their initial members and roster context updates.
 // 29: tools modules are host-confined.
+// 30: task-scoped page leases and shared App control resources.
 /** Tools modules opt into host confinement from this API. Final numbering follows dev at merge. */
 export const EXTENSION_TOOL_CONFINEMENT_API_VERSION = 29;
-export const EXTENSION_API_VERSION = EXTENSION_TOOL_CONFINEMENT_API_VERSION;
+export const EXTENSION_API_VERSION = 30;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -182,6 +183,8 @@ export interface ExtensionHostContext {
   tabId?: string;
   /** A host modal's initial data, under the opener's context and existing grants. */
   modal?: { data?: unknown };
+  /** An App-owned, non-activating native surface; content and control rules belong to the App. */
+  surface?: { id: string; data?: unknown };
   /**
    * The conversation this surface is in (its panel, 「在本群打开」, a session's tab): a group, a topic or a private chat, with who is in
    * it — changes arrive by `onContextChanged`. Absent is a real answer: not in a chat. ❌ No `placement` field: an App
@@ -242,6 +245,10 @@ export interface ExtensionSurfaceMetrics {
   visible: boolean;
   width: number;
   height: number;
+  /** Trusted host renderer's position in its content viewport, when native page mounting is available. */
+  x?: number;
+  y?: number;
+  clip?: { x: number; y: number; width: number; height: number };
 }
 
 /**
@@ -491,6 +498,8 @@ export interface ExtensionAgentHistoryPage {
 
 /** Events the host pushes to a surface. Each is a fact, never a command. */
 export type ExtensionHostEvent =
+  | { type: 'appSurface'; event: import('./app-surface').AppSurfaceEvent }
+  | { type: 'taskPage'; event: import('./task-page-protocol').TaskPageEvent }
   | { type: 'projection'; watchId: string; packet: import('./projection-protocol').ProjectionHostPacket }
   | { type: 'projectionSource'; event: import('./projection-protocol').ProjectionSourceEvent }
   | { type: 'context'; context: ExtensionHostContext }
@@ -672,6 +681,12 @@ export interface VerbFacts {
  * and a row without any of its facts does not build.
  */
 export const BRIDGE_VERBS = {
+  showTaskPages: { needs: 'agents:tools', only: 'program' },
+  taskPageAcquire: { needs: 'agents:tools', only: 'program' },
+  taskPageSend: { needs: 'agents:tools', only: 'program' },
+  taskPageRelease: { needs: 'agents:tools', only: 'program' },
+  taskPageMount: { needs: 'agents:tools', only: 'page' },
+  taskPageUnmount: { needs: 'agents:tools', only: 'page' },
   /** Generic picture/input resources. Scope comes from the host's task binding, not the argument object. */
   projectionCreate: { needs: 'agents:tools', only: 'program' },
   projectionPublish: { needs: 'agents:tools', only: 'program' },
@@ -679,10 +694,19 @@ export const BRIDGE_VERBS = {
   projectionClosed: { needs: 'agents:tools', only: 'program' },
   projectionInputResult: { needs: 'agents:tools', only: 'program' },
   projectionWatch: { needs: 'agents:tools', only: 'page' },
+  projectionMediaOpen: { needs: 'agents:tools', only: 'page' },
+  projectionMediaAnswer: { needs: 'agents:tools', only: 'page' },
+  projectionMediaSign: { needs: 'agents:tools', only: 'page' },
+  projectionMediaClose: { needs: 'agents:tools', only: 'page' },
   projectionUnwatch: { needs: 'agents:tools', only: 'page' },
   projectionSend: { needs: 'agents:tools', only: 'page' },
   /** The App's own sandboxed page, in the host's dialog shell. No new authority or per-call consent. */
   modalOpen: { needs: null, only: 'page', toAgent: { answer: null } },
+  appSurfaceOpen: { needs: 'agents:tools', only: 'program' },
+  appSurfaceScreen: { needs: 'agents:tools', only: 'program' },
+  appSurfaceUpdate: { needs: 'agents:tools', only: 'program' },
+  appSurfaceClose: { needs: 'agents:tools', only: 'program' },
+  appSurfacePost: { needs: 'agents:tools', only: 'page' },
   modalClose: { needs: null, only: 'page' },
   /** Runtime keyboard traversal at the edge of a modal guest; not an App-facing member. */
   modalKey: { needs: null, only: 'page' },

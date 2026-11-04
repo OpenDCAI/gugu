@@ -4296,6 +4296,7 @@ function loadEmdashBridge(): EmdashBridgeModule | null {
     // 全要走宿主这个 renderer 通道,而通道的实现住在 main.js。传函数不传值,所以此刻窗口还没建
     // 也没关系——调用时才读。
     emdashBridge.setExtensionHostWindowChannel({
+      openProjectionViewer: pageId => projectionDeviceRuntime.openViewer(pageId),
       invokeRendererExtensions,
       requestExtensionInstallConsent: (request, options) => {
         if (!mainWindow || mainWindow.isDestroyed()) {

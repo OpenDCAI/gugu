@@ -9,6 +9,8 @@ type PageProtocolOptions = {
   /** Owning connection lifetime. Individual commands take their own signal in send(). */
   signal?: AbortSignal;
   capture?: (params: Record<string, unknown>) => Promise<unknown>;
+  /** Called only once native dispatch has happened; used for this lease's held-input teardown. */
+  sent?: (method: string, params: Record<string, unknown>, sessionId: string | undefined, native: Promise<unknown>) => void;
 };
 
 // Explicitly page-scoped operations used by the task-page driver. New CDP methods are denied
@@ -171,9 +173,11 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
         signal?.throwIfAborted();
         if (sessionId && !children.has(sessionId)) throw new Error('unknown page session');
       }
-      return bounded(method === 'Page.captureScreenshot' && !sessionId && options.capture
+      const native = method === 'Page.captureScreenshot' && !sessionId && options.capture
         ? options.capture(params)
-        : debuggerApi.sendCommand(method, params, sessionId), signal);
+        : debuggerApi.sendCommand(method, params, sessionId);
+      options.sent?.(method, params, sessionId, native);
+      return bounded(native, signal);
     },
     onMessage(listener) {
       if (!closed) {
