@@ -665,43 +665,28 @@ function applyOperations(
       effective.push(operation)
     }
   }
-  // One final stream index serves retention and the persisted window bounds.
-  // In particular, a whole revision page is bounded once, after all its writes.
+  // Message writes re-derive each touched window's bounds from the committed main stream. Account
+  // ingestion (it writes message-revision rows) also bounds every stream it touched, once per page.
   if (changed.has('message')) {
-    const streams = new Map<string, LocalImRow[]>()
-    for (const row of rowsOf('message').values()) {
-      const stream = streams.get(row.streamId as string) ?? []
-      stream.push(row)
-      streams.set(row.streamId as string, stream)
-    }
-    // Account ingestion (it writes message-revision rows) is bounded; window writers bound themselves.
-    if (operations.some(operation => operation.type === 'put' && String(operation.value.key).startsWith('message-revision:'))) {
-      const touched = new Set(operations.flatMap(operation => operation.type === 'put' && operation.store === 'message'
-        ? [operation.value.streamId as string] : []))
-      for (const streamId of touched) {
-        const stream = streams.get(streamId) ?? []
-        stream.sort((a, b) => (b.seq as number) - (a.seq as number))
-        for (const row of stream.splice(MAX_WINDOW)) {
-          const key = [accountId, row.id as string]
-          rowsOf('message').delete(JSON.stringify(key))
-          effective.push({ type: 'delete', store: 'message', key })
-        }
+    const before = new Map(snapshot.message.map(row => [row.id, row]))
+    const put = operations.flatMap(operation => operation.type === 'put' && operation.store === 'message' ? [operation.value] : [])
+    const removed = operations.flatMap(operation => operation.type === 'delete' && operation.store === 'message' && Array.isArray(operation.key)
+      ? [before.get(operation.key[1] as string)].filter(row => row !== undefined) : [])
+    const stream = (id: string) => [...rowsOf('message').values()].filter(row => row.streamId === id).sort((a, b) => (b.seq as number) - (a.seq as number))
+    const ingested = operations.some(operation => operation.type === 'put' && String(operation.value.key).startsWith('message-revision:'))
+    for (const streamId of ingested ? new Set(put.map(row => row.streamId as string)) : []) {
+      for (const row of stream(streamId).slice(MAX_WINDOW)) {
+        const key = [accountId, row.id as string]
+        rowsOf('message').delete(JSON.stringify(key))
+        effective.push({ type: 'delete', store: 'message', key })
       }
     }
-    const previousById = new Map(snapshot.message.map(row => [row.id, row]))
-    const affected = new Set(operations.flatMap(operation => {
-      if (operation.type === 'put' && operation.store === 'message') return [operation.value.chatId as string]
-      const previous = operation.type === 'delete' && operation.store === 'message' && Array.isArray(operation.key)
-        ? previousById.get(operation.key[1] as string) : undefined
-      return previous ? [previous.chatId] : []
-    }))
-    for (const chatId of affected) {
+    for (const chatId of new Set([...put, ...removed].map(row => row.chatId as string))) {
       const key = `message-window:${chatId}`
       const row = rowsOf('view').get(JSON.stringify([accountId, key]))
       if (!row) continue
-      const seqs = (streams.get(`main:${chatId}`) ?? []).map(row => row.seq as number)
-      const value = { ...(row.value as object), oldestSeq: seqs.length ? Math.min(...seqs) : 0,
-        maxSeq: seqs.length ? Math.max(...seqs) : 0 }
+      const seqs = stream(`main:${chatId}`).map(row => row.seq as number)
+      const value = { ...(row.value as object), oldestSeq: seqs.at(-1) ?? 0, maxSeq: seqs[0] ?? 0 }
       if (JSON.stringify(value) === JSON.stringify(row.value)) continue
       const nextRow = { ...row, value }
       rowsOf('view').set(JSON.stringify([accountId, key]), nextRow)
