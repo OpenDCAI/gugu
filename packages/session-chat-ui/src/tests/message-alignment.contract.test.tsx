@@ -7,6 +7,7 @@ import { nativeChatAppearance } from '../../../../apps/desktop/src/session/rende
 import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
 import { createChatState } from '@session-chat/state/chat-state';
+import type { ChatLayout } from '@session-chat/core/layout/preset';
 import type { TranscriptTurn } from '@session-chat/model';
 import { zhCNMessages, type SessionMessageKey } from '../../../../apps/desktop/src/session/renderer/localization/messages';
 import { until, untilStable } from '../../../../tests/support/awaitCondition';
@@ -20,7 +21,7 @@ const scheduled = `<gugu_delivery route="scheduled" from="咕咕系统" from_id=
 2. 更新看板：核对负责人、进度、下一步和截止时间。]]></gugu_delivery>`;
 const incoming = `<gugu_delivery route="chat" from="云端与后端主管（Claude）" from_id="user:cloud-lead" chat="test" chat_kind="group" msg="msg:incoming"><![CDATA[预发云电脑控制器已恢复，三个服务均正常。窗口里的验证按约进行；完成后先清理专用测试宿主和会话，再交验收原件。]]></gugu_delivery>`;
 
-function mount(width: number, mode: string) {
+function mount(width: number, mode: string, layout: ChatLayout = { preset: 'double', userGutter: 0, agentConversation: true }) {
   const host = document.createElement('div');
   host.className = `${mode === 'dark' ? 'emdark' : 'emlight'} ${nativeChatAppearance}`;
   document.documentElement.dataset.theme = mode;
@@ -32,7 +33,7 @@ function mount(width: number, mode: string) {
     for (const [name, replacement] of Object.entries(values ?? {})) value = value.replaceAll(`{${name}}`, String(replacement));
     return value;
   } });
-  context.setLayout({ preset: 'double', userGutter: 0, agentConversation: true });
+  context.setLayout(layout);
   const state = createChatState(context);
   const transcript = document.createElement('div');
   transcript.style.cssText = 'width:100%;height:500px';
@@ -114,6 +115,34 @@ it('keeps the source details and standalone roster expandable after alignment', 
   expect(background()!.textContent).toContain('核对验收原件');
   background()!.querySelector<HTMLElement>('[data-collapse-id]')!.click();
   await until('standalone roster closes', () => !background()!.querySelector('[data-slot="background-task"]'));
+});
+
+it.each([{ width: 1440, mode: 'light' }, { width: 1440, mode: 'dark' }, { width: 480, mode: 'light' }, { width: 480, mode: 'dark' }])('keeps single full-width source metadata at its original edge at $width in $mode', async ({ width, mode }) => {
+  await page.viewport(width, 1000);
+  const { host } = mount(width, mode, { preset: 'single', userGutter: 0 });
+  const card = () => host.querySelector<HTMLElement>('[data-delivery-route="scheduled"]');
+  await until('single full-width delivery mounts', () => !!card()?.querySelector('[data-slot="delivery-avatar"]'));
+  const source = card()!.querySelector<HTMLElement>('[data-slot="delivery-header"]')!;
+  const avatar = source.querySelector<HTMLElement>('[data-slot="delivery-avatar"]')!;
+  const bubble = card()!.querySelector<HTMLElement>('[data-user-card]')!;
+  await untilStable('single source position settles', () => avatar.getBoundingClientRect().left);
+  const reading = {
+    phase: capturePhase ?? 'test', width, mode, layout: 'single',
+    avatarLeft: avatar.getBoundingClientRect().left,
+    senderLeft: source.querySelector('[data-slot="delivery-sender"]')!.getBoundingClientRect().left,
+    routeLeft: source.querySelector('[data-slot="delivery-route"]')!.getBoundingClientRect().left,
+    sourceRight: source.firstElementChild!.lastElementChild!.getBoundingClientRect().right,
+    headerLeft: source.getBoundingClientRect().left,
+    bubbleLeft: bubble.getBoundingClientRect().left,
+    bubbleRight: bubble.getBoundingClientRect().right,
+  };
+  if (capturePhase) {
+    console.log(`SINGLE_ALIGNMENT_READING ${JSON.stringify(reading)}`);
+    await page.screenshot({ element: host, path: `__screenshots__/alignment-${capturePhase}-single-${mode}-${width}.png` });
+  }
+  expect(bubble.getBoundingClientRect().width).toBeGreaterThan(100);
+  expect(Math.abs(reading.avatarLeft - reading.headerLeft)).toBeLessThanOrEqual(1);
+  expect(Math.abs(reading.avatarLeft - reading.bubbleLeft)).toBeLessThanOrEqual(1);
 });
 
 it('retains the traditional transcript inset and attached process controls', async () => {
