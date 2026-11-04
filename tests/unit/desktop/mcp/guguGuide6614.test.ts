@@ -63,7 +63,7 @@ function preloadVerbs(): string[] {
   // Every host's members come from one table (host-calls.ts): a page's own and the background page's own (`VerbFacts.only`) too.
   // `appFiles.*` and `clipboard.*` are host halves internal to the platform runtime: pages call `gugu.files.*` and
   // `gugu.clipboard.writeText`, which the runtime builds on them (checked below); so is `onFilesChanged`.
-  const hostHalves = ['onFilesChanged', 'onForumChanged', 'onModalFocus', 'onProjection', 'onProjectionSource']
+  const hostHalves = ['onFilesChanged', 'onForumChanged', 'onModalFocus', 'onProjection', 'onProjectionSource', 'onTaskPage', 'onSurface']
   return [...Object.keys(HOST_CALLS), ...Object.keys(HOST_EVENTS)].filter((key) => !key.includes('.') && !hostHalves.includes(key))
 }
 
@@ -128,6 +128,9 @@ describe('扩展指南与源码对得上 (#6614)', () => {
     }
     expect(truth.verbs).not.toContain('onProjection')
     expect(truth.verbs).not.toContain('onProjectionSource')
+    expect(truth.verbs).not.toContain('onTaskPage')
+    expect(truth.verbs).not.toContain('onSurface')
+    for (const member of ['gugu.pages.acquire(', 'gugu.pages.mount(', 'gugu.surfaces.open(', 'gugu.surfaces.post(']) expect(topic.text).toContain(member)
   })
 
   it('判据会红:桥上多一个动词、动词挪错小节、指南提到已退役的工具、整篇漏掉', () => {

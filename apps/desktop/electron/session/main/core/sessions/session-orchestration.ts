@@ -1,4 +1,5 @@
 import { taskName } from './task-name';
+import { cancelExtensionSessionCalls } from '@main/core/extensions/extension-program-access';
 import { assistantWorkIntentSchema,type AssistantWorkIntent } from '@gugu/core/shared/assistantWorkIntent';
 import { SessionArchivedError } from '@gugu/core/shared/sessionArchival';
 import { assistantWorkLedgerContext } from '../../../../sessionpage/assistant-work-ledger';
@@ -490,6 +491,9 @@ async function stopSessionTransport(target: SessionRow, reason: SessionStopReaso
     // 停这一端自己把「被打断」交给写入者(与终端腿 stopSession 同一个写口),桥随后那一次是空操作。
     await agentStatusWriter.settleSessionExited({ sessionId: target.id, projectId: target.projectId });
   } else {
+    // ACP cancels at its runtime stop/cancel entry. The terminal leg has no such
+    // client, so withdraw this task's App calls before stopping its process here.
+    cancelExtensionSessionCalls(target.id);
     // 终端挂在这条会话的挂载下:没挂着 ⇒ 本进程里没有这条会话的终端,没有东西可停。
     // ❌ 为了停去挂载:挂载(连已挂载的快路径在内)会广播 session:provisioned,渲染层据此把会话准备起来、
     // 复原标签、按原会话把进程拉起来 —— 停了等于重启(#4377 mac1 实测:停后 0.1 s 内 `--resume` 重生)。
@@ -1535,7 +1539,7 @@ function claimingTab(requestedKind: string, absolutePath: string): string {
  * 与 `open_in_tab` 走同一条「请会话页打开、等它回话」的路,❌ 另起一条:开在哪、并排规则、
  * 会话页没挂着时先准备它,全都一样。没有窗口的咕咕 server 上没有页签可操作 —— 说出来,❌ 干等超时。
  */
-export async function openAgentBrowserPane(
+export async function openTaskBrowserPane(
   target: { projectId: string; sessionId: string },
   url: string | undefined,
   signal?: AbortSignal,

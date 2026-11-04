@@ -48,7 +48,7 @@ export function createProjectionDeviceRuntime(input: Parameters<typeof createPro
       },
     },
     track,
-    /** Host-only entry, intentionally not registered as an App/preload verb yet. */
+    /** The outer host captures the live page and keeps its authentication keys. */
     async openViewer(webContentsId: number) {
       if (stopped || active.size + openingViewers >= 128) throw new Error('Projection viewer runtime is unavailable');
       openingViewers++;

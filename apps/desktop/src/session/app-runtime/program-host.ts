@@ -41,7 +41,8 @@ export function startProgramGugu(channel: ProgramChannel): Readonly<Record<strin
           // A host-owned projection callback can arrive while a different tool
           // call is running. It never inherits that call's agent authority.
           const event = message as { t?: string; event?: { type?: string } } | null;
-          if (frame?.m === APP_FRAME_MARKER && event?.t === 'event' && event.event?.type === 'projectionSource') programCall.exit(() => handler(message));
+          if (frame?.m === APP_FRAME_MARKER && event?.t === 'event'
+            && ['projectionSource', 'appSurface', 'taskPage'].includes(event.event?.type ?? '')) programCall.exit(() => handler(message));
           else handler(message);
         });
         // Listening does not keep the program alive: it lives as long as its own work does (its MCP server reading stdin).
@@ -52,5 +53,13 @@ export function startProgramGugu(channel: ProgramChannel): Readonly<Record<strin
     { program: true },
   );
   setSyncPortSource(() => Promise.resolve(syncPort));
-  return createGugu(host, { files: () => Promise.resolve(files) });
+  return Object.freeze({ ...createGugu(host, { files: () => Promise.resolve(files) }),
+    /** Custom MCP commands enter the host-stamped call just as tools modules do automatically. */
+    withCall<T>(meta: Record<string, unknown> | undefined, work: () => T): T {
+      const id = meta?.['gugu/call'];
+      if (typeof id !== 'string' || !id || typeof work !== 'function') throw new Error('withCall needs the MCP request metadata and a callback');
+      // Main still checks this random ID against this program's live call map on every verb.
+      return programCall.run(id, work);
+    },
+  });
 }

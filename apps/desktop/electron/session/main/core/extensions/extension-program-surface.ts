@@ -9,6 +9,8 @@ import type { DesktopFilePage } from './app-files';
 import { fileSync } from './file-sync';
 import { resourceChatIdOf } from '@shared/extensions/app-files-core';
 import { extensionProjections } from './extension-projection-bridge';
+import { anySignal } from '@gugu/core/shared/anySignal';
+import { closeProgramResources, programResourceCount } from './program-resource-lifetime';
 
 /**
  * An App's MCP program as a caller of the App (摩擦单 F16, 真源 §4): the same `gugu` a page has but for a page's own
@@ -33,6 +35,8 @@ export interface ExtensionHandedFile {
   itemId: string;
   chatId: string;
   agentUserId: string;
+  /** Explicit file-card versions in the gateway's original arguments, before links become item IDs. */
+  versions?: readonly number[];
 }
 
 /** A1 A chat an agent handed a program in one call (`format: "gugu-chat"`): the agent is in it, checked at the gateway. */
@@ -49,7 +53,7 @@ export interface ProgramSurface {
    * and chats it handed; the function it returns takes them back when that call ends — resolved once the program let go
    * of the files, its last writes handed to the file service ahead of its Close (F106).
    */
-  hand(callId: string, agent: string | null, files: readonly ExtensionHandedFile[], chats?: readonly ExtensionHandedChat[], sessionId?: string, callerKind?: 'agent' | 'person'): () => Promise<void>;
+  hand(callId: string, agent: string | null, files: readonly ExtensionHandedFile[], chats?: readonly ExtensionHandedChat[], sessionId?: string, callerKind?: 'agent' | 'person', signal?: AbortSignal): () => Promise<void>;
   /** How many files it holds open: a program holding one is not idle. */
   openFiles(): number;
   close(processGone?: boolean): void | Promise<void>;
@@ -62,7 +66,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   /** Each call running now, by its id: whose it is, and what it handed. */
   let closing: Promise<void> | undefined;
   let withdrawn = false;
-  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[]; sessionId?: string; callerKind: 'agent' | 'person'; controller: AbortController }>();
+  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[]; sessionId?: string; callerKind: 'agent' | 'person'; controller: AbortController; signal: AbortSignal; interruption?: AbortSignal }>();
   const post = (frame: HostToFrame) => {
     if (child.connected) child.send(frame);
   };
@@ -77,11 +81,12 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   // makes, renames and removes is that agent's too, judged by the agent's membership. Anything else — and every verb made
   // in no call: as a page, by the capability words.
   const filePage = (args: Record<string, unknown>, callId: string | undefined, resource: boolean, call = callId === undefined ? undefined : calls.get(callId)): DesktopFilePage => {
-    const scope = { pageId, extensionId, ...(call ? { callId, signal: call.controller.signal } : {}) };
+    const scope = { pageId, extensionId, ...(call ? { callId, signal: call.signal } : {}) };
     const ref = args.ref === undefined ? null : fileRefOf(args.ref);
     if (call && ref && 'id' in ref && !isWorkspace(ref)) {
       const given = call.files.find((file) => file.itemId === ref.id);
-      if (given) return { ...scope, handed: { chat: given.chatId, id: given.itemId }, asAgent: given.agentUserId };
+      if (given) return { ...scope, handed: { chat: given.chatId, id: given.itemId }, asAgent: given.agentUserId,
+        ...(given.versions ? { handedVersions: given.versions } : {}) };
     }
     const place = !ref && args.place && typeof args.place === 'object' ? (args.place as { chat?: unknown }) : null;
     const chat = ref && 'chat' in ref ? ref.chat : place?.chat;
@@ -99,7 +104,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
       pageId,
       filePage: (args, resource = false) => filePage(args, callId, resource),
       async resourcePage(args) {
-        call?.controller.signal.throwIfAborted();
+        call?.signal.throwIfAborted();
         const ref = args.ref === undefined ? null : fileRefOf(args.ref);
         const place = args.place === undefined ? null : placeOf(args.place);
         const named = ref ?? place;
@@ -107,13 +112,14 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
         const actor = call?.agent ?? filePage(args, callId, true, call).asAgent ?? null;
         const { resourceChatOf } = await import('./app-files');
         const chat = await resourceChatOf(named.chat, { asAgent: actor });
-        call?.controller.signal.throwIfAborted();
+        call?.signal.throwIfAborted();
         return filePage(ref ? { ...args, ref: { ...ref, chat } } : { ...args, place: { chat } }, callId, true, call);
       },
       hear: (event) => post({ m: APP_FRAME_MARKER, t: 'event', event }),
       // Each host-stamped call has an id; a person's page has a task but no calling agent.
       ...(callId === undefined || call?.callerKind === 'person' ? {} : { callingAgent: call?.agent ?? null }),
       ...(callId === undefined || !call?.sessionId ? {} : { callingSession: call.sessionId }),
+      ...(call ? { signal: call.signal, interruption: call.interruption } : {}),
     };
   };
 
@@ -142,9 +148,9 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
 
   return {
     pageId,
-    hand(callId, agent, files, chats = [], sessionId, callerKind = 'agent') {
+    hand(callId, agent, files, chats = [], sessionId, callerKind = 'agent', parent) {
       const controller = new AbortController();
-      calls.set(callId, { agent, files, chats, sessionId, callerKind, controller });
+      calls.set(callId, { agent, files, chats, sessionId, callerKind, controller, signal: anySignal([parent, controller.signal]), interruption: parent });
       return async () => {
         controller.abort();
         calls.delete(callId);
@@ -164,7 +170,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
         );
       };
     },
-    openFiles: () => fileSync.openCount(pageId) + extensionProjections.count(pageId),
+    openFiles: () => fileSync.openCount(pageId) + extensionProjections.count(pageId) + programResourceCount(pageId),
     close(processGone = false) {
       if (processGone) extensionProjections.closePage(pageId);
       if (closing) return closing;
@@ -173,7 +179,11 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
       calls.clear();
       fileSync.pageGone(pageId);
       void import('./extension-bridge').then(({ stopPageWatches }) => stopPageWatches(pageId));
-      closing = extensionProjections.closeProgram(pageId).finally(() => {
+      closing = (async () => {
+        const results = await Promise.allSettled([extensionProjections.closeProgram(pageId), closeProgramResources(pageId)]);
+        const failures = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+        if (failures.length) throw new AggregateError(failures, 'App program resources did not close cleanly');
+      })().finally(() => {
         child.off('message', onMessage);
         extensionProjections.closePage(pageId);
       });

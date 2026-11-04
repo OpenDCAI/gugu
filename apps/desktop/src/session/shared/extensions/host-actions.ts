@@ -35,6 +35,7 @@ export interface ExtensionHostActionOrigin {
 }
 
 export type ExtensionHostAction =
+  | { kind: 'taskMessage'; text: string }
   | { kind: 'openAppModal'; page: AppModalPage }
   | { kind: 'closeAppModal'; id: string }
   | { kind: 'focusAppModalClose'; id: string }

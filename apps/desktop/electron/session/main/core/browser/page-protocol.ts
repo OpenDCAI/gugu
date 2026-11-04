@@ -2,6 +2,7 @@ import type { WebContents } from 'electron';
 import { isSupportedBrowserNavigationUrl } from './browser-navigation';
 import { pageNetworkEvent } from './page-network-events';
 import { pageNavigationAccess } from './page-navigation-access';
+import { pageProtocolMaintenance, pageTreeHasFrame } from './page-protocol-maintenance';
 
 type PageEvent = (method: string, params: Record<string, unknown>, sessionId?: string) => void;
 type PageProtocolOptions = {
@@ -9,6 +10,8 @@ type PageProtocolOptions = {
   /** Owning connection lifetime. Individual commands take their own signal in send(). */
   signal?: AbortSignal;
   capture?: (params: Record<string, unknown>) => Promise<unknown>;
+  /** Called only once native dispatch has happened; used for this lease's held-input teardown. */
+  sent?: (method: string, params: Record<string, unknown>, sessionId: string | undefined, native: Promise<unknown>) => void;
 };
 
 // Explicitly page-scoped operations used by the task-page driver. New CDP methods are denied
@@ -37,6 +40,7 @@ const PAGE_METHODS = new Set(`
 export interface PageProtocol {
   readonly attached: boolean;
   send(method: string, params?: Record<string, unknown>, sessionId?: string, signal?: AbortSignal): Promise<unknown>;
+  maintain?(method: string, params?: Record<string, unknown>, sessionId?: string, signal?: AbortSignal): Promise<unknown>;
   onMessage(listener: PageEvent): () => void;
   onClose(listener: (reason: string) => void): () => void;
   close(reason?: string): void;
@@ -136,8 +140,16 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
   if (options.signal?.aborted) onAbort();
   else options.signal?.addEventListener('abort', onAbort, { once: true });
 
-  return {
+  const protocol: PageProtocol = {
     get attached() { return attached; },
+    async maintain(method, params = {}, sessionId, signal) {
+      if (!pageProtocolMaintenance(method, params)) throw new Error('This command is not connection maintenance');
+      if (method === 'Page.createIsolatedWorld') {
+        const result = await protocol.send('Page.getFrameTree', {}, sessionId, signal) as { frameTree?: unknown };
+        if (!pageTreeHasFrame(result?.frameTree, params.frameId)) throw new Error('Unknown frame in this page connection');
+      }
+      return protocol.send(method, params, sessionId, signal);
+    },
     async send(method, params = {}, sessionId, signal) {
       signal?.throwIfAborted();
       assertLive();
@@ -171,9 +183,11 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
         signal?.throwIfAborted();
         if (sessionId && !children.has(sessionId)) throw new Error('unknown page session');
       }
-      return bounded(method === 'Page.captureScreenshot' && !sessionId && options.capture
+      const native = method === 'Page.captureScreenshot' && !sessionId && options.capture
         ? options.capture(params)
-        : debuggerApi.sendCommand(method, params, sessionId), signal);
+        : debuggerApi.sendCommand(method, params, sessionId);
+      options.sent?.(method, params, sessionId, native);
+      return bounded(native, signal);
     },
     onMessage(listener) {
       if (!closed) {
@@ -189,4 +203,5 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
     },
     close,
   };
+  return protocol;
 }

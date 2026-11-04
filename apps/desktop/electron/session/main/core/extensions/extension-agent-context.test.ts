@@ -19,10 +19,12 @@ const folderA = path.join(scratch, 'a');
 fs.mkdirSync(folderA);
 /** The per-session model decision (platform-model-selection's record): a Gugu model, a harness's own (null), or none. */
 const decisions: Record<string, { modelId: string } | null | undefined> = {};
+const names = new Map<string, string>();
+vi.mock('@main/core/sessions/task-name', () => ({ knownTaskName: (row: { id: string }) => names.get(row.id) }));
 
 vi.mock('drizzle-orm', () => ({ eq: (column: { name: string }, value: unknown) => ({ column: column.name, value }) }));
 vi.mock('@main/db/schema', () => ({
-  sessions: { __table: 'conversations', id: { name: 'id' }, workspaceId: { name: 'workspaceId' }, projectId: { name: 'projectId' }, config: { name: 'config' }, provider: { name: 'provider' }, runtime: { name: 'runtime' } },
+  sessions: { __table: 'conversations', id: { name: 'id' }, workspaceId: { name: 'workspaceId' }, projectId: { name: 'projectId' }, config: { name: 'config' }, provider: { name: 'provider' }, runtime: { name: 'runtime' }, title: { name: 'title' } },
 }));
 vi.mock('@main/db/client', () => ({
   db: {
@@ -49,6 +51,7 @@ vi.mock('@main/core/sessions/platform-model-selection', () => ({
 const { agentSessionContext } = await import('./extension-agent-context');
 
 beforeEach(() => {
+  names.clear();
   rows.conversations = [
     { id: 'conv-a', workspaceId: 'ws-a', projectId: 'p-a', config: {} },
     { id: 'conv-b', workspaceId: 'ws-b', projectId: 'p-b', config: { model: 'gpt-5.5' } },
@@ -70,6 +73,14 @@ beforeEach(() => {
 afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));
 
 describe('agentSessionContext (#6615 问题 11)', () => {
+  it('keeps the real assistant name separate from the task title and model label', async () => {
+    names.set('conv-a', '论文助理');
+    rows.conversations![0]!.title = '核对参考文献';
+    expect(await agentSessionContext('conv-a')).toMatchObject({ agentName: '论文助理', taskTitle: '核对参考文献', modelLabel: 'menu:glm-5.3-flash' });
+    expect(await agentSessionContext('conv-b')).not.toHaveProperty('agentName');
+    expect(await agentSessionContext('conv-b')).not.toHaveProperty('taskTitle');
+  });
+
   it("reads the caller's own session and its working copy from the session's own record, opened or not", async () => {
     expect(await agentSessionContext('conv-a')).toEqual({ sessionId: 'conv-a', projectId: 'p-a', workspaceId: 'ws-a', workspaceRoot: folderA, model: 'platform:glm-5.3-flash', modelLabel: 'menu:glm-5.3-flash' });
   });

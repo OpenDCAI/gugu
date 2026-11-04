@@ -2,7 +2,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { CallToolRequest, Tool } from '@modelcontextprotocol/sdk/types.js'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AcpMcpServer } from '../../../../apps/desktop/electron/acp-engine-utils'
 import {
   buildExtensionGateway,
@@ -18,7 +18,15 @@ import type { CloudMarketEntry } from '../../../../apps/desktop/src/session/shar
 import { parseExtensionTabKind, type ExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 import type { CatalogTool } from '../../../../apps/desktop/electron/mcp/gugu-catalog-tools'
 import type { ExtensionProgram, ExtensionPrograms } from '../../../../apps/desktop/electron/session/main/core/extensions/extension-programs'
-import { revokeExtensionProgramAccess } from '../../../../apps/desktop/electron/session/main/core/extensions/extension-program-access'
+import { cancelExtensionSessionCalls, revokeExtensionProgramAccess } from '../../../../apps/desktop/electron/session/main/core/extensions/extension-program-access'
+
+// This HTTP gateway fixture injects its program provider below. Starting a real
+// child/files service here would bypass that boundary, rather than test it.
+vi.mock('../../../../apps/desktop/electron/session/main/core/extensions/extension-program-surface', () => ({
+  attachProgramSurface: () => { throw new Error('Gateway fixture must use its injected program provider') },
+  handedFilesAs: () => { throw new Error('Gateway fixture must use its injected file grants') },
+  handedChatsAs: () => { throw new Error('Gateway fixture must use its injected chat grants') },
+}))
 
 const notes: ExtensionProgram = {
   extensionId: 'agent-notes', server: 'agent-notes', digest: 'v1', command: 'node', args: [], env: {}, cwd: '/x', dataDir: '/data/agent-notes',
@@ -124,6 +132,27 @@ async function connect(entry: AcpMcpServer): Promise<Client> {
 }
 
 describe('the extension gateway (#6615)', () => {
+  it('task stop fences a call waiting for caller facts without blocking a newer turn', async () => {
+    const gate = Promise.withResolvers<void>()
+    const preparing = Promise.withResolvers<void>()
+    const catalog = createExtensionCatalog({ programs: () => programs, onProblem: message => { throw new Error(message) }, ...withApps,
+      sessionContext: async () => { preparing.resolve(); await gate.promise; return null } })
+    const tool = (await catalog.tools('task-stop-grant', 'task-stop-owner'))[0]!
+    const extra = { signal: new AbortController().signal, sendNotification: async () => {} } as unknown as Parameters<CatalogTool['run']>[1]
+    let outcome = 'pending'
+    const old = tool.run({ sessionId: 'another-task' }, extra).then(() => { outcome = 'completed' }, () => { outcome = 'interrupted' })
+    try {
+      await preparing.promise
+      cancelExtensionSessionCalls('task-stop-owner')
+      const fresh = createExtensionCatalog({ programs: () => programs, onProblem: message => { throw new Error(message) }, ...withApps })
+      await (await fresh.tools('task-stop-grant', 'task-stop-owner'))[0]!.run({}, extra)
+      expect(calls).toHaveLength(1)
+      expect(outcome).toBe('pending')
+    } finally { gate.resolve(); await old }
+    expect(outcome).toBe('interrupted')
+    expect(calls).toHaveLength(1)
+  })
+
   it('revocation during caller preparation rejects the old call while a fresh call can proceed', async () => {
     const gate = Promise.withResolvers<void>()
     const preparing = Promise.withResolvers<void>()
@@ -211,6 +240,16 @@ describe('the extension gateway (#6615)', () => {
 // #6615 问题 11 —— 程序只知道「谁调的」,不知道「在哪个任务、哪个工作副本」:页面调用早就带 gugu/sessionId,agent 调用没有。
 // W-21 实测两家都卡在这里(一家让页面转存路径,一家编了个不存在的 GUGU_PROJECT_DIR)。
 describe('the caller task context in _meta (#6615 问题 11)', () => {
+  it('stamps display identity from caller facts rather than model-supplied metadata', async () => {
+    const host = createExtensionGatewayHost(() => programs, undefined, { sessionContext: async () => ({
+      sessionId: 'actual-task', workspaceRoot: null, model: 'a-model', agentName: '论文助理', taskTitle: '核对参考文献',
+    }) })
+    hosts.push(host)
+    const client = await connect((await gatewayFor(host, 'actual-task')).servers[0]!)
+    await client.callTool({ name: 'add_note', arguments: {}, _meta: { 'gugu/agentName': 'forged', 'gugu/taskTitle': 'forged' } })
+    expect(calls[0]?._meta).toMatchObject({ 'gugu/agentName': '论文助理', 'gugu/taskTitle': '核对参考文献' })
+  })
+
   // conv-a runs on a Gugu model; conv-b never chose one (its model is null: the key is left out, never '' or null).
   const where: Record<string, { sessionId: string; workspaceRoot: string | null; model: string | null }> = {
     'conv-a': { sessionId: 'task-a', workspaceRoot: '/work/a', model: 'platform:glm-5.3-flash' },
@@ -526,6 +565,24 @@ describe('who called, and the files a call hands its program (F16)', () => {
       await run({ board: ITEM, card: '17' })
       expect(handedPerCall).toEqual([[{ itemId: ITEM, chatId: CHAT, agentUserId: AGENT }]])
       expect(calls.map((call) => call.arguments)).toEqual([{ board: ITEM, card: '17' }])
+    })
+
+    it('preserves the trusted file-card version alongside normalized program arguments', async () => {
+      toolList = [followDoubts]
+      visibleTo.set(AGENT, new Map([[ITEM, CHAT]]))
+      await run({ board: `gugu-file://${ITEM}?v=2#page=3`, card: '17' })
+      expect(handedPerCall).toEqual([[{ itemId: ITEM, chatId: CHAT, agentUserId: AGENT, versions: [2] }]])
+      expect(calls.map(call => call.arguments)).toEqual([{ board: ITEM, card: '17' }])
+    })
+
+    it('retains every explicitly handed version when an array names one card more than once', async () => {
+      toolList = [{ name: 'upload', inputSchema: { type: 'object', properties: {
+        files: { type: 'array', items: { type: 'string', format: 'gugu-file' } },
+      } } }]
+      visibleTo.set(AGENT, new Map([[ITEM, CHAT]]))
+      await run({ files: [`gugu-file://${ITEM}?v=1`, `gugu-file://${ITEM}?v=2`, `gugu-file://${ITEM}?v=2`] })
+      expect(handedPerCall).toEqual([[{ itemId: ITEM, chatId: CHAT, agentUserId: AGENT, versions: [1, 2] }]])
+      expect(calls[0]!.arguments).toEqual({ files: [ITEM, ITEM, ITEM] })
     })
 
     it('a link that names no file: handed as written, so refused, and the program never called', async () => {

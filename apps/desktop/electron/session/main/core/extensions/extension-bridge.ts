@@ -11,6 +11,8 @@ import { localizedManifestText } from '@shared/extensions/catalog';
 import { extensionPartition, extensionResourceUrl } from '@shared/extensions/partition';
 import { onExtensionProgramNotification } from '@main/core/extensions/extension-programs';
 import { extensionProjections } from './extension-projection-bridge';
+import { closeAppPageResources, layoutAppPageResources } from './app-page-resources';
+import { sendTaskMessage } from './task-message';
 import { log } from '@main/lib/logger';
 import { events } from '@main/lib/events';
 import { extensionProgramNotifiedChannel } from '@shared/extensions/marketEvents';
@@ -114,6 +116,7 @@ interface SurfaceBinding {
   operator: ExtensionOperator;
   metrics: ExtensionSurfaceMetrics;
   modal?: { id: string; data?: unknown };
+  surface?: { id: string; data?: unknown; decorative?: boolean };
   /**
    * The theme this page is shown in, when it is not the host's: only a page an agent works (`app_check`'s), which takes
    * its pictures in light and dark (`showAgentPageInTheme`). Null for every surface a person sees — those follow the host.
@@ -127,6 +130,10 @@ type BindingChange = { previousWorkspace: string | null };
 const sessionOfBinding = (binding: Pick<SurfaceBinding, 'workspace'>): string | null => workspaceSession(binding);
 const bindingChanges = new Map<number, BindingChange>();
 const bindings = new Map<number, SurfaceBinding>();
+function closeNativePageResources(pageId: number): void {
+  try { closeAppPageResources(pageId); }
+  catch (error) { log.warn('App page resource cleanup failed', { pageId, error: String(error) }); }
+}
 function restoreBindingChange(id: number, prior: SurfaceBinding | undefined, change: BindingChange, error: unknown): never {
   if (bindingChanges.get(id) === change) {
     bindingChanges.delete(id);
@@ -175,6 +182,10 @@ export interface BridgeCaller {
   callingAgent?: string | null;
   /** The task stamped by main for this exact program call; never read from the tool arguments. */
   callingSession?: string;
+  /** Lifetime of this exact host-stamped program call, including task interruption. */
+  signal?: AbortSignal;
+  /** Upstream cancellation only; unlike signal, normal tool completion does not abort it. */
+  interruption?: AbortSignal;
   /** A page's: whether its preload read the person's activation as the call left the page (`CallRefusalCaller`). */
   gesture?: boolean;
 }
@@ -224,18 +235,20 @@ export async function captureSessionpageProjectionViewer(webContentsId: number) 
   const page = extensionProjections.viewerPage(pageCaller(binding, webContentsId, false));
   try {
     const version = extensionsService().get(binding.extensionId).manifest.version;
+    const deviceId = knownSessionMachine(page.sessionId)?.deviceId;
+    if (!deviceId) throw new Error('Projection task has no remote host');
     const assertCurrent = () => {
       try {
         page.assertCurrent();
         const service = extensionsService();
         if (contents.isDestroyed() || bindings.get(webContentsId) !== binding || service.get(binding.extensionId).manifest.version !== version
-          || !service.isEnabled(binding.extensionId) || !service.hasCapability(binding.extensionId, 'agents:tools')) {
+          || !service.isEnabled(binding.extensionId) || !service.hasCapability(binding.extensionId, 'agents:tools')
+          || knownSessionMachine(page.sessionId)?.deviceId !== deviceId) {
           throw new Error('Projection viewer App or page changed');
         }
       } catch (error) { page.release(); throw error; }
     };
-    assertCurrent(); const deviceId = knownSessionMachine(page.sessionId)?.deviceId;
-    if (!deviceId) throw new Error('Projection task has no remote host');
+    assertCurrent();
     return Object.freeze({ ...page, deviceId, version, assertCurrent });
   } catch (error) { page.release(); throw error; }
 }
@@ -574,6 +587,7 @@ export async function bindExtensionSurface(input: {
   /** Who works it: the person unless main binds it for an agent (`app_check`); never the renderer's to say. */
   operator?: ExtensionOperator;
   modal?: { id: string; data?: unknown };
+  surface?: { id: string; data?: unknown; decorative?: boolean };
 } & Partial<AppWhere>): Promise<void> {
   const contents = webContents.fromId(input.webContentsId);
   if (!contents) throw new Error(`No such webContents: ${input.webContentsId}`);
@@ -599,10 +613,18 @@ export async function bindExtensionSurface(input: {
   const workspace = input.workspace && (workspaceSession({ workspace: input.workspace }) || input.filePath) ? input.workspace : null;
   const prior = bindings.get(input.webContentsId);
   if (prior?.widget && JSON.stringify(prior.widget) !== JSON.stringify(input.widget)) throw new Error('A message view cannot change its widget');
+  if (prior?.surface && input.surface && (prior.surface.id !== input.surface.id
+    || input.surface.decorative !== undefined && Boolean(prior.surface.decorative) !== input.surface.decorative)) {
+    throw new Error('A native surface cannot change its identity or input mode');
+  }
+  // Generic rebinds may omit container facts. Only display data can replace an existing native surface's metadata.
+  const surface = prior?.surface ? { ...prior.surface, ...(input.surface && Object.hasOwn(input.surface, 'data') ? { data: input.surface.data } : {}) }
+    : input.surface ? { ...input.surface } : undefined;
   const change = { previousWorkspace: bindingChanges.get(input.webContentsId)?.previousWorkspace ?? prior?.workspace ?? null };
   bindingChanges.set(input.webContentsId, change);
-  if (prior && prior.workspace !== workspace) {
-    prior.workspace = null;
+  if (prior) {
+    if (prior.workspace !== workspace) prior.workspace = null;
+    closeNativePageResources(input.webContentsId);
     extensionProjections.closePage(input.webContentsId);
   }
   const recover = (error: unknown) => restoreBindingChange(input.webContentsId, prior, change, error);
@@ -628,6 +650,7 @@ export async function bindExtensionSurface(input: {
     embedderId: contents.hostWebContents?.id ?? null,
     operator: input.operator ?? { kind: 'person' },
     ...(input.modal ? { modal: input.modal } : {}),
+    ...(surface ? { surface } : {}),
     // Zero until the pane reports its box. Stated rather than guessed: a made-up
     // size would be indistinguishable from a measured one.
     metrics: { visible: true, width: 0, height: 0 },
@@ -819,6 +842,7 @@ export async function retargetExtensionSurface(input: {
   const previousWorkspace = change.previousWorkspace;
   if (previousWorkspace !== workspace) {
     binding.workspace = null;
+    closeNativePageResources(input.webContentsId);
     extensionProjections.closePage(input.webContentsId);
   }
   const recover = (error: unknown) => restoreBindingChange(input.webContentsId, binding, change, error);
@@ -850,6 +874,7 @@ export async function retargetExtensionSurface(input: {
 
 export function unbindExtensionSurface(webContentsId: number): void {
   bindingChanges.delete(webContentsId);
+  closeNativePageResources(webContentsId);
   extensionProjections.closePage(webContentsId);
   void appModals.pageGone(webContentsId);
   bindings.delete(webContentsId);
@@ -997,11 +1022,34 @@ export function updateExtensionSurfaceLayout(
   const unchanged =
     binding.metrics.visible === metrics.visible &&
     binding.metrics.width === metrics.width &&
-    binding.metrics.height === metrics.height;
+    binding.metrics.height === metrics.height &&
+    binding.metrics.x === metrics.x && binding.metrics.y === metrics.y &&
+    (['x', 'y', 'width', 'height'] as const).every(key => binding.metrics.clip?.[key] === metrics.clip?.[key]);
   // A resize drag fires continuously; re-pushing an identical context would turn
   // one drag into a stream of events every surface has to ignore.
   if (unchanged) return;
   binding.metrics = metrics;
+  layoutAppPageResources(webContentsId);
+  pushContext(webContentsId);
+}
+
+/** Native embedding uses only the host's live binding and host-measured surface bounds. */
+export function extensionPagePresentation(caller: BridgeCaller) {
+  const binding = bindings.get(caller.pageId);
+  const contents = webContents.fromId(caller.pageId);
+  if (caller.kind !== 'page' || !binding || caller.binding !== binding || !contents || contents.isDestroyed()
+    || binding.extensionId !== caller.extensionId || !workspaceSession(binding) || binding.embedderId === null
+    || !Number.isFinite(binding.metrics.x) || !Number.isFinite(binding.metrics.y)) throw new Error('The App has no current native task surface');
+  const embedder = webContents.fromId(binding.embedderId);
+  if (!embedder || embedder.isDestroyed()) throw new Error('The App host window closed');
+  return { embedder, metrics: binding.metrics, scale: contents.getZoomFactor() / embedder.getZoomFactor() };
+}
+
+/** Only the owning native container updates its own App document. */
+export function updateAppSurfaceData(webContentsId: number, surfaceId: string, data: unknown): void {
+  const binding = bindings.get(webContentsId);
+  if (!binding?.surface || binding.surface.id !== surfaceId) throw new Error('App surface binding changed');
+  binding.surface = { ...binding.surface, data };
   pushContext(webContentsId);
 }
 
@@ -1249,6 +1297,7 @@ function contextFor(binding: SurfaceBinding, workspace: ExtensionWorkspace | und
     apiVersion: EXTENSION_API_VERSION,
     tabId: binding.tabId,
     ...(binding.modal ? { modal: { data: binding.modal.data } } : {}),
+    ...(binding.surface ? { surface: { id: binding.surface.id, data: binding.surface.data, decorative: binding.surface.decorative } } : {}),
     ...(drawnIn?.chat ? { chat: { ...drawnIn.chat, ...(contextHasMembers(binding) ? { members: drawnIn.members } : {}) } } : {}),
     ...(workspace ? { workspace } : {}),
     // Absent stays absent: a tab opened from the entry rail has no file.
@@ -1535,7 +1584,8 @@ export async function answerCall(caller: BridgeCaller, method: string, args: Rec
   }
   const has: CallRefusalCaller['has'] = (capability) => extensionsService().hasCapability(caller.extensionId, capability);
   // A page's gesture was read in its preload's world and came with the call (`pageCaller`); a program has none.
-  const refusal = callRefusal(method, args, caller.kind === 'page' ? { kind: 'page', has, gesture: caller.gesture === true, widget: Boolean(caller.binding?.widget) } : { kind: caller.kind, has });
+  const refusal = callRefusal(method, args, caller.kind === 'page' ? { kind: 'page', has, gesture: caller.gesture === true,
+    widget: Boolean(caller.binding?.widget), decorative: caller.binding?.surface?.decorative === true } : { kind: caller.kind, has });
   if (refusal) return { ok: false, ...refusal };
   const facts = verbFacts(method)!;
   // A page an agent works (owner 10-14): what would reach the person's screen is handed back to the agent instead — after
@@ -1605,10 +1655,52 @@ async function machineCall(caller: BridgeCaller, method: MachineVerb, args: Reco
 }
 
 async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, args: Record<string, unknown>): Promise<unknown> {
+  if (method.startsWith('projectionMedia')) {
+    const { extensionProjectionViewers } = await import('./projection-viewer-host');
+    if (method === 'projectionMediaOpen') return await extensionProjectionViewers.acquire(caller, args.sourceId);
+    if (method === 'projectionMediaAnswer') return await extensionProjectionViewers.answer(caller, args);
+    if (method === 'projectionMediaSign') return extensionProjectionViewers.sign(caller, args);
+    if (method === 'projectionMediaClose') return await extensionProjectionViewers.release(caller, args.id);
+  }
   if (method.startsWith('projection')) return await extensionProjections.call(caller, method, args);
+  if (method.startsWith('appSurface')) {
+    const { extensionAppSurfaces, appSurfaceScreen } = await import('./app-surface-host');
+    if (method === 'appSurfaceScreen') return appSurfaceScreen(args);
+    if (method === 'appSurfaceOpen') return extensionAppSurfaces.open(caller, args);
+    if (method === 'appSurfaceUpdate') return extensionAppSurfaces.update(caller, args.id, args.update);
+    if (method === 'appSurfaceClose') return extensionAppSurfaces.release(caller, args.id);
+    if (method === 'appSurfacePost') return extensionAppSurfaces.post(caller, args.message);
+  }
+  if (method.startsWith('taskPage')) {
+    const { extensionTaskPages } = await import('./task-page-host');
+    if (method === 'taskPageAcquire') return await extensionTaskPages.acquire(caller, args);
+    if (method === 'taskPageSend') return await extensionTaskPages.send(caller, args);
+    if (method === 'taskPageMaintain') return await extensionTaskPages.maintain(caller, args);
+    if (method === 'taskPagePresentation') return extensionTaskPages.presentation(caller, args);
+    if (method === 'taskPageFilePayloads') return await extensionTaskPages.filePayloads(caller, args);
+    if (method === 'taskPageRelease') return extensionTaskPages.release(caller, args.id);
+    if (method === 'taskPageMount') return extensionTaskPages.mount(caller, args);
+    if (method === 'taskPageUnmount') return extensionTaskPages.unmount(caller, args.id);
+  }
   if (isMachineVerb(method)) return await machineCall(caller, method, args);
   const { binding, extensionId } = caller;
   switch (method) {
+    case 'taskMessage': {
+      const service = extensionsService();
+      service.get(extensionId);
+      if (!service.isEnabled(extensionId)) throw new Error('App task message access was revoked');
+      return sendTaskMessage(caller, args, requireHost().presentation().locale,
+        (page, text) => deliver(page, { kind: 'taskMessage', text }));
+    }
+    case 'showTaskPages': {
+      const [{ showTaskPages }, { projectionTaskProject }, { openTaskPagesOfApp }] = await Promise.all([
+        import('./show-task-pages'), import('./projection-task'), import('../sessions/session-orchestration'),
+      ]);
+      return showTaskPages(caller, { projectOf: projectionTaskProject, open: openTaskPagesOfApp, authorize: id => {
+        const service = extensionsService(); service.get(id);
+        if (!service.isEnabled(id) || !service.hasCapability(id, 'agents:tools')) throw new Error('App task page access was revoked');
+      } });
+    }
     case 'modalOpen': {
       const source = thePage(caller);
       const modal = appModals.open(caller.pageId, { ...source }, args);
@@ -2181,6 +2273,15 @@ export function registerExtensionBridge(): void {
       // (与视图同一条),再比对它确实是我们自己拉起的那个 webContents:于是一个视图伪称自己是后台也做不成后台。
       if (extensionBackgroundWebContentsId(extensionId) === event.sender.id) {
         return await answerCall(backgroundCaller(extensionId, event.sender.id), method, args);
+      }
+      // A person's task shortcut belongs to the binding at admission. Runtime startup
+      // calls may wait below; a click must never borrow a task bound after it arrived.
+      if (method === 'taskMessage') {
+        const atClick = bindings.get(event.sender.id);
+        if (!atClick || atClick.extensionId !== extensionId || bindingChanges.has(event.sender.id)) {
+          return denied('A task message needs a page bound when the click arrives');
+        }
+        return await answerCall(pageCaller({ ...atClick }, event.sender.id, request.gesture === true), method, args);
       }
       // 还没绑上就先等一等 —— 扩展启动时调的动词跑在绑定之前是常态,不是错误。
       // 见 `waitForBinding` 上面那段:等待有上限,等不到照旧响亮失败。
