@@ -21,18 +21,21 @@ vi.mock('@/components/assistant-ui/session-transcript-view.aui', () => ({
 }))
 
 // 附件放进 agent 私聊的文件夹(P3):`place` 是那一步,放好交回引用。
-const { place } = vi.hoisted(() => ({ place: vi.fn() }))
+const { place, sendFailure } = vi.hoisted(() => ({ place: vi.fn(), sendFailure: vi.fn() }))
+vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: sendFailure }))
 vi.mock('@/mobile/agent-watch/sessionpage-rpc', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/mobile/agent-watch/sessionpage-rpc')>(),
   SessionpageRpcError: class extends Error {},
   fetchSessionOptions: vi.fn(() => new Promise(() => {})),
   setSessionOption: vi.fn(),
+  fetchBackgroundTasks: vi.fn(async () => []),
 }))
 vi.mock('@/lib/attachmentsEndpoint', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/attachmentsEndpoint')>(),
   placeTaskAttachment: (file: File) => place(file),
   prepareTaskAttachment: async () => null,
 }))
+vi.mock('@/mobile/agent-watch/useSessionLifeView', () => ({ useSessionLifeView: () => ({ view: null, error: null }) }))
 const placed = (file: File) => ({ itemId: file.name, version: 1, name: file.name, mimeType: file.type, sizeBytes: file.size })
 const sentNames = (call: unknown[] | undefined) => ((call?.[1] ?? []) as Array<{ name: string }>).map((file) => file.name)
 
@@ -45,6 +48,7 @@ beforeEach(async () => {
   publishRendererSession('SIGNED_IN', { user: { id: 'owner' } } as never)
   vi.spyOn(chatService, 'getOrCreateDM').mockResolvedValue('dm')
   failUpload = false
+  sendFailure.mockClear()
   const gate = new Promise<void>((resolve) => { release = resolve })
   place.mockReset().mockImplementation(async (file: File) => {
     await gate
@@ -60,11 +64,11 @@ afterEach(async () => {
   document.body.replaceChildren()
 })
 
-async function show() {
+async function show(onBeforeSend?: () => void) {
   const onSend = vi.fn(async (_text: string, _files?: unknown[]) => {})
   harness = createReactHarness()
   await renderWithAppProviders(harness, <SessionConversation timeline={emptyAgentWatchTimeline()} deviceId="device" sessionId="task" agentName="Test agent" agentUserId="agent" sessionRuntime="acp"
-    respondingItemId={null} onRespond={vi.fn()} onSend={onSend} pendingSends={[]} sending={false}
+    respondingItemId={null} onRespond={vi.fn()} onSend={onSend} onBeforeSend={onBeforeSend} pendingSends={[]} sending={false}
     agentWorking={false} onStop={() => {}} stopping={false} onLoadOlder={async () => {}} />)
   return onSend
 }
@@ -218,4 +222,38 @@ it('cancels the submitted batch when an already uploaded member is removed', asy
     expect(sentNames(onSend.mock.calls[0])).toEqual(['still-uploading.bin'])
     expect(onSend).toHaveBeenCalledTimes(1)
   } finally { pending.resolve() }
+})
+
+
+it('retains the full draft and pending attachment when the old host cannot hand off queued input', async () => {
+  const validate = vi.fn(() => { throw new Error('Please update the task host') })
+  const onSend = await show(validate)
+  await act(async () => { await page.getByTestId('prompt-editor').fill('Keep this entire draft') })
+  await pick('keep-pending.bin')
+  await until('attachment upload is pending', () => place.mock.calls.length === 1)
+  await send()
+  expect(validate).toHaveBeenCalledTimes(1)
+  expect(onSend).not.toHaveBeenCalled()
+  expect(document.querySelector('[data-testid="prompt-editor"]')?.textContent).toBe('Keep this entire draft')
+  expect(document.querySelector('[data-slot="composer-attachment"]')?.textContent).toContain('keep-pending.bin')
+  expect(status()).toBeNull()
+  expect(sendFailure).toHaveBeenCalledWith(expect.objectContaining({ description: 'Please update the task host' }))
+})
+
+it('checks the latest host state again after uploads finish before clearing or submitting', async () => {
+  let outdated = false
+  const validate = vi.fn(() => { if (outdated) throw new Error('Please update the task host') })
+  const onSend = await show(validate)
+  await act(async () => { await page.getByTestId('prompt-editor').fill('Keep after upload too') })
+  await pick('keep-uploaded.bin')
+  await until('attachment upload is pending', () => place.mock.calls.length === 1)
+  await send()
+  expect(status()).not.toBeNull()
+  outdated = true
+  await act(async () => { release() })
+  await until('updated host state was checked after upload', () => validate.mock.calls.length === 2)
+  expect(onSend).not.toHaveBeenCalled()
+  expect(document.querySelector('[data-testid="prompt-editor"]')?.textContent).toBe('Keep after upload too')
+  expect(document.querySelector('[data-slot="composer-attachment"][data-state="done"]')?.textContent).toContain('keep-uploaded.bin')
+  expect(status()).toBeNull()
 })

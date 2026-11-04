@@ -160,3 +160,17 @@ export function formatRelativeTimeParts(
 export function formatRelativeTime(timestamp: number, locale: SupportedLocale, words: RelativeTimeWords, options: RelativeTimeOptions): string {
   return formatRelativeTimeParts(timestamp, locale, words, options).map((part) => part.value).join('');
 }
+
+
+/**
+ * Token 数量的统一写法:四舍五入到千之后满 1000 就进位到 M(999,600 → `1.0M`,999,400 → `999k`)。
+ * 上下文指示器、模型 tooltip 和压缩行都从这一份取,❌ 各自造一套进位规则(评审)。
+ */
+export function formatTokenCount(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) {
+    const thousands = Math.round(value / 1_000);
+    return thousands >= 1_000 ? `${(value / 1_000_000).toFixed(1)}M` : `${thousands}k`;
+  }
+  return String(value);
+}

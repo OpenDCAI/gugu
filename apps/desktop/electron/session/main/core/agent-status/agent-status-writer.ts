@@ -301,7 +301,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
 
   /**
    * 开机收残:上一个进程的会话,引擎随它一起没了的(ACP、不在 tmux 里的终端腿),留下的「在跑 / 等人」是历史不是现在时。
-   * 那一轮没做完、也没人知道 ⇒ 记成 `error`、未读(要人处理;下一轮开工自己清掉),原因(`lastExit`:宿主更新 / 重启 /
+   * 那一轮被打断,不是做完也不是失败 ⇒ 记成已读的 `idle/plain`,原因(`lastExit`:宿主更新 / 重启 /
    * 上一次没正常退出)记在 interrupted-turns,会话页末尾据此说一句(10-28 Linux 2:换版打断 7 条车道,侧栏却是一片安静的空闲)。
    * **引擎在 tmux 里活下来的不收**:它那一轮还在跑,读数照旧(它的钩子会接着打回来)。❌ 一律收成空闲:
    * 那样账号进程一重启,所有在 tmux 里跑着的会话都读成空闲(10-08:守护进程据此判「没有 agent 在跑」连升两级)。
@@ -319,7 +319,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     for (const sessionId of gone) {
       await sessionBootTasks.run('status-recovery', sessionId, async () => {
         await db.update(sessions)
-          .set({ agentStatus: 'error', agentStatusDetail: null, agentStatusSeen: 0 })
+          .set({ agentStatus: 'idle', agentStatusDetail: 'plain', agentStatusSeen: 1 })
           .where(eq(sessions.id, sessionId));
         recordInterruptedTurns([sessionId], lastExit);
         settled.push(sessionId);

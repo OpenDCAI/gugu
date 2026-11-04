@@ -110,7 +110,15 @@ export class LocalAttachmentStore implements AttachmentStore {
       return;
     }
 
-    const parsed: unknown = JSON.parse(contents);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(contents);
+    } catch {
+      // 坏索引不能直接当空:下一次写入会盖掉原件,旧记录(哪怕字节还在 objects/ 下)就再也登记不回来。
+      // 先挪到一边留证(评审:rewrite 前保留原文件),再按空索引继续。
+      await rename(this.indexPath, `${this.indexPath}.corrupt-${Date.now()}`);
+      return;
+    }
     if (!Array.isArray(parsed)) return;
     for (const value of parsed) {
       if (isAttachmentRecord(value)) {

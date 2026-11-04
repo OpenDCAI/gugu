@@ -117,10 +117,10 @@ describe('session-life ACP leg', () => {
     h.inject.mockResolvedValue({ outcome: 'started', completion: Promise.resolve(), turnId: 't' });
     const prompt = { ...(row as object), message: { id: 'm', text: 'hi', delivery: { queue: true } }, turn: { kind: 'prompt', origin: 'communication', hiddenContext: 'ctx' } } as never;
     await adapter.dispatch({} as StageOut, prompt, ctx());
-    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { origin: 'communication', hiddenContext: 'ctx' });
+    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { clientMessageId: 'm', origin: 'communication', hiddenContext: 'ctx' });
     const first = { ...(row as object), turn: { kind: 'chat-page-first-turn' } } as never;
     await adapter.dispatch({ capabilities: { injection: { firstTurn: { kind: 'plain' } } } } as never, first, ctx());
-    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { origin: 'manual' });
+    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { clientMessageId: 'm', origin: 'manual' });
     await expect(adapter.dispatch({ capabilities: { injection: {} } } as never, first, ctx())).rejects.toThrow(/did not land/);
   });
 
@@ -185,9 +185,9 @@ describe('session-life ACP leg', () => {
     const adapter = await boundAdapter();
     h.inject.mockResolvedValue({ outcome: 'started', completion: Promise.resolve(), turnId: 't' });
     await adapter.dispatch({} as StageOut, row, ctx());
-    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { steerIfBusy: true });
+    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { clientMessageId: 'm', steerIfBusy: true });
     await adapter.dispatch({} as StageOut, { ...(row as object), message: { id: 'm', text: 'hi', delivery: { queue: true } } } as never, ctx());
-    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', {});
+    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { clientMessageId: 'm' });
   });
 
   it('a backlog waiting when the channel was admitted goes out turn by turn; only later input steers the running turn', async () => {
@@ -200,9 +200,9 @@ describe('session-life ACP leg', () => {
     await adapter.run('channel', have, ctx());
     h.inject.mockResolvedValue({ outcome: 'started', completion: Promise.resolve(), turnId: 't' });
     await adapter.dispatch({} as StageOut, { ...(row as object), seq: 2 } as never, ctx());
-    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', {});
+    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { clientMessageId: 'm' });
     await adapter.dispatch({} as StageOut, { ...(row as object), seq: 3 } as never, ctx());
-    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { steerIfBusy: true });
+    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { clientMessageId: 'm', steerIfBusy: true });
     h.pending = { queued: [], dispatching: [] };
   });
 

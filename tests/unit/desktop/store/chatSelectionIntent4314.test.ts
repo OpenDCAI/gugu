@@ -35,6 +35,7 @@ const {
     fetchMessageOverlays: vi.fn(),
     revalidateWindow: vi.fn(),
     markRead: vi.fn(),
+    archiveChat: vi.fn(),
   },
   openImRepositoryMock: vi.fn(),
   readDisplayIdentitiesMock: vi.fn(),
@@ -97,11 +98,13 @@ const projectionStub = {
   rows: [] as unknown[],
   identityRows: [] as unknown[],
   revoked: new Set<string>(),
+  deleted: new Set<string>(),
   advanceImpl: null as null | (() => Promise<unknown[] | null>),
   reset() {
     projectionStub.rows = []
     projectionStub.identityRows = []
     projectionStub.revoked = new Set()
+    projectionStub.deleted = new Set()
     projectionStub.advanceImpl = null
   },
 }
@@ -113,6 +116,7 @@ const PROJECTED_EVENTS_STUB = [
 ] as const
 vi.mock('../../../../apps/desktop/src/lib/chatProjection', () => ({
   createChatProjection: () => ({
+    confirmPersonalDeletion: ({chat_id}: {chat_id:string}) => { projectionStub.deleted.add(chat_id) },
     hydrate: async () => {
       const snapshot = await serverChatList()
       projectionStub.identityRows = snapshot.identities
@@ -136,6 +140,7 @@ vi.mock('../../../../apps/desktop/src/lib/chatProjection', () => ({
     current: () => projectionStub.rows,
     identities: () => projectionStub.identityRows,
     isMembershipRevoked: (chatId: string) => projectionStub.revoked.has(chatId),
+    isConversationDeleted: (chatId: string) => projectionStub.deleted.has(chatId),
     ledger: () => [],
     reset: () => undefined,
   }),
@@ -222,6 +227,8 @@ function fireMembershipRevision(tombstone = false): void {
   for (const listener of listeners) void Promise.resolve(listener(operations)).catch(() => undefined)
 }
 beforeEach(async () => {
+  authUser.id = 'user-1'
+  projectionStub.reset()
   publishGate.current = null
   latestStore = null
   harness = null
@@ -362,4 +369,65 @@ describe('system badge follows addressed unread, while list rows stay complete',
     await flushReact();
     expect(platform.setBadge).toHaveBeenLastCalledWith(1);
   });
+});
+
+it.each(['revision','refresh'])('clears an open personally deleted DM through %s even when the server list becomes empty', async (path) => {
+  await renderStore();
+  await act(async () => { latestStore!.setActiveChatId('chat-1') });
+  await flushReact();
+  projectionStub.deleted.add('chat-1');
+  expect(projectionStub.revoked.has('chat-1')).toBe(false);
+  if (path === 'revision') {
+    projectionStub.rows = [];
+    await act(async () => { fireMembershipRevision(false) });
+  } else {
+    serverChatList.mockResolvedValue({chats:[],identities:[]});
+    await act(async () => { await latestStore!.refreshChats() });
+  }
+  await flushReact(20);
+  expect(latestStore!.chats).toEqual([]);
+  expect(latestStore!.activeChatId).toBeNull();
+});
+
+it('keeps a successful local deletion out of a same-cursor refresh and an already pending snapshot before its revision arrives', async () => {
+  await renderStore();
+  await act(async () => { latestStore!.setActiveChatId('chat-1') });
+  await flushReact();
+  const gate = deferred<void>();
+  publishGate.current = gate.promise;
+  let olderRead!: Promise<void>;
+  await act(async () => { olderRead = latestStore!.refreshChats() });
+  await flushReact();
+  chatServiceMock.archiveChat.mockResolvedValue({chat_id:'chat-1',deleted_at:'2026-11-03T03:48:01Z'});
+  await act(async () => { await latestStore!.deleteChat('chat-1', true) });
+  expect(projectionStub.deleted.has('chat-1')).toBe(true);
+  expect(projectionStub.revoked.has('chat-1')).toBe(false);
+  expect(latestStore!.chats).toEqual([]);
+  expect(latestStore!.activeChatId).toBeNull();
+  await act(async () => { await latestStore!.refreshChats() }); // Same server cursor, still returning the old row.
+  expect(latestStore!.chats).toEqual([]);
+  await act(async () => { gate.resolve(); await olderRead });
+  expect(latestStore!.chats).toEqual([]);
+  expect(memRepository.snapshot().chat).toEqual([]);
+  projectionStub.rows = [];
+  await act(async () => { fireMembershipRevision(false) });
+  await flushReact(20);
+  expect(latestStore!.chats).toEqual([]);
+  expect(memRepository.snapshot().chat).toEqual([]);
+});
+
+it('does not apply a late local deletion receipt to a different account', async () => {
+  await renderStore();
+  const receipt = deferred<{chat_id:string;deleted_at:string}>();
+  chatServiceMock.archiveChat.mockReturnValue(receipt.promise);
+  let pending!: Promise<void>;
+  await act(async () => { pending = latestStore!.deleteChat('chat-1', true) });
+  authUser.id = 'user-2';
+  const actualRepository = await vi.importActual<typeof import('../../../../apps/desktop/src/lib/imRepository')>('../../../../apps/desktop/src/lib/imRepository');
+  memRepository = await actualRepository.openImRepository('user-2', {adapter:createMemoryLocalSyncDb()});
+  await harness!.render(createNode(ChatProvider, {active:true}, createNode(Probe)));
+  await flushReact(20);
+  await act(async () => { receipt.resolve({chat_id:'chat-1',deleted_at:'2026-11-03T03:48:01Z'}); await pending });
+  expect(projectionStub.deleted.has('chat-1')).toBe(false);
+  expect(latestStore!.chats.map(row => row.id)).toEqual(['chat-1']);
 });

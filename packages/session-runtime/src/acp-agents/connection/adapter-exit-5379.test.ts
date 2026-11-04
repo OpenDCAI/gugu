@@ -261,3 +261,19 @@ describe('initialize waits for facts, not a clock (#6183)', () => {
     expect(result.error.cause?.message).toContain('signal SIGTERM');
   });
 });
+
+describe('adapter stderr decoding', () => {
+  it('decodes a multibyte character split across chunks instead of writing two replacements', async () => {
+    const { handle, onClosed, lines } = await readyConnection();
+    const bytes = Buffer.from('连接失败:凭据过期\n', 'utf8');
+    handle.stderr.write(bytes.subarray(0, 5));
+    await settle();
+    handle.stderr.write(bytes.subarray(5));
+    handle.emitExit(null, 'SIGTERM');
+    await settle();
+    const exit = exitLine(lines);
+    expect(String(exit?.fields?.stderrTail)).toContain('连接失败:凭据过期');
+    expect(String(exit?.fields?.stderrTail)).not.toContain('\uFFFD');
+    expect(onClosed).toHaveBeenCalledWith(expect.objectContaining({ stderrTail: '连接失败:凭据过期' }));
+  });
+});

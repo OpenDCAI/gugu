@@ -1,6 +1,6 @@
 /** @jsxImportSource solid-js */
 import { conversationSpeaker, messageReplyReference } from '@session-chat/state/conversation-density';
-import { For, Show } from 'solid-js';
+import { For, Show, createMemo } from 'solid-js';
 import { conversationHeaderLayout } from './conversation-header-layout';
 export { conversationDestinationLayout } from './conversation-destination';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
@@ -124,12 +124,12 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
   const self = useSelfIdentity();
   const commands = useCommands();
   const translate = useChatTranslator();
+  const chatName = useChatName();
   const facts = () => props.data.guguDelivery?.segments[0]?.facts;
   const subject = () => props.data.role === 'assistant';
   const measuredCtx = () => ({ ...props.ctx.measureCtx!(), selfIdentity: self(), commands: commands(), translate, chatName });
   const name = () => conversationSenderName(props.data, measuredCtx());
-  const head = () => headerLayout(props.data, measuredCtx());
-  const chatName = useChatName();
+  const head = createMemo(() => headerLayout(props.data, measuredCtx()));
   const senderTarget = (): MessageSenderTarget | null => {
     if (subject()) return conversationAgentTarget({ sessionId: commands().conversationAgentSession?.(), userId: commands().conversationAgentUserId?.() });
     return messageSenderTarget(facts()) ?? (!facts() && self()?.userId ? { kind: 'sender', userId: self()!.userId } : null);

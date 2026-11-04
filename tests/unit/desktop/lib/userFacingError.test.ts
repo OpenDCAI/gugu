@@ -5,6 +5,16 @@ import { messageForUser } from '../../../../apps/desktop/src/lib/userFacingError
 beforeEach(() => translate.mockClear());
 
 describe('the shared user-facing failure exit', () => {
+  it.each([
+    ['conversation_agent_in_use', 'conversationDelete.agentInUse'],
+    ['conversation_assistant_in_use', 'conversationDelete.assistantInUse'],
+    ['conversation_dm_identity_unverified', 'conversationDelete.identityUnverified'],
+    ['conversation_delete_owner_required', 'conversationDelete.ownerRequired'],
+    ['human_group_owner_required', 'conversationDelete.groupOwnerRequired'],
+  ])('translates the conversation denial %s without leaking its internal code', (code, key) => {
+    messageForUser(new Error(code));
+    expect(translate).toHaveBeenCalledExactlyOnceWith(key);
+  });
   it('explains a disconnected history transport after removing the IPC wrapper', () => {
     expect(messageForUser(new Error("Error invoking remote method 'history': Error: Wire transport disconnected\ncode=DISCONNECTED")))
       .toBe('The connection to the machine was lost. Try again when it reconnects.');

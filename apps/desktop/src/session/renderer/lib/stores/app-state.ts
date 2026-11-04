@@ -22,7 +22,8 @@ class AppState {
     this.navigation = new NavigationStore();
     this.resourceMonitor = new ResourceMonitorStore();
     snapshotRegistry.register('navigation', () => this.navigation.snapshot);
-    snapshotRegistry.register('sidebar', () => this.sidebar.snapshot);
+    // Save each manual disclosure change immediately, including before a refresh or restart.
+    snapshotRegistry.register('sidebar', () => this.sidebar.snapshot, 0);
   }
 }
 

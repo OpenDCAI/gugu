@@ -1,6 +1,7 @@
 import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
 import { startServerUsageSync } from './server/usage-sync'
+import { readStateFile, writeStateFile } from './app-state'
 import { noteExitReason } from './lib/exit-reason'
 import { killAllWorkersSync } from '@gugu/session-wire/worker'
 import { killServerDescendantsSync } from './server/server-processes'
@@ -116,8 +117,8 @@ import {
   parseBuildDistribution,
   resolveUpdaterPolicy,
   shouldRejectUpdateTarget,
-  updateStateAdvances,
 } from '../shared/update-policy'
+import { createUpdateState, type VersionedUpdateState } from '../shared/update-state'
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
 import { makeChatClient, makeIdentityClient, supabase, electronFetch, onElectronCloudAnswer, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime, createElectronRealtimeClient } from './supabase'
@@ -1355,15 +1356,10 @@ function appStatePath(): string {
   return join(app.getPath('userData'), 'app-state.json')
 }
 
-function readAppState(): Record<string, unknown> {
-  const path = appStatePath()
-  if (!existsSync(path)) return {}
-  return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
-}
-
-function writeAppState(state: Record<string, unknown>): void {
-  writeFileSync(appStatePath(), JSON.stringify(state), 'utf8')
-}
+// 读写都在 `./app-state`:坏文件按「没写过」读、写是临时文件 + 改名 —— 从前这里是裸 JSON.parse + 裸 writeFileSync,
+// 一次中断留下的半截文件会让启动链每次都在 `readWindowTone()` 上抛死。
+const readAppState = (): Record<string, unknown> => readStateFile(appStatePath())
+const writeAppState = (state: Record<string, unknown>): void => writeStateFile(appStatePath(), state)
 
 /**
  * @@@window-tone — 无边框窗口(Windows/Linux)在网页内容画出来之前露出来的那块底色。
@@ -2368,7 +2364,7 @@ ipcMain.handle('updates:check', () => checkForUpdates())
 // @@@5837 界面随时可以来问「现在是什么状态」—— 横幅与「设置→关于」挂载时各问一次,所以
 // 整窗重载、用户关掉横幅、下好那一刻窗口不在,都不会让「包已下好、等你按一下」这条事实消失。
 // 渲染层那一侧是可选能力(AppPlatform.updateState):web/移动端没有更新这件事,答不上来就跳过。
-ipcMain.handle('updates:state', () => updaterState)
+ipcMain.handle('updates:state', () => updaterState.current)
 ipcMain.handle('updates:download', () => downloadUpdate()) // @@@1578 用户点「更新」才下
 ipcMain.handle('updates:install', () => installUpdate())
 // @@@5758 更新说明**由主进程去取**。渲染层的 origin 是 gugu-app://app(corsEnabled),去下载站属于
@@ -2938,7 +2934,7 @@ type UpdateCheckResult = {
   success: boolean
   // downloaded-manual = mac dmg 半自动路径(#663):安装包已下载并打开,等用户拖装,无 quitAndInstall
   // idle = 这个进程还没查过 —— 只作为状态源的初值出现,不由任何一次检查产生。
-  status: 'idle' | 'available' | 'downloading' | 'not-available' | 'downloaded' | 'downloaded-manual' | 'disabled' | 'error'
+  status: 'idle' | 'available' | 'downloading' | 'not-available' | 'downloaded' | 'downloaded-manual' | 'installing' | 'disabled' | 'error'
   updateInfo: unknown | null
   /** 只给 `downloading` 用:0–100;还没有第一条进度时不带。 */
   percent?: number
@@ -2965,19 +2961,20 @@ type UpdateCheckResult = {
  * 推送照旧,但推送只是「顺便告诉你一声」,不再是这条事实唯一的载体 —— 因此也不必在每一个
  * 「界面可能丢了」的地方各补一次推送。
  */
-let updaterState: UpdateCheckResult = { success: true, status: 'idle', updateInfo: null }
+const updaterState = createUpdateState<UpdateCheckResult>({ success: true, status: 'idle', updateInfo: null })
 
 /** 状态源的**唯一写入口**:先落到值上,再顺便推一条给界面。退不回去的东西也不推。 */
-function emitUpdateStatus(payload: UpdateCheckResult): void {
-  if (!updateStateAdvances(updaterState.status, payload.status)) {
+function emitUpdateStatus(payload: UpdateCheckResult): VersionedUpdateState<UpdateCheckResult> {
+  const published = updaterState.publish(payload)
+  if (published === null) {
     updaterLogger.info(
-      { kept: updaterState.status, dropped: payload.status },
+      { kept: updaterState.current.status, dropped: payload.status },
       `已经有下好的包在等用户按下,忽略 ${payload.status}`,
     )
-    return
+    return updaterState.current
   }
-  updaterState = payload
-  sendUiEvent(MAIN_UI_EVENTS.updateStatus, payload)
+  sendUiEvent(MAIN_UI_EVENTS.updateStatus, published)
+  return published
 }
 
 // @@@2177 第二道闸:更新目标必须是稳定版。命中预发布版 = 稳定 feed 被误发了 beta(发布事故),
@@ -2992,52 +2989,28 @@ function rejectPrereleaseTarget(updateInfo: unknown, where: string): boolean {
   return true
 }
 
-async function checkForUpdates(): Promise<UpdateCheckResult> {
+async function checkForUpdates(): Promise<VersionedUpdateState<UpdateCheckResult>> {
   if (!updaterPolicy.enabled) {
     updaterLogger.warn(
       { reason: updaterPolicy.reason },
       `check blocked (${updaterPolicy.reason}): ${updaterPolicy.messageKey}`,
     )
-    return {
+    return emitUpdateStatus({
       success: false,
       status: updaterPolicy.status,
       updateInfo: null,
       messageKey: updaterPolicy.messageKey,
-    }
+    })
   }
   try {
-    const result = await autoUpdater.checkForUpdates()
-    const updateInfo = result?.updateInfo ?? null
-    // @@@2177 同一道闸也盖住手动检查(About 页「检查更新」直接吃这个返回值,不经 update-available 事件)
-    // @@@5837 界面该看到什么,**以状态源为准**:去问一声 feed 并不比主进程已经知道的更权威。
-    // 包下好了在等他按一下,却答「发现新版本」就是把人送进死路 —— 静默路径下「发现新版本
-    // [更新]」那条横幅根本不会出现(见 startSilentDownload),关于页于是只剩一行字。
-    // 关于页早就认得 'downloaded'(会显示「重启以安装」),只是以前没人给得出这个值。
-    // 正在下也一样:答「发现新版本」等于说「还没开始」,而包正下到一半。
-    if (
-      updaterState.status === 'downloading' ||
-      updaterState.status === 'downloaded' ||
-      updaterState.status === 'downloaded-manual'
-    ) {
-      return updaterState
-    }
-    const isUpdateAvailable =
-      result?.isUpdateAvailable === true && !rejectPrereleaseTarget(updateInfo, 'checkForUpdates')
-    return {
-      success: true,
-      status: isUpdateAvailable ? 'available' : 'not-available',
-      updateInfo,
-      messageKey: isUpdateAvailable ? 'about.updateAvailable' : 'about.updateUpToDate'
-    }
+    // Updater events publish the result, including progress started by update-available.
+    // Queries return that same stamped state instead of inventing a second result.
+    await autoUpdater.checkForUpdates()
+    return updaterState.current
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.warn('[updater] check failed:', message)
-    return {
-      success: false,
-      status: 'error',
-      updateInfo: null,
-      message
-    }
+    throw err
   }
 }
 
@@ -3122,7 +3095,10 @@ const updateQuit = createUpdateQuit({
     isQuitting = true
   },
   // NSIS shows installation progress and relaunches the app when installation finishes.
-  handOff: () => autoUpdater.quitAndInstall(false, true),
+  handOff: () => {
+    emitUpdateStatus({ success: true, status: 'installing', updateInfo: updaterState.current.updateInfo })
+    autoUpdater.quitAndInstall(false, true)
+  },
   quitApp: () => app.quit(),
   logInfo: (detail, message) => updaterLogger.info(detail, message),
   logWarn: (detail, message) => updaterLogger.warn(detail, message),
@@ -3146,7 +3122,7 @@ const updateFlow = createUpdateFlow({
     downloadUpdate: () => autoUpdater.downloadUpdate(),
   },
   enabled: updaterPolicy.enabled,
-  getStatus: () => updaterState.status,
+  getState: () => updaterState.current,
   emit: emitUpdateStatus,
   onReady: () => sendUiEvent(MAIN_UI_EVENTS.updateReady),
   rejectTarget: (info) => rejectPrereleaseTarget(info, 'update-available'),
@@ -3189,8 +3165,9 @@ const AUTO_UPDATE_INTERVAL_MS = 30 * 60 * 1000
 const AUTO_UPDATE_INITIAL_DELAY_MS = 10 * 1000
 function startAutoUpdateChecks(): void {
   if (!updaterPolicy.enabled || IS_TEST_MODE) return
-  setTimeout(() => { void checkForUpdates() }, AUTO_UPDATE_INITIAL_DELAY_MS)
-  setInterval(() => { void checkForUpdates() }, AUTO_UPDATE_INTERVAL_MS)
+  // checkForUpdates already warns; automatic checks have no caller to reject to.
+  setTimeout(() => { void checkForUpdates().catch(() => undefined) }, AUTO_UPDATE_INITIAL_DELAY_MS)
+  setInterval(() => { void checkForUpdates().catch(() => undefined) }, AUTO_UPDATE_INTERVAL_MS)
 }
 
 /**
@@ -4869,6 +4846,18 @@ app.whenReady().then(async () => {
         return emdash.runSessionAction(context, action as SessionAction, signal)
       }
       let record = action as Record<string, unknown>
+      if (record.action === 'owner-notify') {
+        const input = record as unknown as Parameters<typeof emdash.commitOwnerNotification>[1]
+        const verify = async () => {
+          if (!authProvider) throw new Error('owner notification runtime auth is unavailable')
+          const current = await requireRuntimeAuth(authProvider, 'owner notification commit')
+          if (current.userId !== auth.userId) throw new Error('owner notification account changed')
+          const binding = await senderBinding(context, auth.userId)
+          if (binding.guguAgentUserId !== input.agent_user_id) throw new Error('owner notification sender is not bound to this native session')
+        }
+        await verify()
+        return emdash.commitOwnerNotification(context, input, verify, signal)
+      }
       const projectResult = (result: unknown) => typeof record.action === 'string' && record.action.startsWith('project_')
         ? prepareProjectAgentNotice(result, {
           agentUserId: () => senderBinding(context, auth.userId).then((binding) => binding.guguAgentUserId),

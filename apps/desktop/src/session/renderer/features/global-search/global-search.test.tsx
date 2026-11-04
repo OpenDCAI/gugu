@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import React, { act } from 'react'
+import { runInAction } from 'mobx'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { conversationLink } from '@gugu/core/shared/ui/guguLink'
@@ -10,11 +11,18 @@ import { takeTaskReveal } from '@/hooks/useSourceMessageReveal'
 import type { TaskTurnHit } from '@shared/core/search'
 import { GlobalSearch } from './global-search'
 import { resetSearchSession, updateSearchSession } from './search-session'
+import { installIdentityDirectoryBridge, publishIdentityDirectory } from '@/lib/identityDirectoryBridge'
+import { dicebearAvatarDataUri } from '@/lib/dicebearAvatar'
+import { displayIdentity } from '../../../../../../../tests/support/testHarness'
+import { sessionAgentBindings } from '../sessions/stores/session-agent-bindings'
 import { installPhoneImeDismiss } from '@/mobile/usePhoneImeDismiss'
 
 const remote = vi.hoisted(() => ({ opened: [] as unknown[], turns: vi.fn(), indexStatus: vi.fn(), messages: vi.fn() }))
 vi.mock('@/lib/guguLinks', () => ({ followLink: (target: unknown) => { remote.opened.push(target); return true } }))
-vi.mock('@renderer/lib/ipc', () => ({ rpc: { search: { taskTurns: remote.turns, taskTurnIndexStatus: remote.indexStatus } } }))
+vi.mock('@renderer/lib/ipc', async (original) => ({
+  ...await original<typeof import('@renderer/lib/ipc')>(),
+  rpc: { search: { taskTurns: remote.turns, taskTurnIndexStatus: remote.indexStatus } },
+}))
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: remote.messages } }))
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }))
 
@@ -35,6 +43,7 @@ const systemRow = { ...rows[0]!, id: 'system-row', sender_user_id: null, sender_
 let host: HTMLDivElement
 let root: Root
 let closed = 0
+const ensureIdentity = vi.fn()
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   remote.opened = []
@@ -43,6 +52,9 @@ beforeEach(() => {
   remote.indexStatus.mockReset().mockResolvedValue({ state: 'ready' })
   focusManager.setFocused(true)
   remote.messages.mockReset().mockResolvedValue({ data: rows, error: null })
+  installIdentityDirectoryBridge()
+  publishIdentityDirectory({}, ensureIdentity.mockReset())
+  runInAction(() => sessionAgentBindings.bindings.clear())
   publishChatSummaries([
     { id: GROUP, kind: 'group', unread_count: 0, name: '搜索测试群甲', last_message_at: '2026-10-31T00:00:00Z' },
     { id: OTHER, kind: 'group', unread_count: 0, name: '设计组', last_message_at: '2026-10-31T00:00:00Z' },
@@ -56,6 +68,8 @@ afterEach(async () => {
   focusManager.setFocused(undefined)
   await act(async () => root.unmount())
   host.remove()
+  publishIdentityDirectory(null, null)
+  runInAction(() => sessionAgentBindings.bindings.clear())
 })
 
 // The typed text settles after the panel's debounce; the two queries answer on the next turns.
@@ -69,6 +83,70 @@ async function render(text: string, tasks = true) {
 const options = () => [...host.querySelectorAll<HTMLElement>('[role=option]')]
 const headers = () => [...host.querySelectorAll<HTMLElement>('[role=listbox] > button:not([role=option])')].map((button) => button.textContent)
 const tab = (key: string) => [...host.querySelectorAll<HTMLElement>('[role=tab]')].find((button) => button.textContent!.startsWith(key))!
+
+describe('global search sender avatars', () => {
+  const photo = 'https://db.example/storage/v1/object/public/avatars/sender.png'
+
+  it.each(['agent', 'human'] as const)('shows the %s sender photo through the real Avatar', async (type) => {
+    publishIdentityDirectory({ u1: displayIdentity('u1', { type, display_name: 'Sender', avatar: photo }) }, ensureIdentity)
+    await render('回滚')
+    const image = options()[0]!.querySelector<HTMLImageElement>('img')
+    expect(image?.src).toBe(photo)
+    expect(image?.alt).toBe('Sender')
+    expect(image?.style.width).toBe('20px')
+    expect(image?.style.height).toBe('20px')
+    expect(!!options()[0]!.querySelector('[data-agent]')).toBe(type === 'agent')
+  })
+
+  it('keeps the sender-id placeholder when the display name changes', async () => {
+    publishIdentityDirectory({ u1: displayIdentity('u1', { avatar: null }) }, ensureIdentity)
+    await render('回滚')
+    expect(options()[0]!.querySelector('img')?.getAttribute('src')).toBe(dicebearAvatarDataUri('u1'))
+    await act(async () => publishIdentityDirectory({ u1: displayIdentity('u1', { display_name: 'Renamed', avatar: null }) }, ensureIdentity))
+    expect(options()[0]!.querySelector('img')?.getAttribute('src')).toBe(dicebearAvatarDataUri('u1'))
+  })
+
+  it('replaces a missing identity placeholder without querying again or changing the selected result', async () => {
+    await render('回滚')
+    const input = host.querySelector<HTMLInputElement>('[data-testid=global-search-input]')!
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })))
+    const selected = options().find((option) => option.getAttribute('aria-selected') === 'true')
+    expect(ensureIdentity).toHaveBeenCalledWith(['u1'])
+    expect(options()[0]!.querySelector('img')?.getAttribute('src')).toBe(dicebearAvatarDataUri('u1'))
+    const messageCalls = remote.messages.mock.calls.length
+    const taskCalls = remote.turns.mock.calls.length
+    await act(async () => publishIdentityDirectory({ u1: displayIdentity('u1', { avatar: photo }) }, ensureIdentity))
+    expect(options()[0]!.querySelector('img')?.getAttribute('src')).toBe(photo)
+    expect(options().find((option) => option.getAttribute('aria-selected') === 'true')).toBe(selected)
+    expect(remote.messages).toHaveBeenCalledTimes(messageCalls)
+    expect(remote.turns).toHaveBeenCalledTimes(taskCalls)
+  })
+
+  it('keeps the file icon even when the sender has a photo', async () => {
+    publishIdentityDirectory({ u2: displayIdentity('u2', { avatar: photo }) }, ensureIdentity)
+    await render('回滚')
+    const fileAvatar = options()[2]!.firstElementChild!
+    expect(fileAvatar.querySelector('img')).toBeNull()
+    expect(fileAvatar.querySelector('svg')).not.toBeNull()
+  })
+
+  it('follows the existing task-agent binding and keeps an unbound turn unchanged', async () => {
+    publishIdentityDirectory({ agent: displayIdentity('agent', { type: 'agent', avatar: photo }) }, ensureIdentity)
+    await render('回滚')
+    expect(options()[1]!.firstElementChild?.textContent).toBe('g')
+    await act(async () => sessionAgentBindings.note('s1', 'agent'))
+    expect(options()[1]!.querySelector('img')?.getAttribute('src')).toBe(photo)
+  })
+
+  it('keeps the user side of a task unchanged even when that task has an agent binding', async () => {
+    sessionAgentBindings.note('s1', 'agent')
+    publishIdentityDirectory({ agent: displayIdentity('agent', { type: 'agent', avatar: photo }) }, ensureIdentity)
+    remote.turns.mockResolvedValue([{ ...turn, role: 'user' }])
+    await render('回滚')
+    expect(options()[1]!.firstElementChild?.textContent).toBe('g')
+    expect(options()[1]!.querySelector('img')).toBeNull()
+  })
+})
 
 describe('global search panel', () => {
   for (const tasks of [true, false]) {

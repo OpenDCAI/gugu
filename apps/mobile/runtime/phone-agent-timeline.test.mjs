@@ -77,6 +77,23 @@ test('actual Pi JSONL uses the shared transcript, cursor increment, pagination a
   } finally { await f.close() }
 })
 
+test('recorded credit refusal survives the phone host failure boundary without exposing raw errors', async () => {
+  const f = await fixture()
+  const at = 1_700_000_000_000
+  const error = '400: {"message":"咕咕积分不足。private-provider-body","code":"credits_exhausted"}'
+  const job = { id: randomUUID(), agentUserId: f.agent.agentUserId, contextEpoch: f.agent.contextEpoch, prompt: '继续', status: 'failed', error, createdAt: stamp(at), startedAt: stamp(at), finishedAt: stamp(at + 2) }
+  f.store.state.jobs[job.id] = job
+  try {
+    await f.write([row('u1', null, at, { role: 'user', content: job.prompt }), row('a1', 'u1', at + 1, { role: 'assistant', content: [], stopReason: 'error', errorMessage: error })])
+    const snapshot = await f.api.snapshot(f.agent, { trim: true })
+    assert.equal(snapshot.turns.length, 1)
+    assert.deepEqual(snapshot.turns[0].outcome, { kind: 'error', reason: 'prompt_failed', detail: '{"error":{"code":"credits_exhausted","message":"Gugu credits"}}' })
+    assert.doesNotMatch(JSON.stringify(snapshot), /private-provider-body/)
+    await f.reopen()
+    assert.deepEqual((await f.api.snapshot(f.agent, { trim: true })).turns[0].outcome, snapshot.turns[0].outcome)
+  } finally { await f.close() }
+})
+
 test('live Pi deltas keep their shared timeline identity when the real JSONL takes over', async () => {
   const f = await fixture()
   const at = 1_700_000_000_000

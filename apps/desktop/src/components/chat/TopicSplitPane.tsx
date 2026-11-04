@@ -50,6 +50,9 @@ import { ChatSearchControls } from './ChatSearch'
 import { useChatSearch } from './useChatSearch'
 import { useMessageFind } from './useMessageFind'
 import { FindBar } from '@renderer/lib/ui/find-bar'
+import { useChatStore } from '../../store/chatContext'
+import { topicClashNames, NO_CLASH_NAMES } from '../../lib/chatClashNames'
+import { ChatClashNames } from './ChatClashNames'
 
 /**
  * @@@5856 话题分栏 —— 右侧那条独立收发的话题线(product spec)。
@@ -225,6 +228,8 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   // #6004: the projection owns membership and chat_members_changed refreshes. Read this topic's
   // IDs on every projection update; do not cache a second roster or infer participation from messages.
   const participantIds = visibleChats.find((chat) => chat.id === topic.chatId)?.member_user_ids
+  const { identitiesById } = useChatStore('identitiesById')
+  const nameScope = useMemo(() => ({ chatId: topic.chatId, names: mobile || !participantIds ? NO_CLASH_NAMES : topicClashNames(participantIds, identitiesById) }), [topic.chatId, mobile, participantIds, identitiesById])
   const rankedMentionMembers = useMemo(
     () => prioritizeTopicParticipants(mentionMembers, participantIds),
     [mentionMembers, participantIds],
@@ -466,9 +471,9 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
       </div>
     </motion.div>
   )
-  if (mobile || embedded) return page
+  if (mobile || embedded) return <ChatClashNames.Provider value={nameScope}>{page}</ChatClashNames.Provider>
   return (
-    <>
+    <ChatClashNames.Provider value={nameScope}>
     {/* @@@5856 宽度归 ResizablePane —— owner 拿掉了「全宽打开」那颗键之后,
         「想看大一点」这件事只剩这条分割线,所以它必须真能拖(拖拽那一套复用会话列表那一份,
         见 ResizablePane 的注释:边界情形全在那儿踩过了)。 */}
@@ -489,7 +494,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     >
       {page}
     </ResizablePane>
-    </>
+    </ChatClashNames.Provider>
   )
 }
 

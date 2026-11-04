@@ -169,6 +169,7 @@ vi.mock('../../../../apps/desktop/src/lib/chatProjection', () => ({
     current: () => projectionStub.rows,
     identities: () => projectionStub.identityRows,
     isMembershipRevoked: (chatId: string) => projectionStub.revoked.has(chatId),
+      isConversationDeleted: () => false,
     ledger: () => [],
     reset: () => undefined,
   }),

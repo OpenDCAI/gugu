@@ -2,9 +2,10 @@ import { connectDeliveredMessagePresentation, resolveDeliveredAttachment } from 
 import { rendererLogger } from '@/lib/log';
 import { nativeChatAppearance } from './native-chat-appearance.css';
 import { ChatComposer } from '@gugu/session-ui/react/components';
-import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChatTranscript, type ChatTranscriptProps } from './chat-transcript';
+import { ConversationCreditNotice } from '@/components/chat/ConversationCreditNotice';
 
 /** Every agent conversation uses the project page's transcript and composer. Hosts own data and navigation. */
 export type AgentConversationViewProps = ChatTranscriptProps & {
@@ -16,6 +17,11 @@ export type AgentConversationViewProps = ChatTranscriptProps & {
 export function AgentConversationView({ layout, composerContent, shown = true, onVisibleItems, style, className, onReady, ...props }: AgentConversationViewProps) {
   const root = useRef<HTMLDivElement>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const hostCommands = props.commands;
+  // Composer-only renders must not republish commands and remeasure history.
+  const commands = useMemo<NonNullable<ChatTranscriptProps['commands']>>(() => ({ ...hostCommands,
+    resolveAttachment: attachment => attachment.id.startsWith('gugu-message-file://') ? resolveDeliveredAttachment(attachment.id) : hostCommands?.resolveAttachment?.(attachment) ?? Promise.resolve(null),
+  }), [hostCommands]);
   useEffect(() => {
     if (!props.state?.session?.setDeliveredMessages) return;
     return connectDeliveredMessagePresentation(props.state, async id => {
@@ -112,7 +118,7 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
   return <div ref={root} data-agent-conversation="" className={`${className ?? 'relative min-h-0 flex-1'} ${nativeChatAppearance}`} style={style}>
     <ChatTranscript stickToBottom pinUserMessages {...props}
       composer={composerContent ? 'slot' : props.composer}
-      commands={{ ...props.commands, resolveAttachment: attachment => attachment.id.startsWith('gugu-message-file://') ? resolveDeliveredAttachment(attachment.id) : props.commands?.resolveAttachment?.(attachment) ?? Promise.resolve(null) }}
+      commands={commands}
       onReady={view => { setSlot(view.composerSlot); onReady?.(view); }}
       onDisposed={() => { setSlot(null); props.onDisposed?.(); }}
       layout={{ preset: 'double', userGutter: 0, ...layout, agentConversation: true }} style={{ position: 'absolute', inset: 0 }} />
@@ -121,5 +127,5 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
 }
 
 export function AgentConversationComposer(props: ComponentProps<typeof ChatComposer>) {
-  return <ChatComposer hideLockedAgent agentLocked {...props} />;
+  return <><ConversationCreditNotice modelOptionId={props.selectedModel} /><ChatComposer hideLockedAgent agentLocked {...props} /></>;
 }

@@ -11,7 +11,7 @@ import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 vi.stubGlobal('__APP_VERSION__', '0.2.53-beta.62.1') // vite define 的构建期常量,测试里没有
 const checkForUpdates = vi.hoisted(() => vi.fn(async (): Promise<unknown> => ({ status: 'idle' })))
 const installUpdate = vi.hoisted(() => vi.fn(async (): Promise<void> => {}))
-const updateState = vi.hoisted(() => vi.fn(async (): Promise<unknown> => ({ status: 'idle', updateInfo: null })))
+const updateState = vi.hoisted(() => vi.fn(async (): Promise<unknown> => ({ status: 'idle', updateInfo: null, revision: 0 })))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
   platform: {
     capabilities: { appUpdates: true, appVersion: false },
@@ -23,24 +23,69 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({
 const { AboutSection } = await import('../../../../apps/desktop/src/components/settings/AboutSection')
 const { UpdateBanner } = await import('../../../../apps/desktop/src/components/UpdateBanner')
 
+let hostRevision = 0
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
+  hostRevision = 0
   harness = createReactHarness()
   checkForUpdates.mockReset()
   updateState.mockReset()
-  updateState.mockResolvedValue({ status: 'idle', updateInfo: null })
+  updateState.mockResolvedValue({ status: 'idle', updateInfo: null, revision: 0 })
 })
 afterEach(() => harness.cleanup())
 
 const downloading = (percent: number) => ({
-  success: true, status: 'downloading', updateInfo: { version: '0.2.53-beta.63.1' }, percent,
+  revision: ++hostRevision, success: true, status: 'downloading', updateInfo: { version: '0.2.53-beta.63.1' }, percent,
 })
 async function fire(name: string, detail: unknown) {
-  await act(async () => { window.dispatchEvent(new CustomEvent(name, { detail })) })
+  await act(async () => { window.dispatchEvent(new CustomEvent(name, { detail: { revision: ++hostRevision, ...detail as object } })) })
 }
 const text = () => harness.container.textContent ?? ''
 
 describe('关于页说得出「下载新版本中… N%」', () => {
+  it('reports a failed check without exposing raw IPC diagnostics in the UI', async () => {
+    checkForUpdates.mockRejectedValueOnce(new Error('internal IPC failure /private/example'))
+    await harness.render(createElement(AboutSection))
+    const check = [...harness.container.querySelectorAll('button')].find((b) => b.textContent === '检查更新')!
+    await act(async () => { check.click() })
+    expect(text()).toContain('更新过程中出错，请重试。')
+    expect(text()).not.toContain('internal IPC failure')
+    expect(text()).not.toContain('/private/example')
+  })
+  it('a failed check keeps newer real progress visible alongside the request error', async () => {
+    let fail!: (error: Error) => void
+    checkForUpdates.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject }))
+    await harness.render(createElement(AboutSection))
+    const check = [...harness.container.querySelectorAll('button')].find((b) => b.textContent === '检查更新')!
+    await act(async () => { check.click() })
+    await fire(UI_EVENTS.updateStatus, { ...downloading(42), revision: 8 })
+    await act(async () => { fail(new Error('manifest unavailable')) })
+    expect(text()).toContain('下载新版本中… 42%')
+    expect(text()).toContain('更新过程中出错，请重试。')
+    expect(text()).not.toContain('manifest unavailable')
+  })
+
+  it('a delayed mount snapshot cannot replace a newer download event', async () => {
+    let reply!: (state: unknown) => void
+    updateState.mockImplementationOnce(() => new Promise((resolve) => { reply = resolve }))
+    await harness.render(createElement(AboutSection))
+    await fire(UI_EVENTS.updateStatus, { ...downloading(42), revision: 8 })
+    await act(async () => { reply({ revision: 1, status: 'downloaded', messageKey: 'about.updateDownloaded' }) })
+    expect(text()).toContain('下载新版本中… 42%')
+    expect(text()).not.toContain('有新版本，重启安装')
+  })
+
+  it('a delayed check reply cannot replace a newer host event', async () => {
+    let reply!: (state: unknown) => void
+    checkForUpdates.mockImplementationOnce(() => new Promise((resolve) => { reply = resolve }))
+    await harness.render(createElement(AboutSection))
+    const check = [...harness.container.querySelectorAll('button')].find((b) => b.textContent === '检查更新')!
+    await act(async () => { check.click() })
+    await fire(UI_EVENTS.updateStatus, { revision: 8, status: 'installing' })
+    await act(async () => { reply({ ...downloading(10), revision: 1 }) })
+    expect(text()).toContain('正在重启…')
+    expect(text()).not.toContain('下载新版本中…')
+  })
   it('账户菜单移除后,关于页的问题反馈沿用原来的反馈入口', async () => {
     const open = vi.fn()
     window.addEventListener(UI_EVENTS.sessionpageOpenFeedback, open)
@@ -92,17 +137,18 @@ describe('@@@5576 横幅不为用户没要求的下载弹出来', () => {
 // owner 10-08:「有时候检测到新版本就不会去检测更新的版本了,就导致有时候要更新多次」。
 // 按下「重启更新」时宿主先查 feed,有更新的一版就先下它(downloading),下好了接着装。界面要跟着走。
 describe('按下重启更新后宿主先去下更新的一版', () => {
-  it('横幅:ready → downloading(带进度)→ ready,按钮一直是「正在重启…」', async () => {
+  it('横幅跟随真实下载进度,只在宿主开始安装时显示重启', async () => {
     await harness.render(createElement(UpdateBanner))
     await fire(UI_EVENTS.updateStatus, { status: 'downloaded' })
     const install = [...harness.container.querySelectorAll('button')].find((b) => b.textContent === '立即重启更新')!
     await act(async () => { install.click() })
-    expect(text()).toContain('正在重启')
+    expect(text()).toContain('检查中...')
     await fire(UI_EVENTS.updateStatus, downloading(30))
     expect(text()).toContain('下载新版本中…')
     expect(text()).toContain('30%')
     await fire(UI_EVENTS.updateStatus, { status: 'downloaded' })
-    expect(text()).toContain('新版本已就绪')
+    expect(text()).toContain('立即重启更新')
+    await fire(UI_EVENTS.updateStatus, { status: 'installing' })
     expect(text()).toContain('正在重启')
   })
 
@@ -119,7 +165,7 @@ describe('按下重启更新后宿主先去下更新的一版', () => {
 })
 
 describe('按下重启更新:宿主查 feed 那段时间横幅照实说在检查', () => {
-  it('installUpdate 还没回来 →「检查中...」;回来了 →「正在重启…」', async () => {
+  it('安装请求回来仍不假报重启,宿主交接后才显示重启', async () => {
     let finish!: () => void
     installUpdate.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve }))
     await harness.render(createElement(UpdateBanner))
@@ -129,6 +175,8 @@ describe('按下重启更新:宿主查 feed 那段时间横幅照实说在检查
     expect(text()).toContain('检查中...')
     expect(text()).not.toContain('正在重启')
     await act(async () => { finish() })
+    expect(text()).not.toContain('正在重启')
+    await fire(UI_EVENTS.updateStatus, { status: 'installing' })
     expect(text()).toContain('正在重启')
   })
 

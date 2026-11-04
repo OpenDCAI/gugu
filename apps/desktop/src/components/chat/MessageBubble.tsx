@@ -291,7 +291,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   const avatarIsAgent = memberProfile?.type === 'agent' || (!msg.is_mine && isAgent)
   const senderIdentity = useAvatarIdentity(avatarIsAgent ? msg.sender_user_id ?? '' : '')
-  const avatarName = useShownAgentName({ name: memberProfile?.displayName ?? '', createdAt: avatarIsAgent ? senderIdentity?.created_at ?? undefined : undefined })
+  const avatarName = useShownAgentName({ id: msg.sender_user_id, chatId: msg.chat_id, name: memberProfile?.displayName ?? '', createdAt: avatarIsAgent ? senderIdentity?.created_at ?? undefined : undefined })
   const avatarUrl = memberProfile?.avatar ?? null
   // @@@avatar-status-badge (#793 rollout) - the agent sender's status lives on its memberProfile
   // (populated for both group agents and the DM peer in ChatAreaPanel's messageMemberProfiles).
