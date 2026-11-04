@@ -883,9 +883,13 @@ if (args[0] === 'pr') {
 
       expect(profile.pathFiltered).toEqual({
         'Renderer build (web target)': { decider: DECIDER, output: 'build' },
-        'Desktop app build (ubuntu-24.04)': { decider: DECIDER, output: 'build' },
+        'Desktop app build (ubuntu-24.04)': { decider: DECIDER, output: 'desktop-linux' },
         [MAC]: { decider: DECIDER, output: 'desktop-mac' },
-        [ANDROID]: { decider: DECIDER, output: 'android' }
+        [ANDROID]: { decider: DECIDER, output: 'android' },
+        ...Object.fromEntries([
+          'Session database, chat UI browser and tooling', 'Session browser project',
+          'Projection native media', 'Client and community database contracts',
+        ].map(name => [name, { decider: DECIDER, output: 'tests' }]))
       })
     })
 
@@ -930,7 +934,7 @@ if (args[0] === 'pr') {
         verdict: 'RED',
         failed: [`pull_request/${ANDROID} (skipped; ${DECIDER} failure)`, `pull_request/${DECIDER} (failure)`]
       })
-      // A job with no path filter must never be skipped.
+      // A test skip needs the original docs-only decision.
       expect(
         verdict({ [DECIDER]: { outputs: typicalSourcePr }, 'Unit tests (1/4)': skipped })
       ).toMatchObject({ verdict: 'RED', failed: ['pull_request/Unit tests (1/4) (skipped)'] })

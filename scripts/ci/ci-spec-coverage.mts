@@ -10,6 +10,7 @@ import { parseArgs } from 'node:util'
 
 import picomatch from 'picomatch'
 import ts from 'typescript'
+import { hasVerifiedDocsClassifier } from './docs-filter-contract.mts'
 
 /** Parsed workflow YAML / manifest / reporter JSON: untyped input, validated where each field is read. */
 type Parsed = ReturnType<typeof JSON.parse>
@@ -425,6 +426,16 @@ function resolvedEnvironment(assignment: Record<string, unknown>, label: string,
   return result
 }
 
+// Documentation-only PRs are the sole exception to unconditional test jobs.
+// Test/source changes force tests=true in the classifier. Arbitrary job/step conditions
+// remain rejected, so newly added specs cannot silently lose their required executor.
+function docsTestGuard(workflow: Parsed, job: Parsed, condition = job.if): boolean {
+  const needs = typeof job.needs === 'string' ? [job.needs] : (job.needs ?? [])
+  return condition === "needs.changes.outputs.tests == 'true'"
+    && needs.includes('changes')
+    && hasVerifiedDocsClassifier(workflow)
+}
+
 export function collectAutomaticRunnerCommands({
   workflows,
   changedPaths,
@@ -447,7 +458,7 @@ export function collectAutomaticRunnerCommands({
         const rawCommands = extractRunnerCommands(step.run, packageScripts)
         if (rawCommands.length === 0) continue
         const label = `${entry.path} job ${jobId} step ${stepIndex + 1}`
-        if (job.if !== undefined || step.if !== undefined) {
+        if ((job.if !== undefined && !docsTestGuard(entry.workflow, job)) || (step.if !== undefined && !docsTestGuard(entry.workflow, job, step.if))) {
           throw new Error(`${label} condition prevents reliable execution derivation`)
         }
         const workingDirectory = step['working-directory']
@@ -743,7 +754,7 @@ function validateWorkflowExecutor(
     errors.push(`${label} workflow has no job ${executor.job}`)
     return []
   }
-  if (job.if !== undefined) errors.push(`${label} job has an if condition and is not unconditional`)
+  if (job.if !== undefined && !docsTestGuard(workflow, job)) errors.push(`${label} job has an if condition and is not unconditional`)
   if (job['continue-on-error'] !== undefined) errors.push(`${label} job uses continue-on-error`)
   const packageScripts = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).scripts ?? {}
   const runnerSteps = (job.steps ?? []).filter((step: Parsed) => {
@@ -751,7 +762,7 @@ function validateWorkflowExecutor(
   })
   if (runnerSteps.length === 0) errors.push(`${label} job contains no static test runner command`)
   for (const step of runnerSteps) {
-    if (step.if !== undefined) errors.push(`${label} runner step has an if condition`)
+    if (step.if !== undefined && !docsTestGuard(workflow, job, step.if)) errors.push(`${label} runner step has an if condition`)
     if (step['continue-on-error'] !== undefined) errors.push(`${label} runner step uses continue-on-error`)
   }
 
@@ -780,7 +791,7 @@ function validateWorkflowExecutor(
 
   if (errors.some((error) => error.startsWith(label))) return []
   try {
-    const selectedWorkflow = { ...workflow, jobs: { [executor.job]: job } }
+    const selectedWorkflow = { ...workflow, jobs: { ...(workflow.jobs.changes ? { changes: workflow.jobs.changes } : {}), [executor.job]: job } }
     const commands = collectAutomaticRunnerCommands({
       workflows: [{ path: executor.workflow, workflow: selectedWorkflow }],
       changedPaths: ['tests/e2e/ci/automatic-discovery.spec.ts'],
