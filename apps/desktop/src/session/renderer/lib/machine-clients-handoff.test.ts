@@ -127,6 +127,8 @@ describe('换版请求失败时 tooOld 放锁', () => {
     windows.length = 0;
     try {
       await machineClient('d22')!.connect();
+      const reconnected = vi.fn();
+      const off = onMachineReconnected('d22', reconnected);
       matchServerVersion.mockClear();
       matchServerVersion.mockResolvedValueOnce(false);
       reportMachineOutdated('d22');
@@ -139,6 +141,8 @@ describe('换版请求失败时 tooOld 放锁', () => {
       expect(machineLinkState('d22')).toBe('tooOld');
       await flush();
       expect(machineLinkState('d22')).toBe('open');
+      expect(reconnected, '放锁不是重连').not.toHaveBeenCalled();
+      off();
     } finally {
       closeMachineClient('d22');
     }
