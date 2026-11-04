@@ -1,3 +1,7 @@
+import { ensureProjectHostReady } from '@renderer/features/remote-hosts/ensure-cloud-host-ready';
+import { cloudWakeFailureText } from '@renderer/features/remote-hosts/connection-status';
+import { cloudComputerWakeFailureOf, findRemoteHostsBridge } from '@/session/shared/remote-hosts';
+import { machineRegistry } from '@renderer/lib/machine-routing';
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { withTimeout } from '@/lib/withTimeout';
@@ -45,9 +49,15 @@ function deleteProjectDescription(
 export function useConfirmDeleteProject() {
   const { translate } = useSessionMessages();
   const showConfirmDeleteProject = useShowModal('confirmActionModal');
-  const reportError = (error: unknown) => {
+  const reportError = (error: unknown, projectIdForError: string) => {
     rendererLogger('actions/delete-project').error({ error }, 'action failed');
-    toast({ tier: 'error', title: translate('projects.delete.failed'), description: messageForUser(error) });
+    const deviceId = machineRegistry.machineOf(projectIdForError);
+    const device = findRemoteHostsBridge()?.listDevices().find(row => row.id === deviceId);
+    const description = error && typeof error === 'object' && 'reason' in error
+      && (error.reason === 'refused' || error.reason === 'failed' || error.reason === 'timeout')
+      ? cloudWakeFailureText(cloudComputerWakeFailureOf(error), device?.label ?? '', translate)
+      : messageForUser(error);
+    toast({ tier: 'error', title: translate('projects.delete.failed'), description });
   };
 
   return async ({
@@ -61,9 +71,10 @@ export function useConfirmDeleteProject() {
   }) => {
     let automations: Automation[];
     try {
+      await ensureProjectHostReady(projectId);
       automations = await listProjectAutomations(projectId, translate('projects.delete.checkTimeout'));
     } catch (error) {
-      reportError(error);
+      reportError(error, projectId);
       return;
     }
 
@@ -76,7 +87,7 @@ export function useConfirmDeleteProject() {
           await getProjectManagerStore().deleteProject(projectId);
           onDeleted?.();
         } catch (error) {
-          reportError(error);
+          reportError(error, projectId);
         }
       },
     });

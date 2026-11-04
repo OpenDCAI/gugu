@@ -1,3 +1,4 @@
+import { ensureProjectHostReady } from '@renderer/features/remote-hosts/ensure-cloud-host-ready';
 import { forgetProjectOnScreen, revalidateScreenSessions } from '@renderer/app/screen-layout-actions';
 import { err, ok, type Result } from '@gugu/session-shared';
 import { makeObservable, observable, runInAction } from 'mobx';
@@ -535,6 +536,7 @@ export class ProjectManagerStore {
   }
 
   async deleteProject(projectId: string): Promise<void> {
+    await ensureProjectHostReady(projectId);
     const ownerId = cachedDevicesAccount();
     const deviceId = machineRegistry.machineOf(projectId) ?? libraryDeviceId(null);
     const snapshot = this.projects.get(projectId);
