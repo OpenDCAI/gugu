@@ -34,6 +34,20 @@ it('requires an authoritative gateway refusal, rather than the balance or anothe
   expect(isCreditExhaustion({ kind: 'error', said: '这个账号还没有咕咕积分。充值或开通会员后再发一次。', detail: '{"error":{"code":"no_credits","message":"这个账号还没有咕咕积分。"}}' })).toBe(false);
 });
 
+it.each([true, false])('renders the shared Pi reader outcome without exposing raw error text (credit=%s)', async exhausted => {
+  const projected: TurnOutcomeItem = { ...item, outcome: { kind: 'error', reason: 'prompt_failed', ...(exhausted ? {
+    detail: '{"error":{"code":"credits_exhausted","message":"Gugu credits"}}',
+  } : {}) } };
+  await renderAndMeasureUnit(turnOutcomeUnitDef, projected, makeContractCtx({ width: 328 }), host => {
+    expect(host.querySelectorAll('[data-credit-exhausted]')).toHaveLength(exhausted ? 1 : 0);
+    expect(host.textContent?.includes('You’re out of credits. Top up to continue.')).toBe(exhausted);
+    expect(host.querySelectorAll('a')).toHaveLength(exhausted ? 1 : 0);
+    expect(host.textContent).not.toContain('Gugu credits');
+    if (!exhausted) expect(host.querySelector('[data-slot="turn-outcome-badge"]')).not.toBeNull();
+    return {};
+  }, { onRechargeCredits: vi.fn() });
+});
+
 it('does not invent a recharge button when the host did not connect that action', async () => {
   await renderAndMeasureUnit(turnOutcomeUnitDef, item, makeContractCtx({ width: 360 }), host => {
     expect(host.querySelector('a, button')).toBeNull();
