@@ -2,9 +2,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Module from 'node:module'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ runtime: vi.fn(), installed: vi.fn(), supervisor: vi.fn() }))
+const mocks = vi.hoisted(() => ({ runtime: vi.fn(), installed: vi.fn(), supervisor: vi.fn(), holder: vi.fn() }))
+vi.mock('../../../../apps/desktop/electron/server/server-account-lock', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../../apps/desktop/electron/server/server-account-lock')>(),
+  accountLockHolder: mocks.holder,
+}))
+vi.mock('../../../../apps/desktop/electron/server/server-keeper', () => ({ liveKeeperPid: () => null, markStopped: () => {} }))
 vi.mock('../../../../apps/desktop/electron/server/server-account-runtime', () => ({ readAccountRuntime: mocks.runtime, installedPackageVersion: mocks.installed }))
 vi.mock('../../../../apps/desktop/electron/server/server-service', () => ({ describeService: () => 'test supervisor', readRunningServer: mocks.supervisor }))
 vi.mock('../../../../apps/desktop/electron/server/server-electron-shim', () => ({ default: {} }))
@@ -13,6 +18,8 @@ const argv = process.argv
 const loader = Module as unknown as { _load: unknown }
 const originalLoad = loader._load
 let home: string
+
+beforeEach(() => { vi.resetModules(); vi.clearAllMocks() })
 
 afterEach(() => {
   loader._load = originalLoad
@@ -54,7 +61,7 @@ it.each(['running', 'stopped', 'waiting', 'migration'] as const)('status --json 
   expect(json.accounts).toHaveLength(state === 'waiting' ? 0 : state === 'migration' ? 2 : 1)
   if (state === 'running') {
     expect(json.accounts[0]).toMatchObject({ userId: 'u1', running: true, version: 'actual-account' })
-    expect(mocks.runtime).toHaveBeenCalledWith(path.join(home, 'account/data'))
+    expect(mocks.runtime).toHaveBeenCalledWith(path.join(fs.realpathSync(home), 'account/data'))
   }
   if (state === 'migration') {
     expect(json.migrationRequired).toBe(true)
@@ -64,4 +71,24 @@ it.each(['running', 'stopped', 'waiting', 'migration'] as const)('status --json 
     expect(fs.readdirSync(path.join(home, 'accounts'))).toEqual(['u1', 'u2'])
   }
   expect(exit).toHaveBeenCalledTimes(1)
+})
+
+it.each(['account', 'accounts/u1', 'retired/u1'].flatMap(directory =>
+  ['initial inspection', 'signal-time recheck'].map(stage => [directory, stage] as const)))('stop does not signal an unverified account PID in %s during %s', async (directory, stage) => {
+  home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-stop-entry-1447-'))
+  vi.stubEnv('GUGU_SERVER_HOME', home)
+  vi.stubEnv('GUGU_TIER', 'beta')
+  vi.stubEnv('GUGU_SERVER_MODE', undefined)
+  process.argv = ['node', 'server-entry.js', 'stop']
+  const account = path.join(home, directory)
+  fs.mkdirSync(path.join(account, 'data'), { recursive: true })
+  fs.writeFileSync(path.join(account, 'account.json'), JSON.stringify({ userId: 'u1' }))
+  mocks.holder.mockImplementation(() => { throw new Error('Cannot verify account lock ownership') })
+  if (stage === 'signal-time recheck') mocks.holder.mockReturnValueOnce(12345)
+  const kill = vi.spyOn(process, 'kill').mockReturnValue(true)
+  vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+  const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+  await import('../../../../apps/desktop/electron/server-entry')
+  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+  expect(kill).not.toHaveBeenCalled()
 })

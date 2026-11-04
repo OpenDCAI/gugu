@@ -64,5 +64,6 @@ function createAcpClientForPort(port: DomPortLike) {
 
 function createAcpClient(transport: WireTransport) {
   clientTransports.add(transport);
-  return client(acpApiContract, connectAcpLiveState(transport));
+  const connection = connectAcpLiveState(transport);
+  return Object.assign(client(acpApiContract, connection), { connection });
 }

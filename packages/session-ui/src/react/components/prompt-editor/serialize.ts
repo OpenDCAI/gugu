@@ -123,7 +123,8 @@ export function plainTextDoc(text: string, resolve?: ContextMentionProvider['res
         const item = resolve?.(ref.target, ref.label);
         if (!item) continue;
         if (ref.start > offset + cursor) content.push({ type: 'text', text: line.slice(cursor, ref.start - offset) });
-        content.push(mentionInsertContent(item)[0]);
+        // Restoring enriches presentation, while preserving the serialized bracket label.
+        content.push(mentionInsertContent({ ...item, name: ref.label })[0]);
         cursor = ref.end - offset;
       }
       if (cursor < line.length) content.push({ type: 'text', text: line.slice(cursor) });

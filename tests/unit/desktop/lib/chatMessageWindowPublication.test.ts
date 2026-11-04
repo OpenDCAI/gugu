@@ -14,7 +14,7 @@ import { publishIdentityDirectory, readIdentityDirectoryBridge, installIdentityD
 
 function identity(id: string): DisplayIdentity {
   return {
-    id, type: 'human', display_name: id, avatar: null, gugu_number: null, bio: null,
+    id, type: 'human', display_name: id, nameSerial: null, avatar: null, gugu_number: null, bio: null,
     owner_user_id: null, agent_public: null, desired_status: null, device_id: null,
     category: null, is_official: null, local_path: null,
     created_at: null, updated_at: '2026-09-14T00:00:00.000Z',

@@ -132,7 +132,7 @@ function runShortcut(key: SessionNavShortcutKey): boolean {
     case 'session.previous':
       return sessionKeyboardNav.move(-1);
     case 'session.focusComposerFromSidebar':
-      return sessionKeyboardNav.handOffToComposer();
+      return sessionKeyboardNav.expandProjectOrFocusComposer();
     case 'session.projectHome':
       return sessionKeyboardNav.goToParent();
     case 'session.backToList':

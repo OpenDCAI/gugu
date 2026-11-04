@@ -1,4 +1,5 @@
 import { getCurrentAuthUserId } from '@/lib/supabase'
+import { SessionInputFailureError, withSessionInputDeadline } from '@/lib/sessionInputOutbox'
 import { invokePhoneHost } from './phoneHostRpc'
 
 export type StoredPhoneTaskSend = { version: 1; id: string; text: string }
@@ -33,10 +34,19 @@ export function subscribePhoneTaskSend(listener: (key: string) => void): () => v
 }
 const changed = (key: string) => { for (const listener of listeners) listener(key) }
 
+/** Legacy draft recovery has the same bounded wait, while admission keeps observing the original receipt. */
+async function withPhoneInputDeadline<T>(sending: Promise<T>): Promise<T> {
+  try { return await withSessionInputDeadline(sending, 12_000) }
+  catch (error) {
+    if (error instanceof SessionInputFailureError) throw Object.assign(new Error('手机尚未返回操作结果，请重试。'), { code: 'host_call_timeout' })
+    throw error
+  }
+}
+
 /** Preserve an unacknowledged task input across reloads; a retry cannot admit it twice. */
 export async function sendPhoneTaskText(deviceId: string, sessionId: string, text: string, invoke = invokePhoneHost, storage: StorageLike = window.localStorage): Promise<unknown> {
   const ownerId = await getCurrentAuthUserId()
-  return sendOwnedPhoneTask(ownerId, deviceId, sessionId, text, invoke, storage)
+  return withPhoneInputDeadline(sendOwnedPhoneTask(ownerId, deviceId, sessionId, text, invoke, storage))
 }
 
 /** An explicit retry confirms the saved admission without adding another optimistic user message. */
@@ -44,7 +54,7 @@ export async function retryPhoneTaskSend(ownerId: string, deviceId: string, sess
   if (await getCurrentAuthUserId() !== ownerId) throw new Error('当前账号已改变，未重新发送原稿')
   const pending = readPhoneTaskSend(ownerId, deviceId, sessionId, storage)
   if (!pending || pending.id !== id) throw new Error('待确认原稿已改变，请查看当前任务后再试')
-  return sendOwnedPhoneTask(ownerId, deviceId, sessionId, pending.text, invoke, storage)
+  return withPhoneInputDeadline(sendOwnedPhoneTask(ownerId, deviceId, sessionId, pending.text, invoke, storage))
 }
 
 async function sendOwnedPhoneTask(ownerId: string, deviceId: string, sessionId: string, text: string, invoke: typeof invokePhoneHost, storage: StorageLike): Promise<unknown> {

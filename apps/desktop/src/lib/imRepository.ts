@@ -341,11 +341,12 @@ export async function replaceChatRowsAndIdentities(
   repository: AccountImRepository,
   chats: ChatItem[],
   identities: readonly unknown[],
+  isConversationDeleted?: (id: string) => boolean,
 ): Promise<void> {
-  const published = chats
-  // 行引用的每个 id(对端 / 群成员)都必须在这一次提交的身份里 —— 忘了在这里报,不在冷启动时整份缓存作废。
-  assertIdentityClosure('conversation list', published.flatMap((chat) => [chat.peer_user_id, ...(chat.member_user_ids ?? [])]), identities)
   await repository.transaction((transaction) => {
+    // Evaluate inside the serialized write: an older queued snapshot cannot undo a confirmed deletion.
+    const published = chats.filter(chat => !isConversationDeleted?.(chat.id))
+    assertIdentityClosure('conversation list', published.flatMap((chat) => [chat.peer_user_id, ...(chat.member_user_ids ?? [])]), identities)
     writeChatRows(repository, transaction, published)
     for (const identity of identities) transaction.putIdentity(identity)
   })

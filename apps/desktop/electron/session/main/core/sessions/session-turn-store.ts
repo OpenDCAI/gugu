@@ -1,5 +1,5 @@
 import { findToolImage, trimCursorPageForTransport, trimTurnsForTransport } from '@gugu/session-core/session-record';
-import { and, asc, desc, eq, gte, like, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, like, lt, notLike, sql } from 'drizzle-orm';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { db } from '@main/db/client';
 import { sessionTurns } from '@main/db/schema';
@@ -9,6 +9,7 @@ import { noteNativeConversationReplies, truncateNativeConversationRead } from '.
 import { nativeConversationActivity } from './session-conversation-activity';
 import { publishNativeConversationInbox, queueNativeConversationInbox } from './native-conversation-inbox';
 import { mayFillReplay, didFillReplay, stopFillingReplay, readableStoredRows } from './session-turn-replay';
+import { ownerNotificationEpoch, rewindOwnerNotificationState, publishOwnerNotificationState } from './owner-notification-state';
 
 /**
  * 会话历史的落盘（#5381）。
@@ -231,12 +232,13 @@ export async function appendRecordTurnNow(sessionId: string, turn: TranscriptTur
 export async function storedTurnIndexBase(sessionId: string): Promise<number> {
   await persistenceTails.get(sessionId);
   const rows = await db
-    .select({ turnId: sessionTurns.turnId })
+    .select({ turnId: sessionTurns.turnId, notifiedSource: sql<string | null>`CASE WHEN ${sessionTurns.turnId} LIKE 'owner-notify:%' THEN json_extract(${sessionTurns.data}, '$.items[0].ownerNotification.sourceTurnId') END` })
     .from(sessionTurns)
     .where(eq(sessionTurns.sessionId, sessionId));
   let max = -1;
-  for (const { turnId } of rows) {
-    const index = /:turn:(\d+)$/.exec(turnId)?.[1];
+  for (const { turnId, notifiedSource } of rows) {
+    // A notified but interrupted turn already owns its identity; a restarted engine must not reuse it.
+    const index = /:turn:(\d+)$/.exec(notifiedSource ?? turnId)?.[1];
     if (index !== undefined) max = Math.max(max, Number(index));
   }
   return max + 1;
@@ -246,7 +248,7 @@ async function storedTurnCount(sessionId: string): Promise<number> {
   const rows = await db
     .select({ count: sql<number>`count(*)` })
     .from(sessionTurns)
-    .where(eq(sessionTurns.sessionId, sessionId));
+    .where(and(eq(sessionTurns.sessionId, sessionId), notLike(sessionTurns.turnId, 'owner-notify:%')));
   return rows[0]?.count ?? 0;
 }
 
@@ -272,15 +274,23 @@ export async function getStoredHistory(params: {
   limit?: number;
   /** 给了就改成「seq ≥ fromSeq 的全部行」,供界面开场补读用;与 before/limit 互斥。 */
   fromSeq?: number;
+  ownerNotificationsOnly?: boolean;
 }): Promise<StoredTurnPage> {
-  const page = await readStoredTurns(params.sessionId, {
-    before: params.before,
-    limit: params.limit,
-    fromSeq: params.fromSeq,
-  });
-  return params.fromSeq === undefined
-    ? trimCursorPageForTransport(page)
-    : { ...page, turns: trimTurnsForTransport(page.turns) };
+  for (;;) {
+    const epoch = ownerNotificationEpoch(params.sessionId);
+    const page = await readStoredTurns(params.sessionId, {
+      before: params.before,
+      limit: params.limit,
+      fromSeq: params.fromSeq,
+      ownerNotificationsOnly: params.ownerNotificationsOnly,
+    });
+    // A revert can reuse every sequence in the page. Its rows and generation must describe the same snapshot.
+    if (epoch !== ownerNotificationEpoch(params.sessionId)) continue;
+    const snapshot = { ...page, nativeOwnerNotificationEpoch: epoch };
+    return params.fromSeq === undefined
+      ? trimCursorPageForTransport(snapshot)
+      : { ...snapshot, turns: trimTurnsForTransport(page.turns) };
+  }
 }
 
 export async function getStoredToolImage(params: {
@@ -300,6 +310,8 @@ export async function getStoredToolImage(params: {
 
 export interface StoredTurnPage {
   turns: TranscriptTurn[];
+  /** The generation in which these rows were read; older hosts omit it (generation zero). */
+  nativeOwnerNotificationEpoch?: number;
   /** 与 `turns` 一一对应:每一行来自引擎的哪一轮(运行时原始 turn id)。旧版本写的行这里是库内 id。 */
   originTurnIds: string[];
   /** 还有更早的一页时给出游标（本页最早那一条的 `seq`）；到头了、或是 `fromSeq` 读法时为 null。 */
@@ -315,7 +327,7 @@ export interface StoredTurnPage {
  */
 export async function readStoredTurns(
   sessionId: string,
-  options: { before?: number; limit?: number; fromSeq?: number } = {}
+  options: { before?: number; limit?: number; fromSeq?: number; ownerNotificationsOnly?: boolean } = {}
 ): Promise<StoredTurnPage> {
   if (options.fromSeq !== undefined) {
     // 「开场那一页之后新落库的行」—— 开场时补读一次用(acp-chat-store `_reloadStoredTail`)。❌ 不分页:这一段只是
@@ -330,7 +342,8 @@ export async function readStoredTurns(
       .where(
         and(
           eq(sessionTurns.sessionId, sessionId),
-          gte(sessionTurns.seq, options.fromSeq)
+          gte(sessionTurns.seq, options.fromSeq),
+          ...(options.ownerNotificationsOnly ? [like(sessionTurns.turnId, 'owner-notify:%')] : [])
         )
       )
       .orderBy(asc(sessionTurns.seq));
@@ -384,19 +397,28 @@ export async function storedRevertBoundary(sessionId: string, anchor: string): P
 }
 
 export async function truncateStoredHistory(sessionId: string, fromSeq: number | null): Promise<void> {
-  await persistenceTails.get(sessionId);
   if (fromSeq === null) return;
-  stopFillingReplay(sessionId);
-  const removed = db.transaction(tx => {
-    const result = tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq))).returning({ seq: sessionTurns.seq }).all();
-    return { rows: result, publish: truncateNativeConversationRead(sessionId, fromSeq, tx) };
+  return withStoredTurns(sessionId, async () => {
+    stopFillingReplay(sessionId);
+    const removed = db.transaction(tx => {
+      const result = tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq))).returning({ seq: sessionTurns.seq, turnId: sessionTurns.turnId }).all();
+      const origins = new Set(result.map(row => row.turnId));
+      // A notification commits before its calling provider turn; deleting that turn must remove its earlier notice too.
+      const attached = tx.select({ seq: sessionTurns.seq, turnId: sessionTurns.turnId, data: sessionTurns.data }).from(sessionTurns)
+        .where(and(eq(sessionTurns.sessionId, sessionId), like(sessionTurns.turnId, 'owner-notify:%'))).all()
+        .filter(row => (JSON.parse(row.data) as TranscriptTurn).items.some(item => item.kind === 'message' && item.ownerNotification?.sourceTurnId && origins.has(item.ownerNotification.sourceTurnId)));
+      for (const row of attached) tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.turnId, row.turnId))).run();
+      rewindOwnerNotificationState(sessionId, tx);
+      return { rows: [...result, ...attached], publish: truncateNativeConversationRead(sessionId, fromSeq, tx, new Set(attached.map(row => row.seq))) };
+    });
+    removed.publish?.();
+    publishOwnerNotificationState(sessionId);
+    // Later turns take these sequences again; the activity index reads this to stop pointing at the removed ones.
+    if (removed.rows.length > 0) {
+      activitySignal({ event_id: `session.history_reverted:${randomUUID()}`, kind: 'session.history_reverted',
+        session_id: sessionId, turn_seq: fromSeq, occurred_at: Date.now() });
+    }
   });
-  removed.publish?.();
-  // Later turns take these sequences again; the activity index reads this to stop pointing at the removed ones.
-  if (removed.rows.length > 0) {
-    activitySignal({ event_id: `session.history_reverted:${randomUUID()}`, kind: 'session.history_reverted',
-      session_id: sessionId, turn_seq: fromSeq, occurred_at: Date.now() });
-  }
 }
 
 /** One stored turn by its sequence, or null when the session's stored history no longer has it. */

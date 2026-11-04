@@ -1,13 +1,48 @@
 import { changePhoneConversationQueue } from './phone-conversation-queue.mjs'
 import { randomUUID } from 'node:crypto'
 import { stableId, uuid } from './phone-agent-store.mjs'
+import { SessionInputAdmissionError } from '../../../packages/core/src/shared/sessionInputAdmission.ts'
 
-const failure = (code, message) => Object.assign(new Error(message), { code })
+const failure = (code, message) => new SessionInputAdmissionError(message, 'rejected', code)
 const methods = new Set(['prefetchFiles', 'sessionQueue', 'sessionSnapshot', 'sessionAfter', 'sessionOlder', 'sessionToolImage', 'sessionSend', 'sessionRespond', 'sessionOptions', 'sessionSetOption', 'sessionReloadModel'])
 
 /** Task-page methods share the native and remote taskhost.call transport. No DM or workspace
  * pipe is needed; only a Java-originated native UI command may approve a phone operation. */
 export function createPhoneTaskApi({ ownerId, store, models, timelines, actions, findSession, verifyAgent, admit, publish, interrupt, turnFiles }) {
+  const admitting = new Map()
+  const send = async (input, requestId) => {
+    const files = Array.isArray(input.files) ? input.files : []
+    if (typeof input.text !== 'string' || (!input.text.trim() && !files.length)) throw failure('invalid_args', '请先填写任务内容')
+    let clientId, sessionId
+    try {
+      clientId = input.clientRequestId ? uuid(input.clientRequestId, 'clientRequestId') : requestId ?? randomUUID()
+      sessionId = uuid(typeof input.conversationId === 'string' ? input.conversationId.replace(/^session:/, '') : input.conversationId, 'session_id')
+    } catch (error) { throw failure('invalid_args', error.message) }
+    const id = stableId('phone-task-input', ownerId, sessionId, clientId)
+    const fingerprint = stableId('phone-task-input-body', JSON.stringify([input.text.trim(), files.map((file) => [file.itemId, file.version])]))
+    const pending = admitting.get(id)
+    if (pending) {
+      if (pending.fingerprint !== fingerprint) throw new SessionInputAdmissionError('原消息尚在确认，不能更换内容', 'uncertain', 'invalid_args')
+      return pending.result
+    }
+    const result = (async () => {
+      const existing = store.state.jobs[id]
+      if (existing) {
+        if (existing.inputFingerprint !== fingerprint) throw new SessionInputAdmissionError('同一个发送请求不能更换任务内容，请先重试原消息', 'uncertain', 'invalid_args')
+        // Replays confirm existing custody, even if permission was revoked after a lost ACK.
+        // A prior save may have failed after entering memory; acknowledge only after it succeeds.
+        await store.save()
+      } else {
+        const agent = findSession(sessionId)
+        await verifyAgent(agent.agentUserId)
+        // Keep the person's words; resolve files only when this job reaches the model.
+        await admit({ id, agentUserId: agent.agentUserId, inputFingerprint: fingerprint, prompt: input.text.trim(), ...(files.length ? { files } : {}), route: { kind: 'task', senderUserId: ownerId } })
+      }
+      return { accepted: true, messageId: id, admission: 'accepted' }
+    })()
+    admitting.set(id, { fingerprint, result })
+    try { return await result } finally { admitting.delete(id) }
+  }
   const options = async (agent) => {
     const catalog = await models.catalog()
     return { mode: null, effort: null,
@@ -32,6 +67,7 @@ export function createPhoneTaskApi({ ownerId, store, models, timelines, actions,
     if (!channel.startsWith('sessionTimeline.') || !methods.has(method)) return null
     const input = args[0]
     if (!input || typeof input !== 'object') throw failure('invalid_args', '手机任务请求缺少参数')
+    if (method === 'sessionSend') return { value: await send(input, requestId) }
     const agent = findSession(input.conversationId)
     await verifyAgent(agent.agentUserId)
     let value
@@ -45,17 +81,6 @@ export function createPhoneTaskApi({ ownerId, store, models, timelines, actions,
       await actions().reconcile()
       value = await actions().respond(agent, input, source, admit)
       publish()
-    } else if (method === 'sessionSend') {
-      const files = Array.isArray(input.files) ? input.files : []
-      if (typeof input.text !== 'string' || (!input.text.trim() && !files.length)) throw failure('invalid_args', '请先填写任务内容')
-      const clientId = input.clientRequestId ? uuid(input.clientRequestId, 'clientRequestId') : requestId ?? randomUUID()
-      const id = stableId('phone-task-input', ownerId, agent.sessionId, clientId)
-      const fingerprint = stableId('phone-task-input-body', JSON.stringify([input.text.trim(), files.map((file) => [file.itemId, file.version])]))
-      const existing = store.state.jobs[id]
-      if (existing && existing.inputFingerprint !== fingerprint) throw failure('invalid_args', '同一个发送请求不能更换任务内容，请先重试原消息')
-      // Admission keeps the person's words; files are resolved only when this queued job reaches the model.
-      await admit({ id, agentUserId: agent.agentUserId, inputFingerprint: fingerprint, prompt: input.text.trim(), ...(files.length ? { files } : {}), route: { kind: 'task', senderUserId: ownerId } })
-      value = { accepted: true, messageId: id }
     } else if (method === 'sessionOptions') value = await options(agent)
     else {
       if (agent.status === 'working' || Object.values(store.state.jobs).some((job) => job.agentUserId === agent.agentUserId && job.status === 'queued')) throw failure('session_busy', '手机任务正在运行，请结束或取消后再更换模型')

@@ -69,3 +69,8 @@ describe('device RPC protocol', () => {
     expect(deviceRpcFrameType(null)).toBeNull()
   })
 })
+
+it.each(['accepted', 'rejected', 'uncertain'])('preserves admission %s in a real device RPC envelope', admission => {
+  const error = { code: 'same-code', message: 'same reason', admission }
+  expect(parseDeviceRpcReply({ type: 'broadcast', payload: { type: 'taskhost.call:reply', request_id: 'input-attempt', error } })?.error).toEqual(error)
+})

@@ -172,7 +172,7 @@ describe('失败回合的原文详情上得了屏幕(#5858)', () => {
 })
 
 // #7103 上游自己说了的(网关回给 codex 的那一句):收起时那一行就说它,❌ 只说「回合未能完成」让人点开猜。
-const SAID = '咕咕积分用完了。充值后再发一次，或等下个周期额度刷新。'
+const SAID = 'The model is unavailable.'
 const failedWithSaid: TurnOutcomeItem = {
   kind: 'turn-outcome',
   turnId: TURN_ID,
@@ -181,7 +181,7 @@ const failedWithSaid: TurnOutcomeItem = {
     kind: 'error',
     reason: 'prompt_failed',
     said: SAID,
-    detail: `{"error":{"message":"${SAID}","type":"invalid_request_error","param":"","code":"credits_exhausted"}}\ncode=-32603, codexErrorInfo=other`,
+    detail: `{"error":{"message":"${SAID}","type":"invalid_request_error","param":"","code":"model_unavailable"}}\ncode=-32603, codexErrorInfo=other`,
   },
   prompt: '把这段东西读一遍',
 }

@@ -210,6 +210,8 @@ export type ComposerQueuedPromptEdit = { id: string; text: string; originalDraft
 export interface ChatComposerProps {
   editorOptions?: Pick<import('../prompt-editor/types').PromptEditorProps, 'inputTestId' | 'inputRef' | 'enterBehavior' | 'clearOnSubmit'>;
   mobile?: boolean;
+  /** Scope phone action behavior separately from a compact desktop preview. */
+  phoneActions?: boolean;
   disabled?: boolean;
   isWorking?: boolean;
   stopDisabled?: boolean;
@@ -273,7 +275,7 @@ export interface ChatComposerProps {
   /** Extra control(s) appended to the toolbar-left row, after the permission selector. */
   toolbarExtra?: React.ReactNode;
 
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string) => void | Promise<void>;
   /** Called whenever the editor serialized plain text changes. */
   onInputChange?: (text: string) => void;
   /** Called after a mention node is inserted. Raw insertText entries do not trigger this. */
@@ -284,7 +286,7 @@ export interface ChatComposerProps {
    * confirm interruption, or otherwise resolve the conflict.
    * When absent, submit attempts while working are silently ignored.
    */
-  onSubmitWhileWorking?: (text: string) => void;
+  onSubmitWhileWorking?: (text: string) => void | Promise<void>;
   onStop?: () => void;
   onAttach?: () => void;
   /** Context-window usage data for the toolbar donut indicator. Hidden when null/undefined. */
@@ -367,8 +369,6 @@ export interface ChatComposerProps {
   onCommand?: (item: CommandItem) => void;
   /** Session-state notice shown flush above the input (e.g. ACP stop reasons). */
   notice?: ComposerNotice | null;
-  /** Host band connected to this composer, below queued prompts and above permission/notice. */
-  bandAbove?: React.ReactNode;
   /**
    * Pending ACP permission request to show in the band above the input.
    * When present, the notice band is replaced by the permission band.
@@ -407,6 +407,7 @@ export interface ChatComposerProps {
 export function ChatComposer({
   editorOptions,
   mobile = false,
+  phoneActions = mobile,
   disabled = false,
   isWorking = false,
   stopDisabled = false,
@@ -464,7 +465,6 @@ export function ChatComposer({
   onViewAttachment,
   onRetryAttachment,
   notice,
-  bandAbove,
   permissionRequest,
   permissionQueueCount = 1,
   onResolvePermission,
@@ -486,6 +486,9 @@ export function ChatComposer({
   const { translate } = useMessages();
   const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<PromptEditorRef | null>(null);
+  const [hasText, setHasText] = useState(false);
+  const [phoneSubmitting, setPhoneSubmitting] = useState(false);
+  const phoneSubmittingRef = useRef(false);
   // 底排放不下时按档把标签收成图标(渐进披露),见 use-toolbar-disclosure.ts
   const toolbarDisclosure = useToolbarDisclosure();
   const [dragActive, setDragActive] = useState(false);
@@ -549,24 +552,29 @@ export function ChatComposer({
     };
   }, []);
 
-  const canSubmit = hostCanSubmit ?? true;
-  const handleSubmit = (text: string) => {
+  const hasContent = hasText || attachments.length > 0;
+  const canSubmit = (hostCanSubmit ?? true) && (!phoneActions || (hasContent && !phoneSubmitting));
+  const showStop = isWorking && (!phoneActions || (!hasContent && !phoneSubmitting));
+  const handleSubmit = async (text: string) => {
     if (queueEdit) { finishQueueEdit(text); return; }
+    if (phoneActions && (phoneSubmittingRef.current || disabled || !canSubmit)) return;
     // Attachment-only sends are valid for both images and ordinary files.
     if (!text.trim() && attachments.length === 0 && hostCanSubmit !== true) return;
     // While the agent is actively working, route to the host's conflict handler
     // (e.g. queueing or a cancel-and-send confirmation) instead of submitting.
-    if (isWorking) {
-      onSubmitWhileWorking?.(text);
-      return;
+    if (isWorking && !onSubmitWhileWorking) return;
+    if (!isWorking && (disabled || !canSubmit)) return;
+    const submit = isWorking ? onSubmitWhileWorking! : onSubmit;
+    if (!mobile || (!phoneActions && isWorking)) { submit(text); return; }
+    // Keep Send in place until the host has durably accepted this input.
+    // A second tap during that commit must never become a Stop action.
+    if (phoneActions) { phoneSubmittingRef.current = true; setPhoneSubmitting(true); }
+    try {
+      const committed = submit(text);
+      if (phoneActions) await committed;
+    } finally {
+      if (phoneActions) { phoneSubmittingRef.current = false; setPhoneSubmitting(false); }
     }
-    if (disabled || !canSubmit) return;
-    onSubmit(text);
-    // Every phone host (chat, agent thread, new task) submits here. Settle focus
-    // synchronously: a deferred refocus reopens the keyboard and jumps the shell.
-    // Scope the blur to this composer so another input never loses its focus.
-    const active = rootRef.current?.ownerDocument.activeElement;
-    if (mobile && active instanceof HTMLElement && rootRef.current?.contains(active)) active.blur();
   };
 
   /**
@@ -718,7 +726,7 @@ export function ChatComposer({
     !!onReorderQueuedPrompts &&
     !!onSendQueuedPromptNow;
   // The permission band takes priority over the notice band.
-  const hasBand = !!bandAbove || !!(permissionRequest ?? notice);
+  const hasBand = !!(permissionRequest ?? notice);
   const receiveEditor = React.useCallback((handle: PromptEditorRef | null) => {
     editorRef.current = handle;
     if (typeof editorApiRef === 'function') editorApiRef(handle);
@@ -738,7 +746,7 @@ export function ChatComposer({
       ref={receiveEditor}
       placeholder={resolvedPlaceholder}
       disabled={disabled || !!queueEdit?.pending}
-      onChange={queueEdit ? changeQueueEdit : onInputChange}
+      onChange={(text) => { setHasText(!!text.trim()); (queueEdit ? changeQueueEdit : onInputChange)?.(text); }}
       onPasteText={queueEdit ? undefined : handlePastedText}
       clearOnSubmit={queueEdit ? false : (editorOptions?.clearOnSubmit ?? true)}
       hostDropTypes={onDataDropped ? dataDropTypes : undefined}
@@ -754,7 +762,7 @@ export function ChatComposer({
   );
 
   return (
-    <div ref={rootRef} data-slot="composer" data-band-above={!!bandAbove || undefined} data-mobile={mobile || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
+    <div ref={rootRef} data-slot="composer" data-mobile={mobile || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
       if (queueEdit && event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing && event.keyCode !== 229) {
         event.preventDefault(); finishQueueEdit(null);
       }
@@ -771,8 +779,6 @@ export function ChatComposer({
         />
       )}
 
-      <div data-composer-stack="" className={styles.composerStack({ tone })}>
-        {bandAbove}
         {/* Permission band — shown when the agent is awaiting user approval. */}
         {permissionRequest && onResolvePermission && (
           <PermissionBand
@@ -802,7 +808,7 @@ export function ChatComposer({
         <div
           data-slot="composer-bar"
           data-drag-active={dragActive || undefined}
-          className={styles.composerShell({ hasBand: !!hasBand, dragActive })}
+        className={styles.composerShell({ hasBand: !!hasBand, dragActive, tone })}
           onPaste={queueEdit ? undefined : handlePaste}
           onDragOver={queueEdit ? undefined : handleDragOver}
           onDragLeave={handleDragLeave}
@@ -995,7 +1001,7 @@ export function ChatComposer({
                     onClick={() => finishQueueEdit(editorRef.current?.getText() ?? '')}>{translate('common.save')}</Button>
                 </>
               ) : showSubmitButton ? (
-                isWorking ? (
+                showStop ? (
                   <Button
                     variant="primary"
                     tone="destructive"
@@ -1018,6 +1024,7 @@ export function ChatComposer({
                     size="base"
                     icon
                     className={cx(styles.sendButtonRound, styles.sendButtonInk)}
+                    onPointerDown={mobile ? (event) => event.preventDefault() : undefined}
                     onClick={() => handleSubmit(editorRef.current?.getText() ?? '')}
                     disabled={disabled || !canSubmit}
                     aria-label={translate('composer.sendMessage')}
@@ -1030,6 +1037,5 @@ export function ChatComposer({
           </div>
         </div>
       </div>
-    </div>
   );
 }

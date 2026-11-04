@@ -125,6 +125,16 @@ vi.mock('@renderer/lib/acp/running-sessions', () => ({
   },
 }));
 
+const attachment = vi.hoisted(() => ({ wait: null as Promise<void> | null, calls: vi.fn() }));
+vi.mock('@renderer/lib/acp/acp-session-attachment', () => ({
+  attachAcpSessionWhenReady: async (id: string, signal: AbortSignal) => {
+    attachment.calls(id);
+    await attachment.wait;
+    signal.throwIfAborted();
+    return (await import('@renderer/lib/acp/acp-live-session')).AcpLiveSession.create(id);
+  },
+}));
+
 const create = vi.hoisted(() => vi.fn<(sessionId: string) => Promise<unknown>>());
 vi.mock('@renderer/lib/acp/acp-live-session', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@renderer/lib/acp/acp-live-session')>()),
@@ -204,6 +214,8 @@ function liveSession() {
     activeTurn: replica(null),
     plan: replica(null),
     draft: replica(null),
+    canSyncDraft: () => true,
+    onDraftSyncReady: () => () => {},
     terminals: replica([] as unknown[]),
     config: replica({}),
     usage: replica(null),
@@ -295,6 +307,33 @@ describe('sender custody uses the ordinary transcript row', () => {
     store.dispose();
   });
 
+  it('draws multiple rejected sender inputs once and removes a discarded row without starting the task', async () => {
+    const { store } = storeFor();
+    store.bootstrap();
+    await parked(store);
+    const a = { id: 'refused-a', sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null,
+      text: 'first refused input', createdAt: 5000, queued: false, admission: 'rejected' as const,
+      failure: { code: 'send-failed' as const, message: 'No access' } };
+    const b = { ...a, id: 'refused-b', text: 'second refused input', createdAt: 5001 };
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [a, b] });
+    inputsChanged(); inputsChanged();
+    expect(store.chatState.session.state.pendingPrompt).toBeNull();
+    expect(store.chatState.session.state.pendingMessages).toMatchObject([
+      { id: a.id, delivery: { state: 'failed', retryable: true } }, { id: b.id, delivery: { state: 'failed', retryable: true } },
+    ]);
+    expect(store.transcriptPendingId).toBeNull();
+    expect(store.affordances.isWorking).toBe(false);
+    expect(store.affordances.canCancel).toBe(false);
+    store.beginMessageEdit(a.id);
+    expect(store.messageEdit).toEqual({ itemId: a.id, text: a.text });
+    store.cancelMessageEdit(a.id);
+    inputState().rows = [b]; inputsChanged();
+    expect(store.chatState.session.state.pendingMessages.map(input => input.id)).toEqual([b.id]);
+    expect(life.start).not.toHaveBeenCalled();
+    expect(custody).not.toHaveBeenCalled();
+    store.dispose();
+  });
+
   it.each([
     { senderRetained: true, machine: null }, { senderRetained: false, machine: null },
     { senderRetained: true, machine: 'startup-remote' }, { senderRetained: false, machine: 'startup-remote' },
@@ -370,6 +409,7 @@ describe('sender custody uses the ordinary transcript row', () => {
 });
 
 beforeEach(() => {
+  attachment.wait = null; attachment.calls.mockClear();
   Object.assign(inputState(), { accountId: null, rows: NO_INPUTS, valid: () => false });
   toasts.length = 0;
   running.phases.clear();
@@ -1028,5 +1068,59 @@ describe('#980 打开那一下读不到会话表', () => {
     expect(life.start).not.toHaveBeenCalled();
     store.retry();
     await vi.waitFor(() => expect(life.start).toHaveBeenCalledWith(store.sessionId));
+  });
+});
+
+
+describe('#1449 every attachment entry uses the current-host ready gate', () => {
+  it.each(['running-open', 'parked-wakeup', 'host-reload', 'retry-start', 'retry-open', 'new-start', 'user-stop', 'side-chat', 'released-transcript'] as const)('%s', async entry => {
+    let ready!: () => void;
+    const readyWait = new Promise<void>(resolve => { ready = resolve; });
+    attachment.wait = entry === 'released-transcript' ? null : readyWait;
+    create.mockImplementation(async () => liveSession());
+    const starts = entry === 'new-start' || entry === 'user-stop';
+    const { store } = storeFor(starts ? { providerId: 'claude', initialQueue: [{ text: 'first', origin: 'manual' }] }
+      : { providerId: 'claude', providerSessionId: 'old-provider' });
+    let opened = store;
+    if (entry === 'side-chat') opened = new AcpChatStore(store.sessionId, store.projectId,
+      { id: 'side-ready-' + store.sessionId, forkFromProviderSessionId: 'old-provider' });
+    if (entry === 'running-open' || entry === 'released-transcript') running.phases.set(opened.runtimeSessionId, 'running');
+    if (entry === 'user-stop') life.pend(opened.runtimeSessionId, 'dormant', [], 'user-stop');
+    opened.bootstrap();
+    if (entry === 'released-transcript') {
+      await vi.waitFor(() => {
+        expect(opened.session).not.toBeNull();
+        expect((opened as unknown as { _bootstrapsInFlight: number })._bootstrapsInFlight).toBe(0);
+      });
+      create.mockClear(); attachment.calls.mockClear(); attachment.wait = readyWait;
+      opened.releaseTranscript(); opened.bootstrap();
+    }
+    if (entry === 'parked-wakeup' || entry === 'host-reload' || entry === 'retry-open' || entry === 'retry-start') {
+      await parked(opened);
+      if (entry === 'parked-wakeup') running.set(opened.runtimeSessionId, 'running');
+      if (entry === 'host-reload') opened.reattachAfterHostReload();
+      if (entry.startsWith('retry')) {
+        (opened as unknown as { _reopenOnRetry: boolean })._reopenOnRetry = entry === 'retry-open';
+        if (entry === 'retry-open') running.phases.set(opened.runtimeSessionId, 'running');
+        opened.loadError = { kind: 'generic', message: 'previous attempt' };
+        opened.retry();
+      }
+    }
+    if (entry === 'new-start' || entry === 'retry-start' || entry === 'side-chat') {
+      await vi.waitFor(() => expect(life.start).toHaveBeenCalledWith(opened.runtimeSessionId));
+      life.settle(opened.runtimeSessionId, 'ready');
+    }
+    if (entry === 'user-stop') {
+      await vi.waitFor(() => expect(opened.historyLoading).toBe(false));
+      expect(life.start).not.toHaveBeenCalled();
+      running.phases.set(opened.runtimeSessionId, 'running');
+      life.settle(opened.runtimeSessionId, 'ready');
+    }
+    await vi.waitFor(() => expect(attachment.calls).toHaveBeenCalledWith(opened.runtimeSessionId));
+    expect(create, 'no entry may bypass the host-ready gate').not.toHaveBeenCalled();
+    ready();
+    await vi.waitFor(() => expect(opened.session).not.toBeNull());
+    expect(create).toHaveBeenCalledWith(opened.runtimeSessionId);
+    opened.dispose(); if (opened !== store) store.dispose();
   });
 });

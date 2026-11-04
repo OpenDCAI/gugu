@@ -274,8 +274,6 @@ async function bootstrap() {
   setupViewCommandProvider();
   if (sidebarResult) {
     appState.sidebar.restoreSnapshot(sidebarResult as Partial<SidebarSnapshot>);
-  } else {
-    appState.sidebar.expandAllProjects();
   }
 
   renderSessionTree(container, mountEl);

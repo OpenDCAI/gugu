@@ -59,6 +59,12 @@ export class AcpLiveSession {
   readonly draft: ReplicaState<z.infer<typeof promptDraftSchema> | null>;
   readonly terminals: ReplicaState<TerminalState[]>;
   private disposed = false;
+  private draftStateAttached = false;
+  private draftSnapshotAttached = false;
+  private draftReadyNotified = false;
+  draftConnectionGeneration = 0;
+  private readonly draftReadyListeners = new Set<() => void>();
+  private readonly connectionUnsubs: Unsubscribe[] = [];
 
   private constructor(
     readonly sessionId: string,
@@ -85,6 +91,40 @@ export class AcpLiveSession {
       client.session.state(key, 'terminals'),
       z.array(terminalStateSchema)
     );
+    this.connectionUnsubs.push(
+      client.connection.onDisconnect(() => {
+        this.draftConnectionGeneration++;
+        this.draftStateAttached = false;
+        this.draftSnapshotAttached = false;
+        this.draftReadyNotified = false;
+      }),
+      this.sessionState.onChange((_state, meta) => {
+        if (meta.kind === 'seed') this.draftStateAttached = true;
+        this.notifyDraftReady();
+      }),
+      this.draft.onChange((_draft, meta) => {
+        if (meta.kind !== 'seed') return;
+        this.draftSnapshotAttached = true;
+        this.notifyDraftReady();
+      })
+    );
+  }
+
+  canSyncDraft(): boolean {
+    return !this.disposed && this.draftStateAttached && this.draftSnapshotAttached
+      && !['closed', 'lost', 'starting', 'replaying'].includes(this.sessionState.current().lifecycle);
+  }
+
+  onDraftSyncReady(listener: () => void): Unsubscribe {
+    this.draftReadyListeners.add(listener);
+    return () => this.draftReadyListeners.delete(listener);
+  }
+
+  private notifyDraftReady(): void {
+    const ready = this.canSyncDraft();
+    const changed = ready !== this.draftReadyNotified;
+    this.draftReadyNotified = ready;
+    if (ready && changed) for (const listener of this.draftReadyListeners) listener();
   }
 
   /** Attach to a session its host's session-life already runs; a page never starts, resumes or stops one. */
@@ -193,6 +233,8 @@ export class AcpLiveSession {
   }
 
   dispose(): void {
+    this.connectionUnsubs.splice(0).forEach(unsubscribe => unsubscribe());
+    this.draftReadyListeners.clear();
     this.disposed = true;
     void this.sessionState.dispose();
     void this.config.dispose();

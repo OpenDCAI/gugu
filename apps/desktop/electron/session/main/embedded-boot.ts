@@ -2421,6 +2421,8 @@ export { captureSessionpageProjectionViewer } from './core/extensions/extension-
  */
 export function sessionpageSessionDigest(): Array<{
   nativeInputVersion?: 1 | 2
+  /** Client identity survives host queue admission and provider transcript IDs. */
+  nativeInputIdentity?: true
   runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string
@@ -2445,6 +2447,7 @@ export function sessionpageSessionDigest(): Array<{
     .sort((a, b) => (b.lastInteractedAt ?? '').localeCompare(a.lastInteractedAt ?? ''))
     .map((session) => ({
       nativeInputVersion: session.nativeInputVersion,
+      ...(session.nativeInputIdentity ? { nativeInputIdentity: true as const } : {}),
       runtime: session.runtime,
       conversationId: session.conversationId,
       projectId: session.projectId,
