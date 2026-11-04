@@ -28,11 +28,12 @@ function cachedRelativeTimeFormat(locale: string, options: Intl.RelativeTimeForm
 
 // One formatter per locale, options and time zone: every message row formats its time, and building an
 // Intl.DateTimeFormat per call was a measurable part of switching chats. A formatter fixes the zone it was built in,
-// so the key carries the current UTC offset: a zone change (travel, DST) gets a fresh one.
+// so the key carries the zone NAME and the current UTC offset: 只带 offset 不够 —— 利马与纽约同时刻 offset 相同、
+// 规则不同(评审:7 月 4 日会被画成 7 月 3 日);夏令时切换同样靠 offset 换一份。
 const dateFormats = new Map<string, Intl.DateTimeFormat>();
 
 export function formatDate(value: DateValue, options: Intl.DateTimeFormatOptions | undefined, locale: string): string {
-  const key = `${locale}|${new Date().getTimezoneOffset()}|${JSON.stringify(options ?? {})}`;
+  const key = `${locale}|${Intl.DateTimeFormat().resolvedOptions().timeZone}|${new Date().getTimezoneOffset()}|${JSON.stringify(options ?? {})}`;
   let format = dateFormats.get(key);
   if (!format) dateFormats.set(key, format = new Intl.DateTimeFormat(locale, options));
   return format.format(value instanceof Date ? value : new Date(value));
