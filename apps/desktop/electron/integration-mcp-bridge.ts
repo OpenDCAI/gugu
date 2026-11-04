@@ -8,7 +8,7 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
 import type { AcpMcpServer } from './acp-engine-utils'
-import { GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
+import { errorFields, GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
 import { createLogger } from './lib/logger'
 import { anySignal } from '@gugu/core/shared/anySignal'
 
@@ -91,17 +91,8 @@ export function createIntegrationMcpHost(persistence?: GuguMcpHostPersistence): 
       )
       server.server.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
         const signal = anySignal([grantSignal, extra.signal])
-        // entries() precedes the tracked upstream work; retain that metric boundary and its original error.
-        let entries: readonly IntegrationBridgeEntry[]
-        try { entries = await getContext().entries() } catch (error) {
-          const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined
-          log.warn({ errorType: error instanceof Error ? error.name : 'unknown',
-            errorCode: typeof code === 'number' ? code : undefined,
-            mcpSessionId: extra.sessionId, requestId: extra.requestId }, 'connected app entries unavailable')
-          throw error
-        }
         return trackRequest(
-          listConnectedTools(entries, signal, extra).then((tools) => ({ tools })),
+          (async () => ({ tools: await listConnectedTools(await getContext().entries(), signal, extra) }))(),
           'tools/list',
           extra.requestId,
         )
@@ -161,9 +152,7 @@ async function listConnectedTools(entries: readonly IntegrationBridgeEntry[], si
     } catch (error) {
       signal.throwIfAborted()
       unavailable.push(integrationId)
-      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined
-      log.warn({ integrationId, errorType: error instanceof Error ? error.name : 'unknown',
-        errorCode: typeof code === 'number' ? code : undefined,
+      log.warn({ integrationId, ...errorFields(error),
         mcpSessionId: request.sessionId, requestId: request.requestId }, 'connected app tools unavailable')
     }
   }

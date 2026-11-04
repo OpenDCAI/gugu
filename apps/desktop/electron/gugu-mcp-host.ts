@@ -25,17 +25,22 @@ export type GuguMcpServerFactory<TContext> = (
 ) => McpServer | Promise<McpServer>
 const SLOW_TOOL_CALL_MS = 10_000
 
+/** A failure named by type and numeric MCP code only: never its message, which may carry payload. */
+export function errorFields(error: unknown): { errorType: string; errorCode?: number } {
+  const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined
+  return { errorType: error instanceof Error ? error.name : typeof error, errorCode: typeof code === 'number' ? code : undefined }
+}
+
 function trackToolCallDuration(work: Promise<unknown>, toolName: string,
   attribution: { mcpSessionId?: string; toolScope: string; requestId?: string | number }): void {
   const startedAt = Date.now()
   const settle = (outcome: 'success' | 'error', value: unknown) => {
     const elapsedMs = Date.now() - startedAt
-    const result = value && typeof value === 'object' ? value as { isError?: unknown; code?: unknown } : null
     // Promise settlement and a native MCP error result are separate facts. Log no payload or raw error text.
     const fields = { tool: toolName, elapsedMs, outcome, ...attribution,
-      resultIsError: outcome === 'success' ? result?.isError === true : undefined,
-      errorType: outcome === 'error' ? (value instanceof Error ? value.name : typeof value) : undefined,
-      errorCode: outcome === 'error' && typeof result?.code === 'number' ? result.code : undefined }
+      ...(outcome === 'success'
+        ? { resultIsError: (value as { isError?: unknown } | null)?.isError === true }
+        : errorFields(value)) }
     if (elapsedMs > SLOW_TOOL_CALL_MS) log.warn(fields, 'gugu MCP tool call exceeded 10s')
     else log.info(fields, 'gugu MCP tool call completed')
   }

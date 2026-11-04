@@ -47,8 +47,10 @@ it('logs a completion line for success, an isError result and a thrown failure',
 
   const byTool = Object.fromEntries(lines.map((line) => [line.fields.tool, line.fields]))
   const attribution = { mcpSessionId: transport.sessionId, toolScope: 'gugu', requestId: expect.anything() }
-  expect(byTool.ok_tool).toMatchObject({ ...attribution, outcome: 'success', resultIsError: false, errorType: undefined })
-  expect(byTool.error_result_tool).toMatchObject({ ...attribution, outcome: 'success', resultIsError: true, errorType: undefined })
-  expect(byTool.throwing_tool).toMatchObject({ ...attribution, outcome: 'error', resultIsError: undefined, errorType: 'SecretFailure' })
+  expect(byTool.ok_tool).toMatchObject({ ...attribution, outcome: 'success', resultIsError: false })
+  expect(byTool.error_result_tool).toMatchObject({ ...attribution, outcome: 'success', resultIsError: true })
+  expect(byTool.throwing_tool).toMatchObject({ ...attribution, outcome: 'error', errorType: 'SecretFailure' })
+  expect(byTool.ok_tool).not.toHaveProperty('errorType')
+  expect(byTool.throwing_tool).not.toHaveProperty('resultIsError')
   expect(JSON.stringify(lines)).not.toContain('payload must not be logged')
 })
