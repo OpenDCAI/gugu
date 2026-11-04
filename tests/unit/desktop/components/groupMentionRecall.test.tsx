@@ -114,6 +114,7 @@ describe('group mention recall through the real composer and send path', () => {
     try {
       const onSend = await mount(); await type('@Beta hi'); await send()
       expect(harness.container.querySelector('[data-mobile-group="true"]')).not.toBeNull()
+      expect(hint()?.textContent).toBe('@Beta')
       await act(async () => { hint()!.click() })
       expect(input().querySelector('[data-mention-id="beta"]')).not.toBeNull()
       expect(onSend).toHaveBeenCalledTimes(1)
