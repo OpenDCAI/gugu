@@ -15,6 +15,7 @@ import { resolveMessagingValue } from '@/lib/localizedStoredValue'
 import { useAgentContactStatusLabel } from './contactAgentTone'
 import { useAgentDisplayStatus } from '../hooks/useAgentDisplayStatus'
 import { Button } from './ui/Button'
+import { FieldList } from './contactsDetailControls'
 import { cn } from '@/lib/cn'
 import { CommunityPointsTag } from './forum/CommunityPointsTag'
 import { useAgentSession } from '@/lib/projectGroupChatsBridge'
@@ -33,10 +34,10 @@ const profileNameClass = 'gg-pop-pn min-w-0 overflow-hidden text-ellipsis whites
 const profileTagClass = 'gg-pop-pt mt-[3px] overflow-hidden text-ellipsis whitespace-nowrap text-[length:var(--font-body)] text-[var(--text-tertiary)]'
 const profileActionsClass = 'gg-pop-pacts flex flex-wrap gap-2 px-[18px] pb-3 pt-3.5'
 const profileButtonClass = 'gg-pop-pbtn flex-[1_1_auto] text-[length:var(--font-body)] [&_svg]:shrink-0'
-const profileFieldsClass = 'gg-pop-fields flex flex-col gap-1.5 px-[18px] pb-3.5'
-const profileFieldRowClass = 'gg-pop-field-row grid grid-cols-[56px_minmax(0,1fr)] items-start gap-2 text-[length:var(--font-caption)] leading-4'
-const profileFieldLabelClass = 'gg-pop-field-label text-[var(--text-tertiary)]'
-const profileFieldValueClass = 'gg-pop-field-value [overflow-wrap:anywhere] text-[var(--text-secondary)]'
+const profileFieldsClass = 'gg-pop-fields gap-x-2 gap-y-1.5 px-[18px] pb-3.5'
+const profileFieldRowClass = 'gg-pop-field-row col-span-2 grid grid-cols-subgrid items-start text-[length:var(--font-body)] leading-[var(--lh-body)]'
+const profileFieldLabelClass = 'gg-pop-field-label whitespace-nowrap text-[var(--text-tertiary)]'
+const profileFieldValueClass = 'gg-pop-field-value min-w-0 [overflow-wrap:anywhere] text-[var(--text-secondary)]'
 const profileAgentMetaClass = 'mt-[3px] flex flex-wrap gap-x-2.5 gap-y-0.5 text-[length:var(--font-caption)] leading-[var(--lh-caption)] text-[var(--text-tertiary)] [&>*]:max-w-full [&>*]:truncate'
 const profileListenClass = 'gg-pop-lm px-[18px] pb-[18px] pt-1'
 const profileListenLabelClass = 'gg-pop-lml mb-[7px] text-[length:var(--font-body)] text-[var(--text-secondary)]'
@@ -364,7 +365,7 @@ export function MemberProfileCard({
           @@@1344(a) — group-agent 卡隐藏群语境字段(备注/群角色/咕咕号/任务/动作)，保留身份字段
           (简介/邮箱)、倾听模式与管理区。直接资料卡与群里的人类成员卡保留完整字段。 ─── */}
       {member.bio || member.email || !(isAgent && isGroupProfile) ? (
-        <div className={profileFieldsClass}>
+        <FieldList className={profileFieldsClass}>
           {member.bio ? <DataRow field="bio" label={t('profile.bio')} value={member.bio} /> : null}
           {member.email ? <DataRow field="email" label={t('profile.email')} value={member.email} /> : null}
           {!(isAgent && isGroupProfile) ? (
@@ -386,7 +387,7 @@ export function MemberProfileCard({
               ) : null}
             </>
           ) : null}
-        </div>
+        </FieldList>
       ) : null}
 
       {/* ── 倾听模式 segmented control (prototype .lm/.lmseg, lines 453-457)
