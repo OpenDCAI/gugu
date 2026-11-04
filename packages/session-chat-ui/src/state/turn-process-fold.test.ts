@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { ChatItem, ChatMessage, TranscriptTurn, TurnProcessItem, TurnCompletionItem } from '@session-chat/model';
 import { flattenTier, planTurnFold, toolRunId, turnProcessId } from './flatten';
 import { pendingPromptTurn } from './pending-prompt';
+import { conversationBackgroundOwner } from './conversation-background';
 import { joinsFoldRunAt, turnProcessLabel } from './turn-fold';
 
 function passthrough(kind: string): ItemSegmenter {
@@ -1012,4 +1013,38 @@ describe('agent conversation segment process', () => {
     expect(kinds(units)).toContain('turn-outcome');
     expect(process(units)?.live).toBeUndefined();
   });
+});
+
+
+describe('explicit silence completion placement (#1669)', () => {
+  const clock = { startedAt: 10_000, endedAt: 17_000 };
+  const rows = (text: string, conversation = true) => flattenTier(
+    [turn('silent-copy', [user('u'), tool('work'), reply('a', text)], DONE, clock)],
+    ctxWith({ foldTurnProcess: true, agentConversation: conversation }), SEGMENTERS);
+  it('keeps the exact existing tool result as an inline silent copy', () => {
+    const out = rows('[NO_REPLY]');
+    expect(out.filter(row => row.kind === 'turn-process').at(-1)?.data).toMatchObject({ silent: true, silentCopyText: 'bash' });
+    expect(out.some(row => row.kind === 'turn-completion')).toBe(false);
+  });
+  it('leaves ordinary tool-only completion and the classic copy row intact', () => {
+    for (const out of [rows(''), rows('[NO_REPLY]', false)]) {
+      expect((out.find(row => row.kind === 'turn-completion')?.data as TurnCompletionItem).text).toBe('bash');
+      expect(out.some(row => (row.data as TurnProcessItem).silentCopyText !== undefined)).toBe(false);
+    }
+  });
+  it('leaves a visible closing reply on its existing message path', () => {
+    const out = rows('Done');
+    expect(out.some(row => row.kind === 'turn-completion')).toBe(false);
+    expect(out.some(row => (row.data as TurnProcessItem).silentCopyText !== undefined)).toBe(false);
+    expect(out.some(row => row.kind === 'message' && (row.data as ChatMessage).text === 'Done')).toBe(true);
+  });
+});
+
+
+it('keeps the silent roster standalone when its process children are expanded', () => {
+  const process = { kind: 'turn-process', id: 'silent-owner', turnId: 'turn', silent: true, silentCopyText: 'bash' } as const;
+  const head = unit('turn-process', process, process, { key: 'self' });
+  const child = unit('conversation-process-steps', tool('child'), { id: 'steps' }, { key: 'self' });
+  child.conversationProcessOwner = process.id;
+  expect(conversationBackgroundOwner([head, child])).toBeNull();
 });

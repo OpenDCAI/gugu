@@ -404,12 +404,17 @@ export function flattenTier(
       continue;
     }
 
+    const completionResult = completedTurnResult(turn, foldRuns.get(turnIndex), ctx.active);
+    let inlineCompletion = false;
     const fold = foldPlans[turnIndex];
     let resultOwner: string | undefined;
     if (ctx.agentConversation) {
-      for (const block of planConversationSegments(turn, ctx.active && turnIndex === turns.length - 1)) {
+      const blocks = planConversationSegments(turn, ctx.active && turnIndex === turns.length - 1);
+      for (const block of blocks) {
         if (block.kind === 'input') { resultOwner = undefined; processItem(block.item); continue; }
         const output = conversationOutput(block.items, block.live);
+        const silentCopyText = output.silent && block === blocks.at(-1) && completionResult !== null ? completionResult : undefined;
+        if (silentCopyText !== undefined) inlineCompletion = true;
         const ops = planRows(outsideProcess(output.rest));
         const process = { id: block.id, ...(block.live ? { live: true } : {}),
           startedAt: block.startedAt, endedAt: block.endedAt, ...(block.idleMs && !block.live ? { idleMs: block.idleMs } : {}), ...(block.live && ctx.pendingStarting?.() ? { starting: ctx.pendingStarting?.() } : {}), steps: output.steps.length,
@@ -442,6 +447,7 @@ export function flattenTier(
         } else {
           processItem({ kind: 'turn-process', ...process, turnId: turn.id,
             ...(output.silent ? { silent: true } : {}),
+            ...(silentCopyText !== undefined ? { silentCopyText } : {}),
             ...(ops.length ? { withBody: true } : { placeholder: true }) });
           steps();
           if (output.stopReason) processItem(output.stopReason);
@@ -528,8 +534,7 @@ export function flattenTier(
       }, undefined, resultOwner);
     });
 
-    const completionResult = completedTurnResult(turn, foldRuns.get(turnIndex), ctx.active);
-    if (completionResult !== null) {
+    if (completionResult !== null && !inlineCompletion) {
       processItem({ kind: 'turn-completion', id: `${turn.id}:completion`, turnId: turn.id, text: completionResult });
     }
 
