@@ -1,4 +1,4 @@
-import { state, changed, EMPTY } from '@/lib/sessionInputOutboxBridge'
+import { state, changed, EMPTY, sessionInputSteeringAvailable } from '@/lib/sessionInputOutboxBridge'
 import { SessionInputAdmissionError, sessionInputAdmission } from '@gugu/core/shared/sessionInputAdmission'
 import { NativeConversationReadHost } from '@/components/chat/NativeConversationReadHost'
 import { ChatSummariesHost } from '@/components/chat/ChatSummariesHost'
@@ -45,6 +45,7 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
     own.queue = openSessionInputStorage().then(storage => {
       queue = new SessionInputOutbox(accountId, storage, async input => {
         if (!valid()) throw new Error('Session input account changed')
+        if (input.steerIfBusy && !sessionInputSteeringAvailable(input.sessionId)) throw new SessionInputFailureError({ code: 'host-not-ready' })
         const device = hosts.current.find(device => device.device_id === input.deviceId)
         // This computer is named either way (no device id, or its own id); either way its own host answers over IPC.
         const remoteId = !input.deviceId || device?.is_current_device ? null : input.deviceId

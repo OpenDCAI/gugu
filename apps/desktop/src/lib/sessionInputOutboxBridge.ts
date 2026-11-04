@@ -64,7 +64,7 @@ export async function reorderQueuedSessionInputs(sessionId: string, ids: readonl
 
 /** Call only with an authoritative foreground-idle snapshot, or the person's explicit send-now action. */
 export async function releaseQueuedSessionInput(sessionId: string, turns: readonly TranscriptTurn[], nowId?: string, steers = false, canRelease: () => boolean = () => true): Promise<SessionInput | null> {
-  if (steers && !Object.values(liveDeviceSessions()).some(host => !host.cached && host.sessions.some(session => session.conversationId === sessionId && session.nativeInputSteering === true))) {
+  if (steers && !sessionInputSteeringAvailable(sessionId)) {
     throw new Error(translateSessionMessage('composer.steeringHostUpdateRequired'))
   }
   const completed = new Set<string>()
@@ -76,6 +76,11 @@ export async function releaseQueuedSessionInput(sessionId: string, turns: readon
   const input = await queue.releaseQueued(sessionId, sessionInputBaseline(turns), completed, nowId, steers, canRelease)
   if (input) void queue.flush().catch(error => rendererLogger('session/input-outbox').warn({ error: String(error) }, 'Could not flush released input'))
   return input
+}
+
+export function sessionInputSteeringAvailable(sessionId: string): boolean {
+  return Object.values(liveDeviceSessions()).some(host => !host.cached && host.connected === true && !host.error
+    && host.sessions.some(session => session.conversationId === sessionId && session.nativeInputSteering === true))
 }
 
 export function useQueuedSessionInputs(sessionId: string): readonly SessionInput[] {
