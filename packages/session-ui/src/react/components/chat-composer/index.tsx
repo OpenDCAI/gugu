@@ -253,7 +253,7 @@ export interface ChatComposerProps {
    */
   modelUnlock?: ComposerModelUnlock | null;
   /** 点了那枚标签。宿主决定这一步做什么;composer 只知道「这一行的点击不是选中」。 */
-  onModelUnlock?: () => void;
+  onModelUnlock?: (anchor?: HTMLElement) => void;
   /** 模型面板底部「管理模型」—— 宿主打开设置里的「模型」那一页(#7056)。不给 = 不画。 */
   onManageModels?: () => void;
   /** 模型面板底部「升级解锁更多模型」(免费档才有,见 `ComposerModelUpgrade`)。 */
@@ -571,6 +571,9 @@ export function ChatComposer({
     if (phoneActions) { phoneSubmittingRef.current = true; setPhoneSubmitting(true); }
     try {
       const committed = submit(text);
+      // Settle focus synchronously; a deferred refocus reopens the keyboard.
+      const active = rootRef.current?.ownerDocument.activeElement;
+      if (active instanceof HTMLElement && rootRef.current?.contains(active)) active.blur();
       if (phoneActions) await committed;
     } finally {
       if (phoneActions) { phoneSubmittingRef.current = false; setPhoneSubmitting(false); }
@@ -1024,7 +1027,6 @@ export function ChatComposer({
                     size="base"
                     icon
                     className={cx(styles.sendButtonRound, styles.sendButtonInk)}
-                    onPointerDown={mobile ? (event) => event.preventDefault() : undefined}
                     onClick={() => handleSubmit(editorRef.current?.getText() ?? '')}
                     disabled={disabled || !canSubmit}
                     aria-label={translate('composer.sendMessage')}

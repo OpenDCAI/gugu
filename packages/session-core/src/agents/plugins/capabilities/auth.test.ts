@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { agentAuthDescriptorSchema } from './auth';
 
 describe('agentAuthDescriptorSchema — acp-authenticate(#6335)', () => {
+  it('preserves an explicit managed-connections declaration', () => {
+    const auth = agentAuthDescriptorSchema.parse({
+      kind: 'supported',
+      connections: { kind: 'managed' },
+      methods: [{ kind: 'cli-login', id: 'login', name: 'Login', args: ['login'] }],
+    });
+    expect(auth).toMatchObject({ connections: { kind: 'managed' } });
+  });
+
   it('收下协议登录方法:咕咕侧 id + 厂商自报的 methodId', () => {
     const parsed = agentAuthDescriptorSchema.parse({
       kind: 'supported',

@@ -26,21 +26,23 @@ function formatSupportsText(translate: Translate, agent: AgentPayload): string {
 export const AgentModalHeaderSection = observer(function AgentModalHeaderSection({
   agent,
   dimmed,
+  compact = false,
 }: {
   agent: AgentPayload;
   /** 未安装:图标与网格里同样灰化。 */
   dimmed: boolean;
+  compact?: boolean;
 }) {
   const { translate } = useSessionMessages();
   return (
     <div className="flex min-w-0 items-center gap-4">
-      <AppIcon id={agent.id} size={64} dimmed={dimmed} />
+      <AppIcon id={agent.id} size={compact ? 48 : 64} dimmed={dimmed} />
       <div className="flex min-w-0 flex-col gap-1">
         {/* @@@raw agent name — agent 名是 provider 数据,只做插值。 */}
         <div className="flex min-w-0 items-center gap-2">
           <DialogTitle className="truncate text-xl font-medium text-foreground">{agent.name}</DialogTitle>
         </div>
-        <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-foreground-muted">
+        {!compact && <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-foreground-muted">
           <span>{formatSupportsText(translate, agent)}</span>
           {agent.websiteUrl && (
             <a
@@ -53,7 +55,7 @@ export const AgentModalHeaderSection = observer(function AgentModalHeaderSection
               <ExternalLink className="size-3.5" />
             </a>
           )}
-        </p>
+        </p>}
       </div>
     </div>
   );

@@ -32,6 +32,18 @@ export function cloudReadTarget(chatId: string, rootId: string | null, seq: numb
   return rootId ? { kind: 'thread', chatId, rootId, seq: chatSeq(seq) } : { kind: 'main', chatId, seq: chatSeq(seq) }
 }
 
+async function nativeReadApi(deviceId: string | null) {
+  return platform.kind === 'electron'
+    ? (await import('@/session/renderer/lib/ipc')).rpcOn(deviceId).sessionTimeline
+    : (await import('@/mobile/agent-watch/sessionpage-rpc')).machineRpc(deviceId!).sessionTimeline
+}
+
+/** Capture the actual host journal once per opening, rather than trusting a cached session-list count. */
+export async function readOwnerNotificationSnapshot(deviceId: string | null, conversationId: string): Promise<readonly NativeItemId[] | undefined> {
+  const state: { ownerNotificationUnreadKeys?: string[] } = await (await nativeReadApi(deviceId)).sessionReadState({ conversationId })
+  return state.ownerNotificationUnreadKeys?.map(nativeItemId)
+}
+
 /**
  * 已读的**唯一写入口**。服务端读位单调只增,这里不守卫也不回滚:守卫(陈旧 seq 不发)与乐观 patch 的回滚
  * 归调用方(advanceReadWatermark)。失败一律抛。
@@ -43,9 +55,7 @@ export async function writeRead(target: ReadTarget): Promise<void> {
     case 'thread':
       return markCloudStreamRead(target.chatId, `thread:${target.chatId}:${target.rootId}`, target.seq, target.rootId)
     case 'native': {
-      const api = platform.kind === 'electron'
-        ? (await import('@/session/renderer/lib/ipc')).rpcOn(target.deviceId).sessionTimeline
-        : (await import('@/mobile/agent-watch/sessionpage-rpc')).machineRpc(target.deviceId!).sessionTimeline
+      const api = await nativeReadApi(target.deviceId)
       await api.sessionVisible({ conversationId: target.conversationId, itemIds: [...target.itemIds] })
       return
     }
