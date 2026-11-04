@@ -1,5 +1,6 @@
 import { WIDGET_HEIGHT_MIN, WIDGET_HEIGHT_MAX } from '@gugu/core/shared/ui/widgetModels';
 import { EXTENSION_API_VERSION, EXTENSION_TOOL_CONFINEMENT_API_VERSION } from './bridge-protocol';
+import { TASK_MESSAGE_GUIDE } from './task-message-guide';
 
 /**
  * 交给 agent 的「怎么写一个 tab 扩展」简报。
@@ -1157,6 +1158,11 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     topic: 'apps-projection',
     about: 'Local picture and input resources: a program supplies capture and input, a task page mounts the shared viewer; authorization, painted frames and cleanup.',
     text: EXTENSION_GUIDE_PROJECTION,
+  },
+  {
+    topic: 'apps-task-messages',
+    about: 'Fixed pause/continue conversation messages from a person’s click in the current task page; task binding and gesture limits.',
+    text: TASK_MESSAGE_GUIDE,
   },
   {
     topic: 'apps-files',

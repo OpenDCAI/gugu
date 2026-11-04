@@ -12,6 +12,7 @@ import { extensionPartition, extensionResourceUrl } from '@shared/extensions/par
 import { onExtensionProgramNotification } from '@main/core/extensions/extension-programs';
 import { extensionProjections } from './extension-projection-bridge';
 import { closeAppPageResources, layoutAppPageResources } from './app-page-resources';
+import { sendTaskMessage } from './task-message';
 import { log } from '@main/lib/logger';
 import { events } from '@main/lib/events';
 import { extensionProgramNotifiedChannel } from '@shared/extensions/marketEvents';
@@ -1674,6 +1675,13 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
   if (isMachineVerb(method)) return await machineCall(caller, method, args);
   const { binding, extensionId } = caller;
   switch (method) {
+    case 'taskMessage': {
+      const service = extensionsService();
+      service.get(extensionId);
+      if (!service.isEnabled(extensionId)) throw new Error('App task message access was revoked');
+      return sendTaskMessage(caller, args, requireHost().presentation().locale,
+        (page, text) => deliver(page, { kind: 'taskMessage', text }));
+    }
     case 'showTaskPages': {
       const [{ showTaskPages }, { projectionTaskProject }, { openTaskPagesOfApp }] = await Promise.all([
         import('./show-task-pages'), import('./projection-task'), import('../sessions/session-orchestration'),

@@ -17,6 +17,7 @@ interface HostCall {
 const same = (args?: unknown) => args;
 
 export const HOST_CALLS = {
+  taskMessage: { verb: 'taskMessage' },
   showTaskPages: { verb: 'showTaskPages', pack: () => ({}) },
   'projectionMedia.open': { verb: 'projectionMediaOpen' },
   'projectionMedia.answer': { verb: 'projectionMediaAnswer' },

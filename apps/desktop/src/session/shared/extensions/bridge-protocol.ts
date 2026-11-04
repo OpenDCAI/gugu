@@ -83,7 +83,7 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 27: pages read members explicitly with chats.members(); context keeps the chat summary without a roster.
 // Pages declaring 26 or earlier retain their initial members and roster context updates.
 // 29: tools modules are host-confined.
-// 30: task-scoped page leases and shared App control resources.
+// 30: task-scoped page leases, shared App control resources and fixed conversation shortcuts from a person's click.
 /** Tools modules opt into host confinement from this API. Final numbering follows dev at merge. */
 export const EXTENSION_TOOL_CONFINEMENT_API_VERSION = 29;
 export const EXTENSION_API_VERSION = 30;
@@ -681,6 +681,7 @@ export interface VerbFacts {
  * and a row without any of its facts does not build.
  */
 export const BRIDGE_VERBS = {
+  taskMessage: { needs: 'agents:tools', only: 'page', gesture: true },
   showTaskPages: { needs: 'agents:tools', only: 'program' },
   taskPageAcquire: { needs: 'agents:tools', only: 'program' },
   taskPageSend: { needs: 'agents:tools', only: 'program' },
