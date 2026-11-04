@@ -67,7 +67,7 @@ export function mergeIntoOneStrip(snapshot: TabGroupsSnapshot): TabGroupsSnapsho
       merged.pair = {
         anchorTabId: first,
         sideTabId: second,
-        ...(vertical ? { sideAt: 'bottom' as const } : {}),
+        ...(vertical ? { sideAt: 'bottom' as const, userPlaced: true as const } : {}),
       };
     }
   }
@@ -259,12 +259,12 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
   }
 
   /**
-   * 「开在对话旁边」(`beside`)认哪一枚是对话:会话页那一侧知道(这条会话自己的对话页签),由它挂上来;
+   * 「开在对话旁边」(`beside`)认 `tab` 该挨着哪一枚对话(不变量 2:它来自的那段对话):会话页那一侧知道,由它挂上来;
    * 没挂(测试、新建任务页)或这会儿没有对话 = 照常开。
    */
-  pairAnchor: ((tab?: Pick<TabEntry, 'kind' | 'state'>) => PairAnchor | null) | null = null;
+  pairAnchor: ((tab: Pick<TabEntry, 'kind' | 'state'>) => PairAnchor | null) | null = null;
 
-  setPairAnchor(finder: ((tab?: Pick<TabEntry, 'kind' | 'state'>) => PairAnchor | null) | null): void {
+  setPairAnchor(finder: ((tab: Pick<TabEntry, 'kind' | 'state'>) => PairAnchor | null) | null): void {
     this.pairAnchor = finder;
   }
 
@@ -276,30 +276,23 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
    */
   showBeside(tabId: string, opts?: { reveal?: boolean }): boolean {
     const group = this.groups.find((g) => g.pane.entries.has(tabId));
-    const anchor = this.pairAnchor?.(group?.pane.entries.get(tabId)) ?? null;
+    const windowPane = [...this.windowPanes.values()].find((w) => w.pane.entries.has(tabId));
+    const entry = (group ?? windowPane)?.pane.entries.get(tabId);
+    const anchor = entry ? (this.pairAnchor?.(entry) ?? null) : null;
     if (!anchor) return false;
-    for (const windowPane of this.windowPanes.values()) {
-      if (!windowPane.pane.entries.has(tabId)) continue;
+    if (windowPane) {
       this.windowRevealer?.(windowPane.paneId);
       return true;
     }
-    if (!group) return false;
-    if (group.paneId !== anchor.paneId) {
-      group.pane.setActiveTab(tabId);
+    if (group!.paneId !== anchor.paneId) {
+      group!.pane.setActiveTab(tabId);
       return true;
     }
-    if (group.pane.splitDeclinedFor(tabId)) {
-      // 用户拆开过这一类:不再自动并排,人点开的照常亮到前面,agent 请的不切走。
-      if (opts?.reveal) {
-        this.setActiveGroup(group.paneId);
-        group.pane.setActiveTab(tabId);
-      }
-      return true;
-    }
-    group.pane.pairWith(anchor.tabId, tabId);
+    // 用户拆开过这一类 = pairWith 不并排;人点开的照常亮到前面,agent 请的不切走。
+    group!.pane.pairWith(anchor.tabId, tabId);
     if (opts?.reveal) {
-      this.setActiveGroup(group.paneId);
-      group.pane.setActiveTab(tabId);
+      this.setActiveGroup(group!.paneId);
+      group!.pane.setActiveTab(tabId);
     }
     return true;
   }
@@ -579,12 +572,8 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     if (initialState === null) return; // aborted by onBeforeOpen
 
     // 开在对话旁边(spec session-page「并排」):对话那一格、那一枚。没有对话 = 照常开;
-    // 用户拆开过这一类 = 不再自动并排,也照常开 —— agent 打开的不切走,人点开的切过去(和普通浏览器一样)。
-    const foundAnchor = config?.beside ? (this.pairAnchor?.({ kind, state: initialState }) ?? null) : null;
-    const declinedGroup = foundAnchor
-      ? this.groups.find((g) => g.paneId === foundAnchor.paneId && g.pane.splitDeclinedKinds.has(kind as string))
-      : undefined;
-    const anchor = declinedGroup ? null : foundAnchor;
+    // 用户拆开过这一类 = pairWith 不并排,只多一枚页签 —— agent 打开的不切走,人点开的切过去(和普通浏览器一样)。
+    const anchor = config?.beside ? (this.pairAnchor?.({ kind, state: initialState }) ?? null) : null;
     const anchorGroup = anchor ? this.groups.find((g) => g.paneId === anchor.paneId) : undefined;
 
     // Single-mount: check ALL panes for an existing resourceKey match.
@@ -607,16 +596,6 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
           if (!previewFlag) existing.isPreview = false;
           if (overrideStateFlag) existing.state = initialState;
           this.showBeside(existing.tabId, { reveal: config?.activate ?? true });
-          return;
-        }
-        if (existing && declinedGroup) {
-          // 拆开过:已经开着的照常亮到前面(人点的),agent 请的不切走。
-          if (!previewFlag) existing.isPreview = false;
-          if (overrideStateFlag) existing.state = initialState;
-          if (config?.activate ?? true) {
-            this.setActiveGroup(g.paneId);
-            g.pane.setActiveTab(existing.tabId);
-          }
           return;
         }
         if (existing) {
@@ -659,15 +638,12 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       return;
     }
 
-    // Route to the target pane. 拆开过的会话落在对话那一格(同并排时一样,❌ 落进用户正点着的别的格)。
-    const targetPane = declinedGroup?.pane ?? this._resolveTargetPane(resolvedTarget);
-    targetPane.openWithState(kind, initialState, {
+    this._resolveTargetPane(resolvedTarget).openWithState(kind, initialState, {
       isPreview: previewFlag,
       overrideState: overrideStateFlag,
       returnTo: config?.returnTo,
-      // 要开在对话旁边、却没有对话可并排 = 照常开,照常就是切过去(❌ 开成一枚屏上看不见的后台页签);
-      // 用户拆开过就按调用方说的(agent 打开的不切走)。
-      activate: config?.beside && !declinedGroup ? true : (config?.activate ?? true),
+      // 要开在对话旁边、却没有对话可并排 = 照常开,照常就是切过去(❌ 开成一枚屏上看不见的后台页签)。
+      activate: config?.beside ? true : (config?.activate ?? true),
     });
   }
 
@@ -842,10 +818,6 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       isViewActive: () => this._isViewActiveBox.get(),
       layoutSplitter: {
         windowOpener: (tabId) => this.windowOpener?.(tabId) ?? null,
-        pairAnchorTab: () => {
-          const anchor = this.pairAnchor?.() ?? null;
-          return anchor && anchor.paneId === paneId ? anchor.tabId : null;
-        },
         moveToOtherPane: (tabId) => {
           const to = neighbourInOrder(this.layout, paneId, 'after') ?? neighbourInOrder(this.layout, paneId, 'before');
           return to ? () => this.moveTab(tabId, paneId, to) : null;

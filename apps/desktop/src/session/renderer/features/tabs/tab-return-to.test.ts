@@ -72,7 +72,8 @@ describe('tab return navigation', () => {
     pane.setPairRatio(0.3);
     pane.closeTab(child);
     expect(pane.activeTabId).toBe(previous);
-    expect(pane.livePair).toEqual({ anchor, side: previous, sideAt: edge, ratio: 0.3 });
+    // The previous page takes the closed one's place, the person's placement with it.
+    expect(pane.livePair).toEqual({ anchor, side: previous, sideAt: edge, ratio: 0.3, userPlaced: true });
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { screenLayout } from '@renderer/app/screen-layout';
 import { showGroupParticipant } from '@renderer/features/chats/group-participant-actions';
 import { groupParticipantPanes } from '@renderer/features/chats/group-participant-panes';
-import { chatLayoutOf, openPanelItem, openTopicTab, panelTabsOf, showChatTab, topicTabOf, yieldChatAuxiliary } from '@renderer/features/chats/chat-tabs/chat-layouts';
+import { chatLayoutOf, openPanelItem, openTopicTab, panelTabsOf, showChatTab, topicTabOf } from '@renderer/features/chats/chat-tabs/chat-layouts';
 const board = { kind: 'kanban.board', title: 'Board' };
 const pane = (chatId: string) => chatLayoutOf(chatId).groups[0]!.pane;
 
@@ -28,7 +28,6 @@ describe('participant and topic share the one auxiliary place', () => {
     screenLayout.show({ kind: 'chat', chatId });
     openPanelItem(chatId, board);
     const tab = panelTabsOf(chatId)[0]!.tabId;
-    yieldChatAuxiliary(chatId);
     showGroupParticipant(chatId, { kind: 'session', projectId: 'p', sessionId: 'participant-b' });
     showChatTab(chatId, tab);
     expect(screenLayout.order).toHaveLength(1);

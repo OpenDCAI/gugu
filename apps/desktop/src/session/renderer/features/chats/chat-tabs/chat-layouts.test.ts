@@ -9,6 +9,7 @@ import type { MessageItem } from '@gugu/core/shared/types/chat';
 import { folderItem, type PanelItem } from './chat-panel-item';
 import {
   askChat,
+  chatTabView,
   chatAlone,
   chatBlockContentOf,
   chatLayoutOf,
@@ -29,10 +30,11 @@ import {
   takeChatAsk,
   topicTabOf,
   updateFileNames,
-  yieldChatAuxiliary,
 } from './chat-layouts';
-import { CHAT_TAB_KIND } from './chat-tab-providers';
+import { CHAT_TAB_KIND, CHAT_PANEL_TAB_KIND } from './chat-tab-providers';
 import { tabFullscreen } from '../../tabs/tab-fullscreen';
+import { groupParticipantPanes } from '../group-participant-panes';
+import { runInAction } from 'mobx';
 
 const board: PanelItem = { kind: 'kanban.board', title: 'Board' };
 const deck: PanelItem = { kind: 'slides.main', itemId: 'deck', typedName: 'deck.pptx', title: 'deck.pptx' };
@@ -56,16 +58,6 @@ describe('a chat has its own tab first, and nothing else until something is open
 });
 
 describe('opening beside the chat', () => {
-  it('pairs with the chat; opening another takes the pair next to the chat (Chrome Swap), the one before stays a tab', () => {
-    openPanelItem('beside-1', board);
-    expect(chatAlone('beside-1')).toBe(false);
-    expect(shownPanelTab('beside-1')?.item).toMatchObject(board);
-    openPanelItem('beside-1', deck);
-    expect(kinds('beside-1'), 'the pair sits together: the new one beside the chat, the one it replaced where the new one was').toEqual(['deck', 'kanban.board']);
-    expect(shownPanelTab('beside-1')?.item.itemId).toBe('deck');
-    expect(panelTabsOf('beside-1').find((tab) => tab.item.kind === 'kanban.board')?.shown).toBe(false);
-  });
-
   it('the same App page opened again is the same tab', () => {
     const first = openPanelItem('beside-2', board);
     openPanelItem('beside-2', deck);
@@ -105,15 +97,6 @@ describe('opening beside the chat', () => {
 });
 
 describe('leaving a tab', () => {
-  it('a file opened from the folder goes back to the folder', () => {
-    const folder = openPanelItem('exit-1', folderItem())!;
-    const item = openPanelItem('exit-1', file('101'), { returnTo: folder })!;
-    expect(returnToOf('exit-1', item)).toBe(folder);
-    closeChatTab('exit-1', item);
-    expect(shownPanelTab('exit-1')?.tabId).toBe(folder);
-    expect(panelTabsOf('exit-1')).toHaveLength(1);
-  });
-
   it('keeps its 上一页 after switching tabs, and does not revive one the person closed', () => {
     const app = openPanelItem('exit-2', board)!;
     const first = openPanelItem('exit-2', file('103'), { returnTo: app })!;
@@ -148,164 +131,158 @@ describe('leaving a tab', () => {
   });
 });
 
-describe('filling the block (the old 「全屏」) is the pair separated', () => {
-  it('fills the block, and back beside the chat', () => {
-    const tab = openPanelItem('full-1', board)!;
-    expect(panelFull('full-1', tab)).toBe(false);
-    setPanelFull('full-1', tab, true);
-    expect(panelFull('full-1', tab)).toBe(true);
-    setPanelFull('full-1', tab, false);
-    expect(panelFull('full-1', tab)).toBe(false);
-    expect(chatAlone('full-1')).toBe(false);
+// The layout invariants (S1–S10 are the scenarios they answer):
+// 1. Rank sets left and right: the group < a topic < content (file, App, info); a pair the person arranged keeps it.
+// 2. Content opens beside the conversation it came from: its message's, else the one focused (a link), else the group.
+// 3. At most two halves; fullscreen, a narrow block and yielding to a participant change only what is drawn.
+// 4. Closing a half goes back to before it opened: its 上一页, else its source conversation as rule 1–2 place it.
+// 5. Only the person's gestures write preferences (separate → that kind stops pairing; a manual side is kept).
+describe('layout scenarios', () => {
+  const from = (id: string, chatId: string): PanelItem => ({ ...file(id), message: { id: `message-${chatId}`, chat_id: chatId } as MessageItem });
+  const withTopic = (id: string) => {
+    openTopicTab(id, { topicChatId: `${id}-topic`, name: 'Topic' });
+    return { main: pane(id).tabOrder[0]!, topic: topicTabOf(id)!.tabId };
+  };
+  const snapshot = (id: string) => JSON.stringify(chatLayoutOf(id).snapshot);
+
+  it('S1 the group opens a file: the group left, the file right', () => {
+    const tab = openPanelItem('s1', from('a', 's1'))!;
+    expect(pane('s1').shownTabIds).toEqual([pane('s1').tabOrder[0], tab]);
+    expect(returnToOf('s1', tab), 'what the group opens beside itself has no 上一页 (owner 10-24)').toBeNull();
   });
 
-  it.each([false, true])('multi-block fullscreen preserves whether the panel is separated (separated=%s)', (separated) => {
-    const chatId = `full-pair-projection-${separated}`;
-    const tab = openPanelItem(chatId, board)!;
-    if (separated) setPanelFull(chatId, tab, true);
-    const host = pane(chatId);
-    const saved = JSON.stringify(chatLayoutOf(chatId).snapshot);
-    const pair = host.livePair && { ...host.livePair };
-    if (separated) expect(host.tabFill(tab)).toBeNull(); // A lone, unpaired page already fills its only block.
+  it('S2 a topic opens a file (attachment or link): the topic left, the file right; the group stays a tab', () => {
+    const { main, topic } = withTopic('s2');
+    expect(pane('s2').shownTabIds).toEqual([main, topic]);
+    const attachment = openPanelItem('s2', from('a', 's2-topic'))!;
+    expect(pane('s2').shownTabIds).toEqual([topic, attachment]);
+    expect(pane('s2').tabOrder[0]).toBe(main);
+    pane('s2').setActiveTab(topic);
+    const link = openPanelItem('s2', file('linked'))!;
+    expect(pane('s2').shownTabIds, 'a link carries no message: the topic it was clicked in').toEqual([topic, link]);
+  });
+
+  it('S3 another topic takes the topic\'s place; a file of the one gone opens beside the group', () => {
+    withTopic('s3');
+    openTopicTab('s3', { topicChatId: 's3-other', name: 'Other' });
+    expect(strip('s3').filter((kind) => kind === 'chat-topic')).toHaveLength(1);
+    const tab = openPanelItem('s3', from('a', 's3-topic'))!;
+    expect(pane('s3').shownTabIds).toEqual([pane('s3').tabOrder[0], tab]);
+    const other = topicTabOf('s3')!.tabId;
+    expect(openPanelItem('s3', from('a', 's3-other'))).toBe(tab);
+    expect(pane('s3').shownTabIds, 'the same file, now from the open topic: beside it').toEqual([other, tab]);
+  });
+
+  it('S4 fullscreen and filling the block change only what is drawn: out of it, the same pair, sides and save', () => {
+    const { topic } = withTopic('s4');
+    const tab = openPanelItem('s4', from('a', 's4-topic'))!;
+    const host = pane('s4');
+    const [pair, saved] = [host.livePair, snapshot('s4')];
     try {
-      host.tabFill(tab, true)!.toggle(); // Same multi-block capability passed by GenericTabItem.
-      expect(tabFullscreen.isOn(host, tab)).toBe(true);
+      host.tabFill(tab, true)!.toggle();
       expect(host.shownTabIds).toEqual([tab]);
-      expect(panelFull(chatId, tab)).toBe(separated);
-      expect(host.livePair).toEqual(pair);
-      expect(JSON.stringify(chatLayoutOf(chatId).snapshot)).toBe(saved);
+      expect([host.livePair, snapshot('s4')]).toEqual([pair, saved]);
     } finally {
       tabFullscreen.exit();
     }
-    expect(panelFull(chatId, tab)).toBe(separated);
-    expect(JSON.stringify(chatLayoutOf(chatId).snapshot)).toBe(saved);
-  });
-
-  it('keeps an intact pair when the block temporarily fits only one page', () => {
-    const chatId = 'full-pair-narrow';
-    const tab = openPanelItem(chatId, board)!;
-    const host = pane(chatId);
-    const saved = JSON.stringify(chatLayoutOf(chatId).snapshot);
-    host.setDimensions(200, 900);
+    setPanelFull('s4', tab, true);
+    expect(panelFull('s4', tab)).toBe(true);
     expect(host.shownTabIds).toEqual([tab]);
-    expect(panelFull(chatId, tab)).toBe(false);
-    host.setDimensions(1600, 900);
-    expect(host.shownTabIds).toHaveLength(2);
-    expect(JSON.stringify(chatLayoutOf(chatId).snapshot)).toBe(saved);
-  });
-});
-
-describe('the topic beside its group', () => {
-  it('is a tab paired with the group; another topic takes its place; its × lets it go, the panels stay', () => {
-    openPanelItem('topic-1', board);
-    openTopicTab('topic-1', { topicChatId: 'topic-a', name: 'A' });
-    expect(topicTabOf('topic-1')).toMatchObject({ topic: { topicChatId: 'topic-a', name: 'A' }, shown: true });
-    expect(panelTabsOf('topic-1')[0]?.shown, 'the panel tab gave the pair to the topic').toBe(false);
-    openTopicTab('topic-1', { topicChatId: 'topic-b', name: 'B' });
-    expect(topicTabOf('topic-1')?.topic.topicChatId).toBe('topic-b');
-    expect(strip('topic-1').filter((kind) => kind === 'chat-topic')).toHaveLength(1);
-    closeTopicTab('topic-1');
-    expect(topicTabOf('topic-1')).toBeNull();
-    openTopicTab('topic-1', { topicChatId: 'topic-c', name: 'C' });
-    hideTopicTab('topic-1');
-    expect(topicTabOf('topic-1'), 'put away (its row clicked again): off the screen and the strip').toBeNull();
-    expect(kinds('topic-1')).toEqual(['kanban.board']);
-  });
-});
-
-describe('a file beside the conversation that opened it', () => {
-  const from = (id: string, chatId: string): PanelItem => ({ ...file(id), message: { id: `message-${chatId}`, chat_id: chatId } as MessageItem });
-  const setup = (id: string) => {
-    openTopicTab(id, { topicChatId: `${id}-topic`, name: 'Topic' });
-    return topicTabOf(id)!.tabId;
-  };
-
-  it('pairs a topic attachment with its topic, and reuses the same file for the latest conversation', () => {
-    const id = 'topic-file-source';
-    const topic = setup(id);
-    const main = pane(id).tabOrder[0]!;
-    const tab = openPanelItem(id, from('shared', `${id}-topic`))!;
-    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
-    // The topic was the right half of group/topic: pairWith preserves its side when replacing the group.
-    expect(pane(id).shownTabIds).toEqual([tab, topic]);
-    expect(returnToOf(id, tab)).toBe(topic);
-    expect(openPanelItem(id, from('shared', id))).toBe(tab);
-    expect(pane(id).livePair).toMatchObject({ anchor: main, side: tab });
-    expect(openPanelItem(id, from('shared', `${id}-topic`))).toBe(tab);
-    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
-    expect(panelTabsOf(id)).toHaveLength(1);
-    expect(chatLayoutOf(id).groups).toHaveLength(1);
+    expect([host.livePair, snapshot('s4'), host.splitDeclinedKinds.size]).toEqual([pair, saved, 0]);
+    setPanelFull('s4', tab, false);
+    expect(host.shownTabIds).toEqual([topic, tab]);
+    expect(panelFull('s4', tab)).toBe(false);
   });
 
-  it('pairs a group file link clicked in the topic with that topic: a link carries no message', () => {
-    const id = 'topic-file-link';
-    const topic = setup(id);
-    const main = pane(id).tabOrder[0]!;
-    pane(id).setActiveTab(topic);
-    const tab = openPanelItem(id, file('linked'))!;
-    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
-    expect(topicTabOf(id)?.tabId).toBe(topic);
-    expect(returnToOf(id, tab)).toBe(topic);
-    setPanelFull(id, tab, true);
-    setPanelFull(id, tab, false);
-    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
-    expect(panelFull(id, tab)).toBe(false);
-    pane(id).setActiveTab(main);
-    expect(openPanelItem(id, file('linked'))).toBe(tab);
-    expect(pane(id).livePair).toMatchObject({ anchor: main, side: tab });
+  it('S5 closing a file: back to its 上一页, else to its source conversation as it is placed', () => {
+    const folder = openPanelItem('s5', folderItem())!;
+    const fromFolder = openPanelItem('s5', file('101'), { returnTo: folder })!;
+    closeChatTab('s5', fromFolder);
+    expect(shownPanelTab('s5')?.tabId).toBe(folder);
+    closeChatTab('s5', folder);
+    expect(chatAlone('s5'), 'the group\'s own file: the group alone').toBe(true);
+    const { main, topic } = withTopic('s5');
+    const tab = openPanelItem('s5', from('a', 's5-topic'))!;
+    closeChatTab('s5', tab);
+    expect(pane('s5').shownTabIds, 'a topic\'s file: the topic beside the group again').toEqual([main, topic]);
+    expect(focusedChatTab('s5')?.tabId).toBe(topic);
   });
 
-  it('restores beside the topic after expanding, including a narrow block', () => {
-    const id = 'topic-file-full';
-    const topic = setup(id);
-    const tab = openPanelItem(id, from('readme', `${id}-topic`))!;
-    expect(panelFull(id, tab)).toBe(false);
-    pane(id).setDimensions(200, 900);
-    expect(panelFull(id, tab)).toBe(false);
-    setPanelFull(id, tab, true);
-    expect(panelFull(id, tab)).toBe(true);
-    setPanelFull(id, tab, false);
-    pane(id).setDimensions(1600, 900);
-    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
-    expect(panelFull(id, tab)).toBe(false);
+  it('S6 closing a topic: the group alone; a file of it left open goes beside the group', () => {
+    withTopic('s6');
+    hideTopicTab('s6');
+    expect(topicTabOf('s6'), 'put away (its row clicked again): off the screen and the strip').toBeNull();
+    expect(chatAlone('s6')).toBe(true);
+    withTopic('s6');
+    const tab = openPanelItem('s6', from('a', 's6-topic'))!;
+    closeTopicTab('s6');
+    expect(pane('s6').shownTabIds).toEqual([pane('s6').tabOrder[0], tab]);
   });
 
-  it('remembers separate for the file kind, leaving topics eligible to pair', () => {
-    const id = 'topic-file-separate';
-    const topic = setup(id);
-    const tab = openPanelItem(id, from('readme', `${id}-topic`))!;
-    pane(id).separatePair();
-    expect([...pane(id).splitDeclinedKinds]).toEqual(['chat-panel']);
-    openPanelItem(id, from('another', `${id}-topic`));
-    expect(pane(id).livePair).toBeNull();
-    setPanelFull(id, tab, false);
-    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
+  it('S7 a block too narrow for two: the focused half only, the pair kept; wide again, both', () => {
+    const { topic } = withTopic('s7');
+    const tab = openPanelItem('s7', from('a', 's7-topic'))!;
+    const saved = snapshot('s7');
+    pane('s7').setDimensions(200, 900);
+    expect(pane('s7').shownTabIds).toEqual([tab]);
+    expect(panelFull('s7', tab)).toBe(false);
+    pane('s7').setDimensions(1600, 900);
+    expect(pane('s7').shownTabIds).toEqual([topic, tab]);
+    expect(snapshot('s7')).toBe(saved);
   });
 
-  it('reveals a yielded topic/file pair and closes back to its source once', () => {
-    const id = 'topic-file-reveal';
-    const topic = setup(id);
-    const restore = vi.fn();
-    const tab = openPanelItem(id, from('readme', `${id}-topic`), { restore })!;
-    yieldChatAuxiliary(id);
-    showChatTab(id, tab);
-    expect(pane(id).livePair).toMatchObject({ anchor: topic, side: tab });
-    closeChatTab(id, tab);
-    expect(pane(id).resolvedActiveTabId).toBe(topic);
-    expect(restore).toHaveBeenCalledTimes(1);
+  it('S8 a participant beside the group: the group alone while it is there; a tab picked brings the pair back', () => {
+    const { topic } = withTopic('s8');
+    const tab = openPanelItem('s8', from('a', 's8-topic'))!;
+    const pair = pane('s8').livePair;
+    runInAction(() => groupParticipantPanes.placements.set('s8', { source: { kind: 'chat', chatId: 's8' }, target: { kind: 'chat', chatId: 'agent' } }));
+    expect(pane('s8').shownTabIds).toEqual([pane('s8').tabOrder[0]]);
+    expect([pane('s8').livePair, pane('s8').splitDeclinedKinds.size]).toEqual([pair, 0]);
+    showChatTab('s8', tab);
+    expect(groupParticipantPanes.placements.has('s8')).toBe(false);
+    expect(pane('s8').shownTabIds).toEqual([topic, tab]);
   });
 
-  it('does not attach an old answer to a different topic, or revive a closed source', () => {
-    const id = 'topic-file-closed';
-    setup(id);
-    openTopicTab(id, { topicChatId: 'new-topic', name: 'New topic' });
-    const tab = openPanelItem(id, from('readme', `${id}-topic`))!;
-    expect(pane(id).livePair).toMatchObject({ anchor: pane(id).tabOrder[0], side: tab });
-    closeTopicTab(id);
-    setPanelFull(id, tab, true);
-    setPanelFull(id, tab, false);
-    expect(topicTabOf(id)).toBeNull();
-    expect(panelFull(id, tab)).toBe(false);
+  it('S9a separated by the person: that kind opens as a tab of its own, until they pair it again', () => {
+    openPanelItem('s9a', from('a', 's9a'));
+    pane('s9a').separatePair();
+    expect([...pane('s9a').splitDeclinedKinds]).toEqual([CHAT_PANEL_TAB_KIND]);
+    const tab = openPanelItem('s9a', from('b', 's9a'))!;
+    expect(pane('s9a').livePair).toBeNull();
+    expect(pane('s9a').shownTabIds).toEqual([tab]);
+    setPanelFull('s9a', tab, false);
+    expect(chatAlone('s9a'), 'a message to reveal: the group comes forward, the choice stays').toBe(true);
+    expect([...pane('s9a').splitDeclinedKinds]).toEqual([CHAT_PANEL_TAB_KIND]);
+    pane('s9a').splitBeside(tab, 'right');
+    expect(pane('s9a').splitDeclinedKinds.size).toBe(0);
+  });
+
+  it('S9b sides the person set stay when another page takes the other half', () => {
+    openPanelItem('s9b', from('a', 's9b'));
+    const main = pane('s9b').tabOrder[0]!;
+    pane('s9b').splitBeside(main, 'right');
+    const next = openPanelItem('s9b', from('b', 's9b'))!;
+    expect(pane('s9b').shownTabIds).toEqual([next, main]);
+  });
+
+  it('S10 a restart brings back the pair, the person\'s sides and choices; an unarranged save is placed by rank', () => {
+    const tab = openPanelItem('s10', from('a', 's10'))!;
+    const main = pane('s10').tabOrder[0]!;
+    pane('s10').splitBeside(main, 'right');
+    pane('s10').splitDeclinedKinds.add('chat-info');
+    pane('s10').solo(tab);
+    const saved = chatLayoutOf('s10').snapshot;
+    const restart = () => chatTabView.createPaneLayoutStore({ viewId: 'chat:s10-again', place: { kind: 'chat', chatId: 's10' } }, { singleStrip: true });
+    const again = restart();
+    again.restoreSnapshot(saved);
+    const host = again.groups[0]!.pane;
+    expect(host.livePair).toMatchObject({ anchor: pane('s10').livePair!.anchor, sideAt: pane('s10').livePair!.sideAt, userPlaced: true });
+    expect([...host.splitDeclinedKinds]).toEqual(['chat-info']);
+    expect(host.soloTabId, 'what is drawn is not saved').toBeNull();
+    const legacy = restart();
+    const pairSaved = saved.groups[0]!.tabManager.pair!;
+    legacy.restoreSnapshot({ ...saved, groups: [{ ...saved.groups[0]!, tabManager: { ...saved.groups[0]!.tabManager, pair: { anchorTabId: main, sideTabId: pairSaved.anchorTabId === main ? pairSaved.sideTabId : pairSaved.anchorTabId, sideAt: 'left' } } }] });
+    expect(legacy.groups[0]!.pane.livePair?.sideAt, 'a side saved before 11-04 without the person\'s mark: by rank').toBe('right');
   });
 });
 

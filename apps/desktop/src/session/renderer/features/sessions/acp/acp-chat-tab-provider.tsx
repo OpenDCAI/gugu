@@ -97,6 +97,7 @@ export const acpChatTabProvider: TabProvider<
   AcpChatOpenArgs
 > = createTabProvider({
   kind: 'acp-chat',
+  pairRank: 0,
   mount: 'single',
   resourceKey: (s: AcpChatState) => s.sessionId,
 

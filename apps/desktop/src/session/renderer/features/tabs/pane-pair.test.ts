@@ -14,6 +14,8 @@ import type { PaneStore } from './pane-store';
 function provider(kind: string, mount: 'single' | 'multi' = 'multi') {
   return createTabProvider({
     kind,
+    // The conversation ranks first (不变量 1); everything else is content.
+    ...(kind === 'chat' || kind === 'acp-chat' ? { pairRank: 0 } : {}),
     mount,
     resourceKey: (state: { id: string }) => state.id,
     initialize: () => ({ dispose: () => {} }),
@@ -510,14 +512,17 @@ describe('并排:手动分屏、拆开', () => {
     expect(shown()).toEqual(['chat:conv', 'page:docs']);
   });
 
-  it('程序为让位拆开的(remember: false)不算用户选的:下次照旧并排', () => {
-    const { layout, pane, shown } = single();
+  it('程序让位只改显示(solo):一对、摆法、「拆开过」都不动,焦点一挪就回来', () => {
+    const { layout, pane, idOf, shown } = single();
     layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
-    pane.separatePair({ remember: false });
+    const pair = pane.livePair;
+    pane.solo(idOf('file', 'a.ts')!);
+    expect(shown()).toEqual(['file:a.ts']);
+    expect(pane.livePair).toEqual(pair);
     expect(pane.splitDeclinedKinds.size).toBe(0);
     pane.setActiveTab(pane.tabOrder[0]);
-    layout.open('file', { id: 'b.ts' }, { beside: true, activate: false });
-    expect(shown()).toEqual(['chat:conv', 'file:b.ts']);
+    expect(pane.soloTabId).toBeNull();
+    expect(shown()).toEqual(['chat:conv', 'file:a.ts']);
   });
 
   it('10-28 之前那个不分类型的 splitDeclined 存档不再读:读回来哪一类都没记成「拆开过」', () => {
@@ -606,7 +611,7 @@ describe('并排:手动分屏、拆开', () => {
     expect(layout.groups).toHaveLength(1);
     const pane = layout.groups[0].pane;
     expect(pane.tabOrder).toEqual(['c', 'p', 't']);
-    expect(pane.livePair).toEqual({ anchor: 'c', side: 'p', sideAt: 'bottom', ratio: null });
+    expect(pane.livePair).toEqual({ anchor: 'c', side: 'p', sideAt: 'bottom', ratio: null, userPlaced: true });
     expect(pane.activeTabId).toBe('p');
   });
 
