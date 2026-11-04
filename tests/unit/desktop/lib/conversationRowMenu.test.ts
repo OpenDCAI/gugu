@@ -18,6 +18,8 @@ describe('conversation row actions', () => {
     expect(chat[0]).toEqual(project[0])
     expect(chat.map((item) => item.id)).toEqual(['mark-read', 'pin', 'notifications', 'mark-all-read', 'delete-chat'])
     expect(project.map((item) => item.id)).toEqual(['mark-read', 'remove-project'])
+    const topic = conversationRowMenu({ kind: 'topic', hasUnread: false, hasAnyUnread: true })
+    expect(topic.map((item) => [item.id, item.disabled])).toEqual([['mark-read', true], ['mark-all-read', false]])
   })
 
   it('keeps personal actions when the server denies topic management', () => {
@@ -50,6 +52,7 @@ describe('the selected conversation and its topics', () => {
   })
   it('does not mark a topic’s parent or siblings, and includes a durable manual unread mark', () => {
     expect(chatsInReadScope(rows, 'topic').map((row) => row.id)).toEqual(['nested', 'topic'])
+    expect(chatsInReadScope(rows, ['topic', 'outside-topic']).map((row) => row.id)).toEqual(['nested', 'outside-topic', 'topic'])
     expect(hasUnreadInRows([{ unread_count: 0, is_marked_unread: true }])).toBe(true)
   })
 })

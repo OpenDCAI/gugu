@@ -10,6 +10,10 @@ import { IconButton } from '../ui/IconButton'
 import { MenuItem, MenuSeparator } from '../ui/Menu'
 import { openPinnedTopic, type SourceTopic } from './topicPinsModel'
 import { useChatTopicPins } from './useChatTopicPins'
+import { ConversationRowContextMenu } from './ConversationRowContextMenu'
+import { useRowContextMenu } from '../../hooks/useRowContextMenu'
+import { useMarkChatsRead } from '../../hooks/useMarkChatsRead'
+import { hasUnreadInRows } from '../../session/shared/conversation-row-menu'
 import './pinned-topics.css'
 
 const topicPinStyle = { padding: 0, minHeight: 0 }
@@ -40,7 +44,12 @@ export function GroupTopicsRows({ chatId }: { chatId: string }) {
 function TopicMenuRow({ topic, pinned, pins }: { topic: SourceTopic; pinned: boolean; pins: ReturnType<typeof useChatTopicPins> }) {
   const { t } = useTranslation('messaging')
   const pinLabel = t(pinned ? 'topic.pins.unpin' : 'topic.pins.pin', { name: topic.name })
-  return <div className="gg-topic-menu-row" data-topic-id={topic.id} data-pinned={pinned || undefined}>
+  const menu = useRowContextMenu()
+  const markRead = useMarkChatsRead()
+  return <div className="gg-topic-menu-row" data-topic-id={topic.id} data-pinned={pinned || undefined} onContextMenu={menu.onContextMenu}>
+    {menu.menuPos && <ConversationRowContextMenu {...menu.menuPos} onClose={menu.closeMenu}
+      state={{ kind: 'topic', hasUnread: hasUnreadInRows([topic]), hasAnyUnread: hasUnreadInRows(pins.topics) }}
+      onAction={(action) => markRead(action === 'mark-all-read' ? pins.topics.map((row) => row.id) : topic.id)} />}
     <MenuItem data-testid="group-menu-topic" className="gg-topic-menu-open" onClick={() => openPinnedTopic(topic)}>
       <span className="gg-topic-menu-body"><span className="gg-topic-menu-line"><span className="gg-topic-name" data-unread={topic.unread_count > 0 || undefined}>{pinned && <Pin size={12} aria-hidden />}<span className="truncate">{topic.name}</span></span><span className="gg-topic-time">{formatCalendarDay(chatActivityAt(topic))}</span></span>
       <span className="gg-topic-menu-line gg-topic-preview"><span className="truncate">{chatPreviewText(topic)}</span></span></span>
