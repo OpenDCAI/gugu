@@ -613,6 +613,13 @@ export async function bindExtensionSurface(input: {
   const workspace = input.workspace && (workspaceSession({ workspace: input.workspace }) || input.filePath) ? input.workspace : null;
   const prior = bindings.get(input.webContentsId);
   if (prior?.widget && JSON.stringify(prior.widget) !== JSON.stringify(input.widget)) throw new Error('A message view cannot change its widget');
+  if (prior?.surface && input.surface && (prior.surface.id !== input.surface.id
+    || input.surface.decorative !== undefined && Boolean(prior.surface.decorative) !== input.surface.decorative)) {
+    throw new Error('A native surface cannot change its identity or input mode');
+  }
+  // Generic rebinds may omit container facts. Only display data can replace an existing native surface's metadata.
+  const surface = prior?.surface ? { ...prior.surface, ...(input.surface && Object.hasOwn(input.surface, 'data') ? { data: input.surface.data } : {}) }
+    : input.surface ? { ...input.surface } : undefined;
   const change = { previousWorkspace: bindingChanges.get(input.webContentsId)?.previousWorkspace ?? prior?.workspace ?? null };
   bindingChanges.set(input.webContentsId, change);
   if (prior) {
@@ -643,7 +650,7 @@ export async function bindExtensionSurface(input: {
     embedderId: contents.hostWebContents?.id ?? null,
     operator: input.operator ?? { kind: 'person' },
     ...(input.modal ? { modal: input.modal } : {}),
-    ...(input.surface ? { surface: input.surface } : {}),
+    ...(surface ? { surface } : {}),
     // Zero until the pane reports its box. Stated rather than guessed: a made-up
     // size would be indistinguishable from a measured one.
     metrics: { visible: true, width: 0, height: 0 },
@@ -1042,7 +1049,7 @@ export function extensionPagePresentation(caller: BridgeCaller) {
 export function updateAppSurfaceData(webContentsId: number, surfaceId: string, data: unknown): void {
   const binding = bindings.get(webContentsId);
   if (!binding?.surface || binding.surface.id !== surfaceId) throw new Error('App surface binding changed');
-  binding.surface = { id: surfaceId, data };
+  binding.surface = { ...binding.surface, data };
   pushContext(webContentsId);
 }
 

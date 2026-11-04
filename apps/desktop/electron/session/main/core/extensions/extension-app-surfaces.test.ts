@@ -19,6 +19,7 @@ it('fixes decorative mode at creation and refuses updates, input handlers and fo
   const result = surfaces.open(from, { ...options, decorative: true });
   await new Promise(resolve => setImmediate(resolve));
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ decorative: true }) }));
+  surfaces.update(from, result.id, { data: { frame: 1, decorative: false } });
   for (const change of [{ decorative: false }, { decorative: true }, { mousePassthrough: false }, { focus: true }, { onInput: 'callback' }]) {
     expect(() => appSurfaceUpdateSchema.parse(change)).toThrow();
     expect(() => surfaces.update(from, result.id, change)).toThrow();
