@@ -5,14 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
+import { createUpdateFlow, type UpdateInfoLike, type UpdateStatusPayload } from '../../../../apps/desktop/electron/update-flow'
+import { createUpdateState } from '../../../../apps/desktop/shared/update-state'
 // 宿主收到下载请求就把状态值改成 'downloading'(main.ts markDownloading / capacitorAppUpdate)。
 // 横幅的「下载中」只认这个状态值,❌ 自己记一份。
+let hostRevision = 0
 const downloadUpdate = vi.hoisted(() => vi.fn(async () => {
-  window.dispatchEvent(new CustomEvent(UI_EVENTS.updateStatus, { detail: { status: 'downloading' } }))
+  window.dispatchEvent(new CustomEvent(UI_EVENTS.updateStatus, { detail: { status: 'downloading', revision: ++hostRevision } }))
 }))
 const installUpdate = vi.hoisted(() => vi.fn(async () => {}))
 // @@@5837 宿主答「更新现在是什么状态」。默认 idle(这个进程还没查过)。
-const updateState = vi.hoisted(() => vi.fn(async (): Promise<unknown> => ({ status: 'idle', updateInfo: null })))
+const updateState = vi.hoisted(() => vi.fn(async (): Promise<unknown> => ({ status: 'idle', updateInfo: null, revision: 0 })))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
   platform: { capabilities: { appUpdates: true }, downloadUpdate, installUpdate, updateState },
 }))
@@ -24,13 +27,14 @@ const installBtn = () => harness.container.querySelector(`[data-testid="${AUTOMA
 const retryBtn = () => harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.updateRetryButton}"]`) as HTMLButtonElement | null
 const phase = () => banner()?.getAttribute('data-phase')
 async function fire(name: string, detail?: unknown) {
-  await act(async () => { window.dispatchEvent(new CustomEvent(name, detail ? { detail } : undefined)) })
+  await act(async () => { window.dispatchEvent(new CustomEvent(name, detail ? { detail: { revision: ++hostRevision, ...detail as object } } : undefined)) })
 }
 beforeEach(() => {
+  hostRevision = 0
   harness = createReactHarness()
   downloadUpdate.mockClear(); installUpdate.mockClear()
   updateState.mockReset()
-  updateState.mockResolvedValue({ status: 'idle', updateInfo: null })
+  updateState.mockResolvedValue({ revision: 0, status: 'idle', updateInfo: null })
 })
 afterEach(() => harness.cleanup())
 describe('#7496 left rail update entry', () => {
@@ -43,7 +47,7 @@ describe('#7496 left rail update entry', () => {
   })
 
   it('restores a ready update from the host and installs on the first click', async () => {
-    updateState.mockResolvedValue({ status: 'downloaded' })
+    updateState.mockResolvedValue({ revision: 0, status: 'downloaded' })
     await harness.render(createElement(UpdateBanner, { placement: 'rail' }))
     expect(button()?.getAttribute('aria-label')).toBe('立即重启更新')
     expect(banner()).toBeNull()
@@ -56,7 +60,7 @@ describe('#7496 left rail update entry', () => {
   })
 
   it('shows real background progress in place and does not restart a download on click', async () => {
-    updateState.mockResolvedValue({ status: 'downloading', percent: 41.6 })
+    updateState.mockResolvedValue({ revision: 0, status: 'downloading', percent: 41.6 })
     await harness.render(createElement(UpdateBanner, { placement: 'rail' }))
     expect(button()?.getAttribute('aria-label')).toBe('下载新版本中… 42%')
     expect(button()?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('41.6')
@@ -89,6 +93,110 @@ describe('#7496 left rail update entry', () => {
     expect(button()?.getAttribute('aria-label')).toBe('立即重启更新')
     await act(async () => { button()!.click() })
     expect(installUpdate).toHaveBeenCalledOnce()
+  })
+})
+describe('#1342 replacement download and installation state', () => {
+  const button = () => harness.container.querySelector<HTMLButtonElement>('button.gg-update-rail')
+
+  it.each([false, true])('restores the actual host state after restart confirmation cancellation (new download during confirmation: %s)', async (replacement) => {
+    const host = createUpdateState<UpdateStatusPayload>({ success: true, status: 'idle', updateInfo: null })
+    let available!: (info: UpdateInfoLike) => void
+    let downloaded!: () => void
+    let cancel!: (accepted: boolean) => void
+    let progress!: (value: { percent: number }) => void
+    const confirmInterrupt = vi.fn(() => replacement ? new Promise<boolean>(resolve => { cancel = resolve }) : Promise.resolve(false))
+    const handoff = vi.fn()
+    const checkForUpdates = vi.fn(async () => undefined)
+    const flow = createUpdateFlow({
+      updater: {
+        onUpdateAvailable: listener => { available = listener },
+        onUpdateDownloaded: listener => { downloaded = listener },
+        onUpdateNotAvailable: () => {}, onDownloadProgress: listener => { progress = listener }, onError: () => {},
+        checkForUpdates, downloadUpdate: async () => undefined,
+      },
+      enabled: true, getState: () => host.current,
+      emit: payload => {
+        const published = host.publish(payload)
+        if (published) window.dispatchEvent(new CustomEvent(UI_EVENTS.updateStatus, { detail: published }))
+      },
+      onReady: () => {}, rejectTarget: () => false,
+      dmg: { applies: () => false, start: () => {} },
+      updateQuit: { installAfterDownload: handoff, downloaded: () => {}, downloadFailed: () => false },
+      busyAgents: () => 2, confirmInterrupt,
+      logInfo: () => {}, logWarn: () => {},
+    })
+    available({ version: '9.0.0' })
+    downloaded()
+    const ready = host.current
+    updateState.mockImplementation(async () => host.current)
+    installUpdate.mockImplementationOnce(flow.install).mockImplementationOnce(flow.install)
+    await harness.render(createElement(UpdateBanner, { placement: 'rail' }))
+    expect(button()?.getAttribute('aria-label')).toBe('立即重启更新')
+    await act(async () => { button()!.click() })
+    expect(confirmInterrupt).toHaveBeenCalledWith(2)
+    if (replacement) {
+      await act(async () => {
+        available({ version: '9.0.1' })
+        progress({ percent: 27 })
+        cancel(false)
+      })
+      expect(host.current).toMatchObject({ status: 'downloading', updateInfo: { version: '9.0.1' }, percent: 27 })
+      expect(host.current.revision).toBeGreaterThan(ready.revision)
+      expect(button()?.getAttribute('aria-label')).toBe('下载新版本中… 27%')
+      expect(handoff).not.toHaveBeenCalled()
+      expect(checkForUpdates).not.toHaveBeenCalled()
+      return
+    }
+    expect(button()?.getAttribute('aria-label')).toBe('立即重启更新')
+    expect(button()?.getAttribute('aria-disabled')).not.toBe('true')
+    expect(host.current.status).toBe('downloaded')
+    expect(host.current.updateInfo).toEqual({ version: '9.0.0' })
+    expect(host.current.revision).toBeGreaterThan(ready.revision)
+    await act(async () => { button()!.click() })
+    expect(confirmInterrupt).toHaveBeenCalledTimes(2)
+    expect(handoff).not.toHaveBeenCalled()
+    expect(checkForUpdates).not.toHaveBeenCalled()
+  })
+
+  it('does not treat a fulfilled install request as an installation handoff', async () => {
+    updateState.mockResolvedValue({ revision: 0, status: 'downloaded' })
+    await harness.render(createElement(UpdateBanner, { placement: 'rail' }))
+    await act(async () => { button()!.click() })
+    expect(installUpdate).toHaveBeenCalledOnce()
+    expect(button()?.getAttribute('aria-label')).toBe('检查中...')
+    await fire(UI_EVENTS.updateStatus, { status: 'installing' })
+    expect(button()?.getAttribute('aria-label')).toBe('正在重启…')
+  })
+
+  it('restores an actual installation handoff after a window reload', async () => {
+    updateState.mockResolvedValue({ revision: 0, status: 'installing' })
+    await harness.render(createElement(UpdateBanner, { placement: 'rail' }))
+    expect(button()?.getAttribute('aria-label')).toBe('正在重启…')
+    expect(button()?.getAttribute('aria-disabled')).toBe('true')
+    expect(installUpdate).not.toHaveBeenCalled()
+  })
+
+  it('keeps live replacement progress when the older mount snapshot arrives later', async () => {
+    let reply!: (state: unknown) => void
+    updateState.mockImplementationOnce(() => new Promise((resolve) => { reply = resolve }))
+    await harness.render(createElement(UpdateBanner, { placement: 'rail' }))
+    await fire(UI_EVENTS.updateStatus, { status: 'downloading', percent: 42.3 })
+    await act(async () => { reply({ revision: 0, status: 'downloaded', updateInfo: { version: '0.2.90-beta.2.1' } }) })
+    expect(button()?.getAttribute('aria-label')).toBe('下载新版本中… 42%')
+    expect(button()?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('42.3')
+  })
+
+  it('keeps retry visible when the install reply arrives after the replacement download failed', async () => {
+    let reply!: () => void
+    installUpdate.mockImplementationOnce(() => new Promise<void>((resolve) => { reply = resolve }))
+    updateState.mockResolvedValue({ revision: 0, status: 'downloaded' })
+    await harness.render(createElement(UpdateBanner, { placement: 'rail' }))
+    await act(async () => { button()!.click() })
+    await fire(UI_EVENTS.updateStatus, { status: 'downloading' })
+    await fire(UI_EVENTS.updateStatus, { status: 'error', message: 'net::ERR_CONNECTION_RESET' })
+    await act(async () => { reply() })
+    expect(button()?.getAttribute('aria-label')).toBe('重试')
+    expect(button()?.getAttribute('aria-disabled')).toBeNull()
   })
 })
 describe('#1578 UpdateBanner (user-choice update prompt)', () => {
@@ -161,7 +269,7 @@ describe('#1578 UpdateBanner (user-choice update prompt)', () => {
     const close = banner()?.querySelector('button[aria-label="关闭"]') as HTMLButtonElement
     await act(async () => { close.click() })
     expect(banner()).toBeNull()
-    await fire(UI_EVENTS.updateReady)
+    await fire(UI_EVENTS.updateStatus, { status: 'downloaded' })
     expect(banner()).not.toBeNull()
     expect(installBtn()).not.toBeNull()
   })
@@ -222,7 +330,7 @@ describe('#2126 更新失败 fail-loud(显原因 + 重试,不静默 revert 循�
 // 而这正是 owner 2026-09-18 撞上的:连按三次检查更新,界面上一个能按的东西都没有。
 describe('#5837 挂载时向宿主问状态(不靠"正好接到过那条事件")', () => {
   it('包早就下好了 → 一条事件都没有,横幅照样出来,而且是「立即重启更新」', async () => {
-    updateState.mockResolvedValue({ status: 'downloaded', updateInfo: { version: '0.2.46-beta.4.1' } })
+    updateState.mockResolvedValue({ revision: 0, status: 'downloaded', updateInfo: { version: '0.2.46-beta.4.1' } })
     await harness.render(createElement(UpdateBanner))
     await act(async () => { await Promise.resolve() })
     expect(phase()).toBe('ready')
@@ -244,7 +352,7 @@ describe('#5837 挂载时向宿主问状态(不靠"正好接到过那条事件")
   })
 
   it('dmg 半自动那条路也问得到(安装包已打开,无重启按钮)', async () => {
-    updateState.mockResolvedValue({ status: 'downloaded-manual', updateInfo: null })
+    updateState.mockResolvedValue({ revision: 0, status: 'downloaded-manual', updateInfo: null })
     await harness.render(createElement(UpdateBanner))
     await act(async () => { await Promise.resolve() })
     expect(phase()).toBe('manual-install')
