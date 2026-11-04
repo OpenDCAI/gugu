@@ -16,6 +16,7 @@ import { packageIdentity, prepareInstallation, SERVER_PACKAGE_IDENTITY } from '.
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { spawnOwnedChild } from '@gugu/session-core/exec'
+import { signalProcessDescendantsSync } from '@gugu/session-core/acp/node'
 import { readAccountActivity } from './server-layout'
 
 /** Same cold-account smoke as ci-linux-packages.sh, through the target's actual entry. */
@@ -27,15 +28,15 @@ export async function checkAccountBoot(binary: string): Promise<void> {
   const ready = Promise.withResolvers<void>()
   const startedAt = Date.now()
   let owned: ReturnType<typeof spawnOwnedChild> | undefined
-  let watcher: fs.FSWatcher | undefined
+  let readiness: ReturnType<typeof setInterval> | undefined
   let timeout: ReturnType<typeof setTimeout> | undefined
   try {
     const identityFile = path.resolve(path.dirname(binary), '..', 'app', 'dist-electron', SERVER_PACKAGE_IDENTITY)
     if (fs.existsSync(identityFile)) prepareInstallation(home, packageIdentity(JSON.parse(fs.readFileSync(identityFile, 'utf8'))))
     fs.mkdirSync(data, { recursive: true, mode: 0o700 })
     fs.writeFileSync(path.join(account, 'account.json'), '{}', { mode: 0o600 })
-    watcher = fs.watch(data, (_event, file) => {
-      if (!owned || file?.toString() !== 'activity.json') return
+    const checkReady = () => {
+      if (!owned) return
       const activity = readAccountActivity(data, Date.now(), { pid: owned.child.pid, startedAt })
       if (activity) { ready.resolve(); return }
       try {
@@ -44,8 +45,7 @@ export async function checkAccountBoot(binary: string): Promise<void> {
           ready.reject(new Error('Target does not publish PID-bound boot readiness; automatic handoff is unsupported'))
         }
       } catch { /* A partial old non-atomic write is not readiness. */ }
-    })
-    watcher.on('error', error => ready.reject(error))
+    }
     owned = spawnOwnedChild(binary, ['run-account', userId], {
       detached: true, stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, GUGU_SERVER_HOME: home, GUGU_HOME: path.join(account, 'home'),
@@ -60,13 +60,25 @@ export async function checkAccountBoot(binary: string): Promise<void> {
     owned.child.stdout?.on('error', error => ready.reject(error))
     owned.child.stderr?.on('error', error => ready.reject(error))
     owned.child.once('exit', code => ready.reject(new Error(`Account boot exited before serving (${code})`)))
+    readiness = setInterval(checkReady, 200)
+    checkReady()
     timeout = setTimeout(() => ready.reject(new Error('Account boot did not become ready')), 45_000)
     await ready.promise
   } finally {
     if (timeout) clearTimeout(timeout)
-    watcher?.close()
-    await owned?.stop({ graceMs: 10_000 })
-    fs.rmSync(home, { recursive: true, force: true })
+    if (readiness) clearInterval(readiness)
+    try {
+      // Probe tools can detach from run-account's group. Keep their parent chain until this snapshot.
+      if (owned?.child.pid !== undefined && owned.child.exitCode === null && owned.child.signalCode === null) {
+        signalProcessDescendantsSync([owned.child.pid], 'SIGKILL')
+      }
+    } finally {
+      try { await owned?.stop({ graceMs: 10_000 }) }
+      finally {
+        try { fs.rmSync(home, { recursive: true, force: true }) }
+        catch (error) { process.stderr.write(`[server] WARN Could not remove account boot scratch directory ${home}: ${String(error)}\n`) }
+      }
+    }
   }
   // main.ts handles our SIGTERM with exit(143). An unhandled SIGTERM is normal too;
   // SIGKILL or an unrelated fatal exit after the heartbeat is not a successful smoke.

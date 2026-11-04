@@ -11,7 +11,7 @@ import path from 'node:path'
 
 export type ExitReason = 'update' | 'restart'
 /** 开机时读到的:`unclean` = 上一次没留话。 */
-export type LastExit = ExitReason | 'unclean'
+export type LastExit = { reason: ExitReason; at: number } | { reason: 'unclean'; at: null }
 
 const FILE = 'last-exit.json'
 
@@ -28,16 +28,17 @@ export function noteExitReason(dataDir: string, reason: ExitReason): void {
 /** 读上一次留的话并删掉(一次退出只说一次)。 */
 export function takeLastExit(dataDir: string): LastExit {
   const file = path.join(dataDir, FILE)
-  let reason: unknown = null
+  let last: { reason?: unknown; at?: unknown } = {}
   try {
-    reason = (JSON.parse(fs.readFileSync(file, 'utf8')) as { reason?: unknown }).reason
+    last = JSON.parse(fs.readFileSync(file, 'utf8')) as typeof last
   } catch {
-    reason = null
+    last = {}
   }
   try {
     fs.rmSync(file, { force: true })
   } catch {
     // 删不掉下次再说一遍「重启」,不挡开机。
   }
-  return reason === 'update' || reason === 'restart' ? reason : 'unclean'
+  return (last?.reason === 'update' || last?.reason === 'restart') && typeof last.at === 'number' && Number.isFinite(last.at)
+    ? { reason: last.reason, at: last.at } : { reason: 'unclean', at: null }
 }

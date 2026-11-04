@@ -5,7 +5,8 @@ import {
   type ResponseHeaders,
 } from '@main/core/shared/response-headers';
 import { isLoopbackOrPrivateHost } from '@shared/extensions/manifest';
-import { EXTENSION_SCHEME, networkHostAllowed } from '@shared/extensions/partition';
+import { EXTENSION_SCHEME } from '@shared/extensions/partition';
+import { networkHostVerdict } from '@shared/extensions/network-host';
 
 /**
  * What an extension's sandbox may reach on the network, decided from the hosts
@@ -30,7 +31,7 @@ export type NetworkDecision =
   | { allowed: true }
   | {
       allowed: false;
-      reason: 'unparsable-url' | 'scheme-not-allowed' | 'host-not-declared' | 'local-host';
+      reason: 'unparsable-url' | 'scheme-not-allowed' | 'host-not-declared' | 'host-withdrawn' | 'local-host';
     };
 
 /**
@@ -42,6 +43,7 @@ export type NetworkDecision =
  */
 export function decideExtensionRequest(
   url: string,
+  grantedHosts: readonly string[],
   declaredHosts: readonly string[]
 ): NetworkDecision {
   let parsed: URL;
@@ -62,8 +64,9 @@ export function decideExtensionRequest(
   if (isLoopbackOrPrivateHost(parsed.hostname)) {
     return { allowed: false, reason: 'local-host' };
   }
-  if (!networkHostAllowed(declaredHosts, parsed.hostname)) {
-    return { allowed: false, reason: 'host-not-declared' };
+  const verdict = networkHostVerdict(declaredHosts, grantedHosts, parsed.hostname);
+  if (verdict !== 'allowed') {
+    return { allowed: false, reason: verdict === 'withdrawn' ? 'host-withdrawn' : 'host-not-declared' };
   }
   return { allowed: true };
 }

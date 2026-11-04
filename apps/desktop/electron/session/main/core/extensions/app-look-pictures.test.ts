@@ -44,7 +44,7 @@ vi.mock('./app-runtime-dir', () => ({ appRuntimeDir: () => '/runtime' }));
 const warned = vi.hoisted(() => [] as string[]);
 vi.mock('@main/lib/logger', () => ({ log: { warn: (message: string) => void warned.push(message) } }));
 
-const { picturesOf, lookGalleryPicture, endPictures, PICTURE_MAX_HEIGHT, GROUP_PANEL, PHONE } = await import('./extension-look-picture');
+const { pictureOf, picturesOf, lookGalleryPicture, endPictures, PICTURE_MAX_HEIGHT, GROUP_PANEL, PHONE } = await import('./extension-look-picture');
 const SIZES = [GROUP_PANEL, PHONE];
 const { APP_RUNTIME_VERSION } = await import('@shared/extensions/app-runtime-protocol');
 
@@ -100,6 +100,13 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('app_check takes pictures of the page', () => {
+  it.each([40, 1200])('a widget screenshot stays at manifest height even when document height is %s', async contentHeight => {
+    const { contents, sent } = page(contentHeight);
+    const taking = pictureOf(contents, { width: 420, height: 240, touch: false, says: 'widget' }, 'widget');
+    await vi.advanceTimersByTimeAsync(10_000);
+    await taking;
+    expect(sent('Emulation.setDeviceMetricsOverride')).toEqual([{ width: 420, height: 240, deviceScaleFactor: 1, mobile: false }]);
+  });
   it('light then dark, where it opens then on a phone (touch), each said by its label; then back as it was', async () => {
     const { contents, sent, showInTheme } = page(600);
     const taking = picturesOf(contents, SIZES, showInTheme);

@@ -11,6 +11,7 @@ const events = new Map<string, (data: unknown) => void>()
 const openResults: Record<string, unknown> = {
   tun1: { ok: false, reason: 'signInRequired', via: 'tunnel' },
   ssh1: { ok: false, reason: 'signInRequired' },
+  old: { ok: false, reason: 'updating', controlOnly: true },
 }
 const bridge = {
   invoke: async (channel: string, arg: unknown) => (channel === SSH_LINK_CHANNELS.open ? openResults[arg as string] : null),
@@ -26,6 +27,14 @@ afterAll(() => {
 })
 
 describe('远程隧道上的设备连接:原因 ❌ 进远程 SSH 那张卡', () => {
+  it('keeps the updating status while the retained transport is available for update controls', async () => {
+    const { openSshLink, subscribeSshLinkProblems } = await import('../../../../apps/desktop/src/lib/sshLinkChannel')
+    let problems: ReadonlyMap<string, SshLinkFailure> = new Map()
+    const off = subscribeSshLinkProblems(next => { problems = next })
+    await expect(openSshLink('old', { onMessage: () => undefined, onClosed: () => undefined }).ready).resolves.toBeUndefined()
+    expect(problems.get('old')).toBe('updating')
+    off()
+  })
   it('打开失败与断开都按主进程标的 via 分;没标的(远程 SSH)照记,与清单到没到无关', async () => {
     const { openSshLink, subscribeSshLinkProblems } = await import('../../../../apps/desktop/src/lib/sshLinkChannel')
     let problems: ReadonlyMap<string, SshLinkFailure> = new Map()

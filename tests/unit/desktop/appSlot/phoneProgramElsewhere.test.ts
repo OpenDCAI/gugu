@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import type { ExtensionCapability } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 
 /**
  * owner 10-16「程序跟着数据」, the phone: an App page in a session on one of the person's computers calls the App's program on
@@ -45,9 +46,9 @@ let frame: HTMLIFrameElement
 let posted: ReturnType<typeof vi.fn>
 let host: ReturnType<typeof hostAppFrame> | undefined
 const SESSION: { id: string; deviceId: string; deviceLabel: string; projectId: string; online?: boolean } = { id: 's-there', deviceId: 'dev-server', deviceLabel: 'server', projectId: 'p-2' }
-function start(where: { chatId: string | null; session?: typeof SESSION }) {
+function start(where: { chatId: string | null; session?: typeof SESSION }, capabilities: ExtensionCapability[] = ['files:read']) {
   host?.dispose()
-  host = hostAppFrame(frame, { extensionId: 'spexcode', tabId: 'tab-1', tabName: 'main', ...where, capabilities: ['files:read'], locale: 'en-US', themeMode: 'light' }, {
+  host = hostAppFrame(frame, { extensionId: 'spexcode', tabId: 'tab-1', tabName: 'main', ...where, capabilities, locale: 'en-US', themeMode: 'light' }, {
     showMessage: vi.fn(), showSession: () => ({ shown: true }), openWith: vi.fn(), openWorkingCopy, chrome: vi.fn(),
   })
 }
@@ -78,6 +79,29 @@ async function call(method: string, args: Record<string, unknown>): Promise<Reco
 }
 
 describe('an App page on the phone, in a session on another computer', () => {
+  it.each([false, true])('refuses an ungranted workspace range before contacting the computer (explicit device: %s)', async (explicitDevice) => {
+    start({ chatId: null, session: SESSION }, [])
+    sent.answer = { size: 3, offset: 0, data: 'AP+A' }
+    const reply = await call('filesRead', {
+      ref: { workspace: 'session:s-there', id: 'data.bin' }, offset: 0, length: 3,
+      ...(explicitDevice ? { device: 'device:00000000-0000-4000-8000-000000000001' } : {}),
+    })
+    expect(reply).toMatchObject({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "files:read"' })
+    expect(sent.calls).toHaveLength(0)
+  })
+
+  it('decodes a workspace range once before posting binary bytes to the App', async () => {
+    start({ chatId: null, session: SESSION })
+    sent.answer = { size: 3, offset: 0, data: 'AP+A' }
+    const reply = await call('filesRead', { ref: { workspace: 'session:s-there', id: 'data.bin' }, offset: 0, length: 3 })
+    expect(reply).toMatchObject({ ok: true, value: { size: 3, offset: 0 } })
+    const value = structuredClone(reply.value) as { data: Uint8Array }
+    expect(value.data).toBeInstanceOf(structuredClone(new Uint8Array()).constructor)
+    expect([...value.data]).toEqual([0, 255, 128])
+    expect(value.data.buffer.byteLength).toBe(3)
+    expect(sent.answer).toMatchObject({ data: 'AP+A' })
+  })
+
   it('opens a working-copy file in the phone preview through the same machine route as listing', async () => {
     start({ chatId: null, session: SESSION })
     sent.answer = { size: 18, offset: 0, etag: 'v1', data: 'YQ==' }

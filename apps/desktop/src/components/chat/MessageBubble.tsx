@@ -1,13 +1,14 @@
 import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { useMessageTextSelection } from '../../hooks/useMessageTextSelection'
+import { MESSAGE_BUBBLE_LAYOUT as layout } from '@gugu/core/shared/ui/messageBubbleLayout'
 import { MessageSelectionToolbar } from './MessageSelectionToolbar'
 import { messageSelectionActionItems } from './messageActionItems'
 import { memo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
 import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'; import { GroupAvatarSlot } from './StickyGroupAvatar'
-import { Avatar } from '../Avatar'; import { platform } from '../../platform'
+import { MessageSenderAvatar } from './MessageSenderAvatar'; import { platform } from '../../platform'
 import { useAuth } from '../../store/auth'; import { useLongPress } from '../../hooks/useLongPress'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
@@ -298,7 +299,7 @@ export const MessageBubble = memo(function MessageBubble({
   // @@@msg-avatar (#1102) - 消息头像对齐设计稿 .av.s(28–32px 小号);原 md=40 偏大显「旧/重」。
   // @@@1355 sender avatars are projected only from the canonical sender URL.
   // Display-only naming never changes the sender id or profile actions.
-  const avatar = <Avatar name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} harnessBadge={!compactMobile} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
+  const avatar = <MessageSenderAvatar senderUserId={msg.sender_user_id} name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} harnessBadge={!compactMobile} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
   const canOpenProfile = !!memberProfile && !!onOpenMemberProfile
 
   if (msg.content_type === 'system') return <SystemMessageNotice message={msg} senderName={avatarName} onOpenTopic={onOpenTopicAnchor} />
@@ -323,10 +324,10 @@ export const MessageBubble = memo(function MessageBubble({
         display: 'flex',
         flexDirection: msg.is_mine ? 'row-reverse' : 'row',
         alignItems: 'flex-start',
-        gap: '11px', // #1323 模块3 — SSOT .msg gap:11(原 10)
+        gap: layout.avatarGap,
         // @@@msg-air - 行间留白加大 + 头像与气泡间距加大，求轻量呼吸感。
         // 合组的后续消息收紧上下距（组内 1px，组间仍 5px），气泡簇视觉上归属同一发言。
-        padding: groupedWithPrev ? '1px 14px' : '5px 14px',
+        padding: `${groupedWithPrev ? 1 : 5}px ${layout.rowPadX}px`,
       }}
     >
       {/* Avatar — both sent and received；一组只在组尾画一个头像(sticky 贴滚动区底边),其余几条用等宽占位保持气泡对齐 */}
@@ -355,12 +356,11 @@ export const MessageBubble = memo(function MessageBubble({
           // shrink-to-fit(宽度不确定)。不可断的超宽块公式(KaTeX 单个 inline-block)会把这条不确定链一路顶到公式
           // 内在宽度,而气泡的百分比 max-width 在内在尺寸计算里被当 none 忽略 → 气泡连同整列胀破越出聊天区。
           //   ① flexBasis 定成 70%/78% + minWidth:0 → 本列是确定宽度(= 可用宽的 70%),不再被内容顶宽;短消息里
-          //      气泡仍靠内部 align-items/fit-content 贴合内容(列虽定宽但透明,视觉不变)。
           //   ② containerType:inline-size → 本列成为行内尺寸查询容器,气泡即可用 100cqw 拿到确定长度的 max-width
           //      真正封顶(见 bubbleStyle.maxWidth);封顶后气泡内的 .katex-display/pre 的 overflow-x-auto 才在气泡
           //      内横滚。直接给 flex 列上 container-type 会把 auto flex-basis 的内容尺寸算成 0 → 列塌成 0,故必须显式 flexBasis。
-          flexBasis: compactMobile ? '78%' : '70%',
-          maxWidth: compactMobile ? '78%' : '70%',
+          flexBasis: `${100 * (compactMobile ? layout.column.phone : layout.column.desktop)}%`,
+          maxWidth: `${100 * (compactMobile ? layout.column.phone : layout.column.desktop)}%`,
           minWidth: 0,
           containerType: 'inline-size',
           gap: '3px',

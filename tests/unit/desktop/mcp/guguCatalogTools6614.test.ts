@@ -141,7 +141,7 @@ describe('catalog_*: 渐进披露 (#6614)', () => {
     // P6: a row is exactly { call, about } — `call` already starts with the name, so no separate `name` copy.
     expect(items.filter((row) => Object.keys(row).sort().join() !== 'about,call')).toEqual([])
     const rows = items.map((row) => ({ ...row, name: nameOfCall(row.call) }))
-    expect(rows.find((row) => row.name === 'app_check')?.call).toBe('app_check(tab_kind, item_id?, chat_id?, file_path?, steps?, phone?, page?)')
+    expect(rows.find((row) => row.name === 'app_check')?.call).toBe('app_check(tab_kind?, message_id?, widget_id?, item_id?, chat_id?, file_path?, steps?, phone?, look?, page?)')
     expect(rows.find((row) => row.name === 'app_pack')?.call).toBe('app_pack(source_dir, output_path?, chat_id?)')
     // 改父子关系只在目录里(主清单 0 字节,owner 2026-10-02):行上就有它要的两个参数。
     const setParent = rows.find((row) => row.name === 'session_set_parent')

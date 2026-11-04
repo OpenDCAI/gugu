@@ -13,6 +13,7 @@ import {
   type DeviceRpcPipe,
 } from '../../../../packages/core/src/cloud/deviceRpcRequester'
 import { openSshDeviceRpcPipe } from '../../../../apps/desktop/electron/device-rpc-requester'
+import { VERSION_RESTART_RPC } from '../../../../packages/core/src/cloud/serverMachineHealth'
 
 type Handlers = { onMessage(payload: unknown): void; onClosed(error: unknown): void }
 
@@ -188,7 +189,7 @@ describe('device RPC requester', () => {
 })
 
 describe('main-process SSH pipe on the shared link (one `gugu-server link` per machine)', () => {
-  function fakeLinks(open: { ok: true } | { ok: false; reason: string; detail: string } = { ok: true }) {
+  function fakeLinks(open: { ok: true } | { ok: false; reason: string; detail: string; controlOnly?: true } = { ok: true }) {
     const taps = new Map<string, Set<{ onMessage(m: unknown): void; onClosed(r: string): void }>>()
     const sent: unknown[] = []
     const links = {
@@ -232,5 +233,19 @@ describe('main-process SSH pipe on the shared link (one `gugu-server link` per m
     const error = await openSshDeviceRpcPipe(refused.links, 'dev-c', { onMessage: () => undefined, onClosed: () => undefined }).catch((e: unknown) => e)
     expect((error as DeviceRpcChannelError).reason).toBe('signInRequired')
     expect(refused.taps.get('dev-c')!.size).toBe(0)
+  })
+
+  it('uses the retained outdated link to send update controls from the main process', async () => {
+    const { links, taps, sent } = fakeLinks({ ok: false, reason: 'outdated', detail: 'server protocol 15', controlOnly: true })
+    const received: unknown[] = []
+    const pipe = await openSshDeviceRpcPipe(links, 'old', { onMessage: message => received.push(message), onClosed: () => undefined })
+    const request = { payload: { type: VERSION_RESTART_RPC, request_id: 'update', user_id: 'owner-1', payload: { confirmed: true } } }
+    await pipe.send(request)
+    expect(sent).toEqual([request])
+    const reply = { payload: { type: `${VERSION_RESTART_RPC}:reply`, request_id: 'update', result: { ok: true } } }
+    for (const tap of taps.get('old')!) tap.onMessage(reply)
+    expect(received).toEqual([reply])
+    pipe.close()
+    expect(taps.get('old')!.size).toBe(0)
   })
 })

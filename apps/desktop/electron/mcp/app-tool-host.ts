@@ -5,10 +5,11 @@ import { parseGuguLink } from '@gugu/core/shared/ui/guguLink'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { REMOTE_WORKSPACE_CHUNK_BYTES } from '@gugu/session-core/session-record/contract'
-import { decodeTypedId } from '@gugu/core/shared/typedId.mjs'
+import { decodeTypedId, readTypedIdLenient } from '@gugu/core/shared/typedId.mjs'
 import type { GuguMcpContext } from '../acp-engine-utils'
 // @ts-expect-error -- the MCP tool implementation is an untyped ESM module.
-import { extensionAttachmentOf, extensionCheckScopeOf, groupDataFileOf, sendExtensionCardOf } from './gugu-im-server.mjs'
+import { extensionAttachmentOf, extensionCheckScopeOf, widgetCheckScopeOf, groupDataFileOf, sendExtensionCardOf } from './gugu-im-server.mjs'
+import { appCheckTargetError } from '../../src/session/shared/extensions/app-tool-args'
 import { isExtensionCheckAvailable } from './gugu-extension-tool'
 import { INSTALLED_NOT_SHOWN_NOTE } from '../../src/session/shared/extensions/host-actions'
 import { typedFileName } from '../../src/session/shared/extensions/app-runtime-protocol'
@@ -77,6 +78,20 @@ async function manageResource(action: Record<string, unknown>, context: GuguMcpC
 async function withMessageAttachment(action: unknown, context: GuguMcpContext): Promise<unknown> {
   const { action: name, source_message_id: messageId, chat_id: chatId, item_id: itemId } = action as {
     action?: unknown; source_message_id?: unknown; chat_id?: unknown; item_id?: unknown
+  }
+  if (name === 'check') {
+    const args = action as Parameters<typeof appCheckTargetError>[0]
+    const error = appCheckTargetError(args)
+    if (error) throw new Error(error)
+    const target = args.message_id ?? args.widget_id
+    if (target !== undefined) {
+      if (context.kind !== 'social' || context.forkOf !== undefined) throw new Error('app_check: widget messages need a session with a Gugu identity')
+      // message_id was decoded by the shared MCP registrar; widget_id is the legacy alias.
+      const scope = await widgetCheckScopeOf(context, readTypedIdLenient('msg', target) ?? target)
+      if (args.tab_kind !== undefined && args.tab_kind !== scope.tabKind) throw new Error(`app_check: this widget uses ${scope.tabKind}, not ${args.tab_kind}`)
+      const { message_id: _message, widget_id: _widget, ...rest } = action as Record<string, unknown>
+      return { ...rest, tab_kind: scope.tabKind, chat_id: scope.chatId, widget: scope.widget }
+    }
   }
   if (name === 'check' && (chatId !== undefined || itemId !== undefined)) {
     if (context.kind !== 'social' || context.forkOf !== undefined) {

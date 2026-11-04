@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ProcessGroupMember } from '../pty/process-tree';
 import type { OwnedChild } from '../exec/owned-child';
-import { signalEngineTree, type EngineTreeOps } from './engine-tree';
+import { signalEngineTree, signalProcessDescendantsSync, type EngineTreeOps } from './engine-tree';
 
 // 形状取自 #6353 的 mac1 读数:适配器组长 100(detached)→ 引擎 101(同组)→ 引擎 setpgid 出去的
 // 工具进程 200(自成一组,例如 codex 的后台终端 `sleep 600`)。300 是与这棵树无关的进程。
@@ -28,6 +28,16 @@ function recordingOps(table: () => ProcessGroupMember[]) {
 }
 
 describe('signalEngineTree (#6353)', () => {
+  it('host exit snapshots all worker descendants, preserving its own group and unrelated daemons', () => {
+    const { ops, calls } = recordingOps(() => [
+      row(process.pid, 1, 50), row(60, process.pid, 50), row(61, 60, 50),
+      row(100, 60, 100), row(101, 100, 100), row(200, 101, 200), row(300, 1, 300),
+    ]);
+    signalProcessDescendantsSync([60], 'SIGKILL', ops);
+    expect(calls[0]).toBe('snapshot');
+    for (const pid of [-100, -200, 61, 100, 101, 200]) expect(calls).toContain(`kill ${pid} SIGKILL`);
+    for (const pid of [-50, 50, 60, 300, -300, process.pid]) expect(calls).not.toContain(`kill ${pid} SIGKILL`);
+  });
   it('signals the escaped tool process together with the group, read before the signal', () => {
     const { ops, calls, owned } = recordingOps(() => TREE);
     signalEngineTree(owned, 'SIGTERM', ops);

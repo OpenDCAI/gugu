@@ -8,14 +8,13 @@ import { clickElement, createNode, createReactHarness, renderWithAppProviders } 
 import { ChatHeaderActions } from '../../../../../apps/desktop/src/components/chat/ChatHeaderActions'
 import { drainTopicSplitRequest } from '../../../../../apps/desktop/src/lib/topicSplitRequest'
 
-vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
-vi.mock('@/lib/chatPinSettings', () => ({ readChatPinSettings: async () => ({ appIds: [], topicIds: [] }), setChatPinPreference: vi.fn() }))
+vi.mock('@/lib/chatPinSettings', () => ({ readChatPinSettings: async () => ({ topicIds: [] }), setChatPinPreference: vi.fn(), watchChatPinSettings: () => () => {} }))
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup() })
 
-async function renderHeader(props: { isGroupChat: boolean; mobile: boolean }, extraChats: unknown[] = []) {
+async function renderHeader(props: { isGroupChat: boolean; mobile: boolean }, extraChats: unknown[] = [], showHeaderMenu = true) {
   const onOpenInfo = vi.fn()
   await renderWithAppProviders(harness, createNode(ChatHeaderActions, {
     ...props,
@@ -23,7 +22,7 @@ async function renderHeader(props: { isGroupChat: boolean; mobile: boolean }, ex
     searchMode: false,
     folderShown: false,
     infoShown: false,
-    showHeaderMenu: true,
+    showHeaderMenu,
     moreButtonRef: createRef<HTMLButtonElement>(),
     onEnterSearchMode: vi.fn(),
     onOpenFolder: vi.fn(),
@@ -48,7 +47,7 @@ describe('#6783 页头 = 这个聊天自己的信息', () => {
     })
     it(`group (${mobile ? 'phone' : 'desktop'}): Settings opens the root; Members keeps its own direct destination`, async () => {
       const onOpenInfo = await renderHeader({ isGroupChat: true, mobile })
-      expect(menuInfo()?.textContent).toBe('群设置')
+      expect(menuInfo()?.textContent).toBe('群信息与设置')
       expect(document.querySelector('[data-testid="chat-header-more-button"]')).not.toBeNull()
       await clickElement(menuInfo()!)
       expect(onOpenInfo).toHaveBeenCalledWith('main')
@@ -58,14 +57,14 @@ describe('#6783 页头 = 这个聊天自己的信息', () => {
     })
   }
 
-  it.each([false, true])('group (mobile=%s): ⋯ holds Topics beside Settings and opens a topic', async (mobile) => {
+  it.each([false, true])('group (mobile=%s): direct Topics opens the same live topic list', async (mobile) => {
     await renderHeader({ isGroupChat: true, mobile }, [
       { id: 't-old', kind: 'topic', source_chat_id: 'g', name: '旧话题', last_message_at: '2026-10-01T00:00:00Z' },
       { id: 't-new', kind: 'topic', source_chat_id: 'g', name: '新话题', last_message_at: '2026-10-27T00:00:00Z' },
       { id: 't-else', kind: 'topic', source_chat_id: 'other', name: '别的群', last_message_at: '2026-10-27T00:00:00Z' },
-    ])
+    ], false)
     const topics = document.querySelector('[data-testid="group-menu-topics"]') as HTMLElement
-    expect(topics.textContent).toContain('话题')
+    expect(topics.getAttribute('aria-label')).toBe('话题')
     await clickElement(topics)
     const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="group-menu-topic"]'))
     expect(rows.map((row) => row.querySelector('.gg-topic-name')?.textContent)).toEqual(['新话题', '旧话题'])

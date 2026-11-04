@@ -1,0 +1,200 @@
+{
+  "apps": [
+    {
+      "id": "data-lens",
+      "deprecated": null,
+      "versions": [
+        {
+          "version": "0.1.0",
+          "manifest": {
+            "id": "data-lens",
+            "name": "Data Lens",
+            "defaultLocale": "en",
+            "subtitle": "Charts from chat data files",
+            "author": "咕咕",
+            "version": "0.1.0",
+            "apiVersion": 26,
+            "platforms": [
+              "desktop",
+              "phone"
+            ],
+            "engines": {
+              "gugu": ">=0.3.1"
+            },
+            "entry": "card.html",
+            "icon": "icon.png",
+            "permissions": {
+              "capabilities": [
+                "files:read",
+                "agents:tools"
+              ]
+            },
+            "contributes": {
+              "tabs": [
+                {
+                  "name": "card",
+                  "title": "Data Lens",
+                  "icon": "icon.png",
+                  "entry": "card.html",
+                  "widget": {
+                    "height": 360
+                  }
+                },
+                {
+                  "name": "explore",
+                  "title": "Data Lens",
+                  "icon": "icon.png",
+                  "entry": "explore.html",
+                  "opensFiles": {
+                    "chat": [
+                      ".csv",
+                      ".tsv",
+                      ".xlsx",
+                      ".xls",
+                      ".ods",
+                      ".sqlite",
+                      ".sqlite3",
+                      ".db"
+                    ]
+                  }
+                }
+              ],
+              "mcpServers": [
+                {
+                  "tools": "tools.js"
+                }
+              ],
+              "skills": "skills",
+              "instructions": "Read skill data-lens to chart a chat's .csv/.xlsx/.sqlite file: data_schema, data_query, data_card, then widget_send view card."
+            },
+            "license": "MIT",
+            "localized": {
+              "zh-CN": {
+                "name": "数据透视",
+                "subtitle": "把群里的数据文件变成图表和表格",
+                "tabs": {
+                  "card": {
+                    "title": "数据透视"
+                  },
+                  "explore": {
+                    "title": "数据透视"
+                  }
+                }
+              }
+            }
+          },
+          "apiVersion": 26,
+          "minAppVersion": "0.3.1",
+          "releaseNotes": "First version: data cards from CSV, workbooks and SQLite files in a chat, an explore page, and tools for agents.",
+          "publishedAt": "2026-11-02T22:59:05.701Z",
+          "sha256": "c3f3c46c820aabf2f554873e389deae7e623cf720935503ba2a62ab62554bd80",
+          "bytes": 766440,
+          "bundle": "bundles/data-lens/0.1.0-c3f3c46c820aabf2f554873e389deae7e623cf720935503ba2a62ab62554bd80.zip",
+          "icon": "media/data-lens/b0c73255d9b3d48492e41ce7b4829849021169bf2365db348609b90f8fb940c6.png",
+          "readme": null,
+          "source": {
+            "repo": "shuxueshuxue/gugu-apps",
+            "path": "sources/data-lens/app",
+            "commit": "1bac05bb0aa2e7aeb0d4022ed45c7019f76bd32a"
+          },
+          "yanked": null
+        },
+        {
+          "version": "0.1.1",
+          "manifest": {
+            "id": "data-lens",
+            "name": "Data Lens",
+            "defaultLocale": "en",
+            "subtitle": "Charts from chat data files",
+            "author": "咕咕",
+            "version": "0.1.1",
+            "apiVersion": 26,
+            "platforms": [
+              "desktop",
+              "phone"
+            ],
+            "engines": {
+              "gugu": ">=0.3.1"
+            },
+            "entry": "card.html",
+            "icon": "icon.png",
+            "permissions": {
+              "capabilities": [
+                "files:read",
+                "agents:tools"
+              ]
+            },
+            "contributes": {
+              "tabs": [
+                {
+                  "name": "card",
+                  "title": "Data Lens",
+                  "icon": "icon.png",
+                  "entry": "card.html",
+                  "widget": {
+                    "height": 360
+                  }
+                },
+                {
+                  "name": "explore",
+                  "title": "Data Lens",
+                  "icon": "icon.png",
+                  "entry": "explore.html",
+                  "opensFiles": {
+                    "chat": [
+                      ".csv",
+                      ".tsv",
+                      ".xlsx",
+                      ".xls",
+                      ".ods",
+                      ".sqlite",
+                      ".sqlite3",
+                      ".db"
+                    ]
+                  }
+                }
+              ],
+              "mcpServers": [
+                {
+                  "tools": "tools.js"
+                }
+              ],
+              "skills": "skills",
+              "instructions": "Read skill data-lens to chart a chat's .csv/.xlsx/.sqlite file: data_schema, data_query, data_card, then widget_send view card."
+            },
+            "license": "MIT",
+            "localized": {
+              "zh-CN": {
+                "name": "数据透视",
+                "subtitle": "把群里的数据文件变成图表和表格",
+                "tabs": {
+                  "card": {
+                    "title": "数据透视"
+                  },
+                  "explore": {
+                    "title": "数据透视"
+                  }
+                }
+              }
+            }
+          },
+          "apiVersion": 26,
+          "minAppVersion": "0.3.1",
+          "releaseNotes": "First version: data cards from CSV, workbooks and SQLite files in a chat, an explore page, and tools for agents.",
+          "publishedAt": "2026-11-02T23:33:44.456Z",
+          "sha256": "d1c11f484e5cf909f8eda792f27380ab8438399b1c0325422e9cad087c18f6e3",
+          "bytes": 766519,
+          "bundle": "bundles/data-lens/0.1.1-d1c11f484e5cf909f8eda792f27380ab8438399b1c0325422e9cad087c18f6e3.zip",
+          "icon": "media/data-lens/b0c73255d9b3d48492e41ce7b4829849021169bf2365db348609b90f8fb940c6.png",
+          "readme": null,
+          "source": {
+            "repo": "shuxueshuxue/gugu-apps",
+            "path": "sources/data-lens/app",
+            "commit": "7dc0d343bf9f185fc22289b5b1f850f7cb00407a"
+          },
+          "yanked": null
+        }
+      ]
+    }
+  ]
+}

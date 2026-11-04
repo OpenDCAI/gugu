@@ -148,6 +148,8 @@ export interface AgentInboxFetchInput {
 }
 
 export interface AgentInboxReaderDeps {
+  /** Observe a complete successful single-flight scan, including an existing failure retry. */
+  onScanComplete?: (result: AgentInboxPullResult) => void
   recipientIsRegistered?: (agentUserId: string) => boolean | Promise<boolean>
   accessToken: string
   /** Host-owned durable refusal intervals; suppressed rows are never marked read. */
@@ -472,6 +474,7 @@ export function pullAgentInbox(agentUserId: string, deps: AgentInboxReaderDeps):
       }
       const summary: AgentInboxPullResult = { pulled: result.pulled, injected: result.injected, verdict: result.verdict }
       clearInboxRetry(agentUserId)
+      if (summary.verdict !== 'not-live' && summary.verdict !== 'not-now') deps.onScanComplete?.(summary)
       return completions.length > 0
         ? { ...summary, completion: Promise.all(completions).then(() => undefined) }
         : summary

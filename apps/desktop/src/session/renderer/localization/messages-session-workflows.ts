@@ -178,9 +178,9 @@ export const enUSSessionWorkflowMessages = {
   'task.remoteActionOffline': '{device} isn’t connected right now. Try again once it’s back.',
   'task.remoteActionMissing': 'This task is no longer on {device}.',
   'task.remoteDeviceSignIn': 'Sign in to {device} over SSH first. Your draft is kept.',
-  'task.remoteDeviceUpdating': 'Gugu server on {device} is too old. Updating it now; your draft is kept.',
-  'task.remoteDeviceUpdateFailed': "Gugu server on {device} is too old and couldn't be updated. Your draft is kept.",
-  'task.remoteDeviceTooOld': 'Gugu on {device} is too old. Update Gugu there (a Gugu server updates itself when idle); your draft is kept.',
+  'task.remoteDeviceUpdating': 'Gugu on {device} is updating and will reconnect automatically. Your draft is kept.',
+  'task.remoteDeviceUpdateFailed': "Gugu on {device} couldn't finish updating. Open Settings → Devices for details. Your draft is kept.",
+  'task.remoteDeviceTooOld': 'Gugu on {device} needs an update. Open Settings → Devices to update it. Your draft is kept.',
   'task.remoteAgentInstallFailed': 'Couldn’t install this agent automatically. Check that machine’s network and retry, or install it by hand.',
   'task.remoteAgentRuntimeMissing': 'Gugu on that machine lacks a component this agent needs. Update it and retry.',
 
@@ -198,12 +198,12 @@ export const enUSSessionWorkflowMessages = {
 
   // ── sidebar · identity card (#6092) ───────────────────────────────────────
   'identityCard.dialog': 'Identity of {name}',
-  'identityCard.sessionName': 'Task',
+  'identityCard.sessionName': 'Agent',
   'identityCard.device': 'Device',
   'identityCard.folder': 'Folder',
   'identityCard.folderUnknown': 'Unknown',
   'identityCard.copy': 'Copy {label}',
-  // 复制出去的「Task: X」里标签与值之间那一段(#7334)。
+  // 复制出去的「Agent: X」里标签与值之间那一段(#7334)。
   'identityCard.copyKeySeparator': ': ',
   'identityCard.copied': 'Copied',
   'identityCard.copyFailed': 'Copy failed',
@@ -811,9 +811,9 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'task.remoteActionOffline': '{device} 此刻没连上，连上后再试。',
   'task.remoteActionMissing': '{device} 上已经没有这条会话了。',
   'task.remoteDeviceSignIn': '要先经 SSH 登录 {device}。草稿已保留。',
-  'task.remoteDeviceUpdating': '{device} 上的咕咕 server 版本太旧，正在更新。草稿已保留。',
-  'task.remoteDeviceUpdateFailed': '{device} 上的咕咕 server 版本太旧，更新没成功。草稿已保留。',
-  'task.remoteDeviceTooOld': '{device} 上的咕咕版本太旧，请更新那台机器上的咕咕（咕咕 server 会在空闲时自动更新）。草稿已保留。',
+  'task.remoteDeviceUpdating': '{device} 上的咕咕正在更新，稍后会自动重新连接。草稿已保留。',
+  'task.remoteDeviceUpdateFailed': '{device} 上的咕咕更新未完成，请在 设置 → 设备 中查看详情。草稿已保留。',
+  'task.remoteDeviceTooOld': '{device} 上的咕咕需要更新，请在 设置 → 设备 中更新。草稿已保留。',
   'task.remoteAgentInstallFailed': '这个 agent 自动安装失败。检查那台机器的网络后重试，或手动安装。',
   'task.remoteAgentRuntimeMissing': '那台机器上的咕咕缺少这个 agent 所需组件，请更新后重试。',
 
@@ -830,7 +830,7 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
 
   // ── 侧栏 · 身份卡(#6092)────────────────────────────────────────────────
   'identityCard.dialog': '{name} 的身份',
-  'identityCard.sessionName': '任务名',
+  'identityCard.sessionName': 'Agent 名',
   'identityCard.device': '设备',
   'identityCard.folder': '文件夹',
   'identityCard.folderUnknown': '未知',

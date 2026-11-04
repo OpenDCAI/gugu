@@ -22,6 +22,8 @@ export type DeviceSessions = {
   error: string | null
   /** Current transport evidence; a heartbeat alone cannot keep a working row live. */
   connected?: boolean
+  /** The device's reachability; cached session readings do not supply this fact. */
+  hostOnline?: boolean
 }
 
 export type SessionDirectoryRow = { deviceId: string; session: SessionpageSessionSummary }
@@ -154,17 +156,17 @@ export function useLiveDeviceSessions(): Readonly<Record<string, DeviceSessions>
  */
 export function deviceSessionsOf(device: Device, liveSessions: Readonly<Record<string, DeviceSessions>>): DeviceSessions {
   const live = liveSessions[device.device_id]
-  if (device.is_online && live && (!live.cached || isPhoneDevice(device))) return live
+  if (device.is_online && live && (!live.cached || isPhoneDevice(device))) return { ...live, hostOnline: true }
   // 手机的目录由手机自己的记录铺(usePhoneAgentDirectory):摘要里没有 chatId(继续真实 DM 的地址),离线也照那一份。
   // 状态由行所在机器的在线信号决定,不把旧的 working 当此刻正在运行;完整 workspace 时间线仍然 unsupported。
-  if (!device.is_online && isPhoneDevice(device) && live) return { ...live, cached: true, loading: false, error: null }
+  if (!device.is_online && isPhoneDevice(device) && live) return { ...live, cached: true, loading: false, error: null, hostOnline: false }
   const digest = sessionListFromDigest(device.session_digest, device.is_online)
   const recorded = (device.projects ?? []).map((project) => ({ id: project.localProjectId, name: project.name, path: project.rootPath }))
   const known = new Set(recorded.map((project) => project.id))
   const projects = [...recorded, ...digest.projects.filter((project) => !known.has(project.id))]
   return device.is_online
-    ? { ...digest, projects, cached: true, loading: live?.loading ?? true, error: live?.error ?? null }
-    : { ...digest, projects, cached: false, loading: false, error: null }
+    ? { ...digest, projects, cached: true, loading: live?.loading ?? true, error: live?.error ?? null, hostOnline: true }
+    : { ...digest, projects, cached: false, loading: false, error: null, hostOnline: false }
 }
 
 /** 全部机器的行;地址是行上的机器,❌ 人进的是哪台。 */

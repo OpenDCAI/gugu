@@ -2,13 +2,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { INITIAL_ACCOUNT_STATE, writeAccountState } from '../../../../apps/desktop/electron/server/server-account-machine'
-import { createServerVersionLifecycle, pointCurrent, recordVerifiedSupervisorVersion, readUpgradeMarker } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
-import { readVersionPin } from '../../../../apps/desktop/electron/server/server-account-versions'
+import { createServerUpdateStateWriter } from '../../../../apps/desktop/electron/server/server-update-state'
+import { createServerVersionLifecycle, pointCurrent } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
+import { markServerReady, readPendingVerify, writePendingVerify } from '../../../../apps/desktop/electron/server/server-startup'
 
 let home: string
 const saved = process.env.GUGU_SERVER_HOME
-const userId = '11111111-1111-4111-8111-111111111111'
 const now = 1_800_000_000_000
 beforeEach(() => {
   home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-version941-')))
@@ -19,13 +18,25 @@ beforeEach(() => {
   }
   pointCurrent(home, path.join(home, 'versions', '3.0.0'))
 })
-afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); if (saved === undefined) delete process.env.GUGU_SERVER_HOME; else process.env.GUGU_SERVER_HOME = saved })
+afterEach(() => { vi.unstubAllEnvs(); fs.rmSync(home, { recursive: true, force: true }); if (saved === undefined) delete process.env.GUGU_SERVER_HOME; else process.env.GUGU_SERVER_HOME = saved })
 const layout = () => ({ home, versions: path.join(home, 'versions'), version: '3.0.0' })
-const marker = () => ({ from: '2.0.0', to: '3.0.0', fromDir: path.join(home, 'versions', '2.0.0'), toDir: path.join(home, 'versions', '3.0.0'), switchedAt: now })
 
-describe('one supervisor version lifecycle', () => {
+
+describe('one installation version lifecycle', () => {
+  it('rechecks bad versions at the shared activation commit even after successful staging', async () => {
+    const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => undefined, layout: layout() })
+    await lifecycle.stage('4.0.0', async () => {})
+    fs.mkdirSync(path.join(home, 'data'))
+    fs.writeFileSync(path.join(home, 'data/bad-versions.json'), JSON.stringify({ '4.0.0': now }))
+    const beforeSwitch = vi.fn()
+    expect(() => lifecycle.switchSupervisor({ from: '3.0.0', to: '4.0.0', fromDir: path.join(home, 'versions/3.0.0'),
+      toDir: path.join(home, 'versions/4.0.0'), switchedAt: now }, beforeSwitch)).toThrow('previously failed')
+    expect(beforeSwitch).not.toHaveBeenCalled()
+    expect(readPendingVerify(home)).toBeNull()
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/3.0.0'))
+  })
   it('retains actual current, explicit previous, live processes and a staging lease; reclaims only unowned directories', async () => {
-    recordVerifiedSupervisorVersion(home, marker())
+    createServerUpdateStateWriter(home).set('idle', '3.0.0', undefined, { previous: '2.0.0' })
     const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => undefined, layout: layout(), running: () => ['1.0.0'] })
     let release!: () => void
     const staged = vi.fn(() => new Promise<void>(resolve => { release = resolve }))
@@ -44,30 +55,39 @@ describe('one supervisor version lifecycle', () => {
     expect(fs.readdirSync(path.join(home, 'versions'))).toHaveLength(5)
   })
   it('protects an installer-prepared target until an account adopts it through the same owner', async () => {
-    recordVerifiedSupervisorVersion(home, marker())
+    createServerUpdateStateWriter(home).set('idle', '3.0.0', undefined, { previous: '2.0.0' })
     const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => undefined, layout: layout() })
     const prepared = path.join(home, 'versions', '.prepared', '4.0.0')
     fs.mkdirSync(path.dirname(prepared)); fs.writeFileSync(prepared, '')
     expect(lifecycle.reclaim()).not.toContain('4.0.0')
     await lifecycle.stage('4.0.0', async () => {})
-    // The account machine records it as its version; reclamation keeps it from that one state file.
-    const data = path.join(home, 'accounts', userId, 'data')
-    fs.mkdirSync(data, { recursive: true })
-    fs.writeFileSync(path.join(data, 'server-session.enc'), 'fixture')
+    // The newly stable run releases its lease and records its actual rollback source.
+    pointCurrent(home, path.join(home, 'versions/4.0.0'))
     fs.rmSync(prepared)
-    writeAccountState(data, { ...INITIAL_ACCOUNT_STATE, version: '4.0.0' }, now)
+    writePendingVerify(home, { from: '3.0.0', to: '4.0.0', attempts: 1 })
+    vi.stubEnv('GUGU_TASK_HOST_VERSION', '4.0.0')
+    markServerReady(home, now)
     expect(lifecycle.reclaim()).not.toContain('4.0.0')
   })
-  it('persists rollback before switching; the watchdog establishes the verified previous fact', async () => {
+  it('persists launch verification before switching and completes it on readiness', async () => {
     const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => undefined, layout: layout() })
     const next = { from: '3.0.0', to: '4.0.0', fromDir: path.join(home, 'versions', '3.0.0'), toDir: path.join(home, 'versions', '4.0.0'), switchedAt: now }
     await lifecycle.stage('4.0.0', async () => {})
     lifecycle.switchSupervisor(next, () => {
-      expect(readUpgradeMarker(home)).toEqual(next)
+      expect(readPendingVerify(home)).toEqual({ from: '3.0.0', to: '4.0.0', attempts: 0 })
       expect(fs.realpathSync(path.join(home, 'current'))).toBe(next.fromDir)
     })
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(next.toDir)
-    recordVerifiedSupervisorVersion(home, next)
-    expect(readVersionPin(path.join(home, 'data'))).toMatchObject({ version: '4.0.0', previous: '3.0.0' })
+    vi.stubEnv('GUGU_TASK_HOST_VERSION', '4.0.0')
+    markServerReady(home, now)
+    expect(readPendingVerify(home)).toBeNull()
+    expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8'))).toMatchObject({ state: 'idle', lastOutcome: { kind: 'switched', target: '4.0.0' } })
+  })
+  it('keeps the pending rollback package throughout a slow startup', () => {
+    createServerUpdateStateWriter(home).set('idle', '3.0.0', undefined, { previous: '2.0.0' })
+    writePendingVerify(home, { from: '4.0.0', to: '3.0.0', attempts: 1 })
+    const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => undefined, layout: layout() })
+    expect(lifecycle.reclaim()).not.toContain('4.0.0')
+    expect(fs.existsSync(path.join(home, 'versions/4.0.0/bin/gugu-server'))).toBe(true)
   })
 })

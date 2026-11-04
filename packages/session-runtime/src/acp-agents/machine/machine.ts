@@ -368,9 +368,19 @@ export function evolve(
         if (s.queuedPrompts.some(prompt => prompt.id === ev.prompt.id && (ev.retainIdentity || prompt.queueDispatching))) {
           return { state: s, effects: [] };
         }
+        if (ev.retainIdentity) {
+          // A previously admitted input is not a new same-key update. Return it ahead of the
+          // newer waiting input, preserving earlier fences and excluding it from future coalescing.
+          const { coalesceKey, ...retained } = ev.prompt;
+          const index = coalesceKey === undefined ? -1 : s.queuedPrompts.findIndex(prompt =>
+            prompt.coalesceKey === coalesceKey && !prompt.queueDispatching);
+          const queuedPrompts = [...s.queuedPrompts];
+          queuedPrompts.splice(index < 0 ? queuedPrompts.length : index, 0, retained);
+          return { state: { ...s, queuedPrompts }, effects: [{ type: 'state' }] };
+        }
         // #6387 同键替换:还在排的那条换成新内容,位置与 id 不变(它仍是「那一条」,只是内容新了)。
         const key = ev.prompt.coalesceKey;
-        const index = key === undefined || ev.retainIdentity
+        const index = key === undefined
           ? -1
           : s.queuedPrompts.findIndex((prompt) => prompt.coalesceKey === key && !prompt.queueEdit && !prompt.queueDispatching);
         if (index >= 0) {

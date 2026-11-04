@@ -3,6 +3,7 @@
 // 纯函数(翻译注入)+ 一个把它挂到统一出口上的 hook;每条判据都有单测。
 import { useEffect } from 'react';
 import type { ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth';
+import type { DeviceServerUpdate } from '@gugu/core/shared/types/deviceHost';
 import { dismissNotice, notify, type Notice } from '@/lib/notices';
 import { machineBlockIsStatus, machineNoticeLabel, machineUnavailableReason, type HostConnectionState, type Translate } from './connection-status';
 
@@ -26,12 +27,15 @@ export function machineNotice(input: {
   wakeFailure?: string | null;
   signInExpiredAt?: string | null;
   notices?: readonly ServerMachineNotice[];
+  serverUpdate?: DeviceServerUpdate;
   translate: Translate;
 }): MachineNoticeSpec | null {
   const { connection, label, dials, translate } = input;
-  const versionNotice = machineNoticeLabel(input.notices, label ?? '', translate, { protocolOnly: true });
-  if (versionNotice && connection !== 'updating' && connection !== 'update-failed') {
-    return { title: versionNotice, tier: 'error', waiting: false, delayed: false };
+  const update = connection === 'connected' ? undefined : input.serverUpdate;
+  const versionNotice = machineNoticeLabel(input.notices, label ?? '', translate, { protocolOnly: true, serverUpdate: update });
+  if (versionNotice && (update || (connection !== 'updating' && connection !== 'update-failed'))) {
+    const updateNotice = input.notices?.some(notice => notice.kind === 'desktop-too-old') ? undefined : update;
+    return { title: versionNotice, tier: updateNotice && updateNotice.state !== 'failed' ? 'info' : 'error', waiting: updateNotice?.state === 'downloading', delayed: false };
   }
   if (connection === 'connected') return null;
   const trying = connection === 'connecting' || connection === 'reconnecting';

@@ -53,6 +53,7 @@ import { rendererLogger } from '../../../../../lib/log';
 import { queryClient } from '@renderer/lib/query-client';
 import { AGENTS_METADATA_QUERY_KEY } from '@renderer/lib/stores/use-agents';
 import type { AgentPayload } from '@shared/core/agents/agent-payload';
+import { rememberTask } from '@renderer/features/command-palette/recent-tasks';
 
 /**
  * 这一家 hooks descriptor 的 kind(#6206 状态源判据的输入),读 `useAgents` 同一份清单:composer 选 harness 时
@@ -158,6 +159,7 @@ export class ProjectSessionsStore {
       // 归档 = 这条会话离开列表:与删除同形,收起它在会话页的那一份(恢复时 session:created 再放回来)。
       onMachineEvent(machine, sessionChangedChannel, ({ sessionId, projectId: evtProjectId, changes }) => {
         if (evtProjectId !== this.projectId || !changes.archivedAt) return;
+        rememberTask(sessionId, true);
         this._removeSessionLocally(sessionId);
       }),
       onMachineEvent(machine, sessionProvisionProgressChannel, ({ sessionId, projectId: evtProjectId, message }) => {

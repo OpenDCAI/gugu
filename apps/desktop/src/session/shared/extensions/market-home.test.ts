@@ -44,10 +44,10 @@ describe('marketHome', () => {
     expect(ids(two.popular!)).toEqual(['second']);
   });
 
-  it('excludes unavailable and retired Apps from recommendations, not from the complete New list', () => {
+  it('excludes author-update and retired Apps from recommendations, not from the complete New list', () => {
     const entries = [
       entry('retired', '2026-10-04', { featured: true, deprecated: { note: null, replacedBy: null } }),
-      entry('blocked', '2026-10-03', { featured: true, compat: { reason: 'needs-newer-app', minAppVersion: '9.0.0' } }),
+      entry('blocked', '2026-10-03', { featured: true, compat: { reason: 'needs-author-update', apiVersion: 24 } }),
       entry('default', '2026-10-02', { firstRun: true, featured: true }),
       entry('editor', '2026-10-01', { featured: true }),
     ];

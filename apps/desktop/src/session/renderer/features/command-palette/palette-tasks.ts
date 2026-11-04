@@ -7,7 +7,7 @@ export type PaletteTask = SearchItem & { deviceId?: string; deviceLabel?: string
 export type ListedPaletteTask = ListedSession & { deviceLabel: string };
 
 /** The existing local recall and device directory share one recent/title list. */
-export function paletteTasks(local: readonly SearchItem[], listed: readonly ListedPaletteTask[], query: string, assistantId: string | null): PaletteTask[] {
+export function paletteTasks(local: readonly SearchItem[], listed: readonly ListedPaletteTask[], query: string, assistantId: string | null, recent: readonly string[] = []): PaletteTask[] {
   const tasks = new Map<string, PaletteTask>(local.filter(item => item.kind === 'session').map(item => [item.id, item]));
   const remote = listed
     .filter(({ summary }) => rowOpens(summary) && !isAssistantSession(summary, assistantId))
@@ -22,5 +22,6 @@ export function paletteTasks(local: readonly SearchItem[], listed: readonly List
   const merged = [...tasks.values()];
   if (query.trim()) return rankPaletteMatches(merged, query, item => [item.title], { recallOnly: true });
   const at = (item: SearchItem) => item.lastInteractedAt ? new Date(item.lastInteractedAt).getTime() : Number.NEGATIVE_INFINITY;
-  return merged.sort((a, b) => at(b) - at(a)).slice(0, 10);
+  const rank = (item: SearchItem) => recent.includes(item.id) ? recent.indexOf(item.id) : recent.length;
+  return merged.sort((a, b) => rank(a) - rank(b) || at(b) - at(a)).slice(0, 10);
 }

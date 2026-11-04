@@ -97,6 +97,7 @@ function pageFor(webContentsId: number, extensionId: string): PageSync {
 }
 
 export const fileSync = {
+  onPageRelease: (listener: (pageId: number, docNames?: (grant: Grant) => boolean) => void) => relay.onPageRelease(listener),
   ensureFor: (asAgent: string | null) => { relay.ensureFor(asAgent); },
   pageFor,
   grant: (page: PageSync, grant: Grant) => {

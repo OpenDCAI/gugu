@@ -3,6 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import ts from 'typescript'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { createServerVersionLifecycle, pointCurrent } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
 
 let home: string | undefined
@@ -19,14 +21,30 @@ function binary(version: string, body: string) {
   return bin
 }
 
-function realSignalExit() {
+function realSignalExit(kind: 'SIGTERM' | 'SIGUSR2' = 'SIGTERM') {
   const file = ts.createSourceFile('main.ts', fs.readFileSync(path.resolve(__dirname, '../../../../apps/desktop/electron/main.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
   const owner = file.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(decl => decl.name.getText(file) === 'exitOnSignal'))!
-  const signal = file.statements.find(node => ts.isExpressionStatement(node) && node.getText(file).startsWith("process.on('SIGTERM'"))!
-  return ts.transpileModule(`const app={getPath:()=>''}, noteExitReason=()=>{}, killEnginesOnCrash=()=>{}, deviceRuntimeHost=null, SERVER_MODE=true; let signalStopping=false; ${owner.getText(file)}; ${signal.getText(file)}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+  const signal = file.statements.find(node => node.getText(file).startsWith(kind === 'SIGTERM'
+    ? "process.on('SIGTERM'" : "if (SERVER_MODE) process.on('SIGUSR2'"))!
+  return ts.transpileModule(`const app={getPath:()=>''}, noteExitReason=()=>{}, killEnginesOnCrash=()=>{}, stopServerActivity=()=>{}, deviceRuntimeHost=null, SERVER_MODE=true, EXIT_RESTART=75, isSingleServerRun=()=>false; let signalStopping=false; ${owner.getText(file)}; ${signal.getText(file)}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
 }
 
 describe.runIf(process.platform !== 'win32')('real-binary boot smoke: a package is admitted only after a real account process serves', () => {
+  it('routes the legacy guard SIGUSR2 through the real graceful exit handler with code 75', async () => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-guard-signal-'))
+    const command = binary('1.0.0', `${realSignalExit('SIGUSR2')}process.stdin.resume();process.stdout.write('ready')`)
+    const child = spawn(command, [], { stdio: ['pipe', 'pipe', 'pipe'] })
+    try {
+      expect(String((await once(child.stdout!, 'data'))[0])).toBe('ready')
+      const closed = once(child, 'close')
+      child.kill('SIGUSR2')
+      expect(await closed).toEqual([75, null])
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        const closed = once(child, 'close'); child.kill('SIGTERM'); await closed
+      }
+    }
+  })
   it('rejects a cached package that cannot boot, then retries the same stage and releases the entire scratch boot process', async () => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-handoff-'))
     process.env.GUGU_SERVER_HOME = home

@@ -32,7 +32,7 @@ import { useStructurallyShared } from '../hooks/useStructurallyShared'
 import { RunningBarSlot, RunningTokenBar } from './RunningTokenBar'
 import { AgentConversationNoticeSlot } from './AgentTurnFailureBar'
 import { useAgentDisplayStatuses, useAgentRecentActivity } from '../hooks/useAgentDisplayStatus'
-import { groupAgentStatusIndicatorProps } from '../lib/groupAgentStatus'; import { AgentNeedsUserGlyph } from './AgentNeedsUserGlyph'
+import { groupAgentStatusIndicatorProps } from '../lib/groupAgentStatus'
 import { useMessageFilePreview } from './chat/useMessageFilePreview'
 import type { MemberProfileCardModel, MemberProfileChatTarget } from './MemberProfileCard'
 import { useShownAgentStatus } from './chat/useAgentsOnCloudComputer'
@@ -566,7 +566,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
 
   // 块的页签条最后那枚之后的「+」(gugu-dev#181 第 ⑥ 步);页签本身由会话页的页签引擎画(chat-tabs)。
   const blockTabs = blockHost?.tabs && activeChatId ? createPortal(<TabBarAddMenu chatId={activeChatId} />, blockHost.tabs) : null
-  const roomMemberTotal = isRoomChatSurface ? groupCollabSnapshot.humans.length + groupCollabSnapshot.agents.length : 0
   const headerActions = (
     <>
       <ChatHeaderActions
@@ -577,8 +576,12 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
         infoShown={tabs.infoShown}
         showHeaderMenu={showHeaderMenu}
         mobile={mobile}
-        // 块里没有标题后面那个「(N)」,人数挂在成员按钮上(原型「👥 4」)。
-        memberCount={blockHost && roomMemberTotal > 0 ? roomMemberTotal : undefined}
+        room={isRoomChatSurface ? {
+          snapshot: groupCollabSnapshot,
+          settings: groupSettings.settings,
+          statusIndicatorProps: groupAgentStatusIndicatorProps(shownAgent.members(groupCollabSnapshot.agents, groupAgentStatuses), groupAgentStatuses),
+          onReload: loadGroupCollab,
+        } : undefined}
         moreButtonRef={moreButtonRef}
         onEnterSearchMode={() => setSearchMode(true)}
         onOpenFolder={handleOpenFolder}
@@ -717,38 +720,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
               >
                 {shownActiveChatName}
               </span>
-              {/* @@@group-count (#1102) 群名后成员数 (N) — 对齐设计稿 #single-name 群头 `创业产品 (4)`
-                  (faint-fg, 常规字重)。计数从 群名旁移过来,与下方成员状态行解耦。 */}
-              {isRoomChatSurface && (() => {
-                const total = groupCollabSnapshot.humans.length + groupCollabSnapshot.agents.length
-                if (total === 0) return null
-                return (
-                  <span style={{ color: 'var(--faint-fg)', fontWeight: 400, flexShrink: 0 }}>
-                    ({total})
-                  </span>
-                )
-              })()}
             </span>
-            {isGroupChat && !mobile && (() => {
-              // #single-name 群头 .st: 绿点 ● + 完整成员名(`P7测试、林小满、Atlas、Borealis`),无「· N 人」
-              // 点击 header 展开成员抽屉。溢出由 ellipsis 收。
-              const members = [...groupCollabSnapshot.humans, ...groupCollabSnapshot.agents]
-                .map((m) => identitiesById[m.id]?.display_name ?? '')
-                .filter(Boolean)
-              const total = members.length
-              if (total === 0) return null
-              const names = members.join('、')
-              const statusIndicatorProps = groupAgentStatusIndicatorProps(shownAgent.members(groupCollabSnapshot.agents, groupAgentStatuses), groupAgentStatuses)
-              return (
-                <span
-                  title={names}
-                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', color: 'var(--muted-fg)', minWidth: 0 }}
-                >
-                  {statusIndicatorProps ? <span {...statusIndicatorProps}>{statusIndicatorProps['data-agent-display-status'] === 'needs_user' ? <AgentNeedsUserGlyph size={8} /> : null}</span> : null}
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{names}</span>
-                </span>
-              )
-            })()}
           </div>
         )}
         actions={searchMode ? null : headerActions}

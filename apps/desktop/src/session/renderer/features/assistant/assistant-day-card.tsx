@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Popover } from '@/components/ui/Popover';
+import { formatClock, formatDate } from '@/i18n/format';
 import { CalendarClock, ChevronDown, ChevronUp, Info, MessageCircle, Plug } from '@/lib/icons';
 import { collapsedRows, dayRows, defaultOpen, eventStatus, isTodayAgenda, joinNow, type DayRows, type EventStatus } from './assistant-day';
 import type { DayEvent, TodayDay, TodayPart } from './assistant-today-file';
@@ -226,30 +227,14 @@ function statusLabel(status: EventStatus, t: T): string | null {
   return null;
 }
 
-/** 「09:00 – 10:00」(24 小时制,这台设备的时区);全天的写「全天」;没写结束的只写开始。 */
-// 这张卡每 30 秒重渲一次,行数 × 次数地 new Intl.DateTimeFormat 是白付;按 locale 记一份。
-const clockFormats = new Map<string, Intl.DateTimeFormat>();
-function clockFormat(locale: string): Intl.DateTimeFormat {
-  let format = clockFormats.get(locale);
-  if (!format) clockFormats.set(locale, format = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hour12: false }));
-  return format;
-}
-
+/** 「09:00 – 10:00」(这台设备的时区,时刻写法同界面其它地方);全天的写「全天」;没写结束的只写开始。 */
 function timeRange(event: DayEvent, t: T): string {
   if (event.allDay || !event.start) return t('today.agenda.allDay');
-  const clock = clockFormat(t('today.locale'));
-  const start = clock.format(new Date(event.start));
-  return event.end ? `${start} – ${clock.format(new Date(event.end))}` : start;
-}
-
-const shortDateFormats = new Map<string, Intl.DateTimeFormat>();
-function shortDateFormat(locale: string): Intl.DateTimeFormat {
-  let format = shortDateFormats.get(locale);
-  if (!format) shortDateFormats.set(locale, format = new Intl.DateTimeFormat(locale, { month: 'long', day: 'numeric' }));
-  return format;
+  const start = formatClock(event.start, t('today.locale'));
+  return event.end ? `${start} – ${formatClock(event.end, t('today.locale'))}` : start;
 }
 
 function shortDate(localDate: string, t: T): string {
   const [year, month, day] = localDate.split('-').map(Number);
-  return shortDateFormat(t('today.locale')).format(new Date(year, month - 1, day));
+  return formatDate(new Date(year, month - 1, day), { month: 'long', day: 'numeric' }, t('today.locale'));
 }

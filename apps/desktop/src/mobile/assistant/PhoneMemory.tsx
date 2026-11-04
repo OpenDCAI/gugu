@@ -4,6 +4,7 @@ import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import './phone-memory.css'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { formatCalendarDate } from '@/i18n/format'
 import { Markdown } from '@/components/markdown/Markdown'
 import { Button } from '@/components/ui/Button'
 import { Sparkles, SquarePen, Trash2 } from '@/lib/icons'
@@ -36,7 +37,7 @@ function kindLabel(kind: MemoryKind, t: Translate, name: string): string {
 function useTime() {
   const { i18n } = useTranslation('assistant')
   return (iso: string | null) =>
-    iso ? new Intl.DateTimeFormat(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso)) : ''
+    iso ? formatCalendarDate(new Date(iso), i18n.language) : ''
 }
 
 /**

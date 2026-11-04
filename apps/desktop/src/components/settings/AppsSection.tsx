@@ -7,7 +7,7 @@ import { installedExtensionsStore } from '../../session/renderer/features/extens
 import { translateSessionMessage } from '../../session/renderer/localization/locale-store'
 import { localizedManifestText } from '../../session/shared/extensions/catalog'
 import { compareExtensionVersions, type ExtensionManifest } from '../../session/shared/extensions/manifest'
-import type { MarketVersionHistoryEntry } from '../../session/shared/extensions/market'
+import { marketCompatText, type MarketVersionHistoryEntry } from '../../session/shared/extensions/market'
 import { phoneApps } from '../appSlot/phoneApps'
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
@@ -311,9 +311,7 @@ function VersionsSheet({
               : entry.platformRefusal
                 ? translateSessionMessage('extensions.platformVersionUnavailable')
               : entry.compat
-                ? entry.compat.reason === 'needs-newer-app'
-                  ? translateSessionMessage('extensions.needsNewerApp', { version: entry.compat.minAppVersion })
-                  : translateSessionMessage('extensions.needsAuthorUpdate')
+                ? marketCompatText(entry.compat, translateSessionMessage)
                 : null
             const date = new Date(entry.publishedAt).toLocaleDateString(locale)
             return (
