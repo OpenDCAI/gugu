@@ -1171,6 +1171,26 @@ describe('session timeline service', () => {
     expect(state.deliverText).toHaveBeenCalledTimes(1);
   });
 
+  it('retains explicit steering through admission and rejects a replay that changes that intent', async () => {
+    let finish!: (value: { accepted: 'queued' }) => void;
+    state.deliverText = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+    const first = service.send('conv-1', 'hello', 'steered-input', undefined, undefined, true);
+    expect(state.deliverText).toHaveBeenCalledWith(expect.objectContaining({ id: 'conv-1' }), 'hello', 'steered-input', undefined, undefined, true);
+    expect(await service.send('conv-1', 'hello', 'steered-input')).toMatchObject({ ok: false, error: { admission: 'uncertain' } });
+    finish({ accepted: 'queued' });
+    expect(await first).toMatchObject({ ok: true, value: { clientMessageId: 'steered-input', admission: 'accepted' } });
+    expect(state.deliverText).toHaveBeenCalledTimes(1);
+  });
+
+  it('recognizes a durable steered input after a lost ACK without admitting it a second time', async () => {
+    state.acceptedMessage.mockReturnValue({ id: 'steered-input', sessionId: 'conv-1', sender: 'user', content: 'hello',
+      metadata: JSON.stringify({ kind: 'session-direct', delivery: { queue: true, steerIfBusy: true } }) });
+    expect(await service.send('conv-1', 'hello', 'steered-input', undefined, undefined, true))
+      .toMatchObject({ ok: true, value: { admission: 'accepted' } });
+    expect(await service.send('conv-1', 'hello', 'steered-input')).toMatchObject({ ok: false, error: { admission: 'uncertain' } });
+    expect(state.deliverText).not.toHaveBeenCalled();
+  });
+
   it('没人订阅之后到点才 dispose', async () => {
     vi.useFakeTimers();
     try {

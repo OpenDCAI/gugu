@@ -8,13 +8,14 @@ import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 
 // Existing-session human sends also use session-direct; only envelopes identify an agent delivery.
 export function isTranscriptDelivery(input: Pick<LifeView['pending']['items'][number], 'kind' | 'state' | 'text'>): boolean {
-  return input.kind === 'inbox-batch' || (input.kind === 'session-direct' && (input.state === 'unknown' || readDeliveryEnvelope(input.text) !== null))
+  return input.kind === 'inbox-batch' || input.kind === 'session-direct'
 }
 
 /** The receiver's host queue and native transcript share one incoming-delivery projection on every surface. */
 export function projectSessionPendingDeliveries(previous: readonly PendingPrompt[], view: LifeView | null,
   turns: readonly TranscriptTurn[], starting?: PendingPrompt['starting']): PendingPrompt[] {
-  if (!view) return previous.filter(input => input.delivery?.state !== 'accepted' || (!input.nativeEcho && !pendingPromptLanded(input, turns)));
+  if (!view) return previous.filter(input => (input.delivery?.state !== 'accepted' && input.delivery?.state !== 'receiving')
+    || (!input.nativeEcho && !pendingPromptLanded(input, turns)));
   const rows = view?.pending.items.filter(isTranscriptDelivery) ?? []
   const ids = new Set([...previous.map(input => input.id), ...rows.map(row => row.messageId)])
   return [...ids].flatMap(id => {
@@ -30,11 +31,11 @@ export function projectSessionPendingDeliveries(previous: readonly PendingPrompt
       ? { state: 'unknown', retryable: false, error: row.failure ? messageForUser(row.failure) : undefined }
       : row?.state === 'failed' || failedStart
         ? { state: 'failed', retryable: failedStart, error: messageForUser(row?.failure ?? view?.failure?.message ?? '') }
-        : row?.state === 'accepted' || (!row && view) ? { state: 'accepted' }
+        : row?.state === 'accepted' || (!row && view) ? { state: 'receiving' }
           : stopped ? { state: 'accepted' }
-          : prior?.delivery?.state === 'accepted' ? prior.delivery : { state: 'sending' }
+          : prior?.delivery?.state === 'accepted' ? prior.delivery : { state: 'receiving' }
     const next = { ...input, starting, stopped, delivery, nativeEcho: pendingPromptNativeEcho(input, turns) }
-    return !stopped && delivery.state === 'accepted' && next.nativeEcho ? [] : [next]
+    return !stopped && (delivery.state === 'accepted' || delivery.state === 'receiving') && next.nativeEcho ? [] : [next]
   }).sort((a, b) => (a.hostSequence ?? 0) - (b.hostSequence ?? 0))
 }
 

@@ -1197,8 +1197,14 @@ input::placeholder {
   to { transform: rotate(360deg); }
 }
 .gg-ring-march { transform-origin: center; animation: gg-ring-march 1.4s linear infinite; }
+@keyframes gg-receive-wave {
+  0%, 60%, 100% { transform: translateY(0); opacity: .45; }
+  30% { transform: translateY(-2px); opacity: 1; }
+}
+.gg-receive-dot { animation: gg-receive-wave 1.05s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
   .gg-ring-march { animation: none; }
+  .gg-receive-dot { animation: none; }
 }
 
 @keyframes msgEnter {

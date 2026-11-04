@@ -28,7 +28,7 @@ export function SessionInputQueue({ sessionId, waitingForConnection, life = null
   const drawnIds = new Set(mobile ? inTranscript.map(nativeMessageKey) : inTranscript)
   const queuedFailures = new Map(mobile ? pending.filter(input => input.queued === true && input.failure
     && !life?.pending.items.some(row => row.messageId === input.id)).map(input => [input.id, input.failure!]) : [])
-  const sender = pending.filter(input => (waitingForConnection || queuedFailures.has(input.id))
+  const sender = pending.filter(input => !input.sendQueue && (waitingForConnection || queuedFailures.has(input.id))
     && (!mobile || input.queued !== true || input.failure))
   const retry = () => { void retrySessionInputs().catch(error => toast({ title: translateSessionMessage('acpFailure.sendMessage'), description: messageForUser(error), variant: 'destructive' })) }
   const bubbles = sessionInputBubbles(sender, life?.pending.items ?? [], life?.hold ?? null)

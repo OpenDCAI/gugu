@@ -58,7 +58,7 @@ describe('MessageSendStatus', () => {
     { chat: { retrySend: vi.fn(), discardSend: vi.fn() } })
     const notice = document.body.querySelector('[data-agent-id="archived"]')!
     expect(notice.textContent).toContain('对方已归档、未送达')
-    expect(document.body.querySelector('[data-send-state="queued"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-send-state="receiving"]')).not.toBeNull()
     expect(document.body.querySelector('[data-testid="message-send-failed"]')).toBeNull()
   })
   it('uses the shared Base UI menu and wires retry/discard actions', async () => {
@@ -83,11 +83,14 @@ describe('MessageSendStatus', () => {
     await clickElement(discard)
     expect(discardSend).toHaveBeenCalledWith('message-1')
   })
-  it('shows a message an agent has not taken yet as the same sending ring, saying it waits for the assistant', async () => {
+  it('shows three receiving dots without extra status text or changing the indicator footprint', async () => {
     await renderWithAppProviders(harness, createNode(MessageSendStatus, { state: 'queued', messageId: 'message-1' }), { chat: { retrySend: vi.fn(), discardSend: vi.fn() } })
-    const ring = document.body.querySelector('[data-send-state="queued"]')!
-    expect(ring.getAttribute('class')).toBe('gg-ring-march')
-    expect(ring.querySelector('title')?.textContent).toBe('发送中，助理就绪后回复')
+    const dots = document.body.querySelector('[data-send-state="receiving"]')!
+    expect(dots.getAttribute('aria-label')).toBe('等待接收')
+    expect(dots.querySelectorAll('circle')).toHaveLength(3)
+    expect(dots.textContent).toBe('')
+    expect([dots.getAttribute('width'), dots.getAttribute('height')]).toEqual(['15', '15'])
+    expect(document.body.querySelector('.gg-ring-march')).toBeNull()
   })
 })
 

@@ -41,8 +41,11 @@ import { action, computed, makeObservable, observable, reaction, runInAction, wh
 import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, lifeHoldIsFailure, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
+import { sendHeldInputNow } from './send-held-input-now';
 import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
-import { changeRejectedSessionInput, queuedSessionInputs, retrySessionInputs, subscribeSessionInputs } from '@/lib/sessionInputOutboxBridge';
+import { changeRejectedSessionInput, deleteQueuedSessionInput, editQueuedSessionInput, queuedSessionInputs, reorderQueuedSessionInputs, retrySessionInputs, subscribeSessionInputs } from '@/lib/sessionInputOutboxBridge';
+import type { SessionInput } from '@/lib/sessionInputOutbox';
+import { sessionSendQueueOrder } from '@/lib/sessionSendQueueOrder';
 import { projectSessionPendingInput } from '@/lib/pendingSessionInput';
 import { isTranscriptDelivery, loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries';
 import { batch } from 'solid-js';
@@ -181,6 +184,7 @@ export class AcpChatStore {
   draftText = '';
   queuedEditDraft: { id: string; text: string } | null = null;
   queueEditPending = false;
+  private _senderInputs: readonly SessionInput[] = [];
   private _queueEditTimer: ReturnType<typeof setTimeout> | null = null;
   reverting = false;
   messageEdit: { itemId: string; text: string } | null = null;
@@ -326,7 +330,8 @@ export class AcpChatStore {
       this.commands.map((command) => command.name)
     );
 
-    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_runtimeLiveSubagentIds' | '_storedQueue' | '_loadError' | '_lifeRetriedVersion'>(this, {
+    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_runtimeLiveSubagentIds' | '_storedQueue' | '_loadError' | '_lifeRetriedVersion' | '_senderInputs'>(this, {
+      _senderInputs: observable.ref,
       _bootstrapped: observable,
       _storedQueue: observable.ref,
       _runtimeBackgroundTaskIds: observable.ref,
@@ -541,6 +546,7 @@ export class AcpChatStore {
   }
 
   get queuedPrompts(): ComposerQueuedPrompt[] {
+    const local = this._queuedPromptModels().filter(prompt => this._senderInputs.some(input => input.id === prompt.id && input.sendQueue));
     if (!this.session) return [
       ...this._storedQueue.flatMap((prompt, index): ComposerQueuedPrompt[] => {
         if (!prompt.origin) throw new Error(`Stored queued prompt ${index} has no explicit origin`);
@@ -548,6 +554,7 @@ export class AcpChatStore {
           id: `stored:${index}`, text: prompt.text, origin: prompt.origin, locked: true,
         }];
       }),
+      ...local.map(prompt => ({ id: prompt.id, text: conversationQueueText(prompt.text), origin: 'manual' as const })),
     ];
     return this._queuedPromptModels().filter(isVisibleQueuedPrompt).map(
       (prompt) => ({ id: prompt.id, text: conversationQueueText(prompt.text), origin: prompt.origin })
@@ -777,7 +784,7 @@ export class AcpChatStore {
     const deliveryState = this.chatState.session.state.pendingPrompt?.delivery?.state;
     const startingDrawn = !state && this.transcriptPendingId !== null && deliveryState !== 'waiting' && deliveryState !== 'failed' && deliveryState !== 'unknown';
     return {
-      isWorking: agentWorking || startingDrawn || deliveryState === 'sending' || deliveryState === 'accepted',
+      isWorking: agentWorking || startingDrawn || deliveryState === 'sending' || deliveryState === 'receiving' || deliveryState === 'accepted',
       isBusy: state?.isGenerating ?? false,
       hasPendingPermission: (state?.pendingPermissions.length ?? 0) > 0,
       canSubmit: !this.reverting && !this.messageEdit && (state?.canSubmit ?? !(this.loadError && isTerminalLoadError(this.loadError))),
@@ -841,6 +848,24 @@ export class AcpChatStore {
       void this._open();
     }
     const session = this.chatState.session;
+    const sender = queuedSessionInputs(this.runtimeSessionId);
+    if (!isDeepEqual(this._senderInputs, sender)) runInAction(() => { this._senderInputs = sender; });
+    const prior = session.state.pendingPrompt;
+    const replacingTerminal = (prior?.delivery?.state === 'failed' || prior?.delivery?.state === 'unknown')
+      && sender.some(input => !input.sendQueue && input.queued === false && input.id !== prior.id);
+    const ordinaryIds = new Set([...sender.filter(input => !input.sendQueue && input.queued === false).map(input => input.id),
+      ...(prior?.delivery && !replacingTerminal ? [prior.id] : [])]);
+    const runtimeWaiting = this.session?.sessionState.current().queuedPrompts.filter(input => input.clientMessageId) ?? [];
+    const projectionView: LifeView | null = runtimeWaiting.length ? {
+      ...(view ?? { sessionId: this.runtimeSessionId, version: 0, kind: 'ready', stage: null, hold: null, failure: null, lastExit: null, nativeSession: null }),
+      pending: { count: (view?.pending.count ?? 0) + runtimeWaiting.length, items: [
+        ...(view?.pending.items ?? []),
+        ...runtimeWaiting.filter(input => !view?.pending.items.some(row => row.messageId === input.clientMessageId)).map((input, seq) => ({
+          seq, messageId: input.clientMessageId!, text: input.text, preview: input.text, kind: 'session-direct' as const,
+          state: 'queued' as const, failure: null, sentAt: input.sentAt ?? input.createdAt,
+        })),
+      ] },
+    } : view;
     const record = this._sessionRecord();
     const resumes = !!(record?.providerSessionId || record?.forkFromProviderSessionId || this.runtimeView?.forkFromProviderSessionId);
     const starting: PendingPrompt['starting'] = view !== null && lifeIsStarting(view) ? (resumes ? 'restoring' : 'starting') : undefined;
@@ -848,7 +873,8 @@ export class AcpChatStore {
     const turns = [...transcriptState.committedTurns, ...(transcriptState.activeTurnSnapshot ? [transcriptState.activeTurnSnapshot] : [])];
     const projections = new Set([...(this.stoppedRowId ? [stoppedTurnId(this.stoppedRowId)] : []), ...this.failedRowIds.map(failedTurnId)]);
     const nativeTurns = turns.filter(turn => !projections.has(turn.id));
-    const projected = projectSessionPendingDeliveries(session.state.pendingMessages.filter(input => !input.senderRejected), view, nativeTurns, starting);
+    const projected = projectSessionPendingDeliveries(session.state.pendingMessages.filter(input => !input.senderRejected), projectionView, nativeTurns, starting)
+      .filter(input => !ordinaryIds.has(input.id));
     const unresolved = projected.filter(input => {
       if (input.delivery?.state !== 'unknown' || this._incomingHistoryResolved.has(input.id)) return false;
       if (session.state.pendingMessages.some(previous => previous.id === input.id) || pendingPromptLanded(input, turns)) {
@@ -858,13 +884,11 @@ export class AcpChatStore {
       return true;
     });
     if (!this.historyLoading && unresolved.length && !this._incomingHistoryReading) void this._resolveIncomingHistory(unresolved);
-    const sender = queuedSessionInputs(this.runtimeSessionId);
     const incoming = [...projected.filter(input => !unresolved.some(held => held.id === input.id)), ...projectRejectedSessionInputs(sender, nativeTurns)];
     if (!isDeepEqual(session.state.pendingMessages, incoming)) runInAction(() => {
       session.setPendingMessages(incoming);
       this._syncMessageCount();
     });
-    const prior = session.state.pendingPrompt;
     const ordinarySender = sender.filter(row => row.admission !== 'rejected');
     const newOrdinaryInput = ordinarySender.some(row => row.queued === false && !view?.pending.items.some(host => host.messageId === row.id));
     const stoppedOnHost = view?.hold === 'user-stop' && view.pending.items.some(row => row.messageId === prior?.id);
@@ -1543,6 +1567,9 @@ export class AcpChatStore {
   }
 
   async editQueuedPrompt(id: string, text: string, queueEdit?: QueuedPromptEdit | null): Promise<boolean> {
+    if (this._senderInputs.some(input => input.id === id && input.sendQueue)) {
+      return editQueuedSessionInput(id, text, queueEdit).catch(error => { this._toastError('acpFailure.editQueued', error); return false; });
+    }
     const session = this._requireSession('acpFailure.editQueued');
     if (!session) return false;
     const existing = session.sessionState.current().queuedPrompts.find((prompt) => prompt.id === id);
@@ -1606,6 +1633,10 @@ export class AcpChatStore {
   }
 
   deleteQueuedPrompt(id: string): void {
+    if (this._senderInputs.some(input => input.id === id && input.sendQueue)) {
+      void deleteQueuedSessionInput(id).catch(error => this._toastError('acpFailure.editQueued', error));
+      return;
+    }
     const session = this._requireSession('acpFailure.editQueued');
     if (!session) return;
     void session
@@ -1617,6 +1648,14 @@ export class AcpChatStore {
   }
 
   reorderQueuedPrompts(ids: string[]): void {
+    const local = this._senderInputs.filter(input => input.sendQueue).sort((a, b) => a.sendQueue!.order - b.sendQueue!.order).map(input => input.id);
+    const order = sessionSendQueueOrder(this.queuedPrompts.map(prompt => prompt.id), new Set(local), ids);
+    if (!order) return;
+    if (!isDeepEqual(local, order.local)) {
+      void reorderQueuedSessionInputs(this.runtimeSessionId, order.local).catch(error => this._toastError('acpFailure.editQueued', error));
+    }
+    ids = order.host;
+    if (isDeepEqual(ids, this.session?.sessionState.current().queuedPrompts.filter(isVisibleQueuedPrompt).map(prompt => prompt.id) ?? [])) return;
     const session = this._requireSession('acpFailure.editQueued');
     if (!session) return;
     const current = session.sessionState.current().queuedPrompts;
@@ -1645,7 +1684,7 @@ export class AcpChatStore {
 
   /** `steers`:这家能插话(#6574)⇒ 交给运行时插进当前回合;否则挪到队首,在跑就取消当前回合。 */
   sendQueuedPromptNow(id: string, opts: { steers: boolean }): void {
-    void this._sendQueuedPromptNow(id, opts.steers);
+    void this._sendQueuedPromptNow(id, opts.steers).catch(error => this._toastError('acpFailure.sendMessage', error));
   }
 
   exportTranscript(kind: 'parsed' | 'raw'): void {
@@ -2282,10 +2321,19 @@ export class AcpChatStore {
   }
 
   private _queuedPromptModels(): QueuedPrompt[] {
-    return this.session?.sessionState.current().queuedPrompts ?? [];
+    return [...this.session?.sessionState.current().queuedPrompts ?? [],
+      ...this._senderInputs.filter(input => input.sendQueue).sort((a, b) => a.sendQueue!.order - b.sendQueue!.order).map(input => ({
+        id: input.id, text: input.text, origin: 'manual' as const, createdAt: input.createdAt, updatedAt: input.createdAt,
+        ...(input.files ? { files: input.files } : {}), ...(input.attachments ? { attachments: input.attachments } : {}),
+        ...(input.sendQueue!.edit ? { queueEdit: input.sendQueue!.edit } : {}),
+      }))];
   }
 
   private async _sendQueuedPromptNow(id: string, steers: boolean): Promise<void> {
+    if (this._senderInputs.some(input => input.id === id && input.sendQueue)) {
+      await sendHeldInputNow(this, id, steers);
+      return;
+    }
     const session = this._requireSession('acpFailure.sendMessage');
     if (!session) return;
     const current = session.sessionState.current().queuedPrompts;
@@ -2409,6 +2457,7 @@ export class AcpChatStore {
           const removedManual = this._lastQueuedPrompts.find(
             (prompt) =>
               prompt.origin === 'manual'
+              && !prompt.clientMessageId
               && !next.queuedPrompts.some((current) => current.id === prompt.id)
           );
           const active = session.activeTurn.current();
