@@ -1,4 +1,5 @@
 import type { RpcRouter } from '@main/rpc'
+import { SessionInputAdmissionError, sessionInputAdmission } from '@gugu/core/shared/sessionInputAdmission'
 import { invokePhoneHost } from '../local-agent/phoneHostRpc'
 import type { ToolImage } from '@gugu/session-core/acp/client'
 import { rendererLogger } from '@/lib/log'
@@ -217,7 +218,9 @@ export function unsubscribeSession(deviceId: string, subscriptionId: string): Pr
 }
 
 export async function sendSessionText(deviceId: string, sessionId: string, text: string, clientMessageId?: string, files?: import('@gugu/session-core/session-record/contract').TurnFileRef[], attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]) {
-  const receipt = await value(rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text, ...(clientMessageId ? { clientMessageId } : {}), ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) }))
+  const result = await rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text, ...(clientMessageId ? { clientMessageId } : {}), ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) })
+  if (!result.ok) throw new SessionInputAdmissionError(result.error.message, sessionInputAdmission(result.error), result.error.code)
+  const receipt = result.value
   if (clientMessageId && receipt.clientMessageId !== clientMessageId) throw new Error('会话尚未确认接收这条消息，稍后自动重试')
   return receipt
 }

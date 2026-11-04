@@ -37,7 +37,6 @@ const NativeProjects = observer(function NativeProjects({ detail = false, onOpen
       title={label(project)} detail={project.data?.path}
       testId={`assistant-project-${project.id}`} onClick={() => {
         appState.navigation.navigate('project', { projectId: project.id })
-        appState.sidebar.ensureProjectExpanded(project.id)
         revealSessionpage()
       }} />)}</AssistantSection> : <AssistantEmpty action={askInChat && <Button onClick={() => askInChat(t('library.projectOrganizePrompt'))}>{t('library.organize')}</Button>}>{t('library.noGuguProjects')}</AssistantEmpty>}
   </div>

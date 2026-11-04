@@ -9,6 +9,7 @@ import { canQueueNativeInput } from './queue-native-input';
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
 import { useRememberNativeTail } from './use-remember-native-tail';
+import { useOwnerNotifications } from './use-owner-notifications';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { sessionLifeView } from '../stores/session-life-views';
 import { lifeIsStarting } from '@shared/core/sessions/session-life';
@@ -99,7 +100,7 @@ import { droppedDirectoryMention } from '@renderer/lib/drag-files';
 import { pathAttachmentTarget } from '@gugu/session-chat-ui/markdown-attachment-mentions';
 import { readMermaidTheme } from '@gugu/session-chat-ui/mermaid';
 import { SessionScheduleChip } from '../session-schedule-chip';
-import { sessionComposerTrayClassName, sessionComposerTrayStyle } from '../session-composer-styles';
+import { sessionComposerFrameLiftClassName, sessionComposerTrayClassName, sessionComposerTrayStyle } from '../session-composer-styles';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
@@ -1428,6 +1429,11 @@ const ComposerForStore = observer(function ComposerForStore({
         granularity={mcpPanel?.granularity ?? 'per-server'}
         onApply={applyMcpSelection}
       />
+      {schedules.length > 0 ? (
+        <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
+          <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
+        </div>
+      ) : null}
       <NeedsYouSlot />
       {/* This task's agent's failed deliveries (the shell draws the same bar a chat's composer shows). */}
       {agentUserId ? <AgentFailureSlot agentUserId={agentUserId} /> : null}
@@ -1444,14 +1450,10 @@ const ComposerForStore = observer(function ComposerForStore({
       ) : null}
       {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
       <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life}
-        inTranscript={[store.transcriptPendingId, store.stoppedRowId, ...store.failedRowIds, ...life?.pending.items.filter(input => isTranscriptDelivery(input)).map(input => input.messageId) ?? []].filter((id): id is string => id !== null)} />
+        inTranscript={[...store.chatState.session.state.pendingMessages.map(input => input.id), store.transcriptPendingId, store.stoppedRowId, ...store.failedRowIds, ...life?.pending.items.filter(input => isTranscriptDelivery(input)).map(input => input.messageId) ?? []].filter((id): id is string => id !== null)} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
-        bandAbove={schedules.length > 0 ? (
-          <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
-            <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
-          </div>
-        ) : null}
+        className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
         // 会话页的标签头不显示 harness,锁着的那颗 agent 标留在模型左边(私聊照旧藏)。
         hideLockedAgent={false}
         isWorking={a.isWorking}
@@ -1505,6 +1507,7 @@ const ComposerForStore = observer(function ComposerForStore({
         permissionModeOptions={localizePermissionModeOptions(
           sessionPermissionOptions,
           translate,
+          agents?.find((agent) => agent.id === providerId)?.name ?? providerId ?? '',
           providerPermissionModeMap
         )}
         selectedPermissionMode={selectedPermissionModeId(
@@ -1590,6 +1593,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
 
   const visibility = useConversationVisibility(useContext(PageShownContext));
   useRememberNativeTail(store?.projectId, store?.runtimeSessionId, store?.affordances.isBusy ?? false, visibility.shown);
+  useOwnerNotifications(store, visibility.shown);
   const rootRef = visibility.ref;
   const reading = useNativeConversationRead(store ? machineRegistry.machineOf(store.runtimeSessionId) : null, store?.runtimeSessionId, visibility.shown, () => {
     const transcript = store?.chatState.transcript.state;
@@ -1704,8 +1708,9 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   );
   const { data: agents } = useAgents();
   const providerId = sessionStore?.data.providerId ?? null;
-  // 上一轮被宿主的退出打断(开机收残记下的):还是 `error` 时在消息列表末尾说是什么打断的;下一轮开工就不是了。
-  const interruptedBy = sessionStore?.status === 'error' ? (sessionStore.data.interruptedBy ?? null) : null;
+  // 上一轮被宿主的退出打断(开机收残记下的):停着时说明原因;兼容旧 error 记录,下一轮开工就不是了。
+  const interruptedBy = sessionStore?.status === 'idle' || sessionStore?.status === 'error'
+    ? (sessionStore.data.interruptedBy ?? null) : null;
   const agent = agents?.find((candidate) => candidate.id === providerId) ?? null;
   const startupNotice = agent?.capabilities.acp.startup?.noticeKey;
   const startupNoticeKey = declaredMessageKey(startupNotice);
@@ -2081,13 +2086,15 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       // `commands().onStop?.()` 在 `?.` 上整条短路，按下去一个字节都不发（#3498 查出来的，
       // 与 #3500 同形）。composer 上那颗是另一条路，它一直是通的，于是这颗死按钮
       // 被它掩护着看不出来。⇒ 这里补上；同时 UserMessageCard 改成没接回调就不渲染。
-      canRevertMessage: (itemId) => historyActionsEnabled && (store?.canRevertMessage(itemId) ?? false),
+      canRevertMessage: (itemId) => (store?.isRejectedInput(itemId) ?? false) || (historyActionsEnabled && (store?.canRevertMessage(itemId) ?? false)),
+      canDiscardSend: (itemId) => store?.isRejectedInput(itemId) ?? false,
+      onDiscardSend: (itemId) => store?.discardRejectedInput(itemId),
       onEditMessage: ({ itemId }) => store?.beginMessageEdit(itemId),
-      onRetrySend: () => store?.retryPendingInput(),
+      onRetrySend: (itemId) => store?.retryPendingInput(itemId),
       editingMessage: messageEdit ? {
         ...messageEdit,
         pending: messageEditPending,
-        canSubmit: historyActionsEnabled && messageEdit.text.trim().length > 0,
+        canSubmit: (historyActionsEnabled || !!store?.isRejectedInput(messageEdit.itemId)) && !messageEditPending && messageEdit.text.trim().length > 0,
         onChange: (text) => store?.changeMessageEdit(messageEdit.itemId, text),
         onCancel: () => store?.cancelMessageEdit(messageEdit.itemId),
         onSubmit: () => void store?.sendMessageEdit(messageEdit.itemId),

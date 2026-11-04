@@ -37,7 +37,7 @@ describe('detachedPermissionModeOptions (#7342)', () => {
     expect(detached?.options[':danger-full-access']?.destructive).toBe(true);
     expect(detached?.options[':workspace']?.destructive).toBe(false);
     // 下游两步照常:收成四档改名,选中那一行就是它自己。
-    const shown = localizePermissionModeOptions(detached!.options, translate as never, CODEX_PERMISSION_MODES);
+    const shown = localizePermissionModeOptions(detached!.options, translate as never, 'Codex', CODEX_PERMISSION_MODES);
     expect(shown?.[':danger-full-access']?.name).toBe('permissionFullAccess');
     expect(selectedPermissionModeId(detached!.selected, detached!.options, CODEX_PERMISSION_MODES)).toBe(':danger-full-access');
   });

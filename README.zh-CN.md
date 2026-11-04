@@ -9,7 +9,7 @@
 
 你把事情直接交给 Agent，它按任务需要调用工具和设备，组织协作，交回结果。
 
-[English](README.md) · **简体中文** · [关于咕咕](#关于咕咕) · [官网](https://gugu.nextmind.space/zh/) · [文档](https://gugu.nextmind.space/help/)
+[English](README.md) · **简体中文** · [关于咕咕](#关于咕咕) · [官网](https://gugu.nextmind.space/zh/) · [文档](https://gugu.nextmind.space/help/) · [产品对比](https://gugu.nextmind.space/help/comparison/overview/)
 
 [![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-C76B4A?style=flat-square)](#主要功能) [![Codex](https://img.shields.io/badge/agent-Codex-252525?style=flat-square)](#主要功能) [![MCP](https://img.shields.io/badge/tools-MCP-6A50D4?style=flat-square)](#主要功能) [![Skills](https://img.shields.io/badge/workflows-Skills-328788?style=flat-square)](#主要功能) [![Gugu Apps](https://img.shields.io/badge/extensions-Gugu%20Apps-E58F28?style=flat-square)](#主要功能)
 
@@ -210,6 +210,8 @@ App 从市场安装，版本和启用状态在客户端管理。
 如果 AGI 到来，它不会只是一个模型解决一切；模型再聪明，也需要名字、归属、长期上下文、工具、设备和协作关系。咕咕为 Agent 提供这些基础，让它随着模型变强而承担更完整的工作。
 
 [阅读更多理念](https://gugu.nextmind.space/zh/about.html)
+
+已有的 Agent 怎样带进合作、跨仓库的工作怎样交接、怎样共同使用 App，见[与其他 Agent 产品的比较](https://gugu.nextmind.space/help/comparison/overview/)。
 
 ## 自己部署与本地开发
 

@@ -4,12 +4,10 @@
 // 重试/丢弃 popover。重试/丢弃经 useChatStore 直连 outbox(无 props 钻孔,冻结调用方零增行)。
 // @@@1460 sent/delivered/read 仍归读回执圆环表达,本组件只管 sending/failed,返回 null 以外不重叠。
 
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageSendState, MessageItem } from '@gugu/core/shared/types/chat'
 import { useChatStore } from '../../store/chatContext'
-import { DropdownMenu, MenuItem } from '../ui/Menu'
-import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
+import { FailedSendStatus } from './FailedSendStatus'
 import { useAttachmentUploadProgress } from '../../lib/attachmentUploadProgress'
 import { MessageSendingIndicator } from './MessageSendingIndicator'
 
@@ -35,9 +33,7 @@ export function MessageSendStatus(props: Props) {
 function MessageTransportStatus({ state, messageId, reason, retryable = true }: Props) {
   const { t } = useTranslation('messaging')
   const { retrySend, discardSend } = useChatStore('retrySend', 'discardSend')
-  const [menuOpen, setMenuOpen] = useState(false)
   const progress = useAttachmentUploadProgress(messageId)
-  const failureReason = safeFailureLine(reason ?? '')
 
   if (state === 'unknown') return <span data-send-state="unknown" title={t('message.sendStatus.unknownHint')}
     className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">{t('message.sendStatus.unknown')}</span>
@@ -53,62 +49,7 @@ function MessageTransportStatus({ state, messageId, reason, retryable = true }: 
     return <MessageSendingIndicator label={label} state={state} title={label} />
   }
 
-  if (state === 'failed') {
-    return (
-      <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
-        <DropdownMenu.Trigger
-          type="button"
-          data-testid="message-send-failed"
-          aria-label={t('message.sendStatus.failedHint')}
-          title={failureReason || undefined}
-          className="gg-pressable"
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', cursor: 'pointer',
-            background: 'transparent', padding: '1px 4px', borderRadius: 'var(--radius-control)', flexShrink: 0,
-            color: 'var(--danger-fg)', fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', whiteSpace: 'nowrap',
-          }}
-        >
-          <svg width="13" height="13" viewBox="0 0 15 15" fill="none" style={{ display: 'block' }}>
-            <circle cx="7.5" cy="7.5" r="6" stroke="var(--danger)" strokeWidth="1.5" />
-            <path d="M7.5 4.2v3.6" stroke="var(--danger)" strokeWidth="1.5" strokeLinecap="round" />
-            <circle cx="7.5" cy="10.8" r=".8" fill="var(--danger)" />
-          </svg>
-          {t('message.sendStatus.failed')}
-        </DropdownMenu.Trigger>
-        {menuOpen && (
-          <DropdownMenu.Content
-            data-testid="message-send-failed-menu"
-            aria-label={t('message.sendStatus.failedActions')}
-            side="top"
-            align="end"
-            sideOffset={4}
-            style={{ minWidth: 96 }}
-          >
-            {failureReason && <div className="max-w-72 break-words px-3 py-2 text-[length:var(--font-body)] text-[var(--text-secondary)]">{failureReason}</div>}
-            {retryable && <MenuItem
-              render={<button type="button" />}
-              nativeButton
-              data-testid="message-send-retry"
-              onClick={() => { setMenuOpen(false); retrySend(messageId) }}
-              style={{ minHeight: 32, fontSize: 'var(--font-body)' }}
-            >
-              {t('common.retry')}
-            </MenuItem>}
-            <MenuItem
-              render={<button type="button" />}
-              nativeButton
-              data-testid="message-send-discard"
-              danger
-              onClick={() => { setMenuOpen(false); discardSend(messageId) }}
-              style={{ minHeight: 32, fontSize: 'var(--font-body)' }}
-            >
-              {t('common.discard')}
-            </MenuItem>
-          </DropdownMenu.Content>
-        )}
-      </DropdownMenu.Root>
-    )
-  }
+  if (state === 'failed') return <FailedSendStatus reason={reason} onRetry={retryable ? () => retrySend(messageId) : undefined} onDiscard={() => discardSend(messageId)} />
 
   // sent/delivered/read → 读回执圆环表达(@@@1460),这里不重复指示
   return null

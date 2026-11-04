@@ -4,6 +4,7 @@ import type {
 } from '@shared/core/session-history/session-history';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { listSessionHistory, listSessionHistoryDirectories } from './list-session-history';
+import { readLegacyDmBinding } from './legacy-dm-binding';
 
 /**
  * spec session-page「会话历史」(#6083)。两种读法:`listDirectories` 是默认的目录视图(一目录一行),
@@ -12,6 +13,7 @@ import { listSessionHistory, listSessionHistoryDirectories } from './list-sessio
  * —— 面板只是把三种会话摆到一张表里,不另造一套动词。
  */
 export const sessionHistoryController = createRPCController({
+  legacyDmBinding: readLegacyDmBinding,
   list: (params: SessionHistoryParams) => listSessionHistory(params),
   listDirectories: (params: SessionHistoryDirectoryParams) => listSessionHistoryDirectories(params),
 });

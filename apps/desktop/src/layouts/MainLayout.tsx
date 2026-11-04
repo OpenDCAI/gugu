@@ -12,14 +12,13 @@ import '@/styles/desktop-shell.css'
 import '@/session/renderer/features/assistant/assistant-today.css'
 import '@/mobile/phone-shell.css'
 import '@/mobile/phone-look.css'
-import { usePhoneViewport } from '@/mobile/usePhoneViewport'
+import { PhoneViewportShell } from '@/mobile/PhoneViewportShell'
 import { PhoneTabBar as MobileTabBar } from '@/mobile/PhoneTabBar'
 import { Sidebar } from '../components/Sidebar'
 import { returnToScreen } from '@/session/renderer/app/screen-layout-actions'
 import { registeredViews } from '@/session/renderer/lib/layout/registered-views'
 import { UpdateBanner } from '../components/UpdateBanner'
 import { WindowControls } from '../components/WindowControls'
-import { LowBalanceBanner } from '../components/LowBalanceBanner'
 import { MOBILE_TABS, SIDEBAR_TABS, type SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { AgentWatchPage, AgentWatchRoot } from '@/mobile/agent-watch/AgentWatchPage'
 import { PhoneDeviceRoot } from '@/mobile/phone-device/PhoneDeviceRoot'
@@ -107,7 +106,6 @@ import { RemoteMachinesHost } from '../components/sessionpage/RemoteMachinesHost
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
 import { followLink, openLink } from '../lib/guguLinks'
 import { useMobileShell, readMobileShell } from '../hooks/useMobileShell'
-import { membershipSettingsSection } from '../lib/billing/settingsDestination'
 import { useMobileChatOpenNonce } from '../hooks/useMobileChatOpenNonce'
 import { useTranslation } from 'react-i18next'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
@@ -223,7 +221,6 @@ function InnerLayout({
   // index.html 的引导脚本已经落过一次;这里补一次,兜住属性被别处清掉的情况(与主题同办法)。
   useEffect(() => { hydrateSidebarTint() }, [])
   const mobile = useMobileShell()
-  const phoneViewport = usePhoneViewport(mobile)
   const chatOpenNonce = useMobileChatOpenNonce(mobile, mobilePane)
   const [sessionCreateOpen, setSessionCreateOpen] = useState(false)
   useSessionpageAgentInstallNavigation(sessionHostAvailable, setSessionCreateOpen, setActiveTab)
@@ -975,7 +972,7 @@ function InnerLayout({
   }, [setActiveTab, mobile, activeTab, sessionHostAvailable])
 
   return (
-    <div
+    <PhoneViewportShell mobile={mobile}
       ref={shellRootRef}
       data-phone-shell={mobile ? '' : undefined}
       data-gugu-shell-phase={effectsActive ? 'active' : 'committed-inert'}
@@ -985,9 +982,8 @@ function InnerLayout({
       style={{
         display: 'flex',
         width: '100vw',
-        height: mobile ? phoneViewport.viewportHeight ?? '100dvh' : '100vh',
+        height: mobile ? undefined : '100vh',
         position: mobile ? 'fixed' : undefined,
-        top: mobile ? phoneViewport.viewportOffsetTop : undefined,
         left: mobile ? 0 : undefined,
         overflow: 'hidden',
         background: mobile ? 'var(--ta-panel-bg)' : 'var(--shell-bg)',
@@ -997,8 +993,6 @@ function InnerLayout({
         paddingTop: mobile ? 'env(safe-area-inset-top)' : undefined,
       }}
     >
-      {/* 低余额充值直达积分卡,桌面订阅、手机账户。 */}
-      <LowBalanceBanner user={effectsActive ? user : null} onRecharge={() => openSettingsSection(membershipSettingsSection(mobile))} />
       {mobile && <UpdateBanner />}
       {!mobile && (
         <Sidebar
@@ -1226,7 +1220,6 @@ function InnerLayout({
             pendingContactsCount={pendingRequestCount}
             barRef={tabBarRef}
             tabs={tabs}
-            viewport={phoneViewport}
           />
         )}
 
@@ -1308,7 +1301,7 @@ function InnerLayout({
       )}
       {!mobile && sessionHostAvailable && <OfflineSessionSlotHost />}
 
-    </div>
+    </PhoneViewportShell>
   )
 }
 

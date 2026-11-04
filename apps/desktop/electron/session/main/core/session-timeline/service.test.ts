@@ -39,11 +39,13 @@ const state = vi.hoisted(() => ({
   schedules: [] as unknown[],
   deliverText: vi.fn(),
   nativeUnread: [] as string[],
+  notificationEpoch: 0,
   storedHistory: vi.fn(),
   deliverPermission: vi.fn(),
   prepareQuestion: vi.fn(),
   deliverQuestion: vi.fn(),
   questionSend: vi.fn(),
+  acceptedMessage: vi.fn(),
   /** 写侧「这条腿上有没有结算口」;null = 有。 */
   permissionChannelError: vi.fn(),
   /** 活运行时是否存在。null = 这台机器上没有 ACP 运行时进程（watch 返回 null）。 */
@@ -79,7 +81,10 @@ vi.mock('../sessions/agent-question-store', () => ({
   },
 }));
 
-vi.mock('../sessions/session-conversation-read', () => ({ nativeConversationUnread: () => state.nativeUnread, nativeConversationAliases: () => ({}) }));
+vi.mock('../sessions/session-conversation-read', () => ({ nativeConversationUnread: () => state.nativeUnread, nativeConversationAliases: () => ({}), nativeOwnerNotificationUnread: () => [] }));
+const notificationFiles = vi.hoisted(() => new Map<string, string[]>());
+vi.mock('../sessions/owner-notifications', () => ({ ownerNotificationHead: () => undefined, ownerNotificationFile: (sessionId: string, path: string) => notificationFiles.get(sessionId)?.includes(path) ?? false }));
+vi.mock('../sessions/owner-notification-state', () => ({ ownerNotificationEpoch: () => state.notificationEpoch }));
 vi.mock('../sessions/session-conversation-activity', () => ({ nativeConversationActivity: () => null }));
 
 vi.mock('../sessions/session-turn-store', () => ({ getStoredHistory: (...args: unknown[]) => state.storedHistory(...args), getStoredToolImage: vi.fn() }));
@@ -107,7 +112,7 @@ vi.mock('../sessions/session-outputs', () => ({
   sessionOpenedFile: async (sessionId: string, path: string) =>
     (openedOutputs.get(sessionId) ?? []).some((output) => output.kind === 'file' && output.path === path),
 }));
-vi.mock('../sessions/sendMessage', () => ({ sendMessage: (...args: unknown[]) => state.questionSend(...args) }));
+vi.mock('../sessions/sendMessage', () => ({ sendMessage: (...args: unknown[]) => state.questionSend(...args), readAcceptedMessage: (...args: unknown[]) => state.acceptedMessage(...args) }));
 vi.mock('@main/core/automations/repo', () => ({ listSessionSchedules: () => state.schedules }));
 /** 主进程推给渲染层的事件的旁听者(tapMainEvents);用例直接调它们,等于「主进程广播了一条」。 */
 const mainTaps = vi.hoisted(() => new Set<(channel: string, data: unknown) => void>());
@@ -153,7 +158,7 @@ vi.mock('@main/core/agents/plugin-registry', () => ({
 vi.mock('./write-bridge', () => {
   class SessionWriteError extends Error {
     readonly code: string;
-    constructor(code: string, message: string) {
+    constructor(code: string, message: string, readonly admission = 'uncertain') {
       super(message);
       this.name = 'SessionWriteError';
       this.code = code;
@@ -207,6 +212,7 @@ vi.mock('@main/core/agents/session-discovery', () => ({
 // 真实现要把平台模型目录、agent 控制器一起拉进来;这一组只问「附没附上菜单」。
 vi.mock('./session-model-menu', () => ({
   readSessionModelMenu: async (sessionId: string) => ({ agentName: `menu-of-${sessionId}`, platformModels: [], ownCatalog: null, ownAuth: null }),
+  readSessionPermissionAgentName: async (providerId: string) => `host-name-of-${providerId}`,
 }));
 
 // 本机名录:只有 conv-1 有 agent 身份。
@@ -398,6 +404,7 @@ describe('session timeline service', () => {
     state.pendingWatchDisposed = 0;
     state.emitPending = null;
     state.nativeUnread = [];
+    state.notificationEpoch = 0;
     state.storedHistory.mockReset();
     state.rows = [row()];
     state.projects = [];
@@ -407,6 +414,7 @@ describe('session timeline service', () => {
     state.deliverQuestion = vi.fn();
     state.permissionChannelError = vi.fn(() => null);
     state.questionSend.mockReset().mockResolvedValue({ status: 'delivered' });
+    state.acceptedMessage.mockReset();
     state.acpLive = false;
     state.wake.mockReset().mockImplementation(async () => {
       throw new Error('❌ 没开起来的会话不许走唤醒');
@@ -532,6 +540,33 @@ describe('session timeline service', () => {
     state.emitPending?.([], [], null, [], active);
     expect(await service.nativeRecord({ conversationId: 'conv-1', tail: true, limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 7 }, { seq: 8 }, { seq: 9 }], activeTurn: active, hasNewer: false } });
     expect(await service.nativeRecord({ conversationId: 'conv-1', after: 7, limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 8 }, { seq: 9 }], hasNewer: false } });
+  });
+
+  it('returns raw notification rows so phone page merging can project each request exactly once', async () => {
+    state.rows = [row({ runtime: 'acp' })];
+    service.setSessionTimelineFactory(async () => makeTimeline().timeline);
+    const notice = { id: 'conv-1:turn:s59', seq: 59, initiator: 'agent', items: [{ kind: 'message', id: 'notice', seq: 0, role: 'assistant', text: 'Review',
+      ownerNotification: { requestId: 'request', requestHash: 'hash', sourceTurnId: 'provider-source' } }] };
+    const source = { id: 'conv-1:turn:s60', seq: 60, initiator: 'user', items: [{ kind: 'message', id: 'input', seq: 0, role: 'user', text: 'Work' }] };
+    const turns = [notice, source];
+    state.storedHistory.mockImplementation(async ({ limit }: { limit: number }) => ({ turns: turns.slice(-limit), nextCursor: null,
+      originTurnIds: turns.slice(-limit).map(turn => turn === source ? 'provider-source' : 'owner-notify:request') }));
+    const result = await service.nativeRecord({ conversationId: 'conv-1', tail: true, limit: 2 });
+    expect(result).toMatchObject({ ok: true, value: { turns, originTurnIds: ['owner-notify:request', 'provider-source'], nativeOwnerNotificationEpoch: 0 } });
+  });
+
+  it('retries a native page read crossed by a revert instead of labeling old rows with the new epoch', async () => {
+    state.rows = [row({ runtime: 'acp' })];
+    service.setSessionTimelineFactory(async () => makeTimeline().timeline);
+    const old = { id: 'conv-1:turn:s5', seq: 5, initiator: 'user', items: [] };
+    const current = { id: 'conv-1:turn:s0', seq: 0, initiator: 'user', items: [] };
+    state.storedHistory.mockImplementationOnce(async () => {
+      state.notificationEpoch = 1;
+      return { turns: [old], nextCursor: null, originTurnIds: ['old'] };
+    }).mockResolvedValue({ turns: [current], nextCursor: null, originTurnIds: ['current'] });
+    expect(await service.nativeRecord({ conversationId: 'conv-1', tail: true }))
+      .toMatchObject({ ok: true, value: { turns: [current], nativeOwnerNotificationEpoch: 1 } });
+    expect(state.storedHistory).toHaveBeenCalledTimes(4);
   });
 
   it('listSessions 按 projects 分组，supported 如实', async () => {
@@ -675,7 +710,7 @@ describe('session timeline service', () => {
     startCalls.length = 0;
     state.deliverText.mockResolvedValue({ accepted: 'started' });
     state.rows = [row({ providerSessionId: null, config: { type: 'acp', initialQueue: [{ text: 'hi' }] } })];
-    expect(await service.send('conv-1', '在吗')).toEqual({ ok: true, value: { accepted: 'started' } });
+    expect(await service.send('conv-1', '在吗')).toEqual({ ok: true, value: { accepted: 'started', admission: 'accepted' } });
     expect(startCalls).toEqual([]);
     expect(state.deliverText).toHaveBeenCalledTimes(1);
     expect(state.deliverText.mock.calls[0]?.[1]).toBe('在吗');
@@ -686,20 +721,20 @@ describe('session timeline service', () => {
   });
 
   // #6693:手机的权限档胶囊照桌面那一份排 —— 宿主随选项给出这家声明的档位表;没声明的家不给,手机照它报的名字显示。
-  it('读选项时附上这家声明的权限档表,没声明的家不附', async () => {
+  it('读权限选项时附上宿主引擎名,没有模型菜单也给;权限档表只给声明过的家', async () => {
     const mode = { selected: 'default', available: [{ id: 'default', name: 'default' }, { id: 'yolo', name: 'yolo' }] };
     state.rows = [row({ provider: 'hermes', runtime: 'pty' })];
     state.readOptions.mockResolvedValueOnce({ mode, model: null, effort: null });
     expect(await service.sessionOptions({ conversationId: 'conv-1' })).toEqual({
       ok: true,
-      value: { mode, model: null, effort: null, modeMap: { edit: { id: 'default' }, 'full-access': { id: 'yolo' } } },
+      value: { mode, model: null, effort: null, permissionAgentName: 'host-name-of-hermes', modeMap: { edit: { id: 'default' }, 'full-access': { id: 'yolo' } } },
     });
 
     state.rows = [row({ provider: 'gemini', runtime: 'pty' })];
     state.readOptions.mockResolvedValueOnce({ mode, model: null, effort: null });
     expect(await service.sessionOptions({ conversationId: 'conv-1' })).toEqual({
       ok: true,
-      value: { mode, model: null, effort: null },
+      value: { mode, model: null, effort: null, permissionAgentName: 'host-name-of-gemini' },
     });
   });
 
@@ -1083,12 +1118,57 @@ describe('session timeline service', () => {
     });
     expect(await service.send('conv-1', '你好')).toMatchObject({
       ok: false,
-      error: { code: 'session_not_live' },
+      error: { code: 'session_not_live', admission: 'uncertain' },
     });
     expect(await service.send('missing', '你好')).toMatchObject({
       ok: false,
-      error: { code: 'session_not_found' },
+      error: { code: 'session_not_found', admission: 'rejected' },
     });
+  });
+
+  it('reports admission from the refusing boundary, never from a diagnostic code', async () => {
+    expect(await service.send('conv-1', 'hello', 'input', [{}] as never)).toMatchObject({ ok: false,
+      error: { code: 'invalid_request', admission: 'rejected' } });
+    for (const admission of ['rejected', 'uncertain'] as const) {
+      state.deliverText = vi.fn(async () => { throw new SessionWriteError('identical-code', 'identical reason', admission); });
+      expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: false,
+        error: { code: 'identical-code', admission } });
+    }
+    // An arbitrary failure may occur after a durable insert; neither its code nor its words prove rejection.
+    state.deliverText = vi.fn(async () => { throw Object.assign(new Error('permission denied'), { code: 'not_granted' }); });
+    expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: false, error: { admission: 'uncertain' } });
+    state.deliverText = vi.fn(async () => ({ accepted: 'queued' as const }));
+    expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: true,
+      value: { admission: 'accepted', clientMessageId: 'input' } });
+  });
+
+  it.each(['ordinary-message', 'session-direct'])('confirms prior %s custody after a lost ACK instead of refusing an already owned input', async kind => {
+    state.rows[0]!.session.provider = '';
+    state.acceptedMessage.mockReturnValue({ id: 'input', sessionId: 'conv-1', sender: 'user', content: 'hello', metadata: JSON.stringify({ kind }) });
+    expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: true, value: { admission: 'accepted', clientMessageId: 'input' } });
+    expect(state.deliverText).not.toHaveBeenCalled();
+    expect(await service.send('conv-1', 'changed text', 'input')).toMatchObject({ ok: false, error: { admission: 'uncertain' } });
+    state.acceptedMessage.mockReturnValue(undefined);
+    expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: false, error: { admission: 'rejected' } });
+  });
+
+  it('does not infer rejection when custody storage cannot be read', async () => {
+    state.rows[0]!.session.provider = '';
+    state.acceptedMessage.mockImplementation(() => { throw new Error('receipt storage unavailable'); });
+    expect(await service.send('conv-1', 'hello', 'input')).toMatchObject({ ok: false, error: { admission: 'uncertain', message: 'receipt storage unavailable' } });
+  });
+
+  it('joins the original admission while its result is uncertain and never dispatches twice', async () => {
+    let finish!: (value: { accepted: 'queued' }) => void;
+    state.deliverText = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+    const first = service.send('conv-1', 'hello', 'input');
+    state.rows[0]!.session.provider = '';
+    const replay = service.send('conv-1', 'hello', 'input');
+    expect(await service.send('conv-1', 'changed text', 'input')).toMatchObject({ ok: false, error: { admission: 'uncertain' } });
+    finish({ accepted: 'queued' });
+    expect(await replay).toEqual(await first);
+    expect((await replay).ok).toBe(true);
+    expect(state.deliverText).toHaveBeenCalledTimes(1);
   });
 
   it('没人订阅之后到点才 dispose', async () => {
@@ -1675,6 +1755,7 @@ describe('readOpenedFile', () => {
 
   beforeEach(() => {
     openedOutputs.clear();
+    notificationFiles.clear();
   });
 
   it('打开过的文件:按块读出原字节', async () => {
@@ -1693,6 +1774,14 @@ describe('readOpenedFile', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'not_opened' } });
   });
 
+  it('reads the snapshot actually attached to this native notification and rejects another session or neighboring file', async () => {
+    notificationFiles.set('conv-1', [report]);
+    const result = await service.readOpenedFile({ conversationId: 'conv-1', path: report, offset: 0, length: 1024 });
+    expect(result.ok && Buffer.from(result.value.data, 'base64').toString('utf8')).toBe('<h1>汇报</h1>');
+    expect(await service.readOpenedFile({ conversationId: 'conv-2', path: report, offset: 0, length: 1024 })).toMatchObject({ ok: false, error: { code: 'not_opened' } });
+    expect(await service.readOpenedFile({ conversationId: 'conv-1', path: other, offset: 0, length: 1024 })).toMatchObject({ ok: false, error: { code: 'not_opened' } });
+  });
+
   it('打开过、后来被删了:如实说文件不在了', async () => {
     const gone = join(dir, 'gone.html');
     openedOutputs.set('conv-1', [{ kind: 'file', path: gone }]);
@@ -1705,4 +1794,12 @@ describe('readOpenedFile', () => {
     const result = await service.readOpenedFile({ conversationId: 'conv-1', path: dir, offset: 0, length: 1024 });
     expect(result).toMatchObject({ ok: false, error: { code: 'not_a_file' } });
   });
+});
+
+
+it('advertises end-to-end native input identity only for the ACP host contract', async () => {
+  state.rows = [row({ id: 'identity-acp', runtime: 'acp' }), row({ id: 'identity-pty', runtime: 'pty' })];
+  const { sessions } = await service.listSessions();
+  expect(sessions.find(session => session.conversationId === 'identity-acp')).toMatchObject({ nativeInputVersion: 2, nativeInputIdentity: true });
+  expect(sessions.find(session => session.conversationId === 'identity-pty')).not.toHaveProperty('nativeInputIdentity');
 });

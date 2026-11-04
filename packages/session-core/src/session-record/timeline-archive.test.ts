@@ -74,6 +74,17 @@ function shape(timeline: SessionTimeline): string {
 }
 
 describe('时间线存档', () => {
+  it('publishes client custody beside native queue ids in both snapshots and incremental batches', async () => {
+    const source = await stage(await fixtureLines());
+    const timeline = await open(source.root);
+    const cursor = timeline.getSnapshot().cursor;
+    const queued = [{ id: 'runtime-a', clientMessageId: 'client-a', text: 'same' },
+      { id: 'runtime-b', clientMessageId: 'client-b', text: 'same' }];
+    timeline.syncQueuedPrompts(queued);
+    expect(timeline.getSnapshot().queuedPrompts).toEqual(queued);
+    expect(timeline.getAfter(cursor)).toMatchObject({ ok: true, batch: { queuedPrompts: queued } });
+  });
+
   it('publishes independent terminal snapshots without adding a second durable archive', async () => {
     const source = await stage(await fixtureLines());
     const timeline = await open(source.root);

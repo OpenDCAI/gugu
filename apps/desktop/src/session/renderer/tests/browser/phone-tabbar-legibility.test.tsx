@@ -5,7 +5,7 @@
 import { createRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, expect, it } from 'vitest'
-import { page } from 'vitest/browser'
+import { page, userEvent } from 'vitest/browser'
 import { LocalizationProvider, getLocaleSnapshot, setLocalePreference } from '@/i18n'
 import { PhoneTabBar } from '@/mobile/PhoneTabBar'
 import { until } from '../../../../../../../tests/support/awaitCondition'
@@ -133,4 +133,31 @@ it('tapping a tab slides the selection over a short transition, never while swip
 it('light theme screenshot', async () => {
   await mountBar('light')
   await page.screenshot({ path: 'phone-tabbar-chats-light.png' })
+})
+
+it.each(['light', 'dark'] as const)('%s: pressing search preserves the glyph as well as the glass surface', async (theme) => {
+  const { barRef } = await mountBar(theme)
+  const button = document.querySelector<HTMLButtonElement>('[data-testid="phone-list-search"]')!
+  const glyph = button.querySelector('svg')!
+  const reading = () => ({
+    glyphOpacity: getComputedStyle(glyph).opacity,
+    buttonOpacity: getComputedStyle(button).opacity,
+    background: getComputedStyle(button).backgroundColor,
+    top: barRef.current!.getBoundingClientRect().top,
+  })
+  const before = reading()
+  button.focus()
+  // A held Space produces the same native :active state as a finger resting on
+  // the control. An instantaneous click can skip the offending painted frame.
+  await userEvent.keyboard('{Space>}')
+  try {
+    expect(button.matches(':active')).toBe(true)
+    for (let frame = 0; frame < 3; frame++) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      expect(reading()).toEqual(before)
+    }
+  } finally {
+    await userEvent.keyboard('{/Space}')
+  }
+  expect(reading()).toEqual(before)
 })

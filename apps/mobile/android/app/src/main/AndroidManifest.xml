@@ -31,10 +31,9 @@
                  与微信对文件的「用其他应用打开」(VIEW content://)。收下之后做什么由页面决定,
                  见 GuguSharePlugin。VIEW 那一条在系统的「打开方式」里叫「发送到咕咕」:它不是查看器,
                  选它 = 把文件发进某条会话,名字要把这件事说清。
-                 VIEW 只认真文件的五个大类,❌ */*:*/* 连文件夹、存储根(vnd.android.document/*)都会匹配,
-                 在「文件」里点开一个文件夹也会弹「用发送到咕咕打开」(模拟器实测)。代价:类型写成 */* 的
-                 intent 不再列出咕咕(同一台模拟器实测);微信、QQ 的「用其他应用打开」按扩展名给具体类型,
-                 常见文件(文档/压缩包/图片/音视频/文本)都落在这五类里。 -->
+                 VIEW 的 application 类型只列现有 documentPreview.ts / attachmentType.ts 认识的文档、
+                 结构化文本和压缩包,以及 imageMime.mjs 的扩展包。application/* 会连 APK 安装请求也接走,
+                 */* 还会匹配文件夹与存储根。未知二进制仍可经用户明确的 SEND / SEND_MULTIPLE 分享。 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -49,7 +48,28 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" />
-                <data android:mimeType="application/*" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/msword" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/vnd.ms-powerpoint" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+                <data android:mimeType="application/vnd.ms-excel" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <data android:mimeType="application/vnd.ms-excel.sheet.macroenabled.12" />
+                <data android:mimeType="application/vnd.ms-excel.sheet.macroEnabled.12" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/javascript" />
+                <data android:mimeType="application/x-javascript" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="application/xhtml+xml" />
+                <data android:mimeType="application/yaml" />
+                <data android:mimeType="application/x-yaml" />
+                <data android:mimeType="application/toml" />
+                <data android:mimeType="application/x-toml" />
+                <data android:mimeType="application/csv" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/vnd.gugu.extension+zip" />
                 <data android:mimeType="image/*" />
                 <data android:mimeType="video/*" />
                 <data android:mimeType="audio/*" />
