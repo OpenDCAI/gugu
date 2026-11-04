@@ -26,7 +26,12 @@ const text = (value: unknown): value is string => typeof value === 'string' && v
 export function readPhoneAgentCreateAttempt(ownerId: string, deviceId: string, storage: CreationStorage = window.localStorage): PhoneAgentCreateAttempt | null {
   const raw = storage.getItem(storageKey(ownerId, deviceId))
   if (!raw) return null
-  const value = JSON.parse(raw) as Partial<PhoneAgentCreateAttempt>
+  let value: Partial<PhoneAgentCreateAttempt>
+  try {
+    value = JSON.parse(raw) as Partial<PhoneAgentCreateAttempt>
+  } catch {
+    throw new Error('这台手机的创建记录不完整，请保留记录后重试')
+  }
   if (value.version !== 1 || value.ownerId !== ownerId || value.deviceId !== deviceId
     || !text(value.id) || !text(value.name) || !text(value.prompt) || !text(value.model)
     || (value.chatId !== undefined && !text(value.chatId))) throw new Error('这台手机的创建记录不完整，请保留记录后重试')

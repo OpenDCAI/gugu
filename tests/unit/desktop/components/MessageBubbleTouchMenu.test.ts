@@ -662,3 +662,17 @@ function touchPointerEvent(type: string, init: { clientX: number; clientY: numbe
   Object.defineProperty(event, 'isPrimary', { value: true })
   return event
 }
+
+describe('MessageBubble reaction frequency store', () => {
+  it('keeps the reaction picker working when the saved frequency store is corrupt', async () => {
+    localStorage.setItem('gugu.reaction-frequency', 'not json')
+    const onReaction = vi.fn()
+    await renderMessage(undefined, true, onReaction)
+    await longPress()
+    const buttons = document.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="快速回应"] [role="menuitem"]')
+    expect([...buttons].map((button) => button.textContent)).toEqual([...QUICK_REACTIONS.map(({ emoji }) => emoji), ''])
+    await clickElement(buttons[0])
+    expect(onReaction).toHaveBeenCalledWith('msg-1', QUICK_REACTIONS[0]!.emoji)
+    expect(JSON.parse(localStorage.getItem('gugu.reaction-frequency')!)[QUICK_REACTIONS[0]!.emoji]).toBe(1)
+  })
+})
