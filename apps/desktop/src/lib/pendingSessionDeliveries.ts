@@ -1,4 +1,4 @@
-import { pendingPromptLanded, pendingPromptNativeEcho, type PendingPrompt } from '@session-chat/state/pending-prompt'
+import { pendingInputPosition, pendingPromptLanded, pendingPromptNativeEcho, type PendingPrompt } from '@session-chat/state/pending-prompt'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import type { LifeView } from '@/session/shared/core/sessions/session-life'
 import { lifeHoldIsFailure } from '@/session/shared/core/sessions/session-life'
@@ -23,7 +23,8 @@ export function projectSessionPendingDeliveries(previous: readonly PendingPrompt
     if (!prior && !row) return []
     const input: PendingPrompt = prior ?? { id, text: row!.text, sentAt: row!.sentAt, received: readDeliveryEnvelope(row!.text) !== null,
       hostSequence: row!.seq, baselineMessageIds: sessionInputBaseline(turns).baseline,
-      afterTurnId: turns.at(-1)?.id, held: true }
+      afterTurnId: turns.at(-1)?.id, held: true,
+      position: pendingInputPosition(turns.at(-1)) }
     const failedStart = view !== null && lifeHoldIsFailure(view.hold) && (row?.state === 'queued' || row?.state === 'dispatching')
     const stopped = view?.hold === 'user-stop' && row?.state === 'queued'
     const delivery: NonNullable<PendingPrompt['delivery']> = row?.state === 'unknown'

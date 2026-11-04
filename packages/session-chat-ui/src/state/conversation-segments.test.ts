@@ -79,10 +79,10 @@ describe('replay conversation segment boundaries', () => {
       expect(ids.indexOf('ready')).toBeLessThan(ids.indexOf('steer'));
       expect(ids.indexOf('steer')).toBeLessThan(ids.indexOf('t:process@steer:head'));
       const before = rows.find(row => row.itemId === 't:process:head')!.data as ChatMessage;
-      expect(before.conversationProcess).toMatchObject({ startedAt: 1000, endedAt: 4000 });
+      expect(before.conversationProcess).toMatchObject({ startedAt: 1000, endedAt: 5000 });
       expect(before.conversationProcess?.live).toBeUndefined();
       const after = rows.find(row => row.itemId === 't:process@steer:head')!.data as ChatMessage;
-      expect(after.conversationProcess?.startedAt).toBe(active ? 1000 : 5000);
+      expect(after.conversationProcess?.startedAt).toBe(5000);
     }
   });
 
@@ -90,7 +90,7 @@ describe('replay conversation segment boundaries', () => {
     const record = turn([message('u', 'user', 1000), message('ready', 'assistant', 2000), message('steer', 'user', 5000)]);
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.at(-1)?.itemId).toBe('t:process@steer');
-    expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true, placeholder: true, startedAt: 1000 });
+    expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true, placeholder: true, startedAt: 5000 });
     expect(conversationBackgroundOwner(rows)).toBe('t:process@steer');
     expect(rows.some(row => row.kind === 'background-tasks')).toBe(false);
   });
@@ -117,7 +117,7 @@ describe('replay conversation segment boundaries', () => {
     expect(segments).toHaveLength(2);
     expect(conversationOutput(segments[0].items, true).reply?.id).toBe(sent.id);
     expect(segments[0]).toMatchObject({ live: false, endedAt: 4000 });
-    expect(segments[1], 'the live line keeps the turn origin').toMatchObject({ live: true, startedAt: 1000 });
+    expect(segments[1], 'the live line counts only work after the send').toMatchObject({ live: true, startedAt: 4000 });
   });
 
   it('counts the first process line from the turn origin even if the first message arrived later', () => {
@@ -135,6 +135,25 @@ describe('replay conversation segment boundaries', () => {
     expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true, placeholder: true, startedAt: 1000 });
     expect(rows.some(row => (row.data as ChatMessage).conversationReply)).toBe(false);
   });
+
+  it.each(['background-command-done-tool-call', 'subagent-done-tool-call'] as const)(
+    'keeps an untimed %s from inventing a completed reply clock', kind => {
+      const base = { id: 'wake', seq: 1, toolCallId: 'wake', launchToolCallId: 'launch',
+        title: 'wake', name: 'wake', status: 'done' as const, outcome: 'completed' as const };
+      const source: ChatItem = kind === 'subagent-done-tool-call' ? { ...base, kind, agentId: 'child' } : { ...base, kind };
+      for (const active of [false, true]) {
+        for (const at of [undefined, 5000]) {
+          const record = turn([message('input', 'user'), { ...source, at }, message('reply', 'assistant')]);
+          const [segment] = planConversationSegments(record, active).filter(block => block.kind === 'segment');
+          expect(segment.startedAt).toBe(active ? 1000 : at);
+          const rows = flattenTier([record], context(active), segmenters);
+          const head = rows.find(row => (row.data as ChatMessage).conversationPart === 'head')!.data as ChatMessage;
+          expect(head.conversationProcess).toMatchObject({ steps: 0, empty: true });
+          expect(head.conversationProcess?.startedAt).toBe(active ? 1000 : at);
+        }
+      }
+    },
+  );
 
   it('excludes silence and the visible reply without dropping earlier live parts', () => {
     const record = turn([message('u', 'user'), call('one'), message('a', 'assistant'), call('two'), message('b', 'assistant'), call('three'), message('latest', 'assistant'), { ...message('silent', 'assistant'), text: '[NO_REPLY]' }]);

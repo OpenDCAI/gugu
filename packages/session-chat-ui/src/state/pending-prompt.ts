@@ -4,7 +4,8 @@
  * 转录(ChatRoot)与对话左缘的时间线都把它当成一轮来画,所以「它长什么样」只在这里定一次 ——
  * 两处各拼一份,交接给真的那一轮时总有一处对不上(位置跳、刻度晚到)。
  */
-import type { ChatAttachment, TranscriptTurn, TurnProcessItem } from '@session-chat/model';
+import type { ChatAttachment, ChatItem, TranscriptTurn, TurnProcessItem } from '@session-chat/model';
+import type { ToolNode } from '@gugu/session-core/acp/client';
 import { nativeMessageKey } from '@gugu/session-core/session-record/native-read';
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 
@@ -26,6 +27,8 @@ export type PendingPrompt = {
   /** Existing user identities cannot acknowledge this input when older history is loaded. */
   baselineMessageIds?: readonly string[];
   afterTurnId?: string;
+  /** Native position visible when this incoming message first appeared; streaming cannot move it. */
+  position?: { turnId?: string; afterItemId?: string; withinTurn?: boolean; turnStartedAt?: number; referenceId?: string };
   /** Host-owned incoming delivery, with its original envelope and sender. */
   received?: boolean;
   hostSequence?: number;
@@ -39,6 +42,50 @@ export type PendingPrompt = {
 type NativeDelivery = { item: TranscriptTurn['items'][number]; sourceIds: ReadonlySet<string> };
 export type PendingMessageProjectionCache = WeakMap<TranscriptTurn, { inputs: readonly (PendingPrompt | undefined)[]; turn: TranscriptTurn; native?: readonly NativeDelivery[] }>;
 const projectionEchoes = new WeakMap<PendingMessageProjectionCache, Map<string, NonNullable<PendingPrompt['nativeEcho']>>>();
+
+export function pendingInputPosition(turn: TranscriptTurn | undefined): NonNullable<PendingPrompt['position']> {
+  const last = (items: readonly ChatItem[]): ChatItem | undefined => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i]!;
+      const leaf = item.kind === 'tool-group' ? last(item.children) : item;
+      if (leaf) return leaf;
+    }
+  };
+  return { turnId: turn?.id, afterItemId: turn ? last(turn.items)?.id : undefined, withinTurn: !!turn && !turn.outcome, turnStartedAt: turn?.startedAt, referenceId: turn?.referenceId };
+}
+
+/** Storage changes display ids, not the immutable live origin or the item suffixes. */
+function positionInTurn(position: PendingPrompt['position'], turn: TranscriptTurn): PendingPrompt['position'] {
+  if (!position || position.turnId === turn.id) return position;
+  if (!position.turnId) return undefined;
+  const original = position.turnId;
+  const anchor = position.afterItemId;
+  const mapped = anchor?.startsWith(original + ':') ? turn.id + anchor.slice(original.length) : anchor;
+  if (position.referenceId) {
+    if (turn.referenceId !== position.referenceId) return undefined;
+  } else {
+    // Older/replayed turns lack referenceId. Require the same session, original clock and existing
+    // rewritten anchor; the caller rejects ambiguous matches rather than guessing a store sequence.
+    const marker = original.lastIndexOf(':turn:');
+    const session = marker < 0 ? undefined : original.slice(0, marker + 6);
+    const has = (items: readonly ChatItem[]): boolean => items.some(item => item.id === mapped || (item.kind === 'tool-group' && has(item.children)));
+    if (!session || !turn.id.startsWith(session) || !/^s\d+$/.test(turn.id.slice(session.length))
+      || position.turnStartedAt === undefined || position.turnStartedAt !== turn.startedAt || (mapped && !has(turn.items))) return undefined;
+  }
+  return { ...position, turnId: turn.id, afterItemId: mapped };
+}
+
+/** A growing tool group can straddle the boundary; retain both groups and every native child id. */
+function splitTools(items: readonly ToolNode[], anchor: string, suffix: string): { before: ToolNode[]; after: ToolNode[] } | undefined {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    if (item.id === anchor) return { before: items.slice(0, i + 1), after: items.slice(i + 1) };
+    if (item.kind !== 'tool-group') continue;
+    const split = splitTools(item.children, anchor, suffix);
+    if (split) return { before: [...items.slice(0, i), { ...item, children: split.before }],
+      after: [...(split.after.length ? [{ ...item, id: `${item.id}@${suffix}`, children: split.after }] : []), ...items.slice(i + 1)] };
+  }
+}
 
 function sourceMessageIds(text: string): string[] {
   return readDeliveryEnvelope(text)?.segments.flatMap(segment => segment.facts?.messageId ? [segment.facts.messageId.replace(/^msg:/, '')] : []) ?? [];
@@ -99,7 +146,24 @@ export function activeTurnWithInputs(turn: TranscriptTurn | null, prompt: Pendin
   const active = activeTurnWithPending(turn, prompt);
   if (!active) return waiting.length ? { ...pendingPromptTurn(waiting[0]!), items: waiting.flatMap(input => pendingPromptTurn(input).items) } : null;
   if (!waiting.length) return active;
-  return { ...active, items: [...active.items, ...waiting.flatMap(input => pendingPromptTurn(input).items)] };
+  let items = [...active.items];
+  const inserted = new Map<string, string>();
+  for (const input of waiting) {
+    const boundary = input.position && `${input.position.turnId ?? ''}\0${input.position.afterItemId ?? ''}`;
+    const position = positionInTurn(input.position, active);
+    const anchor = boundary !== undefined ? inserted.get(boundary) ?? position?.afterItemId : undefined;
+    const offset = position ? (anchor ? items.findIndex(item => item.id === anchor) + 1 : 0) : items.length;
+    const groupIndex = anchor && offset === 0 ? items.findIndex(item => item.kind === 'tool-group'
+      && splitTools(item.children, anchor, input.id)) : -1;
+    const group = items[groupIndex];
+    if (group?.kind === 'tool-group') {
+      const split = splitTools(group.children, anchor!, input.id)!;
+      items = [...items.slice(0, groupIndex), { ...group, children: split.before }, ...pendingPromptTurn(input).items,
+        ...(split.after.length ? [{ ...group, id: `${group.id}@${input.id}`, children: split.after }] : []), ...items.slice(groupIndex + 1)];
+    } else items = [...items.slice(0, offset), ...pendingPromptTurn(input).items, ...items.slice(offset)];
+    if (boundary !== undefined) inserted.set(boundary, input.id);
+  }
+  return { ...active, items };
 }
 
 /** A native echo can exist while its receipt is unknown. Decorate it once instead of adding a second bubble. */
@@ -134,9 +198,20 @@ export function projectPendingMessages(committed: readonly TranscriptTurn[], act
     if (match) { bindings.set(`${match.turnId}\0${match.itemId}`, input); remembered?.set(input.id, match); }
     else if (!known) waiting.push(input);
   }
-  if (!bindings.size) return { committed, active, waiting };
+  // A turn can finish before the provider echoes its injected message. Keep the same boundary
+  // when it moves into the committed tier, rather than returning all its tools to the old head.
+  const inserted = new Map<TranscriptTurn, PendingPrompt[]>();
+  const remaining = waiting.filter(input => {
+    const matches = input.position?.withinTurn ? committed.filter(turn => positionInTurn(input.position, turn)) : [];
+    const target = matches.find(turn => turn.id === input.position?.turnId) ?? (matches.length === 1 ? matches[0] : undefined);
+    if (!target) return true;
+    inserted.set(target, [...(inserted.get(target) ?? []), input]);
+    return false;
+  });
+  if (!bindings.size && !inserted.size) return { committed, active, waiting };
   const decorate = (turn: TranscriptTurn): TranscriptTurn => {
-    const inputs = turn.items.map(item => bindings.get(`${turn.id}\0${item.id}`));
+    const added = inserted.get(turn) ?? [];
+    const inputs = [...turn.items.map(item => bindings.get(`${turn.id}\0${item.id}`)), ...added];
     const previous = turn === active ? undefined : cache?.get(turn);
     if (previous && previous.inputs.length === inputs.length && previous.inputs.every((input, index) => input === inputs[index])) return previous.turn;
     let changed = false;
@@ -146,11 +221,12 @@ export function projectPendingMessages(committed: readonly TranscriptTurn[], act
       changed = true;
       return { ...item, sendStatus: input.delivery };
     });
-    const result = changed ? { ...turn, items } : turn;
+    const decorated = changed ? { ...turn, items } : turn;
+    const result = added.length ? activeTurnWithInputs(decorated, null, added)! : decorated;
     if (turn !== active) cache?.set(turn, { inputs, turn: result, native: previous?.native });
     return result;
   };
-  return { committed: committed.map(decorate), active: active ? decorate(active) : null, waiting };
+  return { committed: committed.map(decorate), active: active ? decorate(active) : null, waiting: remaining };
 }
 
 /** 乐观行画成的那一轮:只有人说的那一句。 */
@@ -166,6 +242,7 @@ export function pendingPromptTurn(prompt: PendingPrompt): TranscriptTurn {
         kind: 'message',
         id: prompt.id,
         seq: 0,
+        ...(prompt.sentAt !== undefined ? { at: prompt.sentAt } : {}),
         role: 'user',
         text: prompt.text,
         attachments: prompt.attachments,

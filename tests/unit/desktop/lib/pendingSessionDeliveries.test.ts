@@ -1,16 +1,118 @@
+import { renumberStoredTurn } from '../../../../apps/desktop/electron/session/main/core/sessions/session-turn-identity'
 import { describe, expect, it, vi } from 'vitest'
 import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries'
 import { activeTurnWithInputs, projectPendingMessages, type PendingMessageProjectionCache } from '@session-chat/state/pending-prompt'
 import type { LifeView } from '@/session/shared/core/sessions/session-life'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
+import { planConversationSegments } from '@session-chat/state/conversation-segments'
+import { conversationOutput } from '@session-chat/state/conversation-process'
 
 const envelope = (id: string, content = 'hello') => renderDeliveryEnvelope({ route: 'session-direct', from: 'Sender', fromType: 'agent', fromId: 'session:sender', messageId: `msg:${id}`, at: '2026-11-02 04:00 UTC-8', content })
 const row = (id: string, seq: number, state: LifeView['pending']['items'][number]['state'] = 'queued') => ({ seq, messageId: id, text: envelope(id), preview: 'hello', kind: 'session-direct' as const, state, failure: null, sentAt: 10000 })
 const view = (items: LifeView['pending']['items']): LifeView => ({ sessionId: 's', version: 1, kind: 'ready', stage: null, pending: { count: items.length, items }, hold: null, failure: null, lastExit: null, nativeSession: null })
 const turn = (id: string, text: string): TranscriptTurn => ({ id, seq: 1, initiator: 'agent', startedAt: 5000, items: [{ kind: 'message', id: `${id}:native-user`, seq: 0, role: 'user', text }] })
+const work = (id: string, at: number): Extract<TranscriptTurn['items'][number], { kind: 'execute-tool-call' }> => ({ kind: 'execute-tool-call', id, seq: at,
+  toolCallId: id, title: id, status: 'done', at })
+const segments = (record: TranscriptTurn) => planConversationSegments(record, true).filter(block => block.kind === 'segment')
 
 describe('incoming delivery custody', () => {
+  it('freezes the process before a mid-turn delivery while later tools belong below it', () => {
+    const first: TranscriptTurn = { ...turn('running', 'initial question'), startedAt: 1000, items: [
+      ...turn('running', 'initial question').items,
+      ...Array.from({ length: 5 }, (_, i) => work(`before-${i}`, 2000 + i * 100)),
+      { kind: 'message', id: 'reply-before', seq: 3000, role: 'assistant', text: 'first reply', at: 3000 },
+    ] }
+    const delivery = { ...row('inserted', 1), sentAt: 4000 }
+    const inputs = projectSessionPendingDeliveries([], view([delivery]), [first])
+    const initial = activeTurnWithInputs(first, null, inputs)!
+    const later: TranscriptTurn = { ...first, items: [...first.items,
+      ...Array.from({ length: 3 }, (_, i) => work(`after-${i}`, 5000 + i * 100)),
+    ] }
+    const nextInputs = projectSessionPendingDeliveries(inputs, view([delivery]), [later])
+    const shown = activeTurnWithInputs(later, null, nextInputs)!
+    const before = segments(initial)[0]!
+    const [frozen, live] = segments(shown)
+    expect(frozen).toEqual(before)
+    expect(conversationOutput(frozen!.items).steps).toHaveLength(5)
+    expect(conversationOutput(live!.items).steps).toHaveLength(3)
+    expect(live).toMatchObject({ id: 'running:process@inserted', live: true, startedAt: 4000 })
+    expect(shown.items.map(item => item.id)).toEqual([...first.items.map(item => item.id), 'inserted', 'after-0', 'after-1', 'after-2'])
+    expect(later.items.some(item => item.id === 'inserted')).toBe(false)
+    const committed = { ...later, endedAt: 9000, outcome: { kind: 'done' as const } }
+    const settled = projectPendingMessages([committed], null, nextInputs)
+    expect(settled.waiting).toEqual([])
+    const closed = planConversationSegments(settled.committed[0]!, false).filter(block => block.kind === 'segment')
+    expect(closed.map(segment => conversationOutput(segment.items).steps.length)).toEqual([5, 3])
+    expect(closed[0]).toMatchObject({ endedAt: 4000, live: false })
+  })
+
+  it.each([true, false])('keeps the boundary after production storage renumbers turn/items (referenceId=%s)', withReference => {
+    const id = 's:turn:6'
+    const group = { kind: 'tool-group' as const, id: `${id}:group`, seq: 1, label: 'work', groupKind: 'read-batch' as const,
+      status: 'running' as const, children: Array.from({ length: 5 }, (_, i) => work(`${id}:tool:before-${i}`, 2000 + i * 100)) }
+    const first: TranscriptTurn = { ...turn(id, 'question'), ...(withReference ? { referenceId: 'source:this-run' } : {}), startedAt: 1000, items: [group] }
+    const delivery = { ...row('inserted', 1), sentAt: 4000 }
+    const inputs = projectSessionPendingDeliveries([], view([delivery]), [first])
+    const later: TranscriptTurn = { ...first, endedAt: 9000, outcome: { kind: 'done' }, items: [{ ...group,
+      children: [...group.children, ...Array.from({ length: 3 }, (_, i) => work(`${id}:tool:after-${i}`, 5000 + i * 100))] }] }
+    // Store sequence differs from the runtime sequence; deleting an "s" prefix is insufficient.
+    const stored = renumberStoredTurn(later, 's', 42)
+    expect(stored.id).toBe('s:turn:s42')
+    expect(stored.referenceId).toBe(first.referenceId)
+    const refreshed = projectSessionPendingDeliveries(inputs, view([delivery]), [stored])
+    const result = projectPendingMessages([stored], null, refreshed)
+    expect(result.waiting).toEqual([])
+    const closed = planConversationSegments(result.committed[0]!, false).filter(block => block.kind === 'segment')
+    expect(closed.map(segment => conversationOutput(segment.items).steps.length)).toEqual([5, 3])
+    expect(closed[0]).toMatchObject({ endedAt: 4000, live: false })
+    expect(closed[1]).toMatchObject({ startedAt: 4000, endedAt: 9000, live: false })
+    // A prior runtime used the same counter. Its persisted identity must not steal this boundary.
+    const older = renumberStoredTurn({ ...later, ...(withReference ? { referenceId: 'source:older-run' } : {}), startedAt: 100 }, 's', 3)
+    const withOlder = projectPendingMessages([older, stored], null, refreshed)
+    expect(withOlder.committed[0]).toBe(older)
+    expect(withOlder.waiting).toEqual([])
+    expect(withOlder.committed[1]).toEqual(result.committed[0])
+  })
+
+  it('keeps simultaneous deliveries in queue order at the same captured boundary', () => {
+    const initial: TranscriptTurn = { ...turn('running', 'question'), startedAt: 1000, items: [work('before', 2000)] }
+    const a = { ...row('a', 1), sentAt: 4000 }, b = { ...row('b', 2), sentAt: 4500 }
+    const inputs = projectSessionPendingDeliveries([], view([b, a]), [initial])
+    const later = { ...initial, items: [...initial.items, work('after', 5000)] }
+    const refreshed = projectSessionPendingDeliveries(inputs, view([a, b]), [later])
+    const shown = activeTurnWithInputs(later, null, refreshed)!
+    expect(shown.items.map(item => item.id)).toEqual(['before', 'a', 'b', 'after'])
+    expect(segments(shown).map(segment => conversationOutput(segment.items).steps.length)).toEqual([1, 1])
+    expect(segments(shown).at(-1)).toMatchObject({ startedAt: 4500, live: true })
+  })
+
+  it('does not advance the closed process clock when an earlier tool completes late', () => {
+    const initial: TranscriptTurn = { ...turn('running', 'question'), startedAt: 1000,
+      items: [{ ...work('before', 2000), status: 'running' }] }
+    const delivery = { ...row('inserted', 1), sentAt: 4000 }
+    const inputs = projectSessionPendingDeliveries([], view([delivery]), [initial])
+    const original = segments(activeTurnWithInputs(initial, null, inputs)!)[0]!
+    const later = { ...initial, items: [{ ...work('before', 2000), completedAt: 7000 }, work('after', 8000)] }
+    const shown = activeTurnWithInputs(later, null, projectSessionPendingDeliveries(inputs, view([delivery]), [later]))!
+    expect(segments(shown)[0]).toMatchObject({ startedAt: original.startedAt, endedAt: original.endedAt, live: false })
+    expect(original.endedAt).toBe(4000)
+    expect(segments(shown).map(segment => conversationOutput(segment.items).steps.length)).toEqual([1, 1])
+  })
+
+  it('splits a growing tool group at its captured child without losing native identities', () => {
+    const group = { kind: 'tool-group' as const, id: 'group', seq: 1, label: 'work', groupKind: 'read-batch' as const,
+      status: 'running' as const, children: [work('before', 2000)] }
+    const initial: TranscriptTurn = { ...turn('running', 'question'), startedAt: 1000, items: [group] }
+    const delivery = { ...row('inserted', 1), sentAt: 4000 }
+    const inputs = projectSessionPendingDeliveries([], view([delivery]), [initial])
+    const later = { ...initial, items: [{ ...group, children: [...group.children, work('after', 5000)] }] }
+    const shown = activeTurnWithInputs(later, null, projectSessionPendingDeliveries(inputs, view([delivery]), [later]))!
+    expect(segments(shown).map(segment => conversationOutput(segment.items).steps.map(item => item.id))).toEqual([['before'], ['after']])
+    expect(shown.items.map(item => item.id)).toEqual(['group', 'inserted', 'group@inserted'])
+    expect(later.items[0]!.children.map(item => item.id)).toEqual(['before', 'after'])
+  })
+
   it('orders host messages by queue sequence, preserves the envelope, and leaves manual queue inputs alone', () => {
     const a = row('a', 1), b = row('b', 2)
     const result = projectSessionPendingDeliveries([], view([b, { ...row('manual', 0), kind: 'ordinary' }, a]), [])
