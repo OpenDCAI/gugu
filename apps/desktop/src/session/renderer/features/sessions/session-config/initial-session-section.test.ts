@@ -2213,12 +2213,12 @@ describe('InitialSessionField', () => {
     expect(modalStore.activeModalId).not.toBe('agentSignInModal');
   });
 
-  it.each(['claude', 'codex'])('%s opens the shared connection menu over the original task draft', async provider => {
+  it.each([{ provider: 'claude', declared: false }, { provider: 'claude', declared: true }, { provider: 'codex', declared: false }, { provider: 'codex', declared: true }])('$provider declared=$declared opens the shared connection menu over the original task draft', async ({ provider, declared }) => {
     await renderField();
     const previousAgents = agentFixtureRef.current;
     const template = previousAgents?.find(item => (item as { id: string }).id === 'claude') as { capabilities: object };
     agentFixtureRef.current = [{ ...template, id: provider, name: provider,
-      capabilities: { ...template.capabilities, auth: { kind: 'supported', connections: { kind: 'managed' }, methods: [{ kind: 'cli-login', id: `${provider}-login`, name: provider, args: ['login'] }] } },
+      capabilities: { ...template.capabilities, auth: { kind: 'supported', ...(declared ? { connections: { kind: 'managed' } } : {}), methods: [{ kind: 'cli-login', id: `${provider}-login`, name: provider, args: ['login'] }] } },
     }];
     harnessCatalog({ kind: 'auth-required', authMethods: [], efforts: [], selectedEffort: null });
     platformCatalog({ models: [GLM], agentDefault: null });

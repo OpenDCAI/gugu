@@ -1,3 +1,4 @@
+import { normalizeAgentAuthCapabilities } from '@gugu/session-plugins/agents/connection-capabilities';
 import type { GuguPermissionMode, ProviderPermissionModeMap } from '@gugu/session-core/acp/client';
 import { declaredInjectionTiming } from '@gugu/session-core/agents/plugins';
 import type {
@@ -168,9 +169,10 @@ export function agentSupportsAcp(capabilities: AgentCapabilities | undefined | n
   return capabilities?.acp.kind === 'supported';
 }
 
-/** Saved-connection UI is offered only by an adapter that explicitly declares its support. */
-export function agentSupportsConnectionManagement(capabilities: AgentCapabilities | undefined | null): boolean {
-  return capabilities?.auth.kind === 'supported' && capabilities.auth.connections?.kind === 'managed';
+/** Normalize legacy payloads with the adapter's own default before reading this optional capability. */
+export function agentSupportsConnectionManagement(agent: Pick<AgentPayload, 'id' | 'capabilities'> | undefined | null): boolean {
+  const auth = normalizeAgentAuthCapabilities(agent?.id, agent?.capabilities.auth);
+  return auth?.kind === 'supported' && auth.connections?.kind === 'managed';
 }
 
 /**

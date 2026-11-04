@@ -882,7 +882,7 @@ export function useInitialSessionState(
   const openAgentAccount = useCallback((anchor?: HTMLElement) => {
     if (!providerId || !cliLoginMethod) return;
     const selectedAgent = agents?.find(item => item.id === providerId);
-    if (selectedAgent && agentSupportsConnectionManagement(selectedAgent.capabilities)) {
+    if (selectedAgent && agentSupportsConnectionManagement(selectedAgent)) {
       connections.show(selectedAgent, machine, anchor);
       return;
     }

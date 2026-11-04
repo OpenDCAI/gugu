@@ -96,7 +96,7 @@ function hintText(translate: Translate, row: MergedAccountRow): string | null {
  */
 export function AgentAccountSection({ agent }: { agent: AgentPayload }) {
   const host = useLibraryHost();
-  if (agentSupportsConnectionManagement(agent.capabilities)) {
+  if (agentSupportsConnectionManagement(agent)) {
     return <AgentConnectionDetails agent={agent} machine={host.remote?.deviceId ?? null} />;
   }
   const targets = resolveAccountTargets(agent);

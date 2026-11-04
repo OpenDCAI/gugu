@@ -53,11 +53,11 @@ afterEach(() => {
 })
 
 
-function harness(id: string): AgentPayload {
+function harness(id: string, declared: boolean): AgentPayload {
   return { id, name: id, status: 'available', reading: 'installed', command: id, capabilities: {
     acp: { kind: 'supported' }, autoApprove: { kind: 'none' }, models: { kind: 'none' }, effort: { kind: 'none' },
     sessionpage: { acp: { identity: 'addressable', messageTransport: 'router' } },
-    auth: { kind: 'supported', connections: { kind: 'managed' }, methods: [{ kind: 'cli-login', id: `${id}-login`, name: id, args: ['login'] }] },
+    auth: { kind: 'supported', ...(declared ? { connections: { kind: 'managed' } } : {}), methods: [{ kind: 'cli-login', id: `${id}-login`, name: id, args: ['login'] }] },
   } } as unknown as AgentPayload
 }
 
@@ -69,13 +69,13 @@ vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
   }),
 }))
 
-it.each(['claude', 'codex'])('the real %s session sign-in action opens connections and returns to the same unsent draft', async provider => {
+it.each([{ provider: 'claude', declared: false }, { provider: 'claude', declared: true }, { provider: 'codex', declared: false }, { provider: 'codex', declared: true }])('the real $provider declared=$declared session sign-in action opens connections and returns to the same unsent draft', async ({ provider, declared }) => {
   registerSessionLocaleResources()
   setLocalePreference('en-US')
   await page.viewport(1100, 740)
   const id = `connection-${provider}`
   active.provider = provider
-  active.agents = [harness(provider)]
+  active.agents = [harness(provider, declared)]
   active.source = { sessions: new Map([[id, { status: 'idle', markSeen: async () => {}, data: { id, providerId: provider, firstUtterance: 'Original task', platformModel: null } }]]) }
   store = new AcpChatStore(id, 'project')
   active.store = store

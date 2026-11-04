@@ -35,7 +35,7 @@ const AgentDetailModalContent = observer(function AgentDetailModalContent({
   onClose: () => void;
 }) {
   const { data: agentPayload } = useManagementAgent(agentId);
-  const compact = agentSupportsConnectionManagement(agentPayload?.capabilities);
+  const compact = agentSupportsConnectionManagement(agentPayload);
   /**
    * 资源库看的是一台离线的机器(#6264):照旧画它上次的样子,但一个动作都做不了 —— 那台机器此刻收不到。
    * 用一个 disabled 的 fieldset 把整块面板里的按钮、输入框一次关掉,❌ 每个控件各判一遍(总会漏一个)。

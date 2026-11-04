@@ -1729,7 +1729,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const machine = store ? machineRegistry.machineOf(store.projectId) : null;
   const openAgentAccount = useCallback((anchor?: HTMLElement) => {
     if (!providerId || !cliAuthMethod) return;
-    if (agent && agentSupportsConnectionManagement(agent.capabilities)) {
+    if (agent && agentSupportsConnectionManagement(agent)) {
       connections.show(agent, machine, anchor);
       return;
     }
@@ -1752,7 +1752,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   /** 声明连接管理能力的适配器进入共享面板；其他适配器沿用既有登录方式与所属机器。 */
   const signInAgain = useCallback((anchor?: HTMLElement) => {
     if (!providerId || !cliAuthMethod) return;
-    if (agent && agentSupportsConnectionManagement(agent.capabilities)) {
+    if (agent && agentSupportsConnectionManagement(agent)) {
       connections.show(agent, machine, anchor);
       return;
     }
