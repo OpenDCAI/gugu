@@ -48,6 +48,7 @@ export const ALLOWED_FILES = [
   { re: /\/sharePosterCanvas\.ts$/, why: '分享海报/二维码画在 canvas 上,导出的图必须固定黑白' },
   { re: /\/ChannelBrandIcon\.tsx$/, why: '微信 / 飞书 / 钉钉的品牌色' },
   { re: /apps\/desktop\/src\/pages\/login\/GoogleMark\.tsx$/, why: 'Google 官方四色标识；品牌色不随宿主明暗主题改变' },
+  { re: /apps\/desktop\/src\/platform\/androidStartupHandoff\.ts$/, why: 'Android 原生启动层冻结 tone 的 palette 映射，颜色值须与 StartupTheme.java 一致；不能提前使用已保存的相反 Web 主题' },
   { re: /\/lib\/vendor\/cua-cursor-motion\//, why: '@trycua/cursor-motion 原样拷贝(见其 README,改动会让升级失真);Cua 蓝是它的光标品牌色,画在 canvas 上、盖在被控页面的截图上,不跟宿主主题' },
 ]
 
