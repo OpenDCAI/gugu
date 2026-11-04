@@ -107,16 +107,12 @@ describe('dev verification workflow contracts', () => {
   })
 
   it('keeps all hosted Mac steps, environments and timeout identical before reporting', () => {
-    const [calleePath, sha] = ci.jobs['desktop-build-mac'].uses.replace('GUYI-AI/gugu/', '').split('@')
-    const original = YAML.parse(execFileSync('git', ['show', `${sha}:${calleePath}`], { encoding: 'utf8' })).jobs.build
+    const original = ci.jobs['desktop-build-mac']
     expect(job['runs-on']).toBe('macos-15')
     expect(job['timeout-minutes']).toBe(original['timeout-minutes'])
     expect(devMac.env).toEqual(ci.env)
     expect(job.env).toEqual(original.env)
-    expect(job.steps.slice(0, -1)).toEqual(original.steps.slice(1).map((step: { uses?: string; with?: unknown }) => {
-      if (step.uses === 'actions/checkout@v4') return { uses: step.uses }
-      return step
-    }))
+    expect(job.steps.slice(0, -1)).toEqual(original.steps)
     expect(report.if).toBe('failure()')
     expect(report.uses).toBe('actions/github-script@v7')
     expect(devMac.permissions).toEqual({ contents: 'read', actions: 'read' })

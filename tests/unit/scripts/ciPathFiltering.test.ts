@@ -27,15 +27,16 @@ function gate(tests: string, overrides: Record<string, string> = {}) {
   return spawnSync('/bin/bash', ['-e', '-c', step], { env: { PATH: '/usr/bin:/bin' } }).status
 }
 
-describe('documentation/mobile filtering with immutable Mac calls', () => {
-  it('keeps both Mac calls unconditional with exact pins and original changes inputs', () => {
-    for (const [id, key, input, sha] of [
-      ['session-db', 'tests', 'tests-required', '0970e2e3af61985a54bedd313278f72673ccc493'],
-      ['desktop-build-mac', 'desktop-mac', 'build-required', '499a1ee16cb7650190e8a7869bec59e4f4ee9f22'],
+describe('documentation/mobile filtering with hosted Mac jobs', () => {
+  it('keeps both Mac jobs hosted with the original changes guards and payloads', () => {
+    for (const [id, key] of [
+      ['session-db', 'tests'],
+      ['desktop-build-mac', 'desktop-mac'],
     ]) {
-      expect(ci.jobs[id].if).toBeUndefined()
-      expect(ci.jobs[id].uses).toBe(`GUYI-AI/gugu/.github/workflows/${id === 'session-db' ? 'ci-mac-session' : 'ci-mac-build'}.yml@${sha}`)
-      expect(ci.jobs[id].with[input]).toBe(`\${{ needs.changes.outputs.${key} }}`)
+      expect(ci.jobs[id].uses).toBeUndefined()
+      expect(ci.jobs[id]['runs-on']).toBe('macos-15')
+      expect(ci.jobs[id].if).toBe(`needs.changes.outputs.${key} == 'true'`)
+      expect(ci.jobs[id].steps.length).toBeGreaterThan(4)
     }
   })
   it('unconditionally expands matrix jobs while guarding every docs-only step', () => {
@@ -97,7 +98,7 @@ describe('documentation/mobile filtering with immutable Mac calls', () => {
   })
   it('collects every source test command through the sole docs guard', () => {
     const commands = collectAutomaticRunnerCommands({ workflows: entries, changedPaths: ['tests/integration/next.test.ts'], packageScripts: {} })
-    expect(commands.some(command => command.job === 'session-db/session' && command.args.includes('tooling'))).toBe(true)
+    expect(commands.some(command => command.job === 'session-db' && command.args.includes('tooling'))).toBe(true)
     expect(commands.some(command => command.job === 'web-smoke')).toBe(true)
     expect(commands.filter(command => command.job === 'unit')).toHaveLength(4)
   })
@@ -120,16 +121,24 @@ describe('documentation/mobile filtering with immutable Mac calls', () => {
     expect(() => collectAutomaticRunnerCommands({ workflows: [entry], changedPaths: ['tests/e2e/ci/new.spec.ts'], packageScripts: {} })).toThrow('condition prevents')
     expect(() => deriveCheckProfiles([{ id: 'pr', type: 'pull_request', action: 'synchronize', baseRef: 'dev', inventoryRef: 'bad', changedPaths: ['tests/e2e/ci/new.spec.ts'], workflows: [{ path: entry.path, source: YAML.stringify(entry.workflow), reusableWorkflows }] }])).toThrow('verified documentation classifier')
   })
-  it.each(['literal-false', 'missing-needs'])('rejects %s session input bindings in both inventories', mutation => {
+  it.each(['literal-false', 'missing-needs'])('rejects unsafe %s session skips through both inventories', mutation => {
     const entry = structuredClone(entries[0])
-    if (mutation === 'literal-false') entry.workflow.jobs['session-db'].with['tests-required'] = 'false'
+    if (mutation === 'literal-false') entry.workflow.jobs['session-db'].if = 'false'
     else entry.workflow.jobs['session-db'].needs = []
     expect(() => collectAutomaticRunnerCommands({ workflows: [entry], changedPaths: ['tests/integration/new.test.ts'], packageScripts: {} })).toThrow()
-    expect(() => deriveCheckProfiles([{
+    const derive = () => deriveCheckProfiles([{
       id: 'pr', type: 'pull_request', action: 'synchronize', baseRef: 'dev', inventoryRef: 'bad',
       changedPaths: ['tests/integration/new.test.ts'],
       workflows: [{ path: entry.path, source: YAML.stringify(entry.workflow), reusableWorkflows }],
-    }])).toThrow()
+    }])
+    if (mutation === 'literal-false') {
+      const changedProfiles = derive()
+      const runs = changedProfiles.flatMap(profile => profile.checks).map((name, id) => ({
+        id, event: 'pull_request', name, status: 'completed',
+        conclusion: name === 'Session database, chat UI browser and tooling' ? 'skipped' : 'success',
+      }))
+      expect(evaluateCheckSnapshots(changedProfiles, [runs, runs]).verdict).toBe('RED')
+    } else expect(derive).toThrow()
   })
   it('rejects arbitrary guards and missing classifier dependency rather than exempting tests', () => {
     const entry = structuredClone(entries[0])

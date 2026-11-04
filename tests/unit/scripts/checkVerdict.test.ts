@@ -827,8 +827,8 @@ if (args[0] === 'pr') {
     expect(names).toContain('Renderer build (web target)')
     // #6270: linux 原生重编并进 desktop-build —— 清单里再出现它,PR 会一直等一个永远不会出现的检查。
     expect(names).not.toContain('Linux native addon rebuild (Electron headers)')
-    expect(names).toContain('Desktop app build (macos-15) / Route')
-    expect(names).toContain('Desktop app build (macos-15) / Desktop app build (macos-15)')
+    expect(names).toContain('Desktop app build (macos-15)')
+    expect(names).not.toContain('Desktop app build (macos-15) / Route')
     expect(names).toContain('Desktop app build (ubuntu-24.04)')
     expect(names).toContain('Typecheck, lint, and test')
     // 共享那两片 2026-08-12 摘出了必过闸(见 ci.yml 的 matrix 注释与 ci-spec-coverage.json 的
@@ -845,7 +845,7 @@ if (args[0] === 'pr') {
 
   describe('builds that the changes job skipped by design (@@@path-filtered-jobs)', () => {
     const DECIDER = 'Detect changed areas'
-    const MAC = 'Desktop app build (macos-15) / Desktop app build (macos-15)'
+    const MAC = 'Desktop app build (macos-15)'
     const ANDROID = 'Android debug build'
 
     function realCiProfiles() {
@@ -886,7 +886,7 @@ if (args[0] === 'pr') {
         [MAC]: { decider: DECIDER, output: 'desktop-mac' },
         [ANDROID]: { decider: DECIDER, output: 'android' },
         ...Object.fromEntries([
-          'Session database, chat UI browser and tooling / Session database, chat UI browser and tooling',
+          'Session database, chat UI browser and tooling',
           'Session browser project', 'Projection native media',
           'Client and community database contracts',
         ].map(name => [name, { decider: DECIDER, output: 'tests' }]))
@@ -973,8 +973,22 @@ if (args[0] === 'pr') {
   })
 
 
-  it('fails closed when a pinned child, original output binding, or child check is missing', () => {
-    const entry = realCiEntry()
+  it('fails closed when a retained callee loses its pin, output binding, or child check', () => {
+    const workflowWithCall = YAML.parse(realCiEntry().source)
+    const use = 'GUYI-AI/gugu/.github/workflows/ci-mac-build.yml@499a1ee16cb7650190e8a7869bec59e4f4ee9f22'
+    workflowWithCall.jobs['desktop-build-mac'] = {
+      name: 'Desktop app build (macos-15)', needs: 'changes', uses: use,
+      with: { 'build-required': '${{ needs.changes.outputs.desktop-mac }}' },
+    }
+    const entry = {
+      ...realCiEntry(), source: YAML.stringify(workflowWithCall),
+      reusableWorkflows: {
+        [use]: {
+          path: '.github/workflows/ci-mac-build.yml',
+          source: readFileSync('.github/workflows/ci-mac-build.yml', 'utf8'),
+        },
+      },
+    }
     const run = (workflows: unknown[]) => deriveCheckProfiles([event({
       type: 'pull_request', action: 'synchronize', baseRef: 'dev', workflows
     })])

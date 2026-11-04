@@ -740,10 +740,12 @@ describe('immutable reusable workflow coverage', () => {
     const commands = collectAutomaticRunnerCommands({ workflows: loadCoverageWorkflowInventory(root), changedPaths: [], packageScripts: {} })
     expect(commands.map(command => command.args)).toEqual([['tests/integration/pinned.test.ts']])
   })
-  it.each(['desktop-build-mac', 'session-db'])('fetches the immutable %s callee without moving the PR base', (job) => {
+  it.each([
+    ['desktop-build-mac', '499a1ee16cb7650190e8a7869bec59e4f4ee9f22'],
+    ['session-db', '0970e2e3af61985a54bedd313278f72673ccc493'],
+  ])('retains the immutable %s callee fetch without moving the PR base', (_job, admittedSha) => {
     const workflow = YAML.parse(readFileSync('.github/workflows/ci.yml', 'utf8'))
     const commandsBeforeTests = workflow.jobs.policy.steps.map((step: { run?: string }) => step.run ?? '').join('\n')
-    const admittedSha = workflow.jobs[job].uses.split('@')[1]
     const fetch = commandsBeforeTests.split('\n').find((line: string) => line.includes('git fetch') && line.includes('--no-write-fetch-head') && line.endsWith(admittedSha))
     expect(fetch).toMatch(new RegExp(` ${admittedSha}$`))
 
