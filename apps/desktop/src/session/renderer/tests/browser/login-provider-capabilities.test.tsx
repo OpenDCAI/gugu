@@ -79,6 +79,14 @@ for (const theme of ['light', 'dark']) it(`keeps the real login controls mounted
     expect(host.querySelectorAll('.gugu-auth-google, .gugu-auth-divider')).toHaveLength(2)
     expect(getComputedStyle(host.querySelector('.gugu-auth-brand')!).display === 'none').toBe(width < 720)
     const button = rect(host.querySelector('.gugu-auth-google')!)
+    const drag = host.querySelector('.gugu-auth-window-drag')!
+    expect(getComputedStyle(drag).display === 'none').toBe(width < 720)
+    if (width >= 720) {
+      const strip = rect(drag)
+      expect(strip.x).toBe(0)
+      expect(strip.width).toBe(width)
+      expect(button.y).toBeGreaterThanOrEqual(strip.y + strip.height)
+    }
     expect(button.x).toBeGreaterThanOrEqual(0)
     expect(button.x + button.width).toBeLessThanOrEqual(width)
     expect(document.documentElement.scrollWidth).toBe(width)

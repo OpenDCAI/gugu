@@ -1,5 +1,6 @@
 /* Approved D v2.3. Scoped to authentication; the product theme remains the source of colors. */
 .gugu-auth-page { width: 100%; height: 100svh; overflow: auto; display: flex; flex-direction: column; align-items: center; padding: 0; box-sizing: border-box; background: var(--bg-auth-page); color: var(--text-primary); -webkit-app-region: drag; }
+.gugu-auth-window-drag { position: fixed; z-index: 10; inset: var(--window-titlebar-height) 0 auto; height: calc(var(--titlebar-actions-lane) - var(--window-titlebar-height)); -webkit-app-region: drag; }
 .gugu-auth-shell { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); width: 100%; min-height: 100svh; flex-shrink: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: var(--card); }
 .gugu-auth-brand { position: relative; display: flex; flex-direction: column; justify-content: flex-end; min-width: 0; padding: 48px; overflow: hidden; background: var(--primary); color: var(--primary-fg); -webkit-app-region: no-drag; }
 .gugu-auth-motion { position: absolute; inset: 0; isolation: isolate; background: var(--primary); color: var(--primary-fg); }
@@ -33,6 +34,6 @@
 .gugu-auth-legal a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 @media (hover: hover) { .gugu-auth-page .gugu-auth-google:hover:not([data-disabled]) { background: color-mix(in oklab, var(--muted), var(--fg) 4%); } }
 @media (max-width: 900px) { .gugu-auth-shell { grid-template-columns: minmax(0, .9fr) minmax(0, 1fr); } .gugu-auth-brand { padding: 24px; } .gugu-auth-pane { padding: 32px 20px; } }
-@media (max-width: 719px) { .gugu-auth-page { padding: 56px 20px 40px; } .gugu-auth-shell { width: min(420px, 100%); min-height: 600px; grid-template-columns: minmax(0, 1fr); margin-block: auto; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-surface); } .gugu-auth-brand { display: none; } .gugu-auth-pane { padding: 32px 16px; } .gugu-auth-input { height: var(--control-h-touch); } }
+@media (max-width: 719px) { .gugu-auth-window-drag { display: none; } .gugu-auth-page { padding: 56px 20px 40px; } .gugu-auth-shell { width: min(420px, 100%); min-height: 600px; grid-template-columns: minmax(0, 1fr); margin-block: auto; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-surface); } .gugu-auth-brand { display: none; } .gugu-auth-pane { padding: 32px 16px; } .gugu-auth-input { height: var(--control-h-touch); } }
 
 .gugu-auth-placeholder { width: 300px; max-width: 100%; height: 320px; border-radius: var(--radius-control); background: var(--muted); opacity: .35; }
