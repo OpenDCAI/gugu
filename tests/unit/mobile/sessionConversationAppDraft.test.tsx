@@ -54,6 +54,8 @@ it('puts each App draft in the real task composer once, preserving human edits a
 })
 
 it('keeps the running task Send action until its local outbox commit resolves', async () => {
+  // A successful local commit belongs to the active sender account.
+  Object.assign(state(), { accountId: 'owner', valid: () => true })
   let commit!: () => void
   const onSend = vi.fn(() => new Promise<void>(resolve => { commit = resolve }))
   const onStop = vi.fn()
