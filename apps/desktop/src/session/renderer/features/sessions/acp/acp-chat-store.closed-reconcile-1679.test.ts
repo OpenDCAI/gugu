@@ -100,7 +100,7 @@ it.each(['before', 'after'])('reports actual persistence failure %s closed witho
   read.mockResolvedValue(null);
   const { store, close } = attached();
   const fail = () => { for (const cb of listeners.get('session:turn-settled') ?? []) cb({
-    sessionId: 'A', referenceId: live.referenceId, status: 'failed', reason: 'disk write denied',
+    sessionId: 'A', referenceId: live.referenceId, status: 'failed', cause: { name: 'Error', message: 'disk write denied' },
   }); };
   if (order === 'before') fail();
   close();

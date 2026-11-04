@@ -1,3 +1,4 @@
+import { toSerializedError } from '@gugu/session-shared/result';
 import type { TranscriptTurn } from '@gugu/session-core/acp/client';
 import type { TurnSettlement } from '@shared/core/sessions/sessionEvents';
 
@@ -13,7 +14,7 @@ export async function persistWithTurnSettlement(
     await write();
   } catch (error) {
     if (terminal) publish({ sessionId: input.sessionId, referenceId, status: 'failed',
-      reason: error instanceof Error ? error.message : String(error) });
+      cause: toSerializedError(error) });
     throw error;
   }
   if (terminal) publish({ sessionId: input.sessionId, referenceId, status: 'persisted' });

@@ -1,3 +1,4 @@
+import { toSerializedError } from '@gugu/session-shared/result';
 import { expect, it, vi } from 'vitest';
 import type { TranscriptTurn } from '@gugu/session-core/acp/client';
 import { persistWithTurnSettlement } from './turn-settlement';
@@ -17,7 +18,7 @@ it('publishes the actual write failure and still rejects to its owner', async ()
   const failure = new Error('write rejected'); const publish = vi.fn();
   await expect(persistWithTurnSettlement({ sessionId: 'A', source: 'revision', turn },
     async () => { throw failure; }, publish)).rejects.toBe(failure);
-  expect(publish).toHaveBeenCalledExactlyOnceWith({ sessionId: 'A', referenceId: turn.referenceId, status: 'failed', reason: failure.message });
+  expect(publish).toHaveBeenCalledExactlyOnceWith({ sessionId: 'A', referenceId: turn.referenceId, status: 'failed', cause: toSerializedError(failure) });
 });
 it.each(['replay', 'live'])('does not claim an uncommitted/replayed turn is a new settlement (%s)', async source => {
   const publish = vi.fn();

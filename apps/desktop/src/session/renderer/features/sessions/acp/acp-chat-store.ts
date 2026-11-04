@@ -1,3 +1,4 @@
+import { withTranscriptTurnIdentity } from '@shared/core/sessions/transcript-turn-identity';
 import { projectRejectedSessionInputs } from '@/lib/pendingSessionInput';
 import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 import type {
@@ -2470,7 +2471,7 @@ export class AcpChatStore {
       read: (referenceId, originTurnId) => rpcOn(machine).sessions.getStoredSettledTurn({ sessionId: this.runtimeSessionId, referenceId, originTurnId }),
       apply: row => {
         if (historyFailure && this.loadError === historyFailure) runInAction(() => { this.loadError = null; this._reopenOnRetry = false; });
-        this._applyClosedSettledTurn(row);
+        this._applyClosedSettledTurn(row, lastTurn!);
       },
       failed: error => {
         runInAction(() => {
@@ -2994,17 +2995,25 @@ export class AcpChatStore {
       && generation === this._historyGeneration && !this._transcriptReleased);
   }
 
-  private _applyClosedSettledTurn(row: StoredSettledTurn): void {
+  private _applyClosedSettledTurn(row: StoredSettledTurn, origin: TranscriptTurn): void {
     runInAction(() => batch(() => {
       const active = this.chatState.transcript.state.activeTurnSnapshot;
-      const turns = new Map(this._storedHistoryTurns.map((turn, i) => [turn.id, { turn, origin: this._storedOrigins[i]! }]));
-      turns.set(row.turn.id, { turn: row.turn, origin: row.originTurnId });
-      const stored = [...turns.values()].sort((a, b) => a.turn.seq - b.turn.seq);
-      this._storedHistoryTurns = stored.map(value => value.turn);
-      this._storedOrigins = stored.map(value => value.origin);
-      this._storedBaseSeq = this._storedHistoryTurns[0]?.seq ?? null;
-      this._storedBootstrapMaxSeq = Math.max(this._storedBootstrapMaxSeq, row.turn.seq);
-      this._persistedRuntimeTurnIds = new Set([...this._persistedRuntimeTurnIds, row.originTurnId]);
+      // Keep the already visible slot. Promoting just this row to the stored prefix
+      // would move it before earlier runtime turns that have not joined that prefix.
+      const storedIndex = this._storedHistoryTurns.findIndex(turn => turn.referenceId === row.turn.referenceId);
+      const olderIndex = this._olderHistoryTurns.findIndex(turn => turn.referenceId === row.turn.referenceId);
+      if (storedIndex >= 0) {
+        this._storedHistoryTurns = this._storedHistoryTurns.map((turn, index) => index === storedIndex ? row.turn : turn);
+      } else if (olderIndex >= 0) {
+        this._olderHistoryTurns = this._olderHistoryTurns.map((turn, index) => index === olderIndex
+          ? withTranscriptTurnIdentity(row.turn, turn.id, turn.seq) : turn);
+      } else {
+        const settled = withTranscriptTurnIdentity(row.turn, origin.id, origin.seq);
+        const turns = new Map(this._runtimeTurns.map(turn => [turn.seq, turn]));
+        turns.set(origin.seq, settled);
+        this._runtimeTurns = [...turns.values()].sort((a, b) => a.seq - b.seq);
+        this._runtimeCount = Math.max(this._runtimeCount, origin.seq + 1);
+      }
       this.chatState.transcript.history.seed(this._composedHistory());
       if (active && active.referenceId !== row.turn.referenceId) this.chatState.transcript.activeTurn.set(active);
       this._syncMessageCount();

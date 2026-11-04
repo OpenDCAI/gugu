@@ -19,7 +19,7 @@ export function observeClosedTurnHistory(input: {
   const alive = () => !disposed && current?.() === true;
   const failedReceipt = () => {
     const next = receipt;
-    return next && next.referenceId === referenceId && next.status === 'failed' ? next.reason : null;
+    return next && next.referenceId === referenceId && next.status === 'failed' ? next.cause : null;
   };
   const read = async () => {
     dirty = true;
@@ -30,7 +30,7 @@ export function observeClosedTurnHistory(input: {
         dirty = false;
         const failure = failedReceipt();
         if (failure !== null) {
-          input.failed(new Error(failure));
+          input.failed(failure);
           continue;
         }
         try {

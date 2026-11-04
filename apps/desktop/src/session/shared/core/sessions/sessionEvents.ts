@@ -1,3 +1,4 @@
+import type { SerializedError } from '@gugu/session-shared/result';
 import type { Session } from '@shared/core/sessions/sessions';
 import { defineEvent } from '@shared/lib/ipc/events';
 import type { AgentStatusReading } from '@gugu/core/shared/agentStatus';
@@ -5,7 +6,7 @@ import type { TranscriptTurn } from '@gugu/session-core/acp/client';
 
 export type StoredSettledTurn = { originTurnId: string; turn: TranscriptTurn };
 export type TurnSettlement = { sessionId: string; referenceId: string } & (
-  { status: 'persisted' } | { status: 'failed'; reason: string }
+  { status: 'persisted' } | { status: 'failed'; cause: SerializedError }
 );
 /** A real terminal turn crossed the durable writer, or that write failed. Never inferred from lifecycle. */
 export const sessionTurnSettledChannel = defineEvent<TurnSettlement>('session:turn-settled');
