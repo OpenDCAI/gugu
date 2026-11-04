@@ -96,13 +96,13 @@ describe('CI e2e/integration spec coverage', () => {
       { id: 'local', runtime: 'local', db_target: '', playwright_project: 'ci-local', shard_arg: '' },
     ])
     expect(runSteps).toHaveLength(1)
-    expect(runSteps.every((step: { if?: unknown }) => step.if === undefined)).toBe(true)
+    expect(runSteps.every((step: { if?: unknown }) => step.if === "needs.changes.outputs.tests == 'true'")).toBe(true)
     expect(runSteps.every((step: { 'continue-on-error'?: unknown }) => step['continue-on-error'] === undefined)).toBe(true)
     expect(runSteps.every((step: { run: string }) => step.run.includes('--workers=1'))).toBe(true)
     expect(runSteps.map((step: { run: string }) => step.run)).toEqual([
       'pnpm exec playwright test --project=${{ matrix.playwright_project }} ${{ matrix.shard_arg }} --workers=1',
     ])
-    expect(artifactStep.if).toBe('${{ always() }}')
+    expect(artifactStep.if).toBe("${{ always() && needs.changes.outputs.tests == 'true' }}")
     expect(artifactStep.with['if-no-files-found']).toBe('error')
     expect(workflow.jobs.gate.name).toBe('Typecheck, lint, and test')
     expect(workflow.jobs.gate.needs).toContain('web-smoke')

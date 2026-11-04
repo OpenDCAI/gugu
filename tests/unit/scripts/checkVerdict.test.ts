@@ -23,6 +23,7 @@ import {
   deriveCheckProfiles,
   evaluateCheckSnapshots,
   eventHasSubscribingWorkflow,
+  hasUnsubscribedPushEvent,
   shouldReadPullRequestMergeState,
   GITHUB_PR_FILES_API_CAP,
   JOB_OUTPUTS_MARKER,
@@ -419,6 +420,60 @@ describe('exact-head check verdict', () => {
       verdict: 'INCOMPLETE',
       profiles: [expect.objectContaining({ noMatchReason: 'event' })]
     })
+  })
+
+  it('treats an unsubscribed push as terminal without claiming CI passed', () => {
+    const workflows = [inventoryEntry('.github/workflows/ci.yml', {
+      on: { pull_request: null, workflow_dispatch: null },
+      jobs: { gate: { name: 'Typecheck, lint, and test', 'runs-on': 'fixture' } }
+    })]
+    const result = evaluateCheckSnapshots(deriveCheckProfiles([event({ workflows })]), [[]])
+    expect(result).toMatchObject({
+      verdict: 'INCOMPLETE', settling: false,
+      diagnostic: expect.stringContaining('waiting cannot create a retired push run')
+    })
+    expect(hasUnsubscribedPushEvent(result)).toBe(true)
+    const pr = evaluateCheckSnapshots(deriveCheckProfiles([event({
+      type: 'pull_request', action: 'synchronize', baseRef: 'dev', workflows
+    })]), [[]])
+    expect(hasUnsubscribedPushEvent(pr)).toBe(false)
+    expect(pr.verdict).toBe('INCOMPLETE')
+  })
+
+  it('returns from --push --watch after one snapshot when push CI was retired', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'gugu-no-push-ci-'))
+    const root = join(directory, 'repo')
+    mkdirSync(join(root, '.github/workflows'), { recursive: true })
+    writeFileSync(join(root, '.github/workflows/ci.yml'),
+      'on:\n  pull_request:\n  workflow_dispatch:\njobs:\n  gate:\n    name: Gate\n    runs-on: fixture\n')
+    execFileSync('git', ['init', '-q'], { cwd: root })
+    execFileSync('git', ['config', 'user.email', 'fixture@gugu.test'], { cwd: root })
+    execFileSync('git', ['config', 'user.name', 'Gugu fixture'], { cwd: root })
+    execFileSync('git', ['add', '.'], { cwd: root })
+    execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: root })
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+    const log = join(directory, 'gh.ndjson')
+    const fakeGh = cachedFixtureExecutable('gh.mjs', `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+appendFileSync(process.env.GUGU_GH_INVOCATION_LOG, JSON.stringify(args) + '\\n')
+const endpoint = args.find((arg) => arg.startsWith('repos/'))
+if (endpoint?.includes('/actions/runs?')) process.stdout.write('[{"workflow_runs":[]}]')
+else if (endpoint?.includes('/commits/')) process.stdout.write('[{"check_runs":[]}]')
+else { console.error('unexpected request'); process.exitCode = 24 }
+`)
+    try {
+      const result = spawnSync(process.execPath, [resolve('scripts/ci/check-verdict.mts'),
+        '--repo', 'fixture/repo', '--sha', sha, '--before', sha, '--push', 'dev', '--watch', '--json'
+      ], { cwd: root, encoding: 'utf8', timeout: 10_000,
+        env: { ...process.env, GUGU_GH: fakeGh, GUGU_GH_INVOCATION_LOG: log } })
+      expect(result.error).toBeUndefined()
+      expect(result.status).toBe(2)
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        verdict: 'INCOMPLETE', diagnostic: expect.stringContaining('Post-merge CI is not configured')
+      })
+      expect(readFileSync(log, 'utf8').trim().split('\n')).toHaveLength(2)
+    } finally { rmSync(directory, { recursive: true, force: true }) }
   })
 
   it('attaches merge state only to an event-mismatch zero-check result', () => {
@@ -828,9 +883,13 @@ if (args[0] === 'pr') {
 
       expect(profile.pathFiltered).toEqual({
         'Renderer build (web target)': { decider: DECIDER, output: 'build' },
-        'Desktop app build (ubuntu-24.04)': { decider: DECIDER, output: 'build' },
+        'Desktop app build (ubuntu-24.04)': { decider: DECIDER, output: 'desktop-linux' },
         [MAC]: { decider: DECIDER, output: 'desktop-mac' },
-        [ANDROID]: { decider: DECIDER, output: 'android' }
+        [ANDROID]: { decider: DECIDER, output: 'android' },
+        ...Object.fromEntries([
+          'Session database, chat UI browser and tooling', 'Session browser project',
+          'Projection native media', 'Client and community database contracts',
+        ].map(name => [name, { decider: DECIDER, output: 'tests' }]))
       })
     })
 
@@ -875,7 +934,7 @@ if (args[0] === 'pr') {
         verdict: 'RED',
         failed: [`pull_request/${ANDROID} (skipped; ${DECIDER} failure)`, `pull_request/${DECIDER} (failure)`]
       })
-      // A job with no path filter must never be skipped.
+      // A test skip needs the original docs-only decision.
       expect(
         verdict({ [DECIDER]: { outputs: typicalSourcePr }, 'Unit tests (1/4)': skipped })
       ).toMatchObject({ verdict: 'RED', failed: ['pull_request/Unit tests (1/4) (skipped)'] })

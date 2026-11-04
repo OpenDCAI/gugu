@@ -41,6 +41,7 @@ function isRootGuguTool(item: ToolCallItem, tool: string): item is McpToolCall {
 
 function isRootSend(item: ToolCallItem): item is McpToolCall {
   if (item.kind !== 'mcp-tool-call' || !isGuguServer(item.server) || item.parentToolCallId) return false;
+  if (sendReceipt(item.rawOutput || item.outputText)?.delivery === 'owner-native') return false;
   const tool = catalogCall(item.tool, item.rawInput)?.tool ?? item.tool;
   return tool === 'message_send' || tool === 'widget_send';
 }

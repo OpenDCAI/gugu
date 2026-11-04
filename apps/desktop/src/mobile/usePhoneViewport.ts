@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from 'react'
+import { createContext, useLayoutEffect, useState } from 'react'
 
 export interface PhoneViewport {
   /** null leaves sizing to CSS (disabled, hidden, or temporarily unmeasurable). Never zero. */
@@ -9,6 +9,8 @@ export interface PhoneViewport {
   /** Android WindowInsets IME visibility; null means no current native observation. */
   keyboardVisible: boolean | null
 }
+
+export const PhoneViewportContext = createContext<PhoneViewport | null>(null)
 
 const INACTIVE: PhoneViewport = { viewportHeight: null, viewportOffsetTop: 0, inputFocused: false, keyboardVisible: null }
 const TEXT_INPUT_TYPES = new Set(['text', 'search', 'tel', 'url', 'email', 'password', 'number'])

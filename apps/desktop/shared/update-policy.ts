@@ -73,11 +73,12 @@ export type UpdateChannel = 'stable' | 'beta' | 'none'
  * (桌面是主进程,安卓是 capacitorAppUpdate 那个模块 —— 它比任何一个界面组件活得久)。
  */
 export function updateStateAdvances(current: string, next: string): boolean {
+  if (current === 'installing') return next === 'installing' || next === 'downloaded' || next === 'error'
   const staged = current === 'downloaded' || current === 'downloaded-manual'
   if (!staged) return true
   // 又在下更新的一版,也改写它:electron-updater 开始下新包时就把 pending 里那一份清掉了
   // (DownloadedUpdateHelper.cleanCacheDirForPendingUpdate),旧的那份已经装不了,「可以装了」是假话。
-  return next === 'downloaded' || next === 'downloaded-manual' || next === 'downloading'
+  return next === 'downloaded' || next === 'downloaded-manual' || next === 'downloading' || next === 'installing'
 }
 
 /**

@@ -30,7 +30,9 @@ import { SidebarSearchTrigger } from './sidebar-search-trigger';
 import { SidebarSpace } from './sidebar-space';
 import { SidebarListSwitch, useSidebarLayoutContextMenu } from './sidebar-list-switch';
 import { openShellChatAction, shellChatActions, SidebarChatsSection } from './sidebar-chats-section';
-import { publishSidebarChatView, useSidebarChatSignals } from '@/lib/sidebarChatsBridge';
+import { publishSidebarChatView, useSidebarChatSignals, useSidebarNotificationsOpen } from '@/lib/sidebarChatsBridge';
+import { NotificationSlot } from '@/components/needsYou/NotificationSlot';
+import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
 import { SidebarSessionsSection } from './sidebar-sessions-section';
 import { SidebarVirtualList } from './sidebar-virtual-list';
 import { SampleProjectSidebar } from './sample-project-row';
@@ -47,6 +49,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
   const { navigate } = useNavigate();
   const { currentView } = useWorkspaceSlots();
   const { isLeftOpen } = useWorkspaceLayoutContext();
+  const notificationsOpen = useSidebarNotificationsOpen();
   const { translate } = useSessionMessages();
 
   // #5818 侧栏每一行 hover 要说「这一行是哪个 agent」:本机花名册整份读一次,之后靠 provisioned /
@@ -163,7 +166,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
       )}
       <SidebarSpace><SidebarSearchTrigger /></SidebarSpace>
       <SidebarContainer className="min-h-0 w-full flex-1 border-r-0">
-        <SidebarContent className="flex flex-col">
+        <SidebarContent className="flex flex-col" data-notification-original-list="" style={notificationsOpen ? RETAINED_SURFACE_HIDDEN_STYLE : undefined}>
           {/* mb-2:固定的动作区与下面滚动的分区之间要有一道呼吸。原先 mb-0 让「已安排」与
               「项目」标题之间的距离与行距一模一样,三个分区因此读不出是三个分区。 */}
           <SidebarGroup className="mb-2 flex shrink-0 flex-col">
@@ -271,6 +274,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
             </div>
           </div>
         </SidebarContent>
+        <NotificationSlot part="list" active={notificationsOpen} />
       </SidebarContainer>
     </div>
   );

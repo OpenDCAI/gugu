@@ -1,3 +1,5 @@
+import { agentSupportsConnectionManagement } from '@shared/core/agents/agent-payload';
+import { useConnectionPanel } from '@renderer/features/settings/subscriptions/use-connection-panel';
 import { isTranscriptDelivery } from '@/lib/pendingSessionDeliveries';
 import { resolveDeliveredAttachment } from '@renderer/lib/chat/delivered-message-presentation';
 import { readNativeOfflineDraft, writeNativeOfflineDraft } from '@/lib/nativeOfflineDraft';
@@ -6,13 +8,14 @@ import { appendToDraft } from '@/store/chatContext';
 import { registerNativeComposer } from '@/lib/nativeComposerHandoff';
 import { useSearchedTaskReveal, useSessionSourceMessage } from './use-session-source-message';
 import { canQueueNativeInput } from './queue-native-input';
+import { sendComposerInput } from './send-composer-input';
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
 import { useRememberNativeTail } from './use-remember-native-tail';
+import { useOwnerNotifications } from './use-owner-notifications';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { sessionLifeView } from '../stores/session-life-views';
 import { lifeIsStarting } from '@shared/core/sessions/session-life';
-import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { AgentFailureSlot } from '@/components/AgentFailureSlot';
 import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
@@ -46,7 +49,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState, type Ref
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
 import { useMarkSeenWhenShown } from '@renderer/features/sessions/hooks/use-mark-seen-when-shown';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { IntegrationIcon } from '@renderer/features/integrations/integration-icon';
@@ -99,7 +102,7 @@ import { droppedDirectoryMention } from '@renderer/lib/drag-files';
 import { pathAttachmentTarget } from '@gugu/session-chat-ui/markdown-attachment-mentions';
 import { readMermaidTheme } from '@gugu/session-chat-ui/mermaid';
 import { SessionScheduleChip } from '../session-schedule-chip';
-import { sessionComposerTrayClassName, sessionComposerTrayStyle } from '../session-composer-styles';
+import { sessionComposerFrameLiftClassName, sessionComposerTrayClassName, sessionComposerTrayStyle } from '../session-composer-styles';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
@@ -378,25 +381,19 @@ const ComposerForStore = observer(function ComposerForStore({
       if (sendingRef.current) return;
       sendingRef.current = true;
       try {
-        // 没有还在传的就当场发(❌ 每次发送都闪一下「在等」)。
-        if (fileUploads.unsettled()) {
-          setSendHold('waiting');
-          await fileUploads.waitForUploads();
-        }
-        const failed = fileUploads.unsettled() || attachmentsRef.current.some((att) => att.state === 'error');
-        setSendHold(failed ? 'blocked' : null);
-        if (failed) {
-          // 输入框在交出正文时已经自己清空了:没发出去就把话放回去,❌ 让人重打一遍。
-          editorApiRef.current?.setText(value);
-          return;
-        }
-        const files = fileUploads.files(attachmentsRef.current.map((att) => att.id));
-        const text = value.trim();
-        if (!text && files.length === 0) return;
-        try { await deliver(text, files); } catch { editorApiRef.current?.setText(value); return; }
-        setAttachments([]);
-        fileUploads.clear();
-        editorApiRef.current?.clear();
+        await sendComposerInput(value, {
+          unsettled: () => fileUploads.unsettled(),
+          waitForUploads: async () => { await fileUploads.waitForUploads(); },
+          hasFailedAttachments: () => attachmentsRef.current.some(att => att.state === 'error'),
+          files: () => fileUploads.files(attachmentsRef.current.map(att => att.id)),
+          status: setSendHold,
+          deliver,
+          committed: () => flushSync(() => {
+            setAttachments([]);
+            fileUploads.clear();
+            if (editorApiRef.current?.getText() === value) editorApiRef.current.clear();
+          }),
+        });
         // 滚到哪由 store 定(发出即把这一句钉到顶):这里再滚一次到旧的底,会和那一钉抢,视图先滑回上一轮再跳回来。
       } finally {
         sendingRef.current = false;
@@ -411,7 +408,6 @@ const ComposerForStore = observer(function ComposerForStore({
     [store, sendWhenReady]
   );
 
-  // While a turn runs the host queues the input behind it: the same custody path, nothing page-side.
   const handleSubmitWhileWorking = handleSubmit;
 
   const handleStop = useCallback(() => {
@@ -1428,7 +1424,11 @@ const ComposerForStore = observer(function ComposerForStore({
         granularity={mcpPanel?.granularity ?? 'per-server'}
         onApply={applyMcpSelection}
       />
-      <NeedsYouSlot />
+      {schedules.length > 0 ? (
+        <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
+          <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
+        </div>
+      ) : null}
       {/* This task's agent's failed deliveries (the shell draws the same bar a chat's composer shows). */}
       {agentUserId ? <AgentFailureSlot agentUserId={agentUserId} /> : null}
       {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. */}
@@ -1444,14 +1444,10 @@ const ComposerForStore = observer(function ComposerForStore({
       ) : null}
       {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
       <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life}
-        inTranscript={[store.transcriptPendingId, store.stoppedRowId, ...store.failedRowIds, ...life?.pending.items.filter(input => isTranscriptDelivery(input)).map(input => input.messageId) ?? []].filter((id): id is string => id !== null)} />
+        inTranscript={[...store.chatState.session.state.pendingMessages.map(input => input.id), store.transcriptPendingId, store.stoppedRowId, ...store.failedRowIds, ...life?.pending.items.filter(input => isTranscriptDelivery(input)).map(input => input.messageId) ?? []].filter((id): id is string => id !== null)} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
-        bandAbove={schedules.length > 0 ? (
-          <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
-            <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
-          </div>
-        ) : null}
+        className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
         // 会话页的标签头不显示 harness,锁着的那颗 agent 标留在模型左边(私聊照旧藏)。
         hideLockedAgent={false}
         isWorking={a.isWorking}
@@ -1467,6 +1463,7 @@ const ComposerForStore = observer(function ComposerForStore({
           && sendHold !== 'waiting' && !membershipLockedModel}
         placeholder={startupPlaceholderKeyValue ? translate(startupPlaceholderKeyValue) : undefined}
         onSubmit={handleSubmit}
+        editorOptions={{ clearOnSubmit: false }}
         onInputChange={(text) => store.setDraftText(text)}
         onSubmitWhileWorking={handleSubmitWhileWorking}
         onStop={a.isWorking ? handleStop : undefined}
@@ -1505,6 +1502,7 @@ const ComposerForStore = observer(function ComposerForStore({
         permissionModeOptions={localizePermissionModeOptions(
           sessionPermissionOptions,
           translate,
+          agents?.find((agent) => agent.id === providerId)?.name ?? providerId ?? '',
           providerPermissionModeMap
         )}
         selectedPermissionMode={selectedPermissionModeId(
@@ -1590,6 +1588,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
 
   const visibility = useConversationVisibility(useContext(PageShownContext));
   useRememberNativeTail(store?.projectId, store?.runtimeSessionId, store?.affordances.isBusy ?? false, visibility.shown);
+  useOwnerNotifications(store, visibility.shown);
   const rootRef = visibility.ref;
   const reading = useNativeConversationRead(store ? machineRegistry.machineOf(store.runtimeSessionId) : null, store?.runtimeSessionId, visibility.shown, () => {
     const transcript = store?.chatState.transcript.state;
@@ -1704,8 +1703,9 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   );
   const { data: agents } = useAgents();
   const providerId = sessionStore?.data.providerId ?? null;
-  // 上一轮被宿主的退出打断(开机收残记下的):还是 `error` 时在消息列表末尾说是什么打断的;下一轮开工就不是了。
-  const interruptedBy = sessionStore?.status === 'error' ? (sessionStore.data.interruptedBy ?? null) : null;
+  // 上一轮被宿主的退出打断(开机收残记下的):停着时说明原因;兼容旧 error 记录,下一轮开工就不是了。
+  const interruptedBy = sessionStore?.status === 'idle' || sessionStore?.status === 'error'
+    ? (sessionStore.data.interruptedBy ?? null) : null;
   const agent = agents?.find((candidate) => candidate.id === providerId) ?? null;
   const startupNotice = agent?.capabilities.acp.startup?.noticeKey;
   const startupNoticeKey = declaredMessageKey(startupNotice);
@@ -1717,20 +1717,17 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   // 现在它与其余故障走同一条路:消息列表末尾的一行(spec `session-always-openable`),
   // 所以这里不再需要一个把它从整页覆盖层里摘出来的标志 —— 整页覆盖层本身已经没有了。
 
-  /**
-   * 「去登录」= 跳资源库 → 智能体 → 这一家的抽屉,那里有「账号」一行(#6100)。
-   *
-   * ❌ 不在这里弹登录终端。与隔壁 `harness_not_installed` 那一颗同形(都是把人送到那一页),
-   * 也让登录终端只有一个主人 —— 从前 composer、这里、强制登录弹窗各弹一个,而设置页对登录
-   * 零表达(B-ui §4.8)。
-   *
-   * 「我已登录」照旧留在这一行(`store.retry()`):登没登成只有 harness 知道,那一颗是**再问一次**,
-   * ❌ 不能被「去登录」顶替(#4900)。
-   */
-  const openAgentAccount = useCallback(() => {
+  /** Claude/Codex 就地配置连接，不换路由或代发消息；「我已登录」仍只重试原会话。 */
+  const connections = useConnectionPanel();
+  const machine = store ? machineRegistry.machineOf(store.projectId) : null;
+  const openAgentAccount = useCallback((anchor?: HTMLElement) => {
     if (!providerId || !cliAuthMethod) return;
+    if (agent && agentSupportsConnectionManagement(agent)) {
+      connections.show(agent, machine, anchor);
+      return;
+    }
     navigate('library', { tab: 'agents', agentId: providerId });
-  }, [cliAuthMethod, navigate, providerId]);
+  }, [cliAuthMethod, navigate, providerId, agent, machine, connections.show]);
 
   /**
    * #6264「登录已失效」:最近一轮因这家的登录不能用了而失败,且这台电脑上它此刻仍标着失效。
@@ -1739,16 +1736,19 @@ export const AcpChatPanel = observer(function AcpChatPanel({
    */
   const lastTurnSignIn = useLastTurnSignInRequired(store?.chatState.transcript);
   // #6264 会话在别的机器上:登录读数与重新登录都在那台机器上(与资源库「账号」一行同一条路)。
-  const machine = store ? machineRegistry.machineOf(store.projectId) : null;
   const { auth: harnessAuth } = useAgentAuthStatus(providerId, undefined, { probe: false, machine });
   const signInExpired = lastTurnSignIn && isAuthExpired(harnessAuth);
   // 同一个信号(这一轮因凭据不能用而失败),而这家在这台电脑上压根没登录过(MiMo 没 key 时):说「还没登录」。
   const signInMissing = lastTurnSignIn && !signInExpired && harnessAuth?.status?.kind === 'unauthenticated';
   const showSignIn = useShowModal('agentSignInModal');
   const queryClient = useQueryClient();
-  /** 「重新登录」直接起这台电脑上那一家的登录窗口(与资源库「账号」一行同一个窗口、同一台发动机)。 */
-  const signInAgain = useCallback(() => {
+  /** 声明连接管理能力的适配器进入共享面板；其他适配器沿用既有登录方式与所属机器。 */
+  const signInAgain = useCallback((anchor?: HTMLElement) => {
     if (!providerId || !cliAuthMethod) return;
+    if (agent && agentSupportsConnectionManagement(agent)) {
+      connections.show(agent, machine, anchor);
+      return;
+    }
     const refresh = () => {
       void forceRefreshHarnessModelCatalog(queryClient, providerId, 'acp');
       void queryClient.invalidateQueries({ queryKey: harnessModelCredentialKey(providerId) });
@@ -1778,7 +1778,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       onSuccess: refresh,
       onClose: refresh,
     });
-  }, [agent?.name, agent?.command, cliAuthMethod, machine, providerId, queryClient, showSignIn]);
+  }, [agent?.name, agent?.command, cliAuthMethod, machine, providerId, queryClient, showSignIn, agent, connections.show]);
 
   // #4900 登录 ❌ 不自动发起。owner 2026-09-04:「我不登录也行啊」——自动弹登录终端会
   // 连带跑起厂商的 `<cli> login`,浏览器随即弹出授权页,这就是「强登」本身。
@@ -2081,13 +2081,15 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       // `commands().onStop?.()` 在 `?.` 上整条短路，按下去一个字节都不发（#3498 查出来的，
       // 与 #3500 同形）。composer 上那颗是另一条路，它一直是通的，于是这颗死按钮
       // 被它掩护着看不出来。⇒ 这里补上；同时 UserMessageCard 改成没接回调就不渲染。
-      canRevertMessage: (itemId) => historyActionsEnabled && (store?.canRevertMessage(itemId) ?? false),
+      canRevertMessage: (itemId) => (store?.isRejectedInput(itemId) ?? false) || (historyActionsEnabled && (store?.canRevertMessage(itemId) ?? false)),
+      canDiscardSend: (itemId) => store?.isRejectedInput(itemId) ?? false,
+      onDiscardSend: (itemId) => store?.discardRejectedInput(itemId),
       onEditMessage: ({ itemId }) => store?.beginMessageEdit(itemId),
-      onRetrySend: () => store?.retryPendingInput(),
+      onRetrySend: (itemId) => store?.retryPendingInput(itemId),
       editingMessage: messageEdit ? {
         ...messageEdit,
         pending: messageEditPending,
-        canSubmit: historyActionsEnabled && messageEdit.text.trim().length > 0,
+        canSubmit: (historyActionsEnabled || !!store?.isRejectedInput(messageEdit.itemId)) && !messageEditPending && messageEdit.text.trim().length > 0,
         onChange: (text) => store?.changeMessageEdit(messageEdit.itemId, text),
         onCancel: () => store?.cancelMessageEdit(messageEdit.itemId),
         onSubmit: () => void store?.sendMessageEdit(messageEdit.itemId),
@@ -2280,6 +2282,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       {/* Same z-index as the composer layer: placed after the transcript so it paints above it. */}
       <FindBar {...findBar} />
       {outputMenu.menu}
+      {connections.panel}
 
       {/* 加载态。⚠️ **只在没东西可看时**才盖 —— 库里那份历史是先画出来的(#5381),
           已经有内容还盖一层不透明底,等于把用户自己说过的话藏起来

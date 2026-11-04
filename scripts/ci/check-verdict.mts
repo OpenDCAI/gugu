@@ -8,6 +8,7 @@ import { parseArgs } from 'node:util'
 
 import picomatch from 'picomatch'
 import YAML from 'yaml'
+import { hasVerifiedDocsClassifier } from './docs-filter-contract.mts'
 
 /** Parsed workflow YAML / GitHub JSON: untyped input, validated where each field is read. */
 type Parsed = ReturnType<typeof JSON.parse>
@@ -383,6 +384,9 @@ function pathFilterCondition(workflow: Parsed, jobId: string, job: Parsed, label
   if (decider.strategy?.matrix !== undefined) {
     throw new Error(`${label} job ${jobId} is conditioned on matrix job ${deciderId}`)
   }
+  if (output === 'tests' && (deciderId !== 'changes' || !hasVerifiedDocsClassifier(workflow))) {
+    throw new Error(`${label} job ${jobId}: tests filter lacks the verified documentation classifier`)
+  }
   return {
     decider: expandJobName(String(decider.name ?? deciderId), {}, `${label} job ${deciderId} name`),
     output
@@ -665,6 +669,13 @@ export function evaluateCheckSnapshots(profiles: CheckProfile[], snapshots: Chec
     pending: latest.pending,
     failed: latest.failed,
     ignoredNotApplicable: latest.ignoredNotApplicable,
+    ...(latest.state === 'INCOMPLETE' && profiles.some((profile) =>
+      profile.eventType === 'push' && profile.noMatchReason === 'event'
+    ) ? {
+      diagnostic: 'The selected push event has no subscribing workflow at this exact commit. '
+        + 'Post-merge CI is not configured; verify the pre-merge PR exact-head evidence and source tree instead. '
+        + 'This result is not GREEN and waiting cannot create a retired push run.'
+    } : {}),
     ...(latest.skippedNotDue.length > 0 ? { skippedNotDue: latest.skippedNotDue } : {}),
     ...(latest.skippedCheckRuns.length > 0
       ? {
@@ -682,6 +693,13 @@ export function evaluateCheckSnapshots(profiles: CheckProfile[], snapshots: Chec
         }
       : {})
   }
+}
+
+/** A retired push trigger is a terminal selection error, not a run that may register later. */
+export function hasUnsubscribedPushEvent(result: CheckVerdict): boolean {
+  return result.verdict === 'INCOMPLETE' && result.profiles.some((profile) =>
+    profile.event === 'push' && profile.noMatchReason === 'event'
+  )
 }
 
 /**
@@ -1038,7 +1056,7 @@ function verdictExitCode(verdict: CheckVerdict['verdict']): number {
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
-      repo: { type: 'string', default: 'OpenDCAI/gugu' },
+      repo: { type: 'string', default: 'GUYI-AI/gugu' },
       sha: { type: 'string' },
       push: { type: 'string' },
       before: { type: 'string' },
@@ -1111,7 +1129,7 @@ async function main(): Promise<void> {
     snapshots.push(fetchCheckRuns({ repo: values.repo!, sha, root, profiles }))
     if (snapshots.length > 2) snapshots.shift()
     const result = evaluateCheckSnapshots(profiles, snapshots)
-    if (result.verdict === 'RED' || result.verdict === 'GREEN' || !values.watch) {
+    if (result.verdict === 'RED' || result.verdict === 'GREEN' || hasUnsubscribedPushEvent(result) || !values.watch) {
       if (result.settling && !values.watch) {
         await new Promise((resolve) => setTimeout(resolve, settleMs))
         snapshots.push(fetchCheckRuns({ repo: values.repo!, sha, root, profiles }))

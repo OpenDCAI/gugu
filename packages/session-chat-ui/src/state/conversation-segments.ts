@@ -87,7 +87,7 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
       const beforeSilence = blocks.at(-2);
       if (segment?.items.length && segment.items.every(part => part.kind === 'message' && part.role === 'assistant'
         && (!part.text.trim() || isGuguSilence(part.text))) && beforeSilence?.kind === 'segment'
-        && beforeSilence.items.some(part => part.kind === 'message' && part.id.includes(':sent:'))) {
+        && beforeSilence.items.some(part => part.kind === 'message' && (part.id.includes(':sent:') || part.ownerNotification))) {
         beforeSilence.items.push(...segment.items);
         blocks.pop();
         segment = beforeSilence;
@@ -106,6 +106,8 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
     if (pendingStop && !activity && !boundaryItem) { pendingStop.items.push(item); continue; }
     finishStop(at, activity);
     if (item.kind === 'message' && item.role === 'user') {
+      // Later completion updates to an earlier tool cannot extend the sealed process clock.
+      if (segment && at !== undefined) segment.endedAt = at;
       close(hadSegment ? at : turn.startedAt ?? at, item.id);
       if (!hadSegment) boundary = undefined;
       blocks.push({ kind: 'input', item });
@@ -115,7 +117,7 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
     const notification = item.kind === 'subagent-done-tool-call' || item.kind === 'background-command-done-tool-call';
     if (notification) {
       // Completion is its own observed event, never an inferred reply target.
-      close(at, item.id);
+      close(!hadSegment && active ? turn.startedAt ?? at : at, item.id);
       blocks.push({ kind: 'input', item });
       pendingInput = true;
       continue;
@@ -135,7 +137,7 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
     current.endedAt = 'completedAt' in item ? item.completedAt ?? at : at;
     previousAt = at;
     pendingInput = false;
-    if (item.kind === 'message' && item.id.includes(':sent:')) close(at, item.id);
+    if (item.kind === 'message' && (item.id.includes(':sent:') || item.ownerNotification)) close(at, item.id);
   }
   finishStop();
   if (segment) {
@@ -147,6 +149,5 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
     open().live = true;
   }
   if (active && !blocks.length) open().live = true;
-  // What is running counts from the turn's one origin, past any boundary; a closed segment keeps its own measure.
-  return blocks.map(block => block.kind === 'segment' && block.live && turn.startedAt !== undefined ? { ...block, startedAt: turn.startedAt } : block);
+  return blocks;
 }

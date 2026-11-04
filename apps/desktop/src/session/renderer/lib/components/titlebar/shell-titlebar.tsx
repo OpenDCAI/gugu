@@ -16,7 +16,7 @@ import { getEffectiveHotkey } from '@renderer/lib/hooks/useKeyboardShortcuts'
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider'
 import { formatHotkeyText } from '@renderer/lib/ui/shortcut-format'
 import { useSessionMessages } from '@renderer/localization/use-session-messages'
-import { SidebarListLayoutButton } from '@renderer/features/sidebar/sidebar-list-switch'
+import { NotificationSlot } from '@/components/needsYou/NotificationSlot'
 
 /** 28px 按钮在这条 40px 带里居中 —— 左右两端同一个式子,❌ 别在调用点另写 top-*。 */
 const TITLEBAR_ACTION_TOP_PX = (WINDOW_CONTROL_BAR_HEIGHT_PX - TITLEBAR_ACTION_SLOT_WIDTH_PX) / 2
@@ -57,9 +57,9 @@ export const ShellSidebarToggle = observer(function ShellSidebarToggle() {
       style={{ top: TITLEBAR_ACTION_TOP_PX, left: TITLEBAR_LEFT_EDGE_GAP_PX, gap: TITLEBAR_ACTION_SLOT_GAP_PX }}
       data-sidebar-header-controls=""
     >
-      {/* 开关在前、一直在;「显示方式」管的是那张列表,列表收起它就跟着走(owner 2026-10-23)。浮出预览时列表在,它也在。 */}
+      {/* List visibility stays first; the global notification view belongs to the visible list. */}
       <ListColumnToggle slot="list:sessions" />
-      {isLeftOpen || isLeftPeeking ? <SidebarListLayoutButton /> : null}
+      {isLeftOpen || isLeftPeeking ? <NotificationSlot part="toggle" /> : null}
     </div>
   )
 })

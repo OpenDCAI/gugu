@@ -80,10 +80,11 @@ export type ChatMessage = {
   /** True while the agent is still writing to this message. */
   streaming?: boolean;
   /** View-only state of an ordinary input before its native echo is available. */
-  sendStatus?: { state: 'sending' | 'waiting' | 'accepted' | 'failed' | 'unknown'; error?: string; reason?: string; retryable?: boolean };
+  sendStatus?: { state: 'sending' | 'receiving' | 'waiting' | 'accepted' | 'failed' | 'unknown'; error?: string; reason?: string; retryable?: boolean };
   /** View-only confirmed file send; normalized to the existing attachment card before painting. */
   sentAttachment?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment;
   sentAttachments?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment[];
+  ownerNotification?: import('@gugu/session-core/acp/client').TranscriptMessage['ownerNotification'];
   /** Image attachments rendered as a thumbnail strip above the text (user messages). */
   attachments?: ChatAttachment[];
   files?: import('@gugu/session-core/session-record/contract').TurnFileRef[];
@@ -622,7 +623,7 @@ export type SessionConditionItem = {
    * 后者读作「我登好了，接着来」，❌ 不能用「重试」顶替。
    */
   /** `pending`: its call is in flight; the button is disabled until it settles (a second click would repeat it). */
-  actions?: readonly { label: string; run: () => void; pending?: boolean }[];
+  actions?: readonly { label: string; run: (anchor?: HTMLElement) => void; pending?: boolean }[];
   /** 行文案里的占位值(按 code 取到的那句文案里要填的空)。 */
   labelValues?: Readonly<Record<string, string | number>>;
 };

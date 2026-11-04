@@ -5,6 +5,7 @@ import { createSessionTimeline } from '../../../packages/session-core/src/sessio
 import { findToolImage } from '../../../packages/session-core/src/session-record/tool-image.ts'
 import { trimAfterResultForTransport, trimOlderForTransport, trimSnapshotForTransport } from '../../../packages/session-core/src/session-record/transport-trim.ts'
 import { createPhoneLiveProjection } from './phone-agent-live.mjs'
+import { phoneInputIdentity } from './phone-input-identity.mjs'
 
 const failure = (code, message) => Object.assign(new Error(message), { code })
 const terminal = new Set(['done', 'failed', 'cancelled', 'interrupted'])
@@ -56,6 +57,17 @@ export function createPhoneTimelineRuntime({ root, store, authorize, confirmatio
     const began = timestamp(job.startedAt ?? job.createdAt)
     const ended = timestamp(job.finishedAt ?? job.startedAt ?? job.createdAt)
     const recorded = piEntries.some((entry) => (job.inputRecordId && /^pi:([^#]+)#/.exec(entry.key)?.[1] === job.inputRecordId) || entry.event?.kind === 'message' && entry.event.role === 'user' && (entry.at ?? 0) >= (began ?? 0) && (entry.event.text === job.prompt || entry.event.text.startsWith(`${job.prompt}\n\n手机宿主已根据真实主人确认`)))
+    // Completed Pi messages are stamped when the message starts; retry notices can arrive
+    // after its end boundary. Keep those notices in their job's recorded turn, without
+    // changing their timestamps or inventing another completion boundary.
+    const inputIndex = piEntries.findIndex((entry) => job.inputRecordId
+      ? /^pi:([^#]+)#/.exec(entry.key)?.[1] === job.inputRecordId
+      : entry.event?.kind === 'message' && entry.event.role === 'user' && (entry.at ?? 0) >= (began ?? 0) && (entry.event.text === job.prompt || entry.event.text.startsWith(`${job.prompt}\n\n手机宿主已根据真实主人确认`)))
+    const inputKey = inputIndex < 0 ? null : /^pi:([^#]+)#/.exec(piEntries[inputIndex].key)?.[1]
+    const nextInput = piEntries.findIndex((entry, index) => index > inputIndex && entry.event?.kind === 'message' && entry.event.role === 'user' && /^pi:([^#]+)#/.exec(entry.key)?.[1] !== inputKey)
+    const end = job.status === 'done' && inputIndex >= 0
+      ? piEntries.slice(inputIndex, nextInput < 0 ? undefined : nextInput).findLast((entry) => entry.boundary?.kind === 'turn_end')
+      : undefined
     const entries = []
     // A queued/failed admission is a real user input, not an invented empty transcript.
     if (!recorded && job.status !== 'done') entries.push(message(`phone-input:${job.id}`, began, job.prompt))
@@ -63,7 +75,7 @@ export function createPhoneTimelineRuntime({ root, store, authorize, confirmatio
       if (!recorded) entries.push(message(`phone-failure:${job.id}`, ended, job.error ?? '手机任务已取消', 'assistant'))
       entries.push({ key: `phone-boundary:${job.id}`, at: ended, boundary: { kind: job.status === 'cancelled' ? 'turn_aborted' : 'turn_failed' } })
     }
-    entries.push(...(job.runtimeNotices ?? []).map((notice) => ({ key: notice.key, at: notice.at, event: { kind: 'session_notice', code: 'provider-notice', title: notice.title, detail: notice.description ?? notice.title } })))
+    entries.push(...(job.runtimeNotices ?? []).map((notice) => ({ key: notice.key, at: notice.at, ...(end && notice.at >= (end.at ?? 0) ? { before: end.key } : {}), event: { kind: 'session_notice', code: 'provider-notice', title: notice.title, detail: notice.description ?? notice.title } })))
     return entries
   })
   const sourceFor = (agent, path) => {
@@ -82,12 +94,18 @@ export function createPhoneTimelineRuntime({ root, store, authorize, confirmatio
         return match[2] === '0' ? [{ ...entry, event: { ...entry.event, text: original.text, files: original.files, content: [{ type: 'text', text: original.text }], contentMode: 'replace' } }] : []
       })
       const projected = live.project(agent, visible)
-      const host = [...hostEntries(agent, piEntries), ...projected.pending].map((entry, order) => ({ entry, order })).sort((a, b) => (a.entry.at ?? 0) - (b.entry.at ?? 0) || a.order - b.order).map(({ entry }) => entry)
+      const before = new Map()
+      const chronological = []
+      for (const { before: boundary, ...entry } of [...hostEntries(agent, piEntries), ...projected.pending]) {
+        if (!boundary) chronological.push(entry)
+        else before.set(boundary, [...(before.get(boundary) ?? []), entry])
+      }
+      const host = chronological.map((entry, order) => ({ entry, order })).sort((a, b) => (a.entry.at ?? 0) - (b.entry.at ?? 0) || a.order - b.order).map(({ entry }) => entry)
       const merged = []
       let index = 0
       for (const entry of projected.base) {
         while (index < host.length && (host[index].at ?? 0) < (entry.at ?? 0)) merged.push(host[index++])
-        merged.push(entry)
+        merged.push(...(before.get(entry.key) ?? []), entry)
       }
       merged.push(...host.slice(index))
       const prefix = published.length <= merged.length && published.every((entry, i) => JSON.stringify(entry) === JSON.stringify(merged[i]))
@@ -134,7 +152,7 @@ export function createPhoneTimelineRuntime({ root, store, authorize, confirmatio
     cached.timeline.syncPendingRequests(pending.map(asRequest))
     for (const settlement of pending) if (settlement.state === 'resolved') cached.settle(settlement)
     cached.timeline.syncPendingRequests(pending.filter((settlement) => settlement.state !== 'cancelled').map(asRequest))
-    cached.timeline.syncQueuedPrompts(Object.values(store.state.jobs).filter((job) => job.agentUserId === agent.agentUserId && job.status === 'queued' && (!job.contextEpoch || job.contextEpoch === agent.contextEpoch)).map((job) => ({ id: job.id, text: job.prompt, ...(job.files?.length ? { files: job.files } : {}), ...(job.queueEdit ? { queueEdit: job.queueEdit } : {}) })))
+    cached.timeline.syncQueuedPrompts(Object.values(store.state.jobs).filter((job) => job.agentUserId === agent.agentUserId && job.status === 'queued' && (!job.contextEpoch || job.contextEpoch === agent.contextEpoch)).map((job) => ({ id: job.id, text: job.prompt, ...(job.clientMessageId ? { clientMessageId: job.clientMessageId } : {}), ...(job.files?.length ? { files: job.files } : {}), ...(job.queueEdit ? { queueEdit: job.queueEdit } : {}) })))
     return cached.timeline
   }
   const serialized = async (agent, work) => {
@@ -171,7 +189,11 @@ export function createPhoneTimelineRuntime({ root, store, authorize, confirmatio
   })
   const deliver = async (agent, read) => {
     const epoch = agent.contextEpoch
-    const value = read(await timeline(agent))
+    const raw = read(await timeline(agent))
+    const identify = turns => phoneInputIdentity(turns, jobsOf(agent), agent.inputIdentities?.epoch === agent.contextEpoch ? agent.inputIdentities.records : undefined)
+    const value = Array.isArray(raw.turns) ? { ...raw, turns: identify(raw.turns) }
+      : raw.ok === true && raw.batch ? { ...raw, batch: { ...raw.batch, turns: identify(raw.batch.turns) } }
+      : raw.ok === false && raw.snapshot ? { ...raw, snapshot: { ...raw.snapshot, turns: identify(raw.snapshot.turns) } } : raw
     // File IO can overlap revocation or a new permission epoch. The check before opening a
     // record alone cannot authorize handing its contents back after those asynchronous reads.
     await checkAuthorization(agent)

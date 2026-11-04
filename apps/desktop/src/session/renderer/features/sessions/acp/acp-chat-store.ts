@@ -1,3 +1,4 @@
+import { projectRejectedSessionInputs } from '@/lib/pendingSessionInput';
 import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 import type {
   ChatContext,
@@ -37,15 +38,20 @@ import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
 import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
 import { errorDetail, isDeepEqual } from '@gugu/session-shared';
 import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
+import { flushSync } from 'react-dom';
 import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, lifeHoldIsFailure, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
+import { sendHeldInputNow } from './send-held-input-now';
 import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
-import { queuedSessionInputs, retrySessionInputs, subscribeSessionInputs } from '@/lib/sessionInputOutboxBridge';
+import { changeRejectedSessionInput, deleteQueuedSessionInput, editQueuedSessionInput, queuedSessionInputs, reorderQueuedSessionInputs, retrySessionInputs, subscribeSessionInputs } from '@/lib/sessionInputOutboxBridge';
+import type { SessionInput } from '@/lib/sessionInputOutbox';
+import { sessionSendQueueOrder } from '@/lib/sessionSendQueueOrder';
 import { projectSessionPendingInput } from '@/lib/pendingSessionInput';
 import { isTranscriptDelivery, loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries';
 import { batch } from 'solid-js';
 import { AcpLiveSession, AcpStartError, asValueSource } from '@renderer/lib/acp/acp-live-session';
+import { attachAcpSessionWhenReady } from '@renderer/lib/acp/acp-session-attachment';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
 import { watchRunningSession, type RunningSessionWatch } from '@renderer/lib/acp/running-sessions';
 import { machineLinkHandingOff, machineLinkState, onMachineReconnected } from '@renderer/lib/machine-clients';
@@ -57,6 +63,7 @@ import {
 } from '@renderer/lib/chat/advertised-command-provider';
 import { getSharedChatContext } from '@renderer/lib/chat/shared-chat-context';
 import { composeHistoryTurns, sideChatOwnTurns } from './history-composition';
+import { projectOwnerNotifications } from '@gugu/session-core/session-record/owner-notifications';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import type { SessionMessageKey } from '@renderer/localization/messages';
@@ -151,6 +158,7 @@ export class AcpChatStore {
   private _unwatchSenderInputs: (() => void) | null = null;
   /** Opened on a stopped session: nothing to attach to until it runs again. */
   private _attachWhenReady = false;
+  private _attachmentAbort: AbortController | null = null;
   /**
    * The custody row the transcript draws as the next turn (`pendingPrompt`), while it waits for that turn: from the
    * send on it sits where its turn will be, ❌ first in the tray above the composer and then up in the transcript.
@@ -177,6 +185,7 @@ export class AcpChatStore {
   draftText = '';
   queuedEditDraft: { id: string; text: string } | null = null;
   queueEditPending = false;
+  private _senderInputs: readonly SessionInput[] = [];
   private _queueEditTimer: ReturnType<typeof setTimeout> | null = null;
   reverting = false;
   messageEdit: { itemId: string; text: string } | null = null;
@@ -269,6 +278,13 @@ export class AcpChatStore {
   private _storedBaseSeq: number | null = null;
   /** 开场读库那一刻库里最后一行的 seq。比它新的行,就是本次面板期间才落库的回合。 */
   private _storedBootstrapMaxSeq = -1;
+  private _storedHistoryEpoch = 0;
+  private _ownerNotificationTurns: TranscriptTurn[] = [];
+  private _ownerNotificationReadSeq = -1;
+  private _ownerNotificationReadEpoch: number | null = null;
+  private _ownerNotificationGeneration = 0;
+  private _ownerNotificationListeners = new Set<() => void>();
+  private _ownerNotificationRead: Promise<void> = Promise.resolve();
   /** 本次面板期间才落库的那些行来自引擎的哪几轮(运行时原始 turn id)—— 引擎那侧据此不再重复出它们。 */
   private _persistedRuntimeTurnIds: ReadonlySet<string> = new Set<string>();
   /**
@@ -315,7 +331,8 @@ export class AcpChatStore {
       this.commands.map((command) => command.name)
     );
 
-    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_runtimeLiveSubagentIds' | '_storedQueue' | '_loadError' | '_lifeRetriedVersion'>(this, {
+    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_runtimeLiveSubagentIds' | '_storedQueue' | '_loadError' | '_lifeRetriedVersion' | '_senderInputs'>(this, {
+      _senderInputs: observable.ref,
       _bootstrapped: observable,
       _storedQueue: observable.ref,
       _runtimeBackgroundTaskIds: observable.ref,
@@ -530,6 +547,7 @@ export class AcpChatStore {
   }
 
   get queuedPrompts(): ComposerQueuedPrompt[] {
+    const local = this._queuedPromptModels().filter(prompt => this._senderInputs.some(input => input.id === prompt.id && input.sendQueue));
     if (!this.session) return [
       ...this._storedQueue.flatMap((prompt, index): ComposerQueuedPrompt[] => {
         if (!prompt.origin) throw new Error(`Stored queued prompt ${index} has no explicit origin`);
@@ -537,6 +555,7 @@ export class AcpChatStore {
           id: `stored:${index}`, text: prompt.text, origin: prompt.origin, locked: true,
         }];
       }),
+      ...local.map(prompt => ({ id: prompt.id, text: conversationQueueText(prompt.text), origin: 'manual' as const })),
     ];
     return this._queuedPromptModels().filter(isVisibleQueuedPrompt).map(
       (prompt) => ({ id: prompt.id, text: conversationQueueText(prompt.text), origin: prompt.origin })
@@ -644,11 +663,22 @@ export class AcpChatStore {
   }
 
   canRevertMessage(itemId: string): boolean {
+    if (this.isRejectedInput(itemId)) return true;
     const item = this.revertMessageItem(itemId);
     return this.canRevertHistory && item?.kind === 'message' && !!item.revertAnchor;
   }
 
+  isRejectedInput(itemId: string): boolean {
+    return queuedSessionInputs(this.runtimeSessionId).some(input => input.id === itemId && input.admission === 'rejected');
+  }
+
+  discardRejectedInput(itemId: string): void {
+    void changeRejectedSessionInput(itemId, { kind: 'discard' }).catch(error => this._toastError('acpFailure.sendMessage', error));
+  }
+
   beginMessageEdit(itemId: string): void {
+    const input = queuedSessionInputs(this.runtimeSessionId).find(input => input.id === itemId && input.admission === 'rejected');
+    if (input) { this.messageEdit = { itemId, text: input.text }; return; }
     const item = this.revertMessageItem(itemId);
     if (!this.canRevertMessage(itemId) || item?.kind !== 'message') return;
     this.messageEdit = { itemId, text: item.text };
@@ -664,6 +694,16 @@ export class AcpChatStore {
 
   async sendMessageEdit(itemId: string): Promise<void> {
     const edit = this.messageEdit;
+    if (edit?.itemId === itemId && edit.text.trim() && this.isRejectedInput(itemId) && !this.reverting) {
+      this.reverting = true;
+      try {
+        await changeRejectedSessionInput(itemId, { kind: 'edit', text: edit.text });
+        runInAction(() => { this.messageEdit = null; });
+        await changeRejectedSessionInput(itemId, { kind: 'retry' });
+      } catch (error) { this._toastError('acpFailure.sendMessage', error); }
+      finally { runInAction(() => { this.reverting = false; }); }
+      return;
+    }
     const item = this.revertMessageItem(itemId);
     if (!edit || edit.itemId !== itemId || !edit.text.trim() || item?.kind !== 'message' || !this.canRevertMessage(itemId)) return;
     // Validate and retain the original immutable image references before truncating history.
@@ -689,38 +729,9 @@ export class AcpChatStore {
       const result = await session.revertSession(item.revertAnchor);
       if (!result.success) { this._toastError('acpFailure.revert', result.error); return false; }
       if (this.session !== session || generation !== this._historyGeneration) return false;
+      this._resetOwnerNotificationRead();
+      if (!await this._readRevertedHistory(generation, session)) return false;
       runInAction(() => {
-        this._storedHistoryTurns = [];
-        this._storedOrigins = [];
-        this._olderHistoryTurns = [];
-        this._storedBaseSeq = null;
-        this._storedBootstrapMaxSeq = -1;
-        this._persistedRuntimeTurnIds = new Set();
-        this._runtimeReplayEndSeq = 0;
-        this._runtimeWindowStartSeq = 0;
-        this._runtimeTurns = [];
-        this._olderCursor = undefined;
-      });
-      const stored = await rpc.sessions.getStoredHistory({ sessionId: this.sessionId, limit: 100 });
-      // 库里非空时引擎那一页只用来定分界和改动游标(同开场)。
-      const history = await session.getHistory(undefined, stored.turns.length ? 1 : 100);
-      if (!history.success) throw history.error;
-      if (this.session !== session || generation !== this._historyGeneration) return false;
-      runInAction(() => {
-        this._storedHistoryTurns = stored.turns;
-        this._storedOrigins = stored.originTurnIds;
-        this._storedBaseSeq = stored.turns[0]?.seq ?? null;
-        this._storedBootstrapMaxSeq = stored.turns.at(-1)?.seq ?? -1;
-        this._persistedRuntimeTurnIds = new Set(stored.originTurnIds);
-        this._olderCursor = stored.turns.length ? stored.nextCursor : history.data.nextCursor;
-        this._olderSource = stored.turns.length ? 'stored' : 'runtime';
-        this._runtimeReplayEndSeq = stored.turns.length ? (history.data.turns.at(-1)?.seq ?? -1) + 1 : 0;
-        this._runtimeWindowStartSeq = stored.turns.length ? 0 : (history.data.turns[0]?.seq ?? 0);
-        this._runtimeTurns = stored.turns.length ? [] : history.data.turns;
-        this._runtimeCursor = history.data.cursor;
-        this._runtimeCount = history.data.count;
-        this.chatState.transcript.history.seed(this._composedHistory());
-        this.chatState.transcript.activeTurn.set(null);
         this.chatState.session.setPendingPrompt(null);
         if (restoreDraft && this.draftText === draftBefore) this.setDraftText(item.text);
         this._syncMessageCount();
@@ -728,6 +739,36 @@ export class AcpChatStore {
       return true;
     } catch (error) { this._toastError('acpFailure.revert', error); return false; }
     finally { runInAction(() => { this.reverting = false; }); }
+  }
+
+  /** A confirmed revert invalidates both the loaded window and every cursor that used its old sequences. */
+  private async _readRevertedHistory(generation: number, session: AcpLiveSession | null, current: () => boolean = () => true): Promise<boolean> {
+    const stored = await rpc.sessions.getStoredHistory({ sessionId: this.sessionId, limit: 100 });
+    const history = session ? await session.getHistory(undefined, stored.turns.length ? 1 : 100) : null;
+    if (history && !history.success) throw history.error;
+    if (this._disposed || this.session !== session || generation !== this._historyGeneration || !current()) return false;
+    const runtime = history?.success ? history.data : null;
+    runInAction(() => batch(() => {
+      this._storedHistoryTurns = stored.turns;
+      this._storedOrigins = stored.originTurnIds;
+      this._storedBaseSeq = stored.turns[0]?.seq ?? null;
+      this._storedBootstrapMaxSeq = stored.turns.at(-1)?.seq ?? -1;
+      this._storedHistoryEpoch = stored.nativeOwnerNotificationEpoch ?? 0;
+      this._persistedRuntimeTurnIds = new Set(stored.originTurnIds);
+      this._olderHistoryTurns = [];
+      this._olderCursor = stored.turns.length ? stored.nextCursor : runtime?.nextCursor;
+      this._olderSource = stored.turns.length ? 'stored' : 'runtime';
+      this._runtimeReplayEndSeq = stored.turns.length ? (runtime?.turns.at(-1)?.seq ?? -1) + 1 : 0;
+      this._runtimeWindowStartSeq = stored.turns.length ? 0 : (runtime?.turns[0]?.seq ?? 0);
+      this._runtimeTurns = stored.turns.length ? [] : runtime?.turns ?? [];
+      this._runtimeCursor = runtime?.cursor ?? null;
+      this._runtimeCount = runtime?.count ?? 0;
+      const view = this._ownerNotificationView();
+      this.chatState.transcript.history.seed(view.turns);
+      this.chatState.transcript.activeTurn.set(view.activeTurn);
+      this._syncMessageCount();
+    }));
+    return true;
   }
 
   get affordances(): AgentAffordances {
@@ -744,7 +785,7 @@ export class AcpChatStore {
     const deliveryState = this.chatState.session.state.pendingPrompt?.delivery?.state;
     const startingDrawn = !state && this.transcriptPendingId !== null && deliveryState !== 'waiting' && deliveryState !== 'failed' && deliveryState !== 'unknown';
     return {
-      isWorking: agentWorking || startingDrawn || deliveryState === 'sending' || deliveryState === 'accepted',
+      isWorking: agentWorking || startingDrawn || deliveryState === 'sending' || deliveryState === 'receiving' || deliveryState === 'accepted',
       isBusy: state?.isGenerating ?? false,
       hasPendingPermission: (state?.pendingPermissions.length ?? 0) > 0,
       canSubmit: !this.reverting && !this.messageEdit && (state?.canSubmit ?? !(this.loadError && isTerminalLoadError(this.loadError))),
@@ -807,7 +848,43 @@ export class AcpChatStore {
       this._attachWhenReady = false;
       void this._open();
     }
+    const sender = queuedSessionInputs(this.runtimeSessionId);
+    const released = this._senderInputs.some(input => input.sendQueue
+      && sender.some(next => next.id === input.id && !next.sendQueue));
+    const publish = () => {
+      if (!isDeepEqual(this._senderInputs, sender)) runInAction(() => { this._senderInputs = sender; });
+    };
+    if (!released) publish();
+    try {
+      this._projectLifeHead(view, sender);
+    } finally {
+      if (released) {
+        // One paint transaction: project the body first, remove its composer
+        // owner, then settle the body's final viewport/rows synchronously.
+        flushSync(publish);
+        this._view?.reconcileNow?.();
+      }
+    }
+  }
+
+  private _projectLifeHead(view: LifeView | null, sender: readonly SessionInput[]): void {
     const session = this.chatState.session;
+    const prior = session.state.pendingPrompt;
+    const replacingTerminal = (prior?.delivery?.state === 'failed' || prior?.delivery?.state === 'unknown')
+      && sender.some(input => !input.sendQueue && input.queued === false && input.id !== prior.id);
+    const ordinaryIds = new Set([...sender.filter(input => !input.sendQueue && input.queued === false).map(input => input.id),
+      ...(prior?.delivery && !replacingTerminal ? [prior.id] : [])]);
+    const runtimeWaiting = this.session?.sessionState.current().queuedPrompts.filter(input => input.clientMessageId) ?? [];
+    const projectionView: LifeView | null = runtimeWaiting.length ? {
+      ...(view ?? { sessionId: this.runtimeSessionId, version: 0, kind: 'ready', stage: null, hold: null, failure: null, lastExit: null, nativeSession: null }),
+      pending: { count: (view?.pending.count ?? 0) + runtimeWaiting.length, items: [
+        ...(view?.pending.items ?? []),
+        ...runtimeWaiting.filter(input => !view?.pending.items.some(row => row.messageId === input.clientMessageId)).map((input, seq) => ({
+          seq, messageId: input.clientMessageId!, text: input.text, preview: input.text, kind: 'session-direct' as const,
+          state: 'queued' as const, failure: null, sentAt: input.sentAt ?? input.createdAt,
+        })),
+      ] },
+    } : view;
     const record = this._sessionRecord();
     const resumes = !!(record?.providerSessionId || record?.forkFromProviderSessionId || this.runtimeView?.forkFromProviderSessionId);
     const starting: PendingPrompt['starting'] = view !== null && lifeIsStarting(view) ? (resumes ? 'restoring' : 'starting') : undefined;
@@ -815,7 +892,8 @@ export class AcpChatStore {
     const turns = [...transcriptState.committedTurns, ...(transcriptState.activeTurnSnapshot ? [transcriptState.activeTurnSnapshot] : [])];
     const projections = new Set([...(this.stoppedRowId ? [stoppedTurnId(this.stoppedRowId)] : []), ...this.failedRowIds.map(failedTurnId)]);
     const nativeTurns = turns.filter(turn => !projections.has(turn.id));
-    const projected = projectSessionPendingDeliveries(session.state.pendingMessages, view, nativeTurns, starting);
+    const projected = projectSessionPendingDeliveries(session.state.pendingMessages.filter(input => !input.senderRejected), projectionView, nativeTurns, starting)
+      .filter(input => !ordinaryIds.has(input.id));
     const unresolved = projected.filter(input => {
       if (input.delivery?.state !== 'unknown' || this._incomingHistoryResolved.has(input.id)) return false;
       if (session.state.pendingMessages.some(previous => previous.id === input.id) || pendingPromptLanded(input, turns)) {
@@ -825,21 +903,20 @@ export class AcpChatStore {
       return true;
     });
     if (!this.historyLoading && unresolved.length && !this._incomingHistoryReading) void this._resolveIncomingHistory(unresolved);
-    const incoming = projected.filter(input => !unresolved.some(held => held.id === input.id));
+    const incoming = [...projected.filter(input => !unresolved.some(held => held.id === input.id)), ...projectRejectedSessionInputs(sender, nativeTurns)];
     if (!isDeepEqual(session.state.pendingMessages, incoming)) runInAction(() => {
       session.setPendingMessages(incoming);
       this._syncMessageCount();
     });
-    const sender = queuedSessionInputs(this.runtimeSessionId);
-    const prior = session.state.pendingPrompt;
-    const newOrdinaryInput = sender.some(row => row.queued === false && !view?.pending.items.some(host => host.messageId === row.id));
+    const ordinarySender = sender.filter(row => row.admission !== 'rejected');
+    const newOrdinaryInput = ordinarySender.some(row => row.queued === false && !view?.pending.items.some(host => host.messageId === row.id));
     const stoppedOnHost = view?.hold === 'user-stop' && view.pending.items.some(row => row.messageId === prior?.id);
-    if ((!stoppedOnHost || newOrdinaryInput) && (prior?.delivery || sender.some(row => row.queued === false))) {
+    if ((!stoppedOnHost || newOrdinaryInput) && (prior?.delivery || ordinarySender.some(row => row.queued === false))) {
       const transcript = this.chatState.transcript.state;
       const pending = projectSessionPendingInput(prior, sender, view?.pending.items ?? [],
         [...transcript.committedTurns, ...(transcript.activeTurnSnapshot ? [transcript.activeTurnSnapshot] : [])]);
       runInAction(() => {
-        this.transcriptPendingId = pending?.id ?? sender.find(row => row.queued === false)?.id ?? null;
+        this.transcriptPendingId = pending?.id ?? ordinarySender.find(row => row.queued === false)?.id ?? null;
         const next = pending ? { ...pending, starting,
           // Sender custody keeps its delivery status; host-owned startup failures recover through the task action.
           ...(view?.kind === 'failed' && view.failure && !sender.some(row => row.id === pending.id) && view.pending.items.some(row => row.messageId === pending.id)
@@ -1031,7 +1108,11 @@ export class AcpChatStore {
     void this._open();
   }
 
-  retryPendingInput(): void {
+  retryPendingInput(itemId?: string): void {
+    if (itemId && this.isRejectedInput(itemId)) {
+      void changeRejectedSessionInput(itemId, { kind: 'retry' }).catch(error => this._toastError('acpFailure.sendMessage', error));
+      return;
+    }
     void retrySessionInputs().then(() => {
       if (sessionLifeView(this.runtimeSessionId)?.kind === 'failed') {
         return startSessionLife(this.runtimeSessionId);
@@ -1505,6 +1586,9 @@ export class AcpChatStore {
   }
 
   async editQueuedPrompt(id: string, text: string, queueEdit?: QueuedPromptEdit | null): Promise<boolean> {
+    if (this._senderInputs.some(input => input.id === id && input.sendQueue)) {
+      return editQueuedSessionInput(id, text, queueEdit).catch(error => { this._toastError('acpFailure.editQueued', error); return false; });
+    }
     const session = this._requireSession('acpFailure.editQueued');
     if (!session) return false;
     const existing = session.sessionState.current().queuedPrompts.find((prompt) => prompt.id === id);
@@ -1568,6 +1652,10 @@ export class AcpChatStore {
   }
 
   deleteQueuedPrompt(id: string): void {
+    if (this._senderInputs.some(input => input.id === id && input.sendQueue)) {
+      void deleteQueuedSessionInput(id).catch(error => this._toastError('acpFailure.editQueued', error));
+      return;
+    }
     const session = this._requireSession('acpFailure.editQueued');
     if (!session) return;
     void session
@@ -1579,6 +1667,20 @@ export class AcpChatStore {
   }
 
   reorderQueuedPrompts(ids: string[]): void {
+    const local = this._senderInputs.filter(input => input.sendQueue).sort((a, b) => a.sendQueue!.order - b.sendQueue!.order).map(input => input.id);
+    // Local unsent entries remain editable without an attached native session.
+    // A host-owned reorder still needs that session, including stale/unknown ids.
+    if (!this.session && (!local.length || ids.some(id => !local.includes(id)))) {
+      this._requireSession('acpFailure.editQueued');
+      return;
+    }
+    const order = sessionSendQueueOrder(this.queuedPrompts.map(prompt => prompt.id), new Set(local), ids);
+    if (!order) return;
+    if (!isDeepEqual(local, order.local)) {
+      void reorderQueuedSessionInputs(this.runtimeSessionId, order.local).catch(error => this._toastError('acpFailure.editQueued', error));
+    }
+    ids = order.host;
+    if (isDeepEqual(ids, this.session?.sessionState.current().queuedPrompts.filter(isVisibleQueuedPrompt).map(prompt => prompt.id) ?? [])) return;
     const session = this._requireSession('acpFailure.editQueued');
     if (!session) return;
     const current = session.sessionState.current().queuedPrompts;
@@ -1607,7 +1709,7 @@ export class AcpChatStore {
 
   /** `steers`:这家能插话(#6574)⇒ 交给运行时插进当前回合;否则挪到队首,在跑就取消当前回合。 */
   sendQueuedPromptNow(id: string, opts: { steers: boolean }): void {
-    void this._sendQueuedPromptNow(id, opts.steers);
+    void this._sendQueuedPromptNow(id, opts.steers).catch(error => this._toastError('acpFailure.sendMessage', error));
   }
 
   exportTranscript(kind: 'parsed' | 'raw'): void {
@@ -1619,6 +1721,7 @@ export class AcpChatStore {
     this._queueEditTimer = null;
     if (this._disposed) return;
     this._disposed = true;
+    this._attachmentAbort?.abort();
     unregisterSessionCommands(this.runtimeSessionId);
     if (this._draftTimer !== null) {
       window.clearTimeout(this._draftTimer);
@@ -1651,6 +1754,7 @@ export class AcpChatStore {
    * 库页之间会断档(中间又聊了几轮),游标重置后再往上翻又和旧页重叠 —— 同一批回合出现两遍。
    */
   private _resetHistoryState(): void {
+    this._resetOwnerNotificationRead();
     this._incomingHistoryRequest++;
     this._incomingHistoryReading = false;
     this._incomingHistoryResolved.clear();
@@ -1659,11 +1763,19 @@ export class AcpChatStore {
     this._storedOrigins = [];
     this._storedBaseSeq = null;
     this._storedBootstrapMaxSeq = -1;
+    this._storedHistoryEpoch = 0;
     this._persistedRuntimeTurnIds = new Set<string>();
     this._resetRuntimeHistoryState();
     this._olderHistoryTurns = [];
     this._olderCursor = undefined;
     this._olderSource = 'runtime';
+  }
+
+  private _resetOwnerNotificationRead(): void {
+    this._ownerNotificationGeneration++;
+    this._ownerNotificationTurns = [];
+    this._ownerNotificationReadSeq = -1;
+    this._ownerNotificationReadEpoch = null;
   }
 
   /** 只清引擎那一侧(库里那页沿用时,见 `keepStoredPage`)。 */
@@ -1951,6 +2063,7 @@ export class AcpChatStore {
         this._storedOrigins = page.originTurnIds;
         this._storedBaseSeq = page.turns[0]?.seq ?? null;
         this._storedBootstrapMaxSeq = page.turns.at(-1)?.seq ?? -1;
+        this._storedHistoryEpoch = page.nativeOwnerNotificationEpoch ?? 0;
         this._persistedRuntimeTurnIds = new Set(page.originTurnIds);
         this._olderHistoryTurns = [];
         this._olderSource = 'stored';
@@ -1983,6 +2096,8 @@ export class AcpChatStore {
       this._resetRuntimeHistoryState();
     } else this._resetHistoryState();
     const generation = this._historyGeneration;
+    this._attachmentAbort?.abort();
+    const attachmentAbort = this._attachmentAbort = new AbortController();
     try {
       // #5381 先把库里那份画出来,不等引擎。侧边对话跳过:它的上下文开在主对话那条上,
       // 自己不该有一份历史(库里也没有它的行 —— 它的 id 是运行时视图 id)。
@@ -2031,7 +2146,7 @@ export class AcpChatStore {
       // 起引擎与读库**并行**:两件事互不依赖。❌ 不许把 spawn 排在一次读之后 ——
       // 本机库读起来接近零延迟,会把这个串行藏得看不见,换到读得慢的那一侧(库大、盘忙、
       // 将来换成非本机的存储)它就是白等的一段,而 spec 要求会话启动不被任何东西挡住。
-      const clientSessionReady = AcpLiveSession.create(this.runtimeSessionId);
+      const clientSessionReady = attachAcpSessionWhenReady(this.runtimeSessionId, attachmentAbort.signal);
       // 引擎这一路的错误统一在下面 await 时抛;这里只是别让它在等库期间变成未处理拒绝。
       clientSessionReady.catch(() => {});
 
@@ -2124,6 +2239,7 @@ export class AcpChatStore {
         this.session = clientSession;
         this.chatState.transcript.history.seed(visibleTurns);
         this._subscribeLiveSession(clientSession);
+        this._resumeDraftSync(clientSession);
         this._applyDraftSnapshot(clientSession.draft.current());
         this.historyLoading = false;
         this.loadError = null;
@@ -2230,10 +2346,19 @@ export class AcpChatStore {
   }
 
   private _queuedPromptModels(): QueuedPrompt[] {
-    return this.session?.sessionState.current().queuedPrompts ?? [];
+    return [...this.session?.sessionState.current().queuedPrompts ?? [],
+      ...this._senderInputs.filter(input => input.sendQueue).sort((a, b) => a.sendQueue!.order - b.sendQueue!.order).map(input => ({
+        id: input.id, text: input.text, origin: 'manual' as const, createdAt: input.createdAt, updatedAt: input.createdAt,
+        ...(input.files ? { files: input.files } : {}), ...(input.attachments ? { attachments: input.attachments } : {}),
+        ...(input.sendQueue!.edit ? { queueEdit: input.sendQueue!.edit } : {}),
+      }))];
   }
 
   private async _sendQueuedPromptNow(id: string, steers: boolean): Promise<void> {
+    if (this._senderInputs.some(input => input.id === id && input.sendQueue)) {
+      await sendHeldInputNow(this, id, steers);
+      return;
+    }
     const session = this._requireSession('acpFailure.sendMessage');
     if (!session) return;
     const current = session.sessionState.current().queuedPrompts;
@@ -2324,7 +2449,14 @@ export class AcpChatStore {
     const disconnectChatSession = connectSession(
       this.chatState,
       {
-        activeTurn: asValueSource(session.activeTurn),
+        activeTurn: {
+          getSnapshot: () => this._ownerNotificationView().activeTurn,
+          subscribe: cb => {
+            const stop = session.activeTurn.onChange(() => cb());
+            this._ownerNotificationListeners.add(cb);
+            return () => { stop(); this._ownerNotificationListeners.delete(cb); };
+          },
+        },
         plan: asValueSource(session.plan),
         sessionState: asValueSource(session.sessionState),
       },
@@ -2350,6 +2482,7 @@ export class AcpChatStore {
           const removedManual = this._lastQueuedPrompts.find(
             (prompt) =>
               prompt.origin === 'manual'
+              && !prompt.clientMessageId
               && !next.queuedPrompts.some((current) => current.id === prompt.id)
           );
           const active = session.activeTurn.current();
@@ -2398,7 +2531,8 @@ export class AcpChatStore {
         runInAction(() => {
           this._applyDraftSnapshot(draft);
         })
-      )
+      ),
+      session.onDraftSyncReady(() => runInAction(() => this._resumeDraftSync(session)))
     );
   }
 
@@ -2408,12 +2542,13 @@ export class AcpChatStore {
       this._draftTimer = null;
       const draft = { rev, input: text.trim().length > 0 ? { text } : null };
       // Until the page attaches the draft is local to this store; there is no session to persist it through.
-      if (!this.session) return;
-      const session = this._requireSession('acpFailure.syncDraft');
-      if (!session) return;
+      const session = this.session;
+      if (!session?.canSyncDraft()) return;
+      const generation = session.draftConnectionGeneration;
       void session
         .setPromptDraft(draft)
         .then((result) => {
+          if (this._disposed || this.session !== session || generation !== session.draftConnectionGeneration) return;
           if (!result.success) this._toastError('acpFailure.syncDraft', result.error);
           if (result.success && draft.input === null && this._pendingDraftRev === rev) {
             runInAction(() => {
@@ -2421,12 +2556,23 @@ export class AcpChatStore {
             });
           }
         })
-        .catch((error: unknown) => this._toastError('acpFailure.syncDraft', error));
+        .catch((error: unknown) => {
+          if (!this._disposed && this.session === session && generation === session.draftConnectionGeneration) this._toastError('acpFailure.syncDraft', error);
+        });
     }, 300);
+  }
+
+  private _resumeDraftSync(session: AcpLiveSession): void {
+    if (this.session !== session || !session.canSyncDraft() || this._pendingDraftRev === null) return;
+    // The local edit (including an empty draft after sending) wins over the new runtime's snapshot.
+    this._draftRev = Math.max(this._draftRev, session.draft.current()?.rev ?? 0) + 1;
+    this._pendingDraftRev = this._draftRev;
+    this._scheduleDraftWrite(this.draftText, this._draftRev);
   }
 
   private _applyDraftSnapshot(draft: PromptDraft | null | undefined): void {
     if (draft === undefined) return;
+    if (this._pendingDraftRev !== null && this.session && !this.session.canSyncDraft()) return;
     if (draft === null) {
       if (this._pendingDraftRev === null) {
         this._draftRev += 1;
@@ -2467,6 +2613,7 @@ export class AcpChatStore {
           this._storedOrigins = stored.originTurnIds;
           this._storedBaseSeq = stored.turns[0]!.seq;
           this._storedBootstrapMaxSeq = stored.turns.at(-1)!.seq;
+          this._storedHistoryEpoch = stored.nativeOwnerNotificationEpoch ?? 0;
           // 往上翻从这里接着翻:库里那份是完整的,一直翻它。
           this._olderSource = 'stored';
           this._olderCursor = older.cursor;
@@ -2518,13 +2665,57 @@ export class AcpChatStore {
    * 判重按身份(seq 分界 + 运行时原始 turn id),❌ 不按条数 —— 规则与理由见 `composeHistoryTurns`。
    */
   private _composedHistory(): TranscriptTurn[] {
-    return composeHistoryTurns({
-      stored: this._storedHistoryTurns,
+    return this._ownerNotificationView().turns;
+  }
+
+  private _ownerNotificationView(activeTurn = this.session?.activeTurn.current() ?? null) {
+    const stored = new Map(this._storedHistoryTurns.map(turn => [turn.id, turn]));
+    for (const turn of this._ownerNotificationTurns) if (!stored.has(turn.id)) stored.set(turn.id, turn);
+    const composed = composeHistoryTurns({
+      stored: [...stored.values()].sort((a, b) => a.seq - b.seq),
       runtime: this._visibleHistoryTurns(this._runtimeTurns),
       runtimeReplayEndSeq: this._runtimeReplayEndSeq,
       persistedRuntimeTurnIds: this._persistedRuntimeTurnIds,
       older: this._olderHistoryTurns,
     });
+    const origins = new Map(this._storedHistoryTurns.map((turn, index) => [turn.id, this._storedOrigins[index]!]));
+    return projectOwnerNotifications(composed, activeTurn, origins);
+  }
+
+  /** The host reports a committed record sequence. This never starts or prompts the provider. */
+  syncOwnerNotifications(head: number, epoch = 0): Promise<void> {
+    const rewound = epoch !== (this._ownerNotificationReadEpoch ?? this._storedHistoryEpoch);
+    if (epoch !== this._ownerNotificationReadEpoch) {
+      this._resetOwnerNotificationRead();
+      this._ownerNotificationReadEpoch = epoch;
+    }
+    const ownGeneration = this._ownerNotificationGeneration;
+    const current = () => ownGeneration === this._ownerNotificationGeneration;
+    const read = this._ownerNotificationRead.then(async () => {
+      if (!current() || this._disposed || this.isTransient || this.reverting) return;
+      if (rewound && !await this._readRevertedHistory(++this._historyGeneration, this.session, current)) return;
+      while (current() && !this._disposed && !this.isTransient && !this.reverting && head > this._ownerNotificationReadSeq) {
+        const generation = this._historyGeneration;
+        const fromSeq = Math.max(this._ownerNotificationReadSeq, this._storedBootstrapMaxSeq) + 1;
+        if (head < fromSeq) { this._ownerNotificationReadSeq = Math.max(head, this._storedBootstrapMaxSeq); break; }
+        const page = await rpc.sessions.getStoredHistory({ sessionId: this.sessionId, fromSeq, ownerNotificationsOnly: true });
+        if (this._disposed || !current()) return;
+        // A concurrent bootstrap can replace the view while this IPC is in flight. Read again against its new view.
+        if (generation !== this._historyGeneration) continue;
+        const byId = new Map(this._ownerNotificationTurns.map(turn => [turn.id, turn]));
+        for (const turn of page.turns) byId.set(turn.id, turn);
+        this._ownerNotificationTurns = [...byId.values()];
+        this._ownerNotificationReadSeq = Math.max(head, ...page.turns.map(turn => turn.seq));
+        runInAction(() => batch(() => {
+          const view = this._ownerNotificationView(this.session?.activeTurn.current() ?? this.chatState.transcript.state.activeTurnSnapshot);
+          this.chatState.transcript.history.seed(view.turns);
+          this.chatState.transcript.activeTurn.set(view.activeTurn);
+          for (const listener of this._ownerNotificationListeners) listener();
+        }));
+      }
+    });
+    this._ownerNotificationRead = read.catch(() => undefined);
+    return read;
   }
 
   /** 还能不能往上翻。到头(游标为 null)或还没定下来来源时都是 false。 */
@@ -2834,10 +3025,13 @@ export class AcpChatStore {
   /** Keep the failure reason visible through the existing one-line sanitizer, and persist its full detail. */
   private _toastError(title: AcpFailureTitle, error: unknown): void {
     const cause = describeFailureCause(error);
-    log.error('ACP chat action failed', { sessionId: this.sessionId, title, error: cause });
+    const errorType = error && typeof error === 'object' && 'type' in error ? error.type : undefined;
+    log.error('ACP chat action failed', { sessionId: this.sessionId, title, errorType, error: cause });
     toast({
       title: translateSessionMessage(title),
-      description: failureText(cause ?? '', translateSessionMessage),
+      description: errorType === 'conversation_not_found'
+        ? translateSessionMessage('acpFailure.sessionUnavailable')
+        : failureText(cause ?? '', translateSessionMessage),
       variant: 'destructive',
     });
   }

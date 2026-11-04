@@ -108,7 +108,6 @@ vi.mock('../../../../apps/desktop/src/layouts/MainLayout', async () => {
       }, [onShellCommitted, user.id])
       useOwnerProbe('contacts', effectsActive, user.id)
       useOwnerProbe('devices', effectsActive, user.id)
-      useOwnerProbe('low-balance-billing', effectsActive, user.id)
       useOwnerProbe('sidebar-billing', effectsActive, user.id)
       return React.createElement('main', {
         ref: rootRef,
@@ -151,16 +150,6 @@ vi.mock('../../../../apps/desktop/src/store/devices', async () => {
     DevicesProvider: ({ active = true, children }: { active?: boolean; children: ReactNode }) => {
       useOwnerProbe('devices', active)
       return React.createElement(React.Fragment, null, children)
-    },
-  }
-})
-
-vi.mock('../../../../apps/desktop/src/components/LowBalanceBanner', async () => {
-  const React = await vi.importActual<typeof import('react')>('react')
-  return {
-    LowBalanceBanner: ({ user }: { user: SessionUser | null }) => {
-      useOwnerProbe('low-balance-billing', user !== null, user?.id ?? null)
-      return React.createElement(React.Fragment)
     },
   }
 })
@@ -296,7 +285,7 @@ describe('authenticated product activation', () => {
       await Promise.resolve()
     })
     const expectedOwners = [
-      'chat', 'contacts', 'devices', 'low-balance-billing',
+      'chat', 'contacts', 'devices',
       'presence', 'sidebar-billing', 'starter-continuation', 'unfinished-sweep',
     ]
     expect(probe.calls.map((call) => call.owner).sort()).toEqual(expectedOwners)

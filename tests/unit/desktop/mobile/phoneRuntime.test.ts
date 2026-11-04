@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { build } from 'esbuild'
@@ -20,6 +20,8 @@ it('preserves phone runtime identity, delivery, permissions, confirmation and re
     await build({ entryPoints: tests.map((name) => join(source, name)), outdir: out, bundle: true, platform: 'node', target: 'node24', format: 'esm', outExtension: { '.js': '.mjs' },
       alias: { '@capacitor/core': join(source, 'phone-capacitor.mjs') },
       banner: { js: "import { createRequire as __guguCreateRequire } from 'node:module'; const require = __guguCreateRequire(import.meta.url);" }, logLevel: 'silent' })
+    // esbuild does not emit data files read relative to a bundled import.meta.url.
+    await cp(join(source, 'fixtures'), join(out, 'fixtures'), { recursive: true })
     const { stdout } = await promisify(execFile)(process.execPath, ['--test', ...tests.map((name) => join(out, name))], { cwd: root, timeout: 90_000, maxBuffer: 2 * 1024 * 1024 }).catch((cause: unknown) => {
       const failure = cause as { stdout?: string; stderr?: string }
       throw new Error(`Phone runtime contract tests failed:\n${failure.stdout ?? ''}\n${failure.stderr ?? ''}`, { cause })

@@ -133,15 +133,6 @@ export class NavigationStore implements Snapshottable<NavigationSnapshot> {
     if (params !== undefined) {
       this.viewParamsStore = { ...this.viewParamsStore, [viewId]: params };
     }
-    // Arriving at a session reveals it in the sidebar.
-    if (viewId === 'session') {
-      const session = this.viewParamsStore.session;
-      appState.sidebar.revealActiveSession(
-        session?.projectId && session.sessionId ? { projectId: session.projectId, sessionId: session.sessionId } : null
-      );
-    } else {
-      appState.sidebar.revealActiveSession(null);
-    }
     modalStore.closeModal();
   }
 

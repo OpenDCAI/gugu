@@ -905,6 +905,9 @@ export default {
     "unknownStatus": "Unknown redemption status: {{status}}"
   },
   "lowBalance": {
+    "remaining_one": "{{credits}} credit left",
+    "remaining_other": "{{credits}} credits left",
+    "topUp": "Top up",
     "description": "Add credits to avoid interrupting cloud agent conversations.",
     "later": "Later",
     "recharge": "Add credits",

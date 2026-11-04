@@ -46,6 +46,8 @@ afterEach(async () => {
 describe('the packaged launcher verifies before loading application code', () => {
   it('counts three syntax failures and rolls back on the fourth launch before parsing server.js', () => {
     pending()
+    const stalePin = JSON.stringify({ version: '0.9.0', previous: null, at: 1 })
+    fs.writeFileSync(data('server-version.json'), stalePin)
     fs.writeFileSync(app(), 'const broken = ;')
     for (const attempt of [1, 2, 3]) {
       const result = run()
@@ -53,6 +55,7 @@ describe('the packaged launcher verifies before loading application code', () =>
       expect(result.stderr).toContain('SyntaxError')
       expect(read('pending-verify.json').attempts).toBe(attempt)
       expect(fs.existsSync(data('server.lock'))).toBe(false)
+      expect(fs.readFileSync(data('server-version.json'), 'utf8')).toBe(stalePin)
     }
     const rolledBack = run()
     expect(rolledBack.status, rolledBack.stderr).toBe(75)
@@ -60,6 +63,7 @@ describe('the packaged launcher verifies before loading application code', () =>
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/1.0.0'))
     expect(read('bad-versions.json')['2.0.0']).toBeTypeOf('number')
     expect(read('server-update.json').lastOutcome).toMatchObject({ kind: 'rolledBack', bad: '2.0.0', back: '1.0.0', request: 42 })
+    expect(read('server-version.json')).toEqual({ version: '1.0.0', previous: null, at: read('server-update.json').at })
     expect(fs.existsSync(data('pending-verify.json'))).toBe(false)
   })
 
@@ -70,6 +74,35 @@ describe('the packaged launcher verifies before loading application code', () =>
     expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('MODULE_NOT_FOUND')
     expect(read('pending-verify.json').attempts).toBe(1)
+  })
+
+  it.each(['pin', 'current'])('retains the same verifier after a rollback %s failure, then hands off without old-package repair', faultTarget => {
+    pending()
+    const stalePin = JSON.stringify({ version: '0.9.0', previous: null, at: 1 })
+    fs.writeFileSync(data('server-version.json'), stalePin)
+    fs.writeFileSync(app(), 'const broken = ;')
+    const oldApp = path.join(home, 'versions/1.0.0/app/dist-electron/server.js')
+    fs.writeFileSync(oldApp, "process.stdout.write('old package without pin repair')")
+    for (let attempt = 0; attempt < 3; attempt++) expect(run().status).toBe(1)
+    const fault = path.join(home, 'pin-fault.cjs')
+    const destination = faultTarget === 'pin' ? data('server-version.json') : path.join(home, 'current')
+    fs.writeFileSync(fault, `const fs=require('node:fs'),rename=fs.renameSync;fs.renameSync=(a,b)=>{if(b===${JSON.stringify(destination)})throw new Error('${faultTarget} rename refused');return rename(a,b)}`)
+    const refused = spawnSync(command(), ['run'], { env: { ...environment(), NODE_OPTIONS: `--require ${JSON.stringify(fault)}` }, encoding: 'utf8' })
+    expect(refused.status, refused.stderr).toBe(faultTarget === 'pin' ? 75 : 78)
+    expect(refused.stderr).toContain(`${faultTarget} rename refused`)
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/2.0.0'))
+    expect(read('pending-verify.json').attempts).toBe(4)
+    expect(fs.readFileSync(data('server-version.json'), 'utf8')).toBe(stalePin)
+    expect(fs.existsSync(data('bad-versions.json'))).toBe(false)
+    expect(fs.existsSync(data('server-update.json'))).toBe(false)
+    const retried = run()
+    expect(retried.status, retried.stderr).toBe(75)
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/1.0.0'))
+    expect(read('server-version.json')).toEqual({ version: '1.0.0', previous: null, at: read('server-update.json').at })
+    expect(fs.existsSync(data('pending-verify.json'))).toBe(false)
+    const old = run()
+    expect(old.status, old.stderr).toBe(0)
+    expect(old.stdout).toBe('old package without pin repair')
   })
 
   it('does not count a different running version against the pending target', () => {

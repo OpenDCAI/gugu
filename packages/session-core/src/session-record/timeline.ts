@@ -167,7 +167,7 @@ type PublishedTurn = {
   touchedSeq: number;
 };
 type RecentActionEntry = { id: string; name: string; at: number };
-type QueuedPromptText = Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>;
+type QueuedPromptText = Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit' | 'clientMessageId'>;
 
 class RecordTimeline implements SessionTimeline {
   private readonly now: () => number;
@@ -558,7 +558,7 @@ class RecordTimeline implements SessionTimeline {
 
   syncQueuedPrompts(prompts: readonly QueuedPromptText[]): void {
     if (this.disposed) return;
-    const next = prompts.map(({ id, text, queueEdit }) => ({ id, text, ...(queueEdit ? { queueEdit } : {}) }));
+    const next = prompts.map(({ id, text, queueEdit, clientMessageId }) => ({ id, text, ...(clientMessageId ? { clientMessageId } : {}), ...(queueEdit ? { queueEdit } : {}) }));
     // 宿主按活状态整份同步，没变就别推：每次心跳都广播一遍同一份队列是白占通道。
     if (JSON.stringify(next) === JSON.stringify(this.queued)) return;
     this.queued = next;
@@ -1021,6 +1021,9 @@ function sameImage(ref: RecordImageRef, data: string): boolean {
 
 function outcomeOf(boundary: RecordBoundary): TranscriptTurnOutcome {
   if (boundary.kind === 'turn_aborted') return { kind: 'cancelled', reason: 'cancelled' };
-  if (boundary.kind === 'turn_failed') return { kind: 'error', reason: 'prompt_failed' };
+  if (boundary.kind === 'turn_failed') return {
+    kind: 'error', reason: 'prompt_failed',
+    ...(boundary.creditExhausted ? { detail: '{"error":{"code":"credits_exhausted","message":"Gugu credits"}}' } : {}),
+  };
   return { kind: 'done', reason: boundary.stopReason ?? 'end_turn' };
 }

@@ -13,7 +13,10 @@ import { readShellSlots } from '@/lib/shellSlots'
 const scope = vi.hoisted(() => ({ account: 'fallback-owner', devices: [{
   device_id: 'offline-host', label: 'Offline host', is_online: false, capabilities: {}, session_digest: [] as unknown[],
 }] }))
-vi.mock('@/lib/sessionPublication', () => ({ getRendererSession: () => ({ user: { id: scope.account } }) }))
+vi.mock('@/lib/sessionPublication', async original => ({
+  ...await original<object>(),
+  getRendererSession: () => ({ user: { id: scope.account } }),
+}))
 vi.mock('@/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: scope.devices, phones: [] }) }))
 vi.mock('@/platform', () => ({ platform: { kind: 'electron' } }))
 vi.mock('@/components/chat/ChatSummariesHost', () => ({ ChatSummariesHost: () => null }))

@@ -5,6 +5,7 @@ import { enUSRemoteHostMessages, zhCNRemoteHostMessages } from './messages-remot
 import { enUSRemotePortMessages, zhCNRemotePortMessages } from './messages-remote-ports';
 import { enUSSubscriptionMessages, zhCNSubscriptionMessages } from './messages-subscriptions';
 import { enUSSessionWorkflowMessages, zhCNSessionWorkflowMessages } from './messages-session-workflows';
+import { enUSLegacyDmMessages, zhCNLegacyDmMessages } from './messages-legacy-dm';
 import { enUSSessionScheduleMessages, zhCNSessionScheduleMessages } from './messages-session-schedules';
 import { enUSAgentStatusMessages, zhCNAgentStatusMessages } from './messages-agent-status';
 import { enUSAppSettingsMessages, zhCNAppSettingsMessages } from './messages-app-settings';
@@ -49,6 +50,10 @@ const enUSCoreMessages = {
   'sidebar.expandChildSessions': 'Expand child sessions',
   'sidebar.collapseChildSessions': 'Collapse child sessions',
   'sidebar.sessionTreeNeedsAttention': 'Session tree needs attention',
+  'sidebar.sessionBranchCount': '{count} descendant sessions',
+  'sidebar.sessionBranchMoreLevels': '{count} more levels · View branch',
+  'sidebar.sessionBranchNavigation': 'Session branch',
+  'sidebar.allProjectSessions': 'All sessions',
   'sidebar.collapseProjects': 'Collapse projects',
   'sidebar.sortProjects': 'Sort projects',
   'sidebar.sortBy': 'Sort by',
@@ -830,6 +835,8 @@ const enUSCoreMessages = {
   'transcript.starting': 'Starting',
   'transcript.restoring': 'Restoring',
   'transcript.sending': 'Sending',
+  'transcript.waitingToReceive': 'Waiting to be received',
+  'composer.steeringHostUpdateRequired': 'Update the task host to insert this message now',
   'transcript.waitingToSend': 'Waiting to send',
   'transcript.waitingHostOffline': 'Machine offline',
   'transcript.waitingHostNotReady': 'Machine not ready',
@@ -922,6 +929,8 @@ const enUSCoreMessages = {
   'transcript.deliveryFact.whisperTo': 'Whisper to',
   'transcript.deliveryFact.viaApp': 'App',
   'transcript.turnFinished': 'Finished{reason}',
+  'transcript.creditsExhausted': 'You’re out of credits. {recharge} to continue.',
+  'transcript.rechargeCredits': 'Top up',
   'transcript.viewMermaid': 'View Mermaid diagram',
   'transcript.mermaidDiagram': 'Mermaid diagram',
   'transcript.mermaidError': "Couldn't render diagram",
@@ -1123,6 +1132,10 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'sidebar.expandChildSessions': '展开子任务',
   'sidebar.collapseChildSessions': '收起子任务',
   'sidebar.sessionTreeNeedsAttention': '子任务里有需要你处理的',
+  'sidebar.sessionBranchCount': '{count} 个子会话（不含自身）',
+  'sidebar.sessionBranchMoreLevels': '下级还有 {count} 层 · 查看分支',
+  'sidebar.sessionBranchNavigation': '会话分支',
+  'sidebar.allProjectSessions': '全部会话',
   'sidebar.collapseProjects': '收起项目',
   'sidebar.sortProjects': '项目排序',
   'sidebar.sortBy': '排序方式',
@@ -1848,6 +1861,8 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'transcript.starting': '启动中',
   'transcript.restoring': '恢复中',
   'transcript.sending': '发送中',
+  'transcript.waitingToReceive': '等待接收',
+  'composer.steeringHostUpdateRequired': '请更新任务宿主后立即插话',
   'transcript.waitingToSend': '等待发送',
   'transcript.waitingHostOffline': '机器离线',
   'transcript.waitingHostNotReady': '机器未就绪',
@@ -1940,6 +1955,8 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'transcript.deliveryFact.whisperTo': '悄悄话给',
   'transcript.deliveryFact.viaApp': 'App',
   'transcript.turnFinished': '已结束{reason}',
+  'transcript.creditsExhausted': '积分用完了，{recharge}后继续',
+  'transcript.rechargeCredits': '充值',
   'transcript.viewMermaid': '查看 Mermaid 图表',
   'transcript.mermaidDiagram': 'Mermaid 图表',
   'transcript.mermaidError': '无法渲染图表',
@@ -2091,6 +2108,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
 export const enUSMessages = {
   ...enUSCoreMessages,
   ...enUSSessionWorkflowMessages,
+  ...enUSLegacyDmMessages,
   ...enUSProjectMessages,
   ...enUSCapabilityMessages,
   ...enUSSharedMessages,
@@ -2113,6 +2131,7 @@ export type SessionMessageLookupKey<Key extends string = SessionMessageKey> =
 export const zhCNMessages: Record<SessionMessageKey, string> = {
   ...zhCNCoreMessages,
   ...zhCNSessionWorkflowMessages,
+  ...zhCNLegacyDmMessages,
   ...zhCNProjectMessages,
   ...zhCNCapabilityMessages,
   ...zhCNSharedMessages,

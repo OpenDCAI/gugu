@@ -43,7 +43,9 @@ type Fetched = { kind: 'ok'; user: CopilotUser } | { kind: 'other-login'; messag
 /**
  * 宿主读用量时先读套餐、再读用量 —— 两次都要这一份响应。短时间内复用同一份，❌ 一次读数打两遍 GitHub。
  */
-let recent: { at: number; result: Promise<Fetched> } | null = null;
+// 复用只服务**同一次**读数(宿主先读套餐再读用量,两次共用同一个 ctx 对象)。
+// ⚠️ 从前这一份是模块级的单槽:同一个进程服务多条连接时,10 秒内先读 A 再读 B 会拿到 A 的账号。
+let recent = new WeakMap<AgentAuthContext, { at: number; result: Promise<Fetched> }>();
 const REUSE_MS = 10_000;
 
 function sameToken(ctx: AgentAuthContext, name: string): boolean {
@@ -88,15 +90,16 @@ async function fetchUncached(ctx: AgentAuthContext): Promise<Fetched> {
 
 function fetchCopilotUser(ctx: AgentAuthContext): Promise<Fetched> {
   const now = Date.now();
-  if (recent && now - recent.at < REUSE_MS) return recent.result;
+  const cached = recent.get(ctx);
+  if (cached && now - cached.at < REUSE_MS) return cached.result;
   const result = fetchUncached(ctx);
-  recent = { at: now, result };
+  recent.set(ctx, { at: now, result });
   return result;
 }
 
 /** 测试用：清掉复用的那一份。 */
 export function resetCopilotSubscriptionCache(): void {
-  recent = null;
+  recent = new WeakMap();
 }
 
 export function copilotPlanName(user: CopilotUser): { plan: string; tierUnknown?: true } {

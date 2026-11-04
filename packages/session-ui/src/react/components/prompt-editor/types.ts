@@ -133,6 +133,8 @@ export interface PromptEditorRef {
   clear(): void;
   /** Read the current serialized plain text. */
   getText(): string;
+  /** True only for the initial empty document, including no whitespace or blank lines. */
+  isEmpty(): boolean;
   /** Replace the editor contents with serialized plain text. */
   setText(text: string): void;
   /** Insert serialized paragraphs at a document boundary without replacing existing content. */
@@ -153,6 +155,8 @@ export interface PromptEditorProps {
   enterBehavior?: 'submit' | 'newline';
   /** Controlled placeholder text when the editor is empty. */
   placeholder?: string;
+  /** Optional interactive hint at the normal placeholder position; never part of the document. */
+  emptyHint?: ReactNode;
   /** Whether the editor is disabled (read-only, no input). */
   disabled?: boolean;
   /** Called with the serialized plain-text value on every change. */

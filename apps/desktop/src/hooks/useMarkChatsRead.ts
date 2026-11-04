@@ -14,10 +14,10 @@ export function useMarkChatsRead() {
   const { chats, refreshChats } = useChatStore('chats', 'refreshChats')
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
-  return useCallback((rootId?: string) => {
+  return useCallback((rootId?: string | readonly string[]) => {
     const scope = rootId === undefined ? chats : chatsInReadScope(chats, rootId)
     void Promise.resolve().then(() => {
-      if (rootId !== undefined && !scope.some((chat) => chat.id === rootId)) throw new Error('Conversation is not loaded')
+      if (rootId !== undefined && [rootId].flat().some((id) => !scope.some((chat) => chat.id === id))) throw new Error('Conversation is not loaded')
       return markChatsReadAndRefresh({ chats: scope, refresh: refreshChats })
     }).then(({ failedChats, error }) => {
       if (failedChats > 0) toast(t('chatList.markAllReadPartial', { count: failedChats }), 'error', messageForUser(error))

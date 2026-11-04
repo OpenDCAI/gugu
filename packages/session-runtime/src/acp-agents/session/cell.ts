@@ -1628,6 +1628,12 @@ export class SessionCell {
 
   dispose(): void {
     this.nativeAdmissionGeneration += 1;
+    // 排过 preparation 重试的会话在这里收口:定时器最多 30 秒,不收掉它会攥着整个 cell,
+    // 还会对已 dispose 的 cell 走出队尝试(见 retryPreparedQueue)。
+    if (this.preparationRetryTimer) {
+      clearTimeout(this.preparationRetryTimer);
+      this.preparationRetryTimer = undefined;
+    }
     if (this.activeTurnCompletion || this.transcript.activeTurn) {
       this.endWork(this.closeRequested ? { kind: 'cancelled', reason: 'cancelled' }
         : classifyTurnFailure({ at: 'connection-lost', failure: null }).outcome,
@@ -1979,6 +1985,7 @@ export class SessionCell {
         role: 'user',
         messageId,
         text: prompt.text,
+        ...(prompt.clientMessageId ? { _meta: { guguClientMessageId: prompt.clientMessageId } } : {}),
         ...(prompt.files?.length ? { files: prompt.files.map(({ itemId, version, name, mimeType, sizeBytes }) => ({ itemId, version, name, mimeType, sizeBytes })) } : {}),
         content: [{ type: 'text', text: prompt.text }],
         contentMode: 'replace',
@@ -2108,7 +2115,7 @@ export class SessionCell {
       const promptMeta = this.deps.historyRecovery?.promptMeta?.(promptRequest.prompt);
       if (promptMeta) {
         // Bind the exact native bytes to our original prompt, without putting any marker on the wire.
-        submittedMessage._meta = promptMeta;
+        submittedMessage._meta = { ...submittedMessage._meta, ...promptMeta };
         if (!nativeSteer) this.push({ ...submittedMessage, steering: true, trigger: undefined });
       }
       this.rawLog.record({

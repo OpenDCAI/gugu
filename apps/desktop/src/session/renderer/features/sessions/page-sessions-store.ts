@@ -413,6 +413,8 @@ export class SessionStore {
   /** Reconnect brings a complete host row, including status changes missed while disconnected. */
   applySession(session: Session): void {
     Object.assign(this.data, session);
+    // This is a complete host row: an absent reason clears the cached interruption.
+    if (session.interruptedBy === undefined) delete this.data.interruptedBy;
     this.status = session.agentStatus ?? null;
     this.detail = session.agentStatusDetail ?? null;
     this.seen = session.agentStatusSeen ?? true;
@@ -444,6 +446,8 @@ export class SessionStore {
    */
   applyStatus(change: { reading: AgentStatusView | null; unseen: boolean; statusSourceFault: string | null }) {
     this.status = change.reading?.status ?? null;
+    // The host clears the previous interruption when work actually starts.
+    if (this.status === 'working') delete this.data.interruptedBy;
     this.detail = change.reading?.detail ?? null;
     this.seen = !change.unseen;
     this.statusSourceFault = change.statusSourceFault;

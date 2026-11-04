@@ -169,6 +169,7 @@ vi.mock('../../../../apps/desktop/src/lib/chatProjection', () => ({
     current: () => projectionStub.rows,
     identities: () => projectionStub.identityRows,
     isMembershipRevoked: (chatId: string) => projectionStub.revoked.has(chatId),
+      isConversationDeleted: () => false,
     ledger: () => [],
     reset: () => undefined,
   }),
@@ -192,9 +193,11 @@ import { ChatProvider } from '../../../../apps/desktop/src/store/chat'
 import { useChatStore } from '../../../../apps/desktop/src/store/chatContext'
 import { useReportChatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
+import { messageItemFromRow, type RawMessageRow } from '@gugu/core/cloud/messageItem'
 import {
   readMessageWindow,
   replaceMessageWindow,
+  ingestAccountMessage,
   type AccountImRepository,
 } from '../../../../apps/desktop/src/lib/imRepository'
 // @@@947 - the per-test memory-backed L2 handle (reset in beforeEach). Tests seed it via writeCachedMessages
@@ -267,7 +270,15 @@ async function actAndFlush(action: () => void | Promise<void>): Promise<void> {
 async function emitRevision(event: string, payload: Record<string, unknown>): Promise<void> {
   const listener = revisionListeners.get(event)
   if (!listener) throw new Error(`missing revision listener for ${event}`)
-  await actAndFlush(() => listener([{ revision: '1', event, payload }]))
+  await actAndFlush(async () => {
+    // This suite stubs the coordinator. Line consumers see a committed
+    // account message now, rather than decoding the server row themselves.
+    if (event === 'message_created' && payload.message) {
+      const item = messageItemFromRow(payload.message as RawMessageRow, 'user-1')
+      if (item) await memRepository.transaction(tx => ingestAccountMessage(memRepository, tx, item, '1'))
+    }
+    await listener([{ revision: '1', event, payload }])
+  })
 }
 async function appendMessages(...messages: MessageItem[]): Promise<void> {
   await actAndFlush(() => {
@@ -971,7 +982,8 @@ describe('#947 persistent message-window cache (cold start + freshness gating)',
       id: 'three', chat_id: 'chat-1', sender_user_id: 'user-2', seq: 3, content: 'three', content_type: 'text', created_at: '2026-09-15T00:00:03Z',
     } })
     expect(chatServiceMock.getMessages).toHaveBeenCalledTimes(2)
-    expect(chatServiceMock.getMessages).toHaveBeenLastCalledWith('chat-1', 'user-1', 'loadNewer', 200, undefined, 1)
+    // A sparse account cache cannot use its highest seq as a repair cursor.
+    expect(chatServiceMock.getMessages).toHaveBeenLastCalledWith('chat-1', 'user-1', 'loadNewer', 200, undefined, 0)
     expectTextContains(harness, 'before', 'two', 'three')
 
     // 话题回复不进主线,连话题快照/摘要一起补 ⇒ 仍走补洞

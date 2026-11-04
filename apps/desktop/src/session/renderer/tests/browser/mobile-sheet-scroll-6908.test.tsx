@@ -60,7 +60,7 @@ const sheet = (testId: string) => document.querySelector<HTMLElement>(`[data-tes
 const inside = (el: Element, box: HTMLElement) => el.getBoundingClientRect().top >= box.getBoundingClientRect().top - 1 && el.getBoundingClientRect().bottom <= box.getBoundingClientRect().bottom + 1;
 
 it('agent-watch options: the model sheet scrolls to its last model, the other settings keep their full height', async () => {
-  mount(<SessionOptionsPill deviceId="device" sessionId="conversation" busy={false} />);
+  mount(<SessionOptionsPill deviceId="device" sessionId="conversation" agentName="Claude Code" busy={false} />);
   await userEvent.click(page.getByTestId('agent-watch-options-open'));
   const rows = () => document.querySelectorAll('[data-testid="agent-watch-options"] .gg-aw-choice-group [role="radio"]');
   await until('25 models in the sheet', () => rows().length === 25);

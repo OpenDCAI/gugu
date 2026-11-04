@@ -20,10 +20,10 @@ import {
   parseBuildDistribution,
   resolveUpdaterPolicy,
   shouldRejectUpdateTarget,
-  updateStateAdvances,
   type UpdateChannel,
   type UpdaterPolicy,
 } from '../../shared/update-policy'
+import { createUpdateState, type VersionedUpdateState } from '../../shared/update-state'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { rendererLogger } from '../lib/log'
 
@@ -42,7 +42,7 @@ export interface AndroidUpdateTarget extends StoredPackage {
 /** 与 electron/main.ts 的 UpdateCheckResult 同一个形状:界面对两个宿主只认这一种。 */
 export interface AppUpdateStatus {
   success: boolean
-  status: 'idle' | 'available' | 'downloading' | 'not-available' | 'downloaded' | 'disabled' | 'error'
+  status: 'idle' | 'available' | 'downloading' | 'not-available' | 'downloaded' | 'installing' | 'disabled' | 'error'
   updateInfo: { version: string } | null
   /** 只给 `downloading` 用:0–100;还没有第一条进度时不带。 */
   percent?: number
@@ -124,7 +124,7 @@ interface Identity {
 
 let identityPromise: Promise<Identity> | null = null
 let prepared: Promise<Identity> | null = null
-let state: AppUpdateStatus = { success: true, status: 'idle', updateInfo: null }
+const states = createUpdateState<AppUpdateStatus>({ success: true, status: 'idle', updateInfo: null })
 /** 已经下好、等用户按的那一份。 */
 let staged: StoredPackage | null = null
 /** 清单上比装着的新、还没下好的那一份。 */
@@ -145,10 +145,10 @@ function identity(): Promise<Identity> {
 }
 
 /** 状态的唯一写入口:先落到值上,再推给界面;退不回去的(下好的包被后来的消息盖掉)不推。 */
-function emit(next: AppUpdateStatus): void {
-  if (!updateStateAdvances(state.status, next.status)) return
-  state = next
-  window.dispatchEvent(new CustomEvent(UI_EVENTS.updateStatus, { detail: next }))
+function emit(next: AppUpdateStatus): VersionedUpdateState<AppUpdateStatus> {
+  const published = states.publish(next)
+  if (published) window.dispatchEvent(new CustomEvent(UI_EVENTS.updateStatus, { detail: published }))
+  return states.current
 }
 
 function downloadedStatus(version: string): AppUpdateStatus {
@@ -230,10 +230,10 @@ function downloadOffered(silent: boolean): Promise<void> {
   return downloading
 }
 
-export async function checkForUpdates(): Promise<AppUpdateStatus> {
+export async function checkForUpdates(): Promise<VersionedUpdateState<AppUpdateStatus>> {
   const id = await prepare()
   if (!id.policy.enabled) {
-    return { success: false, status: id.policy.status, updateInfo: null, messageKey: id.policy.messageKey }
+    return emit({ success: false, status: id.policy.status, updateInfo: null, messageKey: id.policy.messageKey })
   }
   let target: AndroidUpdateTarget
   try {
@@ -241,7 +241,7 @@ export async function checkForUpdates(): Promise<AppUpdateStatus> {
   } catch (error) {
     const message = errorMessage(error)
     log.warn({ error: message }, '取更新清单失败')
-    return { success: false, status: 'error', updateInfo: null, message }
+    throw error
   }
   if (shouldRejectUpdateTarget(target, id.channel) || !semver.gt(target.version, id.installed)) {
     offered = null
@@ -251,21 +251,20 @@ export async function checkForUpdates(): Promise<AppUpdateStatus> {
       updateInfo: { version: target.version },
       messageKey: 'about.updateUpToDate',
     }
-    emit(upToDate)
-    return state.status === 'downloaded' ? state : upToDate
+    return emit(upToDate)
   }
   // 这一版已经下好在等人按:答「可以装了」,❌ 答「发现新版本」把人送回下载那一步。
-  if (staged?.sha256 === target.sha256) return state
+  if (staged?.sha256 === target.sha256) return states.current
   offered = target
   if ((await plugin.networkMetered()).metered) emit(availableStatus(target.version))
   else void downloadOffered(true)
   // 正在下 / 已下好:答状态源,❌ 答「发现新版本」(那等于说还没开始)。
-  return state.status === 'downloaded' || state.status === 'downloading' ? state : availableStatus(target.version)
+  return states.current
 }
 
-export async function updateState(): Promise<AppUpdateStatus> {
+export async function updateState(): Promise<VersionedUpdateState<AppUpdateStatus>> {
   await prepare()
-  return state
+  return states.current
 }
 
 export function downloadUpdate(): Promise<void> {
@@ -276,5 +275,13 @@ export async function installUpdate(): Promise<void> {
   if (!staged) throw new Error('没有下好的更新可以安装')
   // 系统安装器接手:装上时本进程被系统换掉;用户在系统那一步点了取消,这里会 reject,
   // 按钮据此恢复可按(UpdateBanner 的 installUpdate().catch)。
-  await plugin.install({ version: staged.version, sha256: staged.sha256 })
+  const pkg = staged
+  emit({ success: true, status: 'installing', updateInfo: { version: pkg.version } })
+  try {
+    await plugin.install({ version: pkg.version, sha256: pkg.sha256 })
+  } catch (error) {
+    // A returned/cancelled system installer leaves the staged package available.
+    emit(downloadedStatus(pkg.version))
+    throw error
+  }
 }

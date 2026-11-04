@@ -17,9 +17,13 @@ export interface ComputerControlView {
 
 /** 一个动作:针对哪个 App(pid;不指定 App 的动作没有)。 */
 export interface ComputerCall {
+  /** Cold launch is cancellable before the target has a window to show on. */
+  deferAttachment?: boolean
   callerName?: string
   taskTitle?: string
   pid?: number
+  /** All Apps touched by one native batch, independently of indicator placement. */
+  targetPids?: readonly number[]
   windowId?: number
   appName?: string
 }
@@ -90,23 +94,27 @@ export function createComputerControl(input: { view: ComputerControlView; linger
     begin(call) {
       const identity = { ...(call.callerName ? { callerName: call.callerName } : {}), ...(call.taskTitle ? { taskTitle: call.taskTitle } : {}) }
       const subject: Subject = call.pid ?? 'computer'
-      const blockedBy = paused.has('computer') ? 'computer' : paused.has(subject) ? subject : null
+      const subjects = new Set<Subject>([subject, ...(call.targetPids ?? [])])
+      const blockedBy = paused.has('computer') ? 'computer' : [...subjects].find(target => paused.has(target)) ?? null
       if (blockedBy !== null) {
         // agent 又来动停了的东西:把暂停的小条重新亮出来,让人看得到、点得到「让它继续」。
-        const appName = blockedBy === 'computer' ? undefined : (paused.get(blockedBy)?.appName ?? call.appName)
-        const windowId = blockedBy === 'computer' ? undefined : (call.windowId ?? paused.get(blockedBy)?.windowId)
+        const appName = blockedBy === 'computer' ? undefined : (paused.get(blockedBy)?.appName ?? (call.pid === blockedBy ? call.appName : undefined))
+        const windowId = blockedBy === 'computer' ? undefined : ((call.pid === blockedBy ? call.windowId : undefined) ?? paused.get(blockedBy)?.windowId)
         show({ subject: blockedBy, ...identity, ...(appName ? { appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'paused' })
         hideAfter(PAUSED_BAR_MS)
         return { refused: blockedBy === 'computer' ? COMPUTER_STOPPED : appStopped(appName) }
       }
       const controller = new AbortController()
-      const set = inFlight.get(subject) ?? new Set<AbortController>()
-      set.add(controller)
-      inFlight.set(subject, set)
+      const sets = [...subjects].map(target => {
+        const set = inFlight.get(target) ?? new Set<AbortController>()
+        set.add(controller)
+        inFlight.set(target, set)
+        return set
+      })
       // Every begin is an act. Untargeted input must replace an old App's
       // identity too, so Stop aborts this subject instead of the previous App.
       const windowId = call.windowId
-      const ready = show({ subject, ...identity, ...(call.appName ? { appName: call.appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'driving' })
+      const ready = call.deferAttachment ? undefined : show({ subject, ...identity, ...(call.appName ? { appName: call.appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'driving' })
       let ended = false
       return {
         signal: controller.signal,
@@ -114,7 +122,7 @@ export function createComputerControl(input: { view: ComputerControlView; linger
         end() {
           if (ended) return
           ended = true
-          set.delete(controller)
+          for (const set of sets) set.delete(controller)
           if (!busy() && shown?.state === 'driving') hideAfter(lingerMs)
         },
       }

@@ -15,20 +15,22 @@ import { useNotificationSettings } from '../lib/notificationSettings'
 import {
   openImRepository,
   imSelectors,
+  readMessageWindow,
   replaceChatRows,
   type AccountImRepository,
 } from '../lib/imRepository'
 import { closeImRepository, publishMessageWindow, subscribeIdentities } from '../lib/chatMessageWindowPublication'
 import { readCompleteCachedChats } from '../lib/chatSnapshotPublication'
-import { createChatListProjectionLedger, useChatProjectionBinding } from './chatListProjection'
+import { createChatListProjectionLedger, useChatProjectionBinding, notifyForIngestedMessage } from './chatListProjection'
 import { adoptOptimisticChatRow } from '../lib/optimisticChatIdentity'
+import { bindRepositoryMessageCache } from './chatDiskWindow'
 import { applyMessageWindowRevalidation } from '../lib/chatMessageRevalidation'
 import { platform } from '../platform'
 import { bindOutboxActions, createOutboxWiring, type OutboxWiring } from './chatOutboxWiring'
 import { markLatestThreadRead, markManualUnreadAndRefresh } from '../lib/chatUnreadLocator'
 import { useChatUnreadStreamNavigation } from '../lib/chatUnreadStreamNavigation'
 import { ChatStoreProvider, type SendMessageOptions, type SendAttachmentOptions, useDraftAttachmentsStore, useDraftMentionsStore, useTextDraftStore, useDraftQuotesStore, type RefreshChatsOptions } from './chatContext'
-import { advanceReadWatermark, applyThreadSnapshot, fetchOpenThreadSnapshot, patchChatRows, reconcileMemberReadSeqs, type PatchChat } from './chatRealtimeMutations'; import { subscribeChatLineRevisions } from '../lib/accountRevisionListeners'; import { chatOnScreen } from '../lib/onScreenChat'
+import { advanceReadWatermark, applyThreadSnapshot, fetchOpenThreadSnapshot, patchChatRows, reconcileMemberReadSeqs, type PatchChat } from './chatRealtimeMutations'; import { subscribeChatLineRevisions } from '../lib/accountRevisionListeners'; import { chatOnScreen, isChatOnScreen } from '../lib/onScreenChat'
 import { useMessageReadFailures, useMessageSnapshotEpochs } from './chatMessageReads'
 import { useChatConversation, type ChatConversationAccess } from './useChatConversation'
 import { useActiveChatTransitionState } from './activeChatTransition'; import { fetchChatHistoryPage, restoreChatHistoryAnchor, openCachedChatWindow, useChatWindowCache, type WindowObserver } from './chatWindowPublication'
@@ -81,15 +83,13 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   // Used by smoke pollUntilCacheHitRevalidated to wait for SWR completion.
   const revalidateInFlightRef = useRef<Set<string>>(new Set())
   const imRepositoryRef = useRef<AccountImRepository | null>(null)
+  const messageNotificationRef = useRef<(repository: AccountImRepository, message: MessageItem) => Promise<void>>(async () => {})
   const imRepositoryPromiseRef = useRef<{ accountId: string; promise: Promise<AccountImRepository> } | null>(null)
   const revisionCoordinatorRef = useRef<AccountRevisionCoordinator | null>(null)
   const revisionCoordinatorPromiseRef = useRef<Promise<AccountRevisionCoordinator> | null>(null)
   const imRepositoryScope = useMemo(() => ({ accountId: userId, disposed: false }), [userId])
   const outboxRef = useRef<OutboxWiring | null>(null)
-  // chatOpenSeqRef: monotonically bumped on every active-chat switch. The L2 read is async, so a late
-  // return for a PREVIOUS chat must early-return at this seq guard — otherwise it could paint chat A's
-  // window into the freshly-switched chat B (cross-chat bleed).
-  // Ref mirrors of state — read by debug bridge (closure-captured at mount time).
+  // Live mirrors for the debug bridge; async window reads are fenced by their observer and snapshot epoch.
   const activeChatIdRef = useRef<string | null>(null)
   const messagesRef = useRef<MessageItem[]>([])
   const hasMoreOlderRef = useRef(false)
@@ -151,8 +151,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     }
     imRepositoryRef.current = repository
     subscribeIdentities(repository, setIdentitiesById)
+    bindRepositoryMessageCache(repository, cache)
     return repository
-  }, [imRepositoryScope, userId])
+  }, [cache, imRepositoryScope, userId])
 
   const getRevisionCoordinator = useCallback(async (): Promise<AccountRevisionCoordinator> => {
     if (revisionCoordinatorRef.current) return revisionCoordinatorRef.current
@@ -163,6 +164,10 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         userId,
         repository,
         createSupabaseAccountRevisionSource(),
+        {
+          recover: messageId => chatService.getMessageById(messageId, userId),
+          notify: message => messageNotificationRef.current(repository, message),
+        },
       )
       revisionCoordinatorRef.current = coordinator
       coordinator.start()
@@ -207,13 +212,13 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }, [imRepositoryScope, userId])
 
   const persistWindowToLocalSync = useCallback(
-    (chatId: string, messages: MessageItem[]): void => {
+    (chatId: string, messages: MessageItem[], verifiedTailSeq: number | null = null): void => {
       void getImRepository()
         .then((repository) => {
           // Mutators can request persistence inside their updater, before the history controller commits.
           const rows = cache.get(chatId) ?? messages
           const hasMoreOlder = cache.getHistory(chatId)?.getSnapshot().hasOlder ?? (rows.some((row) => row.seq > 1) && !rows.some((row) => row.seq === 1))
-          return publishMessageWindow(repository, chatId, rows, hasMoreOlder)
+          return publishMessageWindow(repository, chatId, rows, hasMoreOlder, verifiedTailSeq)
         })
         .catch((err) => console.error('[ChatStore] persist repository message window failed', err))
     },
@@ -287,12 +292,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     setChatsLoad((state) => (isFirstLoad ? 'loading' : state === 'failed' || state === 'unread' ? 'idle' : state))
     const requestSeq = ++listRequestSeqRef.current
     try {
-      // 冷启快照也走投影(spec I7:会话列表只有一条拉取路)—— 一次「哪些会话属于我」的读 + 同一套族读。
-      // ❌ 没有「空了就等 500 ms 再读一遍」那一手:同一游标上重读是重放,投影按 I3 一发都不打
-      // (它会原样交回同一份行)。刚建号/刚建会话时成员行**晚一点**提交,命名它的是 journal 的
-      // 那条 operation(服务端义务 O1),路径是 wake → advance,不是一次定时轮询。
+      // Cold snapshots use the same projection (I7); late membership arrives through journal wake/advance, never polling.
       const data = await chatProjection.hydrate(userId)
-      if (data.length > 0 || chatsRef.current.length === 0 || options.acceptEmpty === true) {
+      if (data.length > 0 || chatsRef.current.length === 0 || options.acceptEmpty === true || chatProjection.hasDeletedConversation(userId, chatsRef.current)) {
         // 选中一条会话是**用户的意图**,不是列表刷新的投影 —— 什么时候才算「它没了」由账本判(#4314)。
         await chatProjection.publish(data, chatProjection.identities(userId), {
           requestSeq, notify: !isFirstLoad, preserveMissingActive: options.preserveMissingActive,
@@ -306,13 +308,25 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     }
   }, [chatProjection, userId])
 
+  messageNotificationRef.current = async (repository, message) => {
+    if (imRepositoryScope.disposed || repository.accountId !== userId) return
+    let chat = chatsRef.current.find(row => row.id === message.chat_id)
+      ?? repository.snapshot().chat.find(row => row.id === message.chat_id)?.value
+    if (!chat) {
+      await loadChats({ throwOnError: true })
+      chat = repository.snapshot().chat.find(row => row.id === message.chat_id)?.value
+    }
+    if (!chat || imRepositoryScope.disposed || repository.accountId !== userId) return
+    await notifyForIngestedMessage(userId, chat, message, { onScreen: isChatOnScreen,
+      notificationsEnabled: notificationSettings.chatMessages, soundEnabled: notificationSettings.sound })
+  }
+
   const patchChat: PatchChat = useCallback((chatId, partial, expectedReadStateVersion) => {
     setChats((prev) => patchChatRows(prev, chatId, partial, expectedReadStateVersion))
   }, [])
 
   const upsertChat = useCallback((chat: ChatItem) => {
-    // 对端身份本地还没有的乐观行(刚 open_dm 出来的 agent 私聊)由 adoptOptimisticChatRow 收下:
-    // 补齐身份后才登记,并记进投影账本 —— 此后每次列表落地都补回去 (#4314)。
+    // #4314 Resolve an optimistic peer's identity before tracking it in the projection ledger.
     if (adoptOptimisticChatRow({
       chat, repository: imRepositoryRef.current, ledger: projectionRef.current,
       refresh: () => { void loadChats() },
@@ -321,29 +335,32 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     setChats((prev) => upsertChatRow(prev, chat))
   }, [loadChats])
 
-  const applyFreshMessageSnapshot = useCallback((chatId: string, msgs: MessageItem[], epoch: number): MessageItem[] | null => {
+  const applyFreshMessageSnapshot = useCallback((chatId: string, msgs: MessageItem[], epoch: number, verifiedCoverage = true): MessageItem[] | null => {
     if (epoch !== getMessageSnapshotEpoch(chatId)) return null
     cache.set(chatId, msgs)
     const nextMessages = cache.get(chatId) ?? []
-    // @@@msg-cache (#621/P2/#947) - write-through L2: this is the canonical window-commit point for
-    // initialLoad / loadNewer / toggleReaction / refreshMessages, so persisting here keeps the durable
-    // cache in lockstep with L1 (same contract as cache.set above).
-    persistWindowToLocalSync(chatId, nextMessages)
+    // @@@msg-cache (#621/P2/#947) — all snapshot writers share this L1/L2 commit point.
+    persistWindowToLocalSync(chatId, nextMessages, verifiedCoverage ? maxMainlineSeq(msgs) : null)
     return nextMessages
   }, [cache, getMessageSnapshotEpoch, persistWindowToLocalSync])
 
+  const noteCommittedMessages = useCallback((chatId: string, messages: readonly MessageItem[]) => {
+    const seq = maxMainlineSeq(messages)
+    if (userId && cache.isObserved(chatId) && chatOnScreen() === chatId && cache.isFollowingTail(chatId)
+      && seq > 0 && !unreadNavigationRef.current?.ownsChat(chatId)) advanceReadWatermark(chatsRef.current, chatId, seq, patchChat)
+  }, [cache, patchChat, userId])
+
   /** 返回 false = 未落窗(未登录或快照 epoch 已变被拒收)。 */
-  const applyMessagesSnapshot = useCallback((chatId: string, msgs: MessageItem[], readSeqs: Record<string, number> | null, epoch: number): boolean => {
+  const applyMessagesSnapshot = useCallback((chatId: string, msgs: MessageItem[], readSeqs: Record<string, number> | null, epoch: number, verifiedCoverage = true): boolean => {
     if (!userId) return false
-    const nextMessages = applyFreshMessageSnapshot(chatId, msgs, epoch)
+    const nextMessages = applyFreshMessageSnapshot(chatId, msgs, epoch, verifiedCoverage)
     if (!nextMessages) return false
     const stillActive = cache.isObserved(chatId)
     // #1529 单调 reconcile(唯一实现在卫星,与 heal 无增量分支共用)。
     if (stillActive && readSeqs) reconcileMemberReadSeqs(chatId, readSeqs, memberReadPorts(chatId)) // null = 载荷无水位,别动表(#5649)
-    const lastPersistedSeq = Math.max(0, ...nextMessages.map((msg) => msg.seq).filter((seq) => seq >= 0))
-    if (stillActive && chatOnScreen() === chatId && cache.isFollowingTail(chatId) && lastPersistedSeq > 0 && !unreadNavigationRef.current?.ownsChat(chatId)) advanceReadWatermark(chatsRef.current, chatId, lastPersistedSeq, patchChat)
+    noteCommittedMessages(chatId, nextMessages)
     return true
-  }, [applyFreshMessageSnapshot, cache, memberReadPorts, patchChat, userId])
+  }, [applyFreshMessageSnapshot, cache, memberReadPorts, noteCommittedMessages, userId])
 
   // ── #621 incremental spine ────────────────────────────────────────────────
   const windowRowsOf = useCallback((chatId: string) => cache.rows(chatId), [cache])
@@ -355,15 +372,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     const chat = chatsRef.current.find((c) => c.id === chatId)
     return Math.max(0, (chat?.next_message_seq ?? 0) - 1)
   }, [])
-  // revalidateWindowOverlays: refresh the cached window's MUTABLE state for its message ids WITHOUT
-  // re-fetching bodies of new messages. Bounded to ≤ window size — ONE call per open/reconnect.
-  // @@@msg-cache (#621/P2/#947) - extended beyond reactions/delivery to also cover delete / edit / retract
-  // (none of which gugu has realtime for), so the persistent L2 cache stays correct on a cached reopen:
-  // reaction/delivery overlays + edit/retract body fields patch surviving rows in place, and ids that no
-  // longer exist for this user (deleted globally or for-me) are dropped — else a message deleted while the
-  // app was closed would resurrect from L2 on cold start (the second staleness vector L2 introduces).
-  // Optimistic rows (seq < 0, client UUIDs not yet in the view) are NEVER queried or dropped. Fail-soft: a
-  // glitch must not block the open, and an errored chunk reports its ids as present so it never deletes rows.
+  // @@@msg-cache (#621/P2/#947) — revalidate only cached, settled ids on open/reconnect, bounded by window size.
+  // Patch mutable overlays/body fields and remove confirmed missing rows so cold reopen cannot resurrect them.
+  // Never query/drop optimistic rows; failed chunks preserve their ids and cannot block opening.
   const revalidateWindowOverlays = useCallback(
     async (chatId: string, throwOnError = false) => {
       if (!userId) return
@@ -401,17 +412,15 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     }
   }, [applyMessagesSnapshot, getMessageSnapshotEpoch, trackMessageRead, revalidateWindowOverlays, userId])
 
-  // @@@1888 — resubscribe = 重验证:增量 delta(seq > 主线缓存 max)直接问服务端,**结果即真值**——
-  // 空 = 无 gap;短页 = 补齐;整页 = 断档可能超一页 → 交给 refreshMessages 权威重载(#621 既有
-  // degrade 原语,判定在结果侧,不做预测)。此前用 chatsRef 的 next_message_seq 做客户端 gap 预测,
-  // 重连时恰恰是它最 stale 的时刻(且它计入话题 seq、与主线 cursor 单位错配 → 假 gap 恒真),按预测
-  // 跳过的 heal 会静默漏消息——预测层删除,勿再引入。并发语义:重连风暴下同 chat 的多次 heal
-  // 幂等收敛(同 cursor 的 delta + epoch 门 + 单调 merge + chokepoint 水位),重复代价 = 有界查询,
-  // 且已被订阅层重连退避(RECONNECT_DELAYS)限流,故不设去重机制。
+  // @@@1888 — query the authoritative delta on reconnect: empty/short = caught up; full = existing #621 degrade.
+  // Do not predict gaps from stale list seqs; cursor/epoch/merge keep bounded reads idempotent under reconnect backoff.
   const healMessageGap = useCallback(
     async (chatId: string, throwOnError = false) => {
       if (!userId) return
-      const maxSeq = maxSeqOf(chatId)
+      // A sparse event cache is paintable, not a verified pagination cursor.
+      // Reuse the bounded delta and existing full-page degrade from the start.
+      const sparse = imRepositoryRef.current && readMessageWindow(imRepositoryRef.current, chatId)?.sparse
+      const maxSeq = sparse ? 0 : maxSeqOf(chatId)
       const epoch = getMessageSnapshotEpoch(chatId)
       revalidateInFlightRef.current.add(chatId)
       try {
@@ -423,7 +432,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
           chatService.getOtherMembersReadSeqs(chatId, userId),
         ])
         // R6 被新快照取代的补洞结果不许静默丢:会话仍在屏上就抛错,让修订派发重补。
-        if (msgs.length > 0) commitHealedMessages({ chatId, apply: () => applyMessagesSnapshot(chatId, msgs, readSeqs, epoch), stillActive: () => cache.isObserved(chatId) })
+        if (msgs.length > 0) commitHealedMessages({ chatId, apply: () => applyMessagesSnapshot(chatId, msgs, readSeqs, epoch, msgs.length < NEWER_PAGE), stillActive: () => cache.isObserved(chatId) })
         else if (cache.isObserved(chatId)) reconcileMemberReadSeqs(chatId, readSeqs, memberReadPorts(chatId))
         if (msgs.length >= NEWER_PAGE) await refreshMessages(chatId)
         if (threadSnap) {
@@ -526,9 +535,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       chatProjection.attach(userId, subscribeAccountRevision),
       // 在线状态的属主是 agentPresenceStore,不是会话列表:**不同状态的两个属主**,不是一份状态两条路。
       subscribeAgentPresenceRevisions(subscribeAccountRevision),
-      // These surfaces own no durable list while closed: opening them always performs an authoritative
-      // fetch. Keep a mounted owner so an operation for a closed surface cannot head-of-line block the
-      // account inbox; when the surface is open its scoped listener runs in the same dispatch.
+      // Closed surfaces fetch on open; this owner prevents inbox blocking and shares dispatch with open listeners.
       subscribeAccountRevision('group_collab_changed', () => undefined),
       subscribeAccountRevision('workspace_changed', () => undefined),
     ]
@@ -583,6 +590,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     })
     const stop = subscribeChatLineRevisions(subscribeAccountRevision, {
       userId: userId!, chatId: () => cancelled ? null : chatId,
+      readCommittedMessage: id => imRepositoryRef.current?.snapshot().message.find(row => row.id === id)?.value,
+      hasMessageGap: id => imRepositoryRef.current ? readMessageWindow(imRepositoryRef.current, id)?.sparse === true : true,
+      noteCommittedMessages,
       maxSeqOf, getMessageSnapshotEpoch, applyMessagesSnapshot, healMessageGap, revalidateWindowOverlays,
       setMessagesAndCache, persistWindowToLocalSync, setThreadMessages: (update) => setThreadMessagesFor(chatId, update),
       ...memberReadPorts(chatId),
@@ -660,14 +670,10 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       const toUserIds =
         explicitToUserIds ??
         (isDirectChat && targetChat.peer_user_id ? [targetChat.peer_user_id] : null)
-      // #1554 DM/ai 首条竞态:peer_user_id 未就绪时 toUserIds 为 null,直接发出 → enqueue 触发器 DM 分支
-      // 不投递 → agent 首条不运行。C2:对端解析挪到投递阶段(outbox prepare),乐观行先上屏;
-      // 解析不到在投递时 fail loud(气泡「未送达」可重试),不发 null-target 哑消息。
+      // #1554 Resolve an unknown DM peer in outbox.prepare; show the optimistic row now and fail delivery visibly.
       const resolveDmPeer = !toUserIds && isDirectChat
 
-      // Single client-generated UUID flows through optimistic tempMsg.id AND the
-      // DB row's primary key — so realtime echo carries an identical id, and
-      // mergeById can reuse the prev reference (no key churn → no remount → no flicker).
+      // Share the optimistic/server UUID so realtime merge preserves identity and avoids remounts.
       const id = opts.clientMessageId ?? crypto.randomUUID()
       const threadRootId = opts.threadRootId ?? null
       const tempMsg: MessageItem = {
@@ -706,9 +712,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         setMessagesAndCache((prev) => [...prev, tempMsg], targetChatId)
       }
 
-      // @@@send-outbox (#1762 洞③/#1941) — 入队即返回(resolve ≠ 已送达):投递/超时/退避重试/失败
-      // 可见性全归 outbox(唯一 chokepoint);送达连带动作(权威 row/水位/预览/agent 运行态点亮)在
-      // wiring.onSent,实时发送与 reload 恢复投递同一条路径。
+      // @@@send-outbox (#1762/#1941) — enqueue resolves before delivery; outbox/onSent owns retries, failures and recovery.
       try {
         await outboxRef.current!.enqueue({
           id, chatId: targetChatId, senderUserId: userId, content: content.trim(),
@@ -726,9 +730,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       }
       // 侧栏预览不在入队时乐观写:丢弃无法回滚会让列表永远展示已丢弃文本(#1762 评审[10]);
       // 预览唯一写点 = wiring.onSent(送达后)。
-      // @@@threads (#1531) — 新建话题的 root 是结构性发送:enqueue 触发器在 INSERT 时按 is_thread_root
-      // 路由后续回复,root 未落库就开话题composer = 回复投向不存在的锚(#1762 评审[6][8])。等真送达,
-      // 失败即抛(与旧行为等价:InputArea 回滚 + toast)。普通消息保持入队即返回。
+      // @@@threads (#1531) — await root delivery before opening replies; failures still throw for composer rollback/toast.
       if (opts.isThreadRoot) await outboxRef.current!.outbox.delivered(id)
       // @@@threads (#957) — 返回消息 id,供「新建话题」首条发完后 openThread(它) 进入话题。
       return id
@@ -759,8 +761,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     await chatService.clearMessagesForMe(chatId)
     invalidateMessageSnapshots(chatId)
     cache.delete(chatId)
-    // @@@msg-cache (#947) - clear the durable L2 window too, else a cold-start reopen would resurrect the
-    // cleared messages from IndexedDB (write-through here keeps L2 in lockstep with the now-empty L1).
+    // @@@msg-cache (#947) — clear L2 with L1 so a cold reopen cannot resurrect cleared messages.
     persistWindowToLocalSync(chatId, [])
   }, [cache, invalidateMessageSnapshots, persistWindowToLocalSync])
 
@@ -780,18 +781,14 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }, [invalidateMessageSnapshots, loadChats, removeMessage])
 
   const appendMessage = useCallback((msg: MessageItem) => {
-    // @@@threads (#1114) - 话题回复(thread_root_id 非空)绝不进主时间线(getMessages 过滤掉它):
-    // 与 realtime 路由一致,只在该话题正打开时乐观 upsert 进 threadMessages;回复数摘要交 realtime /
-    // realtime 维护(不在此 +1,避免双加)。主线消息(thread_root_id null)照旧。
+    // @@@threads (#1114) — route replies only to their open thread; realtime owns reply counts, mainline stays separate.
     if (msg.thread_root_id) {
       if (cache.getHistory(msg.chat_id) && cache.view(msg.chat_id).activeThreadRootId === msg.thread_root_id) {
         setThreadMessagesFor(msg.chat_id, (prev) => upsertMessageById(prev, msg))
       }
       return
     }
-    // @@@prev-bleed-root (#621 layer 2) - the active-vs-cache split now lives in
-    // setMessagesAndCache itself, so this is a single unconditional call: it writes the
-    // global `messages` when msg.chat_id is active, otherwise updates only that chat's cache.
+    // @@@prev-bleed-root (#621) — setMessagesAndCache writes only msg.chat_id, including off-screen chats.
     setMessagesAndCache((prev) => upsertMessageById(prev, msg), msg.chat_id)
     // @@@4439 — settled 权威行(ack/附件回读/sessionpage host)合并后调度跳号重验证;机制、竞态让位与降级链见 chatSeqJumpRepair 卫星。
     if (msg.seq >= 0) void repairSeqJumpAfterIngest({ userId: () => userRef.current?.id ?? null, windowRows: windowRowsOf, snapshotEpoch: getMessageSnapshotEpoch, revalidateInFlight: revalidateInFlightRef.current, applyMessagesSnapshot, refreshMessages, revalidateWindowOverlays }, msg)
@@ -822,14 +819,14 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }, [userId])
 
   const deleteChat = useCallback(async (chatId: string, persist = false) => {
-    if (persist) await (chatsRef.current.find((chat) => chat.id === chatId)?.kind === 'topic' ? topicService.archiveTopic(chatId) : chatService.archiveChat(chatId))
+    if (persist) { const receipt = await (chatsRef.current.find((chat) => chat.id === chatId)?.kind === 'topic' ? topicService.archiveTopic(chatId) : chatService.archiveChat(chatId)); if (imRepositoryScope.disposed || receipt && !await chatProjection.confirmPersonalDeletion(userId!, receipt)) return }
     projectionRef.current.forgetChat(chatId) // 显式删除是权威动作:乐观行与投影水位一起出列 (#4314)
     setChats((prev) => prev.filter((c) => c.id !== chatId))
     dropTextDraft(chatId)
     dropDraftAttachments(chatId) // @@@draft-attachment (#1872) - drop queued attachments alongside the draft
     cache.delete(chatId)
     if (activeChatIdRef.current === chatId) setActiveChatId(null)
-  }, [cache, setActiveChatId, dropDraftAttachments, dropTextDraft])
+  }, [cache, setActiveChatId, dropDraftAttachments, dropTextDraft, imRepositoryScope, chatProjection, userId])
   // #901 退出群聊：共同 RPC 确认移除本人席位后，再本地清理。
   const leaveGroup = useCallback(async (chatId: string) => {
     if (!userId) throw new Error('Not authenticated')

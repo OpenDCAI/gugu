@@ -905,6 +905,9 @@ export default {
     "unknownStatus": "兑换状态未知：{{status}}"
   },
   "lowBalance": {
+    "remaining_one": "剩 {{credits}} 积分",
+    "remaining_other": "剩 {{credits}} 积分",
+    "topUp": "充值",
     "description": "建议充值，以免云端 agent 对话被中断。",
     "later": "稍后",
     "recharge": "去充值",

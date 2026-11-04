@@ -115,6 +115,7 @@ export type MembershipValue = {
   updated_at: string
   joined_at: string
   inbox_published: boolean
+  conversation_deleted_at?: string | null
   role: GroupMemberRole | null
 }
 
@@ -190,6 +191,8 @@ export type ProjectionOperation = {
   event: string
   chatId: string | null
   entityId: string | null
+  /** chat_members_changed kind 'own':我自己那一席的私有状态(读位、手动标未读)变了。 */
+  own?: boolean
 }
 
 /**
@@ -221,6 +224,9 @@ export function operationKeys(operation: ProjectionOperation): EntityKey[] {
       // 成员行变化不改 chat 行 ⇒ 不顺带重读它。「已存在的会话刚被发布进我的收件箱」那一路
       // (open_dm 只写成员/publication、不发 chat_changed)由闭包补:我的成员行**蕴含**它的会话。
       // entityId 缺失时不知道是谁变了,退回读该会话的成员集合所依赖的 chat 行。
+      // 自己那一席的私有状态喂着 list_unread_locators:清掉尾部的手动未读不动读位,服务端就只发这一条
+      // (没有 member_read_changed)⇒ 未读要跟着重读,否则红点一直在。
+      if (operation.own && entityId) return [entityKey('membership', membershipId(chatId, entityId)), entityKey('unread', chatId)]
       return entityId
         ? [entityKey('membership', membershipId(chatId, entityId))]
         : [entityKey('chat', chatId)]
@@ -483,7 +489,7 @@ export function assemble(cache: ProjectionCache, viewerId: string): ChatItem[] {
     const own = memberships.get(membershipId(chat.id, viewerId))
     // inbox publication 是独立事实,不是 membership 副作用(conversation-data):
     // 没发布的会话不进列表。
-    if (!own || !own.inbox_published) continue
+    if (!own || !own.inbox_published || own.conversation_deleted_at) continue
     const isPeerChat = chat.kind === 'dm' || chat.kind === 'ai'
     const peers = (membersByChat.get(chat.id) ?? []).filter((member) => member.user_id !== viewerId)
     const peerUserId = isPeerChat ? (peers[0]?.user_id ?? null) : null

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { sessionInputAdmission } from '../../../packages/core/src/shared/sessionInputAdmission.ts'
 import { deviceScopeError } from '../../../packages/core/src/shared/deviceActions.ts'
 import { createDeviceActionHost } from '../../../packages/core/src/cloud/deviceActionHost.ts'
 import { createDeviceRpcRequester } from '../../../packages/core/src/cloud/deviceRpcRequester.ts'
@@ -140,7 +141,7 @@ export async function startPhoneAgentRpc({ cloud, ownerId, deviceId, invoke, pro
             if (request.type === 'taskhost.call') {
               const body = request.payload
               if (!body || typeof body.channel !== 'string' || !Array.isArray(body.args)) return { error: { code: 'invalid_payload', message: 'channel 和 args 是必填的' } }
-              try { return { result: { value: await invoke(body.channel, body.args, request.request_id) } } } catch (error) { return { error: { code: error.code ?? 'session_action_failed', message: error.message } } }
+              try { return { result: { value: await invoke(body.channel, body.args, request.request_id) } } } catch (error) { return { error: { code: error.code ?? 'session_action_failed', message: error.message, admission: sessionInputAdmission(error) } } }
             }
             return { error: { code: 'unknown_method', message: `手机宿主尚不支持 ${request.type}` } }
           })()

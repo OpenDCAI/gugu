@@ -43,7 +43,8 @@ import { buildSlashCommandExtension } from './extensions/slash-command';
 import { buildSubmitKeymap } from './extensions/submit-keymap';
 import { buildPromptHistoryKeymap } from './extensions/prompt-history-keymap';
 import { compactMentionPath } from './mention-pill-helpers';
-import { mentionInsertContent, plainTextDoc, serializeDoc, serializeNode } from './serialize';
+import { isEmptyPromptDocument, mentionInsertContent, plainTextDoc, serializeDoc, serializeNode } from './serialize';
+import { MentionDisplayContext } from './mention-display-context';
 import type {
   CommandItem,
   MentionItem,
@@ -217,6 +218,7 @@ function makeSuggestionRender<T>(
 export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(function PromptEditor(
   {
     placeholder = 'Message…',
+    emptyHint,
     inputTestId = 'prompt-editor',
     inputRef,
     enterBehavior = 'submit',
@@ -438,7 +440,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
     onCreate({ editor: e }) { setEditorDom(e.view.dom); },
     onUnmount() { setEditorDom(null); },
     onUpdate({ editor: e }) {
-      setIsEmpty(e.isEmpty);
+      setIsEmpty(isEmptyPromptDocument(e.state.doc));
       const text = serializeDoc(e.state.doc);
       onChange?.(text);
     },
@@ -475,6 +477,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
       if (!editor) return '';
       return serializeDoc(editor.state.doc);
     },
+    isEmpty() { return editor ? isEmptyPromptDocument(editor.state.doc) : true; },
     setText(text) {
       editor?.commands.setContent(plainTextDoc(text, mentionProviderRef.current?.resolve), { emitUpdate: true });
     },
@@ -592,10 +595,10 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
   return (
     <>
       <div className={cx(styles.editorWrapper, className)}>
-        <EditorContent editor={editor} className={styles.editorContent} aria-disabled={disabled} />
+        <MentionDisplayContext.Provider value={mentionProvider?.resolve}><EditorContent editor={editor} className={styles.editorContent} aria-disabled={disabled} /></MentionDisplayContext.Provider>
         {isEmpty && (
-          <span aria-hidden className={styles.editorPlaceholder}>
-            {placeholder}
+          <span aria-hidden={emptyHint ? undefined : true} className={styles.editorPlaceholder} style={emptyHint ? { right: 0 } : undefined}>
+            {emptyHint ?? placeholder}
           </span>
         )}
       </div>

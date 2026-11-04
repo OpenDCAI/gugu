@@ -1,13 +1,29 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const auth = vi.hoisted(() => ({ owner: 'owner-a' }))
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ getCurrentAuthUserId: async () => auth.owner }))
 vi.mock('../../../../apps/desktop/src/mobile/local-agent/phoneHostRpc', () => ({ invokePhoneHost: vi.fn() }))
 import { readPhoneTaskSend, retryPhoneTaskSend, sendPhoneTaskText } from '../../../../apps/desktop/src/mobile/local-agent/phoneTaskSend'
 
 beforeEach(() => { localStorage.clear(); auth.owner = 'owner-a' })
+afterEach(() => { vi.useRealTimers() })
 
 describe('durable phone task admission', () => {
+  it('keeps the existing presentation deadline while a late acceptance settles the original draft', async () => {
+    vi.useFakeTimers()
+    let accept!: (value: unknown) => void
+    const invoke = vi.fn().mockImplementation(() => new Promise(resolve => { accept = resolve }))
+    const pending = sendPhoneTaskText('phone', 'task', 'original', invoke)
+    const failed = expect(pending).rejects.toMatchObject({ message: '手机尚未返回操作结果，请重试。', code: 'host_call_timeout' })
+    await vi.advanceTimersByTimeAsync(12_000)
+    await failed
+    expect(readPhoneTaskSend('owner-a', 'phone', 'task')?.text).toBe('original')
+    accept({ accepted: true })
+    await vi.advanceTimersByTimeAsync(1)
+    expect(readPhoneTaskSend('owner-a', 'phone', 'task')).toBeNull()
+    expect(invoke).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
   it('reuses the same admission id after a lost acknowledgement and only clears on acceptance', async () => {
     const invoke = vi.fn().mockRejectedValueOnce(new Error('connection lost')).mockResolvedValueOnce({ accepted: true })
     await expect(sendPhoneTaskText('phone', 'task', ' hello ', invoke)).rejects.toThrow('connection lost')
