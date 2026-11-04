@@ -169,12 +169,13 @@ export function resolveComposerModelPanel(input: {
 
 // ── Model tooltip ─────────────────────────────────────────────────────────────
 
+import { formatTokenCount } from '@gugu/session-shared/format';
+
 export function formatContextWindow(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(0)}M tokens`;
-  if (tokens >= 1_000) {
-    const thousands = Math.round(tokens / 1_000);
-    return thousands >= 1_000 ? `${(tokens / 1_000_000).toFixed(0)}M tokens` : `${thousands}K tokens`;
-  }
+  // 进位判据与别处同一份(session-shared);这里只换成「N tokens」的写法。
+  const count = formatTokenCount(tokens);
+  if (count.endsWith('M')) return `${(tokens / 1_000_000).toFixed(0)}M tokens`;
+  if (count.endsWith('k')) return `${Math.round(tokens / 1_000)}K tokens`;
   return `${tokens} tokens`;
 }
 

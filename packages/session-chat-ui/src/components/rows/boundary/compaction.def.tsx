@@ -38,6 +38,7 @@ import { readableLabel, rowTranslator } from '../readable-label';
 import { defineUnit } from '@session-chat/core/units';
 import { useChatTranslator } from '@session-chat/localization';
 import type { TranscriptCompaction } from '@gugu/session-core/acp';
+import { formatTokenCount } from '@gugu/session-shared/format';
 import { boundaryLabel, boundaryRow, boundaryRule } from './boundary.css';
 
 /**
@@ -48,10 +49,9 @@ import { boundaryLabel, boundaryRow, boundaryRule } from './boundary.css';
  */
 export const COMPACTION_ROW_H = 24;
 
-/** 75888 → `75.9k`。压缩前后动辄几万，原样铺出来读不出量级差。 */
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+/** 75888 → `76k`。压缩前后动辄几万,原样铺出来读不出量级差;千/兆的进位判据与消息区其它地方同一份。 */
+export function formatTokens(n: number): string {
+  return formatTokenCount(n);
 }
 
 function compactionLabel(data: TranscriptCompaction, translate: import('@session-chat/localization').ChatTranslator): string {
