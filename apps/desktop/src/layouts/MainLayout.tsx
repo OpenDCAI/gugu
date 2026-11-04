@@ -60,7 +60,6 @@ import { useOwnedAgentConversationEntry } from '../hooks/useOwnedAgentConversati
 import { SessionInputOutboxHost } from '../hooks/useSessionInputOutbox'
 import { NeedsYouHost } from '../components/needsYou/NeedsYouHost'
 import { AgentFailureSlotHost } from '../components/AgentTurnFailureBar'
-import { NeedsYouSlot } from '../components/needsYou/NeedsYouSlot'
 import { AgentSharePopover } from '../components/sessionpage/AgentSharePopover'
 import { SESSIONPAGE_SHARE_ANCHOR_SELECTOR } from '../lib/sessionpageShareAnchor'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
@@ -1069,7 +1068,7 @@ function InnerLayout({
                     <ChatListPanel
                       mobile={mobile}
                       hidden={chatListHidden}
-                      lead={mobile && (phoneAssistant.available || sessionAttention !== null) ? <>{phoneAssistant.available && <PhoneAssistantRow state={phoneAssistant} onOpen={openPhoneAssistant} />}<NeedsYouSlot list /></> : undefined}
+                      lead={mobile && phoneAssistant.available ? <PhoneAssistantRow state={phoneAssistant} onOpen={openPhoneAssistant} /> : undefined}
                       leadChatId={phoneAssistant.chatId}
                       headerLeading={mobile ? <PhoneMeButton user={user} onOpen={() => selectTab('settings')} /> : undefined}
                       onChatSelected={(focusTarget = 'composer') => navigateMobile(() => {

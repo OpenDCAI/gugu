@@ -32,7 +32,9 @@ import { UI_EVENTS } from '../lib/uiEvents'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
 import { openOwnedAgentEntry, useOwnedAgentEntries } from '../lib/ownedAgentConversation'
-import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, type ShellChatDialog } from '../lib/sidebarChatsBridge'
+import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, useSidebarNotificationsOpen, type ShellChatDialog } from '../lib/sidebarChatsBridge'
+import { NotificationSlot } from './needsYou/NotificationSlot'
+import { RETAINED_SURFACE_HIDDEN_STYLE } from '../lib/retainedSurface'
 import { blockKey, joinRows, type JoinedGroup, type SidebarJoin } from '../lib/sidebarJoinedGroups'
 import { groupTopicsBySource, isTopLevelChatRow, splitSunkTopics } from './chatListTopicNesting'
 import { useLongPress } from '../hooks/useLongPress'
@@ -514,6 +516,7 @@ export function ChatListPanel({
   onNewProject,
 }: ChatListPanelProps) {
   const inSidebar = placement === 'sidebar'
+  const notificationsOpen = useSidebarNotificationsOpen()
   // The IM page's list (web / phone) is on screen when the shell shows 消息; the task page's sidebar copy never is.
   const chatsShown = useShellTabIs('chats')
   const sidebarView = useSidebarChatView()
@@ -783,7 +786,7 @@ export function ChatListPanel({
   }
 
   useEffect(() => {
-    if (!chatsShown) return
+    if (!chatsShown || notificationsOpen) return
     const handleGlobalShortcut = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
       if (
@@ -833,7 +836,7 @@ export function ChatListPanel({
 
     window.addEventListener('keydown', handleGlobalShortcut)
     return () => window.removeEventListener('keydown', handleGlobalShortcut)
-  }, [activeChatId, activeTopicChatId, chatsShown, chats, selectChat, visibleChatIds])
+  }, [activeChatId, activeTopicChatId, chatsShown, chats, selectChat, visibleChatIds, notificationsOpen])
 
   const handleChatKeyDown = (event: Parameters<KeyboardEventHandler<HTMLDivElement>>[0], chat: ChatItem) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -945,7 +948,8 @@ export function ChatListPanel({
         style={mobile ? NAV_HEADER_STYLE : NAV_HEADER_STYLE_DESKTOP}
         actions={
           <>
-            {searchButton}
+            <NotificationSlot part="toggle" />
+            {!notificationsOpen && searchButton}
 
             <DropdownMenu.Root
               open={showPlusMenu}
@@ -993,7 +997,7 @@ export function ChatListPanel({
       />
       )}</HeaderSearch>
 
-      {!mobile && (
+      {!mobile && !notificationsOpen && (
         <SearchField
           ref={searchInputRef}
           className="mx-3 mb-2 mt-1.5 w-auto shrink-0"
@@ -1006,7 +1010,10 @@ export function ChatListPanel({
         />
       )}
 
-      {list}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div data-notification-original-list="" className="flex min-h-0 flex-1 flex-col" style={notificationsOpen ? RETAINED_SURFACE_HIDDEN_STYLE : undefined}>{list}</div>
+        <NotificationSlot part="list" active={notificationsOpen && chatsShown && !hidden} />
+      </div>
       {dialogs}
 
     </Pane>

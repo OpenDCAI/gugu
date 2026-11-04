@@ -16,7 +16,6 @@ import '@gugu/session-ui/styles/base.css'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
 
-vi.mock('@/components/needsYou/NeedsYouSlot', () => ({ NeedsYouSlot: () => null }))
 
 function TrayComposer(props: ComponentProps<typeof ChatComposer>) {
   return <ChatComposer {...props} bandAbove={useComposerTrayBand()} />
