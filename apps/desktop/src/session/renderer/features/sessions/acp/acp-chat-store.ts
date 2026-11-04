@@ -247,6 +247,7 @@ export class AcpChatStore {
   private _permissionModeRequestId = 0;
   /** A model failure stays beside that setting until a model change is confirmed. */
   modelSettingError: string | null = null;
+  private _modelSettingRecovery = false;
   private _draftTimer: number | null = null;
   private _lastQueuedPrompts: QueuedPrompt[] = [];
   /** The side chat's fork entry in session-life (`lifeFork`); ended when the page is disposed. */
@@ -1226,6 +1227,7 @@ export class AcpChatStore {
    */
   reattachAfterHostReload(): void {
     if (this._disposed || !this._bootstrapped) return;
+    this._modelSettingRecovery = this.modelSettingError !== null;
     const keepStoredPage = this._storedPageReusable();
     this._unsubs.splice(0).forEach((unsub) => unsub());
     this.session?.dispose();
@@ -1504,6 +1506,7 @@ export class AcpChatStore {
     const session = this.session;
     if (!session) return { kind: 'restart-required', requestedValue: model };
     try {
+      this._modelSettingRecovery = false;
       const result = await session.setModelOption('model', model);
       const rejection = result.success ? null : modelSettingRejection(result.error);
       const reason = result.success ? undefined : describeFailureCause(result.error);
@@ -2441,11 +2444,23 @@ export class AcpChatStore {
     }
   }
 
+  private _clearConfirmedModelSettingError(session: AcpLiveSession): void {
+    if (!this._modelSettingRecovery || this.session !== session
+      || HOST_NOT_SETTLED.has(session.sessionState.current().lifecycle)
+      || !session.config.current().modelOptions?.selected) return;
+    runInAction(() => {
+      this.modelSettingError = null;
+      this._modelSettingRecovery = false;
+    });
+  }
+
   private _subscribeLiveSession(session: AcpLiveSession): void {
     this._unsubs.splice(0).forEach((unsub) => unsub());
     // 挂上了:停着时盯会话表的那一格交还 —— 之后它停没停由这条会话自己的状态说(`_onSessionClosedByHost`)。
     this._setParkWatch(null);
     const initialState = session.sessionState.current();
+    this._clearConfirmedModelSettingError(session);
+    this._unsubs.push(session.config.onChange(() => this._clearConfirmedModelSettingError(session)));
     let refreshingChildren = false;
     let childrenChanged = false;
     let unsubscribed = false;
@@ -2500,6 +2515,7 @@ export class AcpChatStore {
       session.sessionState.onChange(() =>
         runInAction(() => {
           const next = session.sessionState.current();
+          this._clearConfirmedModelSettingError(session);
           const startedNewTurn =
             next.activeTurnId !== null && next.activeTurnId !== this._lastActiveTurnId;
           const removedManual = this._lastQueuedPrompts.find(

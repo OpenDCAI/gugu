@@ -27,7 +27,7 @@
  * 一级 = **这条是谁的**(组头);二级 = **厂商**(顶部筛选药丸 + 行内 logo,❌ 不分组)。
  * 理由在产品上:用户先要决定的是这次调用记在谁账上,厂商是在那之后才挑的。
  */
-import React, { useEffect, useId, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { RotateCcw, Search } from '../../../icons';
 import { Combobox } from '@session-ui/react/primitives/combobox/combobox';
 // 上游那版的过滤条用的就是 Base UI 的这两件(见 model-selector.tsx 的
@@ -304,6 +304,12 @@ export function ComposerModelMenu({
    */
   const [modelProviderFilter, setModelProviderFilter] = useState<ReadonlySet<string>>(new Set());
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
+  const openModelPanel = useCallback(() => {
+    onOpenRef.current?.();
+    setModelPanelOpen(true);
+  }, []);
   /**
    * 拖动中的档位 —— **本地**状态，不绕宿主。
    *
@@ -320,8 +326,8 @@ export function ComposerModelMenu({
    */
   const effortHintId = `${useId()}-effort-hint`;
   useEffect(() => {
-    if (openRequest) setModelPanelOpen(true);
-  }, [openRequest]);
+    if (openRequest) openModelPanel();
+  }, [openRequest, openModelPanel]);
   /**
    * 悬浮详情卡(#7056,对齐 Cursor):指到哪一行,卡就贴着那一行出现在面板旁边。
    * ⚠️ 这三个 hook 同样必须排在早退之前。
@@ -488,8 +494,8 @@ export function ComposerModelMenu({
             return;
           }
           if (!next) detailCard.close();
-          if (next) onOpen?.();
-          setModelPanelOpen(next);
+          if (next) openModelPanel();
+          else setModelPanelOpen(false);
         }}
         isItemEqualToValue={(a: ComposerModelItem, b: ComposerModelItem) => a.id === b.id}
         // 上游:匹配 id、name 与 keywords(它的 demo 正是把厂商名放在 keywords 里)。
