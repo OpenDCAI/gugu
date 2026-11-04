@@ -111,10 +111,11 @@ export function acknowledgeOnScreenChatRows(
     const visible = context.visibleSeqOf ? context.visibleSeqOf(chat.id) : Number.POSITIVE_INFINITY
     const seq = Math.min(Math.max(chat.last_read_seq, chat.next_message_seq - 1), visible)
     const current = currentById.get(chat.id)
-    // mark_read 还在路上时，旧投影可能重复到达；本地更新过的读状态(更高版本,或同版本上手工标了未读)优先,❌ 投影回放把它清掉。
+    // 手工未读是用户的本地意图:❌ 不在这里合成「已读」把它拿掉(评审) —— 权威合并(applyFetchedChatList)本来就会保留手工未读。
+    if (current?.is_marked_unread) return chat
+    // mark_read 还在路上时，旧投影可能重复到达；本地更新过的读状态(更高版本)优先,❌ 投影回放把它清掉。
     const currentIsNewerProgress = !!current && current.last_read_seq >= seq && (current.read_state_version ?? 0) > (chat.read_state_version ?? 0)
-    const currentManualUnread = !!current?.is_marked_unread && (current.read_state_version ?? 0) >= (chat.read_state_version ?? 0)
-    if (current && (currentIsNewerProgress || currentManualUnread)) {
+    if (currentIsNewerProgress) {
       return { ...chat, last_read_seq: current.last_read_seq, is_marked_unread: current.is_marked_unread,
         read_state_version: current.read_state_version, unread_count: current.unread_count, unread_locator: current.unread_locator }
     }
