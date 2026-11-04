@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import tailwind from '@tailwindcss/postcss'
-import postcss, { type AcceptedPlugin, type Root, type Node, type Rule } from 'postcss'
+import postcss, { type AcceptedPlugin, type AtRule, type Root, type Node, type Rule } from 'postcss'
 import { beforeAll, expect, it } from 'vitest'
 
 const entries = ['apps/desktop/src/styles/tokens.css', 'apps/desktop/src/session/renderer/index.css']
@@ -13,10 +13,16 @@ beforeAll(async () => {
     compiled.push(postcss.parse(result.css))
   }
 })
+function isAtRule(node: Node): node is AtRule {
+  return node.type === 'atrule'
+}
+function isRule(node: Node): node is Rule {
+  return node.type === 'rule'
+}
 function layers(node: Node): string[] {
   const chain: string[] = []
   for (let parent = node.parent; parent; parent = parent.parent) {
-    if (parent.type === 'atrule' && parent.name === 'layer') chain.unshift(parent.params)
+    if (isAtRule(parent) && parent.name === 'layer') chain.unshift(parent.params)
   }
   return chain
 }
@@ -35,7 +41,8 @@ it.each([0, 1])('gives entry %i a color-only semantic base default', index => {
     if (decl.value !== 'var(--border-color, var(--border, currentColor))') return
     found++
     expect(layers(decl)).toEqual(['base'])
-    const rule = decl.parent as Rule
+    const rule = decl.parent
+    if (!rule || !isRule(rule)) throw new Error('The semantic border default must belong to a CSS rule')
     expect(rule.selector).toContain('::before')
     expect(rule.selector).toContain('::backdrop')
     expect(rule.selector).toContain('::file-selector-button')
