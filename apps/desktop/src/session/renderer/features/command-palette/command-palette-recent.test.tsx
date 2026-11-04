@@ -110,7 +110,7 @@ beforeEach(() => {
       id, state: 'provisioned', workspaceId: `workspace-${id}`,
       get data() { return manager.sessions.get(id)!.data; },
       get displayName() { return manager.sessions.get(id)!.data.title; },
-      viewModel: { paneLayout: { groups: [{ pane: { tabOrder: ['existing-tab'] } }], open: fixture.opened } },
+      viewModel: { paneLayout: { groups: [{ pane: { tabOrder: ['existing-tab'], entries: new Map([['existing-tab', { tabId: 'existing-tab', kind: 'file', state: {} }]]) } }], open: fixture.opened } },
     } as unknown as SessionPageStore);
   }
   fixture.projects = {
