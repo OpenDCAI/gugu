@@ -2554,7 +2554,7 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file',
     writer: true,
-    description: 'File delivery tool: post a file card. file: a chat-folder file by its gugu-file://<id>?v=<n>; with file_path, next version. file_path alone: new file; temporary: cloud copy expires.',
+    description: 'File delivery tool: post a file card. file: a chat-folder file by its gugu-file://<id>?v=<n>; with file_path, next version. file_path alone: new file; temporary: cloud copy expires; for anything sent only to be looked at.',
     schema: z.object({
       file: z.string().optional(),
       file_path: uploadFilePathSchema.optional(),
