@@ -6,7 +6,6 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { visibleDeliveryMessages, type HeldMessage } from '@gugu/core/shared/ui/systemNotice'
 import { projectTurnFailureMessages } from '../../lib/projectTurnFailureMessages'
 import { SystemMessageNotice } from '../chat/SystemMessageNotice'
-import { MessageReceivingIndicator } from '../chat/MessageSendingIndicator'
 import { Avatar } from '../Avatar'
 import { Markdown } from '../markdown/Markdown'
 import { Button } from '../ui/Button'
@@ -197,7 +196,6 @@ function QuickMessage({ message, held, senderName }: { message: MessageItem; hel
     <div className="qc-msg" data-mine={message.is_mine || undefined} data-sending={held?.wait === 'queued' ? 'queued' : message.local_send_state ?? undefined}
       title={held?.wait === 'queued' ? t('message.sendStatus.queued', { ns: 'messaging' }) : undefined} data-testid={`quick-chat-message-${message.id}`}>
       {body}
-      {held?.wait === 'queued' ? <span style={{ position: 'absolute', left: -19, bottom: 6 }}><MessageReceivingIndicator label={t('message.sendStatus.queued', { ns: 'messaging' })} /></span> : null}
       {message.local_send_state === 'failed' ? <span className="qc-error" title={message.local_send_error ? messageForUser(message.local_send_error) : undefined}>{t('quickChat.notSent')}</span> : null}
       {held?.wait === 'undelivered' ? <span className="qc-error" title={t('agent.turnFailure.undelivered', { ns: 'messaging' })}>{t('message.sendStatus.undelivered', { ns: 'messaging' })}</span> : null}
     </div>

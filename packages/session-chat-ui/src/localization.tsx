@@ -116,7 +116,6 @@ const fallbackMessages = {
   'transcript.starting': 'Starting',
   'transcript.restoring': 'Restoring',
   'transcript.sending': 'Sending',
-  'transcript.waitingToReceive': 'Waiting to be received',
   'transcript.waitingToSend': 'Waiting to send',
   'transcript.waitingHostOffline': 'Machine offline',
   'transcript.waitingHostNotReady': 'Machine not ready',

@@ -28,12 +28,6 @@ export function InputSendStatus(props: { item: ChatMessage; right: number; top: 
         <circle cx="7.5" cy="7.5" r="5.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.6 3.2" stroke-linecap="round" />
       </svg>
     </Show>
-    <Show when={props.item.sendStatus?.state === 'receiving'}>
-      <svg width="15" height="15" viewBox="0 0 15 15" role="img" aria-label={t('transcript.waitingToReceive')}
-        data-send-state="receiving" style={{ position: 'absolute', right: `${props.right}px`, top: `${props.top}px`, opacity: .56, color: vars.fgMuted }}>
-        {[3, 7.5, 12].map((x, index) => <circle cx={x} cy="7.5" r="1.3" fill="currentColor" class="gg-receive-dot" style={{ 'animation-delay': `${index * 140}ms` }} />)}
-      </svg>
-    </Show>
     <Show when={props.item.sendStatus?.state === 'waiting'}>
       <div data-send-state="waiting" role="status" title={props.item.sendStatus?.error}
         style={{ height: `${INPUT_SEND_FAILURE_HEIGHT}px`, display: 'flex', 'align-items': 'center', 'justify-content': 'flex-end', 'font-size': '12px', color: vars.fgMuted }}>

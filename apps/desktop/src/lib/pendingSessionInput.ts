@@ -29,24 +29,21 @@ export function sessionInputWaitingReason(failure: SessionInputFailure): string 
 export function projectSessionPendingInput(previous: PendingPrompt | null, sender: readonly SessionInput[],
   host: readonly HostPendingRow[], turns: readonly TranscriptTurn[]): PendingPrompt | null {
   if (sender.some(row => row.id === previous?.id && row.admission === 'rejected')) previous = null
-  const ordinary = sender.filter(row => row.admission !== 'rejected' && row.queued === false && !row.sendQueue)
-  const terminal = previous?.delivery?.state === 'failed' || previous?.delivery?.state === 'unknown'
-  const input = ordinary.find(row => !previous?.delivery || row.id === previous.id)
-    ?? (terminal ? ordinary.find(row => row.id !== previous?.id) : undefined)
+  const input = sender.find(row => row.admission !== 'rejected' && row.queued === false && (!previous?.delivery || row.id === previous.id))
   let prompt: PendingPrompt | null = input ? {
     id: input.id, text: input.text, sentAt: input.createdAt, baselineMessageIds: input.baseline, afterTurnId: input.afterTurnId,
     attachments: input.files?.map(file => ({ id: file.itemId, name: file.name, href: `gugu-file://${file.itemId}?v=${file.version}`, kind: file.mimeType.startsWith('image/') ? 'image' : 'file' })),
     held: true, delivery: input.failure ? { state: 'waiting', retryable: false, reason: sessionInputWaitingReason(input.failure), error: sessionInputFailureText(input.failure) } : { state: 'sending' },
   } : previous?.delivery && !(previous.delivery.state === 'failed' && previous.delivery.retryable === true)
-    ? { ...previous, held: true, delivery: { state: 'receiving' } } : null
+    ? { ...previous, held: true, delivery: { state: 'accepted' } } : null
   if (!prompt) return null
   const promptId = prompt.id
   const receipt = host.find(row => row.messageId === promptId)
   if (receipt?.state === 'failed' || receipt?.state === 'unknown') {
     prompt = { ...prompt, delivery: { state: receipt.state, retryable: false, error: receipt.failure ? messageForUser(receipt.failure)
       : i18n.t('message.sendStatus.unknownNotResent', { ns: 'messaging' }) } }
-  } else if (!input || receipt?.state === 'accepted' || (receipt && !input.failure)) {
-    prompt = { ...prompt, delivery: { state: 'receiving' } }
+  } else if (receipt?.state === 'accepted' || !input) {
+    prompt = { ...prompt, delivery: { state: 'accepted' } }
   }
   return pendingPromptLanded(prompt, turns) ? null : prompt
 }

@@ -71,7 +71,7 @@ import { unitContainsItem, unitItemIds, unitReservedHeight } from './core/units'
 import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
-import { activeTurnWithInputs, latestVisibleTurnId, pendingPromptLanded, projectPendingMessages, type PendingMessageProjectionCache } from './state/pending-prompt';
+import { activeTurnWithInputs, pendingPromptLanded, projectPendingMessages, type PendingMessageProjectionCache } from './state/pending-prompt';
 import { isEmptyAgentTurn, joinsFoldRunAt } from './state/turn-fold';
 import {
   flattenTier, lastConversationMessage,
@@ -502,8 +502,8 @@ export function ChatRoot(props: ChatRootProps) {
 
   // ── Flat unit view (two-tier, incremental) ────────────────────────────────
   // Identity changes only once per new turn, not for every streamed update.
-  const latestTurnId = createMemo(() => latestVisibleTurnId(state().transcript.state.activeTurnSnapshot,
-    state().transcript.state.committedTurns, state().session.state.pendingPrompt, state().session.state.pendingMessages));
+  const latestTurnId = createMemo(() => state().transcript.state.activeTurnSnapshot?.id
+    ?? state().transcript.state.committedTurns.at(-1)?.id);
   const segmentCtx = (active = false) => segmentCtxFor(props.context, state(), caches(), active, latestTurnId());
 
   let committedUnitsArr: ReturnType<typeof flattenTier> = [];
@@ -662,7 +662,7 @@ export function ChatRoot(props: ChatRootProps) {
         if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
         return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
       }
-      const activeTurn = activeTurnWithInputs(at, pendingPrompt, pendingMessages, state().transcript.state.committedTurns)!;
+      const activeTurn = activeTurnWithInputs(at, pendingPrompt, pendingMessages)!;
       // Reserve the same process row from send to startup: adding it at acknowledgement scrolls a long transcript.
       const pending = [...(pendingPrompt ? [pendingPrompt] : []), ...pendingMessages];
       const failedPending = !at && pending.length > 0 && pending.every(input => input.stopped || input.delivery?.state === 'waiting' || input.delivery?.state === 'failed' || input.delivery?.state === 'unknown');
@@ -976,7 +976,7 @@ export function ChatRoot(props: ChatRootProps) {
       const s = state();
       const pending = s.session.state.pendingPrompt;
       const active =
-        activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting, s.transcript.state.committedTurns);
+        activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting);
       if (!active) return userTurns();
       const base = committedUnitsArr.length;
       const inActive = collectUserTurnUnits(
@@ -1010,7 +1010,7 @@ export function ChatRoot(props: ChatRootProps) {
       committedUnitsVersion();
       const s = state();
       const pending = s.session.state.pendingPrompt;
-      const active = activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting, s.transcript.state.committedTurns);
+      const active = activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting);
       const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
       const base = committedUnitsArr.length;
       const ends = active

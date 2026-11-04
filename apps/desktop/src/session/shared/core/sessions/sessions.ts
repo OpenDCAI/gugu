@@ -143,7 +143,7 @@ export type SessionMessage = {
  * this turn, as the next one (at once when idle); `coalesceKey` = a queued message of the same key is replaced, not
  * added to. Only the ACP adapter reads it — a terminal session is refused before anything is sent.
  */
-export type SessionMessageDelivery = { queue: true; steerIfBusy?: true; coalesceKey?: string; origin?: 'manual'; files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]; attachments?: import('@gugu/session-core/acp/client').PromptAttachment[] };
+export type SessionMessageDelivery = { queue: true; coalesceKey?: string; origin?: 'manual'; files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]; attachments?: import('@gugu/session-core/acp/client').PromptAttachment[] };
 
 export type PendingRestart = {
   status: 'restart_failed';

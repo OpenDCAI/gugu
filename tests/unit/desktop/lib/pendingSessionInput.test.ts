@@ -17,8 +17,8 @@ describe('ordinary input transcript custody', () => {
     const sending = projectSessionPendingInput(null, [input()], [], [old])!
     expect(sending).toMatchObject({ id: 'send', delivery: { state: 'sending' } })
     const accepted = projectSessionPendingInput(sending, [], [], [old])!
-    expect(accepted).toMatchObject({ id: 'send', text: 'hello', held: true, delivery: { state: 'receiving' } })
-    expect(projectSessionPendingInput(accepted, [], [host('queued')], [old])?.delivery?.state).toBe('receiving')
+    expect(accepted).toMatchObject({ id: 'send', text: 'hello', held: true, delivery: { state: 'accepted' } })
+    expect(projectSessionPendingInput(accepted, [], [host('queued')], [old])?.delivery?.state).toBe('accepted')
     expect(projectSessionPendingInput(accepted, [], [], [old, turn('native', 'hello', 25)])).toBeNull()
   })
 
@@ -61,7 +61,7 @@ describe('ordinary input transcript custody', () => {
     const sending = projectSessionPendingInput(null, [input()], [], [old])!
     const active: TranscriptTurn = { id: 'new-turn', seq: 2, initiator: 'user', startedAt: 25, items: [] }
     expect(activeTurnWithPending(active, sending)?.items).toMatchObject([{ id: 'send', text: 'hello' }])
-    expect(activeTurnWithPending(turn('native', 'hello', 25), sending, [old])?.items).toHaveLength(1)
+    expect(activeTurnWithPending(turn('native', 'hello', 25), sending)?.items).toHaveLength(1)
   })
 
   it('keeps automatic recovery on the same input identity', () => {
@@ -81,12 +81,6 @@ describe('ordinary input transcript custody', () => {
 
   it('leaves explicitly queued inputs in their existing queue', () => {
     expect(projectSessionPendingInput(null, [{ ...input(), queued: true }], [], [old])).toBeNull()
-  })
-
-  it('does not let an older terminal receipt hide a newly sent input', () => {
-    const failed = { ...input(), id: 'failed-old' }
-    const previous = { id: failed.id, text: failed.text, delivery: { state: 'failed' as const } }
-    expect(projectSessionPendingInput(previous, [input()], [], [old])).toMatchObject({ id: 'send', delivery: { state: 'sending' } })
   })
 
   it('keeps an unknown host outcome visible without offering an unsafe resend', () => {

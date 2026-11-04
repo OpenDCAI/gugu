@@ -325,7 +325,6 @@ export interface DeviceSessionSummary {
   nativeInputVersion?: 1 | 2
   /** Client identity survives host queue admission and provider transcript IDs. */
   nativeInputIdentity?: true
-  nativeInputSteering?: true
   runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string

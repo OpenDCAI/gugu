@@ -188,8 +188,6 @@ describe('session-life ACP leg', () => {
     expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { clientMessageId: 'm', steerIfBusy: true });
     await adapter.dispatch({} as StageOut, { ...(row as object), message: { id: 'm', text: 'hi', delivery: { queue: true } } } as never, ctx());
     expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { clientMessageId: 'm' });
-    await adapter.dispatch({} as StageOut, { ...(row as object), message: { id: 'm', text: 'hi', delivery: { queue: true, steerIfBusy: true } } } as never, ctx());
-    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { clientMessageId: 'm', steerIfBusy: true });
   });
 
   it('a backlog waiting when the channel was admitted goes out turn by turn; only later input steers the running turn', async () => {

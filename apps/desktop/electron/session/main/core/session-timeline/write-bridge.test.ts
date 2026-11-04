@@ -114,17 +114,6 @@ describe('终端腿(pty)回话:唤醒归 session-direct 的路由', () => {
 });
 
 describe('mobile ACP replies go into the session queue (custody)', () => {
-  it('keeps explicit send-now steering in the same durable input without changing ordinary sends', async () => {
-    await bridge.deliverSessionText(target, 'now', 'steered-input', undefined, undefined, true);
-    await bridge.deliverSessionText(target, 'later', 'ordinary-input');
-    expect(state.enqueued).toEqual([
-      expect.objectContaining({ messageId: 'steered-input', delivery: { queue: true, origin: 'manual', steerIfBusy: true } }),
-      expect.objectContaining({ messageId: 'ordinary-input', delivery: { queue: true, origin: 'manual' } }),
-    ]);
-    await expect(bridge.deliverSessionText(ptyTarget, 'now', 'no-terminal-steering', undefined, undefined, true))
-      .rejects.toMatchObject({ code: 'unsupported_runtime', admission: 'rejected' });
-    expect(state.calls).toEqual([]);
-  });
   it('admits a caption and its image as one manual input, including image-only input', async () => {
     const attachments = [{ type: 'attachment' as const, id: 'image-a', mimeType: 'image/png' as const, name: 'a.png' }];
     await bridge.deliverSessionText(target, 'caption', 'input-with-image', undefined, attachments);

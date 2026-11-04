@@ -771,7 +771,7 @@ export default {
       "failed": "Not delivered",
       "failedActions": "Undelivered message actions",
       "failedHint": "Not delivered. Click to retry or discard.",
-      "queued": "Waiting to be received",
+      "queued": "Sending. Your assistant will reply when ready.",
       "undelivered": "instance not running, not delivered",
       "sending": "Sending",
       "stopped": "Stopped. Sends with your next message.",
