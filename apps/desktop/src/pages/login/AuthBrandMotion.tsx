@@ -23,6 +23,6 @@ export function AuthBrandMotion() {
     return () => { intersection.disconnect(); theme.disconnect(); reducedMotion.removeEventListener('change', mount) }
   }, [])
   return <div ref={host} className="gugu-auth-motion" aria-hidden="true">
-    <iframe title="gugu" tabIndex={-1} sandbox="allow-scripts" srcDoc={document} />
+    {document && <iframe key={document} title="gugu" tabIndex={-1} sandbox="allow-scripts" srcDoc={document} />}
   </div>
 }
