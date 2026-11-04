@@ -141,11 +141,13 @@ it('an official API connection is not attributed to a cached ChatGPT subscriptio
 });
 
 describe('Codex 配置读不动时', () => {
-  it('config.toml 语法坏了:读数按「没写」继续,不整页报错', async () => {
+  it('config.toml 语法坏了:照实报错,❌ 当成空配置退回 auth.json', async () => {
     const files = {
       '.codex/config.toml': 'model_provider = "relay"\n[model_providers.relay\nbase_url = "https://r.example.com/v1"\n',
       '.codex/auth.json': JSON.stringify(chatgptAuth('plus')),
     };
-    await expect(readCodexPlan(ctx(files))).resolves.toEqual({ payer: 'subscription', plan: 'ChatGPT Plus' });
+    const io = ctx(files);
+    await expect(readCodexPlan(io)).rejects.toThrow(/config\.toml/);
+    expect(io.fs.read).not.toHaveBeenCalledWith('.codex/auth.json');
   });
 });
