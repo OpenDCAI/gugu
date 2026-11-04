@@ -58,11 +58,19 @@ it('uses the ordinary pending projection on the phone, keeping acceptance and au
     sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking={false}
     onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} });
   await until('phone pending input appears in the transcript', () => !!harness.container.querySelector('[data-user-card="phone-send"]') && !!harness.container.querySelector('[data-send-state="sending"]'));
-  const top = harness.container.querySelector('[data-user-card]')!.getBoundingClientRect().top;
+  const bounds = harness.container.querySelector('[data-user-card]')!.getBoundingClientRect();
+  expect(bounds.width).toBeGreaterThan(100);
+  expect(bounds.height).toBeGreaterThan(10);
   await act(async () => { state().rows = []; changed(); });
-  await until('acknowledgement removes only its spinner', () => !harness.container.querySelector('[data-send-state="sending"]'));
+  await until('host acknowledgement changes the spinner to receiving dots', () => !!harness.container.querySelector('[data-send-state="receiving"]'));
   expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
-  expect(harness.container.querySelector('[data-user-card]')!.getBoundingClientRect().top).toBe(top);
+  const received = harness.container.querySelector('[data-user-card]')!.getBoundingClientRect();
+  expect([received.top, received.height]).toEqual([bounds.top, bounds.height]);
+  const status = harness.container.querySelector('[data-send-state="receiving"]')!;
+  expect(status.textContent).toBe('');
+  expect(status.querySelectorAll('circle')).toHaveLength(3);
+  expect(getComputedStyle(status).position).toBe('absolute');
+  await page.screenshot({ path: '__screenshots__/1344-phone-receiving.png' });
   await act(async () => { state().rows = [{ ...input, failure: { code: 'host-offline' } }]; changed(); });
   await until('offline input waits for automatic delivery', () => !!harness.container.querySelector('[data-send-state="waiting"]'));
   expect(harness.container.querySelector('[data-send-state="waiting"] button')).toBeNull();

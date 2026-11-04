@@ -58,7 +58,7 @@ it('holds an opened queue until the authoritative life view arrives after histor
   await until('a confirmed ready foreground permits release', () => release.mock.calls.length === 1)
 })
 
-it('shows a running input after durable commit without waiting for a host queue response, then hands off its id', async () => {
+it('keeps a held input editable from its first frame, then keeps the sent input in the transcript', async () => {
   await page.viewport(390, 844)
   const timeline = emptyAgentWatchTimeline()
   const own = state()
@@ -67,7 +67,7 @@ it('shows a running input after durable commit without waiting for a host queue 
   const durable = new Promise<void>(resolve => { commit = resolve })
   const send = vi.fn(async (text: string) => {
     await durable
-    own.rows = [{ id: 'local', accountId: 'owner', deviceId: 'host', sessionId: 'session', text, createdAt: 1, queued: true }]
+    own.rows = [{ id: 'local', accountId: 'owner', deviceId: 'host', sessionId: 'session', text, createdAt: 1, queued: true, sendQueue: { order: 1 } }]
     changed()
   })
   harness = createReactHarness()
@@ -86,14 +86,17 @@ it('shows a running input after durable commit without waiting for a host queue 
   await until('durable local queue is visible before the host responds', () => !!harness.container.querySelector('[data-queued-prompt-id="local"]'))
   expect(harness.container.querySelector('[data-queued-prompt-id="local"]')?.textContent).toContain('local queue appears now')
   expect(harness.container.querySelector('[data-native-input-id="local"]')).toBeNull()
-  expect(harness.container.querySelector('[data-queued-prompt-id="local"] [data-locked="true"]')).not.toBeNull()
-  await act(async () => { own.rows = EMPTY; changed() })
-  expect(harness.container.querySelectorAll('[data-queued-prompt-id="local"]')).toHaveLength(1)
+  expect(harness.container.querySelector('[data-queued-prompt-id="local"] [data-locked="true"]')).toBeNull()
+  expect(harness.container.querySelector('[data-user-card="local"]')).toBeNull()
+  await page.screenshot({ path: '__screenshots__/1344-phone-held.png' })
+  await act(async () => { own.rows = own.rows.map(input => ({ ...input, queued: false, sendQueue: undefined })); changed() })
+  await until('explicit release puts the now-sent input in the transcript', () => !!harness.container.querySelector('[data-user-card="local"]') && !!harness.container.querySelector('[data-send-state="sending"]'))
   timeline.queuedPrompts = [{ id: 'runtime-local', clientMessageId: 'local', text: 'local queue appears now' }]
+  await act(async () => { own.rows = EMPTY; changed() })
   await render()
   expect(harness.container.querySelector('[data-queued-prompt-id="local"]')).toBeNull()
-  expect(harness.container.querySelectorAll('[data-queued-prompt-id="runtime-local"]')).toHaveLength(1)
-  expect(harness.container.querySelector('[data-queued-prompt-id="runtime-local"] [data-locked="true"]')).toBeNull()
+  expect(harness.container.querySelector('[data-queued-prompt-id="runtime-local"]')).toBeNull()
+  await until('host custody stays on the same sent input with receiving dots', () => !!harness.container.querySelector('[data-user-card="local"]') && !!harness.container.querySelector('[data-send-state="receiving"]'))
   timeline.queuedPrompts = []
   timeline.turns = [{ id: 'provider-turn', seq: 1, initiator: 'user', outcome: { kind: 'done' }, items: [
     { kind: 'message', role: 'user', id: 'provider-local', seq: 0, text: 'local queue appears now', _meta: { guguClientMessageId: 'local' } },
