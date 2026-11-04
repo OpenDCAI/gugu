@@ -294,6 +294,35 @@ test('task input admission is idempotent across transport retries and checks imm
   } finally { await f.close() }
 })
 
+test('client identity survives real Pi snapshot, incremental, older and reopened records independently of matching text', async () => {
+  const f = await fixture(), at = 1_700_000_000_000
+  const job = (record, client, status = 'done') => ({ id: randomUUID(), clientMessageId: client, inputRecordId: record,
+    agentUserId: f.agent.agentUserId, contextEpoch: f.agent.contextEpoch, prompt: 'same words', status, createdAt: stamp(at) })
+  const a = job('user-a', 'client-a'), b = job('user-b', 'client-b'), c = job(null, 'client-c', 'queued')
+  f.store.state.jobs = Object.fromEntries([a, b, c].map(job => [job.id, job]))
+  const clients = turns => turns.flatMap(turn => turn.items.filter(item => item.kind === 'message' && item.role === 'user').map(item => item._meta?.guguClientMessageId))
+  try {
+    await f.write([row('user-a', null, at, { role: 'user', content: 'same words' }), row('answer-a', 'user-a', at + 1, assistant('first'))])
+    const first = await f.api.snapshot(f.agent, { limit: 1, trim: true })
+    assert.deepEqual(clients(first.turns), ['client-a'])
+    assert.equal(first.queuedPrompts[0].clientMessageId, 'client-c')
+    await f.append([row('user-b', 'answer-a', at + 2, { role: 'user', content: 'same words' }), row('answer-b', 'user-b', at + 3, assistant('second'))])
+    const after = await f.api.after(f.agent, { cursor: first.cursor, trim: true })
+    assert.equal(after.ok, true)
+    assert.deepEqual(clients(after.batch.turns), ['client-b'])
+    const latest = await f.api.snapshot(f.agent, { limit: 1 })
+    assert.deepEqual(clients(latest.turns), ['client-b'])
+    const older = await f.api.older(f.agent, { beforeTurnId: latest.turns[0].id, limit: 1, trim: true })
+    assert.deepEqual(clients(older.turns), ['client-a'])
+    f.agent.inputIdentities = JSON.parse(JSON.stringify({ epoch: f.agent.contextEpoch, records: { 'user-a': 'client-a', 'user-b': 'client-b' } }))
+    f.store.state.jobs = {}
+    await f.reopen()
+    const reopened = await f.api.after(f.agent, { cursor: latest.cursor, trim: true })
+    assert.equal(reopened.ok, false)
+    assert.deepEqual(clients(reopened.snapshot.turns), ['client-a', 'client-b'])
+  } finally { await f.close() }
+})
+
 test('file input projection survives a host restart and job cleanup, without changing unmatched native records', async () => {
   const f = await fixture(), at = 1_700_000_000_000;
   const files = [{ itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 }];

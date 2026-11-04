@@ -17,13 +17,18 @@ export function phoneQueuedPrompts(inputs: readonly SessionInput[]) {
 /** Save the decision with the input, before the sender may attempt any transport. */
 export function phoneInputQueueIntent(working: boolean, inputs: readonly SessionInput[]): Pick<SessionInput, 'queued' | 'sendQueue'> {
   const queued = working || inputs.length > 0
-  const previous = [...inputs].reverse().find(input => !input.sendQueue)
+  const previous = inputs.filter(input => !input.sendQueue).sort((a, b) => b.createdAt - a.createdAt)[0]
   return { queued, ...(queued ? { sendQueue: { order: Date.now(), ...(previous ? { afterInputId: previous.id } : {}) } } : {}) }
 }
 
 /** Cached history, a pending approval and a lost connection are not permission to drain a phone's queue. */
 export function canReleasePhoneInput(ready: boolean, working: boolean, stopping: boolean, turns: readonly TranscriptTurn[]): boolean {
   return ready && !working && !stopping && (turns.length === 0 || turns.at(-1)?.outcome?.kind === 'done')
+}
+
+/** A new owner submission may explicitly resume a stopped/failed queue; opening the page never does. */
+export function canResumePhoneInput(ready: boolean, working: boolean, turns: readonly TranscriptTurn[]): boolean {
+  return ready && !working && (turns.length === 0 || Boolean(turns.at(-1)?.outcome))
 }
 
 /** Phone-hosted tasks expose the same custody identity in their timeline queue instead of a desktop LifeView. */

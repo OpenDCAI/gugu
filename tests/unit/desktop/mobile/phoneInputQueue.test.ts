@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import type { SessionInput } from '@/lib/sessionInputOutbox'
-import { canReleasePhoneInput, phoneInputQueueIntent, phoneManualHostPrompts, phoneQueuedPrompts, phoneWaitingReceipts } from '@/mobile/agent-watch/phone-input-queue'
+import { canReleasePhoneInput, canResumePhoneInput, phoneInputQueueIntent, phoneManualHostPrompts, phoneQueuedPrompts, phoneWaitingReceipts } from '@/mobile/agent-watch/phone-input-queue'
 import { localQueuedInputs } from '@/mobile/agent-watch/local-queued-inputs'
 import { projectPhonePendingInputs } from '@/mobile/agent-watch/phone-pending-inputs'
 
@@ -15,6 +15,8 @@ describe('phone composer ownership', () => {
     expect(phoneInputQueueIntent(true, []).sendQueue).toBeDefined()
     expect(phoneInputQueueIntent(false, [input('already-held', 1)]).sendQueue).toBeDefined()
     expect(phoneInputQueueIntent(false, [{ ...input('in-flight', 1), queued: false, sendQueue: undefined }]).sendQueue?.afterInputId).toBe('in-flight')
+    expect(phoneInputQueueIntent(false, [{ ...input('newest', 9), queued: false, sendQueue: undefined },
+      { ...input('oldest', 1), queued: false, sendQueue: undefined }]).sendQueue?.afterInputId).toBe('newest')
   })
 
   it('shows only real held inputs as editable prompts in persistent order, including an edit reservation', () => {
@@ -61,5 +63,8 @@ describe('phone composer ownership', () => {
   it('does not restart a stopped or failed foreground turn just because its history is settled', () => {
     expect(canReleasePhoneInput(true, false, false, [{ ...turn(true), outcome: { kind: 'cancelled' } }])).toBe(false)
     expect(canReleasePhoneInput(true, false, false, [{ ...turn(true), outcome: { kind: 'error' } }])).toBe(false)
+    expect(canResumePhoneInput(true, false, [{ ...turn(true), outcome: { kind: 'cancelled' } }])).toBe(true)
+    expect(canResumePhoneInput(true, true, [turn(false)])).toBe(false)
+    expect(canResumePhoneInput(false, false, [turn(true)])).toBe(false)
   })
 })

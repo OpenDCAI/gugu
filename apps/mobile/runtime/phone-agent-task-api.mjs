@@ -11,6 +11,7 @@ const methods = new Set(['prefetchFiles', 'sessionQueue', 'sessionSnapshot', 'se
 export function createPhoneTaskApi({ ownerId, store, models, timelines, actions, findSession, verifyAgent, admit, publish, interrupt, turnFiles }) {
   const admitting = new Map()
   const send = async (input, requestId) => {
+    if (input.steerIfBusy) throw failure('unsupported', '手机任务当前不支持立即插话，请保留排队消息或取消后再发送')
     const files = Array.isArray(input.files) ? input.files : []
     if (typeof input.text !== 'string' || (!input.text.trim() && !files.length)) throw failure('invalid_args', '请先填写任务内容')
     let clientId, sessionId
@@ -29,6 +30,7 @@ export function createPhoneTaskApi({ ownerId, store, models, timelines, actions,
       const existing = store.state.jobs[id]
       if (existing) {
         if (existing.inputFingerprint !== fingerprint) throw new SessionInputAdmissionError('同一个发送请求不能更换任务内容，请先重试原消息', 'uncertain', 'invalid_args')
+        if (!existing.clientMessageId) existing.clientMessageId = clientId
         // Replays confirm existing custody, even if permission was revoked after a lost ACK.
         // A prior save may have failed after entering memory; acknowledge only after it succeeds.
         await store.save()
@@ -36,7 +38,7 @@ export function createPhoneTaskApi({ ownerId, store, models, timelines, actions,
         const agent = findSession(sessionId)
         await verifyAgent(agent.agentUserId)
         // Keep the person's words; resolve files only when this job reaches the model.
-        await admit({ id, agentUserId: agent.agentUserId, inputFingerprint: fingerprint, prompt: input.text.trim(), ...(files.length ? { files } : {}), route: { kind: 'task', senderUserId: ownerId } })
+        await admit({ id, agentUserId: agent.agentUserId, clientMessageId: clientId, inputFingerprint: fingerprint, prompt: input.text.trim(), ...(files.length ? { files } : {}), route: { kind: 'task', senderUserId: ownerId } })
       }
       return { accepted: true, messageId: id, admission: 'accepted' }
     })()
