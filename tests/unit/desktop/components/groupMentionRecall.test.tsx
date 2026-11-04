@@ -109,18 +109,24 @@ describe('group mention recall through the real composer and send path', () => {
     expect(readComposer(input())).toBe('newer')
   })
 
-  it('uses the same token when tapping the phone hint, without submitting', async () => {
+  it('offers and records nothing on the phone shell; a desktop recall does not leak into it', async () => {
+    await mount(); await type('@Alpha hi'); await send()
+    expect(hint()?.textContent).toBe('@Alpha')
+    harness.cleanup(); harness = createReactHarness()
     const width = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
     try {
-      const onSend = await mount(); await type('@Beta hi'); await send()
+      const onSend = await mount()
       expect(harness.container.querySelector('[data-mobile-group="true"]')).not.toBeNull()
-      expect(hint()?.textContent).toBe('@Beta')
-      await act(async () => { hint()!.click() })
-      expect(input().querySelector('[data-mention-id="beta"]')).not.toBeNull()
-      expect(onSend).toHaveBeenCalledTimes(1)
-      await send()
+      expect(hint()).toBeNull()
+      expect((await key('ArrowRight')).defaultPrevented).toBe(false)
+      expect((await key('Tab')).defaultPrevented).toBe(false)
+      expect(input().querySelector('[data-mention-id]')).toBeNull()
+      const stored = { ...localStorage }
+      await type('@Beta hi'); await send()
       expect(onSend.mock.calls.at(-1)).toEqual([expect.any(String), expect.objectContaining({ toUserIds: ['beta'] })])
+      expect({ ...localStorage }).toEqual(stored)
+      expect(hint()).toBeNull()
     } finally { Object.defineProperty(window, 'innerWidth', width) }
   })
 

@@ -22,7 +22,6 @@ afterEach(() => { root.unmount(); host.remove(); localStorage.removeItem('gugu:g
 it.each([
   { width: 1000, accept: 'ArrowRight' },
   { width: 1000, accept: 'Tab' },
-  { width: 390, accept: 'tap' },
 ])('reuses the actual member picker token via $accept at $width px', async ({ width, accept }) => {
   await page.viewport(width, 720)
   root.render(<LocalizationProvider><ChatMessageComposer chatId="recall-room" currentUserId="recall-account" isGroupChat onSend={onSend}
@@ -49,8 +48,7 @@ it.each([
   expect(rect.right).toBeLessThanOrEqual(area.right)
   expect(rect.top).toBeGreaterThanOrEqual(area.top)
   expect(hint.element().querySelector('kbd svg')).not.toBeNull()
-  if (accept === 'tap') await hint.click()
-  else { await input.click(); await userEvent.keyboard(`{${accept}}`) }
+  await input.click(); await userEvent.keyboard(`{${accept}}`)
   await until('recalled member token inserted', () => input.element().querySelector('[data-mention-id="recall-agent"]') !== null)
   expect(input.element().querySelector('[data-mention-id="recall-agent"]')!.textContent).toBe(manual)
   expect(onSend).toHaveBeenCalledTimes(1)
@@ -58,4 +56,22 @@ it.each([
   expect(onSend).toHaveBeenCalledTimes(2)
   expect(onSend.mock.calls[1]?.[0]).toBe(onSend.mock.calls[0]?.[0])
   expect(onSend.mock.calls[1]?.[1]?.toUserIds).toEqual(['recall-agent'])
+})
+
+it('shows and records no recall on the phone shell', async () => {
+  await page.viewport(390, 720)
+  root.render(<LocalizationProvider><ChatMessageComposer chatId="recall-room" currentUserId="recall-account" isGroupChat onSend={onSend}
+    groupMembers={[{ id: 'recall-agent', name: 'Recall agent', type: 'agent' }]} /></LocalizationProvider>)
+  const input = page.getByTestId('chat-composer')
+  await until('real editor is mounted', () => input.elements().length === 1)
+  await input.click()
+  await userEvent.keyboard('@')
+  const member = page.getByRole('option', { name: /Recall agent/ })
+  await until('real member picker result', () => member.elements().length === 1)
+  await member.click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
+  await until('sent to the picked agent', () => onSend.mock.calls.length === 1)
+  expect(onSend.mock.calls[0]?.[1]?.toUserIds).toEqual(['recall-agent'])
+  expect(localStorage.getItem('gugu:group-mention:recall-account/recall-room')).toBeNull()
+  expect(page.getByTestId('group-mention-hint').elements()).toHaveLength(0)
 })

@@ -91,7 +91,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       }
       // Successful send → object URLs are no longer needed
       revokeAttachmentPreviewUrls(snapshotAttachments)
-      if (isGroupChat && currentUserId && chatId && !whisperTarget) {
+      if (!mobile && isGroupChat && currentUserId && chatId && !whisperTarget) {
         const first = firstMentionedUserId(typed, explicitRecipientIds, members)
         if (first !== undefined) rememberGroupMention(currentUserId, chatId, first)
       }

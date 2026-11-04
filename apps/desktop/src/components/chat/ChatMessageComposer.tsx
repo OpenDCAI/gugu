@@ -166,7 +166,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   // Aside candidates also include invitees from the source line; only actual topic members may be recalled.
   const recallMembers = members.filter((member) => !identitiesById[member.id]?.removed_at && (surface !== 'aside' || participantIds?.includes(member.id)))
   const { hint, ...hintEvents } = useGroupMentionHint({ accountId: currentUserId, chatId, members: recallMembers, text,
-    enabled: !!isGroupChat && !props.conversation && !disabled && !sending && !hidden && !takenOver && !phoneTask.active && !whisperTarget,
+    enabled: !mobile && !!isGroupChat && !props.conversation && !disabled && !sending && !hidden && !takenOver && !whisperTarget,
     editor: editorApiRef, input: inputRef })
   const editorOptions = { inputTestId: surface === 'aside' ? AUTOMATION_TEST_IDS.chatComposerAside : AUTOMATION_TEST_IDS.chatComposer,
     inputRef: receiveInput, clearOnSubmit: false, enterBehavior: mobile ? 'newline' as const : 'submit' as const, emptyHint: hint }
