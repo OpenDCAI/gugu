@@ -8,6 +8,18 @@ function fixture() {
   return { prepared, deps, service: createAssistantSetupPreparation(deps) }
 }
 
+it('keeps the chosen engine bound to the prepared runtime', async () => {
+  const f = fixture()
+  f.service.start('codex', 'codex')
+  await vi.waitFor(() => expect(f.service.status('codex').phase).toBe('ready'))
+  expect(f.deps.prepare).toHaveBeenCalledWith('codex', expect.any(AbortSignal), 'codex')
+  await expect(f.service.commit('codex', {})).rejects.toThrow('engine changed')
+  expect(f.prepared.commit).not.toHaveBeenCalled()
+  await f.service.commit('codex', { engine: 'codex' })
+  expect(f.prepared.commit).toHaveBeenCalledOnce()
+  expect(f.deps.install).toHaveBeenCalledWith({ engine: 'codex' })
+})
+
 it('does not touch the old home while preparing; cancellation waits for cleanup', async () => {
   const f = fixture()
   f.service.start('one')

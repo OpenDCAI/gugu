@@ -1,17 +1,24 @@
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import YAML from 'yaml'
 import { deriveCheckProfiles, evaluateCheckSnapshots } from '../../../scripts/ci/check-verdict.mts'
-import { collectAutomaticRunnerCommands } from '../../../scripts/ci/ci-spec-coverage.mts'
+import { collectAutomaticRunnerCommands, loadCoverageWorkflowInventory } from '../../../scripts/ci/ci-spec-coverage.mts'
 
 const source = readFileSync('.github/workflows/ci.yml', 'utf8')
 const ci = YAML.parse(source)
-const entries = [{ path: '.github/workflows/ci.yml', workflow: ci }]
+const entries = [loadCoverageWorkflowInventory(process.cwd()).find(entry => entry.path === '.github/workflows/ci.yml')!]
+const reusableWorkflows = Object.fromEntries(Object.values(ci.jobs)
+  .filter(job => (job as { uses?: string }).uses)
+  .map(job => {
+    const use = (job as { uses: string }).uses
+    const [path, sha] = use.replace('GUYI-AI/gugu/', '').split('@')
+    return [use, { path, source: execFileSync('git', ['show', `${sha}:${path}`], { encoding: 'utf8' }) }]
+  }))
 const profiles = deriveCheckProfiles([{
   id: 'pr', type: 'pull_request', action: 'synchronize', baseRef: 'dev',
   changedPaths: ['README.md'], inventoryRef: 'fixture',
-  workflows: [{ path: '.github/workflows/ci.yml', source }],
+  workflows: [{ path: '.github/workflows/ci.yml', source, reusableWorkflows }],
 }])
 const dueTests = ['unit', 'session-db', 'session-browser', 'projection-media', 'web-smoke', 'supabase-contract']
 function gate(tests: string, overrides: Record<string, string> = {}) {
@@ -20,14 +27,16 @@ function gate(tests: string, overrides: Record<string, string> = {}) {
   return spawnSync('/bin/bash', ['-e', '-c', step], { env: { PATH: '/usr/bin:/bin' } }).status
 }
 
-describe('documentation/mobile filtering with hosted Mac jobs', () => {
-  it('keeps both Mac jobs inline and hosted with their original payloads', () => {
-    for (const id of ['session-db', 'desktop-build-mac']) {
-      expect(ci.jobs[id].uses).toBeUndefined()
-      expect(ci.jobs[id]['runs-on']).toBe('macos-15')
-      expect(ci.jobs[id].steps.length).toBeGreaterThan(4)
+describe('documentation/mobile filtering with immutable Mac calls', () => {
+  it('keeps both Mac calls unconditional with exact pins and original changes inputs', () => {
+    for (const [id, key, input, sha] of [
+      ['session-db', 'tests', 'tests-required', '0970e2e3af61985a54bedd313278f72673ccc493'],
+      ['desktop-build-mac', 'desktop-mac', 'build-required', '499a1ee16cb7650190e8a7869bec59e4f4ee9f22'],
+    ]) {
+      expect(ci.jobs[id].if).toBeUndefined()
+      expect(ci.jobs[id].uses).toBe(`GUYI-AI/gugu/.github/workflows/${id === 'session-db' ? 'ci-mac-session' : 'ci-mac-build'}.yml@${sha}`)
+      expect(ci.jobs[id].with[input]).toBe(`\${{ needs.changes.outputs.${key} }}`)
     }
-    expect(source).not.toContain('uses: GUYI-AI/gugu/')
   })
   it('unconditionally expands matrix jobs while guarding every docs-only step', () => {
     for (const id of ['unit', 'web-smoke']) {
@@ -88,7 +97,7 @@ describe('documentation/mobile filtering with hosted Mac jobs', () => {
   })
   it('collects every source test command through the sole docs guard', () => {
     const commands = collectAutomaticRunnerCommands({ workflows: entries, changedPaths: ['tests/integration/next.test.ts'], packageScripts: {} })
-    expect(commands.some(command => command.job === 'session-db' && command.args.includes('tooling'))).toBe(true)
+    expect(commands.some(command => command.job === 'session-db/session' && command.args.includes('tooling'))).toBe(true)
     expect(commands.some(command => command.job === 'web-smoke')).toBe(true)
     expect(commands.filter(command => command.job === 'unit')).toHaveLength(4)
   })
@@ -109,7 +118,18 @@ describe('documentation/mobile filtering with hosted Mac jobs', () => {
     if (mutation === 'job-defaults') entry.workflow.jobs.changes.defaults = { run: { shell: 'sh' } }
     if (mutation === 'workflow-defaults') entry.workflow.defaults = { run: { shell: 'sh' } }
     expect(() => collectAutomaticRunnerCommands({ workflows: [entry], changedPaths: ['tests/e2e/ci/new.spec.ts'], packageScripts: {} })).toThrow('condition prevents')
-    expect(() => deriveCheckProfiles([{ id: 'pr', type: 'pull_request', action: 'synchronize', baseRef: 'dev', inventoryRef: 'bad', changedPaths: ['tests/e2e/ci/new.spec.ts'], workflows: [{ path: entry.path, source: YAML.stringify(entry.workflow) }] }])).toThrow('verified documentation classifier')
+    expect(() => deriveCheckProfiles([{ id: 'pr', type: 'pull_request', action: 'synchronize', baseRef: 'dev', inventoryRef: 'bad', changedPaths: ['tests/e2e/ci/new.spec.ts'], workflows: [{ path: entry.path, source: YAML.stringify(entry.workflow), reusableWorkflows }] }])).toThrow('verified documentation classifier')
+  })
+  it.each(['literal-false', 'missing-needs'])('rejects %s session input bindings in both inventories', mutation => {
+    const entry = structuredClone(entries[0])
+    if (mutation === 'literal-false') entry.workflow.jobs['session-db'].with['tests-required'] = 'false'
+    else entry.workflow.jobs['session-db'].needs = []
+    expect(() => collectAutomaticRunnerCommands({ workflows: [entry], changedPaths: ['tests/integration/new.test.ts'], packageScripts: {} })).toThrow()
+    expect(() => deriveCheckProfiles([{
+      id: 'pr', type: 'pull_request', action: 'synchronize', baseRef: 'dev', inventoryRef: 'bad',
+      changedPaths: ['tests/integration/new.test.ts'],
+      workflows: [{ path: entry.path, source: YAML.stringify(entry.workflow), reusableWorkflows }],
+    }])).toThrow()
   })
   it('rejects arbitrary guards and missing classifier dependency rather than exempting tests', () => {
     const entry = structuredClone(entries[0])

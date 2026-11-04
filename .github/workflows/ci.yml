@@ -145,6 +145,9 @@ jobs:
       - run: pnpm lint:source
       - name: Verify e2e and integration spec execution coverage
         run: |
+          # Read exact callee objects without moving the original PR base.
+          git fetch --no-tags --no-write-fetch-head --depth=1 origin 499a1ee16cb7650190e8a7869bec59e4f4ee9f22
+          git fetch --no-tags --no-write-fetch-head --depth=1 origin 0970e2e3af61985a54bedd313278f72673ccc493
           args=()
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
@@ -213,29 +216,14 @@ jobs:
       - uses: ./.github/actions/setup-community
       - run: pnpm build:app:ci
       - run: pnpm rebuild:native
-  # PR macOS compilation retains its original dependency/native input filter;
-  # mobile-only PRs do not compile either desktop app.
+  # Immutable callees choose the isolated Mac pool for same-repository PRs; forks stay hosted.
+  # Keep calls unconditional so docs/mobile skips still register their child checks.
   desktop-build-mac:
     name: Desktop app build (macos-15)
     needs: changes
-    if: needs.changes.outputs.desktop-mac == 'true'
-    runs-on: macos-15
-    timeout-minutes: 45
-    env:
-      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
-      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
-      GUGU_PLATFORM_MODELS_ENABLED: 'false'
-      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
-      # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
-      NODE_OPTIONS: --max-old-space-size=6144
-    steps:
-      - uses: actions/checkout@v4
-      - run: command -v tmux || brew install tmux
-      - uses: ./.github/actions/setup-community
-      - run: pnpm build:app:ci
-        env:
-          GUGU_BUILD_SERIAL: '1'
-      - run: pnpm rebuild:native
+    uses: GUYI-AI/gugu/.github/workflows/ci-mac-build.yml@499a1ee16cb7650190e8a7869bec59e4f4ee9f22
+    with:
+      build-required: ${{ needs.changes.outputs.desktop-mac }}
   android-build:
     name: Android debug build
     needs: changes
@@ -269,49 +257,9 @@ jobs:
   session-db:
     name: Session database, chat UI browser and tooling
     needs: changes
-    if: needs.changes.outputs.tests == 'true'
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      # The one macOS job that runs on every event, so it saves the macOS caches.
-      - uses: ./.github/actions/setup-community
-        with:
-          save-cache: 'true'
-      - run: pnpm exec vitest run --project session-main-db --project session-migrations --project tooling
-      # The unit shards run on Linux. These files hold the unit cases whose result depends on macOS
-      # (darwin-only cases, JXA/osacompile, keychain, FSEvents subscription semantics); they were
-      # found by diffing per-file run/skip/fail counts of the Linux shards against the macOS shards.
-      - run: pnpm exec vitest run --project gugu --project session-main --project session-packages tests/unit/desktop/electron/deviceActions tests/unit/desktop/electron/loginShellProbe apps/desktop/electron/session/main/core/browser/browser-cookie-import packages/session-plugins/src/agents/impl/copilot/subscription packages/session-core/src/services/fs-watch/
-      - name: Native browser handoff and page protocol in real Electron
-        env:
-          GUGU_BROWSER_REAL_ELECTRON: ./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron
-        run: pnpm exec vitest run --project session-main apps/desktop/electron/session/main/core/browser/browser-user-agent.real-electron.test.ts apps/desktop/electron/session/main/core/browser/page-protocol.real-electron.test.ts apps/desktop/electron/session/main/core/extensions/projection.real-electron.test.ts apps/desktop/electron/session/main/core/extensions/projection-image.real-electron.test.ts
-      # chat-ui measurement contracts are calibrated on macOS text layout (one plan-review case is
-      # off by a line on Linux), so this browser project stays here.
-      - uses: ./.github/actions/setup-playwright
-        with:
-          save-cache: 'true'
-      - run: pnpm exec vitest run --project session-chat-ui-browser
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: '1.26.0'
-          cache-dependency-path: apps/desktop/native/projection-media/go.sum
-      - name: Prepare native projection factory tools
-        shell: bash
-        run: |
-          if ! command -v ffmpeg >/dev/null; then brew install ffmpeg; fi
-          go -C apps/desktop/native/projection-media build -race -buildvcs=false -o "$RUNNER_TEMP/projection-media-factory" ./cmd/projection-media
-          projection_ffmpeg=$(command -v ffmpeg)
-          projection_chromium=$(node -p 'require("playwright").chromium.executablePath()')
-          test -x "$RUNNER_TEMP/projection-media-factory"
-          test -x "$projection_ffmpeg"
-          test -x "$projection_chromium"
-          printf '%s\n' "GUGU_TEST_MEDIA_HELPER=$RUNNER_TEMP/projection-media-factory" "GUGU_PROJECTION_FFMPEG=$projection_ffmpeg" "GUGU_TEST_CHROMIUM=$projection_chromium" >> "$GITHUB_ENV"
-      - name: Native image factory through H264 and actual Chromium
-        env:
-          GUGU_BROWSER_REAL_ELECTRON: ./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron
-        run: pnpm exec vitest run --project session-main apps/desktop/electron/session/main/core/extensions/projection-media.real-electron.test.ts
+    uses: GUYI-AI/gugu/.github/workflows/ci-mac-session.yml@0970e2e3af61985a54bedd313278f72673ccc493
+    with:
+      tests-required: ${{ needs.changes.outputs.tests }}
   projection-media:
     name: Projection native media
     needs: changes

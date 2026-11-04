@@ -8,6 +8,7 @@ import { runMiseOperation } from './session/main/core/dependencies/mise-installe
 import { AgentInstallFailedError } from './session/main/core/agents/ensure-agent-installed'
 import { ensureUserBinDirsInPath } from './session/main/utils/userEnv'
 import { replaceManagedLauncher, rollbackManagedLauncher, withManagedLauncherPublication } from './session/main/core/dependencies/managed-launcher-publication'
+import type { AssistantEngine } from '../src/lib/assistantHomeIpc'
 
 export type PreparedAssistantRuntime = { commit(): Promise<void>; dispose(): Promise<void> }
 
@@ -26,14 +27,14 @@ export async function cleanupAssistantRuntimePreparation(id: string, keepRuntime
 
 /** Download, unpack and verify in an operation-owned tree. Existing launchers,
  * shared mise config and installations are never modified by preparation. */
-export async function prepareAssistantRuntime(id: string, signal: AbortSignal): Promise<PreparedAssistantRuntime> {
+export async function prepareAssistantRuntime(id: string, signal: AbortSignal, engine: AssistantEngine = 'claude'): Promise<PreparedAssistantRuntime> {
   const root = path.join(managedAgentPrefix(), 'prepared', id)
   const launcherDir = path.join(root, 'entrypoints')
   const manager = await getDependencyManager()
   const prepared: Array<{ dependency: DependencyId; launcher: string }> = []
   let published = false
   try {
-    for (const part of agentProgramsOf(getPlugin('claude'))) {
+    for (const part of agentProgramsOf(getPlugin(engine))) {
       const dependency = part.dependencyId as DependencyId
       await manager.probe(dependency)
       signal.throwIfAborted()
@@ -43,7 +44,7 @@ export async function prepareAssistantRuntime(id: string, signal: AbortSignal): 
       if (option?.target?.kind !== 'mise') throw new Error('The assistant runtime has no supported installer on this computer')
       const result = await runMiseOperation({ mise: { target: option.target, operation: 'install', registry: option.registry }, signal },
         { root: path.join(root, 'runtime'), launcherDir })
-      if (!result.success) throw new AgentInstallFailedError('claude', result.error)
+      if (!result.success) throw new AgentInstallFailedError(engine, result.error)
       prepared.push({ dependency, launcher: option.target.binary + (process.platform === 'win32' ? '.cmd' : '') })
     }
     signal.throwIfAborted()
