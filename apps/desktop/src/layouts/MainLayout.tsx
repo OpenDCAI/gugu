@@ -19,7 +19,6 @@ import { returnToScreen } from '@/session/renderer/app/screen-layout-actions'
 import { registeredViews } from '@/session/renderer/lib/layout/registered-views'
 import { UpdateBanner } from '../components/UpdateBanner'
 import { WindowControls } from '../components/WindowControls'
-import { LowBalanceBanner } from '../components/LowBalanceBanner'
 import { MOBILE_TABS, SIDEBAR_TABS, type SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { AgentWatchPage, AgentWatchRoot } from '@/mobile/agent-watch/AgentWatchPage'
 import { PhoneDeviceRoot } from '@/mobile/phone-device/PhoneDeviceRoot'
@@ -107,7 +106,6 @@ import { RemoteMachinesHost } from '../components/sessionpage/RemoteMachinesHost
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
 import { followLink, openLink } from '../lib/guguLinks'
 import { useMobileShell, readMobileShell } from '../hooks/useMobileShell'
-import { membershipSettingsSection } from '../lib/billing/settingsDestination'
 import { useMobileChatOpenNonce } from '../hooks/useMobileChatOpenNonce'
 import { useTranslation } from 'react-i18next'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
@@ -995,8 +993,6 @@ function InnerLayout({
         paddingTop: mobile ? 'env(safe-area-inset-top)' : undefined,
       }}
     >
-      {/* 低余额充值直达积分卡,桌面订阅、手机账户。 */}
-      <LowBalanceBanner user={effectsActive ? user : null} onRecharge={() => openSettingsSection(membershipSettingsSection(mobile))} />
       {mobile && <UpdateBanner />}
       {!mobile && (
         <Sidebar

@@ -22,6 +22,7 @@
  * callbacks do not go stale after React re-renders.
  */
 
+import { openCreditSettings } from '@/lib/billing/settingsDestination';
 import type {
   ChatCommands,
   ChatContext,
@@ -155,7 +156,7 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
         pinUserMessages: p.pinUserMessages,
         class: p.class,
         contentClass: p.contentClass,
-        commands: { onCopyError, onTooltipMount, onInputSendFailureMount, ...p.commands, writeClipboardText },
+        commands: { onCopyError, onTooltipMount, onInputSendFailureMount, onRechargeCredits: openCreditSettings, ...p.commands, writeClipboardText },
         padTop: p.padTop,
         embedded: p.embedded,
         // Thread stable wrappers that read from propsRef at call time — never stale.
@@ -197,7 +198,7 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
 
   // Push command callbacks reactively so inline functions are never stale.
   useEffect(() => {
-    viewRef.current?.setCommands({ onCopyError, onTooltipMount, onInputSendFailureMount, ...props.commands, writeClipboardText });
+    viewRef.current?.setCommands({ onCopyError, onTooltipMount, onInputSendFailureMount, onRechargeCredits: openCreditSettings, ...props.commands, writeClipboardText });
   }, [props.commands]);
 
   // Layout lives on the process-long context (measurement-coupled), not on the

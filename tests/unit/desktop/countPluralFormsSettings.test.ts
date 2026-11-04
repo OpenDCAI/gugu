@@ -45,6 +45,11 @@ const ROWS: Row[] = [
     zh: (n) => `本次将附带 ${n} 行日志`,
   },
   {
+    ns: 'settings', key: 'lowBalance.remaining', p: credits,
+    en: ['0 credits left', '1 credit left', '2 credits left'],
+    zh: (n) => `剩 ${n} 积分`,
+  },
+  {
     ns: 'settings', key: 'lowBalance.title', p: credits,
     en: ['Low balance (0 credits left)', 'Low balance (1 credit left)', 'Low balance (2 credits left)'],
     zh: (n) => `积分不足（剩 ${n} 积分）`,
@@ -141,6 +146,8 @@ describe('积分按写出来的数取单复数', () => {
   it('0.999 写成「1」就用单数;<0.01 用复数', () => {
     const t = i18n.getFixedT('en-US', 'settings')
     expect(formatCredits(0.999, 'en-US')).toBe('1')
+    expect(t('lowBalance.remaining', { credits: formatCredits(0.999, 'en-US'), count: creditCount(0.999) })).toBe('1 credit left')
+    expect(t('lowBalance.remaining', { credits: formatCredits(0.004, 'en-US'), count: creditCount(0.004) })).toBe('<0.01 credits left')
     expect(t('credits.spending.sentence', { credits: formatCredits(0.999, 'en-US'), count: creditCount(0.999), rate: 'R' })).toBe('You can spend 1 credit; R')
     expect(t('lowBalance.title', { credits: formatCredits(1.5, 'en-US'), count: creditCount(1.5) })).toBe('Low balance (1.5 credits left)')
     expect(t('lowBalance.title', { credits: formatCredits(0.004, 'en-US'), count: creditCount(0.004) })).toBe('Low balance (<0.01 credits left)')

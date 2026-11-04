@@ -212,6 +212,8 @@ const fallbackMessages = {
   'transcript.deliveryFact.whisperTo': 'Whisper to',
   'transcript.deliveryFact.viaApp': 'App',
   'transcript.turnFinished': 'Finished{reason}',
+  'transcript.creditsExhausted': 'You’re out of credits. {recharge} to continue.',
+  'transcript.rechargeCredits': 'Top up',
   'transcript.viewMermaid': 'View Mermaid diagram',
   'transcript.mermaidDiagram': 'Mermaid diagram',
   'transcript.mermaidError': "Couldn't render diagram",

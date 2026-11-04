@@ -35,6 +35,8 @@ export const CHAT_VIEW_COMMANDS = [
  * via `view.setCommands(commands)`.
  */
 export type ChatCommands = {
+  /** Open the host's credit page after an authoritative credit exhaustion failure. */
+  onRechargeCredits?: () => void;
   /** Retry the same durable input identity, in place. */
   onRetrySend?: (itemId: string) => void;
   /** Mount the host's tooltip or source popover without coupling Solid to the host UI framework. */
