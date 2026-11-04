@@ -150,3 +150,20 @@ it('PhotoSwipe applies the image preference, keeps a larger one when capped, and
   emit('destroy')
   element.remove()
 })
+
+it('a scripted HTML page keeps Cmd+ after re-renders, also when it never scrolls and its URL ends in "?"', async () => {
+  const surface = () => createElement(HtmlPreviewSurface, { fileName: 'page.html', url: 'blob:static?', onLink() {} })
+  await harness.render(surface())
+  const root = harness.container.querySelector<HTMLElement>(`[${FILE_ZOOM_ATTRIBUTE}]`)!
+  const frame = harness.container.querySelector('iframe')!
+  // A page that never scrolls still answers the restore posted on load.
+  await act(async () => { window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, data: { type: PREVIEW_RESTORED_MESSAGE_TYPE } })) })
+  // The parent re-renders (new onLink, zoom change) without the page reloading.
+  await harness.render(surface())
+  root.focus()
+  const n = native()
+  await act(async () => runWindowMenuCommand('zoomIn', n.target))
+  await act(async () => runWindowMenuCommand('zoomIn', n.target))
+  expect(Number(localStorage.getItem('gugu.file-content-zoom.html'))).toBeCloseTo(1.44)
+  expect(n.contents.setZoomLevel).not.toHaveBeenCalled()
+})
