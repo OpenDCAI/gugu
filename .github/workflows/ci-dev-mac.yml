@@ -2,6 +2,7 @@ name: Dev Mac build
 on:
   push:
     branches: [dev]
+  workflow_dispatch:
 permissions:
   contents: read
   actions: read
@@ -65,135 +66,6 @@ jobs:
                 await github.rest.issues.createLabel({
                   owner, repo, name: label, color: 'b60205',
                   description: 'The macOS build failed on dev',
-                });
-              } catch (labelError) {
-                if (labelError.status !== 422) throw labelError;
-                await github.rest.issues.getLabel({ owner, repo, name: label });
-              }
-            }
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
-              owner, repo, labels: label, state: 'all', per_page: 100,
-            });
-            const existing = issues.find(issue => !issue.pull_request && issue.body?.includes(marker));
-            if (existing) {
-              await github.rest.issues.update({
-                owner, repo, issue_number: existing.number, title, body, state: 'open',
-              });
-            } else {
-              await github.rest.issues.create({ owner, repo, title, body, labels: [label] });
-            }
-  linux-checks:
-    name: Dev Linux checks (${{ matrix.shard }}/4)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      actions: read
-      issues: write
-    env:
-      GUGU_VITEST_MODULE_CACHE: '1'
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    steps:
-      - uses: actions/checkout@v4
-      - id: setup
-        uses: ./.github/actions/setup-community
-      # Each shard is the sole writer of its own content-addressed module snapshot.
-      - uses: actions/cache@v4
-        with:
-          path: node_modules/.experimental-vitest-cache
-          key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
-          restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-
-      - run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/4
-      - name: Report failed dev Linux checks
-        if: failure()
-        uses: actions/github-script@v7
-        env:
-          CI_UNIT_SHARD: ${{ matrix.shard }}
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const label = 'ci-dev-red';
-            const marker = `<!-- ci-dev-linux:${context.sha}:shard-${process.env.CI_UNIT_SHARD} -->`;
-            const title = `Dev Linux checks failed at ${context.sha.slice(0, 7)} (shard ${process.env.CI_UNIT_SHARD}/4)`;
-            const runUrl = `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const actor = context.payload.sender?.login || context.actor;
-            const body = [
-              marker,
-              `Unit tests failed after a push to dev.`,
-              `Commit: ${context.sha}`,
-              `Merged/pushed by: @${actor}`,
-              `Run: ${runUrl}`,
-              `Inspect the unit-test logs before the next release.`,
-            ].join('\n\n');
-            try {
-              await github.rest.issues.getLabel({ owner, repo, name: label });
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              try {
-                await github.rest.issues.createLabel({
-                  owner, repo, name: label, color: 'b60205',
-                  description: 'Typecheck or unit tests failed on dev',
-                });
-              } catch (labelError) {
-                if (labelError.status !== 422) throw labelError;
-                await github.rest.issues.getLabel({ owner, repo, name: label });
-              }
-            }
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
-              owner, repo, labels: label, state: 'all', per_page: 100,
-            });
-            const existing = issues.find(issue => !issue.pull_request && issue.body?.includes(marker));
-            if (existing) {
-              await github.rest.issues.update({
-                owner, repo, issue_number: existing.number, title, body, state: 'open',
-              });
-            } else {
-              await github.rest.issues.create({ owner, repo, title, body, labels: [label] });
-            }
-  typecheck:
-    name: Dev typecheck
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      actions: read
-      issues: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-community
-        with:
-          save-cache: 'true'
-      - run: pnpm typecheck
-      - name: Report failed dev typecheck
-        if: failure()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const label = 'ci-dev-red';
-            const marker = `<!-- ci-dev-typecheck:${context.sha} -->`;
-            const title = `Dev typecheck failed at ${context.sha.slice(0, 7)}`;
-            const runUrl = `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const actor = context.payload.sender?.login || context.actor;
-            const body = [
-              marker,
-              `Typecheck failed after a push to dev.`,
-              `Commit: ${context.sha}`,
-              `Merged/pushed by: @${actor}`,
-              `Run: ${runUrl}`,
-              `Inspect the typecheck logs before the next release.`,
-            ].join('\n\n');
-            try {
-              await github.rest.issues.getLabel({ owner, repo, name: label });
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              try {
-                await github.rest.issues.createLabel({
-                  owner, repo, name: label, color: 'b60205',
-                  description: 'Typecheck or unit tests failed on dev',
                 });
               } catch (labelError) {
                 if (labelError.status !== 422) throw labelError;

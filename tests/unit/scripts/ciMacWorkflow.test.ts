@@ -10,6 +10,8 @@ import { deriveCheckProfiles } from '../../../scripts/ci/check-verdict.mts'
 const ci = YAML.parse(readFileSync('.github/workflows/ci.yml', 'utf8'))
 const devMacSource = readFileSync('.github/workflows/ci-dev-mac.yml', 'utf8')
 const devMac = YAML.parse(devMacSource)
+const devLinuxSource = readFileSync('.github/workflows/ci-dev-linux.yml', 'utf8')
+const devLinux = YAML.parse(devLinuxSource)
 const classifyScript = ci.jobs.changes.steps.find((step: { id?: string }) => step.id === 'classify').run
 
 function classify(files: string[], env: Record<string, string> = {}) {
@@ -57,7 +59,7 @@ describe('PR macOS path classification', () => {
   it.each([
     'apps/desktop/src/App.tsx', 'scripts/build-provenance.mjs', 'scripts/ci/check-verdict.mts',
     'vite.config.mts', 'electron-builder.cjs', 'build-resources/icon.icns',
-    '.github/workflows/ci-dev-mac.yml',
+    '.github/workflows/ci-dev-mac.yml', '.github/workflows/ci-dev-linux.yml',
   ])('%s still builds Linux/web without requiring PR Mac', file => {
     expect(classify([file])).toEqual({ build: 'true', 'desktop-mac': 'false', android: 'false' })
   })
@@ -87,15 +89,21 @@ describe('PR macOS path classification', () => {
   })
 })
 
-describe('dev Mac workflow contract', () => {
+describe('dev verification workflow contracts', () => {
   const job = devMac.jobs['desktop-build-mac']
   const report = job.steps.at(-1)
 
-  it('subscribes only to dev push and coalesces dev builds', () => {
-    expect(devMac.on).toEqual({ push: { branches: ['dev'] } })
+  it('keeps Mac automatic and Linux manual-only with separate cancellation groups', () => {
+    expect(devMac.on).toEqual({ push: { branches: ['dev'] }, workflow_dispatch: null })
+    expect(devLinux.on).toEqual({ workflow_dispatch: null })
+    expect(devLinuxSource).toContain('Tomorrow, restore push with branches: [dev]')
     expect(ci.on).not.toHaveProperty('push')
     expect(devMac.concurrency).toEqual({ group: 'community-ci-dev-mac', 'cancel-in-progress': true })
-    expect(Object.keys(devMac.jobs)).toEqual(['desktop-build-mac', 'linux-checks', 'typecheck'])
+    expect(devLinux.concurrency).toEqual({ group: 'community-ci-dev-linux', 'cancel-in-progress': true })
+    expect(Object.keys(devMac.jobs)).toEqual(['desktop-build-mac'])
+    expect(Object.keys(devLinux.jobs)).toEqual(['linux-checks', 'typecheck'])
+    expect(Object.values(devLinux.jobs).every((job: { concurrency?: unknown }) => job.concurrency === undefined))
+      .toBe(true)
   })
 
   it('keeps all hosted Mac steps, environments and timeout identical before reporting', () => {
@@ -113,28 +121,35 @@ describe('dev Mac workflow contract', () => {
 
   it('copies the four original Linux unit shards and runs typecheck once in its own job', () => {
     const original = ci.jobs.unit
-    const linux = devMac.jobs['linux-checks']
+    const linux = devLinux.jobs['linux-checks']
     expect(linux['runs-on']).toBe(original['runs-on'])
     expect(linux.strategy).toEqual(original.strategy)
     expect(linux.env).toEqual(original.env)
     expect(linux.steps.slice(0, -1)).toEqual(original.steps)
     expect(linux.permissions).toEqual({ contents: 'read', actions: 'read', issues: 'write' })
     expect(linux.steps.at(-1).if).toBe('failure()')
-    const typecheck = devMac.jobs.typecheck
+    const typecheck = devLinux.jobs.typecheck
     expect(typecheck['runs-on']).toBe('ubuntu-24.04')
     expect(typecheck.strategy).toBeUndefined()
     expect(typecheck.steps.filter((step: { run?: string }) => step.run).map((step: { run: string }) => step.run))
       .toEqual(['pnpm typecheck'])
     expect(ci.jobs.policy.steps.some((step: { run?: string }) => step.run === 'pnpm typecheck')).toBe(true)
     expect(typecheck.permissions).toEqual({ contents: 'read', actions: 'read', issues: 'write' })
+    expect(devLinux.env).toEqual(devMac.env)
+    expect(devLinux.permissions).toEqual(devMac.permissions)
   })
 
-  it('canonical derives Mac and four unit checks only on dev push', () => {
-    const entry = { path: '.github/workflows/ci-dev-mac.yml', source: devMacSource }
-    const event = { id: 'push:dev', type: 'push', ref: 'refs/heads/dev', changedPaths: ['README.md'], inventoryRef: 'candidate', workflows: [entry] }
+  it('canonical derives only Mac on dev push and all six checks on manual runs', () => {
+    const workflows = [
+      { path: '.github/workflows/ci-dev-mac.yml', source: devMacSource },
+      { path: '.github/workflows/ci-dev-linux.yml', source: devLinuxSource },
+    ]
+    const event = { id: 'push:dev', type: 'push', ref: 'refs/heads/dev', changedPaths: ['README.md'], inventoryRef: 'candidate', workflows }
     const profiles = deriveCheckProfiles([event])
     expect(profiles).toHaveLength(1)
-    expect(profiles[0].checks).toEqual([
+    expect(profiles[0].checks).toEqual(['Dev desktop app build (macos-15)'])
+    const manual = deriveCheckProfiles([{ ...event, id: 'manual', type: 'workflow_dispatch' }])
+    expect(manual.flatMap(profile => profile.checks).sort()).toEqual([
       'Dev Linux checks (1/4)', 'Dev Linux checks (2/4)', 'Dev Linux checks (3/4)', 'Dev Linux checks (4/4)',
       'Dev typecheck',
       'Dev desktop app build (macos-15)',
@@ -195,7 +210,7 @@ describe('dev Mac workflow contract', () => {
   })
 
   it('reports Linux failures separately and keys retries by SHA and shard', async () => {
-    const step = devMac.jobs['linux-checks'].steps.at(-1)
+    const step = devLinux.jobs['linux-checks'].steps.at(-1)
     const f = fixture([], step)
     await f.run()
     expect(f.issues.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -206,7 +221,7 @@ describe('dev Mac workflow contract', () => {
     await retry.run()
     expect(retry.issues.update).toHaveBeenCalledWith(expect.objectContaining({ issue_number: 3 }))
     expect(retry.issues.create).not.toHaveBeenCalled()
-    const typecheck = fixture([], devMac.jobs.typecheck.steps.at(-1))
+    const typecheck = fixture([], devLinux.jobs.typecheck.steps.at(-1))
     await typecheck.run()
     expect(typecheck.issues.create).toHaveBeenCalledWith(expect.objectContaining({
       labels: ['ci-dev-red'], title: 'Dev typecheck failed at aaaaaaa',
