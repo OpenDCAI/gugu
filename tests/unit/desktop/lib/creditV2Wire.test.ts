@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { describe, expect, it } from 'vitest'
 import { createCreditV2Reader } from '../../../../apps/desktop/src/lib/billing/v2/readers'
+import { deriveSpendingPower, isLowBalance, periodUsdFor } from '@gugu/core/billing'
+import { creditRatio } from '../../../../apps/desktop/src/lib/billing/creditGeometry'
 import {
   CreditReadContractError, creditMeta, priceState, rpcRows, sameCreditMeta,
 } from '../../../../apps/desktop/src/lib/billing/v2/contract'
@@ -104,6 +106,35 @@ describe('v2 activation metadata', () => {
     expect(() => rpcRows([meta, active], () => 'row')).toThrow(CreditReadContractError)
     expect(() => sameCreditMeta([rpcRows([meta], () => 'a'), rpcRows([active], () => 'b')])).toThrow(CreditReadContractError)
     expect(sameCreditMeta([rpcRows([], () => 'empty'), rpcRows([meta], () => 'row')])).toEqual(creditMeta(meta))
+  })
+})
+
+describe('exact downstream credit derivation', () => {
+  it('keeps tiny held amounts and large balances exact through both pools', () => {
+    const power = deriveSpendingPower(creditDecimal('9007199254740993.00000001'), {
+      plan_id: 'free', period_credits: creditDecimal('7.5'), period_used: creditDecimal('0.00000001'),
+      outstanding_credits: creditDecimal('0.00000002'), credits_per_usd: creditDecimal('3.33333333'),
+      period_started_at: from, period_ends_at: to,
+    })
+    expect(power.periodCredits).toBe('7.49999999')
+    expect(power.period.remaining).toBe('7.49999997')
+    expect(power.spendable).toBe('9007199254741000.49999998')
+    expect(power.held).toBe('0.00000002')
+    expect(power.blockedBy).toBeNull()
+  })
+
+  it('uses the unchanged threshold on exact values and never reinterprets the v2 compatibility scale as USD', () => {
+    expect(isLowBalance(creditDecimal('0.99999999'))).toBe(true)
+    expect(isLowBalance(creditDecimal('1'))).toBe(false)
+    expect(isLowBalance(creditDecimal('0'))).toBe(false)
+    expect(periodUsdFor({ period_credits: creditDecimal('7.5'), credits_per_usd: creditDecimal('3.33333333') })).toBeNull()
+  })
+
+  it('normalizes only drawing geometry, keeping exact source values separate', () => {
+    expect(creditRatio(creditDecimal('2.25'), creditDecimal('7.5'))).toBe(0.3)
+    expect(creditRatio(creditDecimal('100'), creditDecimal('7.5'))).toBe(1)
+    expect(creditRatio(creditDecimal('-1'), creditDecimal('7.5'))).toBe(0)
+    expect(creditRatio(creditDecimal('1'), creditDecimal('0'))).toBe(0)
   })
 })
 

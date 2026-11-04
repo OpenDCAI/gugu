@@ -1,6 +1,7 @@
 // 额度窗口面:取数 + 画条要的几何。窗口本身怎么推导(上限、余量、时长)在
 // @gugu/core/billing —— 这里不重算,只把领域结果加上进度条需要的比例。
 import { periodUsdFor, quotaSpendWindows, type QuotaWindows, type SpendWindow } from '@gugu/core/billing'
+import { creditRatio } from './creditGeometry'
 import { dataClient } from '../supabase'
 import { getLocaleSnapshot, i18n, type SupportedLocale } from '@/i18n'
 import enUS from '@/i18n/locales/en-US/settings'
@@ -68,8 +69,8 @@ export interface QuotaWindowView extends SpendWindow {
 
 function withBarGeometry(window: SpendWindow): QuotaWindowView {
   const span = window.limit
-  const usedRatio = span > 0 ? Math.min(1, window.used / span) : 0
-  const heldRatio = span > 0 ? Math.min(1 - usedRatio, window.held / span) : 0
+  const usedRatio = creditRatio(window.used, span)
+  const heldRatio = Math.min(1 - usedRatio, creditRatio(window.held, span))
   return { ...window, usedRatio, heldRatio }
 }
 

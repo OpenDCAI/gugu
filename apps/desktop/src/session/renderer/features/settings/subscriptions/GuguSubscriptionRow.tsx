@@ -5,6 +5,8 @@ import { publicAssetPath } from '@gugu/core/shared/ui/publicAssets';
 import { ArrowUpRight } from '@/lib/icons';
 import { useAuth } from '@/store/auth';
 import { formatCredits, getMembership, quotaWindowViews, useSpendingPower } from '@/lib/billing';
+import { compareCreditAmounts } from '@gugu/core/billing/creditAmount';
+import { creditRatio } from '@/lib/billing/creditGeometry';
 import { platform } from '@/platform';
 import { GUGU_BILLING_URL, GUGU_TOPUP_URL } from '@/lib/appLinks';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -76,7 +78,7 @@ export function GuguSubscriptionRow() {
         {!power && !balanceError && !windowsError && (
           <p className="subscription-note" data-testid="subscription-credits-loading">{t('credits.loading')}</p>
         )}
-        {power && power.held > 0 && <p className="subscription-note">{translate('subscriptions.gugu.reserved', { credits: formatCredits(power.held) })}</p>}
+        {power && compareCreditAmounts(power.held, 0) > 0 && <p className="subscription-note">{translate('subscriptions.gugu.reserved', { credits: formatCredits(power.held) })}</p>}
       </div>
       <div className="subscription-quota-grid">
         <div className="subscription-quota" data-testid="subscription-period">
@@ -94,10 +96,11 @@ export function GuguSubscriptionRow() {
                 role="meter"
                 aria-label={translate('subscriptions.gugu.period')}
                 aria-valuemin={0}
-                aria-valuemax={period.limit}
-                aria-valuenow={period.remaining}
+                aria-valuemax={1}
+                aria-valuenow={creditRatio(period.remaining, period.limit)}
+                aria-valuetext={`${formatCredits(period.remaining)} / ${formatCredits(period.limit)}`}
               >
-                <i style={{ width: `${period.limit > 0 ? (period.remaining / period.limit) * 100 : 0}%` }} />
+                <i style={{ width: `${creditRatio(period.remaining, period.limit) * 100}%` }} />
               </div>
               <p>{translate('subscriptions.gugu.resets', { date: date(period.freesAt) })}</p>
             </>
