@@ -117,10 +117,12 @@ export class ManagedAgentTerminal {
 
   dispose(): void {
     if (this.disposed) return;
-    this.disposed = true;
+    // 先摘数据监听(杀不掉也不再转发晚到的输出),再真的杀:杀失败就照实抛,`disposed` 不落 ——
+    // 注册表留着,下一次 release 还能重试(❌ 把一次失败的清理变成静默成功)。
     this.proc.stdout.off('data', this.onData);
     this.proc.stderr?.off('data', this.onData);
     this.kill();
+    this.disposed = true;
     this.chunks.length = 0;
     this.bytes = 0;
     this.waiters.splice(0);
