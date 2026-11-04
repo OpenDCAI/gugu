@@ -136,6 +136,25 @@ describe('replay conversation segment boundaries', () => {
     expect(rows.some(row => (row.data as ChatMessage).conversationReply)).toBe(false);
   });
 
+  it.each(['background-command-done-tool-call', 'subagent-done-tool-call'] as const)(
+    'keeps an untimed %s from inventing a completed reply clock', kind => {
+      const base = { id: 'wake', seq: 1, toolCallId: 'wake', launchToolCallId: 'launch',
+        title: 'wake', name: 'wake', status: 'done' as const, outcome: 'completed' as const };
+      const source: ChatItem = kind === 'subagent-done-tool-call' ? { ...base, kind, agentId: 'child' } : { ...base, kind };
+      for (const active of [false, true]) {
+        for (const at of [undefined, 5000]) {
+          const record = turn([message('input', 'user'), { ...source, at }, message('reply', 'assistant')]);
+          const [segment] = planConversationSegments(record, active).filter(block => block.kind === 'segment');
+          expect(segment.startedAt).toBe(active ? 1000 : at);
+          const rows = flattenTier([record], context(active), segmenters);
+          const head = rows.find(row => (row.data as ChatMessage).conversationPart === 'head')!.data as ChatMessage;
+          expect(head.conversationProcess).toMatchObject({ steps: 0, empty: true });
+          expect(head.conversationProcess?.startedAt).toBe(active ? 1000 : at);
+        }
+      }
+    },
+  );
+
   it('excludes silence and the visible reply without dropping earlier live parts', () => {
     const record = turn([message('u', 'user'), call('one'), message('a', 'assistant'), call('two'), message('b', 'assistant'), call('three'), message('latest', 'assistant'), { ...message('silent', 'assistant'), text: '[NO_REPLY]' }]);
     const rows = flattenTier([record], context(true), segmenters);
