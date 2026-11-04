@@ -2977,8 +2977,15 @@ export class AcpChatStore {
     this._closedHistory = null;
     this._unsubs.splice(0).forEach((unsub) => { if (unsub !== finalHistory?.dispose) unsub(); });
     this.session = null;
-    const generation = finalHistory ? ++this._historyGeneration : this._historyGeneration;
-    if (finalHistory) this._unsubs.push(finalHistory.dispose);
+    // Read only when the screen still has something unsettled: a live frame, or a last committed turn without an
+    // outcome (its commit-time history read can come back empty once the runtime record is removed). An idle close
+    // whose last turn already shows its outcome reads nothing (an older server cannot answer) and keeps history pages.
+    const shown = this.chatState.transcript.state;
+    const settled = shown.activeTurnSnapshot === null && shown.committedTurns.at(-1)?.outcome !== undefined;
+    const reconcile = finalHistory !== null && !settled;
+    if (finalHistory && !reconcile) finalHistory.dispose();
+    const generation = reconcile ? ++this._historyGeneration : this._historyGeneration;
+    if (reconcile && finalHistory) this._unsubs.push(finalHistory.dispose);
     this._unsubs.push(
       // 等它起完(重放过往回合)再挂:挂在 starting / replaying 上,读到的引擎历史缺一截,补上来的回合会再画一遍。
       closed.sessionState.onChange((state) => {
@@ -2991,7 +2998,7 @@ export class AcpChatStore {
     this._loadStoredQueue((error) => this._toastError('acpFailure.refreshHistory', error));
     this.historyLoading = false;
     this.loadError = loadError;
-    finalHistory?.close(() => !this._disposed && this._closedByHost && this.session === null
+    if (reconcile && finalHistory) finalHistory.close(() => !this._disposed && this._closedByHost && this.session === null
       && generation === this._historyGeneration && !this._transcriptReleased);
   }
 
