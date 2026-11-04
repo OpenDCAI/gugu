@@ -2524,6 +2524,10 @@ async function handleAcpRequest(message) {
             message: `unknown model: ${wantedValue}; local Codex offers ${models
               .map((model) => model.id)
               .join(', ')}`,
+            data: {
+              kind: 'model-unavailable',
+              requestedValue: wantedValue,
+            },
           })
           return
         }

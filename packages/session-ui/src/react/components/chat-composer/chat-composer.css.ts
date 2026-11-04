@@ -1507,6 +1507,14 @@ export const modelEffortThumb = style({
  */
 export const composerPanelContent = style({ padding: 0 });
 
+export const modelSettingNotice = style({
+  padding: '0.5rem',
+  fontSize: tokenVars.textTiny,
+  lineHeight: tokenVars.textTinyLineHeight,
+  color: vars.foregroundMuted,
+  overflowWrap: 'anywhere',
+});
+
 export const modelPanelContent = style({
   // ⚠️ **三条一起写**,只写 `width` 挡不住:primitive 的 `comboboxContent` 自带
   // `width/minWidth: var(--anchor-width)` + `maxWidth: var(--available-width)`,

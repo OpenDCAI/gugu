@@ -619,6 +619,7 @@ export const enUSSessionWorkflowMessages = {
   // #7103 通用形态里一件事没做成时那条弹窗的标题(说没做成哪件事);正文按原因表说,原文只进日志。
   'acpFailure.sendMessage': "Couldn't send the message",
   'acpFailure.changeSetting': "Couldn't change the setting",
+  'acpFailure.changeModel': "Couldn't change the model",
   'acpFailure.attachment': "Couldn't handle the attachment",
   'acpFailure.stop': "Couldn't stop",
   'acpFailure.resolvePermission': "Couldn't answer the permission request",
@@ -1209,6 +1210,7 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'taskError.provisionTimeout': '准备会话文件超时（{timeoutMs}ms）。',
   'acpFailure.sendMessage': '消息没发出去',
   'acpFailure.changeSetting': '设置没改成',
+  'acpFailure.changeModel': '模型没改成',
   'acpFailure.attachment': '附件没处理好',
   'acpFailure.stop': '没能停下',
   'acpFailure.resolvePermission': '授权没答上',

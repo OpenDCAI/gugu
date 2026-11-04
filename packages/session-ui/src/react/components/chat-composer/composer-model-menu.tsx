@@ -27,7 +27,7 @@
  * 一级 = **这条是谁的**(组头);二级 = **厂商**(顶部筛选药丸 + 行内 logo,❌ 不分组)。
  * 理由在产品上:用户先要决定的是这次调用记在谁账上,厂商是在那之后才挑的。
  */
-import React, { useEffect, useId, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { RotateCcw, Search } from '../../../icons';
 import { Combobox } from '@session-ui/react/primitives/combobox/combobox';
 // 上游那版的过滤条用的就是 Base UI 的这两件(见 model-selector.tsx 的
@@ -260,6 +260,8 @@ export interface ComposerModelMenuProps {
    * ❌ 宿主去 DOM 里找触发器 click —— 那是拿测试锚点当产品接口。
    */
   openRequest?: number;
+  settingNotice?: string | null;
+  onOpen?: () => void;
   modelUnlock?: ComposerModelUnlock | null;
   onModelUnlock?: (anchor?: HTMLElement) => void;
   /** 底部「管理模型」:宿主打开设置里的「模型」那一页(#7056)。不给 = 不画。 */
@@ -281,6 +283,8 @@ export function ComposerModelMenu({
   selectedModel,
   onModelChange,
   openRequest,
+  settingNotice,
+  onOpen,
   modelUnlock,
   onModelUnlock,
   onManageModels,
@@ -300,6 +304,12 @@ export function ComposerModelMenu({
    */
   const [modelProviderFilter, setModelProviderFilter] = useState<ReadonlySet<string>>(new Set());
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
+  const openModelPanel = useCallback(() => {
+    onOpenRef.current?.();
+    setModelPanelOpen(true);
+  }, []);
   /**
    * 拖动中的档位 —— **本地**状态，不绕宿主。
    *
@@ -316,8 +326,8 @@ export function ComposerModelMenu({
    */
   const effortHintId = `${useId()}-effort-hint`;
   useEffect(() => {
-    if (openRequest) setModelPanelOpen(true);
-  }, [openRequest]);
+    if (openRequest) openModelPanel();
+  }, [openRequest, openModelPanel]);
   /**
    * 悬浮详情卡(#7056,对齐 Cursor):指到哪一行,卡就贴着那一行出现在面板旁边。
    * ⚠️ 这三个 hook 同样必须排在早退之前。
@@ -484,7 +494,8 @@ export function ComposerModelMenu({
             return;
           }
           if (!next) detailCard.close();
-          setModelPanelOpen(next);
+          if (next) openModelPanel();
+          else setModelPanelOpen(false);
         }}
         isItemEqualToValue={(a: ComposerModelItem, b: ComposerModelItem) => a.id === b.id}
         // 上游:匹配 id、name 与 keywords(它的 demo 正是把厂商名放在 keywords 里)。
@@ -504,7 +515,7 @@ export function ComposerModelMenu({
         <Combobox.Trigger
           className={styles.agentTrigger}
           disabled={disabled}
-          title={triggerTitle}
+          title={settingNotice ?? triggerTitle}
           // 这颗触发器的可访问名是「当前模型名」——会随选择变化,拿它定位等于拿一个
           // 动态值当锚点。旁边还有别的弹层按钮(用户菜单),按序数取第一个会抓到那个
           // (实测抓到了「设置/会员与额度/退出登录」)。给它一个稳定锚点。
@@ -522,7 +533,9 @@ export function ComposerModelMenu({
               判据要能只读这一格:整颗触发器的 textContent 会把强度档("中")粘在名字后面。 */}
           <span data-slot="composer-model-trigger-label" className={styles.modelTriggerLabel}>
             {/* 括号在这里剥掉,清单里不剥 —— 见 @@@composer-model-trigger-label。 */}
-            {selectedModelItem
+            {settingNotice
+              ? `${settingNotice} · ${translate('composer.changeModel')}`
+              : selectedModelItem
               ? composerModelTriggerLabel(
                   selectedModelItem.shortName ?? selectedModelItem.name,
                   modelItems.map((m) => m.shortName ?? m.name)
@@ -555,6 +568,11 @@ export function ComposerModelMenu({
             而上游那版就是省略号(`truncate`)。owner 2026-09-06 在实机上看过这一版并认可。
             ⇒ 换了机制、没丢那条修复;要回到「按内容撑宽」,改这一个 className 即可。 */}
         <Combobox.Content ref={setPanelEl} className={styles.modelPanelContent}>
+          {settingNotice && (
+            <div role="status" className={styles.modelSettingNotice} data-testid="composer-model-setting-notice">
+              {settingNotice}
+            </div>
+          )}
           {panel.modelRow === 'list' ? (
             <>
               <Combobox.Input

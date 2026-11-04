@@ -26,3 +26,16 @@ export function runningPlatformModelId(
     || platformModelIdFromRuntimeOption(sessionSelection.modelId, known)
     || sessionSelection.modelId;
 }
+
+/** Only a successfully loaded platform catalog can establish that the recorded model is retired. */
+export function unavailablePlatformModelId(input: {
+  sessionSelection: PersistedSessionSelection;
+  liveModel?: string | null;
+  models: readonly { id: string }[];
+  catalogError: string | null;
+  settled: boolean;
+}): string | null {
+  if (!input.settled || !input.sessionSelection || input.catalogError) return null;
+  const current = runningPlatformModelId(input.sessionSelection, input.liveModel, input.models.map(({ id }) => id));
+  return current && !input.models.some(({ id }) => id === current) ? current : null;
+}
