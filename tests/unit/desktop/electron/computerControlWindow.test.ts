@@ -201,7 +201,7 @@ describe('window-relative computer indicator', () => {
     const callTool = vi.fn(async () => ({ isError: true, content: [{ type: 'text' as const, text: nativeMessage }], structuredContent: { code: 'desktop_scope_disabled' } }))
     const ctx = { deps: { platform: 'darwin', computerControl: control, selfApp: () => ({ pids: new Set([4242]), names: new Set(['Gugu']) }), cua: () => ({ callTool }) }, signal: new AbortController().signal, note: vi.fn() } as unknown as ActionRunContext
     const click = createComputerFamily(null).actions.find(a => a.name === 'computer.click')!
-    expect(await click.run({ x: 1, y: 2 }, ctx)).toMatchObject({ code: 'execution_failed', message: `computer.click: ${nativeMessage}` })
+    expect(await click.run({ x: 1, y: 2 }, ctx)).toMatchObject({ code: 'execution_failed', message: expect.stringContaining('First use computer.launch_app or computer.list_windows') })
     expect(callTool).toHaveBeenCalledExactlyOnceWith('click', { x: 1, y: 2, session: expect.any(String) }, expect.anything())
     // Known Gugu targets still stop before native dispatch, independently of
     // whether its indicator could attach to the foreground.

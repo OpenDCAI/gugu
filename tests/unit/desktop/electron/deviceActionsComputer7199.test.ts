@@ -419,6 +419,19 @@ describe('电脑控制:结果', () => {
     expect(cuaOutcome('x', { isError: true, content: [{ type: 'text', text: 'ambiguous_window_target' }] })).toMatchObject({ code: 'execution_failed', message: 'x: ambiguous_window_target' })
   })
 
+  it('turns only the native missing-window click error into recovery steps after dispatch', async () => {
+    const nativeMessage = 'click: x,y given with no pid/window_id, but scope is "window". Screen-absolute clicks require desktop scope. Pass scope="desktop" (and use get_desktop_state with scope="desktop" to read true screen pixels) first.'
+    const native = { isError: true, content: [{ type: 'text' as const, text: nativeMessage }], structuredContent: { code: 'desktop_scope_disabled', scope: 'window', suggestion: 'pass scope="desktop"' } }
+    const { invoke, callTool } = setup({ callTool: async () => native })
+    expect(await invoke('computer.click', { x: 1, y: 2 })).toEqual({ ok: false, code: 'execution_failed', message: 'computer.click: Clicking needs a target window. First use computer.launch_app or computer.list_windows to get the target app and window, then retry computer.click with pid and window_id, or an element_token from computer.get_window_state.' })
+    expect(callTool).toHaveBeenCalledExactlyOnceWith('click', expect.objectContaining({ x: 1, y: 2 }), expect.anything())
+    // No rewrite for another tool, a different native error, or a successful call.
+    expect(cuaOutcome('computer.type_text', native)).toMatchObject({ message: `computer.type_text: ${nativeMessage}` })
+    expect(cuaOutcome('computer.click', { ...native, structuredContent: { code: 'invalid_arguments' } })).toMatchObject({ message: `computer.click: ${nativeMessage}` })
+    expect(cuaOutcome('computer.click', { structuredContent: { code: 'desktop_scope_disabled', clicked: true } })).toEqual({ ok: true, data: { code: 'desktop_scope_disabled', clicked: true } })
+    expect(cuaOutcome('computer.click', { ...native, content: [{ type: 'text', text: 'Accessibility is not trusted for this process' }] })).toHaveProperty('code', 'os_permission')
+  })
+
   it('读 get_window_state 的树:编号行、静态文字、id', () => {
     const rows = parseTreeRows('- [0] AXWindow "计算器" [id=main actions=[raise]]\n    - AXStaticText = "‎9,240"\n    - [5] AXButton (7) [id=Seven actions=[press]]')
     expect(rows).toEqual([

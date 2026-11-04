@@ -344,6 +344,9 @@ export function cuaOutcome(name: string, result: CuaToolResult): Outcome {
     if (/screen recording/i.test(message) && /not (granted|allowed|authorized)|denied|permission/i.test(message)) return fail('os_permission', SCREEN_MESSAGE)
     if (/accessibility/i.test(message) && /not (granted|allowed|trusted|authorized)|denied|permission|disabled/i.test(message)) return fail('os_permission', AX_MESSAGE)
     if (refusalInfo?.code === 'facility_unavailable') return fail('unsupported', `${name}: ${message}`)
+    if (name === 'computer.click' && structured?.code === 'desktop_scope_disabled') {
+      return fail('execution_failed', `${name}: Clicking needs a target window. First use computer.launch_app or computer.list_windows to get the target app and window, then retry computer.click with pid and window_id, or an element_token from computer.get_window_state.`)
+    }
     return fail('execution_failed', `${name}: ${message}`)
   }
   const data = structured ?? (text ? { text } : {})
