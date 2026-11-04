@@ -100,6 +100,8 @@ function fakeSession() {
     activeTurn: replica(null),
     plan: replica(null),
     draft: replica(null),
+    canSyncDraft: () => true,
+    onDraftSyncReady: () => () => {},
     terminals: replica([] as unknown[]),
     config: replica({}),
     sendPrompt,

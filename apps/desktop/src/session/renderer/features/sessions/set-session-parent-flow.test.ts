@@ -43,17 +43,20 @@ afterEach(() => {
 });
 
 describe('moveSessionUnder', () => {
-  it("runs the agent's set_parent action on the child's machine, opens the parent and offers one undo back", async () => {
+  it.each([false, true])("runs set_parent on the child's machine, preserves disclosure (expanded=%s) and offers one undo back", async (initiallyExpanded) => {
     // child 在别的机器上、父会话在本机:这一步只能在 child 那台做(MCP 的 session_set_parent 也是这样转的)。
     machineRegistry.register('device-b', ['remote-project']);
     mocks.setSessionParent.mockResolvedValue({ parent_session_id: 'parent-session', not_reached: [] });
+    mocks.expanded.add('unrelated-session');
+    if (initiallyExpanded) mocks.expanded.add('parent-session');
+    const expandedBeforeMove = new Set(mocks.expanded);
 
     moveSessionUnder(child, parent, 'old-parent');
     await settle();
 
     expect(mocks.machines).toEqual(['device-b']);
     expect(mocks.setSessionParent).toHaveBeenCalledWith('child-session', 'parent-session');
-    expect(mocks.expanded.has('parent-session')).toBe(true);
+    expect(mocks.expanded).toEqual(expandedBeforeMove);
     const shown = mocks.toast.mock.calls[0]![0] as { title: string; description?: string; action: { onClick: () => void } };
     expect(shown.title).toContain('sidebar.nestedUnder');
     expect(shown.description).toBeUndefined();
@@ -64,6 +67,7 @@ describe('moveSessionUnder', () => {
     expect(mocks.setSessionParent).toHaveBeenCalledTimes(2);
     expect(mocks.setSessionParent).toHaveBeenLastCalledWith('child-session', 'old-parent');
     expect(mocks.machines).toEqual(['device-b', 'device-b']);
+    expect(mocks.expanded).toEqual(expandedBeforeMove);
   });
 
   it('back to the top: the same action with no parent, nothing to open, undo hangs it back where it was', async () => {

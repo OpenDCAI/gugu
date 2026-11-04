@@ -15,6 +15,7 @@ export function sentAttachmentOf(item: TranscriptItem): SentAttachment | null {
   if (!id) return null;
   const output = sendReceipt(item.rawOutput || item.outputText);
   if (!output) return null;
+  if (output.delivery === 'owner-native') return null;
   let args: Record<string, unknown> = {};
   try { args = JSON.parse(item.rawInput ?? '{}') as Record<string, unknown>; } catch { /* receipt metadata is sufficient */ }
   const name = typeof output?.file_name === 'string' ? output.file_name : typeof args?.file_name === 'string' ? args.file_name

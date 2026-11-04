@@ -173,7 +173,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
         <Composer {...props.conversation} key={chatId} editorApiRef={editorApiRef} editorOptions={editorOptions} mobile={mobile}
           disabled={disabled} disabledPlaceholder={placeholder ?? disabledReason} canSubmit={!sending && (!!text.trim() || attachments.length > 0)}
           placeholder={props.conversation ? undefined : phoneTask.placeholder ?? (whisperTarget ? t('composer.whisperPlaceholder', { name: whisperTarget.displayName }) : placeholder ?? (mobile && isGroupChat ? t('composer.mobilePlaceholder') : projectName && !mobile ? t('composer.projectGroupPlaceholder', { name: projectName }) : t('composer.placeholder')))}
-          onInputChange={setText} onSubmitWhileWorking={props.conversation ? value => { void handleSend(value) } : undefined} onSubmit={(value) => { void (phoneTask.active ? phoneTask.send(value) : handleSend(value)) }} onMentionInsert={onMentionInsert}
+          onInputChange={setText} onSubmitWhileWorking={props.conversation ? handleSend : undefined} onSubmit={value => phoneTask.active ? phoneTask.send(value) : handleSend(value)} onMentionInsert={onMentionInsert}
           mentionProvider={mentionProvider} renderMentionIcon={renderMentionIcon} dataDropTypes={dataDropTypes} onDataDropped={onDataDropped}
           onFilesDropped={enqueueFiles} onImageFilesDropped={enqueueFiles}
           attachments={composerAttachments} onAttachmentsChange={(next) => { const kept = attachments.filter((file) => next.some((item) => item.id === file.id)); revokeAttachmentPreviewUrls(attachments.filter((file) => !kept.includes(file))); setAttachments(kept) }}

@@ -24,6 +24,18 @@ const context = (active: boolean, toggles: string[] = []): SegmentCtx => ({ cach
 } as unknown as SegmentCtx);
 
 describe('replay conversation segment boundaries', () => {
+  it('keeps a committed owner notification in its own bubble when the agent continues the active turn', () => {
+    const notification: ChatMessage = { ...message('owner-notify', 'assistant', 3000), ownerNotification: {
+      requestId: '11111111-1111-4111-8111-111111111111', requestHash: 'hash', sourceTurnId: 't',
+    } };
+    const record = turn([message('u', 'user', 1000), call('send'), notification, call('continued'), message('later', 'assistant', 5000)]);
+    for (const active of [true, false]) {
+      const blocks = planConversationSegments(record, active).filter(block => block.kind === 'segment');
+      expect(blocks.map(segment => conversationOutput(segment.items).reply?.id)).toEqual(['owner-notify', 'later']);
+      const rows = flattenTier([record], context(active), segmenters);
+      expect((rows.find(row => row.itemId === notification.id)!.data as ChatMessage).conversationNarration).toBeUndefined();
+    }
+  });
   it('uses attachment labels in an explicit native quote without changing the input or its anchor', () => {
     const text = '看下文件\n@[tri19-file.txt](/Users/host/task-attachments/c/tri19-file.txt)';
     const input = { ...message('u', 'user'), text };

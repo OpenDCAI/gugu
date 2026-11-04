@@ -10,6 +10,7 @@ export class SnapshotRegistry {
    *
    * A MobX reaction is started that watches `getSnapshot()` and persists the
    * result via RPC after a 1 second debounce whenever it structurally changes.
+   * Pass zero for manual preferences that must be saved before a refresh or restart.
    * The cache is updated immediately on every change so subsequent reads are
    * instant, and the entry is evicted from the cache when the disposer runs.
    *
@@ -19,7 +20,7 @@ export class SnapshotRegistry {
    * @returns A disposer function — call it when the entity is torn down to stop
    *          the reaction and clean up the entry.
    */
-  register(key: string, getSnapshot: () => unknown): () => void {
+  register(key: string, getSnapshot: () => unknown, delay = 1000): () => void {
     // Clean up any stale reaction for this key before creating a new one.
     this.disposers.get(key)?.();
 
@@ -32,7 +33,7 @@ export class SnapshotRegistry {
         viewStateCache.set(key, snapshot);
         void rpc.viewState.save(key, snapshot);
       },
-      { equals: comparer.structural, delay: 1000, fireImmediately: false }
+      { equals: comparer.structural, delay, fireImmediately: false }
     );
 
     this.disposers.set(key, disposer);

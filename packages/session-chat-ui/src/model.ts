@@ -84,6 +84,7 @@ export type ChatMessage = {
   /** View-only confirmed file send; normalized to the existing attachment card before painting. */
   sentAttachment?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment;
   sentAttachments?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment[];
+  ownerNotification?: import('@gugu/session-core/acp/client').TranscriptMessage['ownerNotification'];
   /** Image attachments rendered as a thumbnail strip above the text (user messages). */
   attachments?: ChatAttachment[];
   files?: import('@gugu/session-core/session-record/contract').TurnFileRef[];
