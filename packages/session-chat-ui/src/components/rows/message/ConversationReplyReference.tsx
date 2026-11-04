@@ -7,7 +7,7 @@ import { conversationQuote, conversationQuotePreview, conversationReference } fr
 import { sourcePreview, mountSourcePreview } from '@session-chat/lib/source-preview';
 import { sourcePreviewBody } from '@session-chat/styles/source-preview.css';
 
-export function ConversationReplyReference(props: { itemId: string; text: string }) {
+export function ConversationReplyReference(props: { itemId: string; text: string; sender?: string; width?: number }) {
   const commands = useCommands(), translate = useChatTranslator();
   const [root, setRoot] = createSignal<HTMLSpanElement>();
   const [open, setOpen] = createSignal(false), [touch, setTouch] = createSignal(false);
@@ -22,8 +22,9 @@ export function ConversationReplyReference(props: { itemId: string; text: string
     const cleanup = mount({ root: element, text, originalLabel: label(), onOpenOriginal: () => commands().onConversationReply?.(itemId) });
     if (cleanup) onCleanup(cleanup);
   });
-  return <span ref={setRoot} class={conversationReference} data-slot="conversation-reference"
+  return <span ref={setRoot} class={conversationReference} style={{ width: props.width ? `${props.width}px` : undefined, gap: '4px', 'align-items': 'center' }} data-slot="conversation-reference"
     onPointerLeave={() => { if (!touch()) setOpen(false); }} onKeyDown={event => { if (event.key === 'Escape') setOpen(false); }}>
+    <Show when={props.sender}><span style={{ 'max-width': '120px', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap', cursor: 'pointer' }} onClick={navigate}>{props.sender}</span></Show>
     <Show when={!commands().onTooltipMount}>
       <button type="button" class={conversationQuote} data-slot="conversation-quote" aria-label={label()}
         disabled={!commands().onConversationReply} aria-expanded={open()}

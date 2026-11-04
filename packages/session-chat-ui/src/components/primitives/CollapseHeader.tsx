@@ -38,6 +38,7 @@ import { useChatTranslator } from '@session-chat/localization';
 export type CollapseHeaderProps = {
   /** The item id wired to data-collapse-id for ChatRoot delegation. */
   id: string;
+  leadingIcon?: JSX.Element;
   /**
    * Whether expanding this row would show anything the collapsed row does not.
    *
@@ -102,11 +103,12 @@ export function CollapseHeader(props: CollapseHeaderProps) {
       aria-expanded={props.collapsible ? (props.expanded ? 'true' : 'false') : undefined}
       data-collapse-id={props.collapsible ? props.id : undefined}
     >
+      <Show when={props.leadingIcon}><span data-process-disclosure-icon aria-hidden="true">{props.leadingIcon}<Show when={props.collapsible}><span data-process-disclosure-chevron style={{ transform: props.expanded ? 'rotate(90deg)' : undefined }}>›</span></Show></span></Show>
       <ShimmerText multiline={props.wrap} class={collapseHeaderLabel} active={!!props.active} style={props.wrap ? { 'white-space': 'pre-wrap', overflow: 'visible', 'overflow-wrap': 'normal', 'font-size': `${props.labelSize ?? 12}px`, 'line-height': `${props.labelLineHeight ?? 18}px`, flex: '1 1 auto' } : undefined}>
         {props.children}
       </ShimmerText>
       {props.trailing}
-      <Show when={props.collapsible}>
+      <Show when={props.collapsible && !props.leadingIcon}>
         <span class={chevron} classList={{ [chevronExpanded]: props.expanded }} aria-hidden="true">
           ›
         </span>

@@ -41,7 +41,7 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
       else target = imTargets.find(id => id === item.id || id.startsWith(`${item.id}:`))
       if (target) break
     }
-    if (target && state.view.openItem(target)) state.entering = false
+    if (target && state.view.openItem(target, { preserveProcess: true })) state.entering = false
   }, [summary, imFirst])
   useEffect(place, [place, shown])
   // Opening retries until the target renders, from either source, and with or without a native journal on the host.

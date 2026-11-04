@@ -19,3 +19,9 @@ export const HEADER_ROW_EXTRA_H = 8;
 
 /** Shared cap for a conversation's collapsed reply and running process viewport. */
 export const CONVERSATION_PREVIEW_MAX_H = 252;
+
+/** Execution viewport is independent of the reply preview cap. */
+export const PROCESS_PREVIEW_MAX_H = 136;
+
+/** Completed process disclosure in the approved replay design. */
+export const PROCESS_COMPLETED_MAX_H = 352;

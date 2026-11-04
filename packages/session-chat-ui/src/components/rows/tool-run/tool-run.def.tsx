@@ -6,6 +6,7 @@
  * 只是标签不是「过程 · N 步」而是成句的摘要「搜索了 3 个模式、读了 2 个文件」。
  * 展开不会长高这一行 —— flatten 在它下面重新发出原始行。
  */
+import { IconSquareTerminal } from '@session-chat/components/primitives/icons';
 import { HEADER_ROW_EXTRA_H } from '@session-chat/components/engine/row-metrics';
 import { CollapseHeader } from '@session-chat/components/primitives/CollapseHeader';
 import { defineUnit } from '@session-chat/core/units';
@@ -17,9 +18,9 @@ import { turnProcessHeaderSlot, turnProcessLine, turnProcessRow } from '../turn-
 function summaryLayout(data: ToolRunItem, ctx: import('@session-chat/core/define').MeasureCtx) {
   const now = data.now ? ` · ${toolRunNowLabel(data.now, rowTranslator(ctx))}` : '';
   const command = data.now?.kind === 'command' ? ` ${data.now.command}` : '';
-  const label = readableLabel(data.label + now + command, ctx, ctx.width - 20,
-    ctx.theme.layout.agentConversation ? 12 : ctx.theme.config.roles.body.size);
-  return { ...label, rowHeight: Math.max(ctx.theme.fonts.body.lineHeight + HEADER_ROW_EXTRA_H, label.height + 8) };
+  const label = readableLabel(data.label + now + command, ctx, ctx.theme.layout.agentConversation ? Number.MAX_SAFE_INTEGER : ctx.width - 20,
+    ctx.theme.layout.agentConversation ? 12 : ctx.theme.config.roles.body.size, 18);
+  return { ...label, rowHeight: ctx.theme.layout.agentConversation ? 32 : Math.max(ctx.theme.fonts.body.lineHeight + HEADER_ROW_EXTRA_H, label.height + 8) };
 }
 
 export const toolRunUnitDef = defineUnit<ToolRunItem, { extraH: number }>({
@@ -48,12 +49,13 @@ export const toolRunUnitDef = defineUnit<ToolRunItem, { extraH: number }>({
         <div class={turnProcessLine} data-slot="tool-timeline-line">
           <div class={turnProcessHeaderSlot}>
             <CollapseHeader
+              leadingIcon={props.ctx.measureCtx!().theme.layout.agentConversation ? <IconSquareTerminal /> : undefined}
               id={props.data.id}
               collapsible
               expanded={expanded()}
               active={props.data.live}
               height={height()}
-              wrap labelSize={layout().size} labelLineHeight={layout().lineHeight}
+              wrap={!props.ctx.measureCtx!().theme.layout.agentConversation} labelSize={layout().size} labelLineHeight={layout().lineHeight}
             >
               {layout().text}
             </CollapseHeader>

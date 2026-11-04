@@ -148,5 +148,10 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
   }
   if (active && !blocks.length) open().live = true;
   // What is running counts from the turn's one origin, past any boundary; a closed segment keeps its own measure.
-  return blocks.map(block => block.kind === 'segment' && block.live && turn.startedAt !== undefined ? { ...block, startedAt: turn.startedAt } : block);
+  return blocks.map(block => {
+    if (block.kind !== 'segment') return block;
+    // Live disclosure choices never become completed disclosure choices.
+    const id = block.live ? block.id : `${block.id}@completed`;
+    return { ...block, id, ...(block.live && turn.startedAt !== undefined ? { startedAt: turn.startedAt } : {}) };
+  });
 }

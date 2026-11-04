@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
-import { CONVERSATION_PREVIEW_MAX_H } from '@session-chat/components/engine/row-metrics';
+import { PROCESS_COMPLETED_MAX_H, PROCESS_PREVIEW_MAX_H } from '@session-chat/components/engine/row-metrics';
 import { createChatState } from '@session-chat/state/chat-state';
 import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
 import { until, untilStable } from '../../../../tests/support/awaitCondition';
@@ -32,8 +32,8 @@ function mount() {
       ],
     } as TranscriptTurn))]);
   };
-  const open = () => state.viewState.setCollapsed('scroll:process', true);
-  return { complete, open, bottom: () => view.scrollToBottom(), host, set, state, find: (text: string) => view.find(text), scrollTo: (id: string) => view.scrollToItem(id), remount: () => {
+  const open = () => state.viewState.setCollapsed('scroll:process@completed', true);
+  return { complete, open, bottom: () => view.scrollToBottom(), host, set, state, find: (text: string) => view.find(text), scrollTo: (id: string) => view.scrollToItem(id), openUnread: (id: string) => view.openItem(id, { preserveProcess: true }), remount: () => {
     view.dispose(); view = createChatView({ context, state, parent: host });
   } };
 }
@@ -46,7 +46,7 @@ describe('running process native scrolling', () => {
     await untilStable('transcript geometry settles', () => host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height);
     const viewport = host.querySelector<HTMLElement>('[data-slot="conversation-process-steps"]');
     expect(viewport).not.toBeNull();
-    expect(viewport!.clientHeight).toBe(CONVERSATION_PREVIEW_MAX_H);
+    expect(viewport!.clientHeight).toBe(PROCESS_PREVIEW_MAX_H);
     expect(viewport!.scrollHeight).toBeGreaterThan(viewport!.clientHeight);
     expect(viewport!.querySelectorAll('[data-conversation-narration]')).toHaveLength(12);
     expect(host.textContent).not.toMatch(/earlier parts|前面还有/);
@@ -122,12 +122,12 @@ describe('running process native scrolling', () => {
     await until('long reply is present', () => !!host.querySelector('[data-user-card="say-15"]'));
     const viewport = host.querySelector<HTMLElement>('[data-slot="conversation-process-steps"]')!;
     const bubble = host.querySelector<HTMLElement>('[data-agent-conversation-message="say-15"] [data-user-card]')!;
-    expect(CONVERSATION_PREVIEW_MAX_H).toBe(252);
-    expect(bubble.offsetHeight).toBeGreaterThan(CONVERSATION_PREVIEW_MAX_H);
+    expect(PROCESS_PREVIEW_MAX_H).toBe(136);
+    expect(bubble.offsetHeight).toBeGreaterThan(PROCESS_PREVIEW_MAX_H);
     expect(host.querySelector('[data-expand-user-card="say-15"]')).toBeNull();
-    expect(viewport.clientHeight).toBe(CONVERSATION_PREVIEW_MAX_H);
+    expect(viewport.clientHeight).toBe(PROCESS_PREVIEW_MAX_H);
     const row = viewport.closest<HTMLElement>('[data-row-kind="conversation-process-steps"]')!;
-    expect(row.offsetHeight).toBe(viewport.clientHeight + parseFloat(getComputedStyle(row).paddingTop));
+    expect(row.offsetHeight).toBe(viewport.clientHeight + 6 + parseFloat(getComputedStyle(row).paddingTop));
   });
 
   it('find reveals a match above the independently scrolled process viewport', async () => {
@@ -154,7 +154,7 @@ describe('running process native scrolling', () => {
     await untilStable('completed process expands', () => host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height);
     const viewport = host.querySelector<HTMLElement>('[data-slot="conversation-process-steps"]');
     expect(viewport).not.toBeNull();
-    expect(viewport!.clientHeight).toBe(CONVERSATION_PREVIEW_MAX_H);
+    expect(viewport!.clientHeight).toBe(PROCESS_COMPLETED_MAX_H);
     expect(viewport!.scrollTop).toBe(0);
     expect(getComputedStyle(viewport!).scrollbarWidth).toBe('none');
     const fade = () => host.querySelector<HTMLElement>('[data-slot="conversation-process-top-fade"]')!;
@@ -162,7 +162,7 @@ describe('running process native scrolling', () => {
     viewport!.scrollTop = viewport!.scrollHeight;
     viewport!.dispatchEvent(new Event('scroll'));
     const before = viewport!.scrollTop;
-    expect(getComputedStyle(fade()).opacity).toBe('1');
+    expect(getComputedStyle(fade()).opacity).toBe('0');
     complete(20, true, 1);
     await until('completed replay updates all steps', () => !!viewport!.querySelector('[data-conversation-narration="say-20"]'));
     await untilStable('completed reader offset settles', () => viewport!.scrollTop);
@@ -201,4 +201,32 @@ describe('running process native scrolling', () => {
     expect(hit.bottom).toBeLessThanOrEqual(host.getBoundingClientRect().bottom);
   });
 
+});
+
+ it('keeps a manual live collapse closed on completion and leaves the reply visible', async () => {
+  const { host, set, complete } = mount();
+  set(5);
+  const header = () => host.querySelector<HTMLButtonElement>('[data-conversation-process]');
+  await until('live header is interactive', () => header()?.getAttribute('aria-expanded') === 'true');
+  header()!.click();
+  await until('live process is collapsed', () => header()?.getAttribute('aria-expanded') === 'false');
+  expect(host.querySelector('[data-slot="conversation-process-steps"]')).toBeNull();
+  set(6);
+  await until('latest reply stays visible', () => !!host.querySelector('[data-agent-conversation-message="say-7"]'));
+  expect(header()!.getAttribute('aria-expanded')).toBe('false');
+  complete(6);
+  await until('completed header stays collapsed', () => header()?.getAttribute('data-conversation-process') === 'scroll:process@completed' && header()?.getAttribute('aria-expanded') === 'false');
+  expect(host.querySelector('[data-slot="conversation-process-steps"]')).toBeNull();
+  header()!.click();
+  await until('completed process opens on demand', () => !!host.querySelector('[data-slot="conversation-process-steps"]'));
+ });
+
+it('unread preparation preserves a completed process disclosure', async () => {
+ const { host, complete, openUnread } = mount();
+ complete(5);
+ await until('completed reply appears', () => !!host.querySelector('[data-agent-conversation-message="say-6"]'));
+ expect(openUnread('say-1')).toBe(true);
+ await untilStable('unread preparation settles', () => host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height);
+ expect(host.querySelector('[data-conversation-process]')?.getAttribute('aria-expanded')).toBe('false');
+ expect(host.querySelector('[data-slot="conversation-process-steps"]')).toBeNull();
 });

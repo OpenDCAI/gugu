@@ -136,6 +136,7 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
   };
   const quoteLabel = (quote: NonNullable<ChatMessage['conversationReply']>) => replySenderLabel(quote, measuredCtx());
   const reference = () => <Show when={messageQuote(props.data)}>{quote => <ConversationReplyReference itemId={quote().itemId}
+    sender={subject() ? head().replyName ?? undefined : undefined} width={subject() ? head().referenceWidth : undefined}
     text={`${quoteLabel(quote()) ? `${quoteLabel(quote())}\n\n` : ''}${quote().text || translate('transcript.showOriginalMessage')}`} />}</Show>;
   const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!(), props.data) };
   return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}
