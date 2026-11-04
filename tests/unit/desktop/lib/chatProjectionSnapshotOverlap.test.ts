@@ -112,8 +112,8 @@ describe('a newer revision overtakes a cold chat snapshot', () => {
   it('does not publish the 82-row partial snapshot or drop the newly active chat', async () => {
     const { projection, signal, initial, newer } = await overlap()
     const first = await initial
-    // null is the existing projection no-publication result; persisted UI rows stay in place.
-    expect(first === null || first.length === ids.length).toBe(true)
+    expect(first).toHaveLength(ids.length)
+    expect(first?.[0]?.id).toBe(changed)
     const final = await newer
     expect(final).toHaveLength(ids.length)
     expect(final?.[0]?.id).toBe(changed)
@@ -130,9 +130,10 @@ describe('a newer revision overtakes a cold chat snapshot', () => {
 
   it('keeps the incomplete cold snapshot unpublished if the queued newer snapshot fails', async () => {
     const { projection, initial, newer } = await overlap(true)
-    const failure = expect(newer).rejects.toThrow('snapshot keyset unavailable')
-    expect(await initial).toBeNull()
-    await failure
+    await Promise.all([
+      expect(initial).rejects.toThrow('snapshot keyset unavailable'),
+      expect(newer).rejects.toThrow('snapshot keyset unavailable'),
+    ])
     expect(projection.current()).toEqual([])
     // The existing next wake, rather than a new retry loop, completes the full snapshot.
     const recovered = await projection.advance([
