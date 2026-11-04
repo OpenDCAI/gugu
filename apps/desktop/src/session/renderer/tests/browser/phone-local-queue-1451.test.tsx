@@ -1,4 +1,4 @@
-import { act, useLayoutEffect, useState } from 'react'
+import { act, useCallback, useLayoutEffect, useState } from 'react'
 import { afterEach, expect, it, onTestFailed, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { SessionConversation } from '@/mobile/agent-watch/SessionConversation'
@@ -13,6 +13,7 @@ import { PhoneViewportShell } from '@/mobile/PhoneViewportShell'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
 import { readComposer, writeComposer } from '../../../../../../../tests/support/composerEditor'
+import { ChatStoreProvider, useTextDraftStore, useDraftMentionsStore, useDraftAttachmentsStore } from '@/store/chatContext'
 import { phoneDraftTrace } from '../../../../../../../tests/support/phoneDraftTrace'
 import type { LifeView } from '@shared/core/sessions/session-life'
 
@@ -298,4 +299,62 @@ it.each((['phone', 'native'] as const).flatMap(mode => ['', 'Hi again', 'Hi appe
   await page.getByTestId('prompt-editor').fill('different')
   await act(async () => { writeComposer(page.getByTestId('prompt-editor').element(), 'Hi'); pulse() })
   expect(page.getByTestId('prompt-editor').element().textContent).toBe(text)
+})
+
+
+// Keep the old failing input operation and compare callback ownership, without changing the product.
+it.each(['fixture', 'production'] as const)('traces reopened clear with %s persistence callbacks', async mode => {
+  await page.viewport(390, 844)
+  const own = state()
+  own.accountId = 'owner'; own.rows = EMPTY; own.valid = () => true
+  const draftKey = 'session:host/session'
+  const fixtureDrafts: Record<string, string> = {}
+  let currentDrafts = fixtureDrafts
+  const capture = phoneDraftTrace.begin(`callback-control/${mode}`, () => currentDrafts[draftKey] ?? '')
+  onTestFailed(() => phoneDraftTrace.report(capture))
+  const setDraft = (key: string, update: string | ((text: string) => string)) => {
+    phoneDraftTrace.note('store.write.before', { key, value: typeof update === 'string' ? update : 'functional' }, true)
+    fixtureDrafts[key] = typeof update === 'function' ? update(fixtureDrafts[key] ?? '') : update
+    phoneDraftTrace.note('store.write.after', fixtureDrafts[key])
+  }
+  let commit!: () => void
+  const durable = new Promise<void>(resolve => { commit = resolve })
+  const send = vi.fn(async () => { await durable; throw Error('storage unavailable') })
+  const conversation = (epoch: number | null) => epoch === null ? null : <SessionConversation key={epoch}
+    timeline={emptyAgentWatchTimeline()} deviceId="host" sessionId="session" agentName="Agent" nativeRecord
+    sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={send} pendingSends={[]} sending={false} agentWorking
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />
+  function ProductionStore({ epoch }: { epoch: number | null }) {
+    const text = useTextDraftStore()
+    const mentions = useDraftMentionsStore()
+    const attachments = useDraftAttachmentsStore()
+    currentDrafts = text.drafts
+    const tracedSetDraft = useCallback((key: string, update: Parameters<typeof text.setDraft>[1]) => {
+      phoneDraftTrace.note('production.store.write', { key, value: typeof update === 'string' ? update : 'functional' }, true)
+      text.setDraft(key, update)
+    }, [text.setDraft])
+    phoneDraftTrace.note('production.render', { setter: phoneDraftTrace.id(tracedSetDraft), mentions: phoneDraftTrace.id(mentions.setDraftMentions), attachments: phoneDraftTrace.id(attachments.setDraftAttachments) })
+    return <ChatStoreProvider value={chatStore({ ...text, ...mentions, ...attachments, setDraft: tracedSetDraft })}>{conversation(epoch)}</ChatStoreProvider>
+  }
+  harness = createReactHarness()
+  harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
+  const render = (epoch: number | null) => {
+    const store = chatStore({ drafts: fixtureDrafts, setDraft })
+    phoneDraftTrace.note('fixture.render', { epoch, mentions: phoneDraftTrace.id(store.setDraftMentions), attachments: phoneDraftTrace.id(store.setDraftAttachments) })
+    return renderWithAppProviders(harness, mode === 'production' ? <ProductionStore epoch={epoch} /> : conversation(epoch), { contacts: {}, chat: store })
+  }
+  await render(1)
+  await page.getByTestId('prompt-editor').fill('Hi')
+  await page.getByRole('button', { name: translateSessionMessage('composer.sendMessage'), exact: true }).click()
+  await until('pending send', () => send.mock.calls.length === 1)
+  await render(null)
+  await render(2)
+  phoneDraftTrace.observeEditor(page.getByTestId('prompt-editor').element())
+  await page.getByTestId('prompt-editor').fill('')
+  phoneDraftTrace.note('clear.fill-returned')
+  await act(async () => { commit(); await send.mock.results[0].value.catch(() => {}) })
+  await render(2)
+  phoneDraftTrace.note('failure.rendered')
+  expect(readComposer(page.getByTestId('prompt-editor').element())).toBe('')
+  expect(page.getByTestId('prompt-editor').element().textContent).toBe('')
 })
