@@ -1,4 +1,3 @@
-import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import type { ReactNode } from 'react';
 import { LibraryHostProvider, type LibraryHost } from '@renderer/features/library/library-host';
 import {
@@ -33,7 +32,6 @@ export function ComposerTray({
 }) {
   return (
     <>
-      <NeedsYouSlot />
       <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
         {projectPicker}
         {devicePicker}

@@ -1,140 +1,99 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { useShownAgentName } from '@/hooks/useShownAgentName'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
-import { useMobileShell } from '@/hooks/useMobileShell'
-import { useChatStore } from '@/store/chatContext'
-import { useTimelineSession } from '@/mobile/agent-watch/use-timeline-session'
-import { SettlementCard } from '@/mobile/agent-watch/TimelineView'
-import { SessionAvatar } from '@/mobile/agent-watch/StatusGlyph'
-import { sessionPresentation } from '@/mobile/agent-watch/watch-status'
-import { agentStatusText } from '@/lib/agentStatusText'
-import { assistantTimelineClient } from '../assistant/assistantTimelineClient'
-import { phoneTimelineClient } from '@/mobile/local-agent/phoneTimelineClient'
-import type { AgentAttention } from '@gugu/core/shared/agentStatus'
-import { AgentNeedsUserGlyph } from '../AgentNeedsUserGlyph'
-import { Button } from '../ui/Button'
-import { IconButton } from '../ui/IconButton'
-import { ListRow } from '../ui/ListRow'
-import { SectionLabel } from '../ui/SectionLabel'
-import { Sheet } from '../ui/Sheet'
-import { PaneHeader } from '../ui/Pane'
-import { rowKeyActivate } from '../contacts/contactsPanelStyles'
-import { closeInShell } from '@/session/renderer/features/extensions/install-consent'
-import { appInstallAskOf } from '@/session/shared/extensions/host-actions'
 import { observer } from 'mobx-react-lite'
+import type { AgentAttention } from '@gugu/core/shared/agentStatus'
+import { useMobileShell } from '@/hooks/useMobileShell'
+import { sessionPresentation } from '@/mobile/agent-watch/watch-status'
 import { followLink } from '@/lib/guguLinks'
-import { ArrowRight, X } from '@/lib/icons'
+import { Bell } from '@/lib/icons'
 import { installShellSlots, readShellSlots } from '@/lib/shellSlots'
-import { NEEDS_YOU_LIST_SLOT_PREFIX, NEEDS_YOU_SLOT_PREFIX } from './NeedsYouSlot'
+import { setSidebarNotificationsOpen, useSidebarNotificationsOpen } from '@/lib/sidebarChatsBridge'
+import { Button } from '../ui/Button'
+import { Chip } from '../ui/Chip'
+import { IconButton } from '../ui/IconButton'
+import { SectionLabel } from '../ui/SectionLabel'
+import { rowKeyActivate } from '../contacts/contactsPanelStyles'
+import { messageSeen, MESSAGE_SEEN_THRESHOLDS } from '../chat/messageSeen'
+import { NOTIFICATION_LIST_SLOT_PREFIX, NOTIFICATION_TOGGLE_SLOT_PREFIX } from './NotificationSlot'
 import { NeedsYouTaskRow } from './NeedsYouTaskRow'
-import { readPhoneAppView, onPhoneAppState } from '../appSlot/phoneAppState'
-import { sessionPageOnScreen, sessionPagesOnScreen } from '@/session/renderer/app/sessions-on-screen'
-import { getSessionView } from '@/session/renderer/features/sessions/stores/session-selectors'
-import { isEmbedVisible, subscribeEmbedVisibility } from '@/session/renderer/lib/portal-container'
-import { useNeedsYouTasks, type NeedsYouTask } from './useNeedsYouTasks'
-import '@/i18n/registerMobileWorkspaceCatalog'
-import '@/mobile/agent-watch/agent-watch.css'
+import { markNeedsYouTaskSeen, useNeedsYouTasks, type NeedsYouTask } from './useNeedsYouTasks'
 
 installShellSlots()
-
 const EMPTY_SLOTS: ReadonlyMap<string, HTMLElement> = new Map()
 
-function taskKey(task: NeedsYouTask): string {
-  return `${task.deviceId}/${task.session.conversationId}`
-}
-
-/** One actionable entrance to the existing pending settlements, over every shell page. */
+/** One account-owned notification list, shared by the desktop workspace and phone Messages header. */
 export const NeedsYouHost = observer(function NeedsYouHost({ onAttentionChange }: { onAttentionChange?: (attention: AgentAttention) => void }) {
   const { t } = useTranslation()
   const mobile = useMobileShell()
-  const { tasks: waiting, attention, error } = useNeedsYouTasks()
+  const { tasks, attention, error } = useNeedsYouTasks()
+  const open = useSidebarNotificationsOpen()
   useEffect(() => { onAttentionChange?.(attention) }, [onAttentionChange, attention])
-  const phone = useSyncExternalStore(onPhoneAppState, readPhoneAppView)
-  const embedded = useSyncExternalStore(subscribeEmbedVisibility, isEmbedVisible)
   const slots = readShellSlots()
   const entries = useSyncExternalStore(listener => slots?.subscribeSlots(listener) ?? (() => undefined), () => slots?.getSlots() ?? EMPTY_SLOTS)
-  // Reuse the actual task route and active pane entries. A file/App tab has no approval card.
-  const shownSessions = mobile
-    ? phone.panes.some(pane => pane.activeTab?.kind === 'session') ? [phone.activeSessionId] : []
-    : embedded ? sessionPagesOnScreen().filter(page => sessionPageOnScreen(page.sessionId) && getSessionView(page.projectId, page.sessionId)?.paneLayout.groups.some(({ pane }) => {
-      const entry = pane.activeEntry
-      return (entry?.kind === 'session' || entry?.kind === 'acp-chat') && (entry.state as { sessionId?: string }).sessionId === page.sessionId
-    })).map(page => page.sessionId) : []
-  const tasks = waiting.filter(task => !(task.session.supported && shownSessions.includes(task.session.conversationId)))
-  const { identitiesById } = useChatStore('identitiesById')
-  const [opened, setOpened] = useState(false)
-  const [selected, setSelected] = useState<string | null>(null)
-  const task = tasks.find(task => taskKey(task) === selected) ?? (tasks.length === 1 ? tasks[0] : undefined)
-  const shown = opened && tasks.length > 0
-  const taskNames = useShownAgentName(tasks.flatMap(item => {
-    const identity = identitiesById[item.session.agent?.userId ?? '']
-    return [{ name: item.session.title, createdAt: identity?.created_at ?? undefined }, { name: identity?.display_name ?? '', createdAt: identity?.created_at ?? undefined }]
-  }))
-  // Closing after the last wait also resets the next visit, without retaining a hidden dialog.
-  if (opened && tasks.length === 0) setOpened(false)
-  return <>
-    {mobile && [...entries].filter(([key]) => key.startsWith(NEEDS_YOU_LIST_SLOT_PREFIX)).map(([key, element]) => createPortal(waiting.map(item => {
-      const open = () => { followLink({ kind: 'session', sessionId: item.session.conversationId }) }
-      return <NeedsYouTaskRow key={taskKey(item)} task={item}
-        onClick={open} onKeyDown={rowKeyActivate(open)} />
-    }), element, key))}
-    {tasks.length > 0 && [...entries].filter(([key]) => key.startsWith(NEEDS_YOU_SLOT_PREFIX)).map(([key, element]) => createPortal(<div role="status" aria-live="polite" data-chat-dock-obstacle="">
-      <Button data-testid="needs-you-trigger" onClick={() => setOpened(true)} aria-haspopup="dialog" aria-expanded={shown}>
-        <AgentNeedsUserGlyph size={16} />{t('needsYou.count', { count: tasks.length })}
-      </Button>
-    </div>, element, key))}
-    {shown && <Sheet fullScreenMobile testId="needs-you-sheet" ariaLabel={t('needsYou.title')} onClose={() => setOpened(false)} zIndex="var(--z-settings-modal)" desktopWidth="520px">
-      <PaneHeader title={<h2 className="gg-pane-title">{t('needsYou.title')}<span className="!ml-2 text-[length:var(--font-body)] font-normal text-[var(--text-secondary)]">{tasks.length}</span></h2>} mobile={mobile} divider actions={<IconButton aria-label={t('dialog.close')} onClick={() => setOpened(false)}><X size={18} aria-hidden="true" /></IconButton>} />
-      <div className="flex min-h-0 flex-col gap-3 overflow-auto !p-4">
-        {error && <p role="alert">{error}</p>}
-        <div>
-          <SectionLabel>{t('needsYou.waitingTasks')}</SectionLabel>
-          {tasks.map((item, index) => {
-            const presentation = sessionPresentation(item.session, true)
-            const select = () => setSelected(taskKey(item))
-            return <ListRow key={taskKey(item)} mobile={mobile} role="button" tabIndex={0}
-              data-testid="needs-you-task" selected={task === item} aria-pressed={task === item}
-              onClick={select} onKeyDown={rowKeyActivate(select)} title={taskNames[index * 2]}
-              leading={<SessionAvatar agentId={item.session.agent?.userId} sessionId={item.session.conversationId} presentation={presentation} />}
-              // owner 10-28:列表行不写机器;点开的卡片里照旧说是哪台(下面 SettlementCard 的 machine)。
-              subtitle={taskNames[index * 2 + 1]}
-              meta={presentation && <span className="text-[var(--text-secondary)]">{agentStatusText(presentation.label)}</span>} />
-          })}
-        </div>
-        {task && <PendingTask key={taskKey(task)} task={task} onOpenTask={() => { setOpened(false); followLink({ kind: 'session', sessionId: task.session.conversationId }) }} />}
+  const [marking, setMarking] = useState(0)
+  const [readError, setReadError] = useState<string | null>(null)
+  useEffect(() => { setReadError(null) }, [open])
+  const markRead = useCallback(async (items: NeedsYouTask[]) => {
+    setMarking(count => count + 1)
+    const results = await Promise.allSettled(items.map(markNeedsYouTaskSeen))
+    const errors = results.flatMap(result => result.status === 'rejected' ? [String(result.reason instanceof Error ? result.reason.message : result.reason)] : [])
+    if (errors.length) setReadError(previous => [previous, ...errors].filter(Boolean).join('\n'))
+    setMarking(count => count - 1)
+  }, [])
+  const failures = tasks.filter(task => sessionPresentation(task.session, true)?.tone === 'error')
+  const title = t('settings.general.notifications', { ns: 'main' })
+  return <>{[...entries].map(([key, element]) => {
+    if (key.startsWith(NOTIFICATION_TOGGLE_SLOT_PREFIX)) return createPortal(
+      <span className="relative inline-flex">
+        <IconButton size={mobile ? 'md' : 'sm'} aria-label={title} title={title} aria-pressed={open} on={open} data-testid="notification-toggle" onClick={() => setSidebarNotificationsOpen(!open)}>
+          <Bell />
+        </IconButton>
+        {tasks.length > 0 && <Chip tone="danger" shape="count" className="pointer-events-none absolute -right-1 -top-1" data-testid="notification-count">{tasks.length > 99 ? '99+' : tasks.length}</Chip>}
+      </span>, element, key)
+    if (!key.startsWith(NOTIFICATION_LIST_SLOT_PREFIX) || !open || slots?.getSlotLabel?.(key) !== 'active') return null
+    return createPortal(<>
+      <div className="flex shrink-0 items-center justify-between gap-2 px-4 py-2">
+        <SectionLabel>{title}</SectionLabel>
+        {failures.length > 0 && <Button size="sm" variant="ghost" data-testid="notification-mark-all-read" disabled={marking > 0} onClick={() => { void markRead(failures) }}>{t('chatList.markAllRead', { ns: 'messaging' })}</Button>}
       </div>
-    </Sheet>}
-  </>
+      <div data-testid="notification-list" data-notification-scroll="" role="listbox" aria-label={title} className="min-h-0 flex-1 overflow-auto px-2 pb-4">
+        {error && <p role="alert">{error}</p>}
+        {readError && <p role="alert">{readError}</p>}
+        {tasks.map(task => <NotificationTaskRow key={`${task.deviceId}/${task.session.conversationId}`} task={task} mobile={mobile} onRead={markRead} />)}
+      </div>
+    </>, element, key)
+  })}</>
 })
 
-function PendingTask({ task, onOpenTask }: { task: NeedsYouTask; onOpenTask: () => void }) {
-  const { t } = useTranslation()
-  const mobile = useMobileShell()
-  const read = useTimelineSession(task.phoneHost ? phoneTimelineClient : assistantTimelineClient(task.local), mobile ? 'mobile' : 'desktop', task.deviceId, task.session.conversationId, true)
-  const ready = read.phase === 'ready' && read.link === 'ok'
-  const previousInstalls = useRef<string[]>([])
-  const pending = useMemo(() => Object.values(read.timeline.settlements).filter(item => item.state === 'pending'), [read.timeline.settlements])
-  // The host's timeout and answers on another device withdraw the same permission sheet here.
+const NotificationTaskRow = observer(function NotificationTaskRow({ task, mobile, onRead }: { task: NeedsYouTask; mobile: boolean; onRead: (items: NeedsYouTask[]) => Promise<void> }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const latest = useRef({ task, onRead })
+  latest.current = { task, onRead }
+  const failure = sessionPresentation(task.session, true)?.tone === 'error'
+  const { deviceId, local, phoneHost, session: { conversationId, unseen } } = task
   useEffect(() => {
-    const installs = ready ? pending.filter(item => appInstallAskOf(item.origin)).map(item => item.itemId) : []
-    for (const id of previousInstalls.current) if (!installs.includes(id)) closeInShell(id)
-    previousInstalls.current = installs
-  }, [ready, pending])
-  useEffect(() => () => { for (const id of previousInstalls.current) closeInShell(id) }, [])
-  const source = (
-    <Button variant="ghost" size="sm" role="link" data-testid="needs-you-source-link" onClick={onOpenTask}
-      className="self-start max-w-full min-w-0 !gap-1 !px-0 !text-[length:var(--font-caption)] hover:!text-[var(--text-primary)] hover:underline">
-      <span className="truncate">{t('needsYou.sourceTask', { title: task.session.title })}</span>
-      <ArrowRight size={12} className="size-3 shrink-0" />
-    </Button>
-  )
-  return <section data-testid="needs-you-pending" className="gg-aw !bg-transparent gap-3">
-    {(!ready || pending.length === 0) && source}
-    {(read.error || read.actionError) && <p role="alert">{read.error || read.actionError}</p>}
-    {!ready && <p role="status">{t('needsYou.loading')}</p>}
-    {ready && pending.map((settlement, index) => <SettlementCard key={settlement.itemId} settlement={settlement} runtime={task.session.runtime} source={index === 0 ? source : undefined}
-      machine={task.local ? undefined : task.machine} busy={read.respondingItemId === settlement.itemId}
-      onRespond={input => { void read.respond(input).catch(() => undefined) }} />)}
-  </section>
-}
+    const node = ref.current
+    if (!node || !failure) return
+    let seen = false
+    let entry: IntersectionObserverEntry | undefined
+    const acknowledge = () => {
+      if (!seen && document.visibilityState !== 'hidden' && (!entry || messageSeen(entry))) {
+        seen = true
+        void latest.current.onRead([latest.current.task])
+      }
+    }
+    if (typeof IntersectionObserver === 'undefined') { acknowledge(); return }
+    // The viewport includes clipping above the list (collapsed sidebar and retained surfaces).
+    const observer = new IntersectionObserver(entries => {
+      entry = entries.find(entry => entry.target === node)
+      if (entry) acknowledge()
+    }, { threshold: [...MESSAGE_SEEN_THRESHOLDS] })
+    const onVisibility = () => { if (entry) acknowledge() }
+    observer.observe(node)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => { observer.disconnect(); document.removeEventListener('visibilitychange', onVisibility) }
+  }, [failure, deviceId, conversationId, local, phoneHost, unseen])
+  const openTask = () => followLink({ kind: 'session', sessionId: conversationId, deviceId })
+  return <NeedsYouTaskRow ref={ref} task={task} mobile={mobile} onClick={openTask} onKeyDown={rowKeyActivate(openTask)} />
+})

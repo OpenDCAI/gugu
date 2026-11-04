@@ -1,4 +1,3 @@
-import { AlignJustify } from '@/lib/icons';
 import { observer } from 'mobx-react-lite';
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { SidebarListLayout, SidebarListPage } from '@shared/view-state';
@@ -10,14 +9,11 @@ import {
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-  DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
-import { sidebarHeaderIconButtonClass } from './sidebar-primitives';
 
-// gugu-dev#181「侧栏」:项目和对话默认分开,顶上「项目 | 对话」两枚页签;也能合在一起(右上「显示方式」或在侧栏上右键)。
+// Projects and Chats retain their tabs and the shared right-click layout menu.
 // 两枚页签一直挂着各自的信号,数只在真读了才减 —— 切页签不算读,所以这里只读数、❌ 在切换时清任何东西。
 
 /** 未读数(红底白字):页签上、项目行尾、合在一起时「对话」分区头上。 */
@@ -82,37 +78,6 @@ function LayoutChoices() {
     </DropdownMenuGroup>
   );
 }
-
-/** 侧栏右上那颗「显示方式」。 */
-export const SidebarListLayoutButton = observer(function SidebarListLayoutButton() {
-  const { translate } = useSessionMessages();
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <DropdownMenuTrigger
-          render={
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label={translate('sidebar.listLayout')}
-                  data-testid="sidebar-list-layout"
-                  className={cn(sidebarHeaderIconButtonClass, '[-webkit-app-region:no-drag]')}
-                >
-                  <AlignJustify />
-                </button>
-              }
-            />
-          }
-        />
-        <TooltipContent>{translate('sidebar.listLayout')}</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="min-w-52">
-        <LayoutChoices />
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-});
 
 /**
  * 在侧栏空白处右键 = 同一份「显示方式」菜单。行自己的右键菜单先接住事件(它会 preventDefault),
