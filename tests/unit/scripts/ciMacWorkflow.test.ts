@@ -102,7 +102,7 @@ describe('dev verification workflow contracts', () => {
     expect(devLinux.concurrency).toEqual({ group: 'community-ci-dev-linux', 'cancel-in-progress': true })
     expect(Object.keys(devMac.jobs)).toEqual(['desktop-build-mac'])
     expect(Object.keys(devLinux.jobs)).toEqual(['linux-checks', 'typecheck'])
-    expect(Object.values(devLinux.jobs).every((job: { concurrency?: unknown }) => job.concurrency === undefined))
+    expect((Object.values(devLinux.jobs) as Array<{ concurrency?: unknown }>).every((job) => job.concurrency === undefined))
       .toBe(true)
   })
 
