@@ -161,14 +161,15 @@ describe('a failed mark-read puts the topic locator back', () => {
 })
 
 describe('open-chat 的确认不会越过可见进度与手工未读', () => {
-  it('手工标未读(同版本)不被旧投影回放清掉', () => {
+  it('手工未读原样交给权威合并,确认不碰它', () => {
     const fetched = chat({ id: 'manual-race', kind: 'group', unread_count: 1, last_read_seq: 4, next_message_seq: 6, read_state_version: 7 })
     const manual = { ...fetched, is_marked_unread: true }
     const [kept] = acknowledgeOnScreenChatRows([fetched], {
       current: [manual], onScreen: () => true, patchChat: vi.fn(),
     })
-    expect(kept.is_marked_unread).toBe(true)
-    expect(kept.last_read_seq).toBe(4)
+    // 行原样返回:保留手工未读是权威合并(applyFetchedChatList → mergeFetchedChatsPreservingActiveLocal)的职责(评审),
+    // 这里合成「已读」的话,版本一抬就把用户更新的手工标未读盖掉了。
+    expect(kept).toBe(fetched)
     expect(reads.write).not.toHaveBeenCalled()
   })
 
